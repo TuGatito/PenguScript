@@ -310,7 +310,89 @@ renombrados): `archivum` **+23**, `chronicle` **+16**, `rites` **+9**,
    `scrolls` into the transitive graph); no other out-of-scope module was
    touched.
 
-### Próximo: Chunk 6 (`std/lot` + `std/whisper`)
+### ✅ Chunk 6: `std.lot` + `std.whisper`
+
+- [x] Reescrito `std/lot.pengu` en Pengunic 2.0 (`LOT_VERSION = "2.1.0"`)
+- [x] Arreglados 13 bugs de `lot` (ver `docs/BUGS_FIXED_CHUNK6.md`)
+- [x] Añadidas 18 funciones nuevas (paridad Python `random` + `secrets`)
+- [x] Reescrito `std/whisper.pengu` en Pengunic 2.0 (`WHISPER_VERSION = "2.1.0"`)
+- [x] Arreglados 16 bugs de `whisper`
+- [x] Añadidas 18 funciones/métodos nuevos (paridad Python `logging`)
+- [x] `tests/stdlib/test_lot.py` y `tests/stdlib/test_whisper.py` creados
+- [x] `docs/LOT_API.md` y `docs/WHISPER_API.md` creados
+- [x] `docs/BUGS_FIXED_CHUNK6.md` creado (29 entradas + 5 hallazgos fuera de alcance)
+
+#### Bugs arreglados
+
+`std/lot` (13): B1 `rand_gamma` devolvía `scale * d` al agotar el bucle;
+B2 `rand_weibull` podía no terminar y devolver `inf`; B3 `choice_weighted`
+desbordaba el `total` de 32 bits; B4 `rand_bytes_hex` fabricaba dígitos hex en
+lugar de bytes reales (y faltaba `rand_bytes`); B5 el hack `chr 123`/`chr 125` de
+`rand_password`; B6 `shuffle` reconstruía la lista con `push`; B7 `seed` truncaba
+semillas negativas sin documentarlo; B8 `rand_lognormal` no validaba `sigma`;
+B9 `choice` no cubría el contenedor vacío con `n <= 0`; B10 `rand_int` podía
+devolver un valor negativo; B11 el módulo no era thread-safe; B12 (nuevo)
+`rand_beta` no validaba `a`/`b`; B13 (nuevo) `sample`/`sample_string` intentaban
+mutar el parámetro `k` (inmutable) para clamparlo.
+
+`std/whisper` (16): B12 `Logger.child` perdía el `file_path` del padre;
+B13 documentación de que un archivo nunca lleva color; B14 `_json_escape` no
+escapaba `\b`, `\f` ni los bytes de control `< 0x20`; B15 `log_json` no incluía
+timestamp; B16 `log_json` iteraba el mapa en orden de hash; B17 `from_env` no
+distinguía "sin setear" de "valor inválido"; B18 `set_level_from_env` dejaba el
+nivel en `LOG_TRACE`; B19 no había salida a stderr; B20 no había registro
+singleton por nombre; B21 el fallo de `archivum.append_file` se descartaba en
+silencio; B22 el módulo no era thread-safe; B23 `child` no validaba el segmento;
+B24 el formato estaba hardcodeado; B25 (nuevo) el símbolo C `log` colisionaba con
+`math.h` cuando `whisper` era el módulo de entrada (lo arregla
+`insignia whisper_`); B26 (nuevo) `default_logger` creaba un logger nuevo en cada
+llamada; B27 (nuevo) `set_level` sobre un singleton no publicaba el nivel al
+registro.
+
+#### Recuento de tests internos de Chunk 6
+
+`lot` **38**, `whisper` **29** (`pengu test --entry std/{lot,whisper}.pengu`,
+todo verde). Las suites externas viven en `tests/stdlib/` (no en la raíz: el
+gate `test_test_policy` congela 15 ficheros raíz y ya estaban llenos).
+
+#### Hallazgos fuera de alcance (compilador / formatter)
+
+Los cinco están documentados y esquivados en `docs/BUGS_FIXED_CHUNK6.md` §5;
+§5.3 del brief prohíbe tocar el compilador.
+
+1. **El plegado de `const` pierde la marca de raw string.** Un `const` con `{` o
+   `}` pasado como argumento falla con `E0000 String interpolation is not
+   supported … (ref to char)` incluso en `pengu run` normal. Reproducción mínima
+   en el bug doc. Esquiva: `password_symbols` es un `weave`, no un `const`.
+2. **Las llamadas rituales con punto (`modulo.Tipo.ritual`) no resuelven.**
+   `calling whisper.Logger.get_or_create` da `E0004 Type 'whisper' has no method
+   'get_or_create'`; también le pasaba al `std/whisper.pengu` pre-migración y a
+   cualquier módulo importado (`m3.Thing.new`). La forma soportada y documentada
+   es la no cualificada: `calling Logger.get_or_create with "app"`. El smoke del
+   brief usa la forma con punto y por eso se verificó con la forma soportada.
+3. **`pengu fmt` reindenta el fichero entero si un cuerpo `antiquus` contiene un
+   comentario C `/* … */`.** Esquiva: usar `//` en los cuerpos `antiquus`.
+4. **`==`/`!=` entre dos `string` de nivel de módulo emite C inválido.** Comparar
+   una variable local contra un literal sí se baja; dos símbolos de módulo
+   (`whisper.COLOR_GREEN == whisper.COLOR_RESET`) genera `PenguString ==
+   PenguString`. Esquiva en los tests: imprimir las constantes y comparar en
+   Python.
+5. **`"…{(chr 34)}…"` pliega una comilla cruda en el literal C generado** y rompe
+   la compilación. Esquiva: usar el escape de fuente `\"`.
+
+#### Decisiones de estilo de Chunk 6
+
+- `insignia` en ambos módulos, colocado **después** de los `declare` para que los
+  puentes del runtime conserven sus nombres `pengu_c_*` / `pengu_log_*`.
+- Los `antiquus` `_mtx`/`_lock`/`_unlock` (uno por módulo) dan un mutex portable
+  compartido con el runtime; `@export` en `_mtx` lo mantiene vivo porque el
+  pruner no ve las llamadas desde C.
+- `set_default_level`/`get_default_level` y el registro singleton de loggers usan
+  una celda C compartida y un `static var` dentro de un `weave` accesor
+  (`_registry`), respectivamente, porque el lenguaje prohíbe un `var` de nivel
+  superior.
+
+### Próximo: Chunk 7 (`std/filum` + `std/celeris`)
 
 ## Desviaciones y hallazgos de Chunk 4
 

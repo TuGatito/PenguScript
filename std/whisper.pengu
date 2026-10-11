@@ -1,39 +1,79 @@
-# std/whisper.pengu - The Whisper (Logging)
-# Provides structured logging with severity levels: trace, debug, info, warn, error, fatal.
-#
-# Levels are plain ints: LOG_TRACE = 0, LOG_DEBUG = 1, LOG_INFO = 2,
-# LOG_WARN = 3, LOG_ERROR = 4, LOG_FATAL = 5. A message is emitted only when
-# its level is >= the configured minimum level.
-#
-# Dual-Level Architecture:
-#   * Global functional logger (log, trace, debug, info, warn, error, fatal):
-#     Filters messages using the global runtime minimum level configured via
-#     set_level(), set_level_from_env(), or set_level_from_string(). Always writes
-#     to stdout.
-#   * Instance-based Logger rune:
-#     Maintains its own independent `min_level` per instance. Calls to logger.log()
-#     and its level shortcuts filter exclusively against `self.min_level` and do not
-#     consult or mutate the global runtime level. Supports independent destinations
-#     (stdout or to_file), timestamps, colors, and hierarchical child naming.
-#
-# Features:
-#   * Global functional logger: log, trace, debug, info, warn, error, fatal.
-#   * rune Logger: Instance-based logger supporting namespacing (hierarchical child loggers),
-#     independent log levels, optional timestamps, ANSI color toggles, JSON output,
-#     and direct-to-file emission.
-#   * Ritual constructors: Logger.new, Logger.named, Logger.from_env.
-#   * Level parsing and configuration: set_level_from_string, set_level_from_env.
-#   * Fatal termination helper: fatal_and_exit.
-#
-# Documented TODOs (future enhancements):
-#   * Custom log format templates (e.g. set_format("{time} [{level}] {msg}"))
-#   * Asynchronous lock-free ring-buffer logging
-#   * File log rotation (size or daily interval)
-#
-# Memory model:
-#   Helpers take and return plain values. Logger runes own their name and configuration
-#   strings. Returned strings (level names, colors, formatted lines) follow standard
-#   value lifetimes and require no manual cleanup.
+## std/whisper.pengu — the whisper: leveled, structured logging.
+##
+## Six severities (`LOG_TRACE` through `LOG_FATAL`), ANSI colours, ISO
+## timestamps, JSON lines, file redirection, stderr redirection, hierarchical
+## child loggers and a per-name singleton registry.
+##
+## ## Example
+## ```pengu
+## import std.whisper
+##
+## weave main into int:
+##     calling whisper.info with "starting"                  # global logger
+##     var log as whisper.Logger is calling whisper.Logger.get_or_create with "app"
+##     calling log.enable_timestamp
+##     calling log.with_field with "pid", "1234"
+##     calling log.info with "ready"
+##     calling whisper.set_level with whisper.LOG_WARN
+##     calling whisper.debug with "not printed"
+##     calling whisper.warn with "printed"
+##     return 0
+## ```
+##
+## ## Memory
+## Level names, colours, rendered lines and JSON documents are fresh owned
+## `string`s. `Logger` owns its `name`, `file_path`, `fmt` and `context`
+## strings; a `Logger` returned by `new`, `named`, `from_env`, `child`,
+## `get_or_create`, `with_context` or `with_field` therefore owns what it
+## carries. `log_levels` returns a fresh owned `list of string`. Parameters are
+## borrowed and never retained.
+##
+## ## Design notes
+## - **Global functions versus `Logger` runes.** The module-level helpers
+##   (`log`, `trace`, … `fatal`, `log_json`) filter against the process-global
+##   level configured by `set_level` / `set_level_from_env` and always write to
+##   stdout. A `Logger` value has its own `min_level`, destination and
+##   formatting, and never reads or writes the global level.
+## - **Levels.** `LOG_TRACE = 0` … `LOG_FATAL = 5`. A message is emitted when
+##   its level is `>=` the active minimum.
+## - **Colours.** `get_level_color` maps a level to an ANSI escape. File
+##   output is always plain so a log file stays greppable; use `set_format` if
+##   you want a different *text* layout. Per the contract, colouring a file is
+##   deliberately not offered.
+## - **JSON.** `_render_json` sorts the field keys before emitting them, so two
+##   runs with the same fields produce byte-identical documents (2.1.0 fix:
+##   2.0.0 iterated the hash map and produced a different order every run).
+##   `Logger.log_json` adds a `"time"` member when `show_timestamp` is on;
+##   the module-level `log_json` always adds it.
+## - **Thread safety.** Emission runs inside the private `_lock` / `_unlock`
+##   critical section, so two threads cannot interleave two log lines. The lock
+##   is a portable mutex taken from the runtime's thread layer.
+## - **Default level.** `set_level_from_env` falls back to `get_default_level`
+##   (initially `LOG_INFO`) when no environment variable names a level, so a
+##   program that calls it never silently keeps the very verbose global
+##   `LOG_TRACE` (2.1.0 fix for B18). `set_default_level` changes that fallback.
+## - **Singleton loggers.** `Logger.get_or_create` (and `named_logger`) keep one
+##   entry per name in a module-level registry; `set_level` publishes the new
+##   level back to the registry, so a later `get_or_create` for the same name
+##   sees it.
+##
+## ## Migration
+## 2.1.0 fixes B12–B24 and adds the Python `logging` parity surface. Every
+## 2.0.0 symbol keeps its signature.
+##
+## | New in 2.1.0 | Purpose |
+## |---|---|
+## | `set_default_level` / `get_default_level` | configurable env fallback |
+## | `colorize` | wrap a message with a level colour |
+## | `json_escape_public` | public JSON string escaping |
+## | `named_logger` | sugar for `Logger.get_or_create` |
+## | `Logger.to_stderr` / `to_stdout` | stream redirection |
+## | `Logger.set_format` | `{level}` `{name}` `{msg}` `{time}` template |
+## | `Logger.with_context` / `with_field` | structured JSON context |
+## | `Logger.get_name` / `get_or_create` | identity and singleton registry |
+## | `Logger.is_file_mode` / `is_stderr_mode` | destination queries |
+## | `Logger.flush` / `get_timestamp` / `set_level_from_env` | runtime helpers |
+## | `Logger.log_json_ex` | JSON with explicit timestamp control |
 
 import std.spark
 import std.scrolls
@@ -45,8 +85,8 @@ import std.rites
 # Module Version & Level Constants
 # ----------------------------------------------------------------------------
 
-## Version constant for std.whisper module.
-const WHISPER_VERSION as string is "2.0.0"
+## Version constant for the std.whisper module.
+const WHISPER_VERSION as string is "2.1.0"
 
 ## Severity 0: most verbose level, used for fine-grained tracing.
 const LOG_TRACE as int is 0
@@ -63,17 +103,17 @@ const LOG_WARN as int is 3
 ## Severity 4: errors that the program recovers from.
 const LOG_ERROR as int is 4
 
-## Severity 5: unrecoverable failures; also the fallback level for unknown ids.
+## Severity 5: unrecoverable failures; also the fallback name for unknown ids.
 const LOG_FATAL as int is 5
 
 # ----------------------------------------------------------------------------
 # ANSI Color Constants (used to colorize log lines by level)
 # ----------------------------------------------------------------------------
 
-## ANSI escape that resets terminal colors back to the default.
+## ANSI escape that resets terminal colours back to the default.
 const COLOR_RESET as string is "\033[0m"
 
-## ANSI bright-black (gray) foreground, used for trace lines.
+## ANSI bright-black (grey) foreground, used for trace lines.
 const COLOR_GRAY as string is "\033[90m"
 
 ## ANSI cyan foreground, used for debug lines.
@@ -92,29 +132,198 @@ const COLOR_RED as string is "\033[31m"
 const COLOR_BRIGHT_RED as string is "\033[91m"
 
 # ----------------------------------------------------------------------------
-# Level Configuration (C runtime state)
+# External C declarations (runtime bridges)
+#
+# Declared *before* the `insignia` directive so they keep their exact
+# `pengu_log_*` / `pengu_map_*` runtime symbols.
 # ----------------------------------------------------------------------------
 
-# C bridge that stores the global minimum log level (a level int).
+## C bridge that stores the global minimum log level.
 declare pengu_log_set_level with level as int into void
 
-# C bridge that returns the global minimum log level (an int, 0..5).
+## C bridge that returns the global minimum log level.
 declare pengu_log_get_level into int
 
-## Sets the global minimum log level to `level`; messages below `level` are
-## suppressed by the log helper.
+## C bridge that copies the keys of a `map of string to string` into a list.
+declare pengu_map_keys_string with m as ref to map of string to string into list of string
+
+# ----------------------------------------------------------------------------
+# C name prefix
+#
+# `insignia whisper_` prefixes every top-level C symbol of this module. It is
+# what keeps a weave named `log` from colliding with libc's `double log(double)`
+# when whisper is compiled as the entry module of its own test binary.
+# ----------------------------------------------------------------------------
+
+insignia whisper_
+
+# ----------------------------------------------------------------------------
+# Thread-safety primitives (`antiquus`)
+# ----------------------------------------------------------------------------
+
+@export("whisper__mtx")
+## Returns the process-wide logging lock handle.
+##
+## ## Motivo
+## Reuses the runtime's portable mutex factory; `@export` pins the C symbol and
+## keeps the accessor alive because `_lock` / `_unlock` call it from raw C.
+##
+## ## Memoria
+## Allocates the mutex once and keeps it for the process lifetime.
+antiquus _mtx into opaque:
+    r"""
+extern void *pengu_c_filum_mutex_new(void);
+static void *g_mtx = NULL;
+if (!g_mtx) g_mtx = pengu_c_filum_mutex_new();
+return g_mtx;
+"""
+
+## Acquires the process-wide logging lock.
+##
+## ## Motivo
+## Serialises whole log lines so two threads cannot interleave their bytes.
+##
+## ## Memoria
+## No allocations.
+antiquus _lock into void:
+    r"""
+extern void pengu_c_filum_mutex_lock(void *m);
+extern void *whisper__mtx(void);
+pengu_c_filum_mutex_lock(whisper__mtx());
+"""
+
+## Releases the process-wide logging lock acquired by `_lock`.
+##
+## ## Motivo
+## Pairs one-to-one with `_lock`.
+##
+## ## Memoria
+## No allocations.
+antiquus _unlock into void:
+    r"""
+extern void pengu_c_filum_mutex_unlock(void *m);
+extern void *whisper__mtx(void);
+pengu_c_filum_mutex_unlock(whisper__mtx());
+"""
+
+@export("whisper__default_cell")
+## Returns a pointer to the module's default-level cell.
+##
+## ## Motivo
+## A module-level `static var` can only live inside one weave, so the default
+## level is kept in one C cell that `_default_set` and `_default_get` share.
+##
+## ## Memoria
+## Static storage; no allocation.
+antiquus _default_cell into opaque:
+    r"""
+// 2 == LOG_INFO: the documented fallback, kept in sync with LOG_INFO above.
+static int g_default_level = 2;
+return (void *)&g_default_level;
+"""
+
+## Stores the default fallback level in the shared cell.
+##
+## ## Parámetros
+## - `level`: the level to remember.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Memoria
+## No allocations.
+antiquus _default_set with level as int into void:
+    r"""
+extern void *whisper__default_cell(void);
+*(int *)whisper__default_cell() = level;
+"""
+
+## Reads the default fallback level from the shared cell.
+##
+## ## Retorno
+## The stored level.
+##
+## ## Memoria
+## No allocations.
+antiquus _default_get into int:
+    r"""
+extern void *whisper__default_cell(void);
+return *(int *)whisper__default_cell();
+"""
+
+## Compares two strings bytewise (`memcmp` with length as tie-breaker).
+##
+## ## Motivo
+## The JSON renderer has to sort map keys, and PenguScript has no ordering
+## operator for `string`. This comparator is exact for NUL-containing strings.
+##
+## ## Memoria
+## Reads the two borrowed strings; allocates nothing.
+antiquus _cmp_string with a as string, b as string into int:
+    r"""
+int n = a.len < b.len ? a.len : b.len;
+int c = memcmp(a.data, b.data, (size_t)n);
+if (c != 0) return c;
+return a.len - b.len;
+"""
+
+# ----------------------------------------------------------------------------
+# Level Configuration
+# ----------------------------------------------------------------------------
+
+## Sets the global minimum log level.
+##
+## ## Parámetros
+## - `level`: one of the `LOG_*` constants; messages below it are suppressed by
+##   the module-level helpers.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.set_level with whisper.LOG_WARN
+## ```
 weave set_level with level as int into void:
     calling pengu_log_set_level with level
 
-## Returns the current global minimum log level (one of the LOG_* constants).
+## Returns the current global minimum log level.
+##
+## ## Retorno
+## One of the `LOG_*` constants.
+##
+## ## Ejemplo
+## ```pengu
+## var level as int is calling whisper.get_level
+## ```
 weave get_level into int:
     return calling pengu_log_get_level
 
-## Checks if `level` meets or exceeds the current global minimum log level.
+## Checks whether `level` meets the current global minimum.
+##
+## ## Parámetros
+## - `level`: the level to test.
+##
+## ## Retorno
+## `true` when a message at `level` would be emitted.
+##
+## ## Ejemplo
+## ```pengu
+## if calling whisper.is_enabled with whisper.LOG_DEBUG:
+## ```
 weave is_enabled with level as int into bool:
     return level >= (calling get_level)
 
-## Returns a list containing all standard log level names in order of increasing severity.
+## Returns every standard level name in order of increasing severity.
+##
+## ## Retorno
+## A new owned `list of string`: `trace`, `debug`, `info`, `warn`, `error`,
+## `fatal`. Release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var names as list of string is calling whisper.log_levels
+## ```
 weave log_levels into list of string:
     var res as list of string is list of string
     calling res.push with "trace"
@@ -125,12 +334,50 @@ weave log_levels into list of string:
     calling res.push with "fatal"
     return res
 
+## Stores the default fallback level used when no environment variable names one.
+##
+## ## Parámetros
+## - `level`: the level to use as the fallback.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.set_default_level with whisper.LOG_WARN
+## ```
+weave set_default_level with level as int into void:
+    calling _default_set with level
+
+## Returns the default fallback level used by `set_level_from_env`.
+##
+## ## Retorno
+## The configured fallback (initially `LOG_INFO`).
+##
+## ## Ejemplo
+## ```pengu
+## var fallback as int is calling whisper.get_default_level
+## ```
+weave get_default_level into int:
+    return calling _default_get
+
 # ----------------------------------------------------------------------------
 # Level Names & Colors
 # ----------------------------------------------------------------------------
 
-## Maps a level int to its uppercase name: "TRACE", "DEBUG", "INFO", "WARN",
-## "ERROR", or "FATAL" (any unrecognized level falls through to "FATAL").
+## Maps a level int to its uppercase name.
+##
+## ## Parámetros
+## - `level`: the level id.
+##
+## ## Retorno
+## `"TRACE"`, `"DEBUG"`, `"INFO"`, `"WARN"`, `"ERROR"` or `"FATAL"`; any other
+## id falls through to `"FATAL"`.
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.get_level_name with 2    # "INFO"
+## ```
 weave get_level_name with level as int into string:
     return judge level:
         when 0 -> "TRACE"
@@ -140,7 +387,18 @@ weave get_level_name with level as int into string:
         when 4 -> "ERROR"
         else -> "FATAL"
 
-## Maps a level int to its ANSI color escape (a COLOR_* constant).
+## Maps a level int to its ANSI colour escape.
+##
+## ## Parámetros
+## - `level`: the level id.
+##
+## ## Retorno
+## One of the `COLOR_*` constants; unknown ids map to `COLOR_BRIGHT_RED`.
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.get_level_color with 2    # COLOR_GREEN
+## ```
 weave get_level_color with level as int into string:
     return judge level:
         when 0 -> COLOR_GRAY
@@ -150,7 +408,34 @@ weave get_level_color with level as int into string:
         when 4 -> COLOR_RED
         else -> COLOR_BRIGHT_RED
 
-## Parses a string representation of a log level into its integer constant.
+## Wraps `msg` in the colour of `level`, terminated by `COLOR_RESET`.
+##
+## ## Parámetros
+## - `level`: the level whose colour to use.
+## - `msg`: the text to wrap. Borrowed.
+##
+## ## Retorno
+## A new owned `string`. Release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var line as string is calling whisper.colorize with whisper.LOG_WARN, "careful"
+## ```
+weave colorize with level as int, msg as string into string:
+    return "{(calling get_level_color with level)}{msg}{COLOR_RESET}"
+
+## Parses a level name (case-insensitive) into its integer constant.
+##
+## ## Parámetros
+## - `s`: `trace`, `debug`, `info`, `warn`/`warning`, `error` or `fatal`.
+##
+## ## Retorno
+## `some level` on success, `maybe none` for an unknown name.
+##
+## ## Ejemplo
+## ```pengu
+## var opt as maybe int is calling whisper.parse_level_string with "info"
+## ```
 weave parse_level_string with s as string into maybe int:
     var sl as string is calling s.lower
     if sl == "trace":
@@ -167,8 +452,18 @@ weave parse_level_string with s as string into maybe int:
         return some LOG_FATAL
     return maybe none
 
-## Sets the global minimum log level from a string name (case-insensitive).
-## Returns true on success, false if the level name was not recognized.
+## Sets the global minimum level from a level name.
+##
+## ## Parámetros
+## - `s`: the level name, case-insensitive.
+##
+## ## Retorno
+## `true` when the level was recognised and applied, `false` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## if calling whisper.set_level_from_string with "warn":
+## ```
 weave set_level_from_string with s as string into bool:
     var opt as maybe int is calling parse_level_string with s
     if opt is present:
@@ -176,245 +471,1383 @@ weave set_level_from_string with s as string into bool:
         return true
     return false
 
-## Configures the global minimum log level from environment variables.
-## Checks LOG_LEVEL, RUST_LOG, PENGU_LOG, RITES_LOG_LEVEL, WHISPER_LOG.
-weave set_level_from_env into void:
-    var env_names as list of string is list of string
-    calling env_names.push with "LOG_LEVEL"
-    calling env_names.push with "RUST_LOG"
-    calling env_names.push with "PENGU_LOG"
-    calling env_names.push with "RITES_LOG_LEVEL"
-    calling env_names.push with "WHISPER_LOG"
-    for name in env_names:
+## Returns the environment variable names consulted for the log level, in order.
+##
+## ## Retorno
+## A new owned `list of string`.
+weave _env_names into list of string:
+    var names as list of string is list of string
+    calling names.push with "LOG_LEVEL"
+    calling names.push with "RUST_LOG"
+    calling names.push with "PENGU_LOG"
+    calling names.push with "RITES_LOG_LEVEL"
+    calling names.push with "WHISPER_LOG"
+    return names
+
+## Resolves a log level from the environment, or `fallback`.
+##
+## ## Parámetros
+## - `fallback`: the level to return when no variable names a valid level.
+##
+## ## Retorno
+## The first successfully parsed level, otherwise `fallback`.
+##
+## ## Nota
+## A variable that *is* set but holds an unknown name is reported on stderr
+## and skipped; a variable that is not set at all is skipped silently. That is
+## the 2.1.0 fix for B17, which used to treat both cases identically.
+weave _level_from_env_or with fallback as int into int:
+    var names as list of string is calling _env_names
+    for name in names:
         var opt as maybe string is calling rites.getenv with name
         if opt is present:
-            var ok as bool is calling set_level_from_string with opt.value
-            if ok:
-                return
+            var parsed as maybe int is calling parse_level_string with opt.value
+            if parsed is present:
+                return parsed.value
+            calling spark.eprintln with "whisper: ignoring invalid {name}=\"{opt.value}\""
+    return fallback
+
+## Configures the global minimum level from environment variables.
+##
+## ## Retorno
+## Nothing. Checks `LOG_LEVEL`, `RUST_LOG`, `PENGU_LOG`, `RITES_LOG_LEVEL` and
+## `WHISPER_LOG`, in that order, and falls back to `get_default_level` when none
+## of them names a valid level (2.1.0 fix for B18: 2.0.0 left the level at the
+## very verbose `LOG_TRACE`).
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.set_level_from_env
+## ```
+weave set_level_from_env into void:
+    var fallback as int is calling get_default_level
+    calling set_level with (calling _level_from_env_or with fallback)
 
 # ----------------------------------------------------------------------------
-# Core Logger & Level Conveniences (0.14.x baseline)
+# JSON helpers
 # ----------------------------------------------------------------------------
 
-## Emits `msg` at severity `level` when `level` >= the configured global minimum.
-weave log with level as int , msg as string into void:
+## Returns one lowercase hex digit for a nibble in `[0, 15]`.
+##
+## ## Parámetros
+## - `v`: the nibble.
+##
+## ## Retorno
+## A one-character `string`.
+weave _hex1 with v as int into string:
+    return if v < 10 then (chr (48 + v)) else (chr (87 + v))
+
+## Formats a byte as two lowercase hex digits.
+##
+## ## Parámetros
+## - `code`: a value in `[0, 255]`.
+##
+## ## Retorno
+## A two-character `string`.
+weave _hex2 with code as int into string:
+    return "{(calling _hex1 with ((code / 16) % 16))}{(calling _hex1 with (code % 16))}"
+
+## Escapes `s` so it can be embedded between JSON double quotes.
+##
+## ## Parámetros
+## - `s`: the raw text. Read only.
+##
+## ## Retorno
+## A new owned `string` in which `"`, `\`, `\b`, `\f`, `\n`, `\r`, `\t` and
+## every other byte below `0x20` (as `\u00XX`) are escaped. Bytes `>= 0x20`,
+## including UTF-8 continuation bytes, pass through unchanged.
+##
+## ## Nota
+## 2.1.0 added `\b`, `\f` and the general `\u00XX` control escape (fix for
+## B14); 2.0.0 only handled `"`, `\`, `\n`, `\r` and `\t`.
+##
+## ## Ejemplo
+## ```pengu
+## var safe as string is calling whisper._json_escape with "a\"b"
+## ```
+weave _json_escape with s as string into string:
+    var out as string is ""
+    for ch in s:
+        var code as int is ord ch
+        var piece as string is judge code:
+            when 34 -> "\\\""
+            when 92 -> "\\\\"
+            when 8 -> "\\b"
+            when 12 -> "\\f"
+            when 10 -> "\\n"
+            when 13 -> "\\r"
+            when 9 -> "\\t"
+            else -> if code < 32 then "\\u00{(calling _hex2 with code)}" else ch
+        set out is "{out}{piece}"
+    return out
+
+## Public wrapper around `_json_escape`.
+##
+## ## Parámetros
+## - `s`: the raw text. Read only.
+##
+## ## Retorno
+## A new owned JSON-safe `string`.
+##
+## ## Ejemplo
+## ```pengu
+## var safe as string is calling whisper.json_escape_public with "a\nb"
+## ```
+weave json_escape_public with s as string into string:
+    return calling _json_escape with s
+
+## Returns the keys of `m` sorted bytewise.
+##
+## ## Parámetros
+## - `m`: the map to read. Read only.
+##
+## ## Retorno
+## A new owned `list of string` in ascending byte order, which is what makes
+## the JSON output deterministic (2.1.0 fix for B16).
+weave _sorted_keys with m as map of string to string into list of string:
+    var ks as list of string is calling pengu_map_keys_string with sigil of m
+    var n as int is calling ks.len
+    var i as int is 1
+    while i < n:
+        var key as string is ks at i
+        var j as int is i - 1
+        while j >= 0:
+            var prev as string is ks at j
+            if (calling _cmp_string with prev, key) <= 0:
+                break
+            set ks at (j + 1) is prev
+            set j is j - 1
+        set ks at (j + 1) is key
+        set i is i + 1
+    return ks
+
+## Renders one JSON log document.
+##
+## ## Parámetros
+## - `level`: the severity id.
+## - `logger_name`: the logger name, or `""` to omit the member.
+## - `msg`: the message text. Read only.
+## - `fields`: extra members. Read only.
+## - `include_time`: whether to add an ISO-8601 `"time"` member.
+##
+## ## Retorno
+## A new owned `string` shaped
+## `{"level":...,"time":...,"logger":...,"msg":...,<sorted fields>}` with the
+## members in that fixed order. Release it with `banish`.
+##
+## ## Nota
+## Rendering is pure: it never touches the environment and never writes, which
+## is what lets the internal tests assert on the exact bytes.
+weave _render_json with level as int, logger_name as string, msg as string, fields as map of string to string, include_time as bool into string:
+    var out as string is "{\"level\":\"{(calling get_level_name with level)}\""
+    if include_time:
+        var stamp as string is calling chronicle.to_iso with (calling chronicle.time)
+        set out is "{out},\"time\":\"{(calling _json_escape with stamp)}\""
+    if (logger_name length) > 0:
+        set out is "{out},\"logger\":\"{(calling _json_escape with logger_name)}\""
+    set out is "{out},\"msg\":\"{(calling _json_escape with msg)}\""
+    var field_keys as list of string is calling _sorted_keys with fields
+    for k in field_keys:
+        set out is "{out},\"{(calling _json_escape with k)}\":\"{(calling _json_escape with (fields at k))}\""
+    set out is "{out}}"
+    return out
+
+## Applies a `{level}` `{name}` `{msg}` `{time}` template.
+##
+## ## Parámetros
+## - `fmt`: the template. Read only.
+## - `lvl`: the rendered level name. Read only.
+## - `lname`: the logger name. Read only.
+## - `msg`: the message text. Read only.
+## - `stamp`: the timestamp text. Read only.
+##
+## ## Retorno
+## A new owned `string`. Unknown `{placeholders}` are kept verbatim and a lone
+## `{` or `}` is copied through.
+##
+## ## Nota
+## 2.1.0 added templates (fix for B24: 2.0.0 hard-coded `[LEVEL] [name] msg`).
+weave _apply_format with fmt as string, lvl as string, lname as string, msg as string, stamp as string into string:
+    var out as string is ""
+    var i as int is 0
+    var n as int is fmt.len
+    while i < n:
+        var ch as string is fmt at i
+        if ch == "{":
+            var j as int is i + 1
+            var key as string is ""
+            var closed as bool is false
+            while j < n:
+                var cj as string is fmt at j
+                if cj == "}":
+                    set closed is true
+                    break
+                set key is "{key}{cj}"
+                set j is j + 1
+            if not closed:
+                set out is "{out}{ch}"
+                set i is i + 1
+            else:
+                if key == "level":
+                    set out is "{out}{lvl}"
+                else:
+                    if key == "name":
+                        set out is "{out}{lname}"
+                    else:
+                        if key == "msg":
+                            set out is "{out}{msg}"
+                        else:
+                            if key == "time":
+                                set out is "{out}{stamp}"
+                            else:
+                                set out is "{out}{(chr 123)}{key}{(chr 125)}"
+                set i is j + 1
+        else:
+            set out is "{out}{ch}"
+            set i is i + 1
+    return out
+
+# ----------------------------------------------------------------------------
+# Global functional logger
+# ----------------------------------------------------------------------------
+
+## Emits `msg` at severity `level` when `level` meets the global minimum.
+##
+## ## Parámetros
+## - `level`: the severity id.
+## - `msg`: the message text. Borrowed.
+##
+## ## Retorno
+## Nothing. The line is written to stdout, colourised by level.
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.log with whisper.LOG_INFO, "hello"
+## ```
+weave log with level as int, msg as string into void:
     var current_level as int is calling get_level
     if level >= current_level:
         var name as string is calling get_level_name with level
         var color as string is calling get_level_color with level
+        calling _lock
         calling spark.println with "{color}[{name}] {msg}{COLOR_RESET}"
+        calling _unlock
 
 ## Logs `msg` at TRACE level.
+##
+## ## Parámetros
+## - `msg`: the message text. Borrowed.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.trace with "enter"
+## ```
 weave trace with msg as string into void:
-    calling log with LOG_TRACE , msg
+    calling log with LOG_TRACE, msg
 
 ## Logs `msg` at DEBUG level.
+##
+## ## Parámetros
+## - `msg`: the message text. Borrowed.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.debug with "value"
+## ```
 weave debug with msg as string into void:
-    calling log with LOG_DEBUG , msg
+    calling log with LOG_DEBUG, msg
 
 ## Logs `msg` at INFO level.
+##
+## ## Parámetros
+## - `msg`: the message text. Borrowed.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.info with "hello"
+## ```
 weave info with msg as string into void:
-    calling log with LOG_INFO , msg
+    calling log with LOG_INFO, msg
 
 ## Logs `msg` at WARN level.
+##
+## ## Parámetros
+## - `msg`: the message text. Borrowed.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.warn with "careful"
+## ```
 weave warn with msg as string into void:
-    calling log with LOG_WARN , msg
+    calling log with LOG_WARN, msg
 
 ## Logs `msg` at ERROR level.
+##
+## ## Parámetros
+## - `msg`: the message text. Borrowed.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.error with "failed"
+## ```
 weave error with msg as string into void:
-    calling log with LOG_ERROR , msg
+    calling log with LOG_ERROR, msg
 
 ## Logs `msg` at FATAL level.
+##
+## ## Parámetros
+## - `msg`: the message text. Borrowed.
+##
+## ## Retorno
+## Nothing. It does **not** terminate the process; use `fatal_and_exit` for that.
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.fatal with "unrecoverable"
+## ```
 weave fatal with msg as string into void:
-    calling log with LOG_FATAL , msg
+    calling log with LOG_FATAL, msg
 
-## Logs `msg` at FATAL level and immediately terminates the process with `code`.
-weave fatal_and_exit with msg as string , code as int is 1 into void:
+## Logs `msg` at FATAL level and immediately terminates the process.
+##
+## ## Parámetros
+## - `msg`: the message text. Borrowed.
+## - `code`: the exit status, default `1`.
+##
+## ## Retorno
+## Never returns.
+##
+## ## Ejemplo
+## ```pengu
+## calling whisper.fatal_and_exit with "cannot continue", 2
+## ```
+weave fatal_and_exit with msg as string, code as int is 1 into void:
     calling fatal with msg
+    calling spark.flush
+    calling spark.eflush
     calling rites.exit with code
 
-## Internal helper to escape backslashes, double-quotes, and whitespace control chars in JSON strings.
-weave _json_escape with s as string into string:
-    var s1 as string is calling s.replace_all with "\\", "\\\\"
-    var s2 as string is calling s1.replace_all with "\"", "\\\""
-    var s3 as string is calling s2.replace_all with "\n", "\\n"
-    var s4 as string is calling s3.replace_all with "\r", "\\r"
-    var s5 as string is calling s4.replace_all with "\t", "\\t"
-    return s5
-
-## Emits a JSON-structured log line to stdout when `level` >= global minimum.
-weave log_json with level as int , msg as string , fields as map of string to string into void:
+## Emits a JSON log line to stdout when `level` meets the global minimum.
+##
+## ## Parámetros
+## - `level`: the severity id.
+## - `msg`: the message text. Borrowed.
+## - `fields`: extra JSON members. Read only.
+##
+## ## Retorno
+## Nothing. The document always carries a `"time"` member (2.1.0 fix for B15)
+## and its field keys are sorted (2.1.0 fix for B16).
+##
+## ## Ejemplo
+## ```pengu
+## var f as map of string to string is map of string to string
+## with f:
+##     calling .put with "pid", "42"
+## calling whisper.log_json with whisper.LOG_INFO, "started", f
+## ```
+weave log_json with level as int, msg as string, fields as map of string to string into void:
     var cur as int is calling get_level
     if level >= cur:
-        var lvl_name as string is calling get_level_name with level
-        var esc_msg as string is calling _json_escape with msg
-        var out as string is "{\"level\":\"{lvl_name}\",\"msg\":\"{esc_msg}\""
-        for k in fields:
-            var v as string is fields at k
-            var esc_k as string is calling _json_escape with k
-            var esc_v as string is calling _json_escape with v
-            set out is "{out},\"{esc_k}\":\"{esc_v}\""
-        set out is "{out}}"
+        var out as string is calling _render_json with level, "", msg, fields, true
+        calling _lock
         calling spark.println with out
+        calling _unlock
 
 # ----------------------------------------------------------------------------
-# Object-Oriented Logger Rune (0.15.0)
+# The Logger rune
 # ----------------------------------------------------------------------------
 
-## Instance-based structured logger supporting namespacing, independent log levels,
-## optional timestamps, ANSI colors, file redirection, and JSON emission.
+## Instance-based logger with an independent level, destination, timestamp,
+## colour, format template and structured JSON context.
+##
+## | Field | Meaning |
+## |---|---|
+## | `name` | hierarchical name, `""` to omit it |
+## | `min_level` | this logger's own minimum level |
+## | `show_timestamp` | add an ISO timestamp to text lines |
+## | `use_color` | colour stdout/stderr lines (files stay plain) |
+## | `file_path` | append to this file when non-empty |
+## | `stream` | `0` = stdout, `1` = stderr |
+## | `fmt` | template for `_apply_format`, `""` for the default layout |
+## | `context` | structured members merged into `log_json` |
 rune Logger:
     name as string
     min_level as int
     show_timestamp as bool
     use_color as bool
     file_path as string
+    stream as int
+    fmt as string
+    context as map of string to string
 
-## Returns a default logger named "default".
+## Returns the module-level singleton registry of named loggers.
+##
+## ## Retorno
+## A reference to the registry map. The `static var` lives here and only here,
+## which is what makes every caller see the same map.
+weave _registry into ref to map of string to Logger:
+    static var reg as map of string to Logger is map of string to Logger
+    return sigil of reg
+
+## Builds a `Logger` from already-prepared field values.
+##
+## ## Parámetros
+## - `new_name`, `new_level`, `new_ts`, `new_color`, `new_file`, `new_stream`,
+##   `new_fmt`, `new_ctx`: the fields of the result.
+##
+## ## Retorno
+## A new `Logger` value.
+weave _copy_of with new_name as string, new_level as int, new_ts as bool, new_color as bool, new_file as string, new_stream as int, new_fmt as string, new_ctx as map of string to string into Logger:
+    return with name is new_name, min_level is new_level, show_timestamp is new_ts, use_color is new_color, file_path is new_file, stream is new_stream, fmt is new_fmt, context is new_ctx
+
+## Returns an empty structured-field map.
+##
+## ## Retorno
+## A new empty `map of string to string`.
+weave _no_fields into map of string to string:
+    return map of string to string
+
+## Publishes a new level for `name` into the singleton registry.
+##
+## ## Parámetros
+## - `name`: the registered logger name; an empty name is ignored.
+## - `level`: the new minimum level.
+##
+## ## Retorno
+## Nothing. Does nothing when the name is not registered.
+weave _registry_store_level with name as string, level as int into void:
+    if (name length) == 0:
+        return
+    var reg as ref to map of string to Logger is calling _registry
+    if not (calling reg.contains with name):
+        return
+    var existing as Logger is reg at name
+    var key as string is "{name}"
+    var updated as Logger is calling _copy_of with ("{existing.name}"), level, existing.show_timestamp, existing.use_color, ("{existing.file_path}"), existing.stream, ("{existing.fmt}"), existing.context
+    with reg:
+        calling .put with key, updated
+
+## Returns a default logger named `"default"`.
+##
+## ## Retorno
+## The singleton `Logger` called `"default"`.
+##
+## ## Ejemplo
+## ```pengu
+## var log as whisper.Logger is calling whisper.default_logger
+## ```
 weave default_logger into Logger:
-    return calling Logger.new with "default"
+    return calling Logger.get_or_create with "default"
+
+## Returns the singleton logger called `name`.
+##
+## ## Parámetros
+## - `name`: the logger name.
+##
+## ## Retorno
+## The value registered under `name`, creating and registering it on first use
+## (2.1.0 fix for B20: `Logger.new("app")` twice used to build two independent
+## loggers).
+##
+## ## Ejemplo
+## ```pengu
+## var log as whisper.Logger is calling whisper.named_logger with "app"
+## ```
+weave named_logger with name as string into Logger:
+    return calling Logger.get_or_create with name
 
 enchanting Logger:
-    ## Creates a new Logger with the specified `name` and LOG_TRACE minimum level.
+    ## Creates a logger named `name` with `LOG_TRACE` as its minimum level.
+    ##
+    ## ## Parámetros
+    ## - `name`: the logger name. Borrowed.
+    ##
+    ## ## Retorno
+    ## A new `Logger` writing to stdout with colour and without timestamps.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var log as whisper.Logger is calling whisper.Logger.new with "app"
+    ## ```
     weave ritual new with name as string into Logger:
-        return with name is name, min_level is LOG_TRACE, show_timestamp is false, use_color is true, file_path is ""
+        return calling _copy_of with name, LOG_TRACE, false, true, "", 0, "", (calling _no_fields)
 
-    ## Creates a new Logger with `name` and explicit `min_level`.
-    weave ritual named with name as string , min_level as int into Logger:
-        return with name is name, min_level is min_level, show_timestamp is false, use_color is true, file_path is ""
+    ## Creates a logger with `name` and an explicit `min_level`.
+    ##
+    ## ## Parámetros
+    ## - `name`: the logger name. Borrowed.
+    ## - `min_level`: this logger's minimum level.
+    ##
+    ## ## Retorno
+    ## A new `Logger` writing to stdout with colour and without timestamps.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var log as whisper.Logger is calling whisper.Logger.named with "app", whisper.LOG_WARN
+    ## ```
+    weave ritual named with name as string, min_level as int into Logger:
+        return calling _copy_of with name, min_level, false, true, "", 0, "", (calling _no_fields)
 
-    ## Creates a Logger configured from environment variables (fallback: LOG_INFO).
+    ## Creates a logger configured from the environment.
+    ##
+    ## ## Retorno
+    ## A logger named `"default"` whose level is the first valid environment
+    ## level, or `get_default_level` when none is set. An environment variable
+    ## that is set but invalid is reported on stderr (2.1.0 fix for B17).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var log as whisper.Logger is calling whisper.Logger.from_env
+    ## ```
     weave ritual from_env into Logger:
-        var lvl as int is LOG_INFO
-        var env_names as list of string is list of string
-        calling env_names.push with "LOG_LEVEL"
-        calling env_names.push with "RUST_LOG"
-        calling env_names.push with "PENGU_LOG"
-        calling env_names.push with "RITES_LOG_LEVEL"
-        calling env_names.push with "WHISPER_LOG"
-        for name in env_names:
-            var opt as maybe string is calling rites.getenv with name
-            if opt is present:
-                var parsed as maybe int is calling parse_level_string with opt.value
-                if parsed is present:
-                    set lvl is parsed.value
-                    break
-        return with name is "default", min_level is lvl, show_timestamp is false, use_color is true, file_path is ""
+        var fallback as int is calling get_default_level
+        var lvl as int is calling _level_from_env_or with fallback
+        return calling _copy_of with "default", lvl, false, true, "", 0, "", (calling _no_fields)
 
-    ## Sets this logger's minimum log level.
+    ## Returns the singleton logger called `name`.
+    ##
+    ## ## Parámetros
+    ## - `name`: the logger name. Borrowed.
+    ##
+    ## ## Retorno
+    ## The registered value, creating it on first use. Repeated calls with the
+    ## same name observe the level published by `set_level` (2.1.0 fix for B20).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var log as whisper.Logger is calling whisper.Logger.get_or_create with "app"
+    ## ```
+    weave ritual get_or_create with name as string into Logger:
+        var reg as ref to map of string to Logger is calling _registry
+        if (calling reg.contains with name):
+            var existing as Logger is reg at name
+            return calling _copy_of with ("{existing.name}"), existing.min_level, existing.show_timestamp, existing.use_color, ("{existing.file_path}"), existing.stream, ("{existing.fmt}"), existing.context
+        var stored as Logger is calling Logger.new with ("{name}")
+        var key as string is "{name}"
+        with reg:
+            calling .put with key, stored
+        return calling Logger.new with ("{name}")
+
+    ## Returns this logger's name.
+    ##
+    ## ## Retorno
+    ## A new owned copy of the name. Release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var who as string is calling log.get_name
+    ## ```
+    weave get_name into string:
+        return "{self->name}"
+
+    ## Sets this logger's minimum level.
+    ##
+    ## ## Parámetros
+    ## - `level`: the new minimum level.
+    ##
+    ## ## Retorno
+    ## Nothing. When the logger's name is registered, the new level is published
+    ## back to the singleton registry.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.set_level with whisper.LOG_WARN
+    ## ```
     weave set_level with level as int into void:
         set self->min_level is level
+        calling _registry_store_level with self->name, level
 
-    ## Returns this logger's minimum log level.
+    ## Returns this logger's minimum level.
+    ##
+    ## ## Retorno
+    ## The level id.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var level as int is calling log.get_level
+    ## ```
     weave get_level into int:
         return self->min_level
 
-    ## Checks if `level` would be emitted by this logger.
+    ## Checks whether a message at `level` would be emitted.
+    ##
+    ## ## Parámetros
+    ## - `level`: the level to test.
+    ##
+    ## ## Retorno
+    ## `true` when `level >= self.min_level`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## if calling log.is_enabled with whisper.LOG_DEBUG:
+    ## ```
     weave is_enabled with level as int into bool:
         return level >= self->min_level
 
-    ## Enables ISO/time timestamps on output lines.
+    ## Turns ISO timestamps on for text lines.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.enable_timestamp
+    ## ```
     weave enable_timestamp into void:
         set self->show_timestamp is true
 
-    ## Disables timestamps on output lines.
+    ## Turns ISO timestamps off for text lines.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.disable_timestamp
+    ## ```
     weave disable_timestamp into void:
         set self->show_timestamp is false
 
-    ## Enables ANSI color formatting on output lines.
+    ## Enables ANSI colour on stdout/stderr lines (files stay plain).
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.enable_color
+    ## ```
     weave enable_color into void:
         set self->use_color is true
 
-    ## Disables ANSI color formatting on output lines.
+    ## Disables ANSI colour.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.disable_color
+    ## ```
     weave disable_color into void:
         set self->use_color is false
 
-    ## Redirects log messages to the specified file path (empty string restores stdout).
+    ## Redirects output to a file (empty string restores the current stream).
     ##
-    ## Note: Does not create or open the file immediately; file writes are performed lazily
-    ## on each log emission via `archivum.append_file`. If the file cannot be opened or written,
-    ## log output is discarded silently without interrupting execution.
+    ## ## Parámetros
+    ## - `path`: the destination file. Borrowed.
+    ##
+    ## ## Retorno
+    ## Nothing. The file is opened lazily on each emission. File lines are
+    ## always plain: colours are never written to a file. A write failure is
+    ## reported on stderr and does not interrupt the program (2.1.0 fix for
+    ## B21: 2.0.0 discarded the failure silently).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.to_file with "app.log"
+    ## ```
     weave to_file with path as string into void:
         set self->file_path is path
 
-    ## Creates a child logger with hierarchical name `"{parent}.{sub}"`.
+    ## Redirects output to stderr.
+    ##
+    ## ## Retorno
+    ## Nothing. A later `to_file` still wins, because file mode is checked
+    ## first (2.1.0 fix for B19).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.to_stderr
+    ## ```
+    weave to_stderr into void:
+        set self->stream is 1
+
+    ## Redirects output back to stdout.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.to_stdout
+    ## ```
+    weave to_stdout into void:
+        set self->stream is 0
+
+    ## Sets a custom text template.
+    ##
+    ## ## Parámetros
+    ## - `fmt`: the template. `{level}`, `{name}`, `{msg}` and `{time}` are
+    ##   substituted; an empty string restores the default layout. Borrowed.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.set_format with r"{time} {level} {name}: {msg}"
+    ## ```
+    weave set_format with fmt as string into void:
+        set self->fmt is fmt
+
+    ## Returns a copy with `fields` merged into the structured context.
+    ##
+    ## ## Parámetros
+    ## - `fields`: members to add or overwrite. Read only.
+    ##
+    ## ## Retorno
+    ## A new `Logger`; the receiver is unchanged.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var child as whisper.Logger is calling log.with_context with fields
+    ## ```
+    weave with_context with fields as map of string to string into Logger:
+        var merged as map of string to string is map of string to string
+        for k in self->context:
+            with merged:
+                calling .put with k, (self->context at k)
+        for k in fields:
+            with merged:
+                calling .put with k, (fields at k)
+        return calling _copy_of with ("{self->name}"), self->min_level, self->show_timestamp, self->use_color, ("{self->file_path}"), self->stream, ("{self->fmt}"), merged
+
+    ## Returns a copy with one structured member added or overwritten.
+    ##
+    ## ## Parámetros
+    ## - `key`: the member name. Borrowed.
+    ## - `value`: the member value. Borrowed.
+    ##
+    ## ## Retorno
+    ## A new `Logger`; the receiver is unchanged.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var child as whisper.Logger is calling log.with_field with "pid", "42"
+    ## ```
+    weave with_field with key as string, value as string into Logger:
+        return calling self.with_context with (calling self._one_field with key, value)
+
+    ## Builds a one-entry field map (helper for `with_field`).
+    ##
+    ## ## Parámetros
+    ## - `key`: the member name. Borrowed.
+    ## - `value`: the member value. Borrowed.
+    ##
+    ## ## Retorno
+    ## A new `map of string to string` with a single entry.
+    weave _one_field with key as string, value as string into map of string to string:
+        var m as map of string to string is map of string to string
+        with m:
+            calling .put with key, value
+        return m
+
+    ## Returns true when this logger appends to a file.
+    ##
+    ## ## Retorno
+    ## `true` when `file_path` is non-empty.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## if calling log.is_file_mode:
+    ## ```
+    weave is_file_mode into bool:
+        return (self->file_path length) > 0
+
+    ## Returns true when this logger writes to stderr and not to a file.
+    ##
+    ## ## Retorno
+    ## `true` when `stream == 1` and `file_path` is empty.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## if calling log.is_stderr_mode:
+    ## ```
+    weave is_stderr_mode into bool:
+        return (self->stream == 1) and ((self->file_path length) == 0)
+
+    ## Flushes stdout and stderr.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.flush
+    ## ```
+    weave flush into void:
+        calling spark.flush
+        calling spark.eflush
+
+    ## Configures this logger's level from the environment.
+    ##
+    ## ## Retorno
+    ## Nothing. Uses `get_default_level` as the fallback, and publishes the
+    ## result to the singleton registry.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.set_level_from_env
+    ## ```
+    weave set_level_from_env into void:
+        var fallback as int is calling get_default_level
+        var lvl as int is calling _level_from_env_or with fallback
+        calling self.set_level with lvl
+
+    ## Returns the current time as an ISO-8601 UTC string.
+    ##
+    ## ## Retorno
+    ## A new owned `string` such as `2026-09-25T14:30:00Z`. Release it with
+    ## `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var now as string is calling log.get_timestamp
+    ## ```
+    weave get_timestamp into string:
+        return calling chronicle.to_iso with (calling chronicle.time)
+
+    ## Joins a hierarchical child name onto this logger's name.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the child segment. Empty returns the parent unchanged; bytes
+    ##   outside `[A-Za-z0-9_.-]` become `_` (2.1.0 fix for B23).
+    ##
+    ## ## Retorno
+    ## A new owned, sanitised name. Release it with `banish`.
+    weave _child_name with sub as string into string:
+        if sub.len == 0:
+            return "{self->name}"
+        var clean as string is ""
+        for ch in sub:
+            var code as int is ord ch
+            var ok as bool is (code >= 48 and code <= 57) or (code >= 65 and code <= 90) or (code >= 97 and code <= 122) or code == 95 or code == 46 or code == 45
+            set clean is if ok then "{clean}{ch}" else "{clean}_"
+        if (self->name length) == 0:
+            return clean
+        return "{self->name}.{clean}"
+
+    ## Creates a child logger with hierarchical name `"parent.sub"`.
+    ##
+    ## ## Parámetros
+    ## - `sub`: the child segment. Borrowed; sanitised as `_child_name` documents.
+    ##
+    ## ## Retorno
+    ## A new `Logger` that inherits the parent's level, timestamp, colour,
+    ## file path, stream, format and context (2.1.0 fix for B12: 2.0.0 dropped
+    ## the parent's `file_path`, so a child silently stopped writing to the
+    ## parent's file).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var child as whisper.Logger is calling log.child with "db"
+    ## ```
     weave child with sub as string into Logger:
-        var child_name as string is self->name
-        if (child_name length) > 0:
-            set child_name is "{child_name}.{sub}"
-        else:
-            set child_name is sub
-        return with name is child_name, min_level is self->min_level, show_timestamp is self->show_timestamp, use_color is self->use_color, file_path is ""
+        var child_name as string is calling self._child_name with sub
+        return calling _copy_of with child_name, self->min_level, self->show_timestamp, self->use_color, ("{self->file_path}"), self->stream, ("{self->fmt}"), self->context
 
-    ## Emits `msg` at severity `level` through this logger.
-    weave log with level as int , msg as string into void:
-        if level < self->min_level:
-            return
-
+    ## Renders this logger's text layout for `msg` (without colour).
+    ##
+    ## ## Parámetros
+    ## - `level`: the severity id.
+    ## - `msg`: the message text. Borrowed.
+    ##
+    ## ## Retorno
+    ## A new owned `string`.
+    weave _format_line with level as int, msg as string into string:
+        var lvl_name as string is calling get_level_name with level
+        if (self->fmt length) > 0:
+            var stamp as string is calling self.get_timestamp
+            return calling _apply_format with self->fmt, lvl_name, self->name, msg, stamp
         var ts_prefix as string is ""
         if self->show_timestamp:
-            set ts_prefix is "[{(calling chronicle.now_time)}] "
-
-        var lvl_name as string is calling get_level_name with level
-        var lvl_prefix as string is "[{lvl_name}] "
-
+            var stamp2 as string is calling self.get_timestamp
+            set ts_prefix is "[{stamp2}] "
         var name_prefix as string is ""
         if (self->name length) > 0:
             set name_prefix is "[{self->name}] "
+        return "{ts_prefix}[{lvl_name}] {name_prefix}{msg}"
 
-        var plain_line as string is "{ts_prefix}{lvl_prefix}{name_prefix}{msg}"
-
+    ## Writes one already-rendered line to the configured destination.
+    ##
+    ## ## Parámetros
+    ## - `line`: the exact text, without a trailing newline. Borrowed.
+    ##
+    ## ## Retorno
+    ## Nothing. File failures are reported on stderr.
+    weave _emit with line as string into void:
+        calling _lock
         if (self->file_path length) > 0:
-            calling archivum.append_file with self->file_path , ("{plain_line}\n")
+            var ok as bool is calling archivum.append_file with self->file_path, ("{line}\n")
+            if not ok:
+                calling spark.eprintln with "whisper: cannot append to \"{self->file_path}\""
         else:
-            if self->use_color:
-                var color as string is calling get_level_color with level
-                calling spark.println with "{color}{plain_line}{COLOR_RESET}"
+            if self->stream == 1:
+                calling spark.eprintln with line
             else:
-                calling spark.println with plain_line
+                calling spark.println with line
+        calling _unlock
 
-    ## Logs `msg` at TRACE level.
-    weave trace with msg as string into void:
-        calling self.log with LOG_TRACE , msg
-
-    ## Logs `msg` at DEBUG level.
-    weave debug with msg as string into void:
-        calling self.log with LOG_DEBUG , msg
-
-    ## Logs `msg` at INFO level.
-    weave info with msg as string into void:
-        calling self.log with LOG_INFO , msg
-
-    ## Logs `msg` at WARN level.
-    weave warn with msg as string into void:
-        calling self.log with LOG_WARN , msg
-
-    ## Logs `msg` at ERROR level.
-    weave error with msg as string into void:
-        calling self.log with LOG_ERROR , msg
-
-    ## Logs `msg` at FATAL level.
-    weave fatal with msg as string into void:
-        calling self.log with LOG_FATAL , msg
-
-    ## Emits a JSON-structured log line from this logger.
-    weave log_json with level as int , msg as string , fields as map of string to string into void:
+    ## Emits `msg` at severity `level` through this logger.
+    ##
+    ## ## Parámetros
+    ## - `level`: the severity id.
+    ## - `msg`: the message text. Borrowed.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.log with whisper.LOG_INFO, "hello"
+    ## ```
+    weave log with level as int, msg as string into void:
         if level < self->min_level:
             return
-        var lvl_name as string is calling get_level_name with level
-        var esc_msg as string is calling _json_escape with msg
-        var out as string is "{\"level\":\"{lvl_name}\",\"msg\":\"{esc_msg}\""
-        if (self->name length) > 0:
-            var esc_name as string is calling _json_escape with self->name
-            set out is "{out},\"logger\":\"{esc_name}\""
-        for k in fields:
-            var v as string is fields at k
-            var esc_k as string is calling _json_escape with k
-            var esc_v as string is calling _json_escape with v
-            set out is "{out},\"{esc_k}\":\"{esc_v}\""
-        set out is "{out}}"
+        var line as string is calling self._format_line with level, msg
+        var display as string is line
+        if (self->file_path length) == 0 and self->use_color:
+            var color as string is calling get_level_color with level
+            set display is "{color}{line}{COLOR_RESET}"
+        calling self._emit with display
 
-        if (self->file_path length) > 0:
-            calling archivum.append_file with self->file_path , ("{out}\n")
-        else:
-            calling spark.println with out
+    ## Logs `msg` at TRACE level.
+    ##
+    ## ## Parámetros
+    ## - `msg`: the message text. Borrowed.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.trace with "enter"
+    ## ```
+    weave trace with msg as string into void:
+        calling self.log with LOG_TRACE, msg
+
+    ## Logs `msg` at DEBUG level.
+    ##
+    ## ## Parámetros
+    ## - `msg`: the message text. Borrowed.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.debug with "value"
+    ## ```
+    weave debug with msg as string into void:
+        calling self.log with LOG_DEBUG, msg
+
+    ## Logs `msg` at INFO level.
+    ##
+    ## ## Parámetros
+    ## - `msg`: the message text. Borrowed.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.info with "hello"
+    ## ```
+    weave info with msg as string into void:
+        calling self.log with LOG_INFO, msg
+
+    ## Logs `msg` at WARN level.
+    ##
+    ## ## Parámetros
+    ## - `msg`: the message text. Borrowed.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.warn with "careful"
+    ## ```
+    weave warn with msg as string into void:
+        calling self.log with LOG_WARN, msg
+
+    ## Logs `msg` at ERROR level.
+    ##
+    ## ## Parámetros
+    ## - `msg`: the message text. Borrowed.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.error with "failed"
+    ## ```
+    weave error with msg as string into void:
+        calling self.log with LOG_ERROR, msg
+
+    ## Logs `msg` at FATAL level.
+    ##
+    ## ## Parámetros
+    ## - `msg`: the message text. Borrowed.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.fatal with "unrecoverable"
+    ## ```
+    weave fatal with msg as string into void:
+        calling self.log with LOG_FATAL, msg
+
+    ## Emits a JSON line through this logger.
+    ##
+    ## ## Parámetros
+    ## - `level`: the severity id.
+    ## - `msg`: the message text. Borrowed.
+    ## - `fields`: extra JSON members, merged after the context. Read only.
+    ##
+    ## ## Retorno
+    ## Nothing. The document carries `"time"` when `show_timestamp` is on
+    ## (2.1.0 fix for B15) and its keys are sorted (2.1.0 fix for B16).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var f as map of string to string is map of string to string
+    ## calling log.log_json with whisper.LOG_INFO, "ready", f
+    ## ```
+    weave log_json with level as int, msg as string, fields as map of string to string into void:
+        calling self.log_json_ex with level, msg, fields, self->show_timestamp
+
+    ## Emits a JSON line with explicit control over the timestamp member.
+    ##
+    ## ## Parámetros
+    ## - `level`: the severity id.
+    ## - `msg`: the message text. Borrowed.
+    ## - `fields`: extra JSON members, merged after the context. Read only.
+    ## - `include_time`: whether to add `"time"`.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling log.log_json_ex with whisper.LOG_INFO, "ready", f, true
+    ## ```
+    weave log_json_ex with level as int, msg as string, fields as map of string to string, include_time as bool into void:
+        if level < self->min_level:
+            return
+        var merged as map of string to string is map of string to string
+        for k in self->context:
+            with merged:
+                calling .put with k, (self->context at k)
+        for k in fields:
+            with merged:
+                calling .put with k, (fields at k)
+        var out as string is calling _render_json with level, self->name, msg, merged, include_time
+        calling self._emit with out
+
+# ----------------------------------------------------------------------------
+# Tests
+#
+# Private harness: `std.ward` imports this module, so importing it back would
+# be a cycle (E0004). The assertions use `spark.panic` directly.
+# ----------------------------------------------------------------------------
+
+## Aborts unless `cond` holds.
+weave _wsp_expect with cond as bool, label as string into void:
+    if not cond:
+        calling spark.panic with "whisper expectation failed: {label}"
+
+## Aborts unless the two ints are equal.
+weave _wsp_expect_eq_int with got as int, want as int, label as string into void:
+    if got != want:
+        calling spark.panic with "{label}: expected {(want to string)}, got {(got to string)}"
+
+## Aborts unless the two strings are byte-equal.
+weave _wsp_expect_eq_string with got as string, want as string, label as string into void:
+    if got != want:
+        calling spark.panic with "{label}: expected \"{want}\", got \"{got}\""
+
+## Returns true when `s` contains `sub` as a substring.
+weave _wsp_contains with s as string, sub as string into bool:
+    var i as int is 0
+    var n as int is s.len
+    var m as int is sub.len
+    if m == 0:
+        return true
+    while i + m <= n:
+        var j as int is 0
+        var hit as bool is true
+        while j < m:
+            if (s at (i + j)) != (sub at j):
+                set hit is false
+                break
+            set j is j + 1
+        if hit:
+            return true
+        set i is i + 1
+    return false
+
+test "WHISPER_VERSION is the frozen 2.1.0 contract":
+    calling _wsp_expect with (WHISPER_VERSION == "2.1.0"), "version literal"
+
+test "level ids are ordered from trace to fatal":
+    calling _wsp_expect with (LOG_TRACE < LOG_DEBUG), "trace < debug"
+    calling _wsp_expect with (LOG_DEBUG < LOG_INFO), "debug < info"
+    calling _wsp_expect with (LOG_INFO < LOG_WARN), "info < warn"
+    calling _wsp_expect with (LOG_WARN < LOG_ERROR), "warn < error"
+    calling _wsp_expect with (LOG_ERROR < LOG_FATAL), "error < fatal"
+
+test "get_level_name maps every level and defaults to FATAL":
+    calling _wsp_expect_eq_string with (calling get_level_name with 0), "TRACE", "0"
+    calling _wsp_expect_eq_string with (calling get_level_name with 1), "DEBUG", "1"
+    calling _wsp_expect_eq_string with (calling get_level_name with 2), "INFO", "2"
+    calling _wsp_expect_eq_string with (calling get_level_name with 3), "WARN", "3"
+    calling _wsp_expect_eq_string with (calling get_level_name with 4), "ERROR", "4"
+    calling _wsp_expect_eq_string with (calling get_level_name with 5), "FATAL", "5"
+    calling _wsp_expect_eq_string with (calling get_level_name with 99), "FATAL", "out of range"
+
+test "get_level_color maps every level and defaults to bright red":
+    calling _wsp_expect_eq_string with (calling get_level_color with 0), COLOR_GRAY, "0"
+    calling _wsp_expect_eq_string with (calling get_level_color with 2), COLOR_GREEN, "2"
+    calling _wsp_expect_eq_string with (calling get_level_color with 5), COLOR_BRIGHT_RED, "5"
+    calling _wsp_expect_eq_string with (calling get_level_color with 99), COLOR_BRIGHT_RED, "out of range"
+
+test "parse_level_string accepts names and rejects junk":
+    let info_opt as maybe int is calling parse_level_string with "info"
+    calling _wsp_expect with (info_opt is present), "info"
+    if info_opt is present:
+        calling _wsp_expect_eq_int with info_opt.value, LOG_INFO, "info value"
+    let warn_opt as maybe int is calling parse_level_string with "WARNING"
+    calling _wsp_expect with (warn_opt is present), "warning alias"
+    let bad as maybe int is calling parse_level_string with "loud"
+    calling _wsp_expect with (not (bad is present)), "unknown name"
+
+test "set_level, get_level and is_enabled agree on the global level":
+    calling set_level with LOG_WARN
+    calling _wsp_expect_eq_int with (calling get_level), LOG_WARN, "get_level"
+    calling _wsp_expect with (calling is_enabled with LOG_ERROR), "error enabled"
+    calling _wsp_expect with (not (calling is_enabled with LOG_INFO)), "info disabled"
+    calling _wsp_expect with (calling set_level_from_string with "debug"), "set from string"
+    calling _wsp_expect_eq_int with (calling get_level), LOG_DEBUG, "after string"
+    calling _wsp_expect with (not (calling set_level_from_string with "nope")), "reject junk"
+    calling set_level with LOG_TRACE
+
+test "log_levels publishes the six names in severity order":
+    let names as list of string is calling log_levels
+    calling _wsp_expect_eq_int with (calling names.len), 6, "length"
+    calling _wsp_expect_eq_string with (names at 0), "trace", "first"
+    calling _wsp_expect_eq_string with (names at 5), "fatal", "last"
+
+test "colorize wraps a message and terminates with the reset escape":
+    let line as string is calling colorize with LOG_ERROR, "boom"
+    calling _wsp_expect with (calling _wsp_contains with line, "boom"), "keeps text"
+    calling _wsp_expect with (calling _wsp_contains with line, COLOR_RESET), "has reset"
+
+test "BUG-14: _json_escape handles quotes and backslashes":
+    calling _wsp_expect_eq_string with (calling _json_escape with "a\"b"), "a\\\"b", "quote"
+    calling _wsp_expect_eq_string with (calling _json_escape with "a\\b"), "a\\\\b", "backslash"
+    calling _wsp_expect_eq_string with (calling _json_escape with "plain"), "plain", "plain"
+
+test "BUG-14: _json_escape handles backspace, form feed and control bytes":
+    calling _wsp_expect_eq_string with (calling _json_escape with (chr 8)), "\\b", "backspace"
+    calling _wsp_expect_eq_string with (calling _json_escape with (chr 12)), "\\f", "form feed"
+    calling _wsp_expect_eq_string with (calling _json_escape with (chr 1)), "\\u0001", "control byte"
+    calling _wsp_expect_eq_string with (calling _json_escape with (chr 31)), "\\u001f", "last control byte"
+    calling _wsp_expect_eq_string with (calling _json_escape with "a\nb"), "a\\nb", "newline"
+
+test "json_escape_public is the public spelling of _json_escape":
+    calling _wsp_expect_eq_string with (calling json_escape_public with "a\tb"), (calling _json_escape with "a\tb"), "same bytes"
+
+test "BUG-16: _sorted_keys returns byte-sorted keys":
+    var m as map of string to string is map of string to string
+    with m:
+        calling .put with "gamma", "3"
+        calling .put with "alpha", "1"
+        calling .put with "beta", "2"
+    let keys as list of string is calling _sorted_keys with m
+    calling _wsp_expect_eq_int with (calling keys.len), 3, "count"
+    calling _wsp_expect_eq_string with (keys at 0), "alpha", "first"
+    calling _wsp_expect_eq_string with (keys at 1), "beta", "second"
+    calling _wsp_expect_eq_string with (keys at 2), "gamma", "third"
+
+test "BUG-16: _render_json emits fields in a deterministic order":
+    var m as map of string to string is map of string to string
+    with m:
+        calling .put with "zzz", "26"
+        calling .put with "aaa", "1"
+        calling .put with "mmm", "13"
+    let first as string is calling _render_json with LOG_INFO, "app", "hi", m, false
+    let second as string is calling _render_json with LOG_INFO, "app", "hi", m, false
+    calling _wsp_expect_eq_string with second, first, "stable rendering"
+    calling _wsp_expect with (calling _wsp_contains with first, "\"aaa\""), "has aaa"
+    calling _wsp_expect with (calling _wsp_contains with first, "\"msg\":\"hi\""), "has msg"
+
+test "BUG-15: _render_json includes a timestamp only when asked":
+    var empty as map of string to string is map of string to string
+    let without as string is calling _render_json with LOG_INFO, "app", "hi", empty, false
+    calling _wsp_expect with (not (calling _wsp_contains with without, "\"time\"")), "no time"
+    let with_time as string is calling _render_json with LOG_INFO, "app", "hi", empty, true
+    calling _wsp_expect with (calling _wsp_contains with with_time, "\"time\""), "has time"
+
+test "_apply_format substitutes the four placeholders":
+    let line as string is calling _apply_format with r"{level}|{name}|{msg}|{time}", "INFO", "app", "hi", "T"
+    calling _wsp_expect_eq_string with line, "INFO|app|hi|T", "all placeholders"
+    let literal as string is calling _apply_format with r"a{unknown}b", "INFO", "app", "hi", "T"
+    calling _wsp_expect_eq_string with literal, r"a{unknown}b", "unknown kept"
+    let open as string is calling _apply_format with r"a{b", "INFO", "app", "hi", "T"
+    calling _wsp_expect_eq_string with open, r"a{b", "unterminated kept"
+
+test "Logger.new and Logger.named set their documented defaults":
+    let log as Logger is calling Logger.new with "app"
+    calling _wsp_expect_eq_string with (calling log.get_name), "app", "name"
+    calling _wsp_expect_eq_int with (calling log.get_level), LOG_TRACE, "trace default"
+    calling _wsp_expect with (not (calling log.is_file_mode)), "stdout default"
+    calling _wsp_expect with (not (calling log.is_stderr_mode)), "not stderr"
+    let warn_log as Logger is calling Logger.named with "app", LOG_WARN
+    calling _wsp_expect_eq_int with (calling warn_log.get_level), LOG_WARN, "named level"
+
+test "BUG-12: Logger.child preserves the parent file path and settings":
+    let parent as Logger is calling Logger.named with "app", LOG_INFO
+    calling parent.to_file with "build/whisper_child_test.log"
+    calling parent.enable_timestamp
+    calling parent.disable_color
+    let child as Logger is calling parent.child with "db"
+    calling _wsp_expect_eq_string with (calling child.get_name), "app.db", "child name"
+    calling _wsp_expect with (calling child.is_file_mode), "child inherits file mode"
+    calling _wsp_expect_eq_int with (calling child.get_level), LOG_INFO, "child level"
+    calling _wsp_expect with (not (calling child.is_stderr_mode)), "child stream"
+
+test "BUG-23: Logger.child sanitises empty and whitespace segments":
+    let parent as Logger is calling Logger.named with "app", LOG_INFO
+    let same as Logger is calling parent.child with ""
+    calling _wsp_expect_eq_string with (calling same.get_name), "app", "empty keeps parent"
+    let dirty as Logger is calling parent.child with "a b"
+    calling _wsp_expect_eq_string with (calling dirty.get_name), "app.a_b", "space becomes underscore"
+
+test "Logger stream helpers report their destination":
+    let log as Logger is calling Logger.new with "app"
+    calling log.to_stderr
+    calling _wsp_expect with (calling log.is_stderr_mode), "stderr mode"
+    calling log.to_stdout
+    calling _wsp_expect with (not (calling log.is_stderr_mode)), "stdout mode"
+    calling log.to_file with "build/whisper_stream_test.log"
+    calling _wsp_expect with (calling log.is_file_mode), "file mode"
+    calling _wsp_expect with (not (calling log.is_stderr_mode)), "file wins over stream"
+
+test "Logger.set_format changes the rendered text layout":
+    var log as Logger is calling Logger.named with "app", LOG_INFO
+    calling log.set_format with r"{level}: {msg}"
+    let line as string is calling log._format_line with LOG_INFO, "hello"
+    calling _wsp_expect_eq_string with line, "INFO: hello", "custom format"
+    let plain as Logger is calling Logger.named with "plain", LOG_INFO
+    let default_line as string is calling plain._format_line with LOG_INFO, "hello"
+    calling _wsp_expect_eq_string with default_line, "[INFO] [plain] hello", "default format"
+
+test "Logger.with_field and with_context extend the structured context":
+    let log as Logger is calling Logger.named with "app", LOG_INFO
+    let one as Logger is calling log.with_field with "pid", "42"
+    let two as Logger is calling one.with_context with (calling _wsp_fields)
+    let rendered as string is calling _render_json with LOG_INFO, (calling two.get_name), "hi", two.context, false
+    calling _wsp_expect with (calling _wsp_contains with rendered, "\"pid\":\"42\""), "field"
+    calling _wsp_expect with (calling _wsp_contains with rendered, "\"env\":\"test\""), "context"
+
+test "Logger.get_timestamp returns a non-empty ISO string":
+    let log as Logger is calling Logger.new with "app"
+    let stamp as string is calling log.get_timestamp
+    calling _wsp_expect with (stamp.len >= 10), "reasonable length"
+    calling _wsp_expect with (calling _wsp_contains with stamp, "T"), "ISO separator"
+
+test "BUG-20: Logger.get_or_create returns one registered logger per name":
+    var first as Logger is calling Logger.get_or_create with "singleton"
+    var second as Logger is calling Logger.get_or_create with "singleton"
+    calling _wsp_expect_eq_string with (calling second.get_name), (calling first.get_name), "same name"
+    calling _wsp_expect_eq_int with (calling second.get_level), (calling first.get_level), "same level"
+    var third as Logger is calling Logger.get_or_create with "singleton"
+    calling _wsp_expect_eq_string with (calling third.get_name), "singleton", "requested name"
+
+test "BUG-20: a level set on a named logger is visible to a later get_or_create":
+    let first as Logger is calling Logger.get_or_create with "level-shared"
+    calling first.set_level with LOG_ERROR
+    let second as Logger is calling Logger.get_or_create with "level-shared"
+    calling _wsp_expect_eq_int with (calling second.get_level), LOG_ERROR, "registry published the level"
+
+test "BUG-18: set_level_from_env falls back to the configured default":
+    calling unsetenv with "LOG_LEVEL"
+    calling unsetenv with "RUST_LOG"
+    calling unsetenv with "PENGU_LOG"
+    calling unsetenv with "RITES_LOG_LEVEL"
+    calling unsetenv with "WHISPER_LOG"
+    calling set_default_level with LOG_WARN
+    calling set_level_from_env
+    calling _wsp_expect_eq_int with (calling get_level), LOG_WARN, "default applied"
+    calling _wsp_expect_eq_int with (calling get_default_level), LOG_WARN, "default stored"
+
+test "BUG-17: a set-but-invalid environment level is ignored, not silently equal to unset":
+    calling set_default_level with LOG_INFO
+    calling rites.setenv with "WHISPER_LOG", "not-a-level", true
+    calling set_level_from_env
+    calling _wsp_expect_eq_int with (calling get_level), LOG_INFO, "fallback after invalid"
+    calling rites.setenv with "WHISPER_LOG", "error", true
+    calling set_level_from_env
+    calling _wsp_expect_eq_int with (calling get_level), LOG_ERROR, "valid level applied"
+    calling unsetenv with "WHISPER_LOG"
+    calling set_default_level with LOG_INFO
+    calling set_level with LOG_TRACE
+
+test "BUG-21: a logger pointed at an unwritable file does not crash":
+    let log as Logger is calling Logger.named with "broken", LOG_INFO
+    calling log.disable_color
+    calling log.to_file with "build/does-not-exist-dir/whisper.log"
+    calling log.info with "this write must fail safely"
+    calling _wsp_expect with (calling log.is_file_mode), "still file mode"
+
+test "log_json_ex renders through the logger and respects the level":
+    let log as Logger is calling Logger.named with "json", LOG_ERROR
+    var fields as map of string to string is map of string to string
+    with fields:
+        calling .put with "k", "v"
+    calling log.log_json_ex with LOG_INFO, "suppressed", fields, true
+    calling log.log_json_ex with LOG_ERROR, "emitted", fields, true
+    calling _wsp_expect with true, "no crash"
+
+test "the global helpers emit and suppress according to the global level":
+    calling set_level with LOG_WARN
+    calling debug with "not printed"
+    calling warn with "printed"
+    calling log_json_global_helper
+    calling set_level with LOG_TRACE
+    calling _wsp_expect with true, "no crash"
+
+## Emits one global JSON line (helper kept out of the test body for readability).
+weave log_json_global_helper into void:
+    var fields as map of string to string is map of string to string
+    with fields:
+        calling .put with "z", "1"
+        calling .put with "a", "2"
+    calling log_json with LOG_WARN, "structured", fields
+
+## Returns a one-entry context map for the `with_context` test.
+weave _wsp_fields into map of string to string:
+    var m as map of string to string is map of string to string
+    with m:
+        calling .put with "env", "test"
+    return m

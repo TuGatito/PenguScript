@@ -1,24 +1,70 @@
-# std/lot.pengu - The Lot (Randomness)
-# Pseudorandom number generation and common probability distributions,
-# backed by the C standard library rand() PRNG (process-global state).
-#
-# Memory model:
-#   * Every function taking or returning lists or strings allocates fresh
-#     containers owned by the caller. Scalar functions have no allocations.
-#   * Thread safety: the underlying generator is the shared C rand() state,
-#     so calls are not thread-safe and `seed` re-seeds every later draw in
-#     the whole process.
-#   * Security: this is the plain C PRNG, NOT cryptographically secure - do
-#     not use it for secrets, tokens or keys.
-#   * Reproducibility: libc rand() sequences may differ across operating
-#     systems (glibc, musl, MSVCRT); within the same platform, seed(N)
-#     produces a deterministic sequence.
-#
-# Usage:
-#   import std.lot
-#   calling lot.seed with 1234
-#   var die as int is calling lot.rand_range with 1, 6
-#   var p as float is calling lot.rand_float
+## std/lot.pengu — the lot: pseudo-random numbers, sampling and probability
+## distributions, backed by the C standard library `rand()` PRNG.
+##
+## ## Example
+## ```pengu
+## import std.lot
+## import std.spark
+##
+## weave main into int:
+##     calling lot.seed with 42
+##     var die as int is calling lot.rand_range with 1, 6
+##     calling spark.println with "die={(die to string)}"
+##     var token as string is calling lot.rand_hex_string with 16
+##     defer banish token
+##     calling spark.println with "token={token}"
+##     return 0
+## ```
+##
+## ## Memory
+## Every weave that takes or returns a `list` or a `string` allocates a fresh
+## container owned by the caller: release it with `banish`. Scalar weaves
+## (`rand_int`, `rand_float`, `rand_range`, every distribution) have no
+## allocations. No returned value aliases an argument and no argument is
+## retained after the call.
+##
+## ## Design notes
+## - **Not cryptographically secure.** The generator is the plain C `rand()`
+##   PRNG. Never derive passwords, session tokens, keys or nonces that must
+##   resist an attacker. `rand_bytes`, `rand_base64` and `rand_uuid4` are
+##   *random*, not *secret*: they are built for tests, simulations, jitter and
+##   identifiers, and they are named to say so.
+## - **Thread safety.** Every weave that touches the shared generator does so
+##   inside the private `_lock` / `_unlock` critical section (a mutex obtained
+##   from the runtime's portable thread layer), so concurrent single draws
+##   cannot corrupt the PRNG state. A *compound* operation that must observe a
+##   frozen sequence (for example "seed and then draw ten values" from two
+##   threads) still has to serialise itself: the lock is released between two
+##   separate calls.
+## - **Reproducibility is per platform.** `seed(N)` reproduces a sequence
+##   exactly within one C library; glibc, musl and the MSVC CRT all implement
+##   `rand()` differently, so the same seed draws different numbers on another
+##   platform. Tests assert self-consistency (same seed, same sequence), never
+##   a hard-coded sequence.
+## - **One PRNG for the process.** `seed` re-seeds the shared `rand()` state
+##   and therefore affects every later draw in every module.
+## - **C bridges only.** The primitives are `declare` links to the runtime;
+##   the `antiquus` blocks below only provide the lock primitives, which have
+##   no PenguScript equivalent.
+##
+## ## Migration
+## 2.1.0 fixes the silent-failure bugs in `rand_gamma`, `rand_weibull` and the
+## weighted choosers, makes the module thread-aware, and adds the Python
+## `random` + `secrets` parity surface. Nothing is removed and every 2.0.0
+## signature is preserved.
+##
+## | New in 2.1.0 | Purpose |
+## |---|---|
+## | `rand_bytes` / `rand_bytes_string` | raw random bytes |
+## | `rand_bytes_hex` | now hex-encodes real bytes (was random hex digits) |
+## | `rand_hex_upper` | uppercase hex of random bytes |
+## | `rand_base64` | base64 of random bytes |
+## | `rand_uuid4` | RFC 4122 version-4 UUID |
+## | `rand_choice_n` / `rand_choice_n_string` | `random.choices` (with replacement) |
+## | `rand_sample_weighted` | weighted sample without replacement |
+## | `rand_choice_shard` / `rand_shuffle_shard` / `rand_sample_shard` / `rand_permutation_shard` | generic (`shard T`) forms |
+## | `rand_vonmises` / `rand_pareto` / `rand_cauchy` / `rand_chi_squared` | more distributions |
+## | `seed_from_time` / `seed_from_pid` | argument-free seeding |
 
 import std.spark
 import std.arithmancy
@@ -28,41 +74,133 @@ import std.arithmancy
 # ----------------------------------------------------------------------------
 
 ## Standard library lot module version.
-const LOT_VERSION as string is "2.0.0"
+const LOT_VERSION as string is "2.1.0"
+
+## Value used instead of 0.0 or 1.0 when a distribution needs an open
+## `(0.0, 1.0)` uniform draw: `log(0)` is `-inf` and would produce `inf`.
+const LOT_EPSILON as float is 0.000000001
+
+## Largest value an `int` can hold; used by the overflow-safe weighted chooser.
+const LOT_INT_MAX as int is 2147483647
+
+## RFC 4648 base64 alphabet used by `rand_base64`.
+const BASE64_ALPHABET as string is "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 # ----------------------------------------------------------------------------
 # External C declarations (runtime bridges over the C PRNG)
+#
+# Declared *before* the `insignia` directive below so every bridge keeps its
+# exact `pengu_c_*` runtime symbol: the insignia prefixes the module's own C
+# names, never the runtime ABI these declarations promise.
 # ----------------------------------------------------------------------------
 
-# C bridge: seeds the global rand() PRNG with `seed`. Exposed through seed.
+## C bridge: seeds the global `rand()` PRNG with `seed`.
 declare pengu_c_srand with seed as int into void
 
-# C bridge: raw rand() draw in [0, RAND_MAX]. Exposed through rand_int.
+## C bridge: raw `rand()` draw in `[0, RAND_MAX]`.
 declare pengu_c_rand into int
 
-# C bridge: the C RAND_MAX constant, the upper bound of the rand_int range.
+## C bridge: the C `RAND_MAX` constant, the upper bound of the raw draw.
 declare pengu_c_rand_max into int
 
-# C bridge: uniform double in [0, 1). Exposed through rand_float.
+## C bridge: uniform double in `[0, 1)`.
 declare pengu_c_rand_double into float
 
-# C bridge: uniform int in [min, max], inclusive. Exposed through rand_range.
-declare pengu_c_rand_range with min as int , max as int into int
+## C bridge: uniform int in `[min, max]`, both bounds inclusive.
+declare pengu_c_rand_range with min as int, max as int into int
 
-# C bridge: uniform float in [min, max). Exposed through rand_range_float.
-declare pengu_c_rand_range_float with min as float , max as float into float
+## C bridge: uniform float in `[min, max)`.
+declare pengu_c_rand_range_float with min as float, max as float into float
 
-# C bridge: normal (Gaussian) draw. Exposed through rand_normal.
-declare pengu_c_rand_normal with mean as float , stddev as float into float
+## C bridge: normal (Gaussian) draw through the Box-Muller transform.
+declare pengu_c_rand_normal with mean as float, stddev as float into float
 
-# C bridge: exponential draw. Exposed through rand_exp.
+## C bridge: exponential draw with the given rate.
 declare pengu_c_rand_exp with rate as float into float
 
-# C bridge: boolean draw with a given probability. Exposed through rand_bool.
+## C bridge: boolean draw with the given probability.
 declare pengu_c_rand_bool with probability as float into bool
 
-# C bridge: Poisson count draw. Exposed through rand_poisson.
+## C bridge: Poisson count draw with the given rate.
 declare pengu_c_rand_poisson with rate as float into int
+
+## C bridge for `time()`: wall-clock seconds since the Unix epoch. Used by
+## `seed_from_time`; the runtime already defines it, so no new dependency.
+declare pengu_c_time into float
+
+## C bridge for the current process id. Used by `seed_from_pid`.
+declare pengu_c_getpid into int
+
+# ----------------------------------------------------------------------------
+# C name prefix
+#
+# `insignia lot_` prefixes every top-level C symbol of this module, so a weave
+# named `seed` (or any future one) can never collide with a libc symbol when
+# this file is compiled as the entry module of its own test binary.
+# ----------------------------------------------------------------------------
+
+insignia lot_
+
+# ----------------------------------------------------------------------------
+# Thread-safety primitives (`antiquus`)
+#
+# The C standard says nothing about two threads calling `rand()` at once, so
+# every bridge call runs inside `_lock` / `_unlock`. `_mtx` hands out one
+# process-wide mutex from the runtime's portable thread layer; because the
+# static inside `_mtx` lives for the whole process, every later call returns
+# the same handle and `_lock` / `_unlock` really do pair up.
+# ----------------------------------------------------------------------------
+
+@export("lot__mtx")
+## Returns the process-wide lock handle used by `_lock` / `_unlock`.
+##
+## ## Motivo
+## The runtime's portable mutex factory is already linked into every program;
+## reusing it keeps this module identical on POSIX and Windows instead of
+## hand-rolling a `pthread_mutex_t` / `CRITICAL_SECTION` split. `@export` pins
+## the C symbol and makes this a dead-code-elimination root: `_lock` and
+## `_unlock` call it from raw C, which the pruner cannot see.
+##
+## ## Memoria
+## Allocates the mutex once, on the first call; leaks it for the process
+## lifetime on purpose (it is a singleton).
+antiquus _mtx into opaque:
+    r"""
+extern void *pengu_c_filum_mutex_new(void);
+static void *g_mtx = NULL;
+if (!g_mtx) g_mtx = pengu_c_filum_mutex_new();
+return g_mtx;
+"""
+
+## Acquires the process-wide PRNG lock.
+##
+## ## Motivo
+## Serialises access to the C `rand()` state, which is process-global and not
+## safe to mutate from two threads at once.
+##
+## ## Memoria
+## No allocations.
+antiquus _lock into void:
+    r"""
+extern void pengu_c_filum_mutex_lock(void *m);
+extern void *lot__mtx(void);
+pengu_c_filum_mutex_lock(lot__mtx());
+"""
+
+## Releases the process-wide PRNG lock acquired by `_lock`.
+##
+## ## Motivo
+## Pairs one-to-one with `_lock`; there is no PenguScript construct for a C
+## mutex.
+##
+## ## Memoria
+## No allocations.
+antiquus _unlock into void:
+    r"""
+extern void pengu_c_filum_mutex_unlock(void *m);
+extern void *lot__mtx(void);
+pengu_c_filum_mutex_unlock(lot__mtx());
+"""
 
 # ----------------------------------------------------------------------------
 # Seeding and raw uniform draws
@@ -70,481 +208,287 @@ declare pengu_c_rand_poisson with rate as float into int
 
 ## Seeds the process-global C PRNG with `s`.
 ##
-## Signature: seed(s as int) into void
-## Memory: No allocation.
-## Edge cases: Deterministic per platform; re-seeding with the same integer reproduces the sequence.
-## Example: calling lot.seed with 42
+## ## Parámetros
+## - `s`: the seed. Negative values are reinterpreted modulo 2^32 by the C
+##   conversion to `unsigned int`, exactly like a C `srand((unsigned)s)` call.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Ejemplo
+## ```pengu
+## calling lot.seed with 42
+## ```
 weave seed with s as int into void:
+    calling _lock
     calling pengu_c_srand with s
+    calling _unlock
 
-## Returns one raw uniform draw from the C rand() generator.
+## Seeds the PRNG from the system wall clock.
 ##
-## Signature: rand_int() into int
-## Memory: No allocation.
-## Edge cases: Value lies in [0, RAND_MAX] (at least 32767).
-## Example: var n as int is calling lot.rand_int
+## ## Retorno
+## Nothing. Two calls in the same second seed identically.
+##
+## ## Ejemplo
+## ```pengu
+## calling lot.seed_from_time
+## ```
+weave seed_from_time into void:
+    var now as float is calling pengu_c_time
+    calling seed with (now to int)
+
+## Seeds the PRNG from the current process id.
+##
+## ## Retorno
+## Nothing. A good way to give independent processes independent streams.
+##
+## ## Ejemplo
+## ```pengu
+## calling lot.seed_from_pid
+## ```
+weave seed_from_pid into void:
+    var pid as int is calling pengu_c_getpid
+    calling seed with pid
+
+## Returns one raw uniform draw from the C `rand()` generator.
+##
+## ## Retorno
+## A non-negative `int` in `[0, RAND_MAX]`. libc is allowed to return a
+## negative value, so it is clamped to `0` (2.1.0 fix: 2.0.0 passed the raw
+## value through).
+##
+## ## Ejemplo
+## ```pengu
+## var n as int is calling lot.rand_int
+## ```
 weave rand_int into int:
-    return calling pengu_c_rand
+    calling _lock
+    var r as int is calling pengu_c_rand
+    calling _unlock
+    return if r < 0 then 0 else r
 
-## Returns the maximum integer value produced by rand_int (C RAND_MAX).
+## Returns the maximum integer value produced by `rand_int` (C `RAND_MAX`).
 ##
-## Signature: rand_max() into int
-## Memory: No allocation.
-## Example: var max_val as int is calling lot.rand_max
+## ## Retorno
+## The C `RAND_MAX` constant, at least 32767.
+##
+## ## Ejemplo
+## ```pengu
+## var top as int is calling lot.rand_max
+## ```
 weave rand_max into int:
     return calling pengu_c_rand_max
 
-## Returns a uniform float in [0.0, 1.0).
+## Returns a uniform float in `[0.0, 1.0)`.
 ##
-## Signature: rand_float() into float
-## Memory: No allocation.
-## Edge cases: 0.0 is inclusive, 1.0 is exclusive.
-## Example: var f as float is calling lot.rand_float
+## ## Retorno
+## A `float` in `[0.0, 1.0)`: `0.0` is inclusive, `1.0` is exclusive.
+##
+## ## Ejemplo
+## ```pengu
+## var p as float is calling lot.rand_float
+## ```
 weave rand_float into float:
-    return calling pengu_c_rand_double
+    calling _lock
+    var u as float is calling pengu_c_rand_double
+    calling _unlock
+    return u
+
+## Returns a uniform float strictly inside `(0.0, 1.0)`.
+##
+## ## Retorno
+## A `float` in `(0.0, 1.0)`; boundary draws are replaced by `LOT_EPSILON`.
+## Distributions that take `log(u)` or `1.0 / u` use this so they can never
+## produce `inf` or `nan`.
+weave _unit_open into float:
+    var u as float is calling rand_float
+    if u <= 0.0:
+        return LOT_EPSILON
+    if u >= 1.0:
+        return 1.0 - LOT_EPSILON
+    return u
 
 # ----------------------------------------------------------------------------
 # Core Ranges and Distributions
 # ----------------------------------------------------------------------------
 
-## Returns a uniform int in [min_val, max_val], both bounds inclusive.
+## Returns a uniform int in `[min_val, max_val]`, both bounds inclusive.
 ##
-## Signature: rand_range(min_val as int, max_val as int) into int
-## Memory: No allocation.
-## Edge cases: When min_val >= max_val, returns min_val unchanged.
-## Example: var roll as int is calling lot.rand_range with 1, 6
-weave rand_range with min_val as int , max_val as int into int:
-    return calling pengu_c_rand_range with min_val , max_val
+## ## Parámetros
+## - `min_val`: lower bound (inclusive).
+## - `max_val`: upper bound (inclusive). When `min_val >= max_val`, returns
+##   `min_val` unchanged.
+##
+## ## Retorno
+## A pseudo-random `int` in `[min_val, max_val]`.
+##
+## ## Ejemplo
+## ```pengu
+## var die as int is calling lot.rand_range with 1, 6    # 1..6
+## ```
+weave rand_range with min_val as int, max_val as int into int:
+    calling _lock
+    var r as int is calling pengu_c_rand_range with min_val, max_val
+    calling _unlock
+    return r
 
-## Returns a uniform float in [min_val, max_val).
+## Returns a uniform float in `[min_val, max_val)`.
 ##
-## Signature: rand_range_float(min_val as float, max_val as float) into float
-## Memory: No allocation.
-## Edge cases: When min_val >= max_val, returns min_val unchanged.
-## Example: var val as float is calling lot.rand_range_float with 0.0, 10.0
-weave rand_range_float with min_val as float , max_val as float into float:
-    return calling pengu_c_rand_range_float with min_val , max_val
+## ## Parámetros
+## - `min_val`: lower bound (inclusive).
+## - `max_val`: upper bound (exclusive). When `min_val >= max_val`, returns
+##   `min_val` unchanged.
+##
+## ## Retorno
+## A pseudo-random `float` in `[min_val, max_val)`.
+##
+## ## Ejemplo
+## ```pengu
+## var v as float is calling lot.rand_range_float with 0.0, 10.0
+## ```
+weave rand_range_float with min_val as float, max_val as float into float:
+    calling _lock
+    var r as float is calling pengu_c_rand_range_float with min_val, max_val
+    calling _unlock
+    return r
 
 ## Returns a normal (Gaussian) draw with the given `mean` and standard
 ## deviation `stddev`, generated with the Box-Muller transform.
 ##
-## Signature: rand_normal(mean as float, stddev as float) into float
-## Memory: No allocation.
-## Example: var g as float is calling lot.rand_normal with 0.0, 1.0
-weave rand_normal with mean as float , stddev as float into float:
-    return calling pengu_c_rand_normal with mean , stddev
-
-## Returns an exponentially distributed draw with rate `lambda` (mean 1 / lambda).
+## ## Parámetros
+## - `mean`: centre of the distribution.
+## - `stddev`: standard deviation; `0.0` (or less) returns `mean` unchanged.
 ##
-## Signature: rand_exp(rate as float) into float
-## Memory: No allocation.
-## Edge cases: When rate <= 0 the function returns 0.0.
-## Example: var interval as float is calling lot.rand_exp with 1.5
+## ## Retorno
+## A pseudo-random `float`.
+##
+## ## Ejemplo
+## ```pengu
+## var g as float is calling lot.rand_normal with 0.0, 1.0
+## ```
+weave rand_normal with mean as float, stddev as float into float:
+    calling _lock
+    var z as float is calling pengu_c_rand_normal with mean, stddev
+    calling _unlock
+    return z
+
+## Returns an exponentially distributed draw with rate `rate` (mean `1 / rate`).
+##
+## ## Parámetros
+## - `rate`: the rate parameter; when `<= 0.0` the result is `0.0`.
+##
+## ## Retorno
+## A non-negative pseudo-random `float`.
+##
+## ## Ejemplo
+## ```pengu
+## var gap as float is calling lot.rand_exp with 1.5
+## ```
 weave rand_exp with rate as float into float:
-    return calling pengu_c_rand_exp with rate
+    calling _lock
+    var v as float is calling pengu_c_rand_exp with rate
+    calling _unlock
+    return v
 
-## Returns true with `probability` and false otherwise.
+## Returns true with probability `probability` and false otherwise.
 ##
-## Signature: rand_bool(probability as float is 0.5) into bool
-## Memory: No allocation.
-## Edge cases: Clamps naturally (>= 1.0 always true, <= 0.0 always false).
-## Example: var b as bool is calling lot.rand_bool with 0.8
+## ## Parámetros
+## - `probability`: success probability, default `0.5`. Values `>= 1.0`
+##   always return true and values `<= 0.0` always return false.
+##
+## ## Retorno
+## A pseudo-random `bool`.
+##
+## ## Ejemplo
+## ```pengu
+## var b as bool is calling lot.rand_bool with 0.8
+## ```
 weave rand_bool with probability as float is 0.5 into bool:
-    return calling pengu_c_rand_bool with probability
+    calling _lock
+    var b as bool is calling pengu_c_rand_bool with probability
+    calling _unlock
+    return b
 
-## Returns a Poisson-distributed non-negative int with mean `lambda`.
+## Returns a Poisson-distributed non-negative int with mean `rate`.
 ##
-## Signature: rand_poisson(rate as float) into int
-## Memory: No allocation.
-## Edge cases: When rate <= 0 the function returns 0.
-## Example: var k as int is calling lot.rand_poisson with 3.0
+## ## Parámetros
+## - `rate`: the Poisson rate; when `<= 0.0` the result is `0`.
+##
+## ## Retorno
+## A non-negative pseudo-random `int`.
+##
+## ## Ejemplo
+## ```pengu
+## var arrivals as int is calling lot.rand_poisson with 3.0
+## ```
 weave rand_poisson with rate as float into int:
-    return calling pengu_c_rand_poisson with rate
+    calling _lock
+    var k as int is calling pengu_c_rand_poisson with rate
+    calling _unlock
+    return k
 
-# ----------------------------------------------------------------------------
-# Aliases and Ergonomic Helpers
-# ----------------------------------------------------------------------------
-
-## Alias of rand_range for readability.
+## Returns a log-normally distributed float with log-scale `mu` and `sigma`.
 ##
-## Signature: rand_between(lo as int, hi as int) into int
-## Memory: No allocation.
-## Example: var roll as int is calling lot.rand_between with 1, 6
-weave rand_between with lo as int , hi as int into int:
-    return calling rand_range with lo , hi
-
-## Alias of rand_range_float for uniform continuous distributions.
+## ## Parámetros
+## - `mu`: mean of the underlying normal distribution.
+## - `sigma`: standard deviation of the underlying normal distribution. When
+##   `sigma <= 0.0` the distribution is degenerate and `exp(mu)` is returned
+##   unchanged (2.1.0 documents and names this case instead of leaving it to
+##   the caller's imagination).
 ##
-## Signature: rand_uniform(lo as float, hi as float) into float
-## Memory: No allocation.
-## Example: var u as float is calling lot.rand_uniform with 0.0, 10.0
-weave rand_uniform with lo as float , hi as float into float:
-    return calling rand_range_float with lo , hi
-
-## Alias of rand_normal for Gaussian distributions.
+## ## Retorno
+## A strictly positive pseudo-random `float`.
 ##
-## Signature: rand_gauss(mean as float, stddev as float) into float
-## Memory: No allocation.
-## Example: var g as float is calling lot.rand_gauss with 10.0, 2.0
-weave rand_gauss with mean as float , stddev as float into float:
-    return calling rand_normal with mean , stddev
-
-## Alias of rand_bool with explicit probability parameter name.
-##
-## Signature: rand_bool_with(p as float) into bool
-## Memory: No allocation.
-## Example: var ok as bool is calling lot.rand_bool_with with 0.75
-weave rand_bool_with with p as float into bool:
-    return calling rand_bool with p
-
-## Simulates a fair coin toss returning true (heads) or false (tails).
-##
-## Signature: rand_coin() into bool
-## Memory: No allocation.
-## Example: if calling lot.rand_coin: ...
-weave rand_coin into bool:
-    return calling rand_bool with 0.5
-
-## Returns a random single bit: 0 or 1.
-##
-## Signature: rand_bit() into int
-## Memory: No allocation.
-## Example: var bit as int is calling lot.rand_bit
-weave rand_bit into int:
-    if calling rand_bool with 0.5:
-        return 1
-    return 0
-
-## Returns a random sign: -1 or 1.
-##
-## Signature: rand_sign() into int
-## Memory: No allocation.
-## Example: var s as int is calling lot.rand_sign
-weave rand_sign into int:
-    if calling rand_bool with 0.5:
-        return 1
-    return -1
-
-# ----------------------------------------------------------------------------
-# List Sampling & Combinatorics
-# ----------------------------------------------------------------------------
-
-## Shuffles a list of integers using the Fisher-Yates algorithm into a new list.
-##
-## Signature: shuffle(items as list of int) into list of int
-## Memory: Allocates and returns a new list of integers.
-## Edge cases: Empty or single-element list returns an identical copy.
-## Example: var shuffled as list of int is calling lot.shuffle with nums
-weave shuffle with items as list of int into list of int:
-    var res as list of int is list of int
-    var n as int is items.len
-    var i as int is 0
-    while i < n:
-        calling res.push with (items at i)
-        set i is i + 1
-    set i is n - 1
-    while i > 0:
-        var j as int is calling rand_range with 0 , i
-        if i != j:
-            var tmp as int is res at i
-            set res at i is res at j
-            set res at j is tmp
-        set i is i - 1
-    return res
-
-## Shuffles a list of strings using the Fisher-Yates algorithm into a new list.
-##
-## Signature: shuffle_string(items as list of string) into list of string
-## Memory: Allocates and returns a new list of strings.
-## Edge cases: Empty or single-element list returns an identical copy.
-## Example: var shuffled as list of string is calling lot.shuffle_string with words
-weave shuffle_string with items as list of string into list of string:
-    var res as list of string is list of string
-    var n as int is items.len
-    var i as int is 0
-    while i < n:
-        calling res.push with (items at i)
-        set i is i + 1
-    set i is n - 1
-    while i > 0:
-        var j as int is calling rand_range with 0 , i
-        if i != j:
-            var tmp as string is res at i
-            set res at i is res at j
-            set res at j is tmp
-        set i is i - 1
-    return res
-
-## Selects a random integer element from `items`.
-##
-## Signature: choice(items as list of int) into maybe int
-## Memory: Returns a scalar value inside maybe container.
-## Edge cases: Returns maybe none when `items` is empty.
-## Example: var x as maybe int is calling lot.choice with nums
-weave choice with items as list of int into maybe int:
-    var n as int is items.len
-    if n == 0:
-        return maybe none
-    var idx as int is calling rand_range with 0 , n - 1
-    return some (items at idx)
-
-## Selects a random string element from `items`.
-##
-## Signature: choice_string(items as list of string) into maybe string
-## Memory: Returns a string copy inside maybe container.
-## Edge cases: Returns maybe none when `items` is empty.
-## Example: var s as maybe string is calling lot.choice_string with words
-weave choice_string with items as list of string into maybe string:
-    var n as int is items.len
-    if n == 0:
-        return maybe none
-    var idx as int is calling rand_range with 0 , n - 1
-    return some (items at idx)
-
-## Selects a random integer element from `items` according to positive `weights`.
-##
-## Signature: choice_weighted(items as list of int, weights as list of int) into maybe int
-## Memory: Returns a scalar value inside maybe container.
-## Edge cases: Returns maybe none if `items` is empty, lengths differ, or total weight <= 0.
-## Example: var pick as maybe int is calling lot.choice_weighted with items, weights
-weave choice_weighted with items as list of int , weights as list of int into maybe int:
-    var n as int is items.len
-    if n == 0 or n != weights.len:
-        return maybe none
-    var total as int is 0
-    var i as int is 0
-    while i < n:
-        var w as int is weights at i
-        if w > 0:
-            set total is total + w
-        set i is i + 1
-    if total <= 0:
-        return maybe none
-    var r as int is calling rand_range with 1 , total
-    var acc as int is 0
-    set i is 0
-    while i < n:
-        var w2 as int is weights at i
-        if w2 > 0:
-            set acc is acc + w2
-            if r <= acc:
-                return some (items at i)
-        set i is i + 1
-    return some (items at (n - 1))
-
-## Selects a random string element from `items` according to positive `weights`.
-##
-## Signature: choice_weighted_string(items as list of string, weights as list of int) into maybe string
-## Memory: Returns a string copy inside maybe container.
-## Edge cases: Returns maybe none if `items` is empty, lengths differ, or total weight <= 0.
-## Example: var pick as maybe string is calling lot.choice_weighted_string with items, weights
-weave choice_weighted_string with items as list of string , weights as list of int into maybe string:
-    var n as int is items.len
-    if n == 0 or n != weights.len:
-        return maybe none
-    var total as int is 0
-    var i as int is 0
-    while i < n:
-        var w as int is weights at i
-        if w > 0:
-            set total is total + w
-        set i is i + 1
-    if total <= 0:
-        return maybe none
-    var r as int is calling rand_range with 1 , total
-    var acc as int is 0
-    set i is 0
-    while i < n:
-        var w2 as int is weights at i
-        if w2 > 0:
-            set acc is acc + w2
-            if r <= acc:
-                return some (items at i)
-        set i is i + 1
-    return some (items at (n - 1))
-
-## Samples `k` unique integers from `items` without replacement.
-##
-## Signature: sample(items as list of int, k as int) into list of int
-## Memory: Allocates and returns a new list of integers.
-## Edge cases: Returns empty list if k <= 0 or k > items.len.
-## Example: var sample_items as list of int is calling lot.sample with nums, 3
-weave sample with items as list of int , k as int into list of int:
-    var res as list of int is list of int
-    var n as int is items.len
-    if k <= 0 or k > n:
-        return res
-    var sh as list of int is calling shuffle with items
-    var i as int is 0
-    while i < k:
-        calling res.push with (sh at i)
-        set i is i + 1
-    return res
-
-## Samples `k` integers from `items` with replacement.
-##
-## Signature: sample_with_replacement(items as list of int, k as int) into list of int
-## Memory: Allocates and returns a new list of integers.
-## Edge cases: Returns empty list if k <= 0 or items is empty.
-## Example: var res as list of int is calling lot.sample_with_replacement with nums, 5
-weave sample_with_replacement with items as list of int , k as int into list of int:
-    var res as list of int is list of int
-    var n as int is items.len
-    if k <= 0 or n == 0:
-        return res
-    var i as int is 0
-    while i < k:
-        var idx as int is calling rand_range with 0 , n - 1
-        calling res.push with (items at idx)
-        set i is i + 1
-    return res
-
-## Samples `k` unique strings from `items` without replacement.
-##
-## Signature: sample_string(items as list of string, k as int) into list of string
-## Memory: Allocates and returns a new list of strings.
-## Edge cases: Returns empty list if k <= 0 or k > items.len.
-## Example: var sub as list of string is calling lot.sample_string with words, 2
-weave sample_string with items as list of string , k as int into list of string:
-    var res as list of string is list of string
-    var n as int is items.len
-    if k <= 0 or k > n:
-        return res
-    var sh as list of string is calling shuffle_string with items
-    var i as int is 0
-    while i < k:
-        calling res.push with (sh at i)
-        set i is i + 1
-    return res
-
-## Returns a random permutation of integers in [0, n - 1].
-##
-## Signature: permutation(n as int) into list of int
-## Memory: Allocates and returns a new list of integers.
-## Edge cases: Returns empty list if n <= 0.
-## Example: var p as list of int is calling lot.permutation with 10
-weave permutation with n as int into list of int:
-    var xs as list of int is list of int
-    if n <= 0:
-        return xs
-    var i as int is 0
-    while i < n:
-        calling xs.push with i
-        set i is i + 1
-    return calling shuffle with xs
-
-# ----------------------------------------------------------------------------
-# Random Strings and Tokens
-# ----------------------------------------------------------------------------
-
-## Generates a random string of length `n` by sampling characters from `charset`.
-##
-## Signature: rand_from_charset(charset as string, n as int) into string
-## Memory: Allocates and returns a new string.
-## Edge cases: Returns "" if n <= 0 or charset is empty.
-## Example: var s as string is calling lot.rand_from_charset with "ABC", 5
-weave rand_from_charset with charset as string , n as int into string:
-    if n <= 0 or charset.len == 0:
-        return ""
-    var clen as int is charset.len
-    var res as string is ""
-    var i as int is 0
-    while i < n:
-        var idx as int is calling rand_range with 0 , clen - 1
-        set res is "{res}{(charset at idx)}"
-        set i is i + 1
-    return res
-
-## Generates a random string of `n` ASCII alphabetic letters (a-z, A-Z).
-##
-## Signature: rand_alpha(n as int) into string
-## Memory: Allocates and returns a new string.
-## Example: var token as string is calling lot.rand_alpha with 8
-weave rand_alpha with n as int into string:
-    return calling rand_from_charset with "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" , n
-
-## Generates a random string of `n` decimal digits (0-9).
-##
-## Signature: rand_digit_string(n as int) into string
-## Memory: Allocates and returns a new string.
-## Example: var pin as string is calling lot.rand_digit_string with 4
-weave rand_digit_string with n as int into string:
-    return calling rand_from_charset with "0123456789" , n
-
-## Generates a random alphanumeric string of length `n` (a-z, A-Z, 0-9).
-##
-## Signature: rand_alnum_string(n as int) into string
-## Memory: Allocates and returns a new string.
-## Example: var id as string is calling lot.rand_alnum_string with 12
-weave rand_alnum_string with n as int into string:
-    return calling rand_from_charset with "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" , n
-
-## Generates a random lowercase hexadecimal string of length `n`.
-##
-## Signature: rand_hex_string(n as int) into string
-## Memory: Allocates and returns a new string.
-## Example: var hex_token as string is calling lot.rand_hex_string with 16
-weave rand_hex_string with n as int into string:
-    return calling rand_from_charset with "0123456789abcdef" , n
-
-## Generates random bytes formatted as a hexadecimal string of length `2 * n`.
-##
-## Signature: rand_bytes_hex(n as int) into string
-## Memory: Allocates and returns a new string.
-## Example: var nonce as string is calling lot.rand_bytes_hex with 8
-weave rand_bytes_hex with n as int into string:
-    if n <= 0:
-        return ""
-    return calling rand_hex_string with (n * 2)
-
-## Generates a random password of length `n`, optionally including ASCII symbols.
-##
-## Signature: rand_password(n as int, include_symbols as bool is false) into string
-## Memory: Allocates and returns a new string.
-## Example: var pass as string is calling lot.rand_password with 16, true
-weave rand_password with n as int , include_symbols as bool is false into string:
-    var chars as string is "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    if include_symbols:
-        set chars is "{chars}!@#$%^&*()-_=+[]{(chr 123)}{(chr 125)}|;:,.<>?"
-    return calling rand_from_charset with chars , n
-
-# ----------------------------------------------------------------------------
-# Additional Probability Distributions
-# ----------------------------------------------------------------------------
-
-## Returns a log-normally distributed float with log-scale parameters `mu` and `sigma`.
-##
-## Signature: rand_lognormal(mu as float, sigma as float) into float
-## Memory: No allocation.
-## Example: var v as float is calling lot.rand_lognormal with 0.0, 1.0
-weave rand_lognormal with mu as float , sigma as float into float:
-    var z as float is calling rand_normal with mu , sigma
+## ## Ejemplo
+## ```pengu
+## var v as float is calling lot.rand_lognormal with 0.0, 1.0
+## ```
+weave rand_lognormal with mu as float, sigma as float into float:
+    if sigma <= 0.0:
+        return calling arithmancy.exp with mu
+    var z as float is calling rand_normal with mu, sigma
     return calling arithmancy.exp with z
 
 ## Returns a Weibull-distributed float with `shape` (k) and `scale` (lambda).
 ##
-## Signature: rand_weibull(shape as float, scale as float) into float
-## Memory: No allocation.
-## Edge cases: Returns 0.0 when shape <= 0 or scale <= 0.
-## Example: var w as float is calling lot.rand_weibull with 1.5, 2.0
-weave rand_weibull with shape as float , scale as float into float:
+## ## Parámetros
+## - `shape`: the Weibull shape `k`; when `<= 0.0` the result is `0.0`.
+## - `scale`: the Weibull scale `lambda`; when `<= 0.0` the result is `0.0`.
+##
+## ## Retorno
+## A non-negative, finite `float`. The draw is taken from `_unit_open`, so
+## `log(1 - u)` can never receive `0.0` and the result can never be `inf`
+## (2.1.0 fix: 2.0.0 re-drew in a loop that could not terminate on a
+## pathological generator and produced `inf` for `u` close to `1.0`).
+##
+## ## Ejemplo
+## ```pengu
+## var w as float is calling lot.rand_weibull with 1.5, 2.0
+## ```
+weave rand_weibull with shape as float, scale as float into float:
     if shape <= 0.0 or scale <= 0.0:
         return 0.0
-    var u as float is calling rand_float
-    while u <= 0.0 or u >= 1.0:
-        set u is calling rand_float
+    var u as float is calling _unit_open
     var neg_ln as float is 0.0 - (calling arithmancy.log with (1.0 - u))
     var p as float is 1.0 / shape
-    var pw as float is calling arithmancy.pow with neg_ln , p
+    var pw as float is calling arithmancy.pow with neg_ln, p
     return scale * pw
 
 ## Returns a triangularly distributed float between `lo` and `hi` with peak `mode`.
 ##
-## Signature: rand_triangular(lo as float, mode as float, hi as float) into float
-## Memory: No allocation.
-## Edge cases: Returns lo if hi <= lo or mode is outside [lo, hi].
-## Example: var t as float is calling lot.rand_triangular with 0.0, 5.0, 10.0
-weave rand_triangular with lo as float , mode as float , hi as float into float:
+## ## Parámetros
+## - `lo`: lower bound (inclusive).
+## - `mode`: the peak. When it lies outside `[lo, hi]` the result is `lo`.
+## - `hi`: upper bound (inclusive). When `hi <= lo` the result is `lo`.
+##
+## ## Retorno
+## A pseudo-random `float` in `[lo, hi]`.
+##
+## ## Ejemplo
+## ```pengu
+## var t as float is calling lot.rand_triangular with 0.0, 5.0, 10.0
+## ```
+weave rand_triangular with lo as float, mode as float, hi as float into float:
     if hi <= lo or mode < lo or mode > hi:
         return lo
     var u as float is calling rand_float
@@ -555,54 +499,1617 @@ weave rand_triangular with lo as float , mode as float , hi as float into float:
     var term2 as float is (1.0 - u) * (hi - lo) * (hi - mode)
     return hi - (calling arithmancy.sqrt with term2)
 
-## Returns a Gamma-distributed float with `shape` (alpha) and `scale` (theta).
+## Runs one bounded Marsaglia-Tsang acceptance loop for `shape >= 1`.
 ##
-## Signature: rand_gamma(shape as float, scale as float) into float
-## Memory: No allocation.
-## Edge cases: Returns 0.0 when shape <= 0 or scale <= 0.
-## Algorithm: Marsaglia-Tsang (shape >= 1) with Ahrens-Dieter boost for shape < 1.
-## Example: var g as float is calling lot.rand_gamma with 2.0, 1.0
-weave rand_gamma with shape as float , scale as float into float:
-    if shape <= 0.0 or scale <= 0.0:
-        return 0.0
-    if shape < 1.0:
-        var g1 as float is calling rand_gamma with (shape + 1.0) , 1.0
-        var u as float is calling rand_float
-        while u <= 0.0:
-            set u is calling rand_float
-        var p as float is 1.0 / shape
-        var pw as float is calling arithmancy.pow with u , p
-        return scale * g1 * pw
+## ## Parámetros
+## - `shape`: gamma shape, expected `>= 1.0`.
+## - `scale`: gamma scale.
+## - `max_iter`: hard iteration cap. `0` therefore always reports exhaustion.
+##
+## ## Retorno
+## `some sample` for the first accepted proposal, or `maybe none` when the cap
+## is reached. Exposing exhaustion as `maybe none` is what lets the regression
+## test prove that the old silent `scale * d` fallback is gone.
+weave _gamma_mt with shape as float, scale as float, max_iter as int into maybe float:
     var d as float is shape - (1.0 / 3.0)
     var c as float is 1.0 / (calling arithmancy.sqrt with (9.0 * d))
     var i as int is 0
-    while i < 1000:
-        var z as float is calling rand_normal with 0.0 , 1.0
+    while i < max_iter:
+        var z as float is calling rand_normal with 0.0, 1.0
         var v as float is 1.0 + c * z
         if v > 0.0:
             set v is v * v * v
-            var u as float is calling rand_float
-            while u <= 0.0 or u >= 1.0:
-                set u is calling rand_float
+            var u as float is calling _unit_open
             var z2 as float is z * z
             if u < (1.0 - 0.0331 * z2 * z2):
-                return scale * d * v
+                return some (scale * d * v)
             var ln_u as float is calling arithmancy.log with u
             var ln_v as float is calling arithmancy.log with v
             if ln_u < (0.5 * z2 + d * (1.0 - v + ln_v)):
-                return scale * d * v
+                return some (scale * d * v)
         set i is i + 1
-    return scale * d
+    return maybe none
+
+## Returns a Gamma-distributed float with `shape` (alpha) and `scale` (theta).
+##
+## ## Parámetros
+## - `shape`: gamma shape `alpha`; when `<= 0.0` the result is `0.0`.
+## - `scale`: gamma scale `theta`; when `<= 0.0` the result is `0.0`.
+##
+## ## Retorno
+## A non-negative, finite `float`.
+##
+## ## Algoritmo
+## Marsaglia-Tsang for `shape >= 1`, with the Ahrens-Dieter boost for
+## `shape < 1`. When a bounded acceptance pass reports exhaustion the whole
+## sample is retried; the weave only returns an accepted sample or panics,
+## so it can never hand back the non-gamma `scale * d` value 2.0.0 produced
+## (2.1.0 fix for B1).
+##
+## ## Ejemplo
+## ```pengu
+## var g as float is calling lot.rand_gamma with 2.0, 1.0
+## ```
+weave rand_gamma with shape as float, scale as float into float:
+    if shape <= 0.0 or scale <= 0.0:
+        return 0.0
+    if shape < 1.0:
+        var g1 as float is calling rand_gamma with (shape + 1.0), 1.0
+        var u as float is calling _unit_open
+        var p as float is 1.0 / shape
+        return scale * g1 * (calling arithmancy.pow with u, p)
+    var attempt as int is 0
+    while attempt < 1024:
+        var drawn as maybe float is calling _gamma_mt with shape, scale, 1000
+        if drawn is present:
+            return drawn.value
+        set attempt is attempt + 1
+    calling spark.panic with "lot.rand_gamma: no sample accepted after 1024 retries"
+    return 0.0
 
 ## Returns a Beta-distributed float with parameters `a` (alpha) and `b` (beta).
 ##
-## Signature: rand_beta(a as float, b as float) into float
-## Memory: No allocation.
-## Edge cases: Returns 0.0 when a <= 0 or b <= 0.
-## Example: var b as float is calling lot.rand_beta with 2.0, 5.0
-weave rand_beta with a as float , b as float into float:
-    var x as float is calling rand_gamma with a , 1.0
-    var y as float is calling rand_gamma with b , 1.0
+## ## Parámetros
+## - `a`: first shape parameter; when `<= 0.0` the result is `0.0`.
+## - `b`: second shape parameter; when `<= 0.0` the result is `0.0`.
+##
+## ## Retorno
+## A pseudo-random `float` in `[0.0, 1.0]`.
+##
+## ## Ejemplo
+## ```pengu
+## var v as float is calling lot.rand_beta with 2.0, 5.0
+## ```
+weave rand_beta with a as float, b as float into float:
+    if a <= 0.0 or b <= 0.0:
+        return 0.0
+    var x as float is calling rand_gamma with a, 1.0
+    var y as float is calling rand_gamma with b, 1.0
     if x + y <= 0.0:
         return 0.0
     return x / (x + y)
+
+## Returns a von Mises (circular normal) draw.
+##
+## ## Parámetros
+## - `mu`: the mean direction in radians.
+## - `kappa`: the concentration. `kappa <= 0.000001` degenerates to a uniform
+##   angle in `[0.0, 2*pi)`.
+##
+## ## Retorno
+## An angle in `[0.0, 2*pi)`, normalised so wrapping is not the caller's problem.
+##
+## ## Algoritmo
+## Best & Fisher (1979) rejection sampling with `acos` for the final angle.
+##
+## ## Ejemplo
+## ```pengu
+## var angle as float is calling lot.rand_vonmises with 0.0, 4.0
+## ```
+weave rand_vonmises with mu as float, kappa as float into float:
+    if kappa <= 0.000001:
+        return arithmancy.TWO_PI * (calling rand_float)
+    var a as float is 1.0 + (calling arithmancy.sqrt with (1.0 + 4.0 * kappa * kappa))
+    var b as float is (a - (calling arithmancy.sqrt with (2.0 * a))) / (2.0 * kappa)
+    var r as float is (1.0 + b * b) / (2.0 * b)
+    var f as float is 0.0
+    var accepted as bool is false
+    while not accepted:
+        var u1 as float is calling rand_float
+        var z as float is calling arithmancy.cos with (arithmancy.PI * u1)
+        set f is (1.0 + r * z) / (r + z)
+        var c as float is kappa * (r - f)
+        var u2 as float is calling rand_float
+        if u2 < c * (2.0 - c) or u2 <= c * (calling arithmancy.exp with (1.0 - c)):
+            set accepted is true
+    var u3 as float is calling rand_float
+    var theta as float is 0.0
+    if u3 > 0.5:
+        set theta is mu + (calling arithmancy.acos with f)
+    else:
+        set theta is mu - (calling arithmancy.acos with f)
+    while theta < 0.0:
+        set theta is theta + arithmancy.TWO_PI
+    while theta >= arithmancy.TWO_PI:
+        set theta is theta - arithmancy.TWO_PI
+    return theta
+
+## Returns a Pareto-distributed draw with tail index `alpha`.
+##
+## ## Parámetros
+## - `alpha`: the Pareto shape (`alpha > 0`); when `<= 0.0` the result is `0.0`.
+##
+## ## Retorno
+## A `float >= 1.0`.
+##
+## ## Ejemplo
+## ```pengu
+## var v as float is calling lot.rand_pareto with 2.0
+## ```
+weave rand_pareto with alpha as float into float:
+    if alpha <= 0.0:
+        return 0.0
+    var u as float is calling _unit_open
+    var p as float is 1.0 / alpha
+    return 1.0 / (calling arithmancy.pow with (1.0 - u), p)
+
+## Returns a Cauchy-distributed draw with location `x0` and scale `gamma`.
+##
+## ## Parámetros
+## - `x0`: the median / location.
+## - `gamma`: the half-width at half-maximum. When `<= 0.0` the result is `x0`.
+##
+## ## Retorno
+## A finite pseudo-random `float`.
+##
+## ## Ejemplo
+## ```pengu
+## var v as float is calling lot.rand_cauchy with 0.0, 1.0
+## ```
+weave rand_cauchy with x0 as float, gamma as float into float:
+    if gamma <= 0.0:
+        return x0
+    var u as float is calling _unit_open
+    return x0 + gamma * (calling arithmancy.tan with (arithmancy.PI * (u - 0.5)))
+
+## Returns a chi-squared draw with `k` degrees of freedom.
+##
+## ## Parámetros
+## - `k`: degrees of freedom; when `<= 0` the result is `0.0`.
+##
+## ## Retorno
+## A non-negative, finite `float`. Chi-squared is `Gamma(k / 2, 2)`.
+##
+## ## Ejemplo
+## ```pengu
+## var v as float is calling lot.rand_chi_squared with 3
+## ```
+weave rand_chi_squared with k as int into float:
+    if k <= 0:
+        return 0.0
+    var half as float is (k to float) / 2.0
+    return calling rand_gamma with half, 2.0
+
+# ----------------------------------------------------------------------------
+# Aliases and Ergonomic Helpers
+# ----------------------------------------------------------------------------
+
+## Alias of `rand_range` for readability.
+##
+## ## Parámetros
+## - `lo`: lower bound (inclusive).
+## - `hi`: upper bound (inclusive).
+##
+## ## Retorno
+## A pseudo-random `int` in `[lo, hi]`.
+##
+## ## Ejemplo
+## ```pengu
+## var roll as int is calling lot.rand_between with 1, 6
+## ```
+weave rand_between with lo as int, hi as int into int:
+    return calling rand_range with lo, hi
+
+## Alias of `rand_range_float` for uniform continuous distributions.
+##
+## ## Parámetros
+## - `lo`: lower bound (inclusive).
+## - `hi`: upper bound (exclusive).
+##
+## ## Retorno
+## A pseudo-random `float` in `[lo, hi)`.
+##
+## ## Ejemplo
+## ```pengu
+## var u as float is calling lot.rand_uniform with 0.0, 10.0
+## ```
+weave rand_uniform with lo as float, hi as float into float:
+    return calling rand_range_float with lo, hi
+
+## Alias of `rand_normal` for Gaussian distributions.
+##
+## ## Parámetros
+## - `mean`: centre of the distribution.
+## - `stddev`: standard deviation.
+##
+## ## Retorno
+## A pseudo-random `float`.
+##
+## ## Ejemplo
+## ```pengu
+## var g as float is calling lot.rand_gauss with 10.0, 2.0
+## ```
+weave rand_gauss with mean as float, stddev as float into float:
+    return calling rand_normal with mean, stddev
+
+## Alias of `rand_bool` with an explicit probability parameter name.
+##
+## ## Parámetros
+## - `p`: success probability.
+##
+## ## Retorno
+## A pseudo-random `bool`.
+##
+## ## Ejemplo
+## ```pengu
+## var ok as bool is calling lot.rand_bool_with with 0.75
+## ```
+weave rand_bool_with with p as float into bool:
+    return calling rand_bool with p
+
+## Simulates a fair coin toss.
+##
+## ## Retorno
+## `true` (heads) or `false` (tails), each with probability `0.5`.
+##
+## ## Ejemplo
+## ```pengu
+## if calling lot.rand_coin:
+##     calling spark.println with "heads"
+## ```
+weave rand_coin into bool:
+    return calling rand_bool with 0.5
+
+## Returns a random bit.
+##
+## ## Retorno
+## `0` or `1`, each with probability `0.5`.
+##
+## ## Ejemplo
+## ```pengu
+## var bit as int is calling lot.rand_bit
+## ```
+weave rand_bit into int:
+    return if calling rand_bool with 0.5 then 1 else 0
+
+## Returns a random sign.
+##
+## ## Retorno
+## `-1` or `1`, each with probability `0.5`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as int is calling lot.rand_sign
+## ```
+weave rand_sign into int:
+    return if calling rand_bool with 0.5 then 1 else -1
+
+# ----------------------------------------------------------------------------
+# List Sampling & Combinatorics
+# ----------------------------------------------------------------------------
+
+## Shuffles a list of integers using the Fisher-Yates algorithm into a new list.
+##
+## ## Parámetros
+## - `items`: the list to copy and shuffle. Read only.
+##
+## ## Retorno
+## A new owned `list of int` holding the same elements in random order;
+## release it with `banish`. The input is never mutated.
+##
+## ## Ejemplo
+## ```pengu
+## var mixed as list of int is calling lot.shuffle with nums
+## ```
+weave shuffle with items as list of int into list of int:
+    var res as list of int is for x in items then x
+    var n as int is calling res.len
+    var i as int is n - 1
+    while i > 0:
+        var j as int is calling rand_range with 0, i
+        if i != j:
+            var tmp as int is res at i
+            set res at i is (res at j)
+            set res at j is tmp
+        set i is i - 1
+    return res
+
+## Shuffles a list of strings using the Fisher-Yates algorithm into a new list.
+##
+## ## Parámetros
+## - `items`: the list to copy and shuffle. Read only.
+##
+## ## Retorno
+## A new owned `list of string` holding the same elements in random order;
+## release it with `banish`. The input is never mutated.
+##
+## ## Ejemplo
+## ```pengu
+## var mixed as list of string is calling lot.shuffle_string with words
+## ```
+weave shuffle_string with items as list of string into list of string:
+    var res as list of string is for x in items then x
+    var n as int is calling res.len
+    var i as int is n - 1
+    while i > 0:
+        var j as int is calling rand_range with 0, i
+        if i != j:
+            var tmp as string is res at i
+            set res at i is (res at j)
+            set res at j is tmp
+        set i is i - 1
+    return res
+
+## Selects a random integer element from `items`.
+##
+## ## Parámetros
+## - `items`: the list to choose from. Read only.
+##
+## ## Retorno
+## `some element` if the list is non-empty, `maybe none` when it is empty or
+## when its length is zero (the only representable empty state).
+##
+## ## Ejemplo
+## ```pengu
+## var x as maybe int is calling lot.choice with nums
+## ```
+weave choice with items as list of int into maybe int:
+    var n as int is items.len
+    if n <= 0:
+        return maybe none
+    var idx as int is calling rand_range with 0, n - 1
+    return some (items at idx)
+
+## Selects a random string element from `items`.
+##
+## ## Parámetros
+## - `items`: the list to choose from. Read only.
+##
+## ## Retorno
+## `some element` if the list is non-empty, `maybe none` when it is empty.
+##
+## ## Ejemplo
+## ```pengu
+## var s as maybe string is calling lot.choice_string with words
+## ```
+weave choice_string with items as list of string into maybe string:
+    var n as int is items.len
+    if n <= 0:
+        return maybe none
+    var idx as int is calling rand_range with 0, n - 1
+    return some (items at idx)
+
+## Picks an index in `[0, count)` proportionally to `weights`.
+##
+## ## Parámetros
+## - `weights`: the weight list, read only.
+## - `count`: how many leading entries participate.
+##
+## ## Retorno
+## A non-negative index, or `-1` when every participating weight is `<= 0`.
+##
+## ## Nota
+## The running total is an `i64` and the comparison is done in `float`, so
+## weights whose sum exceeds `INT_MAX` no longer overflow (2.1.0 fix for B3).
+weave _weighted_index with weights as list of int, count as int into int:
+    var total as i64 is 0
+    var i as int is 0
+    while i < count:
+        var w as int is weights at i
+        if w > 0:
+            set total is total + w
+        set i is i + 1
+    if total <= 0:
+        return -1
+    var target as float is (calling rand_float) * (total to float)
+    var acc as float is 0.0
+    set i is 0
+    while i < count:
+        var w2 as int is weights at i
+        if w2 > 0:
+            set acc is acc + (w2 to float)
+            if target < acc:
+                return i
+        set i is i + 1
+    return count - 1
+
+## Selects a random integer element from `items` according to positive `weights`.
+##
+## ## Parámetros
+## - `items`: the candidates. Read only.
+## - `weights`: one weight per item. Read only.
+##
+## ## Retorno
+## `some element` on success; `maybe none` when `items` is empty, the lengths
+## differ, or no weight is positive.
+##
+## ## Ejemplo
+## ```pengu
+## var pick as maybe int is calling lot.choice_weighted with items, weights
+## ```
+weave choice_weighted with items as list of int, weights as list of int into maybe int:
+    var n as int is items.len
+    if n <= 0 or n != weights.len:
+        return maybe none
+    var idx as int is calling _weighted_index with weights, n
+    if idx < 0:
+        return maybe none
+    return some (items at idx)
+
+## Selects a random string element from `items` according to positive `weights`.
+##
+## ## Parámetros
+## - `items`: the candidates. Read only.
+## - `weights`: one weight per item. Read only.
+##
+## ## Retorno
+## `some element` on success; `maybe none` when `items` is empty, the lengths
+## differ, or no weight is positive.
+##
+## ## Ejemplo
+## ```pengu
+## var pick as maybe string is calling lot.choice_weighted_string with items, weights
+## ```
+weave choice_weighted_string with items as list of string, weights as list of int into maybe string:
+    var n as int is items.len
+    if n <= 0 or n != weights.len:
+        return maybe none
+    var idx as int is calling _weighted_index with weights, n
+    if idx < 0:
+        return maybe none
+    return some (items at idx)
+
+## Samples `k` unique integers from `items` without replacement.
+##
+## ## Parámetros
+## - `items`: the pool. Read only.
+## - `k`: how many elements to draw.
+##
+## ## Retorno
+## A new owned `list of int` with `min(k, len)` distinct elements; empty when
+## `k <= 0` or the pool is empty.
+##
+## ## Ejemplo
+## ```pengu
+## var hand as list of int is calling lot.sample with nums, 3
+## ```
+weave sample with items as list of int, k as int into list of int:
+    var res as list of int is list of int
+    var n as int is items.len
+    if k <= 0 or n == 0:
+        return res
+    var take as int is k
+    if take > n:
+        set take is n
+    var sh as list of int is calling shuffle with items
+    var i as int is 0
+    while i < take:
+        calling res.push with (sh at i)
+        set i is i + 1
+    return res
+
+## Samples `k` integers from `items` with replacement.
+##
+## ## Parámetros
+## - `items`: the pool. Read only.
+## - `k`: how many draws.
+##
+## ## Retorno
+## A new owned `list of int` of length `k`, or empty when `k <= 0` or the pool
+## is empty.
+##
+## ## Ejemplo
+## ```pengu
+## var rolls as list of int is calling lot.sample_with_replacement with nums, 5
+## ```
+weave sample_with_replacement with items as list of int, k as int into list of int:
+    var res as list of int is list of int
+    var n as int is items.len
+    if k <= 0 or n == 0:
+        return res
+    var i as int is 0
+    while i < k:
+        calling res.push with (items at (calling rand_range with 0, n - 1))
+        set i is i + 1
+    return res
+
+## Samples `k` unique strings from `items` without replacement.
+##
+## ## Parámetros
+## - `items`: the pool. Read only.
+## - `k`: how many elements to draw.
+##
+## ## Retorno
+## A new owned `list of string` with `min(k, len)` distinct elements.
+##
+## ## Ejemplo
+## ```pengu
+## var sub as list of string is calling lot.sample_string with words, 2
+## ```
+weave sample_string with items as list of string, k as int into list of string:
+    var res as list of string is list of string
+    var n as int is items.len
+    if k <= 0 or n == 0:
+        return res
+    var take as int is k
+    if take > n:
+        set take is n
+    var sh as list of string is calling shuffle_string with items
+    var i as int is 0
+    while i < take:
+        calling res.push with (sh at i)
+        set i is i + 1
+    return res
+
+## Returns a random permutation of the integers in `[0, n)`.
+##
+## ## Parámetros
+## - `n`: how many integers.
+##
+## ## Retorno
+## A new owned `list of int` with the values `0 .. n - 1` in random order;
+## empty when `n <= 0`.
+##
+## ## Ejemplo
+## ```pengu
+## var order as list of int is calling lot.permutation with 10
+## ```
+weave permutation with n as int into list of int:
+    var xs as list of int is list of int
+    if n <= 0:
+        return xs
+    var i as int is 0
+    while i < n:
+        calling xs.push with i
+        set i is i + 1
+    return calling shuffle with xs
+
+## Draws `k` integers from `items` with replacement (`random.choices`).
+##
+## ## Parámetros
+## - `items`: the pool. Read only.
+## - `k`: how many draws.
+##
+## ## Retorno
+## A new owned `list of int` of length `k`; empty when `k <= 0` or the pool is
+## empty. Elements may repeat, unlike `sample`.
+##
+## ## Ejemplo
+## ```pengu
+## var rolls as list of int is calling lot.rand_choice_n with dice, 10
+## ```
+weave rand_choice_n with items as list of int, k as int into list of int:
+    var res as list of int is list of int
+    var n as int is items.len
+    if k <= 0 or n == 0:
+        return res
+    var i as int is 0
+    while i < k:
+        calling res.push with (items at (calling rand_range with 0, n - 1))
+        set i is i + 1
+    return res
+
+## Draws `k` strings from `items` with replacement.
+##
+## ## Parámetros
+## - `items`: the pool. Read only.
+## - `k`: how many draws.
+##
+## ## Retorno
+## A new owned `list of string` of length `k`; empty when `k <= 0` or the pool
+## is empty. Elements may repeat.
+##
+## ## Ejemplo
+## ```pengu
+## var picks as list of string is calling lot.rand_choice_n_string with words, 4
+## ```
+weave rand_choice_n_string with items as list of string, k as int into list of string:
+    var res as list of string is list of string
+    var n as int is items.len
+    if k <= 0 or n == 0:
+        return res
+    var i as int is 0
+    while i < k:
+        calling res.push with (items at (calling rand_range with 0, n - 1))
+        set i is i + 1
+    return res
+
+## Samples `k` distinct integers from `items` proportionally to `weights`.
+##
+## ## Parámetros
+## - `items`: the pool. Read only.
+## - `weights`: one positive weight per item. Read only.
+## - `k`: how many distinct elements to draw.
+##
+## ## Retorno
+## A new owned `list of int` with `min(k, len)` distinct elements. Empty when
+## `k <= 0`, the pool is empty, the lengths differ, or no weight is positive.
+##
+## ## Nota
+## Chosen entries are removed from the running pool, so this is sampling
+## *without* replacement (`choice_weighted` repeated would allow repeats).
+##
+## ## Ejemplo
+## ```pengu
+## var picks as list of int is calling lot.rand_sample_weighted with items, weights, 2
+## ```
+weave rand_sample_weighted with items as list of int, weights as list of int, k as int into list of int:
+    var res as list of int is list of int
+    var n as int is items.len
+    if k <= 0 or n == 0 or n != weights.len:
+        return res
+    var pool as list of int is for x in items then x
+    var wts as list of int is for w in weights then w
+    var remaining as int is n
+    var take as int is k
+    if take > n:
+        set take is n
+    while (calling res.len) < take and remaining > 0:
+        var idx as int is calling _weighted_index with wts, remaining
+        if idx < 0:
+            set remaining is 0
+        else:
+            calling res.push with (pool at idx)
+            var j as int is idx
+            while j < remaining - 1:
+                set pool at j is (pool at (j + 1))
+                set wts at j is (wts at (j + 1))
+                set j is j + 1
+            set remaining is remaining - 1
+    return res
+
+## Generic `random.choice` for any element type.
+##
+## ## Parámetros
+## - `items`: the list to choose from. Read only.
+##
+## ## Retorno
+## `some element` when the list is non-empty, `maybe none` otherwise.
+##
+## ## Ejemplo
+## ```pengu
+## var pick as maybe string is calling lot.rand_choice_shard with words
+## ```
+weave rand_choice_shard shard T with items as list of T into maybe T:
+    var n as int is calling items.len
+    if n <= 0:
+        return maybe none
+    return some (items at (calling rand_range with 0, n - 1))
+
+## Generic Fisher-Yates shuffle for any element type.
+##
+## ## Parámetros
+## - `items`: the list to copy and shuffle. Read only.
+##
+## ## Retorno
+## A new owned `list of T` in random order; the input is never mutated.
+##
+## ## Ejemplo
+## ```pengu
+## var mixed as list of string is calling lot.rand_shuffle_shard with words
+## ```
+weave rand_shuffle_shard shard T with items as list of T into list of T:
+    var res as list of T is for x in items then x
+    var n as int is calling res.len
+    var i as int is n - 1
+    while i > 0:
+        var j as int is calling rand_range with 0, i
+        if i != j:
+            var tmp as T is res at i
+            set res at i is (res at j)
+            set res at j is tmp
+        set i is i - 1
+    return res
+
+## Generic sample without replacement for any element type.
+##
+## ## Parámetros
+## - `items`: the pool. Read only.
+## - `k`: how many distinct elements to draw.
+##
+## ## Retorno
+## A new owned `list of T` with `min(k, len)` distinct elements.
+##
+## ## Ejemplo
+## ```pengu
+## var picks as list of string is calling lot.rand_sample_shard with words, 2
+## ```
+weave rand_sample_shard shard T with items as list of T, k as int into list of T:
+    var res as list of T is list of T
+    var n as int is calling items.len
+    if k <= 0 or n == 0:
+        return res
+    var take as int is k
+    if take > n:
+        set take is n
+    var sh as list of T is calling rand_shuffle_shard with items
+    var i as int is 0
+    while i < take:
+        calling res.push with (sh at i)
+        set i is i + 1
+    return res
+
+## Generic permutation of a list (`random.sample(items, len(items))`).
+##
+## ## Parámetros
+## - `items`: the list to permute. Read only.
+##
+## ## Retorno
+## A new owned `list of T` with every element exactly once, in random order.
+##
+## ## Ejemplo
+## ```pengu
+## var order as list of int is calling lot.rand_permutation_shard with nums
+## ```
+weave rand_permutation_shard shard T with items as list of T into list of T:
+    return calling rand_shuffle_shard with items
+
+# ----------------------------------------------------------------------------
+# Random Strings, Bytes and Tokens
+# ----------------------------------------------------------------------------
+
+## Generates a random string of length `n` by sampling characters from `charset`.
+##
+## ## Parámetros
+## - `charset`: the characters to sample from. Read only.
+## - `n`: the desired length.
+##
+## ## Retorno
+## A new owned `string` of length `n`, or `""` when `n <= 0` or `charset` is
+## empty. Release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as string is calling lot.rand_from_charset with "ABC", 5
+## ```
+weave rand_from_charset with charset as string, n as int into string:
+    if n <= 0 or charset.len == 0:
+        return ""
+    var clen as int is charset.len
+    var res as string is ""
+    var i as int is 0
+    while i < n:
+        set res is "{res}{(charset at (calling rand_range with 0, clen - 1))}"
+        set i is i + 1
+    return res
+
+## Generates a random string of `n` ASCII letters (`a-z`, `A-Z`).
+##
+## ## Parámetros
+## - `n`: the desired length.
+##
+## ## Retorno
+## A new owned `string` of length `n`.
+##
+## ## Ejemplo
+## ```pengu
+## var token as string is calling lot.rand_alpha with 8
+## ```
+weave rand_alpha with n as int into string:
+    return calling rand_from_charset with "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", n
+
+## Generates a random string of `n` decimal digits (`0-9`).
+##
+## ## Parámetros
+## - `n`: the desired length.
+##
+## ## Retorno
+## A new owned `string` of length `n`.
+##
+## ## Ejemplo
+## ```pengu
+## var pin as string is calling lot.rand_digit_string with 4
+## ```
+weave rand_digit_string with n as int into string:
+    return calling rand_from_charset with "0123456789", n
+
+## Generates a random alphanumeric string of length `n` (`a-z`, `A-Z`, `0-9`).
+##
+## ## Parámetros
+## - `n`: the desired length.
+##
+## ## Retorno
+## A new owned `string` of length `n`.
+##
+## ## Ejemplo
+## ```pengu
+## var id as string is calling lot.rand_alnum_string with 12
+## ```
+weave rand_alnum_string with n as int into string:
+    return calling rand_from_charset with "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", n
+
+## Generates a random lowercase hexadecimal string of length `n`.
+##
+## ## Parámetros
+## - `n`: the number of hex *characters* (not bytes).
+##
+## ## Retorno
+## A new owned `string` of length `n` drawn from `0-9a-f`.
+##
+## ## Nota
+## This samples hex digits; `rand_bytes_hex` and `rand_hex_upper` encode real
+## random bytes instead (length `2 * n`). See the migration table.
+##
+## ## Ejemplo
+## ```pengu
+## var token as string is calling lot.rand_hex_string with 16
+## ```
+weave rand_hex_string with n as int into string:
+    return calling rand_from_charset with "0123456789abcdef", n
+
+## Returns one lowercase hex digit for a nibble in `[0, 15]`.
+##
+## ## Parámetros
+## - `v`: the nibble. Values outside `[0, 15]` are not meaningful.
+##
+## ## Retorno
+## A one-character `string`.
+weave _hex_digit with v as int into string:
+    return if v < 10 then (chr (48 + v)) else (chr (87 + v))
+
+## Returns one uppercase hex digit for a nibble in `[0, 15]`.
+##
+## ## Parámetros
+## - `v`: the nibble. Values outside `[0, 15]` are not meaningful.
+##
+## ## Retorno
+## A one-character `string`.
+weave _hex_digit_upper with v as int into string:
+    return if v < 10 then (chr (48 + v)) else (chr (55 + v))
+
+## Hex-encodes a byte list.
+##
+## ## Parámetros
+## - `data`: the bytes, each in `[0, 255]`. Read only.
+## - `upper`: `true` for `A-F`, `false` for `a-f`.
+##
+## ## Retorno
+## A new owned `string` of length `2 * len(data)`.
+weave _bytes_hex with data as list of int, upper as bool into string:
+    var out as string is ""
+    for b in data:
+        if upper:
+            set out is "{out}{(calling _hex_digit_upper with (b / 16))}{(calling _hex_digit_upper with (b % 16))}"
+        else:
+            set out is "{out}{(calling _hex_digit with (b / 16))}{(calling _hex_digit with (b % 16))}"
+    return out
+
+## Generates `n` random bytes as a list of integers.
+##
+## ## Parámetros
+## - `n`: how many bytes.
+##
+## ## Retorno
+## A new owned `list of int` of length `n` with every value in `[0, 255]`;
+## empty when `n <= 0`. Release it with `banish`.
+##
+## ## Nota
+## Random, **not** secret: the underlying `rand()` is predictable. It exists so
+## the hex, base64 and UUID helpers above it encode real bytes (2.1.0 fix for
+## B4, which used to fake bytes with random hex characters).
+##
+## ## Ejemplo
+## ```pengu
+## var raw as list of int is calling lot.rand_bytes with 16
+## ```
+weave rand_bytes with n as int into list of int:
+    var res as list of int is list of int
+    if n <= 0:
+        return res
+    var i as int is 0
+    while i < n:
+        calling res.push with (calling rand_range with 0, 255)
+        set i is i + 1
+    return res
+
+## Generates `n` random bytes packed into a `string`.
+##
+## ## Parámetros
+## - `n`: how many bytes.
+##
+## ## Retorno
+## A new owned `string` whose `.len` is exactly `n`; each byte is in `[0, 255]`
+## and may be `NUL`. Empty when `n <= 0`.
+##
+## ## Nota
+## A byte of `0` is a valid element (the runtime tracks the length, not a
+## terminator); do not pass the result to C APIs that stop at `NUL` without
+## passing the length too.
+##
+## ## Ejemplo
+## ```pengu
+## var blob as string is calling lot.rand_bytes_string with 32
+## ```
+weave rand_bytes_string with n as int into string:
+    var res as string is ""
+    if n <= 0:
+        return res
+    var i as int is 0
+    while i < n:
+        set res is "{res}{(chr (calling rand_range with 0, 255))}"
+        set i is i + 1
+    return res
+
+## Generates `n` random bytes and formats them as a hexadecimal string.
+##
+## ## Parámetros
+## - `n`: the number of bytes.
+##
+## ## Retorno
+## A new owned lowercase hex `string` of length `2 * n`; empty when `n <= 0`.
+##
+## ## Ejemplo
+## ```pengu
+## var nonce as string is calling lot.rand_bytes_hex with 8    # 16 hex chars
+## ```
+weave rand_bytes_hex with n as int into string:
+    if n <= 0:
+        return ""
+    return calling _bytes_hex with (calling rand_bytes with n), false
+
+## Generates `n` random bytes and formats them as uppercase hexadecimal.
+##
+## ## Parámetros
+## - `n`: the number of bytes.
+##
+## ## Retorno
+## A new owned uppercase hex `string` of length `2 * n`; empty when `n <= 0`.
+##
+## ## Ejemplo
+## ```pengu
+## var tag as string is calling lot.rand_hex_upper with 4    # "9F3A12CD"
+## ```
+weave rand_hex_upper with n as int into string:
+    if n <= 0:
+        return ""
+    return calling _bytes_hex with (calling rand_bytes with n), true
+
+## Maps a 6-bit value to its base64 character.
+##
+## ## Parámetros
+## - `idx`: a value in `[0, 63]`.
+##
+## ## Retorno
+## A one-character `string`.
+weave _b64_char with idx as int into string:
+    return BASE64_ALPHABET at idx
+
+## Encodes a byte list as standard base64 with `=` padding.
+##
+## ## Parámetros
+## - `data`: the bytes, each in `[0, 255]`. Read only.
+##
+## ## Retorno
+## A new owned `string` of length `4 * ceil(len / 3)`.
+weave _base64_encode with data as list of int into string:
+    var out as string is ""
+    var n as int is calling data.len
+    var i as int is 0
+    while i < n:
+        var b0 as int is data at i
+        var b1 as int is if i + 1 < n then (data at (i + 1)) else 0
+        var b2 as int is if i + 2 < n then (data at (i + 2)) else 0
+        var triple as int is b0 * 65536 + b1 * 256 + b2
+        set out is "{out}{(calling _b64_char with ((triple / 262144) % 64))}"
+        set out is "{out}{(calling _b64_char with ((triple / 4096) % 64))}"
+        if i + 1 < n:
+            set out is "{out}{(calling _b64_char with ((triple / 64) % 64))}"
+        else:
+            set out is "{out}="
+        if i + 2 < n:
+            set out is "{out}{(calling _b64_char with (triple % 64))}"
+        else:
+            set out is "{out}="
+        set i is i + 3
+    return out
+
+## Generates `n` random bytes and encodes them as standard base64.
+##
+## ## Parámetros
+## - `n`: the number of random bytes.
+##
+## ## Retorno
+## A new owned base64 `string` of length `4 * ceil(n / 3)`; empty when `n <= 0`.
+##
+## ## Ejemplo
+## ```pengu
+## var tok as string is calling lot.rand_base64 with 24
+## ```
+weave rand_base64 with n as int into string:
+    if n <= 0:
+        return ""
+    return calling _base64_encode with (calling rand_bytes with n)
+
+## Generates an RFC 4122 version-4 UUID.
+##
+## ## Retorno
+## A new owned `string` shaped `xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx` where
+## `y` is one of `8`, `9`, `a`, `b`. Release it with `banish`.
+##
+## ## Nota
+## Built from `rand_bytes`, so it is unique enough for tests and local
+## identifiers but **not** unguessable.
+##
+## ## Ejemplo
+## ```pengu
+## var id as string is calling lot.rand_uuid4
+## ```
+weave rand_uuid4 into string:
+    var raw as list of int is calling rand_bytes with 16
+    set raw at 6 is (((raw at 6) & 15) | 64)
+    set raw at 8 is (((raw at 8) & 63) | 128)
+    var hex as string is calling _bytes_hex with raw, false
+    var out as string is ""
+    var i as int is 0
+    while i < 32:
+        if i == 8 or i == 12 or i == 16 or i == 20:
+            set out is "{out}-"
+        set out is "{out}{(hex at i)}"
+        set i is i + 1
+    return out
+
+## Returns the ASCII symbol set offered by `rand_password`.
+##
+## ## Retorno
+## A new owned `string` holding `!@#$%^&*()-_=+[]{}|;:,.<>?`.
+##
+## ## Nota
+## This is a *raw* string literal, so `{` and `}` need no `chr 123` /
+## `chr 125` workaround (2.1.0 fix for B5). It is a weave rather than a
+## `const` on purpose: the code generator folds a brace-bearing `const`
+## into a C literal and then mistakes the braces for interpolation, so a
+## `const` could not be passed to another weave at all.
+##
+## ## Ejemplo
+## ```pengu
+## var sym as string is calling lot.password_symbols
+## defer banish sym
+## ```
+weave password_symbols into string:
+    return r"!@#$%^&*()-_=+[]{}|;:,.<>?"
+
+## Returns the password charset, symbols included.
+##
+## ## Retorno
+## A `string` with `a-z`, `A-Z`, `0-9` and the `password_symbols` set.
+##
+## ## Ejemplo
+## ```pengu
+## var charset as string is calling lot._password_charset
+## ```
+weave _password_charset into string:
+    return "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789{(calling password_symbols)}"
+
+## Generates a random password of length `n`, optionally including symbols.
+##
+## ## Parámetros
+## - `n`: the desired length.
+## - `include_symbols`: when true, `!@#$%^&*()-_=+[]{}|;:,.<>?` joins the
+##   alphanumeric alphabet. Default `false`.
+##
+## ## Retorno
+## A new owned `string` of length `n`; empty when `n <= 0`.
+##
+## ## Ejemplo
+## ```pengu
+## var pass as string is calling lot.rand_password with 16, true
+## ```
+weave rand_password with n as int, include_symbols as bool is false into string:
+    if include_symbols:
+        return calling rand_from_charset with (calling _password_charset), n
+    return calling rand_from_charset with "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", n
+
+# ----------------------------------------------------------------------------
+# Tests
+#
+# Private harness: `std.ward` cannot be imported here (it pulls in modules that
+# import this one), so the assertions use `spark.panic` directly. Randomised
+# tests assert invariants that must hold for *every* draw, never a hard-coded
+# sequence, because the C `rand()` sequence is platform-specific.
+# ----------------------------------------------------------------------------
+
+## Aborts unless `cond` holds.
+weave _lot_expect with cond as bool, label as string into void:
+    if not cond:
+        calling spark.panic with "lot expectation failed: {label}"
+
+## Aborts unless the two ints are equal.
+weave _lot_expect_eq_int with got as int, want as int, label as string into void:
+    if got != want:
+        calling spark.panic with "{label}: expected {(want to string)}, got {(got to string)}"
+
+## Aborts unless the two strings are byte-equal.
+weave _lot_expect_eq_string with got as string, want as string, label as string into void:
+    if got != want:
+        calling spark.panic with "{label}: expected \"{want}\", got \"{got}\""
+
+## Aborts unless `got` and `want` differ by less than 0.001.
+weave _lot_expect_close with got as float, want as float, label as string into void:
+    let diff as float is if got >= want then (got - want) else (want - got)
+    if diff > 0.001:
+        calling spark.panic with "{label}: float mismatch"
+
+## Aborts unless `v` is neither NaN nor absurdly large.
+weave _lot_expect_finite with v as float, label as string into void:
+    if v != v:
+        calling spark.panic with "{label}: NaN"
+    let mag as float is if v >= 0.0 then v else (0.0 - v)
+    if mag > 1000000000.0:
+        calling spark.panic with "{label}: out of range"
+
+## Returns the sum of an int list.
+weave _lot_sum with xs as list of int into int:
+    var total as int is 0
+    for x in xs:
+        set total is total + x
+    return total
+
+## Returns true when `c` occurs in `s`.
+weave _lot_has_char with s as string, c as string into bool:
+    var i as int is 0
+    var n as int is s.len
+    while i < n:
+        if (s at i) == c:
+            return true
+        set i is i + 1
+    return false
+
+## Returns true when every element of `xs` is distinct.
+weave _lot_all_distinct with xs as list of int into bool:
+    var n as int is xs.len
+    var i as int is 0
+    while i < n:
+        var j as int is i + 1
+        while j < n:
+            if (xs at i) == (xs at j):
+                return false
+            set j is j + 1
+        set i is i + 1
+    return true
+
+## Returns true when every character of `s` is in `charset`.
+weave _lot_all_in_charset with s as string, charset as string into bool:
+    var i as int is 0
+    var n as int is s.len
+    while i < n:
+        if not (calling _lot_has_char with charset, (s at i)):
+            return false
+        set i is i + 1
+    return true
+
+test "LOT_VERSION is the frozen 2.1.0 contract":
+    calling _lot_expect with (LOT_VERSION == "2.1.0"), "version literal"
+
+test "a fixed seed reproduces the same sequence":
+    calling seed with 42
+    let first as int is calling rand_int
+    calling seed with 42
+    let second as int is calling rand_int
+    calling _lot_expect_eq_int with second, first, "seeded sequence"
+
+test "BUG-7: a negative seed is repeatable and does not truncate silently":
+    calling seed with 0 - 7
+    let a as int is calling rand_int
+    calling seed with 0 - 7
+    let b as int is calling rand_int
+    calling _lot_expect_eq_int with b, a, "negative seed"
+
+test "BUG-10: rand_int is always non-negative and at most rand_max":
+    var i as int is 0
+    while i < 200:
+        let r as int is calling rand_int
+        calling _lot_expect with (r >= 0), "rand_int >= 0"
+        calling _lot_expect with (r <= (calling rand_max)), "rand_int <= RAND_MAX"
+        set i is i + 1
+
+test "rand_float stays in the half-open unit interval":
+    var i as int is 0
+    while i < 200:
+        let u as float is calling rand_float
+        calling _lot_expect with (u >= 0.0), "rand_float >= 0"
+        calling _lot_expect with (u < 1.0), "rand_float < 1"
+        set i is i + 1
+
+test "rand_range is inclusive on both bounds and returns lo when lo >= hi":
+    calling _lot_expect_eq_int with (calling rand_range with 5, 5), 5, "degenerate range"
+    calling _lot_expect_eq_int with (calling rand_range with 9, 3), 9, "inverted range"
+    var saw_lo as bool is false
+    var saw_hi as bool is false
+    var i as int is 0
+    while i < 400:
+        let v as int is calling rand_range with 1, 6
+        calling _lot_expect with (v >= 1 and v <= 6), "range bounds"
+        if v == 1:
+            set saw_lo is true
+        if v == 6:
+            set saw_hi is true
+        set i is i + 1
+    calling _lot_expect with saw_lo, "reachable lower bound"
+    calling _lot_expect with saw_hi, "reachable upper bound"
+
+test "rand_range_float stays in [lo, hi) and clamps inverted ranges":
+    calling _lot_expect_close with (calling rand_range_float with 3.0, 1.0), 3.0, "inverted range"
+    var i as int is 0
+    while i < 200:
+        let v as float is calling rand_range_float with 2.0, 5.0
+        calling _lot_expect with (v >= 2.0 and v < 5.0), "range float bounds"
+        set i is i + 1
+
+test "rand_bool honours the absorbing probabilities":
+    calling _lot_expect with (not (calling rand_bool with 0.0)), "p=0 is false"
+    calling _lot_expect with (calling rand_bool with 1.0), "p=1 is true"
+
+test "rand_coin, rand_bit, rand_sign and rand_bool_with agree with their ranges":
+    let coin as bool is calling rand_coin
+    calling _lot_expect with (coin == true or coin == false), "coin is a bool"
+    var i as int is 0
+    while i < 100:
+        let bit as int is calling rand_bit
+        calling _lot_expect with (bit == 0 or bit == 1), "bit"
+        let sign as int is calling rand_sign
+        calling _lot_expect with (sign == 0 - 1 or sign == 1), "sign"
+        let flag as bool is calling rand_bool_with with 0.5
+        calling _lot_expect with (flag == true or flag == false), "bool_with"
+        set i is i + 1
+
+test "rand_exp, rand_poisson and rand_chi_squared stay non-negative":
+    var i as int is 0
+    while i < 100:
+        calling _lot_expect with ((calling rand_exp with 1.5) >= 0.0), "exp"
+        calling _lot_expect with ((calling rand_poisson with 3.0) >= 0), "poisson"
+        calling _lot_expect with ((calling rand_chi_squared with 3) >= 0.0), "chi squared"
+        set i is i + 1
+
+test "rand_normal and the Gaussian alias are finite":
+    var i as int is 0
+    while i < 100:
+        calling _lot_expect_finite with (calling rand_normal with 0.0, 1.0), "normal"
+        calling _lot_expect_finite with (calling rand_gauss with 10.0, 2.0), "gauss"
+        set i is i + 1
+    calling _lot_expect_close with (calling rand_normal with 7.0, 0.0), 7.0, "zero sigma"
+
+test "BUG-8: rand_lognormal validates sigma instead of going deterministic by accident":
+    let degenerate as float is calling rand_lognormal with 2.0, 0.0
+    let expected as float is calling arithmancy.exp with 2.0
+    calling _lot_expect_close with degenerate, expected, "degenerate sigma"
+    var i as int is 0
+    while i < 100:
+        calling _lot_expect with ((calling rand_lognormal with 0.0, 1.0) > 0.0), "lognormal > 0"
+        set i is i + 1
+
+test "BUG-2: rand_weibull never produces inf or NaN":
+    var i as int is 0
+    while i < 200:
+        let w as float is calling rand_weibull with 1.5, 2.0
+        calling _lot_expect_finite with w, "weibull"
+        calling _lot_expect with (w >= 0.0), "weibull >= 0"
+        set i is i + 1
+    calling _lot_expect_close with (calling rand_weibull with 0.0, 1.0), 0.0, "zero shape"
+    calling _lot_expect_close with (calling rand_weibull with 1.0, 0.0), 0.0, "zero scale"
+
+test "rand_triangular respects its support and rejects a bad mode":
+    var i as int is 0
+    while i < 100:
+        let t as float is calling rand_triangular with 0.0, 5.0, 10.0
+        calling _lot_expect with (t >= 0.0 and t <= 10.0), "triangular support"
+        set i is i + 1
+    calling _lot_expect_close with (calling rand_triangular with 0.0, 99.0, 10.0), 0.0, "bad mode"
+    calling _lot_expect_close with (calling rand_triangular with 4.0, 4.0, 1.0), 4.0, "inverted"
+
+test "BUG-1: the gamma core reports exhaustion instead of a bogus sample":
+    let exhausted as maybe float is calling _gamma_mt with 2.0, 1.0, 0
+    calling _lot_expect with (not (exhausted is present)), "no silent fallback"
+    let accepted as maybe float is calling _gamma_mt with 2.0, 1.0, 1000
+    calling _lot_expect with (accepted is present), "normal acceptance"
+
+test "rand_gamma returns positive finite samples for shape below and above one":
+    var i as int is 0
+    while i < 100:
+        let g as float is calling rand_gamma with 2.0, 1.0
+        calling _lot_expect_finite with g, "gamma shape 2"
+        calling _lot_expect with (g > 0.0), "gamma > 0"
+        let small as float is calling rand_gamma with 0.5, 2.0
+        calling _lot_expect_finite with small, "gamma shape 0.5"
+        calling _lot_expect with (small > 0.0), "gamma small > 0"
+        set i is i + 1
+    calling _lot_expect_close with (calling rand_gamma with 0.0, 1.0), 0.0, "zero shape"
+
+test "rand_beta stays in [0, 1] and validates its parameters":
+    var i as int is 0
+    while i < 100:
+        let b as float is calling rand_beta with 2.0, 5.0
+        calling _lot_expect with (b >= 0.0 and b <= 1.0), "beta support"
+        set i is i + 1
+    calling _lot_expect_close with (calling rand_beta with 0.0, 1.0), 0.0, "zero a"
+    calling _lot_expect_close with (calling rand_beta with 1.0, 0.0), 0.0, "zero b"
+
+test "rand_vonmises returns an angle normalised to [0, 2*pi)":
+    var i as int is 0
+    while i < 100:
+        let angle as float is calling rand_vonmises with 0.0, 4.0
+        calling _lot_expect with (angle >= 0.0 and angle < arithmancy.TWO_PI), "vonmises angle"
+        set i is i + 1
+    let flat as float is calling rand_vonmises with 0.0, 0.0
+    calling _lot_expect with (flat >= 0.0 and flat < arithmancy.TWO_PI), "uniform fallback"
+
+test "rand_pareto and rand_cauchy stay in their documented domains":
+    var i as int is 0
+    while i < 100:
+        calling _lot_expect with ((calling rand_pareto with 2.0) >= 1.0), "pareto >= 1"
+        calling _lot_expect_finite with (calling rand_cauchy with 0.0, 1.0), "cauchy"
+        set i is i + 1
+    calling _lot_expect_close with (calling rand_pareto with 0.0), 0.0, "zero alpha"
+    calling _lot_expect_close with (calling rand_cauchy with 3.0, 0.0), 3.0, "zero gamma"
+
+test "the range aliases agree with their targets":
+    var i as int is 0
+    while i < 50:
+        let a as int is calling rand_between with 1, 6
+        calling _lot_expect with (a >= 1 and a <= 6), "rand_between"
+        let u as float is calling rand_uniform with 0.0, 4.0
+        calling _lot_expect with (u >= 0.0 and u < 4.0), "rand_uniform"
+        set i is i + 1
+
+test "BUG-6: shuffle permutes the list instead of rebuilding it element by element":
+    var xs as list of int is list of int
+    var i as int is 0
+    while i < 10:
+        calling xs.push with i
+        set i is i + 1
+    let mixed as list of int is calling shuffle with xs
+    calling _lot_expect_eq_int with (calling mixed.len), 10, "shuffle keeps length"
+    calling _lot_expect_eq_int with (calling _lot_sum with mixed), 45, "shuffle keeps the multiset"
+    let empty as list of int is list of int
+    let empty_mixed as list of int is calling shuffle with empty
+    calling _lot_expect_eq_int with (calling empty_mixed.len), 0, "empty shuffle"
+
+test "shuffle_string keeps every element of the input":
+    var words as list of string is list of string
+    calling words.push with "a"
+    calling words.push with "b"
+    calling words.push with "c"
+    let mixed as list of string is calling shuffle_string with words
+    calling _lot_expect_eq_int with (calling mixed.len), 3, "shuffle_string length"
+
+test "BUG-9: choice returns none on an empty list and a member otherwise":
+    let empty as list of int is list of int
+    let none_pick as maybe int is calling choice with empty
+    calling _lot_expect with (not (none_pick is present)), "empty choice"
+    var xs as list of int is list of int
+    calling xs.push with 7
+    calling xs.push with 8
+    var i as int is 0
+    while i < 50:
+        let pick as maybe int is calling choice with xs
+        calling _lot_expect with (pick is present), "non-empty choice"
+        if pick is present:
+            calling _lot_expect with (pick.value == 7 or pick.value == 8), "choice member"
+        set i is i + 1
+    let words as list of string is list of string
+    let none_name as maybe string is calling choice_string with words
+    calling _lot_expect with (not (none_name is present)), "empty choice_string"
+
+test "BUG-3: weighted choice cannot overflow with huge weights":
+    var items as list of int is list of int
+    calling items.push with 0
+    calling items.push with 1
+    var weights as list of int is list of int
+    calling weights.push with LOT_INT_MAX
+    calling weights.push with LOT_INT_MAX
+    var i as int is 0
+    while i < 200:
+        let idx as int is calling _weighted_index with weights, 2
+        calling _lot_expect with (idx == 0 or idx == 1), "overflow-safe index"
+        set i is i + 1
+
+test "choice_weighted rejects empty, mismatched and all-zero inputs":
+    let empty as list of int is list of int
+    let empty_w as list of int is list of int
+    let a as maybe int is calling choice_weighted with empty, empty_w
+    calling _lot_expect with (not (a is present)), "empty weighted"
+    var items as list of int is list of int
+    calling items.push with 1
+    calling items.push with 2
+    var one_w as list of int is list of int
+    calling one_w.push with 5
+    let b as maybe int is calling choice_weighted with items, one_w
+    calling _lot_expect with (not (b is present)), "length mismatch"
+    var zero_w as list of int is list of int
+    calling zero_w.push with 0
+    calling zero_w.push with 0
+    let c as maybe int is calling choice_weighted with items, zero_w
+    calling _lot_expect with (not (c is present)), "zero weights"
+
+test "choice_weighted only ever returns a positively weighted item":
+    var items as list of int is list of int
+    calling items.push with 10
+    calling items.push with 20
+    var weights as list of int is list of int
+    calling weights.push with 0
+    calling weights.push with 7
+    var i as int is 0
+    while i < 100:
+        let pick as maybe int is calling choice_weighted with items, weights
+        calling _lot_expect with (pick is present), "weighted present"
+        if pick is present:
+            calling _lot_expect_eq_int with pick.value, 20, "zero weight is unreachable"
+        set i is i + 1
+    var names as list of string is list of string
+    calling names.push with "x"
+    var name_w as list of int is list of int
+    calling name_w.push with 4
+    let chosen as maybe string is calling choice_weighted_string with names, name_w
+    calling _lot_expect with (chosen is present), "choice_weighted_string"
+
+test "sample draws distinct elements and clamps k to the pool size":
+    var xs as list of int is list of int
+    var i as int is 0
+    while i < 10:
+        calling xs.push with i
+        set i is i + 1
+    let hand as list of int is calling sample with xs, 5
+    calling _lot_expect_eq_int with (calling hand.len), 5, "sample length"
+    calling _lot_expect with (calling _lot_all_distinct with hand), "sample distinct"
+    let all as list of int is calling sample with xs, 99
+    calling _lot_expect_eq_int with (calling all.len), 10, "sample clamps k"
+    let none as list of int is calling sample with xs, 0
+    calling _lot_expect_eq_int with (calling none.len), 0, "sample k=0"
+
+test "sample_with_replacement returns exactly k draws":
+    var xs as list of int is list of int
+    calling xs.push with 1
+    calling xs.push with 2
+    let rolls as list of int is calling sample_with_replacement with xs, 7
+    calling _lot_expect_eq_int with (calling rolls.len), 7, "with replacement length"
+    var words as list of string is list of string
+    calling words.push with "a"
+    calling words.push with "b"
+    let names as list of string is calling sample_string with words, 1
+    calling _lot_expect_eq_int with (calling names.len), 1, "sample_string"
+    let order as list of int is calling permutation with 6
+    calling _lot_expect_eq_int with (calling order.len), 6, "permutation length"
+    let zero as list of int is calling permutation with 0
+    calling _lot_expect_eq_int with (calling zero.len), 0, "permutation of nothing"
+
+test "rand_choice_n draws with replacement and rand_choice_n_string agrees":
+    var xs as list of int is list of int
+    calling xs.push with 3
+    calling xs.push with 4
+    let draws as list of int is calling rand_choice_n with xs, 9
+    calling _lot_expect_eq_int with (calling draws.len), 9, "rand_choice_n length"
+    for d in draws:
+        calling _lot_expect with (d == 3 or d == 4), "rand_choice_n member"
+    var words as list of string is list of string
+    calling words.push with "a"
+    let names as list of string is calling rand_choice_n_string with words, 4
+    calling _lot_expect_eq_int with (calling names.len), 4, "rand_choice_n_string length"
+    let empty as list of int is list of int
+    let none as list of int is calling rand_choice_n with empty, 4
+    calling _lot_expect_eq_int with (calling none.len), 0, "empty pool"
+
+test "rand_sample_weighted draws distinct, positively weighted items":
+    var items as list of int is list of int
+    var weights as list of int is list of int
+    var i as int is 0
+    while i < 6:
+        calling items.push with i
+        calling weights.push with (i + 1)
+        set i is i + 1
+    let picks as list of int is calling rand_sample_weighted with items, weights, 4
+    calling _lot_expect_eq_int with (calling picks.len), 4, "weighted sample length"
+    calling _lot_expect with (calling _lot_all_distinct with picks), "weighted sample distinct"
+    var zero_w as list of int is list of int
+    calling zero_w.push with 0
+    calling zero_w.push with 0
+    let bad as list of int is calling rand_sample_weighted with items, zero_w, 2
+    calling _lot_expect_eq_int with (calling bad.len), 0, "no positive weight"
+
+test "the generic shard helpers work on strings as well as ints":
+    var words as list of string is list of string
+    calling words.push with "a"
+    calling words.push with "b"
+    calling words.push with "c"
+    let one as maybe string is calling rand_choice_shard with words
+    calling _lot_expect with (one is present), "choice_shard"
+    let mixed as list of string is calling rand_shuffle_shard with words
+    calling _lot_expect_eq_int with (calling mixed.len), 3, "shuffle_shard"
+    let picks as list of string is calling rand_sample_shard with words, 2
+    calling _lot_expect_eq_int with (calling picks.len), 2, "sample_shard"
+    let perm as list of string is calling rand_permutation_shard with words
+    calling _lot_expect_eq_int with (calling perm.len), 3, "permutation_shard"
+    let empty as list of string is list of string
+    let none as maybe string is calling rand_choice_shard with empty
+    calling _lot_expect with (not (none is present)), "empty choice_shard"
+
+test "the charset string generators respect their alphabet and length":
+    let letters as string is calling rand_alpha with 24
+    calling _lot_expect_eq_int with letters.len, 24, "alpha length"
+    calling _lot_expect with (calling _lot_all_in_charset with letters, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"), "alpha alphabet"
+    let digits as string is calling rand_digit_string with 12
+    calling _lot_expect with (calling _lot_all_in_charset with digits, "0123456789"), "digits"
+    let alnum as string is calling rand_alnum_string with 20
+    calling _lot_expect with (calling _lot_all_in_charset with alnum, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"), "alnum"
+    let hex as string is calling rand_hex_string with 16
+    calling _lot_expect_eq_int with hex.len, 16, "hex length"
+    calling _lot_expect with (calling _lot_all_in_charset with hex, "0123456789abcdef"), "hex alphabet"
+    let custom as string is calling rand_from_charset with "AB", 8
+    calling _lot_expect_eq_int with custom.len, 8, "custom length"
+    calling _lot_expect with (calling _lot_all_in_charset with custom, "AB"), "custom alphabet"
+    let blank as string is calling rand_from_charset with "", 4
+    calling _lot_expect_eq_string with blank, "", "empty charset"
+
+test "BUG-4: rand_bytes produces real bytes and rand_bytes_string packs them":
+    let raw as list of int is calling rand_bytes with 32
+    calling _lot_expect_eq_int with (calling raw.len), 32, "byte count"
+    var saw_zero as bool is false
+    var saw_high as bool is false
+    for b in raw:
+        calling _lot_expect with (b >= 0 and b <= 255), "byte range"
+        if b == 0:
+            set saw_zero is true
+        if b > 128:
+            set saw_high is true
+    let packed as string is calling rand_bytes_string with 16
+    calling _lot_expect_eq_int with packed.len, 16, "packed byte count"
+    let none as list of int is calling rand_bytes with 0
+    calling _lot_expect_eq_int with (calling none.len), 0, "zero bytes"
+
+test "rand_bytes_hex hex-encodes real bytes and rand_hex_upper uppercases":
+    let lower as string is calling rand_bytes_hex with 4
+    calling _lot_expect_eq_int with lower.len, 8, "lower hex length"
+    calling _lot_expect with (calling _lot_all_in_charset with lower, "0123456789abcdef"), "lower hex alphabet"
+    let upper as string is calling rand_hex_upper with 4
+    calling _lot_expect_eq_int with upper.len, 8, "upper hex length"
+    calling _lot_expect with (calling _lot_all_in_charset with upper, "0123456789ABCDEF"), "upper hex alphabet"
+    calling _lot_expect_eq_string with (calling rand_bytes_hex with 0), "", "empty hex"
+
+test "rand_base64 pads to a multiple of four and stays in the alphabet":
+    let three as string is calling rand_base64 with 3
+    calling _lot_expect_eq_int with three.len, 4, "3 bytes"
+    calling _lot_expect with (calling _lot_all_in_charset with three, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"), "base64 alphabet"
+    let one as string is calling rand_base64 with 1
+    calling _lot_expect_eq_int with one.len, 4, "1 byte"
+    calling _lot_expect_eq_string with (one at 3), "=", "two padding chars"
+    let two as string is calling rand_base64 with 2
+    calling _lot_expect_eq_string with (two at 3), "=", "one padding char"
+    calling _lot_expect_eq_string with (calling rand_base64 with 0), "", "empty base64"
+
+test "rand_uuid4 has the version-4 shape":
+    let uuid as string is calling rand_uuid4
+    calling _lot_expect_eq_int with uuid.len, 36, "uuid length"
+    calling _lot_expect_eq_string with (uuid at 8), "-", "uuid dash 1"
+    calling _lot_expect_eq_string with (uuid at 13), "-", "uuid dash 2"
+    calling _lot_expect_eq_string with (uuid at 18), "-", "uuid dash 3"
+    calling _lot_expect_eq_string with (uuid at 23), "-", "uuid dash 4"
+    calling _lot_expect_eq_string with (uuid at 14), "4", "uuid version"
+    let variant as string is uuid at 19
+    calling _lot_expect with (variant == "8" or variant == "9" or variant == "a" or variant == "b"), "uuid variant"
+
+test "BUG-5: the password alphabet carries real braces through a raw string":
+    let symbols as string is calling password_symbols
+    calling _lot_expect with (calling _lot_has_char with symbols, "{"), "left brace"
+    calling _lot_expect with (calling _lot_has_char with symbols, (chr 125)), "right brace"
+    let charset as string is calling _password_charset
+    calling _lot_expect with (calling _lot_has_char with charset, "{"), "charset brace"
+    let pass as string is calling rand_password with 32, true
+    calling _lot_expect_eq_int with pass.len, 32, "password length"
+    calling _lot_expect with (calling _lot_all_in_charset with pass, charset), "password charset"
+    let plain as string is calling rand_password with 12
+    calling _lot_expect_eq_int with plain.len, 12, "plain password length"
+    calling _lot_expect with (calling _lot_all_in_charset with plain, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"), "plain is alphanumeric"
+
+test "the seeding entry points run and leave a usable generator":
+    calling seed_from_time
+    calling seed_from_pid
+    let r as int is calling rand_int
+    calling _lot_expect with (r >= 0), "usable after seeding"

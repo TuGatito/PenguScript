@@ -4,6 +4,31 @@ Marcar antes de cada commit de módulo. Cada chunk de la migración reescribe un
 `std/<mod>.pengu`; esta lista es el mínimo común y se aplica igual a los 11
 chunks restantes.
 
+## Bug handling (regla nueva del Chunk 6)
+
+> **Ningún bug se ignora.** Encontrado un bug — al leer, al escribir tests, al
+> compilar o al razonar sobre el código — se arregla, se documenta y se le pone
+> un test. No vale documentarlo y seguir. Protocolo obligatorio:
+
+- [ ] **DETECTAR** activamente, no esperar a que aparezca. Leer el módulo línea a
+      línea antes de reescribir y anotar cada defecto, incluidos los que el brief
+      no liste.
+- [ ] **REPORTAR** en `docs/BUGS_FIXED_CHUNK<N>.md` con la estructura fija:
+      `### BUG-N: <título>`, **Módulo**, **Función**, **Síntoma**, **Causa raíz**,
+      **Impacto**, **Fix aplicado**, **Test de regresión**.
+- [ ] **ARREGLAR** el código para que el bug no pueda volver a ocurrir.
+- [ ] **TEST** de regresión que **falla sin el fix** y pasa con él (interno
+      `test "…"` y, cuando sea observable por stdout/stderr/exit code, caso en
+      `tests/stdlib/test_<mod>.py`).
+- [ ] **VERIFICAR**: `pengu test --entry std/<mod>.pengu` + la suite externa en
+      verde.
+- [ ] Los bugs que exijan tocar el compilador **no se arreglan a mano** (§5.3 del
+      brief): se documentan en una sección aparte del bug doc, se esquivan dentro
+      del chunk y se pasan al workstream de compilador. Documentar un bug del
+      compilador **no** es ignorarlo.
+- [ ] Contar los bugs arreglados en el reporte final y en
+      `docs/MIGRATION_2.0_PROGRESS.md`.
+
 ## Docstrings
 
 - [ ] Docstring de módulo con `## ## Ejemplo` y `## ## Memoria`
@@ -159,6 +184,43 @@ chunks restantes.
       cambian: se añade una variante `*_shard` sin default.
 - [ ] `tests/stdlib/test_<mod>.py` sigue verde **sin tocarlo** y los módulos
       consumidores siguen compilando.
+
+## Aleatoriedad y logging (Chunk 6)
+
+- [ ] Un módulo que pueda compilarse como **módulo de entrada** (es decir, que
+      tenga tests internos) lleva `insignia <mod>_`: sin él, un `weave log`,
+      `warn`, `error` o `seed` emite un símbolo C sin prefijo que colisiona con la
+      libc (`math.h` declara `double log(double)`).
+- [ ] La `insignia` va **después** de los `declare`, para que los puentes del
+      runtime conserven sus nombres exactos (`pengu_c_*`, `pengu_log_*`).
+- [ ] Un `antiquus` que solo se llama desde C (por ejemplo un mutex) lleva
+      `@export("...")`: el DCE no ve la llamada y lo podaría. El nombre exportado
+      debe incluir el prefijo del módulo.
+- [ ] Nada de `chr 123` / `chr 125` para llaves: usar un **raw string**
+      (`r"…{…}…"`). Los templates de formato (`set_format`) también son raw.
+- [ ] Un `const` con llaves **no se puede pasar a un weave** (bug de compilador
+      C-1): exponer un `weave` que devuelva el literal raw.
+- [ ] Un cuerpo `antiquus` no lleva comentarios `/* … */`: `pengu fmt` reindenta
+      el fichero entero (bug C-3). Usar `//`.
+- [ ] Las llamadas `ritual` de un rune importado son **no cualificadas**
+      (`calling Logger.new`), nunca `calling modulo.Logger.new` (bug C-2).
+- [ ] No comparar dos `string` de nivel de módulo con `==`/`!=` (bug C-4: emite
+      `PenguString == PenguString`); comparar contra un literal local o vía el
+      comparador `antiquus` (`memcmp`).
+- [ ] No construir texto con `"…{(chr 34)}…"` (bug C-5: la comilla se pliega
+      cruda en el literal C); usar el escape `\"`.
+- [ ] Un estado de proceso único (registro, celda de configuración) vive en un
+      `weave` accesor con `static var`, o en una celda C con `antiquus`; nunca en
+      un `var` de nivel superior (prohibido, `E0002`).
+- [ ] La selección ponderada con pesos de tamaño arbitrario acumula en `i64`; el
+      objetivo aleatorio se escala a `float`. Nunca sumar pesos en `int`.
+- [ ] Una distribución con rechazo expone el agotamiento como `maybe none` y
+      reintenta; jamás devuelve un valor "de relleno" silencioso.
+- [ ] Una distribución que tome `log(u)` o `1/u` usa un helper de intervalo
+      abierto `(0, 1)`; nunca pasa el draw crudo a `log`.
+- [ ] Los helpers públicos nuevos de un módulo transversal (bytes, base64, UUID)
+      se implementan sobre un único primitivo (`rand_bytes`) y se documenta que
+      **no** son criptográficamente seguros.
 
 ## Verificación
 
