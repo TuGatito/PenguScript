@@ -61,7 +61,7 @@ bundle.c  (+ project c/*.c, lib/*/c/*.c glue)
 native executable / static lib / shared lib / object / plain C
 ```
 
-The compiler ships as Python modules in `pengu_parser/` (`pengu_grammar.py`, `pengu_types.py`, `pengu_checker.py`, `pengu_infer.py`, `pengu_codegen.py`, `pengu_symbols.py`, `pengu_comptime.py`, `pengu_errors.py`). The runtime that generated code links against lives in `pengu_runtime.h` (repository root) and `pengu_parser/pengu_runtime.c` (the translation unit compiled into `libpengu_runtime.a`); the standard library is written in PenguScript under `std/`; vendored single-header C libraries live under `std_c/`; minimal C standard-library stubs for header binding live in `c_bind_stubs/`. `pengu_project.py` implements the `pengu` CLI, `pengu_lsp/` the language server, `pengu_bind.py` the C-header → declaration-file generator, and `pengu_doc.py` the documentation generator.
+The compiler ships as Python modules in `pengu_parser/` (`pengu_grammar.py`, `pengu_types.py`, `pengu_checker.py`, `pengu_infer.py`, `pengu_codegen.py`, `pengu_symbols.py`, `pengu_comptime.py`, `pengu_errors.py`). The runtime that generated code links against lives in `pengu_runtime.h` (repository root) and `pengu_parser/pengu_runtime.c` (the translation unit compiled into `libpengu_runtime.a`); the standard library is written in PenguScript under `std/`; minimal C standard-library stubs for header binding live in `c_bind_stubs/`. External bindings (raylib, SQLite3, WebUI, …) are **not** vendored here — they ship as satellite repositories installed per project with `pengu add` (see `docs/EXTERNAL_MODULES.md`). `pengu_project.py` implements the `pengu` CLI, `pengu_lsp/` the language server, `pengu_bind.py` the C-header → declaration-file generator, and `pengu_doc.py` the documentation generator.
 
 ### 1.3 How to read this reference
 
@@ -1271,7 +1271,7 @@ Type-position signatures use `weave with … into …`; declare pointer aliases 
 
 ```pengu
 alias BinaryOp as ref to weave with a as int, b as int into int
-alias WebUICallback as ref to weave with event as ref to void into void
+alias EventHandler as ref to weave with event as ref to void into void
 
 weave add with a as int, b as int into int:
     return a + b
@@ -1291,7 +1291,7 @@ weave test_callback into void:
 
 ```c
 typedef int32_t (*BinaryOp)(int32_t, int32_t);
-typedef void (*WebUICallback)(void*);
+typedef void (*EventHandler)(void*);
 
 int32_t add(int32_t a, int32_t b) { return a + b; }
 
@@ -1307,18 +1307,20 @@ void test_callback(void) {
 }
 ```
 
-A `weave` or `lambda` passed where a callback is expected is **cast to the declared callback type**. That is what lets C headers whose prototypes carry `const` qualifiers the `.d.pengu` binding does not express (raylib's `TraceLogCallback` takes `const char *text`) compile under GCC 14+:
+A `weave` or `lambda` passed where a callback is expected is **cast to the declared callback type**. That is what lets C headers whose prototypes carry `const` qualifiers the `.d.pengu` binding does not express (`void (*)(const char *text)`) compile under GCC 14+:
 
 ```pengu
-import std.raylib
+include "stdlib.h"
 
-weave on_audio with buffer as ref to void, frames as u32 into void:
+alias ExitHandler as ref to weave into void
+
+declare atexit with fn as ExitHandler into int
+
+weave on_exit into void:
     return
 
 weave main into int:
-    var stream as raylib.AudioStream is calling raylib.LoadAudioStream with 44100, 32, 2
-    calling raylib.SetAudioStreamCallback with stream, on_audio     # → ((AudioCallback)on_audio)
-    calling raylib.UnloadAudioStream with stream
+    calling atexit with on_exit     # → ((ExitHandler)on_exit)
     return 0
 ```
 
@@ -1776,33 +1778,33 @@ void seal_demo(void) {
 `alias Name as T` is a transparent synonym — an `alias Score as int` is interchangeable with `int`. `alias Name as opaque` declares an opaque handle whose real definition comes from an included C header; codegen emits only `typedef struct Name Name;`. Function-pointer aliases were covered in [8.5](#85-function-pointers).
 
 ```pengu
-include "raylib.h"
+include "acme.h"                 # header shipped by an external binding (satellite repo)
 
-alias Score as int              # transparent
-alias Texture as opaque         # incomplete C struct from raylib.h
+alias Score as int               # transparent
+alias AcmeTexture as opaque      # incomplete C struct from acme.h
 
-declare LoadTexture with path as string into Texture
-declare UnloadTexture with texture as Texture into void
+declare load_texture with path as string into AcmeTexture
+declare unload_texture with texture as AcmeTexture into void
 ```
 
 ```c
-#include "raylib.h"
+#include "acme.h"
 
 typedef int32_t Score;
-typedef struct Texture Texture;   // real definition comes from raylib.h
+typedef struct AcmeTexture AcmeTexture;   // real definition comes from acme.h
 
-extern Texture LoadTexture(const char* path);
-extern void UnloadTexture(Texture texture);
+extern AcmeTexture load_texture(const char* path);
+extern void unload_texture(AcmeTexture texture);
 ```
 
 ### 10.6 The `insignia` prefix directive
 
-`insignia <PREFIX>` is a top-level directive that prefixes the **emitted C names** of every symbol declared *after* it in the same module file — `declare`, `weave`, `rune`, `echo`, `omen`, `alias`, `const`, and `enchanting` methods — while PenguScript sources keep the clean, unprefixed spelling. This is the workhorse of C-library bindings (`webui_*`, `raylib_*`, …).
+`insignia <PREFIX>` is a top-level directive that prefixes the **emitted C names** of every symbol declared *after* it in the same module file — `declare`, `weave`, `rune`, `echo`, `omen`, `alias`, `const`, and `enchanting` methods — while PenguScript sources keep the clean, unprefixed spelling. This is the workhorse of C-library bindings (`acme_*`, …).
 
 - At most one `insignia` per module file (`E0026`).
 - Position-dependent: declarations before it stay unprefixed.
 - Enchanting methods on primitive types keep plain names regardless of prefix (see [9.1](#91-enchanting-receiver-blocks)).
-- Calling `webui.show` translates to the C symbol `webui_show(...)`; declared constants also receive the prefix in their emitted C names (`webui_TIMEOUT`, …).
+- Calling `acme.show` translates to the C symbol `acme_show(...)`; declared constants also receive the prefix in their emitted C names (`acme_TIMEOUT`, …).
 
 ---
 
@@ -2029,14 +2031,14 @@ import std.scrolls as sc       # alias: sc.println style, C names unaffected
 import components.player
 import math.vec2
 
-# 3. External binding packages (lib/<binding>/pengu/)
-import webui
-import raylib
+# 3. External binding packages installed with `pengu add` and rooted at
+#    lib/<binding>/pengu/ (satellite repositories, not part of std/)
+import mylib
 ```
 
 An `import path as name` alias becomes the module symbol in the current scope; members are reached as `alias.member`. The alias must be a real identifier (not `_`) and must not collide with existing symbols (`E0036`). The alias never changes the emitted C name, which always comes from the module's own declarations (`insignia`, standard-library prefix, etc.).
 
-Import resolution: `import raylib` looks for `raylib.pengu` first; if only `raylib.d.pengu` exists, the declaration file is used.
+Import resolution: `import mylib` looks for `mylib.pengu` first; if only `mylib.d.pengu` exists, the declaration file is used.
 
 ### 13.2 `include` and `link`
 
@@ -2057,13 +2059,13 @@ Analogous to TypeScript's `.d.ts`: a declaration file defines types, constants, 
 - **No C redefinitions:** types and constants declared in `.d.pengu` exist for the LSP and semantic checker only; they do **not** emit C structs, unions, enums, typedefs, or `#define`s into `bundle.c` (the real definitions arrive through the `include`d native header).
 - `declare` statements register signatures so calls translate directly to the native C functions; `insignia` supplies the C prefix.
 
-Example binding (`lib/webui/pengu/webui.d.pengu`):
+Example binding (`lib/mylib/pengu/mylib.d.pengu`, shipped by an external binding repository — see `docs/EXTERNAL_MODULES.md`):
 
 ```pengu
-include "webui.h"
-link "webui-2-static"
+include "mylib.h"
+link "mylib-2-static"
 
-insignia webui_
+insignia mylib_
 
 const TIMEOUT as int is 5000
 
@@ -2079,31 +2081,31 @@ declare wait into void
 Consumed from project code:
 
 ```pengu
-import webui
+import mylib
 
 weave main into void:
-    var win as int is calling webui.new_window
-    calling webui.show with win, "Hello World"
-    calling webui.wait
+    var win as int is calling mylib.new_window
+    calling mylib.show with win, "Hello World"
+    calling mylib.wait
 ```
 
 ```c
-#include "webui.h"
+#include "mylib.h"
 
-#define webui_TIMEOUT 5000
-struct webui_WindowConfig {
+#define mylib_TIMEOUT 5000
+struct mylib_WindowConfig {
   int32_t width;
   int32_t height;
 };
 
-int32_t webui_new_window(void);
-void webui_show(int32_t win, PenguString content);
-void webui_wait(void);
+int32_t mylib_new_window(void);
+void mylib_show(int32_t win, PenguString content);
+void mylib_wait(void);
 
 int pengu_main(void) {
-  int32_t win = webui_new_window();
-  webui_show(win, pengu_string_from_cstr("Hello World"));
-  webui_wait();
+  int32_t win = mylib_new_window();
+  mylib_show(win, pengu_string_from_cstr("Hello World"));
+  mylib_wait();
   return 0;
 }
 ```
@@ -2116,7 +2118,7 @@ my_project/
 ├── src/                # main PenguScript source files
 │   └── main.pengu      # entry point (weave main into int:)
 ├── lib/                # external bindings & dependencies (pengu add)
-│   └── webui/
+│   └── mylib/
 │       ├── pengu/      #   PenguScript binding definitions (.pengu / .d.pengu)
 │       ├── include/    #   C headers (.h)
 │       ├── c/          #   C glue / wrapper sources (.c)
@@ -2153,8 +2155,8 @@ build:
   cc: "gcc"
 
 dependencies:
-  webui:
-    url: "https://github.com/webui-dev/webui"
+  mylib:
+    url: "https://github.com/example/mylib"
     branch: "main"
 
 profiles:
@@ -2172,7 +2174,7 @@ When building, the builder collects headers from `include/` and `lib/*/include/`
 
 ```bash
 # Add an external dependency / binding (git repo or local path)
-pengu add https://github.com/webui-dev/webui
+pengu add https://github.com/example/mylib
 pengu add ../my_local_binding --name my_lib
 
 # Update dependencies: git pull (configured branch) + re-run build scripts
@@ -2242,20 +2244,18 @@ extern void free(void* ptr);
 
 ### 14.2 Struct & union layout
 
-`rune`/`echo` map 1:1 to C `struct`/`union`, so native structures can be declared (or bound with `pengu bind`) and passed by value or reference. Struct values passed to C functions keep their C layout, including `ref to` fields. Opaque C structs are declared `alias Name as opaque` (section 10.5) and handled through pointers, which is the recommended pattern for C handles (`Texture`, `WebUI` windows, regex/sqlite handles, …).
+`rune`/`echo` map 1:1 to C `struct`/`union`, so native structures can be declared (or bound with `pengu bind`) and passed by value or reference. Struct values passed to C functions keep their C layout, including `ref to` fields. Opaque C structs are declared `alias Name as opaque` (section 10.5) and handled through pointers, which is the recommended pattern for C handles (opaque library contexts, thread/coroutine handles, file objects, …).
 
 ### 14.3 Out-parameters
 
 Native functions that return values through pointer parameters take `ref to T`; pass the address of a local with `sigil of`:
 
 ```pengu
-declare yaml_get_version with major as ref to int, minor as ref to int, patch as ref to int into void
+declare frexp with x as float, exponent as ref to int into float
 
-weave main into void:
-    var ma as int is -1
-    var mi as int is -1
-    var pa as int is -1
-    calling yaml_get_version with (sigil of ma), (sigil of mi), (sigil of pa)
+weave split_float with x as float into void:
+    var e as int is -1
+    var mantissa as float is calling frexp with x, (sigil of e)
 ```
 
 ### 14.4 Fixed byte buffers as C output
@@ -2287,7 +2287,7 @@ int64_t digest(PenguString msg) {
 
 ### 14.5 Struct-to-C `ref` parameters & callbacks
 
-References (`ref to T`) are passed as pointers, enabling in-place mutation from C and efficient `self` receivers for methods ([9.1](#91-enchanting-receiver-blocks)). Weaves can be handed to C as function pointers: a `weave` name decays to its C function pointer wherever a callback alias is expected ([8.5](#85-function-pointers)). The runtime also provides helpers (such as `pengu_call_callback_int` and the minicoro shim in `std_c/wrappers_minicoro.c`) that let C call back into PenguScript weaves, and a PenguScript weave can be used as a minicoro coroutine body — see `std/minicoro.d.pengu` and `std_c/`.
+References (`ref to T`) are passed as pointers, enabling in-place mutation from C and efficient `self` receivers for methods ([9.1](#91-enchanting-receiver-blocks)). Weaves can be handed to C as function pointers: a `weave` name decays to its C function pointer wherever a callback alias is expected ([8.5](#85-function-pointers)). The runtime provides helpers (such as `pengu_call_callback_int`) that let C call back into PenguScript weaves. Coroutine support (`minicoro`) is **not** bundled here: its binding and wrapper source moved to a satellite repository and installs per project with `pengu add` (see `docs/EXTERNAL_MODULES.md`).
 
 ### 14.6 Passing strings to C
 
@@ -2309,22 +2309,22 @@ The pointer returned by `ffi.cstr_from_string` is a non-owning read-only view di
 
 ### 14.7 Transparent C identifiers
 
-Identifiers from an `include`d header (raylib constants, OpenGL macros, C enums) are usable directly without re-declaring them:
+Identifiers from an `include`d header (libc macros, C enums, constants) are usable directly without re-declaring them:
 
 ```pengu
-include "raylib.h"
+include "stdio.h"
 
-weave configure_window into void:
-    let flags is FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT
-    let key is KEY_SPACE
+weave configure_stream into void:
+    let mode is SEEK_SET
+    let size is BUFSIZ
 ```
 
 ```c
-#include "raylib.h"
+#include "stdio.h"
 
-void configure_window(void) {
-    int32_t flags = FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT;
-    int32_t key = KEY_SPACE;
+void configure_stream(void) {
+    int32_t mode = SEEK_SET;
+    int32_t size = BUFSIZ;
 }
 ```
 
@@ -2341,8 +2341,8 @@ void configure_window(void) {
 Type mapping highlights: `size_t`→`size_t`, `bool`→`bool`, `int`/`uint32_t`→`int`/`u32`, `long long`→`i64`, `unsigned char`→`byte`, `float`/`double`→`f32`/`f64`, `char*`/`const char*`→`ref to char`, `T*`→`ref to T`, `void*`→`ref to void`. `##` doc comments are extracted from the source header above each declaration.
 
 ```bash
-pengu bind webui.h --prefix webui_ --links webui-2-static ole32 stdc++ uuid
-pengu bind zlib.h --define Z_SOLO --links z          # header that needs a macro
+pengu bind mylib.h --prefix mylib_ --links mylib-2-static ole32 stdc++ uuid
+pengu bind thirdparty.h --define THIRD_PARTY_STATIC --links thirdparty   # header that needs a macro
 ```
 
 The preprocessor pass keeps line markers so pycparser can attribute every node to the original header; nodes pulled in from system/stub headers are skipped. A vendored minimal stub tree in `c_bind_stubs/` supplies `stdint.h`/`stddef.h`/`stdbool.h`/`pthread.h`/`unistd.h`/`sys/types.h`/… types (see `c_bind_stubs/README.md`), and Windows-guarded sections are excluded by default. GNU compiler extensions (`__attribute__`, `__extension__`, `__inline__`, `__declspec`, …) are **blanked by default** so headers that spell them parse.
@@ -2351,17 +2351,17 @@ When a header needs more control, the generator takes:
 
 | Flag | Effect |
 | ---- | ------ |
-| `--define/-D NAME[=V]` | Extra preprocessor define (repeatable), e.g. `--define Z_SOLO` |
+| `--define/-D NAME[=V]` | Extra preprocessor define (repeatable), e.g. `--define THIRD_PARTY_STATIC` |
 | `--cpp-flags "…"` | Raw preprocessor flags passed through verbatim |
-| `--system-includes` | Use the real compiler/system headers instead of the `-nostdinc` + stub tree (needed by e.g. `uv.h`; it also stops the generator from undefining `_WIN32`) |
+| `--system-includes` | Use the real compiler/system headers instead of the `-nostdinc` + stub tree (needed by headers that pull in the real system tree; it also stops the generator from undefining `_WIN32`) |
 | `--include-paths DIR…` | Extra include directories |
 | `--preprocessed FILE.i` | Bind from a `.i` file you produced yourself (`gcc -E`) |
 | `--no-blank-extensions` | Keep GNU extensions intact (default is to blank them) |
 | `--no-cpp` | Parse without preprocessing (very simple headers) |
 
-Failures are reported with the offending construct, the last preprocessor error and the flag to try (e.g. `--define Z_SOLO`, `--system-includes`, `--preprocessed`).
+Failures are reported with the offending construct, the last preprocessor error and the flag to try (e.g. `--define THIRD_PARTY_STATIC`, `--system-includes`, `--preprocessed`).
 
-The output is declaration-only: the real header stays `include`d, so no C structs/enums/prototypes are duplicated and the binding passes `pengu check`. `sqlite3.h`, `rlgl.h` and `zlib.h` (with `--define Z_SOLO`) bind end to end; a few vendor headers (`miniaudio`, `xxhash`, `tomlc17`, `yaml`) still need flags or remain hand-written.
+The output is declaration-only: the real header stays `include`d, so no C structs/enums/prototypes are duplicated and the binding passes `pengu check`. libc/libm headers such as `stdio.h`, `stdlib.h`, `math.h` and `pthread.h` bind end to end through the `c_bind_stubs/` tree; vendor headers with heavy macro configuration may still need flags or a hand-written declaration file, and those vendors now live in **satellite repositories** rather than in `std/`.
 
 ---
 
@@ -2369,11 +2369,11 @@ The output is declaration-only: the real header stays `include`d, so no C struct
 
 ### 15.1 Architecture
 
-The standard library lives under `std/` and is written in PenguScript. High-level logic — string search/slicing/trimming/splitting/case mapping & ASCII classification, Base64/JSON, CSV/TSV, path manipulation, range/collection helpers, CLI parsing, assertions, test runners, logging composition — is pure PenguScript compiled through the normal pipeline. Only true byte/memory primitives (string allocation/concat/equality, list/map/maybe/result operations) and platform or external-library backends (stdio & console, file system, time, rand, processes/environment, PCRE2, libxml2, curl/microhttpd, mbedTLS/zlib hashing) remain in the C runtime (`pengu_runtime.h` static-inline primitives plus `pengu_runtime.c` externs) and are reached via `declare`. The migration was unlocked by the keyword primitives `some`, `ord`, `chr`, and `bytes of` (sections 6.3 & 14.4) plus the `insignia pengu_` module prefix for module-level weaves.
+The standard library lives under `std/` and is written in PenguScript. High-level logic — string search/slicing/trimming/splitting/case mapping & ASCII classification, Base64/JSON, CSV/TSV, path manipulation, range/collection helpers, CLI parsing, assertions, test runners, logging composition — is pure PenguScript compiled through the normal pipeline. Only true byte/memory primitives (string allocation/concat/equality, list/map/maybe/result operations) and platform backends (stdio & console, file system, time, rand, processes/environment, threads) remain in the self-contained C runtime (`pengu_runtime.h` static-inline primitives plus `pengu_runtime.c` externs) and are reached via `declare`; it needs only libc, libm and pthreads. Backends that wrap an external C library (regex, XML/HTML, HTTP, hashing/compression, SQL, graphics, …) are **not** part of this repository — they ship as satellite repositories installed per project with `pengu add` (see `docs/EXTERNAL_MODULES.md` and §15.3). The migration was unlocked by the keyword primitives `some`, `ord`, `chr`, and `bytes of` (sections 6.3 & 14.4) plus the `insignia pengu_` module prefix for module-level weaves.
 
 `std/spark.pengu` defines `SPARK_VERSION` and `STD_VERSION` constants; `spark.spark_version` returns the version string.
 
-### 15.2 Core module catalog (27 modules)
+### 15.2 Core module catalog (21 modules)
 
 | Module | Import | Implementation | Purpose & key functions |
 | ------ | ------ | -------------- | ----------------------- |
@@ -2392,63 +2392,41 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **invoke** | `import std.invoke` | Pure PenguScript | CLI argument parsing: `new_parser`, `add_positional`, `add_option`, `add_flag`, `print_help`, `parse`, `get`, `get_or`, `is_set`, `is_ok`, `is_err`. |
 | **ledger** | `import std.ledger` | Pure PenguScript | CSV/TSV: `escape_field`, `parse_line`, `parse_csv`, `to_csv_string`, `detect_delimiter`, TSV variants, and file helpers `read_csv`/`write_csv`/`read_tsv`/`write_tsv`. |
 | **cipher** | `import std.cipher` | Pure PenguScript | JSON + Base64: `parse_json`, `stringify_json`, `pretty_json`, `encode_base64`, `decode_base64`, `is_base64`, value-level `parse_value`/`stringify_value`, file helpers. |
-| **parchment** | `import std.parchment` | libxml2 backend | XML/HTML DOM: `parse_xml`, `parse_html`, `find`, `find_all`, `attr`, `set_attr`, `text`, `set_text`, `create_element`, `create_text`, `append_child`, serialization (`to_string`, `doc_to_string`, `escape_text`). |
-| **regulus** | `import std.regulus` | PCRE2 backend | Regular expressions: `compile`, `is_match`, `is_full_match`, `search`, `match`, `find_all`, `replace`, `split`, `escape`, `is_valid`, `quick_match`, `quick_replace`; `Match`/`Regex` value types. |
-| **seal** | `import std.seal` | mbedTLS/zlib backend | Hashing & compression: `crc32` (unsigned 32-bit), `md5`, `sha1`, `sha256`, `sha512` (+ `*_file` variants), `gzip`/`unzip`, zlib `zlib_compress`/`zlib_decompress` (+ `*_file` helpers), HMAC (`hmac_sha256`/`hmac_sha1`/`hmac_md5`) and constant-time verification. |
-| **precis** | `import std.precis` | libcurl/microhttpd backend | Networking: HTTP client `get`/`post`/`put`/`delete`/`request`, embedded HTTP server (`serve_http`, `response`, `serve_file`), TCP sockets (`connect_tcp`, `tcp_send`, `tcp_recv`, `tcp_close`, `dns_lookup`), `url_encode`/decode; `ClientResponse`/`Request` types. |
 | **filum** | `import std.filum` | C primitives | Concurrency: `mutex`/`lock`/`unlock`/`try_lock`, `wait_group` (`add`, `done`, `wait`), `once`, channels, thread spawn, condition variables, atomics (opaque-handle value types). |
 | **loom** | `import std.loom` | Pure PenguScript | Functional collection utilities: `range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`, `sum`, `product_num`, `max_int`/`min_int`, `min_max`, plus map/filter/reduce style helpers, sorted set operations and zip/flattening. Prefer `loom` over `tally` when an empty input must be representable (see §19.1). |
 | **ward** | `import std.ward` | Pure PenguScript | Assertions & invariants: `assert`, `assert_msg`, `assert_true`/`assert_false`, `assert_eq_*` / `assert_ne_*` (int/string/bool), `assert_present_*`/`assert_none_*`, `assert_ok_*`/`assert_err_*`, `expect*` message variants, `panic`, `unreachable`, and result-returning `check*` helpers. |
 | **trial** | `import std.trial` | Pure PenguScript | Unit-test framework: re-exports `ward` assertions, plus suites (`new_suite`), `test_case`/`test`, lifecycle hooks and colored reporting (`summary`). |
 | **whisper** | `import std.whisper` | C primitives + Pengu | Structured logging: `set_level`, `get_level`, `get_level_name`, level constants `LOG_TRACE`…`LOG_FATAL`, and level loggers `trace`, `debug`, `info`, `warn`, `error`, `fatal`. |
 | **ffi** | `import std.ffi` | C runtime bridges | Foreign function interface bridges: `cstr_from_string`, `cstr_free`, `string_from_cstr`, `bytes_from_string`, non-owning slice views (`slice_from_ptr`, `slice_of_*_from_ptr`), and list copies from pointers. |
-| **celeris** | `import std.celeris` | xxHash backend (opt-in) | Fast non-cryptographic hashing over `std.xxhash`: `hash32`, `hash32_seeded` (→ `u32`), `hash64`, `hash64_seeded`, `hash3_64`, `hash3_128` and their `*_seeded` variants. Opt-in: pulls the xxHash static library into the bundle. |
-| **xlsx** | `import std.xlsx` | xlsxio backend (opt-in) | Spreadsheet writer: `write_sheet`, `write_rows` for real `.xlsx` workbooks. Opt-in: needs the xlsxio link line (`-lxlsxio_write -lxlsxio_read -lzip -lz -lexpat`) and `-DSTATIC`. `std.ledger` stays pure CSV/TSV. |
 
-### 15.3 Integrated external libraries
+### 15.3 External bindings (satellite repositories)
 
-`build_runtime.py` compiles static libraries into `build/lib/` (headers staged in `build/include/`); a project whose `links` include `pengu_runtime` auto-links whatever is present in `build/lib`. Their PenguScript bindings live in `std/` as `.d.pengu` declaration modules.
+This repository vendors no external C library. `build_runtime.py` compiles only
+`libpengu_runtime.a` and the runtime is self-contained (libc, libm, pthreads).
+The 25 `.d.pengu` bindings that used to live in `std/` — raylib, raymath, rlgl,
+rlights, raygui, SQLite3, WebUI, miniaudio, tomlum, yaml, uuid, xxHash, xlsxio,
+imago/scriptor/typis/pactum/datastructura/perlinum, the stb resize and
+herringbone headers, nanosvg/nanosvgrast, minicoro, fenestra — plus the
+native-wrapping modules `std.regulus` (PCRE2), `std.parchment` (libxml2),
+`std.seal` (mbedTLS/zlib) and `std.xlsx` (xlsxio) have all **moved to satellite
+repositories**. Install one per project with `pengu add <repo>`; it lands in
+`lib/<binding>/` and is imported like any other binding package (§13).
 
-| Library | Lib file | Pengu module (`import`) | Purpose |
-| ------- | -------- | ----------------------- | ------- |
-| SQLite3 3.53.4 | `libsqlite3.a` | `import std.sqlite3` | Embedded SQL database |
-| Raylib 6.0 | `libraylib.a` | `import std.raylib` | Graphics / audio / game dev |
-| WebUI 2.5.0-beta.3 (prebuilt) | `libwebui.a` | `import std.webui` | Native web-UI windows |
-| stb_image | `libpengu_stb.a` | `import std.imago` | PNG/JPEG decode |
-| stb_image_write | `libpengu_stb.a` | `import std.scriptor` | Image encode (PNG/JPG/…) |
-| stb_truetype | `libpengu_stb.a` | `import std.typis` | TTF/OTF font rasterization |
-| stb_rect_pack | `libpengu_stb.a` | `import std.pactum` | Rectangle packing |
-| stb_ds | `libpengu_stb.a` | `import std.datastructura` | Typed hash maps / dynamic arrays |
-| stb_perlin | `libpengu_stb.a` | `import std.perlinum` | Perlin noise |
-| nanosvg / nanosvgrast | `libpengu_stb.a` | `import std.nanosvg` / `import std.nanosvgrast` | SVG parse / rasterize |
-| stb_image_resize2 | header only | `import std.stb_image_resize2` (`insignia stbir_`) | Image resize/resample |
-| stb_herringbone_wang_tile | header only | `import std.stb_herringbone_wang_tile` (`insignia stbh_`) | Wang-tile textures |
-| xxHash (~0.8.3-era dev) | `libpengu_stb.a` | `import std.xxhash` (raw) / `import std.celeris` (wrapper) | Fast non-cryptographic hashing |
-| uuid.h 0.1 (wc-duck/uuid_h) | `libpengu_stb.a` | `import std.uuid` (declarations; drive from C) | UUID v4 / null generation, parse, format |
-| minicoro | `libpengu_stb.a` | `import std.minicoro` (declarations; drive from C) | Stackful asymmetric coroutines |
-| tinyfiledialogs 3.21.3 | `libpengu_stb.a` | `import std.fenestra` (tinyfd binding) | Native message/open/save dialogs |
-| raygui 5.0 | `libpengu_stb.a` | use with `import std.raylib` | Immediate-mode raylib GUI controls |
-| miniaudio 0.11.25 | declaration only | `import std.miniaudio` | Audio (curated subset; no device APIs) |
-| rlights (RLG_) | declaration only | `import std.rlights` | raylib lighting framework |
-| xlsxio 0.2.36 | `libxlsxio_write.a` + `libxlsxio_read.a` | `import std.xlsxio` (raw) / `import std.xlsx` (pure write wrapper) | Real `.xlsx` spreadsheet writing (opt-in) |
-| libyaml 0.2.5 | `libyaml.a` | `import std.yaml` | YAML 1.1 (version query bound; parsing stays C-level) |
-| libcyaml 1.4.2 | `libcyaml.a` | (C-level only) | Schema-driven YAML struct binding |
-| tomlc17 | `libtomlc17.a` | `import std.tomlum` | TOML validity shim (`pengu_toml_valid` / `pengu_toml_valid_file`) |
-| libzip 1.11.3 / libexpat 2.6.4 | `libzip.a` / `libexpat.a` | (C-level dependencies of xlsxio) | Zip archives / XML parsing |
-| libuv 1.52.1 | `libuv.a` | (no binding yet) | Async I/O / event loop |
+Two consequences worth stating:
 
-> libwebsockets 4.5.1 was evaluated but is **not part of the project**: the 2023-era
-> sources do not build cleanly with modern GCC (vendored win32 zlib + `-Werror`
-> trips), so it was removed from `extern_manifest.py` / the extern directory rather
-> than shipped half-broken.
+- A program that imports no external binding links only `libpengu_runtime.a`
+  plus libc/libm/pthreads, which is why the bare-language binaries stay at
+  ~14 KiB (see `BENCHMARKS.md` §Binary size).
+- `extern_manifest.py` keeps its download/hash infrastructure with an empty
+  `MANIFEST` so the satellite repositories can copy it; nothing in *this*
+  repository downloads or builds those sources.
 
-Notes:
+`std/` therefore contains only the 21 pure-PenguScript modules in the catalog
+above. `pengu bind` (§14.8) remains the tool for authoring a new binding from a
+C header, using the generic stubs in `c_bind_stubs/`.
 
-- The STB single headers are vendored in `std_c/` under Latin names (`imago.h`, `scriptor.h`, `typis.h`, …). Their `*_IMPLEMENTATION` units — plus xxhash, uuid, minicoro, raygui, tinyfiledialogs and tinyfd_moredialogs — are compiled each from its own translation unit (`std_c/wrappers_*.c`) into `libpengu_stb.a`, so the archive stays independently linkable (a program that only calls xxhash does not pull in raylib/BCrypt symbols).
-- Bindings are `pengu bind` output or hand-curated declaration files, verified with `pengu check`.
-- miniaudio and rlights are bound declarations only (no implementation archive is built: audio needs a device/backend, rlights needs raylib + OpenGL at runtime, and the resize2/herringbone headers need their own `*_IMPLEMENTATION` wrapper `.c` when used).
-- `std/celeris` wraps `std/xxhash` with one-shot helpers (`hash32`, `hash64`, `hash3_64`, `hash3_128` and `*_seeded` variants). PenguString *variables* cannot yet be passed where a C byte pointer is expected, so hashing helpers take `ref to char` plus an explicit byte `length`.
-- `std/archivum` additionally exposes pure recursive `copy_tree` and `list_files_recursive`.
+`std/archivum` additionally exposes pure recursive `copy_tree` and
+`list_files_recursive`.
 
 ---
 
@@ -2498,7 +2476,8 @@ Install from the **Extensions** panel → *Install from VSIX…* → select the 
 
 | Command | Description |
 | ------- | ----------- |
-| `pengu init NAME` | Create a new Cargo-style project template |
+| `pengu init NAME` | Create a new Cargo-style project (`--template exe\|cli\|lib`) |
+| `pengu new TEMPLATE NAME` | Create a project from a template (`exe`, `cli`, `lib`) |
 | `pengu add SOURCE` | Add an external dependency/binding (git URL or local folder) |
 | `pengu build` | Compile the project according to its configuration |
 | `pengu run [FILE.pengu]` | Build and execute the project target, or run a standalone script |
@@ -2522,7 +2501,8 @@ Install from the **Extensions** panel → *Install from VSIX…* → select the 
 
 | Command | Flags |
 | ------- | ----- |
-| `init` | `--type/-t exe\|c\|obj\|static\|shared` (default `exe`), `--links/-l`, `--output-name`, `--cc` (default `gcc`) |
+| `init` | `--type/-t exe\|c\|obj\|static\|shared` (default `exe`), `--template exe\|cli\|lib`, `--links/-l`, `--output-name`, `--format toml\|yaml`, `--cc` (default `gcc`) |
+| `new` | `TEMPLATE` (`exe\|cli\|lib`), `NAME`, `--links/-l`, `--output-name`, `--format toml\|yaml`, `--cc` (default `gcc`) |
 | `add` | `--branch/-b`, `--name/-n`, `--config/-c`, `--no-build` |
 | `build` | `--profile/-p debug`, `--config/-c`, `--entry/-e`, `--output/-o`, `--test`, `--cc`, `--verbose`, `-D/--define` (repeatable), `--pch`/`--no-pch`, `--no-dce` |
 | `run` | `script` (optional), `--profile/-p`, `--config/-c`, `--entry/-e`, `--test`, `--cc`, `--verbose`, `-D/--define`, `--keep`, `--no-cache`, `--clear-cache`, `--ephemeral`, `--pch`/`--no-pch`, `--no-dce`, `-- ARGS…` |
@@ -2581,8 +2561,8 @@ python make_release.py
 
 `make_release.py` orchestrates the full release:
 
-1. `extern_manifest.py` downloads the pinned external C libraries into `extern/`;
-2. `build_runtime.py` compiles and installs the C runtime and every integrated static library into `build/lib/` (`libpengu_runtime.a`, `libpengu_stb.a`, `libsqlite3.a`, `libraylib.a`, `libwebui.a`, xlsxio/zlib/expat/yaml/tomlc17 archives, …) with headers staged in `build/include/` — idempotent and `--rebuild`-aware;
+1. `extern_manifest.py` keeps the pinned-download infrastructure for satellite binding repositories; this repository's `MANIFEST` is **empty**, so nothing external is fetched here;
+2. `build_runtime.py` compiles and installs the self-contained C runtime into `build/lib/libpengu_runtime.a` with `pengu_runtime.h` (and the optional shared `.gch`) staged in `build/include/` — idempotent, `--rebuild`-aware and ~1.4 s;
 3. PyInstaller packages the standalone `pengu` / `pengu.exe` CLI + LSP (including `pycparser` and `c_bind_stubs/` so `pengu bind` works inside the frozen executable);
 4. the VS Code extension is built as `pengus-<version>.vsix`.
 
@@ -2599,9 +2579,9 @@ pengucc_build/
 ### 18.3 Platform notes
 
 - Windows, Linux and macOS are all supported end to end; `gcc`, `clang` and `msvc` are valid `cc` choices.
-- Compile-time `when os == "…"` / `arch` / `compiler` branches let bindings and stdlib modules adapt per platform (`std/raylib.d.pengu` links `opengl32`/`gdi32` on Windows vs `GL`/`dl`/`rt`/`X11` elsewhere).
-- `build_runtime.py` links the Windows UI platform libraries (`-lopengl32 -lgdi32 -lole32 -luuid -lshell32`) automatically when it sees the corresponding archives in `build/lib`.
-- On Linux/macOS `build_runtime.py` skips the Windows-tuned static builds of libxml2/libcurl/libmicrohttpd and the C runtime links the system libraries instead (see `README.md` → *Building the Runtime from Source*); libuv 1.52.1 is built and its headers staged, but no PenguScript binding exists yet. libwebsockets is not part of the project (see the §15 note).
+- Compile-time `when os == "…"` / `arch` / `compiler` branches let satellite binding packages and stdlib modules adapt per platform (a binding that needs a windowing system can link `opengl32`/`gdi32` on Windows vs `GL`/`dl`/`rt`/`X11` elsewhere).
+- The runtime links only libc/libm/pthreads (`-lws2_32 -lwinmm` on Windows, `-pthread -lm -ldl` on Linux/Unix); it has no external C dependencies.
+- External libraries are **satellite repositories** installed per project with `pengu add`, so `build_runtime.py` no longer builds platform-tuned static copies of libxml2/libcurl/libmicrohttpd/libuv and friends.
 
 ---
 
@@ -2785,63 +2765,41 @@ $ pengu run greet.pengu
 Hello, Pengu!
 ```
 
-### 19.7 Native window with the Raylib binding
+### 19.7 Calling libc with `std.ffi`
 
-Requires `libraylib.a` built by `build_runtime.py` (see section 15.3).
+`std.ffi` bridges PenguScript strings and C `char*` buffers, so a plain libc
+function can be declared and called without any external binding:
 
 ```pengu
-import std.raylib          # calling raylib.InitWindow / raylib.BeginDrawing / ...
 import std.spark
+import std.ffi
 
-const SCREEN_WIDTH as int is 800
-const SCREEN_HEIGHT as int is 600
-
-rune Player:
-    x as float
-    y as float
-    speed as float
-
-enchanting Player:
-    weave update into void:
-        if calling raylib.IsKeyDown with KEY_RIGHT:
-            set self->x is self->x + self->speed
-        if calling raylib.IsKeyDown with KEY_LEFT:
-            set self->x is self->x - self->speed
-
-    weave draw into void:
-        calling raylib.DrawCircle with (self->x to int), (self->y to int), 20.0, MAROON
+declare puts with s as ref to char into int
 
 weave main into int:
-    calling raylib.InitWindow with SCREEN_WIDTH, SCREEN_HEIGHT, "PenguScript 2D Game"
-    defer calling raylib.CloseWindow
-    calling raylib.SetTargetFPS with 60
-
-    var player as Player is with x is 400.0, y is 300.0, speed is 5.0
-
-    while calling raylib.WindowShouldClose is false:
-        calling player.update
-        calling raylib.BeginDrawing
-        calling raylib.ClearBackground with RAYWHITE
-        calling player.draw
-        calling raylib.EndDrawing
+    let msg as string is "Hello from libc"
+    calling puts with (calling ffi.cstr_from_string with msg)
+    calling spark.println with "printed {msg length} bytes"
     return 0
 ```
 
-(Colors such as `MAROON`/`RAYWHITE`, key constants and other raylib identifiers are either `const` values or transparent identifiers from the included `raylib.h` — see sections 10.5 and 14.7.)
+`ffi.cstr_from_string` returns a non-owning view into `msg`'s buffer, valid for
+as long as `msg` lives (§14.6). Bindings that wrap a third-party C library are
+satellite repositories — see §15.3.
 
-### 19.8 Hash a string with xxHash via `std.celeris`
+### 19.8 Text processing with `std.scrolls`
 
 ```pengu
 import std.spark
-import std.celeris
+import std.scrolls
 
 weave main into int:
-    # xxHash one-shots: pass a string literal + explicit byte length
-    var h64 as u64 is calling celeris.hash64 with "PenguScript", 11
-    var h3 as u64 is calling celeris.hash3_64 with "PenguScript", 11
-    if h64 == 0x610DF71A00097754:
-        if h3 == 0xC5617D8EE18E0403:
-            calling spark.println with "xxhash + celeris ok"
+    let raw as string is "  alpha,beta,gamma  "
+    let trimmed as string is calling scrolls.trim with raw
+    let upper as string is calling scrolls.upper with trimmed
+    calling spark.println with upper
+    if calling scrolls.contains with upper, "BETA":
+        calling spark.println with "found beta"
     return 0
 ```
 

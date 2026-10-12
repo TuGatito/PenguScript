@@ -48,12 +48,9 @@
 >   `#define`d constants, **callbacks** (named weaves, lambdas, `void*` user
 >   data, `qsort`-style function pointers) and compile-time `when`.
 > - Write whole programs with `maybe`/`result`, `defer`/`errdefer`, `shard`
->   generics, `static var` function-local state, and the `std/` library
->   (files, processes, threads/channels, regex, HTTP, SQLite, JSON/CSV/TOML/YAML,
->   hashing/compression, logging, unit tests).
-> - Build and run the **core of the raylib corpus**: window, input, 2D shapes,
->   text (`TextFormat`), textures, colours, timing, 3D vector/matrix math
->   via `std.raymath`, and OpenGL immediate-mode rendering via `std.rlgl`. Six raylib examples are ported and verified in `scratch/port/`.
+>   generics, `static var` function-local state, and the 21 pure `std/` modules
+>   (files, processes, threads/channels, JSON/CSV, string algorithms, math,
+>   logging, unit tests, generic C bridge, …).
 > - **Multidimensional 2D arrays** (`array of array of T with size M with size N`),
 >   **manual memory deallocation** (`banish` now, or `defer banish` / `errdefer banish` at scope exit),
 >   **module state idioms** (`static var` accessors and context structs),
@@ -73,12 +70,12 @@
 >   type-checks and then fails in C; declare it (`declare printf with fmt as ref to frozen char, ... into int`)
 >   — the compiler reports the failure at your `.pengu` line.
 > - Tooling limits: `pengu bind` handles real headers (`--define`, `--cpp-flags`,
->   `--system-includes`, `--preprocessed`), but a few vendored headers
->   (`miniaudio`, `xxhash`, `tomlc17`, `yaml`) still need flags or are hand-maintained,
->   and the CLI has no `-I`/`-L`/`-l` flags — use `pengu.yaml`.
+>   `--system-includes`, `--preprocessed`), but some third-party headers still
+>   need extra flags or hand-maintained tweaks, and the CLI has no `-I`/`-L`/`-l`
+>   flags — use `pengu.yaml`.
 >
-> P0 (operational hygiene), P1 (the C shapes the raylib corpus needed), P2
-> (breadth and safety: 2-D arrays, `rlgl`, explicit memory release, strict
+> P0 (operational hygiene), P1 (the C shapes the C-interop corpus needed), P2
+> (breadth and safety: 2-D arrays, explicit memory release, strict
 > pointer typing, real-header bindings) and Phase 5 (defined overflow and
 > always-on bounds checking, `unsafe:` opt-out, lockfile verification with
 > `pengu verify`, a binding sandbox, a trust gate for dependency build scripts,
@@ -186,7 +183,7 @@ PenguScript 2.0 is an **additive** release: every 1.x program still compiles, an
   pengu check --json | jq -c 'select(.type=="diagnostic") | {file,line,col,code}'
   ```
 
-- **Conditional linking** — a native archive is linked only when the `std` module that needs it was imported (`std.regulus` → PCRE2, `std.parchment` → libxml2, `std.precis` → libcurl + libmicrohttpd, `std.seal` → zlib + mbedcrypto); a program with no native imports links only `libpengu_runtime.a`, which is why a stripped `hello_world` is ~14 KiB (see [BENCHMARKS.md](BENCHMARKS.md)).
+- **Conditional linking** — the core runtime has no external C dependencies: it needs only libc, libm and pthreads/Win32 threads, and a program with no native imports links only `libpengu_runtime.a`, which is why a stripped `hello_world` is ~14 KiB (see [BENCHMARKS.md](BENCHMARKS.md)). Native archives for satellite modules (installed with `pengu add`) are linked only when the module that declares them is imported.
 
 ### Feature Highlights
 
@@ -200,7 +197,7 @@ PenguScript 2.0 is an **additive** release: every 1.x program still compiles, an
 - **Deterministic, manual cleanup** — `banish` frees a value now; `defer banish` / `errdefer banish` defer the release to scope exit or to an error return (LIFO). Nothing is released behind your back ([§13](LANGUAGE.md#13-manual-memory-management)).
 - **First-class C FFI** — `include`/`link`/`declare`, opaque types (`alias … as opaque`), `sigil of` (address-of) / `essence of` (deref), zero-copy `bytes of <string>` borrows, and `weave`s that decay to C function pointers ([§14](LANGUAGE.md#14-modules-imports--c-interop)).
 - **`pengu bind`** — auto-generates a `.d.pengu` declaration file from any C header (structs → `rune`, unions → `echo`, enums → `omen`, functions → `declare`, callbacks → `alias … as ref to weave`, doc comments preserved) with preprocessor extension blanking, sibling auto-imports, and flags (`--define`, `--cpp-flags`, `--system-includes`, `--preprocessed`) ([§20.6](LANGUAGE.md#206-c-header-binding-generator-pengu-bind)).
-- **Rich standard library** — `std/` ships **52 modules**: 27 implemented in pure PenguScript (I/O, strings, files, math, time, regex, HTTP client/server, concurrency, logging, unit testing, …) plus 25 curated C declaration bindings (`*.d.pengu`) for bundled native libraries (including **raylib**, **raymath**, **rlgl**, **sqlite3**, **webui**, **miniaudio**, and **stb**) ([§19](LANGUAGE.md#19-standard-library)).
+- **Rich standard library** — `std/` ships **21 pure PenguScript modules** and **0 C declaration bindings** (I/O, strings, files, math, time, concurrency, logging, unit testing, …) ([§19](LANGUAGE.md#19-standard-library)). Bindings to external C libraries (raylib, sqlite3, webui, miniaudio, etc.) now live in satellite repositories — see [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md).
 - **Embedded project assets (`arca`)** — embed binary and text assets (textures, shaders, audio, fonts, HTML/JS/CSS, config files) directly into native `.rodata` sections or stream from disk with zero-copy pointer views and slice accessors ([§19.4](LANGUAGE.md#194-embedded-project-assets-arca)).
 - **Language Server (LSP)** — diagnostics with `help:`/`note:`/caret spans, documentation from `#` and `##` doc comments, type & memory-size hovers, module-scoped autocompletion, go-to-definition, formatting, and code actions ([§20.10](LANGUAGE.md#2010-language-server-protocol-pengu-lsp)).
 - **Unified project manager** — the `pengu` CLI creates (`init`), builds (`build`), runs (`run`), tests (`test`), checks (`check`), formats (`fmt`), cleans (`clean`), documents (`doc`), generates C bindings (`bind`), and launches the language server (`lsp`) ([§20](LANGUAGE.md#20-tooling--project-layout)).
@@ -214,45 +211,34 @@ PenguScript 2.0 is an **additive** release: every 1.x program still compiles, an
 #### Requirements
 
 - **Python 3.11+** (3.10 also works — `requirements.txt` installs the `tomli` backport automatically there).
-- A **C compiler** (`gcc`, `clang` or `tcc`) and static archiver (`ar`/`llvm-ar`) on your `PATH` — on Windows use MinGW-w64 `gcc`. `gcc`/`clang` are the reference backends; TinyCC (TCC) is the fast development compiler bundled with the releases.
-- **`libpengu_runtime.a`** — the C runtime archive produced in `build/lib` by `python build_runtime.py`. `pengu build` always links it (regardless of `links` in `pengu.toml`), and every bundle references `pengu_abi_version()`, so a missing or ABI-mismatched archive fails with an actionable message instead of an `undefined reference`.
-- **CMake and Ninja** — required for the static builds of libuv, libzip, and libexpat.
+- A **C compiler** (`gcc` or `clang`) and static archiver (`ar`/`llvm-ar`) on your `PATH` — on Windows use MinGW-w64 `gcc`. `gcc`/`clang` are the reference backends.
+- **CMake and Ninja** — build-system tools for the supported development environments.
 - **Node.js 18+ and npm** — only needed to develop or package the VS Code extension.
 
 ##### System Dependencies for Linux & macOS
 
-On Linux and macOS, compiling the language runtime and native dependencies requires development packages (including `pkg-config`, `libxml2`, `libcurl`, `mbedtls`, `libmicrohttpd`, `sqlite3`, `openssl`, X11, OpenGL):
+On Linux and macOS, building the language runtime needs only a C toolchain plus the Python and Node tooling — there are no external development libraries to install:
 
 **Fedora / RHEL:**
 ```bash
 sudo dnf install -y @development-tools \
-    cmake ninja-build pkgconf-pkg-config gcc gcc-c++ \
-    zlib-ng-devel pcre2-devel libxml2-devel libcurl-devel \
-    mbedtls-devel libmicrohttpd-devel sqlite-devel openssl-devel \
-    libX11-devel libXcursor-devel libXrandr-devel libXinerama-devel \
-    libXi-devel mesa-libGL-devel
+    cmake ninja-build gcc gcc-c++ python3 nodejs
 ```
 
 **Ubuntu / Debian:**
 ```bash
 sudo apt-get update && sudo apt-get install -y \
-    build-essential cmake ninja-build pkg-config gcc g++ \
-    libxml2-dev libcurl4-openssl-dev libmbedtls-dev \
-    libmicrohttpd-dev libsqlite3-dev libssl-dev \
-    libpcre2-dev zlib1g-dev libx11-dev libxcursor-dev \
-    libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev
+    build-essential cmake ninja-build gcc g++ python3 nodejs
 ```
 
 **Arch Linux:**
 ```bash
-sudo pacman -S --needed base-devel cmake ninja pkgconf gcc \
-    libxml2 curl mbedtls libmicrohttpd sqlite openssl \
-    pcre2 zlib libx11 libxcursor libxrandr libxinerama libxi mesa
+sudo pacman -S --needed base-devel cmake ninja gcc python nodejs
 ```
 
 **macOS (Homebrew):**
 ```bash
-brew install cmake ninja pkg-config libxml2 curl mbedtls libmicrohttpd sqlite openssl
+brew install cmake ninja python node
 ```
 
 #### Setup
@@ -266,7 +252,7 @@ python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# Build the C runtime and bundled static libraries into build/lib
+# Build the C runtime into build/lib
 python build_runtime.py
 
 # Confirm the toolchain version (prints the toolchain version, `pengu 2.0.0`);
@@ -312,7 +298,7 @@ pengu run hello.pengu
 | Command    | Description                                                                                       |
 | ---------- | ------------------------------------------------------------------------------------------------- |
 | `init`     | Create a new project template (`--type exe\|static\|shared\|obj\|c`, `--links`, `--cc`).          |
-| `add`      | Add an external dependency or binding (git URL or local folder, optional build script).           |
+| `add`      | Add an external dependency or binding (git URL or local folder, optional build script); the source tree is copied into `lib/<name>/`. |
 | `build`    | Compile the project per its config (`--profile release`, `--cc`, `-D`, `--test`, `--verbose`).    |
 | `run`      | Build and execute the project target, or run a standalone `.pengu` file directly as a script.     |
 | `test`     | Compile in `--test` mode and run the project's integrated unit tests (`--json`, `--watch`).        |
@@ -441,20 +427,17 @@ weave main into int:
 - **C FFI** — declaration files (`*.d.pengu`) glue C straight into PenguScript:
 
   ```pengu
-  # std/xxhash.d.pengu (excerpt)
-  include "xxhash.h"
-  alias XXH32_state_t as opaque
-  rune XXH128_hash_t:
-      low64 as u64
-      high64 as u64
-  declare XXH64 with input as ref to char, length as size_t, seed as u64 into u64
+  # mylib.d.pengu (excerpt)
+  include "mylib.h"
+  alias MylibState as opaque
+  declare mylib_len with text as ref to char into size_t
   ```
 
   …then, from your code:
 
   ```pengu
-  import std.xxhash
-  var h as u64 is calling xxhash.XXH64 with "PenguScript", 11, 0
+  import mylib
+  var n as size_t is calling mylib.mylib_len with "PenguScript"
   ```
 
   Real-world C headers can be turned into such bindings automatically with `pengu bind`.
@@ -538,20 +521,12 @@ plus leak checks; run them with `python -m pytest tests/codegen/test_generics_su
 
 #### Standard library
 
-`std/` contains **52 modules** — 27 written in pure PenguScript and 25 curated C declaration bindings (`.d.pengu`). See [LANGUAGE.md §19](LANGUAGE.md#19-standard-library) for the full module catalog and code examples.
+`std/` contains **21 pure PenguScript modules** and **0 C declaration bindings** (verified: `ls std/*.pengu`). See [LANGUAGE.md §19](LANGUAGE.md#19-standard-library) for the full module catalog and code examples.
 
-- **Pure PenguScript modules (27):** `spark` (core I/O, formatted output, typed input, ranges & math helpers), `scrolls` (comprehensive string enchanting algorithms, metrics, casing & three-way string ordering), `oracle` (`Maybe`/`Result` containers with native/legacy interoperability), `compass` (cross-platform paths & pattern matching), `archivum` (files, binary I/O & directory traversal), `cipher` (JSON RFC 8259, Base64/32/Hex & validation), `chronicle` (dates, high-res clocks, timers & duration parsing), `lot` (PRNG, statistical distributions, sampling, shuffling & random strings), `arithmancy` (advanced math), `rites` (OS processes, cross-platform environment & system info), `whisper` (structured leveled logging & `Logger` rune), `ward` (defensive invariants, float/range/container assertions & generic `shard T` tests), `trial` (unit testing), `tally` (functional list operations, reductions, insertion sort & statistics), `atlas` (hash map key-value store, combination, bulk accessors & filters), `coven` (unique `SetString`/`SetInt` collections, ritual constructors & set algebra), `regulus` (PCRE2 regex), `parchment` (libxml2 XML/HTML), `seal` (hashing + compression via Mbed TLS/zlib), `precis` (HTTP client/server & sockets), `filum` (threads, typed channels, mutexes & atomic operations), `loom` (sequence pipelines, windowing & generic algorithms), `invoke` (advanced CLI parsing, subcommands, typed flags, multi-options & typo suggestions), `ffi` (C bridge), `celeris` (profiling), `xlsx` (Excel writing), and `ledger` (CSV/TSV parsing, tabular data & matrix enchantments).
-- **C native declaration bindings (25):** `raylib`, `raymath`, `rlgl`, `rlights`, `raygui`, `sqlite3`, `webui`, `miniaudio`, `tomlum`, `yaml`, `uuid`, `xxhash`, `xlsxio`, `imago`, `typis`, `scriptor`, `perlinum`, `stb_image_resize2`, `stb_herringbone_wang_tile`, `nanosvg`, `nanosvgrast`, `minicoro`, `datastructura`, `fenestra`, and `pactum`.
+- **Pure PenguScript modules (21):** `spark` (core I/O, formatted output, typed input, ranges & math helpers), `scrolls` (comprehensive string enchanting algorithms, metrics, casing & three-way string ordering), `oracle` (`Maybe`/`Result` containers with native/legacy interoperability), `compass` (cross-platform paths & pattern matching), `archivum` (files, binary I/O & directory traversal), `cipher` (JSON RFC 8259, Base64/32/Hex & validation), `chronicle` (dates, high-res clocks, timers & duration parsing), `lot` (PRNG, statistical distributions, sampling, shuffling & random strings), `arithmancy` (advanced math), `rites` (OS processes, cross-platform environment & system info), `whisper` (structured leveled logging & `Logger` rune), `ward` (defensive invariants, float/range/container assertions & generic `shard T` tests), `trial` (unit testing), `tally` (functional list operations, reductions, insertion sort & statistics), `atlas` (hash map key-value store, combination, bulk accessors & filters), `coven` (unique `SetString`/`SetInt` collections, ritual constructors & set algebra), `filum` (threads, typed channels, mutexes & atomic operations), `loom` (sequence pipelines, windowing & generic algorithms), `invoke` (advanced CLI parsing, subcommands, typed flags, multi-options & typo suggestions), `ffi` (C bridge), and `ledger` (CSV/TSV parsing, tabular data & matrix enchantments).
+- **Bindings to external C libraries (raylib, sqlite3, webui, miniaudio, etc.) now live in satellite repositories.** See [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md); install one with `pengu add <url>` (the source tree is copied into `lib/<name>/`).
 
-With the completion of **Batch 6 (FINAL)** (`regulus`, `precis`, `parchment`, `seal`, `ffi`, `arithmancy`), the standard-library expansion that began in 0.15.0 is **🎉 FEATURE-COMPLETE 🎉** across all six planned batches:
-1. **Collections & Data Structures:** `tally`, `atlas`, `coven`
-2. **System & Filesystem:** `chronicle`, `compass`, `archivum`
-3. **Runtime, Concurrency & Logging:** `rites`, `filum`, `whisper`
-4. **Data-Processing & Algorithmic Layer:** `cipher`, `loom`, `ledger`
-5. **Testing, CLI & Utilities:** `lot`, `ward`, `invoke`
-6. **Advanced Integration & Math Tier:** `regulus` (PCRE2 regex), `precis` (HTTP client/server), `parchment` (libxml2 XML/HTML DOM), `seal` (HMAC, SHA/MD5 hashing & compression), `ffi` (null-safe generic C bridge), `arithmancy` (game-ready linear algebra: Vec2/3/4, Mat4, Quat)
-
-All 52 modules ship comprehensive documentation (`#`/`##` doc comments, audited by `tests/docs/test_std_docs_completeness.py`), full test coverage across `debug` and `release` compilation profiles, 100% backward compatibility across every published version line (pinned by `tests/migration/`), and zero C compiler warnings.
+The 21 modules ship comprehensive documentation (`#`/`##` doc comments, audited by `tests/docs/test_std_docs_completeness.py`), full test coverage across `debug` and `release` compilation profiles, 100% backward compatibility across every published version line (pinned by `tests/migration/`), and zero C compiler warnings.
 
 ---
 
@@ -569,19 +544,16 @@ PenguScript/
 ├── pengu_bind.py           # `pengu bind`: C header -> .d.pengu binding generator (pycparser)
 ├── pengu_doc.py            # `pengu doc`: Markdown reference generator from `##` comments
 ├── pengu_runtime.h         # Public API of the C runtime used by generated code
-├── build_runtime.py        # Compiles the C runtime + bundled C libraries into build/lib
-├── extern_manifest.py      # Manifest + downloader for external C library sources (-> extern/)
+├── build_runtime.py        # Compiles the C runtime into build/lib
+├── extern_manifest.py      # Manifest + downloader infrastructure reused by satellite modules (-> extern/)
 ├── make_release.py         # One-shot release packager -> pengucc_build/ (see below)
-├── std/                    # Standard library: 27 pure-PenguScript modules +
-│                           #   25 C declaration bindings (*.d.pengu) (52 modules total)
-├── std_c/                  # C implementation units, wrappers_*.c shims, and vendored
-│                           #   single-header libraries (STB, nanosvg, xxhash, uuid, …)
+├── std/                    # Standard library: 21 pure-PenguScript modules (0 C bindings)
 ├── c_bind_stubs/           # Minimal stub C headers used when `pengu bind` preprocesses
 ├── extern/                 # Downloaded third-party C library sources (gitignored)
 ├── build/                  # Generated output (gitignored):
-│                           #   build/lib/*.a static archives + build/include/ headers
+│                           #   build/lib/libpengu_runtime.a + build/include/ headers
 ├── tests/                  # Python test-suite (pytest tests/): compiler, LSP, CLI,
-│                           #   bindings, std library & bundled C libraries
+│                           #   `pengu bind`, the std library & satellite modules
 ├── tests/std_programs/     # One PenguScript exercise program per std module
 │                           #   (compiled & run by tests/stdlib/test_stdlib.py)
 ├── vscode-extension/       # VS Code extension (grammar, LSP client, project commands)
@@ -597,19 +569,16 @@ PenguScript/
 
 ### Building the Runtime from Source
 
-`build_runtime.py` produces the static archives that `pengu` links into every binary. It runs in two stages:
-
-1. **Download & extract** — `extern_manifest.py` holds the manifest of every external C library (name → URL → expected directory) and downloads/extracts the ones missing into `extern/` (gitignored). It is invoked automatically at the start of `build_runtime.py` and can also be run standalone: `python extern_manifest.py`.
-2. **Compile** — `build_runtime.py` then compiles each library with `gcc`/`clang` + `ar` (CMake for libuv, libzip, and libexpat) into `build/lib/*.a`, staging headers into `build/include/`:
+`build_runtime.py` produces the static archive that `pengu` links into every binary. The runtime has **no external C dependencies** — it needs only libc, libm and pthreads/Win32 threads — so there is a single compile stage: `build_pengu_runtime` compiles `pengu_runtime.c` with `gcc`/`clang` + `ar` into `build/lib/libpengu_runtime.a` and stages the headers into `build/include/`:
 
 ```bash
-python build_runtime.py            # download externs if needed, build everything
-python build_runtime.py --rebuild  # force a clean rebuild
+python build_runtime.py            # build the runtime
+python build_runtime.py --rebuild  # force a clean rebuild (~1.4 s, down from ~5–8 min)
 ```
 
-The builders (`build_zlib`, `build_pcre2`, `build_libxml2`, `build_mbedtls`, `build_curl`, `build_microhttpd`, `build_sqlite3`, `build_libzip`, `build_libexpat`, `build_xlsxio`, `build_libyaml`, `build_libcyaml`, `build_libuv`, `build_tomlc17`, `build_webui`, `build_raylib`, `build_pengu_stb`, `build_pengu_runtime`) produce, among others, `libz.a`, `libpcre2-8.a`, `libxml2.a`, `libmbedcrypto.a`, `libcurl.a`, `libmicrohttpd.a`, `libsqlite3.a`, `libraylib.a`, `libwebui.a`, `libuv.a`, `libyaml.a`, `libcyaml.a`, `libzip.a`, `libexpat.a`, `libxlsxio_read.a`/`libxlsxio_write.a`, `libtomlc17.a`, `libpengu_stb.a` (the vendored single-header implementations, see below), and `libpengu_runtime.a` (the runtime itself). Any archive present in `build/lib` is linked automatically into projects that link `pengu_runtime`. On POSIX hosts the runtime may use the system libxml2/libcurl/libmicrohttpd instead of the static builds.
+`build_pengu_runtime` produces only `libpengu_runtime.a`. Native archives for external C libraries are not bundled here: they are installed per project from satellite repositories with `pengu add` (see [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)).
 
-> The first run downloads and extracts the external library sources, so it needs internet access; later runs are incremental and skip anything already built.
+> `extern_manifest.py` and its now-empty manifest are retained so the satellite repositories can reuse the download/hash infrastructure; the core build neither downloads nor compiles anything.
 
 **Releases** — `make_release.py` automates the whole distribution: it verifies/installs the Python deps, rebuilds the runtime (`--rebuild`), runs smoke tests, packages the CLI + LSP into a standalone executable with PyInstaller (`pengu` / `pengu.exe`), and builds the VS Code extension (`pengus-<version>.vsix`). Everything lands in `pengucc_build/`:
 
@@ -622,7 +591,7 @@ pengucc_build/
 ├── pengu (.exe)          # Standalone PenguScript CLI & LSP server
 ├── pengus-<version>.vsix # VS Code extension
 ├── std/                  # Complete standard library modules
-└── runtime/              # C runtime headers + static libraries (build/lib)
+└── runtime/              # C runtime headers + static library (build/lib)
 ```
 
 See [docs/README_RELEASE.md](docs/README_RELEASE.md) for the distribution's own documentation.
@@ -649,6 +618,7 @@ Additional references:
 | [CHEATSHEET.md](CHEATSHEET.md)                           | Full language syntax, keywords, and C-translation reference   |
 | [BENCHMARKS.md](BENCHMARKS.md)                           | Published build/run/artifact-size measurements                |
 | [docs/DEPRECATIONS.md](docs/DEPRECATIONS.md)             | Deprecation policy, `@deprecated` aliases and removal windows |
+| [docs/EXTERNAL_MODULES.md](docs/EXTERNAL_MODULES.md)     | Satellite C-binding modules: installing and using them with `pengu add` |
 | `MIGRATION.md`                                           | Migration guide across published version lines (named; kept alongside the corpus in `tests/migration/`) |
 | [VERSION](VERSION)                                       | The single source of truth for the toolchain version          |
 | [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md)               | `pengu` CLI, project config, and the build system             |
@@ -660,7 +630,7 @@ Additional references:
 
 ### Third-Party Acknowledgements & Credits
 
-PenguScript's toolchain, C runtime, and standard library stand on the shoulders of many excellent open-source projects. We gratefully acknowledge and thank their authors. License names below are as published by each upstream project; vendored code keeps its original copyright/license notices (see the header comments in `std_c/`).
+PenguScript's toolchain, C runtime, and standard library stand on the shoulders of many excellent open-source projects. We gratefully acknowledge and thank their authors. License names below are as published by each upstream project.
 
 #### Python (toolchain) dependencies
 
@@ -682,62 +652,11 @@ Declared in [requirements.txt](requirements.txt):
 | [ruff](https://docs.astral.sh/ruff/)                                          | The `F821`/`E9` gate (an undefined name is a compiler crash)| MIT                           |
 | [tomli](https://github.com/hukkin/tomli)                                      | `tomllib` backport for `pengu.toml` on Python < 3.11        | MIT                            |
 
-#### C runtime & standard library
-
-##### Compiled external libraries (built into `build/lib` by `build_runtime.py`)
-
-| Library                                            | Version   | Used by                                     | License                |
-| -------------------------------------------------- | --------- | ------------------------------------------- | ---------------------- |
-| [zlib](https://zlib.net/)                          | 1.3.2     | `std.seal` (deflate/inflate)                 | zlib                   |
-| [PCRE2](https://www.pcre.org/)                     | 10.47     | `std.regulus` (regex)                       | BSD-3-Clause           |
-| [libxml2](https://gitlab.gnome.org/GNOME/libxml2)  | 2.9.0     | `std.parchment` (XML/HTML DOM)              | MIT                    |
-| [Mbed TLS](https://github.com/Mbed-TLS/mbedtls)    | 4.2.0     | `std.seal` (MD5/SHA1/SHA256/SHA512, CRC)    | Apache-2.0             |
-| [cURL](https://curl.se/libcurl/)                   | 8.21.0    | `std.precis` (HTTP client)                  | MIT-like ("curl" license) |
-| [GNU libmicrohttpd](https://www.gnu.org/software/libmicrohttpd/) | 1.0.1 | `std.precis` (embedded HTTP server)       | LGPL-2.1-or-later      |
-| [SQLite](https://www.sqlite.org/)                  | 3.53.4    | `std.sqlite3`                               | Public domain          |
-| [raylib](https://www.raylib.com/)                  | 6.0       | `std.raylib` (also compiles its amalgamated GLFW driver `rglfw.c`, zlib) | zlib |
-| [WebUI](https://github.com/webui-dev/webui)        | 2.5.0-beta.3 | `std.webui` (prebuilt static release)     | MIT                    |
-| [libuv](https://libuv.org/)                        | 1.52.1    | C-level dependency (no binding yet)         | MIT                    |
-| [libyaml](https://github.com/yaml/libyaml)         | 0.2.5     | `std.yaml` (version query; parsing stays C-level) | MIT            |
-| [libcyaml](https://github.com/tlsa/libcyaml)       | 1.4.2     | YAML schema layer on libyaml (C-level)      | ISC                    |
-| [tomlc17](https://github.com/cktan/tomlc17)        | R260821   | `std.tomlum` (TOML validity shim)           | MIT                    |
-| [libzip](https://libzip.org/)                      | 1.11.3    | Zip support (used by xlsxio)                | BSD-3-Clause           |
-| [libexpat](https://libexpat.github.io/)            | 2.6.4     | XML parser (used by xlsxio)                 | MIT                    |
-| [xlsxio](https://github.com/brechtsanders/xlsxio)  | 0.2.36    | `std.xlsxio` + the pure-Pengu `std.xlsx` writer | BSD-2-Clause       |
-
-##### Vendored single-header libraries (`std_c/`)
-
-Each file keeps its upstream name, version, and license notice in its own comment block. Upstream names differ from the Latinized filenames used to dodge C namespace collisions:
-
-| `std_c/` file                | Upstream library                             | License (from the file header)                                   | PenguScript binding / notes |
-| ---------------------------- | -------------------------------------------- | --------------------------------------------------------------- | --------------------------- |
-| `imago.h`                    | stb_image v2.30                              | Public domain (Sean Barrett)                                     | `std.imago` (image loading) |
-| `scriptor.h`                 | stb_image_write v1.16                        | Public domain                                                    | `std.scriptor` (image writing) |
-| `typis.h`                    | stb_truetype v1.26                           | Public domain                                                    | `std.typis` (fonts) |
-| `pactum.h`                   | stb_rect_pack v1.01                          | Public domain                                                    | `std.pactum` (rect packing) |
-| `datastructura.h`            | stb_ds v0.67                                 | Public domain                                                    | `std.datastructura` (hash maps / dynamic arrays) |
-| `perlinum.h`                 | stb_perlin v0.5                              | MIT or public domain (Unlicense) — dual                          | `std.perlinum` (noise) |
-| `stb_image_resize2.h`        | stb_image_resize2 v2.18                      | Public domain                                                    | `std.stb_image_resize2` |
-| `stb_herringbone_wang_tile.h`| stb_herringbone_wang_tile v0.7               | Public domain / permissive dual grant                            | `std.stb_herringbone_wang_tile` |
-| `nanosvg.h` / `nanosvgrast.h`| [nanosvg](https://github.com/memononen/nanosvg) | zlib (© 2013–14 Mikko Mononen)                                | `std.nanosvg` / `std.nanosvgrast` (SVG parse + rasterize) |
-| `xxhash.h`                   | [xxHash](https://github.com/Cyan4973/xxHash) | BSD-2-Clause (© 2012–2023 Yann Collet)                           | `std.xxhash` + the `std.celeris` wrapper |
-| `uuid.h`                     | [uuid_h](https://github.com/wc-duck/uuid_h)  | zlib-style (© 2016– Fredrik Kihlander; MinGW-patched in this repo) | `std.uuid` |
-| `minicoro.h`                 | [minicoro](https://github.com/edubart/minicoro) v0.2.0 | Public domain (Unlicense) or MIT-0 — dual (© 2021–23 Eduardo Bart) | `std.minicoro` (coroutines) |
-| `miniaudio.h`                | [miniaudio](https://github.com/mackron/miniaudio) v0.11.25 | Public domain or MIT-0 — dual (David Reid)              | `std.miniaudio` (small subset; header not compiled into the runtime) |
-| `raygui.h`                   | [raygui](https://github.com/raysan5/raygui) v5.0 | zlib/libpng (© 2014–2026 Ramon Santamaria)                   | compiled for use with `std.raylib` |
-| `rlights.h`                  | raylib-6 "RLG" lighting framework            | No license header embedded (lineage: raylib examples, zlib; cf. [bigfoot71/rlights](https://github.com/bigfoot71/rlights)) | `std.rlights` (subset; not compiled into the runtime) |
-| `tinyfiledialogs.h` / `.c`   | [tinyfiledialogs](http://tinyfiledialogs.sourceforge.net) v3.21.3 | zlib (© 2014–2025 Guillaume Vareille)         | `std.fenestra` (file/message dialogs) |
-| `tinyfd_moredialogs.h` / `.c`| tinyfiledialogs "more dialogs" v3.9.0        | zlib (© 2014–2023 Guillaume Vareille)                           | part of `std.fenestra` |
-| `linmath.h`                  | [linmath.h](https://github.com/datenwolf/linmath.h) | No license header embedded upstream (vector/matrix/quaternion math) | vendored (experimental `scratch/` binding) |
-| `fifo_declare.h`             | FIFO / circular-buffer macro header          | LGPL-2.1-or-later (© 2003–2012 Michel Pollet)                   | vendored in `std_c/`; not referenced by the runtime or std yet |
-
-The STB headers above are the well-known single-file libraries by Sean Barrett & contributors ([nothings/stb](https://github.com/nothings/stb)); several also carry the upstream dual "public domain or MIT-0" grant. The `wrappers_*.c` files, `pengu_tomlc17.h`, and the `.pengu` bindings in `std/` are PenguScript's own code.
-
 ---
 
 ### License
 
-PenguScript is released under the **[MIT License](LICENSE)** — © 2026 TuGatito. Third-party components retain their own licenses as noted above; see each vendored header and the upstream projects for details.
+PenguScript is released under the **[MIT License](LICENSE)** — © 2026 TuGatito. Satellite modules installed from third-party repositories with `pengu add` are separate projects and keep their own licenses (see each satellite repository).
 
 ---
 
@@ -859,7 +778,7 @@ PenguScript 2.0 es una publicación **aditiva**: todo programa de la 1.x sigue c
   pengu check --json | jq -c 'select(.type=="diagnostic") | {file,line,col,code}'
   ```
 
-- **Enlace condicional** — un archivo nativo solo se enlaza cuando se importó el módulo `std` que lo necesita (`std.regulus` → PCRE2, `std.parchment` → libxml2, `std.precis` → libcurl + libmicrohttpd, `std.seal` → zlib + mbedcrypto); un programa sin importaciones nativas enlaza únicamente `libpengu_runtime.a`, y por eso un `hello_world` sin símbolos pesa ~14 KiB (ver [BENCHMARKS.md](BENCHMARKS.md)).
+- **Enlace condicional** — el runtime principal no tiene dependencias externas de C: solo necesita libc, libm y pthreads/hilos de Win32, y un programa sin importaciones nativas enlaza únicamente `libpengu_runtime.a`, y por eso un `hello_world` sin símbolos pesa ~14 KiB (ver [BENCHMARKS.md](BENCHMARKS.md)). Los archivos nativos de los módulos satélite (instalados con `pengu add`) solo se enlazan cuando se importa el módulo que los declara.
 
 ### Características destacadas
 
@@ -873,7 +792,7 @@ PenguScript 2.0 es una publicación **aditiva**: todo programa de la 1.x sigue c
 - **Limpieza determinista y manual** — `banish` libera un valor ahora; `defer banish` / `errdefer banish` difieren la liberación al salir del ámbito o a un retorno de error (LIFO). Nada se libera a tus espaldas ([§13](LANGUAGE.md#13-manual-memory-management)).
 - **FFI de C de primera clase** — `include`/`link`/`declare`, tipos opacos (`alias … as opaque`), `sigil of` (dirección de) / `essence of` (desreferencia), préstamos sin copia con `bytes of <string>` y `weave`s que decaen a punteros a función de C ([§14](LANGUAGE.md#14-modules-imports--c-interop)).
 - **`pengu bind`** — genera automáticamente un archivo de declaraciones `.d.pengu` a partir de cualquier cabecera de C (structs → `rune`, uniones → `echo`, enumeraciones → `omen`, funciones → `declare`, callbacks → `alias … as ref to weave`, conservando los comentarios de documentación) con blanqueo de extensiones del preprocesador, autoimportación de hermanos y opciones (`--define`, `--cpp-flags`, `--system-includes`, `--preprocessed`) ([§20.6](LANGUAGE.md#206-c-header-binding-generator-pengu-bind)).
-- **Biblioteca estándar completa** — `std/` incluye **52 módulos**: 27 implementados en PenguScript puro (E/S, cadenas, archivos, matemáticas, tiempo, regex, cliente/servidor HTTP, concurrencia, registro de logs, pruebas unitarias, …) más 25 enlaces de declaraciones de C (`*.d.pengu`) para bibliotecas nativas incluidas (entre ellas **raylib**, **raymath**, **rlgl**, **sqlite3**, **webui**, **miniaudio** y **stb**) ([§19](LANGUAGE.md#19-standard-library)).
+- **Biblioteca estándar completa** — `std/` incluye **21 módulos puros de PenguScript** y **0 enlaces de declaraciones de C** (E/S, cadenas, archivos, matemáticas, tiempo, concurrencia, registro de logs, pruebas unitarias, …) ([§19](LANGUAGE.md#19-standard-library)). Los enlaces a bibliotecas externas de C (raylib, sqlite3, webui, miniaudio, etc.) viven ahora en repositorios satélite — consulta [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md).
 - **Recursos embebidos del proyecto (`arca`)** — incrusta recursos binarios y de texto (texturas, shaders, audio, fuentes, HTML/JS/CSS, archivos de configuración) directamente en secciones `.rodata` nativas o los lee desde disco con vistas de puntero sin copia y accesores de slice ([§19.4](LANGUAGE.md#194-embedded-project-assets-arca)).
 - **Servidor de lenguaje (LSP)** — diagnósticos con `help:`/`note:`/intervalos con cursor, documentación a partir de comentarios `#` y `##`, información emergente de tipos y tamaño en memoria, autocompletado con ámbito de módulo, ir a la definición, formateo y acciones de código ([§20.10](LANGUAGE.md#2010-language-server-protocol-pengu-lsp)).
 - **Gestor de proyectos unificado** — la CLI `pengu` crea (`init`), compila (`build`), ejecuta (`run`), prueba (`test`), verifica (`check`), formatea (`fmt`), limpia (`clean`), documenta (`doc`), genera enlaces de C (`bind`) y lanza el servidor de lenguaje (`lsp`) ([§20](LANGUAGE.md#20-tooling--project-layout)).
@@ -887,45 +806,34 @@ PenguScript 2.0 es una publicación **aditiva**: todo programa de la 1.x sigue c
 #### Requisitos
 
 - **Python 3.11+** (3.10 también funciona — allí `requirements.txt` instala automáticamente el backport `tomli`).
-- Un **compilador de C** (`gcc`, `clang` o `tcc`) y un archivador estático (`ar`/`llvm-ar`) en tu `PATH` — en Windows usa el `gcc` de MinGW-w64. `gcc`/`clang` son los backends de referencia; TinyCC (TCC) es el compilador rápido de desarrollo incluido en las publicaciones.
-- **`libpengu_runtime.a`** — el archivo del runtime de C que `python build_runtime.py` produce en `build/lib`. `pengu build` lo enlaza siempre (independientemente de `links` en `pengu.toml`), y cada bundle referencia `pengu_abi_version()`, así que un archivo ausente o con ABI incompatible falla con un mensaje accionable en lugar de un `undefined reference`.
-- **CMake y Ninja** — necesarios para las compilaciones estáticas de libuv, libzip y libexpat.
+- Un **compilador de C** (`gcc` o `clang`) y un archivador estático (`ar`/`llvm-ar`) en tu `PATH` — en Windows usa el `gcc` de MinGW-w64. `gcc`/`clang` son los backends de referencia.
+- **CMake y Ninja** — herramientas de compilación para los entornos de desarrollo soportados.
 - **Node.js 18+ y npm** — solo se necesitan para desarrollar o empaquetar la extensión de VS Code.
 
 ##### Dependencias del sistema para Linux y macOS
 
-En Linux y macOS, compilar el runtime del lenguaje y las dependencias nativas requiere paquetes de desarrollo (entre ellos `pkg-config`, `libxml2`, `libcurl`, `mbedtls`, `libmicrohttpd`, `sqlite3`, `openssl`, X11 y OpenGL):
+En Linux y macOS, compilar el runtime del lenguaje solo necesita una cadena de herramientas de C más las herramientas de Python y Node — no hay bibliotecas de desarrollo externas que instalar:
 
 **Fedora / RHEL:**
 ```bash
 sudo dnf install -y @development-tools \
-    cmake ninja-build pkgconf-pkg-config gcc gcc-c++ \
-    zlib-ng-devel pcre2-devel libxml2-devel libcurl-devel \
-    mbedtls-devel libmicrohttpd-devel sqlite-devel openssl-devel \
-    libX11-devel libXcursor-devel libXrandr-devel libXinerama-devel \
-    libXi-devel mesa-libGL-devel
+    cmake ninja-build gcc gcc-c++ python3 nodejs
 ```
 
 **Ubuntu / Debian:**
 ```bash
 sudo apt-get update && sudo apt-get install -y \
-    build-essential cmake ninja-build pkg-config gcc g++ \
-    libxml2-dev libcurl4-openssl-dev libmbedtls-dev \
-    libmicrohttpd-dev libsqlite3-dev libssl-dev \
-    libpcre2-dev zlib1g-dev libx11-dev libxcursor-dev \
-    libxrandr-dev libxinerama-dev libxi-dev libgl1-mesa-dev
+    build-essential cmake ninja-build gcc g++ python3 nodejs
 ```
 
 **Arch Linux:**
 ```bash
-sudo pacman -S --needed base-devel cmake ninja pkgconf gcc \
-    libxml2 curl mbedtls libmicrohttpd sqlite openssl \
-    pcre2 zlib libx11 libxcursor libxrandr libxinerama libxi mesa
+sudo pacman -S --needed base-devel cmake ninja gcc python nodejs
 ```
 
 **macOS (Homebrew):**
 ```bash
-brew install cmake ninja pkg-config libxml2 curl mbedtls libmicrohttpd sqlite openssl
+brew install cmake ninja python node
 ```
 
 #### Configuración
@@ -939,7 +847,7 @@ python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# Build the C runtime and bundled static libraries into build/lib
+# Build the C runtime into build/lib
 python build_runtime.py
 
 # Confirma la versión de la cadena de herramientas (imprime `pengu 2.0.0`);
@@ -985,7 +893,7 @@ pengu run hello.pengu
 | Comando    | Descripción                                                                                       |
 | ---------- | ------------------------------------------------------------------------------------------------- |
 | `init`     | Crea una plantilla de proyecto nueva (`--type exe\|static\|shared\|obj\|c`, `--links`, `--cc`).    |
-| `add`      | Añade una dependencia o enlace externo (URL de git o carpeta local, con script de compilación opcional). |
+| `add`      | Añade una dependencia o enlace externo (URL de git o carpeta local, con script de compilación opcional); el árbol de fuentes se copia en `lib/<name>/`. |
 | `build`    | Compila el proyecto según su configuración (`--profile release`, `--cc`, `-D`, `--test`, `--verbose`). |
 | `run`      | Compila y ejecuta el objetivo del proyecto, o ejecuta un archivo `.pengu` suelto directamente como script. |
 | `test`     | Compila en modo `--test` y ejecuta las pruebas unitarias integradas del proyecto (`--json`, `--watch`). |
@@ -1114,20 +1022,17 @@ weave main into int:
 - **FFI de C** — los archivos de declaraciones (`*.d.pengu`) conectan C directamente con PenguScript:
 
   ```pengu
-  # std/xxhash.d.pengu (excerpt)
-  include "xxhash.h"
-  alias XXH32_state_t as opaque
-  rune XXH128_hash_t:
-      low64 as u64
-      high64 as u64
-  declare XXH64 with input as ref to char, length as size_t, seed as u64 into u64
+  # mylib.d.pengu (excerpt)
+  include "mylib.h"
+  alias MylibState as opaque
+  declare mylib_len with text as ref to char into size_t
   ```
 
   …y después, desde tu código:
 
   ```pengu
-  import std.xxhash
-  var h as u64 is calling xxhash.XXH64 with "PenguScript", 11, 0
+  import mylib
+  var n as size_t is calling mylib.mylib_len with "PenguScript"
   ```
 
   Las cabeceras de C del mundo real se pueden convertir en enlaces así de forma automática con `pengu bind`.
@@ -1213,20 +1118,12 @@ característica más comprobaciones de fugas; ejecútalos con
 
 #### Biblioteca estándar
 
-`std/` contiene **52 módulos** — 27 escritos en PenguScript puro y 25 enlaces de declaraciones de C seleccionados (`.d.pengu`). Consulta [LANGUAGE.md §19](LANGUAGE.md#19-standard-library) para el catálogo completo de módulos y ejemplos de código.
+`std/` contiene **21 módulos puros de PenguScript** y **0 enlaces de declaraciones de C** (verificado: `ls std/*.pengu`). Consulta [LANGUAGE.md §19](LANGUAGE.md#19-standard-library) para el catálogo completo de módulos y ejemplos de código.
 
-- **Módulos en PenguScript puro (27):** `spark` (E/S básica, salida formateada, entrada tipada, rangos y ayudas matemáticas), `scrolls` (algoritmos completos de manipulación de cadenas, métricas, capitalización y ordenación de cadenas a tres bandas), `oracle` (contenedores `Maybe`/`Result` con interoperabilidad nativa y heredada), `compass` (rutas multiplataforma y coincidencia de patrones), `archivum` (archivos, E/S binaria y recorrido de directorios), `cipher` (JSON RFC 8259, Base64/32/Hex y validación), `chronicle` (fechas, relojes de alta resolución, temporizadores y análisis de duraciones), `lot` (PRNG, distribuciones estadísticas, muestreo, barajado y cadenas aleatorias), `arithmancy` (matemáticas avanzadas), `rites` (procesos del SO, entorno e información del sistema multiplataforma), `whisper` (registro de logs estructurado por niveles y rune `Logger`), `ward` (invariantes defensivos, aserciones de flotantes/rangos/contenedores y pruebas genéricas `shard T`), `trial` (pruebas unitarias), `tally` (operaciones funcionales sobre listas, reducciones, ordenación por inserción y estadísticas), `atlas` (almacén clave-valor con mapas hash, combinación, accesores masivos y filtros), `coven` (colecciones únicas `SetString`/`SetInt`, constructores rituales y álgebra de conjuntos), `regulus` (regex PCRE2), `parchment` (XML/HTML con libxml2), `seal` (hashing y compresión con Mbed TLS/zlib), `precis` (cliente/servidor HTTP y sockets), `filum` (hilos, canales tipados, mutex y operaciones atómicas), `loom` (pipelines de secuencias, ventanas y algoritmos genéricos), `invoke` (análisis avanzado de CLI, subcomandos, flags tipados, multiopciones y sugerencias ante erratas), `ffi` (puente con C), `celeris` (perfilado), `xlsx` (escritura de Excel) y `ledger` (análisis de CSV/TSV, datos tabulares y encantamientos de matrices).
-- **Enlaces de declaraciones nativas de C (25):** `raylib`, `raymath`, `rlgl`, `rlights`, `raygui`, `sqlite3`, `webui`, `miniaudio`, `tomlum`, `yaml`, `uuid`, `xxhash`, `xlsxio`, `imago`, `typis`, `scriptor`, `perlinum`, `stb_image_resize2`, `stb_herringbone_wang_tile`, `nanosvg`, `nanosvgrast`, `minicoro`, `datastructura`, `fenestra` y `pactum`.
+- **Módulos en PenguScript puro (21):** `spark` (E/S básica, salida formateada, entrada tipada, rangos y ayudas matemáticas), `scrolls` (algoritmos completos de manipulación de cadenas, métricas, capitalización y ordenación de cadenas a tres bandas), `oracle` (contenedores `Maybe`/`Result` con interoperabilidad nativa y heredada), `compass` (rutas multiplataforma y coincidencia de patrones), `archivum` (archivos, E/S binaria y recorrido de directorios), `cipher` (JSON RFC 8259, Base64/32/Hex y validación), `chronicle` (fechas, relojes de alta resolución, temporizadores y análisis de duraciones), `lot` (PRNG, distribuciones estadísticas, muestreo, barajado y cadenas aleatorias), `arithmancy` (matemáticas avanzadas), `rites` (procesos del SO, entorno e información del sistema multiplataforma), `whisper` (registro de logs estructurado por niveles y rune `Logger`), `ward` (invariantes defensivos, aserciones de flotantes/rangos/contenedores y pruebas genéricas `shard T`), `trial` (pruebas unitarias), `tally` (operaciones funcionales sobre listas, reducciones, ordenación por inserción y estadísticas), `atlas` (almacén clave-valor con mapas hash, combinación, accesores masivos y filtros), `coven` (colecciones únicas `SetString`/`SetInt`, constructores rituales y álgebra de conjuntos), `filum` (hilos, canales tipados, mutex y operaciones atómicas), `loom` (pipelines de secuencias, ventanas y algoritmos genéricos), `invoke` (análisis avanzado de CLI, subcomandos, flags tipados, multiopciones y sugerencias ante erratas), `ffi` (puente con C) y `ledger` (análisis de CSV/TSV, datos tabulares y encantamientos de matrices).
+- **Los enlaces a bibliotecas externas de C (raylib, sqlite3, webui, miniaudio, etc.) viven ahora en repositorios satélite.** Consulta [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md); instala uno con `pengu add <url>` (el árbol de fuentes se copia en `lib/<name>/`).
 
-Con la finalización del **Lote 6 (FINAL)** (`regulus`, `precis`, `parchment`, `seal`, `ffi`, `arithmancy`), la ampliación de la biblioteca estándar que comenzó en la 0.15.0 está **🎉 COMPLETA 🎉** en los seis lotes previstos:
-1. **Colecciones y estructuras de datos:** `tally`, `atlas`, `coven`
-2. **Sistema y sistema de archivos:** `chronicle`, `compass`, `archivum`
-3. **Runtime, concurrencia y logs:** `rites`, `filum`, `whisper`
-4. **Capa de procesamiento de datos y algoritmia:** `cipher`, `loom`, `ledger`
-5. **Pruebas, CLI y utilidades:** `lot`, `ward`, `invoke`
-6. **Integración avanzada y nivel matemático:** `regulus` (regex PCRE2), `precis` (cliente/servidor HTTP), `parchment` (DOM XML/HTML con libxml2), `seal` (HMAC, hashing SHA/MD5 y compresión), `ffi` (puente genérico con C a prueba de nulos), `arithmancy` (álgebra lineal lista para juegos: Vec2/3/4, Mat4, Quat)
-
-Los 52 módulos incluyen documentación completa (docstrings `##`), cobertura de pruebas total en los perfiles de compilación `debug` y `release`, compatibilidad hacia atrás del 100 % con cada línea de versión publicada (fijada por `tests/migration/`) y cero advertencias del compilador de C.
+Los 21 módulos incluyen documentación completa (docstrings `##`), cobertura de pruebas total en los perfiles de compilación `debug` y `release`, compatibilidad hacia atrás del 100 % con cada línea de versión publicada (fijada por `tests/migration/`) y cero advertencias del compilador de C.
 
 ---
 
@@ -1244,19 +1141,16 @@ PenguScript/
 ├── pengu_bind.py           # `pengu bind`: C header -> .d.pengu binding generator (pycparser)
 ├── pengu_doc.py            # `pengu doc`: Markdown reference generator from `##` comments
 ├── pengu_runtime.h         # Public API of the C runtime used by generated code
-├── build_runtime.py        # Compiles the C runtime + bundled C libraries into build/lib
-├── extern_manifest.py      # Manifest + downloader for external C library sources (-> extern/)
+├── build_runtime.py        # Compiles the C runtime into build/lib
+├── extern_manifest.py      # Manifest + downloader infrastructure reused by satellite modules (-> extern/)
 ├── make_release.py         # One-shot release packager -> pengucc_build/ (see below)
-├── std/                    # Standard library: 27 pure-PenguScript modules +
-│                           #   25 C declaration bindings (*.d.pengu) (52 modules total)
-├── std_c/                  # C implementation units, wrappers_*.c shims, and vendored
-│                           #   single-header libraries (STB, nanosvg, xxhash, uuid, …)
+├── std/                    # Standard library: 21 pure-PenguScript modules (0 C bindings)
 ├── c_bind_stubs/           # Minimal stub C headers used when `pengu bind` preprocesses
 ├── extern/                 # Downloaded third-party C library sources (gitignored)
 ├── build/                  # Generated output (gitignored):
-│                           #   build/lib/*.a static archives + build/include/ headers
+│                           #   build/lib/libpengu_runtime.a + build/include/ headers
 ├── tests/                  # Python test-suite (pytest tests/): compiler, LSP, CLI,
-│                           #   bindings, std library & bundled C libraries
+│                           #   `pengu bind`, the std library & satellite modules
 ├── tests/std_programs/     # One PenguScript exercise program per std module
 │                           #   (compiled & run by tests/stdlib/test_stdlib.py)
 ├── vscode-extension/       # VS Code extension (grammar, LSP client, project commands)
@@ -1272,19 +1166,16 @@ PenguScript/
 
 ### Compilar el runtime desde el código fuente
 
-`build_runtime.py` produce los archivos estáticos que `pengu` enlaza en cada binario. Se ejecuta en dos etapas:
-
-1. **Descargar y extraer** — `extern_manifest.py` mantiene el manifiesto de cada biblioteca externa de C (nombre → URL → directorio esperado) y descarga/extrae en `extern/` las que faltan (ignorado por git). Se invoca automáticamente al inicio de `build_runtime.py` y también se puede ejecutar por separado: `python extern_manifest.py`.
-2. **Compilar** — `build_runtime.py` compila después cada biblioteca con `gcc`/`clang` + `ar` (CMake para libuv, libzip y libexpat) en `build/lib/*.a`, preparando las cabeceras en `build/include/`:
+`build_runtime.py` produce el archivo estático que `pengu` enlaza en cada binario. El runtime **no tiene dependencias externas de C** — solo necesita libc, libm y pthreads/hilos de Win32 —, así que hay una única etapa de compilación: `build_pengu_runtime` compila `pengu_runtime.c` con `gcc`/`clang` + `ar` en `build/lib/libpengu_runtime.a` y prepara las cabeceras en `build/include/`:
 
 ```bash
-python build_runtime.py            # download externs if needed, build everything
-python build_runtime.py --rebuild  # force a clean rebuild
+python build_runtime.py            # build the runtime
+python build_runtime.py --rebuild  # force a clean rebuild (~1.4 s, down from ~5–8 min)
 ```
 
-Los constructores (`build_zlib`, `build_pcre2`, `build_libxml2`, `build_mbedtls`, `build_curl`, `build_microhttpd`, `build_sqlite3`, `build_libzip`, `build_libexpat`, `build_xlsxio`, `build_libyaml`, `build_libcyaml`, `build_libuv`, `build_tomlc17`, `build_webui`, `build_raylib`, `build_pengu_stb`, `build_pengu_runtime`) producen, entre otros, `libz.a`, `libpcre2-8.a`, `libxml2.a`, `libmbedcrypto.a`, `libcurl.a`, `libmicrohttpd.a`, `libsqlite3.a`, `libraylib.a`, `libwebui.a`, `libuv.a`, `libyaml.a`, `libcyaml.a`, `libzip.a`, `libexpat.a`, `libxlsxio_read.a`/`libxlsxio_write.a`, `libtomlc17.a`, `libpengu_stb.a` (las implementaciones incluidas de un solo archivo de cabecera, ver más abajo) y `libpengu_runtime.a` (el propio runtime). Cualquier archivo presente en `build/lib` se enlaza automáticamente en los proyectos que enlazan `pengu_runtime`. En hosts POSIX el runtime puede usar el libxml2/libcurl/libmicrohttpd del sistema en lugar de las compilaciones estáticas.
+`build_pengu_runtime` produce únicamente `libpengu_runtime.a`. Los archivos nativos de bibliotecas externas de C no se incluyen aquí: se instalan por proyecto desde repositorios satélite con `pengu add` (consulta [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)).
 
-> La primera ejecución descarga y extrae las fuentes de las bibliotecas externas, así que necesita acceso a internet; las siguientes son incrementales y omiten todo lo que ya está compilado.
+> `extern_manifest.py` y su manifiesto ahora vacío se conservan para que los repositorios satélite reutilicen la infraestructura de descarga/hash; la compilación principal no descarga ni compila nada.
 
 **Publicaciones** — `make_release.py` automatiza toda la distribución: verifica e instala las dependencias de Python, recompila el runtime (`--rebuild`), ejecuta pruebas de humo, empaqueta la CLI + el LSP en un ejecutable independiente con PyInstaller (`pengu` / `pengu.exe`) y compila la extensión de VS Code (`pengus-<version>.vsix`). Todo queda en `pengucc_build/`:
 
@@ -1297,7 +1188,7 @@ pengucc_build/
 ├── pengu (.exe)          # Standalone PenguScript CLI & LSP server
 ├── pengus-<version>.vsix # VS Code extension
 ├── std/                  # Complete standard library modules
-└── runtime/              # C runtime headers + static libraries (build/lib)
+└── runtime/              # C runtime headers + static library (build/lib)
 ```
 
 Consulta [docs/README_RELEASE.md](docs/README_RELEASE.md) para la documentación propia de la distribución.
@@ -1324,6 +1215,7 @@ Referencias adicionales:
 | [CHEATSHEET.md](CHEATSHEET.md)                           | Sintaxis completa del lenguaje, palabras clave y referencia de traducción a C |
 | [BENCHMARKS.md](BENCHMARKS.md)                           | Mediciones publicadas de compilación, ejecución y tamaño de artefacto         |
 | [docs/DEPRECATIONS.md](docs/DEPRECATIONS.md)             | Política de obsolescencia, alias `@deprecated` y ventanas de eliminación      |
+| [docs/EXTERNAL_MODULES.md](docs/EXTERNAL_MODULES.md)     | Módulos satélite de enlaces C: instalación y uso con `pengu add`              |
 | `MIGRATION.md`                                           | Guía de migración entre líneas de versión publicadas (nombrada; se conserva junto al corpus en `tests/migration/`) |
 | [VERSION](VERSION)                                       | La única fuente de verdad de la versión de la cadena de herramientas          |
 | [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md)               | CLI `pengu`, configuración de proyecto y sistema de compilación               |
@@ -1335,7 +1227,7 @@ Referencias adicionales:
 
 ### Agradecimientos y créditos a terceros
 
-La cadena de herramientas, el runtime de C y la biblioteca estándar de PenguScript se apoyan en muchos proyectos de código abierto excelentes. Agradecemos y reconocemos con gusto a sus autores. Los nombres de licencia que aparecen abajo son los publicados por cada proyecto original; el código incluido conserva sus avisos originales de copyright/licencia (consulta los comentarios de cabecera en `std_c/`).
+La cadena de herramientas, el runtime de C y la biblioteca estándar de PenguScript se apoyan en muchos proyectos de código abierto excelentes. Agradecemos y reconocemos con gusto a sus autores. Los nombres de licencia que aparecen abajo son los publicados por cada proyecto original.
 
 #### Dependencias de Python (cadena de herramientas)
 
@@ -1352,59 +1244,8 @@ Declaradas en [requirements.txt](requirements.txt):
 | [pytest](https://pytest.org/)                                                 | Ejecutor de pruebas (`pytest tests/`)                      | MIT                            |
 | [tomli](https://github.com/hukkin/tomli)                                      | Backport de `tomllib` para `pengu.toml` en Python < 3.11   | MIT                            |
 
-#### Runtime de C y biblioteca estándar
-
-##### Bibliotecas externas compiladas (compiladas en `build/lib` por `build_runtime.py`)
-
-| Biblioteca                                         | Versión   | Usada por                                   | Licencia               |
-| -------------------------------------------------- | --------- | ------------------------------------------- | ---------------------- |
-| [zlib](https://zlib.net/)                          | 1.3.2     | `std.seal` (deflate/inflate)                 | zlib                   |
-| [PCRE2](https://www.pcre.org/)                     | 10.47     | `std.regulus` (regex)                       | BSD-3-Clause           |
-| [libxml2](https://gitlab.gnome.org/GNOME/libxml2)  | 2.9.0     | `std.parchment` (DOM XML/HTML)              | MIT                    |
-| [Mbed TLS](https://github.com/Mbed-TLS/mbedtls)    | 4.2.0     | `std.seal` (MD5/SHA1/SHA256/SHA512, CRC)    | Apache-2.0             |
-| [cURL](https://curl.se/libcurl/)                   | 8.21.0    | `std.precis` (cliente HTTP)                 | Tipo MIT (licencia "curl") |
-| [GNU libmicrohttpd](https://www.gnu.org/software/libmicrohttpd/) | 1.0.1 | `std.precis` (servidor HTTP embebido)     | LGPL-2.1-or-later      |
-| [SQLite](https://www.sqlite.org/)                  | 3.53.4    | `std.sqlite3`                               | Dominio público        |
-| [raylib](https://www.raylib.com/)                  | 6.0       | `std.raylib` (también compila su driver GLFW amalgamado `rglfw.c`, zlib) | zlib |
-| [WebUI](https://github.com/webui-dev/webui)        | 2.5.0-beta.3 | `std.webui` (publicación estática precompilada) | MIT              |
-| [libuv](https://libuv.org/)                        | 1.52.1    | Dependencia de nivel C (aún sin enlace)     | MIT                    |
-| [libyaml](https://github.com/yaml/libyaml)         | 0.2.5     | `std.yaml` (consulta de versión; el análisis sigue en C) | MIT        |
-| [libcyaml](https://github.com/tlsa/libcyaml)       | 1.4.2     | Capa de esquema YAML sobre libyaml (nivel C) | ISC                   |
-| [tomlc17](https://github.com/cktan/tomlc17)        | R260821   | `std.tomlum` (shim de validez TOML)         | MIT                    |
-| [libzip](https://libzip.org/)                      | 1.11.3    | Soporte de zip (usado por xlsxio)           | BSD-3-Clause           |
-| [libexpat](https://libexpat.github.io/)            | 2.6.4     | Analizador XML (usado por xlsxio)           | MIT                    |
-| [xlsxio](https://github.com/brechtsanders/xlsxio)  | 0.2.36    | `std.xlsxio` + el escritor `std.xlsx` en Pengu puro | BSD-2-Clause    |
-
-##### Bibliotecas incluidas de un solo archivo de cabecera (`std_c/`)
-
-Cada archivo conserva su nombre, versión y aviso de licencia originales en su propio bloque de comentarios. Los nombres originales difieren de los nombres latinizados que se usan para evitar colisiones de espacio de nombres en C:
-
-| Archivo en `std_c/`          | Biblioteca original                          | Licencia (de la cabecera del archivo)                            | Enlace / notas de PenguScript |
-| ---------------------------- | -------------------------------------------- | --------------------------------------------------------------- | ----------------------------- |
-| `imago.h`                    | stb_image v2.30                              | Dominio público (Sean Barrett)                                   | `std.imago` (carga de imágenes) |
-| `scriptor.h`                 | stb_image_write v1.16                        | Dominio público                                                  | `std.scriptor` (escritura de imágenes) |
-| `typis.h`                    | stb_truetype v1.26                           | Dominio público                                                  | `std.typis` (fuentes) |
-| `pactum.h`                   | stb_rect_pack v1.01                          | Dominio público                                                  | `std.pactum` (empaquetado de rectángulos) |
-| `datastructura.h`            | stb_ds v0.67                                 | Dominio público                                                  | `std.datastructura` (mapas hash / arrays dinámicos) |
-| `perlinum.h`                 | stb_perlin v0.5                              | MIT o dominio público (Unlicense) — dual                         | `std.perlinum` (ruido) |
-| `stb_image_resize2.h`        | stb_image_resize2 v2.18                      | Dominio público                                                  | `std.stb_image_resize2` |
-| `stb_herringbone_wang_tile.h`| stb_herringbone_wang_tile v0.7               | Dominio público / concesión dual permisiva                       | `std.stb_herringbone_wang_tile` |
-| `nanosvg.h` / `nanosvgrast.h`| [nanosvg](https://github.com/memononen/nanosvg) | zlib (© 2013–14 Mikko Mononen)                                | `std.nanosvg` / `std.nanosvgrast` (análisis + rasterizado de SVG) |
-| `xxhash.h`                   | [xxHash](https://github.com/Cyan4973/xxHash) | BSD-2-Clause (© 2012–2023 Yann Collet)                           | `std.xxhash` + el envoltorio `std.celeris` |
-| `uuid.h`                     | [uuid_h](https://github.com/wc-duck/uuid_h)  | Estilo zlib (© 2016– Fredrik Kihlander; parcheado para MinGW en este repositorio) | `std.uuid` |
-| `minicoro.h`                 | [minicoro](https://github.com/edubart/minicoro) v0.2.0 | Dominio público (Unlicense) o MIT-0 — dual (© 2021–23 Eduardo Bart) | `std.minicoro` (corrutinas) |
-| `miniaudio.h`                | [miniaudio](https://github.com/mackron/miniaudio) v0.11.25 | Dominio público o MIT-0 — dual (David Reid)          | `std.miniaudio` (subconjunto pequeño; la cabecera no se compila en el runtime) |
-| `raygui.h`                   | [raygui](https://github.com/raysan5/raygui) v5.0 | zlib/libpng (© 2014–2026 Ramon Santamaria)                   | compilado para usarse con `std.raylib` |
-| `rlights.h`                  | Framework de iluminación "RLG" de raylib-6   | Sin cabecera de licencia incrustada (linaje: ejemplos de raylib, zlib; cf. [bigfoot71/rlights](https://github.com/bigfoot71/rlights)) | `std.rlights` (subconjunto; no se compila en el runtime) |
-| `tinyfiledialogs.h` / `.c`   | [tinyfiledialogs](http://tinyfiledialogs.sourceforge.net) v3.21.3 | zlib (© 2014–2025 Guillaume Vareille)         | `std.fenestra` (diálogos de archivo y mensaje) |
-| `tinyfd_moredialogs.h` / `.c`| tinyfiledialogs "more dialogs" v3.9.0        | zlib (© 2014–2023 Guillaume Vareille)                           | parte de `std.fenestra` |
-| `linmath.h`                  | [linmath.h](https://github.com/datenwolf/linmath.h) | Sin cabecera de licencia incrustada en el original (matemáticas de vectores/matrices/cuaterniones) | incluida (enlace experimental en `scratch/`) |
-| `fifo_declare.h`             | Cabecera de macros FIFO / búfer circular    | LGPL-2.1-or-later (© 2003–2012 Michel Pollet)                   | incluida en `std_c/`; aún no la referencia el runtime ni std |
-
-Las cabeceras STB anteriores son las conocidas bibliotecas de un solo archivo de Sean Barrett y colaboradores ([nothings/stb](https://github.com/nothings/stb)); varias incluyen además la concesión dual original "dominio público o MIT-0". Los archivos `wrappers_*.c`, `pengu_tomlc17.h` y los enlaces `.pengu` de `std/` son código propio de PenguScript.
-
 ---
 
 ### Licencia
 
-PenguScript se publica bajo la **[Licencia MIT](LICENSE)** — © 2026 TuGatito. Los componentes de terceros conservan sus propias licencias como se indica arriba; consulta cada cabecera incluida y los proyectos originales para más detalles.
+PenguScript se publica bajo la **[Licencia MIT](LICENSE)** — © 2026 TuGatito. Los módulos satélite instalados desde repositorios de terceros con `pengu add` son proyectos independientes y conservan sus propias licencias (consulta cada repositorio satélite).

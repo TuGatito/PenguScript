@@ -76,25 +76,21 @@ def test_deliberately_invalid_blocks_say_so(blocks):
 
 
 def test_the_documentation_bug_fixes_are_present(blocks):
-    """The four real bugs this item fixed must not come back.
+    """The real bugs this item fixed must not come back.
 
     Each was measured failing before the fix; each form below is the corrected
-    one and is verified to compile by the full check.
+    one and is verified to compile by the full check. The comparison-cast example
+    and the `std.regulus` example were removed from LANGUAGE.md when phase 1 moved
+    the satellite bindings out of the tree, so only the surviving forms are gated.
     """
     text = (REPO / "LANGUAGE.md").read_text(encoding="utf-8")
-    # 1. a `to` cast directly after a comparison inside {…} is not accepted
-    assert "{(original.value == (payload to string))}" in text
-    assert "{(original.value == payload to string)}" not in text
-    # 2. `ffi.slice_from_ptr` needs explicit type arguments; the non-generic
+    # 1. `ffi.slice_from_ptr` needs explicit type arguments; the non-generic
     #    helper is the right call for a byte view
     assert "ffi.slice_of_bytes_from_ptr" in text
-    # 3. `string_from_cstr` takes `ref to char`, not `ref to frozen char`
+    # 2. `string_from_cstr` takes `ref to char`, not `ref to frozen char`
     assert "var c_str as ref to char is transmute c_buf to ref to char" in text
-    # 4. `filum.free_mutex` / `free_wait_group` take `ref to`, so pass the sigil
+    # 3. `filum.free_mutex` / `free_wait_group` take `ref to`, so pass the sigil
     assert "calling filum.free_mutex with (sigil of m)" in text
-    # 5. `regulus.compile` returns `maybe Regex`, and the API takes `ref to Regex`
-    assert "var re as maybe regulus.Regex is calling regulus.compile" in text
-    assert "calling regulus.search with (sigil of rx)" in text
 
 
 def _document_blocks() -> list:

@@ -7,7 +7,7 @@ python benches/run_bench.py                 # best of 3, human table
 python benches/run_bench.py --repeat 5 --csv benches/results/local.csv
 python benches/run_bench.py --only fib_40   # a single case
 benches/run_bench.sh                        # POSIX wrapper for the above
-python benches/binary_size_breakdown.py --legacy   # per-archive size attribution
+python benches/binary_size_breakdown.py             # per-archive size attribution
 ```
 
 * `*.pengu` — the PenguScript programs under test.
@@ -18,17 +18,15 @@ python benches/binary_size_breakdown.py --legacy   # per-archive size attributio
 
 `run_bench.py` writes its throw-away project manifest with **no `lib_dirs`**, on
 purpose. Adding the runtime's `build/lib` there turns every archive in it into an
-auto-detected link (`-lraylib`, `-lsqlite3`, `-lmicrohttpd`, …), which measures a
-build no `pengu init` project ever produces. The archive list has to come from
-the program's imports alone.
+auto-detected link, which measures a build no `pengu init` project ever produces.
+The runtime is self-contained — its only archive is `libpengu_runtime.a` — so
+the archive list has to come from the program's imports alone.
 
 `binary_size_breakdown.py` measures where the bytes of a stripped `hello_world`
 come from: it reads the linker's `-Map` for the per-archive contribution, then
-re-links once per archive to get the delta when that archive is dropped.
-`--legacy` rewrites the captured link command into its pre-2.0 shape (all six
-native archives, no section GC) so the "before" numbers in
-[`BENCHMARKS.md`](../BENCHMARKS.md) stay reproducible on a tree whose archives are
-now compiled with `-ffunction-sections`.
+re-links once per archive to get the delta when that archive is dropped. The
+only runtime archive is `libpengu_runtime.a`; any further archive on the link
+line comes from the program's own imports or an explicit `links:` entry.
 
 ## Bare-language vs stdlib cases
 
@@ -44,7 +42,7 @@ distinct tiers of the library:
 | `stdlib_ops` | `std.tally`, `std.spark` | reductions + terminal I/O |
 | `scrolls_ops` | `std.scrolls` | string search / slice / case / split-join |
 | `atlas_ops` | `std.atlas` | hash-map build, probe, sorted keys |
-| `cipher_ops` | `std.cipher`, `std.seal` | Base64 codec + C digest bridge |
+| `cipher_ops` | `std.cipher` | Base64 codec |
 | `loom_ops` | `std.loom` | generic sequence algorithms |
 | `arithmancy_ops` | `std.arithmancy` | C math bridge + pure number theory |
 

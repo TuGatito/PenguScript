@@ -65,15 +65,15 @@ Si un chunk falla a la mitad y hay que **rehacerlo**, ¿cuántos módulos hay qu
 
 Ahora la pregunta concreta. Vamos a hacer el cálculo real con números.
 
-Quedan **26 módulos** (el `spark` ya lo dejamos cerrado), más tests transversales, más `docs/`, más `CHANGELOG.md`.
+Quedan **21 módulos** (el `spark` ya lo dejamos cerrado; `seal`, `celeris`, `precis`, `regulus`, `parchment` y `xlsx` ya no viven en `std/`), más tests transversales, más `docs/`, más `CHANGELOG.md`.
 
 | Chunk size | Nº de chunks | Ventajas | Problemas graves |
 |---|---|---|---|
-| **1** (extremo granular) | 26 | Aislamiento total. Rollback trivial. | Overhead brutal. 26 verificaciones. Cero agrupación temática. |
+| **1** (extremo granular) | 21 | Aislamiento total. Rollback trivial. | Overhead brutal. 21 verificaciones. Cero agrupación temática. |
 | **2-3** (chunk pequeño) | 9-13 | Buen balance. Rollback fácil. Agrupación semántica posible. | Más verificaciones que con 5. |
 | **5** (tu opción A) | ~6 | Menos overhead de verificación. Agrupaciones temáticas naturales. | Rollback caro. Deriva estilística empieza a notarse. |
 | **8** (tu opción B) | ~4 | Overhead mínimo. Poca fragmentación. | Rollback muy caro. Deriva alta. Chunks no temáticos. |
-| **26** (monolítico) | 1 | Nada de overhead entre chunks. | Imposible. Contexto desbordado. Sin verificación. Sin rollback. |
+| **21** (monolítico) | 1 | Nada de overhead entre chunks. | Imposible. Contexto desbordado. Sin verificación. Sin rollback. |
 
 ### 🚨 Por qué **8 es peor que 5** aquí
 
@@ -138,29 +138,28 @@ Este es el plan que yo seguiría. **9 chunks**, cada uno de **2-4 módulos**, ag
 - **Por qué juntos**: son dos módulos pequeños y "transversales". No encajan en ningún cluster grande.
 - **Tamaño**: 2 módulos.
 
-### Chunk 7 — Encoding & crypto
+### Chunk 7 — Encoding
 
-- **Módulos**: `cipher`, `seal`
-- **Por qué juntos**: `cipher` = Base64/hex/JSON básicos; `seal` = hashes y compresión. Comparten idiomática de "string → string o maybe string".
-- **Tamaño**: 2 módulos.
+- **Módulos**: `cipher`
+- **Por qué solo**: `seal` (hashes y compresión) se movió a un repositorio satélite en la Fase 1; `cipher` queda como el único módulo de encoding in-tree.
+- **Tamaño**: 1 módulo.
 
-### Chunk 8 — Concurrency & timing
+### Chunk 8 — Concurrency
 
-- **Módulos**: `filum`, `celeris`
-- **Por qué juntos**: `filum` = primitivas de concurrencia; `celeris` = benchmarks. Los benchmarks miden concurrencia, así que van pegados.
-- **Tamaño**: 2 módulos.
+- **Módulos**: `filum`
+- **Por qué solo**: `celeris` (benchmarks) se movió a un repositorio satélite en la Fase 1.
+- **Tamaño**: 1 módulo.
 
-### Chunk 9 — Networking & CLI
+### Chunk 9 — CLI
 
-- **Módulos**: `precis`, `invoke`
-- **Por qué juntos**: `precis` = HTTP/sockets; `invoke` = parser de CLI. Ambos trabajan con argumentos y strings estructurados.
-- **Tamaño**: 2 módulos.
+- **Módulos**: `invoke`
+- **Por qué solo**: `precis` (HTTP/sockets) se movió a un repositorio satélite en la Fase 1.
+- **Tamaño**: 1 módulo.
 
-### Chunk 10 — Parsing & XML
+### Chunk 10 — Parsing (fuera de `std/`)
 
-- **Módulos**: `regulus`, `parchment`
-- **Por qué juntos**: ambos son parsers (regex y XML/HTML) que devuelven estructuras complejas. Comparten el patrón "compile → use → free".
-- **Tamaño**: 2 módulos.
+- **Módulos**: ninguno — `regulus` (regex) y `parchment` (XML) se movieron a repositorios satélite en la Fase 1.
+- **Tamaño**: 0 módulos.
 
 ### Chunk 11 — FFI bridge
 
@@ -174,7 +173,7 @@ Este es el plan que yo seguiría. **9 chunks**, cada uno de **2-4 módulos**, ag
 - **Por qué es un chunk propio**: aquí no se reescribe código de `std.*`, solo se **verifica y documenta** lo hecho.
 - **Tamaño**: N/A.
 
-**Total: 12 chunks, con 26 módulos + docs + tests.** El agente trabaja de forma natural, agrupando por temática.
+**Total: 12 chunks, con 21 módulos + docs + tests.** El agente trabaja de forma natural, agrupando por temática.
 
 ---
 
@@ -264,15 +263,15 @@ Un cálculo honesto, asumiendo ~30-60 min por módulo (depende de tamaño y comp
 | 4 | 3 módulos | ~2 h |
 | 5 | 3 módulos | ~2 h |
 | 6 | 2 módulos | ~1 h |
-| 7 | 2 módulos | ~1 h |
-| 8 | 2 módulos | ~1 h |
-| 9 | 2 módulos | ~1.5 h |
-| 10 | 2 módulos | ~1.5 h |
+| 7 | 1 módulo | ~30 min |
+| 8 | 1 módulo | ~30 min |
+| 9 | 1 módulo | ~30 min |
+| 10 | — (parsers satélite) | — |
 | 11 | `ffi` (grande) | ~1.5 h |
 | 12 | Tests + docs | ~3 h |
-| **Total** | **26 módulos + cierre** | **~20-22 h de trabajo** |
+| **Total** | **21 módulos + cierre** | **~18-20 h de trabajo** |
 
-Y ojo: **los módulos "grandes"** (`scrolls`, `atlas`, `archivum`, `precis`, `parchment`, `regulus`, `ffi`) son los que más se resienten del contexto. Están repartidos a propósito entre chunks distintos para no saturar.
+Y ojo: **los módulos "grandes"** (`scrolls`, `atlas`, `archivum`, `ffi`) son los que más se resienten del contexto. Están repartidos a propósito entre chunks distintos para no saturar.
 
 **No metas los 4 módulos grandes en un mismo chunk.** Es la trampa en la que caerías con chunks de 8.
 
@@ -288,7 +287,7 @@ Y ojo: **los módulos "grandes"** (`scrolls`, `atlas`, `archivum`, `precis`, `pa
 - ✅ **Verificación**: puedes correr tests temáticos por cluster.
 - ✅ **Ledger**: cada chunk deja una huella clara.
 
-Si me fuerzas a elegir un número, **5 está mejor que 8** — pero mi recomendación real es "**el cluster temático más pequeño que tenga sentido**". Para los 26 módulos que quedan, eso son **11 chunks principales + 1 de cierre**, agrupados así: `(scrolls, oracle)`, `(tally, loom, ward)`, `(atlas, coven, compass)`, `(archivum, rites, chronicle)`, `(lot, whisper)`, `(cipher, seal)`, `(filum, celeris)`, `(precis, invoke)`, `(regulus, parchment)`, `(ffi)`, `(cierre)`.
+Si me fuerzas a elegir un número, **5 está mejor que 8** — pero mi recomendación real es "**el cluster temático más pequeño que tenga sentido**". Para los 21 módulos que quedan, eso son **9 chunks principales + 1 de cierre**, agrupados así: `(scrolls, oracle)`, `(tally, loom, ward)`, `(atlas, coven, compass)`, `(archivum, rites, chronicle)`, `(lot, whisper)`, `(cipher)`, `(filum)`, `(invoke)`, `(ffi)`, `(cierre)`.
 
 **Lo crítico no es el número de módulos por chunk. Lo crítico es:**
 

@@ -64,16 +64,17 @@ El lenguaje impone estilos por convención (`snake_case` para valores, `PascalCa
 
 | Elemento | Regla | Ejemplos |
 |---|---|---|
-| Archivo fuente | `snake_case.pengu` | `scrolls.pengu`, `precis.pengu` |
-| Archivo de declaración | `snake_case.d.pengu` | `sqlite3.d.pengu`, `raylib.d.pengu` |
+| Archivo fuente | `snake_case.pengu` | `scrolls.pengu`, `archivum.pengu` |
+| Archivo de declaración | `snake_case.d.pengu` | `uuid.d.pengu`, `raylib.d.pengu` (bindings satélite) |
 | Módulo (import) | `snake_case`, sustantivo o adjetivo | `std.scrolls`, `std.atlas`, `std.rites` |
 | Módulo de colecciones | sustantivo en **plural** | `std.rites`, `std.scrolls` (no `rite`, `scroll`) |
 | Módulo de capacidad | sustantivo **singular abstracto** | `std.cipher`, `std.loom` |
 
 **Reglas:**
-- Los módulos estándar viven bajo `std.` y su nombre es un **sustantivo latino o inglés**: `spark`, `scrolls`, `oracle`, `compass`, `archivum`, `cipher`, `chronicle`, `lot`, `rites`, `whisper`, `ward`, `trial`, `tally`, `atlas`, `coven`, `regulus`, `parchment`, `seal`, `precis`, `filum`, `loom`, `invoke`, `ffi`, `celeris`, `arithmancy`.
+- Los módulos estándar viven bajo `std.` y su nombre es un **sustantivo latino o inglés**: `spark`, `scrolls`, `oracle`, `compass`, `archivum`, `cipher`, `chronicle`, `lot`, `arithmancy`, `rites`, `whisper`, `ward`, `trial`, `tally`, `atlas`, `coven`, `filum`, `loom`, `invoke`, `ffi`, `ledger`.
+- Los bindings C externos (`raylib`, `sqlite3`, `yaml`, …) **no** son módulos `std.*`: se extrajeron a repositorios satélite y se instalan con `pengu add <url>` (catálogo: [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)). El runtime solo enlaza `libc`/`libm`/`pthreads`, y los 21 módulos anteriores son toda la biblioteca estándar pura.
 - Nunca uses `utils`, `helpers`, `common`, `misc`. Si no puedes nombrarlo con un sustantivo concreto, **el módulo no tiene una responsabilidad clara**.
-- Las siglas se escriben en `snake_case` minúsculo como módulo: `std.ffi`, `std.uuid`, `std.xxhash`.
+- Las siglas se escriben en `snake_case` minúsculo como módulo: `std.ffi`.
 
 ### 2.2 Tipos
 
@@ -145,7 +146,7 @@ Toda `weave` usa **`snake_case`** con el verbo en forma base (sin `to`, sin `-in
 | Factory condicional | `try_*` (si puede fallar) | `try_parse`, `try_open` |
 
 - ❌ `create`, `make`, `build`, `init` como nombre principal → **usa `new`**.
-- ✅ `init` solo se acepta cuando **realmente inicializa algo externo** y no devuelve el tipo (p. ej. `raylib.InitWindow` como binding C; en `std.*` puro el idiomático es `new`).
+- ✅ `init` solo se acepta cuando **realmente inicializa algo externo** y no devuelve el tipo (p. ej. `raylib.InitWindow` en el binding satélite de raylib; en `std.*` puro el idiomático es `new`).
 
 ### 2.6 Variables, locales y parámetros
 
@@ -631,7 +632,7 @@ Regla de decisión:
 | `m.keys()` accede a **m** | método | `enchanting map of ...: weave keys into list of K` |
 | `tally.sum(xs)` reduce **xs** | ambas (método preferido) | `calling xs.sum` o `calling tally.sum with xs` |
 | `scrolls.substring(s, i, j)` — s no es "el sujeto" | función de módulo | `calling scrolls.substring with s, 0, 4` |
-| `precis.get(url, headers)` — ninguno es "el sujeto" | función de módulo | `calling precis.get with url` |
+| `archivum.copy(src, dst)` — ninguno es "el sujeto" | función de módulo | `calling archivum.copy with src, dst` |
 | `chronicle.now()` — no hay sujeto | función de módulo | `calling chronicle.now` |
 | `Player.new(...)` — constructor | `ritual` | `calling Player.new with "Ada"` |
 | `Vec2.zero` — constante de tipo | `ritual` sin args | `var v is calling Vec2.zero` |
@@ -891,7 +892,7 @@ Un `slice of T` es **siempre** una ventana. Nunca libera. El docstring del módu
 **Nunca** declares `declare foo...` en un `.pengu` de lógica pura. Los bindings van en su `.d.pengu`:
 
 ```pengu
-# std/sqlite3.d.pengu
+# binding satélite de sqlite3 — instalado con `pengu add <url>`
 include "sqlite3.h"
 link "sqlite3"
 
@@ -901,6 +902,8 @@ rune sqlite3:
 declare sqlite3_open with filename as ref to char, ppDb as ref to ref to opaque into int
 declare sqlite3_close with db as ref to opaque into int
 ```
+
+Los bindings C externos ya no viven en `std/`: `sqlite3` se extrajo a un repositorio satélite instalado con `pengu add <url>` (catálogo: [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)). Lo mismo vale para `raylib`, `yaml`, `uuid`, `xlsx` y el resto; las reglas de `.d.pengu` de abajo se aplican a todos ellos.
 
 ### 9.2 `declare` con tipos C exactos
 
@@ -949,6 +952,8 @@ var tex as raylib.Texture2D is calling raylib.LoadTexture with path
 defer calling raylib.UnloadTexture with tex
 ```
 
+(`raylib` es un binding satélite: instálalo con `pengu add <url>` — consulta [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md).)
+
 `banish` es **solo** para memoria del runtime PenguScript (`pengu_sigil_alloc`, `PenguString` dinámico, `PenguList`, `PenguMap`).
 
 ---
@@ -984,11 +989,12 @@ Cada módulo debe **competir con** su equivalente en otros lenguajes:
 | `std.loom` | `itertools` de Python; `Iterator` de Rust |
 | `std.coven` | `set` de Python; `HashSet` de Rust |
 | `std.archivum` | `os.path`, `shutil`, `pathlib` de Python; `os` de Go |
-| `std.regulus` | `re` de Python; `regex` de Rust |
-| `std.precis` | `net/http` de Go; `requests` de Python |
+| `std.arithmancy` | `math` de Python; métodos de `f64` de Rust |
+| `std.cipher` | `base64`, `json` de Python; `serde_json` de Rust |
 | `std.filum` | `threading`, `sync` de Go; `std::thread` de Rust |
+| `std.lot` | `random` de Python; `rand` de Rust |
 
-Si al leer tu API un usuario de Python/Rust/Go dice *"esto lo haría en dos líneas con `X`"*, **tu API necesita ese `X`**.
+Si al leer tu API un usuario de Python/Rust/Go dice *"esto lo haría en dos líneas con `X`"*, **tu API necesita ese `X`**. Las regex (`regulus`) y HTTP (`precis`) ya no son `std.*`: son bindings satélite (`pengu add <url>`, catálogo en [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)).
 
 ### 10.3 Nombres y compatibilidad
 

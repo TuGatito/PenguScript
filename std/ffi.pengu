@@ -69,7 +69,8 @@
 #
 # Pattern 10: Native Resource Cleanup
 # ----------------------------------------------------------------------------
-# C libraries that allocate memory (e.g. malloc/libxml2/pcre2) must be freed
+# C libraries that allocate memory (e.g. malloc, or a satellite binding's
+# upstream library) must be freed
 # with their respective free routines via 'defer', never with 'banish'.
 #
 # ============================================================================

@@ -108,24 +108,24 @@ int pengu_abi_version(void);
 /* =========================================================================
  * Subsystem feature gates (PenguScript 2.0 binary-size reduction)
  *
- * Every subsystem whose *implementation* depends on an external native library
- * is gated by one of these macros. Setting one to 0 compiles its declarations
- * and `static inline` helpers out of the translation unit:
+ * Every subsystem whose *implementation* depends on a native library is gated
+ * by a macro. Setting one to 0 compiles its declarations and `static inline`
+ * helpers out of the translation unit:
  *
- *   PENGU_ENABLE_REGEX   -> PCRE2        (std.regulus)
- *   PENGU_ENABLE_XML     -> libxml2      (std.parchment)
- *   PENGU_ENABLE_NET     -> libcurl + libmicrohttpd (std.precis)
- *   PENGU_ENABLE_CRYPTO  -> zlib + mbedtls (std.seal)
- *   PENGU_ENABLE_THREADS -> pthread      (std.filum)
+ *   PENGU_ENABLE_THREADS -> pthread / Win32 threads (std.filum)
  *
- * The defaults are conservative: a plain C consumer that includes this header
- * gets the whole API. The generated `bundle.c` defines each one to 0 or 1
+ * Bindings to external C libraries (PCRE2, libxml2, mbedtls, zlib, libcurl,
+ * libmicrohttpd, raylib, sqlite3, ...) no longer live in this runtime: they
+ * ship as satellite repositories installed with `pengu add`. See
+ * docs/EXTERNAL_MODULES.md.
+ *
+ * The default is conservative: a plain C consumer that includes this header
+ * gets the whole API. The generated `bundle.c` defines the gate to 0 or 1
  * before this include, from the `std.*` modules the program imports, and
  * `pengu_project.py` links only the matching native archives.
  *
- * The archive `libpengu_runtime.a` is always compiled with every gate at its
- * default of 1: its symbols have to exist for the linker to choose from. The
- * size win comes from the link step's section GC, not from this archive.
+ * The archive `libpengu_runtime.a` is always compiled with the gate at its
+ * default of 1: its symbols have to exist for the linker to choose from.
  *
  * No macro gates the core (strings, slices, lists, maps, maybe/result, memory,
  * print/input, filesystem, time, math): it has no external dependency beyond
@@ -135,18 +135,6 @@ int pengu_abi_version(void);
  * function is safe. The reverse is not, which is why declarations and
  * definitions are gated together.
  * ========================================================================= */
-#ifndef PENGU_ENABLE_REGEX
-#define PENGU_ENABLE_REGEX 1
-#endif
-#ifndef PENGU_ENABLE_XML
-#define PENGU_ENABLE_XML 1
-#endif
-#ifndef PENGU_ENABLE_NET
-#define PENGU_ENABLE_NET 1
-#endif
-#ifndef PENGU_ENABLE_CRYPTO
-#define PENGU_ENABLE_CRYPTO 1
-#endif
 #ifndef PENGU_ENABLE_THREADS
 #define PENGU_ENABLE_THREADS 1
 #endif
@@ -4358,202 +4346,6 @@ extern "C"
   int pengu_c_filum_goroutine_id(void);
 #endif /* PENGU_ENABLE_THREADS -- Filum */
 
-  /* =========================================================================
-   * 21. Regular Expressions (Regulus)
-   * ========================================================================= */
-
-#if PENGU_ENABLE_REGEX
-
-  typedef struct
-  {
-    int32_t start;
-    int32_t end;
-    PenguString matched;
-  } PenguRegulusMatch;
-
-  typedef struct
-  {
-    PenguString pattern;
-    PenguString flags;
-    void *_ptr;
-  } PenguRegulusRegex;
-
-  PenguMaybe pengu_c_regulus_compile(PenguString pattern, PenguString flags);
-  PenguMaybe pengu_c_regulus_match(void *regex, PenguString text);
-  PenguMaybe pengu_c_regulus_search(void *regex, PenguString text);
-  /** Finds all regex matches in `text`.
- * @return PenguList of PenguRegulusMatch. Caller must free every match's
- *         `matched` PenguString with pengu_banish_string() before
- *         pengu_banish_list(). */
-PenguList pengu_c_regulus_find_all(void *regex, PenguString text);
-  /** Replaces matches of `regex` in `text`. The returned PenguString owns its
- * buffer: the caller must call pengu_banish_string() on it. */
-PenguString pengu_c_regulus_replace(void *regex, PenguString text, PenguString replacement);
-  /** Splits `text` on `regex`. Every element PenguString owns its buffer; the
- * caller must pengu_banish_string() each before pengu_banish_list(). */
-  PenguList pengu_c_regulus_split(void *regex, PenguString text, int limit);
-  /** Releases the PCRE2 code compiled by pengu_c_regulus_compile(). The
- * wrapper struct is normally a PenguScript value copy, so this helper frees
- * only the native code object and nulls `_ptr`; it does not free() the struct
- * or the non-owning pattern/flags strings. Direct C callers holding the heap
- * struct returned inside the PenguMaybe may free() it afterwards. */
-  void pengu_c_regulus_regex_free(void *regex);
-  /** Frees the owned `matched` buffer of a PenguRegulusMatch (search/match/
- * find_all results). Safe on value copies: the buffer is freed and the
- * PenguString zeroed, but the struct itself is not free()d. */
-  void pengu_c_regulus_match_free(void *m);
-  static inline PenguString pengu_c_regulus_escape(PenguString text) { return text; }
-  static inline bool pengu_c_regulus_is_valid(void *regex) { return regex != NULL; }
-#endif /* PENGU_ENABLE_REGEX -- Regulus */
-
-  /* =========================================================================
-   * 22. XML & HTML DOM Processing (Parchment)
-   * ========================================================================= */
-
-#if PENGU_ENABLE_XML
-
-  typedef struct
-  {
-    PenguString tag;
-    PenguString text;
-    void *_ptr;
-  } PenguParchmentNode;
-
-  typedef struct
-  {
-    PenguParchmentNode root;
-    PenguString version;
-    PenguString encoding;
-  } PenguParchmentDocument;
-
-  PenguMaybe pengu_c_parchment_parse_xml(PenguString data);
-  PenguMaybe pengu_c_parchment_parse_html(PenguString data);
-  /** Serializes `node`. A present result holds a heap PenguString* the caller
- * must release (pengu_banish_string) after use. */
-  PenguMaybe pengu_c_parchment_to_string(void *node, bool pretty);
-  PenguMaybe pengu_c_parchment_find(void *node, PenguString query);
-  /** Finds all children of `node` named `query`.
- * @return PenguList of PenguParchmentNode; every entry owns its tag/text
- *         PenguStrings and must be released with
- *         pengu_c_parchment_node_free() before pengu_banish_list(). */
-  PenguList pengu_c_parchment_find_all(void *node, PenguString query);
-  /** Reads attribute `name`. A present result holds a heap PenguString* the
- * caller must release (pengu_banish_string) after use. */
-  PenguMaybe pengu_c_parchment_attr(void *node, PenguString name);
-  void pengu_c_parchment_set_attr(void *node, PenguString name, PenguString value);
-  /** Reads node text content. A present result holds a heap PenguString* the
- * caller must release (pengu_banish_string) after use. */
-  PenguMaybe pengu_c_parchment_text(void *node);
-  void pengu_c_parchment_set_text(void *node, PenguString text);
-  void *pengu_c_parchment_create_element(PenguString tag);
-  void *pengu_c_parchment_create_text(PenguString text);
-  void pengu_c_parchment_append_child(void *parent, void *child);
-  /** Releases the owned tag/text strings of a wrapper node (from find /
- * find_all / create_element / create_text). The xml node inside `_ptr` is
- * owned by its document and is NOT freed here; the struct is a PenguScript
- * value copy and is not free()d either. */
-  void pengu_c_parchment_node_free(void *node);
-  /** Releases a document parsed with pengu_c_parchment_parse_xml/html: frees
- * the owned wrapper strings and the whole libxml2 document tree. The wrapper
- * struct is a PenguScript value copy and is not free()d. Freeing the document
- * invalidates every node previously obtained from it (call node_free on their
- * wrapper strings first if needed). */
-  void pengu_c_parchment_document_free(void *doc);
-  static inline PenguString pengu_c_parchment_escape_text(PenguString text) { return text; }
-  static inline PenguString pengu_c_parchment_unescape_text(PenguString text) { return text; }
-#endif /* PENGU_ENABLE_XML -- Parchment */
-
-  /* =========================================================================
-   * 23. Compression & Cryptographic Hashing (Seal)
-   * ========================================================================= */
-
-#if PENGU_ENABLE_CRYPTO
-
-  /* CRC-32 (IEEE 802.3) of `data`, as the full unsigned 32-bit checksum:
-   * values >= 0x80000000 stay positive, matching zlib's crc32(). */
-  uint32_t pengu_c_seal_crc32(PenguString data);
-  PenguString pengu_c_seal_md5(PenguString data);
-  PenguString pengu_c_seal_sha1(PenguString data);
-  PenguString pengu_c_seal_sha256(PenguString data);
-  PenguString pengu_c_seal_sha512(PenguString data);
-  /** gzip-compresses `data`. A present result holds a heap PenguString* that
- * the caller must release (pengu_banish_string) after use. */
-PenguMaybe pengu_c_seal_gzip(PenguString data);
-  PenguMaybe pengu_c_seal_unzip(PenguString data);
-  PenguMaybe pengu_c_seal_zlib_compress(PenguString data);
-  PenguMaybe pengu_c_seal_zlib_decompress(PenguString data);
-  PenguMaybe pengu_c_seal_hash_file(PenguString path, PenguString hash_type);
-#endif /* PENGU_ENABLE_CRYPTO -- Seal */
-
-  /* =========================================================================
-   * 24. Networking & HTTP Client/Server (Precis)
-   * ========================================================================= */
-
-#if PENGU_ENABLE_NET
-
-  typedef struct
-  {
-    int status_code;
-    PenguMap headers;
-    PenguMaybe body;
-    PenguString url;
-  } PenguPrecisClientResponse;
-
-  typedef struct
-  {
-    PenguString method;
-    PenguString path;
-    PenguMap headers;
-    PenguMaybe body;
-    PenguMap query;
-  } PenguPrecisRequest;
-
-  typedef struct
-  {
-    int status_code;
-    PenguMap headers;
-    PenguMaybe body;
-  } PenguPrecisResponse;
-
-  typedef struct
-  {
-    void *_ptr;
-  } PenguPrecisTCPSocket;
-
-  /** Performs an HTTP GET. A present result holds a PenguPrecisClientResponse*
- * that owns its body/headers: release it with the corresponding
- * pengu_precis_free_response helper / body & map banish calls. */
-PenguMaybe pengu_c_precis_http_get(PenguString url, PenguMap headers);
-  PenguMaybe pengu_c_precis_http_post(PenguString url, PenguMap headers, PenguString body);
-  PenguMaybe pengu_c_precis_http_put(PenguString url, PenguMap headers, PenguString body);
-  PenguMaybe pengu_c_precis_http_delete(PenguString url, PenguMap headers);
-  PenguMaybe pengu_c_precis_http_request(PenguString method, PenguString url, PenguMap headers, PenguMaybe body);
-  /** Releases a PenguPrecisClientResponse obtained from a successful
- * pengu_c_precis_http_* call: frees the owned header map, body string and the
- * response struct itself. The caller-owned input URL is untouched. */
-  void pengu_precis_free_response(PenguPrecisClientResponse *resp);
-
-  void pengu_c_precis_serve_http(int port, void *handler);
-
-  /** Opens a TCP connection. A present result holds a PenguPrecisTCPSocket* that
- * must be closed with pengu_c_precis_tcp_close(). */
-PenguMaybe pengu_c_precis_tcp_connect(PenguString host, int port);
-  bool pengu_c_precis_tcp_send(void *sock, PenguString data);
-  PenguMaybe pengu_c_precis_tcp_recv(void *sock, int size);
-  void pengu_c_precis_tcp_close(void *sock);
-
-  PenguMaybe pengu_c_precis_dns_lookup(PenguString host);
-
-  /** URL-encodes `s`. The returned PenguString owns its buffer: release with
- * pengu_banish_string() (or banish from PenguScript). */
-  PenguString pengu_c_precis_url_encode(PenguString s);
-  /** URL-decodes `s`. The returned PenguString owns its buffer: release with
- * pengu_banish_string() (or banish from PenguScript). */
-  PenguString pengu_c_precis_url_decode(PenguString s);
-  /** Parses a query string. The returned PenguMap owns its keys/values:
- * release with pengu_banish_map() (or banish from PenguScript). */
-  PenguMap pengu_c_precis_parse_query(PenguString s);
-#endif /* PENGU_ENABLE_NET -- Precis */
 
   /* =========================================================================
    * 25. C <-> Pengu Conversion Bridges (FFI)

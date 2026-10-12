@@ -10,15 +10,19 @@ compounded:
 3. nothing was compiled with ``-ffunction-sections``, so ``--gc-sections`` had
    nothing to prune.
 
+Phase 1 moved every external binding out of the tree: the core runtime now
+needs nothing beyond libc/libm/pthreads and links **no** native archive. The
+section-splitting machinery and the one remaining gate (``PENGU_ENABLE_THREADS``
+for ``std.filum``) stay in place.
+
 These tests pin each fix at the level where it is observable:
 
 * the *profiles* carry the section-splitting flags and a ``small`` profile
   exists (pure configuration, no toolchain needed);
-* the *link line* keeps the runtime and zlib, always emits the section-GC
-  option, and links a native archive only when the program's ``std`` imports
-  call into it;
+* the *link line* keeps the runtime, always emits the section-GC option, and
+  links no native archive at all;
 * the *runtime header* really hides a gated subsystem's declarations when the
-  gate is 0, which is what lets the linker drop the archive;
+  gate is 0;
 * the *end-to-end* result: a built, stripped ``hello_world`` is small.
 
 Nothing here inspects generated C (rule 1 in AGENT_TESTING.md); the artifact and
@@ -48,32 +52,6 @@ _HELLO = (
     'weave main into int:\n'
     '    var msg as string is "Hello, world!"\n'
     '    calling print with msg\n'
-    '    return 0\n'
-)
-
-#: ``std.regulus`` is the smallest native consumer: its wrappers are the only
-#: thing in the bundle that needs PCRE2.
-_REGULUS = (
-    'import std.spark\n'
-    'import std.regulus\n'
-    '\n'
-    'weave main into int:\n'
-    '    var re as maybe Regex is calling regulus.compile with "abc"\n'
-    '    if re.is_present:\n'
-    '        var hit as bool is calling regulus.is_match with sigil of re.value, "xabcx"\n'
-    '        calling spark.println with "hit={hit}"\n'
-    '    return 0\n'
-)
-
-#: ``std.parchment`` -> libxml2, the one native dependency that is a *dynamic*
-#: system library on POSIX.
-_PARCHMENT = (
-    'import std.spark\n'
-    'import std.parchment\n'
-    '\n'
-    'weave main into int:\n'
-    '    var ok as bool is calling parchment.is_valid_xml with "<r><a>hi</a></r>"\n'
-    '    calling spark.println with "valid={ok}"\n'
     '    return 0\n'
 )
 
@@ -231,46 +209,38 @@ def test_the_init_template_writes_the_section_flags(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("modules,symbols,expected,forbidden", [
-    ((), (), [], ["pcre2-8", "xml2", "curl", "mbedcrypto", "microhttpd"]),
-    (("regulus",), (), ["pcre2-8"], ["xml2", "curl", "mbedcrypto", "microhttpd"]),
-    (("seal",), (), ["z", "mbedcrypto"], ["pcre2-8", "xml2", "curl", "microhttpd"]),
-    (("parchment",), (), ["xml2"], ["pcre2-8", "curl", "mbedcrypto", "microhttpd"]),
-    (("precis",), (), ["curl", "microhttpd"], ["pcre2-8", "xml2", "mbedcrypto"]),
-    (("filum",), (), [], ["pcre2-8", "xml2", "curl", "mbedcrypto", "microhttpd"]),
-    (("oracle", "spark"), (), [], ["pcre2-8", "xml2", "curl", "mbedcrypto", "microhttpd"]),
+@pytest.mark.parametrize("modules,symbols", [
+    ((), ()),
+    (("spark", "scrolls", "archivum"), ()),
+    (("filum",), ()),
+    (("oracle", "spark"), ()),
     # The belt-and-braces path: a call to a runtime helper with no `std` import
-    # at all must still pull the archive its implementation needs.
-    ((), ("pengu_c_regulus_compile(p)",), ["pcre2-8"], ["xml2", "curl", "mbedcrypto"]),
-    ((), ("pengu_c_seal_sha256(s)",), ["z", "mbedcrypto"], ["pcre2-8", "xml2", "curl"]),
+    # at all must not invent an archive either.
+    ((), ("pengu_c_filum_go(f)",)),
 ])
-def test_the_archive_decision_follows_the_bundle(tmp_path, modules, symbols,
-                                                 expected, forbidden):
+def test_the_archive_decision_follows_the_bundle(tmp_path, modules, symbols):
     """Conditional linking is decided by the bundle, not by the manifest.
 
-    `_native_archives_for_bundle` is the whole decision: which archives the
-    generated program actually references. Keeping it a pure function of the
-    bundle text is what makes it cheap to pin every subsystem here without
+    Every remaining ``std`` module is pure PenguScript and the core runtime has
+    no external C dependency, so the decision must always be "no native
+    archives" -- the pure function of the bundle text is what pins that without
     compiling anything.
     """
+    from pengu_project import _LEGACY_RUNTIME_ARCHIVES
+
     builder = _builder(tmp_path)
     text = _probe_bundle(*modules, symbols=symbols)
     archives = builder._native_archives_for_bundle(None, text)
-    for archive in expected:
-        assert archive in archives, f"-l{archive} missing from {sorted(archives)}"
-    for archive in forbidden:
-        assert archive not in archives, (
-            f"-l{archive} chosen although nothing in the bundle needs it: "
-            f"{sorted(archives)}"
-        )
+    assert archives == set(_LEGACY_RUNTIME_ARCHIVES) == set(), sorted(archives)
 
 
-def test_an_unreadable_bundle_falls_back_to_the_old_link_line(tmp_path):
-    """No generated C to inspect means the pre-2.0 archive set.
+def test_an_unreadable_bundle_falls_back_to_the_empty_archive_set(tmp_path):
+    """No generated C to inspect means the (now empty) legacy archive set.
 
-    Over-linking is only size; under-linking is a link error. A caller that
-    hands `build_compile_commands` a path with no generated bundle (unit tests,
-    a bundle from an older toolchain) must not silently lose a dependency.
+    A caller that hands ``build_compile_commands`` a path with no generated
+    bundle (unit tests, a bundle from an older toolchain) must not silently lose
+    a dependency; with every external binding gone there is nothing left to
+    add, so the fallback is the empty set.
     """
     from pengu_project import _LEGACY_RUNTIME_ARCHIVES
 
@@ -280,24 +250,22 @@ def test_an_unreadable_bundle_falls_back_to_the_old_link_line(tmp_path):
 
 
 @requires_cc
-def test_section_gc_and_the_always_linked_libraries(tmp_path):
-    """The two halves of the flag work, on a real link command.
+def test_section_gc_and_no_native_archives(tmp_path):
+    """The flag work is still emitted, and no external archive is implied.
 
-    `-lpengu_runtime` is mandatory and `-lz` cannot be made conditional: libxml2,
-    libcurl and libcrypto all depend on `libz.so.1`, so the moment one of them is
-    on the command line the linker resolves the runtime object's (about to be
-    discarded) `compressBound` reference through that transitive dependency and
-    aborts with "DSO missing from command line". The measured cost of keeping it
-    is 0 bytes.
+    The core runtime links against libc/libm/pthreads only, so a plain program
+    must produce a link line with ``-lpengu_runtime``, the section-GC option, the
+    section-splitting flags and no native archive (``-lz``, ``-lpcre2-8``, ...).
     """
     from pengu_project import _GC_SECTIONS_FLAG
 
     tokens = _link_tokens(tmp_path, _HELLO)
     assert _links(tokens, "pengu_runtime")
-    assert _links(tokens, "z")
     assert _GC_SECTIONS_FLAG in tokens
     for flag in ("-ffunction-sections", "-fdata-sections"):
         assert flag in tokens
+    for archive in ("z", "pcre2-8", "xml2", "curl", "mbedcrypto", "microhttpd"):
+        assert not _links(tokens, archive), f"-l{archive} should not be linked"
 
 
 # ---------------------------------------------------------------------------
@@ -330,10 +298,10 @@ def test_gated_subsystems_have_no_cross_references():
 @pytest.mark.skipif(not (have_tool("gcc") or have_tool("clang")),
                     reason="no gcc/clang")
 def test_a_disabled_gate_removes_the_declarations(tmp_path):
-    """`-DPENGU_ENABLE_REGEX=0` must make the Regulus API invisible.
+    """`-DPENGU_ENABLE_THREADS=0` must make the Filum API invisible.
 
     This is the property the linker relies on: the declarations disappear, so a
-    bundle compiled with the gate at 0 cannot reference PCRE2 at all. The
+    bundle compiled with the gate at 0 cannot reference the thread runtime. The
     negative direction matters more than the positive one -- a gate that only
     hid the definitions would produce "implicit declaration" warnings instead of
     a clean compile.
@@ -343,7 +311,8 @@ def test_a_disabled_gate_removes_the_declarations(tmp_path):
     src.write_text(
         '#include "pengu_runtime.h"\n'
         'int main(void) {\n'
-        '    return pengu_c_regulus_is_valid((void *)0) ? 0 : 1;\n'
+        '    pengu_c_filum_go((void *)0);\n'
+        '    return 0;\n'
         '}\n',
         encoding="utf-8",
     )
@@ -354,11 +323,11 @@ def test_a_disabled_gate_removes_the_declarations(tmp_path):
     on = subprocess.run(base, capture_output=True, text=True, timeout=300)
     assert on.returncode == 0, on.stderr
 
-    off = subprocess.run([*base, "-DPENGU_ENABLE_REGEX=0"],
+    off = subprocess.run([*base, "-DPENGU_ENABLE_THREADS=0"],
                          capture_output=True, text=True, timeout=300)
     assert off.returncode != 0, (
-        "the gate did not hide pengu_c_regulus_is_valid(); the header still "
-        "declares the Regulus API with PENGU_ENABLE_REGEX=0"
+        "the gate did not hide pengu_c_filum_go(); the header still "
+        "declares the Filum API with PENGU_ENABLE_THREADS=0"
     )
 
 
@@ -378,8 +347,6 @@ def test_stripped_hello_world_fits_the_size_budget(tmp_path):
 
     res = _run(["build", "--profile", "release", "--verbose"], cwd=project)
     assert res.returncode == 0, res.stdout + res.stderr
-    log = res.stdout + res.stderr
-    assert "native archives linked: (none)" in log, log
 
     binary = project / "build" / ("tiny.exe" if os.name == "nt" else "tiny")
     assert binary.is_file(), binary
@@ -395,52 +362,6 @@ def test_stripped_hello_world_fits_the_size_budget(tmp_path):
     run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
     assert run.returncode == 0, run.stderr
     assert "Hello, world!" in run.stdout
-
-
-@requires_cc
-@requires_runtime
-def test_a_regex_program_still_links_and_runs(tmp_path):
-    """Conditional linking must not break the programs that do need an archive."""
-    res = _run(["init", "rx", "--type", "exe", "--links", "pengu_runtime"], cwd=tmp_path)
-    assert res.returncode == 0, res.stderr
-    project = tmp_path / "rx"
-    (project / "src" / "main.pengu").write_text(_REGULUS, encoding="utf-8")
-
-    res = _run(["build", "--profile", "release", "--verbose"], cwd=project)
-    assert res.returncode == 0, res.stdout + res.stderr
-    log = res.stdout + res.stderr
-    assert "native archives linked: ['pcre2-8']" in log, log
-
-    binary = project / "build" / ("rx.exe" if os.name == "nt" else "rx")
-    assert binary.is_file(), binary
-    run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
-    assert run.returncode == 0, run.stderr
-    assert "hit=true" in run.stdout, run.stdout
-
-
-@requires_cc
-@requires_runtime
-def test_an_xml_program_links_libxml2_and_runs(tmp_path):
-    """The gated-declaration path, end to end, for a second subsystem.
-
-    `std.parchment` is the one whose native dependency is a *dynamic* system
-    library on POSIX (libxml2); it also exercises the `pkg-config` include path
-    that conditional linking now only adds when XML is actually used.
-    """
-    res = _run(["init", "xml", "--type", "exe", "--links", "pengu_runtime"], cwd=tmp_path)
-    assert res.returncode == 0, res.stderr
-    project = tmp_path / "xml"
-    (project / "src" / "main.pengu").write_text(_PARCHMENT, encoding="utf-8")
-
-    res = _run(["build", "--profile", "release", "--verbose"], cwd=project)
-    assert res.returncode == 0, res.stdout + res.stderr
-    log = res.stdout + res.stderr
-    assert "native archives linked: ['xml2']" in log, log
-
-    binary = project / "build" / ("xml.exe" if os.name == "nt" else "xml")
-    run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
-    assert run.returncode == 0, run.stderr
-    assert "valid=true" in run.stdout, run.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -470,10 +391,10 @@ Linker script and memory map
 
 .text           0x0000000000001000       0x50
  .text          0x0000000000001000       0x10 /usr/lib/Scrt1.o
- .text.pcre2_compile_8
-                0x0000000000001010       0x20 /repo/build/lib/libpcre2-8.a(pcre2_compile.o)
- .debug_info    0x0000000000000000      0x400 /repo/build/lib/libz.a(inflate.o)
- .bss.zlib      0x0000000000002000        0x8 /repo/build/lib/libz.a(deflate.o)
+ .text.widget_compile
+                0x0000000000001010       0x20 /repo/build/lib/libfoo.a(widget.o)
+ .debug_info    0x0000000000000000      0x400 /repo/build/lib/libbar.a(inflate.o)
+ .bss.bar       0x0000000000002000        0x8 /repo/build/lib/libbar.a(deflate.o)
 """
 
 
@@ -483,25 +404,8 @@ def test_the_map_parser_reads_both_ld_section_layouts(tmp_path):
     map_path.write_text(_MAP_SAMPLE, encoding="utf-8")
 
     totals = dict(module._parse_map(map_path))
-    assert totals["libpcre2-8.a"] == 0x20
-    assert totals["libz.a"] == 0x8          # debug info dropped, .bss kept
+    assert totals["libfoo.a"] == 0x20
+    assert totals["libbar.a"] == 0x8        # debug info dropped, .bss kept
     assert totals["Scrt1.o"] == 0x10
     assert "drop.o" not in totals, "a discarded section was counted"
-
-
-def test_the_legacy_link_shape_restores_the_pre_2_0_command():
-    """`--legacy` is what makes the BENCHMARKS.md attribution reproducible."""
-    module = _breakdown_module()
-    modern = [
-        "gcc", "b.c", "-o", "out",
-        "-ffunction-sections", "-fdata-sections",
-        "-Wl,--start-group", "-lpengu_runtime", "-lz",
-        "-Wl,--gc-sections", "-Wl,--end-group",
-    ]
-    legacy = module.legacy_link_command(modern)
-    assert "-Wl,--gc-sections" not in legacy
-    assert "-ffunction-sections" not in legacy
-    for archive in module.LEGACY_ARCHIVES:
-        assert f"-l{archive}" in legacy, archive
-    assert legacy.count("-lpengu_runtime") == 1
 

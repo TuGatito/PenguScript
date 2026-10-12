@@ -60,7 +60,8 @@ def generated() -> dict[str, str]:
 
 def test_the_reference_exists_and_covers_every_module(generated):
     modules = {p.stem for p in G._modules()}
-    assert len(modules) >= 27, f"only {len(modules)} modules found"
+    # Phase 1 moved the external bindings out of `std/`, leaving 21 pure modules.
+    assert len(modules) >= 21, f"only {len(modules)} modules found"
     for name in modules:
         assert f"{name}.md" in generated, f"no page generated for std.{name}"
     assert "README.md" in generated

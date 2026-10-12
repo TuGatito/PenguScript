@@ -410,13 +410,14 @@ Generation is `pengu_bind.py`:
    the path. `HeaderParseError` (line 107) is the failure type.
 
 Supporting pieces: `c_bind_stubs/` holds minimal C stub headers used when the
-real system headers are unavailable (`_default_stub_dir()`, line 1060);
-`migrate_manual_bindings.py` and `regen_std_bindings.py` are one-off migration
-and regeneration scripts for the shipped `std/` bindings, not part of a build.
+real system headers are unavailable (`_default_stub_dir()`, line 1060). The
+one-off migration and regeneration scripts for the old in-tree `std/` bindings
+are gone: those bindings now live in satellite repositories installed per
+project with `pengu add <url>` (see [`EXTERNAL_MODULES.md`](EXTERNAL_MODULES.md)).
 `pengu_paths.py` is the layout oracle the whole toolchain shares:
 `runtime_include_dirs()` (line 117), `runtime_lib_dirs()` (line 162),
 `std_dirs()` (line 210), `find_runtime_header()` (line 298), `find_std_dir()`
-(line 321), plus cached `pkg-config` helpers (line 376).
+(line 321), plus cached `pkg-config` helpers for satellite bindings (line 376).
 
 The result: a `.pengu` module becomes C by *declaration only* — the compiler
 emits prototypes and calls under the `insignia` prefix, and the linker resolves
@@ -436,13 +437,15 @@ The runtime ships as a header plus a static archive:
   `bundle.c` — a project-local vendored copy wins, otherwise
   `pengu_paths.find_runtime_header()` decides.
 * **`pengu_parser/pengu_runtime.c`** is the implementation. It is compiled by
-  `build_runtime.build_pengu_runtime()` (line 1171) into
+  `build_runtime.build_pengu_runtime()` (line 108) into
   `build/lib/libpengu_runtime.a`, and also copied to `build/include/`.
-  `build_runtime.build_runtime_pch()` (line 1234) optionally produces
-  `pengu_runtime.h.gch`; `build_runtime.main()` (line 1293) first downloads and
-  extracts the external C dependencies through
-  `extern_manifest.download_and_extract_externs()` (line 65) before building
-  zlib, pcre2, mbedtls, curl, sqlite3 and friends.
+  `build_runtime.build_runtime_pch()` (line 167) optionally produces
+  `pengu_runtime.h.gch`; `build_runtime.main()` (line 224) builds the runtime
+  with `PENGU_ENABLE_THREADS` as its only remaining feature gate. The core needs
+  nothing beyond libc/libm/pthreads, so the
+  `extern_manifest.download_and_extract_externs()` call (line 194) runs against an
+  empty `MANIFEST` — a no-op kept for the satellite repositories that reuse the
+  download/hash infrastructure.
 * **`libpengu_runtime.a`** is located at link time by `runtime_lib_dirs()`
   (`pengu_paths.py`, line 162) and pre-flighted by `_find_runtime_archive()`
   (`pengu_project.py`, line 2655).
@@ -490,7 +493,7 @@ Order matters: each row assumes the previous ones are done.
 | **New `when` predicate / compile-time variable** | 1. `pengu_parser/pengu_comptime.py` — extend `CompileTimeEnv`, `default_env()`, `parse_cli_defines()` and `eval_comptime()`. 2. `pengu_project.py` — thread the value through `PenguBuilder.__init__` (the `compiler=`/`debug`/`main` handling there is the model). 3. Document it in `LANGUAGE.md`. |
 | **New cache input** | 1. `pengu_project.py::compute_config_hash()` (project builds) and/or the `extra_digests` list in `run_script()` (script builds). 2. `pengu_cache.py::script_cache_key()` only if the input is global rather than per-invocation. |
 | **Change the emitted C ABI** | 1. `pengu_runtime.h` — the layout and `PENGU_ABI_VERSION` (bump it for a breaking change). 2. `pengu_parser/pengu_runtime.c`. 3. `pengu_parser/pengu_codegen/_base.py::PENGU_EXPECTED_ABI_VERSION`. 4. `docs/ABI.md`. 5. `build_runtime.py` if the build flags change. |
-| **New C binding for `std/`** | 1. `pengu bind <header> --prefix <insignia>` to produce the `.d.pengu` (`pengu_bind.generate_bind_file()`), or run `regen_std_bindings.py` for the standard set. 2. Add the archive to `link` and the headers to `include_dirs` where the module is used. |
+| **New C binding (satellite module)** | 1. `pengu bind <header> --prefix <insignia>` to produce the `.d.pengu` (`pengu_bind.generate_bind_file()`). 2. Package it as a satellite repository and install it with `pengu add <url>` (see [`EXTERNAL_MODULES.md`](EXTERNAL_MODULES.md)); the project's `links`/`include_dirs` then supply the archive and headers. |
 
 Repository-wide checks that catch drift between these files: the suites under
 `tests/` (in particular the diagnostic-code, deprecation-table and

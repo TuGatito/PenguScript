@@ -13,10 +13,11 @@
 #   * Vector and Matrix types are pure PenguScript value records (runes).
 #     They are passed and returned by value; no heap allocations, no banish.
 #   * Trigonometric and transcendental functions bind to libm via C99 bridges.
-#   * Coexists with 'std.raymath': arithmancy covers ~90% of common game math
-#     in pure PenguScript; raymath provides specialized C raylib bindings.
-#   * Unsupported here (use raymath if needed): Perlin/simplex noise,
-#     complex spline curves, and specialized 3D mesh collision queries.
+#   * Covers ~90% of common game math in pure PenguScript. Specialized
+#     graphics/vector bindings live in satellite repositories; see
+#     docs/EXTERNAL_MODULES.md.
+#   * Unsupported here: Perlin/simplex noise, complex spline curves, and
+#     specialized 3D mesh collision queries.
 
 import std.spark
 

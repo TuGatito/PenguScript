@@ -36,9 +36,16 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_every_manifest_entry_pins_a_sha256():
-    """No entry may be downloaded without a digest (the old behaviour)."""
-    assert extern_manifest.MANIFEST, "the manifest must not be empty"
+def test_the_core_manifest_is_empty():
+    """The core tree ships no downloadable externs any more.
+
+    Phase 1 moved every external binding out of the tree; the digest machinery
+    itself stays, and every test below drives it with a manifest it passes in.
+    An entry reappearing here without a pinned digest would be the old
+    behaviour, so this is the guard for the empty state.
+    """
+    assert extern_manifest.MANIFEST == {}
+    assert extern_manifest.EXPECTED_DIRS == {}
     for name, entry in extern_manifest.MANIFEST.items():
         digest = entry.get("sha256", "")
         assert HEX64.match(digest), f"{name}: sha256 is not pinned/malformed: {digest!r}"
@@ -226,9 +233,14 @@ def test_main_reports_a_clean_failure_on_a_bad_digest(tmp_path, monkeypatch, cap
 
 
 def test_manifest_is_not_a_url_dict_anymore():
-    """The shape the audit refuted: `{name: url}` had nowhere to store a digest."""
-    sample = next(iter(extern_manifest.MANIFEST.values()))
-    assert set(sample) >= {"url", "sha256"}
+    """The shape the audit refuted: `{name: url}` had nowhere to store a digest.
+
+    The core manifest is empty now, so the shape is asserted on a manifest the
+    digest machinery is documented to accept.
+    """
+    sample = {"lib": {"url": "https://example.invalid/lib.tar.gz", "sha256": "0" * 64}}
+    entry = next(iter(sample.values()))
+    assert set(entry) >= {"url", "sha256"}
 
 
 def test_digest_script_check_passes_offline():

@@ -42,7 +42,7 @@
 ##   `--deny-deprecated` promotes it to an error), but these aliases still use the
 ##   `## @deprecated Use X instead.` docstring convention and therefore emit no
 ##   warning. Turning them into real attributes would also require migrating the
-##   internal uses (`find`/`rfind` in `std.invoke`/`std.precis`) and removing the
+##   internal uses (`find`/`rfind` in `std.invoke`) and removing the
 ##   aliases from the `test` blocks, because any use would trigger the warning. It
 ##   is planned for 1.1; the inventory with replacements and retirement versions
 ##   lives in `docs/DEPRECATIONS.md`.

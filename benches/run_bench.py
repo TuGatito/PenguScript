@@ -120,12 +120,13 @@ def bench_pengu(source: Path, workdir: Path, repeat: int) -> Dict[str, object]:
     inc_dirs = [str(p) for p in runtime_include_dirs()]
     # No `lib_dirs` here, deliberately. The runtime's own `build/lib` is already
     # on the search path (`pengu_project.collect_lib_dirs_and_links` adds
-    # `runtime_lib_dirs()`), but a manifest `lib_dirs` entry makes every archive
-    # in that directory an *auto-detected* link (`-lraylib`, `-lsqlite3`,
-    # `-lmicrohttpd`, ...). That used to be invisible because every archive was
-    # linked anyway; with 2.0's conditional linking it would measure a program
-    # built in a way no `pengu init` project ever is. The benchmark must measure
-    # the documented build, so the archive list comes from the program's imports
+    # `runtime_lib_dirs()`), but the runtime is self-contained: its only archive
+    # is `libpengu_runtime.a`, and any other archive comes from the program's
+    # imports or an explicit `links:` entry (satellite bindings installed with
+    # `pengu add`). Adding a manifest `lib_dirs` entry would make every archive
+    # in that directory an *auto-detected* link, measuring a build no
+    # `pengu init` project ever produces. The benchmark must measure the
+    # documented build, so the archive list comes from the program's imports
     # alone. `include_dirs` stays: it only adds `-I`.
     manifest = (
         f'[project]\nname = "{source.stem}"\nentry = "src/main.pengu"\n\n'

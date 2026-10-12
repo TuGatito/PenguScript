@@ -71,12 +71,13 @@ if self.target_os == "windows":
 
 For `--target x86_64-unknown-linux-gnu` on Windows the only probe is `x86_64-unknown-linux-gnu-gcc`,
 which no mainstream toolchain installs: pass `--cc` explicitly, and it must exist
-([§10.2](#102---cc-points-at-a-compiler-that-is-not-installed)). Even then two linker inputs are
-host-derived — [`pengu_project.py:1723-1733`](../pengu_project.py#L1723): the platform tail
-(`-lrt -lcrypto -lssl` on Linux, `-framework CoreFoundation` on macOS) and, on a non-Windows target,
-the `pkg-config` lookup (line 1716) for `libxml-2.0`/`libcurl`/`libmicrohttpd`/`mbedtls`, normally
-absent on Windows and silently yielding no `-l` flags. **Recommendation:** build Linux binaries on
-Linux; on Windows use WSL2 as a native Linux build. This is a documented gap, not a supported workflow.
+([§10.2](#102---cc-points-at-a-compiler-that-is-not-installed)). Even then the linker tail is
+target-derived ([`pengu_project.py:1878-1884`](../pengu_project.py#L1878)): a non-Windows, non-MSVC
+target gets `-pthread -lm -ldl`. The core runtime asks `pkg-config` for nothing, so there is no host
+`pkg-config` lookup left to leak into a cross link. Satellite bindings installed with `pengu add`
+contribute their own `links:` entries and headers, built for the target by whoever stages the prefix.
+**Recommendation:** build Linux binaries on Linux; on Windows use WSL2 as a native Linux build. This
+is a documented gap, not a supported workflow.
 
 ## 3. The two `--target*` flags are different
 
@@ -164,16 +165,17 @@ Naming follows the **target**, not the host ([`pengu_project.py:823-849`](../pen
 `lib<name>.so`; `static` → `<name>.lib` on Windows, `<name>.a` elsewhere; `obj` → `<name>.o` always;
 `c` → `bundle.c` always.
 
-The link set changes with the target ([`pengu_project.py:1697-1733`](../pengu_project.py#L1697)):
+The link set changes with the target ([`pengu_project.py:1856-1884`](../pengu_project.py#L1856)):
 
-* **Always** (the `pengu_runtime` entry expands to a fixed group):
-  `-lpengu_runtime -lpcre2-8 -lxml2 -lcurl -lmbedcrypto -lmicrohttpd -lz`.
-* **Windows target**: adds the Win32 system libraries — `-lws2_32 -lwinmm -ladvapi32 -lcrypt32
-  -lbcrypt -lopengl32 -lgdi32 -lole32 -luuid -lshell32 -lpsapi -luserenv -liphlpapi`. `pkg-config`
-  lookups are skipped entirely ([`pengu_project.py:1643`](../pengu_project.py#L1643)).
-* **Non-Windows target**: appends the `pkg-config` libs for `libxml-2.0`, `libcurl`, `libmicrohttpd`,
-  `mbedtls`, then a platform tail chosen from the **host** `sys.platform` — `-lrt -lcrypto -lssl` on
-  Linux, `-framework CoreFoundation` on macOS — followed by `-pthread -lm -ldl`.
+* **Always**: the `pengu_runtime` entry expands to `-lpengu_runtime`. The core runtime is
+  self-contained — it links only libc/libm/pthreads (Win32 threads on Windows).
+* **Windows target**: adds the Win32 platform libraries `-lws2_32 -lwinmm`. `pkg-config` is never
+  consulted by the core, because its lookup map is empty
+  ([`pengu_project.py:2934`](../pengu_project.py#L2934)).
+* **Non-Windows, non-MSVC target**: appends the platform tail `-pthread -lm -ldl`. The tail follows
+  the **target** OS, not the build host.
+* **Satellite bindings**: any archive a program actually uses arrives through its imports or an
+  explicit `links:` entry (`pengu add <url>`), exactly as in a native build.
 * Static archives are wrapped in `-Wl,--start-group … -Wl,--end-group` on GNU linkers. A MinGW `gcc`
   on a Linux host *does* receive the group (verified in the emitted command line); TCC and `cl.exe` do
   not ([`1741-1748`](../pengu_project.py#L1741)).
@@ -206,33 +208,37 @@ else `-L<prefix>`; plus `-I<prefix>/include` if it exists.
 
 ```text
 <prefix>/
-  include/    # pengu_runtime.h, pcre2.h, curl/, mbedtls/, microhttpd.h, zlib.h, ...
-  lib/        # libpengu_runtime.a, libpcre2-8.a, libxml2.a, libcurl.a,
-              # libmbedcrypto.a, libmicrohttpd.a, libz.a
+  include/    # pengu_runtime.h
+  lib/        # libpengu_runtime.a
+              # (+ whatever archives the project's satellite bindings need)
 ```
 
-The variable is ignored unless the build is actually cross (target OS ≠ host OS), and the `-I` mainly
-serves dependency headers: `bundle.c` uses `#include "pengu_runtime.h"`, resolved next to the bundle
-in `build/` from the just-copied host header. The **header is target-independent; the archive is not.**
+The variable is ignored unless the build is actually cross (target OS ≠ host OS), and the `-I` serves
+`pengu_runtime.h`: `bundle.c` uses `#include "pengu_runtime.h"`, resolved next to the bundle in
+`build/` from the just-copied host header. The **header is target-independent; the archive is not.**
+The core runtime has no external dependencies, so there is no vendored dependency stack to stage;
+a project that imports a satellite binding must stage that binding's archive for the target too.
 
 ### 7.3 Building the runtime for the target
 
 [`build_runtime.py`](../build_runtime.py) has **no cross mode**: the only option is `--rebuild`
-([`1293-1297`](../build_runtime.py#L1293)), and `get_toolchain()` unconditionally picks the host
-`gcc`/`clang`/`cc` ([`89-96`](../build_runtime.py#L89)). No `--target`/`--cc`/`--host`, and its CMake
-projects are configured with the host compiler. Options:
+([`224-230`](../build_runtime.py#L224)), and `get_toolchain()` unconditionally picks the host
+`gcc`/`clang`/`cc` ([`85-96`](../build_runtime.py#L85)). There is no `--target`/`--cc`/`--host`. Since
+the runtime is now a single self-contained archive, building it for the target is one translation
+unit:
 
-1. **Cross-build the stack with explicit CMake toolchain files**, configuring each dependency and the
-   runtime with `-DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc`, then copy
-   archives to `<prefix>/lib` and headers to `<prefix>/include`. You reproduce by hand what
-   `build_runtime.py` does internally.
+1. **Cross-compile the archive by hand.** Compile `pengu_parser/pengu_runtime.c` once per entry in
+   `RUNTIME_OBJECTS` with the target compiler, archive the objects into `libpengu_runtime.a` with the
+   matching `ar`, and stage it as `<prefix>/lib/libpengu_runtime.a` with `pengu_runtime.h` in
+   `<prefix>/include`. You reproduce by hand what `build_runtime.py` does internally.
 2. **Build natively on Windows and copy the prefix.** On Windows `python build_runtime.py` uses MinGW
    gcc — exactly what CI does ([`.github/workflows/ci.yml:105-118`](../.github/workflows/ci.yml#L105)).
    Copy `build/include` and `build/lib` to a prefix on the Linux side and use it as
    `PENGU_RUNTIME_CROSS`. It must be built against the same `pengu_runtime.h` (ABI v2); it is the same
    file shipped in the repo.
-3. **Do not** substitute distro MinGW libraries for the bundled static stack: the ABI/version pairing
-   is what makes the link work.
+3. **Satellite bindings are separate.** A program that imports a satellite binding needs that
+   binding's native library built for the target as well; `PENGU_RUNTIME_CROSS` only supplies the
+   PenguScript runtime.
 
 Pointing `PENGU_RUNTIME_CROSS` at a prefix containing only host (ELF) archives should be expected to
 fail with an archive-format complaint (`file format not recognized` / `skipping incompatible`) or
@@ -312,8 +318,8 @@ No test produces a `.exe`, and none runs it under Wine.
   [`AUDIT_1.0.md` §15.3](../AUDIT_1.0.md#L2960). An `msvc` triple buys no MSVC build.
 * **Unknown triples silently fall back to the host** ([§5](#5-supported-triples)).
 * **No automated way to build the target runtime** ([§7.3](#73-building-the-runtime-for-the-target));
-  the whole dependency stack (PCRE2, libxml2, curl, mbedTLS, libmicrohttpd, zlib) must be cross-built,
-  because the runtime link group names all of them.
+  the self-contained archive must be cross-compiled by hand, and every satellite binding a program
+  imports must be cross-built as well.
 * **The runtime pre-flight ignores `PENGU_RUNTIME_CROSS`** ([§7.1](#71-the-shipped-archive-is-host-built)).
 * **`--target` is decoupled from `when os`** ([§7.4](#74-target-does-not-change-the-when-os-environment)).
 * **Windows→Linux is not a real path** ([§2.2](#22-windows--linux)).
@@ -391,8 +397,8 @@ cache. If you still suspect a stale artifact, use `pengu clean` (project) or `pe
 | Triple parsing; `is_cross`; auto-detection | [`217-245`](../pengu_project.py#L217), [:767-775](../pengu_project.py#L767), [:791-801](../pengu_project.py#L791) |
 | `PENGU_RUNTIME_CROSS` → `-L`/`-I`, applied first | [`809-821`](../pengu_project.py#L809), [:1530-1533](../pengu_project.py#L1530) |
 | Archive pre-flight; error texts | [`2010-2012`](../pengu_project.py#L2010), [:2655-2670](../pengu_project.py#L2655), [:2794-2805](../pengu_project.py#L2794), [:1984-1988](../pengu_project.py#L1984) |
-| Extensions; link libraries | [`823-849`](../pengu_project.py#L823), [:1697-1733](../pengu_project.py#L1697) |
+| Extensions; link libraries | [`823-849`](../pengu_project.py#L823), [:1856-1884](../pengu_project.py#L1856) |
 | Lockfile target; cache keys | [`2061-2079`](../pengu_project.py#L2061), [:686](../pengu_project.py#L686), [:4849](../pengu_project.py#L4849) |
 | `when os` from host, not `--target` | [`pengu_comptime.py:25-36`](../pengu_parser/pengu_comptime.py#L25), [:169-176](../pengu_parser/pengu_comptime.py#L169) |
-| Runtime search layouts; no cross mode in `build_runtime.py` | [`pengu_paths.py:162-207`](../pengu_paths.py#L162), [`build_runtime.py:89-96`](../build_runtime.py#L89), [:1293-1297](../build_runtime.py#L1293) |
+| Runtime search layouts; no cross mode in `build_runtime.py` | [`pengu_paths.py:162-207`](../pengu_paths.py#L162), [`build_runtime.py:85-96`](../build_runtime.py#L85), [:224-230](../build_runtime.py#L224) |
 | Tests; CI matrix | [`tests/cli/test_cross_compile.py`](../tests/cli/test_cross_compile.py), [`.github/workflows/ci.yml:40-50`](../.github/workflows/ci.yml#L40) |

@@ -74,20 +74,19 @@ def _link_command(tmp_path, cc, target):
     return cmds[0]
 
 
-def test_tcc_on_macos_does_not_get_the_framework_tail(tmp_path):
-    """TCC's driver has no `-framework`: it reads the name as a missing file.
+def test_no_toolchain_gets_a_framework_tail_on_macos(tmp_path):
+    """The Darwin `-framework CoreFoundation` tail is gone (phase 1).
 
-    `pengu build --cc tcc` on macOS failed with
-    "tcc: error: file 'CoreFoundation' not found", because the Darwin platform
-    tail was appended to every link line.  gcc/clang still need the framework
-    (std.uuid); TCC must not receive it.
+    It existed only for `std.uuid`, which moved to a satellite repository, so the
+    runtime now links libc/libm/pthreads on macOS and no `-framework` flag is
+    emitted.  TCC's driver never understood `-framework` in the first place.
     """
     tcc_cmd = _link_command(tmp_path, "tcc", "darwin")
     assert "-framework" not in tcc_cmd, tcc_cmd
 
     clang_cmd = _link_command(tmp_path, "clang", "darwin")
-    assert "-framework" in clang_cmd, clang_cmd
-    assert "CoreFoundation" in clang_cmd, clang_cmd
+    assert "-framework" not in clang_cmd, clang_cmd
+    assert "CoreFoundation" not in clang_cmd, clang_cmd
 
 
 #: The command the "TCC unusable here" skip proves the project with.  It must be

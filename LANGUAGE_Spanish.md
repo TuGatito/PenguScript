@@ -36,8 +36,8 @@
 17. [Pruebas unitarias (`test`)](#17-unit-tests-test)
 18. [Construcción estilo bloque (expresiones `with:`)](#18-block-style-construction-with-expressions)
 19. [Biblioteca estándar](#19-standard-library)
-    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-27-modules)
-    - 19.2 [Módulos de enlace nativo de C](#192-c-native-binding-modules-25-dpengu-modules)
+    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-21-modules)
+    - 19.2 [Bindings externos (repositorios satélite)](#192-external-bindings-satellite-repositories)
     - 19.3 [Ejemplos de la biblioteca estándar central](#193-core-standard-library-examples)
     - 19.4 [Recursos embebidos del proyecto (`arca`)](#194-embedded-project-assets-arca)
 20. [Herramientas y estructura del proyecto](#20-tooling--project-layout)
@@ -1052,8 +1052,8 @@ omen NetworkEvent:
 
 #### Modos de emisión del codegen:
 - **Omen numérico normal en `.pengu`:** Emite un `typedef enum { <Omen>_<variant> = val, ... } <Omen>;` de C.
-- **Omen de declaración en `.d.pengu`:** Emite **nombres de variante desnudos** (`KEY_LEFT`, `FLAG_MSAA_4X_HINT`) que coinciden con los enums de los headers de C originales, sin añadir prefijo.
-- **Modo con prefijo de `insignia` (`c_name != name`):** Cuando el módulo especifica una directiva `insignia <prefix>`, el tipo enum de C generado recibe el prefijo (`<c_name>`, p. ej. `ray_Color`), y todas las etiquetas enum de variantes se generan como `<c_name>_<variant>` (p. ej. `ray_Color_Red`), evitando colisiones de nombres en C entre compilaciones multimódulo.
+- **Omen de declaración en `.d.pengu`:** Emite **nombres de variante desnudos** (`MODE_FAST`, `FLAG_VERBOSE`) que coinciden con los enums de los headers de C originales, sin añadir prefijo.
+- **Modo con prefijo de `insignia` (`c_name != name`):** Cuando el módulo especifica una directiva `insignia <prefix>`, el tipo enum de C generado recibe el prefijo (`<c_name>`, p. ej. `mylib_Color`), y todas las etiquetas enum de variantes se generan como `<c_name>_<variant>` (p. ej. `mylib_Color_Red`), evitando colisiones de nombres en C entre compilaciones multimódulo.
 - **Omen con valor de string:** Emite definiciones de constantes de string (`#define <c_name>_<variant> pengu_string_from_cstr("<variant>")`).
 - **Omen algebraico:** Emite un struct de C etiquetado que contiene una etiqueta discriminante (`<c_name>_Tag`) y una unión de payload:
   ```c
@@ -2250,12 +2250,12 @@ widening (`int` → `i64`), los punteros exigen tipos apuntados idénticos (o el
 ### 13.3 Convenciones de tiempo de vida y limpieza de búferes de C
 
 Los bindings de C declaran funciones que devuelven búferes en el heap asignados por las
-bibliotecas subyacentes (`malloc`, `strdup`, `LoadAudioStream`, `sqlite3_open`, etc.):
+bibliotecas subyacentes (`malloc`, `strdup`, `mylib.stream_open`, `mylib_cache_open`, etc.):
 1. **Documentación del binding:** las docstrings `##` especifican la función de limpieza
    designada por la biblioteca.
 2. **Limpieza de la biblioteca vs banish:** la memoria asignada por una biblioteca C
    externa debe liberarse con la propia rutina de limpieza de esa biblioteca (por
-   ejemplo, `defer calling raylib.UnloadTexture with tex`), **no** con `banish`.
+   ejemplo, `defer calling mylib.release with handle`), **no** con `banish`.
    `banish` está reservado para la memoria gestionada por el runtime de PenguScript
    (`pengu_sigil_alloc`, cadenas dinámicas, listas, mapas).
 
@@ -2406,8 +2406,8 @@ import components.player             # project module (src/components/player.pen
 ### 14.2 `include`, `link`, `insignia`, `declare`
 
 ```pengu
-include "raylib.h"
-link "raylib"
+include "mylib.h"
+link "mylib"
 link "m"
 insignia mylib_
 ```
@@ -2421,22 +2421,22 @@ insignia mylib_
   debe tener una firma `declare` explícita (`E0004` si se llama sin declaración).
 
 **Cómo escribir constantes y variantes de enum de un binding.** Las variantes de `omen`
-declaradas en un `.d.pengu` (`omen KeyboardKey:` + `KEY_RIGHT is 39`) son accesibles de
+declaradas en un `.d.pengu` (`omen Options:` + `MODE_FAST is 1`) son accesibles de
 tres formas, y las dos primeras son las que hay que usar:
 
 ```pengu-fragment
-import std.raylib
+import mylib
 
-calling raylib.IsKeyDown with raylib.KEY_RIGHT                # bare module-qualified ✅
-calling raylib.IsKeyDown with raylib.KeyboardKey.KEY_RIGHT   # nested: type-qualified ✅
-calling raylib.IsKeyDown with KEY_RIGHT                      # unqualified ✅
-calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT   # qualified #define / variant ✅
+calling mylib.is_enabled with mylib.MODE_FAST                 # bare module-qualified ✅
+calling mylib.is_enabled with mylib.Options.MODE_FAST         # nested: type-qualified ✅
+calling mylib.is_enabled with MODE_FAST                       # unqualified ✅
+calling mylib.set_option with mylib.FLAG_VERBOSE              # qualified #define / variant ✅
 ```
 
-Se admiten las tres formas: cualificada por módulo sin más (`raylib.KEY_RIGHT`,
-`raylib.FLAG_MSAA_4X_HINT`), cualificada por tipo (`raylib.KeyboardKey.KEY_RIGHT`) y sin
-cualificar (`KEY_RIGHT`). También se admiten constantes con valor de struct como
-`raylib.RAYWHITE` (su valor se emite tal como se define).
+Se admiten las tres formas: cualificada por módulo sin más (`mylib.MODE_FAST`,
+`mylib.FLAG_VERBOSE`), cualificada por tipo (`mylib.Options.MODE_FAST`) y sin
+cualificar (`MODE_FAST`). También se admiten constantes con valor de struct como
+`mylib.DEFAULT_CONFIG` (su valor se emite tal como se define).
 
 
 ### 14.3 `ref to char`, `opaque`, `.d.pengu` y `bytes of`
@@ -2451,17 +2451,17 @@ debe liberar el resultado se documenta en el módulo). Los handles opacos se dec
 Archivos de **declaración** `.d.pengu`:
 
 ```pengu
-# std/sqlite3.d.pengu (excerpt)
-rune sqlite3:
+# mylib.d.pengu (excerpt)
+rune mylib:
     _ptr as opaque
 
-declare sqlite3_open with filename as ref to char, ppDb as ref to opaque into int
+declare mylib_open with filename as ref to char, ppDb as ref to opaque into int
 ```
 
 - Solo registran tipos/firmas; las implementaciones viven en la cabecera C.
 - Un `omen` declarado en un `.d.pengu` refleja un enum de la cabecera, así que el C
-  emitido usa los nombres de variante **sin más** (`KEY_LEFT`, no
-  `KeyboardKey_KEY_LEFT`).
+  emitido usa los nombres de variante **sin más** (`MODE_FAST`, no
+  `Options_MODE_FAST`).
 
 ### 14.4 Estructura y configuración del proyecto (`pengu.yaml` / `pengu.toml`)
 
@@ -2960,9 +2960,14 @@ Métodos integrados admitidos dentro de los bloques `with` de colecciones:
 
 ## 19. Biblioteca estándar
 
-PenguScript incluye una biblioteca estándar completa compuesta por **52 módulos**:
-- **27 módulos de PenguScript puro** (`std.<module>`) que ofrecen abstracciones idiomáticas de alto nivel para E/S, cadenas, concurrencia, redes, serialización, matemáticas, pruebas y puentes de memoria.
-- **25 módulos de binding de declaraciones de C** (`std.<binding>`, implementados mediante `.d.pengu`) que ofrecen acceso directo y sin sobrecarga a bibliotecas nativas de C (Raylib, SQLite3, WebUI, STB, etc.) conservando la documentación upstream 1:1.
+PenguScript incluye una biblioteca estándar completa de **21 módulos de
+PenguScript puro** (`std.<module>`) que ofrecen abstracciones idiomáticas de alto
+nivel para E/S, cadenas, concurrencia, serialización, matemáticas, pruebas y
+puentes de memoria.
+
+Los bindings a bibliotecas externas de C ya no forman parte de `std/`: se
+distribuyen como repositorios satélite que se instalan por proyecto con
+`pengu add <url>` (§19.2).
 
 ### `print` integrado
 `print` es un builtin del compilador que se traduce directamente a `printf` según el tipo del argumento (`print "hello"`, `print 42`, etc.). Para impresión estructurada o formateada con más opciones, usa `std.spark.println` o `std.spark.print`.
@@ -2991,7 +2996,7 @@ nombres ya mantiene cada módulo autocontenido (`std.<module>.<symbol>`), así q
 desacoplar la stdlib en paquetes versionados de forma independiente queda reservado
 para 2.0.
 
-### 19.1 Módulos de PenguScript puro (27 módulos)
+### 19.1 Módulos de PenguScript puro (21 módulos)
 
 Todos los módulos puros se encuentran en el directorio `std/` y se importan como `import std.<module>`.
 
@@ -3012,16 +3017,10 @@ Todos los módulos puros se encuentran en el directorio `std/` y se importan com
 | `std.tally` | Utilidades para listas de enteros: aplica enchanting directamente sobre `list of int` (`calling xs.sum`, `calling xs.first`, `calling xs.reverse`) junto con funciones de nivel de módulo (`calling tally.sum with xs`). Incluye longitud y acceso (`len`, `first`, `last`, `at_or`, `at_safe`), búsqueda (`contains`, `index_of`, `count_of`, `find_first_gt`, `find_first_lt`), reducciones (`sum`, `product`, `max_val`, `min_val`, `max_index`, `min_index`), estadísticas (`mean`, `median`, `mode`), transformaciones (`reverse`, `sort_asc`, `sort_desc`, `unique`, `dedup`, `flatten`), selección (`take`, `drop`, `slice_list`), combinación (`concat`, `zip_sum`, `dot`, `repeat`), predicados, filtros (`filter_*`) y mapeos (`map_*`). |
 | `std.atlas` | Utilidades de colecciones de tipo map multidato para 6 combinaciones clave-valor (`map of string to int`, `map of string to string`, `map of string to float`, `map of int to int`, `map of int to string`, `map of string to bool`). Aplica enchanting directamente sobre los tipos map (`calling m.keys`, `calling m.get_or with k, default`, `calling m.update with k, v`, `calling m.rename_key with old_k, new_k`, `calling m.clone`, `calling m.remove with k`, `calling m.clear`) junto con funciones de nivel de módulo (`calling atlas.keys with m`, `calling atlas.get_or_ss with m, k, def`). Incluye longitud y predicados (`size`, `is_empty`, `has_key`, `has_any_key`, `has_all_keys`), acceso (`get_or`, `get_safe`, `find_key_by_value`), mutación in situ (`update`, `rename_key`, `remove`, `clear`, `remove_all`), accesores masivos (`keys`, `values`, `keys_sorted`, `values_sorted`), reducciones numéricas (`sum_values`, `max_value`, `min_value`), contadores de bool (`count_true`, `count_false`), filtros y transformaciones (`filter_*`, `map_values_*`), combinación (`merge_*`, `merge_keep_left_*`), conversiones (`from_lists_*`, `to_keys_list`, `to_values_list`) y utilidades genéricas (`shard K, V`: `map_size`, `map_has_key`, `map_get_or`, `map_keys`, `map_values`, `map_put`, `map_remove`, `map_clear`). |
 | `std.coven` | Colecciones de conjuntos únicos (`SetString`, `SetInt`): inserción y predicados (`add`, `contains`, `remove`, `len`, `clear`, `is_empty`), álgebra de conjuntos completa (`union`, `intersect`, `difference`, `symmetric_difference`, `is_subset`, `is_superset`, `is_disjoint`, `equals`), conversiones (`to_list`, `to_set_int`, `to_set_string`, `from_list`, `clone`) y filtros especializados (`filter_starts_with`, `filter_length_ge`). |
-| `std.regulus` | Motor de expresiones regulares basado en PCRE2: compilación de regex (`compile`), coincidencia total/parcial (`match`, `search`, `is_match`, `is_full_match`, `is_match_at`), extracción de coincidencias (`find_all`, `match_count`, `match_at`, `match_offsets`), reemplazo de cadenas (`replace`, `replace_all`, `replace_fn`), división (`split`, `split_n`), utilidades de patrones (`escape`, `is_valid_pattern`, `flag_is_case_insensitive`) y métodos de enchanting de cadenas (`to_regex`, `matches_regex`, `regex_replace`, `regex_split`). |
-| `std.parchment` | Parser de DOM de XML y HTML basado en libxml2: árboles de documento (`Document` con `parse_xml`, `parse_html`, `doc_to_string`), navegación y mutación de elementos (`Node` con `find`, `find_all`, `attr`, `set_attr`, `text`, `set_text`, `remove_child`), consultas al DOM (`find_by_id`, `find_by_class`, `find_all_by_class`, `has_class`, `add_class`, `remove_class`), utilidades de etiquetas (`is_void_element`, `normalize_tag`, `is_valid_tag_name`), limpieza de HTML (`strip_html_tags`, `extract_text`) y enchantments de cadena/Node. |
-| `std.seal` | Compresión de datos y digests criptográficos: CRC32, MD5, SHA-1, SHA-256, SHA-512, HMAC (RFC 2104: `hmac_sha256`, `hmac_sha1`, `hmac_md5`), comparación en tiempo constante (`constant_time_eq`, `verify_sha256`, `verify_hmac_sha256`), deflate/inflate en bruto de zlib y compresión Gzip con métodos de enchanting de cadenas (`to_sha256`, `to_md5`, `to_crc32`, `to_gzip`, `from_gzip`). |
-| `std.precis` | Programación de redes y protocolos web: cliente HTTP (`get`, `post`, `head`, `put`, `delete_req`), constructores de peticiones/respuestas HTTP (`Request`, `Response` con cabeceras y codificación de parámetros de consulta), servidor HTTP embebido (`serve_http`), predicados de códigos de estado (`is_success`, `is_redirect`, `is_client_error`, `is_server_error`, `status_text`) y códecs de URL (`url_encode`, `url_decode`, `parse_url`, `build_url`, `url_join`). |
 | `std.filum` | Primitivas de concurrencia multihilo: exclusión mutua (`Mutex` con `lock`, `unlock`, `try_lock`, `free`), contadores de sincronización (`WaitGroup` con `add`, `done`, `wait`, `free`), guardas de una sola vez (`Once` con `do_once`, `do_action`, `free`), variables de condición (`Cond` con `cond_wait`, `wait_mutex`, `signal`, `broadcast`, `free`), enteros thread-safe (`AtomicInt` con `load`, `store`, `add`, `sub`, `inc`, `dec`, `inc_and_get`, `dec_and_get`, `swap`, `get_and_set`, `compare_swap`, `is_zero`, `reset`, `free`), canales tipados (`ChanInt`, `ChanString`, `ChanFloat`, `ChanBool` con `new`, `with_capacity`, `send`, `recv`, `close`, `len`, `cap`, `free`) y utilidades de sistema/tiempo (`sleep`, `sleep_sec`, `num_cpu`, `goroutine_id`). |
 | `std.loom` | Generación de secuencias, transformaciones funcionales y algoritmos genéricos: secuencias (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reducciones (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicados (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transformaciones (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), operaciones tipo conjunto ordenado (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), búsqueda (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), modificaciones estructurales (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), estadísticas (`median`, `mode`, `variance`, `stddev`, `percentile`) y algoritmos genéricos (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`). |
 | `std.invoke` | Análisis de argumentos de interfaz de línea de comandos (CLI): sintaxis POSIX y GNU (`--flag`, `--key=value`, `-k=value`), negación de flags booleanos (`--no-flag`), subcomandos (`rune Subcommand`), opciones tipadas (int, float, bool, string, multi), opciones multi repetibles (`rune MultiOption`), sugerencias de erratas por Levenshtein, cadenas de ayuda y uso formateadas (`usage_string`, `full_help`), informes de error y variantes robustas de análisis (`parse`, `parse_no_exit`, `parse_or_exit`, `parse_or_usage`, accesores de `ParseResult` `get`, `get_or`, `get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`, `get_all`, `to_map_values`, `to_map_flags`). |
 | `std.ffi` | Puente de interfaz de funciones externas de C de bajo nivel: utilidades de punteros nulos (`null_void`, `null_char`, `null_byte`, `is_null`, `is_valid`, `ptr_eq`), constantes e inspección de arquitectura (`SIZEOF_POINTER`, `SIZEOF_INT`, `SIZEOF_FLOAT`, `pointer_size`, `size_of shard T`, `alignment_of shard T`), conversiones de cadenas C terminadas en nulo (`string_from_cstr`, `cstr_from_string`, `string_from_cstr_n`, `string_from_bytes`, `bytes_from_string`), vistas de memoria (`slice_from_ptr`), colecciones genéricas a partir de búferes de C (`list_from_ptr shard T`, `map_from_entries shard K, V`), copia/escritura de memoria en bruto (`memcpy_raw`, `memset_raw`) y 10 patrones canónicos de interoperabilidad con C. |
-| `std.celeris` | Benchmarking de alta precisión y perfilado de rendimiento: temporizadores monotónicos de nanosegundos y suites de benchmark por iteraciones. |
-| `std.xlsx` | Generación de libros de hojas de cálculo de Excel y extracción de datos de celdas. |
 | `std.ledger` | Datos tabulares, análisis y serialización de CSV/TSV y operaciones con matrices: análisis (`parse_csv`, `parse_tsv`, `parse_line`, `detect_delimiter`, `parse_csv_strict`, `parse_csv_nocomments`, `parse_csv_skip`, `parse_line_strict`, `parse_csv_normalized`), abstracción de tabla `rune CsvTable` (`from_csv`, `from_rows`, `row_count`, `column_count`, `has_column`, `column_index`, `get`, `get_or`, `column`, `row_as_map`, `to_csv`), enchantments de matrices (`list of list of string`: `row_count`, `column_count`, `is_rectangular`, `column`, `transpose`), conversiones a mapas clave-valor (`parse_csv_as_pairs`, `parse_csv_key_value`, `write_key_value_map`), escape (`escape_field`, `escape_field_rfc4180`, `escape_field_backslash`), formateadores (`to_csv_string`, `to_tsv_string`, `to_csv_string_no_trailing_newline`, `to_csv_string_crlf`) y operaciones de archivos (`read_csv`, `read_tsv`, `write_csv`, `write_tsv`, `write_csv_safe`). |
 | `std.arithmancy` | Álgebra lineal y funciones matemáticas avanzadas listas para juegos: constantes (`PI`, `TAU`, `E`, `EPSILON`), funciones escalares (`abs_i`, `abs_f`, `min_i`, `max_i`, `min_f`, `max_f`, `clamp_i`, `clamp_f`, `sqrt_f`, `pow_f`, `sin_f`, `cos_f`, `tan_f`, `asin_f`, `acos_f`, `atan_f`, `atan2_f`, `deg_to_rad`, `rad_to_deg`, `lerp_f`, `smoothstep_f`), vectores 2D (`rune Vec2` con `dot`, `cross`, `length`, `normalize`, `distance`), vectores 3D (`rune Vec3` con `dot`, `cross`, `length`, `normalize`, `distance`), vectores 4D (`rune Vec4`), matrices de transformación 4x4 (`rune Mat4` con `identity`, `translation`, `scaling`, `rotation_x/y/z`, `multiply`, `transpose`, `look_at`, `perspective`, `orthographic`) y cuaterniones (`rune Quat` con `identity`, `from_axis_angle`, `multiply`, `slerp`, `to_mat4`). |
 
@@ -3066,37 +3065,9 @@ El estado de deprecación de los alias heredados de ambos módulos está catalog
 diferido a 1.1 porque cualquiera de las dos direcciones rompe a los llamadores de la
 familia que pierda (ítem 6.5, `AUDIT_1.0_FASE6.md`).
 
-### 19.2 Módulos de binding nativo de C (25 módulos `.d.pengu`)
+### 19.2 Bindings externos (repositorios satélite)
 
-Estos bindings de declaración exponen bibliotecas nativas de C sin sobrecarga de abstracción. El compilador enlaza las bibliotecas de C correspondientes durante la compilación:
-
-| Módulo | Biblioteca nativa y descripción |
-|---|---|
-| `std.raylib` | **Raylib 5.x**: renderizado gráfico 2D y 3D, ventanas, audio, manejo de entrada, texturas y cámaras. |
-| `std.raymath` | **Raylib Math**: matemáticas de vectores 2D/3D (`Vector2`, `Vector3`), matrices de transformación 4x4 (`Matrix`) y cuaterniones. |
-| `std.rlgl` | **rlgl**: capa de abstracción gráfica de bajo nivel para OpenGL 1.1, 2.1, 3.3 y ES 2.0. |
-| `std.rlights` | **rlights**: gestión de shaders con múltiples luces de Raylib (luces direccionales, puntuales y focos). |
-| `std.raygui` | **raygui**: componentes de interfaz gráfica de usuario en modo inmediato (IMGUI) para Raylib. |
-| `std.sqlite3` | **SQLite 3**: motor de base de datos relacional embebido y sin servidor, sentencias preparadas y ejecución de consultas. |
-| `std.webui` | **WebUI**: binding de GUI de escritorio moderna que aprovecha el navegador web instalado por el usuario (Chrome, Edge, Firefox) mediante HTML/CSS/JS con RPC bidireccional. |
-| `std.miniaudio` | **miniaudio**: reproducción de audio multiplataforma, mezcla multipista, grabación de sonido y audio espacial 3D. |
-| `std.tomlum` | **tomlc99**: parser de archivos de configuración TOML rápido y conforme al estándar. |
-| `std.yaml` | **libyaml**: parser conforme de documentos YAML de configuración y datos. |
-| `std.uuid` | **RFC 4122 UUID**: generación, análisis y representación canónica en cadena de UUID versión 4 criptográficamente sólidos. |
-| `std.xxhash` | **xxHash**: algoritmo de hash no criptográfico extremadamente rápido que opera al límite del ancho de banda de la RAM. |
-| `std.xlsxio` | **libxlsxio**: lector y escritor de streaming en C de alto rendimiento para archivos Excel `.xlsx`. |
-| `std.imago` | **stb_image**: carga de archivos de imagen (PNG, JPEG, BMP, TGA, PSD, GIF, HDR, PIC, PNM) desde disco o memoria. |
-| `std.typis` | **stb_truetype**: carga de fuentes, decodificación de glifos vectoriales y rasterización a atlas de mapa de bits. |
-| `std.scriptor` | **stb_sprintf**: implementación portátil y de alto rendimiento de `sprintf` sin dependencias de locale. |
-| `std.perlinum` | **stb_perlin**: generación procedural de ruido Perlin y simplex para terrenos y texturas. |
-| `std.stb_image_resize2` | **stb_image_resize2**: escalado de imágenes SIMD de alta calidad con filtros Catmull-Rom, Mitchell y Lanczos. |
-| `std.stb_herringbone_wang_tile` | **stb_herringbone_wang_tile**: generación procedural de mapas no periódicos mediante teselas Herringbone Wang. |
-| `std.nanosvg` | **NanoSVG**: parser vectorial SVG de una sola cabecera para extracción de trazados y teselado de polígonos. |
-| `std.nanosvgrast` | **NanoSVGrast**: rasterizador software de alta velocidad para imágenes vectoriales NanoSVG. |
-| `std.minicoro` | **minicoro**: corrutinas asimétricas con pila y conmutación de contexto de fibras. |
-| `std.datastructura` | Estructuras de datos de C de alto rendimiento: búferes vectoriales dinámicos, hash maps y colas FIFO. |
-| `std.fenestra` | Diálogos de ventana nativos multiplataforma: abrir archivo, guardar archivo, seleccionar carpeta, cuadros de mensaje y notificaciones emergentes. |
-| `std.pactum` | Empaquetado de protocolos binarios compactos y serialización de mensajes de red sin esquema. |
+Los bindings a bibliotecas externas de C se distribuyen como repositorios satélite que se instalan con `pengu add <url>`. Consulta [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md).
 
 ### 19.3 Ejemplos básicos de la biblioteca estándar
 
@@ -3142,48 +3113,6 @@ weave demonstrate_strings into void:
     calling spark.println with "Substring: {sub}"
 ```
 
-#### Hashes criptográficos y compresión (`std.seal`)
-Proporciona cálculo de digests y compresión de datos:
-
-```pengu
-import std.spark
-import std.seal
-
-weave demonstrate_seal with payload as string into void:
-    # Calculate SHA-256 and MD5 hex digests
-    var sha as string is calling seal.sha256 with payload
-    var md5_sum as string is calling seal.md5 with payload
-    calling spark.println with "SHA-256: {sha}"
-    calling spark.println with "MD5: {md5_sum}"
-
-    # Compress with Gzip
-    var compressed as maybe string is calling seal.gzip with payload
-    if compressed.is_present:
-        var original as maybe string is calling seal.unzip with compressed.value
-        if original.is_present:
-            calling spark.println with "Roundtrip match: {(original.value == (payload to string))}"
-```
-
-#### Redes y HTTP (`std.precis`)
-Realiza peticiones HTTP salientes y opera con endpoints de socket:
-
-```pengu
-import std.spark
-import std.precis
-
-weave fetch_web_data with url as string into void:
-    var headers as map of string to string is map of string to string
-    var resp as maybe precis.ClientResponse is calling precis.get with url, headers
-
-    if resp.is_present:
-        var response as precis.ClientResponse is resp.value
-        calling spark.println with "Status Code: {(response.status_code to string)}"
-        if response.status_code == 200 and response.body.is_present:
-            calling spark.println with "Body: {response.body.value}"
-    else:
-        calling spark.println with "Network request failed"
-```
-
 #### Concurrencia multihilo (`std.filum`)
 Creación de hilos, exclusión mutua, wait groups y canales:
 
@@ -3208,52 +3137,6 @@ weave demonstrate_concurrency into void:
 
     calling filum.free_mutex with (sigil of m)
     calling filum.free_wait_group with (sigil of wg)
-```
-
-#### Expresiones regulares PCRE2 (`std.regulus`)
-Coincidencia de patrones rápida, extracción de grupos y reemplazo:
-
-```pengu
-import std.spark
-import std.regulus
-
-weave demonstrate_regex into void:
-    var re as maybe regulus.Regex is calling regulus.compile with "[a-zA-Z]+@([a-zA-Z0-9-]+\\.[a-z]+)", "i"
-    if re.is_present:
-        var rx as regulus.Regex is re.value
-        var m as maybe regulus.Match is calling regulus.search with (sigil of rx), "Contact: admin@penguscript.org"
-        if m.is_present:
-            var match_data as regulus.Match is m.value
-            calling spark.println with "Matched text: {match_data.matched}"
-            calling regulus.match_free with (sigil of match_data)
-        var replaced as string is calling regulus.replace with (sigil of rx), "Send to user@domain.com", "[hidden]"
-        calling spark.println with "Sanitized: {replaced}"
-        calling regulus.regex_free with (sigil of rx)
-```
-
-#### Gráficos interactivos 2D y 3D (`std.raylib` y `std.raymath`)
-Pipeline interactivo de ventanas y renderizado:
-
-```pengu
-import std.raylib
-import std.raymath
-import std.ffi
-
-weave main into int:
-    var title as ref to char is calling ffi.cstr_from_string with "PenguScript Raylib Window"
-    calling raylib.InitWindow with 800, 450, (transmute title to ref to frozen char)
-    calling raylib.SetTargetFPS with 60
-
-    var position as raymath.Vector2 is with x is 400.0, y is 225.0
-
-    while not calling raylib.WindowShouldClose:
-        calling raylib.BeginDrawing
-        calling raylib.ClearBackground with raylib.RAYWHITE
-        calling raylib.DrawCircle with (position.x to int), (position.y to int), 20.0, raylib.MAROON
-        calling raylib.EndDrawing
-
-    calling raylib.CloseWindow
-    return 0
 ```
 
 ### 19.4 Recursos embebidos del proyecto (`arca`)
@@ -3319,57 +3202,41 @@ Puedes pasar tanto la constante generada (`arca.ASSET_LOGO_PNG_A731E040`) como e
 
 #### Ejemplos de uso
 
-**Carga de texturas y shaders de Raylib (memoria directa):**
+Los bindings de gráficos e interfaz de escritorio que antes se mostraban aquí ahora
+se distribuyen como repositorios satélite que se instalan con `pengu add`; consulta
+[`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md).
+
+**Decodificar una imagen embebida mediante un binding satélite:**
 ```pengu-fragment
 import arca
-import std.raylib
+import mylib
 import std.ffi
 import std.spark
 
 weave main into int:
-    var title as ref to char is calling ffi.cstr_from_string with "Embedded Assets Demo"
-    calling raylib.InitWindow with 800, 600, (transmute title to ref to frozen char)
-    calling raylib.SetTargetFPS with 60
-
-    # Load image from embedded buffer directly in memory (zero disk I/O)
+    # Borrow the embedded bytes directly from .rodata (zero disk I/O)
     var p_logo as ref to frozen void is calling arca.ptr with "logo.png"
     var sz_logo as usize is calling arca.size with "logo.png"
-    var ext as ref to char is calling ffi.cstr_from_string with ".png"
-    var img as raylib.Image is calling raylib.LoadImageFromMemory with (transmute ext to ref to frozen char), (transmute p_logo to ref to frozen byte), (sz_logo to int)
-    var texture as raylib.Texture2D is calling raylib.LoadTextureFromImage with img
-    calling raylib.UnloadImage with img
 
-    # Load shader from embedded string
-    var fs_str as string is calling arca.string with "shaders/grayscale.fs"
-    var fs_cstr as ref to char is calling ffi.cstr_from_string with fs_str
-    var shader as raylib.Shader is calling raylib.LoadShaderFromMemory with (transmute 0 to ref to frozen char), (transmute fs_cstr to ref to frozen char)
+    # Decode through the satellite binding; it owns the returned handle
+    var img as mylib.Image is calling mylib.image_from_memory with (transmute p_logo to ref to frozen byte), (sz_logo to int)
+    defer calling mylib.release with img
 
-    while not calling raylib.WindowShouldClose:
-        calling raylib.BeginDrawing
-        calling raylib.ClearBackground with raylib.RAYWHITE
-        calling raylib.BeginShaderMode with shader
-        calling raylib.DrawTexture with texture, 200, 150, raylib.WHITE
-        calling raylib.EndShaderMode
-        calling raylib.EndDrawing
-
-    calling raylib.UnloadTexture with texture
-    calling raylib.UnloadShader with shader
-    calling raylib.CloseWindow
+    calling spark.println with "Decoded embedded image"
     return 0
 ```
 
-**Aplicación autónoma con WebUI:**
+**Servir una interfaz HTML embebida:**
 ```pengu-fragment
 import arca
-import std.webui
+import mylib
 import std.spark
 
 weave main into int:
-    var w as int is calling webui.new_window
-    # Retrieve embedded HTML interface
     var html as string is calling arca.string with "ui/index.html"
-    calling webui.show with w, html
-    calling webui.wait
+    var w as mylib.Window is calling mylib.window_open with "Embedded UI"
+    calling mylib.window_show with w, html
+    calling mylib.window_wait with w
     return 0
 ```
 
@@ -3393,7 +3260,7 @@ pengu init <name> [--type {exe,c,obj,static,shared}] [--links LINKS] [--output-n
   - `obj`: Archivo objeto nativo compilado (`.o` / `.obj`).
   - `static`: Biblioteca estática compilada (`.a` / `.lib`).
   - `shared`: Biblioteca compartida de enlazado dinámico compilada (`.so` / `.dll` / `.dylib`).
-- `--links, -l`: Bibliotecas nativas de C que enlazar, separadas por comas (p. ej. `raylib,m,pthread`).
+- `--links, -l`: Bibliotecas nativas de C que enlazar, separadas por comas (p. ej. `mylib,m,pthread`).
 - `--output-name`: Nombre base personalizado del binario de salida.
 - `--cc`: Compilador de C alternativo (por defecto: `gcc`).
 
@@ -3428,14 +3295,15 @@ pengu build [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--output OUTP
   > **⏸️ `--strict-c99` no es funcional para programas que importan `std` en
   > 0.16.0. Diferido a 1.1. No lo uses como puerta de portabilidad en CI o release.**
   >
-  > Medido: **34 de los 61** programas de `tests/std_programs/` fallan con
-  > `gcc -std=c99 -pedantic-errors`. Tres causas independientes:
+  > Medido: el corpus `tests/std_programs/` usado para esta medición fue
+  > eliminado por la migración de std 2.0, así que el recuento es
+  > **`[recalcular]`**. Tres causas independientes:
   >
   > | Causa | Programas | Firma |
   > |---|---|---|
-  > | Índice izado fuera del bucle que declara su operando | 16 | `'k' undeclared` |
-  > | Expresiones-sentencia `({...})` que quedan en bundles estrictos | 15 | `ISO C forbids braced-groups within expressions` |
-  > | Diagnósticos de cualificadores/casts | 3 | `discards 'const' qualifier`, `casting nonscalar` |
+  > | Índice izado fuera del bucle que declara su operando | `[recalcular]` | `'k' undeclared` |
+  > | Expresiones-sentencia `({...})` que quedan en bundles estrictos | `[recalcular]` | `ISO C forbids braced-groups within expressions` |
+  > | Diagnósticos de cualificadores/casts | `[recalcular]` | `discards 'const' qualifier`, `casting nonscalar` |
   >
   > La reproducción mínima son 4 líneas:
   >
@@ -3466,41 +3334,19 @@ Mapeo de atributos por destino:
 | `@align(N)` | `__attribute__((aligned(N)))` | `__declspec(align(N))` |
 | `restrict` (opt-in) | `restrict` | `__restrict` |
 
-**Tamaño del binario y enlace condicional (2.0).** Los perfiles `release` y
-`small` compilan cada objeto con `-ffunction-sections -fdata-sections` y enlazan
-con `-Wl,--gc-sections` (GNU ld / lld) o `-Wl,-dead_strip` (ld64 de macOS), de
-modo que el enlazador descarta toda función que el programa no alcanza.
-`build_runtime.py` compila `libpengu_runtime.a` y cada dependencia nativa con
-los mismos flags — sin esa mitad el *section GC* no puede podar nada, porque un
-archivo estático se resuelve por *miembro* (`.o`) y no por símbolo.
+**Tamaño del binario y *garbage collection* de secciones (2.0).** Los perfiles
+`release` y `small` compilan cada objeto con `-ffunction-sections -fdata-sections`
+y enlazan con `-Wl,--gc-sections` (GNU ld / lld) o `-Wl,-dead_strip` (ld64 de
+macOS), de modo que el enlazador descarta toda función que el programa no alcanza.
+`build_runtime.py` compila `libpengu_runtime.a` con los mismos flags — sin esa
+mitad el *section GC* no puede podar nada, porque un archivo estático se resuelve
+por *miembro* (`.o`) y no por símbolo.
 
-Además, las dependencias nativas **solo se enlazan cuando el módulo `std`
-correspondiente fue importado**:
-
-| Módulo importado | Archives enlazados |
-| ---------------- | ------------------ |
-| `std.regulus` | PCRE2 (`-lpcre2-8`) |
-| `std.parchment` | libxml2 (`-lxml2`) |
-| `std.precis` | libcurl + libmicrohttpd |
-| `std.seal` | zlib + mbedcrypto |
-
-Un programa que no importe ninguno de ellos enlaza únicamente
-`libpengu_runtime.a`. `libz` es la excepción: se enlaza siempre, cuesta 0 bytes
-cuando no se usa (el GC de secciones descarta todas sus secciones) y no puede
-omitirse porque libxml2, libcurl y libcrypto dependen de `libz.so.1`, de modo
-que el enlazador la busca de forma transitiva en cuanto una de ellas está en la
-línea de órdenes. La decisión se toma leyendo el `bundle.c` ya generado (los
-prefijos `pengu_c_regulus_*`, `pengu_c_parchment_*`, …), así que no puede
-discrepar del C que ve el enlazador. Con TCC o MSVC —que no pueden podar
-secciones— se enlaza todo, como antes de 2.0.
-
-La cabecera `pengu_runtime.h` acompaña el cambio con los *feature gates*
-`PENGU_ENABLE_{REGEX,XML,NET,CRYPTO,THREADS}` (por defecto `1`, para que un
-consumidor C directo siga viendo la API completa); el generador de código emite
-los `#define` que corresponden a los módulos `std.*` importados. Ejemplo medido:
-`hello_world` (release, `strip`) pasa de 659.5 KiB a ~14.3 KiB, y el caso
-`cipher_ops` (`std.cipher` + `std.seal`) de 671.5 KiB a 30.4 KiB. Las cifras y
-la atribución por archive están en `BENCHMARKS.md`.
+El runtime central solo enlaza `libc`, `libm` y `pthreads`; ya no existe enlace
+nativo condicional. Los bindings a bibliotecas externas de C se instalan por
+proyecto como repositorios satélite (`pengu add <url>`, ver
+[`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)) y declaran sus propios
+archives nativos, que el build del proyecto pasa al enlazador.
 
 ### 20.2.1 Versión del ABI del runtime
 
@@ -3546,7 +3392,8 @@ pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc
   `x86_64-w64-mingw32`, `i686-w64-mingw32`, `aarch64-apple-darwin` o
   `x86_64-unknown-linux-gnu`. En 1.0 solo se admite **Linux ⇄ Windows**.
 - Las extensiones del artefacto siguen al destino (`.exe`, `.dll`, `.dylib`, `.so`)
-  y también lo hacen las bibliotecas de enlazado.
+  y también lo hacen los archives nativos declarados por los bindings satélite del
+  proyecto.
 - Con un destino Windows desde un host que no lo es, el compilador se autodetecta
   (`<triple>-gcc`, `x86_64-w64-mingw32-gcc`, `i686-w64-mingw32-gcc`); `--cc` gana
   siempre. Si no hay ninguno instalado, el build falla con un mensaje accionable.
@@ -3554,7 +3401,8 @@ pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc
   bundle de C para otro destino no necesita nada más, pero *enlazar* un ejecutable
   cruzado requiere un runtime construido para el destino: apunta
   `PENGU_RUNTIME_CROSS` a su prefijo y el build añade
-  `-L<prefix>/lib -I<prefix>/include`.
+  `-L<prefix>/lib -I<prefix>/include`. Los bindings satélite deben proporcionar
+  igualmente archives nativos construidos para el destino.
 
 ### 20.2.4 Formateo (`pengu fmt`)
 

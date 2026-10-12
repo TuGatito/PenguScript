@@ -1,7 +1,7 @@
 name: Setup PenguScript build environment
 description: >
-  Single source of truth for the CI environment: Python/Node setup, per-OS native
-  dependencies, Python packages, the runtime build cache and build_runtime.py.
+  Single source of truth for the CI environment: Python/Node setup, the minimal
+  per-OS toolchain, Python packages, the runtime build cache and build_runtime.py.
   Used by ci.yml, release.yml and nightly.yml so a change
   here reaches every workflow (roadmap Fase 7 / CI audit).
 
@@ -46,20 +46,16 @@ runs:
         cache: 'npm'
         cache-dependency-path: vscode-extension/package-lock.json
 
-    # Linux needs the C libraries build_runtime.py links against.  Without these
-    # the runtime silently degrades (or fails), which made bench/fuzz less
-    # representative than ci.yml.
+    # The core runtime has no external C dependencies (libc/libm/pthreads
+    # only): satellite bindings bring their own. Keep the system list at the
+    # minimum — compiler, CMake and Ninja for the packaging/release paths.
     - name: Install Linux build dependencies
       if: runner.os == 'Linux'
       shell: bash
       run: |
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
-          build-essential cmake ninja-build pkg-config gcc \
-          zlib1g-dev libpcre2-dev libxml2-dev libcurl4-openssl-dev \
-          libmbedtls-dev libmicrohttpd-dev libsqlite3-dev libssl-dev \
-          libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev \
-          libxi-dev libgl1-mesa-dev
+          build-essential cmake ninja-build gcc
 
     # No '|| true' here on purpose: a silent Homebrew failure produced confusing
     # downstream errors instead of a clear one.
@@ -67,12 +63,7 @@ runs:
       if: runner.os == 'macOS'
       shell: bash
       run: |
-        brew install cmake ninja pkg-config curl pcre2 libmicrohttpd mbedtls libxml2
-        {
-          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix curl)/lib/pkgconfig:$(brew --prefix pcre2)/lib/pkgconfig:$(brew --prefix libxml2)/lib/pkgconfig:$(brew --prefix libmicrohttpd)/lib/pkgconfig:$(brew --prefix mbedtls)/lib/pkgconfig"
-          echo "LIBRARY_PATH=$(brew --prefix)/lib:$(brew --prefix libmicrohttpd)/lib:$(brew --prefix libxml2)/lib:$(brew --prefix curl)/lib:${LIBRARY_PATH:-}"
-          echo "CPATH=$(brew --prefix)/include:$(brew --prefix libmicrohttpd)/include:$(brew --prefix libxml2)/include:$(brew --prefix curl)/include:${CPATH:-}"
-        } >> "$GITHUB_ENV"
+        brew install cmake ninja
 
     - name: Install Python dependencies
       shell: bash
@@ -80,7 +71,7 @@ runs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    # Cache the compiled C dependencies, not all of build/ (that also holds
+    # Cache the compiled runtime, not all of build/ (that also holds
     # bundle.c, objects and binaries, which must never be restored).
     - name: Cache runtime build
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -89,7 +80,6 @@ runs:
           build/lib
           build/include
           build/tcc-dist
-          extern
         key: runtime-${{ inputs.runtime-cache-scope }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('extern_manifest.py', 'build_runtime.py', 'requirements.txt') }}
         restore-keys: |
           runtime-${{ inputs.runtime-cache-scope }}-${{ runner.os }}-${{ runner.arch }}-

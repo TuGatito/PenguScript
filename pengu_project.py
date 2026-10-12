@@ -99,8 +99,6 @@ from pengu_paths import (
     runtime_lib_dirs,
     std_dirs,
     version_files,
-    pkg_config_cflags,
-    pkg_config_libs,
 )
 from pengu_cache import (
     cache_disabled,
@@ -166,7 +164,7 @@ class OutputType(Enum):
 
 
 def extract_lib_name(filename: str) -> Optional[str]:
-    """Extracts library linking name from file (e.g. libwebui.a -> webui, raylib.lib -> raylib).
+    """Extracts library linking name from file (e.g. libfoo.a -> foo, bar.lib -> bar).
 
     Args:
         filename: Base filename or path.
@@ -721,16 +719,11 @@ class PenguBuilder:
                                     bundle_text: Optional[str] = None) -> Set[str]:
         """Native archives the generated bundle actually references.
 
-        The primary signal is the C symbol prefix each optional subsystem
-        exports (``pengu_c_regulus_`` -> PCRE2, ...): that is exactly what the
-        linker will look for, so it cannot be fooled by an imported-but-unused
-        module or by a hand-written ``declare``. The imported ``std`` modules
-        are unioned in as a belt-and-braces fallback.
-
-        When there is no generated bundle to read — a caller that only wants a
-        command line for inspection, or a bundle from an older toolchain — the
-        full pre-2.0 archive set is returned instead. Under-linking is a link
-        error; over-linking is merely the size this work removed.
+        The core runtime needs none: it links only libc/libm/pthreads. The map
+        is retained for satellite bindings, whose archives a generated bundle
+        can reference through the C symbol prefixes it exports. When there is
+        no generated bundle to read — a caller that only wants a command line
+        for inspection — the (empty) legacy set is returned.
         """
         text = self._bundle_text(bundle_path) if bundle_text is None else bundle_text
         if _BUNDLE_MARKER not in text:
@@ -1190,7 +1183,7 @@ class PenguBuilder:
         # 5. Toolchain runtime lib dirs (source checkout, portable bundle,
         #    FHS install, PyInstaller _MEIPASS), plus a project-local runtime/
         #    vendored next to the project. These provide search paths (-L) so
-        #    explicit links (e.g. -lpengu_runtime, -lraylib) resolve.
+        #    explicit links (e.g. -lpengu_runtime, or a satellite library) resolve.
         for sub in ("build/lib", "runtime/lib", "runtime"):
             p = os.path.join(self.config.base_dir, sub)
             if os.path.isdir(p) and p not in lib_dirs:
@@ -1778,24 +1771,12 @@ class PenguBuilder:
                 if flag not in common_flags:
                     common_flags.append(flag)
 
-        # What the program actually uses decides what gets linked. The answer is
-        # read back out of the already-written bundle, so the link line cannot
-        # disagree with the C the linker is about to see.
+        # What the program actually uses decides what gets linked. The core
+        # runtime is the only archive every program links; satellite bindings
+        # add their own archives through the project's configured `links`.
         bundle_text = self._bundle_text(bundle_path)
-        native_archives = self._native_archives_for_bundle(bundle_path, bundle_text)
-        # Conditional linking is only sound when the link step can actually drop
-        # what the program does not use. TCC's linker has no section GC at all,
-        # and cl.exe only prunes COMDATs (`/Gy`, which this toolchain does not
-        # emit), so under either of them the whole runtime object survives and
-        # every archive it references has to be present. Fall back to the
-        # pre-2.0 link line rather than fail with unresolved externals.
-        if is_tcc or is_msvc:
-            native_archives = set(_LEGACY_RUNTIME_ARCHIVES)
         needed_std = self._imported_std_modules(bundle_path, bundle_text)
-        needed_pkgs = {_PKG_CONFIG_NAME.get(a, a) for a in native_archives}
         self._vlog(f"[pengu] std modules imported: {sorted(needed_std) or '(none)'}")
-        self._vlog(f"[pengu] native archives linked: "
-                   f"{sorted(native_archives) or '(none)'}")
 
         build_dir = self.get_build_directory()
 
@@ -1811,11 +1792,7 @@ class PenguBuilder:
         # recompiles the header. So a bundle whose gates differ from the
         # header's defaults silently loses the PCH; skipping it here makes
         # that visible instead of paying for a precompiled header that is
-        # never read. `--pch` is opt-in, and the saving only materialises for
-        # programs that import every gated subsystem (see docs/PERFORMANCE.md).
-        #
-        # A caller that passes no generated bundle has no gates to disagree
-        # with, so the PCH is left alone and the compiler decides.
+        # never read. `--pch` is opt-in.
         gates_known = _BUNDLE_MARKER in bundle_text
         pch_matches_gates = (
             not gates_known
@@ -1844,27 +1821,6 @@ class PenguBuilder:
         # Ensure build_dir is included in include search path for pengu_runtime.h
         common_flags.append(f"-I{build_dir}")
 
-        # POSIX: the runtime is linked against the system libxml2 / libcurl /
-        # libmicrohttpd (build_runtime.py skips the Windows-tuned static
-        # builds there), so we must ask pkg-config where their headers live.
-        # Plain clang on macOS does not search the Homebrew prefix by
-        # default, so we also add it explicitly.
-        #
-        # Only the packages the imported std modules need: pulling in
-        # libxml2's `-I/usr/include/libxml2` for a program that never parses
-        # XML used to add a system include path (and libxml2's own defines) to
-        # every build.
-        if not is_win:
-            for pkg in sorted(needed_pkgs):
-                for tok in pkg_config_cflags(pkg):
-                    if tok not in common_flags:
-                        common_flags.append(tok)
-            if needed_pkgs:
-                for brew_inc in ("/opt/homebrew/include", "/usr/local/include"):
-                    flag = f"-I{brew_inc}"
-                    if os.path.isdir(brew_inc) and flag not in common_flags:
-                        common_flags.append(flag)
-
         # Include directories (-I)
         include_dirs = self.collect_include_dirs()
         for inc in include_dirs:
@@ -1878,17 +1834,6 @@ class PenguBuilder:
             ldir_flag = f"-L{ldir}"
             if ldir_flag not in common_flags:
                 common_flags.append(ldir_flag)
-
-        if not is_win:
-            if needed_pkgs:
-                for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
-                    ldir_flag = f"-L{brew_lib}"
-                    if os.path.isdir(brew_lib) and ldir_flag not in common_flags:
-                        common_flags.append(ldir_flag)
-            for pkg in sorted(needed_pkgs):
-                for tok in pkg_config_libs(pkg):
-                    if tok.startswith("-L") and tok not in common_flags:
-                        common_flags.append(tok)
 
         # Collect C glue/support files
         c_sources = self.collect_c_sources()
@@ -1916,97 +1861,40 @@ class PenguBuilder:
         link_flags: List[str] = []
         for link in all_links:
             if link in ("pengu_runtime", "libpengu_runtime"):
-                # The runtime's core (strings, lists, maps, maybe/result,
-                # memory, print/input, fs, time, math) needs nothing beyond
-                # libc and libm. The optional subsystems live in the same
-                # archive but are only pulled in when the bundle references
-                # their symbols -- which it only does when the matching std
-                # module was imported. Linking their native archives
-                # unconditionally used to cost ~660 KiB for `hello_world`
-                # (see BENCHMARKS.md §Binary size).
+                # The runtime is self-contained: its core (strings, lists, maps,
+                # maybe/result, memory, print/input, fs, time, math) and its
+                # concurrency backend need nothing beyond libc, libm and
+                # pthreads / Win32 threads. Bindings to external libraries are
+                # satellite projects and contribute their archives through the
+                # explicit `links:` entries handled below.
                 link_flags.append("-lpengu_runtime")
-                # zlib stays unconditional, and it is free: measured on
-                # `hello_world`, adding `-lz` to a link that never calls into
-                # it changes the stripped binary by 0 bytes, because section GC
-                # discards every zlib section the runtime does not reach. It
-                # cannot be made conditional, though: libxml2, libcurl and
-                # libcrypto all depend on `libz.so.1`, so the moment one of
-                # them is on the command line the linker searches libz
-                # transitively for the runtime's (about to be discarded)
-                # `compressBound`/`deflate` references and aborts with "DSO
-                # missing from command line".
-                if "-lz" not in link_flags:
-                    link_flags.append("-lz")
-                for archive in sorted(native_archives):
-                    flag = f"-l{archive}"
-                    if flag not in link_flags:
-                        link_flags.append(flag)
                 if is_win:
                     for lib in _PENGU_WIN_PLATFORM_LIBS:
                         if lib not in link_flags:
                             link_flags.append(lib)
-                else:
-                    # pkg-config may know a provider library the archive name
-                    # does not spell out (mbedtls splits into
-                    # mbedcrypto/mbedtls/mbedx509). Only asked for the
-                    # packages actually linked.
-                    for pkg in sorted(needed_pkgs):
-                        for tok in pkg_config_libs(pkg):
-                            if tok.startswith("-l") and tok not in link_flags:
-                                link_flags.append(tok)
             else:
                 link_flags.append(f"-l{link}")
-                if link == "raylib":
-                    link_flags.extend(raylib_platform_libs(is_win))
 
         if not is_win and not is_msvc and all_links:
-            # Platform tail: provider libraries must come AFTER every archive
-            # (single-pass linkers resolve only later libraries). Math for the
-            # stb/sqlite/xlsxio objects, OpenSSL for libzip's crypto backend on
-            # Linux, and CoreFoundation for std.uuid on macOS. Only emitted
-            # when the project actually links libraries (all_links non-empty).
-            #
-            # The tail follows the *target* OS, not the build host: a cross
-            # build must not receive the host's libraries. `is_msvc` is excluded
+            # Platform tail: the C library, libm and the dynamic loader.  The
+            # tail follows the *target* OS, not the build host: a cross build
+            # must not receive the host's libraries. `is_msvc` is excluded
             # outright because `cl.exe` accepts neither `-framework` nor `-lrt`
-            # (item 4.11), and an explicit `--cc cl` on a Darwin host used to
-            # leave `-framework CoreFoundation` stranded on an MSVC command line.
-            #
-            # `-lcrypto -lssl` are only reached by `libzip` -- directly, or
-            # through `xlsxio_read`/`xlsxio_write` which depend on it -- never
-            # by the runtime, so they are emitted only when one of those is
-            # linked. Nothing else in `build/lib` references an OpenSSL symbol.
-            target_os = self.target_os
-            if target_os == "linux":
-                link_flags.append("-lrt")
-                if any(lib in all_links for lib in ("zip", "xlsxio_read", "xlsxio_write")):
-                    for extra in ("-lcrypto", "-lssl"):
-                        if extra not in link_flags:
-                            link_flags.append(extra)
-            elif target_os == "darwin":
-                # TCC's driver has no `-framework`: it treats the argument as an
-                # input file, so every `pengu build --cc tcc` on macOS died with
-                # "tcc: error: file 'CoreFoundation' not found".  CoreFoundation
-                # is only reached through std.uuid's wrappers, which a TCC build
-                # that actually needs them can get from the configured compiler;
-                # gcc/clang keep the flag.
-                if not is_tcc:
-                    link_flags += ["-framework", "CoreFoundation"]
+            # (item 4.11).
             link_flags += ["-pthread", "-lm", "-ldl"]
 
         # Section GC, step 2 of 2: drop every section no reachable symbol refers
         # to. This is what actually removes the runtime functions a program does
-        # not call (and, transitively, the archive members only they referenced).
-        # GNU ld / lld spell it `--gc-sections`, Apple's ld64 `-dead_strip`; TCC
-        # answers "unsupported linker option" and cl.exe prunes via /OPT:REF
-        # already, so neither gets a flag. Added before the --start-group wrap so
-        # the option stays outside the group.
+        # not call. GNU ld / lld spell it `--gc-sections`, Apple's ld64
+        # `-dead_strip`; TCC answers "unsupported linker option" and cl.exe
+        # prunes via /OPT:REF already, so neither gets a flag. Added before the
+        # --start-group wrap so the option stays outside the group.
         if not is_msvc and not is_tcc and _GC_SECTIONS_FLAG not in link_flags:
             link_flags.append(_GC_SECTIONS_FLAG)
 
         # GNU ld: wrap static archives in a group so inter-archive dependencies
-        # resolve regardless of -l order (libzip needs zlib's crc32/zError, the
-        # xlsxio/zip/yaml stack has several such edges). MSVC's link.exe has no
+        # resolve regardless of -l order, which matters as soon as a satellite
+        # binding contributes more than one archive. MSVC's link.exe has no
         # --start-group, Apple's ld64 rejects it outright, and TCC's built-in
         # linker driver answers "unsupported linker option '--start-group'", so
         # the group is applied only where it is actually understood.
@@ -2023,11 +1911,6 @@ class PenguBuilder:
         # whole list once here so every output kind below stays GNU-shaped.
         if is_msvc:
             link_flags = _msvc_link_flags(link_flags)
-
-        # xlsxio headers are DLL_EXPORT-only on _WIN32 unless STATIC is defined.
-        if any(l in ("xlsxio_read", "xlsxio_write") for l in all_links):
-            if "-DSTATIC" not in common_flags:
-                common_flags.append("-DSTATIC")
 
         for ldflag in self.config.ldflags:
             link_flags.append(ldflag)
@@ -3063,68 +2946,44 @@ _GC_SECTIONS_FLAG = "-Wl,-dead_strip" if sys.platform.startswith("darwin") \
     else "-Wl,--gc-sections"
 
 #: Runtime entry-point *prefix* -> the native archives its implementation
-#: actually needs. ``hello_world`` uses none of them; importing ``std.regulus``
-#: pulls PCRE2 and nothing else. Keyed by the C symbol prefix the generated
-#: bundle contains, not by module name, because a bundle may reference a
-#: runtime helper without the matching ``std`` module being imported (a
-#: hand-written ``declare``), and over-linking is always safe while
-#: under-linking is a link error.
-_SUBSYSTEM_PREFIX_DEPS: Dict[str, List[str]] = {
-    "pengu_c_regulus_": ["pcre2-8"],
-    "pengu_c_parchment_": ["xml2"],
-    "pengu_c_precis_": ["curl", "microhttpd"],
-    "pengu_c_seal_": ["z", "mbedcrypto"],
-}
+#: actually needs. The core runtime needs none: it links only libc/libm/
+#: pthreads. The map is kept (empty) so the conditional-linking bookkeeping in
+#: ``_native_archives_for_bundle`` stays valid for satellite bindings that
+#: reintroduce a native archive through an explicit project ``links`` entry.
+_SUBSYSTEM_PREFIX_DEPS: Dict[str, List[str]] = {}
 
 #: ``std/<name>.pengu`` -> the native archives its wrappers need. Used as a
 #: cross-check / enrichment of ``_SUBSYSTEM_PREFIX_DEPS`` (a module can be
-#: imported without any of its weaves surviving dead-code elimination).
-_STD_LINK_DEPS: Dict[str, List[str]] = {
-    "regulus": ["pcre2-8"],
-    "parchment": ["xml2"],
-    "precis": ["curl", "microhttpd"],
-    "seal": ["z", "mbedcrypto"],
-}
+#: imported without any of its weaves surviving dead-code elimination). Empty:
+#: every remaining ``std`` module is pure PenguScript.
+_STD_LINK_DEPS: Dict[str, List[str]] = {}
 
-#: ``-l`` name -> ``pkg-config`` module, for the two names that differ.
-_PKG_CONFIG_NAME: Dict[str, str] = {
-    "xml2": "libxml-2.0",
-    "curl": "libcurl",
-    "microhttpd": "libmicrohttpd",
-    "mbedcrypto": "mbedtls",
-}
+#: ``-l`` name -> ``pkg-config`` module, for ``-l`` names that differ from the
+#: pkg-config module name. Empty: the core runtime asks pkg-config for nothing.
+_PKG_CONFIG_NAME: Dict[str, str] = {}
 
 #: The first line of every generated bundle. Its presence is how the builder
 #: knows it is looking at real output rather than at a path a caller passed for
 #: inspection.
 _BUNDLE_MARKER = '#include "pengu_runtime.h"'
 
-#: The archives every build linked before conditional linking existed. Used only
-#: when there is no readable bundle: an unknown program is linked the old way,
-#: because under-linking is an error and over-linking is only size.
-_LEGACY_RUNTIME_ARCHIVES: List[str] = [
-    "pcre2-8", "xml2", "curl", "mbedcrypto", "microhttpd",
-]
+#: The archives every build linked before conditional linking existed. Empty
+#: now that the core runtime has no external dependencies: there is nothing to
+#: over-link.
+_LEGACY_RUNTIME_ARCHIVES: List[str] = []
 
 #: Native platform libraries the runtime itself needs on Windows. On POSIX the
 #: C library and ``libpthread``/``libdl``/``libm`` cover the same ground; the
-#: POSIX tail is appended later, after every archive.
+#: POSIX tail is appended later, after every archive. Kernel32/msvcrt are added
+#: by the MinGW driver itself.
 _PENGU_WIN_PLATFORM_LIBS: List[str] = [
-    "-lws2_32", "-lwinmm", "-ladvapi32", "-lcrypt32", "-lbcrypt",
-    # windowing / UI platform libraries (raylib, webui, ...)
-    "-lopengl32", "-lgdi32", "-lole32", "-luuid", "-lshell32",
-    # libuv platform libraries (psapi/userenv/iphlpapi)
-    "-lpsapi", "-luserenv", "-liphlpapi",
+    "-lws2_32", "-lwinmm",
 ]
 
 #: Subsystem gates the code generator emits into ``bundle.c`` together with the
 #: ``std`` module that switches each one on. Kept next to the link map above so
 #: the C macro and the ``-l`` flag can never disagree.
 _FEATURE_GATE_MODULES: Dict[str, str] = {
-    "PENGU_ENABLE_REGEX": "regulus",
-    "PENGU_ENABLE_XML": "parchment",
-    "PENGU_ENABLE_NET": "precis",
-    "PENGU_ENABLE_CRYPTO": "seal",
     "PENGU_ENABLE_THREADS": "filum",
 }
 
@@ -3132,7 +2991,7 @@ _FEATURE_GATE_MODULES: Dict[str, str] = {
 def _std_module_stem(path: str) -> Optional[str]:
     """Returns the ``std`` module name a source path belongs to, else None.
 
-    ``/repo/std/regulus.pengu`` -> ``"regulus"``; project files return None so
+    ``/repo/std/spark.pengu`` -> ``"spark"``; project files return None so
     a user file that happens to live in a ``std/`` directory is not mistaken
     for a standard-library module.
     """
@@ -3147,38 +3006,6 @@ def _gated_std_modules(std_modules) -> Set[str]:
     """The imported ``std`` modules that switch a ``PENGU_ENABLE_*`` gate on."""
     gated = set(_FEATURE_GATE_MODULES.values())
     return {name for name in std_modules if name in gated}
-
-
-def raylib_platform_libs(is_win: bool = False) -> List[str]:
-    """Windowing/OpenGL providers a ``-lraylib`` link needs on this platform.
-
-    ``libraylib.a`` is not self-contained.  Its GLFW backend calls into Xlib,
-    Xrandr, Xinerama, Xcursor, Xi and Xext on X11, and into the AppKit / IOKit /
-    CoreVideo / OpenGL frameworks on Cocoa; the GL entry points always come from
-    the system loader.  Without these, *every* raylib program fails to link the
-    moment the archive exists -- with "undefined reference to `XCloseDisplay'"
-    on Linux -- which is why they are appended right after ``-lraylib``.
-
-    Windows returns nothing: the ``pengu_runtime`` block above already adds
-    ``-lopengl32 -lgdi32 -lwinmm`` (plus ole32/uuid/shell32 for the other UI
-    libraries), and a raylib build always links the runtime.
-    """
-    if is_win:
-        return []
-    if sys.platform.startswith("darwin"):
-        return [
-            "-framework", "Cocoa",
-            "-framework", "IOKit",
-            "-framework", "CoreVideo",
-            "-framework", "OpenGL",
-            "-framework", "CoreAudio",
-            "-framework", "AudioToolbox",
-            "-framework", "AVFoundation",
-            "-framework", "CoreMedia",
-        ]
-    return [
-        "-lGL", "-lX11", "-lXrandr", "-lXi", "-lXcursor", "-lXinerama", "-lXext",
-    ]
 
 
 def _msvc_link_flags(link_flags: List[str]) -> List[str]:
@@ -3881,6 +3708,14 @@ def add_dependency(
 
     emit(f"    Fetching dependency '{dep_name}' from {dep_source}", color="cyan", level="progress")
 
+    # Re-adding an installed dependency is a refresh, not a silent no-op: say so
+    # loudly so `pengu add X` twice cannot look like it did nothing the second
+    # time (and point at `pengu update`, which is the cheaper way to refresh).
+    if os.path.isdir(target_dir):
+        emit(f"     Note dependency '{dep_name}' is already installed at {target_dir}; "
+             f"refreshing it (use 'pengu update' to only pull changes).",
+             color="yellow", level="progress")
+
     # 2. Check Git URL vs Local directory
     is_git_url = any(dep_source.startswith(p) for p in ("http://", "https://", "git://", "git@", "ssh://")) or dep_source.endswith(".git")
 
@@ -4576,10 +4411,6 @@ def init_project(
     os.makedirs(assets_dir, exist_ok=True)
 
     links_list = [str(l) for l in (links or [])]
-    # The game template needs raylib on the link line; without it every raylib
-    # import fails with "undefined reference" (roadmap 6.2 / BUG-6.5).
-    if (template or "exe").strip().lower() == "game" and "raylib" not in links_list:
-        links_list.append("raylib")
     links_formatted = json.dumps(links_list)
 
     yaml_content = f"""project:
@@ -4758,29 +4589,6 @@ weave main into int:
     calling spark.println with "input  -> {{source}}"
   return 0
 """
-    elif template_name == "game":
-        # A real window loop: the roadmap's acceptance criterion is that
-        # `pengu run` opens a window (roadmap 6.2 / BUG-6.4, BUG-6.5).  raylib is
-        # linked through the generated manifest.
-        main_content = f"""import std.ffi
-import std.raylib
-
-## Entry point: opens a window and runs the frame loop until it is closed.
-weave main into int:
-  var title as ref to char is calling ffi.cstr_from_string with "Hello from {name}!"
-  calling raylib.InitWindow with 800, 450, title
-  calling raylib.SetTargetFPS with 60
-
-  while not calling raylib.WindowShouldClose:
-    calling raylib.BeginDrawing
-    calling raylib.ClearBackground with raylib.RAYWHITE
-    calling raylib.DrawText with title, 190, 200, 20, raylib.LIGHTGRAY
-    calling raylib.EndDrawing
-
-  calling raylib.CloseWindow
-  return 0
-"""
-
     gitignore_content = """build/
 *.o
 *.a
@@ -4862,10 +4670,6 @@ pengu clean
         f.write(readme_content)
 
     emit(f"     Created {out_t.value} project '{name}' at {proj_dir}", color="green", level="progress")
-    if (template or "exe").strip().lower() == "game":
-        emit("       Note the 'game' template links raylib; "
-              "build it with `python build_runtime.py` if `pengu run` reports "
-              "missing raylib symbols.", file=sys.stderr, level="warning")
     return proj_dir
 
 
@@ -6117,7 +5921,7 @@ _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
         "description": "Translate a C header into a PenguScript .d.pengu declaration file.",
         "epilog": "Exit codes: 0 generated, 1 header could not be parsed (actionable tips are\n"
                   "printed), 2 bad usage.\n"
-                  "Example:\n  pengu bind /usr/include/zlib.h --output std/zlib.d.pengu",
+                  "Example:\n  pengu bind /usr/include/math.h --output std/math.d.pengu",
     },
     "fmt": {
         "description": "Format .pengu sources; --check exits non-zero instead of writing.",
@@ -6155,7 +5959,7 @@ _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
     "new": {
         "description": "Create a new project from a template (template-first `init`).",
         "epilog": "Templates: exe (default program), cli (argument handling), lib (static\n"
-                  "library with a smoke test), game (raylib window).\n"
+                  "library with a smoke test).\n"
                   "Exit codes: 0 created, 1 write error, 2 bad usage. Like `init`, an\n"
                   "existing directory is written into, not rejected.\n"
                   "Example:\n  pengu new lib my_lib",
@@ -6170,7 +5974,7 @@ def create_cli_parser() -> argparse.ArgumentParser:
         description=f"PenguScript v{PENGU_VERSION} Package & Build Manager",
         epilog="""Examples:
   pengu init my_game --type exe
-  pengu add https://github.com/webui-dev/webui
+  pengu add https://github.com/example/pengu-bindings
   pengu add ../local_binding -n my_binding
   pengu build --profile release
   pengu build --cc clang --verbose
@@ -6180,7 +5984,7 @@ def create_cli_parser() -> argparse.ArgumentParser:
   pengu run --profile debug
   pengu run hello.pengu             # run a standalone script (when main: enabled)
   pengu update                      # git pull + rebuild every dependency
-  pengu bind webui.h --prefix webui_ --links webui-2-static ole32 stdc++ uuid
+  pengu bind mylib.h --prefix mylib_ --links mylib
   pengu assets                      # regenerate src/arca.pengu & build/arca_assets.c
   pengu assets --list               # list tracked assets, sizes, and identifiers
   pengu clean
@@ -6203,20 +6007,20 @@ def create_cli_parser() -> argparse.ArgumentParser:
     init_p.add_argument("name", help="Name of project directory to create")
     init_p.add_argument("--type", "-t", choices=["exe", "c", "obj", "static", "shared"], default=None,
                         help="Target output type (default: exe, or static for --template lib)")
-    init_p.add_argument("--links", "-l", help="Comma-separated library names to link (e.g. raylib,m)")
+    init_p.add_argument("--links", "-l", help="Comma-separated library names to link (e.g. m,pthread)")
     init_p.add_argument("--output-name", help="Custom output artifact base name")
     init_p.add_argument("--cc", default="gcc", help="C compiler command (default: gcc)")
     init_p.add_argument("--format", dest="manifest_format", choices=["toml", "yaml"], default="toml",
                         help="Project manifest format (default: toml, the canonical one)")
-    init_p.add_argument("--template", choices=["exe", "cli", "lib", "game"], default=None,
+    init_p.add_argument("--template", choices=["exe", "cli", "lib"], default=None,
                         help="Project template flavour (default: derived from --type)")
 
     # new (item 4.14): a template-first front end for `init`
     new_p = subparsers.add_parser("new", help="Create a new project from a template (template-first `init`)")
-    new_p.add_argument("template", choices=["exe", "cli", "lib", "game"],
+    new_p.add_argument("template", choices=["exe", "cli", "lib"],
                        help="Template flavour to create")
     new_p.add_argument("name", help="Name of project directory to create")
-    new_p.add_argument("--links", "-l", help="Comma-separated library names to link (e.g. raylib,m)")
+    new_p.add_argument("--links", "-l", help="Comma-separated library names to link (e.g. m,pthread)")
     new_p.add_argument("--output-name", help="Custom output artifact base name")
     new_p.add_argument("--cc", default="gcc", help="C compiler command (default: gcc)")
     new_p.add_argument("--format", dest="manifest_format", choices=["toml", "yaml"], default="toml",
@@ -6466,7 +6270,7 @@ def create_cli_parser() -> argparse.ArgumentParser:
     # bind
     bind_p = subparsers.add_parser("bind", help="Generate a .d.pengu binding from a C header")
     bind_p.add_argument("header", help="Path to the C header file (.h) to translate")
-    bind_p.add_argument("--prefix", default="", help="Insignia prefix added to function names (e.g. webui_)")
+    bind_p.add_argument("--prefix", default="", help="Insignia prefix added to function names (e.g. mylib_)")
     bind_p.add_argument("--links", nargs="*", default=[], help="Native libraries to emit as link \"...\" lines")
     bind_p.add_argument("--output", default="", help="Output .d.pengu path (default: next to the header)")
     bind_p.add_argument("--no-comments", action="store_true", help="Do not emit documentation comments")

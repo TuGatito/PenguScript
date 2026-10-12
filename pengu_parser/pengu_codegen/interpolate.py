@@ -279,9 +279,9 @@ class InterpMixin:
                 curr = curr.underlying
             else:
                 break
-        # 'byte' is treated as a character on purpose: the std library (regex,
-        # xml, parchment, regulus) composes text from byte values and the
-        # language documents that behaviour, so interpolation uses '%c'.
+        # 'byte' is treated as a character on purpose: the std library composes
+        # text from byte values and the language documents that behaviour, so
+        # interpolation uses '%c'.
         return isinstance(curr, BaseType) and curr.name in ("char", "byte")
     def _expr_allocates_string(self, node: Any) -> bool:
         """True when an interpolated expression allocates a fresh PenguString.

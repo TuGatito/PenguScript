@@ -136,19 +136,20 @@ def test_unqualified_type_still_preserves_fields(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
 
 
-def test_stdlib_raymath_vector2_fields(tmp_path):
-    """The real stdlib case from LANGUAGE.md block 94.
+def test_reexported_module_type_fields(tmp_path):
+    """The re-export shape from LANGUAGE.md block 94, with local modules.
 
-    `std/raymath.d.pengu` declares `Vector2Zero into Vector2` and imports
-    `std.raylib`, which owns the `Vector2` rune -- exactly the re-export shape
-    that B7 broke.
+    `dep2.pengu` declares `vzero into Vec` and imports `lib2`, which owns the
+    `Vec` rune -- exactly the re-export shape that B7 broke.
     """
+    _write(tmp_path, "lib2.pengu", "rune Vec:\n    x as f32\n    y as f32\n")
+    _write(tmp_path, "dep2.pengu",
+           "import lib2\ndeclare vzero into Vec\n")
     entry = _write(
         tmp_path, "main.pengu",
-        "import std.raylib\n"
-        "import std.raymath\n"
+        "import dep2\n"
         "weave main into int:\n"
-        "    var position as raymath.Vector2 is with x is 400.0, y is 225.0\n"
+        "    var position as dep2.Vec is with x is 400.0, y is 225.0\n"
         "    return (position.x to int)\n",
     )
     r = cli(["check", str(entry)], cwd=tmp_path)

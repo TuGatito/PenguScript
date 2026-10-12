@@ -810,7 +810,7 @@ class TestCompletion:
             base_dir=str(REPO),
         )
         assert "spark" in labels
-        assert "sqlite3" in labels  # from the .d.pengu binding
+        assert "scrolls" in labels  # another remaining `std.s*` module
         assert "archivum" not in labels
 
         labels_bare = completion_labels(

@@ -12,9 +12,9 @@ guesses:
 
 2. **Delta when excluded** — how much smaller the binary becomes when one
    archive is dropped from the link line entirely. This is the number people
-   usually mean by "how much does libxml2 cost me?", and it is *not* the same
-   as the map figure: dropping an archive can also drop everything that only
-   existed to satisfy it. The link is re-run with
+   usually mean by "how much does that archive cost me?", and it is *not* the
+   same as the map figure: dropping an archive can also drop everything that
+   only existed to satisfy it. The link is re-run with
    ``-Wl,--unresolved-symbols=ignore-all`` so that a link which would normally
    fail still produces an ELF we can measure. The resulting binary is broken
    on purpose; only its section sizes are read.
@@ -24,10 +24,10 @@ the *dynamic* symbol table of a shared object. It does not stop the linker from
 pulling a static member in, so it measures ~0 for every archive. The two
 methods above measure what they claim to measure.
 
-``--legacy`` measures the *pre-2.0* link shape instead: every archive on the
-command line and no section GC. That is what makes the attribution table in
-``BENCHMARKS.md`` reproducible on today's checkout -- without it the "before"
-numbers would only be reproducible by checking out the parent commit.
+The runtime is self-contained: the only archive a bare build links is
+``libpengu_runtime.a`` (plus libc/libm/pthreads), and anything else on the link
+line comes from the program's own imports or an explicit ``links:`` entry —
+satellite bindings installed with ``pengu add <url>``.
 
 Requires a checkout with ``build/lib/*.a`` already compiled
 (``python build_runtime.py``) and a working ``gcc`` + ``strip``.
@@ -36,7 +36,6 @@ Usage::
 
     python benches/binary_size_breakdown.py            # human-readable table
     python benches/binary_size_breakdown.py --json      # machine-readable
-    python benches/binary_size_breakdown.py --legacy    # pre-2.0 link shape
     python benches/binary_size_breakdown.py --out benches/results/x.json
 """
 from __future__ import annotations
@@ -63,23 +62,16 @@ ROOT = Path(__file__).resolve().parent.parent
 TAIL_LIBS = {"rt", "crypto", "ssl", "pthread", "m", "dl", "c", "gcc", "stdc++"}
 
 #: ``-l`` names that are part of the PenguScript runtime itself, never attributed.
-CORE_LIBS = {"pengu_runtime", "pengu_raymath", "pengu_stb"}
-
-#: The archives every build linked before conditional linking existed. ``-lz``
-#: is already on the modern line, the other five are not.
-LEGACY_ARCHIVES = ["pcre2-8", "xml2", "curl", "mbedcrypto", "microhttpd"]
-
-#: The two ways section GC is spelled. ``--legacy`` has to remove both.
-_GC_TOKENS = ("-Wl,--gc-sections", "-Wl,-dead_strip")
-_SECTION_TOKENS = ("-ffunction-sections", "-fdata-sections")
+#: ``libpengu_runtime.a`` is the only archive the runtime ships now.
+CORE_LIBS = {"pengu_runtime"}
 
 _LINK_LINE = re.compile(r"\[pengu\] running C compiler: (.*)$", re.MULTILINE)
 #: The map's memory-map body writes an input section two ways, depending on
 #: whether the section name fits its column:
 #:
 #:   `` .text       0x0000000000001170    0x26 /path/Scrt1.o``
-#:   `` .text.pcre2_compile_8``
-#:   ``                0x0000000000001170    0x26 /path/libpcre2-8.a(pcre2_compile.o)``
+#:   `` .text.pengu_string_new``
+#:   ``                0x0000000000001170    0x26 /path/libpengu_runtime.a(pengu_string.o)``
 #:
 #: Long section names take the two-line form, which is *every* section of a
 #: ``-ffunction-sections`` build. Matching only the one-line form silently
@@ -172,25 +164,6 @@ def _static_archive(name: str) -> Optional[str]:
     return str(cand.relative_to(ROOT)) if cand.is_file() else None
 
 
-def legacy_link_command(argv: List[str]) -> List[str]:
-    """Rewrites a captured link command into its pre-2.0 shape.
-
-    Section GC and the section-splitting flags come off, and the five archives
-    the runtime used to drag in unconditionally go back on. The result is what
-    ``pengu build --profile release`` produced before 2.0, which is the only way
-    the "before" attribution in BENCHMARKS.md stays reproducible on a tree whose
-    archives are now split.
-    """
-    cmd = [tok for tok in argv if tok not in _GC_TOKENS + _SECTION_TOKENS]
-    extras = [f"-l{name}" for name in LEGACY_ARCHIVES if f"-l{name}" not in cmd]
-    if "-lpengu_runtime" in cmd:
-        idx = cmd.index("-lpengu_runtime") + 1
-        cmd[idx:idx] = extras
-    else:
-        cmd.extend(extras)
-    return cmd
-
-
 def _parse_map(map_path: Path) -> List[Tuple[str, int]]:
     """Sums the *kept* section bytes of a GNU ld map by input archive.
 
@@ -242,8 +215,9 @@ def _relink(argv: List[str], drop: Optional[str], out: Path,
     """Re-links *argv* without archive *drop* and returns the stripped size.
 
     ``--unresolved-symbols=ignore-all`` is what makes the measurement possible:
-    a program that genuinely needs libxml2 cannot link without it, and refusing
-    to produce a binary would mean never being able to attribute the cost.
+    a program whose archive genuinely needs a native library cannot link
+    without it, and refusing to produce a binary would mean never being able to
+    attribute the cost.
     """
     cmd: List[str] = []
     skip_next = False
@@ -275,13 +249,12 @@ def _relink(argv: List[str], drop: Optional[str], out: Path,
     return _strip_size(out)
 
 
-def measure(source: Optional[str] = None, legacy: bool = False) -> Dict[str, object]:
+def measure(source: Optional[str] = None) -> Dict[str, object]:
     """Measures one ``hello_world`` link and returns its attribution report.
 
-    The link command is captured from the toolchain, optionally rewritten into
-    its pre-2.0 shape (``legacy=True``) and then re-run here one extra time per
-    linked archive. The baseline is produced by the same relink path as the
-    deltas, so the two numbers are always comparable.
+    The link command is captured from the toolchain and then re-run here one
+    extra time per linked archive. The baseline is produced by the same relink
+    path as the deltas, so the two numbers are always comparable.
     """
     if source is None:
         source = (ROOT / "benches" / "hello_world.pengu").read_text(encoding="utf-8")
@@ -289,8 +262,7 @@ def measure(source: Optional[str] = None, legacy: bool = False) -> Dict[str, obj
     with tempfile.TemporaryDirectory(prefix="pengu_size_") as tmp:
         scratch = Path(tmp)
         proj = _make_project(scratch, source)
-        _binary, captured = _build_and_capture_link(proj)
-        argv = legacy_link_command(captured) if legacy else captured
+        _binary, argv = _build_and_capture_link(proj)
 
         map_path = scratch / "link.map"
         baseline = _relink(argv, None, scratch / "baseline", map_path=map_path)
@@ -319,8 +291,7 @@ def measure(source: Optional[str] = None, legacy: bool = False) -> Dict[str, obj
             })
 
     return {
-        "link_shape": "legacy (pre-2.0: all archives, no section GC)" if legacy
-                      else "2.0 (conditional archives, section GC)",
+        "link_shape": "runtime self-contained (imports-driven archives, section GC)",
         "baseline_bytes": baseline,
         "baseline_kiB": round(baseline / 1024, 1),
         "linked_libs": libs,
@@ -373,8 +344,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--json", action="store_true",
                         help="print the report as JSON instead of a table")
-    parser.add_argument("--legacy", action="store_true",
-                        help="measure the pre-2.0 link shape as well as the current one")
     parser.add_argument("--out", default="benches/results/binary_size_breakdown.json",
                         help="where to write the JSON report")
     parser.add_argument("--stdout-only", action="store_true",
@@ -385,18 +354,12 @@ def main() -> int:
         "measured_on": date.today().isoformat(),
         "current": measure(),
     }
-    if args.legacy:
-        report["legacy"] = measure(legacy=True)
     report = _sanitize(report)
 
     if args.json:
         print(json.dumps(report, indent=2))
     else:
         _print_table(report["current"])
-        if "legacy" in report:
-            print()
-            print("=" * 70)
-            _print_table(report["legacy"])
 
     if not args.stdout_only:
         out = ROOT / args.out

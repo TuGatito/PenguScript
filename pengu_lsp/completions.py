@@ -39,7 +39,7 @@ def _module_spec_from_path(file_path: str, base_dir: str) -> Optional[str]:
     ``<base>/std/spark.pengu`` -> ``std.spark``; ``<base>/src/components/
     player.pengu`` -> ``components.player``. Files named ``<name>.d.pengu``
     (pure C-binding declaration files) lose their trailing ``.d`` so the spec
-    reads ``std.sqlite3`` instead of ``std.sqlite3.d``.
+    reads ``std.binding`` instead of ``std.binding.d``.
 
     Args:
         file_path: Absolute path to the module file.

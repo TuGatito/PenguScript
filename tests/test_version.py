@@ -175,12 +175,7 @@ def test_the_claim_table_covers_the_drifted_files():
 #: what stops silent drift from creeping back in.
 HISTORICAL: dict[str, str] = {
     "CHANGELOG.md": "the release history itself",
-    "ROADMAP_1.0.0.md": "the historical 1.0.0 roadmap",
-    "ROADMAP_1.1.md": "the live roadmap; records which phase fixed or measured what",
-    "CLEANUP_PLAN.md": "historical cleanup plan",
-    "AUDIT_1.0.md": "the audit's own measurements name the versions it found",
-    "AUDIT_1.0_FASE3.md": "phase audit, historical measurements",
-    "AUDIT_1.0_FASE6.md": "phase audit, historical measurements",
+    "MIGRATION.md": "documents every past breaking release and its migration",
     "docs/DEPRECATIONS.md": "each alias records the version that deprecated it",
     "docs/PERFORMANCE.md": "benchmark numbers are attributed to the tree measured",
     "README.md": "records which release completed each stdlib batch",
@@ -222,7 +217,7 @@ HISTORICAL: dict[str, str] = {
 SCAN = (
     "LANGUAGE.md", "LANGUAGE_Spanish.md", "CHEATSHEET.md", "README.md",
     "PenguScriptGuideEnglish.md", "PenguScriptGuideSpanish.md",
-    "RELEASE_CHECKLIST.md", "SECURITY.md", "BENCHMARKS.md",
+    "MIGRATION.md", "SECURITY.md", "BENCHMARKS.md",
     "pengu_parser/pengu_parser.py", "pengu_parser/pengu_infer.py",
     "pengu_version.py", "pengu_lsp/__init__.py",
 )
@@ -249,9 +244,6 @@ JUSTIFIED_TOKENS: dict[tuple[str, str], str] = {
         "the supported-version table records the series that reached end of "
         "support when 1.0.0 shipped; a support matrix has to name the series it "
         "drops",
-    ("RELEASE_CHECKLIST.md", "0.16.0"):
-        "the measured `--strict-c99` gap is stated for the release it was "
-        "measured on, which is history",
     ("BENCHMARKS.md", "1.0.0-rc1"):
         "the published numbers are attributed to the tree they were measured on "
         "(`c8e07d9`, `1.0.0-rc1`); re-labelling them `1.0.0` without re-running "

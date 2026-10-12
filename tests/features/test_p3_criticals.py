@@ -2,18 +2,11 @@
 
 import pytest
 from tests.conftest import (
-    bundle_project,
     compile_run,
     gen_bundle,
     requires_cc,
-    requires_lib,
     requires_runtime,
-    raylib_link_flags,
 )
-
-# Complete platform link line, shared with conftest so the X11/GLFW providers
-# cannot drift away from the ones the archive actually references.
-RAYLIB_LIBS = raylib_link_flags()
 
 
 # ==========================================================================
@@ -22,69 +15,7 @@ RAYLIB_LIBS = raylib_link_flags()
 
 
 class TestBindingOmenVariants:
-    """Bare module-qualified omen variants and constants from bindings emit unprefixed C identifiers."""
-
-    def test_bare_module_qualified_variants_codegen(self):
-        """raylib.FLAG_MSAA_4X_HINT, raylib.KEY_RIGHT and raylib.SHADER_UNIFORM_FLOAT emit unprefixed C names."""
-        src = (
-            "import std.raylib\n\n"
-            "weave main into int:\n"
-            "    calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT\n"
-            "    var d as bool is calling raylib.IsKeyDown with raylib.KEY_RIGHT\n"
-            "    var u as ShaderUniformDataType is raylib.SHADER_UNIFORM_FLOAT\n"
-            "    return 0\n"
-        )
-        c_code = bundle_project(src, tag="c1_bare_variants")
-        assert "SetConfigFlags(FLAG_MSAA_4X_HINT);" in c_code
-        assert "IsKeyDown(KEY_RIGHT);" in c_code
-        assert "SHADER_UNIFORM_FLOAT" in c_code
-        assert "raylib_FLAG_MSAA_4X_HINT" not in c_code
-        assert "raylib_KEY_RIGHT" not in c_code
-        assert "raylib_SHADER_UNIFORM_FLOAT" not in c_code
-
-    @requires_cc
-    @requires_runtime
-    @requires_lib("raylib")
-    def test_bare_module_qualified_variants_build_and_run(self):
-        src = (
-            "import std.raylib\n\n"
-            "weave main into int:\n"
-            "    calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT\n"
-            "    var d as bool is calling raylib.IsKeyDown with raylib.KEY_RIGHT\n"
-            "    var u as ShaderUniformDataType is raylib.SHADER_UNIFORM_FLOAT\n"
-            "    return 0\n"
-        )
-        res = compile_run(src, tag="c1_bare_run", extra_libs=RAYLIB_LIBS)
-        assert res.returncode == 0
-
-    def test_regression_nested_unqualified_and_const_variants_codegen(self):
-        """raylib.KeyboardKey.KEY_RIGHT, unqualified KEY_RIGHT, and raylib.RAYWHITE build and run."""
-        src = (
-            "import std.raylib\n\n"
-            "weave main into int:\n"
-            "    var a as bool is calling raylib.IsKeyDown with raylib.KeyboardKey.KEY_RIGHT\n"
-            "    var b as bool is calling raylib.IsKeyDown with KEY_RIGHT\n"
-            "    var c as raylib.Color is raylib.RAYWHITE\n"
-            "    return 0\n"
-        )
-        c_code = bundle_project(src, tag="c1_regression")
-        assert "IsKeyDown(KEY_RIGHT);" in c_code
-        assert "RAYWHITE" in c_code
-
-    @requires_cc
-    @requires_runtime
-    @requires_lib("raylib")
-    def test_regression_nested_unqualified_and_const_variants_build_and_run(self):
-        src = (
-            "import std.raylib\n\n"
-            "weave main into int:\n"
-            "    var a as bool is calling raylib.IsKeyDown with raylib.KeyboardKey.KEY_RIGHT\n"
-            "    var b as bool is calling raylib.IsKeyDown with KEY_RIGHT\n"
-            "    var c as raylib.Color is raylib.RAYWHITE\n"
-            "    return 0\n"
-        )
-        res = compile_run(src, tag="c1_regression_run", extra_libs=RAYLIB_LIBS)
-        assert res.returncode == 0
+    """Omen variants declared in PenguScript emit their prefixed C identifiers."""
 
     def test_pengu_declared_omen_keeps_prefixed_c_name(self):
         """Omens declared in PenguScript (non-binding) keep their prefixed C names."""
@@ -100,16 +31,6 @@ class TestBindingOmenVariants:
         assert "Color_Rojo" in c_code
         assert "Color c = Color_Rojo;" in c_code
 
-    def test_nested_trace_log_level_emits_unprefixed(self):
-        """Nested enum variant raylib.TraceLogLevel.LOG_INFO emits LOG_INFO."""
-        src = (
-            "import std.raylib\n\n"
-            "weave main into int:\n"
-            "    var lvl as TraceLogLevel is raylib.TraceLogLevel.LOG_INFO\n"
-            "    return 0\n"
-        )
-        c_code = bundle_project(src, tag="c1_nested_log")
-        assert "TraceLogLevel lvl = LOG_INFO;" in c_code
 
 
 # ==========================================================================

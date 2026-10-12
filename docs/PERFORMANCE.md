@@ -10,7 +10,7 @@ a script, not like building a project.**
 Reproduce every number below with:
 
 ```bash
-python build_runtime.py          # once
+python build_runtime.py          # once: builds libpengu_runtime.a only (~1.4 s)
 PENGU_TCC=/path/to/tcc scripts/bench.sh --repeat 5
 ```
 
@@ -35,7 +35,7 @@ Profiling a plain `pengu run hello.pengu` (before this work, i.e. with
 |---|---:|---|
 | Python start-up + imports | ~135 ms | interpreter, Lark, checker, codegen |
 | **Lark LALR table construction** | **~3.5 s** | pure-Python grammar analysis on every process start |
-| `pkg-config` probing | ~130 ms | four packages, probed ~12× per build |
+| `pkg-config` probing | ~130 ms | four packages, probed ~12× per build (historical: all four were external libraries that have since **moved to satellite repositories**, so a stock runtime build now probes nothing) |
 | import graph resolution | ~50 ms | parses the entry's imports (cached after the first run) |
 | parse + semantic check | ~2 ms | the actual compiler front end (65-line bundle) |
 | codegen | ~1 ms | C emission |
@@ -44,7 +44,10 @@ Profiling a plain `pengu run hello.pengu` (before this work, i.e. with
 
 Two things dominated: the LALR tables (rebuilt from scratch in every invocation
 because `PenguParser` lives in a fresh Python process) and `pkg-config`, which
-was re-spawned for every flag lookup.
+was re-spawned for every flag lookup. That second cost came from the four
+external libraries that have since **moved to satellite repositories**; the
+memoisation is kept for projects that declare their own `pkg-config` packages
+(§8).
 
 ## 2. Parser table cache (`pengu_cache.py`)
 
@@ -229,14 +232,14 @@ Measured on the reference machine the gain is **not measurable**, so it stays
 
 Two reasons:
 
-1. gcc start-up plus the 14-library link dominate the ~400 ms compile; parsing
-   the header is a small part of it.
+1. gcc start-up plus the link dominate the ~400 ms compile; parsing the header
+   is a small part of it. The link is now `libpengu_runtime.a` plus libc, libm
+   and pthreads — no external archives.
 2. gcc only uses a `.gch` when the `-I`/`-D` set matches the one it was built
    with. `gcc -H` on a default `debug` build shows the shared `.gch` is found but
    **not used** (`x …pengu_runtime.h.gch`) because the build adds `-DDEBUG`,
-   `-DWITH_GZFILEOP` and `-I/usr/include/libxml2`, which `build_runtime.py`
-   cannot predict. When flags do match, the prebuilt file is used as-is and costs
-   nothing.
+   which `build_runtime.py` cannot predict. When flags do match, the prebuilt
+   file is used as-is and costs nothing.
 
 ```
 pengu build --pch        # opt in (e.g. header-bound builds, slow filesystems)
@@ -247,56 +250,62 @@ It is skipped entirely for TCC/MSVC, and a failed PCH never fails the build.
 
 ### 7.1 PCH and the `PENGU_ENABLE_*` feature gates
 
-Since 2.0 the generated `bundle.c` defines
-`PENGU_ENABLE_{REGEX,XML,NET,CRYPTO,THREADS}` before it includes
-`pengu_runtime.h`, narrowing the header to the subsystems the program actually
-imports (see `BENCHMARKS.md` §Binary size). gcc validates the preprocessor state
-at the point of inclusion, so a `.gch` compiled with every gate at its default of
-`1` is **found but not usable** for such a bundle:
+The runtime has exactly **one** feature gate left: `PENGU_ENABLE_THREADS`
+(`std.filum`). The `PENGU_ENABLE_{REGEX,XML,NET,CRYPTO}` gates are gone with the
+external libraries that needed them — those libraries **moved to satellite
+repositories** and compile into their own archives, not into `pengu_runtime.h`.
+
+The generated `bundle.c` still defines the gate before it includes the header,
+and gcc validates the preprocessor state at the point of inclusion. A bundle that
+does **not** import `std.filum` defines `PENGU_ENABLE_THREADS 0`, while the
+shared `.gch` was compiled with the header's default of `1`, so the PCH is
+**found but not usable** for it:
 
 ```
 $ gcc -H -c build/bundle.c
 x /…/build/include/pengu_runtime.h.gch
 . bundle.c
 $ gcc -Winvalid-pch -H -c build/bundle.c
-warning: /…/pengu_runtime.h.gch: not used because 'PENGU_ENABLE_REGEX' is defined
+warning: /…/pengu_runtime.h.gch: not used because 'PENGU_ENABLE_THREADS' is defined
 ```
 
 Without `-Winvalid-pch` the warning is silent and gcc simply reparses the header —
-the same "found but not used" behaviour §7 already documents for `-DDEBUG` and
-`-I/usr/include/libxml2`. `PenguBuilder` therefore does not offer the shared PCH
-to a bundle whose gates differ from the header's defaults, and says so under
-`--verbose`:
+the same "found but not used" behaviour §7 already documents for `-DDEBUG`.
+`PenguBuilder` therefore does not offer the shared PCH to a bundle whose gate
+differs from the header's default, and says so under `--verbose`:
 
 ```
 [pengu] runtime PCH skipped: the bundle's PENGU_ENABLE_* gates differ from
 the precompiled header's defaults
 ```
 
-The rule is exact rather than a threshold: the PCH is reusable only by a program
-that imports all five gated `std` modules (`regulus`, `parchment`, `precis`,
-`seal`, `filum`). Below that, `--pch` writes a file nobody reads. That is one
-more reason it stays off by default, on top of the two in §7 — a build with no
-generated bundle to inspect (a caller that only wants a command line) is left
-alone, and gcc decides.
+The rule is exact rather than a threshold: with a single gate, the shared PCH is
+offered only to a program that imports `std.filum`. That is one more reason it
+stays off by default, on top of the two in §7 — a build with no generated bundle
+to inspect (a caller that only wants a command line) is left alone, and gcc
+decides.
 
 ## 8. pkg-config memoisation (`pengu_paths.py`)
 
-A single build asked `pkg-config` for the same four packages (libxml-2.0,
-libcurl, libmicrohttpd, mbedtls) from three places — ~12 subprocesses, ~250 ms on
-the reference machine, a third of a TCC build. `_pkg_config_cached` memoizes the
-probe per (pkg-config path, args) for the life of the process:
+The `std` library no longer wraps any `pkg-config`-discoverable system package:
+the four that used to be probed (libxml-2.0, libcurl, libmicrohttpd, mbedtls)
+**moved to satellite repositories**. A stock `pengu run hello.pengu` therefore
+asks `pkg-config` nothing, and the probe only fires for a project that declares
+its own `pkg-config` packages.
+
+The memoisation is kept for exactly that case. When those probes did run they
+were issued from three places for the same package — ~12 subprocesses, ~250 ms on
+the reference machine, a third of a TCC build — so `_pkg_config_cached` memoizes
+the probe per (pkg-config path, args) for the life of the process:
 
 | | Before | After |
 |---|---:|---:|
 | `PenguBuilder.build_compile_commands()` (first call) | 320 ms | **201 ms** |
 | same call repeated in-process (TCC → gcc fallback) | 320 ms | **3 ms** |
 
-Since 2.0 the set is also *conditional*: only the packages the imported `std`
-modules need are probed at all, so a program that imports no native `std`
-wrapper (the `hello_world` case) asks `pkg-config` nothing and never receives
-libxml2's `-I/usr/include/libxml2` on its command line. `--verbose` prints the
-archive list the decision produced.
+(The `Before`/`After` numbers are historical: they were measured while the four
+external packages were still probed by `std`.) `--verbose` prints the archive
+list the decision produced.
 
 The resolved `pkg-config` path is part of the cache key, so a different
 toolchain cannot read another one's results. `PKG_CONFIG_PATH` changes within a
@@ -335,7 +344,7 @@ Linux x86_64, Python 3.14.7, gcc 16.2.1, TCC 0.9.28rc, best of 5.
 | `bundle.c` lines (`hello.pengu`, only `println`) | 432 | **65** | **-84%** |
 | Stripped `hello_world` binary (`pengu build --profile release`) | 659.5 KiB | **14.3 KiB** | **-98%** |
 | LALR table construction per process | 3.9 s | **~0.25 s** | **-94%** |
-| `build_compile_commands()` (pkg-config probes) | 320 ms | 201 ms | -37% |
+| `build_compile_commands()` (pkg-config probes; those packages are now satellite repositories, so this row is historical) | 320 ms | 201 ms | -37% |
 | C compile + link of the bundle (TCC vs gcc) | ~400 ms (gcc) | **19 ms** (TCC) | **-95%** |
 | second compile with PCH vs without | 638 ms | 649 ms | 0% (kept opt-in) |
 
@@ -371,7 +380,9 @@ The regression tests for all of this live in `tests/compiler/test_run_cache.py`,
 * **Packaged PCH is silently ignored when flags differ.** `build_runtime.py`
   cannot know a project's `-D`/`-I` set; if they differ from the ones it used,
   gcc ignores the shipped `.gch` and parses the header normally (no error, no
-  gain). That is why PCH remains opt-in.
+  gain). That is why PCH remains opt-in. With a single feature gate left
+  (`PENGU_ENABLE_THREADS`), a bundle that does not import `std.filum` is the
+  common case that skips the shipped PCH.
 * **TCC fallback and the cache key.** When TCC fails and gcc produces the
   binary, it is stored under the key computed for TCC. The binary is correct and
   the next run is a hit, but a *fixed* TCC will not be retried until the entry is

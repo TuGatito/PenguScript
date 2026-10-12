@@ -67,9 +67,8 @@
 ##   aliases here use the docstring convention `## @deprecated Use X instead.`
 ##   and therefore emit no warning. Turning it into a real attribute would first
 ##   require migrating the internal callers (`result_ok_string` and
-##   `result_err_string` in `std.seal` and `std.ward`, `maybe_some_string` in
-##   `std.precis`); the inventory with replacements and removal versions lives in
-##   `docs/DEPRECATIONS.md`.
+##   `result_err_string` in `std.ward`); the inventory with replacements and
+##   removal versions lives in `docs/DEPRECATIONS.md`.
 ## - **`result` constructors are intrinsics.** `ok_of` / `err_of` are compiler
 ##   builtins (both the bare form and `oracle.ok_of` / `oracle.err_of`) and need
 ##   type context: an `as result of T to E` binding or a `return` from a `weave`

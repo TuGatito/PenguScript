@@ -10,6 +10,9 @@ The PenguScript Build Manager (`pengu_project.py`) is a Cargo-style tool providi
 # Initialize a new project with template
 python pengu_project.py init <name> [--type <exe|c|obj|static|shared>] [--links lib1,lib2]
 
+# Create from a template (template-first `init`; templates: exe, cli, lib)
+python pengu_project.py new <exe|cli|lib> <name>
+
 # Build in default debug profile
 python pengu_project.py build
 
@@ -33,6 +36,12 @@ python pengu_project.py clean
 | `obj` | `python pengu_project.py init my_obj --type obj` | Single object file (`.o`) |
 | `c` | `python pengu_project.py init my_bundle --type c` | Pure C bundle generation without C compilation |
 
+Project *templates* are chosen with `--template <exe|cli|lib>` (or the
+template-first `pengu new <template> <name>`): `exe` is a standalone program,
+`cli` adds argument handling, and `lib` produces a static library with a smoke
+test. The old `game`/raylib template was removed together with the vendored
+bindings.
+
 ---
 
 ## 1.1 Performance: caches, TCC, DCE y PCH
@@ -49,7 +58,7 @@ python pengu_project.py clean
 | Flags de desarrollo | `-g0 -fno-plt -pipe -fno-ident -fno-asynchronous-unwind-tables` en el perfil `debug` de `pengu run` | `pengu build --profile release` |
 | DCE | Elimina las funciones de `std/`/`lib/` no alcanzables (432 → 65 líneas en `hello.pengu`, -84%); `bundle.c` lleva `/* Dead-code elimination: pruned N of M … */` y `pengu time` imprime el nº podado | `--no-dce`, `PENGU_NO_DCE=1` |
 | PCH | Precompila `pengu_runtime.h`; `build_runtime.py` deja uno compartido en `build/include/pengu_runtime.h.gch` y los releases lo empaquetan (opt-in: `--pch`, sin ganancia medible: ver `docs/PERFORMANCE.md` §7) | `--pch` lo activa, `--no-pch` lo fuerza a off |
-| Memoización de `pkg-config` | Una sonda por paquete y proceso en vez de ~12 (~320 ms → 201 ms por build) | — (siempre activa) |
+| Memoización de `pkg-config` | Una sonda por paquete y proceso en vez de ~12 (~320 ms → 201 ms por build) | — (siempre activa; los paquetes que se sondeaban eran bibliotecas externas, hoy repos satélite, así que un build estándar no sondea nada) |
 
 Directorios de caché: `~/.cache/pengu` (Linux/XDG), `~/Library/Caches/pengu`
 (macOS), `%LOCALAPPDATA%\pengu` (Windows). `PENGU_CACHE_DIR` lo reubica y
@@ -206,13 +215,13 @@ assets:
 
 build:
   build_dir: "build"   # Isolated build directory for all artifacts
-  includes: ["raylib.h"]
-  links: ["raylib", "m", "pthread", "opengl32", "gdi32", "winmm"]
+  includes: ["mylib.h"]        # headers shipped by an external binding (satellite repo)
+  links: ["mylib", "m", "pthread"]
   lib_dirs: ["./lib"]
   include_dirs: ["./include"]
   cflags: ["-Wall", "-std=c11"]
   ldflags: []
-  defines: ["PLATFORM_DESKTOP"]
+  defines: ["MYLIB_STATIC"]
   cc: "gcc"
 
 profiles:
@@ -258,55 +267,38 @@ If `bundle.c` is newer than all `.pengu` source modules, asset files, and the pr
 
 ## 4. Compilación Automatizada del Runtime Estático (`build_runtime.py`)
 
-PenguScript cuenta con un script de compilación automatizado e idempotente para compilar las bibliotecas externas (`PCRE2`, `libxml2`, `zlib`, `mbedtls`, `libcurl`, `libmicrohttpd`, **SQLite3**, **Raylib**, **WebUI**, y el paquete **single-header** `imago/scriptor/typis/pactum/datastructura/perlinum/nanosvg`) y el runtime de PenguScript (`pengu_runtime.c`) como bibliotecas estáticas.
+`build_runtime.py` compila **solo** el runtime de PenguScript (`pengu_parser/pengu_runtime.c` + `pengu_runtime.h`) y produce un único archivo, `build/lib/libpengu_runtime.a`. El runtime es **autocontenido**: no necesita nada más allá de libc, libm y pthreads / hilos Win32. No descarga ni compila bibliotecas externas — esas viven en repositorios satélite que se instalan por proyecto con `pengu add` (ver `docs/EXTERNAL_MODULES.md`).
+
+La compilación es idempotente y rápida (**~1.4 s** con `--rebuild`): si `libpengu_runtime.a` ya existe y es más reciente que sus entradas, no se recompila.
 
 ### Ejecución
 
 ```bash
-# Compilar bibliotecas externas y runtime estático
+# Compilar el runtime estático (solo libpengu_runtime.a, sin descargas)
 python build_runtime.py
 
-# Forzar recompilación completa desde cero
+# Forzar recompilación completa desde cero (~1.4 s)
 python build_runtime.py --rebuild
 ```
 
-`build_runtime.py` descarga automáticamente las fuentes externas (ver `extern_manifest.py`) y produce artefactos idempotentes: si la biblioteca ya existe no se recompila salvo con `--rebuild`. WebUI se instala desde el asset estático oficial de su release (los fuentes asumen la API UNICODE de MSVC y no compilan con mingw).
+`extern_manifest.py` conserva la infraestructura de descarga/hash con el `MANIFEST` **vacío**: este repositorio ya no la usa, pero los repositorios satélite la copian para empaquetar sus propias dependencias.
 
 ### Estructura Generada
 
 ```
 build/
-├── include/              # Headers de runtime y dependencias externas
-│   ├── pcre2.h
-│   ├── zlib.h
-│   ├── zconf.h
-│   ├── microhttpd.h
-│   ├── webui.h           # WebUI
-│   ├── raylib.h          # Raylib
-│   ├── sqlite3.h         # SQLite3
-│   ├── imago.h … perlinum.h   # STB latin-renamed single headers
-│   ├── libxml/           # Headers de libxml2
-│   ├── mbedtls/          # Headers de mbedtls (MD5, SHA1, SHA256, SHA512)
-│   ├── curl/             # Headers de libcurl
-│   └── pengu_runtime.h
-│   └── pengu_runtime.h.gch  # PCH compartido (gcc/clang) para builds rápidos
-└── lib/                  # Bibliotecas estáticas generadas
-    ├── libz.a            # zlib 1.3.2 (compresión zlib/gzip y CRC32)
-    ├── libpcre2-8.a      # PCRE2 10.47 (8-bit regex para regulus)
-    ├── libxml2.a         # libxml2 2.9.0 (XML/HTML para parchment)
-    ├── libmbedcrypto.a   # mbedtls 4.2.0 (hashing criptográfico para seal)
-    ├── libcurl.a         # curl 8.21.0 (cliente HTTP para precis)
-    ├── libmicrohttpd.a   # libmicrohttpd 1.0.1 (servidor HTTP embebido para precis)
-    ├── libsqlite3.a      # SQLite3 3.53.4 (base de datos SQL embebida)
-    ├── libraylib.a       # Raylib 6.0 (gráficos/audio, desktop OpenGL 3.3)
-    ├── libwebui.a        # WebUI 2.5.0-beta.3 (interfaces web nativas)
-    ├── libpengu_stb.a    # single-headers STB latin + nanosvg (imago, typis, ...)
-    └── libpengu_runtime.a # Runtime de PenguScript
+├── include/                 # Header del runtime
+│   ├── pengu_runtime.h
+│   └── pengu_runtime.h.gch  # PCH compartido (gcc/clang, best effort)
+└── lib/                     # Biblioteca estática generada
+    └── libpengu_runtime.a   # Runtime de PenguScript
 ```
+
+El archivo lleva un objeto por subsistema (core y filum) compilado con `-ffunction-sections`, de modo que el enlazador solo incorpora lo que el programa referencia (ver `BENCHMARKS.md` §Binary size).
 
 ### Uso en Proyectos PenguScript
 
-Para enlazar un proyecto con el runtime estático y sus motores externos, añade `"pengu_runtime"` a la lista `links` en tu archivo de configuración:
+Para enlazar un proyecto con el runtime estático, añade `"pengu_runtime"` a la lista `links` en tu archivo de configuración:
 
 ```toml
 # pengu.toml
@@ -320,16 +312,13 @@ links = ["pengu_runtime"]
 lib_dirs = ["build/lib"]
 include_dirs = ["build/include"]
 ```
-El sistema de compilación (`pengu_project.py`) enlazará automáticamente:
-`-lpengu_runtime -lpcre2-8 -lxml2 -lcurl -lmbedcrypto -lmicrohttpd -lz`
-y auto-detecta en `build/lib` los archivos estáticos adicionales (`-lsqlite3 -lraylib -lwebui -lpengu_stb`) a medida que existan. Junto con las bibliotecas de sistema necesarias (`-lws2_32 -lwinmm -ladvapi32 -lcrypt32 -lbcrypt -lopengl32 -lgdi32 -lole32 -luuid -lshell32` en Windows, `-pthread -lm` en Linux/Unix).
+El sistema de compilación (`pengu_project.py`) enlazará automáticamente `-lpengu_runtime` más las bibliotecas de sistema que el runtime necesita (`-lws2_32 -lwinmm` en Windows — kernel32/msvcrt las añade el driver de MinGW; `-pthread -lm -ldl` en Linux/Unix). Los archivos nativos de un binding externo los aporta el propio repositorio satélite a través de sus entradas explícitas en `links:`, no el runtime.
 
-### Bindings disponibles en `std/`
+### Módulos en `std/`
 
-`import std.sqlite3`, `import std.raylib`, `import std.webui`, `import std.imago`,
-`std.scriptor`, `std.typis`, `std.pactum`, `std.datastructura`, `std.perlinum`,
-`std.nanosvg` y `std.nanosvgrast` declaran el surface C nativo (`.d.pengu`),
-generado con `pengu bind` y verificado con `pengu check`.
+El `std/` de este repositorio contiene **21 módulos puros** de PenguScript: `spark`, `scrolls`, `oracle`, `compass`, `archivum`, `cipher`, `chronicle`, `lot`, `arithmancy`, `rites`, `whisper`, `ward`, `trial`, `tally`, `atlas`, `coven`, `filum`, `loom`, `invoke`, `ffi` y `ledger`. Los bindings C externos (raylib, SQLite3, WebUI, miniaudio, …) **se movieron a repositorios satélite** y se instalan por proyecto con `pengu add`; consulta `docs/EXTERNAL_MODULES.md`.
+
+`pengu bind` sigue disponible para generar archivos `.d.pengu` a partir de cualquier cabecera C, usando los stubs genéricos de `c_bind_stubs/` y verificando el resultado con `pengu check`.
 
 ---
 

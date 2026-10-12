@@ -2,6 +2,60 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [Unreleased] — Phase 1: External bindings extracted
+
+### ⚠️ Breaking changes (ecosystem only, core is additive)
+
+- **Removed from `std/`**: 25 C declaration bindings (`raylib`, `raymath`,
+  `rlgl`, `rlights`, `raygui`, `sqlite3`, `webui`, `miniaudio`, `tomlum`,
+  `yaml`, `uuid`, `xxhash`, `xlsxio`, `imago`, `typis`, `scriptor`,
+  `perlinum`, `stb_image_resize2`, `stb_herringbone_wang_tile`, `nanosvg`,
+  `nanosvgrast`, `minicoro`, `datastructura`, `fenestra`, `pactum`) and the
+  native-wrapping pure modules (`regulus`, `parchment`, `seal`, `xlsx`).
+  These now live in satellite repositories installable via `pengu add <url>`
+  and are no longer maintained inside the compiler repository.
+
+- **Removed**: `std_c/` (vendored headers and C wrappers), `regen_std_bindings.py`,
+  `migrate_manual_bindings.py`, `scratch/port/` (raylib corpus).
+
+- **Removed dependencies**: the runtime no longer builds or links zlib, PCRE2,
+  libxml2, mbedtls, curl, libmicrohttpd, sqlite3, raylib, webui, libuv,
+  libyaml, libcyaml, tomlc17, libzip, libexpat, or xlsxio.
+
+### Added
+
+- `docs/EXTERNAL_MODULES.md`: guide to installing satellite binding
+  repositories with `pengu add`.
+
+### Changed
+
+- **Build time**: `python build_runtime.py --rebuild` drops from ~5–8 min to
+  <1 min on the reference machine (~1.4 s measured).
+- **Distribution size**: the release bundle only ships `libpengu_runtime.a`.
+- **CI**: system dependency lists on Linux/macOS trimmed to the minimum
+  (C compiler, CMake, Ninja, Python, Node).
+
+### Fixed
+
+- `pengu add` now reports when a dependency is already installed and is being
+  refreshed, instead of re-running silently.
+- `pengu new` is confirmed as the template-first front end of `pengu init`
+  (templates: `exe`, `cli`, `lib`); the `game` (raylib) template was removed
+  because raylib now lives in a satellite repository.
+
+### Migration
+
+Programs that imported any of the removed modules must install the matching
+satellite repository:
+
+```bash
+pengu add https://github.com/pengu-lang/pengu-raylib
+pengu add https://github.com/pengu-lang/pengu-sqlite
+# ...
+```
+
+See [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md).
+
 ## [2.0.0] - 2026-10-09
 
 Aditivo: ningún programa existente deja de compilar. `antiquus` es una palabra

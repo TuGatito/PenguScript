@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""extern_manifest.py - Manifest and automated downloader for external C libraries.
+"""extern_manifest.py - Manifest and downloader for external C libraries.
 
-Contains URLs, pinned SHA-256 digests and extraction logic for external
-dependencies used in PenguScript's static C runtime.  Every entry here is
-consumed by build_runtime.py (see the build_* functions there); libraries that
-cannot be built are not listed.
+The PenguScript **core runtime** has no external C dependencies: it needs only
+libc, libm and pthreads / Win32 threads. ``MANIFEST`` and ``EXPECTED_DIRS`` are
+therefore empty and ``build_runtime.py`` downloads nothing.
 
-  - zlib (1.3.2)            - libmicrohttpd (1.0.1)  - libxml2 (2.9.0)
-  - mbedtls (4.2.0)         - curl (8.21.0)          - pcre2 (10.47)
-  - raylib (6.0)            - webui (2.5.0-beta.3)   - sqlite3 (3.53.4)
-  - libuv (1.52.1)          - xlsxio (0.2.36)        - libcyaml (1.4.2)
-  - tomlc17 (R260821)       - libzip (1.11.3)        - libexpat (2.6.4)
-  - libyaml (0.2.5)
+The infrastructure below (URL pinning, streamed SHA-256 verification, safe
+extraction, verified-directory stamps) is deliberately kept: the satellite
+binding repositories introduced by Phase 1 copy this module to fetch and verify
+the upstream library they wrap. See docs/EXTERNAL_MODULES.md.
+
+An entry is a ``name -> {"url", "sha256"}`` mapping; adding one makes
+``build_runtime.py`` stage it into ``extern/`` again.
 
 Every archive is **verified while it is streamed to disk**: the SHA-256 is
 computed on the bytes that are written and compared with the digest pinned in
@@ -59,94 +59,13 @@ CHUNK_SIZE = 64 * 1024
 #: "a digest was never checked".
 STAMP_NAME = ".pengu_verified.json"
 
-#: name -> {"url": ..., "sha256": ...}
-MANIFEST: Dict[str, Dict[str, str]] = {
-    "curl": {
-        "url": "https://github.com/curl/curl/releases/download/curl-8_21_0/curl-8.21.0.tar.xz",
-        "sha256": "aa1b66a70eace83dc624508745646c08ae561de512ab403adffb93ac87fc72e6",
-    },
-    "libmicrohttpd": {
-        "url": "https://github.com/Karlson2k/libmicrohttpd/releases/download/v1.0.1/libmicrohttpd-1.0.1.tar.gz",
-        "sha256": "a89e09fc9b4de34dde19f4fcb4faaa1ce10299b9908db1132bbfa1de47882b94",
-    },
-    "libxml2": {
-        "url": "https://download.gnome.org/sources/libxml2/2.9/libxml2-2.9.0.tar.xz",
-        "sha256": "97d3d9abce2da0eda9b7a58b3fd6b4a6de012d322355151e7693b0d7ed98c634",
-    },
-    "mbedtls": {
-        "url": "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.2.0/mbedtls-4.2.0.tar.bz2",
-        "sha256": "2bed9d713b4668f76553b097e72b8aa30bc8f112a940d7ae228d524bbde6ffea",
-    },
-    "pcre2": {
-        "url": "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.47/pcre2-10.47.tar.gz",
-        "sha256": "c08ae2388ef333e8403e670ad70c0a11f1eed021fd88308d7e02f596fcd9dc16",
-    },
-    "zlib": {
-        "url": "https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.gz",
-        "sha256": "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16",
-    },
-    "raylib": {
-        "url": "https://github.com/raysan5/raylib/archive/refs/tags/6.0.tar.gz",
-        "sha256": "2b3ee1e2120c7a0796b33062c7e9a694dd8a8caa56a96319ac8c8ecf54a90d0b",
-    },
-    "webui": {
-        "url": "https://github.com/webui-dev/webui/archive/refs/tags/2.5.0-beta.3.tar.gz",
-        "sha256": "03a388ff0fa4b87ef15239f2b2a7308356fb5d2119f693c1dd61d68e38e91732",
-    },
-    "sqlite3": {
-        "url": "https://sqlite.org/2026/sqlite-autoconf-3530400.tar.gz",
-        "sha256": "0e9483900e92cd5de8fd48d16bf9200145a61f7fd5be542a5ac81d8a9516eb9c",
-    },
-    "libuv": {
-        "url": "https://github.com/libuv/libuv/archive/refs/tags/v1.52.1.tar.gz",
-        "sha256": "478baf2599bfbc882c355288c9cb6f92e0e7dda435fa04031fa5b607cf3f414c",
-    },
-    "xlsxio": {
-        "url": "https://github.com/brechtsanders/xlsxio/archive/refs/tags/0.2.36.tar.gz",
-        "sha256": "80d3df95a7a108a41f83f0ce4c6706873fd2afafd92424fcccea475a8acbd044",
-    },
-    "libcyaml": {
-        "url": "https://github.com/tlsa/libcyaml/archive/refs/tags/v1.4.2.tar.gz",
-        "sha256": "3211b2a0589ebfe02c563c96adce9246c0787be2af30353becbbd362998d16dc",
-    },
-    "tomlc17": {
-        "url": "https://github.com/cktan/tomlc17/archive/refs/tags/R260821.tar.gz",
-        "sha256": "c4958fe2664d596ba1cc22589f56f900429fac89ad0738c3468c6e1021e92c1a",
-    },
-    "libzip": {
-        "url": "https://github.com/nih-at/libzip/releases/download/v1.11.3/libzip-1.11.3.tar.xz",
-        "sha256": "9509d878ba788271c8b5abca9cfde1720f075335686237b7e9a9e7210fe67c1b",
-    },
-    "libexpat": {
-        "url": "https://github.com/libexpat/libexpat/releases/download/R_2_6_4/expat-2.6.4.tar.xz",
-        "sha256": "a695629dae047055b37d50a0ff4776d1d45d0a4c842cf4ccee158441f55ff7ee",
-    },
-    "libyaml": {
-        "url": "https://pyyaml.org/download/libyaml/yaml-0.2.5.tar.gz",
-        "sha256": "c642ae9b75fee120b2d96c712538bd2cf283228d2337df2cf2988e3c02678ef4",
-    },
-}
+#: name -> {"url": ..., "sha256": ...}.  Empty for the core runtime; satellite
+#: binding repositories populate their own copy.
+MANIFEST: Dict[str, Dict[str, str]] = {}
 
-EXPECTED_DIRS = {
-    "curl": "curl-8.21.0",
-    "libmicrohttpd": "libmicrohttpd-1.0.1",
-    "libxml2": "libxml2-2.9.0",
-    "mbedtls": "mbedtls-4.2.0",
-    "pcre2": "pcre2-10.47",
-    "zlib": "zlib-1.3.2",
-    "raylib": "raylib-6.0",
-    "webui": "webui-2.5.0-beta.3",
-    "sqlite3": "sqlite-autoconf-3530400",
-    "libuv": "libuv-1.52.1",
-    "xlsxio": "xlsxio-0.2.36",
-    "libcyaml": "libcyaml-1.4.2",
-    "tomlc17": "tomlc17-R260821",
-    "libzip": "libzip-1.11.3",
-    "libexpat": "expat-2.6.4",
-    "libyaml": "yaml-0.2.5",
-}
+#: name -> extracted directory name.  Empty for the core runtime.
+EXPECTED_DIRS = {}
 
-#: Backwards-compatible name -> URL view (older callers/tests used this shape).
 MANIFEST_URLS: Dict[str, str] = {name: entry["url"] for name, entry in MANIFEST.items()}
 
 
@@ -244,13 +163,13 @@ def _extract_archive(archive_path: Path, target_dir: Path) -> None:
 def _remove_tree(path: Path) -> None:
     """Removes a previous extraction, clearing Windows' read-only attributes.
 
-    A forced re-extraction used to unpack *over* the existing tree.  The mbedtls
-    tarball contains relative symlinks (``mldsa_native/src``), and Python's tar
-    ``data`` filter calls ``os.path.realpath(..., strict=ALLOW_MISSING)`` on
-    every member path; on Windows that raises ``PermissionError [WinError 5]``
-    when the member is a symlink that is already on disk, so the release build
-    died re-extracting a tree it had created itself one step earlier.  Removing
-    the destination first makes the forced extraction identical to the first.
+    A forced re-extraction used to unpack *over* the existing tree.  An upstream
+    tarball may contain relative symlinks, and Python's tar ``data`` filter calls
+    ``os.path.realpath(..., strict=ALLOW_MISSING)`` on every member path; on
+    Windows that raises ``PermissionError [WinError 5]`` when the member is a
+    symlink that is already on disk, so the release build died re-extracting a
+    tree it had created itself one step earlier.  Removing the destination first
+    makes the forced extraction identical to the first.
     """
     if path.is_symlink() or not path.exists():
         try:

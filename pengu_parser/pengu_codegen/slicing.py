@@ -97,8 +97,8 @@ class SlicingMixin:
         """Casts a function value to the expected function-pointer type.
 
         C APIs declare callbacks with qualifiers a `.d.pengu` binding cannot
-        express (``const void*`` for ``qsort``, ``const char*`` for raylib's
-        ``TraceLogCallback``) and GCC 14+ rejects a bare function pointer whose
+        express (``const void*`` for ``qsort``, ``const char*`` for a logging
+        callback) and GCC 14+ rejects a bare function pointer whose
         signature differs only in those qualifiers. Casting to the declared
         callback type is ABI-neutral and makes those APIs usable.
 

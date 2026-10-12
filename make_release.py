@@ -7,7 +7,7 @@ This script automates:
 2. Clean static compilation of the C runtime and dependencies (build_runtime.py --rebuild).
 3. Assembling the release distribution directory (pengucc_build/).
    - std/ : All standard library PenguScript modules.
-   - runtime/ : pengu_runtime.h, static libraries (*.a / *.lib), and dependency headers.
+   - runtime/ : pengu_runtime.h and the static runtime library (libpengu_runtime.a).
 4. Packaging the PenguScript CLI & LSP server with PyInstaller into a standalone executable (pengu / pengu.exe).
 5. Automated smoke test: verifying CLI help, project initialization, and end-to-end compilation with the standalone binary.
 
@@ -222,32 +222,51 @@ def get_venv_python() -> Path:
 
 
 def ensure_dependencies(py_exe: Path):
-    """Ensures all necessary Python dependencies are installed in the venv."""
+    """Ensures all necessary Python dependencies are installed in the venv.
+
+    The check is import-based first, so a release build on an offline machine
+    with a complete venv never waits on the package index. ``pip install`` runs
+    only for the packages that are actually missing. CMake is no longer part of
+    the list: the runtime has no CMake-based builds left (Phase 1 extracted the
+    last external libraries to satellite repositories).
+    """
     packages = [
-        "pyinstaller>=6.0",
-        "lark>=1.1.0",
-        "pyyaml>=6.0",
-        "pygls>=2.0.0",
-        "lsprotocol>=2023.0.0",
-        "pycparser>=2.21",
-        "pytest>=7.0.0",
-        "cmake",
+        ("pyinstaller>=6.0", "PyInstaller"),
+        ("lark>=1.1.0", "lark"),
+        ("pyyaml>=6.0", "yaml"),
+        ("pygls>=2.0.0", "pygls"),
+        ("lsprotocol>=2023.0.0", "lsprotocol"),
+        ("pycparser>=2.21", "pycparser"),
+        ("pytest>=7.0.0", "pytest"),
     ]
     if sys.version_info < (3, 11):
-        packages.append("tomli>=2.0.0")
+        packages.append(("tomli>=2.0.0", "tomli"))
+
+    missing = []
+    for spec, module in packages:
+        try:
+            __import__(module)
+        except ImportError:
+            missing.append(spec)
+
+    if not missing:
+        print("  [PIP] All build dependencies already available; skipping pip.")
+        return
 
     print("  [PIP] Checking / installing required packages...")
-    cmd = [str(py_exe), "-m", "pip", "install", "--upgrade"] + packages
+    cmd = [str(py_exe), "-m", "pip", "install", "--upgrade"] + missing
     run_cmd(cmd)
 
 
 def ensure_external_libraries():
-    """Downloads and unpacks external C libraries defined in extern_manifest.py.
+    """Downloads and unpacks the external C libraries pinned in extern_manifest.py.
 
-    Phase 9 / item 9.1: the release path forces a (re-)download so every archive
-    is hashed against its pinned digest before extraction, instead of trusting a
-    directory that may predate the pin.  ``PENGU_EXTERN_FAST=1`` skips the forced
-    re-download for local iteration; it is never set in CI.
+    The core runtime pins no external library, so this is a no-op today; it is
+    kept because the release path is where the verified re-download
+    (``PENGU_EXTERN_FAST=1`` opts out) belongs the moment a satellite binding is
+    packaged through this script. Phase 9 / item 9.1: force the (re-)download so
+    every archive is hashed against its pinned digest before extraction, instead
+    of trusting a directory that may predate the pin.
     """
     from extern_manifest import download_and_extract_externs
     force = os.environ.get("PENGU_EXTERN_FAST", "").strip() != "1"
@@ -255,7 +274,7 @@ def ensure_external_libraries():
 
 
 def build_runtime(py_exe: Path, rebuild: bool = True):
-    """Compiles all static external libraries and libpengu_runtime.a."""
+    """Compiles libpengu_runtime.a (and any pinned external library)."""
     ensure_external_libraries()
 
     build_script = ROOT_DIR / "build_runtime.py"
@@ -894,11 +913,11 @@ DESTDIR=/tmp/stage PREFIX=/usr ./install.sh   # package-manager staging
 {dist_dir.name}/
 ├── pengu{' .exe' if IS_WINDOWS else ''}
 ├── {vsix_name}
-├── std/
+├── std/                             # 21 pure-PenguScript modules
 └── runtime/
     ├── pengu_runtime.h
-    ├── libpengu_runtime.a
-    └── include/"""
+    ├── libpengu_runtime.a           # self-contained: libc/libm/pthreads only
+    └── include/                     # pengu_runtime.h + optional shared PCH"""
         quickstart = f"""\\
 ### 1. Add to PATH
 Add this directory (the one holding the `pengu` binary) to your system `PATH`
@@ -933,8 +952,15 @@ This directory contains the standalone distribution of the **PenguScript Compile
 
 ### 3. Create a new project
 ```bash
-pengu init my_app --type exe --links pengu_runtime
+pengu new exe my_app        # templates: exe, cli, lib
 cd my_app
+```
+
+External C bindings are installed per project from satellite repositories:
+
+```bash
+pengu add https://github.com/pengu-lang/pengu-raylib
+pengu update
 ```
 
 ### 4. Build and Run
@@ -947,9 +973,15 @@ pengu run
 ```
 
 ### 5. Available Commands
-- `pengu init <name>` : Initializes a new project template with `pengu.toml`.
-- `pengu build`        : Bundles and compiles to executable / static lib / DLL.
+- `pengu init <name>`  : Creates a project (`--template exe|cli|lib`).
+- `pengu new <t> <n>`  : Template-first front end for `init`.
+- `pengu add <url>`    : Installs a satellite binding/dependency into `lib/<name>/`.
+- `pengu update`       : Pulls and rebuilds every configured dependency.
+- `pengu build`        : Bundles and compiles to executable / static lib / shared lib / C.
 - `pengu run`          : Builds and runs the binary immediately.
+- `pengu check`        : Parses and type-checks without generating code.
+- `pengu bind <h>`     : Generates a `.d.pengu` binding from a C header.
+- `pengu fmt`          : Formats `.pengu` sources.
 - `pengu assets`       : Inspects (`--list`) or regenerates (`--force`) embedded project assets.
 - `pengu clean`        : Cleans intermediate build artifacts.
 - `pengu lsp`          : Starts the Language Server Protocol (LSP) for VS Code / Neovim.

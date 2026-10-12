@@ -96,6 +96,41 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Dependency workflow smoke (pengu add)
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          import tempfile
+
+          root = os.getcwd()
+          cli = os.path.join(root, "pengu_project.py")
+          tmp = tempfile.mkdtemp(prefix="pengu_add_ci_")
+
+          dep = os.path.join(tmp, "ci_dep")
+          os.makedirs(os.path.join(dep, "src"))
+          with open(os.path.join(dep, "pengu.toml"), "w", encoding="utf-8") as fh:
+              fh.write('[project]\nname = "ci_dep"\nversion = "0.1.0"\noutput = "static"\n')
+          with open(os.path.join(dep, "src", "main.pengu"), "w", encoding="utf-8") as fh:
+              fh.write("## ci dependency\nweave ci_fn into int:\n    return 7\n")
+
+          subprocess.run([sys.executable, cli, "init", "app", "--type", "exe"], cwd=tmp, check=True)
+          proj = os.path.join(tmp, "app")
+
+          def run(*args):
+              subprocess.run([sys.executable, cli, *args], cwd=proj, check=True)
+
+          run("add", dep)
+          assert os.path.isdir(os.path.join(proj, "lib", "ci_dep")), "pengu add did not install lib/ci_dep"
+          run("update")
+          run("check")
+          print("pengu add smoke: ok")
+          PY
+
       - name: Toolchain smoke test (run + cache + doctor)
         timeout-minutes: 10
         run: |

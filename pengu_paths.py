@@ -345,10 +345,10 @@ def find_version_file() -> Optional[Path]:
 
 
 # ---------------------------------------------------------------------------
-# pkg-config helpers (POSIX only).  build_runtime.py deliberately skips the
-# Windows-tuned static builds of libxml2 / libcurl / libmicrohttpd on POSIX
-# hosts; these helpers give the same include/link flags those libraries would
-# have provided on Windows.
+# pkg-config helpers (POSIX only).  The core runtime needs no external
+# libraries, but a satellite binding installed with `pengu add` may: these
+# helpers resolve the include/link flags of whatever pkg-config module a
+# project's `links:`/native dependencies name.
 # ---------------------------------------------------------------------------
 
 

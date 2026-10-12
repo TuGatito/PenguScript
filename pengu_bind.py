@@ -462,9 +462,9 @@ class BindGenerator:
     def module_name_for(directory: str, filename: str) -> str:
         """Returns the PenguScript module path of a binding file.
 
-        ``("std", "raygui.d.pengu")`` → ``"std.raygui"``. The ``.d.pengu``
+        ``("std", "widgets.d.pengu")`` → ``"std.widgets"``. The ``.d.pengu``
         suffix has two dots, so it has to be stripped by hand (``splitext``
-        would leave ``raygui.d``).
+        would leave ``widgets.d``).
         """
         stem = os.path.basename(filename)
         if stem.endswith(".d.pengu"):
@@ -479,10 +479,10 @@ class BindGenerator:
         """Maps ``header.h`` → ``module.path`` for the bindings in ``directory``.
 
         Bindings record their source header in the banner
-        (``## Source header: raygui.h``), which is what lets ``pengu bind`` emit
+        (``## Source header: widgets.h``), which is what lets ``pengu bind`` emit
         the ``import`` lines a binding needs to reuse the *same* types as the
-        headers it includes (``raygui.h`` includes ``raylib.h``, so
-        ``std/raygui.d.pengu`` must ``import std.raylib``).
+        headers it includes (``widgets.h`` includes ``base.h``, so
+        ``std/widgets.d.pengu`` must ``import std.base``).
         """
         found: Dict[str, str] = {}
         if not directory or not os.path.isdir(directory):
@@ -817,7 +817,7 @@ class BindGenerator:
             # Struct members keep their C name verbatim: a member called 'type'
             # or 'size' is perfectly usable from PenguScript (`s.type`, `s.size`,
             # `with size is 3`), and renaming it would silently break both the
-            # shipped bindings that use such members (nanosvg, typis) and any
+            # shipped bindings that use such members and any
             # hand-written code that reads them. Only *parameter* names, which
             # can shadow a type or a keyword inside the signature, are sanitized.
             f_name = field.name or "anon_field"
@@ -899,7 +899,7 @@ class BindGenerator:
         if name.startswith("__"):
             return
         # The 'insignia' directive re-adds the prefix to the C name, so strip a
-        # prefix that the header already spells out (webui_new_window -> new_window).
+        # prefix that the header already spells out (mylib_open -> open).
         decl_name = name
         if self.prefix and name.startswith(self.prefix):
             decl_name = name[len(self.prefix):]
@@ -1395,7 +1395,7 @@ def generate_bind_file(
     Args:
         header: Path to the C header (.h) to translate.
         output: Destination .d.pengu path (default: <header dir>/<stem>.d.pengu).
-        prefix: Insignia prefix added to every function (e.g. ``webui_``).
+        prefix: Insignia prefix added to every function (e.g. ``mylib_``).
         links: Native libraries to emit as ``link "..."`` lines.
         ignore: Symbol names / regexes to skip.
         include_paths: Extra include directories for the preprocessor.

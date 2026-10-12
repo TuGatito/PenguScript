@@ -1788,8 +1788,18 @@ class TestImportedModuleDottedTypes:
     def test_imported_module_rune_types_resolve(self):
         c = TestOmenDeclarationEmission._bundle_text(
             {
+                "geom.pengu": (
+                    "rune Rectangle:\n"
+                    "  x as f32\n"
+                    "  y as f32\n"
+                    "  width as f32\n"
+                    "  height as f32\n"
+                    "\n"
+                    "weave make_window with w as int, h as int into void:\n"
+                    "  return\n"
+                ),
                 "main.pengu": (
-                    "import std.raylib as rl\n\nweave main into void:\n    var player as rl.Rectangle with:\n        set .x is 400\n        set .width is 40\n        set .height is 40\n    var clone as rl.Rectangle is with x is 1.0, y is 2.0, width is 3.0, height is 4.0\n    var x0 as f32 is clone.x\n    if player.width > 10.0:\n        calling rl.InitWindow with 800, 450, \"demo\"\n"
+                    "import geom as rl\n\nweave main into void:\n    var player as rl.Rectangle with:\n        set .x is 400\n        set .width is 40\n        set .height is 40\n    var clone as rl.Rectangle is with x is 1.0, y is 2.0, width is 3.0, height is 4.0\n    var x0 as f32 is clone.x\n    if player.width > 10.0:\n        calling rl.make_window with 800, 450\n"
                 ),
             }
         )

@@ -5,8 +5,8 @@ The roadmap asked for `pengu new` and `pengu migrate`. `new` is the priority
 (no migration corpus exists yet — see the roadmap and CHANGELOG).
 
 `pengu new` is the template-first spelling of `pengu init`: it reuses the same
-templates (`exe`, `cli`, `lib`, `game`), so a new template cannot drift between
-two code paths.
+templates (`exe`, `cli`, `lib`), so a new template cannot drift between two code
+paths.
 """
 
 import os
@@ -18,7 +18,7 @@ import pytest
 from tests.conftest import REPO, requires_cc, requires_runtime
 
 PENGU = [sys.executable, str(REPO / "pengu_project.py")]
-TEMPLATES = ("exe", "cli", "lib", "game")
+TEMPLATES = ("exe", "cli", "lib")
 
 
 def _run(args, cwd=None):
@@ -92,8 +92,11 @@ def test_new_exe_builds_and_runs(tmp_path):
 def test_new_is_documented_in_help():
     res = _run(["new", "--help"])
     assert res.returncode == 0, res.stderr
-    assert "Exit codes" in res.stdout and "Example" in res.stdout
-    assert "pengu new lib my_lib" in res.stdout
+    # argparse wraps the example across lines at the terminal width, so compare
+    # against whitespace-normalised output.
+    flat = " ".join(res.stdout.split())
+    assert "Exit codes" in flat and "Example" in flat
+    assert "pengu new lib my_lib" in flat
 
 
 def test_migrate_is_not_claimed():

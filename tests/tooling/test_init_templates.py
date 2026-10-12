@@ -42,14 +42,6 @@ def test_cli_template(tmp_path):
     assert "pengu_main" in _bundles(tmp_path, "cliapp")
 
 
-def test_game_template(tmp_path):
-    proj = _init(tmp_path, "gameapp", template="game")
-    main = open(os.path.join(proj, "src", "main.pengu"), encoding="utf-8").read()
-    assert "while" in main
-    assert "frame" in main
-    assert "pengu_main" in _bundles(tmp_path, "gameapp")
-
-
 def test_lib_template_switches_output_to_static(tmp_path):
     proj = _init(tmp_path, "libapp", template="lib")
     cfg = ProjectConfig.load(proj)
@@ -77,7 +69,7 @@ def test_generated_entry_points_parse_for_every_output_type(tmp_path, out_type):
 
 
 def test_templates_are_buildable_end_to_end(tmp_path):
-    for i, template in enumerate(("exe", "cli", "game", "lib")):
+    for i, template in enumerate(("exe", "cli", "lib")):
         name = f"tpl{i}_{template}"
         _init(tmp_path, name, template=template)
         _bundles(tmp_path, name)
@@ -96,37 +88,6 @@ def _toml_path(path) -> str:
     by MinGW gcc, clang and cl.exe alike, so no escaping is needed.
     """
     return str(path).replace("\\", "/")
-
-
-def _manifest(proj: str) -> dict:
-    import tomllib
-
-    with open(os.path.join(proj, "pengu.toml"), "rb") as f:
-        return tomllib.load(f)
-
-
-def test_game_template_links_raylib(tmp_path):
-    """BUG-6.5: without this every raylib import fails at link time."""
-    proj = _init(tmp_path, "game_links", template="game")
-    data = _manifest(proj)
-    assert "raylib" in data["build"]["links"]
-
-
-def test_game_template_opens_a_window(tmp_path):
-    """BUG-6.4: the roadmap criterion is a real window, not a print loop."""
-    proj = _init(tmp_path, "game_win", template="game")
-    main = open(os.path.join(proj, "src", "main.pengu"), encoding="utf-8").read()
-    assert "import std.raylib" in main
-    for call in ("InitWindow", "BeginDrawing", "EndDrawing", "CloseWindow",
-                 "WindowShouldClose"):
-        assert call in main, call
-    assert "spark.println" not in main
-
-
-def test_game_template_bundles(tmp_path):
-    """The generated game code must at least parse, check and emit C."""
-    _init(tmp_path, "game_bundle", template="game")
-    _bundles(tmp_path, "game_bundle")
 
 
 def test_cli_template_uses_std_invoke(tmp_path):

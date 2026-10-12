@@ -98,9 +98,9 @@ def test_std_bindings_are_clean_under_pengu_fmt():
 
 
 def test_std_module_sources_are_clean_under_pengu_fmt():
-    """The 52 ``std/*.pengu`` modules are already in the 4-space convention."""
+    """The 21 pure ``std/*.pengu`` modules are already in the 4-space convention."""
     modules = sorted((REPO / "std").glob("*.pengu"))
-    assert len(modules) > 40
+    assert len(modules) >= 20
     res = subprocess.run(
         [*PENGU, "fmt", "--check", *[str(m) for m in modules]],
         capture_output=True, text=True, timeout=300,

@@ -23,28 +23,23 @@ from ._base import (
 #: which native ``-l`` archives get linked). The two tables are duplicated
 #: rather than shared because the code generator must not import the build
 #: manager; ``tests/compiler/test_binary_size_reduction.py`` asserts they agree.
+#:
+#: The core runtime has exactly one gated subsystem left (threads). Bindings to
+#: external libraries no longer ship here: they live in satellite repositories.
 FEATURE_GATE_MODULES: "Dict[str, str]" = {
-    "PENGU_ENABLE_REGEX": "regulus",
-    "PENGU_ENABLE_XML": "parchment",
-    "PENGU_ENABLE_NET": "precis",
-    "PENGU_ENABLE_CRYPTO": "seal",
     "PENGU_ENABLE_THREADS": "filum",
 }
 
 #: Runtime C symbol prefix -> the gate that must stay on for it. Consulted
-#: against the generated body so a hand-written ``declare pengu_c_regulus_*``
-#: keeps compiling even without ``import std.regulus``.
+#: against the generated body so a hand-written ``declare pengu_c_filum_*``
+#: keeps compiling even without ``import std.filum``.
 FEATURE_GATE_PREFIXES: "Dict[str, str]" = {
-    "pengu_c_regulus_": "PENGU_ENABLE_REGEX",
-    "pengu_c_parchment_": "PENGU_ENABLE_XML",
-    "pengu_c_precis_": "PENGU_ENABLE_NET",
-    "pengu_c_seal_": "PENGU_ENABLE_CRYPTO",
     "pengu_c_filum_": "PENGU_ENABLE_THREADS",
 }
 
 
 def _std_module_stem(path: str) -> Optional[str]:
-    """``/repo/std/regulus.pengu`` -> ``"regulus"``; anything else -> None."""
+    """``/repo/std/spark.pengu`` -> ``"spark"``; anything else -> None."""
     norm = str(path).replace("\\", "/")
     idx = norm.rfind("/std/")
     if idx < 0:
@@ -221,8 +216,8 @@ class BundleMixin:
 
         A gate is 1 when the matching ``std`` module was imported *or* when the
         generated body mentions one of the subsystem's C symbols. The second
-        condition matters: a program can ``declare pengu_c_regulus_compile``
-        and call it without ever importing ``std.regulus``, and compiling that
+        condition matters: a program can ``declare pengu_c_filum_mutex_new``
+        and call it without ever importing ``std.filum``, and compiling that
         against a header with the declarations gated out would be a regression.
         """
         imported: Set[str] = set()
@@ -245,8 +240,8 @@ class BundleMixin:
 
         The runtime header defaults every gate to 1 so a plain C consumer sees
         the whole API; the bundle narrows that to what the program actually
-        uses. ``pengu_project.py`` links the matching native archives from the
-        same information (see BENCHMARKS.md §Binary size).
+        uses. ``pengu_project.py`` reads the same gates back out of the bundle
+        to decide whether a precompiled header still matches.
         """
         marker = '#include "pengu_runtime.h"'
         if marker not in bundle_code:

@@ -194,9 +194,13 @@ watch
 
 ## 4. Stdlib
 
-27 pure modules + 25 C bindings = **52**.
+21 pure modules + 0 in-tree C bindings = **21**.
 The version policy is LANGUAGE.md §19.0: every `<MODULE>_VERSION` constant holds the
 **toolchain** version, not an independent module version.
+
+The C bindings that used to ship in `std/` (the 25 `.d.pengu` modules, plus `regulus`,
+`parchment`, `seal` and `xlsx`) moved to a satellite repository in Phase 1 and now install
+per project with `pengu add <url>` (see [`EXTERNAL_MODULES.md`](EXTERNAL_MODULES.md)).
 
 | Surface | State | Why |
 |---|---|---|
@@ -204,7 +208,7 @@ The version policy is LANGUAGE.md §19.0: every `<MODULE>_VERSION` constant hold
 | Public `weave`/`rune` signatures | 🔒 Frozen | Additive parameters with defaults only |
 | `<MODULE>_VERSION` policy (§19.0) | 🔒 Frozen | One version for the toolchain |
 | Deprecated aliases in `docs/DEPRECATIONS.md` | 🔒 Kept for all of 1.x | Removed in 2.0 |
-| The 3 opt-in modules (`celeris`, `xlsx`, `trial`) | 🔒 Stay opt-in | They pull heavy dependencies; never auto-imported |
+| The opt-in module (`trial`) | 🔒 Stay opt-in | Its test-runner API is imported explicitly, never auto-imported |
 | The bodies of the modules | 🟡 Permitted in 1.x | Behaviour-preserving rewrites are not a break |
 
 <!-- freeze:stdlib-modules -->
@@ -212,7 +216,6 @@ The version policy is LANGUAGE.md §19.0: every `<MODULE>_VERSION` constant hold
 archivum.pengu
 arithmancy.pengu
 atlas.pengu
-celeris.pengu
 chronicle.pengu
 cipher.pengu
 compass.pengu
@@ -224,56 +227,24 @@ ledger.pengu
 loom.pengu
 lot.pengu
 oracle.pengu
-parchment.pengu
-precis.pengu
-regulus.pengu
 rites.pengu
 scrolls.pengu
-seal.pengu
 spark.pengu
 tally.pengu
 trial.pengu
 ward.pengu
 whisper.pengu
-xlsx.pengu
 ```
 <!-- /freeze:stdlib-modules -->
 
 <!-- freeze:stdlib-bindings -->
 ```text
-datastructura.d.pengu
-fenestra.d.pengu
-imago.d.pengu
-miniaudio.d.pengu
-minicoro.d.pengu
-nanosvg.d.pengu
-nanosvgrast.d.pengu
-pactum.d.pengu
-perlinum.d.pengu
-raygui.d.pengu
-raylib.d.pengu
-raymath.d.pengu
-rlgl.d.pengu
-rlights.d.pengu
-scriptor.d.pengu
-sqlite3.d.pengu
-stb_herringbone_wang_tile.d.pengu
-stb_image_resize2.d.pengu
-tomlum.d.pengu
-typis.d.pengu
-uuid.d.pengu
-webui.d.pengu
-xlsxio.d.pengu
-xxhash.d.pengu
-yaml.d.pengu
 ```
 <!-- /freeze:stdlib-bindings -->
 
 <!-- freeze:opt-in-modules -->
 ```text
-celeris.pengu
 trial.pengu
-xlsx.pengu
 ```
 <!-- /freeze:opt-in-modules -->
 

@@ -816,7 +816,7 @@ class ExprMixin:
 
                 obj_name = str(base_parts[0]) if len(base_parts) == 1 and isinstance(base_parts[0], (Token, str)) else None
 
-                # Check if this is an imported module call (e.g. spark.println or webui.new_window)
+                # Check if this is an imported module call (e.g. spark.println or spark.print)
                 if obj_name:
                     obj_sym = self.symbols.lookup(obj_name) if self.symbols else None
                     if obj_sym is not None and obj_sym.kind == "import":

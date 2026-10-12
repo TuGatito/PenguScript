@@ -42,13 +42,18 @@ def _bindings():
     return sorted(STD.glob("*.d.pengu"))
 
 
-def test_bindings_exist_and_are_the_generated_half():
+def test_no_generated_bindings_remain_in_the_core_tree():
+    """Phase 1 moved every C binding to a satellite repository.
+
+    The `.d.pengu` files no longer exist here, so the generated half is empty;
+    the hand-written modules are the only thing the versioning ratchet scopes.
+    """
     bindings = _bindings()
-    assert bindings, "no generated bindings found"
+    assert bindings == [], (
+        f"generated bindings came back into std/: {[p.name for p in bindings]}"
+    )
     hand_written = sorted(p for p in STD.glob("*.pengu") if not p.name.endswith(".d.pengu"))
     assert hand_written, "no hand-written modules found"
-    # The two sets must not overlap.
-    assert not ({p.name for p in bindings} & {p.name for p in hand_written})
 
 
 def test_versioning_policy_excludes_generated_bindings():
@@ -76,6 +81,9 @@ def test_upstream_binding_versions_are_not_overwritten_by_toolchain_versions():
     release, ``SQLITE_VERSION`` the sqlite release, and so on -- none of them is
     the PenguScript ``VERSION``.  Adding a toolchain-tracking constant into a
     generated binding is what this rejects.
+
+    Phase 1 removed the bindings from the core tree, so there is nothing left to
+    check; the loop stays so the guard still runs if a `.d.pengu` ever returns.
     """
     checked = 0
     for path in _bindings():
@@ -88,9 +96,10 @@ def test_upstream_binding_versions_are_not_overwritten_by_toolchain_versions():
                 f"binding constants must stay upstream library versions"
             )
             checked += 1
-    assert checked == 3, (
-        "expected exactly 3 upstream *_VERSION string constants in bindings "
-        f"(RAYLIB_VERSION, RAYGUI_VERSION, SQLITE_VERSION); found {checked}"
+    assert checked == 0, (
+        "a *_VERSION string constant appeared in a binding; the upstream "
+        f"constants (RAYLIB_VERSION, RAYGUI_VERSION, SQLITE_VERSION) left with "
+        f"the bindings in phase 1, found {checked}"
     )
 
 

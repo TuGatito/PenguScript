@@ -57,9 +57,3 @@ def test_pengu_bind_subcommand_still_works(tmp_path):
     text = out.read_text(encoding="utf-8")
     assert "rune Bird:" in text and "wings as int" in text
     assert "bird_fly" in text
-
-
-def test_regen_tool_still_imports_the_library_api():
-    """`regen_std_bindings.py` depends on the API, not the removed CLI."""
-    src = (REPO / "regen_std_bindings.py").read_text(encoding="utf-8")
-    assert "from pengu_bind import generate_bind_file" in src

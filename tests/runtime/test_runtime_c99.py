@@ -1,26 +1,25 @@
 """Phase 3 item 3.1 (B8) and 3.12 — the runtime translation unit is legal C99/C11.
 
 Before Phase 3, `pengu_parser/pengu_runtime.c` did **not** compile as valid C: it
-includes `<mbedtls/private/*.h>`, whose declarations mbedtls gates behind
-`MBEDTLS_ALLOW_PRIVATE_ACCESS`, and `build_runtime.py` compensated with
+included third-party headers whose declarations the upstream library gates behind
+private-access macros, and `build_runtime.py` compensated with
 
     -Wno-incompatible-pointer-types -Wno-implicit-function-declaration
 
-which suppressed **all 24** implicit-function-declaration errors for
-`mbedtls_md5`/`sha1`/`sha256`/`sha512`. They never appeared in the build log, and
-`cl.exe` rejects both flags, so no MSVC build was possible.
+which suppressed the implicit-function-declaration errors. They never appeared in
+the build log, and `cl.exe` rejects both flags, so no MSVC build was possible.
 
-Rule C1: these tests **compile** the translation unit with the real flags and assert
-on the compiler's exit status and diagnostic count. The one grep-shaped assertion
-below is over `build_runtime.py`'s own flag list — build configuration, not program
-source — and it is deliberately paired with a compile so the property is proven by
-the compiler, not by the string.
+Phase 1 removed every external binding from the tree, so the runtime now needs
+nothing beyond libc/libm/pthreads and the only build-time define is
+`PENGU_RUNTIME_SUBSYSTEM_ONLY` (plus the `PENGU_ENABLE_THREADS` gate).
+
+Rule C1: these tests **compile** the translation unit with the real flags and
+assert on the compiler's exit status and diagnostic count.
 """
 
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -57,25 +56,8 @@ def _runtime_flags():
         "-O2",
         "-I" + str(mod.ROOT_DIR),
         "-I" + str(mod.INCLUDE_DIR),
-        "-DPCRE2_STATIC",
-        "-DPCRE2_CODE_UNIT_WIDTH=8",
-        "-DLIBXML_STATIC",
-        "-DCURL_STATICLIB",
-        "-DMBEDTLS_ALLOW_PRIVATE_ACCESS",
     ]
-    if getattr(mod, "IS_POSIX", False):
-        for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
-            for tok in mod._pkg_config_cflags(pkg):
-                if tok not in flags:
-                    flags.append(tok)
-    # Vendored fallbacks for headers that live under extern/.
-    for extra in (
-        REPO / "extern" / "mbedtls-4.2.0" / "include",
-        REPO / "extern" / "curl-8.21.0" / "include",
-        REPO / "extern" / "webui-2.5.0-beta.3" / "include",
-    ):
-        if extra.exists():
-            flags.append("-I" + str(extra))
+    flags += list(mod.SECTION_FLAGS)
     return flags
 
 
@@ -93,6 +75,7 @@ def _compile_runtime(extra_flags=(), std="c11"):
 # ---------------------------------------------------------------------------
 # Item 3.1 — the unit compiles clean with no suppression flags
 # ---------------------------------------------------------------------------
+
 
 def test_runtime_compiles_with_no_suppression_flags():
     """The core B8 property: valid C11, no -Wno-* needed."""
@@ -126,34 +109,12 @@ def _undefined_symbols(obj: Path) -> set:
     return names
 
 
-def test_runtime_does_not_reference_the_libxml2_xmlFree_variable():
-    """MinGW cannot garbage-collect `.rdata$.refptr.<sym>` under --gc-sections.
-
-    `xmlFree` is libxml2's free-function *variable*, not a function.  Calling it
-    directly leaves a data reference that PE's `--gc-sections` keeps, so every
-    program that linked the runtime demanded `-lxml2` -- even one that only
-    imported std.spark -- and `pengu run` failed with "undefined reference to
-    `xmlFree'".  The runtime must ask for it through `xmlMemGet()`, an ordinary
-    function that disappears with the parchment code.
-    """
-    rc, out = _compile_runtime()
-    assert rc == 0, out
-    undefined = _undefined_symbols(OBJ_DIR / "_pengu_runtime_probe.o")
-    assert "xmlFree" not in undefined, (
-        "the runtime still references libxml2's `xmlFree` variable; free through "
-        "`xmlMemGet()` instead so MinGW's --gc-sections drops the parchment code"
-    )
-    assert "xmlMemGet" in undefined, (
-        "the parchment code should obtain the free function via xmlMemGet()"
-    )
-
-
 def test_the_core_object_references_no_optional_library():
     """The member a plain program pulls must need nothing but libc.
 
     PE's `--gc-sections` keeps the unreferenced sections of an archive member,
     so a single-member runtime made `hello_world` demand `-lxml2`/`-lmicrohttpd`
-    on Windows.  Every optional subsystem now lives in its own member
+    on Windows. Every optional subsystem now lives in its own member
     (`build_runtime.RUNTIME_OBJECTS`); this compiles the core exactly the way
     that build does and proves it has no optional-library reference.
     """
@@ -174,70 +135,38 @@ def test_the_core_object_references_no_optional_library():
 
     undefined = _undefined_symbols(obj)
     optional = sorted(s for s in undefined
-                      if s.startswith(("MHD_", "curl_", "pcre2_", "mbedtls_", "xml")))
+                      if s.startswith(("MHD_", "curl_", "pcre2_", "mbedtls_", "xml", "sqlite3_",
+                                       "webui", "raylib", "XXH", "yaml_", "toml")))
     assert not optional, (
         f"the core runtime object references an optional library: {optional}; "
-        "its implementation belongs in its own archive member"
+        "its implementation belongs in a satellite binding, not the runtime"
     )
     assert "pengu_abi_version" not in undefined, "the core must define the ABI pin"
 
 
 def test_runtime_has_no_implicit_function_declarations():
-    """The specific defect B8 hid: 24 implicit declarations for mbedtls hashes.
+    """No call in the runtime may rely on an implicit declaration.
 
     Asserted by compiling with `-Werror=implicit-function-declaration`, which turns
-    exactly that class into a hard error. Without
-    `-DMBEDTLS_ALLOW_PRIVATE_ACCESS` this fails with 24 errors.
+    exactly that class into a hard error.
     """
     rc, out = _compile_runtime(extra_flags=["-Werror=implicit-function-declaration"])
     assert rc == 0, (
-        "implicit function declarations present; the mbedtls private-access define "
-        f"is likely missing:\n{out}"
+        f"implicit function declarations present:\n{out}"
     )
-
-
-def test_runtime_compiles_without_the_private_access_define():
-    """The `#ifndef` guards (item 3.12) keep the unit clean either way.
-
-    `build_runtime.py` passes the define, but the file must not depend on it being
-    on the command line for correctness of the macro guards.
-    """
-    flags = [f for f in _runtime_flags() if f != "-DMBEDTLS_ALLOW_PRIVATE_ACCESS"]
-    cmd = ["gcc", "-std=c11", "-Wall", "-Wextra", *flags,
-           "-c", str(RUNTIME_C), "-o", str(OBJ_DIR / "_pengu_runtime_nodefine.o")]
-    r = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True, timeout=600)
-    # Without the define, mbedtls hides the private declarations, so implicit
-    # declaration errors are EXPECTED here; what must not appear is a macro
-    # redefinition warning, which is what item 3.12 fixed.
-    redefs = [l for l in (r.stdout + r.stderr).splitlines() if "redefine" in l]
-    assert not redefs, "macro redefinition warnings returned:\n" + "\n".join(redefs)
 
 
 # ---------------------------------------------------------------------------
 # Item 3.12 — the macro guards
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("macro", ["PCRE2_STATIC", "LIBXML_STATIC", "CURL_STATICLIB"])
-def test_static_macros_are_guarded(macro):
-    """Each `#define` that the build also passes on the command line is guarded.
-
-    Unguarded, each one produced `-Wmacro-redefined` when the flag was present.
-    """
-    text = RUNTIME_C.read_text(encoding="utf-8")
-    assert re.search(rf"#ifndef\s+{macro}\b", text), f"{macro} is not #ifndef-guarded"
-    # And the guard must not merely exist somewhere: it has to precede the define.
-    guard = text.index(f"#ifndef {macro}")
-    define = text.index(f"#define {macro}")
-    assert guard < define, f"{macro}: #ifndef appears after #define"
-
-
 def test_build_runtime_has_no_suppressions_for_the_runtime():
-    """`build_pengu_runtime` passes no `-Wno-*` and does pass the mbedtls define.
+    """`build_pengu_runtime` passes no `-Wno-*`.
 
-    Scoped to that one function on purpose: the five other `-Wno-*` sites in
-    `build_runtime.py` compile third-party libraries (libxml2, curl, libmicrohttpd,
-    raylib), which is out of scope for Phase 3. Asserting on the whole file would
-    either be wrong or would force unrelated churn.
+    Scoped to that one function on purpose: the other `-Wno-*` sites in
+    `build_runtime.py` compile third-party libraries, which is out of scope for
+    Phase 3. Asserting on the whole file would either be wrong or would force
+    unrelated churn.
     """
     import ast
 
@@ -255,17 +184,13 @@ def test_build_runtime_has_no_suppressions_for_the_runtime():
         "build_pengu_runtime still suppresses warnings; B8 is that the runtime is "
         f"valid C without them: {suppressed}"
     )
-    assert any("MBEDTLS_ALLOW_PRIVATE_ACCESS" in s for s in literals), (
-        "build_pengu_runtime must pass -DMBEDTLS_ALLOW_PRIVATE_ACCESS; without it the "
-        "runtime is ill-formed C99 (24 implicit function declarations)"
-    )
 
 
-def test_the_three_guarded_macros_are_the_ones_the_build_passes():
+def test_the_subsystem_define_is_guarded():
     """Cross-check the guards against the flags, so they cannot drift apart.
 
-    If the build stops passing one of these defines, the guard is harmless; if it
-    starts passing a new one that the file also defines unguarded, this test says so.
+    The build passes `-DPENGU_RUNTIME_SUBSYSTEM_ONLY`; the runtime must define it
+    under an `#ifndef` guard or every compile emits `-Wmacro-redefined`.
     """
     import ast
 

@@ -1,4 +1,4 @@
-"""Tests for P2 features (P2.2 2D arrays, P2.4 memory banish API, P2.3 module state, P2.1 rlgl, P2.5 strict pointers, P2.6 pengu bind)."""
+"""Tests for P2 features (P2.2 2D arrays, P2.4 memory banish API, P2.3 module state, P2.5 strict pointers, P2.6 pengu bind)."""
 
 from pathlib import Path
 import pytest
@@ -8,13 +8,9 @@ from tests.conftest import (
     check_ok,
     check_error,
     gen_bundle,
-    bundle_project,
     compile_run,
     requires_cc,
     requires_runtime,
-    requires_lib,
-    is_windows,
-    raylib_link_flags,
     REPO,
     HAVE_CC,
     HAVE_RUNTIME,
@@ -345,57 +341,6 @@ class TestModuleState:
 
 
 # ==========================================================================
-# P2.1 — rlgl binding
-# ==========================================================================
-
-
-class TestRlgl:
-    """rlgl binding: raylib OpenGL backend, coexistence with raylib, matrix interop."""
-
-    def test_rlgl_d_pengu_checks_ok(self):
-        """std/rlgl.d.pengu type-checks cleanly."""
-        src = Path("std/rlgl.d.pengu").read_text(encoding="utf-8")
-        check_ok(src, filename="std/rlgl.d.pengu")
-
-    @requires_cc
-    @requires_runtime
-    @requires_lib("raylib")
-    def test_rlgl_coexistence_with_raylib(self):
-        """A program importing both std.raylib and std.rlgl bundles, compiles, and shares Matrix without conflict."""
-        src = (
-            "import std.raylib as rl\n"
-            "import std.rlgl as rlgl\n"
-            "weave main into int:\n"
-            "    calling rl.InitWindow with 100, 100, \"rlgl_test\"\n"
-            "    if not calling rl.IsWindowReady:\n"
-            "        return 0\n"
-            "    calling rlgl.rlMatrixMode with rlgl.RL_MODELVIEW\n"
-            "    calling rlgl.rlPushMatrix\n"
-            "    var mat as rl.Matrix is calling rlgl.rlGetMatrixModelview\n"
-            "    calling rlgl.rlSetMatrixModelview with mat\n"
-            "    calling rlgl.rlBegin with rlgl.RL_TRIANGLES\n"
-            "    calling rlgl.rlColor4ub with 255, 0, 0, 255\n"
-            "    calling rlgl.rlVertex3f with 0.0, 1.0, 0.0\n"
-            "    calling rlgl.rlVertex3f with -1.0, -1.0, 0.0\n"
-            "    calling rlgl.rlVertex3f with 1.0, -1.0, 0.0\n"
-            "    calling rlgl.rlEnd\n"
-            "    calling rlgl.rlPopMatrix\n"
-            "    calling rl.CloseWindow\n"
-            "    if mat.m0 > 0.99 and mat.m0 < 1.01:\n"
-            "        return 0\n"
-            "    return 1\n"
-        )
-        libs = raylib_link_flags()
-        c_code = bundle_project(src, tag="rlgl_coexist")
-        assert "rlgl.h" in c_code
-        assert "raylib.h" in c_code
-        assert "rlBegin(" in c_code
-        assert "InitWindow(" in c_code
-        res = compile_run(src, tag="rlgl_coexist", extra_libs=libs)
-        assert res.returncode == 0
-
-
-# ==========================================================================
 # P2.5 — Strict Pointer Typing
 # ==========================================================================
 
@@ -620,23 +565,6 @@ class TestPenguBind:
         generate_bind_file(str(header), output=str(out))
         content = out.read_text(encoding="utf-8")
         assert "alias alloc_fn as ref to weave with _opaque as ref to void, items as int, size as int into ref to void" in content
-        check_ok(content)
-
-    def test_bind_rlgl_regression(self, tmp_path):
-        """rlgl.h binds cleanly with include_paths and passes check_ok."""
-        header = REPO / "extern/raylib-6.0/src/rlgl.h"
-        if not header.exists():
-            pytest.skip("extern/raylib-6.0/src/rlgl.h not found")
-        out_file = tmp_path / "rlgl.d.pengu"
-        p = generate_bind_file(
-            str(header),
-            output=str(out_file),
-            include_paths=[str(header.parent)],
-        )
-        assert Path(p).is_file()
-        content = out_file.read_text(encoding="utf-8")
-        assert "declare rlBegin " in content
-        assert "declare rlEnd into void" in content
         check_ok(content)
 
     def test_bind_zlib_success_and_compile(self, tmp_path):

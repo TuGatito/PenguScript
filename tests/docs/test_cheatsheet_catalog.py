@@ -113,7 +113,11 @@ def test_documented_backtick_names_exist_as_weaves(module):
 
 
 def test_known_previously_broken_names_are_fixed():
-    """Direct regression pins for the three names the roadmap listed."""
+    """Direct regression pins for the names the roadmap listed.
+
+    The `std.seal` row (and its `zlib_compress`/`zlib_decompress` pins) left with
+    the satellite bindings in phase 1.
+    """
     text = CHEATSHEET.read_text(encoding="utf-8")
     rows = _catalog_rows()
     loom_row = rows["loom"]
@@ -121,7 +125,4 @@ def test_known_previously_broken_names_are_fixed():
     assert "`max_int`" in loom_row and "`min_int`" in loom_row
     assert "`product`" not in loom_row, "loom row still documents `product`"
     assert "`max`/`min`" not in loom_row, "loom row still documents `max`/`min`"
-    seal_row = rows["seal"]
-    assert "`zlib_compress`" in seal_row and "`zlib_decompress`" in seal_row
-    assert "zlib `compress`/`decompress`" not in seal_row
-    assert "(27 modules)" in text
+    assert "(21 modules)" in text

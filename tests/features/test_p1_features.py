@@ -1,16 +1,12 @@
-"""Tests for P1 features (P1.3 array length, P1.2 struct arrays, P1.1 C varargs, P1.5 pointers, P1.4 raymath)."""
+"""Tests for P1 features (P1.3 array length, P1.2 struct arrays, P1.1 C varargs, P1.5 pointers)."""
 
 import pytest
 from tests.conftest import (
-    check_ok,
     check_error,
     gen_bundle,
     compile_run,
     requires_cc,
     requires_runtime,
-    requires_lib,
-    is_windows,
-    raylib_link_flags,
 )
 
 
@@ -88,17 +84,23 @@ class TestArrayLength:
 
 
 class TestStructArrays:
-    """Struct literals in array initializers and index assignments without spurious E0011."""
+    """Struct literals in array initializers and index assignments without spurious E0011.
+
+    The struct is declared locally: the phase-1 tree no longer ships a C binding
+    (``std.raylib``) to borrow ``Vector2``/``Color`` from.
+    """
 
     @requires_cc
     @requires_runtime
     def test_struct_array_literal_init(self):
-        """Array of raylib.Vector2 initialized with struct literals compiles and runs."""
+        """Array of local structs initialized with struct literals compiles and runs."""
         src = (
-            "import std.raylib\n"
             "import std.spark\n\n"
+            "rune Vec2:\n"
+            "    x as float\n"
+            "    y as float\n\n"
             "weave main into int:\n"
-            "    var cs as array of raylib.Vector2 with size 2 is [(with x is 1.0, y is 2.0), (with x is 2.0, y is 3.0)]\n"
+            "    var cs as array of Vec2 with size 2 is [(with x is 1.0, y is 2.0), (with x is 2.0, y is 3.0)]\n"
             "    var x0 as float is (cs at 0) . x\n"
             "    var y1 as float is (cs at 1) . y\n"
             "    calling spark.println with \"x0={x0} y1={y1}\"\n"
@@ -113,11 +115,13 @@ class TestStructArrays:
     def test_struct_array_index_assignment(self):
         """Reassigning struct array elements by index and field access works properly."""
         src = (
-            "import std.raylib\n"
             "import std.spark\n\n"
+            "rune Vec2:\n"
+            "    x as float\n"
+            "    y as float\n\n"
             "weave main into int:\n"
-            "    var v as raylib.Vector2 is with x is 0.0, y is 0.0\n"
-            "    var cs as array of raylib.Vector2 with size 4 is [v, v, v, v]\n"
+            "    var v as Vec2 is with x is 0.0, y is 0.0\n"
+            "    var cs as array of Vec2 with size 4 is [v, v, v, v]\n"
             "    set cs at 0 is with x is 9.0, y is 9.0\n"
             "    set cs at 1 . x is 5.0\n"
             "    var x0 as float is (cs at 0) . x\n"
@@ -134,12 +138,14 @@ class TestStructArrays:
     @requires_cc
     @requires_runtime
     def test_color_array_no_regression(self):
-        """Array of raylib.Color continues working without regressions."""
+        """Array of a local struct continues working without regressions."""
         src = (
-            "import std.raylib\n"
             "import std.spark\n\n"
+            "rune Vec2:\n"
+            "    x as float\n"
+            "    y as float\n\n"
             "weave main into int:\n"
-            "    var colors as array of raylib.Color with size 2 is [raylib.RED, raylib.BLUE]\n"
+            "    var colors as array of Vec2 with size 2 is [(with x is 1.0, y is 0.0), (with x is 0.0, y is 1.0)]\n"
             "    calling spark.println with \"colors={colors length}\"\n"
             "    return 0\n"
         )
@@ -320,60 +326,6 @@ class TestPointerIndexing:
         )
         res = compile_run(src, tag="p1_slice_bridge")
         assert "len=4 sum=100" in res.stdout
-
-
-# ==========================================================================
-# P1.4 — raymath C shim and binding
-# ==========================================================================
-
-
-class TestRaymath:
-    """Tests for raymath non-inline C shim and std/raymath bindings."""
-
-    def test_raymath_check_clean(self):
-        """std/raymath declarations and usage check cleanly."""
-        src = (
-            "import std.raylib\n"
-            "import std.raymath\n\n"
-            "weave main into int:\n"
-            "    var v1 as raylib.Vector2 is with x is 1.0, y is 2.0\n"
-            "    var v2 as raylib.Vector2 is with x is 3.0, y is 4.0\n"
-            "    var v3 as raylib.Vector2 is calling raymath.Vector2Add with v1, v2\n"
-            "    var z as raylib.Vector2 is calling raymath.Vector2Zero\n"
-            "    var m as raylib.Matrix is calling raymath.MatrixIdentity\n"
-            "    return 0\n"
-        )
-        check_ok(src)
-
-    @requires_cc
-    @requires_runtime
-    @requires_lib("pengu_raymath")
-    @requires_lib("raylib")
-    def test_raymath_runtime_vectors_and_matrices(self):
-        """Calling raymath functions calculates accurate results at runtime."""
-        src = (
-            "import std.raylib\n"
-            "import std.raymath\n"
-            "import std.spark\n\n"
-            "weave main into int:\n"
-            "    var v1 as raylib.Vector2 is with x is 3.0, y is 0.0\n"
-            "    var v2 as raylib.Vector2 is with x is 0.0, y is 4.0\n"
-            "    var sum_v as raylib.Vector2 is calling raymath.Vector2Add with v1, v2\n"
-            "    var len as f32 is calling raymath.Vector2Length with sum_v\n"
-            "    var zero_v as raylib.Vector2 is calling raymath.Vector2Zero\n"
-            "    var m1 as raylib.Matrix is calling raymath.MatrixIdentity\n"
-            "    var m2 as raylib.Matrix is calling raymath.MatrixMultiply with m1, m1\n"
-            "    var q as raylib.Quaternion is with x is 0.0, y is 0.0, z is 0.0, w is 1.0\n"
-            "    var qm as raylib.Matrix is calling raymath.QuaternionToMatrix with q\n"
-            "    calling spark.println with \"len={len} zx={zero_v.x} m0={m2.m0} qm0={qm.m0}\"\n"
-            "    return 0\n"
-        )
-        libs = ["-lpengu_raymath"] + raylib_link_flags()
-        res = compile_run(src, tag="p1_raymath", extra_libs=libs)
-        assert "len=5" in res.stdout
-        assert "zx=0" in res.stdout
-        assert "m0=1" in res.stdout
-        assert "qm0=1" in res.stdout
 
 
 # ==========================================================================

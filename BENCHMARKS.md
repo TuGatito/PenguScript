@@ -13,17 +13,18 @@ this file was 6.7× wrong about binary size for exactly that reason (see
 §Binary size).
 
 What was re-measured for this revision: every size and run number in §Results
-and §Binary size, for all ten cases of [`benches/run_bench.py`](benches/run_bench.py).
+and §Binary size, for the cases of [`benches/run_bench.py`](benches/run_bench.py)
+that do not depend on a satellite binding.
 The timings in §Toolchain timings still carry their previous numbers and have
 not been re-run; they are machine-bound and were not touched by this change.
 
 ## How to reproduce
 
 ```bash
-python build_runtime.py                 # one-time: build the runtime archives
+python build_runtime.py                 # one-time: build libpengu_runtime.a (~1.4 s)
 python benches/run_bench.py             # best of 3, human-readable
 python benches/run_bench.py --repeat 5 --csv benches/results/local.csv
-python benches/binary_size_breakdown.py --legacy   # per-archive size attribution
+python benches/binary_size_breakdown.py # per-archive size attribution
 ```
 
 The harness measures, per program:
@@ -77,13 +78,14 @@ stdlib-versus-raw-language, not Pengu-versus-C) are measured by the same harness
 | `stdlib_ops` | 1.81 s | 2.0 ms | **18.4 KiB** |
 | `scrolls_ops` | 2.17 s | 89.0 ms | **30.4 KiB** |
 | `atlas_ops` | 4.42 s | 8.0 ms | **22.4 KiB** |
-| `cipher_ops` | 6.85 s | 94.0 ms | **30.4 KiB** |
 | `loom_ops` | 4.02 s | 1.0 ms | **22.4 KiB** |
 | `arithmancy_ops` | 1.24 s | 2.0 ms | **18.4 KiB** |
 
-`cipher_ops` imports `std.cipher` and `std.seal`, so it is the only case here
-that pulls a native archive (zlib + mbedcrypto); it ties with `scrolls_ops` for
-the largest at 30.4 KiB. That is the shape the size work was aiming for: cost
+The `cipher_ops` case used to import `std.cipher` and `std.seal`; with `std.seal`
+**moved to a satellite repository** its row is no longer published here, and the
+harness case needs a satellite-free replacement before it can be re-measured.
+Every case left in the table is pure PenguScript, and `scrolls_ops` is the
+largest at 30.4 KiB. That is the shape the size work was aiming for: cost
 proportional to what the program actually uses, rather than a flat ~660 KiB
 floor.
 
@@ -93,9 +95,11 @@ The roadmap's original target was `< 65 KB` for a `hello_world` binary. Before
 2.0 the real figure was **659.5–679.5 KiB** for every case, because the linker
 resolves a static archive at *member* (`.o`) granularity and
 `libpengu_runtime.a` had a single member. Any reference to the runtime dragged
-in its whole object, which in turn referenced `pcre2_compile`, `xmlReadMemory`,
-`curl_easy_init`, `mbedtls_sha256`, `inflate` and `MHD_start_daemon` — and all
-six archives were linked unconditionally.
+in its whole object, and the external archives it referenced (`pcre2_compile`,
+`xmlReadMemory`, `curl_easy_init`, `mbedtls_sha256`, `inflate`,
+`MHD_start_daemon`) were linked unconditionally. Those external libraries have
+since **moved to satellite repositories**: the runtime that remains is
+self-contained and needs only libc, libm and pthreads.
 
 The binary size from 2.0 on, per case:
 
@@ -106,14 +110,14 @@ The binary size from 2.0 on, per case:
 | `string_ops` | 663.5 KiB | **18.4 KiB** | 36× |
 | `list_ops` | 659.5 KiB | **14.3 KiB** | 46× |
 | `stdlib_ops` | 663.5 KiB | **18.4 KiB** | 36× |
-| `cipher_ops` | 671.5 KiB | **30.4 KiB** | 22× |
 
 The *Before* column is history, not a re-measurement: those are the numbers this
 page published for `1.0.0-rc1` at `c8e07d9`, and they are left exactly as they
 were rather than edited to fit a story. They are corroborated rather than
 trusted — a `hello_world` built on the pre-change 2.0 tree measured 667.5 KiB,
-and `binary_size_breakdown.py --legacy` reproduces 663.5 KiB on today's checkout
-(§Binary size breakdown). The *After* column was measured for this revision.
+and the legacy link shape was independently reported at 663.5 KiB before the
+external archives moved to satellite repositories (§Binary size breakdown). The
+*After* column was measured for this revision.
 
 **The fair comparison is not the one this page used to make.** The `14.1 KiB`
 C column is a *dynamically linked* binary that calls into `libc.so`; a
@@ -130,56 +134,60 @@ honest C-versus-Pengu ratio is:
 
 So: **the PenguScript binary is now the same size as the C one**, 23× smaller
 than the Rust one, and when both are asked for a fully static, self-contained
-image PenguScript is **1.19× C static** — it statically links its own runtime
-plus zlib, which the C `hello` does not need. The 46.7× claim the project used
-to carry is dead, and so is the "~2.0× smaller than Rust" claim that replaced
-it: that one was measured against a dynamically linked Rust binary while
-PenguScript was statically linking six archives.
+image PenguScript is **1.19× C static** — it statically links its own runtime,
+which the C `hello` does not carry at that size. (That static row was measured
+before the external bindings were extracted; the `zlib` archive it used to pull
+in has since **moved to a satellite repository**.) The 46.7× claim the project
+used to carry is dead, and so is the "~2.0× smaller than Rust" claim that
+replaced it: that one was measured against a dynamically linked Rust binary
+while PenguScript was statically linking six archives, five of which are now
+satellite repositories.
 
 The `< 65 KB` roadmap target is **met** by the bare-language cases (14.3–22.3
 KiB) and exceeded by the largest stdlib case (30.4 KiB). What it is *not* is a
-guarantee for programs that use the native subsystems: each one costs what its
-library costs, which the next table makes explicit.
+guarantee for programs that use an external binding: each satellite binding
+costs what its own library costs, and none is linked unless the program imports
+one.
 
 ### Binary size breakdown (attribution by archive)
 
 Produced by [`benches/binary_size_breakdown.py`](benches/binary_size_breakdown.py),
 which builds `hello_world`, reads the linker's `-Map` to see which bytes each
 input archive keeps, and then re-links once per archive to measure the delta
-when that archive is dropped. `--legacy` rewrites the captured link command
-into its pre-2.0 shape (all six archives, no section GC), so the numbers below
-are reproducible on today's checkout rather than only at an old commit; the raw
-output is committed at
+when that archive is dropped. The raw output is committed at
 [`benches/results/binary_size_breakdown.json`](benches/results/binary_size_breakdown.json).
 
-| Archive | In binary (KiB) | Delta when dropped (KiB) | Notes |
-|---|---:|---:|---|
-| `libpcre2-8.a` | 355.4 | 356.2 | Only linked by `std.regulus` |
-| `libmicrohttpd.a` | 104.8 | 128.3 | Only linked by `std.precis` |
-| `libz.a` | 75.8 | 75.9 | Only linked by `std.seal` (kept unconditional, costs 0 bytes unused) |
-| `libpengu_runtime.a` | 42.5 | — | Always linked; pruned by section GC |
-| `libmbedcrypto.a` | 27.0 | 23.9 | Only linked by `std.seal` |
-| `xml2` (system, dynamic) | — | 8.0 | Only linked by `std.parchment` |
-| `curl` (system, dynamic) | — | 0.0 | Only linked by `std.precis` |
+The **current** link shape is one archive long. `libpengu_runtime.a` is the only
+archive on the command line, compiled with `-ffunction-sections` so section GC
+keeps only what the program references; everything else is a system library.
+The runtime is **self-contained**: libc, libm and pthreads, nothing more.
 
-The `--legacy` total is 663.5 KiB, within 1% of the 667.5 KiB the same build
-produced before the change; the residual is the archives now being compiled with
-`-ffunction-sections`, which adds section headers. Two caveats worth stating
-rather than hiding:
+| Input | In binary (KiB) | Notes |
+|---|---:|---|
+| `libpengu_runtime.a` | — | Always linked; the linker pulls only the sections the program references |
+| libc / libm / pthreads | — | System libraries; the stripped `hello_world` image is 14.3 KiB |
+
+The pre-2.0 attribution table that earlier revisions of this page carried named
+`libpcre2-8.a`, `libmicrohttpd.a`, `libz.a`, `libmbedcrypto.a`, the dynamic
+`xml2` and `curl`, and the single-member `libpengu_runtime.a`. Those third-party
+libraries have all **moved to satellite repositories**, so `--legacy` (which
+rewrote the link command into its pre-2.0 shape) no longer reproduces on today's
+checkout; the captured legacy shape survives in
+`benches/results/binary_size_breakdown.json` as history. Two caveats from that
+measurement are worth keeping rather than hiding:
 
 * The "in binary" column comes from the link map, where GNU ld credits
   linker-synthesised sections (`.dynsym`, `.rela.*`, `.eh_frame`) to the *first*
   input file it read. That is why `Scrt1.o` shows up with ~20 KiB in the legacy
   map; it is an artefact of the map format, not of that object.
-* The "delta when dropped" column is measured with
-  `-Wl,--unresolved-symbols=ignore-all`, so a program that genuinely needs an
-  archive can still be linked without it and measured. The resulting binary is
-  broken on purpose and only its section sizes are read.
+* The "delta when dropped" column was measured with
+  `-Wl,--unresolved-symbols=ignore-all`, so a program that genuinely needed an
+  archive could still be linked without it and measured. The resulting binary
+  was broken on purpose and only its section sizes were read.
 
 For the record, the same table for the **current** link shape is one line long:
-`libz.a` is the only third-party archive still on the command line, and it
-contributes **0.0 KiB** to the 14.3 KiB artifact. The report in
-`benches/results/binary_size_breakdown.json` carries both shapes.
+`libpengu_runtime.a` is the only archive on the command line, and section GC
+leaves **14.3 KiB** in the stripped artifact.
 
 ### The frame-trace finding (actionable)
 
@@ -231,7 +239,7 @@ guarantees, and what it does not:
 |---|---|---|
 | `pengu run` cache hit | `< 0.08 s` | **not met** (measured 0.381 s; Python startup alone is ~30 ms) |
 | `pengu run` cold, gcc release | `< 0.9 s` | met (measured 0.772 s) |
-| Stripped binary, hello world | `< 65 KB` | **met** (14.3 KiB for a program that imports no native `std` wrapper; 30.4 KiB for the heaviest stdlib case) |
+| Stripped binary, hello world | `< 65 KB` | **met** (14.3 KiB for a program that imports no external binding; 30.4 KiB for the heaviest stdlib case) |
 | Stripped binary, `stdlib_ops` | — | **met** at 18.4 KiB |
 | Run time vs C `-O3` | ±5% | **not met** (1.2×–2.1× on these four cases; the per-call frame trace dominates the call-heavy ones) |
 | Build of a small project | — | met (0.27–0.41 s for the bare-language cases) |

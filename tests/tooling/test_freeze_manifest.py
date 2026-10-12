@@ -135,8 +135,11 @@ def _opt_in_modules() -> List[str]:
     test was removed with the rest of the std-only suite by the 2.0 migration
     (Chunk 1), so the list is inlined here; ``docs/FREEZE.md`` still owns the
     contract and this function is only its reader.
+
+    Phase 1 moved ``celeris``/``xlsx`` out of the tree, leaving ``trial`` as the
+    only opt-in module.
     """
-    return ["celeris.pengu", "trial.pengu", "xlsx.pengu"]
+    return ["trial.pengu"]
 
 
 def _lsp_features() -> List[str]:
@@ -197,8 +200,14 @@ def test_the_document_exists_and_declares_every_surface():
     assert absent == [], f"FREEZE.md is missing these `freeze:` blocks: {absent}"
 
 
+#: Surfaces that are legitimately empty in the phase-1 tree.  Every external
+#: binding left `std/`, so the frozen `stdlib-bindings` list is empty on purpose.
+EMPTY_SURFACES = ("stdlib-bindings",)
+
+
 def test_no_frozen_surface_is_declared_empty():
-    empty = [key for key, items in _declared().items() if not items]
+    empty = [key for key, items in _declared().items()
+             if not items and key not in EMPTY_SURFACES]
     assert empty == [], f"these freeze blocks declare nothing: {empty}"
 
 
@@ -219,7 +228,8 @@ def test_frozen_list_matches_the_tree(key):
     declared = _declared().get(key)
     assert declared is not None, f"FREEZE.md has no `freeze:{key}` block"
     actual = ACTUAL_READERS[key]()
-    assert actual, f"the tree reports no {key}; the reader is broken, not the document"
+    if key not in EMPTY_SURFACES:
+        assert actual, f"the tree reports no {key}; the reader is broken, not the document"
     assert not _diff(declared, actual), (
         f"`freeze:{key}` in docs/FREEZE.md differs from the tree:\n"
         f"{_diff(declared, actual)}"
@@ -292,6 +302,10 @@ def test_the_comparison_detects_drift():
     """
     for key, reader in sorted(ACTUAL_READERS.items()):
         actual = reader()
+        if key in EMPTY_SURFACES:
+            # An empty surface has nothing to truncate; it is an intentionally
+            # empty declaration, asserted by `test_no_frozen_surface_...`.
+            continue
         assert actual, key
         truncated = _declared()[key][:-1]
         assert _diff(truncated, actual), (

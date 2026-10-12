@@ -164,7 +164,8 @@ def test_the_shared_validator_is_the_one_used_by_the_downloaders():
     """Both download paths delegate to `pengu_archive` (no second implementation)."""
     extern_src = (ROOT / "extern_manifest.py").read_text(encoding="utf-8")
     tcc_src = (ROOT / "pengu_tcc.py").read_text(encoding="utf-8")
-    runtime_src = (ROOT / "build_runtime.py").read_text(encoding="utf-8")
     assert "safe_extract_tar" in extern_src
     assert "safe_extract_zip" in tcc_src
-    assert "safe_extract_zip" in runtime_src
+    # build_runtime.py used to unpack external libraries with the shared
+    # validator; phase 1 removed every external build, so it no longer extracts
+    # archives at all and there is nothing left to assert there.

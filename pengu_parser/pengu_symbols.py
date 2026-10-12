@@ -566,7 +566,7 @@ def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = Non
 
     Args:
         base_dir: Base directory path of project.
-        dot_path: Dotted module import path (e.g. 'std.spark', 'webui', or 'player').
+        dot_path: Dotted module import path (e.g. 'std.spark' or 'player').
         from_dir: Optional directory of the importing file.
         lib_dir: External bindings directory name (pengu.yaml 'lib_dir').
 

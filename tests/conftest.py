@@ -448,102 +448,35 @@ def bundle_project(source: str, tag: str = "proj") -> str:
 
 
 def runtime_tail_flags():
-    """Platform tail that must come AFTER every archive/extra library.
+    """Platform provider libraries appended after every archive.
 
-    Single-pass linkers (GNU ld without --start-group, and especially macOS
-    ld64) only resolve symbols from libraries that appear later on the command
-    line, so provider libraries (-lm, -lcrypto/-lssl, frameworks) are appended
-    last: sqlite3 needs `log`, libpengu_stb needs `sqrt`, libzip (OpenSSL
-    backend) needs the EVP_* symbols, and std.uuid needs CoreFoundation.
+    The C library, libm and the dynamic loader are all the runtime needs now
+    that its external-library subsystems live in satellite repositories. The
+    tail stays a separate function because callers must still place it last on
+    the link line, and because the tail follows the *target* OS rather than the
+    build host.
     """
     if os.name == "nt":
         return []
     tail = []
     if sys.platform.startswith("linux"):
-        # Older glibc put clock_gettime in librt; crypto/ssl only get pulled
-        # when a library actually references them.
-        tail += ["-lrt", "-lcrypto", "-lssl"]
-    elif sys.platform.startswith("darwin"):
-        tail += ["-framework", "CoreFoundation"]
+        # Older glibc put clock_gettime in librt.
+        tail += ["-lrt"]
     tail += ["-pthread", "-lm", "-ldl"]
     return tail
-
-
-def raylib_link_flags():
-    """``-lraylib`` plus the windowing/OpenGL providers its backend needs.
-
-    ``libraylib.a`` is not self-contained: its GLFW backend calls into Xlib,
-    Xrandr, Xinerama, Xcursor, Xi and Xext on X11 (and into the AppKit/IOKit/
-    CoreVideo/OpenGL frameworks on Cocoa), and the GL entry points come from the
-    system loader.  The CI runner installs exactly those dev packages
-    (``.github/actions/setup-pengu``), so a raylib link line that omits them
-    fails as soon as the archive exists -- with "undefined reference to
-    `XCloseDisplay'" on Linux.  Windows passes the equivalents explicitly.
-
-    Callers append this *before* :func:`runtime_tail_flags`, like every other
-    extra library.
-    """
-    if os.name == "nt":
-        return ["-lraylib", "-lopengl32", "-lgdi32", "-lwinmm"]
-    if sys.platform.startswith("darwin"):
-        return [
-            "-lraylib",
-            "-framework", "Cocoa",
-            "-framework", "IOKit",
-            "-framework", "CoreVideo",
-            "-framework", "OpenGL",
-            "-framework", "CoreAudio",
-            "-framework", "AudioToolbox",
-            "-framework", "AVFoundation",
-            "-framework", "CoreMedia",
-        ]
-    return [
-        "-lraylib",
-        "-lGL", "-lX11", "-lXrandr", "-lXi", "-lXcursor", "-lXinerama", "-lXext",
-    ]
 
 
 def runtime_link_flags():
     """Core libraries the Pengu C runtime is built against (per platform).
 
-    Does NOT include the platform tail (math/crypto/frameworks) — callers must
-    append :func:`runtime_tail_flags` after their extra libraries so providers
-    come last on the command line.
+    The runtime has no external C dependencies: ``libpengu_runtime.a`` needs
+    nothing beyond libc/libm/pthreads. Does NOT include the platform tail
+    (math/loader) — callers must append :func:`runtime_tail_flags` last so
+    providers come after every archive.
     """
-    flags = []
     if os.name == "nt":
-        flags = [
-            "-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl",
-            "-lmbedcrypto", "-lmicrohttpd", "-lz",
-            "-lws2_32", "-lwinmm", "-ladvapi32", "-lcrypt32", "-lbcrypt"
-        ]
-    else:
-        # Search paths (-L) MUST come before -l flags
-        for brew_lib in ("/opt/homebrew/lib", "/usr/local/lib"):
-            if os.path.isdir(brew_lib):
-                flags.append(f"-L{brew_lib}")
-        try:
-            from pengu_paths import pkg_config_libs
-            for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
-                for tok in pkg_config_libs(pkg):
-                    if tok.startswith("-L") and tok not in flags:
-                        flags.append(tok)
-        except Exception:
-            pass
-
-        flags.extend([
-            "-lpengu_runtime", "-lpcre2-8", "-lxml2", "-lcurl",
-            "-lmbedcrypto", "-lmicrohttpd", "-lz"
-        ])
-        try:
-            from pengu_paths import pkg_config_libs
-            for pkg in ("libxml-2.0", "libcurl", "libmicrohttpd", "mbedtls"):
-                for tok in pkg_config_libs(pkg):
-                    if tok.startswith("-l") and tok not in flags:
-                        flags.append(tok)
-        except Exception:
-            pass
-    return flags
+        return ["-lpengu_runtime", "-lws2_32", "-lwinmm"]
+    return ["-lpengu_runtime"]
 
 
 def compile_run(source: str, tag: str = "t", extra_libs=None, cwd=None,

@@ -69,9 +69,10 @@ $ python tests/compliance/run_all.py --cc clang
 
 MSVC is not a supported compiler: the *dialect* is checked
 (`clang -fdeclspec -fms-extensions`, and `cl.exe /Zs` where it exists), but no job
-links an MSVC binary, because the dependency stack (PCRE2, libxml2, zlib, mbedTLS,
-libcurl, libmicrohttpd) has no MSVC build. The old "MSVC supported" claim in
-`RELEASE_CHECKLIST.md` is marked ❌ and stays that way
+links an MSVC binary, because the external C dependency stack 1.0 linked against had
+no MSVC build (`build_runtime.py` has no `cl.exe` branch and CI hardcodes MinGW on
+Windows; those bindings have since moved to satellite repositories in Phase 1). The
+old "MSVC supported" claim in `RELEASE_CHECKLIST.md` is marked ❌ and stays that way
 (`tests/test_release_claims.py` fails if it is restated). tcc remains the
 development compiler and writes stripped executables, so the ABI symbol pin cannot
 be inspected there ([`ABI.md`](ABI.md)).

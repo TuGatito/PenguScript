@@ -1,7 +1,6 @@
 import pytest
 import sys
 from pathlib import Path
-from unittest.mock import patch
 from lark import Tree, Token
 
 from tests.conftest import gen_bundle
@@ -12,7 +11,6 @@ from pengu_parser.pengu_infer import TypeInferrer
 from pengu_parser.pengu_types import ast_to_type, ArrayType, AnyType, INT_TYPE
 from pengu_parser.pengu_errors import SemanticError, TypeMismatchError
 from pengu_project import ProjectConfig, PenguBuilder
-import build_runtime
 
 
 def test_or_block_operand_not_tree_does_not_crash():
@@ -138,14 +136,3 @@ def test_config_hash_includes_src_dir_c_dir():
     assert h1 != h4
 
 
-def test_raylib_build_flags_macos():
-    """P2 #14: build_raylib appends -D_GLFW_COCOA when targeting macOS (darwin)."""
-    cmds = []
-    with patch("sys.platform", "darwin"), \
-         patch("build_runtime.run_cmd", side_effect=lambda c: cmds.append(c)), \
-         patch("build_runtime.shutil.copy2"), \
-         patch.object(Path, "unlink"), \
-         patch.object(Path, "mkdir"):
-        build_runtime.build_raylib("gcc", "ar", rebuild=True)
-
-    assert any("-D_GLFW_COCOA" in c for c in cmds)

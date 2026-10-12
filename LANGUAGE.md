@@ -36,8 +36,8 @@
 17. [Unit tests (`test`)](#17-unit-tests-test)
 18. [Block-style construction (`with:` expressions)](#18-block-style-construction-with-expressions)
 19. [Standard library](#19-standard-library)
-    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-27-modules)
-    - 19.2 [C Native Binding Modules](#192-c-native-binding-modules-25-dpengu-modules)
+    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-21-modules)
+    - 19.2 [External bindings (satellite repositories)](#192-external-bindings-satellite-repositories)
     - 19.3 [Core Standard Library Examples](#193-core-standard-library-examples)
     - 19.4 [Embedded Project Assets (`arca`)](#194-embedded-project-assets-arca)
 20. [Tooling & project layout](#20-tooling--project-layout)
@@ -1116,8 +1116,8 @@ omen NetworkEvent:
 
 #### Codegen Emission Modes:
 - **Normal `.pengu` numeric omen:** Emits a C `typedef enum { <Omen>_<variant> = val, ... } <Omen>;`.
-- **Declaration `.d.pengu` omen:** Emits **bare variant names** (`KEY_LEFT`, `FLAG_MSAA_4X_HINT`) matching upstream C header enums without prefixing.
-- **Insignia-Prefixed Mode (`c_name != name`):** When the module specifies an `insignia <prefix>` directive, the generated C enum type receives the prefix (`<c_name>`, e.g. `ray_Color`), and all variant enum tags are generated as `<c_name>_<variant>` (e.g. `ray_Color_Red`), avoiding C name collisions across multi-module builds.
+- **Declaration `.d.pengu` omen:** Emits **bare variant names** (`MODE_FAST`, `FLAG_VERBOSE`) matching upstream C header enums without prefixing.
+- **Insignia-Prefixed Mode (`c_name != name`):** When the module specifies an `insignia <prefix>` directive, the generated C enum type receives the prefix (`<c_name>`, e.g. `mylib_Color`), and all variant enum tags are generated as `<c_name>_<variant>` (e.g. `mylib_Color_Red`), avoiding C name collisions across multi-module builds.
 - **String-Valued omen:** Emits string constant definitions (`#define <c_name>_<variant> pengu_string_from_cstr("<variant>")`).
 - **Algebraic omen:** Emits a tagged C struct containing a discriminant tag (`<c_name>_Tag`) and a payload union:
   ```c
@@ -2269,9 +2269,9 @@ PenguScript enforces strict pointee typing for `ref to T` to prevent silent buff
 
 ### 13.3 C Buffer Lifetime & Cleanup Conventions
 
-C bindings declare functions that return heap buffers allocated by underlying libraries (`malloc`, `strdup`, `LoadAudioStream`, `sqlite3_open`, etc.):
+C bindings declare functions that return heap buffers allocated by underlying libraries (`malloc`, `strdup`, `mylib.stream_open`, `mylib_cache_open`, etc.):
 1. **Binding Documentation:** The `##` docstrings specify the library's designated cleanup function.
-2. **Library Cleanup vs Banish:** Memory allocated by an external C library must be released with that library's own cleanup routine (e.g. `defer calling raylib.UnloadTexture with tex`), **not** with `banish`. `banish` is reserved for memory managed by the PenguScript runtime (`pengu_sigil_alloc`, dynamic strings, lists, maps).
+2. **Library Cleanup vs Banish:** Memory allocated by an external C library must be released with that library's own cleanup routine (e.g. `defer calling mylib.release with handle`), **not** with `banish`. `banish` is reserved for memory managed by the PenguScript runtime (`pengu_sigil_alloc`, dynamic strings, lists, maps).
 
 ### 13.4 What Is Not Automatic
 
@@ -2405,8 +2405,8 @@ import components.player             # project module (src/components/player.pen
 ### 14.2 `include`, `link`, `insignia`, `declare`
 
 ```pengu
-include "raylib.h"
-link "raylib"
+include "mylib.h"
+link "mylib"
 link "m"
 insignia mylib_
 ```
@@ -2420,19 +2420,19 @@ insignia mylib_
   function must have an explicit `declare` signature (`E0004` if called without declaration).
 
 **Spelling constants and enum variants from a binding.** `omen` variants declared
-in a `.d.pengu` (`omen KeyboardKey:` + `KEY_RIGHT is 39`) are reachable in three
+in a `.d.pengu` (`omen Options:` + `MODE_FAST is 1`) are reachable in three
 ways, and the first two are the ones to use:
 
 ```pengu-fragment
-import std.raylib
+import mylib
 
-calling raylib.IsKeyDown with raylib.KEY_RIGHT                # bare module-qualified ✅
-calling raylib.IsKeyDown with raylib.KeyboardKey.KEY_RIGHT   # nested: type-qualified ✅
-calling raylib.IsKeyDown with KEY_RIGHT                      # unqualified ✅
-calling raylib.SetConfigFlags with raylib.FLAG_MSAA_4X_HINT   # qualified #define / variant ✅
+calling mylib.is_enabled with mylib.MODE_FAST                 # bare module-qualified ✅
+calling mylib.is_enabled with mylib.Options.MODE_FAST         # nested: type-qualified ✅
+calling mylib.is_enabled with MODE_FAST                       # unqualified ✅
+calling mylib.set_option with mylib.FLAG_VERBOSE              # qualified #define / variant ✅
 ```
 
-All three forms are supported: bare module-qualified (`raylib.KEY_RIGHT`, `raylib.FLAG_MSAA_4X_HINT`), type-qualified (`raylib.KeyboardKey.KEY_RIGHT`), and unqualified (`KEY_RIGHT`). Struct-valued constants such as `raylib.RAYWHITE` are also supported (their value is emitted as defined).
+All three forms are supported: bare module-qualified (`mylib.MODE_FAST`, `mylib.FLAG_VERBOSE`), type-qualified (`mylib.Options.MODE_FAST`), and unqualified (`MODE_FAST`). Struct-valued constants such as `mylib.DEFAULT_CONFIG` are also supported (their value is emitted as defined).
 
 
 ### 14.3 `ref to char`, `opaque`, `.d.pengu`, and `bytes of`
@@ -2447,16 +2447,16 @@ module). Opaque handles are declared `alias X as opaque` and handled through
 `.d.pengu` **declaration files**:
 
 ```pengu
-# std/sqlite3.d.pengu (excerpt)
-rune sqlite3:
+# mylib.d.pengu (excerpt)
+rune mylib:
     _ptr as opaque
 
-declare sqlite3_open with filename as ref to char, ppDb as ref to opaque into int
+declare mylib_open with filename as ref to char, ppDb as ref to opaque into int
 ```
 
 - They register types/signatures only; implementations live in the C header.
 - An `omen` declared in a `.d.pengu` mirrors a header enum, so emitted C uses
-  the **bare** variant names (`KEY_LEFT`, not `KeyboardKey_KEY_LEFT`).
+  the **bare** variant names (`MODE_FAST`, not `Options_MODE_FAST`).
 
 ### 14.4 Project structure & configuration (`pengu.yaml` / `pengu.toml`)
 
@@ -2910,9 +2910,12 @@ Supported built-in methods inside collection `with` blocks:
 
 ## 19. Standard library
 
-PenguScript ships with a comprehensive standard library consisting of **52 modules**:
-- **27 pure PenguScript modules** (`std.<module>`) providing high-level, idiomatic abstractions for I/O, strings, concurrency, networking, serialization, math, testing, and memory bridging.
-- **25 C declaration binding modules** (`std.<binding>`, implemented via `.d.pengu`) providing direct, zero-overhead access to native C libraries (Raylib, SQLite3, WebUI, STB, etc.) with 1:1 upstream documentation preserved.
+PenguScript ships with a comprehensive standard library of **21 pure PenguScript
+modules** (`std.<module>`), providing high-level, idiomatic abstractions for I/O,
+strings, concurrency, serialization, math, testing, and memory bridging.
+
+Bindings to external C libraries are no longer part of `std/`: they are distributed
+as satellite repositories installed per project with `pengu add <url>` (§19.2).
 
 ### Builtin `print`
 `print` is a compiler builtin that lowers directly to `printf` according to the argument type (`print "hello"`, `print 42`, etc.). For structured or formatted printing with broader options, use `std.spark.println` or `std.spark.print`.
@@ -2939,7 +2942,7 @@ exports that constant with the current toolchain version. Namespacing already
 keeps each module self-contained (`std.<module>.<symbol>`), so decoupling the
 stdlib into independently versioned packages is reserved for 2.0.
 
-### 19.1 Pure PenguScript Modules (27 modules)
+### 19.1 Pure PenguScript Modules (21 modules)
 
 All pure modules are located in the `std/` directory and imported as `import std.<module>`.
 
@@ -2960,16 +2963,10 @@ All pure modules are located in the `std/` directory and imported as `import std
 | `std.tally` | Integer list utilities: enchants `list of int` directly (`calling xs.sum`, `calling xs.first`, `calling xs.reverse`) alongside module-level functions (`calling tally.sum with xs`). Includes length and access (`len`, `first`, `last`, `at_or`, `at_safe`), search (`contains`, `index_of`, `count_of`, `find_first_gt`, `find_first_lt`), reductions (`sum`, `product`, `max_val`, `min_val`, `max_index`, `min_index`), statistics (`mean`, `median`, `mode`), transformations (`reverse`, `sort_asc`, `sort_desc`, `unique`, `dedup`, `flatten`), selection (`take`, `drop`, `slice_list`), combination (`concat`, `zip_sum`, `dot`, `repeat`), predicates, filters (`filter_*`), and mappings (`map_*`). |
 | `std.atlas` | Multi-type map collection utilities across 6 key-value combinations (`map of string to int`, `map of string to string`, `map of string to float`, `map of int to int`, `map of int to string`, `map of string to bool`). Enchants map types directly (`calling m.keys`, `calling m.get_or with k, default`, `calling m.update with k, v`, `calling m.rename_key with old_k, new_k`, `calling m.clone`, `calling m.remove with k`, `calling m.clear`) alongside module-level functions (`calling atlas.keys with m`, `calling atlas.get_or_ss with m, k, def`). Includes length & predicates (`size`, `is_empty`, `has_key`, `has_any_key`, `has_all_keys`), access (`get_or`, `get_safe`, `find_key_by_value`), in-place mutation (`update`, `rename_key`, `remove`, `clear`, `remove_all`), bulk accessors (`keys`, `values`, `keys_sorted`, `values_sorted`), numeric reductions (`sum_values`, `max_value`, `min_value`), bool counters (`count_true`, `count_false`), filters and transformations (`filter_*`, `map_values_*`), combination (`merge_*`, `merge_keep_left_*`), conversions (`from_lists_*`, `to_keys_list`, `to_values_list`), and generic utilities (`shard K, V`: `map_size`, `map_has_key`, `map_get_or`, `map_keys`, `map_values`, `map_put`, `map_remove`, `map_clear`). |
 | `std.coven` | Unique-set collections (`SetString`, `SetInt`): insertion and predicates (`add`, `contains`, `remove`, `len`, `clear`, `is_empty`), full set algebra (`union`, `intersect`, `difference`, `symmetric_difference`, `is_subset`, `is_superset`, `is_disjoint`, `equals`), conversions (`to_list`, `to_set_int`, `to_set_string`, `from_list`, `clone`), and specialized filters (`filter_starts_with`, `filter_length_ge`). |
-| `std.regulus` | PCRE2-backed regular expression engine: regex compilation (`compile`), whole/partial matching (`match`, `search`, `is_match`, `is_full_match`, `is_match_at`), match extraction (`find_all`, `match_count`, `match_at`, `match_offsets`), string replacement (`replace`, `replace_all`, `replace_fn`), splitting (`split`, `split_n`), pattern utilities (`escape`, `is_valid_pattern`, `flag_is_case_insensitive`), and string enchanting methods (`to_regex`, `matches_regex`, `regex_replace`, `regex_split`). |
-| `std.parchment` | libxml2-backed XML and HTML DOM parser: document trees (`Document` with `parse_xml`, `parse_html`, `doc_to_string`), element navigation and mutation (`Node` with `find`, `find_all`, `attr`, `set_attr`, `text`, `set_text`, `remove_child`), DOM queries (`find_by_id`, `find_by_class`, `find_all_by_class`, `has_class`, `add_class`, `remove_class`), tag utilities (`is_void_element`, `normalize_tag`, `is_valid_tag_name`), HTML cleaning (`strip_html_tags`, `extract_text`), and string/Node enchantments. |
-| `std.seal` | Data compression & cryptographic digests: CRC32, MD5, SHA-1, SHA-256, SHA-512, HMAC (RFC 2104: `hmac_sha256`, `hmac_sha1`, `hmac_md5`), constant-time comparison (`constant_time_eq`, `verify_sha256`, `verify_hmac_sha256`), zlib raw deflate/inflate, and Gzip compression with string enchanting methods (`to_sha256`, `to_md5`, `to_crc32`, `to_gzip`, `from_gzip`). |
-| `std.precis` | Network programming & Web protocols: HTTP client (`get`, `post`, `head`, `put`, `delete_req`), HTTP request/response builders (`Request`, `Response` with headers and query parameter encoding), embedded HTTP server (`serve_http`), status code predicates (`is_success`, `is_redirect`, `is_client_error`, `is_server_error`, `status_text`), and URL codecs (`url_encode`, `url_decode`, `parse_url`, `build_url`, `url_join`). |
 | `std.filum` | Multithreaded concurrency primitives: mutual exclusion (`Mutex` with `lock`, `unlock`, `try_lock`, `free`), synchronization counters (`WaitGroup` with `add`, `done`, `wait`, `free`), once guards (`Once` with `do_once`, `do_action`, `free`), condition variables (`Cond` with `cond_wait`, `wait_mutex`, `signal`, `broadcast`, `free`), thread-safe integers (`AtomicInt` with `load`, `store`, `add`, `sub`, `inc`, `dec`, `inc_and_get`, `dec_and_get`, `swap`, `get_and_set`, `compare_swap`, `is_zero`, `reset`, `free`), typed channels (`ChanInt`, `ChanString`, `ChanFloat`, `ChanBool` with `new`, `with_capacity`, `send`, `recv`, `close`, `len`, `cap`, `free`), and system/time utilities (`sleep`, `sleep_sec`, `num_cpu`, `goroutine_id`). |
 | `std.loom` | Sequence generation, functional transformations, and generic algorithms: sequences (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reductions (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicates (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transforms (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), sorted set-like operations (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), search (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), structural modifications (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), statistics (`median`, `mode`, `variance`, `stddev`, `percentile`), and generic algorithms (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`). |
 | `std.invoke` | Command-line interface (CLI) argument parsing: POSIX and GNU syntax (`--flag`, `--key=value`, `-k=value`), boolean flag negation (`--no-flag`), subcommands (`rune Subcommand`), typed options (int, float, bool, string, multi), repeat multi-options (`rune MultiOption`), Levenshtein typo suggestions, formatted help and usage strings (`usage_string`, `full_help`), error reporting, and robust parse variants (`parse`, `parse_no_exit`, `parse_or_exit`, `parse_or_usage`, `ParseResult` accessors `get`, `get_or`, `get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`, `get_all`, `to_map_values`, `to_map_flags`). |
 | `std.ffi` | Low-level C foreign function interface bridge: null pointer utilities (`null_void`, `null_char`, `null_byte`, `is_null`, `is_valid`, `ptr_eq`), architecture constants and inspection (`SIZEOF_POINTER`, `SIZEOF_INT`, `SIZEOF_FLOAT`, `pointer_size`, `size_of shard T`, `alignment_of shard T`), null-terminated C string conversions (`string_from_cstr`, `cstr_from_string`, `string_from_cstr_n`, `string_from_bytes`, `bytes_from_string`), memory views (`slice_from_ptr`), generic collections from C buffers (`list_from_ptr shard T`, `map_from_entries shard K, V`), raw memory copy/set (`memcpy_raw`, `memset_raw`), and 10 canonical C interop patterns. |
-| `std.celeris` | High-precision benchmarking and performance profiling: monotonic nanosecond timers and iteration benchmarking suites. |
-| `std.xlsx` | Excel spreadsheet workbook generation and cell data extraction. |
 | `std.ledger` | Tabular data, CSV/TSV parsing, serialization, and matrix operations: parsing (`parse_csv`, `parse_tsv`, `parse_line`, `detect_delimiter`, `parse_csv_strict`, `parse_csv_nocomments`, `parse_csv_skip`, `parse_line_strict`, `parse_csv_normalized`), table abstraction `rune CsvTable` (`from_csv`, `from_rows`, `row_count`, `column_count`, `has_column`, `column_index`, `get`, `get_or`, `column`, `row_as_map`, `to_csv`), matrix enchantments (`list of list of string`: `row_count`, `column_count`, `is_rectangular`, `column`, `transpose`), key-value map conversions (`parse_csv_as_pairs`, `parse_csv_key_value`, `write_key_value_map`), escaping (`escape_field`, `escape_field_rfc4180`, `escape_field_backslash`), formatters (`to_csv_string`, `to_tsv_string`, `to_csv_string_no_trailing_newline`, `to_csv_string_crlf`), and file operations (`read_csv`, `read_tsv`, `write_csv`, `write_tsv`, `write_csv_safe`). |
 | `std.arithmancy` | Game-ready linear algebra and advanced mathematical functions: constants (`PI`, `TAU`, `E`, `EPSILON`), scalar functions (`abs_i`, `abs_f`, `min_i`, `max_i`, `min_f`, `max_f`, `clamp_i`, `clamp_f`, `sqrt_f`, `pow_f`, `sin_f`, `cos_f`, `tan_f`, `asin_f`, `acos_f`, `atan_f`, `atan2_f`, `deg_to_rad`, `rad_to_deg`, `lerp_f`, `smoothstep_f`), 2D vectors (`rune Vec2` with `dot`, `cross`, `length`, `normalize`, `distance`), 3D vectors (`rune Vec3` with `dot`, `cross`, `length`, `normalize`, `distance`), 4D vectors (`rune Vec4`), 4x4 transformation matrices (`rune Mat4` with `identity`, `translation`, `scaling`, `rotation_x/y/z`, `multiply`, `transpose`, `look_at`, `perspective`, `orthographic`), and quaternions (`rune Quat` with `identity`, `from_axis_angle`, `multiply`, `slerp`, `to_mat4`). |
 
@@ -3014,37 +3011,9 @@ The deprecation status of the legacy aliases in both modules is catalogued in
 deferred to 1.1 because either direction is a breaking change for the callers of
 whichever family loses (item 6.5, `AUDIT_1.0_FASE6.md`).
 
-### 19.2 C Native Binding Modules (25 `.d.pengu` modules)
+### 19.2 External bindings (satellite repositories)
 
-These declaration bindings expose native C libraries with zero abstraction overhead. The compiler links the corresponding C libraries during build:
-
-| Module | Native Library & Description |
-|---|---|
-| `std.raylib` | **Raylib 5.x**: 2D and 3D graphics rendering, windowing, audio, input handling, textures, and cameras. |
-| `std.raymath` | **Raylib Math**: 2D/3D vector mathematics (`Vector2`, `Vector3`), 4x4 transform matrices (`Matrix`), and quaternions. |
-| `std.rlgl` | **rlgl**: Low-level OpenGL 1.1, 2.1, 3.3, and ES 2.0 graphics abstraction layer. |
-| `std.rlights` | **rlights**: Raylib multi-light shader management (directional, point, and spot lights). |
-| `std.raygui` | **raygui**: Immediate-mode graphical user interface (IMGUI) components for Raylib. |
-| `std.sqlite3` | **SQLite 3**: Embedded serverless relational database engine, prepared statements, and query execution. |
-| `std.webui` | **WebUI**: Modern desktop GUI binding leveraging the user's installed web browser (Chrome, Edge, Firefox) via HTML/CSS/JS with two-way RPC. |
-| `std.miniaudio` | **miniaudio**: Cross-platform audio playback, multi-track mixing, sound recording, and 3D spatial audio. |
-| `std.tomlum` | **tomlc99**: Fast, compliant TOML configuration file parser. |
-| `std.yaml` | **libyaml**: Compliant YAML configuration and data document parser. |
-| `std.uuid` | **RFC 4122 UUID**: Cryptographically sound UUID version 4 generation, parsing, and canonical string representation. |
-| `std.xxhash` | **xxHash**: Extremely fast non-cryptographic hash algorithm operating at RAM bandwidth limits. |
-| `std.xlsxio` | **libxlsxio**: High-performance C streaming reader and writer for Excel `.xlsx` files. |
-| `std.imago` | **stb_image**: Image file loading (PNG, JPEG, BMP, TGA, PSD, GIF, HDR, PIC, PNM) from disk or memory. |
-| `std.typis` | **stb_truetype**: Font loading, vector glyph decoding, and rasterization into bitmap atlases. |
-| `std.scriptor` | **stb_sprintf**: High-performance, portable implementation of `sprintf` without locale dependencies. |
-| `std.perlinum` | **stb_perlin**: Procedural Perlin and simplex noise generation for terrain and textures. |
-| `std.stb_image_resize2` | **stb_image_resize2**: High-quality SIMD image scaling with Catmull-Rom, Mitchell, and Lanczos filters. |
-| `std.stb_herringbone_wang_tile` | **stb_herringbone_wang_tile**: Procedural non-periodic map generation using Herringbone Wang tiles. |
-| `std.nanosvg` | **NanoSVG**: Single-header SVG vector parser for path extraction and polygon tesselation. |
-| `std.nanosvgrast` | **NanoSVGrast**: High-speed software rasterizer for NanoSVG vector images. |
-| `std.minicoro` | **minicoro**: Asymmetric stackful coroutines and fiber context switching. |
-| `std.datastructura` | High-performance C data structures: dynamic vector buffers, hash maps, and FIFO queues. |
-| `std.fenestra` | Cross-platform native window dialogs: open file, save file, select folder, message boxes, and notification popups. |
-| `std.pactum` | Compact binary protocol packing and schema-free network message serialization. |
+Bindings to external C libraries are distributed as satellite repositories installed with `pengu add <url>`. See [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md).
 
 ### 19.3 Core Standard Library Examples
 
@@ -3090,48 +3059,6 @@ weave demonstrate_strings into void:
     calling spark.println with "Substring: {sub}"
 ```
 
-#### Cryptographic Hashes & Compression (`std.seal`)
-Provides digest computation and data compression:
-
-```pengu
-import std.spark
-import std.seal
-
-weave demonstrate_seal with payload as string into void:
-    # Calculate SHA-256 and MD5 hex digests
-    var sha as string is calling seal.sha256 with payload
-    var md5_sum as string is calling seal.md5 with payload
-    calling spark.println with "SHA-256: {sha}"
-    calling spark.println with "MD5: {md5_sum}"
-
-    # Compress with Gzip
-    var compressed as maybe string is calling seal.gzip with payload
-    if compressed.is_present:
-        var original as maybe string is calling seal.unzip with compressed.value
-        if original.is_present:
-            calling spark.println with "Roundtrip match: {(original.value == (payload to string))}"
-```
-
-#### Networking & HTTP (`std.precis`)
-Performs outgoing HTTP requests and operates socket endpoints:
-
-```pengu
-import std.spark
-import std.precis
-
-weave fetch_web_data with url as string into void:
-    var headers as map of string to string is map of string to string
-    var resp as maybe precis.ClientResponse is calling precis.get with url, headers
-
-    if resp.is_present:
-        var response as precis.ClientResponse is resp.value
-        calling spark.println with "Status Code: {(response.status_code to string)}"
-        if response.status_code == 200 and response.body.is_present:
-            calling spark.println with "Body: {response.body.value}"
-    else:
-        calling spark.println with "Network request failed"
-```
-
 #### Multithreaded Concurrency (`std.filum`)
 Thread spawning, mutual exclusion, wait groups, and channels:
 
@@ -3156,52 +3083,6 @@ weave demonstrate_concurrency into void:
 
     calling filum.free_mutex with (sigil of m)
     calling filum.free_wait_group with (sigil of wg)
-```
-
-#### PCRE2 Regular Expressions (`std.regulus`)
-Fast pattern matching, group extraction, and replacement:
-
-```pengu
-import std.spark
-import std.regulus
-
-weave demonstrate_regex into void:
-    var re as maybe regulus.Regex is calling regulus.compile with "[a-zA-Z]+@([a-zA-Z0-9-]+\\.[a-z]+)", "i"
-    if re.is_present:
-        var rx as regulus.Regex is re.value
-        var m as maybe regulus.Match is calling regulus.search with (sigil of rx), "Contact: admin@penguscript.org"
-        if m.is_present:
-            var match_data as regulus.Match is m.value
-            calling spark.println with "Matched text: {match_data.matched}"
-            calling regulus.match_free with (sigil of match_data)
-        var replaced as string is calling regulus.replace with (sigil of rx), "Send to user@domain.com", "[hidden]"
-        calling spark.println with "Sanitized: {replaced}"
-        calling regulus.regex_free with (sigil of rx)
-```
-
-#### 2D & 3D Interactive Graphics (`std.raylib` & `std.raymath`)
-Interactive windowing and rendering pipeline:
-
-```pengu
-import std.raylib
-import std.raymath
-import std.ffi
-
-weave main into int:
-    var title as ref to char is calling ffi.cstr_from_string with "PenguScript Raylib Window"
-    calling raylib.InitWindow with 800, 450, (transmute title to ref to frozen char)
-    calling raylib.SetTargetFPS with 60
-
-    var position as raymath.Vector2 is with x is 400.0, y is 225.0
-
-    while not calling raylib.WindowShouldClose:
-        calling raylib.BeginDrawing
-        calling raylib.ClearBackground with raylib.RAYWHITE
-        calling raylib.DrawCircle with (position.x to int), (position.y to int), 20.0, raylib.MAROON
-        calling raylib.EndDrawing
-
-    calling raylib.CloseWindow
-    return 0
 ```
 
 ### 19.4 Embedded Project Assets (`arca`)
@@ -3267,57 +3148,41 @@ You can pass either the generated constant (`arca.ASSET_LOGO_PNG_A731E040`) or t
 
 #### Usage Examples
 
-**Raylib Texture & Shader Loading (Direct Memory):**
+The graphics and desktop-UI bindings that used to be shown here now ship as
+satellite repositories installed with `pengu add`; see
+[`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md).
+
+**Decoding an Embedded Image Through a Satellite Binding:**
 ```pengu-fragment
 import arca
-import std.raylib
+import mylib
 import std.ffi
 import std.spark
 
 weave main into int:
-    var title as ref to char is calling ffi.cstr_from_string with "Embedded Assets Demo"
-    calling raylib.InitWindow with 800, 600, (transmute title to ref to frozen char)
-    calling raylib.SetTargetFPS with 60
-
-    # Load image from embedded buffer directly in memory (zero disk I/O)
+    # Borrow the embedded bytes directly from .rodata (zero disk I/O)
     var p_logo as ref to frozen void is calling arca.ptr with "logo.png"
     var sz_logo as usize is calling arca.size with "logo.png"
-    var ext as ref to char is calling ffi.cstr_from_string with ".png"
-    var img as raylib.Image is calling raylib.LoadImageFromMemory with (transmute ext to ref to frozen char), (transmute p_logo to ref to frozen byte), (sz_logo to int)
-    var texture as raylib.Texture2D is calling raylib.LoadTextureFromImage with img
-    calling raylib.UnloadImage with img
 
-    # Load shader from embedded string
-    var fs_str as string is calling arca.string with "shaders/grayscale.fs"
-    var fs_cstr as ref to char is calling ffi.cstr_from_string with fs_str
-    var shader as raylib.Shader is calling raylib.LoadShaderFromMemory with (transmute 0 to ref to frozen char), (transmute fs_cstr to ref to frozen char)
+    # Decode through the satellite binding; it owns the returned handle
+    var img as mylib.Image is calling mylib.image_from_memory with (transmute p_logo to ref to frozen byte), (sz_logo to int)
+    defer calling mylib.release with img
 
-    while not calling raylib.WindowShouldClose:
-        calling raylib.BeginDrawing
-        calling raylib.ClearBackground with raylib.RAYWHITE
-        calling raylib.BeginShaderMode with shader
-        calling raylib.DrawTexture with texture, 200, 150, raylib.WHITE
-        calling raylib.EndShaderMode
-        calling raylib.EndDrawing
-
-    calling raylib.UnloadTexture with texture
-    calling raylib.UnloadShader with shader
-    calling raylib.CloseWindow
+    calling spark.println with "Decoded embedded image"
     return 0
 ```
 
-**WebUI Standalone Application:**
+**Serving an Embedded HTML Interface:**
 ```pengu-fragment
 import arca
-import std.webui
+import mylib
 import std.spark
 
 weave main into int:
-    var w as int is calling webui.new_window
-    # Retrieve embedded HTML interface
     var html as string is calling arca.string with "ui/index.html"
-    calling webui.show with w, html
-    calling webui.wait
+    var w as mylib.Window is calling mylib.window_open with "Embedded UI"
+    calling mylib.window_show with w, html
+    calling mylib.window_wait with w
     return 0
 ```
 
@@ -3341,7 +3206,7 @@ pengu init <name> [--type {exe,c,obj,static,shared}] [--links LINKS] [--output-n
   - `obj`: Compiled native object file (`.o` / `.obj`).
   - `static`: Compiled static library (`.a` / `.lib`).
   - `shared`: Compiled dynamically linked shared library (`.so` / `.dll` / `.dylib`).
-- `--links, -l`: Comma-separated native C libraries to link (e.g. `raylib,m,pthread`).
+- `--links, -l`: Comma-separated native C libraries to link (e.g. `mylib,m,pthread`).
 - `--output-name`: Custom output binary base name.
 - `--cc`: C compiler override (default: `gcc`).
 
@@ -3375,14 +3240,15 @@ pengu build [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--output OUTP
   > **⏸️ `--strict-c99` is not functional for programs that import `std` in
   > 0.16.0. Deferred to 1.1. Do not use it as a CI or release portability gate.**
   >
-  > Measured: **34 of the 61** programs in `tests/std_programs/` fail
-  > `gcc -std=c99 -pedantic-errors`. Three independent causes:
+  > Measured: the `tests/std_programs/` corpus used for this measurement was
+  > removed by the std 2.0 migration, so the count is **`[recalcular]`**. Three
+  > independent causes:
   >
   > | Cause | Programs | Signature |
   > |---|---|---|
-  > | Index hoisted out of the loop that declares its operand | 16 | `'k' undeclared` |
-  > | Statement-expressions `({...})` remaining in strict bundles | 15 | `ISO C forbids braced-groups within expressions` |
-  > | Qualifier/cast diagnostics | 3 | `discards 'const' qualifier`, `casting nonscalar` |
+  > | Index hoisted out of the loop that declares its operand | `[recalcular]` | `'k' undeclared` |
+  > | Statement-expressions `({...})` remaining in strict bundles | `[recalcular]` | `ISO C forbids braced-groups within expressions` |
+  > | Qualifier/cast diagnostics | `[recalcular]` | `discards 'const' qualifier`, `casting nonscalar` |
   >
   > A minimal reproduction is 4 lines:
   >
@@ -3413,40 +3279,19 @@ Attribute mapping per target:
 | `@align(N)` | `__attribute__((aligned(N)))` | `__declspec(align(N))` |
 | `restrict` (opt-in) | `restrict` | `__restrict` |
 
-**Binary size and conditional linking (2.0).** The `release` and `small` profiles
-compile every object with `-ffunction-sections -fdata-sections` and link with
-`-Wl,--gc-sections` (GNU ld / lld) or `-Wl,-dead_strip` (macOS ld64), so the linker
-drops every function the program does not reach. `build_runtime.py` compiles
-`libpengu_runtime.a` and each native dependency with the same flags — without that
-half the *section GC* can prune nothing, because a static archive is resolved per
-*member* (`.o`), not per symbol.
+**Binary size and section garbage collection (2.0).** The `release` and `small`
+profiles compile every object with `-ffunction-sections -fdata-sections` and link
+with `-Wl,--gc-sections` (GNU ld / lld) or `-Wl,-dead_strip` (macOS ld64), so the
+linker drops every function the program does not reach. `build_runtime.py` compiles
+`libpengu_runtime.a` with the same flags — without that half the *section GC* can
+prune nothing, because a static archive is resolved per *member* (`.o`), not per
+symbol.
 
-In addition, native dependencies are **linked only when the corresponding `std`
-module was imported**:
-
-| Imported module | Archives linked |
-| --------------- | --------------- |
-| `std.regulus` | PCRE2 (`-lpcre2-8`) |
-| `std.parchment` | libxml2 (`-lxml2`) |
-| `std.precis` | libcurl + libmicrohttpd |
-| `std.seal` | zlib + mbedcrypto |
-
-A program that imports none of them links only `libpengu_runtime.a`. `libz` is the
-exception: it is always linked, costs 0 bytes when unused (section GC drops all its
-sections) and cannot be omitted because libxml2, libcurl and libcrypto depend on
-`libz.so.1`, so the linker looks for it transitively as soon as one of them is on the
-command line. The decision is taken by reading the already-generated `bundle.c` (the
-`pengu_c_regulus_*`, `pengu_c_parchment_*`, … prefixes), so it cannot disagree with
-the C the linker sees. With TCC or MSVC — which cannot prune sections — everything is
-linked, as before 2.0.
-
-`pengu_runtime.h` accompanies the change with the
-`PENGU_ENABLE_{REGEX,XML,NET,CRYPTO,THREADS}` feature gates (default `1`, so a direct
-C consumer still sees the full API); the code generator emits the `#define`s that
-correspond to the imported `std.*` modules. Measured example: `hello_world` (release,
-`strip`) goes from 659.5 KiB to ~14.3 KiB, and the `cipher_ops` case (`std.cipher` +
-`std.seal`) from 671.5 KiB to 30.4 KiB. The figures and the per-archive attribution
-are in `BENCHMARKS.md`.
+The core runtime links only `libc`, `libm` and `pthreads`; there is no conditional
+native linking any more. Bindings to external C libraries are installed per project
+as satellite repositories (`pengu add <url>`, see
+[`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)) and declare their own native
+archives, which the project's build passes to the linker.
 
 ### 20.2.1 Runtime ABI version
 
@@ -3492,14 +3337,15 @@ pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc
   `x86_64-w64-mingw32`, `i686-w64-mingw32`, `aarch64-apple-darwin` or
   `x86_64-unknown-linux-gnu`. Only **Linux ⇄ Windows** is supported in 1.0.
 - Artifact extensions follow the target (`.exe`, `.dll`, `.dylib`, `.so`) and so
-  do the link libraries.
+  do the native archives declared by the project's satellite bindings.
 - With a Windows target from a non-Windows host the compiler is auto-detected
   (`<triple>-gcc`, `x86_64-w64-mingw32-gcc`, `i686-w64-mingw32-gcc`); `--cc`
   always wins. If none is installed the build fails with an actionable message.
 - The shipped runtime archive is host-built. Generating the C bundle for another
   target needs nothing else, but *linking* a cross executable requires a runtime
   built for the target: point `PENGU_RUNTIME_CROSS` at its prefix and the build
-  adds `-L<prefix>/lib -I<prefix>/include`.
+  adds `-L<prefix>/lib -I<prefix>/include`. Satellite bindings must likewise provide
+  native archives built for the target.
 
 ### 20.2.4 Formatting (`pengu fmt`)
 
