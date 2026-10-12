@@ -222,6 +222,38 @@ chunks restantes.
       se implementan sobre un único primitivo (`rand_bytes`) y se documenta que
       **no** son criptográficamente seguros.
 
+## Datos binarios, JSON y criptografía (Chunk 7)
+
+- [ ] Ningún `set out is "{out}{x}"` en un bucle: usa un buffer C
+      pre-dimensionado (`antiquus`) o una `list of string` con un `_concat_parts`
+      **propio**. `std.scrolls.join` es cuadrático y no sirve para esto.
+- [ ] Los cuerpos `antiquus` van **planos a columna 0**, incluidas las líneas de
+      continuación de las macros C: `pengu fmt` no converge si mezclan sangría.
+- [ ] Ningún `chr` **constante** en una posición binaria o entrecomillada:
+      `chr 0` desaparece, `chr 34`/`chr 92` rompen el C emitido y `chr N` con
+      `N > 127` se convierte en dos bytes UTF-8. Construye el carácter desde una
+      variable `int` (`_quote_char`, `nul_byte`, …).
+- [ ] Un `omen` nuevo no reutiliza nombres de variante de un omen existente
+      (E0046: el espacio de nombres es global).
+- [ ] Un payload recursivo viaja por un `rune` envoltorio declarado **después**
+      del omen (un `list of Omen` dentro del propio omen no unifica).
+- [ ] `Module.Variant` (sin el nombre del omen) no se usa: pasa el checker y
+      emite un símbolo C sin manglar. Usa `Module.Omen.Variant` o el alias corto.
+- [ ] Los constructores `ritual` se llaman por el nombre del tipo exportado
+      (`HashState.new_sha256`), no cualificados por el módulo.
+- [ ] `std.spark.parse_float` **no se usa**: devuelve 0 para toda entrada
+      (hallazgo X-1); escribe un parser acotado propio.
+- [ ] Los secretos y MACs se comparan con `const_time_eq`/`digest_compare`,
+      nunca con `==`; `verify_hash` debe rechazar un algoritmo desconocido antes
+      de comparar.
+- [ ] Todo `*_file` de hash/CRC hace **streaming** por bloques (64 KiB); ninguno
+      materializa el fichero entero.
+- [ ] Los buffers binarios se construyen por longitud (`memcpy`), nunca por
+      interpolación con `printf`-style: los NUL embebidos deben sobrevivir.
+- [ ] Ningún algoritmo criptográfico nuevo se añade al runtime si un `antiquus`
+      del propio módulo lo resuelve: `pengu_runtime.h`/`.c` solo cambian si el
+      brief lo autoriza, y entonces **solo añadiendo** símbolos.
+
 ## Verificación
 
 - [ ] `pengu check --entry std/<mod>.pengu` pasa (0 errores; W0005 aceptado)

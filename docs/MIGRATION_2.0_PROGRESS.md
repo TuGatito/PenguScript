@@ -392,7 +392,105 @@ Los cinco están documentados y esquivados en `docs/BUGS_FIXED_CHUNK6.md` §5;
   (`_registry`), respectivamente, porque el lenguaje prohíbe un `var` de nivel
   superior.
 
-### Próximo: Chunk 7 (`std/filum` + `std/celeris`)
+### ✅ Chunk 7: `std.cipher` + `std.seal`
+
+- [x] Reescrito `std/cipher.pengu` en Pengunic 2.0 (`CIPHER_VERSION = "2.1.0"`,
+      1263 → ~4900 líneas, casi todo docstrings y bloques C documentados)
+- [x] Reescrito `std/seal.pengu` en Pengunic 2.0 (`SEAL_VERSION = "2.1.0"`,
+      476 → ~3300 líneas)
+- [x] Arreglados 22 bugs de `cipher` y 16 de `seal` (38 del brief) más 8
+      defectos nuevos del audit: **46 fixes**; 6 entradas del brief
+      verificadas como **no-bug** y documentadas como tales
+      (`docs/BUGS_FIXED_CHUNK7.md`, 52 entradas + 9 hallazgos fuera de alcance)
+- [x] Añadidos los 8 bloques `antiquus` de `cipher` (buffers lineales, codecs,
+      escape JSON, UTF-8, CRC-32) y los 10 de `seal` (motores SHA-2/SHA-3/BLAKE2,
+      Salsa20/8, deflate con nivel, CRC-32 incremental, CSPRNG)
+- [x] **`pengu_runtime.h` y `pengu_runtime.c` sin cambios**: SHA-224/384, SHA-3,
+      BLAKE2, los niveles de compresión y el streaming viven en `seal.pengu` como
+      `antiquus`, que es la ruta que el brief prefiere
+- [x] `JsonValue` (omen algebraico) + `parse_json_value` + serializadores +
+      JSON Pointer / Patch / Merge Patch + Base85/Z85/Base58 + percent-encoding
+- [x] `HashState` / `HmacState` (streaming), HMAC-SHA-384/512/SHA3-256/512,
+      PBKDF2-SHA256/512, HKDF-SHA256, scrypt, `crc32_update`, `random_bytes`
+- [x] `tests/stdlib/test_cipher.py` (44 casos) y `tests/stdlib/test_seal.py`
+      (35 casos) creados; viven en `tests/stdlib/`, no en la raíz, porque
+      `test_test_policy` congela 15 ficheros raíz y ya estaban llenos (es la
+      misma desviación de ruta que en los Chunks 3–6)
+- [x] `docs/CIPHER_API.md` y `docs/SEAL_API.md` creados
+
+#### Bugs arreglados
+
+`std/cipher` (22 arreglados, 2 verificados como no-bug): C1 concatenación
+cuadrática en todos los codecs y el parser; C2 surrogate pairs; C4 validación
+UTF-8; C5/C6/C7 tokens inválidos, `\u` mal formado y comas finales;
+C8 objetos anidados perdían la llave de apertura; C9 bucle de exponente;
+C11–C13 helpers públicos sin docstring y con lectura del primer byte;
+C14 longitud `4k+1` aceptada; C15 doble pasada del padding; C16–C18 `JsonValue`
+genérico y serializadores tipados; C19 padding de Base32; C20–C21 Base85/Z85/
+Base58/URL; C22–C23 clonado profundo, `json_path` con arrays, JSON Pointer/Patch;
+C24 orden de claves determinista; C25–C29 (nuevos) valor de miembro vacío,
+contenido sobrante, bytes de control, `4k+1` en Base64 URL y los `W0005` de
+shadowing.
+
+Verificados como **no-bug**: C3 (la fórmula de tres bytes UTF-8 es correcta),
+C10 (RFC 8259 no admite `NaN`/`Infinity`; desviación documentada) y C14 en su
+parte de "acepta ambos alfabetos" (contrato de 2.0.0, documentado).
+
+`std/seal` (16 arreglados, 4 verificados/preservados): S1 concatenación
+cuadrática en HMAC; S3 `_hex_to_bytes` ahora `maybe` y valida; S4 tamaño de
+bloque por algoritmo; S5 HMAC ampliado; S7 `crc32_file` y los `*_file` nuevos
+hacen streaming de 64 KiB; S8 `HashState`/`HmacState`; S9 SHA-224/384, SHA-3 y
+BLAKE2; S10 niveles de compresión; S11/S12 `verify_hash` case-insensitive;
+S13 `try_gzip_native`/`try_unzip_native`; S14 registro de algoritmos; S16
+`crc32_update`; S17 HMAC streaming; S19 `verify_hash` ya no acepta un algoritmo
+desconocido con `expected == ""`; S20 `_hex_to_bytes` devuelve bytes binarios
+seguros; S21–S23 (nuevos) registro coherente, CSPRNG del sistema y el tamaño de
+digest de BLAKE2 en el bloque de parámetros.
+
+Verificados: S2 (HMAC es binary-safe; el byte que desaparecía es un hallazgo del
+compilador, G-1), S6 (`const_time_eq` ya es O(n) y sin ramas por contenido),
+S15 (el `bool` congelado se preserva; las variantes nativas cubren el caso
+ergonómico) y S18 (`lower` viene de `std.scrolls`, importado).
+
+#### Recuento de tests
+
+`cipher` **43** tests internos y **44** casos en `tests/stdlib/test_cipher.py`;
+`seal` **24** internos y **35** en `tests/stdlib/test_seal.py`. Todo verde, más
+`pengu check` sin warnings y `pengu fmt --check` limpio en ambos módulos.
+
+#### Hallazgos fuera de alcance (compilador / módulos cerrados)
+
+Nueve, en `docs/BUGS_FIXED_CHUNK7.md` §4. Los tres más importantes:
+
+- **G-3:** `Module.Variant` (sin el nombre del omen) pasa el checker pero emite
+  un símbolo C sin manglar (`JsonKind_JsonNumber` en vez de
+  `cipher_JsonKind_JsonNumber`). Esquiva: `cipher.JsonKind.JsonNumber` o el alias
+  corto.
+- **G-2:** un `omen` no puede referenciar su propio tipo en un payload (ni con
+  `list of`, ni con `ref to`); `JsonValue` usa runes envoltorio declarados
+  *después* del omen.
+- **X-1:** `std.spark.parse_float` mete un `double` en un `maybe float` (payload
+  de 4 bytes) y **devuelve 0 para toda entrada**. Es el hallazgo más grave del
+  chunk: rompe cualquier parser de float de la stdlib. Fuera de alcance (`spark`
+  está cerrado); `cipher` y `seal` usan sus propios parsers acotados y lo dejan
+  documentado para el Chunk 8.
+
+#### Decisiones de estilo de Chunk 7
+
+- `insignia cipher_` / `insignia seal_`, colocadas **después** de los `declare`
+  para que los puentes `pengu_c_seal_*` / `pengu_map_*` conserven su nombre, y
+  porque ambos módulos tienen tests internos (el checklist del Chunk 6 lo exige
+  para evitar colisiones con la libc: `crc32` choca con zlib).
+- Ningún `set out is "{out}{x}"` en un bucle: los caminos calientes usan buffers
+  C pre-dimensionados y el resto una `list of string` con un `_concat_parts`
+  propio, porque `std.scrolls.join` también es cuadrático (hallazgo G-6).
+- Los cuerpos `antiquus` van **planos a columna 0** (incluidas las líneas de
+  continuación de las macros): `pengu fmt` no converge si mezclan sangría
+  (hallazgo X-2).
+- `time`/`random` no se importan de `std.lot`: `random_bytes` lee el CSPRNG del
+  sistema en C (falla cerrado) y `seal` no depende de un PRNG no criptográfico.
+
+### Próximo: Chunk 8 (pendiente del brief)
 
 ## Desviaciones y hallazgos de Chunk 4
 

@@ -3614,8 +3614,32 @@
       "documented": true,
       "kind": "const",
       "module": "cipher",
+      "name": "BASE58_ALPHABET",
+      "signature": "**BASE58_ALPHABET** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "cipher",
       "name": "CIPHER_VERSION",
       "signature": "**CIPHER_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "cipher",
+      "name": "HEX_DIGITS",
+      "signature": "**HEX_DIGITS** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "cipher",
+      "name": "HEX_UPPER",
+      "signature": "**HEX_UPPER** : string"
     },
     {
       "deprecated": false,
@@ -3636,10 +3660,34 @@
     {
       "deprecated": false,
       "documented": true,
+      "kind": "omen",
+      "module": "cipher",
+      "name": "JsonValue",
+      "signature": "**JsonValue** : JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "cipher",
+      "name": "JsonArrayNode",
+      "signature": "**JsonArrayNode** : JsonArrayNode"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "cipher",
+      "name": "JsonObjectNode",
+      "signature": "**JsonObjectNode** : JsonObjectNode"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
       "kind": "weave",
       "module": "cipher",
       "name": "base64_length",
-      "signature": "**base64_length**(n: int) -> int"
+      "signature": "**cipher_base64_length**(n: int) -> int"
     },
     {
       "deprecated": false,
@@ -3647,7 +3695,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "cb64_char",
-      "signature": "**cb64_char**(v: int) -> string"
+      "signature": "**cipher_cb64_char**(v: int) -> string"
     },
     {
       "deprecated": false,
@@ -3655,7 +3703,15 @@
       "kind": "weave",
       "module": "cipher",
       "name": "cb64_val",
-      "signature": "**cb64_val**(c: string) -> int"
+      "signature": "**cipher_cb64_val**(c: string) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "crc32_hex",
+      "signature": "**cipher_crc32_hex**(data: string) -> string"
     },
     {
       "deprecated": false,
@@ -3663,7 +3719,15 @@
       "kind": "weave",
       "module": "cipher",
       "name": "decode_base32",
-      "signature": "**decode_base32**(data: string) -> maybe string"
+      "signature": "**cipher_decode_base32**(data: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "decode_base58",
+      "signature": "**cipher_decode_base58**(data: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -3671,7 +3735,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "decode_base64",
-      "signature": "**decode_base64**(data: string) -> maybe string"
+      "signature": "**cipher_decode_base64**(data: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -3679,7 +3743,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "decode_base64_nopad",
-      "signature": "**decode_base64_nopad**(data: string) -> maybe string"
+      "signature": "**cipher_decode_base64_nopad**(data: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -3687,7 +3751,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "decode_base64_unpadded",
-      "signature": "**decode_base64_unpadded**(data: string) -> maybe string"
+      "signature": "**cipher_decode_base64_unpadded**(data: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -3695,7 +3759,23 @@
       "kind": "weave",
       "module": "cipher",
       "name": "decode_base64_url",
-      "signature": "**decode_base64_url**(data: string) -> maybe string"
+      "signature": "**cipher_decode_base64_url**(data: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "decode_base85",
+      "signature": "**cipher_decode_base85**(data: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "decode_base85_z85",
+      "signature": "**cipher_decode_base85_z85**(data: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -3703,7 +3783,15 @@
       "kind": "weave",
       "module": "cipher",
       "name": "decode_hex",
-      "signature": "**decode_hex**(data: string) -> maybe string"
+      "signature": "**cipher_decode_hex**(data: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "decode_url",
+      "signature": "**cipher_decode_url**(data: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -3711,7 +3799,15 @@
       "kind": "weave",
       "module": "cipher",
       "name": "encode_base32",
-      "signature": "**encode_base32**(data: string) -> string"
+      "signature": "**cipher_encode_base32**(data: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "encode_base58",
+      "signature": "**cipher_encode_base58**(data: string) -> string"
     },
     {
       "deprecated": false,
@@ -3719,7 +3815,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "encode_base64",
-      "signature": "**encode_base64**(data: string) -> string"
+      "signature": "**cipher_encode_base64**(data: string) -> string"
     },
     {
       "deprecated": false,
@@ -3727,7 +3823,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "encode_base64_bytes",
-      "signature": "**encode_base64_bytes**(data: string) -> string"
+      "signature": "**cipher_encode_base64_bytes**(data: string) -> string"
     },
     {
       "deprecated": false,
@@ -3735,7 +3831,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "encode_base64_nopad",
-      "signature": "**encode_base64_nopad**(data: string) -> string"
+      "signature": "**cipher_encode_base64_nopad**(data: string) -> string"
     },
     {
       "deprecated": false,
@@ -3743,7 +3839,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "encode_base64_unpadded",
-      "signature": "**encode_base64_unpadded**(data: string) -> string"
+      "signature": "**cipher_encode_base64_unpadded**(data: string) -> string"
     },
     {
       "deprecated": false,
@@ -3751,7 +3847,23 @@
       "kind": "weave",
       "module": "cipher",
       "name": "encode_base64_url",
-      "signature": "**encode_base64_url**(data: string) -> string"
+      "signature": "**cipher_encode_base64_url**(data: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "encode_base85",
+      "signature": "**cipher_encode_base85**(data: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "encode_base85_z85",
+      "signature": "**cipher_encode_base85_z85**(data: string) -> string"
     },
     {
       "deprecated": false,
@@ -3759,7 +3871,15 @@
       "kind": "weave",
       "module": "cipher",
       "name": "encode_hex",
-      "signature": "**encode_hex**(data: string) -> string"
+      "signature": "**cipher_encode_hex**(data: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "encode_url",
+      "signature": "**cipher_encode_url**(s: string) -> string"
     },
     {
       "deprecated": false,
@@ -3767,7 +3887,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "is_base64",
-      "signature": "**is_base64**(data: string) -> bool"
+      "signature": "**cipher_is_base64**(data: string) -> bool"
     },
     {
       "deprecated": false,
@@ -3775,7 +3895,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "is_valid_json",
-      "signature": "**is_valid_json**(json: string) -> bool"
+      "signature": "**cipher_is_valid_json**(json: string) -> bool"
     },
     {
       "deprecated": false,
@@ -3783,7 +3903,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "is_valid_json_value",
-      "signature": "**is_valid_json_value**(v: string) -> bool"
+      "signature": "**cipher_is_valid_json_value**(v: string) -> bool"
     },
     {
       "deprecated": false,
@@ -3791,7 +3911,15 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_deep_clone",
-      "signature": "**json_deep_clone**(m: map of string to string) -> map of string to string"
+      "signature": "**cipher_json_deep_clone**(m: map of string to string) -> map of string to string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_dumps_canonical",
+      "signature": "**cipher_json_dumps_canonical**(v: JsonValue) -> string"
     },
     {
       "deprecated": false,
@@ -3799,7 +3927,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_escape",
-      "signature": "**json_escape**(s: string) -> string"
+      "signature": "**cipher_json_escape**(s: string) -> string"
     },
     {
       "deprecated": false,
@@ -3807,7 +3935,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_get",
-      "signature": "**json_get**(m: map of string to string, key: string) -> maybe string"
+      "signature": "**cipher_json_get**(m: map of string to string, key: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -3815,7 +3943,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_get_bool",
-      "signature": "**json_get_bool**(m: map of string to string, key: string) -> maybe bool"
+      "signature": "**cipher_json_get_bool**(m: map of string to string, key: string) -> maybe bool"
     },
     {
       "deprecated": false,
@@ -3823,7 +3951,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_get_float",
-      "signature": "**json_get_float**(m: map of string to string, key: string) -> maybe float"
+      "signature": "**cipher_json_get_float**(m: map of string to string, key: string) -> maybe float"
     },
     {
       "deprecated": false,
@@ -3831,7 +3959,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_get_int",
-      "signature": "**json_get_int**(m: map of string to string, key: string) -> maybe int"
+      "signature": "**cipher_json_get_int**(m: map of string to string, key: string) -> maybe int"
     },
     {
       "deprecated": false,
@@ -3839,7 +3967,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_get_or",
-      "signature": "**json_get_or**(m: map of string to string, key: string, default: string) -> string"
+      "signature": "**cipher_json_get_or**(m: map of string to string, key: string, default: string) -> string"
     },
     {
       "deprecated": false,
@@ -3847,7 +3975,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_get_string",
-      "signature": "**json_get_string**(m: map of string to string, key: string) -> maybe string"
+      "signature": "**cipher_json_get_string**(m: map of string to string, key: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -3855,7 +3983,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_has",
-      "signature": "**json_has**(m: map of string to string, key: string) -> bool"
+      "signature": "**cipher_json_has**(m: map of string to string, key: string) -> bool"
     },
     {
       "deprecated": false,
@@ -3863,7 +3991,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_is_literal",
-      "signature": "**json_is_literal**(v: string) -> bool"
+      "signature": "**cipher_json_is_literal**(v: string) -> bool"
     },
     {
       "deprecated": false,
@@ -3871,7 +3999,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_kind_of",
-      "signature": "**json_kind_of**(v: string) -> JsonKind"
+      "signature": "**cipher_json_kind_of**(v: string) -> JsonKind"
     },
     {
       "deprecated": false,
@@ -3879,7 +4007,15 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_merge",
-      "signature": "**json_merge**(a: map of string to string, b: map of string to string) -> map of string to string"
+      "signature": "**cipher_json_merge**(a: map of string to string, b: map of string to string) -> map of string to string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_merge_patch",
+      "signature": "**cipher_json_merge_patch**(a: JsonValue, b: JsonValue) -> JsonValue"
     },
     {
       "deprecated": false,
@@ -3887,7 +4023,15 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_parse_at",
-      "signature": "**json_parse_at**(m: map of string to string, path: string) -> maybe map of string to string"
+      "signature": "**cipher_json_parse_at**(m: map of string to string, path: string) -> maybe map of string to string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_patch",
+      "signature": "**cipher_json_patch**(v: JsonValue, patch: JsonValue) -> result of JsonValue to string"
     },
     {
       "deprecated": false,
@@ -3895,7 +4039,15 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_path",
-      "signature": "**json_path**(m: map of string to string, path: string) -> maybe string"
+      "signature": "**cipher_json_path**(m: map of string to string, path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_pointer_get",
+      "signature": "**cipher_json_pointer_get**(v: JsonValue, pointer: string) -> maybe JsonValue"
     },
     {
       "deprecated": false,
@@ -3903,7 +4055,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_read_str",
-      "signature": "**json_read_str**(s: string, p: ref to int) -> string"
+      "signature": "**cipher_json_read_str**(s: string, p: ref to int) -> string"
     },
     {
       "deprecated": false,
@@ -3911,7 +4063,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_read_value",
-      "signature": "**json_read_value**(s: string, p: ref to int) -> string"
+      "signature": "**cipher_json_read_value**(s: string, p: ref to int) -> string"
     },
     {
       "deprecated": false,
@@ -3919,7 +4071,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_skip_ws",
-      "signature": "**json_skip_ws**(s: string, p: ref to int) -> void"
+      "signature": "**cipher_json_skip_ws**(s: string, p: ref to int) -> void"
     },
     {
       "deprecated": false,
@@ -3927,7 +4079,183 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_unescape",
-      "signature": "**json_unescape**(s: string) -> string"
+      "signature": "**cipher_json_unescape**(s: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_as_bool",
+      "signature": "**cipher_json_value_as_bool**(v: JsonValue) -> maybe bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_as_float",
+      "signature": "**cipher_json_value_as_float**(v: JsonValue) -> maybe float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_as_int",
+      "signature": "**cipher_json_value_as_int**(v: JsonValue) -> maybe int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_as_string",
+      "signature": "**cipher_json_value_as_string**(v: JsonValue) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_at",
+      "signature": "**cipher_json_value_at**(v: JsonValue, idx: int) -> maybe JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_deep_clone",
+      "signature": "**cipher_json_value_deep_clone**(v: JsonValue) -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_equal",
+      "signature": "**cipher_json_value_equal**(a: JsonValue, b: JsonValue) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_get",
+      "signature": "**cipher_json_value_get**(v: JsonValue, key: string) -> maybe JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_is_array",
+      "signature": "**cipher_json_value_is_array**(v: JsonValue) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_is_bool",
+      "signature": "**cipher_json_value_is_bool**(v: JsonValue) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_is_float",
+      "signature": "**cipher_json_value_is_float**(v: JsonValue) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_is_int",
+      "signature": "**cipher_json_value_is_int**(v: JsonValue) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_is_null",
+      "signature": "**cipher_json_value_is_null**(v: JsonValue) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_is_object",
+      "signature": "**cipher_json_value_is_object**(v: JsonValue) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_is_string",
+      "signature": "**cipher_json_value_is_string**(v: JsonValue) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_items",
+      "signature": "**cipher_json_value_items**(v: JsonValue) -> maybe list of JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_len",
+      "signature": "**cipher_json_value_len**(v: JsonValue) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_merge",
+      "signature": "**cipher_json_value_merge**(a: JsonValue, b: JsonValue) -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_pairs",
+      "signature": "**cipher_json_value_pairs**(v: JsonValue) -> maybe map of string to JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_to_string",
+      "signature": "**cipher_json_value_to_string**(v: JsonValue) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "json_value_type",
+      "signature": "**cipher_json_value_type**(v: JsonValue) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "nul_byte",
+      "signature": "**cipher_nul_byte**() -> string"
     },
     {
       "deprecated": false,
@@ -3935,7 +4263,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "parse_json",
-      "signature": "**parse_json**(json: string) -> maybe map of string to string"
+      "signature": "**cipher_parse_json**(json: string) -> maybe map of string to string"
     },
     {
       "deprecated": false,
@@ -3943,7 +4271,31 @@
       "kind": "weave",
       "module": "cipher",
       "name": "parse_json_array",
-      "signature": "**parse_json_array**(json: string) -> maybe list of string"
+      "signature": "**cipher_parse_json_array**(json: string) -> maybe list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "parse_json_to_list",
+      "signature": "**cipher_parse_json_to_list**(json: string) -> maybe list of JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "parse_json_to_map",
+      "signature": "**cipher_parse_json_to_map**(json: string) -> maybe map of string to JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "parse_json_value",
+      "signature": "**cipher_parse_json_value**(json: string) -> maybe JsonValue"
     },
     {
       "deprecated": false,
@@ -3951,7 +4303,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "parse_value",
-      "signature": "**parse_value**(json: string) -> maybe string"
+      "signature": "**cipher_parse_value**(json: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -3959,7 +4311,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "pretty_json",
-      "signature": "**pretty_json**(data: map of string to string, indent: int) -> maybe string"
+      "signature": "**cipher_pretty_json**(data: map of string to string, indent: int) -> maybe string"
     },
     {
       "deprecated": false,
@@ -3967,7 +4319,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "read_json_array_file",
-      "signature": "**read_json_array_file**(path: string) -> maybe list of string"
+      "signature": "**cipher_read_json_array_file**(path: string) -> maybe list of string"
     },
     {
       "deprecated": false,
@@ -3975,7 +4327,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "read_json_file",
-      "signature": "**read_json_file**(path: string) -> maybe map of string to string"
+      "signature": "**cipher_read_json_file**(path: string) -> maybe map of string to string"
     },
     {
       "deprecated": false,
@@ -3983,7 +4335,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "stringify_json",
-      "signature": "**stringify_json**(data: map of string to string) -> maybe string"
+      "signature": "**cipher_stringify_json**(data: map of string to string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -3991,7 +4343,47 @@
       "kind": "weave",
       "module": "cipher",
       "name": "stringify_json_array",
-      "signature": "**stringify_json_array**(items: list of string) -> maybe string"
+      "signature": "**cipher_stringify_json_array**(items: list of string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "stringify_json_map_bool",
+      "signature": "**cipher_stringify_json_map_bool**(data: map of string to bool) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "stringify_json_map_float",
+      "signature": "**cipher_stringify_json_map_float**(data: map of string to float) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "stringify_json_map_int",
+      "signature": "**cipher_stringify_json_map_int**(data: map of string to int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "stringify_json_value",
+      "signature": "**cipher_stringify_json_value**(v: JsonValue) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "cipher",
+      "name": "stringify_json_value_pretty",
+      "signature": "**cipher_stringify_json_value_pretty**(v: JsonValue, indent: int) -> string"
     },
     {
       "deprecated": false,
@@ -3999,7 +4391,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "stringify_value",
-      "signature": "**stringify_value**(value: string) -> maybe string"
+      "signature": "**cipher_stringify_value**(value: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -4007,7 +4399,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "write_json_file",
-      "signature": "**write_json_file**(path: string, data: map of string to string) -> bool"
+      "signature": "**cipher_write_json_file**(path: string, data: map of string to string) -> bool"
     },
     {
       "deprecated": false,
@@ -4015,7 +4407,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "write_json_file_pretty",
-      "signature": "**write_json_file_pretty**(path: string, data: map of string to string, indent: int) -> bool"
+      "signature": "**cipher_write_json_file_pretty**(path: string, data: map of string to string, indent: int) -> bool"
     },
     {
       "deprecated": false,
@@ -6942,8 +7334,40 @@
       "documented": true,
       "kind": "const",
       "module": "lot",
+      "name": "BASE64_ALPHABET",
+      "signature": "**BASE64_ALPHABET** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "lot",
+      "name": "LOT_EPSILON",
+      "signature": "**LOT_EPSILON** : float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "lot",
+      "name": "LOT_INT_MAX",
+      "signature": "**LOT_INT_MAX** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "lot",
       "name": "LOT_VERSION",
       "signature": "**LOT_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "declare",
+      "module": "lot",
+      "name": "pengu_c_getpid",
+      "signature": "**pengu_c_getpid**() -> int"
     },
     {
       "deprecated": false,
@@ -7028,10 +7452,18 @@
     {
       "deprecated": false,
       "documented": true,
+      "kind": "declare",
+      "module": "lot",
+      "name": "pengu_c_time",
+      "signature": "**pengu_c_time**() -> float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
       "kind": "weave",
       "module": "lot",
       "name": "choice",
-      "signature": "**choice**(items: list of int) -> maybe int"
+      "signature": "**lot_choice**(items: list of int) -> maybe int"
     },
     {
       "deprecated": false,
@@ -7039,7 +7471,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "choice_string",
-      "signature": "**choice_string**(items: list of string) -> maybe string"
+      "signature": "**lot_choice_string**(items: list of string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -7047,7 +7479,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "choice_weighted",
-      "signature": "**choice_weighted**(items: list of int, weights: list of int) -> maybe int"
+      "signature": "**lot_choice_weighted**(items: list of int, weights: list of int) -> maybe int"
     },
     {
       "deprecated": false,
@@ -7055,7 +7487,15 @@
       "kind": "weave",
       "module": "lot",
       "name": "choice_weighted_string",
-      "signature": "**choice_weighted_string**(items: list of string, weights: list of int) -> maybe string"
+      "signature": "**lot_choice_weighted_string**(items: list of string, weights: list of int) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "password_symbols",
+      "signature": "**lot_password_symbols**() -> string"
     },
     {
       "deprecated": false,
@@ -7063,7 +7503,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "permutation",
-      "signature": "**permutation**(n: int) -> list of int"
+      "signature": "**lot_permutation**(n: int) -> list of int"
     },
     {
       "deprecated": false,
@@ -7071,7 +7511,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_alnum_string",
-      "signature": "**rand_alnum_string**(n: int) -> string"
+      "signature": "**lot_rand_alnum_string**(n: int) -> string"
     },
     {
       "deprecated": false,
@@ -7079,7 +7519,15 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_alpha",
-      "signature": "**rand_alpha**(n: int) -> string"
+      "signature": "**lot_rand_alpha**(n: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_base64",
+      "signature": "**lot_rand_base64**(n: int) -> string"
     },
     {
       "deprecated": false,
@@ -7087,7 +7535,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_beta",
-      "signature": "**rand_beta**(a: float, b: float) -> float"
+      "signature": "**lot_rand_beta**(a: float, b: float) -> float"
     },
     {
       "deprecated": false,
@@ -7095,7 +7543,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_between",
-      "signature": "**rand_between**(lo: int, hi: int) -> int"
+      "signature": "**lot_rand_between**(lo: int, hi: int) -> int"
     },
     {
       "deprecated": false,
@@ -7103,7 +7551,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_bit",
-      "signature": "**rand_bit**() -> int"
+      "signature": "**lot_rand_bit**() -> int"
     },
     {
       "deprecated": false,
@@ -7111,7 +7559,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_bool",
-      "signature": "**rand_bool**(probability: float) -> bool"
+      "signature": "**lot_rand_bool**(probability: float) -> bool"
     },
     {
       "deprecated": false,
@@ -7119,7 +7567,15 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_bool_with",
-      "signature": "**rand_bool_with**(p: float) -> bool"
+      "signature": "**lot_rand_bool_with**(p: float) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_bytes",
+      "signature": "**lot_rand_bytes**(n: int) -> list of int"
     },
     {
       "deprecated": false,
@@ -7127,7 +7583,55 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_bytes_hex",
-      "signature": "**rand_bytes_hex**(n: int) -> string"
+      "signature": "**lot_rand_bytes_hex**(n: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_bytes_string",
+      "signature": "**lot_rand_bytes_string**(n: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_cauchy",
+      "signature": "**lot_rand_cauchy**(x0: float, gamma: float) -> float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_chi_squared",
+      "signature": "**lot_rand_chi_squared**(k: int) -> float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_choice_n",
+      "signature": "**lot_rand_choice_n**(items: list of int, k: int) -> list of int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_choice_n_string",
+      "signature": "**lot_rand_choice_n_string**(items: list of string, k: int) -> list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_choice_shard",
+      "signature": "**lot_rand_choice_shard**(items: list of T) -> maybe T"
     },
     {
       "deprecated": false,
@@ -7135,7 +7639,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_coin",
-      "signature": "**rand_coin**() -> bool"
+      "signature": "**lot_rand_coin**() -> bool"
     },
     {
       "deprecated": false,
@@ -7143,7 +7647,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_digit_string",
-      "signature": "**rand_digit_string**(n: int) -> string"
+      "signature": "**lot_rand_digit_string**(n: int) -> string"
     },
     {
       "deprecated": false,
@@ -7151,7 +7655,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_exp",
-      "signature": "**rand_exp**(rate: float) -> float"
+      "signature": "**lot_rand_exp**(rate: float) -> float"
     },
     {
       "deprecated": false,
@@ -7159,7 +7663,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_float",
-      "signature": "**rand_float**() -> float"
+      "signature": "**lot_rand_float**() -> float"
     },
     {
       "deprecated": false,
@@ -7167,7 +7671,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_from_charset",
-      "signature": "**rand_from_charset**(charset: string, n: int) -> string"
+      "signature": "**lot_rand_from_charset**(charset: string, n: int) -> string"
     },
     {
       "deprecated": false,
@@ -7175,7 +7679,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_gamma",
-      "signature": "**rand_gamma**(shape: float, scale: float) -> float"
+      "signature": "**lot_rand_gamma**(shape: float, scale: float) -> float"
     },
     {
       "deprecated": false,
@@ -7183,7 +7687,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_gauss",
-      "signature": "**rand_gauss**(mean: float, stddev: float) -> float"
+      "signature": "**lot_rand_gauss**(mean: float, stddev: float) -> float"
     },
     {
       "deprecated": false,
@@ -7191,7 +7695,15 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_hex_string",
-      "signature": "**rand_hex_string**(n: int) -> string"
+      "signature": "**lot_rand_hex_string**(n: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_hex_upper",
+      "signature": "**lot_rand_hex_upper**(n: int) -> string"
     },
     {
       "deprecated": false,
@@ -7199,7 +7711,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_int",
-      "signature": "**rand_int**() -> int"
+      "signature": "**lot_rand_int**() -> int"
     },
     {
       "deprecated": false,
@@ -7207,7 +7719,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_lognormal",
-      "signature": "**rand_lognormal**(mu: float, sigma: float) -> float"
+      "signature": "**lot_rand_lognormal**(mu: float, sigma: float) -> float"
     },
     {
       "deprecated": false,
@@ -7215,7 +7727,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_max",
-      "signature": "**rand_max**() -> int"
+      "signature": "**lot_rand_max**() -> int"
     },
     {
       "deprecated": false,
@@ -7223,7 +7735,15 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_normal",
-      "signature": "**rand_normal**(mean: float, stddev: float) -> float"
+      "signature": "**lot_rand_normal**(mean: float, stddev: float) -> float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_pareto",
+      "signature": "**lot_rand_pareto**(alpha: float) -> float"
     },
     {
       "deprecated": false,
@@ -7231,7 +7751,15 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_password",
-      "signature": "**rand_password**(n: int, include_symbols: bool) -> string"
+      "signature": "**lot_rand_password**(n: int, include_symbols: bool) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_permutation_shard",
+      "signature": "**lot_rand_permutation_shard**(items: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -7239,7 +7767,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_poisson",
-      "signature": "**rand_poisson**(rate: float) -> int"
+      "signature": "**lot_rand_poisson**(rate: float) -> int"
     },
     {
       "deprecated": false,
@@ -7247,7 +7775,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_range",
-      "signature": "**rand_range**(min_val: int, max_val: int) -> int"
+      "signature": "**lot_rand_range**(min_val: int, max_val: int) -> int"
     },
     {
       "deprecated": false,
@@ -7255,7 +7783,31 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_range_float",
-      "signature": "**rand_range_float**(min_val: float, max_val: float) -> float"
+      "signature": "**lot_rand_range_float**(min_val: float, max_val: float) -> float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_sample_shard",
+      "signature": "**lot_rand_sample_shard**(items: list of T, k: int) -> list of T"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_sample_weighted",
+      "signature": "**lot_rand_sample_weighted**(items: list of int, weights: list of int, k: int) -> list of int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_shuffle_shard",
+      "signature": "**lot_rand_shuffle_shard**(items: list of T) -> list of T"
     },
     {
       "deprecated": false,
@@ -7263,7 +7815,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_sign",
-      "signature": "**rand_sign**() -> int"
+      "signature": "**lot_rand_sign**() -> int"
     },
     {
       "deprecated": false,
@@ -7271,7 +7823,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_triangular",
-      "signature": "**rand_triangular**(lo: float, mode: float, hi: float) -> float"
+      "signature": "**lot_rand_triangular**(lo: float, mode: float, hi: float) -> float"
     },
     {
       "deprecated": false,
@@ -7279,7 +7831,23 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_uniform",
-      "signature": "**rand_uniform**(lo: float, hi: float) -> float"
+      "signature": "**lot_rand_uniform**(lo: float, hi: float) -> float"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_uuid4",
+      "signature": "**lot_rand_uuid4**() -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "rand_vonmises",
+      "signature": "**lot_rand_vonmises**(mu: float, kappa: float) -> float"
     },
     {
       "deprecated": false,
@@ -7287,7 +7855,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "rand_weibull",
-      "signature": "**rand_weibull**(shape: float, scale: float) -> float"
+      "signature": "**lot_rand_weibull**(shape: float, scale: float) -> float"
     },
     {
       "deprecated": false,
@@ -7295,7 +7863,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "sample",
-      "signature": "**sample**(items: list of int, k: int) -> list of int"
+      "signature": "**lot_sample**(items: list of int, k: int) -> list of int"
     },
     {
       "deprecated": false,
@@ -7303,7 +7871,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "sample_string",
-      "signature": "**sample_string**(items: list of string, k: int) -> list of string"
+      "signature": "**lot_sample_string**(items: list of string, k: int) -> list of string"
     },
     {
       "deprecated": false,
@@ -7311,7 +7879,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "sample_with_replacement",
-      "signature": "**sample_with_replacement**(items: list of int, k: int) -> list of int"
+      "signature": "**lot_sample_with_replacement**(items: list of int, k: int) -> list of int"
     },
     {
       "deprecated": false,
@@ -7319,7 +7887,23 @@
       "kind": "weave",
       "module": "lot",
       "name": "seed",
-      "signature": "**seed**(s: int) -> void"
+      "signature": "**lot_seed**(s: int) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "seed_from_pid",
+      "signature": "**lot_seed_from_pid**() -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lot",
+      "name": "seed_from_time",
+      "signature": "**lot_seed_from_time**() -> void"
     },
     {
       "deprecated": false,
@@ -7327,7 +7911,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "shuffle",
-      "signature": "**shuffle**(items: list of int) -> list of int"
+      "signature": "**lot_shuffle**(items: list of int) -> list of int"
     },
     {
       "deprecated": false,
@@ -7335,7 +7919,7 @@
       "kind": "weave",
       "module": "lot",
       "name": "shuffle_string",
-      "signature": "**shuffle_string**(items: list of string) -> list of string"
+      "signature": "**lot_shuffle_string**(items: list of string) -> list of string"
     },
     {
       "deprecated": false,
@@ -10790,8 +11374,160 @@
       "documented": true,
       "kind": "const",
       "module": "seal",
+      "name": "ALG_BLAKE2B",
+      "signature": "**ALG_BLAKE2B** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "ALG_BLAKE2S",
+      "signature": "**ALG_BLAKE2S** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "ALG_MD5",
+      "signature": "**ALG_MD5** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "ALG_SHA1",
+      "signature": "**ALG_SHA1** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "ALG_SHA224",
+      "signature": "**ALG_SHA224** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "ALG_SHA256",
+      "signature": "**ALG_SHA256** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "ALG_SHA384",
+      "signature": "**ALG_SHA384** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "ALG_SHA3_224",
+      "signature": "**ALG_SHA3_224** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "ALG_SHA3_256",
+      "signature": "**ALG_SHA3_256** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "ALG_SHA3_384",
+      "signature": "**ALG_SHA3_384** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "ALG_SHA3_512",
+      "signature": "**ALG_SHA3_512** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "ALG_SHA512",
+      "signature": "**ALG_SHA512** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
       "name": "CRC32_POLYNOMIAL",
       "signature": "**CRC32_POLYNOMIAL** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "HASH_STATE_BYTES",
+      "signature": "**HASH_STATE_BYTES** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "OP_FILE_HEX",
+      "signature": "**OP_FILE_HEX** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "OP_FINAL_HEX",
+      "signature": "**OP_FINAL_HEX** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "OP_FINAL_RAW",
+      "signature": "**OP_FINAL_RAW** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "OP_INIT",
+      "signature": "**OP_INIT** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "OP_INIT_SIZE",
+      "signature": "**OP_INIT_SIZE** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "seal",
+      "name": "OP_UPDATE",
+      "signature": "**OP_UPDATE** : int"
     },
     {
       "deprecated": false,
@@ -10884,10 +11620,58 @@
     {
       "deprecated": false,
       "documented": true,
+      "kind": "rune",
+      "module": "seal",
+      "name": "HashState",
+      "signature": "**HashState** : HashState"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "seal",
+      "name": "HmacState",
+      "signature": "**HmacState** : HmacState"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "blake2b",
+      "signature": "**seal_blake2b**(data: string, digest_size: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "blake2b_file",
+      "signature": "**seal_blake2b_file**(path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "blake2s",
+      "signature": "**seal_blake2s**(data: string, digest_size: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "blake2s_file",
+      "signature": "**seal_blake2s_file**(path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
       "kind": "weave",
       "module": "seal",
       "name": "const_time_eq",
-      "signature": "**const_time_eq**(a: string, b: string) -> bool"
+      "signature": "**seal_const_time_eq**(a: string, b: string) -> bool"
     },
     {
       "deprecated": false,
@@ -10895,7 +11679,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "crc32",
-      "signature": "**crc32**(data: string) -> u32"
+      "signature": "**seal_crc32**(data: string) -> u32"
     },
     {
       "deprecated": false,
@@ -10903,7 +11687,23 @@
       "kind": "weave",
       "module": "seal",
       "name": "crc32_file",
-      "signature": "**crc32_file**(path: string) -> maybe u32"
+      "signature": "**seal_crc32_file**(path: string) -> maybe u32"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "crc32_update",
+      "signature": "**seal_crc32_update**(seed: u32, data: string) -> u32"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "digest_compare",
+      "signature": "**seal_digest_compare**(a: string, b: string) -> bool"
     },
     {
       "deprecated": false,
@@ -10911,7 +11711,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "gzip",
-      "signature": "**gzip**(data: string) -> maybe string"
+      "signature": "**seal_gzip**(data: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -10919,7 +11719,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "gzip_file",
-      "signature": "**gzip_file**(path: string, output_path: string) -> bool"
+      "signature": "**seal_gzip_file**(path: string, output_path: string) -> bool"
     },
     {
       "deprecated": false,
@@ -10927,7 +11727,15 @@
       "kind": "weave",
       "module": "seal",
       "name": "gzip_file_to_bytes",
-      "signature": "**gzip_file_to_bytes**(path: string) -> maybe string"
+      "signature": "**seal_gzip_file_to_bytes**(path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "gzip_level",
+      "signature": "**seal_gzip_level**(data: string, level: int) -> maybe string"
     },
     {
       "deprecated": false,
@@ -10935,7 +11743,23 @@
       "kind": "weave",
       "module": "seal",
       "name": "hash_algos",
-      "signature": "**hash_algos**() -> list of string"
+      "signature": "**seal_hash_algos**() -> list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "hash_finalize",
+      "signature": "**seal_hash_finalize**(h: ref to HashState) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "hash_finalize_raw",
+      "signature": "**seal_hash_finalize_raw**(h: ref to HashState) -> string"
     },
     {
       "deprecated": false,
@@ -10943,7 +11767,39 @@
       "kind": "weave",
       "module": "seal",
       "name": "hash_length",
-      "signature": "**hash_length**(alg: string) -> int"
+      "signature": "**seal_hash_length**(alg: string) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "hash_stream",
+      "signature": "**seal_hash_stream**(data: string, hash_type: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "hash_update",
+      "signature": "**seal_hash_update**(h: ref to HashState, data: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "hex_to_bytes",
+      "signature": "**seal_hex_to_bytes**(hex: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "hkdf_sha256",
+      "signature": "**seal_hkdf_sha256**(ikm: string, salt: string, info: string, key_len: int) -> string"
     },
     {
       "deprecated": false,
@@ -10951,7 +11807,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "hmac_md5",
-      "signature": "**hmac_md5**(key: string, message: string) -> string"
+      "signature": "**seal_hmac_md5**(key: string, message: string) -> string"
     },
     {
       "deprecated": false,
@@ -10959,7 +11815,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "hmac_sha1",
-      "signature": "**hmac_sha1**(key: string, message: string) -> string"
+      "signature": "**seal_hmac_sha1**(key: string, message: string) -> string"
     },
     {
       "deprecated": false,
@@ -10967,7 +11823,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "hmac_sha256",
-      "signature": "**hmac_sha256**(key: string, message: string) -> string"
+      "signature": "**seal_hmac_sha256**(key: string, message: string) -> string"
     },
     {
       "deprecated": false,
@@ -10975,7 +11831,39 @@
       "kind": "weave",
       "module": "seal",
       "name": "hmac_sha256_hex",
-      "signature": "**hmac_sha256_hex**(key: string, message: string) -> string"
+      "signature": "**seal_hmac_sha256_hex**(key: string, message: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "hmac_sha384",
+      "signature": "**seal_hmac_sha384**(key: string, message: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "hmac_sha3_256",
+      "signature": "**seal_hmac_sha3_256**(key: string, message: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "hmac_sha3_512",
+      "signature": "**seal_hmac_sha3_512**(key: string, message: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "hmac_sha512",
+      "signature": "**seal_hmac_sha512**(key: string, message: string) -> string"
     },
     {
       "deprecated": false,
@@ -10983,7 +11871,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "is_valid_hash_alg",
-      "signature": "**is_valid_hash_alg**(alg: string) -> bool"
+      "signature": "**seal_is_valid_hash_alg**(alg: string) -> bool"
     },
     {
       "deprecated": false,
@@ -10991,7 +11879,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "md5",
-      "signature": "**md5**(data: string) -> string"
+      "signature": "**seal_md5**(data: string) -> string"
     },
     {
       "deprecated": false,
@@ -10999,7 +11887,47 @@
       "kind": "weave",
       "module": "seal",
       "name": "md5_file",
-      "signature": "**md5_file**(path: string) -> maybe string"
+      "signature": "**seal_md5_file**(path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "pbkdf2_hmac_sha256",
+      "signature": "**seal_pbkdf2_hmac_sha256**(password: string, salt: string, iterations: int, key_len: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "pbkdf2_hmac_sha512",
+      "signature": "**seal_pbkdf2_hmac_sha512**(password: string, salt: string, iterations: int, key_len: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "random_bytes",
+      "signature": "**seal_random_bytes**(n: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "random_token_hex",
+      "signature": "**seal_random_token_hex**(n: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "scrypt",
+      "signature": "**seal_scrypt**(password: string, salt: string, n: int, r: int, p: int, key_len: int) -> string"
     },
     {
       "deprecated": false,
@@ -11007,7 +11935,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "sha1",
-      "signature": "**sha1**(data: string) -> string"
+      "signature": "**seal_sha1**(data: string) -> string"
     },
     {
       "deprecated": false,
@@ -11015,7 +11943,23 @@
       "kind": "weave",
       "module": "seal",
       "name": "sha1_file",
-      "signature": "**sha1_file**(path: string) -> maybe string"
+      "signature": "**seal_sha1_file**(path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "sha224",
+      "signature": "**seal_sha224**(data: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "sha224_file",
+      "signature": "**seal_sha224_file**(path: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -11023,7 +11967,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "sha256",
-      "signature": "**sha256**(data: string) -> string"
+      "signature": "**seal_sha256**(data: string) -> string"
     },
     {
       "deprecated": false,
@@ -11031,7 +11975,87 @@
       "kind": "weave",
       "module": "seal",
       "name": "sha256_file",
-      "signature": "**sha256_file**(path: string) -> maybe string"
+      "signature": "**seal_sha256_file**(path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "sha384",
+      "signature": "**seal_sha384**(data: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "sha384_file",
+      "signature": "**seal_sha384_file**(path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "sha3_224",
+      "signature": "**seal_sha3_224**(data: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "sha3_224_file",
+      "signature": "**seal_sha3_224_file**(path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "sha3_256",
+      "signature": "**seal_sha3_256**(data: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "sha3_256_file",
+      "signature": "**seal_sha3_256_file**(path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "sha3_384",
+      "signature": "**seal_sha3_384**(data: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "sha3_384_file",
+      "signature": "**seal_sha3_384_file**(path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "sha3_512",
+      "signature": "**seal_sha3_512**(data: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "sha3_512_file",
+      "signature": "**seal_sha3_512_file**(path: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -11039,7 +12063,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "sha512",
-      "signature": "**sha512**(data: string) -> string"
+      "signature": "**seal_sha512**(data: string) -> string"
     },
     {
       "deprecated": false,
@@ -11047,23 +12071,39 @@
       "kind": "weave",
       "module": "seal",
       "name": "sha512_file",
-      "signature": "**sha512_file**(path: string) -> maybe string"
+      "signature": "**seal_sha512_file**(path: string) -> maybe string"
     },
     {
-      "deprecated": false,
+      "deprecated": true,
       "documented": true,
       "kind": "weave",
       "module": "seal",
       "name": "try_gzip",
-      "signature": "**try_gzip**(data: string) -> ResultString"
+      "signature": "**seal_try_gzip**(data: string) -> ResultString"
     },
     {
       "deprecated": false,
       "documented": true,
       "kind": "weave",
       "module": "seal",
+      "name": "try_gzip_native",
+      "signature": "**seal_try_gzip_native**(data: string) -> result of string to string"
+    },
+    {
+      "deprecated": true,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
       "name": "try_unzip",
-      "signature": "**try_unzip**(data: string) -> ResultString"
+      "signature": "**seal_try_unzip**(data: string) -> ResultString"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "try_unzip_native",
+      "signature": "**seal_try_unzip_native**(data: string) -> result of string to string"
     },
     {
       "deprecated": false,
@@ -11071,7 +12111,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "unzip",
-      "signature": "**unzip**(data: string) -> maybe string"
+      "signature": "**seal_unzip**(data: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -11079,7 +12119,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "unzip_file",
-      "signature": "**unzip_file**(path: string, output_path: string) -> bool"
+      "signature": "**seal_unzip_file**(path: string, output_path: string) -> bool"
     },
     {
       "deprecated": false,
@@ -11087,7 +12127,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "unzip_file_to_bytes",
-      "signature": "**unzip_file_to_bytes**(path: string) -> maybe string"
+      "signature": "**seal_unzip_file_to_bytes**(path: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -11095,7 +12135,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "verify_hash",
-      "signature": "**verify_hash**(data: string, hash_type: string, expected: string) -> bool"
+      "signature": "**seal_verify_hash**(data: string, hash_type: string, expected: string) -> bool"
     },
     {
       "deprecated": false,
@@ -11103,7 +12143,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "verify_hash_file",
-      "signature": "**verify_hash_file**(path: string, hash_type: string, expected: string) -> bool"
+      "signature": "**seal_verify_hash_file**(path: string, hash_type: string, expected: string) -> bool"
     },
     {
       "deprecated": false,
@@ -11111,7 +12151,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "verify_hmac_sha256",
-      "signature": "**verify_hmac_sha256**(key: string, message: string, expected_hex: string) -> bool"
+      "signature": "**seal_verify_hmac_sha256**(key: string, message: string, expected_hex: string) -> bool"
     },
     {
       "deprecated": false,
@@ -11119,7 +12159,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "verify_md5",
-      "signature": "**verify_md5**(data: string, expected_hex: string) -> bool"
+      "signature": "**seal_verify_md5**(data: string, expected_hex: string) -> bool"
     },
     {
       "deprecated": false,
@@ -11127,7 +12167,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "verify_sha1",
-      "signature": "**verify_sha1**(data: string, expected_hex: string) -> bool"
+      "signature": "**seal_verify_sha1**(data: string, expected_hex: string) -> bool"
     },
     {
       "deprecated": false,
@@ -11135,7 +12175,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "verify_sha256",
-      "signature": "**verify_sha256**(data: string, expected_hex: string) -> bool"
+      "signature": "**seal_verify_sha256**(data: string, expected_hex: string) -> bool"
     },
     {
       "deprecated": false,
@@ -11143,7 +12183,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "verify_sha512",
-      "signature": "**verify_sha512**(data: string, expected_hex: string) -> bool"
+      "signature": "**seal_verify_sha512**(data: string, expected_hex: string) -> bool"
     },
     {
       "deprecated": false,
@@ -11151,7 +12191,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "zlib_compress",
-      "signature": "**zlib_compress**(data: string) -> maybe string"
+      "signature": "**seal_zlib_compress**(data: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -11159,7 +12199,15 @@
       "kind": "weave",
       "module": "seal",
       "name": "zlib_compress_file",
-      "signature": "**zlib_compress_file**(path: string) -> maybe string"
+      "signature": "**seal_zlib_compress_file**(path: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "zlib_compress_level",
+      "signature": "**seal_zlib_compress_level**(data: string, level: int) -> maybe string"
     },
     {
       "deprecated": false,
@@ -11167,7 +12215,15 @@
       "kind": "weave",
       "module": "seal",
       "name": "zlib_decompress",
-      "signature": "**zlib_decompress**(data: string) -> maybe string"
+      "signature": "**seal_zlib_decompress**(data: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "seal",
+      "name": "zlib_decompress_auto",
+      "signature": "**seal_zlib_decompress_auto**(data: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -11175,7 +12231,7 @@
       "kind": "weave",
       "module": "seal",
       "name": "zlib_decompress_file",
-      "signature": "**zlib_decompress_file**(path: string) -> maybe string"
+      "signature": "**seal_zlib_decompress_file**(path: string) -> maybe string"
     },
     {
       "deprecated": false,
@@ -13212,6 +14268,14 @@
     {
       "deprecated": false,
       "documented": true,
+      "kind": "declare",
+      "module": "whisper",
+      "name": "pengu_map_keys_string",
+      "signature": "**pengu_map_keys_string**(m: ref to map of string to string) -> list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
       "kind": "rune",
       "module": "whisper",
       "name": "Logger",
@@ -13222,8 +14286,16 @@
       "documented": true,
       "kind": "weave",
       "module": "whisper",
+      "name": "colorize",
+      "signature": "**whisper_colorize**(level: int, msg: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "whisper",
       "name": "debug",
-      "signature": "**debug**(msg: string) -> void"
+      "signature": "**whisper_debug**(msg: string) -> void"
     },
     {
       "deprecated": false,
@@ -13231,7 +14303,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "default_logger",
-      "signature": "**default_logger**() -> Logger"
+      "signature": "**whisper_default_logger**() -> Logger"
     },
     {
       "deprecated": false,
@@ -13239,7 +14311,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "error",
-      "signature": "**error**(msg: string) -> void"
+      "signature": "**whisper_error**(msg: string) -> void"
     },
     {
       "deprecated": false,
@@ -13247,7 +14319,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "fatal",
-      "signature": "**fatal**(msg: string) -> void"
+      "signature": "**whisper_fatal**(msg: string) -> void"
     },
     {
       "deprecated": false,
@@ -13255,7 +14327,15 @@
       "kind": "weave",
       "module": "whisper",
       "name": "fatal_and_exit",
-      "signature": "**fatal_and_exit**(msg: string, code: int) -> void"
+      "signature": "**whisper_fatal_and_exit**(msg: string, code: int) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "whisper",
+      "name": "get_default_level",
+      "signature": "**whisper_get_default_level**() -> int"
     },
     {
       "deprecated": false,
@@ -13263,7 +14343,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "get_level",
-      "signature": "**get_level**() -> int"
+      "signature": "**whisper_get_level**() -> int"
     },
     {
       "deprecated": false,
@@ -13271,7 +14351,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "get_level_color",
-      "signature": "**get_level_color**(level: int) -> string"
+      "signature": "**whisper_get_level_color**(level: int) -> string"
     },
     {
       "deprecated": false,
@@ -13279,7 +14359,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "get_level_name",
-      "signature": "**get_level_name**(level: int) -> string"
+      "signature": "**whisper_get_level_name**(level: int) -> string"
     },
     {
       "deprecated": false,
@@ -13287,7 +14367,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "info",
-      "signature": "**info**(msg: string) -> void"
+      "signature": "**whisper_info**(msg: string) -> void"
     },
     {
       "deprecated": false,
@@ -13295,7 +14375,15 @@
       "kind": "weave",
       "module": "whisper",
       "name": "is_enabled",
-      "signature": "**is_enabled**(level: int) -> bool"
+      "signature": "**whisper_is_enabled**(level: int) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "whisper",
+      "name": "json_escape_public",
+      "signature": "**whisper_json_escape_public**(s: string) -> string"
     },
     {
       "deprecated": false,
@@ -13303,7 +14391,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "log",
-      "signature": "**log**(level: int, msg: string) -> void"
+      "signature": "**whisper_log**(level: int, msg: string) -> void"
     },
     {
       "deprecated": false,
@@ -13311,7 +14399,15 @@
       "kind": "weave",
       "module": "whisper",
       "name": "log_json",
-      "signature": "**log_json**(level: int, msg: string, fields: map of string to string) -> void"
+      "signature": "**whisper_log_json**(level: int, msg: string, fields: map of string to string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "whisper",
+      "name": "log_json_global_helper",
+      "signature": "**whisper_log_json_global_helper**() -> void"
     },
     {
       "deprecated": false,
@@ -13319,7 +14415,15 @@
       "kind": "weave",
       "module": "whisper",
       "name": "log_levels",
-      "signature": "**log_levels**() -> list of string"
+      "signature": "**whisper_log_levels**() -> list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "whisper",
+      "name": "named_logger",
+      "signature": "**whisper_named_logger**(name: string) -> Logger"
     },
     {
       "deprecated": false,
@@ -13327,7 +14431,15 @@
       "kind": "weave",
       "module": "whisper",
       "name": "parse_level_string",
-      "signature": "**parse_level_string**(s: string) -> maybe int"
+      "signature": "**whisper_parse_level_string**(s: string) -> maybe int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "whisper",
+      "name": "set_default_level",
+      "signature": "**whisper_set_default_level**(level: int) -> void"
     },
     {
       "deprecated": false,
@@ -13335,7 +14447,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "set_level",
-      "signature": "**set_level**(level: int) -> void"
+      "signature": "**whisper_set_level**(level: int) -> void"
     },
     {
       "deprecated": false,
@@ -13343,7 +14455,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "set_level_from_env",
-      "signature": "**set_level_from_env**() -> void"
+      "signature": "**whisper_set_level_from_env**() -> void"
     },
     {
       "deprecated": false,
@@ -13351,7 +14463,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "set_level_from_string",
-      "signature": "**set_level_from_string**(s: string) -> bool"
+      "signature": "**whisper_set_level_from_string**(s: string) -> bool"
     },
     {
       "deprecated": false,
@@ -13359,7 +14471,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "trace",
-      "signature": "**trace**(msg: string) -> void"
+      "signature": "**whisper_trace**(msg: string) -> void"
     },
     {
       "deprecated": false,
@@ -13367,7 +14479,7 @@
       "kind": "weave",
       "module": "whisper",
       "name": "warn",
-      "signature": "**warn**(msg: string) -> void"
+      "signature": "**whisper_warn**(msg: string) -> void"
     },
     {
       "deprecated": false,
