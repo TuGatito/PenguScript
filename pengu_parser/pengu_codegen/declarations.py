@@ -32,9 +32,11 @@ from ._base import (
     VOID_TYPE,
     _dce_collect_refs,
     ast_to_type,
+    canonical_primitive_name,
     eval_comptime,
     get_type_base_name,
     os,
+    SHARD_RECEIVER_KEY,
 )
 from .ast_utils import (
     _extract_attributes_from_node,
@@ -425,6 +427,23 @@ class CollectMixin:
             type_node = stmt.children[0]
             enchanted_type = ast_to_type(type_node, self._lookup_type_fn)
             base_tname = get_type_base_name(enchanted_type)
+            if isinstance(enchanted_type, TypeParam):
+                # `enchanting shard T where T: Integrum:` declares one body, not a
+                # C function: it is monomorphized per concrete receiver at the
+                # call site (pass 3).  Registering it under its own key keeps it
+                # out of `weaves`, so no `T_f(...)` prototype is ever emitted.
+                if self.symbols:
+                    for w in stmt.children[1:]:
+                        if isinstance(w, Tree) and w.data == "weave_decl":
+                            _, _, m_idx = skip_weave_modifiers(w.children)
+                            m_name = str(w.children[m_idx])
+                            m_tparams = []
+                            for c in w.children:
+                                if isinstance(c, Tree) and c.data == "shard_params":
+                                    m_tparams = [str(x) for x in c.children if isinstance(x, Token) and x.type == "NAME"]
+                                    break
+                            self.symbols.generic_methods[(SHARD_RECEIVER_KEY, m_name)] = ([enchanted_type.name], m_tparams, w)
+                return
             type_params_of_receiver = []
             if self.symbols and base_tname in self.symbols.generic_runes:
                 type_params_of_receiver = list(self.symbols.generic_runes[base_tname][0])
@@ -462,7 +481,8 @@ class CollectMixin:
                                     break
                             self.symbols.generic_methods[(base_tname, m_name)] = ([], m_tparams, w)
                         continue
-                    self._collect_weave(w, filepath, enchanted_type, prefix=prefix)
+                    self._collect_weave(w, filepath, enchanted_type, prefix=prefix,
+                                        self_is_value=self._enchanted_receiver_is_value(enchanted_type))
     def _collect_monomorphized_weave(self, specialized_name: str, node: Tree, subst_map: Dict[str, Type], enchanted_type: Optional[Type], filepath: str = ".") -> None:
         """Collects specialized monomorphized function details."""
         attrs, a_idx = _extract_attributes_from_node(node.children)
@@ -539,6 +559,11 @@ class CollectMixin:
                 "name": specialized_name,
                 "c_name": c_name,
                 "enchanted_type": enchanted_type,
+                # A monomorphized `shard T` body is emitted for a concrete
+                # receiver; the ones that reach here are primitives (the inferrer
+                # only instantiates a shard method for a primitive receiver), so
+                # `self` is the value.
+                "self_is_value": self._enchanted_receiver_is_value(enchanted_type),
                 "params": params,
                 "return_type": ret_type,
                 "is_inline": is_inline,
@@ -558,6 +583,12 @@ class CollectMixin:
         if enchanted_type is not None and hasattr(self, "symbols") and hasattr(self.symbols, "generic_methods"):
             base_tname = get_type_base_name(enchanted_type)
             t_args = getattr(enchanted_type, "type_args", [])
+            # A primitive receiver ('shard T' monomorphized to int, or plain
+            # 'enchanting int') has no type_args, but its body may call another
+            # shard method on `self` (`is_odd` calling `self.is_even`).  Those are
+            # monomorphized for the same concrete primitive, otherwise the emitted
+            # body would call a function that is never defined.
+            prim_recv = canonical_primitive_name(enchanted_type)
             for st in body_stmts:
                 if not isinstance(st, Tree):
                     continue
@@ -573,7 +604,18 @@ class CollectMixin:
                                     m_name = str(acc.children[0])
                                 elif isinstance(acc, (Token, str)):
                                     m_name = str(acc)
-                                if m_name and (base_tname, m_name) in self.symbols.generic_methods:
+                                if not m_name:
+                                    continue
+                                if prim_recv is not None and (SHARD_RECEIVER_KEY, m_name) in self.symbols.generic_methods:
+                                    entry = self.symbols.generic_methods[(SHARD_RECEIVER_KEY, m_name)]
+                                    recv_p = list(entry[0]) if entry else []
+                                    method_ast = entry[2] if len(entry) > 2 else entry[-1]
+                                    concrete = BaseType(prim_recv)
+                                    cand = f"{prim_recv}_{m_name}"
+                                    self.symbols.monomorphized_methods[cand] = (
+                                        method_ast, {tp: concrete for tp in recv_p}, concrete)
+                                    continue
+                                if (base_tname, m_name) in self.symbols.generic_methods:
                                     entry = self.symbols.generic_methods[(base_tname, m_name)]
                                     recv_p, m_p, method_ast = (entry[0], entry[1], entry[2]) if len(entry) == 3 else (entry[0], [], entry[1])
                                     type_params = list(recv_p) + list(m_p)
@@ -583,8 +625,18 @@ class CollectMixin:
                                         cand = f"{rec_mangled}_{c_m}"
                                         sub_map = dict(zip(type_params, t_args))
                                         self.symbols.monomorphized_methods[cand] = (method_ast, sub_map, enchanted_type)
-    def _collect_weave(self, node: Tree, filepath: str, enchanted_type: Optional[Type], prefix: Optional[str] = None) -> None:
-        """Collects function declaration details."""
+    def _collect_weave(self, node: Tree, filepath: str, enchanted_type: Optional[Type], prefix: Optional[str] = None,
+                       self_is_value: bool = False) -> None:
+        """Collects function declaration details.
+
+        ``self_is_value`` says how the receiver is passed.  It is decided by the
+        *declaration syntax*, not by the receiver's type:
+
+        * ``enchanting int:`` -> the value (``int32_t self``);
+        * ``bind int with Ordered:`` -> a reference (``int32_t* self``), which is
+          the established shape of a concept implementation on a primitive and
+          what `std/atlas.pengu` is written against.
+        """
         attrs, a_idx = _extract_attributes_from_node(node.children)
         is_inline, is_ritual, idx = skip_weave_modifiers(node.children, start=a_idx)
         if "inline" in attrs:
@@ -658,9 +710,27 @@ class CollectMixin:
 
         c_name = self._c_ident(name)
         if enchanted_type is not None:
-            t_name = getattr(enchanted_type, "name", str(enchanted_type)).replace(" ", "_")
-            t_name = self._c_ident(t_name)
-            m_name = self._c_ident(name)
+            # Primitive receivers use the canonical spelling, so `enchanting
+            # int32_t: weave f` emits exactly `int_f` -- the same symbol a plain
+            # `enchanting int:` would emit, which is correct: they are one type.
+            # The name is a *prefix* of the C symbol, never a standalone
+            # identifier, so the C-keyword escape (`int` -> `_int`) must NOT be
+            # applied here: the documented spelling is `int_clamp`, not
+            # `_int_clamp`.
+            # Only an `enchanting` method on a primitive uses the canonical
+            # spelling; a `bind` implementation keeps the spelling it was written
+            # with (`bind int` -> `int_cmp`, `bind i32` -> `i32_cmp`), which is
+            # also how two spellings of one C type can have distinct symbols.
+            prim_receiver = canonical_primitive_name(enchanted_type) if self_is_value else None
+            if prim_receiver is not None:
+                t_name = prim_receiver
+            else:
+                t_name = self._c_ident(getattr(enchanted_type, "name", str(enchanted_type)).replace(" ", "_"))
+            # The method name rides as a suffix of `<type>_<method>`, so it must
+            # not be C-keyword-escaped: a method named `double` gives
+            # `int_double`, which is what the call site and the monomorphization
+            # key both look for.
+            m_name = self._c_ident(name) if prim_receiver is None else name
             # 'insignia' prefixes module-level weaves/declares but NOT methods
             # enchanting primitive/collection types (string, list, map, slice,
             # maybe, result): those keep their plain names (string_len, ...)
@@ -711,6 +781,7 @@ class CollectMixin:
             "name": name,
             "c_name": c_name,
             "enchanted_type": enchanted_type,
+            "self_is_value": bool(self_is_value),
             "params": params,
             "return_type": ret_type,
             "is_inline": is_inline,

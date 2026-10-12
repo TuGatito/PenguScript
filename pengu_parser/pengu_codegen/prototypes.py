@@ -29,10 +29,14 @@ class ProtoMixin:
             ret_str = CTypeMapper.to_c_type(w["return_type"])
             param_strs = []
 
-            # Self parameter for enchanting methods (only if not ritual)
+            # Self parameter for enchanting methods (only if not ritual).  A
+            # primitive / bare-`shard T` receiver is a value: `int32_t self`, not
+            # `int32_t* self`, exactly as C models it.
             if w["enchanted_type"] is not None and not w.get("is_ritual", False):
                 self_t_str = CTypeMapper.to_c_type(w["enchanted_type"])
-                param_strs.append(f"{self_t_str}* self")
+                param_strs.append(
+                    f"{self_t_str} self" if w.get("self_is_value") else f"{self_t_str}* self"
+                )
 
             for p_info in w["params"]:
                 p_name, p_type = p_info[0], p_info[1]
@@ -129,7 +133,9 @@ class ProtoMixin:
 
             if w["enchanted_type"] is not None and not w.get("is_ritual", False):
                 self_t_str = CTypeMapper.to_c_type(w["enchanted_type"])
-                param_strs.append(f"{self_t_str}* self")
+                param_strs.append(
+                    f"{self_t_str} self" if w.get("self_is_value") else f"{self_t_str}* self"
+                )
 
             for p_info in w["params"]:
                 p_name, p_type = p_info[0], p_info[1]
@@ -175,8 +181,18 @@ class ProtoMixin:
             self.current_enchanted_type = w.get("enchanted_type")
             self.current_subst_map = w.get("subst_map", {})
             self.local_vars = {}
+            # Value-vs-reference receiver comes from the collected declaration
+            # (see `_collect_weave`), never from the type alone: `enchanting int:`
+            # is a value, `bind int with Ordered:` is a pointer.
+            self.current_self_is_value = bool(w.get("self_is_value"))
             if w["enchanted_type"] is not None and not w.get("is_ritual", False):
-                self.local_vars["self"] = RefType(w["enchanted_type"])
+                # Value receiver (primitive / bare `shard T`): `self` is the value
+                # itself, so `calling self.other_method` passes it by value and
+                # `self % 2` is plain C arithmetic, not a pointer deref.
+                if self.current_self_is_value:
+                    self.local_vars["self"] = w["enchanted_type"]
+                else:
+                    self.local_vars["self"] = RefType(w["enchanted_type"])
             for p_info in w["params"]:
                 self.local_vars[p_info[0]] = p_info[1]
 

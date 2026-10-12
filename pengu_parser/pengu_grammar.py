@@ -105,7 +105,11 @@ omen_string_kind: "string"
 omen_variant: NAME ["is" expr] ["with" omen_field (("," | _AND_SEP) omen_field)*] _NEWLINE
 omen_field: NAME "as" type
 
-enchanting_decl: "enchanting" type (shard_params | where_clause)? ":" _NEWLINE _INDENT weave_decl+ _DEDENT
+# `type_or_param` (not `type`) so the *receiver itself* may be a bare shard:
+# `enchanting shard T where T: Integrum:` declares one method body for every
+# type satisfying the bound, monomorphized per concrete receiver at the call
+# site.  `enchanting list of shard T:` keeps parsing through the nested form.
+enchanting_decl: "enchanting" type_or_param (shard_params | where_clause)? ":" _NEWLINE _INDENT weave_decl+ _DEDENT
 
 weave_decl: attributes weave_modifier* "weave" weave_modifier* NAME [shard_params] ["with" param_list] ["into" type] ":" _NEWLINE _INDENT stmt+ _DEDENT
 

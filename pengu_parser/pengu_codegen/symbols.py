@@ -29,7 +29,11 @@ from ._base import (
     Tree,
     Type,
     TypeInferrer,
+    TypeParam,
     VOID_TYPE,
+    SHARD_RECEIVER_KEY,
+    canonical_primitive_name,
+    primitive_lookup_order,
     type_owns_heap,
 )
 from .ctype import (
@@ -38,6 +42,86 @@ from .ctype import (
 
 class SymbolMixin:
     """Symbol, type and field lookups, and the small type predicates."""
+
+    def _has_method_named(self, t_name: str, m_name: str) -> bool:
+        """True when `(t_name, m_name)` resolves to *something* declarable.
+
+        Covers the four registries a primitive call can land in: the method
+        table, the monomorphized `shard T` instances, the `shard T` template
+        itself, and the plain `<t>_<m>` function name.
+        """
+        if self.symbols is not None:
+            if (t_name, m_name) in getattr(self.symbols, "methods", {}):
+                return True
+            if getattr(self.symbols, "functions", {}).get(f"{t_name}_{m_name}") is not None:
+                return True
+            if f"{t_name}_{m_name}" in getattr(self.symbols, "monomorphized_methods", {}):
+                return True
+        if (SHARD_RECEIVER_KEY, m_name) in getattr(self.symbols, "generic_methods", {}) if self.symbols else False:
+            return True
+        for w in self.weaves:
+            et = w.get("enchanted_type")
+            if et is None:
+                continue
+            if getattr(et, "name", str(et)) == t_name and w.get("name") == m_name:
+                return True
+        return False
+
+    def _primitive_method_key(self, raw_name: Optional[str], m_name: str) -> Optional[str]:
+        """Key whose method table entry resolves for a primitive receiver.
+
+        The canonical spelling is preferred (`int32_t`/`i32` -> `int`), so the
+        emitted symbol is `int_clamp` for every alias.  The receiver's own
+        spelling is the fallback, because a program may declare only one of the
+        aliases (`bind i32 with Ordered:` with no `bind int`, which is exactly
+        what a hand-written binding tends to look like).
+        """
+        if raw_name is None:
+            return None
+        cand = canonical_primitive_name(raw_name)
+        if cand is None:
+            return None
+        for name in primitive_lookup_order(raw_name):
+            if self._has_method_named(name, m_name):
+                return name
+        return cand
+
+    def _resolved_receiver_is_value(self, t_name: Optional[str], m_name: str,
+                                    enchanted_type: Optional[Type] = None) -> bool:
+        """True when the *resolved* method takes its receiver by value.
+
+        The receiver's type is not enough to answer this: `enchanting int:` takes
+        the value, while `bind int with Ordered:` (the established shape of a
+        concept implementation on a primitive, used by `std/atlas.pengu`) takes a
+        pointer.  The method table records which one a declaration was, and that
+        record is what the call site must follow.
+        """
+        if self.symbols is not None:
+            m_fn = getattr(self.symbols, "methods", {}).get((t_name, m_name)) if t_name else None
+            if m_fn is not None and getattr(m_fn, "self_is_value", None) is not None:
+                return bool(m_fn.self_is_value)
+        if t_name:
+            w = self._method_weave(t_name, m_name)
+            if w is not None:
+                return bool(w.get("self_is_value"))
+        return self._enchanted_receiver_is_value(enchanted_type)
+
+    @staticmethod
+    def _enchanted_receiver_is_value(enchanted_type: Optional[Type]) -> bool:
+        """True when an enchanting method's ``self`` is the value itself.
+
+        Primitives (``int``, ``char``, ``bool``, ``i64``…) and a bare
+        ``shard T`` receiver are passed *by value*, exactly like ``int32_t`` in
+        C: the emitted parameter is ``T self``, the call site passes no ``&`` and
+        the checker rejects ``set self``/``self->field``.  Everything else
+        (runes, list/map/slice, maybe/result, string) keeps ``ref to T`` and the
+        emitted ``T* self``.
+        """
+        return enchanted_type is not None and (
+            canonical_primitive_name(enchanted_type) is not None
+            or isinstance(enchanted_type, TypeParam)
+        )
+
 
     def _lookup_symbol(self, name: str) -> Optional[Symbol]:
         """Resolves symbol in active symbol table, falling back to un-escaped name if prefixed with _."""

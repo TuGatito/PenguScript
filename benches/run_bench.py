@@ -46,6 +46,10 @@ CASES = {
     "fib_40": ("fib_40.pengu", "c/fib_40.c", "rust/fib_40.rs", "zig/fib_40.zig"),
     "string_ops": ("string_ops.pengu", "c/string_ops.c", "rust/string_ops.rs", "zig/string_ops.zig"),
     "list_ops": ("list_ops.pengu", "c/list_ops.c", None, None),
+    # Phase 2: the method-call form against the *hand-written* C call it
+    # monomorphizes to (`v.abs` vs `int_abs(v)`). This is the zero-overhead claim
+    # as a measurement rather than as prose.
+    "primitive_methods": ("primitive_methods.pengu", "c/primitive_methods.c", None, None),
     # The stdlib-bound cases (items 4.15 and 6.16). Every other case measures the
     # bare language on purpose, so the shipped stdlib paths need their own
     # entries: one per tier of `std/`, and no C/Rust/Zig baseline because the

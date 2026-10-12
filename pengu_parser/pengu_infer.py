@@ -18,8 +18,9 @@ from .pengu_types import (
     implements_concept,
     typeparam_accepts_value, resolve_concept_method, ast_to_type, is_opaque_type, _same_pointee,
     get_type_base_name, type_has_derived_nexus,
+    canonical_primitive_name, primitive_lookup_order,
 )
-from .pengu_symbols import SymbolTable, Symbol, Scope
+from .pengu_symbols import SymbolTable, Symbol, Scope, SHARD_RECEIVER_KEY
 from .pengu_comptime import CompileTimeEnv, default_env, eval_comptime, c_int_div, c_int_mod, parse_int_literal
 from .pengu_errors import (
     PenguError, SemanticError, UndefinedIdentifierError, SelfDotAccessError, TypeMismatchError,
@@ -1175,6 +1176,14 @@ class TypeInferrer:
                     help="Use 'self' only inside methods within an 'enchanting' block.",
                     note="'self' represents the instance reference in enchanting methods."
                 )
+            # `self` is whatever the method scope bound it to: `ref to T` for a
+            # rune/collection, and the plain value `T` for a primitive or a bare
+            # `shard T` (Phase 2).  Reading the symbol is the single source of
+            # truth; hard-coding `RefType` made `self + 1` inside `enchanting int`
+            # fail with "requires numeric type, got 'ref to int'".
+            self_sym = self.symbols.lookup("self")
+            if self_sym is not None and self_sym.type is not None:
+                return self_sym.type
             return RefType(target=ench_type)
 
         # Field and Arrow Access
@@ -1407,6 +1416,18 @@ class TypeInferrer:
             target_type = self.infer(target_node)
 
             if not isinstance(target_type, RefType):
+                if (isinstance(target_node, Tree) and target_node.data == "self_ref"
+                        and canonical_primitive_name(target_type) is not None):
+                    # `self->x` in a primitive method: `self` is a value, exactly
+                    # like `int32_t` in C, so there is nothing to dereference.
+                    raise self._make_error(
+                        SelfDotAccessError,
+                        f"'self' is a value in a method of the primitive '{target_type}', not a reference",
+                        node,
+                        code="E0003",
+                        help="Primitives have no fields; use self.field or a method.",
+                        note="Primitives are passed by value: there is no receiver to dereference."
+                    )
                 raise self._make_error(
                     SemanticError,
                     f"Arrow access '->' requires reference type (ref to T), got '{target_type}'",
@@ -4063,6 +4084,73 @@ class TypeInferrer:
                         note="Constants do not have mutable addresses in memory."
                     )
 
+    def _resolve_shard_method(self, obj_type: Optional[Type], m_name: str,
+                              target_node: Tree) -> Optional[FnType]:
+        """Resolves a method declared by ``enchanting shard T where T: …:``.
+
+        Returns the signature to type-check against, or None when the receiver
+        is not a shard candidate or no such method is declared.
+
+        Two shapes, because the same declaration is used from two places:
+
+        * inside the generic body the receiver *is* the type parameter, so the
+          unspecialized signature is returned (`calling self.is_even` from
+          `is_odd` type-checks without a receiver type to substitute);
+        * at a concrete primitive call site the signature is substituted
+          (`T -> <canonical primitive>`) and recorded in
+          ``symbols.monomorphized_methods``, which is what makes codegen emit
+          one plain C function per primitive (`int_is_even`, `i64_is_even`).
+
+        The declared bounds are enforced here, so `float.is_even` against
+        ``where T: Integrum`` is E0005 instead of a C compile error.
+        """
+        generic = getattr(self.symbols, "generic_methods", None)
+        if not generic or (SHARD_RECEIVER_KEY, m_name) not in generic:
+            return None
+
+        recv_t = obj_type.target if isinstance(obj_type, RefType) else obj_type
+        while isinstance(recv_t, (AliasType, FrozenType, SealType)):
+            recv_t = getattr(recv_t, "target", None) or getattr(recv_t, "underlying", None)
+
+        is_type_param = isinstance(recv_t, TypeParam)
+        canonical = canonical_primitive_name(recv_t)
+        if not is_type_param and canonical is None:
+            return None
+
+        gm_type = self.symbols.methods.get((SHARD_RECEIVER_KEY, m_name))
+        if gm_type is None:
+            return None
+        if is_type_param:
+            return gm_type
+
+        entry = generic[(SHARD_RECEIVER_KEY, m_name)]
+        recv_params = [str(p) for p in (entry[0] if entry else [])] or list(gm_type.type_params) or ["T"]
+        bounds = getattr(self.symbols, "shard_method_bounds", {}).get((SHARD_RECEIVER_KEY, m_name), {})
+        concrete = BaseType(canonical)
+        for tp in recv_params:
+            for bound in bounds.get(tp, []):
+                if not implements_concept(concrete, bound, self.symbols):
+                    raise self._make_error(
+                        ConceptBoundNotSatisfiedError,
+                        f"Type '{canonical}' does not satisfy bound '{bound}' required by method '{m_name}'",
+                        target_node,
+                        code="E0005",
+                        help=f"'{m_name}' is declared for 'shard T where T: {bound}', and '{canonical}' is not {bound}.",
+                        note="A method declared on a bounded shard only applies to receivers satisfying the bound."
+                    )
+
+        p_type = gm_type.substitute({tp: concrete for tp in recv_params})
+        if not getattr(p_type, "type_args", None):
+            p_type.type_args = [concrete]
+        # Same key the call-site code generator looks up (see
+        # `_translate_calling_target`): '<prim>_<method>'.
+        self.symbols.monomorphized_methods[f"{concrete.get_mangled_name()}_{m_name}"] = (
+            entry[2] if len(entry) > 2 else entry[-1],
+            {tp: concrete for tp in recv_params},
+            concrete,
+        )
+        return p_type
+
     def _resolve_call_target(self, target_node: Tree) -> Tuple[Optional[FnType], Optional[Type]]:
         """Resolves target of calling statement/expr to (FnType, method_self_type).
 
@@ -4217,8 +4305,17 @@ class TypeInferrer:
 
                     if is_self or (obj_sym is not None and obj_sym.kind not in ("rune", "echo", "omen", "seal", "alias", "concept", "type")):
                         if is_self:
-                            ench_t = self.symbols.current_enchanting_type() if self.symbols else None
-                            obj_type = RefType(ench_t) if ench_t else AnyType()
+                            # Same rule as the `self_ref` expression: a primitive
+                            # (or bare `shard T`) receiver is a value, so `self`
+                            # typed as `ref to T` would make `self.is_even`
+                            # resolve against the wrong key and, worse, make the
+                            # codegen pass `&self`.
+                            self_sym = self.symbols.lookup("self") if self.symbols else None
+                            if self_sym is not None and self_sym.type is not None:
+                                obj_type = self_sym.type
+                            else:
+                                ench_t = self.symbols.current_enchanting_type() if self.symbols else None
+                                obj_type = RefType(ench_t) if ench_t else AnyType()
                         else:
                             if obj_sym.kind == "import" and len(target_node.children) == 2:
                                 # Module member calls (e.g. 'calling archivum.write_file')
@@ -4297,6 +4394,19 @@ class TypeInferrer:
                                 t_name = _unfrozen_name(obj_type.target)
                             else:
                                 t_name = _unfrozen_name(obj_type)
+                            # Primitive methods are keyed by the canonical
+                            # spelling, so `enchanting int:` provides methods for
+                            # an `i32`, `int32` or `int32_t` receiver too.  The
+                            # receiver's own spelling stays the fallback: a program
+                            # may declare only one of the aliases (`bind i32 with
+                            # Ordered:` with no `bind int`).
+                            for _cand in primitive_lookup_order(obj_type):
+                                if (_cand, m_name) in self.symbols.methods \
+                                        or (_cand, m_name) in getattr(self.symbols, "generic_methods", {}) \
+                                        or f"{_cand}_{m_name}" in getattr(self.symbols, "monomorphized_methods", {}) \
+                                        or f"{_cand}_{m_name}" in getattr(self.symbols, "functions", {}):
+                                    t_name = _cand
+                                    break
                             # A generic method must be re-inferred at every call
                             # site: the specialized signature cached in
                             # symbols.methods by the first call already carries
@@ -4330,6 +4440,15 @@ class TypeInferrer:
                                     return m_fn, obj_type
                             if not is_generic_method and f"{t_name}_{m_name}" in self.symbols.functions:
                                 return self.symbols.functions[f"{t_name}_{m_name}"], obj_type
+
+                            # `enchanting shard T where T: Integrum:` — one generic
+                            # body covering every receiver satisfying the bounds.
+                            # Inside the body the receiver is `T` itself (no
+                            # substitution yet); at a concrete primitive call site
+                            # it is monomorphized to `<prim>_<method>`.
+                            shard_ret = self._resolve_shard_method(obj_type, m_name, target_node)
+                            if shard_ret is not None:
+                                return shard_ret, obj_type
 
                             if is_generic_method:
                                 entry = self.symbols.generic_methods[(base_tname, m_name)]

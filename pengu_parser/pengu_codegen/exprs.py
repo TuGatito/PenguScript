@@ -37,9 +37,11 @@ from ._base import (
     Type,
     TypeInferrer,
     ast_to_type,
+    canonical_primitive_name,
     eval_comptime,
     get_type_base_name,
     os,
+    SHARD_RECEIVER_KEY,
 )
 from .ast_utils import (
     flatten_at_chain,
@@ -1019,6 +1021,18 @@ class ExprMixin:
                     t_name = getattr(actual_obj_type, "name", str(actual_obj_type))
 
                 base_tname = get_type_base_name(actual_obj_type)
+                # Primitive methods are keyed (and emitted) under the canonical
+                # spelling, so `enchanting int:` serves an `i32`/`int32_t`
+                # receiver and the C symbol is `int_f`, never `int32_t_f`.  A
+                # `ref to int` receiver *is* a primitive receiver: the method
+                # takes the value, so the call site dereferences it.
+                prim_recv = canonical_primitive_name(actual_obj_type)
+                if prim_recv is None and isinstance(actual_obj_type, RefType):
+                    prim_recv = canonical_primitive_name(actual_obj_type.target)
+                if prim_recv is not None:
+                    # Canonical spelling first, the receiver's own spelling as the
+                    # fallback (a program may bind only one of the aliases).
+                    t_name = self._primitive_method_key(t_name, m_name) or prim_recv
 
                 # Check if this is an enchanting method or concept binding method
                 is_enchanting_method = False
@@ -1029,6 +1043,10 @@ class ExprMixin:
                         is_enchanting_method = True
                     elif (base_tname, m_name) in getattr(self.symbols, "generic_methods", {}):
                         is_enchanting_method = True
+                    elif prim_recv is not None and (SHARD_RECEIVER_KEY, m_name) in getattr(self.symbols, "generic_methods", {}):
+                        # `enchanting shard T where T: Integrum:` monomorphized for
+                        # this concrete primitive receiver.
+                        is_enchanting_method = True
                     elif hasattr(self.symbols, "concept_bindings") and any((b_t == t_name or b_t == base_tname) and m_name in b_m for (b_t, _), b_m in self.symbols.concept_bindings.items()):
                         is_enchanting_method = True
                     elif hasattr(self.symbols, "functions") and f"{t_name.replace(' ', '_')}_{m_name}" in self.symbols.functions:
@@ -1036,8 +1054,17 @@ class ExprMixin:
                     elif any(w.get("enchanted_type") is not None and getattr(w["enchanted_type"], "name", str(w["enchanted_type"])) == t_name and w.get("name") == m_name for w in self.weaves):
                         is_enchanting_method = True
 
+                # Value receiver?  That is a property of the *declaration*, not
+                # of the receiver's type: `enchanting int:` passes the value,
+                # `bind int with Ordered:` (std/atlas.pengu) passes a pointer.
+                value_recv = self._resolved_receiver_is_value(t_name, m_name, actual_obj_type)
                 if is_enchanting_method:
-                    c_m = self._c_ident(m_name)
+                    # The method name is a *suffix* of the C symbol, never a
+                    # standalone identifier, so the documented convention is
+                    # `int_clamp` / `int_round` even when the method's own name is
+                    # a C keyword (a method literally called `double` must emit
+                    # `int_double`, not `int__double`).
+                    c_m = m_name if value_recv else self._c_ident(m_name)
                     c_name = f"{t_name.replace(' ', '_')}_{c_m}"
                     rec_t = obj_type.target if isinstance(obj_type, RefType) else obj_type
                     rec_mangled = rec_t.get_mangled_name() if hasattr(rec_t, "get_mangled_name") else t_name.replace(' ', '_')
@@ -1055,6 +1082,15 @@ class ExprMixin:
                         c_name = cand_mono
                     elif hasattr(self.symbols, "monomorphized_methods") and cand_mono in self.symbols.monomorphized_methods:
                         c_name = cand_mono
+                    elif prim_recv is not None and (SHARD_RECEIVER_KEY, m_name) in getattr(self.symbols, "generic_methods", {}):
+                        entry = self.symbols.generic_methods[(SHARD_RECEIVER_KEY, m_name)]
+                        recv_p = list(entry[0]) if entry else []
+                        method_ast = entry[2] if len(entry) > 2 else entry[-1]
+                        concrete = BaseType(prim_recv)
+                        c_name = f"{prim_recv}_{c_m}"
+                        if hasattr(self.symbols, "monomorphized_methods"):
+                            self.symbols.monomorphized_methods[c_name] = (
+                                method_ast, {tp: concrete for tp in recv_p}, concrete)
                     elif (base_tname, m_name) in getattr(self.symbols, "generic_methods", {}):
                         entry = self.symbols.generic_methods[(base_tname, m_name)]
                         recv_p, m_p, method_ast = (entry[0], entry[1], entry[2]) if len(entry) == 3 else (entry[0], [], entry[1])
@@ -1097,7 +1133,13 @@ class ExprMixin:
                             args = self._build_call_args(fn_entry["params"], raw_arg_nodes)
                         return f"{c_name}({', '.join(args)})"
 
-                    if isinstance(obj_type, RefType) or obj_expr_str == "self":
+                    # A value receiver is passed by value: `int_clamp(x, 0, 120)`,
+                    # never `int_clamp(&x, 0, 120)`; a `ref to int` receiver is
+                    # dereferenced first, so `p.dbl` emits `int_dbl((*p))`.
+                    # Everything else keeps the pointer form (`&x`).
+                    if value_recv and isinstance(obj_type, RefType):
+                        self_arg = f"(*{obj_expr_str})"
+                    elif value_recv or isinstance(obj_type, RefType) or obj_expr_str == "self":
                         self_arg = obj_expr_str
                     else:
                         self_arg = f"&{obj_expr_str}"
@@ -1218,12 +1260,17 @@ class ExprMixin:
                         self_arg = "self"
                 else:
                     base_type = self._get_current_with_target_type()
+                    prim_with = canonical_primitive_name(base_type)
                     if isinstance(base_type, RefType):
                         t_name = getattr(base_type.target, "name", str(base_type.target))
                         self_arg = base_target
                     elif base_type is not None:
-                        t_name = getattr(base_type, "name", str(base_type))
-                        self_arg = f"&{base_target}"
+                        _raw_with = getattr(base_type, "name", str(base_type))
+                        _with_key = self._primitive_method_key(_raw_with, field_name) if prim_with else None
+                        t_name = _with_key or (prim_with or _raw_with)
+                        # Value receiver (`enchanting int:`): no `&`.
+                        self_arg = base_target if self._resolved_receiver_is_value(
+                            t_name, field_name, base_type) else f"&{base_target}"
 
                 if t_name is not None:
                     if hasattr(self.symbols, "methods") and (t_name, field_name) in self.symbols.methods:
@@ -1231,8 +1278,9 @@ class ExprMixin:
                     elif any(w.get("enchanted_type") is not None and getattr(w["enchanted_type"], "name", str(w["enchanted_type"])) == t_name and w.get("name") == field_name for w in self.weaves):
                         is_enchanting_method = True
 
+                value_with = self._resolved_receiver_is_value(t_name, field_name, base_type)
                 if is_enchanting_method:
-                    c_fn = self._c_ident(field_name)
+                    c_fn = field_name if value_with else self._c_ident(field_name)
                     c_name = f"{t_name.replace(' ', '_')}_{c_fn}"
                     if c_name not in self.fn_info and not any(w.get("c_name") == c_name for w in self.weaves):
                         plain_c = f"{t_name.replace(' ', '_')}_{field_name}"
@@ -1965,13 +2013,30 @@ class ExprMixin:
                     cast_target = ast_to_type(right_node, self._lookup_type_fn)
                 elif right_node.data == "var_ref":
                     name = str(right_node.children[0])
-                    if name in ("int", "i32", "i64", "f32", "f64", "float", "double", "bool", "string", "char", "byte", "u8", "u16", "u32", "u64") or (self.symbols and (name in self.symbols.runes or self.symbols.lookup_type(name))):
+                    _subst = getattr(self, "current_subst_map", None) or {}
+                    if name in _subst:
+                        # `(2 to T)` inside a method being monomorphized: the
+                        # right-hand side is a type parameter, so this is a cast
+                        # to the concrete type, never a range.
+                        is_type_cast = True
+                        cast_target = _subst[name]
+                    # `name in self.symbols.runes` alone missed a type
+                    # *parameter*: `(2 to T)` inside a generic method type-checked
+                    # as a cast but was emitted as a range, so the C body
+                    # referenced an undeclared `T`.  `lookup_type` is the same
+                    # predicate the inferrer uses, which is what keeps the two
+                    # passes in step.
+                    elif name in ("int", "i32", "i64", "f32", "f64", "float", "double", "bool", "string", "char", "byte", "u8", "u16", "u32", "u64") or (self.symbols and (name in self.symbols.runes or self.symbols.lookup_type(name) is not None)):
                         is_type_cast = True
                         cast_target = ast_to_type(right_node, self._lookup_type_fn)
                     elif name in self.runes or name in self.seals or name in self.aliases:
                         is_type_cast = True
                         cast_target = ast_to_type(right_node, self._lookup_type_fn)
             if is_type_cast and cast_target is not None:
+                if getattr(self, "current_subst_map", None):
+                    # `to T` in a monomorphized body is a cast to the *concrete*
+                    # type: emit `(int32_t)(2)`, never `(T)(2)`.
+                    cast_target = cast_target.substitute(self.current_subst_map)
                 base = self._translate_expr(left_node)
                 if isinstance(cast_target, BaseType) and cast_target.name == "string":
                     # 'x to string' on a value that already *is* a string is the

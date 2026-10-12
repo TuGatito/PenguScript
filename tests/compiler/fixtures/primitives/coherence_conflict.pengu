@@ -1,0 +1,19 @@
+# coherence_conflict.pengu — fixture: (int, clamp) declared twice.
+#
+# This program must NOT compile: it is the E0047 case.  Both declarations would
+# emit the same C symbol (`int_clamp`), so the call site could not choose one.
+enchanting int:
+    weave clamp with lo as int, hi as int into int:
+        if self < lo:
+            return lo
+        if self > hi:
+            return hi
+        return self
+
+enchanting int:
+    weave clamp with lo as int, hi as int into int:
+        return self
+
+weave main into int:
+    var x as int is 1
+    return calling x.clamp with 0, 1

@@ -15,5 +15,8 @@ def target(data: bytes) -> None:
 
 
 if __name__ == "__main__":
-    corpus = load_corpus(["tests/std_programs:.pengu", "tests:.pengu", "std:.pengu"], limit=300)
+    # `tests/` only carries the compiler suite now; the language corpus is
+    # `std/`, plus one literal seed so the harness is useful on an empty tree.
+    corpus = load_corpus(["std:.pengu"], limit=300)
+    corpus.append(b"weave main into int:\n    return 0\n")
     sys.exit(run_harness("parser", target, corpus))

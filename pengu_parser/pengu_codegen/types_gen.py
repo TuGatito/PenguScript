@@ -257,15 +257,17 @@ class TypesMixin:
             " * ------------------------------------------------------------------------- */",
         ]
         return "\n".join(header) + "\n" + "\n\n".join(blocks) + "\n"
-    @staticmethod
-    def _member_sep(obj_type: Optional[Type], obj_expr: str = "") -> str:
+    def _member_sep(self, obj_type: Optional[Type], obj_expr: str = "") -> str:
         """Returns '.' or '->' for accessing a member of a receiver expression.
 
-        ``self`` is always a pointer inside an enchanting method, and a
-        ``ref to T`` receiver is a pointer too, so both need ``->``.
+        ``self`` is a pointer inside an enchanting method of a rune/collection
+        and a ``ref to T`` receiver is a pointer too, so both need ``->``.  In a
+        method of a *primitive* (or a bare ``shard T``) ``self`` is the value
+        itself, so it needs ``.`` -- ``self->x`` is not even reachable there,
+        because the checker rejects it with E0003.
         """
         if obj_expr == "self":
-            return "->"
+            return "." if getattr(self, "current_self_is_value", False) else "->"
         if isinstance(obj_type, RefType):
             return "->"
         return "."

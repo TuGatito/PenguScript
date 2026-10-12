@@ -87,9 +87,32 @@ jobs:
         run: |
           python scripts/smoke.py
 
+      # The compiler suite: the fast half needs nothing, and the slow half is
+      # what proves the packaged toolchain can compile and run a real program.
       - name: Run Test Suite
         run: |
-          python -m pytest tests -q -p no:cacheprovider
+          python -m pytest tests/compiler/ -q -p no:cacheprovider --timeout=900
+
+      # Phase 2 smoke on the *packaged* tree: the same command a user runs, with
+      # a primitive method in the program. `tail -n 1` because `pengu run` prints
+      # its progress to stdout ahead of the program's own output.
+      - name: Verify primitive enchanting end to end
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/pe.pengu" <<'EOF'
+          import std.spark
+          enchanting int:
+              weave double into int:
+                  return self + self
+          weave main into int:
+              var x as int is 21
+              calling spark.println with "{calling x.double}"
+              return 0
+          EOF
+          python pengu_project.py run "$RUNNER_TEMP/pe.pengu" | tee "$RUNNER_TEMP/pe.out"
+          test "$(tail -n 1 "$RUNNER_TEMP/pe.out")" = "42" || {
+            echo "::error::primitive enchanting failed"; exit 1; }
 
       - name: Run Automated Release Packager
         run: |

@@ -15,8 +15,9 @@ from .pengu_types import (
     typeparam_accepts_value, resolve_concept_method, ast_to_type,
     get_type_base_name, extract_type_params_from_type, receiver_deep_copies_on_store,
     type_has_derived_nexus, type_owns_heap,
+    canonical_primitive_name,
 )
-from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports, find_module_path, decl_layout
+from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports, find_module_path, decl_layout, SHARD_RECEIVER_KEY
 from .pengu_infer import TypeInferrer, ConstFolder
 from .pengu_comptime import CompileTimeEnv, default_env, eval_comptime
 from .pengu_grammar import SIMPLE_STMT_ALIASES
@@ -31,7 +32,7 @@ from .pengu_errors import (
     InvalidRitualSelfAccessError, InvalidRitualCallError,
     ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
     UnknownArrayDimensionError, InvalidBuilderStatementError,
-    DuplicateConceptBindingError, InfiniteTypeSizeError, UnknownAttributeError,
+    DuplicateConceptBindingError, DuplicatePrimitiveMethodError, InfiniteTypeSizeError, UnknownAttributeError,
     StaticVarPlacementError, InvalidTestNameError, CFieldCollisionError,
     AntiquusBodyError,
     suggest_similar_identifier
@@ -2008,11 +2009,26 @@ class PenguChecker:
                             elif isinstance(cn, Token) and cn.type == "NAME":
                                 m_ret = ast_to_type(cn, lookup_m_tp)
 
-                        impl_fn_t = FnType(params=m_params, return_type=m_ret, default_count=default_count, is_ritual=m_ritual, type_params=m_tparams, attributes=m_attrs)
-                        self.symbols.methods[(target_name, m_name)] = impl_fn_t
-                        if type_params or m_tparams:
-                            self.symbols.methods[(base_tname, m_name)] = impl_fn_t
-                            self.symbols.generic_methods[(base_tname, m_name)] = (type_params or [], m_tparams or [], m_decl)
+                        impl_fn_t = FnType(params=m_params, return_type=m_ret, default_count=default_count, is_ritual=m_ritual,
+                                           type_params=list(type_params) + list(m_tparams), attributes=m_attrs,
+                                           self_is_value=canonical_primitive_name(target_type) is not None or isinstance(target_type, TypeParam))
+                        # Primitive receivers are keyed by their canonical
+                        # spelling (`enchanting int32_t:` provides `int` methods)
+                        # and a bare `shard T` receiver by the shard key, so pass 1
+                        # and pass 2 agree on the key the call sites will look up.
+                        prim_target = canonical_primitive_name(target_type)
+                        if isinstance(target_type, TypeParam):
+                            self.symbols.methods[(SHARD_RECEIVER_KEY, m_name)] = impl_fn_t
+                            self.symbols.generic_methods[(SHARD_RECEIVER_KEY, m_name)] = (list(type_params), list(m_tparams), m_decl)
+                            self.symbols.shard_method_bounds[(SHARD_RECEIVER_KEY, m_name)] = {
+                                tp: list(enc_bounds.get(tp, [])) for tp in type_params
+                            }
+                        else:
+                            key_name = prim_target if prim_target is not None else target_name
+                            self.symbols.methods[(key_name, m_name)] = impl_fn_t
+                            if type_params or m_tparams:
+                                self.symbols.methods[(prim_target or base_tname, m_name)] = impl_fn_t
+                                self.symbols.generic_methods[(prim_target or base_tname, m_name)] = (type_params or [], m_tparams or [], m_decl)
 
             elif rule == "declare_stmt":
                 d_attrs, d_idx = _extract_attributes(stmt.children)
@@ -2517,62 +2533,7 @@ class PenguChecker:
 
         # 2. Enchanting Blocks
         elif rule == "enchanting_decl":
-            target_type_node = node.children[0]
-            target_type = ast_to_type(target_type_node, self.symbols.lookup_type)
-            base_tname = get_type_base_name(target_type)
-            type_params = []
-            bounds: Dict[str, List[str]] = {}
-
-            for ch in node.children[1:]:
-                if isinstance(ch, Tree) and ch.data == "shard_params":
-                    sp_names, sp_bounds = extract_shard_params(ch)
-                    if sp_names:
-                        type_params = sp_names
-                    bounds.update(sp_bounds)
-                elif isinstance(ch, Tree) and ch.data == "where_clause":
-                    bounds.update(extract_where_clause(ch))
-
-            if not type_params:
-                if base_tname in self.symbols.generic_runes:
-                    type_params = self.symbols.generic_runes[base_tname][0]
-                elif isinstance(target_type, RuneType) and target_type.type_args:
-                    type_params = [getattr(t, "name", str(t)) for t in target_type.type_args]
-                else:
-                    type_params = extract_type_params_from_type(target_type)
-
-            if isinstance(target_type, MapType):
-                k_name = getattr(target_type.key, "name", None)
-                if k_name and k_name in type_params:
-                    k_b = bounds.setdefault(k_name, [])
-                    if "Par" not in k_b: k_b.append("Par")
-                    if "Vinculum" not in k_b: k_b.append("Vinculum")
-
-            target_type = target_type.substitute({tp: TypeParam(tp, bounds=bounds.get(tp, [])) for tp in type_params})
-
-            if isinstance(target_type, RuneType) and base_tname not in self.symbols.runes:
-                err = self._make_error(
-                    SemanticError,
-                    f"Cannot enchant undefined Rune '{target_type.name}'",
-                    node,
-                    code="E0004",
-                    help=f"Declare 'rune {target_type.name}:' before enchanting it.",
-                    note="Enchanting blocks can only extend defined types."
-                )
-                self._record_error(err)
-
-            span_start, span_end = self._get_node_span(node)
-            self.symbols.push_scope(kind="enchanting", enchanting_type=target_type, start_line=span_start, end_line=span_end)
-            for tp in type_params:
-                tp_b = list(bounds.get(tp, []))
-                self.symbols.define(Symbol(name=tp, type=TypeParam(tp, bounds=tp_b), kind="type"))
-
-            for child in node.children[1:]:
-                if isinstance(child, Tree) and child.data == "weave_decl":
-                    self._check_enchanting_method(child, target_type, type_params=type_params, type_bounds=bounds)
-                else:
-                    self._check_node(child)
-
-            self.symbols.pop_scope(end_line=span_end)
+            self._check_enchanting_decl(node)
             return
 
         elif rule == "bind_decl":
@@ -4706,7 +4667,24 @@ class PenguChecker:
                             note="'self' represents the instance reference in enchanting methods."
                         )
                     ench_t = self.symbols.current_enchanting_type()
-                    curr_chk_t = RefType(ench_t) if ench_t else AnyType()
+                    self_sym = self.symbols.lookup("self")
+                    if self_sym is not None and self_sym.type is not None:
+                        curr_chk_t = self_sym.type
+                        if not isinstance(curr_chk_t, RefType):
+                            # A primitive (or bare `shard T`) receiver is passed by
+                            # value: there is no storage to assign to, so `set self`
+                            # cannot mean anything. C says the same thing about
+                            # `int32_t self`.
+                            raise self._make_error(
+                                MutabilityError,
+                                f"Cannot assign to 'self' in a method of the primitive '{curr_chk_t}'",
+                                target_node,
+                                code="E0006",
+                                help="self in primitive methods is an immutable value; return a new value instead.",
+                                note="Primitives are passed by value: there is no receiver to mutate."
+                            )
+                    else:
+                        curr_chk_t = RefType(ench_t) if ench_t else AnyType()
 
                 else:
                     sym = self.symbols.lookup(first_str)
@@ -5564,7 +5542,135 @@ class PenguChecker:
 
         self.symbols.pop_scope(end_line=span_end)
 
-    def _check_enchanting_method(self, node: Tree, self_type: Type, type_params: Optional[List[str]] = None, type_bounds: Optional[Dict[str, List[str]]] = None) -> None:
+    def _module_name_of(self, filename: Optional[str]) -> str:
+        """Module name of a source file, for the ``E0047`` ownership message.
+
+        ``/repo/std/numerus.pengu`` -> ``"numerus"``; a binding declaration
+        (``numerus.d.pengu``) -> ``"numerus"``; an unknown path -> ``"<module>"``.
+        """
+        if not filename:
+            return "<module>"
+        base = os.path.basename(filename)
+        for suffix in (".d.pengu", ".pengu"):
+            if base.endswith(suffix):
+                return base[: -len(suffix)]
+        return os.path.splitext(base)[0] or "<module>"
+
+    def _check_enchanting_decl(self, node: Tree) -> None:
+        """Checks an ``enchanting T:`` block (Phase 2: primitives included).
+
+        The receiver decides how ``self`` is bound inside every method:
+
+        * a **primitive** (``int``, ``char``, ``bool``, ``i64``, …) or a bare
+          ``shard T`` is a *value*: ``self`` has type ``T``, is immutable and has
+          no fields, exactly like ``int32_t`` in C;
+        * everything else (runes, collections, ``maybe``/``result``) is a
+          *reference*: ``self`` is ``ref to T``, mutable, and fields go through
+          ``->``.
+
+        ``enchanting shard T where T: Integrum:`` declares one body for every type
+        satisfying the bounds.  It is registered under
+        :attr:`SHARD_RECEIVER_KEY` and monomorphized per concrete receiver at the
+        call site (``int_is_even``, ``i64_is_even``), which is what keeps the
+        feature zero-cost.
+        """
+        target_type_node = node.children[0]
+        # `ast_to_type` already resolves `shard T` (a `shard_param_ref`) to a
+        # TypeParam, so a bare-shard receiver needs no special parsing here.
+        target_type = ast_to_type(target_type_node, self.symbols.lookup_type)
+        base_tname = get_type_base_name(target_type)
+        type_params: List[str] = []
+        bounds: Dict[str, List[str]] = {}
+
+        if isinstance(target_type, TypeParam):
+            # `enchanting shard T where T: …:` — the receiver is its own parameter.
+            type_params = [target_type.name]
+
+        for ch in node.children[1:]:
+            if isinstance(ch, Tree) and ch.data == "shard_params":
+                sp_names, sp_bounds = extract_shard_params(ch)
+                if sp_names:
+                    type_params = sp_names
+                bounds.update(sp_bounds)
+            elif isinstance(ch, Tree) and ch.data == "where_clause":
+                bounds.update(extract_where_clause(ch))
+
+        if not type_params:
+            if base_tname in self.symbols.generic_runes:
+                type_params = self.symbols.generic_runes[base_tname][0]
+            elif isinstance(target_type, RuneType) and target_type.type_args:
+                type_params = [getattr(t, "name", str(t)) for t in target_type.type_args]
+            else:
+                type_params = extract_type_params_from_type(target_type)
+
+        if isinstance(target_type, MapType):
+            k_name = getattr(target_type.key, "name", None)
+            if k_name and k_name in type_params:
+                k_b = bounds.setdefault(k_name, [])
+                if "Par" not in k_b: k_b.append("Par")
+                if "Vinculum" not in k_b: k_b.append("Vinculum")
+
+        target_type = target_type.substitute({tp: TypeParam(tp, bounds=bounds.get(tp, [])) for tp in type_params})
+
+        if isinstance(target_type, RuneType) and base_tname not in self.symbols.runes:
+            err = self._make_error(
+                SemanticError,
+                f"Cannot enchant undefined Rune '{target_type.name}'",
+                node,
+                code="E0004",
+                help=f"Declare 'rune {target_type.name}:' before enchanting it.",
+                note="Enchanting blocks can only extend defined types."
+            )
+            self._record_error(err)
+
+        prim_name = canonical_primitive_name(target_type)
+        is_shard_receiver = isinstance(target_type, TypeParam)
+        # A type parameter has no fields and no identity either, so it shares the
+        # scalar rule with the primitives.
+        self_is_value = prim_name is not None or is_shard_receiver
+        if is_shard_receiver:
+            receiver_key = SHARD_RECEIVER_KEY
+        elif prim_name is not None:
+            receiver_key = prim_name
+        else:
+            receiver_key = base_tname
+
+        span_start, span_end = self._get_node_span(node)
+        self.symbols.push_scope(kind="enchanting", enchanting_type=target_type, start_line=span_start, end_line=span_end)
+        for tp in type_params:
+            tp_b = list(bounds.get(tp, []))
+            self.symbols.define(Symbol(name=tp, type=TypeParam(tp, bounds=tp_b), kind="type"))
+
+        seen_methods: Dict[str, Tree] = {}
+        for child in node.children[1:]:
+            if isinstance(child, Tree) and child.data == "weave_decl":
+                _, _, m_idx = _extract_weave_modifiers(child.children)
+                m_name = str(child.children[m_idx]) if m_idx < len(child.children) else "?"
+                if m_name in seen_methods:
+                    err = self._make_error(
+                        DuplicatePrimitiveMethodError,
+                        f"Method '{m_name}' of '{target_type}' is declared twice in this 'enchanting' block",
+                        child,
+                        code="E0047",
+                        help=f"Remove the duplicate 'weave {m_name}'.",
+                    )
+                    self._record_error(err)
+                else:
+                    seen_methods[m_name] = child
+                self._check_enchanting_method(
+                    child, target_type,
+                    type_params=type_params, type_bounds=bounds,
+                    self_is_value=self_is_value, receiver_key=receiver_key,
+                    prim_name=prim_name,
+                )
+            else:
+                self._check_node(child)
+
+        self.symbols.pop_scope(end_line=span_end)
+
+    def _check_enchanting_method(self, node: Tree, self_type: Type, type_params: Optional[List[str]] = None, type_bounds: Optional[Dict[str, List[str]]] = None,
+                                 self_is_value: bool = False, receiver_key: Optional[str] = None,
+                                 prim_name: Optional[str] = None) -> None:
         """Checks method definition within an enchanting block.
 
         Args:
@@ -5572,6 +5678,13 @@ class PenguChecker:
             self_type: Receiver Type being enchanted.
             type_params: Optional list of generic type parameters.
             type_bounds: Optional dictionary mapping type parameter names to concept bounds.
+            self_is_value: True for a primitive / bare-``shard T`` receiver, where
+                ``self`` is bound as an immutable *value* of type ``T``.
+            receiver_key: Key used to register the method in ``symbols.methods``
+                (the canonical primitive name, or ``__shard__`` for a shard
+                receiver).
+            prim_name: Canonical primitive name, or None.  Used for the ``E0047``
+                coherence check across modules.
         """
         line, col = self._get_loc(node)
         w_attrs, _ = _extract_attributes(node.children)
@@ -5669,16 +5782,54 @@ class PenguChecker:
             elif isinstance(child, Tree) and child.data in ("stmt", "var_decl", "let_decl", "set_stmt", "return_stmt", "if_stmt", "while_stmt", "for_range_stmt", "for_in_stmt", "with_stmt", "expr_stmt"):
                 stmt_children.append(child)
 
-        method_fn_type = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual, type_params=tp_list, attributes=w_attrs)
+        method_fn_type = FnType(params=params, return_type=ret_type, default_count=default_count, is_ritual=is_ritual, type_params=tp_list, attributes=w_attrs, self_is_value=self_is_value)
         self_t_name = getattr(self_type, "name", str(self_type))
-        self.symbols.methods[(self_t_name, fn_name)] = method_fn_type
+        registration_key = receiver_key if receiver_key is not None else self_t_name
+        if self_is_value and prim_name:
+            # Coherence: two modules cannot both attach `clamp` to `int`.  The
+            # call site would have no way to choose, and the C symbol
+            # (`int_clamp`) would collide at link time.
+            #
+            # The owner is recorded with the declaration's own line/column so a
+            # *re-check* of the same file (same declaration, same position) stays
+            # idempotent, while a second declaration of the same pair -- in
+            # another block of this file or in another module -- is E0047.
+            owner = self.symbols.primitive_method_owners.get((prim_name, fn_name))
+            if owner is not None:
+                owner_file, owner_line = owner[0], owner[1]
+                same_declaration = (
+                    os.path.abspath(owner_file) == os.path.abspath(self.filename or "")
+                    and owner_line == line
+                )
+                if not same_declaration:
+                    where = ("this module" if os.path.abspath(owner_file) == os.path.abspath(self.filename or "")
+                             else f"module '{self._module_name_of(owner_file)}'")
+                    err = self._make_error(
+                        DuplicatePrimitiveMethodError,
+                        f"Method '{fn_name}' of '{prim_name}' is already provided by {where}",
+                        node,
+                        code="E0047",
+                        help=f"Rename the method, or extend '{(self._module_name_of(owner_file))}' in a way that does not collide.",
+                    )
+                    self._record_error(err)
+            else:
+                self.symbols.primitive_method_owners[(prim_name, fn_name)] = (self.filename or "", line)
+        self.symbols.methods[(registration_key, fn_name)] = method_fn_type
         if isinstance(self_type, RuneType):
             self_type.methods[fn_name] = method_fn_type
+        if isinstance(self_type, TypeParam):
+            # `enchanting shard T where T: Integrum:` — one body, one entry per
+            # (bound, method); codegen monomorphizes it per concrete receiver.
+            self.symbols.generic_methods[(SHARD_RECEIVER_KEY, fn_name)] = (list(tp_list), list(m_tparams), node)
+            self.symbols.shard_method_bounds[(SHARD_RECEIVER_KEY, fn_name)] = {
+                tp: list(combined_bounds.get(tp, [])) for tp in tp_list
+            }
 
         span_start, span_end = self._get_node_span(node)
         self.symbols.push_scope(kind="weave", return_type=ret_type, enchanting_type=self_type, is_ritual=is_ritual, start_line=span_start, end_line=span_end)
         if not is_ritual:
-            self.symbols.define(Symbol(name="self", type=RefType(target=self_type), kind="param", is_mutable=False, line=line, column=col))
+            self_type_binding = self_type if self_is_value else RefType(target=self_type)
+            self.symbols.define(Symbol(name="self", type=self_type_binding, kind="param", is_mutable=False, line=line, column=col))
         for tp in tp_list:
             self.symbols.define(Symbol(name=tp, type=TypeParam(tp, bounds=combined_bounds.get(tp, [])), kind="type"))
 

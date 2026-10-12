@@ -1,0 +1,17 @@
+# shard_numeric.pengu — fixture: one body for every integer type.
+#
+# `enchanting shard T where T: Integrum:` is monomorphized per concrete receiver,
+# so this file produces `int_is_even` and `i64_is_even` and nothing else.
+enchanting shard T where T: Integrum:
+    weave is_even into bool:
+        return (self % (2 to T)) == donum T
+
+    weave is_odd into bool:
+        return not calling self.is_even
+
+weave main into int:
+    var a as int is 4
+    var b as i64 is 7
+    if calling a.is_even and calling b.is_odd:
+        return 0
+    return 1

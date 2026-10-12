@@ -9,8 +9,9 @@ missing diagnostic.
 
 | Harness | Target | Seeds |
 |---|---|---|
-| `fuzz_parser.py` | lexer + LALR parser | `tests/std_programs/*.pengu`, `tests/*.pengu`, `std/*.pengu` |
-| `fuzz_bind.py` | C header → binding generator | generated headers + real headers from `std_c/`, `build/include/`, `extern/` |
+| `fuzz_parser.py` | lexer + LALR parser | `std/*.pengu` (the compiler-only checkout has no other corpus) |
+| `fuzz_enchanting.py` | `enchanting` blocks: parse + semantic check, primitives and `shard T` receivers | generated programs + `std/*.pengu` |
+| `fuzz_bind.py` | C header → binding generator | generated headers + real headers from `build/include/`, `extern/` |
 | `fuzz_semver.py` | `pengu_semver` version/constraint parsing | constraint literals |
 | `fuzz_lock.py` | `pengu.lock` TOML read/write round trip | lockfiles |
 | `fuzz_lsp.py` | language server document handlers | malformed documents and out-of-range positions |
@@ -72,8 +73,7 @@ roadmap item 9.5).
 
 That is **6 h per harness** at the very most, and the job declares a
 `timeout-minutes` below the platform ceiling. Raising the budget is possible, but
-the workflow clamps it rather than trusting the input — enforced by
-`tests/test_ci_workflows.py::test_no_job_timeout_exceeds_the_platform_ceiling`.
+the workflow clamps it rather than trusting the input.
 
 Fuzzing is not part of the pull-request gate: it is heavy and non-deterministic,
 so a finding must not block unrelated work. The deterministic smoke pass runs
@@ -81,12 +81,14 @@ whenever atheris is unavailable.
 
 Failures upload the crash corpus and the atheris logs as workflow artifacts.
 
-Failures upload the crash corpus and the atheris logs as workflow artifacts.
-
 ## Adding a regression
 
-Every minimised finding is committed to `tests/fuzz_corpus/` and exercised by
-`tests/gates/test_fuzz_harnesses.py`, so a fixed crash cannot come back unnoticed.
+A minimised finding is committed next to its harness (as a seed in the harness's
+own corpus list) and the `PENGU_FUZZ_SMOKE=1` pass replays it, so a fixed crash
+cannot come back unnoticed. `tests/compiler/` covers the same idea for the
+`enchanting` front end with a deterministic generator instead of a corpus:
+`scripts/fuzz/fuzz_enchanting.py` rebuilds a program from the fuzz input, so any
+finding is reproducible from the bytes alone.
 
 ## Disclosure
 

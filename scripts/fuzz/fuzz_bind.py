@@ -55,7 +55,10 @@ def target(data: bytes) -> None:
 def main() -> int:
     rng = random.Random(1234)
     seeds = [_gen_header(rng) for _ in range(40)]
-    seeds += load_corpus(["std_c:.h", "build/include:.h", "extern:.h"], limit=20)
+    # `std_c/` (the old vendored headers) no longer exists: bindings live in
+    # satellite repositories. The repository still ships real headers under
+    # `build/include/` and `extern/`, which is what the seeds need.
+    seeds += load_corpus(["build/include:.h", "extern:.h", "std:.pengu"], limit=20)
     return run_harness("bind", target, seeds, iterations=200)
 
 

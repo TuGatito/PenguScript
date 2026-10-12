@@ -20,8 +20,9 @@ proposing large changes.
 ## 1. Welcome and scope
 
 This guide is for people fixing bugs or adding features to the compiler, CLI, LSP
-or `std/`; writing `std_c/` bindings and C-library integrations; or improving
-documentation, tests and CI. It does not replace the normative references:
+or `std/`; writing a satellite binding repository for a C library (the compiler
+itself ships no external bindings: see [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md));
+or improving documentation, tests and CI. It does not replace the normative references:
 [`LANGUAGE.md`](LANGUAGE.md) (the language), [`CHEATSHEET.md`](CHEATSHEET.md)
 (syntax and C translation) and [`docs/PENGU_BUILD.md`](docs/PENGU_BUILD.md)
 (build tooling).
@@ -332,15 +333,17 @@ python make_release.py                     # package the standalone distribution
 ```
 
 Each has a job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) or a
-sibling workflow, alongside the strict-grammar/LALR gate, the ABI layout matrix,
-the per-phase gates (FASE 1–7), the sanitizer matrix (ASan/UBSan/Valgrind in the
-`sanitizers` job of
-[`.github/workflows/nightly.yml`](.github/workflows/nightly.yml)), `pengu verify`
+sibling workflow, alongside the strict-grammar/LALR gate, the compiler suite
+(`tests/compiler/`, fast + slow), the sanitizer run over the compiled programs in
+the `sanitizers` job of
+[`.github/workflows/nightly.yml`](.github/workflows/nightly.yml), `pengu verify`
 and the nightly fuzz/bench jobs. Two caveats from the checklist itself:
 
-- **`--strict-c99` is *not* a portability release gate in 0.16.0.** Measured: 34 of
-  61 programs in `tests/std_programs/` fail `gcc -std=c99 -pedantic-errors`; it is
-  deferred to 1.1 (item 3.2/B5) — see `AUDIT_1.0_FASE3.md` §6–§7.
+- **`--strict-c99` is *not* a portability release gate in 0.16.0.** The historical
+  measurement (34 of 61 programs in the since-removed `tests/std_programs/` corpus
+  failed `gcc -std=c99 -pedantic-errors`) is deferred to 1.1 (item 3.2/B5) — see
+  `AUDIT_1.0_FASE3.md` §6–§7. The corpus that measured it was deleted with the
+  rest of `tests/` in Phase 1, so re-measuring needs a new one.
 - The **manual half** (accounts, Discussions, tag signing, announcements) is
   author-only, not agent work.
 

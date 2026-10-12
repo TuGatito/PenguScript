@@ -1,0 +1,16 @@
+# char_methods.pengu — fixture: methods on `char`, self by value.
+enchanting char:
+    weave to_upper into char:
+        if self >= 'a' and self <= 'z':
+            return (self - 'a') + 'A'
+        return self
+
+    weave is_digit into bool:
+        return self >= '0' and self <= '9'
+
+weave main into int:
+    var c as char is 'q'
+    var up as char is calling c.to_upper
+    if up == 'Q' and not calling c.is_digit:
+        return 0
+    return 1

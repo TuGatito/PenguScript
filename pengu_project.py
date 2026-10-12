@@ -3289,8 +3289,19 @@ def _update_config_dependency(base_dir: str, dep_name: str, source: str, branch:
             except Exception:
                 pass
 
-        # Fallback manual YAML update
-        if "dependencies:" in content:
+        # Fallback manual YAML update (no PyYAML installed: it is in
+        # requirements.txt but is not a hard dependency, so this path is
+        # reachable).
+        #
+        # Idempotency matters here as much as in the PyYAML path: `pengu add`
+        # twice must not declare the dependency twice, and the old version
+        # appended a fresh block after *every* `dependencies:` line -- a
+        # two-key document for a single dependency.  Detecting the existing
+        # `  <name>:` entry first makes the append conditional, exactly like the
+        # dict update above.
+        if re.search(rf"^[ \t]+{re.escape(dep_name)}:[ \t]*$", content, re.M):
+            pass
+        elif "dependencies:" in content:
             lines = content.splitlines()
             new_lines = []
             deps_added = False
@@ -3530,11 +3541,25 @@ def _dep_cache_key_for(source: str, branch: Optional[str]) -> str:
     return _dep_cache_key(source, branch, _local_source_revision(source))
 
 
+#: `shutil.copytree` options used for every dependency copy.
+#:
+#: ``symlinks=False`` (the default) dereferences links, so a tree that contains
+#: one produces real files instead of links that may not exist on Windows.
+#: ``ignore_dangling_symlinks=True`` is what stops a *broken* link (a vendored
+#: header removed upstream, a test fixture) from aborting the whole install with
+#: ``shutil.Error`` -- on Windows a link is usually not even creatable.
+_DEP_COPY_KWARGS = {
+    "symlinks": False,
+    "ignore_dangling_symlinks": True,
+}
+
+
 def _copy_dep_tree(src: str, dst: str) -> None:
     """Copies a dependency, skipping build outputs but keeping ``.git``."""
     if os.path.exists(dst):
         shutil.rmtree(dst, ignore_errors=True)
-    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("build", "__pycache__"))
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("build", "__pycache__"),
+                    **_DEP_COPY_KWARGS)
 
 
 def _restore_from_cache(source: str, branch: Optional[str], target_dir: str) -> bool:
@@ -3748,7 +3773,7 @@ def add_dependency(
             if os.path.exists(target_dir):
                 _rmtree_ignore_errors(target_dir)
             if os.path.isdir(src_path):
-                shutil.copytree(src_path, target_dir)
+                shutil.copytree(src_path, target_dir, **_DEP_COPY_KWARGS)
             else:
                 os.makedirs(target_dir, exist_ok=True)
                 shutil.copy(src_path, target_dir)
@@ -5041,7 +5066,8 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                target_compiler: str = "", target: str = "",
                locked: bool = False, frozen: bool = False,
                release_unsafe: bool = False,
-               deny_deprecated: bool = False) -> int:
+               deny_deprecated: bool = False,
+               config_path: Optional[str] = None) -> int:
     """Compiles and runs a standalone .pengu file directly (script mode).
 
     The script itself is compiled as the entry point with the compile-time
@@ -5069,6 +5095,11 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         ephemeral: Use a throw-away temp directory and do not cache the binary.
         script_args: Extra arguments forwarded to the script (``pengu run x -- a``).
         quiet: Suppress the progress banner (errors still go to stderr).
+        config_path: Optional ``pengu.toml``/project root supplied with
+            ``--config``.  Its ``base_dir`` then owns import resolution.  Without
+            it the script's **own directory** is the base_dir (the same rule
+            ``pengu check <script>`` uses), so `import m` finds `lib/m/...` next
+            to the script no matter which directory the command is run from.
 
     Returns:
         Process exit code of the executed binary.
@@ -5089,7 +5120,29 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         removed = clear_script_cache(verbose=verbose)
         say(f"    Cleared {removed} cached script(s)", color="cyan")
 
-    base_dir = os.getcwd()
+    # Import resolution base.  It used to be `os.getcwd()`, which made
+    # `pengu run dir/app.pengu` fail to see `dir/lib/...` and made the same
+    # script resolve different modules depending on where it was invoked from.
+    # The script's own directory is the predictable rule (and the one `check`
+    # already uses); `--config` overrides it explicitly.
+    if config_path:
+        base_dir = ProjectConfig.load(config_path).base_dir
+    else:
+        # A project file above the script (`src/app.pengu` inside a project) owns
+        # the layout, so the search walks up from the script; otherwise the
+        # script's own directory is the base.  The one thing it is never is the
+        # cwd: `pengu run` from two directories must resolve the same modules.
+        base_dir = os.path.dirname(script_abs) or os.getcwd()
+        probe = base_dir
+        project_files = ("pengu.toml", "pengu.yaml", "pengu.yml", "pengu.json", "Pengu.toml")
+        while True:
+            if any(os.path.isfile(os.path.join(probe, cand)) for cand in project_files):
+                base_dir = probe
+                break
+            parent = os.path.dirname(probe)
+            if parent == probe:
+                break
+            probe = parent
     rel = _display_relpath(script_abs, base_dir)
     entry = rel if not rel.startswith("..") else script_abs
     out_name = os.path.splitext(os.path.basename(script_abs))[0]
@@ -5576,8 +5629,14 @@ def _selftest_smoke_targets(root: str) -> List[str]:
             if marked(full):
                 targets.append(os.path.relpath(full, root))
     targets.sort()
+    # The conformance corpus carried the `smoke` marker per *parameter*, so the
+    # scan above cannot see it: it has to be added by name.  It is guarded
+    # because the corpus is not part of every checkout (the compiler-only tree
+    # has `tests/compiler/` and nothing else), and an unguarded append made
+    # `pengu selftest --smoke` fail with "file or directory not found" instead of
+    # running the tests that do exist.
     corpus = os.path.join("tests", "test_conformance.py")
-    if corpus not in targets:
+    if os.path.isfile(os.path.join(root, corpus)) and corpus not in targets:
         targets.append(corpus)
     return targets
 
@@ -5816,7 +5875,10 @@ def emit(message: str = "", *, color: Optional[str] = None,
 _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
     "init": {
         "description": "Create a new PenguScript project from a template.",
-        "epilog": "Exit codes: 0 created, 1 directory exists / write error, 2 bad usage.\n"
+        # Re-initialising writes into the existing directory (it does not reject
+        # it), so claiming "1 directory exists" sent readers looking for an error
+        # that never happens.  `new` already documented the real behaviour.
+        "epilog": "Exit codes: 0 created or written into, 1 write error, 2 bad usage.\n"
                   "Example:\n  pengu init my_app --type exe",
     },
     "add": {
@@ -5852,7 +5914,7 @@ _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
     "vendor": {
         "description": "Copy dependencies into vendor/ so the build works offline.",
         "epilog": "Exit codes: 0 vendored, 1 copy failure, 2 bad usage.\n"
-                  "Example:\n  pengu vendor --out vendor",
+                  "Example:\n  pengu vendor",
     },
     "build": {
         "description": "Compile the project into its configured artifact.",
@@ -5914,7 +5976,8 @@ _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
     },
     "update": {
         "description": "Update every dependency: git pull plus its build scripts.",
-        "epilog": "Exit codes: 0 updated, 1 pull/build failure, 2 bad usage.\n"
+        "epilog": "Exit codes: 0 updated (a dependency that fails to pull is skipped\n"
+                  "with a warning), 1 write failure, 2 bad usage.\n"
                   "Example:\n  pengu update",
     },
     "bind": {
@@ -6535,7 +6598,10 @@ def main():
                 run_build=not args.no_build,
                 trusted=getattr(args, "trust", False),
             )
-        except (DependencyConflictError, RuntimeError, FileNotFoundError) as e:
+        except (DependencyConflictError, RuntimeError, FileNotFoundError, shutil.Error, OSError) as e:
+            # `shutil.Error`/`OSError` are what a copy of an unreadable or
+            # broken-symlink tree raises; without them `pengu add` printed a
+            # 40-line Python traceback instead of "Error <what went wrong>".
             emit(f"     Error {e}", file=sys.stderr, color="red", level="error")
             sys.exit(1)
     elif args.command == "remove":
@@ -6602,6 +6668,12 @@ def main():
             )
         except CompileFailedError as e:
             _print_compile_error(e)
+        except _user_input_errors() as e:
+            # `check`, `test` and `run` already funnel a front-end diagnostic
+            # through `report_pengu_error`; `build` only caught
+            # `CompileFailedError`, so an unresolvable import escaped as a raw
+            # traceback with no file/line and no error code.
+            sys.exit(report_pengu_error(e, json_output=getattr(args, "json", False)))
     elif args.command == "run":
         try:
             if getattr(args, "script", None):
@@ -6610,6 +6682,7 @@ def main():
                 no_pch = getattr(args, "no_pch", False) or not want_pch
                 sys.exit(run_script(
                     script=args.script,
+                    config_path=getattr(args, "config", None),
                     defines=getattr(args, "defines", None),
                     cc=getattr(args, "cc", None),
                     verbose=getattr(args, "verbose", False),

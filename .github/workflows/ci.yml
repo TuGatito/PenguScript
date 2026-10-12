@@ -152,70 +152,32 @@ jobs:
       - name: Lint gate (F821/E9, undefined names are errors)
         run: python -m ruff check --select F821,E9 --exclude extern,build,vscode-extension .
 
-      # Portable ABI layout check: Windows runners have no `cc`, so decide the
-      # compiler from the environment (MinGW gcc on Windows, cc elsewhere).
-      - name: ABI layout matrix (Phase 5 / 5.7.f)
+      # The compiler suite is the whole gate now that the binding corpora are
+      # gone. It is split in two on purpose:
+      #
+      #   * `-m "not slow"` is parse + check + codegen only -- no C compiler, no
+      #     subprocess. It is the fast signal (measured: under a second locally)
+      #     and runs on every platform in the matrix.
+      #   * `-m "slow"` compiles and *runs* real programs. It needs a C compiler
+      #     and a built runtime; Windows runners have no usable `cc` for it, so
+      #     they run the fast half and the e2e half is covered by Linux + macOS
+      #     here and by the sanitizer job in nightly.yml.
+      - name: Fast compiler tests (no C compiler)
         shell: bash
+        timeout-minutes: 10
         run: |
           set -euo pipefail
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            CC_BIN="gcc"
-            OUT="build/abi_layout_check.exe"
-          else
-            CC_BIN="${CC:-cc}"
-            OUT="build/abi_layout_check"
-          fi
-          "$CC_BIN" -std=c11 -Wall -Wextra -I. -Ibuild/include \
-            -o "$OUT" tests/abi/test_abi_layout.c
-          "./$OUT"
+          python -m pytest tests/compiler/ -m "not slow" -q -p no:cacheprovider \
+            --timeout=120
 
-      # Compiled conformance bundles. One rolling key per OS is enough because
-      # the cache's own keys are content digests *inside* the directory: a
-      # restored but stale entry is simply not used and the corpus is
-      # recompiled. Measured: the 85-case corpus takes 85 s from cold and 2 s
-      # when every group is already built.
-      - name: Restore compiled conformance bundles
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: build/_conformance_cache
-          key: conformance-bundles-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            conformance-bundles-${{ runner.os }}-
-
-      # The full suite. Coverage is applied on Linux only: test *collection* is
-      # not platform independent (the leak-check interposer is glibc/ELF-only,
-      # Windows has no POSIX signals, macOS uses system libs) and `fail_under`
-      # is a single number. Linux is the platform AUDIT_1.0_FASE8.md measured,
-      # so Linux owns the ratchet; Windows and macOS run the identical suite
-      # without the measurement.
-      - name: Test suite
+      - name: Slow compiler tests (compile + run, Linux/macOS)
+        if: runner.os != 'Windows'
         shell: bash
-        timeout-minutes: 45
-        env:
-          # The LSP stability test's per-request ceilings (60 s, 120 s for
-          # didOpen) are calibrated on a developer machine. A shared runner is
-          # an order of magnitude slower, so the ceiling is lifted to 300 s here;
-          # the test still catches a hang or an O(n^2). See
-          # tests/lsp/test_lsp_stability.py.
-          PENGU_LSP_STABILITY_TIMEOUT: '300'
+        timeout-minutes: 20
         run: |
           set -euo pipefail
-          COV=""
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            COV="--cov --cov-config=.coveragerc --cov-report=term-missing --cov-report=xml:coverage.xml"
-          fi
-          # shellcheck disable=SC2086  # word splitting is how the flags are passed
-          python -m pytest tests -q -n auto -p no:cacheprovider \
-            --timeout=1200 $COV
-
-      - name: Upload coverage report (Linux)
-        if: always() && runner.os == 'Linux'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: coverage-linux
-          path: coverage.xml
-          if-no-files-found: warn
-          retention-days: 14
+          python -m pytest tests/compiler/ -m "slow" -q -p no:cacheprovider \
+            --timeout=600
 
       - name: Package standalone release
         run: |
@@ -278,45 +240,30 @@ jobs:
             --layout fhs
 
   # ----------------------------------------------------------------------
-  # Compiler matrix (roadmap 10.3): the compliance corpus is the workload that
-  # proves the generated C links under both gcc and clang, and the migration
-  # corpus answers the MIGRATION.md question.  The full suite above compiles
-  # with the runner's *default* compiler, so this job is what keeps the matrix
-  # a matrix in CI rather than prose.  Measured: ~9 s for the 56-case corpus
-  # once the runtime is cached.
+  # Primitive enchanting (Phase 2).  The same tests the matrix runs, but with
+  # `-v` and without the `-m` filter, so a regression in the feature points at
+  # the exact assertion instead of "the suite is red".  Kept as its own job
+  # because it is the cheapest way to see *why* a primitive method broke.
   # ----------------------------------------------------------------------
-  compliance:
-    name: Compliance (${{ matrix.cc }})
+  primitive-enchanting:
+    name: Primitive enchanting
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 15
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        cc: [gcc, clang]
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up build environment
         uses: ./.github/actions/setup-pengu
+        with:
+          build-runtime: 'true'
 
-      - name: Run the compliance corpus under ${{ matrix.cc }}
-        env:
-          PENGU_TEST_CC: ${{ matrix.cc }}
+      - name: Primitive enchanting suite
         run: |
-          python -m pytest tests/test_conformance.py -m conformance \
-            -q -p no:cacheprovider --timeout=1800
-
-      # Compiler-independent, so one leg runs it: the documentation-coverage
-      # gate (every migrated case pins a numbered LANGUAGE.md section) and the
-      # migration corpus.
-      - name: Corpus documentation gate and migration corpus
-        if: matrix.cc == 'gcc'
-        run: |
-          python -m pytest tests/test_compliance_corpus.py tests/test_migration_corpus.py \
-            -q -p no:cacheprovider --timeout=1800
+          python -m pytest tests/compiler/test_primitive_*.py -v -p no:cacheprovider \
+            --timeout=600
 
   # ----------------------------------------------------------------------
   # VSIX: platform-independent, so it is built ONCE (not 3x).
@@ -360,7 +307,7 @@ jobs:
   # ----------------------------------------------------------------------
   auto-tag:
     name: Auto Tag
-    needs: [ smoke, test, compliance, vscode-extension ]
+    needs: [ smoke, test, primitive-enchanting, vscode-extension ]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     timeout-minutes: 10

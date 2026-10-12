@@ -230,6 +230,10 @@ class PenguCodegen(
         self.current_function: Optional[str] = None
         self.current_return_type: Optional[Type] = None
         self.current_enchanted_type: Optional[Type] = None
+        #: True while translating a method whose `self` is a value (a primitive
+        #: `enchanting` method or a monomorphized `shard T` body).  Set from the
+        #: collected weave, not derived from the receiver type.
+        self.current_self_is_value: bool = False
         self.local_vars: Dict[str, Type] = {}
         self.indent_level = 0
         self.defer_stack: List[List[str]] = []

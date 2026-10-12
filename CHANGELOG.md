@@ -2,6 +2,131 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [Unreleased] — Phase 2: Primitive enchanting
+
+Methods can now be attached to every primitive (`int`, `i8`–`i64`, `u8`–`u64`,
+`float`, `f32`, `f64`, `char`, `bool`, `byte`, `isize`, `usize`) with
+`enchanting`. `self` is the **value** (`T`, not `ref to T`), exactly as C models
+`int32_t`: passed by value, no `&`, no boxing, no vtable, no autoboxing. The
+feature is opt-in per module — a method only exists in a file that imports (or
+declares) the `enchanting` block that provides it.
+
+```pengu
+import std.spark
+
+enchanting int:
+    weave clamp with lo as int, hi as int into int:
+        if self < lo:
+            return lo
+        if self > hi:
+            return hi
+        return self
+
+enchanting shard T where T: Integrum:
+    weave is_even into bool:
+        return (self % (2 to T)) == donum T
+
+weave main into int:
+    var edad as int is 200
+    var corregida as int is calling edad.clamp with 0, 120
+    if calling corregida.is_even:
+        calling spark.println with "par"
+    return 0
+```
+
+The `shard T` form is monomorphized per concrete receiver (`int_is_even`,
+`i64_is_even`): the generic body never reaches the C, and the emitted call is a
+plain function call.
+
+### Added
+
+- **Primitive enchanting**: `enchanting int:` / `char` / `bool` / … and
+  `enchanting shard T where T: Integrum:` (bounded or unbounded). Emitted C
+  follows the documented `<tname>_<method>` convention (`int_clamp`,
+  `char_to_upper`, `bool_to_int`, `float_round`) with `T self` as the first
+  parameter.
+- **`tests/compiler/`**: the compiler test suite (fast parse/check/codegen tests
+  plus a `slow` compile-and-run half), replacing the deleted `tests/` tree.
+  `tests/compiler/test_language_policy.py` keeps the EN/ES documentation pairs in
+  step.
+- **`scripts/fuzz/fuzz_enchanting.py`**: a deterministic fuzzer for `enchanting`
+  blocks, wired into the nightly `fuzz` matrix.
+- **`benches/primitive_methods.pengu`** + `benches/c/primitive_methods.c`: the
+  method spelling (`v.abs`) benchmarked against the hand-written C call it
+  monomorphizes to (`int_abs(v)`); measured 0.87x–1.0x C with near-identical
+  binary size.
+- **`canonical_primitive_name` / `PRIMITIVE_ALIASES`** (`pengu_types.py`): the
+  spelling groups (`int`/`i32`/`int32`/`int32_t` are one C type), shared by the
+  checker, the inferrer and the code generator. `FnType.self_is_value` records the
+  value-vs-reference receiver.
+- **`primitive_method_owners`** (`SymbolTable`): `E0047` now covers primitive
+  methods, so `(int, clamp)` cannot be declared by two modules.
+- **`SHARD_RECEIVER_KEY`**, the receiver key for `enchanting shard T` methods,
+  shared by checker, inferrer and codegen.
+
+### Changed
+
+- **`enchanting` accepts a bare shard as its target** (`type_or_param` in the
+  grammar), which is what makes `enchanting shard T where T: Integrum:` parse.
+- **`tests/`** now contains only `tests/compiler/`; the workflows run exactly that
+  (fast job everywhere, `slow` job on Linux/macOS), the `compliance` job is gone
+  with its corpora and `primitive-enchanting` runs the feature's tests verbosely.
+- **Nightly**: the sanitizer job runs the compiled programs of the new suite
+  under ASan/UBSan (two leak contracts), and the cross-compile job builds the
+  `enchanting int:` program instead of the deleted raylib example.
+- **`Integrum` grants equality** (`==`/`!=`). Every type that satisfies
+  `Integrum` in this language is an integer primitive, and every integer
+  primitive satisfies `Par`; without this, the canonical
+  `shard T where T: Integrum` body `(self % (2 to T)) == donum T` was rejected
+  with `E0049`.
+
+### Fixed
+
+- **`self` was a reference in primitive methods** (`ref to int`), so
+  `enchanting int: weave inc into int: return self + 1` failed with
+  `E0005: Arithmetic operator 'add' requires numeric type, got 'ref to int'`.
+  `self` is now the value; `set self` is `E0006` and `self->field` is `E0003`.
+- **Monomorphized `to T` emitted a range**: `self % (2 to T)` inside
+  `shard T` produced `(PenguRange){ .start = 2, .end = T }` and the C referenced
+  an undeclared `T`. It now casts to the concrete type (`(int32_t)(2)`).
+- **Keyword-named methods were double-escaped**: `weave double` in
+  `enchanting int` emitted `int__double`, and the call site looked for
+  `int_double`. The method name is a suffix, so `int_double` is emitted.
+- **A `ref to int` receiver passed the pointer**: `calling p.double` emitted
+  `int_double(p)` (an `int32_t*` into an `int32_t` parameter) and did not
+  compile. It now emits `int_double((*p))`.
+- **`pengu selftest --smoke` always failed** with `file or directory not found:
+  tests/test_conformance.py` (exit 4) — the corpus path was appended
+  unconditionally. Repro: `python pengu_project.py selftest --smoke`.
+- **`pengu build` leaked a Python traceback** for an unresolvable import instead
+  of the standard diagnostic. Repro: `printf 'import nope\n…' > src/main.pengu
+  && pengu build` (now `E0004` with file/line and exit 1).
+- **`pengu add` aborted on a dangling symlink** in a local dependency
+  (`shutil.Error` traceback) and silently dereferenced valid links, which is
+  exactly the Windows case. Copies now use
+  `ignore_dangling_symlinks=True` and report `shutil.Error`/`OSError` as a
+  message. Repro: `mkdir d && ln -s missing/x d/broken && pengu add d`.
+- **YAML manifests duplicated a dependency** when PyYAML is absent: a second
+  `pengu add` appended the block again after every `dependencies:` line, leaving
+  two keys for one dependency. The manual path is idempotent now.
+- **`pengu run <script.pengu>` resolved imports against the working directory**,
+  so `cd proj && pengu run sub/app.pengu` could not see `sub/lib/…`, and
+  `--config` was silently ignored in script mode (it is forwarded now). The
+  script's own directory (or the project file above it) is the base.
+- **Help text that documented behaviour the code does not have**: `pengu init`
+  claimed "1 directory exists" (re-init writes into it), `pengu vendor --help`
+  showed a non-existent `--out` flag, and `pengu update` claimed an exit code it
+  cannot produce.
+- **Dead binding-system code removed**: `tools/migrate_main_to_case.py` (it
+  converted the deleted `tests/compliance` corpus) and the `std_c/` header
+  corpus path in `scripts/fuzz/fuzz_bind.py`.
+
+### Compatibility
+
+No existing program stops compiling. Primitive methods are opt-in, the
+value-receiver rule applies only to receivers a program explicitly enchants, and
+rune/collection/string methods keep `ref to T` semantics unchanged.
+
 ## [Unreleased] — Phase 1: External bindings extracted
 
 ### ⚠️ Breaking changes (ecosystem only, core is additive)

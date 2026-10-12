@@ -150,6 +150,17 @@ class Scope:
         return None
 
 
+#: Pseudo receiver key for ``enchanting shard T where T: …:`` methods.
+#:
+#: A bare shard receiver has no type name to key on, and it is not a primitive
+#: either: it is *one* declaration that applies to every type satisfying the
+#: bounds.  It therefore gets a key of its own, shared by the checker (where the
+#: method is registered), the inferrer (which substitutes the concrete receiver
+#: at each call site) and the code generator (which emits one C function per
+#: instantiation: ``int_is_even``, ``i64_is_even``).
+SHARD_RECEIVER_KEY = "__shard__"
+
+
 class SymbolTable:
     """Manages the full hierarchy of lexical scopes and top-level definitions."""
 
@@ -188,6 +199,17 @@ class SymbolTable:
         # Coherence: (type, method) -> concept that provides it.  Used to reject
         # two different 'bind' blocks implementing the same method on a type.
         self.bind_method_owner: Dict[Tuple[str, str], str] = {}
+        # Coherence for `enchanting int:` methods (Phase 2):
+        # (canonical primitive name, method) -> (source file, line) that declared
+        # it.  Two modules attaching `clamp` to `int` would both emit the C symbol
+        # `int_clamp`, so the pair may only be provided once in the whole program
+        # (E0047).  The line is what keeps a re-check of the same file idempotent.
+        self.primitive_method_owners: Dict[Tuple[str, str], Tuple[str, Optional[int]]] = {}
+        # Bounds declared on a `shard T` method: (SHARD_RECEIVER_KEY, method) ->
+        # {type param: [concept, ...]}.  The inferrer enforces them when it
+        # monomorphizes for a concrete receiver (`float.is_even` against
+        # `where T: Integrum` is E0005, not a C error).
+        self.shard_method_bounds: Dict[Tuple[str, str], Dict[str, List[str]]] = {}
 
         # Monomorphized instances: mangled_name -> instance
         self.monomorphized_types: Dict[str, Type] = {}

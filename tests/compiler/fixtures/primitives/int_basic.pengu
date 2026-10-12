@@ -1,0 +1,25 @@
+# int_basic.pengu — fixture: methods on a primitive, called from `main`.
+#
+# Every primitive method is opt-in: this file declares them, so this file (and
+# only this file) sees them.
+enchanting int:
+    weave clamp with lo as int, hi as int into int:
+        if self < lo:
+            return lo
+        if self > hi:
+            return hi
+        return self
+
+    weave double into int:
+        return self + self
+
+    weave abs into int:
+        if self < 0:
+            return 0 - self
+        return self
+
+weave main into int:
+    var edad as int is 200
+    var corregida as int is calling edad.clamp with 0, 120
+    var doble as int is calling corregida.double
+    return calling doble.abs

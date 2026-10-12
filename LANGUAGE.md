@@ -1512,6 +1512,58 @@ enchanting map of shard K to shard V:
 
 > **Implementación:** `pengu_grammar.py` (`type_or_param`), `pengu_types.py` (`shard_param_ref`), `pengu_checker.py::_check_enchanting_decl`, `pengu_codegen.py::_collect_weave`, `pengu_infer.py::_resolve_call_target`.
 
+#### Encantamiento de primitivos y de `shard T`
+
+Every primitive is a valid `enchanting` target. A primitive has no identity in C
+(`int32_t` is a value, not an addressable object), so **`self` is the value
+itself**: it is passed by value, `set self` is rejected with `E0006`, and
+`self->field` is rejected with `E0003`. There are no fields to dereference and no
+receiver to mutate.
+
+```pengu
+enchanting int:
+    # 'self' has type 'int' (a value), not 'ref to int'.
+    weave clamp with lo as int, hi as int into int:
+        if self < lo:
+            return lo
+        if self > hi:
+            return hi
+        return self
+
+# 'shard T' is one body for every type satisfying the bounds, monomorphized per
+# concrete receiver at the call site ('int_is_even', 'i64_is_even').
+enchanting shard T where T: Integrum:
+    weave is_even into bool:
+        return (self % (2 to T)) == donum T
+
+weave main into int:
+    var edad as int is 200
+    var corregida as int is calling edad.clamp with 0, 120
+    if calling corregida.is_even:
+        return 1
+    return 0
+```
+
+Rules:
+
+1. **Spelling.** `int`, `i32`, `int32` and `int32_t` are one C type, so they are
+   one method table: a method declared with `enchanting int:` is callable through
+   any of them (the same holds for `byte`/`u8`). The emitted C symbol uses the
+   canonical spelling: `<tname>_<method>`, e.g. `int_clamp`, `char_to_upper`,
+   `bool_to_int`, `float_round`.
+2. **Receiver by value.** `self` is `T`; a `ref to T` receiver is dereferenced at
+   the call site (`calling p.double` with `p as ref to int` emits
+   `int_double((*p))`). Runes, echos, omens, collections, `maybe`/`result` and
+   `string` keep `ref to T` and `self->field`.
+3. **Opt-in.** A primitive method exists only where the `enchanting` block is
+   visible, and `(type, method)` may be provided once in the whole program
+   (`E0047`), because two providers would emit the same C symbol.
+4. **Zero overhead.** The body is emitted as a plain C function whose first
+   parameter is the receiver value; there is no vtable, no boxing and no heap
+   allocation for the call itself.
+
+> **Implementación:** `pengu_types.py` (`PRIMITIVE_ALIASES`, `canonical_primitive_name`, `FnType.self_is_value`), `pengu_checker.py::_check_enchanting_decl`, `pengu_infer.py::_resolve_shard_method`, `pengu_codegen/symbols.py::_enchanted_receiver_is_value`.
+
 ---
 
 ### 10.2 `concept` — contratos de compile-time
@@ -1849,10 +1901,12 @@ bind Foo with A:
 
 bind Foo with B:
     weave f into int:
-        return 2      # E0047: 'f' of 'Foo' is already provided by concept 'A'
+        return 2      # E0052: 'f' of 'Foo' is already provided by concept 'A'
 ```
 
-Binding the *same* `(type, concept)` pair twice is also `E0047`. Splitting the
+Binding the *same* `(type, concept)` pair twice is also `E0052`.
+
+(Primitive methods use their own code, `E0047`, for the same reason: see §10.1.) Splitting the
 object-safe operations of one type over two concepts is fine as long as the
 method names are distinct.
 
@@ -1952,9 +2006,20 @@ Operators are only available when the corresponding concept is in the bounds:
 | Bound | Operators available on `T` |
 |---|---|
 | `Num` | `+`, `-`, `*`, `/`, unary `-` |
-| `Integrum` | `%`, `&`, `\|`, `^`, `<<`, `>>`, `~` (and everything `Num` allows) |
+| `Integrum` | `%`, `&`, `\|`, `^`, `<<`, `>>`, `~`, `==`, `!=` (and everything `Num` allows) |
 | `Par` | `==`, `!=` |
 | `Ordo` | `<`, `<=`, `>`, `>=` |
+
+`Integrum` grants equality as well as the integer-only operators: every type that
+satisfies `Integrum` in this language is an integer primitive, and every integer
+primitive satisfies `Par`. That is what lets the canonical primitive-enchanting
+idiom `enchanting shard T where T: Integrum:` write
+`(self % (2 to T)) == donum T` without restating `and T: Par` (§10.1).
+
+The same table bounds `enchanting shard T:` method bodies: a method declared on a
+bounded shard is only instantiated for receivers that satisfy the bound, and the
+violation is reported where the body is instantiated
+(`float.is_even` against `where T: Integrum` is `E0005`).
 
 Using an operator without its bound raises `E0049` with the exact `where`
 clause to add:
@@ -3687,10 +3752,10 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0000` | `ParseError`, `SemanticError` | 3 | the source text could not be parsed (syntax error).  Raised by ``PenguParser.parse`` instead of leaking a raw Lark exception, so the CLI/LSP can report syntax problems with the usual ``[Ecode] message`` + ``help:`` / ``note:`` shape. Kept on the generic E0000 code: syntax problems share the "not valid source" bucket with the other infrastructure errors instead of consuming a new semantic code. | 1 help / 1 note |
 | `E0001` | `ConstInsideWeaveError` | 1 | const declared inside weave / function body. | 1 help / 1 note |
 | `E0002` | `VarLetTopLevelError` | 3 | var/let declared at top-level. | 1 help / 1 note |
-| `E0003` | `SelfDotAccessError`, `SemanticError` | 6 | self accessed with dot instead of arrow. | 1 help / 1 note |
+| `E0003` | `SelfDotAccessError`, `SemanticError` | 7 | self accessed with dot instead of arrow. | 1 help / 1 note |
 | `E0004` | `SemanticError`, `UndefinedIdentifierError` | 15 | identifier not defined in symbol table. | 1 help / 1 note |
-| `E0005` | `SemanticError`, `TypeMismatchError` | 138 | types incompatible. | 1 help / 1 note |
-| `E0006` | `InvalidMemoryOpError`, `MutabilityError` | 11 | assignment to immutable let binding or constant. | 1 help / 1 note |
+| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 139 | types incompatible. | 1 help / 1 note |
+| `E0006` | `InvalidMemoryOpError`, `MutabilityError` | 12 | assignment to immutable let binding or constant. | 1 help / 1 note |
 | `E0007` | `InvalidControlFlowError` | 1 | break/continue outside loop. | 1 help / 1 note |
 | `E0008` | `InvalidMemoryOpError`, `SemanticError`, `TypeMismatchError` | 15 | invalid sigil/banish on literal/const. | 1 help / 1 note |
 | `E0009` | `InvalidWithTargetError`, `SemanticError` | 2 | leading dot access outside with block. | 1 help / 1 note |
@@ -3731,6 +3796,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0044` | `NonExhaustiveJudgeError` | 1 | Non-exhaustive judge expression without default else clause. | 1 help / 1 note |
 | `E0045` | `SemanticError`, `TypeMismatchError` | 4 | — | — |
 | `E0046` | `SemanticError` | 5 | — | — |
+| `E0047` | `DuplicatePrimitiveMethodError` | 2 | a method of a primitive is provided twice.  ``enchanting int:`` emits the C function ``int_clamp`` with external linkage, so the ``(primitive, method)`` pair may only be provided once in the whole program: two modules (or two blocks in one module) would emit the same symbol, and a call site could not choose between them. | 1 help / 1 note |
 | `E0049` | `SemanticError` | 8 | — | — |
 | `E0050` | `InfiniteTypeSizeError` | 1 | recursive type without indirection (infinite size). | 1 help / 1 note |
 | `E0051` | `SemanticError` | 1 | — | — |

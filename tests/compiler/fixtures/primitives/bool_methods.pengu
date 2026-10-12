@@ -1,0 +1,14 @@
+# bool_methods.pengu — fixture: methods on `bool`, including one returning void.
+enchanting bool:
+    weave to_int into int:
+        if self:
+            return 1
+        return 0
+
+    weave show into void:
+        return
+
+weave main into int:
+    var listo as bool is true
+    calling listo.show
+    return calling listo.to_int

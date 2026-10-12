@@ -1347,6 +1347,11 @@ class FnType(Type):
     type_args: List[Type] = field(default_factory=list)
     is_ritual: bool = False
     attributes: Dict[str, List[Any]] = field(default_factory=dict)
+    #: True when this is an enchanting method whose receiver is a *value*
+    #: (a primitive, or a `shard T` type parameter), so the implicit `self`
+    #: parameter is `T` and not `ref to T`.  C's `int32_t` has no identity, so
+    #: `self` follows: pass by value, no `&` at the call site, no `self->field`.
+    self_is_value: bool = False
 
     @property
     def is_generic(self) -> bool:
@@ -1372,6 +1377,10 @@ class FnType(Type):
             # method was monomorphized, so calling a deprecated generic produced
             # no W0006 at all (Phase 2 item 2.11).
             attributes=dict(self.attributes),
+            # Value-vs-reference receiver must survive it for the same reason:
+            # a `shard T` method monomorphized to `int` still emits
+            # `int32_t self`, not `int32_t* self`.
+            self_is_value=self.self_is_value,
         )
 
     @property
@@ -1681,9 +1690,16 @@ CONCEPT_OPERATORS: Dict[str, FrozenSet[str]] = {
     # modulo/bitwise, so those need `Integrum`.
     "Num": frozenset({"add", "sub", "mul", "div", "neg"}),
     # `Integrum` refines `Num`: an integer bound also satisfies numeric needs.
+    # It also grants equality: every type that satisfies `Integrum` in this
+    # language is an integer primitive (see `_INT_CONCEPTS`), and every integer
+    # primitive satisfies `Par`.  Without this, the canonical
+    # `enchanting shard T where T: Integrum:` idiom -- `(self % (2 to T)) ==
+    # donum T` -- was rejected with E0049 and forced an explicit `and T: Par`
+    # on a bound that already implies it.
     "Integrum": frozenset({
         "add", "sub", "mul", "div", "neg",
         "mod", "band", "bor", "bxor", "shl", "shr", "bnot",
+        "eq", "ne",
     }),
     # Equality only.
     "Par": frozenset({"eq", "ne"}),
@@ -1766,6 +1782,85 @@ PRIMITIVE_IMPLS.update({
     "maybe": {"Par", "Imago", "Nexus"},
     "result": {"Par", "Imago", "Nexus"},
 })
+
+
+# ---------------------------------------------------------------------------
+# Primitive spelling groups (LANGUAGE.md §10.1).
+#
+# A primitive has as many spellings as C has typedefs for it, and the grammar
+# accepts all of them: `int`, `i32`, `int32` and `int32_t` are one single C type
+# (`int32_t`), so a method declared for one must be callable through any of the
+# others.  ``PRIMITIVE_ALIAS_GROUPS`` is that equivalence, transcribed from
+# ``CTypeMapper.to_c_type``; the *first* name of each group is canonical, and it
+# is the key used by ``SymbolTable.methods``/``generic_methods`` and the prefix
+# of the emitted C symbol (`int_clamp`, never `int32_t_clamp`).
+#
+# `string` is deliberately absent: a string owns heap memory, so its enchanting
+# receiver is `ref to string` (mutable), not a scalar passed by value.  `void`
+# is absent because it is not a value.
+# ---------------------------------------------------------------------------
+
+#: ``(canonical, (spelling, ...))`` — every spelling maps to the same C type.
+PRIMITIVE_ALIAS_GROUPS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("int", ("int", "i32", "int32", "int32_t")),
+    ("i64", ("i64", "int64", "int64_t", "long")),
+    ("u32", ("u32", "uint32", "uint32_t", "uint")),
+    ("u64", ("u64", "uint64", "uint64_t", "ulong")),
+    ("i16", ("i16", "int16", "int16_t", "short")),
+    ("u16", ("u16", "uint16", "uint16_t", "ushort")),
+    ("i8", ("i8", "int8", "int8_t")),
+    ("u8", ("u8", "uint8", "uint8_t", "byte")),
+    ("usize", ("usize", "size_t")),
+    ("isize", ("isize",)),
+    ("float", ("float", "f32")),
+    ("f64", ("f64", "double")),
+    ("char", ("char",)),
+    ("bool", ("bool",)),
+)
+
+#: ``spelling -> canonical``.  See :data:`PRIMITIVE_ALIAS_GROUPS`.
+PRIMITIVE_ALIASES: Dict[str, str] = {
+    spelling: canonical
+    for canonical, spellings in PRIMITIVE_ALIAS_GROUPS
+    for spelling in spellings
+}
+
+
+def canonical_primitive_name(name: Any) -> Optional[str]:
+    """Canonical primitive name for ``name``, or None when it is not a scalar.
+
+    ``'int32_t' -> 'int'``, ``'byte' -> 'u8'``, ``'string' -> None`` (a heap
+    value, so its enchanting receiver stays ``ref to string``), ``'Player'`` and
+    ``'list of int'`` -> None.
+
+    Accepts a ``str`` or any object with a ``name`` attribute (``BaseType``).
+    """
+    if name is None:
+        return None
+    if not isinstance(name, str):
+        if isinstance(name, BaseType):
+            name = name.name
+        else:
+            name = getattr(name, "name", None)
+            if not isinstance(name, str):
+                return None
+    return PRIMITIVE_ALIASES.get(name)
+
+
+def primitive_lookup_order(name: Any) -> Tuple[str, ...]:
+    """Spelling candidates for a method lookup on a primitive, canonical first.
+
+    ``'int32_t'`` -> ``('int', 'i32', 'int32', 'int32_t')``.  Every entry is the
+    same C type, so a method declared under *any* of them is callable through the
+    others; the canonical spelling goes first so the emitted symbol is stable
+    (``int_clamp``) whenever a declaration exists for it.  Returns ``()`` for a
+    non-primitive.
+    """
+    canonical = canonical_primitive_name(name)
+    if canonical is None:
+        return ()
+    group = dict(PRIMITIVE_ALIAS_GROUPS).get(canonical, ())
+    return (canonical,) + tuple(spelling for spelling in group if spelling != canonical)
 
 
 def type_owns_heap(t: Optional[Type], _depth: int = 0, symbols: Any = None) -> bool:

@@ -56,6 +56,7 @@
         "SemanticError"
       ],
       "conditions": [
+        "'self' is a value in a method of the primitive '{}', not a reference",
         "'self' is always a reference in enchanting and must be accessed with '->', not '.'",
         "'self' is only valid inside 'enchanting' blocks",
         "'self' used outside enchanting context",
@@ -103,6 +104,7 @@
     },
     "E0005": {
       "classes": [
+        "ConceptBoundNotSatisfiedError",
         "SemanticError",
         "TypeMismatchError"
       ],
@@ -235,6 +237,7 @@
         "Static variable '{}' cannot be bound to a 'void' value",
         "String index must be an integer, got '{}'",
         "String interpolation is not supported when expecting a C string literal (ref to char)",
+        "Type '{}' does not satisfy bound '{}' required by method '{}'",
         "Unary '-' requires numeric type, got '{}'",
         "Unknown named argument '{}' for '{}'",
         "Variable '{}' cannot be bound to a 'void' value",
@@ -261,6 +264,7 @@
       ],
       "conditions": [
         "Cannot assign through read-only 'frozen' {}",
+        "Cannot assign to 'self' in a method of the primitive '{}'",
         "Cannot assign to constant '{}'",
         "Cannot assign to immutable 'let' variable '{}'",
         "Cannot modify characters in an immutable string directly",
@@ -852,6 +856,22 @@
         "Omen variant name '{}' is used by both omen '{}' and omen '{}'",
         "Omen variant name '{}' of omen '{}' collides with the {}",
         "Top-level symbol '{}' collides with the full name of the '{}' omen variant"
+      ]
+    },
+    "E0047": {
+      "classes": [
+        "DuplicatePrimitiveMethodError"
+      ],
+      "conditions": [
+        "Method '{}' of '{}' is already provided by {}",
+        "Method '{}' of '{}' is declared twice in this 'enchanting' block"
+      ],
+      "explanation": "a method of a primitive is provided twice.\n\n``enchanting int:`` emits the C function ``int_clamp`` with external linkage,\nso the ``(primitive, method)`` pair may only be provided once in the whole\nprogram: two modules (or two blocks in one module) would emit the same\nsymbol, and a call site could not choose between them.",
+      "guidance": [
+        {
+          "help": "Rename the method, or extend the module that already provides it.",
+          "note": "A (primitive, method) pair can only be provided once across the whole program."
+        }
       ]
     },
     "E0049": {

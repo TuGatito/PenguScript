@@ -395,6 +395,21 @@ class DuplicateConceptBindingError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
+class DuplicatePrimitiveMethodError(SemanticError):
+    """E0047: a method of a primitive is provided twice.
+
+    ``enchanting int:`` emits the C function ``int_clamp`` with external linkage,
+    so the ``(primitive, method)`` pair may only be provided once in the whole
+    program: two modules (or two blocks in one module) would emit the same
+    symbol, and a call site could not choose between them.
+    """
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0047")
+        kwargs.setdefault("help", "Rename the method, or extend the module that already provides it.")
+        kwargs.setdefault("note", "A (primitive, method) pair can only be provided once across the whole program.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
 class InfiniteTypeSizeError(SemanticError):
     """E0050: recursive type without indirection (infinite size)."""
     def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):

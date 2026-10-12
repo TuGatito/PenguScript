@@ -46,9 +46,11 @@ distinct tiers of the library:
 | `loom_ops` | `std.loom` | generic sequence algorithms |
 | `arithmancy_ops` | `std.arithmancy` | C math bridge + pure number theory |
 
-`tests/gates/test_benchmarks.py` enforces that at least six cases import `std`, that
-they cover at least six distinct modules, and that every bench file on disk is
-registered in the harness.
+The bare-language cases also carry the Phase 2 gate: `primitive_methods` runs
+the *method* spelling (`v.abs`) against the hand-written C call it monomorphizes
+to (`int_abs(v)`), so "a primitive method costs nothing" is a measurement, not a
+claim. A regression in the value-receiver path shows up as a time delta and, with
+`--keep`, as a diff in the generated bundle.
 
 The published table and the analysis live in [`BENCHMARKS.md`](../BENCHMARKS.md).
 
