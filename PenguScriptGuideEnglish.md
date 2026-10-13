@@ -72,7 +72,7 @@ The language imposes styles by convention (`snake_case` for values, `PascalCase`
 
 **Rules:**
 - Standard modules live under `std.` and their name is a **Latin or English noun**: `spark`, `scrolls`, `oracle`, `compass`, `archivum`, `cipher`, `chronicle`, `lot`, `arithmancy`, `rites`, `whisper`, `ward`, `trial`, `tally`, `atlas`, `coven`, `filum`, `integrum`, `numerus`, `loom`, `invoke`, `ffi`, `ledger`.
-- External C bindings (`raylib`, `sqlite3`, `yaml`, …) are **not** `std.*` modules: they were extracted to satellite repositories and are installed with `pengu add <url>` (catalogue: [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)). The runtime links only `libc`/`libm`/`pthreads`, and the 25 modules above are the whole pure standard library.
+- External C bindings (`raylib`, `sqlite3`, `yaml`, …) are **not** `std.*` modules: they were extracted to satellite repositories and are installed with `pengu add <url>` (catalogue: [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)). The runtime links only `libc`/`libm`/`pthreads`, and the 26 modules above are the whole pure standard library.
 - Never use `utils`, `helpers`, `common`, `misc`. If you cannot name it with a concrete noun, **the module does not have a clear responsibility**.
 - Acronyms are written in lowercase `snake_case` as a module name: `std.ffi`.
 
@@ -760,9 +760,11 @@ Rules:
 | `std.integrum` | `T: Integrum` | integers only | `is_even`, `gcd`, `bit_count`, `to_hex` |
 | `std.fractio` | `T: Real` | `float`, `f32`, `f64`, `double` | `sqrt`, `sin`, `exp`, `is_nan`, `approx_eq` |
 | `std.littera` | `char` | `char` | `is_digit`, `to_upper`, `digit_value` |
-| `std.logica` | `bool` | `bool` (upcoming) | `to_int`, `implies` |
+| `std.logica` | `bool` | `bool` | `to_int`, `implies`, `xor`, `iff` |
 
 Transcendentals that call `libm` live in two **concrete** blocks (`enchanting float:` and `enchanting f64:`) rather than in the shard, because C exposes different symbols per width (`sqrtf` vs `sqrt`). Pure predicates and utilities stay in the single `enchanting shard T where T: Real:` block. Declare only the canonical names (`float`, `f64`): `f32` and `double` are aliases of the same C type, and declaring both spellings is `E0047`.
+
+The five modules cover **every** primitive type of the language. Import the module whose bound matches the receiver and the methods appear at zero runtime cost: the compiler monomorphizes each call into a plain C function (`int_abs`, `f64_sqrt`, `char_to_upper`, `bool_to_int`, …). A program that imports none of them pays nothing for them; a program that imports one pays only for the methods it actually calls.
 
 ---
 

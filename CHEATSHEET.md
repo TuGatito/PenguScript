@@ -1508,7 +1508,30 @@ weave main into int:
 
 `std.littera` is pure PenguScript: it never calls `<ctype.h>`, so its classification is locale-independent and identical on every platform.
 
-`Num` grants arithmetic only; ordering (`<`, `<=`, `>`, `>=`) needs `Ordo` and equality (`==`, `!=`) needs `Par`. The refinements `Integrum` and `Real` grant both, so `std.integrum` writes `where T: Integrum:` and still compares ([§9.4](#94-generics-shard-of--where)). Full method lists in [`LANGUAGE.md` §19.1](LANGUAGE.md#191-pure-penguscript-modules-25-modules).
+Boolean methods (`std.logica`):
+
+```pengu
+import std.spark
+import std.logica
+
+weave main into int:
+    var ready as bool is true
+    var armed as bool is false
+    calling spark.println with "{calling ready.toggle}"              # false
+    calling spark.println with "{calling ready.to_int}"              # 1
+    calling spark.println with "{calling ready.and_with with armed}" # false
+    calling spark.println with "{calling ready.or_with with armed}"  # true
+    calling spark.println with "{calling ready.xor with armed}"      # true
+    calling spark.println with "{calling ready.iff with armed}"      # false
+    calling spark.println with "{calling ready.nand with armed}"     # true
+    calling spark.println with "{calling ready.nor with armed}"      # false
+    calling spark.println with "{calling ready.implies with armed}"  # false
+    return 0
+```
+
+A method that takes an argument is called with `with` (`calling a.xor with b`), and a boolean literal is not a valid receiver: bind it to a variable first. These five modules (`numerus`, `integrum`, `fractio`, `littera`, `logica`) together cover every primitive type.
+
+`Num` grants arithmetic only; ordering (`<`, `<=`, `>`, `>=`) needs `Ordo` and equality (`==`, `!=`) needs `Par`. The refinements `Integrum` and `Real` grant both, so `std.integrum` writes `where T: Integrum:` and still compares ([§9.4](#94-generics-shard-of--where)). Full method lists in [`LANGUAGE.md` §19.1](LANGUAGE.md#191-pure-penguscript-modules-26-modules).
 
 ### 9.2 Scoped mutation `with target:`
 
@@ -2457,7 +2480,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 
 `std/spark.pengu` defines `SPARK_VERSION` and `STD_VERSION` constants; `spark.spark_version` returns the version string.
 
-### 15.2 Core module catalog (25 modules)
+### 15.2 Core module catalog (26 modules)
 
 | Module | Import | Implementation | Purpose & key functions |
 | ------ | ------ | -------------- | ----------------------- |
@@ -2480,6 +2503,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **fractio** | `import std.fractio` | Pure PenguScript + `libm` | Float-only methods: a shard `where T: Real:` for IEEE 754 classification (`is_nan`, `is_finite`, `is_infinite`, `is_positive_infinity`, `is_negative_infinity`), `approx_eq`, `lerp`, `reciprocal`, `copysign`, `degrees`, `radians`; plus concrete `float`/`f64` blocks for the `libm` transcendentals `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `pow`, `hypot`. Monomorphized to `f64_sqrt`, `float_is_nan`. |
 | **integrum** | `import std.integrum` | Pure PenguScript | Integer-only methods over every signed/unsigned primitive via one `enchanting shard T where T: Integrum:`. Predicates `is_even`, `is_odd`, `is_power_of_two`, `is_multiple_of`, `is_prime`; bits `bit_count`, `bit_length`, `leading_zeros`, `trailing_zeros`, `next_power_of_two`, `prev_power_of_two`; Euclidean division `div_rem` (→ `(T, T)`), `div_floor`, `mod_floor`; number theory `gcd`, `lcm`, `next_prime`, `prev_prime`, `factorial`; representations `to_hex`, `to_bin`, `to_oct` (**allocate — `banish`**). Delegates `abs` to `std.numerus`. |
 | **littera** | `import std.littera` | Pure PenguScript | Methods on `char` via `enchanting char:`. Classification `is_digit`, `is_alpha`, `is_alnum`, `is_upper`, `is_lower`, `is_space`, `is_whitespace`, `is_control`, `is_printable`, `is_punctuation`, `is_hex_digit`, `is_ascii`; conversions `to_upper`, `to_lower`, `to_int` (the unsigned byte, `ord`), `digit_value` (`-1` on non-hex). No `<ctype.h>`, no locale. |
+| **logica** | `import std.logica` | Pure PenguScript | Methods on `bool` via `enchanting bool:`. Chainable basics `toggle`, `and_with`, `or_with`; derived connectives `xor`, `iff`, `nand`, `nor`, `implies` (material implication); `to_int` (`true` → 1). No C dependency. |
 | **numerus** | `import std.numerus` | Pure PenguScript | Universal numeric methods over every primitive via one `enchanting shard T where T: Num and T: Ordo and T: Par:`. `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`; predicates `is_zero`/`is_positive`/`is_negative`/`is_non_negative`/`is_non_positive`; `twice`, `half`, `square`, `cube`, `pow_int`; `truncate`, `floor`, `ceil`, `round`; `to_f64`, `to_i64`. Monomorphized — zero overhead. |
 | **loom** | `import std.loom` | Pure PenguScript | Functional collection utilities: `range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`, `sum`, `product_num`, `max_int`/`min_int`, `min_max`, plus map/filter/reduce style helpers, sorted set operations and zip/flattening. Prefer `loom` over `tally` when an empty input must be representable (see §19.1). |
 | **ward** | `import std.ward` | Pure PenguScript | Assertions & invariants: `assert`, `assert_msg`, `assert_true`/`assert_false`, `assert_eq_*` / `assert_ne_*` (int/string/bool), `assert_present_*`/`assert_none_*`, `assert_ok_*`/`assert_err_*`, `expect*` message variants, `panic`, `unreachable`, and result-returning `check*` helpers. |
@@ -2509,7 +2533,7 @@ Two consequences worth stating:
   `MANIFEST` so the satellite repositories can copy it; nothing in *this*
   repository downloads or builds those sources.
 
-`std/` therefore contains only the 25 pure-PenguScript modules in the catalog
+`std/` therefore contains only the 26 pure-PenguScript modules in the catalog
 above. `pengu bind` (§14.8) remains the tool for authoring a new binding from a
 C header, using the generic stubs in `c_bind_stubs/`.
 

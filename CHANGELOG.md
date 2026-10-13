@@ -40,6 +40,19 @@ plain function call.
 
 ### Added
 
+- **`std.logica`**: methods on `bool` via `enchanting bool:`. Chainable
+  versions of the language operators (`toggle`, `and_with`, `or_with`);
+  derived connectives the language has no operator for (`xor`, `iff` —
+  biconditional, `nand`, `nor`, `implies` — material implication, `false`
+  only when `self` is `true` and `other` is `false`); conversion `to_int`
+  (`true` → 1, `false` → 0). Pure PenguScript — no C dependency.
+- **Primitive-methods series complete.** `std.numerus` (`Num`),
+  `std.integrum` (`Integrum`), `std.fractio` (`Real`), `std.littera`
+  (`char`) and `std.logica` (`bool`) now cover every primitive type of the
+  language. Import the module whose bound matches the receiver and the
+  methods become available at zero runtime cost, monomorphized to plain C
+  (`int_abs`, `f64_sqrt`, `char_to_upper`, `bool_to_int`, …). A program
+  that imports none of them pays nothing for them.
 - **`std.littera`**: methods on `char` via `enchanting char:`. ASCII
   classification (`is_digit`, `is_alpha`, `is_alnum`, `is_upper`,
   `is_lower`, `is_space`, `is_whitespace`, `is_control`, `is_printable`,

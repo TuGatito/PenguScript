@@ -36,7 +36,7 @@
 17. [Unit tests (`test`)](#17-unit-tests-test)
 18. [Block-style construction (`with:` expressions)](#18-block-style-construction-with-expressions)
 19. [Standard library](#19-standard-library)
-    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-25-modules)
+    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-26-modules)
     - 19.2 [External bindings (satellite repositories)](#192-external-bindings-satellite-repositories)
     - 19.3 [Core Standard Library Examples](#193-core-standard-library-examples)
     - 19.4 [Embedded Project Assets (`arca`)](#194-embedded-project-assets-arca)
@@ -3009,7 +3009,7 @@ Supported built-in methods inside collection `with` blocks:
 
 ## 19. Standard library
 
-PenguScript ships with a comprehensive standard library of **25 pure PenguScript
+PenguScript ships with a comprehensive standard library of **26 pure PenguScript
 modules** (`std.<module>`), providing high-level, idiomatic abstractions for I/O,
 strings, concurrency, serialization, math, testing, and memory bridging.
 
@@ -3041,7 +3041,7 @@ exports that constant with the current toolchain version. Namespacing already
 keeps each module self-contained (`std.<module>.<symbol>`), so decoupling the
 stdlib into independently versioned packages is reserved for 2.0.
 
-### 19.1 Pure PenguScript Modules (25 modules)
+### 19.1 Pure PenguScript Modules (26 modules)
 
 All pure modules are located in the `std/` directory and imported as `import std.<module>`.
 
@@ -3066,6 +3066,7 @@ All pure modules are located in the `std/` directory and imported as `import std
 | `std.fractio` | Floating-point-only methods via `enchanting shard T where T: Real:` plus two concrete blocks (`enchanting float:` and `enchanting f64:`) for the `libm` transcendentals, because C exposes `sqrtf`/`sqrt` as distinct symbols. IEEE 754 classification (`is_nan`, `is_finite`, `is_infinite`, `is_positive_infinity`, `is_negative_infinity`); approximation (`approx_eq` with absolute tolerance, `lerp`); utilities (`reciprocal`, `copysign`, `degrees`, `radians`); transcendentals via `libm`: `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `pow`, `hypot`. Monomorphized to `f64_sqrt`, `float_is_nan`, … — zero runtime overhead. Universal methods live in `std.numerus`; `Real` implies `Num`. |
 | `std.integrum` | Integer-only methods across every signed/unsigned primitive via `enchanting shard T where T: Integrum:`. Predicates (`is_even`, `is_odd`, `is_power_of_two`, `is_multiple_of`, `is_prime`); bit operations (`bit_count`, `bit_length`, `leading_zeros`, `trailing_zeros`, `next_power_of_two`, `prev_power_of_two`); Euclidean division (`div_rem` → `(T, T)`, `div_floor`, `mod_floor`); number theory (`gcd`, `lcm`, `next_prime`, `prev_prime`, `factorial`); representations (`to_hex`, `to_bin`, `to_oct`, all allocating — `banish` them). Monomorphized to `int_is_even`, `i64_gcd`, … — zero runtime overhead. Universal methods (`abs`, `clamp`, `pow_int`) live in `std.numerus`; `Integrum` implies `Num`. |
 | `std.littera` | Methods on `char` via `enchanting char:`. ASCII classification (`is_digit`, `is_alpha`, `is_alnum`, `is_upper`, `is_lower`, `is_space`, `is_whitespace`, `is_control`, `is_printable`, `is_punctuation`, `is_hex_digit`, `is_ascii`); conversions (`to_upper`, `to_lower`, `to_int`, `digit_value`). Pure PenguScript — no `<ctype.h>`, no locale, deterministic across Linux/macOS/Windows. `is_space` is only `' '`; use `is_whitespace` for the full C `isspace` set. `to_int` is `ord` (the unsigned byte, 0–255). |
+| `std.logica` | Methods on `bool` via `enchanting bool:`. Chainable versions of the language operators (`toggle`, `and_with`, `or_with`); derived connectives the language has no operator for (`xor`, `iff` — biconditional, `nand`, `nor`, `implies` — material implication, `false` only when `self` is `true` and `other` is `false`); conversion `to_int` (`true` → 1, `false` → 0). Pure PenguScript — no C. Closes the primitive-methods series alongside `std.numerus`, `std.integrum`, `std.fractio` and `std.littera`. |
 | `std.numerus` | Universal numeric methods across every primitive via `enchanting shard T where T: Num and T: Ordo and T: Par:`: `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`, predicates (`is_zero`, `is_positive`, `is_negative`, `is_non_negative`, `is_non_positive`), arithmetic (`twice`, `half`, `square`, `cube`, `pow_int`), rounding (`truncate`, `floor`, `ceil`, `round`), conversions (`to_f64`, `to_i64`). Monomorphized to `int_abs`, `f64_clamp`, … — zero runtime overhead. Integer-only methods live in `std.integrum`; floating-point-only methods in `std.fractio`. |
 | `std.loom` | Sequence generation, functional transformations, and generic algorithms: sequences (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reductions (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicates (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transforms (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), sorted set-like operations (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), search (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), structural modifications (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), statistics (`median`, `mode`, `variance`, `stddev`, `percentile`), and generic algorithms (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`). |
 | `std.invoke` | Command-line interface (CLI) argument parsing: POSIX and GNU syntax (`--flag`, `--key=value`, `-k=value`), boolean flag negation (`--no-flag`), subcommands (`rune Subcommand`), typed options (int, float, bool, string, multi), repeat multi-options (`rune MultiOption`), Levenshtein typo suggestions, formatted help and usage strings (`usage_string`, `full_help`), error reporting, and robust parse variants (`parse`, `parse_no_exit`, `parse_or_exit`, `parse_or_usage`, `ParseResult` accessors `get`, `get_or`, `get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`, `get_all`, `to_map_values`, `to_map_flags`). |

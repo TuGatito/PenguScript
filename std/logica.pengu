@@ -1,0 +1,414 @@
+## std/logica.pengu — the logic: methods on the `bool` primitive.
+##
+## `logica` dota de métodos a `bool` mediante un bloque `enchanting bool:` que
+## expone las conectivas de la lógica clásica (conjunción, disyunción,
+## negación, XOR, NAND, NOR, implicación material y bicondicional) y la
+## conversión a entero. Todo es **PenguScript puro**: sin `declare`, sin
+## `antiquus`, sin C.
+##
+## ## Alcance
+## Los operadores del lenguaje (`and`, `or`, `not`) cubren la mayoría de los
+## casos. `logica` añade:
+## - las conectivas derivadas que no son operador (`xor`, `nand`, `nor`,
+##   `implies`, `iff`),
+## - una versión **encadenable** de las básicas (`toggle`, `and_with`,
+##   `or_with`),
+## - `to_int`, para acumular contadores en un bucle.
+##
+## ## Nota sobre `implies`
+## La implicación material `a implies b` es `(not a) or b`: solo es `false`
+## cuando `a` es `true` y `b` es `false`. Para cualquier otro par devuelve
+## `true`, incluso con `a` falsa. Es contraintuitiva para quien lee `implies`
+## como causalidad; la tabla de verdad está en el docstring del método.
+##
+## ## Memoria
+## Ningún método asigna memoria del heap. No hay nada que liberar con `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## import std.spark
+## import std.logica
+##
+## weave main into int:
+##     var ready as bool is true
+##     var armed as bool is false
+##     var blocked as bool is calling ready.implies with armed
+##     if blocked:
+##         calling spark.println with "not reached"
+##     else:
+##         calling spark.println with "ready but not armed"
+##     calling spark.println with "{calling ready.to_int}"      # 1
+##     return 0
+## ```
+##
+## Con esto queda cerrada la serie de módulos de primitivos: `std.numerus`
+## (`Num`), `std.integrum` (`Integrum`), `std.fractio` (`Real`),
+## `std.littera` (`char`) y `std.logica` (`bool`).
+
+import std.ward
+
+# ----------------------------------------------------------------------------
+# Module Version (LANGUAGE.md §19.0: every hand-written std module exports one)
+# ----------------------------------------------------------------------------
+
+## Logica module version.
+const LOGICA_VERSION as string is "2.0.0"
+
+# ----------------------------------------------------------------------------
+# Methods on `bool`
+# ----------------------------------------------------------------------------
+
+enchanting bool:
+
+    # ─── Conversión ──────────────────────────────────────────────────────
+
+    ## Devuelve `1` si `self` es `true` y `0` si es `false`.
+    ##
+    ## ## Uso típico
+    ## Acumular un contador a partir de predicados:
+    ## ```pengu
+    ## var count as int is 0
+    ## var flag as bool is true
+    ## set count is count + calling flag.to_int
+    ## ```
+    ##
+    ## ## Nota de implementación
+    ## Se escribe `if self: return 1` y no `return self to int`: el checker
+    ## acepta casts que el backend C no sabe emitir (el caso `string -> int`
+    ## se corrigió en la Fase 3.4), y un `if` explícito no depende de esa ruta.
+    weave to_int into int:
+        if self:
+            return 1
+        return 0
+
+    # ─── Negación ────────────────────────────────────────────────────────
+
+    ## Devuelve `not self`, en forma encadenable.
+    ##
+    ## `calling b.toggle` equivale a `not b`, pero se puede componer con otras
+    ## llamadas (`calling (calling b.toggle).toggle` no es sintaxis válida: usa
+    ## una variable intermedia).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var b as bool is true
+    ## var flipped as bool is calling b.toggle     # false
+    ## ```
+    weave toggle into bool:
+        return not self
+
+    # ─── Conectivas básicas encadenables ─────────────────────────────────
+
+    ## Devuelve `self and other`. Forma encadenable de `and`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as bool is true
+    ## var b as bool is false
+    ## var r as bool is calling a.and_with with b     # false
+    ## ```
+    weave and_with with other as bool into bool:
+        return self and other
+
+    ## Devuelve `self or other`. Forma encadenable de `or`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as bool is true
+    ## var b as bool is false
+    ## var r as bool is calling a.or_with with b     # true
+    ## ```
+    weave or_with with other as bool into bool:
+        return self or other
+
+    # ─── Conectivas derivadas ────────────────────────────────────────────
+
+    ## Devuelve el "o exclusivo": `true` si exactamente uno de los dos es
+    ## `true`, `false` si coinciden.
+    ##
+    ## `a.xor b` ≡ `a != b` ≡ `not (a.iff b)`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as bool is true
+    ## var b as bool is false
+    ## var r as bool is calling a.xor with b     # true
+    ## ```
+    weave xor with other as bool into bool:
+        return self != other
+
+    ## Devuelve el bicondicional ("if and only if"): `true` si ambos operandos
+    ## coinciden.
+    ##
+    ## `a.iff b` ≡ `a == b` ≡ `(a implies b) and (b implies a)`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as bool is true
+    ## var b as bool is false
+    ## var r as bool is calling a.iff with b     # false
+    ## ```
+    weave iff with other as bool into bool:
+        return self == other
+
+    ## Devuelve `not (self and other)` (NAND). Cualquier compuerta lógica se
+    ## puede construir con NAND; aquí se usa cuando el caso natural es "no
+    ## ambos".
+    ##
+    ## `a.nand b` ≡ `not (a.and_with b)`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as bool is true
+    ## var b as bool is false
+    ## var r as bool is calling a.nand with b     # true
+    ## ```
+    weave nand with other as bool into bool:
+        return not (self and other)
+
+    ## Devuelve `not (self or other)` (NOR). Útil para "ninguno de los dos".
+    ##
+    ## `a.nor b` ≡ `not (a.or_with b)`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as bool is false
+    ## var b as bool is false
+    ## var r as bool is calling a.nor with b     # true
+    ## ```
+    weave nor with other as bool into bool:
+        return not (self or other)
+
+    ## Devuelve la **implicación material**: `(not self) or other`.
+    ##
+    ## Es `false` **solo** cuando `self` es `true` y `other` es `false`. Para
+    ## cualquier otro par devuelve `true`.
+    ##
+    ## ## Tabla de verdad
+    ## | `self` | `other` | `self.implies other` |
+    ## |---|---|---|
+    ## | false | false | true |
+    ## | false | true | true |
+    ## | true | false | false |
+    ## | true | true | true |
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var ready as bool is true
+    ## var armed as bool is false
+    ## var ok as bool is calling ready.implies with armed     # false
+    ## ```
+    weave implies with other as bool into bool:
+        return (not self) or other
+
+# ----------------------------------------------------------------------------
+# Tests
+# ----------------------------------------------------------------------------
+
+## Helper de test: falla salvo que `got` sea `true`.
+weave _t_true with got as bool into void:
+    calling ward.assert_true with got
+
+## Helper de test: falla salvo que `got` sea `false`.
+weave _t_false with got as bool into void:
+    calling ward.assert_false with got
+
+## Helper de test: igualdad exacta de `int`.
+weave _t_int with got as int, want as int into void:
+    calling ward.assert_eq_int with got, want
+
+test "to_int maps true to one":
+    var t as bool is true
+    calling _t_int with (calling t.to_int), 1
+
+test "to_int maps false to zero":
+    var f as bool is false
+    calling _t_int with (calling f.to_int), 0
+
+test "to_int accumulates a counter":
+    var total as int is 0
+    var t as bool is true
+    var f as bool is false
+    set total is total + (calling t.to_int)
+    set total is total + (calling f.to_int)
+    set total is total + (calling t.to_int)
+    calling _t_int with total, 2
+
+test "toggle flips true":
+    var t as bool is true
+    calling _t_false with (calling t.toggle)
+
+test "toggle flips false":
+    var f as bool is false
+    calling _t_true with (calling f.toggle)
+
+test "toggle twice is the identity":
+    var t as bool is true
+    var once as bool is calling t.toggle
+    var twice as bool is calling once.toggle
+    calling _t_true with twice
+
+test "and_with over the four pairs":
+    var t as bool is true
+    var f as bool is false
+    calling _t_true with (calling t.and_with with t)
+    calling _t_false with (calling t.and_with with f)
+    calling _t_false with (calling f.and_with with t)
+    calling _t_false with (calling f.and_with with f)
+
+test "or_with over the four pairs":
+    var t as bool is true
+    var f as bool is false
+    calling _t_true with (calling t.or_with with t)
+    calling _t_true with (calling t.or_with with f)
+    calling _t_true with (calling f.or_with with t)
+    calling _t_false with (calling f.or_with with f)
+
+test "xor is true exactly when the operands differ":
+    var t as bool is true
+    var f as bool is false
+    calling _t_false with (calling t.xor with t)
+    calling _t_true with (calling t.xor with f)
+    calling _t_true with (calling f.xor with t)
+    calling _t_false with (calling f.xor with f)
+
+test "iff is true exactly when the operands agree":
+    var t as bool is true
+    var f as bool is false
+    calling _t_true with (calling t.iff with t)
+    calling _t_false with (calling t.iff with f)
+    calling _t_false with (calling f.iff with t)
+    calling _t_true with (calling f.iff with f)
+
+test "nand is the negation of and":
+    var t as bool is true
+    var f as bool is false
+    calling _t_false with (calling t.nand with t)
+    calling _t_true with (calling t.nand with f)
+    calling _t_true with (calling f.nand with t)
+    calling _t_true with (calling f.nand with f)
+
+test "nor is the negation of or":
+    var t as bool is true
+    var f as bool is false
+    calling _t_false with (calling t.nor with t)
+    calling _t_false with (calling t.nor with f)
+    calling _t_false with (calling f.nor with t)
+    calling _t_true with (calling f.nor with f)
+
+test "implies is false only for true implies false":
+    var t as bool is true
+    var f as bool is false
+    calling _t_false with (calling t.implies with f)
+
+test "implies is true for the other three pairs":
+    var t as bool is true
+    var f as bool is false
+    calling _t_true with (calling t.implies with t)
+    calling _t_true with (calling f.implies with t)
+    calling _t_true with (calling f.implies with f)
+
+test "implies equals not-or":
+    var t as bool is true
+    var f as bool is false
+    var impl as bool is calling t.implies with f
+    var expected as bool is (not t) or f
+    calling _t_true with (impl == expected)
+
+test "implies is reflexive":
+    var t as bool is true
+    var f as bool is false
+    calling _t_true with (calling t.implies with t)
+    calling _t_true with (calling f.implies with f)
+
+test "iff equals both implications":
+    var t as bool is true
+    var f as bool is false
+    var ab as bool is calling t.iff with f
+    var forward as bool is calling t.implies with f
+    var backward as bool is calling f.implies with t
+    calling _t_true with (ab == (forward and backward))
+
+test "xor equals not iff":
+    var t as bool is true
+    var f as bool is false
+    var x as bool is calling t.xor with f
+    var i as bool is calling t.iff with f
+    calling _t_true with (x == (not i))
+
+test "nand equals not and":
+    var t as bool is true
+    var f as bool is false
+    var n as bool is calling t.nand with f
+    var a as bool is calling t.and_with with f
+    calling _t_true with (n == (not a))
+
+test "nor equals not or":
+    var f as bool is false
+    var n as bool is calling f.nor with f
+    var o as bool is calling f.or_with with f
+    calling _t_true with (n == (not o))
+
+test "xor is associative":
+    var t as bool is true
+    var f as bool is false
+    var left as bool is calling t.xor with f
+    var left_all as bool is calling left.xor with t
+    var right as bool is calling f.xor with t
+    var right_all as bool is calling t.xor with right
+    calling _t_true with (left_all == right_all)
+
+test "and_with distributes over or_with":
+    var t as bool is true
+    var f as bool is false
+    var left as bool is calling t.and_with with (calling f.or_with with t)
+    var a as bool is calling t.and_with with f
+    var b as bool is calling t.and_with with t
+    var right as bool is calling a.or_with with b
+    calling _t_true with (left == right)
+
+test "de morgan: not (a and b) equals (not a) or (not b)":
+    var t as bool is true
+    var f as bool is false
+    var nand_result as bool is calling t.nand with f
+    var na as bool is calling t.toggle
+    var nb as bool is calling f.toggle
+    var or_result as bool is calling na.or_with with nb
+    calling _t_true with (nand_result == or_result)
+
+test "the predicates compose into a permission check":
+    var is_admin as bool is false
+    var is_owner as bool is true
+    var is_locked as bool is false
+    var unlocked as bool is calling is_locked.toggle
+    var owner_ok as bool is calling is_owner.and_with with unlocked
+    var allowed as bool is calling is_admin.or_with with owner_ok
+    calling _t_true with allowed
+
+test "and_with and or_with are idempotent":
+    var t as bool is true
+    var f as bool is false
+    var and_t as bool is calling t.and_with with t
+    var or_f as bool is calling f.or_with with f
+    calling _t_true with (and_t == t)
+    calling _t_false with (or_f == t)
+
+test "and_with and or_with commute":
+    var t as bool is true
+    var f as bool is false
+    var ab as bool is calling t.and_with with f
+    var ba as bool is calling f.and_with with t
+    var ao as bool is calling t.or_with with f
+    var bo as bool is calling f.or_with with t
+    calling _t_true with (ab == ba)
+    calling _t_true with (ao == bo)
+
+test "the identity elements behave":
+    var t as bool is true
+    var f as bool is false
+    var and_true as bool is calling t.and_with with t
+    var and_false as bool is calling t.and_with with f
+    var or_false as bool is calling t.or_with with f
+    calling _t_true with (and_true == t)
+    calling _t_false with (and_false == t)
+    calling _t_true with (or_false == t)
