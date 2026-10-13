@@ -1426,6 +1426,26 @@ void main(void) {
 
 Safety rules enforced by the checker: accessing `self` inside a `ritual` method is rejected (`E0033`); calling a `ritual` method on an instance is rejected (`E0034`). Methods can also be attached to **primitive types** (`enchanting string:`, `enchanting list:`, `enchanting map:`, `enchanting slice:`, `enchanting maybe:`, `enchanting result:`); those methods keep their plain C names (never the module prefix) so they cannot collide with runtime primitives.
 
+#### 9.1.1 Methods on primitives
+
+Every numeric primitive (`int`, `i8`–`i64`, `u8`–`u64`, `usize`, `isize`, `byte`, `float`, `f32`, `f64`, `double`) accepts methods when `std.numerus` is imported. A **single** `enchanting shard T where T: Num and T: Ordo and T: Par:` block covers them all; the compiler monomorphizes each method per concrete receiver (`int_abs`, `f64_clamp`, `u32_signum`), so there is no boxing, no vtable and no runtime cost.
+
+```pengu
+import std.numerus
+
+(-5).abs                    # 5
+200.clamp with 0, 120       # 120
+2.7.floor                   # 2.0
+3.5.round                   # 4.0
+7.is_positive               # true
+0.is_zero                   # true
+2.pow_int with 10           # 1024
+(-3).signum                 # -1
+5.twice                     # 10
+```
+
+`Num` grants arithmetic only; ordering (`<`, `<=`, `>`, `>=`) needs `Ordo` and equality (`==`, `!=`) needs `Par` ([§9.4](#94-generics-shard-of--where)). Full method list in [`LANGUAGE.md` §19.1](LANGUAGE.md#191-pure-penguscript-modules-22-modules).
+
 ### 9.2 Scoped mutation `with target:`
 
 ```pengu
@@ -2373,7 +2393,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 
 `std/spark.pengu` defines `SPARK_VERSION` and `STD_VERSION` constants; `spark.spark_version` returns the version string.
 
-### 15.2 Core module catalog (21 modules)
+### 15.2 Core module catalog (22 modules)
 
 | Module | Import | Implementation | Purpose & key functions |
 | ------ | ------ | -------------- | ----------------------- |
@@ -2393,6 +2413,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **ledger** | `import std.ledger` | Pure PenguScript | CSV/TSV: `escape_field`, `parse_line`, `parse_csv`, `to_csv_string`, `detect_delimiter`, TSV variants, and file helpers `read_csv`/`write_csv`/`read_tsv`/`write_tsv`. |
 | **cipher** | `import std.cipher` | Pure PenguScript | JSON + Base64: `parse_json`, `stringify_json`, `pretty_json`, `encode_base64`, `decode_base64`, `is_base64`, value-level `parse_value`/`stringify_value`, file helpers. |
 | **filum** | `import std.filum` | C primitives | Concurrency: `mutex`/`lock`/`unlock`/`try_lock`, `wait_group` (`add`, `done`, `wait`), `once`, channels, thread spawn, condition variables, atomics (opaque-handle value types). |
+| **numerus** | `import std.numerus` | Pure PenguScript | Universal numeric methods over every primitive via one `enchanting shard T where T: Num and T: Ordo and T: Par:`. `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`; predicates `is_zero`/`is_positive`/`is_negative`/`is_non_negative`/`is_non_positive`; `twice`, `half`, `square`, `cube`, `pow_int`; `truncate`, `floor`, `ceil`, `round`; `to_f64`, `to_i64`. Monomorphized — zero overhead. |
 | **loom** | `import std.loom` | Pure PenguScript | Functional collection utilities: `range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`, `sum`, `product_num`, `max_int`/`min_int`, `min_max`, plus map/filter/reduce style helpers, sorted set operations and zip/flattening. Prefer `loom` over `tally` when an empty input must be representable (see §19.1). |
 | **ward** | `import std.ward` | Pure PenguScript | Assertions & invariants: `assert`, `assert_msg`, `assert_true`/`assert_false`, `assert_eq_*` / `assert_ne_*` (int/string/bool), `assert_present_*`/`assert_none_*`, `assert_ok_*`/`assert_err_*`, `expect*` message variants, `panic`, `unreachable`, and result-returning `check*` helpers. |
 | **trial** | `import std.trial` | Pure PenguScript | Unit-test framework: re-exports `ward` assertions, plus suites (`new_suite`), `test_case`/`test`, lifecycle hooks and colored reporting (`summary`). |
@@ -2421,7 +2442,7 @@ Two consequences worth stating:
   `MANIFEST` so the satellite repositories can copy it; nothing in *this*
   repository downloads or builds those sources.
 
-`std/` therefore contains only the 21 pure-PenguScript modules in the catalog
+`std/` therefore contains only the 22 pure-PenguScript modules in the catalog
 above. `pengu bind` (§14.8) remains the tool for authoring a new binding from a
 C header, using the generic stubs in `c_bind_stubs/`.
 

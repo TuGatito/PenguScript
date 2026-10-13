@@ -71,8 +71,8 @@ El lenguaje impone estilos por convención (`snake_case` para valores, `PascalCa
 | Módulo de capacidad | sustantivo **singular abstracto** | `std.cipher`, `std.loom` |
 
 **Reglas:**
-- Los módulos estándar viven bajo `std.` y su nombre es un **sustantivo latino o inglés**: `spark`, `scrolls`, `oracle`, `compass`, `archivum`, `cipher`, `chronicle`, `lot`, `arithmancy`, `rites`, `whisper`, `ward`, `trial`, `tally`, `atlas`, `coven`, `filum`, `loom`, `invoke`, `ffi`, `ledger`.
-- Los bindings C externos (`raylib`, `sqlite3`, `yaml`, …) **no** son módulos `std.*`: se extrajeron a repositorios satélite y se instalan con `pengu add <url>` (catálogo: [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)). El runtime solo enlaza `libc`/`libm`/`pthreads`, y los 21 módulos anteriores son toda la biblioteca estándar pura.
+- Los módulos estándar viven bajo `std.` y su nombre es un **sustantivo latino o inglés**: `spark`, `scrolls`, `oracle`, `compass`, `archivum`, `cipher`, `chronicle`, `lot`, `arithmancy`, `rites`, `whisper`, `ward`, `trial`, `tally`, `atlas`, `coven`, `filum`, `numerus`, `loom`, `invoke`, `ffi`, `ledger`.
+- Los bindings C externos (`raylib`, `sqlite3`, `yaml`, …) **no** son módulos `std.*`: se extrajeron a repositorios satélite y se instalan con `pengu add <url>` (catálogo: [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)). El runtime solo enlaza `libc`/`libm`/`pthreads`, y los 22 módulos anteriores son toda la biblioteca estándar pura.
 - Nunca uses `utils`, `helpers`, `common`, `misc`. Si no puedes nombrarlo con un sustantivo concreto, **el módulo no tiene una responsabilidad clara**.
 - Las siglas se escriben en `snake_case` minúsculo como módulo: `std.ffi`.
 
@@ -722,6 +722,36 @@ enchanting map of shard K to shard V:
 
 - El bloque **concreto** (`enchanting map of string to int:`) **anula** el genérico para ese tipo. Úsalo para especializaciones de rendimiento.
 - Los métodos genéricos se monomorfizan solo para las instancias realmente usadas.
+
+### 6.7 Enchanting de primitivos (`shard T where T: …`)
+
+Un primitivo (`int`, `float`, `char`, `bool`, …) es un objetivo válido de `enchanting`. A diferencia de las runes, `self` es **un valor**, no una referencia: `set self` se rechaza con `E0006` y `self->field` con `E0003`.
+
+Cuando el método aplica a **varios** tipos primitivos, acota con `shard T where T: …`:
+
+```pengu
+# ✅ Pengunic: una definición, N tipos
+enchanting shard T where T: Num and T: Ordo and T: Par:
+    weave abs into T:
+        if self < donum T:
+            return -self
+        return self
+
+# ❌ Anti-Pengunic: N definiciones idénticas
+enchanting int:   weave abs into int: ...
+enchanting i64:   weave abs into i64: ...
+enchanting float: weave abs into float: ...
+enchanting f64:   weave abs into f64: ...
+```
+
+Reglas:
+
+1. **Un módulo por capacidad, no por tipo.** `numerus` (`Num`), `integrum` (`Integrum`), `fractio` (`Real`), `littera` (`char`), `logica` (`bool`).
+2. **El bound decide qué tipos tienen el método.** El compilador lo verifica en el punto de llamada: `(1.5).is_even` es `E0005` porque `float` no satisface `Integrum`.
+3. **Monomorfización por tipo concreto.** El C emitido es `int_abs`, `f64_abs`, etc. Cero sobrecoste.
+4. **`Num` no concede orden ni igualdad.** Ésos son los conceptos ortogonales `Ordo` (`<`, `<=`, `>`, `>=`) y `Par` (`==`, `!=`). Todo primitivo numérico satisface los tres, así que un método que compara escribe `where T: Num and T: Ordo and T: Par:` — es lo que hace `std.numerus`.
+5. **Nunca `antiquus` para lógica trivial.** `declare` a `libm` cuando haga falta C (`sqrt`, `sin`).
+6. **Predicados con `is_*`.** Consultas puras con el nombre base (`abs`, `floor`).
 
 ---
 

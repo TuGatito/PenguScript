@@ -1,0 +1,629 @@
+## std/numerus.pengu — the number: universal numeric methods over the `Num`
+## concept.
+##
+## `numerus` dota de métodos a **todos** los primitivos numéricos de
+## PenguScript (`int`, `i8`–`i64`, `u8`–`u64`, `usize`, `isize`, `byte`,
+## `float`, `f32`, `f64`, `double`) mediante un único bloque
+## `enchanting shard T where T: Num and T: Ordo and T: Par:`. El compilador
+## monomorfiza cada método por tipo concreto en tiempo de compilación
+## (`int_abs`, `f64_clamp`, `u32_signum`, …), así que no hay vtables, ni
+## boxing, ni coste en runtime.
+##
+## ## `Num` y las comparaciones
+## En esta versión del lenguaje `Num` concede aritmética (`+`, `-`, `*`, `/`,
+## unario `-`) pero **no** orden ni igualdad: ésos son los conceptos
+## ortogonales `Ordo` (`<`, `<=`, `>`, `>=`) y `Par` (`==`, `!=`). Todo
+## primitivo numérico satisface los tres, así que el bound compuesto sigue
+## cubriendo exactamente los mismos 11 tipos canónicos con una sola
+## declaración (LANGUAGE.md §11.3).
+##
+## ## Delegación
+## `std.arithmancy` expone equivalentes **concretos** de varios de estos
+## métodos (`abs`/`abs_i`, `min`/`min_i`, `max`/`max_i`, `clamp`/`clamp_i`,
+## `sign`/`sign_i`, `trunc`/`floor`/`ceil`/`round`, `pow`). Al no ser
+## genéricos, un `shard T where T: Num` no puede delegar en ellos sin
+## duplicar por tipo (justo lo que `numerus` elimina), de modo que `numerus`
+## implementa la lógica localmente y deja la dirección futura anotada en cada
+## método con `# TODO(Fase 3.x)`. Los que **sí** podrán delegar cuando
+## `arithmancy` gane un `enchanting shard T where T: Num and T: Ordo and T: Par:`
+## son `abs`, `signum`, `min_with`, `max_with`, `clamp`, `pow_int`,
+## `truncate`, `floor`, `ceil` y `round`; el resto (predicados, `negated`,
+## `twice`, `half`, `square`, `cube`, `to_f64`, `to_i64`) es específico de
+## `numerus` y no tiene equivalente en `arithmancy`.
+##
+## ## Alcance
+## `numerus` cubre lo que tiene sentido para **cualquier** tipo numérico
+## (enteros y flotantes). Los métodos exclusivos de enteros (`is_even`,
+## `is_odd`, `gcd`, `lcm`, `bit_count`) viven en `std.integrum`; los
+## exclusivos de flotantes (`sqrt`, `is_nan`, `approx_eq`, `sin`, `cos`) en
+## `std.fractio`. Las conversiones sin método (`x to int`) siguen siendo la
+## vía idiomática para cambiar de tipo; `to_f64`/`to_i64` sólo existen por
+## comodidad encadenable.
+##
+## ## Precondiciones
+## - `clamp with lo, hi` e `is_between with lo, hi` exigen `lo <= hi`. No
+##   paniquean (evitar importar `std.spark` sólo por eso); con `lo > hi` el
+##   resultado es el del algoritmo, que para `is_between` es siempre `false`.
+## - `pow_int with exp` exige `exp != INT_MIN` (la negación del exponente
+##   desbordaría). Los exponentes negativos sobre tipos enteros truncan hacia
+##   cero: `2.pow_int with -3` es `0`, no `0.125`.
+##
+## ## Memoria
+## Ningún método de este módulo asigna memoria del heap. No hay nada que
+## liberar con `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## import std.numerus
+##
+## weave main into int:
+##     var edad as int is 200
+##     var corregida as int is calling edad.clamp with 0, 120
+##     var temp as f64 is -3.7
+##     var abs_temp as f64 is calling temp.abs
+##     return 0
+## ```
+
+import std.ward
+
+# ----------------------------------------------------------------------------
+# Module Version (LANGUAGE.md §19.0: every hand-written std module exports one)
+# ----------------------------------------------------------------------------
+
+## Numerus module version.
+const NUMERUS_VERSION as string is "2.0.0"
+
+# ----------------------------------------------------------------------------
+# Universal numeric methods (one body, one C function per concrete receiver)
+# ----------------------------------------------------------------------------
+
+enchanting shard T where T: Num and T: Ordo and T: Par:
+
+    # ─── Valor absoluto y signo ──────────────────────────────────────────
+
+    ## Devuelve el valor absoluto de `self`.
+    ##
+    ## Para tipos sin signo (`u8`–`u64`, `usize`, `byte`) es la identidad:
+    ## la condición `self < donum T` nunca se cumple.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## (-5).abs              # 5
+    ## 3.5.abs               # 3.5
+    ## ```
+    # TODO(Fase 3.x): arithmancy.abs / arithmancy.abs_i should delegate here.
+    weave abs into T:
+        if self < donum T:
+            return -self
+        return self
+
+    ## Devuelve `-1`, `0` o `1` según el signo de `self`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## (-42).signum    # -1
+    ## 0.signum        # 0
+    ## 7.5.signum      # 1.0
+    ## ```
+    # TODO(Fase 3.x): arithmancy.sign / arithmancy.sign_i should delegate here.
+    weave signum into T:
+        if self > donum T:
+            return (1 to T)
+        if self < donum T:
+            return (0 - (1 to T)) to T
+        return donum T
+
+    ## Devuelve `-self`. Equivalente al menos unario, pero encadenable.
+    ##
+    ## En tipos sin signo el resultado envuelve (aritmética modular de C).
+    weave negated into T:
+        return -self
+
+    # ─── Comparación y restricción ───────────────────────────────────────
+
+    ## Devuelve el menor de `self` y `other`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 3.min_with with 7      # 3
+    ## 3.0.min_with with 2.5  # 2.5
+    ## ```
+    # TODO(Fase 3.x): arithmancy.min / arithmancy.min_i should delegate here.
+    weave min_with with other as T into T:
+        if self < other:
+            return self
+        return other
+
+    ## Devuelve el mayor de `self` y `other`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 3.max_with with 7      # 7
+    ## ```
+    # TODO(Fase 3.x): arithmancy.max / arithmancy.max_i should delegate here.
+    weave max_with with other as T into T:
+        if self > other:
+            return self
+        return other
+
+    ## Restringe `self` al rango cerrado `[lo, hi]`.
+    ##
+    ## ## Precondiciones
+    ## `lo <= hi`. El comportamiento es indefinido si se viola.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 200.clamp with 0, 120    # 120
+    ## (-5).clamp with 0, 10    # 0
+    ## 7.clamp with 0, 10       # 7
+    ## ```
+    # TODO(Fase 3.x): arithmancy.clamp / arithmancy.clamp_i should delegate here.
+    weave clamp with lo as T, hi as T into T:
+        if self < lo:
+            return lo
+        if self > hi:
+            return hi
+        return self
+
+    ## Devuelve `true` si `lo <= self <= hi` (rango cerrado).
+    ##
+    ## ## Precondiciones
+    ## `lo <= hi`. Con `lo > hi` devuelve siempre `false`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 5.is_between with 0, 10    # true
+    ## 15.is_between with 0, 10   # false
+    ## ```
+    weave is_between with lo as T, hi as T into bool:
+        return self >= lo and self <= hi
+
+    # ─── Predicados ──────────────────────────────────────────────────────
+
+    ## Devuelve `true` si `self == donum T` (el cero de `T`).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 0.is_zero      # true
+    ## 0.0.is_zero    # true
+    ## ```
+    weave is_zero into bool:
+        return self == donum T
+
+    ## Devuelve `true` si `self > 0`. Siempre `false` para tipos sin signo
+    ## cuando `self == 0`.
+    weave is_positive into bool:
+        return self > donum T
+
+    ## Devuelve `true` si `self < 0`. Siempre `false` para tipos sin signo.
+    weave is_negative into bool:
+        return self < donum T
+
+    ## Devuelve `true` si `self >= 0`. Siempre `true` para tipos sin signo.
+    weave is_non_negative into bool:
+        return self >= donum T
+
+    ## Devuelve `true` si `self <= 0`.
+    weave is_non_positive into bool:
+        return self <= donum T
+
+    # ─── Transformaciones aritméticas ────────────────────────────────────
+
+    ## Devuelve `self + self` (el doble de `self`).
+    ##
+    ## El nombre es `twice` y no `double` porque `double` es un tipo.
+    weave twice into T:
+        return self + self
+
+    ## Devuelve `self / 2`.
+    ##
+    ## En tipos enteros la división trunca hacia cero: `5.half` es `2` y
+    ## `(-5).half` es `-2`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 10.half     # 5
+    ## 2.5.half    # 1.25
+    ## ```
+    weave half into T:
+        return self / (2 to T)
+
+    ## Devuelve `self * self`.
+    weave square into T:
+        return self * self
+
+    ## Devuelve `self * self * self`.
+    weave cube into T:
+        return self * self * self
+
+    ## Eleva `self` a un exponente entero por cuadrados.
+    ##
+    ## ## Comportamiento por signo del exponente
+    ## - `exp == 0` → `1` (de tipo `T`).
+    ## - `exp > 0` → potenciación por cuadrados.
+    ## - `exp < 0` → `(1 to T) / self.pow_int with (0 - exp)`. **En tipos
+    ##   enteros esto trunca hacia cero**: `2.pow_int with -3` es `0`.
+    ##   Convierte a `f64` primero (`(self to f64).pow_int with exp`) si
+    ##   necesitas un resultado fraccionario.
+    ##
+    ## ## Precondiciones
+    ## `exp != INT_MIN`: negar `INT_MIN` desborda. El exponente se evalúa en
+    ## `int`, con independencia de `T`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 2.pow_int with 10       # 1024
+    ## 2.0.pow_int with 10     # 1024.0
+    ## 2.0.pow_int with -1     # 0.5
+    ## ```
+    # TODO(Fase 3.x): arithmancy.pow should delegate here for the f64 case.
+    weave pow_int with exp as int into T:
+        if exp < 0:
+            return (1 to T) / (calling self.pow_int with (0 - exp))
+        var r as T is (1 to T)
+        var base as T is self
+        var e as int is exp
+        while e > 0:
+            if (e % 2) == 1:
+                set r is r * base
+            set base is base * base
+            set e is e / 2
+        return r
+
+    # ─── Redondeo ────────────────────────────────────────────────────────
+    #
+    # Los cuatro devuelven `T`, igual que `Math.floor` (Java),
+    # `Double.floor()` (Kotlin) y `f64::floor` (Rust). Para tipos enteros son
+    # la identidad. La implementación pasa por `int` (truncamiento hacia
+    # cero) y corrige; el checker acepta el cast genérico `T to int` y la
+    # vuelta `int to T`.
+
+    ## Trunca hacia cero (el mayor entero con |resultado| ≤ |self|).
+    ##
+    ## Para tipos enteros es la identidad.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 2.7.truncate      # 2.0
+    ## (-2.7).truncate   # -2.0
+    ## ```
+    # TODO(Fase 3.x): arithmancy.trunc should delegate here for the f64 case.
+    weave truncate into T:
+        return (self to int) to T
+
+    ## Redondea hacia menos infinito (el mayor entero ≤ `self`).
+    ##
+    ## Para tipos enteros es la identidad.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 2.7.floor         # 2.0
+    ## (-2.7).floor      # -3.0
+    ## ```
+    # TODO(Fase 3.x): arithmancy.floor should delegate here for the f64 case.
+    weave floor into T:
+        let t as int is self to int
+        if (t to T) > self:
+            return ((t - 1) to T)
+        return (t to T)
+
+    ## Redondea hacia más infinito (el menor entero ≥ `self`).
+    ##
+    ## Para tipos enteros es la identidad.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 2.3.ceil          # 3.0
+    ## (-2.3).ceil       # -2.0
+    ## ```
+    # TODO(Fase 3.x): arithmancy.ceil should delegate here for the f64 case.
+    weave ceil into T:
+        let t as int is self to int
+        if (t to T) < self:
+            return ((t + 1) to T)
+        return (t to T)
+
+    ## Redondea al entero más cercano con la convención **half away from
+    ## zero**: `2.5` → `3.0`, `(-2.5)` → `-3.0`, `2.4` → `2.0`.
+    ##
+    ## Para tipos enteros es la identidad (el `half` entero es `0`).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 3.5.round     # 4.0
+    ## 2.4.round     # 2.0
+    ## ```
+    # TODO(Fase 3.x): arithmancy.round should delegate here for the f64 case.
+    weave round into T:
+        let half as T is (1 to T) / (2 to T)
+        if self < donum T:
+            return (0 - (((0 - self) + half) to int)) to T
+        return ((self + half) to int) to T
+
+    # ─── Conversiones ────────────────────────────────────────────────────
+    #
+    # El lenguaje ya tiene `(x to T)`; estos dos métodos existen sólo para
+    # encadenar (`x.abs.to_f64`) y son siempre totales: `to_i64` trunca hacia
+    # cero en flotantes y envuelve en `u64` fuera de rango (documentado).
+
+    ## Convierte a `f64`. Siempre seguro (ensanchamiento para enteros y
+    ## `f32`).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 42.to_f64       # 42.0
+    ## 2.5.to_f64      # 2.5
+    ## ```
+    weave to_f64 into f64:
+        return self to f64
+
+    ## Convierte a `i64`. En flotantes trunca hacia cero; en `u64` los
+    ## valores mayores que `2^63 - 1` son indefinidos (comportamiento del
+    ## cast del lenguaje).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 2.9.to_i64      # 2
+    ## (-2.9).to_i64   # -2
+    ## ```
+    weave to_i64 into i64:
+        return self to i64
+
+# ----------------------------------------------------------------------------
+# Tests
+# ----------------------------------------------------------------------------
+
+test "abs leaves positives untouched":
+    var x as int is 5
+    calling ward.assert_eq_int with (calling x.abs), 5
+
+test "abs flips negatives":
+    var x as int is -3
+    calling ward.assert_eq_int with (calling x.abs), 3
+
+test "abs is the identity at zero":
+    var x as int is 0
+    calling ward.assert_eq_int with (calling x.abs), 0
+
+test "abs works for wide and unsigned integers":
+    var a as i64 is -9000000
+    var b as u32 is 7
+    calling ward.assert_eq_int with (calling a.abs to int), 9000000
+    calling ward.assert_eq_int with (calling b.abs), 7
+
+test "abs works for every float width":
+    var a as f64 is -3.5
+    var b as f32 is -2.5
+    var c as float is -1.5
+    calling ward.assert_true with (calling a.abs) == 3.5
+    calling ward.assert_true with ((calling b.abs to f64)) == 2.5
+    calling ward.assert_true with ((calling c.abs to f64)) == 1.5
+
+test "signum reports the sign of each type":
+    var a as int is -42
+    var b as int is 0
+    var c as f64 is 7.5
+    var d as u32 is 9
+    calling ward.assert_eq_int with (calling a.signum), -1
+    calling ward.assert_eq_int with (calling b.signum), 0
+    calling ward.assert_true with (calling c.signum) == 1.0
+    calling ward.assert_eq_int with (calling d.signum), 1
+
+test "negated inverts the value":
+    var a as int is 12
+    var b as int is -12
+    var c as int is 0
+    calling ward.assert_eq_int with (calling a.negated), -12
+    calling ward.assert_eq_int with (calling b.negated), 12
+    calling ward.assert_eq_int with (calling c.negated), 0
+
+test "min_with picks the smaller operand":
+    var x as int is 3
+    calling ward.assert_eq_int with (calling x.min_with with 7), 3
+    calling ward.assert_eq_int with (calling x.min_with with 2), 2
+    calling ward.assert_eq_int with (calling x.min_with with 3), 3
+
+test "max_with picks the larger operand":
+    var x as int is 3
+    calling ward.assert_eq_int with (calling x.max_with with 7), 7
+    calling ward.assert_eq_int with (calling x.max_with with 2), 3
+    calling ward.assert_eq_int with (calling x.max_with with 3), 3
+
+test "clamp restricts below, inside and above":
+    var x as int is 200
+    calling ward.assert_eq_int with (calling x.clamp with 0, 120), 120
+    calling ward.assert_eq_int with (calling x.clamp with 0, 500), 200
+    var y as int is -5
+    calling ward.assert_eq_int with (calling y.clamp with 0, 10), 0
+
+test "clamp keeps the inclusive boundaries":
+    var x as int is 10
+    calling ward.assert_eq_int with (calling x.clamp with 0, 10), 10
+    var z as int is 0
+    calling ward.assert_eq_int with (calling z.clamp with 0, 10), 0
+
+test "clamp works on floats":
+    var x as f64 is 145.7
+    calling ward.assert_true with (calling x.clamp with 0.0, 100.0) == 100.0
+    var y as f64 is -3.0
+    calling ward.assert_true with (calling y.clamp with 0.0, 100.0) == 0.0
+
+test "is_between accepts the closed range only":
+    var x as int is 5
+    calling ward.assert_true with (calling x.is_between with 0, 10)
+    calling ward.assert_false with (calling x.is_between with 6, 10)
+    calling ward.assert_false with (calling x.is_between with 0, 4)
+
+test "is_between includes both edges":
+    var lo as int is 0
+    var hi as int is 10
+    calling ward.assert_true with (calling lo.is_between with 0, 10)
+    calling ward.assert_true with (calling hi.is_between with 0, 10)
+
+test "is_zero is true only at zero":
+    var a as int is 0
+    var b as int is 1
+    var c as int is -1
+    calling ward.assert_true with (calling a.is_zero)
+    calling ward.assert_false with (calling b.is_zero)
+    calling ward.assert_false with (calling c.is_zero)
+
+test "is_positive distinguishes positive from zero and negative":
+    var a as int is 7
+    var b as int is 0
+    var c as int is -7
+    var d as u8 is 0
+    calling ward.assert_true with (calling a.is_positive)
+    calling ward.assert_false with (calling b.is_positive)
+    calling ward.assert_false with (calling c.is_positive)
+    calling ward.assert_false with (calling d.is_positive)
+
+test "is_negative is false for unsigned types":
+    var a as int is -7
+    var b as int is 0
+    var c as u64 is 5
+    calling ward.assert_true with (calling a.is_negative)
+    calling ward.assert_false with (calling b.is_negative)
+    calling ward.assert_false with (calling c.is_negative)
+
+test "is_non_negative is true for unsigned types":
+    var a as int is -1
+    var b as int is 0
+    var c as int is 1
+    var d as u16 is 0
+    calling ward.assert_false with (calling a.is_non_negative)
+    calling ward.assert_true with (calling b.is_non_negative)
+    calling ward.assert_true with (calling c.is_non_negative)
+    calling ward.assert_true with (calling d.is_non_negative)
+
+test "is_non_positive mirrors non-negative":
+    var a as int is -1
+    var b as int is 0
+    var c as int is 1
+    calling ward.assert_true with (calling a.is_non_positive)
+    calling ward.assert_true with (calling b.is_non_positive)
+    calling ward.assert_false with (calling c.is_non_positive)
+
+test "twice doubles without losing the type":
+    var a as int is 21
+    var b as int is -4
+    var c as f64 is 2.5
+    calling ward.assert_eq_int with (calling a.twice), 42
+    calling ward.assert_eq_int with (calling b.twice), -8
+    calling ward.assert_true with (calling c.twice) == 5.0
+
+test "half truncates toward zero for integers":
+    var a as int is 10
+    var b as int is 5
+    var c as int is -5
+    calling ward.assert_eq_int with (calling a.half), 5
+    calling ward.assert_eq_int with (calling b.half), 2
+    calling ward.assert_eq_int with (calling c.half), -2
+
+test "half is exact for floats":
+    var a as f64 is 2.5
+    calling ward.assert_true with (calling a.half) == 1.25
+
+test "square keeps the sign of the input":
+    var a as int is 4
+    var b as int is -4
+    var c as int is 0
+    calling ward.assert_eq_int with (calling a.square), 16
+    calling ward.assert_eq_int with (calling b.square), 16
+    calling ward.assert_eq_int with (calling c.square), 0
+
+test "cube keeps the sign of the input":
+    var a as int is 3
+    var b as int is -3
+    var c as int is 0
+    calling ward.assert_eq_int with (calling a.cube), 27
+    calling ward.assert_eq_int with (calling b.cube), -27
+    calling ward.assert_eq_int with (calling c.cube), 0
+
+test "pow_int with a zero exponent is one":
+    var x as int is 7
+    calling ward.assert_eq_int with (calling x.pow_int with 0), 1
+
+test "pow_int with a positive exponent":
+    var x as int is 2
+    calling ward.assert_eq_int with (calling x.pow_int with 10), 1024
+    calling ward.assert_eq_int with (calling x.pow_int with 1), 2
+
+test "pow_int truncates for integer negative exponents":
+    var x as int is 2
+    calling ward.assert_eq_int with (calling x.pow_int with -3), 0
+
+test "pow_int is fractional for float negative exponents":
+    var x as f64 is 2.0
+    calling ward.assert_true with (calling x.pow_int with -1) == 0.5
+
+test "truncate drops the fractional part toward zero":
+    var a as f64 is 2.7
+    var b as f64 is -2.7
+    calling ward.assert_eq_int with (calling a.truncate to int), 2
+    calling ward.assert_eq_int with (calling b.truncate to int), -2
+
+test "truncate is the identity for integers":
+    var x as int is 42
+    calling ward.assert_eq_int with (calling x.truncate), 42
+
+test "floor rounds toward negative infinity":
+    var a as f64 is 2.7
+    var b as f64 is -2.7
+    var c as f64 is 2.0
+    calling ward.assert_eq_int with (calling a.floor to int), 2
+    calling ward.assert_eq_int with (calling b.floor to int), -3
+    calling ward.assert_eq_int with (calling c.floor to int), 2
+
+test "ceil rounds toward positive infinity":
+    var a as f64 is 2.3
+    var b as f64 is -2.3
+    var c as f64 is 2.0
+    calling ward.assert_eq_int with (calling a.ceil to int), 3
+    calling ward.assert_eq_int with (calling b.ceil to int), -2
+    calling ward.assert_eq_int with (calling c.ceil to int), 2
+
+test "round uses half away from zero":
+    var a as f64 is 2.4
+    var b as f64 is 2.5
+    var c as f64 is 2.6
+    calling ward.assert_eq_int with (calling a.round to int), 2
+    calling ward.assert_eq_int with (calling b.round to int), 3
+    calling ward.assert_eq_int with (calling c.round to int), 3
+
+test "round is symmetric for negatives":
+    var a as f64 is -2.4
+    var b as f64 is -2.5
+    var c as f64 is -2.6
+    calling ward.assert_eq_int with (calling a.round to int), -2
+    calling ward.assert_eq_int with (calling b.round to int), -3
+    calling ward.assert_eq_int with (calling c.round to int), -3
+
+test "round is the identity for integers":
+    var x as int is 5
+    var y as int is -5
+    calling ward.assert_eq_int with (calling x.round), 5
+    calling ward.assert_eq_int with (calling y.round), -5
+
+test "to_f64 widens integers and floats":
+    var a as int is 42
+    var b as i64 is -7
+    var c as f32 is 2.5
+    calling ward.assert_true with (calling a.to_f64) == 42.0
+    calling ward.assert_true with (calling b.to_f64) == -7.0
+    calling ward.assert_true with (calling c.to_f64) == 2.5
+
+test "to_i64 truncates floats toward zero":
+    var a as f64 is 2.9
+    var b as f64 is -2.9
+    var c as int is 12
+    calling ward.assert_eq_int with (calling a.to_i64 to int), 2
+    calling ward.assert_eq_int with (calling b.to_i64 to int), -2
+    calling ward.assert_eq_int with (calling c.to_i64 to int), 12
+
+test "methods chain across the module":
+    var raw as f64 is -145.7
+    var magnitude as f64 is calling raw.abs
+    var clamped as f64 is calling magnitude.clamp with 0.0, 100.0
+    var rounded as int is calling clamped.round to int
+    calling ward.assert_eq_int with rounded, 100

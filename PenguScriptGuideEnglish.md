@@ -71,8 +71,8 @@ The language imposes styles by convention (`snake_case` for values, `PascalCase`
 | Capability module | **abstract singular** noun | `std.cipher`, `std.loom` |
 
 **Rules:**
-- Standard modules live under `std.` and their name is a **Latin or English noun**: `spark`, `scrolls`, `oracle`, `compass`, `archivum`, `cipher`, `chronicle`, `lot`, `arithmancy`, `rites`, `whisper`, `ward`, `trial`, `tally`, `atlas`, `coven`, `filum`, `loom`, `invoke`, `ffi`, `ledger`.
-- External C bindings (`raylib`, `sqlite3`, `yaml`, …) are **not** `std.*` modules: they were extracted to satellite repositories and are installed with `pengu add <url>` (catalogue: [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)). The runtime links only `libc`/`libm`/`pthreads`, and the 21 modules above are the whole pure standard library.
+- Standard modules live under `std.` and their name is a **Latin or English noun**: `spark`, `scrolls`, `oracle`, `compass`, `archivum`, `cipher`, `chronicle`, `lot`, `arithmancy`, `rites`, `whisper`, `ward`, `trial`, `tally`, `atlas`, `coven`, `filum`, `numerus`, `loom`, `invoke`, `ffi`, `ledger`.
+- External C bindings (`raylib`, `sqlite3`, `yaml`, …) are **not** `std.*` modules: they were extracted to satellite repositories and are installed with `pengu add <url>` (catalogue: [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)). The runtime links only `libc`/`libm`/`pthreads`, and the 22 modules above are the whole pure standard library.
 - Never use `utils`, `helpers`, `common`, `misc`. If you cannot name it with a concrete noun, **the module does not have a clear responsibility**.
 - Acronyms are written in lowercase `snake_case` as a module name: `std.ffi`.
 
@@ -722,6 +722,36 @@ enchanting map of shard K to shard V:
 
 - The **concrete** block (`enchanting map of string to int:`) **overrides** the generic one for that type. Use it for performance specializations.
 - Generic methods are monomorphized only for the instances actually used.
+
+### 6.7 Primitive enchanting (`shard T where T: …`)
+
+A primitive (`int`, `float`, `char`, `bool`, …) is a valid `enchanting` target. Unlike runes, `self` is **a value**, not a reference: `set self` is rejected with `E0006` and `self->field` with `E0003`.
+
+When the method applies to **several** primitive types, bound it with `shard T where T: …`:
+
+```pengu
+# ✅ Pengunic: one definition, N types
+enchanting shard T where T: Num and T: Ordo and T: Par:
+    weave abs into T:
+        if self < donum T:
+            return -self
+        return self
+
+# ❌ Anti-Pengunic: N identical definitions
+enchanting int:   weave abs into int: ...
+enchanting i64:   weave abs into i64: ...
+enchanting float: weave abs into float: ...
+enchanting f64:   weave abs into f64: ...
+```
+
+Rules:
+
+1. **One module per capability, not per type.** `numerus` (`Num`), `integrum` (`Integrum`), `fractio` (`Real`), `littera` (`char`), `logica` (`bool`).
+2. **The bound decides which types have the method.** The compiler checks it at the call site: `(1.5).is_even` is `E0005` because `float` does not satisfy `Integrum`.
+3. **Monomorphization per concrete type.** The emitted C is `int_abs`, `f64_abs`, etc. Zero overhead.
+4. **`Num` grants neither ordering nor equality.** Those are the orthogonal concepts `Ordo` (`<`, `<=`, `>`, `>=`) and `Par` (`==`, `!=`). Every numeric primitive satisfies all three, so a method that compares writes `where T: Num and T: Ordo and T: Par:` — which is what `std.numerus` does.
+5. **Never `antiquus` for trivial logic.** Use `declare` to `libm` when C is genuinely needed (`sqrt`, `sin`).
+6. **Predicates with `is_*`.** Pure queries keep the bare name (`abs`, `floor`).
 
 ---
 

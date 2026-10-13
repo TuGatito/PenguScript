@@ -40,6 +40,17 @@ plain function call.
 
 ### Added
 
+- **`std.numerus`**: the canonical numeric-methods module. Provides
+  `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`,
+  the predicate family (`is_zero`, `is_positive`, `is_negative`,
+  `is_non_negative`, `is_non_positive`), arithmetic transforms (`twice`,
+  `half`, `square`, `cube`, `pow_int`) and rounding (`truncate`, `floor`,
+  `ceil`, `round`) plus `to_f64`/`to_i64` — all via a single
+  `enchanting shard T where T: Num and T: Ordo and T: Par:` block that covers
+  every numeric primitive (`int`, `i8`–`i64`, `u8`–`u64`, `usize`, `isize`,
+  `byte`, `float`, `f32`, `f64`, `double`). Monomorphized to `int_abs`,
+  `f64_clamp`, … — zero runtime overhead. Integer-only methods live in
+  `std.integrum`, floating-point-only methods in `std.fractio`.
 - **`Real` concept**: a floating-point-only refinement of `Num`, satisfied by
   `float`, `f32`, `f64` and `double`. Enables `enchanting shard T where T: Real:`
   so modules like the upcoming `std.fractio` can declare methods (`sqrt`,
