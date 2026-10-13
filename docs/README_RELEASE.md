@@ -11,7 +11,7 @@ This directory contains the standalone distribution of the **PenguScript Compile
 dist2/
 ├── pengu
 ├── pengus-2.0.0.vsix
-├── std/                             # 24 pure-PenguScript modules
+├── std/                             # 25 pure-PenguScript modules
 └── runtime/
     ├── pengu_runtime.h
     ├── libpengu_runtime.a           # self-contained: libc/libm/pthreads only

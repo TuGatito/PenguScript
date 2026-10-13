@@ -1,0 +1,525 @@
+## std/littera.pengu — the letter: methods on the `char` primitive.
+##
+## `littera` dota de métodos a `char` mediante un bloque `enchanting char:` que
+## clasifica el carácter según clases ASCII (dígito, letra, espacio,
+## puntuación, …) y lo convierte entre mayúscula y minúscula. Todo es
+## **PenguScript puro**: sin `declare` a `<ctype.h>`, sin `antiquus`, sin
+## locale. El comportamiento es idéntico en Linux, macOS y Windows.
+##
+## ## Alcance
+## `char` es un byte, pero sus **literales** están restringidos por el checker
+## al rango ASCII de 7 bits (`'\x80'` es `E0057`). Un *valor* `char` sí puede
+## contener 0x80–0xFF cuando proviene de un `byte` o de un buffer de C, así que
+## `is_ascii` sigue siendo útil y los predicados usan el byte sin signo
+## (`ord self`, 0–255) para no depender de si `char` es `signed` en la
+## plataforma.
+##
+## ## Diferencias con `<ctype.h>`
+## - `is_space` es **solo** el carácter `' '`. Para el conjunto completo
+##   (`'\t'`, `'\n'`, `'\r'`, `'\f'`, `'\v'`) usa `is_whitespace`.
+## - `to_upper`/`to_lower` solo mueven `'a'..'z'` ↔ `'A'..'Z'`; cualquier otro
+##   carácter se devuelve sin cambios.
+## - Ningún predicado depende del locale: la clasificación es la del locale
+##   "C" de C, pero calculada en PenguScript.
+## - `to_int` es `ord self`, es decir el byte **sin signo** (0–255). No uses
+##   `(self to int)`: en C `char` es `signed` en x86 y `unsigned` en ARM, así
+##   que ese cast no es portable para bytes altos.
+##
+## ## Memoria
+## Ningún método asigna memoria del heap. No hay nada que liberar con `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## import std.spark
+## import std.littera
+##
+## weave main into int:
+##     var c as char is 'a'
+##     var upper as char is calling c.to_upper
+##     calling spark.println with "{upper}"          # A
+##     var d as char is '7'
+##     calling spark.println with "{calling d.digit_value}"   # 7
+##     return 0
+## ```
+
+import std.ward
+
+# ----------------------------------------------------------------------------
+# Module Version (LANGUAGE.md §19.0: every hand-written std module exports one)
+# ----------------------------------------------------------------------------
+
+## Littera module version.
+const LITTERA_VERSION as string is "2.0.0"
+
+# ----------------------------------------------------------------------------
+# Methods on `char`
+# ----------------------------------------------------------------------------
+
+enchanting char:
+
+    # ─── Clasificación ASCII ─────────────────────────────────────────────
+
+    ## Devuelve `true` si `self` es un dígito decimal ASCII (`'0'..'9'`).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var d as char is '5'
+    ## var a as char is 'a'
+    ## calling spark.println with "{calling d.is_digit}"   # true
+    ## calling spark.println with "{calling a.is_digit}"   # false
+    ## ```
+    weave is_digit into bool:
+        return self >= '0' and self <= '9'
+
+    ## Devuelve `true` si `self` es una letra ASCII (`'a'..'z'` o `'A'..'Z'`).
+    weave is_alpha into bool:
+        return (self >= 'a' and self <= 'z') or (self >= 'A' and self <= 'Z')
+
+    ## Devuelve `true` si `self` es una letra o un dígito ASCII.
+    weave is_alnum into bool:
+        return (calling self.is_alpha) or (calling self.is_digit)
+
+    ## Devuelve `true` si `self` es una letra mayúscula ASCII (`'A'..'Z'`).
+    weave is_upper into bool:
+        return self >= 'A' and self <= 'Z'
+
+    ## Devuelve `true` si `self` es una letra minúscula ASCII (`'a'..'z'`).
+    weave is_lower into bool:
+        return self >= 'a' and self <= 'z'
+
+    ## Devuelve `true` si `self` es **exactamente** el carácter espacio `' '`.
+    ##
+    ## Para el conjunto completo (`'\t'`, `'\n'`, `'\r'`, `'\f'`, `'\v'`),
+    ## usa `is_whitespace`.
+    weave is_space into bool:
+        return self == ' '
+
+    ## Devuelve `true` si `self` es un espacio en blanco ASCII: `' '`, `'\t'`,
+    ## `'\n'`, `'\r'`, `'\f'` o `'\v'` (el conjunto de `isspace` en locale "C").
+    weave is_whitespace into bool:
+        return (self == ' ') or (self == '\t') or (self == '\n') or (self == '\r') or (self == '\f') or (self == '\v')
+
+    ## Devuelve `true` si `self` es un carácter de control ASCII (0x00–0x1F o
+    ## 0x7F DEL).
+    weave is_control into bool:
+        return ((ord self) < 32) or ((ord self) == 127)
+
+    ## Devuelve `true` si `self` es un carácter ASCII imprimible: del espacio
+    ## `' '` (0x20) a la tilde `'~'` (0x7E).
+    weave is_printable into bool:
+        return ((ord self) >= 32) and ((ord self) <= 126)
+
+    ## Devuelve `true` si `self` es un signo de puntuación ASCII: imprimible,
+    ## pero ni letra, ni dígito, ni espacio (el conjunto de `ispunct` en
+    ## locale "C").
+    ##
+    ## Incluye ``! " # $ % & ' ( ) * + , - . / : ; < = > ? @ [ \ ] ^ _ ` { | } ~``.
+    weave is_punctuation into bool:
+        if not (calling self.is_printable):
+            return false
+        if calling self.is_alnum:
+            return false
+        if calling self.is_space:
+            return false
+        return true
+
+    ## Devuelve `true` si `self` es un dígito hexadecimal ASCII (`'0'..'9'`,
+    ## `'a'..'f'` o `'A'..'F'`).
+    weave is_hex_digit into bool:
+        if calling self.is_digit:
+            return true
+        return (self >= 'a' and self <= 'f') or (self >= 'A' and self <= 'F')
+
+    ## Devuelve `true` si `self` está en el rango ASCII (0x00–0x7F).
+    ##
+    ## Un valor `char` puede venir de un `byte` o de un buffer de C y contener
+    ## 0x80–0xFF; este predicado lo detecta.
+    weave is_ascii into bool:
+        return (ord self) < 128
+
+    # ─── Conversiones ────────────────────────────────────────────────────
+
+    ## Devuelve la versión mayúscula de `self` si es una letra minúscula ASCII;
+    ## en cualquier otro caso, `self` sin cambios.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as char is 'a'
+    ## var upper as char is calling a.to_upper     # 'A'
+    ## ```
+    weave to_upper into char:
+        if calling self.is_lower:
+            return ((ord self) - 32) to char
+        return self
+
+    ## Devuelve la versión minúscula de `self` si es una letra mayúscula ASCII;
+    ## en cualquier otro caso, `self` sin cambios.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as char is 'A'
+    ## var lower as char is calling a.to_lower     # 'a'
+    ## ```
+    weave to_lower into char:
+        if calling self.is_upper:
+            return ((ord self) + 32) to char
+        return self
+
+    ## Devuelve el valor del byte de `self` como `int` sin signo (0–255).
+    ##
+    ## Equivale a `ord self`, pero es encadenable. Es **portable**: no usa
+    ## `(self to int)`, que daría un valor negativo para 0x80–0xFF en las
+    ## plataformas donde `char` es `signed`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var c as char is 'A'
+    ## calling spark.println with "{calling c.to_int}"   # 65
+    ## ```
+    weave to_int into int:
+        return ord self
+
+    ## Devuelve el valor numérico de `self` cuando es un dígito decimal o
+    ## hexadecimal: `0..9` para `'0'..'9'`, `10..15` para `'a'..'f'` y
+    ## `'A'..'F'`. Devuelve `-1` si `self` no es un dígito reconocido.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as char is 'a'
+    ## var z as char is 'z'
+    ## calling spark.println with "{calling a.digit_value}"   # 10
+    ## calling spark.println with "{calling z.digit_value}"   # -1
+    ## ```
+    ##
+    ## ## Uso típico
+    ## Base para parsear un número desde un texto:
+    ## ```pengu
+    ## var acc as int is 0
+    ## var ch as char is '7'
+    ## var d as int is calling ch.digit_value
+    ## if d >= 0:
+    ##     set acc is acc * 10 + d
+    ## ```
+    weave digit_value into int:
+        if calling self.is_digit:
+            return (ord self) - 48
+        if self >= 'a' and self <= 'f':
+            return (ord self) - 87
+        if self >= 'A' and self <= 'F':
+            return (ord self) - 55
+        return 0 - 1
+
+# ----------------------------------------------------------------------------
+# Tests
+# ----------------------------------------------------------------------------
+
+## Helper de test: falla salvo que `got` sea `true`.
+weave _t_true with got as bool into void:
+    calling ward.assert_true with got
+
+## Helper de test: falla salvo que `got` sea `false`.
+weave _t_false with got as bool into void:
+    calling ward.assert_false with got
+
+## Helper de test: igualdad exacta de `int`.
+weave _t_int with got as int, want as int into void:
+    calling ward.assert_eq_int with got, want
+
+## Helper de test: igualdad de `char` comparada por su byte.
+weave _t_char with got as char, want as char into void:
+    calling ward.assert_eq_int with (ord got), (ord want)
+
+test "is_digit accepts the decimal range and its edges":
+    var zero as char is '0'
+    var five as char is '5'
+    var nine as char is '9'
+    var below as char is '/'
+    var above as char is ':'
+    var a as char is 'a'
+    calling _t_true with (calling zero.is_digit)
+    calling _t_true with (calling five.is_digit)
+    calling _t_true with (calling nine.is_digit)
+    calling _t_false with (calling below.is_digit)
+    calling _t_false with (calling above.is_digit)
+    calling _t_false with (calling a.is_digit)
+
+test "is_alpha covers both cases and their edges":
+    var a as char is 'a'
+    var z as char is 'z'
+    var big_a as char is 'A'
+    var big_z as char is 'Z'
+    var m as char is 'm'
+    var below as char is '`'
+    var above as char is '{'
+    var five as char is '5'
+    calling _t_true with (calling a.is_alpha)
+    calling _t_true with (calling z.is_alpha)
+    calling _t_true with (calling big_a.is_alpha)
+    calling _t_true with (calling big_z.is_alpha)
+    calling _t_true with (calling m.is_alpha)
+    calling _t_false with (calling below.is_alpha)
+    calling _t_false with (calling above.is_alpha)
+    calling _t_false with (calling five.is_alpha)
+
+test "is_alnum unions letters and digits":
+    var a as char is 'a'
+    var five as char is '5'
+    var big as char is 'A'
+    var sp as char is ' '
+    var bang as char is '!'
+    calling _t_true with (calling a.is_alnum)
+    calling _t_true with (calling five.is_alnum)
+    calling _t_true with (calling big.is_alnum)
+    calling _t_false with (calling sp.is_alnum)
+    calling _t_false with (calling bang.is_alnum)
+
+test "is_upper covers the uppercase range and its edges":
+    var a as char is 'A'
+    var z as char is 'Z'
+    var m as char is 'M'
+    var low as char is 'a'
+    var at as char is '@'
+    var bracket as char is '['
+    calling _t_true with (calling a.is_upper)
+    calling _t_true with (calling z.is_upper)
+    calling _t_true with (calling m.is_upper)
+    calling _t_false with (calling low.is_upper)
+    calling _t_false with (calling at.is_upper)
+    calling _t_false with (calling bracket.is_upper)
+
+test "is_lower covers the lowercase range and its edges":
+    var a as char is 'a'
+    var z as char is 'z'
+    var m as char is 'm'
+    var big as char is 'A'
+    var backtick as char is '`'
+    var brace as char is '{'
+    calling _t_true with (calling a.is_lower)
+    calling _t_true with (calling z.is_lower)
+    calling _t_true with (calling m.is_lower)
+    calling _t_false with (calling big.is_lower)
+    calling _t_false with (calling backtick.is_lower)
+    calling _t_false with (calling brace.is_lower)
+
+test "is_space is only the space character":
+    var sp as char is ' '
+    var tab as char is '\t'
+    var nl as char is '\n'
+    var a as char is 'a'
+    calling _t_true with (calling sp.is_space)
+    calling _t_false with (calling tab.is_space)
+    calling _t_false with (calling nl.is_space)
+    calling _t_false with (calling a.is_space)
+
+test "is_whitespace covers the six C isspace characters":
+    var sp as char is ' '
+    var tab as char is '\t'
+    var nl as char is '\n'
+    var cr as char is '\r'
+    var ff as char is '\f'
+    var vt as char is '\v'
+    var a as char is 'a'
+    var zero as char is '0'
+    calling _t_true with (calling sp.is_whitespace)
+    calling _t_true with (calling tab.is_whitespace)
+    calling _t_true with (calling nl.is_whitespace)
+    calling _t_true with (calling cr.is_whitespace)
+    calling _t_true with (calling ff.is_whitespace)
+    calling _t_true with (calling vt.is_whitespace)
+    calling _t_false with (calling a.is_whitespace)
+    calling _t_false with (calling zero.is_whitespace)
+
+test "is_control detects the control ranges":
+    var nul as char is '\0'
+    var nl as char is '\n'
+    var esc as char is '\x1B'
+    var del as char is '\x7F'
+    var sp as char is ' '
+    var a as char is 'a'
+    var tilde as char is '~'
+    calling _t_true with (calling nul.is_control)
+    calling _t_true with (calling nl.is_control)
+    calling _t_true with (calling esc.is_control)
+    calling _t_true with (calling del.is_control)
+    calling _t_false with (calling sp.is_control)
+    calling _t_false with (calling a.is_control)
+    calling _t_false with (calling tilde.is_control)
+
+test "is_printable spans space to tilde":
+    var sp as char is ' '
+    var tilde as char is '~'
+    var a as char is 'a'
+    var nl as char is '\n'
+    var del as char is '\x7F'
+    calling _t_true with (calling sp.is_printable)
+    calling _t_true with (calling tilde.is_printable)
+    calling _t_true with (calling a.is_printable)
+    calling _t_false with (calling nl.is_printable)
+    calling _t_false with (calling del.is_printable)
+
+test "is_punctuation excludes alphanumerics and space":
+    var bang as char is '!'
+    var dot as char is '.'
+    var at as char is '@'
+    var tilde as char is '~'
+    var a as char is 'a'
+    var five as char is '5'
+    var sp as char is ' '
+    var del as char is '\x7F'
+    calling _t_true with (calling bang.is_punctuation)
+    calling _t_true with (calling dot.is_punctuation)
+    calling _t_true with (calling at.is_punctuation)
+    calling _t_true with (calling tilde.is_punctuation)
+    calling _t_false with (calling a.is_punctuation)
+    calling _t_false with (calling five.is_punctuation)
+    calling _t_false with (calling sp.is_punctuation)
+    calling _t_false with (calling del.is_punctuation)
+
+test "is_hex_digit covers digits and both letter cases":
+    var zero as char is '0'
+    var nine as char is '9'
+    var a as char is 'a'
+    var f as char is 'f'
+    var big_a as char is 'A'
+    var big_f as char is 'F'
+    var g as char is 'g'
+    var big_g as char is 'G'
+    var below as char is '/'
+    var above as char is ':'
+    calling _t_true with (calling zero.is_hex_digit)
+    calling _t_true with (calling nine.is_hex_digit)
+    calling _t_true with (calling a.is_hex_digit)
+    calling _t_true with (calling f.is_hex_digit)
+    calling _t_true with (calling big_a.is_hex_digit)
+    calling _t_true with (calling big_f.is_hex_digit)
+    calling _t_false with (calling g.is_hex_digit)
+    calling _t_false with (calling big_g.is_hex_digit)
+    calling _t_false with (calling below.is_hex_digit)
+    calling _t_false with (calling above.is_hex_digit)
+
+test "is_ascii is true for the 7-bit range":
+    var a as char is 'a'
+    var nul as char is '\0'
+    var del as char is '\x7F'
+    var tilde as char is '~'
+    calling _t_true with (calling a.is_ascii)
+    calling _t_true with (calling nul.is_ascii)
+    calling _t_true with (calling del.is_ascii)
+    calling _t_true with (calling tilde.is_ascii)
+
+test "is_ascii is false for a high byte cast from byte":
+    var b as byte is 200
+    var high as char is (b to char)
+    calling _t_false with (calling high.is_ascii)
+    calling _t_false with (calling high.is_printable)
+    calling _t_false with (calling high.is_alpha)
+
+test "to_upper shifts lowercase letters":
+    var a as char is 'a'
+    var z as char is 'z'
+    var m as char is 'm'
+    var ua as char is calling a.to_upper
+    var uz as char is calling z.to_upper
+    var um as char is calling m.to_upper
+    calling _t_char with ua, 'A'
+    calling _t_char with uz, 'Z'
+    calling _t_char with um, 'M'
+
+test "to_upper leaves non-lowercase characters alone":
+    var big as char is 'A'
+    var five as char is '5'
+    var sp as char is ' '
+    var bang as char is '!'
+    calling _t_char with (calling big.to_upper), 'A'
+    calling _t_char with (calling five.to_upper), '5'
+    calling _t_char with (calling sp.to_upper), ' '
+    calling _t_char with (calling bang.to_upper), '!'
+
+test "to_lower shifts uppercase letters":
+    var big_a as char is 'A'
+    var big_z as char is 'Z'
+    var big_m as char is 'M'
+    calling _t_char with (calling big_a.to_lower), 'a'
+    calling _t_char with (calling big_z.to_lower), 'z'
+    calling _t_char with (calling big_m.to_lower), 'm'
+
+test "to_lower leaves non-uppercase characters alone":
+    var a as char is 'a'
+    var five as char is '5'
+    var sp as char is ' '
+    calling _t_char with (calling a.to_lower), 'a'
+    calling _t_char with (calling five.to_lower), '5'
+    calling _t_char with (calling sp.to_lower), ' '
+
+test "to_upper and to_lower round-trip":
+    var a as char is 'q'
+    var up as char is calling a.to_upper
+    var down as char is calling up.to_lower
+    calling _t_char with down, 'q'
+
+test "to_int returns the ASCII code":
+    var zero as char is '0'
+    var big_a as char is 'A'
+    var a as char is 'a'
+    var sp as char is ' '
+    calling _t_int with (calling zero.to_int), 48
+    calling _t_int with (calling big_a.to_int), 65
+    calling _t_int with (calling a.to_int), 97
+    calling _t_int with (calling sp.to_int), 32
+
+test "to_int is the unsigned byte, portable for high bytes":
+    var b as byte is 200
+    var high as char is (b to char)
+    calling _t_int with (calling high.to_int), 200
+
+test "to_int agrees with ord":
+    var a as char is 'Z'
+    calling _t_int with (calling a.to_int), (ord a)
+
+test "digit_value on the decimal digits":
+    var zero as char is '0'
+    var five as char is '5'
+    var nine as char is '9'
+    calling _t_int with (calling zero.digit_value), 0
+    calling _t_int with (calling five.digit_value), 5
+    calling _t_int with (calling nine.digit_value), 9
+
+test "digit_value on the hexadecimal letters":
+    var a as char is 'a'
+    var f as char is 'f'
+    var big_a as char is 'A'
+    var big_f as char is 'F'
+    calling _t_int with (calling a.digit_value), 10
+    calling _t_int with (calling f.digit_value), 15
+    calling _t_int with (calling big_a.digit_value), 10
+    calling _t_int with (calling big_f.digit_value), 15
+
+test "digit_value is -1 for anything else":
+    var g as char is 'g'
+    var big_g as char is 'G'
+    var z as char is 'z'
+    var sp as char is ' '
+    var bang as char is '!'
+    calling _t_int with (calling g.digit_value), -1
+    calling _t_int with (calling big_g.digit_value), -1
+    calling _t_int with (calling z.digit_value), -1
+    calling _t_int with (calling sp.digit_value), -1
+    calling _t_int with (calling bang.digit_value), -1
+
+test "digit_value spans 0..9 and 10..15 contiguously":
+    var zero as char is '0'
+    var nine as char is '9'
+    var a as char is 'a'
+    var f as char is 'f'
+    calling _t_int with ((calling nine.digit_value) - (calling zero.digit_value)), 9
+    calling _t_int with ((calling f.digit_value) - (calling a.digit_value)), 5
+
+test "the classification predicates are mutually consistent on a sample":
+    var five as char is '5'
+    var a as char is 'a'
+    var sp as char is ' '
+    var bang as char is '!'
+    calling _t_true with ((calling five.is_digit) and (calling five.is_alnum))
+    calling _t_true with ((calling a.is_alpha) and (calling a.is_alnum))
+    calling _t_true with ((calling sp.is_space) and (calling sp.is_whitespace))
+    calling _t_true with ((calling bang.is_punctuation) and (calling bang.is_printable))

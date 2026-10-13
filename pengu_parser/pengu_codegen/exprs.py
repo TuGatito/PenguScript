@@ -727,6 +727,12 @@ class ExprMixin:
         # 3c. 'ord expr': byte code of a single-character string.
         elif rule == "ord_expr":
             arg_node = node.children[0]
+            # A `char` operand is already a byte: read it directly, as an
+            # unsigned value (0..255), matching the string path below.  The
+            # `PenguString` lowering would emit `(c).data` on a scalar.
+            arg_t = self._infer_node_type(arg_node)
+            if isinstance(arg_t, BaseType) and arg_t.name == "char":
+                return f"((int32_t)((unsigned char)({self._translate_expr(arg_node)})))"
             arg_c = self._translate_expr(arg_node)
             if self._is_side_effect_free(arg_node):
                 return (

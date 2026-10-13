@@ -399,8 +399,14 @@ class BaseType(Type):
                 return True
             if other.name == "string":
                 return True
+            # There is deliberately no `string -> number` cast: turning text
+            # into a number is `spark.parse_int` / `spark.parse_float`, and a
+            # single character into a byte is `ord`.  The C backend has no
+            # lowering for it, so accepting the cast produced
+            # `(int32_t)(PenguString)` (invalid C) for `int`/`char` and a
+            # silent `0` for `float`.
             if self.name == "string" and other.is_numeric():
-                return True
+                return False
         return False
 
     def __eq__(self, other: Any) -> bool:

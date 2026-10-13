@@ -40,6 +40,27 @@ plain function call.
 
 ### Added
 
+- **`std.littera`**: methods on `char` via `enchanting char:`. ASCII
+  classification (`is_digit`, `is_alpha`, `is_alnum`, `is_upper`,
+  `is_lower`, `is_space`, `is_whitespace`, `is_control`, `is_printable`,
+  `is_punctuation`, `is_hex_digit`, `is_ascii`); conversions (`to_upper`,
+  `to_lower`, `to_int`, `digit_value`). Pure PenguScript — no `<ctype.h>`,
+  no locale, deterministic across Linux/macOS/Windows. `is_space` is only
+  the space character; `is_whitespace` matches C `isspace` in the "C"
+  locale. `to_int` is `ord` (the unsigned byte, 0–255), so it does not
+  depend on whether the platform's `char` is signed.
+- **Fixed**: `ord` rejected a `char` operand. `LANGUAGE.md` §4.1 documents
+  `ord` as accepting "a single character string **or char literal**", but
+  the checker required a `string` (`ord c` with `c: char` was `E0005`) and
+  the C lowering assumed a `PenguString`, so it would have emitted
+  `(c).data` on a scalar. `ord` now accepts both, reading a `char` as an
+  unsigned byte.
+- **Fixed**: `string to int` / `to char` / `to float` are rejected. The
+  checker accepted a `string -> number` cast for which the backend has no
+  lowering: it emitted `(int32_t)(PenguString)` (invalid C) for `int` and
+  `char`, and a silent `0` for `float`. Text-to-number is
+  `spark.parse_int` / `spark.parse_float`, and one character to a byte is
+  `ord`.
 - **`std.fractio`**: floating-point-only methods via `enchanting shard T
   where T: Real:` (pure predicates, approximation, utilities) plus two
   concrete blocks (`enchanting float:` and `enchanting f64:`) for the

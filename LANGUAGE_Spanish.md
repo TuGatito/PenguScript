@@ -36,7 +36,7 @@
 17. [Pruebas unitarias (`test`)](#17-unit-tests-test)
 18. [Construcción estilo bloque (expresiones `with:`)](#18-block-style-construction-with-expressions)
 19. [Biblioteca estándar](#19-standard-library)
-    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-24-modules)
+    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-25-modules)
     - 19.2 [Bindings externos (repositorios satélite)](#192-external-bindings-satellite-repositories)
     - 19.3 [Ejemplos de la biblioteca estándar central](#193-core-standard-library-examples)
     - 19.4 [Recursos embebidos del proyecto (`arca`)](#194-embedded-project-assets-arca)
@@ -271,6 +271,13 @@ PenguScript define structs de contenedor limpios y compatibles con C en `pengu_r
 | `ArrayType` | `ref to T` | ✅ Decaimiento | Un array fijo decae a puntero a su primer elemento. |
 | `FnType` | `ref to weave` | ✅ Decaimiento | Las declaraciones de función decaen sin problemas a referencias de puntero a función. |
 | `CVarArgsType` | Variádico | Especial | Solo se permite en firmas `declare ...`; los argumentos extra de la llamada se pasan tal cual sin conversión. |
+
+**`to` nunca analiza texto.** No existe el cast `string -> número`: `s to int` es
+`E0005`, porque el backend tendría que emitir un cast de C desde un objeto
+string. Usa `spark.parse_int` / `spark.parse_float` para números, y `ord s` para
+el byte de una cadena de un carácter. Los casts numéricos y de carácter no se
+ven afectados: `(c to int)`, `(n to char)`, `(b to char)` y `(c to byte)`
+funcionan.
 
 ---
 
@@ -3046,7 +3053,7 @@ Métodos integrados admitidos dentro de los bloques `with` de colecciones:
 
 ## 19. Biblioteca estándar
 
-PenguScript incluye una biblioteca estándar completa de **24 módulos de
+PenguScript incluye una biblioteca estándar completa de **25 módulos de
 PenguScript puro** (`std.<module>`) que ofrecen abstracciones idiomáticas de alto
 nivel para E/S, cadenas, concurrencia, serialización, matemáticas, pruebas y
 puentes de memoria.
@@ -3082,7 +3089,7 @@ nombres ya mantiene cada módulo autocontenido (`std.<module>.<symbol>`), así q
 desacoplar la stdlib en paquetes versionados de forma independiente queda reservado
 para 2.0.
 
-### 19.1 Módulos de PenguScript puro (24 módulos)
+### 19.1 Módulos de PenguScript puro (25 módulos)
 
 Todos los módulos puros se encuentran en el directorio `std/` y se importan como `import std.<module>`.
 
@@ -3106,6 +3113,7 @@ Todos los módulos puros se encuentran en el directorio `std/` y se importan com
 | `std.filum` | Primitivas de concurrencia multihilo: exclusión mutua (`Mutex` con `lock`, `unlock`, `try_lock`, `free`), contadores de sincronización (`WaitGroup` con `add`, `done`, `wait`, `free`), guardas de una sola vez (`Once` con `do_once`, `do_action`, `free`), variables de condición (`Cond` con `cond_wait`, `wait_mutex`, `signal`, `broadcast`, `free`), enteros thread-safe (`AtomicInt` con `load`, `store`, `add`, `sub`, `inc`, `dec`, `inc_and_get`, `dec_and_get`, `swap`, `get_and_set`, `compare_swap`, `is_zero`, `reset`, `free`), canales tipados (`ChanInt`, `ChanString`, `ChanFloat`, `ChanBool` con `new`, `with_capacity`, `send`, `recv`, `close`, `len`, `cap`, `free`) y utilidades de sistema/tiempo (`sleep`, `sleep_sec`, `num_cpu`, `goroutine_id`). |
 | `std.fractio` | Métodos exclusivos de flotantes mediante `enchanting shard T where T: Real:` más dos bloques concretos (`enchanting float:` y `enchanting f64:`) para los transcendentales de `libm`, porque C expone `sqrtf`/`sqrt` como símbolos distintos. Clasificación IEEE 754 (`is_nan`, `is_finite`, `is_infinite`, `is_positive_infinity`, `is_negative_infinity`); aproximación (`approx_eq` con tolerancia absoluta, `lerp`); utilidades (`reciprocal`, `copysign`, `degrees`, `radians`); transcendentales vía `libm`: `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `pow`, `hypot`. Monomorfizado a `f64_sqrt`, `float_is_nan`, … — cero sobrecoste en runtime. Los métodos universales viven en `std.numerus`; `Real` implica `Num`. |
 | `std.integrum` | Métodos exclusivos de enteros sobre todo primitivo con signo o sin él mediante `enchanting shard T where T: Integrum:`. Predicados (`is_even`, `is_odd`, `is_power_of_two`, `is_multiple_of`, `is_prime`); operaciones de bits (`bit_count`, `bit_length`, `leading_zeros`, `trailing_zeros`, `next_power_of_two`, `prev_power_of_two`); división euclidiana (`div_rem` → `(T, T)`, `div_floor`, `mod_floor`); teoría de números (`gcd`, `lcm`, `next_prime`, `prev_prime`, `factorial`); representaciones (`to_hex`, `to_bin`, `to_oct`, todas asignan memoria — libéralas con `banish`). Monomorfizado a `int_is_even`, `i64_gcd`, … — cero sobrecoste en runtime. Los métodos universales (`abs`, `clamp`, `pow_int`) viven en `std.numerus`; `Integrum` implica `Num`. |
+| `std.littera` | Métodos sobre `char` mediante `enchanting char:`. Clasificación ASCII (`is_digit`, `is_alpha`, `is_alnum`, `is_upper`, `is_lower`, `is_space`, `is_whitespace`, `is_control`, `is_printable`, `is_punctuation`, `is_hex_digit`, `is_ascii`); conversiones (`to_upper`, `to_lower`, `to_int`, `digit_value`). PenguScript puro — sin `<ctype.h>`, sin locale, determinista en Linux/macOS/Windows. `is_space` es solo `' '`; usa `is_whitespace` para el conjunto completo de `isspace`. `to_int` es `ord` (el byte sin signo, 0–255). |
 | `std.numerus` | Métodos numéricos universales sobre todo primitivo mediante `enchanting shard T where T: Num and T: Ordo and T: Par:`: `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`, predicados (`is_zero`, `is_positive`, `is_negative`, `is_non_negative`, `is_non_positive`), aritmética (`twice`, `half`, `square`, `cube`, `pow_int`), redondeo (`truncate`, `floor`, `ceil`, `round`), conversiones (`to_f64`, `to_i64`). Monomorfizado a `int_abs`, `f64_clamp`, … — cero sobrecoste en runtime. Los métodos exclusivos de enteros viven en `std.integrum`; los exclusivos de flotantes, en `std.fractio`. |
 | `std.loom` | Generación de secuencias, transformaciones funcionales y algoritmos genéricos: secuencias (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reducciones (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicados (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transformaciones (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), operaciones tipo conjunto ordenado (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), búsqueda (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), modificaciones estructurales (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), estadísticas (`median`, `mode`, `variance`, `stddev`, `percentile`) y algoritmos genéricos (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`). |
 | `std.invoke` | Análisis de argumentos de interfaz de línea de comandos (CLI): sintaxis POSIX y GNU (`--flag`, `--key=value`, `-k=value`), negación de flags booleanos (`--no-flag`), subcomandos (`rune Subcommand`), opciones tipadas (int, float, bool, string, multi), opciones multi repetibles (`rune MultiOption`), sugerencias de erratas por Levenshtein, cadenas de ayuda y uso formateadas (`usage_string`, `full_help`), informes de error y variantes robustas de análisis (`parse`, `parse_no_exit`, `parse_or_exit`, `parse_or_usage`, accesores de `ParseResult` `get`, `get_or`, `get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`, `get_all`, `to_map_values`, `to_map_flags`). |

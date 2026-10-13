@@ -265,3 +265,24 @@ weave main into int:
     return 0
 """)
     assert "true\ntrue" in out, out
+
+
+def test_ord_on_char_runs(compile_and_run):
+    """`ord c` (char) returns the unsigned byte code, portable across ABIs."""
+    out = compile_and_run("""
+import std.spark
+
+weave main into int:
+    var a as char is 'a'
+    var z as char is '0'
+    calling spark.println with "{ord a} {ord z} {ord 'A'} {ord "5"}"
+    var b as byte is 200
+    var high as char is (b to char)
+    calling spark.println with "{ord high}"
+    return 0
+""")
+    assert "97 48 65 53" in out, out
+    # `char` is signed on x86 Linux and unsigned on ARM: `ord` reads the
+    # unsigned byte either way, so a 0x80..0xFF value is 128..255, never
+    # negative.
+    assert "200" in out, out

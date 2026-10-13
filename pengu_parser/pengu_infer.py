@@ -2534,16 +2534,19 @@ class TypeInferrer:
             )
 
         elif rule == "ord_expr":
-            # 'ord s' returns the byte code of the first (and only) character.
+            # 'ord s' returns the byte code of the character.  LANGUAGE.md §4.1
+            # documents both a one-character *string* and a char literal /
+            # operand; a `char` is already a byte, so it needs no length check.
             arg = node.children[0]
             arg_t = self.infer(arg)
-            if not arg_t.is_string() and not isinstance(arg_t, AnyType):
+            is_char_arg = isinstance(arg_t, BaseType) and arg_t.name == "char"
+            if not arg_t.is_string() and not is_char_arg and not isinstance(arg_t, AnyType):
                 raise self._make_error(
                     TypeMismatchError,
-                    f"'ord' expects a string of length 1, got '{arg_t}'",
+                    f"'ord' expects a char or a string of length 1, got '{arg_t}'",
                     node,
                     code="E0005",
-                    help="Pass a single-character string to 'ord'.",
+                    help="Pass a char, or a single-character string, to 'ord'.",
                     note="'ord' reads the byte code of a single character."
                 )
             if isinstance(arg, Tree) and arg.data == "string_lit":
