@@ -1815,6 +1815,7 @@ ones marked *derivable* may also appear in a `derive` clause.
 |---|---|---|
 | `Num` | *numerus* | `+`, `-`, `*`, `/` and unary `-` on a type parameter |
 | `Integrum` | *integer* | integer-only operators: `%`, `&`, `|`, `^`, `<<`, `>>`, `~` |
+| `Real` | *real* | floating-point only: `+`, `-`, `*`, `/` and unary `-` |
 | `Par` | *par* | `==`, `!=` |
 | `Ordo` | *ordo* | `<`, `<=`, `>`, `>=` |
 | `Vinculum` | *vinculum* | usable as a `map` key (hashing) |
@@ -1828,6 +1829,13 @@ ones marked *derivable* may also appear in a `derive` clause.
 `Num` (so `where T: Integrum` allows `+`), but not the other way round — this is
 what makes `%` reject `float`.
 
+`Integrum` and `Real` are **disjoint branches** of `Num`. `Integrum` is the
+integer-only refinement and `Real` the floating-point-only one, so no type
+satisfies both: `float.is_even` (against `Integrum`) and `int.is_nan` (against
+`Real`) are both `E0005`. A generic that only needs `+ - * /` should still bound
+on `Num`; reach for `Integrum`/`Real` only when the method genuinely cannot work
+for the other kind (`%` needs `Integrum`; `sqrt`/`is_nan` need `Real`).
+
 **The bound set is a monotone chain.** A bound only ever *adds* capabilities, so
 adding one can never break code that already compiled:
 
@@ -1838,7 +1846,8 @@ adding one can never break code that already compiled:
                                concept-free plumbing, e.g.
                                `weave ident shard T with x as T into T`.
 Num         + - * / and unary -
-Integrum    Num plus % & | ^ << >> ~
+├─ Integrum    Num plus % & | ^ << >> ~
+└─ Real        Num                       (floats only)
 Par         == !=
 Ordo        < <= > >=
 Any         everything (an explicit escape hatch)
@@ -1854,13 +1863,14 @@ weave clamped shard T where T: Num and T: Ordo with lo as T, hi as T, v as T int
   return v
 ```
 
-<!-- Machine-readable form of the chain above. tests/test_docs_bounds_sync.py
+<!-- Machine-readable form of the chain above. tests/compiler/test_docs_bounds_sync.py
      parses this block and fails if it disagrees with CONCEPT_OPERATORS in
      pengu_parser/pengu_types.py. One concept per line, concept-table operator
      names, comma separated. -->
 ```text bounds-ops
 Num: add, sub, mul, div, neg
-Integrum: add, sub, mul, div, neg, mod, band, bor, bxor, shl, shr, bnot
+Integrum: add, sub, mul, div, neg, mod, band, bor, bxor, shl, shr, bnot, eq, ne
+Real: add, sub, mul, div, neg, eq, ne
 Par: eq, ne
 Ordo: lt, le, gt, ge
 ```
@@ -1871,7 +1881,7 @@ compiler's concept table:
 | Type | Concepts |
 |---|---|
 | integer primitives (`int`, `i8`…`u64`, `usize`, `isize`, `byte`, …) | `Num`, `Integrum`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
-| floats (`float`, `f32`, `f64`, `double`) | `Num`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
+| floats (`float`, `f32`, `f64`, `double`) | `Num`, `Real`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
 | `bool` | `Par`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
 | `char` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma` |
 | `string` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum`, `Iterabilis` |
@@ -2007,6 +2017,7 @@ Operators are only available when the corresponding concept is in the bounds:
 |---|---|
 | `Num` | `+`, `-`, `*`, `/`, unary `-` |
 | `Integrum` | `%`, `&`, `\|`, `^`, `<<`, `>>`, `~`, `==`, `!=` (and everything `Num` allows) |
+| `Real` | `+`, `-`, `*`, `/`, unary `-`, `==`, `!=` (and everything `Num` allows) |
 | `Par` | `==`, `!=` |
 | `Ordo` | `<`, `<=`, `>`, `>=` |
 
@@ -2015,6 +2026,15 @@ satisfies `Integrum` in this language is an integer primitive, and every integer
 primitive satisfies `Par`. That is what lets the canonical primitive-enchanting
 idiom `enchanting shard T where T: Integrum:` write
 `(self % (2 to T)) == donum T` without restating `and T: Par` (§10.1).
+
+`Real` is the floating-point-only refinement: every type that satisfies `Real`
+satisfies `Num`, and the only primitives that satisfy it are `float`, `f32`,
+`f64` and `double`. It grants arithmetic and equality for the same reason
+`Integrum` does — every type satisfying `Real` is a floating-point primitive,
+and every floating-point primitive satisfies `Par` — so
+`enchanting shard T where T: Real:` can write `self != self` (`is_nan`) and
+`self + self` without restating `and T: Par`. The two refinements are disjoint:
+`Integrum` never satisfies `Real` and vice versa.
 
 The same table bounds `enchanting shard T:` method bodies: a method declared on a
 bounded shard is only instantiated for receivers that satisfy the bound, and the
@@ -2045,8 +2065,8 @@ weave sum shard T where T: Num with xs as list of T into T:
     return acc
 ```
 
-`donum T` needs a bound whose types are defaultable (`Num`, `Integrum`, `Par`,
-`Ordo`, `Forma`, `Donum`), or a concrete type that implements `Donum`:
+`donum T` needs a bound whose types are defaultable (`Num`, `Integrum`, `Real`,
+`Par`, `Ordo`, `Forma`, `Donum`), or a concrete type that implements `Donum`:
 
 ```pengu-fragment
 var n as int is donum int                 # 0

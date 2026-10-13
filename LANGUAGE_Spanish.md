@@ -1732,6 +1732,7 @@ PenguScript incluye un conjunto cerrado de conceptos que el compilador, el chequ
 |---|---|---|
 | `Num` | *numerus* | `+`, `-`, `*`, `/` y `-` unario sobre un parámetro de tipo |
 | `Integrum` | *integer* | operadores solo para enteros: `%`, `&`, `|`, `^`, `<<`, `>>`, `~` |
+| `Real` | *real* | solo tipos en coma flotante: `+`, `-`, `*`, `/` y el menos unario |
 | `Par` | *par* | `==`, `!=` |
 | `Ordo` | *ordo* | `<`, `<=`, `>`, `>=` |
 | `Vinculum` | *vinculum* | usable como clave de `map` (hashing) |
@@ -1743,6 +1744,8 @@ PenguScript incluye un conjunto cerrado de conceptos que el compilador, el chequ
 
 `Integrum` es un refinamiento estricto de `Num`: un bound `Integrum` también satisface `Num` (así que `where T: Integrum` permite `+`), pero no al revés — esto es lo que hace que `%` rechace `float`.
 
+`Integrum` y `Real` son **ramas disjuntas** de `Num`. `Integrum` es el refinamiento solo para enteros y `Real` el solo para flotantes, así que ningún tipo satisface ambos: `float.is_even` (contra `Integrum`) e `int.is_nan` (contra `Real`) son ambos `E0005`. Un genérico que solo necesita `+ - * /` debería seguir usando `Num`; recurre a `Integrum`/`Real` solo cuando el método genuinamente no puede funcionar para el otro tipo (`%` necesita `Integrum`; `sqrt`/`is_nan` necesitan `Real`).
+
 **El conjunto de bounds es una cadena monótona.** Un bound solo *añade* capacidades, así que añadir uno nunca puede romper código que ya compilaba:
 
 ```
@@ -1752,7 +1755,8 @@ PenguScript incluye un conjunto cerrado de conceptos que el compilador, el chequ
                                  para cualquier plomería sin conceptos, p. ej.
                                  `weave ident shard T with x as T into T`.
 Num          + - * / y el menos unario
-Integrum     Num más % & | ^ << >> ~
+├─ Integrum     Num más % & | ^ << >> ~
+└─ Real         Num                    (solo flotantes)
 Par          == !=
 Ordo         < <= > >=
 Any          todo (válvula de escape explícita)
@@ -1767,13 +1771,14 @@ weave clamped shard T where T: Num and T: Ordo with lo as T, hi as T, v as T int
   return v
 ```
 
-<!-- Forma legible por máquina de la cadena anterior. tests/test_docs_bounds_sync.py
+<!-- Forma legible por máquina de la cadena anterior. tests/compiler/test_docs_bounds_sync.py
      parsea este bloque y falla si discrepa de CONCEPT_OPERATORS en
      pengu_parser/pengu_types.py. Un concepto por línea, nombres de operador de
      la tabla de conceptos, separados por comas. -->
 ```text bounds-ops
 Num: add, sub, mul, div, neg
-Integrum: add, sub, mul, div, neg, mod, band, bor, bxor, shl, shr, bnot
+Integrum: add, sub, mul, div, neg, mod, band, bor, bxor, shl, shr, bnot, eq, ne
+Real: add, sub, mul, div, neg, eq, ne
 Par: eq, ne
 Ordo: lt, le, gt, ge
 ```
@@ -1783,7 +1788,7 @@ Qué tipos primitivos y de contenedor satisfacen cada concepto lo fija la tabla 
 | Tipo | Conceptos |
 |---|---|
 | primitivos enteros (`int`, `i8`…`u64`, `usize`, `isize`, `byte`, …) | `Num`, `Integrum`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
-| flotantes (`float`, `f32`, `f64`, `double`) | `Num`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
+| flotantes (`float`, `f32`, `f64`, `double`) | `Num`, `Real`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
 | `bool` | `Par`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
 | `char` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma` |
 | `string` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum`, `Iterabilis` |
@@ -1922,6 +1927,7 @@ cotas:
 |---|---|
 | `Num` | `+`, `-`, `*`, `/`, `-` unario |
 | `Integrum` | `%`, `&`, `\|`, `^`, `<<`, `>>`, `~`, `==`, `!=` (y todo lo que permite `Num`) |
+| `Real` | `+`, `-`, `*`, `/`, `-` unario, `==`, `!=` (y todo lo que permite `Num`) |
 | `Par` | `==`, `!=` |
 | `Ordo` | `<`, `<=`, `>`, `>=` |
 
@@ -1943,6 +1949,15 @@ idioma canónico del encantamiento de primitivos
 `enchanting shard T where T: Integrum:` escriba
 `(self % (2 to T)) == donum T` sin repetir `and T: Par` (§10.1).
 
+`Real` es el refinamiento solo para flotantes: todo tipo que satisface `Real`
+satisface `Num`, y los únicos primitivos que lo satisfacen son `float`, `f32`,
+`f64` y `double`. Concede aritmética e igualdad por la misma razón que
+`Integrum` — todo tipo que satisface `Real` es un primitivo flotante, y todo
+primitivo flotante satisface `Par` — así que
+`enchanting shard T where T: Real:` puede escribir `self != self` (`is_nan`) y
+`self + self` sin repetir `and T: Par`. Los dos refinamientos son disjuntos:
+`Integrum` nunca satisface `Real` y viceversa.
+
 La misma tabla acota los cuerpos de método de `enchanting shard T:`: un método
 declarado sobre un shard con cotas sólo se instancia para receptores que
 satisfacen la cota, y la violación se informa donde se instancia el cuerpo
@@ -1963,7 +1978,7 @@ weave sum shard T where T: Num with xs as list of T into T:
 ```
 
 `donum T` necesita una cota cuyos tipos admitan valor por defecto (`Num`, `Integrum`,
-`Par`, `Ordo`, `Forma`, `Donum`), o bien un tipo concreto que implemente `Donum`:
+`Real`, `Par`, `Ordo`, `Forma`, `Donum`), o bien un tipo concreto que implemente `Donum`:
 
 ```pengu-fragment
 var n as int is donum int                 # 0

@@ -746,9 +746,10 @@ weave first_or shard T where T: Par with xs as list of T, fallback as T into T:
 |---|---|
 | `a + b`, `a - b`, `a * b`, `a / b` | `T: Num` |
 | `a % b`, `a & b`, `a << b`, `~a` | `T: Integrum` |
+| `sqrt`, `is_nan`, `floor`, `ceil` (float-only operations) | `T: Real` |
 | `a == b`, `a != b` | `T: Par` |
 | `a < b`, `a <= b`, `a > b`, `a >= b` | `T: Ordo` |
-| `donum T` | `T: Num`, `Integrum`, `Par`, `Ordo`, `Forma` or `Donum` |
+| `donum T` | `T: Num`, `Integrum`, `Real`, `Par`, `Ordo`, `Forma` or `Donum` |
 | `map of T to U` (T as key) | `T: Vinculum` |
 | Deep-copying a `T` with an explicit clone | `T: Imago` (which implies `Nexus`) |
 | Iterating `for x in xs` with `xs as list of T` | None (the list already yields the element) |
@@ -1315,7 +1316,7 @@ concept Num:
     weave add with other as int into int
 ```
 
-`Num`, `Integrum`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Iterabilis`, `Donum` are **compiler globals** and are not redefined.
+`Num`, `Integrum`, `Real`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Iterabilis`, `Donum` are **compiler globals** and are not redefined.
 
 ### 14.10 Duplicating code per type
 

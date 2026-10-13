@@ -1094,7 +1094,7 @@ class TypeInferrer:
             if isinstance(candidate_t, AnyType):
                 return AnyType()
             if isinstance(candidate_t, TypeParam):
-                _DEFAULTABLE = {"Num", "Integrum", "Par", "Ordo", "Forma", "Donum"}
+                _DEFAULTABLE = {"Num", "Integrum", "Real", "Par", "Ordo", "Forma", "Donum"}
                 if candidate_t.bounds and not (set(candidate_t.bounds) & _DEFAULTABLE):
                     raise self._make_error(
                         SemanticError,

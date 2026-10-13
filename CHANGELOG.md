@@ -40,6 +40,12 @@ plain function call.
 
 ### Added
 
+- **`Real` concept**: a floating-point-only refinement of `Num`, satisfied by
+  `float`, `f32`, `f64` and `double`. Enables `enchanting shard T where T: Real:`
+  so modules like the upcoming `std.fractio` can declare methods (`sqrt`,
+  `is_nan`, `approx_eq`) that genuinely cannot work on integers, without
+  duplicating the method per float width. `Integrum` and `Real` are disjoint
+  branches of `Num`: no type satisfies both.
 - **Primitive enchanting**: `enchanting int:` / `char` / `bool` / … and
   `enchanting shard T where T: Integrum:` (bounded or unbounded). Emitted C
   follows the documented `<tname>_<method>` convention (`int_clamp`,

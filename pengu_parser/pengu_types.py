@@ -234,13 +234,16 @@ class TypeParam(Type):
         return any(concept_grants(b, operator) for b in self.bounds)
 
     def is_numeric(self) -> bool:
-        # 'Integrum' refines 'Num': integers are numeric.
-        return "Num" in self.bounds or "Integrum" in self.bounds
+        # Both refinements of 'Num' are numeric: 'Integrum' (integers) and
+        # 'Real' (floats).
+        return "Num" in self.bounds or "Integrum" in self.bounds or "Real" in self.bounds
 
     def is_int(self) -> bool:
         return "Integrum" in self.bounds
 
     def is_float(self) -> bool:
+        if "Real" in self.bounds:
+            return True
         return "Num" in self.bounds and "Integrum" not in self.bounds
 
     def is_string(self) -> bool:
@@ -1654,6 +1657,7 @@ class AliasType(Type):
 BUILTIN_CONCEPTS: Dict[str, ConceptType] = {
     "Num": ConceptType(name="Num", methods={}),
     "Integrum": ConceptType(name="Integrum", methods={}),
+    "Real": ConceptType(name="Real", methods={}),
     "Par": ConceptType(name="Par", methods={}),
     "Ordo": ConceptType(name="Ordo", methods={}),
     "Vinculum": ConceptType(name="Vinculum", methods={}),
@@ -1701,6 +1705,17 @@ CONCEPT_OPERATORS: Dict[str, FrozenSet[str]] = {
         "mod", "band", "bor", "bxor", "shl", "shr", "bnot",
         "eq", "ne",
     }),
+    # `Real` refines `Num` too, but from the opposite side: a floating-point
+    # bound grants the same arithmetic and nothing integer-only.  It also grants
+    # equality for exactly the same reason `Integrum` does: every type that
+    # satisfies `Real` in this language is a floating-point primitive (see
+    # `_FLOAT_CONCEPTS`), and every floating-point primitive satisfies `Par`.
+    # Without it the flagship `is_nan` idiom -- `self != self` -- would be
+    # rejected with E0049 and force a redundant `and T: Par`.
+    "Real": frozenset({
+        "add", "sub", "mul", "div", "neg",
+        "eq", "ne",
+    }),
     # Equality only.
     "Par": frozenset({"eq", "ne"}),
     # Ordering only.
@@ -1709,8 +1724,11 @@ CONCEPT_OPERATORS: Dict[str, FrozenSet[str]] = {
 
 #: Concepts that refine another: the refining concept also grants everything the
 #: refined one does.  Kept explicit so the chain is readable and testable.
+#: ``Integrum`` and ``Real`` are the two *disjoint* branches of ``Num``: no type
+#: satisfies both (integers carry ``Integrum``, floats carry ``Real``).
 CONCEPT_REFINES: Dict[str, str] = {
     "Integrum": "Num",
+    "Real": "Num",
 }
 
 
@@ -1749,13 +1767,35 @@ def _validate_concept_tables() -> None:
 
 _validate_concept_tables()
 
-# Concept sets shared by the primitive tables below.  ``Integrum`` is a strict
-# refinement of ``Num``: integer types satisfy both, floating-point types only
-# satisfy ``Num``.  That is what makes ``%``/bitwise operators reject ``float``.
+
+def concept_implies(concept: str, required: str) -> bool:
+    """True when a bound on `concept` also satisfies the `required` bound.
+
+    Follows :data:`CONCEPT_REFINES` transitively, so ``Real`` implies ``Num``
+    (and ``Integrum`` implies ``Num``): a ``shard T where T: Real`` can call a
+    method declared for ``shard T where T: Num``.  The chain is directional --
+    ``Num`` does **not** imply ``Real`` or ``Integrum`` -- which is what keeps
+    the two branches disjoint.
+    """
+    seen: Set[str] = set()
+    current: Optional[str] = concept
+    while current is not None and current not in seen:
+        if current == required:
+            return True
+        seen.add(current)
+        current = CONCEPT_REFINES.get(current)
+    return False
+
+
+# Concept sets shared by the primitive tables below.  ``Integrum`` and ``Real``
+# are the two *disjoint* refinements of ``Num``: integer types satisfy the first,
+# floating-point types the second, and no type satisfies both.  That is what
+# makes ``%``/bitwise operators reject ``float`` while ``sqrt``/``is_nan``
+# reject every integer.
 # Every primitive is trivially droppable, so they all carry ``Nexus`` (a no-op
 # destructor) which is what lets 'rune P derive Nexus' have scalar fields.
 _INT_CONCEPTS: Set[str] = {"Num", "Integrum", "Par", "Ordo", "Vinculum", "Imago", "Nexus", "Forma", "Donum"}
-_FLOAT_CONCEPTS: Set[str] = {"Num", "Par", "Ordo", "Vinculum", "Imago", "Nexus", "Forma", "Donum"}
+_FLOAT_CONCEPTS: Set[str] = {"Num", "Real", "Par", "Ordo", "Vinculum", "Imago", "Nexus", "Forma", "Donum"}
 
 _INT_NAMES = (
     "int", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
@@ -1847,6 +1887,25 @@ def canonical_primitive_name(name: Any) -> Optional[str]:
     return PRIMITIVE_ALIASES.get(name)
 
 
+def is_floating_type(t: Any) -> bool:
+    """True when ``t`` is (or aliases) a floating-point primitive.
+
+    Covers every spelling the compiler's tables know: ``float``/``f32``,
+    ``f64``/``double`` and the long forms ``float32``/``float64`` -- whether
+    given as a ``str`` or as a ``BaseType``.  This is the predicate behind the
+    ``Real`` concept, so it must agree with :data:`_FLOAT_CONCEPTS`.
+    """
+    if t is None:
+        return False
+    name = t if isinstance(t, str) else getattr(t, "name", None)
+    if not isinstance(name, str):
+        return False
+    if name in _FLOAT_NAMES:
+        return True
+    canonical = canonical_primitive_name(name)
+    return canonical in _FLOAT_NAMES
+
+
 def primitive_lookup_order(name: Any) -> Tuple[str, ...]:
     """Spelling candidates for a method lookup on a primitive, canonical first.
 
@@ -1931,7 +1990,9 @@ def type_implements_builtin_concept(t: Type, concept_name: str) -> bool:
     symbol table and are resolved by :func:`implements_concept` instead.
     """
     if isinstance(t, TypeParam):
-        return concept_name in t.bounds
+        # 'Real' and 'Integrum' both refine 'Num', so a parameter bounded by a
+        # refinement also satisfies the refined bound.
+        return any(concept_implies(b, concept_name) for b in t.bounds)
     if isinstance(t, AnyType):
         return True
     if isinstance(t, FrozenType):
@@ -2084,12 +2145,9 @@ def implements_concept(t: Type, concept_name: str, symbols: Any) -> bool:
     if isinstance(t, TypeParam):
         if not t.bounds:
             return True
-        if concept_name in t.bounds:
-            return True
-        # 'Integrum' refines 'Num': an integer bound satisfies numeric needs.
-        if concept_name == "Num" and "Integrum" in t.bounds:
-            return True
-        return False
+        # 'Integrum' and 'Real' refine 'Num': either bound satisfies numeric
+        # needs.  The chain is directional, so 'Num' does not satisfy 'Real'.
+        return any(concept_implies(b, concept_name) for b in t.bounds)
     if type_implements_builtin_concept(t, concept_name):
         return True
     if symbols is None:
