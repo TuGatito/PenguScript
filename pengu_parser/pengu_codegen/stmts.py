@@ -1078,9 +1078,9 @@ class StmtMixin:
                 tmp_p = self.get_temp_name("_p")
                 val_cast = CTypeMapper.to_c_decl(actual_map.value, "*")
                 val_zero = "NULL" if isinstance(actual_map.value, (FnType, RefType)) else f"({val_c}){{0}}"
-                code = (f"({{ {key_c} {tmp_k} = ({idx}); "
+                code = (f"(__extension__(({{ {key_c} {tmp_k} = ({idx}); "
                         f"void* {tmp_p} = pengu_map_get({ptr}, &{tmp_k}); "
-                        f"{tmp_p} ? (*(({val_cast}){tmp_p})) : {val_zero}; }})")
+                        f"{tmp_p} ? (*(({val_cast}){tmp_p})) : {val_zero}; }})))")
                 return code, actual_map.value
             return f"{base_str}[{idx}]", (getattr(var_t, "element", None) if var_t else None)
         return base_str, current_t

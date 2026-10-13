@@ -2430,11 +2430,27 @@ extern "C"
     map->len = 0;
   }
 
-  /** @brief Inserts or updates a string-to-int pair in the hash map. */
+  /** @brief Inserts or updates a string-to-int pair in the hash map.
+   *
+   * Same ownership rule as `pengu_map_put` (ABI v2): the map copies the
+   * `PenguString` *bytes* with `memcpy` and never takes over the buffer the
+   * string points at.  The caller keeps owning that buffer.
+   *
+   * `key_size`/`val_size` are (re)asserted here because this entry point is
+   * string-to-int by construction: a map produced by `pengu_map_new(0, 0)`
+   * would otherwise keep a zero `key_size` and every slot allocation would be
+   * a zero-byte block written with `sizeof(PenguString)` bytes.
+   */
   static inline void pengu_map_put_string_int(PenguMap *m, const PenguString *k, const int32_t *v)
   {
     if (!m || !k || !v)
       return;
+    if (m->len == 0)
+    {
+      /* Empty map: pin the layout this entry point stores. */
+      m->key_size = sizeof(PenguString);
+      m->val_size = sizeof(int32_t);
+    }
     if (m->cap == 0)
     {
       m->cap = 16;
@@ -2473,7 +2489,10 @@ extern "C"
           PenguString *ek = (PenguString *)old_entries[i].key;
           int32_t *ev = (int32_t *)old_entries[i].val;
           pengu_map_put_string_int(m, ek, ev);
-          pengu_banish_string(ek);
+          /* ABI v2: the slot owned only the `PenguString` *bytes*.  The buffer
+           * `ek->data` points at belongs to whoever called put -- freeing it
+           * here (as the pre-v2 deep-copy runtime did) leaves the caller and
+           * every other slot holding a dangling pointer. */
           free(ek);
           free(ev);
         }
@@ -2568,7 +2587,10 @@ extern "C"
             (k->len == 0 ||
              memcmp(existing->data, k->data, (size_t)k->len) == 0))
         {
-          pengu_banish_string(existing);
+          /* ABI v2: release only the slot's own key/value bytes.  The string
+           * buffer `existing->data` aliases caller-owned memory (see
+           * pengu_map_put_string_int); banishing it here freed somebody
+           * else's allocation. */
           free(m->entries[cur].key);
           free(m->entries[cur].val);
           m->entries[cur].key = NULL;

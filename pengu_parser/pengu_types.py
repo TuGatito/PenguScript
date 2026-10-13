@@ -2094,11 +2094,19 @@ def type_needs_deep_clone(t: Optional[Type], symbols: Any = None) -> bool:
 
 
 def type_has_derived_nexus(t: Optional[Type], symbols: Any = None) -> bool:
-    """True when ``t`` carries a *derived* ``Nexus`` implementation.
+    """True when ``t`` carries an *explicit* derived ``Nexus`` implementation.
 
     Only ``derive Nexus`` (or the implicit pairing with ``derive Imago``)
     generates the ``_pengu_cleanup_<C>`` helper that ``banish`` lowers to; a
     concept implemented through ``bind`` provides methods, not that helper.
+
+    A heap-owning field list does **not** imply Nexus.  The code generator only
+    emits a destructor for an explicit ``derive`` (see
+    ``derived_gen.generate_derived_implementations``), so treating
+    ``type_owns_heap`` as Nexus made ``banish`` accept a rune whose
+    ``_pengu_cleanup_<C>`` is never emitted -- the bundle then failed to compile
+    with "implicit declaration of function '_pengu_cleanup_<C>'".  Rejecting it
+    here surfaces the documented E0008 instead.
     """
     u = unwrap_aliasish(t)
     if u is None:
@@ -2117,11 +2125,7 @@ def type_has_derived_nexus(t: Optional[Type], symbols: Any = None) -> bool:
             entry = reg2.get(base_n)
         if entry is not None:
             derived |= set(getattr(entry, "derived_concepts", None) or [])
-    if "Nexus" in derived:
-        return True
-    # A rune (or algebraic omen) whose fields own heap gets an implicit Nexus, so
-    # its generated destructor exists and 'banish' can lower to it.
-    return type_owns_heap(u)
+    return "Nexus" in derived
 
 
 def receiver_deep_copies_on_store(t: Optional[Type], symbols: Any = None) -> bool:

@@ -669,8 +669,8 @@ enchanting list of shard T where T: Donum and T: Ordered:
         while i < n:
             var j as int is i + 1
             while j < n:
-                let left as T is out at j
-                let right as T is out at i
+                var left as T is out at j
+                var right as T is out at i
                 let c as int is calling left.cmp with right
                 if c < 0:
                     let tmp as T is out at i
@@ -700,8 +700,8 @@ enchanting list of shard T where T: Donum and T: Ordered:
         while i < n:
             var j as int is i + 1
             while j < n:
-                let left as T is out at j
-                let right as T is out at i
+                var left as T is out at j
+                var right as T is out at i
                 let c as int is calling left.cmp with right
                 if c > 0:
                     let tmp as T is out at i
@@ -731,8 +731,8 @@ enchanting list of shard T where T: Donum and T: Ordered:
             return true
         var i as int is 0
         while i < (n - 1):
-            let a as T is self at i
-            let b as T is self at (i + 1)
+            var a as T is self at i
+            var b as T is self at (i + 1)
             let c as int is calling a.cmp with b
             if c > 0:
                 return false
@@ -759,8 +759,8 @@ enchanting list of shard T where T: Donum and T: Ordered:
             return true
         var i as int is 0
         while i < (n - 1):
-            let a as T is self at i
-            let b as T is self at (i + 1)
+            var a as T is self at i
+            var b as T is self at (i + 1)
             let c as int is calling a.cmp with b
             if c < 0:
                 return false
@@ -838,8 +838,8 @@ enchanting list of shard T where T: Num and T: Ordered:
         while i < n:
             var j as int is i + 1
             while j < n:
-                let left as T is s at j
-                let right as T is s at i
+                var left as T is s at j
+                var right as T is s at i
                 let c as int is calling left.cmp with right
                 if c < 0:
                     let tmp as T is s at i
@@ -1934,8 +1934,8 @@ weave median shard T where T: Num and T: Ordered with l as list of T into T:
     while i < n:
         var j as int is i + 1
         while j < n:
-            let left as T is s at j
-            let right as T is s at i
+            var left as T is s at j
+            var right as T is s at i
             let c as int is calling left.cmp with right
             if c < 0:
                 let tmp as T is s at i
@@ -2023,8 +2023,8 @@ weave sort_asc shard T where T: Ordered with l as list of T into list of T:
     while i < n:
         var j as int is i + 1
         while j < n:
-            let left as T is out at j
-            let right as T is out at i
+            var left as T is out at j
+            var right as T is out at i
             let c as int is calling left.cmp with right
             if c < 0:
                 let tmp as T is out at i
@@ -2055,8 +2055,8 @@ weave sort_desc shard T where T: Ordered with l as list of T into list of T:
     while i < n:
         var j as int is i + 1
         while j < n:
-            let left as T is out at j
-            let right as T is out at i
+            var left as T is out at j
+            var right as T is out at i
             let c as int is calling left.cmp with right
             if c > 0:
                 let tmp as T is out at i
@@ -2295,8 +2295,8 @@ weave is_sorted_asc shard T where T: Ordered with l as list of T into bool:
         return true
     var i as int is 0
     while i < (n - 1):
-        let a as T is l at i
-        let b as T is l at (i + 1)
+        var a as T is l at i
+        var b as T is l at (i + 1)
         let c as int is calling a.cmp with b
         if c > 0:
             return false
@@ -2322,8 +2322,8 @@ weave is_sorted_desc shard T where T: Ordered with l as list of T into bool:
         return true
     var i as int is 0
     while i < (n - 1):
-        let a as T is l at i
-        let b as T is l at (i + 1)
+        var a as T is l at i
+        var b as T is l at (i + 1)
         let c as int is calling a.cmp with b
         if c < 0:
             return false
@@ -2693,19 +2693,18 @@ weave chunk shard T with xs as list of T, span as int into list of list of T:
     let n as int is calling xs.len
     if span <= 0:
         return for x in xs when false then x
-    var ranges as list of list of int is list of list of int
-    defer banish ranges
+    var out as list of list of T is list of list of T
     var c as int is 0
     while c < n:
-        var inner as list of int is list of int
         let stop as int is (if (c + span) < n then (c + span) else n)
+        var piece as list of T is list of T
         var i as int is c
         while i < stop:
-            calling inner.push with i
+            calling piece.push with (xs at i)
             set i is i + 1
-        calling ranges.push with inner
+        calling out.push with piece
         set c is stop
-    for r in ranges then (for i in r then (xs at i))
+    return out
 
 ## Sliding windows of width `width`.
 ##
@@ -2729,19 +2728,18 @@ weave windowed shard T with xs as list of T, width as int into list of list of T
         return for x in xs when false then x
     if width > n:
         return for x in xs when false then x
-    var ranges as list of list of int is list of list of int
-    defer banish ranges
+    var out as list of list of T is list of list of T
     var c as int is 0
     let last_start as int is (n - width)
     while c <= last_start:
-        var inner as list of int is list of int
+        var piece as list of T is list of T
         var j as int is 0
         while j < width:
-            calling inner.push with (c + j)
+            calling piece.push with (xs at (c + j))
             set j is j + 1
-        calling ranges.push with inner
+        calling out.push with piece
         set c is c + 1
-    for r in ranges then (for i in r then (xs at i))
+    return out
 
 ## Cumulative scan with `f`, seeded with the first element.
 ##
@@ -2766,7 +2764,11 @@ weave scan_left shard T where T: Num with xs as list of T, f as weave with acc a
     let n as int is calling xs.len
     if n == 0:
         return for x in xs then x
-    var out as list of T is for x in xs then (xs at 0)
+    var out as list of T is list of T
+    var seed as int is 0
+    while seed < n:
+        calling out.push with (xs at 0)
+        set seed is seed + 1
     var i as int is 0
     while i < n:
         set out at i is (calling f with (if i > 0 then (out at (i - 1)) else donum T), (xs at i))
@@ -2791,7 +2793,11 @@ weave running_sum shard T where T: Num with xs as list of T into list of T:
     let n as int is calling xs.len
     if n == 0:
         return for x in xs then x
-    var out as list of T is for x in xs then (xs at 0)
+    var out as list of T is list of T
+    var seed as int is 0
+    while seed < n:
+        calling out.push with (xs at 0)
+        set seed is seed + 1
     var i as int is 0
     while i < n:
         set out at i is ((xs at i) + (if i > 0 then (out at (i - 1)) else donum T))

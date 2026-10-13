@@ -2368,6 +2368,11 @@ El compilador no asigna ni libera nada por su cuenta. En particular:
 - **Sin copia profunda al almacenar.** `list.push` / `map.put` copian los bytes del elemento con `memcpy` y nunca clonan la carga útil; escribir una `string` en un campo de struct o en un elemento de contenedor es la misma copia. El contenedor no asume la liberación de aquello a lo que apunte la copia.
 - **Sin `Imago` / `Nexus` implícitos.** Un rune obtiene un ayudante de clonado o un destructor solo cuando declara `derive Imago` / `derive Nexus` (§11.6). Nada los deriva de los campos.
 - **Sin clonado oculto al encajonar.** `some x`, `ok x` y `err x` guardan un `memcpy` de la carga útil en un `PenguMaybe`/`PenguResult`; no duplican ningún búfer del heap al que esta referencie.
+- **Dos temporales con dueño no tienen nombre que banishar.** Ambos se derivan de la regla anterior y hay que resolverlos ligando el valor a un local:
+  - un literal interpolado pasado *directamente* a una llamada — `calling println with "{x}"` — asigna una `string` nueva (LANGUAGE.md §15.2) que ningún enlace nombra, así que se filtra. Lígalo primero: `let msg as string is "{x}"`, y luego `banish msg` al terminar. Lo mismo vale para `(x to string)`, `s.substring`, `s.char_at`, `s.trim` y cualquier otro productor de strings con dueño usado como argumento.
+  - `for ch in s` liga `ch` a una **`string` de un byte con dueño y nueva en cada iteración** (un resultado de `pengu_string_char_at`, no una vista). Si el cuerpo no la guarda ni hace `banish ch`, se filtra; `banish ch` al final del cuerpo la libera, y un `return`/`break` deja el `ch` actual pendiente de liberar antes de salir. Itere bytes sin asignar con un bucle de índice sobre `ref to byte` (`bytes of s`) cuando el carácter solo se inspecciona.
+
+  `banish` rechaza un no-lvalue (`E0008`), así que ninguno de los dos temporales puede liberarse en el sitio; ligarlo es la única forma que funciona.
 
 Los ayudantes del runtime que hacían posible el antiguo modelo automático — `PenguElemCleanup`, `PenguElemClone`, `pengu_list_new_owned`, `pengu_map_new_owned`, `pengu_list_cleanup`, `pengu_list_clone`, `pengu_map_cleanup`, `pengu_map_clone`, `pengu_string_cleanup` y `pengu_string_clone` — ya no existen. `pengu_string_copy` y `pengu_banish_string` permanecen.
 

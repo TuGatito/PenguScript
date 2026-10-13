@@ -22,11 +22,24 @@
 ## ```
 ##
 ## ## Memory
-## A `string` is a value: nothing mutates `self`. The text and the `list`s
-## returned are freshly allocated and the caller releases them with `banish`;
-## parameters are never banished. The slicing methods (`substring`, `char_at`,
-## `trim_start`, `trim_end`, `removeprefix`, `removesuffix`) also allocate a fresh
-## owned string, so release those results with `banish` too.
+## A `string` is a value: nothing mutates `self`. Parameters are never banished.
+## Results come in two ownership flavours:
+##
+## - **Owned copies** — `substring`, `char_at`, `trim`, `trim_start`, `trim_end`,
+##   `removeprefix`, `removesuffix`, `replace`, `replace_all`, `repeat`, the case
+##   transforms, the padding/alignment family and `join` all allocate a fresh
+##   `string`. Release each result with `banish`.
+## - **Views** — `split`, `splitn`, `rsplit`, `split_whitespace`, `words`,
+##   `lines`, `partition` and `chars` return a fresh `list of string` whose
+##   elements are non-owning views into the receiver (the runtime's
+##   `pengu_string_split` contract). The receiver must outlive the list, and
+##   `banish parts` releases everything: banishing a view is a no-op. Copy an
+##   element with `pengu_string_copy` when it has to outlive the receiver.
+##
+## A `list of string` the caller builds by hand owns only its element buffer, so
+## each element it allocated must be released individually before the list.
+## Nothing is ever released automatically: the compiler allocates and frees only
+## what the program spells out (LANGUAGE.md §13.4).
 ##
 ## ## ASCII and bytes
 ## The module is ASCII-oriented and works at the byte level: `len`, the indices,
@@ -390,6 +403,451 @@ buf[s.len] = '\0';
 return (PenguString){buf, s.len, 1};
 """
 
+## ASCII case mapping in one allocation.
+##
+## ## Motivo
+## Doing this in Pengu requires one `char_at` allocation per byte plus a
+## `list of string` plus `_concat`, so a single `calling s.upper` leaked O(n)
+## temporary buffers. Here the whole result is one `malloc`.
+##
+## ## Memoria
+## Returns a freshly allocated owned string (empty string view for an empty
+## input, which `banish` treats as a no-op). `s` is borrowed.
+## `mode`: 0 = lower, 1 = upper, 2 = swap.
+antiquus _ascii_case with s as string, mode as int into string:
+    r"""
+if (!s.data || s.len <= 0)
+return pengu_string_from_cstr("");
+char *buf = (char *)malloc((size_t)s.len + 1);
+if (!buf)
+return pengu_string_from_cstr("");
+for (int i = 0; i < s.len; ++i)
+{
+unsigned char c = (unsigned char)s.data[i];
+if (c >= 'A' && c <= 'Z')
+{
+if (mode != 1) c = (unsigned char)(c + 32);
+}
+else if (c >= 'a' && c <= 'z')
+{
+if (mode == 1 || mode == 2) c = (unsigned char)(c - 32);
+}
+buf[i] = (char)c;
+}
+buf[s.len] = '\0';
+return (PenguString){buf, s.len, 1};
+"""
+
+## ASCII classification of a whole string, allocation-free.
+##
+## ## Motivo
+## The `for ch in s` form allocates a one-byte owning copy per iteration; a
+## predicate that only inspects bytes must not allocate at all.
+##
+## ## Memoria
+## Allocates nothing. `s` is borrowed.
+## `kind`: 0 = is_alpha, 1 = is_digit, 2 = is_alnum, 3 = is_space,
+## 4 = is_lower, 5 = is_upper, 6 = is_blank.
+antiquus _ascii_all with s as string, kind as int into bool:
+    r"""
+if (!s.data || s.len <= 0)
+return kind == 6; /* is_blank is true for ""; the rest are false */
+bool has_lower = false;
+bool has_upper = false;
+for (int i = 0; i < s.len; ++i)
+{
+unsigned char c = (unsigned char)s.data[i];
+bool is_alpha = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+bool is_digit = (c >= '0' && c <= '9');
+bool is_space = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+switch (kind)
+{
+case 0: if (!is_alpha) return false; break;
+case 1: if (!is_digit) return false; break;
+case 2: if (!(is_alpha || is_digit)) return false; break;
+case 3: if (!is_space) return false; break;
+case 4:
+if (c >= 'A' && c <= 'Z') return false;
+if (c >= 'a' && c <= 'z') has_lower = true;
+break;
+case 5:
+if (c >= 'a' && c <= 'z') return false;
+if (c >= 'A' && c <= 'Z') has_upper = true;
+break;
+default:
+if (!is_space) return false;
+break;
+}
+}
+if (kind == 4) return has_lower;
+if (kind == 5) return has_upper;
+return true;
+"""
+
+## Byte-level palindrome test, allocation-free.
+##
+## ## Motivo
+## Slicing two one-byte strings per position allocated 2*n buffers per call.
+##
+## ## Memoria
+## Allocates nothing. `s` is borrowed. The empty string is a palindrome.
+antiquus _is_palindrome with s as string into bool:
+    r"""
+if (!s.data || s.len <= 0)
+return true;
+for (int i = 0, j = s.len - 1; i < j; ++i, --j)
+{
+if (s.data[i] != s.data[j])
+return false;
+}
+return true;
+"""
+
+## Byte-lexicographic comparison returning exactly -1, 0 or 1.
+##
+## ## Motivo
+## `ord (sv at i)` allocated two one-byte strings per compared byte.
+##
+## ## Memoria
+## Allocates nothing. `a` and `b` are borrowed.
+antiquus _compare_bytes with a as string, b as string into int:
+    r"""
+int min_len = a.len < b.len ? a.len : b.len;
+if (min_len > 0 && a.data && b.data)
+{
+int c = memcmp(a.data, b.data, (size_t)min_len);
+if (c != 0)
+return c < 0 ? -1 : 1;
+}
+if (a.len < b.len) return -1;
+if (a.len > b.len) return 1;
+return 0;
+"""
+
+## True when every byte is a digit with at most one dot and one leading sign.
+##
+## ## Motivo
+## The `for i, ch in sv` form allocated one owning copy per byte.
+##
+## ## Memoria
+## Allocates nothing. `s` is borrowed.
+antiquus _is_numeric_bytes with s as string into bool:
+    r"""
+if (!s.data || s.len <= 0)
+return false;
+bool has_digit = false;
+bool has_dot = false;
+for (int i = 0; i < s.len; ++i)
+{
+char c = s.data[i];
+if (c == '+' || c == '-')
+{
+if (i != 0) return false;
+continue;
+}
+if (c == '.')
+{
+if (has_dot) return false;
+has_dot = true;
+continue;
+}
+if (!(c >= '0' && c <= '9')) return false;
+has_digit = true;
+}
+return has_digit;
+"""
+
+## Decimal value of a valid numeric literal, allocation-free.
+##
+## ## Motivo
+## The Pengu form allocated a one-byte string per digit and one more for the
+## sign test.
+##
+## ## Memoria
+## Allocates nothing. `s` is borrowed; exponents are not supported.
+antiquus _float_from_literal with s as string into float:
+    r"""
+double int_val = 0.0;
+double frac_val = 0.0;
+double scale = 1.0;
+bool seen_dot = false;
+if (s.data)
+{
+for (int i = 0; i < s.len; ++i)
+{
+char c = s.data[i];
+if (c == '.')
+{
+seen_dot = true;
+}
+else if (c >= '0' && c <= '9')
+{
+double digit = (double)(c - '0');
+if (seen_dot)
+{
+scale *= 10.0;
+frac_val = (frac_val * 10.0) + digit;
+}
+else
+{
+int_val = (int_val * 10.0) + digit;
+}
+}
+}
+}
+double sign_factor = (s.len > 0 && s.data && s.data[0] == '-') ? -1.0 : 1.0;
+return sign_factor * (int_val + (frac_val / scale));
+"""
+
+## ASCII trim returning a fresh owned string.
+##
+## ## Motivo
+## The Pengu form both allocated a one-byte string per inspected byte and
+## leaked the intermediate of `trim` (`trim_start` then `trim_end`).
+##
+## ## Memoria
+## Returns a freshly allocated owned copy (never a view, so the caller can
+## `banish` it unconditionally). `s` is borrowed.
+## `mode`: 0 = both ends, 1 = start only, 2 = end only.
+antiquus _trim_ascii with s as string, mode as int into string:
+    r"""
+if (!s.data || s.len <= 0)
+return pengu_string_from_cstr("");
+int start = 0;
+int end = s.len;
+if (mode != 2)
+{
+while (start < end)
+{
+char c = s.data[start];
+if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f') start++;
+else break;
+}
+}
+if (mode != 1)
+{
+while (end > start)
+{
+char c = s.data[end - 1];
+if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f') end--;
+else break;
+}
+}
+int len = end - start;
+char *buf = (char *)malloc((size_t)len + 1);
+if (!buf)
+return pengu_string_from_cstr("");
+if (len > 0)
+memcpy(buf, s.data + start, (size_t)len);
+buf[len] = '\0';
+return (PenguString){buf, len, 1};
+"""
+
+## ASCII view of a byte range: no allocation, no ownership.
+##
+## ## Motivo
+## `split`, `chars` and friends used to allocate one owning substring per
+## element, so `banish` on the returned list leaked all of them. A view is what
+## the runtime's own `pengu_string_split` already returns and what `banish`
+## handles correctly (a view is a no-op).
+##
+## ## Memoria
+## Allocates nothing and returns a non-owning view into `s`. The receiver must
+## outlive every view taken from it; `banish` on a view is a no-op.
+antiquus _view with s as string, start as int, end as int into string:
+    r"""
+if (!s.data || start < 0) start = 0;
+if (end > s.len) end = s.len;
+if (end <= start) return pengu_string_from_cstr("");
+return (PenguString){s.data + start, end - start, 0};
+"""
+
+## `string.upper()` on the first byte of every whitespace-separated word.
+##
+## ## Motivo
+## One `malloc` instead of a `list of string` plus one owning byte per
+## character.
+##
+## ## Memoria
+## Returns a freshly allocated owned string. `s` is borrowed.
+antiquus _title_ascii with s as string into string:
+    r"""
+if (!s.data || s.len <= 0)
+return pengu_string_from_cstr("");
+char *buf = (char *)malloc((size_t)s.len + 1);
+if (!buf)
+return pengu_string_from_cstr("");
+bool at_word_start = true;
+for (int i = 0; i < s.len; ++i)
+{
+unsigned char c = (unsigned char)s.data[i];
+if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f')
+{
+buf[i] = (char)c;
+at_word_start = true;
+continue;
+}
+if (at_word_start)
+{
+if (c >= 'a' && c <= 'z') c = (unsigned char)(c - 32);
+}
+else
+{
+if (c >= 'A' && c <= 'Z') c = (unsigned char)(c + 32);
+}
+buf[i] = (char)c;
+at_word_start = false;
+}
+buf[s.len] = '\0';
+return (PenguString){buf, s.len, 1};
+"""
+
+## `string.upper()` on the first byte, `string.lower()` on the rest.
+##
+## ## Motivo
+## One `malloc` instead of an owning byte per character plus a list.
+##
+## ## Memoria
+## Returns a freshly allocated owned string (empty view for an empty input).
+antiquus _capitalize_ascii with s as string into string:
+    r"""
+if (!s.data || s.len <= 0)
+return pengu_string_from_cstr("");
+char *buf = (char *)malloc((size_t)s.len + 1);
+if (!buf)
+return pengu_string_from_cstr("");
+for (int i = 0; i < s.len; ++i)
+{
+unsigned char c = (unsigned char)s.data[i];
+if (i == 0)
+{
+if (c >= 'a' && c <= 'z') c = (unsigned char)(c - 32);
+}
+else
+{
+if (c >= 'A' && c <= 'Z') c = (unsigned char)(c + 32);
+}
+buf[i] = (char)c;
+}
+buf[s.len] = '\0';
+return (PenguString){buf, s.len, 1};
+"""
+
+## snake_case / kebab_case / PascalCase in one allocation.
+##
+## ## Motivo
+## The Pengu versions built a `list of string` of owning one-byte strings and
+## then leaked the list; the word-boundary heuristic also allocated a byte per
+## inspected neighbour.
+##
+## ## Memoria
+## Returns a freshly allocated owned string. `s` is borrowed.
+## `mode`: 0 = snake_case, 1 = kebab_case, 2 = PascalCase.
+antiquus _identifier_case with s as string, mode as int into string:
+    r"""
+if (!s.data || s.len <= 0)
+return pengu_string_from_cstr("");
+size_t cap = (size_t)s.len * 2 + 1;
+char *buf = (char *)malloc(cap);
+if (!buf)
+return pengu_string_from_cstr("");
+int n = 0;
+char sep = (mode == 1) ? '-' : '_';
+bool word_start = true;
+for (int i = 0; i < s.len; ++i)
+{
+unsigned char c = (unsigned char)s.data[i];
+if (c == ' ' || c == '-' || c == '_')
+{
+if (mode != 2 && n > 0 && buf[n - 1] != sep) buf[n++] = sep;
+word_start = true;
+continue;
+}
+if (c >= 'A' && c <= 'Z')
+{
+bool starts = false;
+if (n > 0)
+{
+unsigned char p = (unsigned char)s.data[i - 1];
+bool prev_is_upper = p >= 'A' && p <= 'Z';
+bool prev_is_lower = p >= 'a' && p <= 'z';
+bool prev_is_digit = p >= '0' && p <= '9';
+bool next_is_lower = (i + 1) < s.len && s.data[i + 1] >= 'a' && s.data[i + 1] <= 'z';
+starts = prev_is_lower || prev_is_digit || (next_is_lower && prev_is_upper);
+}
+if (starts)
+word_start = true;
+if (mode == 2)
+{
+buf[n++] = word_start ? (char)c : (char)(c + 32);
+word_start = false;
+}
+else
+{
+if (starts && n > 0 && buf[n - 1] != sep) buf[n++] = sep;
+buf[n++] = (char)(c + 32);
+}
+continue;
+}
+if (mode == 2)
+{
+buf[n++] = (word_start && c >= 'a' && c <= 'z') ? (char)(c - 32) : (char)c;
+word_start = false;
+}
+else
+{
+buf[n++] = (char)c;
+}
+}
+buf[n] = '\0';
+return (PenguString){buf, n, 1};
+"""
+
+## Replace the first occurrence of `from` with `to`, in one allocation.
+##
+## ## Motivo
+## The Pengu form built two owning substring temporaries (`head`, `tail`) and
+## then an interpolated result, leaking the first two on every call.
+##
+## ## Memoria
+## Returns a freshly allocated owned copy of `s` (also when `from` does not
+## occur or is empty). `s`, `from` and `to` are borrowed.
+antiquus _replace_first with s as string, from as string, to as string into string:
+    r"""
+if (!s.data)
+return pengu_string_from_cstr("");
+int hit = pengu__find_sub(s, from, 0);
+if (hit < 0)
+return pengu_string_copy(s);
+int64_t new_len_64 = (int64_t)hit + (int64_t)to.len + (int64_t)(s.len - hit - from.len);
+if (new_len_64 < 0 || new_len_64 > (int64_t)INT_MAX)
+return pengu_string_from_cstr("");
+int new_len = (int)new_len_64;
+char *buf = (char *)malloc((size_t)new_len + 1);
+if (!buf)
+return pengu_string_from_cstr("");
+char *dst = buf;
+if (hit > 0)
+{
+memcpy(dst, s.data, (size_t)hit);
+dst += hit;
+}
+if (to.len > 0 && to.data)
+{
+memcpy(dst, to.data, (size_t)to.len);
+dst += to.len;
+}
+int tail_start = hit + from.len;
+int tail_len = s.len - tail_start;
+if (tail_len > 0)
+{
+memcpy(dst, s.data + tail_start, (size_t)tail_len);
+dst += tail_len;
+}
+*dst = '\0';
+return (PenguString){buf, new_len, 1};
+"""
+
 # --- Enchantings --------------------------------------------------------
 ## String methods: query, transformation, predicates and parsing.
 enchanting string:
@@ -440,7 +898,12 @@ enchanting string:
     ## ```
     weave chars into list of string:
         let sv is essence of self
-        let parts is for ch in sv then ch
+        var parts as list of string is list of string with capacity (sv length)
+        var i as int is 0
+        let ll as int is sv length
+        while i < ll:
+            calling parts.push with (calling _view with sv, i, (i + 1))
+            set i is i + 1
         return parts
     ## List with the numeric code of each byte.
     ##
@@ -457,7 +920,13 @@ enchanting string:
     ## ```
     weave bytes into list of int:
         let sv is essence of self
-        let codes is for ch in sv then ord ch
+        var codes as list of int is list of int with capacity (sv length)
+        var i as int is 0
+        let ll as int is sv length
+        while i < ll:
+            var ch as string is calling _view with sv, i, (i + 1)
+            calling codes.push with (ord ch)
+            set i is i + 1
         return codes
 
     # --- Search ---------------------------------------------------------
@@ -706,8 +1175,7 @@ enchanting string:
     ## ```
     weave lower into string:
         let sv is essence of self
-        let parts is for ch in sv then calling _lower_char with ch
-        return calling _concat with parts
+        return calling _ascii_case with sv, 0
     ## Copy with the ASCII letters a-z uppercased.
     ##
     ## ## Parámetros
@@ -722,8 +1190,7 @@ enchanting string:
     ## ```
     weave upper into string:
         let sv is essence of self
-        let parts is for ch in sv then calling _upper_char with ch
-        return calling _concat with parts
+        return calling _ascii_case with sv, 1
     ## @deprecated Use lower instead.
     ##
     ## ## Parámetros
@@ -766,13 +1233,7 @@ enchanting string:
     ## ```
     weave capitalize into string:
         let sv is essence of self
-        let ll as int is sv length
-        if ll == 0:
-            return ""
-        let head is calling _upper_char with (sv at 0 to 1)
-        let lowered is for ch in (sv at 1 to ll) then calling _lower_char with ch
-        let tail is calling _concat with lowered
-        return "{head}{tail}"
+        return calling _capitalize_ascii with sv
     ## Copy with the initial of every word uppercased and the rest lowercased.
     ##
     ## ## Parámetros
@@ -788,17 +1249,7 @@ enchanting string:
     ## ```
     weave title into string:
         let sv is essence of self
-        var parts as list of string is list of string with capacity (sv length)
-        var at_word_start as bool is true
-        for ch in sv:
-            if calling _char_is_space with ch:
-                calling parts.push with ch
-                set at_word_start is true
-            else:
-                let cased is if at_word_start then (calling _upper_char with ch) else (calling _lower_char with ch)
-                calling parts.push with cased
-                set at_word_start is false
-        return calling _concat with parts
+        return calling _title_ascii with sv
     ## @deprecated Use title instead.
     ##
     ## ## Parámetros
@@ -827,8 +1278,7 @@ enchanting string:
     ## ```
     weave swap_case into string:
         let sv is essence of self
-        let parts is for ch in sv then calling _swap_char with ch
-        return calling _concat with parts
+        return calling _ascii_case with sv, 2
     ## Copy converted to `snake_case`.
     ##
     ## ## Parámetros
@@ -845,28 +1295,7 @@ enchanting string:
     ## ```
     weave to_snake_case into string:
         let sv is essence of self
-        var parts as list of string is list of string with capacity (sv length)
-        for i, ch in sv:
-            if ch == " " or ch == "-" or ch == "_":
-                if (parts length) > 0:
-                    if (parts at ((parts length) - 1)) != "_":
-                        calling parts.push with "_"
-            else:
-                if calling _char_is_upper with ch:
-                    if (parts length) > 0:
-                        let prev_is_upper as bool is calling _char_is_upper with (sv at (i - 1))
-                        let prev_is_lower as bool is calling _char_is_lower with (sv at (i - 1))
-                        let prev_is_digit as bool is calling _char_is_digit with (sv at (i - 1))
-                        var next_is_lower as bool is false
-                        if (i + 1) < (sv length):
-                            set next_is_lower is calling _char_is_lower with (sv at (i + 1))
-                        let starts_word as bool is (prev_is_lower or prev_is_digit or (next_is_lower and prev_is_upper))
-                        if starts_word and ((parts at ((parts length) - 1)) != "_"):
-                            calling parts.push with "_"
-                    calling parts.push with (calling _lower_char with ch)
-                else:
-                    calling parts.push with ch
-        return calling _concat with parts
+        return calling _identifier_case with sv, 0
     ## Copy converted to `kebab-case`.
     ##
     ## ## Parámetros
@@ -880,8 +1309,8 @@ enchanting string:
     ## calling "HelloWorld".to_kebab_case    # "hello-world"
     ## ```
     weave to_kebab_case into string:
-        let snake as string is calling self.to_snake_case
-        return calling snake.replace_all with "_", "-"
+        let sv is essence of self
+        return calling _identifier_case with sv, 1
     ## Short form of `to_snake_case`.
     ##
     ## ## Parámetros
@@ -923,12 +1352,8 @@ enchanting string:
     ## calling "hello_world".pascal_case    # "HelloWorld"
     ## ```
     weave pascal_case into string:
-        let snake as string is calling self.snake_case
-        let words_list is calling snake.split with "_"
-        var parts as list of string is list of string with capacity (words_list length)
-        for word in words_list:
-            calling parts.push with (calling word.capitalize)
-        return calling _concat with parts
+        let sv is essence of self
+        return calling _identifier_case with sv, 2
     ## True when every byte is an ASCII letter and there is at least one.
     ##
     ## ## Parámetros
@@ -944,12 +1369,7 @@ enchanting string:
     ## ```
     weave is_alpha into bool:
         let sv is essence of self
-        if (sv length) == 0:
-            return false
-        for ch in sv:
-            if not (calling _char_is_alpha with ch):
-                return false
-        return true
+        return calling _ascii_all with sv, 0
     ## True when every byte is an ASCII digit and there is at least one.
     ##
     ## ## Parámetros
@@ -964,12 +1384,7 @@ enchanting string:
     ## ```
     weave is_digit into bool:
         let sv is essence of self
-        if (sv length) == 0:
-            return false
-        for ch in sv:
-            if not (calling _char_is_digit with ch):
-                return false
-        return true
+        return calling _ascii_all with sv, 1
     ## True when every byte is an ASCII letter or digit and there is at least one.
     ##
     ## ## Parámetros
@@ -984,12 +1399,7 @@ enchanting string:
     ## ```
     weave is_alnum into bool:
         let sv is essence of self
-        if (sv length) == 0:
-            return false
-        for ch in sv:
-            if not (calling _char_is_alnum with ch):
-                return false
-        return true
+        return calling _ascii_all with sv, 2
     ## True when there is no uppercase ASCII letter and at least one lowercase.
     ##
     ## ## Parámetros
@@ -1004,13 +1414,7 @@ enchanting string:
     ## ```
     weave is_lower into bool:
         let sv is essence of self
-        var has_lower as bool is false
-        for ch in sv:
-            if calling _char_is_upper with ch:
-                return false
-            if calling _char_is_lower with ch:
-                set has_lower is true
-        return has_lower
+        return calling _ascii_all with sv, 4
     ## True when there is no lowercase ASCII letter and at least one uppercase.
     ##
     ## ## Parámetros
@@ -1025,13 +1429,7 @@ enchanting string:
     ## ```
     weave is_upper into bool:
         let sv is essence of self
-        var has_upper as bool is false
-        for ch in sv:
-            if calling _char_is_lower with ch:
-                return false
-            if calling _char_is_upper with ch:
-                set has_upper is true
-        return has_upper
+        return calling _ascii_all with sv, 5
     ## True when the string reads the same forwards and backwards.
     ##
     ## ## Parámetros
@@ -1047,11 +1445,7 @@ enchanting string:
     ## ```
     weave is_palindrome into bool:
         let sv is essence of self
-        let ll as int is sv length
-        for i from 0 to (ll / 2):
-            if (sv at i to (i + 1)) != (sv at (ll - 1 - i) to (ll - i)):
-                return false
-        return true
+        return calling _is_palindrome with sv
 
     # --- Whitespace -----------------------------------------------------
     ## Copy without ASCII whitespace at either end.
@@ -1067,8 +1461,8 @@ enchanting string:
     ## calling "  x  ".trim    # "x"
     ## ```
     weave trim into string:
-        let started as string is calling self.trim_start
-        return calling started.trim_end
+        let sv is essence of self
+        return calling _trim_ascii with sv, 0
     ## Alias of `trim` (both ends).
     ##
     ## ## Parámetros
@@ -1097,14 +1491,7 @@ enchanting string:
     ## ```
     weave trim_start into string:
         let sv is essence of self
-        let ll as int is sv length
-        var start as int is 0
-        while start < ll:
-            if calling _char_is_space with (sv at start):
-                set start is start + 1
-            else:
-                break
-        return sv at start to ll
+        return calling _trim_ascii with sv, 1
     ## Copy without ASCII whitespace at the end.
     ##
     ## ## Parámetros
@@ -1119,13 +1506,7 @@ enchanting string:
     ## ```
     weave trim_end into string:
         let sv is essence of self
-        var end as int is (sv length) - 1
-        while end >= 0:
-            if calling _char_is_space with (sv at end):
-                set end is end - 1
-            else:
-                break
-        return sv at 0 to (end + 1)
+        return calling _trim_ascii with sv, 2
     ## @deprecated Use trim_start instead.
     ##
     ## ## Parámetros
@@ -1168,12 +1549,7 @@ enchanting string:
     ## ```
     weave is_space into bool:
         let sv is essence of self
-        if (sv length) == 0:
-            return false
-        for ch in sv:
-            if not (calling _char_is_space with ch):
-                return false
-        return true
+        return calling _ascii_all with sv, 3
     ## @deprecated Use is_space instead.
     ##
     ## ## Parámetros
@@ -1202,10 +1578,7 @@ enchanting string:
     ## ```
     weave is_blank into bool:
         let sv is essence of self
-        for ch in sv:
-            if not (calling _char_is_space with ch):
-                return false
-        return true
+        return calling _ascii_all with sv, 6
     ## List of words separated by runs of ASCII whitespace.
     ##
     ## ## Parámetros
@@ -1223,16 +1596,19 @@ enchanting string:
         let sv is essence of self
         var parts as list of string is list of string
         var start as int is -1
-        for i, ch in sv:
-            if calling _char_is_space with ch:
+        var i as int is 0
+        let ll as int is sv length
+        while i < ll:
+            if calling _char_is_space with (calling _view with sv, i, (i + 1)):
                 if start >= 0:
-                    calling parts.push with (sv at start to i)
+                    calling parts.push with (calling _view with sv, start, i)
                     set start is -1
             else:
                 if start < 0:
                     set start is i
+            set i is i + 1
         if start >= 0:
-            calling parts.push with (sv at start to (sv length))
+            calling parts.push with (calling _view with sv, start, ll)
         return parts
     ## Short name of `split_whitespace`.
     ##
@@ -1280,7 +1656,9 @@ enchanting string:
     ## ```
     weave line_count into int:
         let parts is calling self.split_lines
-        return parts length
+        let n as int is parts length
+        banish parts
+        return n
     ## Number of whitespace-separated words.
     ##
     ## ## Parámetros
@@ -1295,7 +1673,9 @@ enchanting string:
     ## ```
     weave word_count into int:
         let parts is calling self.words
-        return parts length
+        let n as int is parts length
+        banish parts
+        return n
     ## List of lines with the trailing `\r` of each line removed (CRLF-safe).
     ##
     ## ## Parámetros
@@ -1313,7 +1693,12 @@ enchanting string:
         let raw is calling self.split_lines
         var parts as list of string is list of string with capacity (raw length)
         for line in raw:
-            calling parts.push with (calling line.removesuffix with "\r")
+            let ll as int is line length
+            if ll > 0 and (calling _view with line, (ll - 1), ll) == "\r":
+                calling parts.push with (calling _view with line, 0, (ll - 1))
+            else:
+                calling parts.push with line
+        banish raw
         return parts
 
     # --- Replacing and splitting ----------------------------------------
@@ -1333,13 +1718,7 @@ enchanting string:
     ## ```
     weave replace with from_str as string, to_str as string into string:
         let sv is essence of self
-        let hit as int is calling pengu__find_sub with sv, from_str, 0
-        if hit < 0:
-            return sv
-        let fl as int is from_str length
-        let head is sv at 0 to hit
-        let tail is sv at (hit + fl) to (sv length)
-        return "{head}{to_str}{tail}"
+        return calling _replace_first with sv, from_str, to_str
     ## Copy with **every** non-overlapping occurrence of `from_str` replaced.
     ##
     ## ## Parámetros
@@ -1379,10 +1758,10 @@ enchanting string:
         var start as int is 0
         var hit as int is calling pengu__find_sub with sv, delim, start
         while hit >= 0:
-            calling parts.push with (sv at start to hit)
+            calling parts.push with (calling _view with sv, start, hit)
             set start is hit + dl
             set hit is calling pengu__find_sub with sv, delim, start
-        calling parts.push with (sv at start to (sv length))
+        calling parts.push with (calling _view with sv, start, (sv length))
         return parts
     ## Split into **at most** `n` parts on `delim`.
     ##
@@ -1411,10 +1790,10 @@ enchanting string:
             let hit as int is calling pengu__find_sub with sv, delim, start
             if hit < 0:
                 break
-            calling parts.push with (sv at start to hit)
+            calling parts.push with (calling _view with sv, start, hit)
             set start is hit + dl
             set left is left - 1
-        calling parts.push with (sv at start to (sv length))
+        calling parts.push with (calling _view with sv, start, (sv length))
         return parts
     ## Split on `delim` into the same parts `split` produces.
     ##
@@ -1449,10 +1828,10 @@ enchanting string:
         var j as int is 0
         while j < (hits length):
             let pos as int is hits at j
-            calling parts.push with (sv at prev to pos)
+            calling parts.push with (calling _view with sv, prev, pos)
             set prev is pos + dl
             set j is j + 1
-        calling parts.push with (sv at prev to (sv length))
+        calling parts.push with (calling _view with sv, prev, (sv length))
         return parts
     ## Split on the **first** occurrence of `sep`: `[before, sep, after]`.
     ##
@@ -1477,9 +1856,9 @@ enchanting string:
             calling parts.push with ""
             return parts
         let sl as int is sep length
-        calling parts.push with (sv at 0 to hit)
+        calling parts.push with (calling _view with sv, 0, hit)
         calling parts.push with sep
-        calling parts.push with (sv at (hit + sl) to (sv length))
+        calling parts.push with (calling _view with sv, (hit + sl), (sv length))
         return parts
     ## Copy repeated `count` times.
     ##
@@ -1518,7 +1897,9 @@ enchanting string:
         var parts as list of string is list of string with capacity count
         for i from 0 to count:
             calling parts.push with sv
-        return calling _join_parts with parts, sep
+        var out as string is calling _join_parts with parts, sep
+        banish parts
+        return out
 
     # --- Alignment ------------------------------------------------------
     ## Left-align in `width`, padding on the right with `pad_char`.
@@ -1540,11 +1921,13 @@ enchanting string:
         let ll as int is sv length
         let pl as int is pad_char length
         if ll >= width or pl == 0:
-            return sv
+            return "{sv}"
         let pad_count as int is ((width - ll) + pl - 1) / pl
         let padded is calling _pad_right with sv, pad_count, pad_char
         if (padded length) > width:
-            return padded at 0 to width
+            let out as string is padded at 0 to width
+            banish padded
+            return out
         return padded
     ## Right-align in `width`, padding on the left with `pad_char`.
     ##
@@ -1565,11 +1948,13 @@ enchanting string:
         let ll as int is sv length
         let pl as int is pad_char length
         if ll >= width or pl == 0:
-            return sv
+            return "{sv}"
         let pad_count as int is ((width - ll) + pl - 1) / pl
         let padded is calling _pad_left with sv, pad_count, pad_char
         if (padded length) > width:
-            return padded at ((padded length) - width) to (padded length)
+            let out as string is padded at ((padded length) - width) to (padded length)
+            banish padded
+            return out
         return padded
     ## @deprecated Use rjust instead.
     ##
@@ -1617,15 +2002,17 @@ enchanting string:
     weave zfill with width as int into string:
         let sv is essence of self
         if (sv length) >= width:
-            return sv
+            return "{sv}"
         let has_bytes as bool is (sv length) > 0
-        let first is if has_bytes then (sv at 0 to 1) else ""
+        let first is if has_bytes then (calling _view with sv, 0, 1) else ""
         let signed as bool is has_bytes and (first == "-" or first == "+")
         let sign_text as string is if signed then first else ""
-        let rest as string is if signed then (sv at 1 to (sv length)) else sv
+        let rest as string is if signed then (calling _view with sv, 1, (sv length)) else sv
         let zeros as int is width - (rest length) - (sign_text length)
         let padded is calling _pad_left with rest, zeros, "0"
-        return "{sign_text}{padded}"
+        var out as string is "{sign_text}{padded}"
+        banish padded
+        return out
     ## Center in a field of `width`, padding both sides with `pad_char`.
     ##
     ## ## Parámetros
@@ -1644,13 +2031,16 @@ enchanting string:
         let sv is essence of self
         let ll as int is sv length
         if ll >= width or (pad_char length) == 0:
-            return sv
+            return "{sv}"
         let total as int is width - ll
         let left_count as int is total / 2
         let right_count as int is total - left_count
         let left_pad is calling _pad_left with "", left_count, pad_char
         let right_pad is calling _pad_right with "", right_count, pad_char
-        return "{left_pad}{sv}{right_pad}"
+        var out as string is "{left_pad}{sv}{right_pad}"
+        banish left_pad
+        banish right_pad
+        return out
 
     # --- Prefixes and suffixes ------------------------------------------
     ## Copy with `prefix` removed from the start when present.
@@ -1669,7 +2059,7 @@ enchanting string:
         let sv is essence of self
         if calling pengu_string_starts_with with sv, prefix:
             return sv at (prefix length) to (sv length)
-        return sv
+        return "{sv}"
     ## Copy with `suffix` removed from the end when present.
     ##
     ## ## Parámetros
@@ -1688,7 +2078,7 @@ enchanting string:
         let sl as int is suffix length
         if calling pengu_string_ends_with with sv, suffix:
             return sv at 0 to (ll - sl)
-        return sv
+        return "{sv}"
 
     # --- Comparison -----------------------------------------------------
     ## Compare byte by byte against `other` and return -1, 0 or 1.
@@ -1707,17 +2097,7 @@ enchanting string:
     ## ```
     weave compare with other as string into int:
         let sv is essence of self
-        let l1 as int is sv length
-        let l2 as int is other length
-        let min_l is if l1 < l2 then l1 else l2
-        for i from 0 to min_l:
-            let c1 as int is ord (sv at i)
-            let c2 as int is ord (other at i)
-            if c1 != c2:
-                return if c1 < c2 then -1 else 1
-        return judge (l1 == l2):
-            when true -> 0
-            when false -> (if l1 < l2 then -1 else 1)
+        return calling _compare_bytes with sv, other
 
     # --- Truncation -----------------------------------------------------
     ## Cut to `max_len` bytes, appending `suffix` when anything was cut.
@@ -1738,14 +2118,16 @@ enchanting string:
         let sv is essence of self
         let ll as int is sv length
         if ll <= max_len:
-            return sv
+            return "{sv}"
         let sl as int is suffix length
         if max_len <= sl:
             if max_len <= 0:
                 return ""
             return sv at 0 to max_len
         let head is sv at 0 to (max_len - sl)
-        return "{head}{suffix}"
+        var out as string is "{head}{suffix}"
+        banish head
+        return out
     ## Cut to `max_len` bytes, appending "..." when anything was cut.
     ##
     ## ## Parámetros
@@ -1793,22 +2175,7 @@ enchanting string:
     ## ```
     weave is_numeric into bool:
         let sv is essence of self
-        var has_digit as bool is false
-        var has_dot as bool is false
-        for i, ch in sv:
-            let is_sign as bool is ch == "+" or ch == "-"
-            if is_sign and i != 0:
-                return false
-            if not is_sign:
-                if ch == ".":
-                    if has_dot:
-                        return false
-                    set has_dot is true
-                else:
-                    if not (calling _char_is_digit with ch):
-                        return false
-                    set has_digit is true
-        return has_digit
+        return calling _is_numeric_bytes with sv
     ## Interpret the string as a decimal (optional whitespace, no exponents).
     ##
     ## ## Parámetros
@@ -1826,8 +2193,11 @@ enchanting string:
         let sv as string is essence of self
         let trimmed as string is calling sv.trim
         if not (calling trimmed.is_numeric):
+            banish trimmed
             return maybe none
-        return some (calling _float_from_literal with trimmed)
+        let value as float is calling _float_from_literal with trimmed
+        banish trimmed
+        return some value
 
 # --- Module functions ---------------------------------------------------
 # Functional form of every method: the receiver becomes the first parameter `s`
@@ -2937,13 +3307,14 @@ weave _join_parts with parts as list of string, sep as string into string:
     let ll as int is parts length
     if ll == 0:
         return ""
-    var pieces as list of string is list of string with capacity ll
-    calling pieces.push with (parts at 0)
+    var out as string is "{parts at 0}"
     var i as int is 1
     while i < ll:
-        calling pieces.push with "{sep}{parts at i}"
+        var next as string is "{out}{sep}{parts at i}"
+        banish out
+        set out is next
         set i is i + 1
-    return calling _concat with pieces
+    return out
 ## The module's single string accumulation point: concatenate `parts` as they are.
 ##
 ## ## Parámetros
@@ -2954,7 +3325,9 @@ weave _join_parts with parts as list of string, sep as string into string:
 weave _concat with parts as list of string into string:
     var out as string is ""
     for part in parts:
-        set out is "{out}{part}"
+        var next as string is "{out}{part}"
+        banish out
+        set out is next
     return out
 ## Copy of `ch` lowercased when it is an ASCII uppercase letter.
 ##
@@ -3002,12 +3375,14 @@ weave _swap_char with ch as string into string:
 ## A new owned string; the caller releases it with `banish`.
 weave _pad_left with s as string, count as int, pad_char as string into string:
     if count <= 0:
-        return s
+        return "{s}"
     var parts as list of string is list of string with capacity (count + 1)
     for i from 0 to count:
         calling parts.push with pad_char
     calling parts.push with s
-    return calling _concat with parts
+    var out as string is calling _concat with parts
+    banish parts
+    return out
 ## Copy of `s` with `count` copies of `pad_char` behind.
 ##
 ## ## Parámetros
@@ -3019,39 +3394,14 @@ weave _pad_left with s as string, count as int, pad_char as string into string:
 ## A new owned string; the caller releases it with `banish`.
 weave _pad_right with s as string, count as int, pad_char as string into string:
     if count <= 0:
-        return s
+        return "{s}"
     var parts as list of string is list of string with capacity (count + 1)
     calling parts.push with s
     for i from 0 to count:
         calling parts.push with pad_char
-    return calling _concat with parts
-## Decimal value of a valid numeric literal (precondition: `is_numeric`).
-##
-## ## Parámetros
-## - `s`: a literal accepted by `is_numeric`.
-##
-## ## Retorno
-## The `float` value; exponents are not supported.
-weave _float_from_literal with s as string into float:
-    var int_val as float is 0.0
-    var frac_val as float is 0.0
-    var scale as float is 1.0
-    var seen_dot as bool is false
-    for ch in s:
-        if ch == ".":
-            set seen_dot is true
-        else:
-            if calling _char_is_digit with ch:
-                let digit as float is ((ord ch) - 48) to float
-                if seen_dot:
-                    set scale is scale * 10.0
-                    set frac_val is (frac_val * 10.0) + digit
-                else:
-                    set int_val is (int_val * 10.0) + digit
-    var sign_factor as float is 1.0
-    if (s at 0 to 1) == "-":
-        set sign_factor is -1.0
-    return sign_factor * (int_val + (frac_val / scale))
+    var out as string is calling _concat with parts
+    banish parts
+    return out
 ## Private test harness: panic with `label` when `cond` is false.
 ##
 ## ## Parámetros

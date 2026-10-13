@@ -221,13 +221,21 @@ class ProtoMixin:
             # With a synthesized implicit return the deferred cleanup is already
             # emitted *inside* the return statement; emitting it again here would
             # double-free.
-            if tail_expr is None and not self._stmts_end_with_jump(w["body_stmts"]):
+            body_is_jump = self._stmts_end_with_jump(w["body_stmts"])
+            if tail_expr is None and not body_is_jump:
                 if active_defers:
                     lines.append(f"{self.indent()}/* Deferred cleanup */")
                     for d in reversed(active_defers):
                         lines.append(self._format_defer_cleanup(d, self.indent()))
 
-            lines.append(f"{self.indent()}pengu_frame_pop();")
+            # The trailing pop is the fall-through exit.  Every `return` already
+            # emits its own `pengu_frame_pop()` (see `return_stmt` in stmts.py),
+            # so appending one after a jump only creates unreachable code -- and
+            # unreachable *calls* after a `return` make gcc report a spurious
+            # "-Wreturn-type: control reaches end of non-void function" for the
+            # whole bundle when it is compiled at -O0 with -fsanitize=address.
+            if tail_expr is None and not body_is_jump:
+                lines.append(f"{self.indent()}pengu_frame_pop();")
             self.indent_level -= 1
             lines.append("}")
             lines.append("")

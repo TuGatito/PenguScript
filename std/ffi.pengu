@@ -221,35 +221,56 @@ weave bytes_from_string with s as string into ref to byte:
 
 ## Copies up to `max_len` bytes from `cstr` into a new owned string, stopping early
 ## if a NUL ('\0') character is encountered.
+##
+## ## Memoria
+## Returns a freshly allocated owned string (empty for `null` or a
+## non-positive bound); release it with `banish`. The copy is one `malloc`:
+## the former per-byte `"{out}{chr b}"` accumulation allocated, and leaked, one
+## buffer per character.
 weave string_from_cstr_n with cstr as ref to char , max_len as int into string:
-    if cstr == null or max_len <= 0:
-        return ""
-    var sl as slice of byte is calling slice_from_ptr of byte with cstr , max_len
-    var n as int is 0
-    while n < max_len:
-        if (sl at n) == 0:
-            break
-        set n is n + 1
-    var out as string is ""
-    var i as int is 0
-    while i < n:
-        var b as byte is sl at i
-        set out is "{out}{(chr (b to int))}"
-        set i is i + 1
-    return out
+    return calling _cstr_n_to_string with cstr , max_len
 
 ## Copies exactly `count` bytes from `data` into a new owned PenguScript string.
+##
+## ## Memoria
+## Returns a freshly allocated owned string (empty for `null` or a
+## non-positive count), byte-exact including embedded NULs; release it with
+## `banish`. One `malloc`, like `string_from_cstr_n`.
 weave string_from_bytes with data as ref to byte , count as int into string:
-    if data == null or count <= 0:
-        return ""
-    var sl as slice of byte is calling slice_from_ptr of byte with data , count
-    var out as string is ""
-    var i as int is 0
-    while i < count:
-        var b as byte is sl at i
-        set out is "{out}{(chr (b to int))}"
-        set i is i + 1
-    return out
+    return calling _bytes_to_string with data , count
+
+## Bounded NUL-terminated copy in one allocation. Private bridge for
+## `string_from_cstr_n` (the language cannot slice a `ref to char` into owned
+## bytes without an allocation per byte).
+antiquus _cstr_n_to_string with cstr as ref to char , max_len as int into string:
+    r"""
+if (!cstr || max_len <= 0)
+return pengu_string_from_cstr("");
+int n = 0;
+while (n < max_len && cstr[n] != '\0')
+n++;
+char *buf = (char *)malloc((size_t)n + 1);
+if (!buf)
+return pengu_string_from_cstr("");
+if (n > 0)
+memcpy(buf, cstr, (size_t)n);
+buf[n] = '\0';
+return (PenguString){buf, n, 1};
+"""
+
+## Byte-exact copy of `count` bytes in one allocation. Private bridge for
+## `string_from_bytes` (embedded NULs survive).
+antiquus _bytes_to_string with data as ref to byte , count as int into string:
+    r"""
+if (!data || count <= 0)
+return pengu_string_from_cstr("");
+char *buf = (char *)malloc((size_t)count + 1);
+if (!buf)
+return pengu_string_from_cstr("");
+memcpy(buf, data, (size_t)count);
+buf[count] = '\0';
+return (PenguString){buf, count, 1};
+"""
 
 # ----------------------------------------------------------------------------
 # Slice views (non-owning) from a raw C buffer pointer

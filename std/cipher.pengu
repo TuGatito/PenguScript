@@ -222,6 +222,53 @@ s.is_owned = 1;
 return s;
 """
 
+## Byte value at `i` without allocating.
+##
+## ## Motivo
+## `(calling _byte_at with s, i)` materializes a fresh one-character owning string per inspected
+## byte, so every scan loop leaked one buffer per byte. Reading the byte through
+## `.data`/`.len` allocates nothing.
+##
+## ## Memoria
+## Allocates nothing. `s` is borrowed. Out-of-range reads yield `0`.
+antiquus _byte_at with s as string, i as int into int:
+    r"""
+if (!s.data || i < 0 || i >= s.len) return 0;
+return (int)(unsigned char)s.data[i];
+"""
+
+## Concatenates `parts` and releases every element and the list itself.
+##
+## ## Motivo
+## `_concat_parts` copies the bytes of its input, so the caller's `parts` list
+## and every owned element it holds become garbage the moment the result exists.
+## The codecs built that list with one `parts.push` per character and then
+## returned the concatenation, leaking the whole working set.
+##
+## ## Memoria
+## Consumes `parts`: the returned string is freshly allocated and the caller
+## releases it with `banish`; the input list must not be used afterwards.
+weave _finish_parts with parts as list of string into string:
+    var out as string is calling _concat_parts with parts
+    for e in parts:
+        banish e
+    banish parts
+    return out
+
+## Releases a working `parts` list without building a result.
+##
+## ## Motivo
+## The scanners return `maybe none` from a dozen points once they have already
+## pushed characters into `parts`; every one of those exits leaked the working
+## set. `_drop_parts` is the release for those paths.
+##
+## ## Memoria
+## Consumes `parts`: every owned element and the list buffer are released.
+weave _drop_parts with parts as list of string into void:
+    for e in parts:
+        banish e
+    banish parts
+
 ## Returns an owned string of `n` zero bytes (a mutable binary buffer).
 ##
 ## ## Motivo
@@ -823,7 +870,7 @@ weave json_kind_of with v as string into JsonKind:
     var vl as int is v length
     if vl == 0:
         return JsonNull
-    var c0 as int is ord (v at 0)
+    var c0 as int is (calling _byte_at with v, 0)
     if c0 == 123:
         return JsonObject
     if c0 == 91:
@@ -1005,7 +1052,9 @@ weave decode_base64 with data as string into maybe string:
 ## `true` when `decode_base64` succeeds.
 weave is_base64 with data as string into bool:
     var decoded as maybe string is calling decode_base64 with data
-    return decoded.is_present
+    var present as bool is decoded.is_present
+    banish decoded
+    return present
 
 ## Encodes `data` into URL-safe Base64 (`-`/`_`, unpadded, RFC 4648 §5).
 ##
@@ -1035,11 +1084,17 @@ weave decode_base64_url with data as string into maybe string:
     if rem == 1:
         return maybe none
     var padded as string is data
+    var made as bool is false
     if rem == 2:
         set padded is "{data}=="
+        set made is true
     else if rem == 3:
         set padded is "{data}="
-    return calling _b64_decode_raw with padded, true
+        set made is true
+    var out as maybe string is calling _b64_decode_raw with padded, true
+    if made:
+        banish padded
+    return out
 
 ## Encodes `data` into unpadded standard Base64 (trailing `=` stripped).
 ##
@@ -1063,11 +1118,17 @@ weave decode_base64_nopad with data as string into maybe string:
     if rem == 1:
         return maybe none
     var padded as string is data
+    var made as bool is false
     if rem == 2:
         set padded is "{data}=="
+        set made is true
     else if rem == 3:
         set padded is "{data}="
-    return calling _b64_decode_raw with padded, false
+        set made is true
+    var out as maybe string is calling _b64_decode_raw with padded, false
+    if made:
+        banish padded
+    return out
 
 ## Alias for `encode_base64_nopad`.
 ##
@@ -1121,7 +1182,16 @@ weave base64_length with n as int into int:
 weave _hex_val with c as string into int:
     if (c length) != 1:
         return -1
-    var code as int is ord c
+    return calling _hex_val_byte with (calling _byte_at with c, 0)
+
+## Byte form of `_hex_val`: the digit value of one already-extracted byte.
+##
+## ## Memoria
+## Allocates nothing. The scanners use this form so they never materialize a
+## one-character owning string per inspected byte.
+weave _hex_val_byte with code as int into int:
+    if code == 0:
+        return -1
     if code >= 48 and code <= 57:
         return code - 48
     if code >= 97 and code <= 102:
@@ -1350,13 +1420,11 @@ enchanting string:
 ## ## Retorno
 ## The 0-based index of `c`, or `-1` when `c` is not in `alphabet` (or is not a
 ## single character).
-weave _char_index with alphabet as string, c as string into int:
-    if (c length) != 1:
-        return -1
+weave _char_index with alphabet as string, cb as int into int:
     var i as int is 0
     var n as int is alphabet length
     while i < n:
-        if (alphabet at i) == c:
+        if (calling _byte_at with alphabet, i) == cb:
             return i
         set i is i + 1
     return -1
@@ -1386,7 +1454,9 @@ weave _b85_group with v as i64, count as int into string:
         calling parts.push with (alpha at (lows at j))
         set j is j - 1
         set taken is taken + 1
-    return calling _concat_parts with parts
+    var out as string is calling _finish_parts with parts
+    banish lows
+    return out
 
 ## Encodes `data` into RFC 1924 Base85 (Python `base64.b85encode`).
 ##
@@ -1412,7 +1482,7 @@ weave encode_base85 with data as string into string:
         var v as i64 is 0
         var k as int is 0
         while k < 4:
-            set v is (v << 8) | ((ord (data at (i + k))) to i64)
+            set v is (v << 8) | ((calling _byte_at with data, (i + k)) to i64)
             set k is k + 1
         calling parts.push with (calling _b85_group with v, 5)
         set i is i + 4
@@ -1423,11 +1493,11 @@ weave encode_base85 with data as string into string:
         while k2 < 4:
             var b as int is 0
             if k2 < rem:
-                set b is ord (data at (i + k2))
+                set b is (calling _byte_at with data, (i + k2))
             set vp is (vp << 8) | (b to i64)
             set k2 is k2 + 1
         calling parts.push with (calling _b85_group with vp, (((rem * 5) + 3) / 4))
-    return calling _concat_parts with parts
+    return calling _finish_parts with parts
 
 ## Decodes an RFC 1924 Base85 string (Python `base64.b85decode`).
 ##
@@ -1454,7 +1524,7 @@ weave decode_base85 with data as string into maybe string:
         var v as i64 is 0
         var k as int is 0
         while k < group_len:
-            var idx as int is calling _char_index with alpha, (data at (i + k))
+            var idx as int is calling _char_index with alpha, (calling _byte_at with data, (i + k))
             if idx < 0:
                 return maybe none
             set v is v * 85 + (idx to i64)
@@ -1480,9 +1550,9 @@ weave decode_base85 with data as string into maybe string:
             var shift as int is 8 * (3 - j)
             calling piece.push with (chr (((v >> (shift to i64)) & 255) to int))
             set j is j + 1
-        calling parts.push with (calling _concat_parts with piece)
+        calling parts.push with (calling _finish_parts with piece)
         set i is i + group_len
-    return some (calling _concat_parts with parts)
+    return some (calling _finish_parts with parts)
 
 ## Encodes `data` into ZeroMQ Z85 (RFC 32/Z85).
 ##
@@ -1511,7 +1581,7 @@ weave encode_base85_z85 with data as string into string:
         var v as i64 is 0
         var k as int is 0
         while k < 4:
-            set v is (v << 8) | ((ord (data at (i + k))) to i64)
+            set v is (v << 8) | ((calling _byte_at with data, (i + k)) to i64)
             set k is k + 1
         var lows as list of int is list of int with capacity 5
         var x as i64 is v
@@ -1524,8 +1594,9 @@ weave encode_base85_z85 with data as string into string:
         while j >= 0:
             calling parts.push with (alpha at (lows at j))
             set j is j - 1
+        banish lows
         set i is i + 4
-    return calling _concat_parts with parts
+    return calling _finish_parts with parts
 
 ## Decodes a ZeroMQ Z85 string.
 ##
@@ -1548,7 +1619,7 @@ weave decode_base85_z85 with data as string into maybe string:
         var v as i64 is 0
         var k as int is 0
         while k < 5:
-            var idx as int is calling _char_index with alpha, (data at (i + k))
+            var idx as int is calling _char_index with alpha, (calling _byte_at with data, (i + k))
             if idx < 0:
                 return maybe none
             set v is v * 85 + (idx to i64)
@@ -1561,9 +1632,9 @@ weave decode_base85_z85 with data as string into maybe string:
             var shift as int is 8 * (3 - j)
             calling piece.push with (chr (((v >> (shift to i64)) & 255) to int))
             set j is j + 1
-        calling parts.push with (calling _concat_parts with piece)
+        calling parts.push with (calling _finish_parts with piece)
         set i is i + 5
-    return some (calling _concat_parts with parts)
+    return some (calling _finish_parts with parts)
 
 ## Encodes `data` into Bitcoin Base58.
 ##
@@ -1584,14 +1655,14 @@ weave encode_base58 with data as string into string:
         return ""
     var zeros as int is 0
     while zeros < dl:
-        if (ord (data at zeros)) != 0:
+        if (calling _byte_at with data, zeros) != 0:
             break
         set zeros is zeros + 1
     var digits as list of int is list of int
     if zeros < dl:
         var i as int is zeros
         while i < dl:
-            var carry as int is ord (data at i)
+            var carry as int is (calling _byte_at with data, i)
             var j as int is 0
             while j < digits.len:
                 var cur as int is (digits at j) * 256 + carry
@@ -1611,7 +1682,9 @@ weave encode_base58 with data as string into string:
     while d >= 0:
         calling parts.push with (BASE58_ALPHABET at (digits at d))
         set d is d - 1
-    return calling _concat_parts with parts
+    var out as string is calling _finish_parts with parts
+    banish digits
+    return out
 
 ## Decodes a Bitcoin Base58 string.
 ##
@@ -1632,15 +1705,16 @@ weave decode_base58 with data as string into maybe string:
         return some ""
     var zeros as int is 0
     while zeros < dl:
-        if (data at zeros) != "1":
+        if (calling _byte_at with data, zeros) != 49:
             break
         set zeros is zeros + 1
     var octets as list of int is list of int
     if zeros < dl:
         var i as int is zeros
         while i < dl:
-            var idx as int is calling _char_index with BASE58_ALPHABET, (data at i)
+            var idx as int is calling _char_index with BASE58_ALPHABET, (calling _byte_at with data, i)
             if idx < 0:
+                banish octets
                 return maybe none
             var carry as int is idx
             var j as int is 0
@@ -1662,7 +1736,9 @@ weave decode_base58 with data as string into maybe string:
     while b >= 0:
         calling parts.push with (chr (octets at b))
         set b is b - 1
-    return some (calling _concat_parts with parts)
+    var out as maybe string is some (calling _finish_parts with parts)
+    banish octets
+    return out
 
 # ----------------------------------------------------------------------------
 # URL percent-encoding
@@ -1689,7 +1765,7 @@ weave encode_url with s as string into string:
     var parts as list of string is list of string
     var i as int is 0
     while i < sl:
-        var code as int is ord (s at i)
+        var code as int is (calling _byte_at with s, i)
         var plain as bool is false
         if code >= 65 and code <= 90:
             set plain is true
@@ -1704,9 +1780,11 @@ weave encode_url with s as string into string:
         else:
             var hi as int is (code >> 4) & 15
             var lo as int is code & 15
-            calling parts.push with "%{(HEX_UPPER at hi)}{(HEX_UPPER at lo)}"
+            calling parts.push with "%"
+            calling parts.push with (chr (calling _byte_at with HEX_UPPER, hi))
+            calling parts.push with (chr (calling _byte_at with HEX_UPPER, lo))
         set i is i + 1
-    return calling _concat_parts with parts
+    return calling _finish_parts with parts
 
 ## Decodes a percent-encoded URL component.
 ##
@@ -1729,20 +1807,22 @@ weave decode_url with data as string into maybe string:
     var parts as list of string is list of string
     var i as int is 0
     while i < dl:
-        var ch as string is data at i
-        if ch != "%":
-            calling parts.push with ch
+        var code is (calling _byte_at with data, i)
+        if code != 37:
+            calling parts.push with (data at i)
             set i is i + 1
         else:
             if i + 2 >= dl:
+                calling _drop_parts with parts
                 return maybe none
-            var hi as int is calling _hex_val with (data at (i + 1))
-            var lo as int is calling _hex_val with (data at (i + 2))
+            var hi as int is calling _hex_val_byte with (calling _byte_at with data, (i + 1))
+            var lo as int is calling _hex_val_byte with (calling _byte_at with data, (i + 2))
             if hi < 0 or lo < 0:
+                calling _drop_parts with parts
                 return maybe none
             calling parts.push with (chr ((hi << 4) | lo))
             set i is i + 3
-    return some (calling _concat_parts with parts)
+    return some (calling _finish_parts with parts)
 
 # ----------------------------------------------------------------------------
 # CRC-32
@@ -1769,7 +1849,7 @@ weave crc32_hex with data as string into string:
     while shift >= 0:
         calling parts.push with (HEX_DIGITS at (((crc >> (shift to u32)) & 15) to int))
         set shift is shift - 4
-    return calling _concat_parts with parts
+    return calling _finish_parts with parts
 
 # ----------------------------------------------------------------------------
 # JSON string escaping and unescaping
@@ -1863,13 +1943,13 @@ weave _scan_string_body with s as string, start as int, quoted as bool, strict a
     if quoted:
         if cur >= sl:
             return maybe none
-        if ord (s at cur) != 34:
+        if (calling _byte_at with s, cur) != 34:
             return maybe none
         set cur is cur + 1
     var parts as list of string is list of string
     var closed as bool is not quoted
     while cur < sl:
-        var code as int is ord (s at cur)
+        var code as int is (calling _byte_at with s, cur)
         if quoted and code == 34:
             set cur is cur + 1
             set closed is true
@@ -1877,6 +1957,7 @@ weave _scan_string_body with s as string, start as int, quoted as bool, strict a
         if code != 92:
             if strict:
                 if code < 32:
+                    calling _drop_parts with parts
                     return maybe none
                 if code < 128:
                     calling parts.push with (s at cur)
@@ -1884,8 +1965,10 @@ weave _scan_string_body with s as string, start as int, quoted as bool, strict a
                     continue
                 var nlen as int is calling _utf8_seq_len with code
                 if nlen == 0:
+                    calling _drop_parts with parts
                     return maybe none
                 if not (calling _utf8_valid_seq with s, cur, nlen):
+                    calling _drop_parts with parts
                     return maybe none
                 calling parts.push with (s at cur to (cur + nlen))
                 set cur is cur + nlen
@@ -1896,10 +1979,11 @@ weave _scan_string_body with s as string, start as int, quoted as bool, strict a
         set cur is cur + 1
         if cur >= sl:
             if strict:
+                calling _drop_parts with parts
                 return maybe none
             calling parts.push with "\\"
             break
-        var ec as int is ord (s at cur)
+        var ec as int is (calling _byte_at with s, cur)
         if ec == 110:
             calling parts.push with (chr 10)
             set cur is cur + 1
@@ -1927,16 +2011,18 @@ weave _scan_string_body with s as string, start as int, quoted as bool, strict a
         else if ec == 117:
             if cur + 4 >= sl:
                 if strict:
+                    calling _drop_parts with parts
                     return maybe none
                 calling parts.push with "u"
                 set cur is cur + 1
                 continue
-            var h0 as int is calling _hex_val with (s at (cur + 1))
-            var h1 as int is calling _hex_val with (s at (cur + 2))
-            var h2 as int is calling _hex_val with (s at (cur + 3))
-            var h3 as int is calling _hex_val with (s at (cur + 4))
+            var h0 as int is calling _hex_val_byte with (calling _byte_at with s, (cur + 1))
+            var h1 as int is calling _hex_val_byte with (calling _byte_at with s, (cur + 2))
+            var h2 as int is calling _hex_val_byte with (calling _byte_at with s, (cur + 3))
+            var h3 as int is calling _hex_val_byte with (calling _byte_at with s, (cur + 4))
             if h0 < 0 or h1 < 0 or h2 < 0 or h3 < 0:
                 if strict:
+                    calling _drop_parts with parts
                     return maybe none
                 calling parts.push with "u"
                 set cur is cur + 1
@@ -1944,11 +2030,11 @@ weave _scan_string_body with s as string, start as int, quoted as bool, strict a
             var cp as int is (h0 * 4096) + (h1 * 256) + (h2 * 16) + h3
             if cp >= 55296 and cp <= 56319:
                 if cur + 10 < sl:
-                    if ord (s at (cur + 5)) == 92 and ord (s at (cur + 6)) == 117:
-                        var l0 as int is calling _hex_val with (s at (cur + 7))
-                        var l1 as int is calling _hex_val with (s at (cur + 8))
-                        var l2 as int is calling _hex_val with (s at (cur + 9))
-                        var l3 as int is calling _hex_val with (s at (cur + 10))
+                    if (calling _byte_at with s, (cur + 5)) == 92 and (calling _byte_at with s, (cur + 6)) == 117:
+                        var l0 as int is calling _hex_val_byte with (calling _byte_at with s, (cur + 7))
+                        var l1 as int is calling _hex_val_byte with (calling _byte_at with s, (cur + 8))
+                        var l2 as int is calling _hex_val_byte with (calling _byte_at with s, (cur + 9))
+                        var l3 as int is calling _hex_val_byte with (calling _byte_at with s, (cur + 10))
                         if l0 >= 0 and l1 >= 0 and l2 >= 0 and l3 >= 0:
                             var low as int is (l0 * 4096) + (l1 * 256) + (l2 * 16) + l3
                             if low >= 56320 and low <= 57343:
@@ -1957,21 +2043,25 @@ weave _scan_string_body with s as string, start as int, quoted as bool, strict a
                                 set cur is cur + 11
                                 continue
                 if strict:
+                    calling _drop_parts with parts
                     return maybe none
             else if cp >= 56320 and cp <= 57343:
                 if strict:
+                    calling _drop_parts with parts
                     return maybe none
             calling parts.push with (calling _utf8_encode_cp with cp)
             set cur is cur + 5
         else:
             if strict:
+                calling _drop_parts with parts
                 return maybe none
             calling parts.push with (s at cur)
             set cur is cur + 1
     if not closed:
+        calling _drop_parts with parts
         return maybe none
     set essence of endp is cur
-    return some (calling _concat_parts with parts)
+    return some (calling _finish_parts with parts)
 
 ## Unescapes a JSON-encoded string body (translates `\"`, `\\`, `\n`, `\r`,
 ## `\t`, `\b`, `\f`, `\/` and `\uXXXX` back to literals).
@@ -1992,7 +2082,12 @@ weave json_unescape with s as string into string:
     var end as int is 0
     var decoded as maybe string is calling _scan_string_body with s, 0, false, false, (sigil of end)
     if v as string is decoded:
-        return v
+        # `decoded` owns the payload; copy it out so the box can be released
+        # (banishing the box frees the payload too).
+        var out as string is "{v}"
+        banish decoded
+        return out
+    banish decoded
     return ""
 
 # ----------------------------------------------------------------------------
@@ -2014,7 +2109,7 @@ weave json_skip_ws with s as string, p as ref to int into void:
     while cur < sl:
         if done:
             break
-        var code as int is ord (s at cur)
+        var code as int is (calling _byte_at with s, cur)
         if code == 32 or code == 9 or code == 10 or code == 13:
             set cur is cur + 1
         else:
@@ -2065,7 +2160,7 @@ weave json_read_value with s as string, p as ref to int into string:
     var cur as int is essence of p
     if cur >= sl:
         return ""
-    var code as int is ord (s at cur)
+    var code as int is (calling _byte_at with s, cur)
     if code == 34:
         return calling json_read_str with s, p
     if code == 123 or code == 91:
@@ -2079,7 +2174,7 @@ weave json_read_value with s as string, p as ref to int into string:
         while cur < sl:
             if done2:
                 break
-            var cc as int is ord (s at cur)
+            var cc as int is (calling _byte_at with s, cur)
             if cc == 34:
                 var inner as string is calling json_read_str with s, (sigil of cur)
                 calling parts.push with (calling _quote with (calling _json_escape_raw with inner))
@@ -2093,10 +2188,10 @@ weave json_read_value with s as string, p as ref to int into string:
             if depth == 0:
                 set done2 is true
         set essence of p is cur
-        return calling _concat_parts with parts
+        return calling _finish_parts with parts
     var start as int is cur
     while cur < sl:
-        var rc as int is ord (s at cur)
+        var rc as int is (calling _byte_at with s, cur)
         if rc == 44 or rc == 125 or rc == 93 or rc == 32 or rc == 9 or rc == 10 or rc == 13:
             break
         set cur is cur + 1
@@ -2115,7 +2210,7 @@ weave json_is_literal with v as string into bool:
     var vl as int is v length
     if vl == 0:
         return false
-    var c0 as int is ord (v at 0)
+    var c0 as int is (calling _byte_at with v, 0)
     if c0 == 123 or c0 == 91:
         return true
     if v == "true" or v == "false" or v == "null":
@@ -2123,7 +2218,7 @@ weave json_is_literal with v as string into bool:
     if c0 >= 48 and c0 <= 57:
         return true
     if c0 == 45 and vl > 1:
-        var c1 as int is ord (v at 1)
+        var c1 as int is (calling _byte_at with v, 1)
         if c1 >= 48 and c1 <= 57:
             return true
     return false
@@ -2144,13 +2239,13 @@ weave _read_number_strict with s as string, p as ref to int into maybe string:
         set cur is cur + 1
     if cur >= sl:
         return maybe none
-    var c as int is ord (s at cur)
+    var c as int is (calling _byte_at with s, cur)
     if c == 48:
         set cur is cur + 1
     else if c >= 49 and c <= 57:
         set cur is cur + 1
         while cur < sl:
-            var c2 as int is ord (s at cur)
+            var c2 as int is (calling _byte_at with s, cur)
             if c2 < 48 or c2 > 57:
                 break
             set cur is cur + 1
@@ -2160,7 +2255,7 @@ weave _read_number_strict with s as string, p as ref to int into maybe string:
         set cur is cur + 1
         var frac as int is 0
         while cur < sl:
-            var c3 as int is ord (s at cur)
+            var c3 as int is (calling _byte_at with s, cur)
             if c3 < 48 or c3 > 57:
                 break
             set cur is cur + 1
@@ -2168,14 +2263,14 @@ weave _read_number_strict with s as string, p as ref to int into maybe string:
         if frac == 0:
             return maybe none
     if cur < sl:
-        var ce as int is ord (s at cur)
+        var ce as int is (calling _byte_at with s, cur)
         if ce == 101 or ce == 69:
             set cur is cur + 1
             if cur < sl and ((s at cur) == "+" or (s at cur) == "-"):
                 set cur is cur + 1
             var ed as int is 0
             while cur < sl:
-                var c4 as int is ord (s at cur)
+                var c4 as int is (calling _byte_at with s, cur)
                 if c4 < 48 or c4 > 57:
                     break
                 set cur is cur + 1
@@ -2227,7 +2322,7 @@ weave _parse_json_float with s as string into maybe float:
     var mant as float is 0.0
     var int_digits as int is 0
     while i < sl:
-        var c as int is ord (s at i)
+        var c as int is (calling _byte_at with s, i)
         if c < 48 or c > 57:
             break
         if int_digits < 9:
@@ -2241,7 +2336,7 @@ weave _parse_json_float with s as string into maybe float:
         var frac_digits as int is 0
         var scale as float is 1.0
         while i < sl:
-            var c2 as int is ord (s at i)
+            var c2 as int is (calling _byte_at with s, i)
             if c2 < 48 or c2 > 57:
                 break
             if frac_digits < 9:
@@ -2255,7 +2350,7 @@ weave _parse_json_float with s as string into maybe float:
     var expv as int is 0
     var exp_neg as bool is false
     if i < sl:
-        var ce as int is ord (s at i)
+        var ce as int is (calling _byte_at with s, i)
         if ce == 101 or ce == 69:
             set i is i + 1
             if i < sl and (s at i) == "-":
@@ -2265,7 +2360,7 @@ weave _parse_json_float with s as string into maybe float:
                 set i is i + 1
             var exp_digits as int is 0
             while i < sl:
-                var c3 as int is ord (s at i)
+                var c3 as int is (calling _byte_at with s, i)
                 if c3 < 48 or c3 > 57:
                     return maybe none
                 if expv < 1000:
@@ -2308,7 +2403,7 @@ weave _parse_value_at_depth with json as string, p as ref to int, depth as int i
     var cur as int is essence of p
     if cur >= sl:
         return maybe none
-    var code as int is ord (json at cur)
+    var code as int is (calling _byte_at with json, cur)
     if code == 34:
         var got as maybe string is calling _read_str_strict with json, p
         if text as string is got:
@@ -2340,12 +2435,12 @@ weave _parse_value_at_depth with json as string, p as ref to int, depth as int i
             var cp as int is essence of p
             if cp >= sl:
                 return maybe none
-            if ord (json at cp) == 125:
+            if (calling _byte_at with json, cp) == 125:
                 set essence of p is cp + 1
                 set running is false
                 continue
             if not is_first:
-                if ord (json at cp) != 44:
+                if (calling _byte_at with json, cp) != 44:
                     return maybe none
                 set essence of p is cp + 1
                 calling json_skip_ws with json, p
@@ -2356,7 +2451,7 @@ weave _parse_value_at_depth with json as string, p as ref to int, depth as int i
                 var cc as int is essence of p
                 if cc >= sl:
                     return maybe none
-                if ord (json at cc) != 58:
+                if (calling _byte_at with json, cc) != 58:
                     return maybe none
                 set essence of p is cc + 1
                 var child as maybe JsonValue is calling _parse_value_at_depth with json, p, depth + 1
@@ -2380,12 +2475,12 @@ weave _parse_value_at_depth with json as string, p as ref to int, depth as int i
             var cp2 as int is essence of p
             if cp2 >= sl:
                 return maybe none
-            if ord (json at cp2) == 93:
+            if (calling _byte_at with json, cp2) == 93:
                 set essence of p is cp2 + 1
                 set running2 is false
                 continue
             if not first2:
-                if ord (json at cp2) != 44:
+                if (calling _byte_at with json, cp2) != 44:
                     return maybe none
                 set essence of p is cp2 + 1
             set first2 is false
@@ -2435,7 +2530,7 @@ weave _skip_composite with s as string, p as int into maybe int:
     var sl as int is s length
     if p >= sl:
         return maybe none
-    var open as int is ord (s at p)
+    var open as int is (calling _byte_at with s, p)
     if open != 123 and open != 91:
         return maybe none
     var close as int is 125
@@ -2444,7 +2539,7 @@ weave _skip_composite with s as string, p as int into maybe int:
     var depth as int is 0
     var cur as int is p
     while cur < sl:
-        var code as int is ord (s at cur)
+        var code as int is (calling _byte_at with s, cur)
         if code == 34:
             var end as int is 0
             var inner as maybe string is calling _scan_string_body with s, cur, true, true, (sigil of end)
@@ -2476,7 +2571,7 @@ weave _read_raw_value_strict with s as string, p as ref to int into maybe string
     var sl as int is s length
     if cur >= sl:
         return maybe none
-    var code as int is ord (s at cur)
+    var code as int is (calling _byte_at with s, cur)
     if code == 34:
         return calling _read_str_strict with s, p
     if code == 123 or code == 91:
@@ -2536,7 +2631,7 @@ weave parse_json with json as string into maybe map of string to string:
     calling json_skip_ws with json, (sigil of p)
     if p >= dl:
         return maybe none
-    if ord (json at p) != 123:
+    if (calling _byte_at with json, p) != 123:
         return maybe none
     set p is p + 1
     var is_first as bool is true
@@ -2545,7 +2640,7 @@ weave parse_json with json as string into maybe map of string to string:
         calling json_skip_ws with json, (sigil of p)
         if p >= dl:
             return maybe none
-        var cc as int is ord (json at p)
+        var cc as int is (calling _byte_at with json, p)
         if cc == 125:
             set p is p + 1
             calling json_skip_ws with json, (sigil of p)
@@ -2563,7 +2658,7 @@ weave parse_json with json as string into maybe map of string to string:
             calling json_skip_ws with json, (sigil of p)
             if p >= dl:
                 return maybe none
-            if ord (json at p) != 58:
+            if (calling _byte_at with json, p) != 58:
                 return maybe none
             set p is p + 1
             var val as maybe string is calling _read_raw_value_strict with json, (sigil of p)
@@ -2609,7 +2704,7 @@ weave stringify_json with data as map of string to string into maybe string:
             calling parts.push with (calling _quote with (calling json_escape with val))
         set i is i + 1
     calling parts.push with r"}"
-    return some (calling _concat_parts with parts)
+    return some (calling _finish_parts with parts)
 
 ## Like `stringify_json` but indented across multiple lines.
 ##
@@ -2646,7 +2741,7 @@ weave pretty_json with data as map of string to string, indent as int is 2 into 
             calling parts.push with (calling _quote with (calling json_escape with val))
         set i is i + 1
     calling parts.push with "\n}"
-    return some (calling _concat_parts with parts)
+    return some (calling _finish_parts with parts)
 
 ## Reads a single JSON value and returns it as raw text.
 ##
@@ -2707,7 +2802,7 @@ weave parse_json_array with json as string into maybe list of string:
     calling json_skip_ws with json, (sigil of p)
     if p >= dl:
         return maybe none
-    if ord (json at p) != 91:
+    if (calling _byte_at with json, p) != 91:
         return maybe none
     set p is p + 1
     var is_first as bool is true
@@ -2716,7 +2811,7 @@ weave parse_json_array with json as string into maybe list of string:
         calling json_skip_ws with json, (sigil of p)
         if p >= dl:
             return maybe none
-        var cc as int is ord (json at p)
+        var cc as int is (calling _byte_at with json, p)
         if cc == 93:
             set p is p + 1
             calling json_skip_ws with json, (sigil of p)
@@ -2763,7 +2858,7 @@ weave stringify_json_array with items as list of string into maybe string:
             calling parts.push with (calling _quote with (calling json_escape with val))
         set i is i + 1
     calling parts.push with "]"
-    return some (calling _concat_parts with parts)
+    return some (calling _finish_parts with parts)
 
 ## Reads a file and parses its contents as a JSON array.
 ##
@@ -2806,7 +2901,7 @@ weave _spaces with n as int into string:
     while i < n:
         calling parts.push with " "
         set i is i + 1
-    return calling _concat_parts with parts
+    return calling _finish_parts with parts
 
 # ----------------------------------------------------------------------------
 # Generic JSON tree: parsing and serialization
@@ -3091,7 +3186,7 @@ weave _stringify_items with items as list of JsonValue, pretty as bool, level as
         calling parts.push with "\n"
         calling parts.push with (calling _spaces with (level * indent))
     calling parts.push with "]"
-    return calling _concat_parts with parts
+    return calling _finish_parts with parts
 
 ## Serializes an object payload (helper of `_stringify_value`).
 ##
@@ -3126,7 +3221,7 @@ weave _stringify_pairs with pairs as map of string to JsonValue, pretty as bool,
         calling parts.push with "\n"
         calling parts.push with (calling _spaces with (level * indent))
     calling parts.push with r"}"
-    return calling _concat_parts with parts
+    return calling _finish_parts with parts
 
 ## Serializes a `JsonValue` as compact JSON.
 ##
@@ -3603,7 +3698,7 @@ weave stringify_json_map_int with data as map of string to int into string:
         calling parts.push with ":{(data at key)}"
         set i is i + 1
     calling parts.push with r"}"
-    return calling _concat_parts with parts
+    return calling _finish_parts with parts
 
 ## Serializes a `map of string to float` as compact JSON with sorted keys.
 ##
@@ -3626,7 +3721,7 @@ weave stringify_json_map_float with data as map of string to float into string:
         calling parts.push with (calling _format_float with (data at key))
         set i is i + 1
     calling parts.push with r"}"
-    return calling _concat_parts with parts
+    return calling _finish_parts with parts
 
 ## Serializes a `map of string to bool` as compact JSON with sorted keys.
 ##
@@ -3651,7 +3746,7 @@ weave stringify_json_map_bool with data as map of string to bool into string:
             calling parts.push with ":false"
         set i is i + 1
     calling parts.push with r"}"
-    return calling _concat_parts with parts
+    return calling _finish_parts with parts
 
 # ----------------------------------------------------------------------------
 # JSON navigation: cloning, merging, paths and RFC 6901 pointers
@@ -4005,7 +4100,7 @@ weave _segment_index with seg as string, n as int, allow_end as bool into int:
     var val as int is 0
     var i as int is 0
     while i < sl:
-        var c as int is ord (seg at i)
+        var c as int is (calling _byte_at with seg, i)
         if c < 48 or c > 57:
             return -1
         if val > 100000000:

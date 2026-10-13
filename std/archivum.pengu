@@ -133,6 +133,74 @@ declare pengu_c_archivum_realpath with path as string into maybe string
 insignia archivum_
 
 # ----------------------------------------------------------------------------
+# Linear string bridges (`antiquus`)
+#
+# The line helpers below must not grow their result with
+# `set out is "{out}{piece}"`: every such step copies the whole accumulator and
+# leaks the previous buffer under the manual memory model (the compiler releases
+# nothing automatically). These two bridges allocate once and copy once, exactly
+# like the codecs of `std/cipher.pengu`.
+# ----------------------------------------------------------------------------
+
+## Returns a fresh owned copy of `s` (`pengu_string_copy` without a public symbol).
+##
+## ## Motivo
+## `pengu_string_split` returns a list whose elements are *views* into the source
+## buffer, so a split result cannot outlive the string it came from. The line
+## readers need owned elements in order to release the file text they read; this
+## bridge deep-copies one view without adding a public `declare` for the runtime
+## primitive (which `std/filum.pengu` already owns).
+##
+## ## Memoria
+## Allocates one owned buffer and returns it; the caller releases it with
+## `banish`. The input `s` is borrowed and never freed.
+antiquus _copy_string with s as string into string:
+    r"""
+return pengu_string_copy(s);
+"""
+
+## Joins `lines` with "\n" and appends one trailing "\n".
+##
+## ## Motivo
+## The PenguScript spelling of a linear join (`for x in lines: out = "{out}{x}"`)
+## is quadratic and leaks the accumulator on every step. This block sums the
+## lengths, allocates the result once and `memcpy`s each piece, so the cost is
+## linear and the copy is binary-exact (embedded NULs survive, matching
+## `pengu_string_format_ex`).
+##
+## ## Memoria
+## Allocates one owned buffer of exactly the joined length (plus the NUL) and
+## returns it; the caller releases it with `banish`. The input list and its
+## strings are only read, never retained.
+antiquus _join_lines with lines as list of string into string:
+    r"""
+const PenguString *items = (const PenguString *)lines.data;
+size_t total = 0;
+for (int i = 0; i < lines.len; i++) {
+  if (items[i].len > 0) total += (size_t)items[i].len;
+}
+/* One "\n" per element plus the trailing one; an empty list still yields "\n". */
+total += (lines.len > 0) ? (size_t)lines.len : (size_t)1;
+char *buf = (char *)malloc(total + 1);
+if (!buf) return pengu_string_from_cstr("");
+size_t off = 0;
+for (int i = 0; i < lines.len; i++) {
+  if (i > 0) buf[off++] = '\n';
+  if (items[i].len > 0 && items[i].data) {
+    memcpy(buf + off, items[i].data, (size_t)items[i].len);
+    off += (size_t)items[i].len;
+  }
+}
+buf[off++] = '\n';
+buf[off] = '\0';
+PenguString s;
+s.data = buf;
+s.len = (int)off;
+s.is_owned = 1;
+return s;
+"""
+
+# ----------------------------------------------------------------------------
 # Core File Operations
 # ----------------------------------------------------------------------------
 
@@ -271,12 +339,13 @@ weave read_file_result with path as string into result of string to IoError:
     # empty (successful) file.
     if calling is_dir with path:
         return calling err_of with IoError.IsADirectory
-    var content as maybe string is calling pengu_c_archivum_read_file with path
-    if content.is_present:
-        return calling ok_of with (content or else "")
-    if not calling exists with path:
-        return calling err_of with IoError.NotFound
-    return calling err_of with IoError.Unknown
+    # The `or:` block moves the payload out of the `maybe` and frees only its
+    # box, so the text stays owned by the returned `result` and no wrapper leaks.
+    var content as string is (calling pengu_c_archivum_read_file with path) or:
+        if not calling exists with path:
+            return calling err_of with IoError.NotFound
+        return calling err_of with IoError.Unknown
+    return calling ok_of with content
 
 ## Writes `content` to `path`, reporting the failure cause. `result of int to
 ## IoError` succeeds with 0 (bytes written is not exposed by the runtime).
@@ -584,14 +653,26 @@ weave read_dir with path as string into maybe list of string:
 ## ```
 weave read_dir_full with path as string into list of string:
     var out as list of string is list of string
-    let entries as maybe list of string is calling read_dir with path
+    var entries as maybe list of string is calling read_dir with path
     if entries.is_present:
-        let names as list of string is entries.value
+        var names as list of string is entries.value
         var i as int is 0
         while i < names.len:
-            let parts as list of string is [path, names at i]
+            # `[path, names at i]` used to be rebuilt (and dropped) every
+            # iteration; build one list, hand it to `join` and release it.
+            var parts as list of string is list of string
+            calling parts.push with path
+            calling parts.push with (names at i)
             calling out.push with (calling compass.join with parts)
+            banish parts
             set i is i + 1
+        # The entry names are owned by the caller of `read_dir`; `out` keeps the
+        # joined copies, so release every name and then the wrapper.
+        var j as int is 0
+        while j < names.len:
+            banish (names at j)
+            set j is j + 1
+    banish entries
     return out
 
 ## Copies file `src` to `dst`. When `overwrite` is false, an existing `dst` makes copy fail.
@@ -665,8 +746,9 @@ weave rename with old as string, new as string into bool:
 ## - "permissions": decimal string of POSIX permission mode bits (st_mode & 0777).
 ##
 ## ## Memoria
-## The map and its key/value strings are owned by the caller; release the buffer
-## with `banish`.
+## The map and its key/value strings are owned by the caller. `banish` on the
+## `maybe` frees the entry table only, so walk the map (`for k in md`), `banish`
+## each key and its `md.get` value, and then `banish` the wrapper.
 ##
 ## ## Ejemplo
 ## ```pengu
@@ -699,7 +781,18 @@ weave read_lines with path as string into maybe list of string:
     if content.is_present:
         var text as string is content.value
         var parts as list of string is calling text.split with "\n"
-        return some parts
+        # `split` hands back *views* into the file text, so every element is
+        # deep-copied before the text is released: the returned list owns its
+        # strings and `banish` on them is meaningful.
+        var owned as list of string is list of string
+        var i as int is 0
+        while i < parts.len:
+            calling owned.push with (calling _copy_string with (parts at i))
+            set i is i + 1
+        banish parts
+        banish content
+        return some owned
+    banish content
     return maybe none
 
 ## Reads at most `n` lines from `path`.
@@ -724,9 +817,19 @@ weave read_first_n_lines with path as string, n as int into maybe list of string
         var out as list of string is list of string
         var count_v as int is 0
         while (count_v < n) and (count_v < all_l.len):
+            # `push` copies the element struct, so `out` shares the buffer and
+            # takes ownership of the elements it receives.
             calling out.push with (all_l at count_v)
             set count_v is count_v + 1
+        # Release the elements that were not moved into `out`; banishing the
+        # wrapper frees only the element buffer, never the strings it points at.
+        var j as int is count_v
+        while j < all_l.len:
+            banish (all_l at j)
+            set j is j + 1
+        banish lines_opt
         return some out
+    banish lines_opt
     return maybe none
 
 ## Reads the last `n` lines of `path`.
@@ -753,11 +856,22 @@ weave read_last_n_lines with path as string, n as int into maybe list of string:
         var start_at as int is all_l.len - n
         if start_at < 0:
             set start_at is 0
+        if start_at > all_l.len:
+            # A negative `n` makes `len - n` exceed the list; clamp it so the
+            # release loop below never indexes past the end.
+            set start_at is all_l.len
         var i as int is start_at
         while i < all_l.len:
             calling out.push with (all_l at i)
             set i is i + 1
+        # Release the leading elements that were not moved into `out`.
+        var j as int is 0
+        while j < start_at:
+            banish (all_l at j)
+            set j is j + 1
+        banish lines_opt
         return some out
+    banish lines_opt
     return maybe none
 
 ## Returns the total number of lines in file `path`.
@@ -778,7 +892,14 @@ weave count_lines with path as string into maybe int:
     var lines_opt as maybe list of string is calling read_lines with path
     if lines_opt.is_present:
         var ll as list of string is lines_opt.value
-        return some (ll.len)
+        var total as int is ll.len
+        var i as int is 0
+        while i < ll.len:
+            banish (ll at i)
+            set i is i + 1
+        banish lines_opt
+        return some total
+    banish lines_opt
     return maybe none
 
 ## Joins `lines` with "\n", appends a trailing "\n", and writes to `path`.
@@ -795,14 +916,10 @@ weave count_lines with path as string into maybe int:
 ## calling archivum.write_lines with "notes.txt", ["a", "b"]
 ## ```
 weave write_lines with path as string, lines as list of string into bool:
-    var out as string is ""
-    var i as int is 0
-    while i < lines.len:
-        if i > 0:
-            set out is "{out}\n"
-        set out is "{out}{(lines at i)}"
-        set i is i + 1
-    return calling write_file with path, ("{out}\n")
+    var payload as string is calling _join_lines with lines
+    var wrote as bool is calling write_file with path, payload
+    banish payload
+    return wrote
 
 ## Joins `lines` with "\n", appends a trailing "\n", and appends to `path`.
 ##
@@ -818,14 +935,10 @@ weave write_lines with path as string, lines as list of string into bool:
 ## calling archivum.append_lines with "notes.txt", ["c"]
 ## ```
 weave append_lines with path as string, lines as list of string into bool:
-    var out as string is ""
-    var i as int is 0
-    while i < lines.len:
-        if i > 0:
-            set out is "{out}\n"
-        set out is "{out}{(lines at i)}"
-        set i is i + 1
-    return calling append_file with path, ("{out}\n")
+    var payload as string is calling _join_lines with lines
+    var wrote as bool is calling append_file with path, payload
+    banish payload
+    return wrote
 
 # ----------------------------------------------------------------------------
 # Result Variants of the Line and Directory Helpers
@@ -850,10 +963,10 @@ weave append_lines with path as string, lines as list of string into bool:
 weave read_lines_result with path as string into result of list of string to IoError:
     if calling is_dir with path:
         return calling err_of with IoError.IsADirectory
-    var line_list as maybe list of string is calling read_lines with path
-    if line_list.is_present:
-        return calling ok_of with (line_list or else list of string)
-    return calling err_of with IoError.Unknown
+    # `or:` moves the list payload into `lines` and frees only the `maybe` box.
+    var lines as list of string is (calling read_lines with path) or:
+        return calling err_of with IoError.Unknown
+    return calling ok_of with lines
 
 ## Writes `lines` joined by "\n" with a trailing "\n", reporting the failure cause.
 ##
@@ -874,14 +987,10 @@ weave read_lines_result with path as string into result of list of string to IoE
 ## let r as result of int to archivum.IoError is calling archivum.write_lines_result with "notes.txt", ["a"]
 ## ```
 weave write_lines_result with path as string, lines as list of string into result of int to IoError:
-    var out as string is ""
-    var i as int is 0
-    while i < lines.len:
-        if i > 0:
-            set out is "{out}\n"
-        set out is "{out}{(lines at i)}"
-        set i is i + 1
-    return calling write_file_result with path, ("{out}\n")
+    var payload as string is calling _join_lines with lines
+    var outcome as result of int to IoError is calling write_file_result with path, payload
+    banish payload
+    return outcome
 
 ## Appends `lines` joined by "\n" with a trailing "\n", reporting the failure cause.
 ##
@@ -903,14 +1012,9 @@ weave write_lines_result with path as string, lines as list of string into resul
 weave append_lines_result with path as string, lines as list of string into result of int to IoError:
     if calling is_dir with path:
         return calling err_of with IoError.IsADirectory
-    var out as string is ""
-    var i as int is 0
-    while i < lines.len:
-        if i > 0:
-            set out is "{out}\n"
-        set out is "{out}{(lines at i)}"
-        set i is i + 1
-    var appended as bool is calling append_file with path, ("{out}\n")
+    var payload as string is calling _join_lines with lines
+    var appended as bool is calling append_file with path, payload
+    banish payload
     if appended:
         return calling ok_of with 0
     return calling err_of with IoError.Unknown
@@ -935,10 +1039,9 @@ weave append_lines_result with path as string, lines as list of string into resu
 weave read_dir_result with path as string into result of list of string to IoError:
     if not (calling is_dir with path):
         return calling err_of with (calling _missing_dir_error with path)
-    var entries as maybe list of string is calling read_dir with path
-    if entries.is_present:
-        return calling ok_of with (entries or else list of string)
-    return calling err_of with IoError.Unknown
+    var entries as list of string is (calling read_dir with path) or:
+        return calling err_of with IoError.Unknown
+    return calling ok_of with entries
 
 ## Creates the directory at `path`, reporting the failure cause.
 ##
@@ -1124,10 +1227,9 @@ weave symlink_result with target as string, link as string into result of bool t
 weave metadata_result with path as string into result of map of string to string to IoError:
     if not calling exists with path:
         return calling err_of with IoError.NotFound
-    var md as maybe map of string to string is calling metadata with path
-    if md.is_present:
-        return calling ok_of with (md or else map of string to string)
-    return calling err_of with IoError.Unknown
+    var md as map of string to string is (calling metadata with path) or:
+        return calling err_of with IoError.Unknown
+    return calling ok_of with md
 
 # ----------------------------------------------------------------------------
 # Search Helpers
@@ -1244,6 +1346,23 @@ weave realpath with path as string into maybe string:
 # Extended Size, Time & Permission Helpers
 # ----------------------------------------------------------------------------
 
+# Releases every key/value string of a metadata map, then the map and its
+# `maybe` wrapper.
+#
+# `pengu_c_archivum_metadata` builds 8 owned keys and 8 owned values with
+# `pengu_string_new` and stores them in a map that keeps only the *bytes* of the
+# `PenguString` header.  `banish m` on the wrapper frees the entry cells but not
+# the 16 payload buffers, so a consumer that only reads one key must walk the
+# map and release every key and value explicitly.
+weave _release_metadata with m as maybe map of string to string into void:
+    if m.is_present:
+        var md as map of string to string is m.value
+        for k in md:
+            var v as string is calling md.get with k
+            banish v
+            banish k
+    banish m
+
 # Returns the `int` stored under `key` in metadata `md`, or `maybe none`.
 weave _metadata_int with path as string, key as string into maybe int:
     var m as maybe map of string to string is calling metadata with path
@@ -1251,7 +1370,10 @@ weave _metadata_int with path as string, key as string into maybe int:
         var md as map of string to string is m.value
         if calling md.contains with key:
             var val_str as string is calling md.get with key
-            return calling spark.parse_int with val_str
+            var parsed as maybe int is calling spark.parse_int with val_str
+            calling _release_metadata with m
+            return parsed
+    calling _release_metadata with m
     return maybe none
 
 # True when `path` is a regular file whose mode has any bit of `mask` set.
@@ -1262,7 +1384,10 @@ weave _has_mode_bit with path as string, mask as int into bool:
         return false
     let perm_mode as maybe int is calling permissions with path
     if perm_mode.is_present:
-        return (perm_mode.value & mask) != 0
+        var mode as int is perm_mode.value
+        banish perm_mode
+        return (mode & mask) != 0
+    banish perm_mode
     return false
 
 # IoError for a path that should be a directory but is missing or not one.
@@ -1313,7 +1438,14 @@ weave dir_size with path as string, recursive as bool is false into maybe int:
             var sz as maybe int is calling file_size with (files at i)
             if sz.is_present:
                 set total is total + sz.value
+            banish sz
             set i is i + 1
+        # Every path string is owned by this list; release them before the buffer.
+        var j as int is 0
+        while j < files.len:
+            banish (files at j)
+            set j is j + 1
+        banish files
         return some total
     else:
         var entries as maybe list of string is calling read_dir with path
@@ -1326,8 +1458,16 @@ weave dir_size with path as string, recursive as bool is false into maybe int:
                     var sz as maybe int is calling file_size with fp
                     if sz.is_present:
                         set total is total + sz.value
+                    banish sz
+                banish fp
                 set i is i + 1
+            var j as int is 0
+            while j < l.len:
+                banish (l at j)
+                set j is j + 1
+            banish entries
             return some total
+        banish entries
     return maybe none
 
 ## Returns the last modification time of `path` as a Unix timestamp float.
@@ -1346,7 +1486,10 @@ weave dir_size with path as string, recursive as bool is false into maybe int:
 weave modified_time with path as string into maybe float:
     var i_val as maybe int is calling _metadata_int with path, "modified"
     if i_val.is_present:
-        return some ((i_val.value) to float)
+        var seconds as float is (i_val.value) to float
+        banish i_val
+        return some seconds
+    banish i_val
     return maybe none
 
 ## Returns the creation time of `path` as a Unix timestamp float.
@@ -1365,7 +1508,10 @@ weave modified_time with path as string into maybe float:
 weave created_time with path as string into maybe float:
     var i_val as maybe int is calling _metadata_int with path, "created"
     if i_val.is_present:
-        return some ((i_val.value) to float)
+        var seconds as float is (i_val.value) to float
+        banish i_val
+        return some seconds
+    banish i_val
     return maybe none
 
 ## Returns the last access time of `path` as a Unix timestamp float.
@@ -1384,7 +1530,10 @@ weave created_time with path as string into maybe float:
 weave accessed_time with path as string into maybe float:
     var i_val as maybe int is calling _metadata_int with path, "accessed"
     if i_val.is_present:
-        return some ((i_val.value) to float)
+        var seconds as float is (i_val.value) to float
+        banish i_val
+        return some seconds
+    banish i_val
     return maybe none
 
 ## Returns the file mode/permissions of `path` as an octal integer mode.
@@ -1421,7 +1570,10 @@ weave is_empty_file with path as string into bool:
         return false
     var sz as maybe int is calling file_size with path
     if sz.is_present:
-        return sz.value == 0
+        var byte_count as int is sz.value
+        banish sz
+        return byte_count == 0
+    banish sz
     return false
 
 ## True when `path` is an existing directory containing zero entries.
@@ -1443,7 +1595,15 @@ weave is_empty_dir with path as string into bool:
     var entries as maybe list of string is calling read_dir with path
     if entries.is_present:
         var l as list of string is entries.value
-        return l.len == 0
+        var empty as bool is l.len == 0
+        # The entry names are owned by this caller: release them before the box.
+        var i as int is 0
+        while i < l.len:
+            banish (l at i)
+            set i is i + 1
+        banish entries
+        return empty
+    banish entries
     return false
 
 # ----------------------------------------------------------------------------
@@ -1475,8 +1635,16 @@ weave find_files with root as string, recursive as bool is true into list of str
         while i < l.len:
             var fp as string is "{root}/{(l at i)}"
             if calling is_file with fp:
+                # `push` copies the struct: `out` takes ownership of the buffer.
                 calling out.push with fp
+            else:
+                banish fp
             set i is i + 1
+        var j as int is 0
+        while j < l.len:
+            banish (l at j)
+            set j is j + 1
+    banish entries
     return out
 
 ## Returns list of all subdirectories in directory `root`.
@@ -1507,10 +1675,20 @@ weave find_dirs with root as string, recursive as bool is true into list of stri
             while i < l.len:
                 var dp as string is "{cur}/{(l at i)}"
                 if calling is_dir with dp:
+                    # `out` owns this path; the stack only aliases it, so it is
+                    # never banished through `cur` (the root is a borrowed view).
                     calling out.push with dp
                     if recursive:
                         calling stack.push with dp
+                else:
+                    banish dp
                 set i is i + 1
+            var j as int is 0
+            while j < l.len:
+                banish (l at j)
+                set j is j + 1
+        banish entries
+    banish stack
     return out
 
 ## Finds files under `root` whose basename exactly matches `target_name`.
@@ -1534,9 +1712,16 @@ weave find_by_name with root as string, target_name as string, recursive as bool
     var i as int is 0
     while i < files.len:
         var f as string is files at i
-        if (calling compass.basename with f) == target_name:
+        var base as string is calling compass.basename with f
+        var match as bool is base == target_name
+        banish base
+        if match:
+            # Ownership of the path buffer moves to `out`.
             calling out.push with f
+        else:
+            banish f
         set i is i + 1
+    banish files
     return out
 
 ## Finds files under `root` whose extension matches `extension` (e.g. ".log" or "log").
@@ -1557,17 +1742,34 @@ weave find_by_name with root as string, target_name as string, recursive as bool
 ## ```
 weave find_by_ext with root as string, extension as string, recursive as bool is true into list of string:
     var ext_target as string is extension
-    if ext_target length > 0:
-        if (ext_target at 0) != ".":
-            set ext_target is ".{ext_target}"
+    var ext_owned as bool is false
+    if (ext_target length) > 0:
+        # `ext_target at 0` allocates a one-byte owned string: release it.
+        var first as string is ext_target at 0
+        var has_dot as bool is first == "."
+        banish first
+        if not has_dot:
+            var dotted as string is ".{ext_target}"
+            set ext_target is dotted
+            set ext_owned is true
     var files as list of string is calling find_files with root, recursive
     var out as list of string is list of string
     var i as int is 0
     while i < files.len:
         var f as string is files at i
-        if (calling compass.ext with f) == ext_target:
+        var fext as string is calling compass.ext with f
+        var match as bool is fext == ext_target
+        banish fext
+        if match:
             calling out.push with f
+        else:
+            banish f
         set i is i + 1
+    banish files
+    # Only release `ext_target` when this weave allocated the dotted form; the
+    # plain form aliases the borrowed `extension`.
+    if ext_owned:
+        banish ext_target
     return out
 
 # ----------------------------------------------------------------------------
@@ -1586,18 +1788,16 @@ weave find_by_ext with root as string, extension as string, recursive as bool is
 ## ```
 weave temp_dir into string:
     when os == "windows":
-        var t1 as maybe string is calling rites.getenv with "TEMP"
-        if t1.is_present:
-            return t1.value
-        var t2 as maybe string is calling rites.getenv with "TMP"
-        if t2.is_present:
-            return t2.value
-        return "C:\\Temp"
+        # `or:` frees the `maybe` box of `getenv` while moving the payload out.
+        var t1 as string is (calling rites.getenv with "TEMP") or:
+            var t2 as string is (calling rites.getenv with "TMP") or:
+                return "C:\\Temp"
+            return t2
+        return t1
     else:
-        var td as maybe string is calling rites.getenv with "TMPDIR"
-        if td.is_present:
-            return td.value
-        return "/tmp"
+        var td as string is (calling rites.getenv with "TMPDIR") or:
+            return "/tmp"
+        return td
 
 ## Generates a unique temporary file path within the system temporary directory.
 ##
@@ -1619,17 +1819,30 @@ weave temp_dir into string:
 weave temp_file with prefix as string is "pengu" into string:
     var tdir as string is calling temp_dir
     var pid as int is calling rites.getpid
+    var pid_text as string is (pid to string)
     var i as int is 0
     while i < 10000:
-        var name as string is "{prefix}_{(pid to string)}_{(i to string)}.tmp"
+        # Every `to string` and interpolation is an owned buffer that nothing
+        # else releases: build, use and banish one candidate at a time.
+        var i_text as string is (i to string)
+        var name as string is "{prefix}_{pid_text}_{i_text}.tmp"
+        banish i_text
         var parts as list of string is list of string
         calling parts.push with tdir
         calling parts.push with name
         var cand as string is calling compass.join with parts
+        banish parts
+        banish name
         if not (calling exists with cand):
+            banish pid_text
+            banish tdir
             return cand
+        banish cand
         set i is i + 1
-    return "{tdir}/{prefix}.tmp"
+    var fallback as string is "{tdir}/{prefix}.tmp"
+    banish pid_text
+    banish tdir
+    return fallback
 
 # ----------------------------------------------------------------------------
 # Recursive Directory Helpers
@@ -1666,35 +1879,70 @@ weave copy_tree with src as string, dst as string into bool:
     var made_root as bool is calling create_dir with dst, true
     if not made_root:
         return false
+    # A failure stops the traversal exactly where the old early `return false`
+    # did; the flag only lets the loop release every buffer before leaving.
+    var failed as bool is false
     var stack as list of FsCopyTask is list of FsCopyTask
+    var first_task as bool is true
     var seed as FsCopyTask is with s is src, d is dst
     calling stack.push with seed
-    while stack.len > 0:
+    while (stack.len > 0) and (not failed):
         var last_task as FsCopyTask is stack at (stack.len - 1)
         calling stack.pop
         var entries as maybe list of string is calling read_dir with last_task.s
         if entries.is_present:
             var list_e as list of string is entries.value
             var i as int is 0
-            while i < list_e.len:
+            while (i < list_e.len) and (not failed):
                 var name as string is list_e at i
                 var sp as string is "{last_task.s}/{name}"
                 var dp as string is "{last_task.d}/{name}"
                 if calling is_dir with sp:
                     var made_sub as bool is calling create_dir with dp, true
-                    if not made_sub:
-                        return false
-                    var task as FsCopyTask is with s is sp, d is dp
-                    calling stack.push with task
+                    if made_sub:
+                        var task as FsCopyTask is with s is sp, d is dp
+                        calling stack.push with task
+                    else:
+                        set failed is true
+                        banish sp
+                        banish dp
                 else:
                     if calling is_file with sp:
                         var content as maybe string is calling read_file with sp
-                        if not content.is_present:
-                            return false
-                        var wrote as bool is calling write_file with dp, content.value
-                        if not wrote:
-                            return false
+                        if content.is_present:
+                            var wrote as bool is calling write_file with dp, content.value
+                            if not wrote:
+                                set failed is true
+                        else:
+                            set failed is true
+                        banish content
+                        banish sp
+                        banish dp
+                    else:
+                        banish sp
+                        banish dp
                 set i is i + 1
+            var j as int is 0
+            while j < list_e.len:
+                banish (list_e at j)
+                set j is j + 1
+        banish entries
+        # The seed holds borrowed views of the parameters; every task queued
+        # afterwards owns its two paths. Never release the seed's strings.
+        if not first_task:
+            banish last_task.s
+            banish last_task.d
+        set first_task is false
+    # Release directory pairs still queued after a failure.
+    var q as int is 0
+    while q < stack.len:
+        var pending as FsCopyTask is stack at q
+        banish pending.s
+        banish pending.d
+        set q is q + 1
+    banish stack
+    if failed:
+        return false
     return true
 
 ## Recursively lists every file below root.
@@ -1714,6 +1962,7 @@ weave copy_tree with src as string, dst as string into bool:
 weave list_files_recursive with root as string into list of string:
     var out as list of string is list of string
     var dirs as list of string is list of string
+    var first_dir as bool is true
     calling dirs.push with root
     while dirs.len > 0:
         var last_d as string is dirs at (dirs.len - 1)
@@ -1726,11 +1975,25 @@ weave list_files_recursive with root as string into list of string:
                 var name as string is list_d at i
                 var p as string is "{last_d}/{name}"
                 if calling is_dir with p:
+                    # The path becomes a queued directory; it is released when
+                    # it is popped again (the root is a borrowed view).
                     calling dirs.push with p
                 else:
                     if calling is_file with p:
                         calling out.push with p
+                    else:
+                        banish p
                 set i is i + 1
+            var j as int is 0
+            while j < list_d.len:
+                banish (list_d at j)
+                set j is j + 1
+        banish entries
+        # The first entry is the borrowed `root`; queued directories own a path.
+        if not first_dir:
+            banish last_d
+        set first_dir is false
+    banish dirs
     return out
 
 # ----------------------------------------------------------------------------
@@ -1890,7 +2153,9 @@ weave _arch_expect_true with cond as bool, label as string into void:
 ## Joins `base` and `name` into a test path with the module separator.
 weave _arch_path with base as string, name as string into string:
     let parts as list of string is [base, name]
-    return calling compass.join with parts
+    var joined as string is calling compass.join with parts
+    banish parts
+    return joined
 
 ## Removes any leftover `base` and recreates it empty; returns `base`.
 weave _arch_fresh_dir with base as string into string:
@@ -1907,7 +2172,10 @@ weave _arch_cleanup with base as string into void:
 ## Builds the unique test directory `/tmp/pengu_arch_test_<pid>_<name>`.
 weave _arch_base with name as string into string:
     let pid as int is calling rites.getpid
-    return "/tmp/pengu_arch_test_{(pid to string)}_{name}"
+    var pid_text as string is (pid to string)
+    var base as string is "/tmp/pengu_arch_test_{pid_text}_{name}"
+    banish pid_text
+    return base
 
 test "ARCHIVUM_VERSION is 2.1.0":
     calling _arch_expect_str with ARCHIVUM_VERSION, "2.1.0", "version"

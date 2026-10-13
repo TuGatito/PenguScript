@@ -2388,6 +2388,11 @@ The compiler allocates and releases nothing on its own. In particular:
 - **No deep copy on store.** `list.push` / `map.put` copy the element bytes with `memcpy` and never clone the payload; writing a `string` into a struct field or a container element is the same copy. The container does not take over releasing what the copy points at.
 - **No implicit `Imago` / `Nexus`.** A rune gets a clone callback or a destructor only when it declares `derive Imago` / `derive Nexus` (§11.6). Nothing derives them from the fields.
 - **No hidden boxing clone.** `some x`, `ok x` and `err x` store a `memcpy` of the payload in a `PenguMaybe`/`PenguResult`; they do not duplicate a heap buffer it references.
+- **Two owning temporaries have no name to banish.** Both follow from the rule above and must be handled by binding the value to a local:
+  - an interpolated literal passed *directly* to a call — `calling println with "{x}"` — allocates a fresh `string` (LANGUAGE.md §15.2) that no binding names, so it leaks. Bind it first: `let msg as string is "{x}"`, then `banish msg` when done. The same applies to `(x to string)`, `s.substring`, `s.char_at`, `s.trim` and every other owned-string producer used as an argument.
+  - `for ch in s` binds `ch` to a **fresh owned one-byte `string` per iteration** (a `pengu_string_char_at` result, not a view). If the body neither stores nor `banish ch`es it, it leaks; `banish ch` at the end of the body releases it, and a `return`/`break` leaves the current `ch` to be released before leaving. Iterate bytes without allocating with a `ref to byte` index loop (`bytes of s`) when the character is only inspected.
+  
+  `banish` rejects a non-lvalue (`E0008`), so neither temporary can be released in place; binding it is the only spelling that works.
 
 The runtime helpers that made the old automatic model possible — `PenguElemCleanup`, `PenguElemClone`, `pengu_list_new_owned`, `pengu_map_new_owned`, `pengu_list_cleanup`, `pengu_list_clone`, `pengu_map_cleanup`, `pengu_map_clone`, `pengu_string_cleanup` and `pengu_string_clone` — no longer exist. `pengu_string_copy` and `pengu_banish_string` remain.
 

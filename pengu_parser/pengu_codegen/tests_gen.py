@@ -56,7 +56,10 @@ class TestsMixin:
                     lines.append(f"{self.indent()}/* Deferred cleanup */")
                     for d in reversed(active_defers):
                         lines.append(self._format_defer_cleanup(d, self.indent()))
-            lines.append(f"{self.indent()}pengu_frame_pop();")
+                # Only the fall-through exit needs the pop; a trailing jump
+                # (return/break/continue) already emitted its own, and a call
+                # after the jump is unreachable code.
+                lines.append(f"{self.indent()}pengu_frame_pop();")
             self.indent_level -= 1
             lines.append("}")
             blocks.append("\n".join(lines))

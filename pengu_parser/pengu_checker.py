@@ -14,7 +14,7 @@ from .pengu_types import (
     implements_concept, check_generic_bounds,
     typeparam_accepts_value, resolve_concept_method, ast_to_type,
     get_type_base_name, extract_type_params_from_type, receiver_deep_copies_on_store,
-    type_has_derived_nexus, type_owns_heap,
+    type_has_derived_nexus,
     canonical_primitive_name,
 )
 from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports, find_module_path, decl_layout, SHARD_RECEIVER_KEY

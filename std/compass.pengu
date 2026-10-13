@@ -91,100 +91,112 @@ weave cp_win into bool:
     else:
         return false
 
-## True when `c` is a path separator: "/" or a backslash.
-weave cp_is_sep with c as string into bool:
-    return judge c:
-        when "/" -> true
-        when "\\" -> true
-        else -> false
+## True when the byte `b` is a path separator: "/" (47) or a backslash (92).
+##
+## ## Memoria
+## Allocates nothing. The byte is a plain integer, so a separator test no longer
+## materialises a one-byte `path at i` string that nobody released.
+weave cp_is_sep with b as int into bool:
+    return (b == 47) or (b == 92)
 
-## True when `c` is an ASCII letter (A-Z or a-z); detects Windows drive letters.
-weave cp_is_letter with c as string into bool:
-    let code as int is ord c
-    return ((code >= 65) and (code <= 90)) or ((code >= 97) and (code <= 122))
+## True when the byte `b` is an ASCII letter (A-Z or a-z); detects Windows drive
+## letters.
+##
+## ## Memoria
+## Allocates nothing. The byte is a plain integer.
+weave cp_is_letter with b as int into bool:
+    return ((b >= 65) and (b <= 90)) or ((b >= 97) and (b <= 122))
 
 ## Preferred separator for this platform: "\\" on Windows, "/" elsewhere.
 weave cp_sep into string:
     return if calling cp_win then "\\" else "/"
 
 ## True when `path` is absolute.
+##
+## ## Memoria
+## Allocates nothing: the bytes are read through `bytes of`, never through
+## `path at i` (which would heap-allocate a one-byte string per probe).
 weave cp_is_abs with path as string into bool:
     let pl as int is path length
     if pl == 0:
         return false
+    let pb as ref to frozen byte is bytes of path
     if calling cp_win:
         if pl >= 2:
-            let d0 as string is path at 0
-            let d1 as string is path at 1
-            if (calling cp_is_letter with d0) and (d1 == ":"):
+            if (calling cp_is_letter with (pb at 0)) and ((pb at 1) == 58):
                 return true
-        let c0 as string is path at 0
-        if calling cp_is_sep with c0:
+        if calling cp_is_sep with (pb at 0):
             return true
         return false
-    let c0p as string is path at 0
-    if c0p == "/":
+    if (pb at 0) == 47:
         return true
     return false
 
 ## True when `path` is exactly a filesystem root.
+##
+## ## Memoria
+## Allocates nothing; the probes read bytes through `bytes of`.
 weave cp_is_root with path as string into bool:
     let pl as int is path length
     if pl == 0:
         return false
+    let pb as ref to frozen byte is bytes of path
     if pl == 1:
-        let c0 as string is path at 0
-        if calling cp_is_sep with c0:
+        if calling cp_is_sep with (pb at 0):
             return true
     if calling cp_win:
         if pl == 2:
-            let d0 as string is path at 0
-            let d1 as string is path at 1
-            if (calling cp_is_letter with d0) and (d1 == ":"):
+            if (calling cp_is_letter with (pb at 0)) and ((pb at 1) == 58):
                 return true
         if pl == 3:
-            let e0 as string is path at 0
-            let e1 as string is path at 1
-            let e2 as string is path at 2
-            if (calling cp_is_letter with e0) and (e1 == ":") and (calling cp_is_sep with e2):
+            if (calling cp_is_letter with (pb at 0)) and ((pb at 1) == 58) and (calling cp_is_sep with (pb at 2)):
                 return true
     return false
 
 ## Windows drive prefix of `path` (e.g. "C:"), or "" when there is none.
+##
+## ## Memoria
+## Returns a fresh owned two-byte copy when a drive is present (release it with
+## `banish`), or a borrowed empty view otherwise. Allocates at most once and
+## never materialises the individual drive characters.
 weave cp_drive with path as string into string:
     let pl as int is path length
     if calling cp_win:
         if pl >= 2:
-            let d0 as string is path at 0
-            let d1 as string is path at 1
-            if (calling cp_is_letter with d0) and (d1 == ":"):
-                return "{d0}:"
+            let pb as ref to frozen byte is bytes of path
+            if (calling cp_is_letter with (pb at 0)) and ((pb at 1) == 58):
+                return path at 0 to 2
     return ""
 
 ## Final component of `path`; "" when `path` is empty or only separators.
+##
+## ## Memoria
+## Returns a fresh owned substring (release it with `banish`) or a borrowed empty
+## view. Separator probes are allocation-free byte reads.
 weave cp_basename with path as string into string:
     let pl as int is path length
     if pl == 0:
         return ""
+    let pb as ref to frozen byte is bytes of path
     var e as int is pl - 1
     while e > 0:
-        if calling cp_is_sep with (path at e):
+        if calling cp_is_sep with (pb at e):
             set e is e - 1
         else:
             break
     if e == 0:
-        if calling cp_is_sep with (path at 0):
+        if calling cp_is_sep with (pb at 0):
             return ""
     var s as int is e
     while true:
         if s < 0:
             break
-        if calling cp_is_sep with (path at s):
+        if calling cp_is_sep with (pb at s):
             break
         if calling cp_win:
             if s == 1:
-                if (path at 1) == ":":
-                    if calling cp_is_letter with (path at 0):
+                if (pb at 1) == 58:
+                    if calling cp_is_letter with (pb at 0):
                         break
         set s is s - 1
     set s is s + 1
@@ -194,13 +206,18 @@ weave cp_basename with path as string into string:
     return path at s to (e + 1)
 
 ## Directory portion of `path` without a trailing separator; "" when there is none.
+##
+## ## Memoria
+## Returns a fresh owned substring (release it with `banish`) or a borrowed empty
+## view. All separator probes are allocation-free byte reads.
 weave cp_dirname with path as string into string:
     let pl as int is path length
     if pl == 0:
         return ""
+    let pb as ref to frozen byte is bytes of path
     var e as int is pl - 1
     while e > 0:
-        if calling cp_is_sep with (path at e):
+        if calling cp_is_sep with (pb at e):
             set e is e - 1
         else:
             break
@@ -209,13 +226,13 @@ weave cp_dirname with path as string into string:
         if e < 0:
             set skip is false
         else:
-            if calling cp_is_sep with (path at e):
+            if calling cp_is_sep with (pb at e):
                 set skip is false
             else:
                 if calling cp_win:
                     if e == 1:
-                        if (path at 1) == ":":
-                            if calling cp_is_letter with (path at 0):
+                        if (pb at 1) == 58:
+                            if calling cp_is_letter with (pb at 0):
                                 set skip is false
                 if skip:
                     set e is e - 1
@@ -226,11 +243,11 @@ weave cp_dirname with path as string into string:
         if e <= 0:
             set skip2 is false
         else:
-            if calling cp_is_sep with (path at e):
+            if calling cp_is_sep with (pb at e):
                 if calling cp_win:
                     if e == 2:
-                        if (path at 1) == ":":
-                            if calling cp_is_letter with (path at 0):
+                        if (pb at 1) == 58:
+                            if calling cp_is_letter with (pb at 0):
                                 set skip2 is false
                 if skip2:
                     set e is e - 1
@@ -239,16 +256,21 @@ weave cp_dirname with path as string into string:
     return path at 0 to (e + 1)
 
 ## Extension of the basename, dot included (e.g. ".txt"); "" when there is none.
+##
+## ## Memoria
+## Returns a fresh owned substring (release it with `banish`) or a borrowed empty
+## view; the dot scan is an allocation-free byte read.
 weave cp_ext with path as string into string:
     let base as string is calling cp_basename with path
     defer banish base
     let bl as int is base length
     if bl == 0:
         return ""
+    let bb as ref to frozen byte is bytes of base
     var last_dot as int is -1
     var i as int is bl - 1
     while i >= 0:
-        if (base at i) == ".":
+        if (bb at i) == 46:
             set last_dot is i
             break
         set i is i - 1
@@ -257,15 +279,21 @@ weave cp_ext with path as string into string:
     return base at last_dot to bl
 
 ## Basename without its final extension.
+##
+## ## Memoria
+## Returns a fresh owned substring (release it with `banish`) or the owned
+## basename itself when there is no extension. The intermediate basename is
+## always released here; the dot scan allocates nothing.
 weave cp_stem with path as string into string:
     let base as string is calling cp_basename with path
     let bl as int is base length
     if bl == 0:
         return ""
+    let bb as ref to frozen byte is bytes of base
     var last_dot as int is -1
     var i as int is bl - 1
     while i >= 0:
-        if (base at i) == ".":
+        if (bb at i) == 46:
             set last_dot is i
             break
         set i is i - 1
@@ -293,6 +321,11 @@ weave cp_has_suffix with path as string, suffix as string into bool:
     return tail == suffix
 
 ## Suffixes of the basename split at dots, e.g. "a.tar.gz" gives ["tar", "gz"].
+##
+## ## Memoria
+## The returned list owns its element buffer and every pushed suffix (each a
+## fresh substring). The basename itself is released here; the dot scan is an
+## allocation-free byte read.
 weave cp_suffixes with path as string into list of string:
     var out as list of string is list of string
     let base as string is calling cp_basename with path
@@ -300,9 +333,10 @@ weave cp_suffixes with path as string into list of string:
     let bl as int is base length
     if bl == 0:
         return out
+    let bb as ref to frozen byte is bytes of base
     var i as int is 1
     while i < bl:
-        if (base at i) == ".":
+        if (bb at i) == 46:
             var j as int is i + 1
             var nd as int is bl
             var look as bool is true
@@ -310,7 +344,7 @@ weave cp_suffixes with path as string into list of string:
                 if j >= bl:
                     set look is false
                 else:
-                    if (base at j) == ".":
+                    if (bb at j) == 46:
                         set nd is j
                         set look is false
                     else:
@@ -322,27 +356,33 @@ weave cp_suffixes with path as string into list of string:
     return out
 
 ## Collapses redundant separators and resolves "." and ".." segments.
+##
+## ## Memoria
+## Returns a fresh owned string (release it with `banish`) or the borrowed "."
+## literal for an empty path. Every substring pushed as a segment is released
+## here: "." is dropped, ".." that cancels a segment is dropped after the popped
+## segment is freed, and the surviving stack entries are freed one by one before
+## the result is returned. The accumulator always releases its previous buffer
+## before being reassigned.
 weave cp_normalize with path as string into string:
     let pl as int is path length
     if pl == 0:
         return "."
     let sep as string is calling cp_sep
+    let pb as ref to frozen byte is bytes of path
     var drv as string is ""
     var p_idx as int is 0
     if calling cp_win:
         if pl >= 2:
-            let d0 as string is path at 0
-            let d1 as string is path at 1
-            if (calling cp_is_letter with d0) and (d1 == ":"):
-                set drv is "{d0}:"
+            if (calling cp_is_letter with (pb at 0)) and ((pb at 1) == 58):
+                set drv is path at 0 to 2
                 set p_idx is 2
     var is_abs as bool is false
     if p_idx < pl:
-        if calling cp_is_sep with (path at p_idx):
+        if calling cp_is_sep with (pb at p_idx):
             set is_abs is true
             set p_idx is p_idx + 1
     var stack as list of string is list of string
-    defer banish stack
     var cur_start as int is p_idx
     var i as int is p_idx
     while i <= pl:
@@ -350,7 +390,7 @@ weave cp_normalize with path as string into string:
         if i == pl:
             set at_end is true
         else:
-            if calling cp_is_sep with (path at i):
+            if calling cp_is_sep with (pb at i):
                 set at_end is true
         if at_end:
             let seg_len as int is i - cur_start
@@ -359,39 +399,57 @@ weave cp_normalize with path as string into string:
                 if seg != ".":
                     if seg == "..":
                         let stl as int is stack.len
+                        var pushed as bool is false
                         if stl > 0:
                             let last_seg as string is stack at (stl - 1)
                             if last_seg == "..":
                                 if is_abs == false:
                                     calling stack.push with seg
+                                    set pushed is true
                             else:
                                 let popped as string is calling stack.pop
                                 banish popped
                         else:
                             if is_abs == false:
                                 calling stack.push with seg
+                                set pushed is true
+                        if pushed == false:
+                            banish seg
                     else:
                         calling stack.push with seg
+                else:
+                    banish seg
             set cur_start is i + 1
         set i is i + 1
     var out as string is ""
     if drv length > 0:
         set out is drv
     if is_abs:
-        set out is "{out}{sep}"
+        let n0 as string is "{out}{sep}"
+        banish out
+        set out is n0
     var k as int is 0
     while k < stack.len:
         if k > 0:
-            set out is "{out}{sep}"
+            let n1 as string is "{out}{sep}"
+            banish out
+            set out is n1
         else:
             if is_abs == false:
                 if out length > 0:
-                    set out is "{out}{sep}"
+                    let n2 as string is "{out}{sep}"
+                    banish out
+                    set out is n2
         let item as string is stack at k
-        set out is "{out}{item}"
+        let n3 as string is "{out}{item}"
+        banish out
+        set out is n3
         set k is k + 1
     if out length == 0:
         set out is "."
+    for e in stack:
+        banish e
+    banish stack
     return out
 
 ## Parent directory of `path` as maybe string.
@@ -404,21 +462,25 @@ weave cp_parent with path as string into maybe string:
     return some dir
 
 ## Splits `path` into components: optional drive prefix, root separator and segments.
+##
+## ## Memoria
+## The returned list owns its element buffer and every component it pushes (the
+## drive prefix and the segments are fresh substrings; the root separator is a
+## borrowed literal). The scan itself allocates nothing.
 weave cp_split with path as string into list of string:
     var out as list of string is list of string
     let pl as int is path length
     if pl == 0:
         return out
+    let pb as ref to frozen byte is bytes of path
     var p_idx as int is 0
     if calling cp_win:
         if pl >= 2:
-            let d0 as string is path at 0
-            let d1 as string is path at 1
-            if (calling cp_is_letter with d0) and (d1 == ":"):
-                calling out.push with ("{d0}:")
+            if (calling cp_is_letter with (pb at 0)) and ((pb at 1) == 58):
+                calling out.push with (path at 0 to 2)
                 set p_idx is 2
     if p_idx < pl:
-        if calling cp_is_sep with (path at p_idx):
+        if calling cp_is_sep with (pb at p_idx):
             calling out.push with (calling cp_sep)
             set p_idx is p_idx + 1
     var cur_start as int is p_idx
@@ -428,7 +490,7 @@ weave cp_split with path as string into list of string:
         if i == pl:
             set at_end is true
         else:
-            if calling cp_is_sep with (path at i):
+            if calling cp_is_sep with (pb at i):
                 set at_end is true
         if at_end:
             let seg_len as int is i - cur_start
@@ -439,27 +501,47 @@ weave cp_split with path as string into list of string:
     return out
 
 ## Joins `parts` with the platform separator and normalizes the result.
+##
+## ## Memoria
+## Returns a fresh owned string (release it with `banish`) or a borrowed empty
+## view for an empty list. `parts` and its elements are borrowed and never
+## released. The accumulator copies each part instead of aliasing it, releases
+## its previous buffer before every reassignment, and is released before the
+## normalized result is returned.
 weave cp_join with parts as list of string into string:
     if parts.len == 0:
         return ""
     let sep as string is calling cp_sep
     var buf as string is ""
-    defer banish buf
     var i as int is 0
     while i < parts.len:
         let p as string is parts at i
         if p length > 0:
             if calling cp_is_abs with p:
-                set buf is p
+                let a0 as string is "{p}"
+                banish buf
+                set buf is a0
             else:
                 if buf length > 0:
-                    if not (calling cp_is_sep with (buf at (buf length - 1))):
-                        set buf is "{buf}{sep}"
-                set buf is "{buf}{p}"
+                    let bb as ref to frozen byte is bytes of buf
+                    if not (calling cp_is_sep with (bb at (buf length - 1))):
+                        let a1 as string is "{buf}{sep}"
+                        banish buf
+                        set buf is a1
+                let a2 as string is "{buf}{p}"
+                banish buf
+                set buf is a2
         set i is i + 1
-    return calling cp_normalize with buf
+    let res as string is calling cp_normalize with buf
+    banish buf
+    return res
 
 ## Replaces the extension of `path` with `new_ext`.
+##
+## ## Memoria
+## Returns a fresh owned string (release it with `banish`). The intermediate
+## dirname/stem buffers are released here, and each accumulator reassignment
+## releases the previous buffer before storing the replacement.
 weave cp_change_ext with path as string, new_ext as string into string:
     let dir as string is calling cp_dirname with path
     defer banish dir
@@ -474,23 +556,50 @@ weave cp_change_ext with path as string, new_ext as string into string:
         # (use-after-free for a bare filename when `new_ext` is empty).
         set buf is "{st}"
     if new_ext length > 0:
-        if (new_ext at 0) == ".":
-            set buf is "{buf}{new_ext}"
+        let eb as ref to frozen byte is bytes of new_ext
+        if (eb at 0) == 46:
+            let c0 as string is "{buf}{new_ext}"
+            banish buf
+            set buf is c0
         else:
-            set buf is "{buf}.{new_ext}"
+            let c1 as string is "{buf}.{new_ext}"
+            banish buf
+            set buf is c1
     return buf
 
 ## Appends `ext` to `path` only when `path` has no extension yet.
+##
+## ## Memoria
+## Returns a fresh owned string when an extension was appended, or the borrowed
+## `path` view otherwise; `banish` is safe either way. The leading-dot test is
+## an allocation-free byte read.
 weave cp_add_ext with path as string, ext as string into string:
     if calling cp_has_ext with path:
         return path
     if ext length == 0:
         return path
-    if (ext at 0) == ".":
+    let eb as ref to frozen byte is bytes of ext
+    if (eb at 0) == 46:
         return "{path}{ext}"
     return "{path}.{ext}"
 
+## Releases every owned element of `xs`; the element buffer itself stays with the
+## caller, who still owns it and must `banish` it separately.
+##
+## ## Memoria
+## Frees the element payloads exactly once; `banish` is a no-op on borrowed
+## elements (the root separators pushed by `cp_split`, for instance).
+weave cp_release_strings with xs as list of string into void:
+    for e in xs:
+        banish e
+
 ## Relative path from `base` to `target`.
+##
+## ## Memoria
+## Returns `some` with a fresh owned string (release it with `banish`) or
+## `maybe none`. Both component lists built here are released in full: their
+## buffers by `defer`, their owned elements by `cp_release_strings`, on every
+## return path.
 weave cp_relative_to with target as string, base as string into maybe string:
     let nt as string is calling cp_normalize with target
     defer banish nt
@@ -501,8 +610,12 @@ weave cp_relative_to with target as string, base as string into maybe string:
     let bp as list of string is calling cp_split with nb
     defer banish bp
     if tp.len == 0:
+        calling cp_release_strings with tp
+        calling cp_release_strings with bp
         return maybe none
     if bp.len == 0:
+        calling cp_release_strings with tp
+        calling cp_release_strings with bp
         return maybe none
     var common as int is 0
     var cm as bool is true
@@ -519,9 +632,10 @@ weave cp_relative_to with target as string, base as string into maybe string:
                     set cm is false
     if common == 0:
         if calling cp_is_abs with nt:
+            calling cp_release_strings with tp
+            calling cp_release_strings with bp
             return maybe none
     var res as list of string is list of string
-    defer banish res
     var i as int is common
     while i < bp.len:
         calling res.push with ".."
@@ -531,6 +645,11 @@ weave cp_relative_to with target as string, base as string into maybe string:
         calling res.push with (tp at j)
         set j is j + 1
     let joined as string is calling cp_join with res
+    # `res` only aliases the elements of `tp`; release its buffer, then release
+    # each component exactly once through its owning list.
+    banish res
+    calling cp_release_strings with tp
+    calling cp_release_strings with bp
     return some joined
 
 ## Glob pattern matcher (`*` matches any sequence, `?` matches one byte).
@@ -587,17 +706,28 @@ weave cp_components with path as string into list of string:
     return calling cp_split with norm
 
 ## True when any component of `path` matches `name`.
+##
+## ## Memoria
+## Allocates only through `cp_components`, whose owned components are released
+## here before every return; the list buffer is released by `defer`.
 weave cp_has_component with path as string, name as string into bool:
     let comps as list of string is calling cp_components with path
     defer banish comps
     var i as int is 0
+    var found as bool is false
     while i < comps.len:
         if (comps at i) == name:
-            return true
+            set found is true
+            break
         set i is i + 1
-    return false
+    calling cp_release_strings with comps
+    return found
 
 ## True when `path` starts with a dot and is not "." or "..".
+##
+## ## Memoria
+## Allocates nothing beyond the basename that is released here; the first-byte
+## test is an allocation-free byte read.
 weave cp_is_hidden with path as string into bool:
     let b as string is calling cp_basename with path
     defer banish b
@@ -607,40 +737,52 @@ weave cp_is_hidden with path as string into bool:
         return false
     if b == "..":
         return false
-    return (b at 0) == "."
+    let bb as ref to frozen byte is bytes of b
+    return (bb at 0) == 46
 
 ## True when `path` is a Universal Naming Convention (UNC) path.
+##
+## ## Memoria
+## Allocates nothing; the three leading bytes are read through `bytes of`.
 weave cp_is_unc with path as string into bool:
     let pl as int is path length
     if pl < 3:
         return false
-    let c0 as string is path at 0
-    let c1 as string is path at 1
-    if (calling cp_is_sep with c0) and (calling cp_is_sep with c1):
-        if not (calling cp_is_sep with (path at 2)):
+    let pb as ref to frozen byte is bytes of path
+    if (calling cp_is_sep with (pb at 0)) and (calling cp_is_sep with (pb at 1)):
+        if not (calling cp_is_sep with (pb at 2)):
             return true
     return false
 
 ## True when `path` contains glob wildcards (`*` or `?`).
+##
+## ## Memoria
+## Allocates nothing; each byte is compared in place instead of through a
+## freshly allocated one-byte `path at i` string.
 weave cp_has_wildcard with path as string into bool:
     let pl as int is path length
+    let pb as ref to frozen byte is bytes of path
     var i as int is 0
     while i < pl:
-        let c as string is path at i
-        if c == "*":
+        if (pb at i) == 42:
             return true
-        if c == "?":
+        if (pb at i) == 63:
             return true
         set i is i + 1
     return false
 
 ## Tests if `path` matches a wildcard `pattern`.
+##
+## ## Memoria
+## Allocates only the normalized-or-basename subject, released here; the
+## separator scan is allocation-free and the matcher itself allocates nothing.
 weave cp_matches with path as string, pattern as string into bool:
     var has_sep as bool is false
     var i as int is 0
     let pl as int is pattern length
+    let ppb as ref to frozen byte is bytes of pattern
     while i < pl:
-        if calling cp_is_sep with (pattern at i):
+        if calling cp_is_sep with (ppb at i):
             set has_sep is true
             break
         set i is i + 1
@@ -649,45 +791,69 @@ weave cp_matches with path as string, pattern as string into bool:
     return calling cp_glob_match with subject, pattern
 
 ## Returns the current working directory as an owned string.
+##
+## ## Memoria
+## The maybe box and its string payload are released here; the returned string
+## is a fresh owned copy (release it with `banish`), or the borrowed "." literal
+## when `getcwd` fails.
 weave cp_cwd into string:
     let m as maybe string is calling pengu_c_getcwd
     if m is present:
-        return m.value
+        let cur as string is "{m.value}"
+        banish m
+        return cur
+    banish m
     return "."
 
 ## Expands a leading `~` or `~/...` to the user home directory.
+##
+## ## Memoria
+## Every `pengu_c_getenv` maybe box (with its string payload) is released here,
+## and `home` is a fresh owned copy of the environment value, so it is released
+## on each path that does not hand it to the caller. The result is owned when an
+## expansion happened and the borrowed input otherwise.
 weave cp_expand_user with path as string into string:
     let pl as int is path length
     if pl == 0:
         return path
-    if (path at 0) != "~":
+    let pb as ref to frozen byte is bytes of path
+    if (pb at 0) != 126:
         return path
     var home as string is ""
+    var have_home as bool is false
     if calling cp_win:
         let u_opt as maybe string is calling pengu_c_getenv with "USERPROFILE"
         if u_opt is present:
-            set home is u_opt.value
-        else:
+            set home is "{u_opt.value}"
+            set have_home is true
+        banish u_opt
+        if have_home == false:
             let h_opt as maybe string is calling pengu_c_getenv with "HOME"
             if h_opt is present:
-                set home is h_opt.value
+                set home is "{h_opt.value}"
+            banish h_opt
     else:
         let h_opt2 as maybe string is calling pengu_c_getenv with "HOME"
         if h_opt2 is present:
-            set home is h_opt2.value
+            set home is "{h_opt2.value}"
+        banish h_opt2
     if home length == 0:
+        banish home
         return path
     if pl == 1:
         return home
-    if calling cp_is_sep with (path at 1):
+    let pb2 as ref to frozen byte is bytes of path
+    if calling cp_is_sep with (pb2 at 1):
         let rest as string is path at 2 to pl
         var parts as list of string is list of string
         calling parts.push with home
         calling parts.push with rest
         let joined as string is calling cp_join with parts
+        banish home
         banish rest
         banish parts
         return joined
+    banish home
     return path
 
 ## Returns the normalized absolute path.
@@ -1693,22 +1859,30 @@ enchanting Path:
     weave to_uri into string:
         let norm as string is calling cp_normalize with self->raw
         defer banish norm
+        let nb as ref to frozen byte is bytes of norm
         var buf as string is ""
         defer banish buf
         var i as int is 0
         let nl as int is norm length
         while i < nl:
-            let c as string is norm at i
-            if c == "\\":
-                set buf is "{buf}/"
+            if (nb at i) == 92:
+                let u0 as string is "{buf}/"
+                banish buf
+                set buf is u0
             else:
-                if c == " ":
-                    set buf is "{buf}%20"
+                if (nb at i) == 32:
+                    let u1 as string is "{buf}%20"
+                    banish buf
+                    set buf is u1
                 else:
-                    set buf is "{buf}{c}"
+                    let u2 as string is "{buf}{nb at i}"
+                    banish buf
+                    set buf is u2
             set i is i + 1
-        if (buf length > 0) and ((buf at 0) == "/"):
-            return "file://{buf}"
+        if buf length > 0:
+            let bb as ref to frozen byte is bytes of buf
+            if (bb at 0) == 47:
+                return "file://{buf}"
         return "file:///{buf}"
 
     ## A new `Path` with redundant separators and "." / ".." segments resolved.
@@ -1789,6 +1963,9 @@ enchanting Path:
         calling parts.push with parent_str
         calling parts.push with new_name
         let res as string is calling cp_join with parts
+        # `parts` only borrows the dirname buffer, so release it here: `banish
+        # parts` frees the element buffer, never the elements.
+        banish parent_str
         return with raw is res
 
     ## A new `Path` with `ext` appended when it has no extension yet, unchanged

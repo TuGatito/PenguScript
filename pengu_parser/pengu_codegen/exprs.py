@@ -1970,9 +1970,9 @@ class ExprMixin:
                     tmp_p = self.get_temp_name("_p")
                     val_cast = CTypeMapper.to_c_decl(actual_map.value, "*")
                     val_zero = "NULL" if isinstance(actual_map.value, (FnType, RefType)) else f"({val_c}){{0}}"
-                    base = (f"({{ {key_c} {tmp_k} = ({idx}); "
+                    base = (f"(__extension__(({{ {key_c} {tmp_k} = ({idx}); "
                             f"void* {tmp_p} = pengu_map_get({ptr}, &{tmp_k}); "
-                            f"{tmp_p} ? (*(({val_cast}){tmp_p})) : {val_zero}; }})")
+                            f"{tmp_p} ? (*(({val_cast}){tmp_p})) : {val_zero}; }})))")
                     var_t = actual_map.value
                 else:
                     base = f"{base}[{idx}]"

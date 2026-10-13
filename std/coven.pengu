@@ -92,9 +92,10 @@
 ##   stored as the map key, so a narrow width is not widened to `int`. The one
 ##   behavioural sharp edge is `Set of float`: keys compare by bit pattern, so
 ##   `0.0` and `-0.0` are two distinct elements even though `0.0 == -0.0`.
-## - **Legacy storage.** `SetInt` stringifies each element (`item to string`) and
-##   stores it under the decimal key; the generic `Set of int` stores the `int`
-##   itself as the key. Both deduplicate, but they are different types.
+## - **Legacy storage.** Both `SetInt` and the generic `Set of int` store the
+##   `int` itself as the map key, so both deduplicate identically and neither
+##   allocates a key payload per element. `SetInt` keeps its 0.14.x method set;
+##   the generic `Set of int` is the supported spelling for new code.
 ## - **`is_empty`** reads the backing map (`calling self->items.is_empty`); the
 ##   equivalent `(calling self->items.len) == 0` is used where a map method is not
 ##   available.
@@ -153,8 +154,10 @@ rune SetString:
     items as map of string to int
 
 ## A set of unique `int` elements with the same behaviour as `SetString`.
-## Values are stored under their decimal string key (unique per `int`). Create
-## one with `new_set_int` (or `empty_set_int`) and use the `SetInt` methods.
+## Values are stored directly as the `int` map key (no per-element string),
+## so adding or removing an element allocates only the map entry itself.
+## Create one with `new_set_int` (or `empty_set_int`) and use the `SetInt`
+## methods.
 ##
 ## @deprecated Use the generic `Set of int` instead.
 ##
@@ -170,7 +173,7 @@ rune SetString:
 ## The rune owns its backing map. Release it with `banish s.items`; a set
 ## received as a parameter is borrowed and never released by these methods.
 rune SetInt:
-    items as map of string to int
+    items as map of int to int
 
 ## A generic set of unique `T` elements, backed by `map of T to int`.
 ##
@@ -234,7 +237,7 @@ weave new_set_string into SetString:
 ## calling s.add with 1
 ## ```
 weave new_set_int into SetInt:
-    var m as map of string to int is map of string to int
+    var m as map of int to int is map of int to int
     return with items is m
 
 # ----------------------------------------------------------------------------
@@ -565,7 +568,10 @@ enchanting SetString:
     weave symmetric_difference with other as SetString into SetString:
         var a_minus_b as SetString is calling self.difference with other
         var b_minus_a as SetString is calling other.difference with (essence of self)
-        return calling a_minus_b.union with b_minus_a
+        var out as SetString is calling a_minus_b.union with b_minus_a
+        banish a_minus_b.items
+        banish b_minus_a.items
+        return out
 
     ## Returns true if every element in `self` is also present in `other`.
     ##
@@ -828,7 +834,7 @@ enchanting SetInt:
     ## calling s.add with 7
     ## ```
     weave add with item as int into void:
-        calling self->items.put with (item to string) , 1
+        calling self->items.put with item , 1
 
     ## Returns true when `item` is currently a member of the set.
     ##
@@ -845,7 +851,7 @@ enchanting SetInt:
     ## var found as bool is calling s.contains with 7    # true
     ## ```
     weave contains with item as int into bool:
-        return calling self->items.contains with (item to string)
+        return calling self->items.contains with item
 
     ## Removes `item` from the set. Returns true when it was present (and has
     ## been removed); returns false when the set did not contain it.
@@ -864,7 +870,7 @@ enchanting SetInt:
     ## var removed as bool is calling s.remove with 7    # true
     ## ```
     weave remove with item as int into bool:
-        return calling self->items.remove with (item to string)
+        return calling self->items.remove with item
 
     ## Returns the number of distinct elements currently stored in the set.
     ##
@@ -1012,7 +1018,10 @@ enchanting SetInt:
     weave symmetric_difference with other as SetInt into SetInt:
         var a_minus_b as SetInt is calling self.difference with other
         var b_minus_a as SetInt is calling other.difference with (essence of self)
-        return calling a_minus_b.union with b_minus_a
+        var out as SetInt is calling a_minus_b.union with b_minus_a
+        banish a_minus_b.items
+        banish b_minus_a.items
+        return out
 
     ## Returns true if every element in `self` is also present in `other`.
     ##
@@ -1138,9 +1147,7 @@ enchanting SetInt:
     weave to_list_int into list of int:
         var result as list of int is list of int
         for k in self->items:
-            var opt as maybe int is calling spark.parse_int with k
-            if opt is present:
-                calling result.push with opt.value
+            calling result.push with k
         return result
 
     ## Returns the arithmetic sum of all integers in `self`. Returns 0 if empty.
@@ -1161,9 +1168,7 @@ enchanting SetInt:
     weave sum_ints into int:
         var total as int is 0
         for k in self->items:
-            var opt as maybe int is calling spark.parse_int with k
-            if opt is present:
-                set total is total + opt.value
+            set total is total + k
         return total
 
     ## Returns the minimum integer in `self`. Returns 0 if empty.
@@ -1188,14 +1193,12 @@ enchanting SetInt:
         var first as bool is true
         var lo as int is 0
         for k in self->items:
-            var opt as maybe int is calling spark.parse_int with k
-            if opt is present:
-                if first:
-                    set lo is opt.value
-                    set first is false
-                else:
-                    if opt.value < lo:
-                        set lo is opt.value
+            if first:
+                set lo is k
+                set first is false
+            else:
+                if k < lo:
+                    set lo is k
         return lo
 
     ## Returns the maximum integer in `self`. Returns 0 if empty.
@@ -1220,14 +1223,12 @@ enchanting SetInt:
         var first as bool is true
         var hi as int is 0
         for k in self->items:
-            var opt as maybe int is calling spark.parse_int with k
-            if opt is present:
-                if first:
-                    set hi is opt.value
-                    set first is false
-                else:
-                    if opt.value > hi:
-                        set hi is opt.value
+            if first:
+                set hi is k
+                set first is false
+            else:
+                if k > hi:
+                    set hi is k
         return hi
 
     ## Converts this `SetInt` to an equivalent `SetString` with stringified
@@ -1248,7 +1249,7 @@ enchanting SetInt:
     weave to_set_string into SetString:
         var result as SetString is calling new_set_string
         for k in self->items:
-            calling result.add with k
+            calling result.add with "{k}"
         return result
 
 # ----------------------------------------------------------------------------

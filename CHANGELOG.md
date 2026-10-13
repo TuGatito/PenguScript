@@ -2,6 +2,174 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.0.1] — 2026-10-13 — Audit patch
+
+Internal audit of `std.scrolls`, `std.tally`, `std.atlas`, `std.coven`,
+`std.ffi`, `std.memoria`, `std.oracle`, `std.compass`, `std.archivum`,
+`std.cipher` and the C runtime, ahead of the raylib bindings satellite. Every
+finding below was reproduced under `-fsanitize=address,undefined` before it was
+fixed, and carries a regression test.
+
+### Fixed
+
+- **`pengu_map_put_string_int` freed a caller-owned key payload on rehash
+  (heap-use-after-free + double free).** ABI v2 made a map own only the
+  key/value *bytes*; the specialized string-to-int entry point still banished
+  `PenguString` payloads it did not own. Inserting 12 owned string keys into a
+  `map of string to int` and then reading them back aborted in
+  `pengu_hash_bytes`; banishing the keys afterwards was a double free.
+  `pengu_runtime.h`.
+- **`pengu_map_remove_string_int` freed a caller-owned key payload.** Removing a
+  string key released the buffer its `PenguString` pointed at, so the caller's
+  own `banish` was a double free. It now matches `pengu_map_remove`: only the
+  slot's key/value bytes are released. `pengu_runtime.h`.
+- **`pengu_map_put_string_int` on a map created with a zero key/value size wrote
+  16 bytes into a zero-byte slot.** `pengu_map_new(0, 0)` leaves `key_size` and
+  `val_size` at 0 while `cap` becomes 16; the entry point now pins the
+  string-to-int layout on an empty map. `pengu_runtime.h`.
+- **`banish` accepted a rune without `derive Nexus`, emitting a call to a
+  `_pengu_cleanup_<T>` the generator never defines.** `type_has_derived_nexus`
+  treated *any* heap-owning rune as implicitly `Nexus`, but the code generator
+  only emits a destructor for an explicit `derive`/`bind`. `banish` on
+  `SetString`, `SetInt`, `ResultInt` or a user rune with a `string` field failed
+  to compile with "implicit declaration of function '_pengu_cleanup_<T>'"; it is
+  now the documented `E0008`. `pengu_parser/pengu_types.py`.
+- **Every weave emitted an unreachable `pengu_frame_pop();` after a `return`.**
+  Under `gcc -O0 -fsanitize=address` that produced 155 spurious
+  `-Wreturn-type: control reaches end of non-void function` warnings for a single
+  bundle. The epilogue now emits the pop only on the fall-through path; every
+  `return` already pops its own frame. `pengu_parser/pengu_codegen/prototypes.py`,
+  `pengu_parser/pengu_codegen/tests_gen.py`.
+- **A map `at` read emitted a bare GNU statement expression.** Unlike every other
+  statement expression the generator produces, the `pengu_map_get` lowering was
+  not wrapped in `__extension__`, so one `map of string to int` access made gcc
+  report `ISO C forbids braced-groups within expressions` under `-Wpedantic`
+  (147 diagnostics for a bundle importing the stdlib). Both the read path and
+  the assignment path are wrapped now. `pengu_parser/pengu_codegen/exprs.py`,
+  `pengu_parser/pengu_codegen/stmts.py`.
+- **`std.scrolls` leaked one temporary per call in most transforming methods.**
+  `trim` leaked its `trim_start` intermediate; `trim_start`/`trim_end`/`compare`/
+  `is_*`/`is_palindrome`/`_float_from_literal` allocated a one-byte owning string
+  per inspected byte; `lower`/`upper`/`swap_case`/`capitalize`/`title`/
+  `to_snake_case`/`to_kebab_case`/`pascal_case` built a `list of string` of
+  owning one-byte strings and never released it; `replace`, `truncate`, `zfill`,
+  `center`, `ljust`/`rjust`, `_join_parts`, `_pad_left`, `_pad_right`,
+  `repeat_join` and `_concat` leaked their intermediates. A 30-method stress program leaked
+  24 871 bytes in 653 allocations; it is now clean under ASan. Byte-level work
+  moved into `antiquus` bridges (`_ascii_case`, `_ascii_all`, `_trim_ascii`,
+  `_view`, `_is_palindrome`, `_compare_bytes`, `_is_numeric_bytes`,
+  `_float_from_literal`, `_title_ascii`, `_capitalize_ascii`,
+  `_identifier_case`, `_replace_first`). `std/scrolls.pengu`.
+- **`std.coven` leaked the intermediate sets of `symmetric_difference`** (both
+  `SetString` and `SetInt`); the receiver's two difference sets are now released
+  after the union is built. `std/coven.pengu`.
+- **`std.coven`'s legacy `SetInt` leaked a string per element.** It stringified
+  every `int` into a `map of string to int` key it did not own, so `add`,
+  `contains` and `remove` each allocated a `string` that no one released and
+  `remove` could not recover. The backing map is now `map of int to int`: the
+  operations allocate only the map entry, `to_list_int`/`sum_ints`/`min_int`/
+  `max_int` read the key directly, and the `maybe int` boxes those methods used
+  to leak are gone. `std/coven.pengu`.
+- **`std.compass` leaked the temporaries of its path parsing and joining.**
+  The helpers that inspect a path byte by byte (`cp_is_abs`, `cp_basename`,
+  `cp_stem`, `cp_dirname`, `cp_ext`, `cp_suffixes`, `cp_normalize`,
+  `cp_split`, `cp_components`, `cp_relative_to`, `cp_change_ext`,
+  `cp_with_filename`, `cp_absolute`, `cp_join`) allocated one owning one-byte
+  string per inspected byte and a fresh substring per component; the
+  accumulation points (`join`, `join_all`) rebuilt the whole path with an
+  interpolation per piece. `cp_join` also aliased a caller element into its
+  accumulator, so its deferred release could free memory that belonged to
+  `parts`; it now copies every piece. `std/compass.pengu`.
+- **`std.archivum` leaked the owned string elements of the lists it reads back.**
+  `read_dir_full` discarded the `maybe list of string` box, its list buffer, the
+  element strings the C bridge allocated for every directory entry, and the
+  `parts` list literal it built per entry; `_metadata_int`/`file_size` discarded
+  the `maybe map of string to string` box and the map's key/value payloads.
+  `std/archivum.pengu`.
+- **`std.cipher` leaked on nearly every codec path.** Every scan used
+  `ord (s at i)` (one owning one-character string per inspected byte), the
+  encoders accumulated into a `list of string` that `_concat_parts` never
+  released, the base conversions kept unbanished `list of int` scratch buffers,
+  the `_scan_string_body`/`decode_url`/`decode_base58` error paths returned
+  `maybe none` with the working list still live, and `json_unescape` dropped the
+  `maybe` box. A stress program over the base64/base32/base85/Z85/base58/hex/URL
+  codecs and the JSON scanner went from 470 550 bytes in 117 930 allocations to
+  zero. The module now has a byte-reading `antiquus` bridge (`_byte_at`), a
+  consuming join (`_finish_parts`) and a matching release (`_drop_parts`), plus a
+  byte form of the hex-digit helper (`_hex_val_byte`) so the scanners never
+  materialize a string per byte. `std/cipher.pengu`.
+- **`std.ffi`'s bounded string bridges leaked one buffer per byte.**
+  `string_from_cstr_n` and `string_from_bytes` built the result with
+  `set out is "{out}{chr b}"`, so an `n`-byte copy leaked `n` accumulated
+  buffers (plus one per `chr`). Both now delegate to a private `antiquus`
+  bridge (`_cstr_n_to_string`, `_bytes_to_string`) that copies in a single
+  `malloc`; the bytes are unchanged, including embedded NULs.
+  `std/ffi.pengu`.
+- **`std.tally` generated `-Wall` warnings.** The sorting/median/`is_sorted`
+  helpers bound the compared elements with `let`, so `&elem` was a
+  `const T *` passed to the `bind ... Ordered` `cmp` method's `T *self` receiver
+  (`-Wdiscarded-qualifiers`), and `chunk`/`windowed` nested two comprehensions
+  that both declared the generator's `_i` (`-Wshadow`). The compared elements
+  are now mutable locals, `chunk`/`windowed` build their result directly (also
+  removing the `ranges` intermediate whose inner lists `banish` did not free),
+  and `scan_left`/`running_sum` seed their output with an index loop instead of
+  a comprehension whose element variable was unused (`-Wunused-variable`).
+  `std/tally.pengu`.
+
+### Changed
+
+- **`std.scrolls`' `split`, `splitn`, `rsplit`, `split_whitespace`, `words`,
+  `lines`, `partition` and `chars` now return non-owning *views* into the
+  receiver instead of freshly allocated substrings.** `banish parts` therefore
+  releases the whole result - the same contract the runtime's
+  `pengu_string_split` already documented - where before it leaked every
+  element. The receiver must outlive the list, and a view is a no-op to banish.
+  `trim`/`trim_start`/`trim_end`/`removeprefix`/`removesuffix`/`ljust`/`rjust`/
+  `center`/`zfill`/`truncate` still return an owned copy. Module docstring
+  updated. `std/scrolls.pengu`.
+- **`std.coven`'s `SetInt.items` is now `map of int to int`** (it was
+  `map of string to int`). The deprecated type keeps every method name and
+  observable result; only the iteration order, already documented as hash order,
+  can differ. `std/coven.pengu`.
+
+### Added
+
+- `tests/stdlib/audit/`: runtime regression probe plus stress, edge-case and
+  leak programs for the audited modules.
+  - `test_runtime_memory.py` + `runtime_map_probe.c`: compiles the runtime header
+    directly and aborts (ASan) on the string-to-int map ownership bugs.
+  - `test_scrolls_edges.py`, `test_tally_edges.py`, `test_atlas_edges.py`,
+    `test_coven_edges.py`, `test_oracle_edges.py`, `test_memoria_edges.py`,
+    `test_ffi_edges.py`, `test_compass_edges.py`, `test_archivum_edges.py`,
+    `test_cipher_edges.py`, `test_leaks_comprehensive.py`.
+- `tests/compiler/test_audit_codegen_regressions.py`: no unreachable frame pop
+  after a `return` (including a `-O0 -fsanitize=address -Werror=return-type`
+  build), and `banish` on a rune requires an explicit `derive Nexus`.
+
+### Notes
+
+- `PENGU_ABI_VERSION` remains 2; no struct layout changed. The runtime edits are
+  confined to the bodies of two `static inline` helpers and one defensive
+  layout pin.
+- No public API was removed. The `std.scrolls` container-returning methods
+  changed ownership from "owns each element" to "views the receiver", which is
+  the contract their docstrings now state; callers that banished each element
+  keep working (a view is a no-op to banish).
+- **Known limitation, not fixed here:** an interpolated string passed directly
+  as a function argument (`calling spark.println with "{x}"`) is an owning
+  temporary the manual model gives the user no name to banish, so it leaks; the
+  documented pattern is to bind it to a variable and `banish` it. The same is
+  true of the per-iteration `string` produced by `for ch in s`. Both are
+  consequences of "the compiler releases nothing on its own" (LANGUAGE.md §13.4)
+  and are documented as such.
+- **Known issue, not fixed here:** a `defer` inside a loop body whose target is
+  declared in that body emits the cleanup after the loop, where the variable is
+  out of scope, so the bundle fails to compile:
+  `while i < 3: var p as ref to int is ...; defer banish p; ...`. `defer` is
+  implemented as function-scoped, while LANGUAGE.md §13 documents scope-exit
+  semantics; reconciling them is a code-generator design change outside this
+  audit.
+
 ## [Unreleased] — Phase 2: Primitive enchanting
 
 Methods can now be attached to every primitive (`int`, `i8`–`i64`, `u8`–`u64`,
