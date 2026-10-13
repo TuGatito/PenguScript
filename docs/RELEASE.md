@@ -65,6 +65,21 @@ verified `extern/` while iterating; never in CI).
    event created with `GITHUB_TOKEN` does not start a run either); folding it in
    removes the dispatch and keeps the ordering guarantee through `needs:`.
 
+### Free-form text never goes into `run:`
+
+A step must not interpolate free-form text — a CHANGELOG heading, a
+`workflow_dispatch` input — into a script with `${{ … }}`. GitHub substitutes the
+expression *before* bash parses the script, so a backtick in a heading becomes a
+command substitution. `v2.1.0` died exactly that way: its heading ends in
+*Binding templates & `pengu add` fixes*, which made the publish step run
+`pengu add`, exit 127 (`pengu: command not found`) and never create the release;
+the same pattern had already written the annotated tag with a mutilated message.
+Pass such values through the step's `env:` (`RELEASE_TITLE`, `CHANGELOG_TITLE`,
+`INPUT_VERSION`) and keep them out of `run:`.
+
+`tests/tooling/test_release_publish_safety.py` executes the publish script
+verbatim against a stub `gh` and fails if the pattern comes back.
+
 ## 3. What each gate proves
 
 | Gate | Command / workflow | Proves |

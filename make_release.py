@@ -14,6 +14,7 @@ This script automates:
 Usage:
     python make_release.py [--rebuild] [--skip-tests] [--dist-dir DIR]
     python make_release.py --archive pengu-linux-x64.tar.gz --dist-dir pengucc_build
+    python make_release.py --sync-extension-version
 
 Reproducibility (Roadmap 2.0 / Phase 9, item 9.8)
 -------------------------------------------------
@@ -721,21 +722,39 @@ weave main into void:
     print("  [SUCCESS] All smoke tests passed!")
 
 
-def sync_extension_version() -> None:
+def sync_extension_version(
+    manifest: Optional[Path] = None,
+    version: Optional[str] = None,
+) -> bool:
     """Writes the VERSION value into the VS Code extension manifest.
 
     The extension's ``package.json`` carries its own ``version`` field, which
     used to drift from ``VERSION``; the packaged ``.vsix`` name already comes from
-    ``VERSION``, so both are kept in sync here before bundling.
+    ``VERSION``, so both are kept in sync here before bundling.  The release
+    workflow packages the extension with a bare ``vsce package`` (it does not run
+    this script's packaging path), so it calls ``--sync-extension-version``
+    explicitly — otherwise the v2.1.0 release shipped ``pengus-2.0.0.vsix``.
+
+    Args:
+        manifest: Manifest to update. Defaults to
+            ``vscode-extension/package.json``.
+        version: Version to write. Defaults to the ``VERSION`` file.
+
+    Returns:
+        True when the manifest was rewritten, False when it was already correct
+        (or missing).
     """
-    manifest = ROOT_DIR / "vscode-extension" / "package.json"
+    manifest = manifest or (ROOT_DIR / "vscode-extension" / "package.json")
     if not manifest.exists():
-        return
+        return False
+    target = version or get_version()
     text = manifest.read_text(encoding="utf-8")
-    updated = re.sub(r'("version"\s*:\s*")[^"]*(")', rf"\g<1>{get_version()}\g<2>", text, count=1)
-    if updated != text:
-        manifest.write_text(updated, encoding="utf-8")
-        print(f"  [VSCODE] Synced extension version -> {get_version()}")
+    updated = re.sub(r'("version"\s*:\s*")[^"]*(")', rf"\g<1>{target}\g<2>", text, count=1)
+    if updated == text:
+        return False
+    manifest.write_text(updated, encoding="utf-8")
+    print(f"  [VSCODE] Synced extension version -> {target}")
+    return True
 
 
 def select_vsix_artifacts(ext_dir: Path, version: str) -> Tuple[List[Path], List[Path]]:
@@ -1030,7 +1049,18 @@ def main():
         action="store_true",
         help="Print the SHA-256 of every file in --dist-dir (for reproducibility checks).",
     )
+    parser.add_argument(
+        "--sync-extension-version",
+        action="store_true",
+        help="Write VERSION into vscode-extension/package.json and exit. Called by "
+             "the CI VSIX steps, whose bare `vsce package` otherwise stamps the "
+             "extension with its stale manifest version.",
+    )
     args = parser.parse_args()
+
+    if args.sync_extension_version:
+        sync_extension_version()
+        return
 
     if args.archive_only:
         if not args.archive:

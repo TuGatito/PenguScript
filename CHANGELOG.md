@@ -2,6 +2,68 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.1.1] — 2026-10-13 — CI: the release publishes again
+
+`v2.1.0` was tagged but never published: the `Publish GitHub Release` job aborted
+with exit code 127 (`pengu: command not found`) before `gh` was ever invoked, so
+the release, its notes and its assets never appeared. The cause was the changelog
+title itself, whose 2.1.0 heading ends in *Binding templates & `pengu add`
+fixes*: `release.yml` spliced it into the shell script with
+`${{ steps.changelog.outputs.title }}`, and GitHub substitutes the expression
+*before* bash parses the script, so the backticks ran as a command substitution.
+Every changelog- or dispatch-derived value now travels through the step
+environment instead. `v2.1.1` contains the 2.1.0 work (its tag pointed at this
+same tree) plus the fixes below.
+
+### Fixed
+
+- 🐛 `release.yml` / *Publish GitHub Release*: the release title is passed as the
+  `RELEASE_TITLE` environment variable instead of being interpolated into `run:`,
+  so a heading containing backticks (or `$(...)`, or `"`) can no longer be
+  executed by the shell. The step now reaches `gh release create` and exits 0.
+- 🐛 `ci.yml` / *Create Git Tag if Not Exists*: `git tag -a -m` received the same
+  interpolated title, the command substitution failed silently and the `v2.1.0`
+  tag was created with a mutilated message (`… Binding templates &  fixes`). The
+  tag name, the message and the dispatched version now come from environment
+  variables.
+- 🐛 `release.yml` / *Resolve release tag*, *Resolve the published tag*, *Check
+  the changelog matches the tag*, *Download the published artifact* and *Verify
+  the artifact end-to-end*: the free-form `workflow_dispatch` input `version`,
+  the resolved tag and the resolved version are no longer interpolated into the
+  scripts either — the same hardening, applied to every step that still did it.
+- 🐛 `nightly.yml` / *Determine budget*: the `fuzz_seconds` dispatch input was
+  interpolated the same way (the command substitution ran before the integer
+  check could reject it); the budget and the harness name now arrive through the
+  step environment.
+- 🐛 The VSIX shipped with the **extension manifest's** version, not the release
+  version: `vsce package` was called bare (that job never runs
+  `make_release.py`'s packaging path), so the v2.1.0 assets contained
+  `pengus-2.0.0.vsix`. Both VSIX steps now sync the manifest from `VERSION`
+  before packaging.
+
+### Changed
+
+- 🔧 `make_release.py --sync-extension-version`: writes `VERSION` into
+  `vscode-extension/package.json` and exits. `sync_extension_version()` gained
+  `manifest`/`version` parameters and reports whether it rewrote the file.
+- 🔧 `VERSION` and `pengu_version.FALLBACK_VERSION` bumped to `2.1.1`.
+- 🔧 `docs/RELEASE.md`: documents the `run:`-interpolation rule that broke the
+  publish.
+
+### Tests
+
+- 🧪 New `tests/tooling/test_release_publish_safety.py`:
+  - every `run:` script in all three workflows is checked to interpolate only
+    workflow-defined values (`matrix.*`, `github.event_name`), and the changelog
+    title specifically is checked to travel through `env:`;
+  - the *Publish GitHub Release* script is executed verbatim against a stub `gh`
+    with a backticked title, and the title must arrive intact (pre-release and
+    release variants);
+  - the auto-tag step's message and tag come from the environment;
+  - both VSIX steps sync the extension version, and only after `npm ci`;
+  - `--sync-extension-version` rewrites a manifest from `VERSION` and is
+    idempotent.
+
 ## [2.1.0] — 2026-10-13 — Binding templates & `pengu add` fixes
 
 Reusable packages now have first-class templates, and `pengu add` no longer

@@ -289,6 +289,10 @@ jobs:
         working-directory: vscode-extension
         run: |
           npm ci
+          # `vsce` stamps the .vsix with the manifest's own `version`; without
+          # this the artifact is named `pengus-2.0.0.vsix` for every release.
+          # After `npm ci`, so npm still validates the matching lock file.
+          python3 ../make_release.py --sync-extension-version
           npx --yes @vscode/vsce package --no-dependencies
 
       - name: Upload VSIX
@@ -337,15 +341,22 @@ jobs:
 
       - name: Create Git Tag if Not Exists
         id: tag
+        env:
+          # The tag message is the CHANGELOG title, i.e. free-form text; the
+          # v2.1.0 heading contains `pengu add`, and interpolating it with
+          # `${{ }}` made bash run those backticks as a command substitution,
+          # silently committing the tag with a mutilated message.
+          CHANGELOG_TAG: ${{ steps.changelog.outputs.tag_name }}
+          CHANGELOG_TITLE: ${{ steps.changelog.outputs.title }}
         run: |
-          TAG="${{ steps.changelog.outputs.tag_name }}"
+          TAG="$CHANGELOG_TAG"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists."
             echo "created=false" >> "$GITHUB_OUTPUT"
           else
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git tag -a "$TAG" -m "${{ steps.changelog.outputs.title }}"
+            git tag -a "$TAG" -m "$CHANGELOG_TITLE"
             git push origin "$TAG"
             echo "created=true" >> "$GITHUB_OUTPUT"
           fi
@@ -354,9 +365,10 @@ jobs:
         if: steps.tag.outputs.created == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANGELOG_TAG: ${{ steps.changelog.outputs.tag_name }}
         run: |
           set -euo pipefail
-          echo "dispatching for ${{ steps.changelog.outputs.tag_name }}"
+          echo "dispatching for $CHANGELOG_TAG"
           gh workflow run release.yml \
             --ref "${GITHUB_REF_NAME}" \
-            -f version="${{ steps.changelog.outputs.tag_name }}"
+            -f version="$CHANGELOG_TAG"

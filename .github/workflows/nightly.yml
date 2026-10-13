@@ -87,11 +87,14 @@ jobs:
       - name: Determine budget
         id: budget
         shell: bash
+        env:
+          # Free-form dispatch input: through the environment, never `run:`.
+          REQUESTED_SECONDS: ${{ github.event.inputs.fuzz_seconds }}
         run: |
           set -euo pipefail
           SECONDS=3600
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            SECONDS="${{ github.event.inputs.fuzz_seconds }}"
+            SECONDS="$REQUESTED_SECONDS"
           fi
           # Never claim more than the platform will allow a single job to run.
           if [ "$SECONDS" -gt 21600 ]; then
@@ -102,15 +105,17 @@ jobs:
 
       - name: Run ${{ matrix.harness }} harness
         shell: bash
+        env:
+          BUDGET: ${{ steps.budget.outputs.seconds }}
+          HARNESS: ${{ matrix.harness }}
         run: |
           set -euo pipefail
-          BUDGET="${{ steps.budget.outputs.seconds }}"
           if python -c "import atheris" 2>/dev/null; then
-            python "scripts/fuzz/fuzz_${{ matrix.harness }}.py" \
+            python "scripts/fuzz/fuzz_${HARNESS}.py" \
               -max_total_time="$BUDGET" -rss_limit_mb=4096 -print_final_stats=1
           else
             echo "::warning::atheris is not installed; running the deterministic smoke pass"
-            PENGU_FUZZ_SMOKE=1 python "scripts/fuzz/fuzz_${{ matrix.harness }}.py"
+            PENGU_FUZZ_SMOKE=1 python "scripts/fuzz/fuzz_${HARNESS}.py"
           fi
 
       - name: Upload crash corpus

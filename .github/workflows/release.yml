@@ -201,6 +201,11 @@ jobs:
         working-directory: vscode-extension
         run: |
           npm ci
+          # `vsce` stamps the .vsix with the manifest's own `version`, so a bare
+          # `vsce package` shipped `pengus-2.0.0.vsix` inside the v2.1.0 release.
+          # Synced after `npm ci` on purpose: npm validates the (still matching)
+          # package-lock.json first.
+          python3 ../make_release.py --sync-extension-version
           npx --yes @vscode/vsce package --no-dependencies
 
       - name: Upload VSIX
@@ -240,10 +245,15 @@ jobs:
       - name: Resolve release tag
         id: release
         shell: bash
+        env:
+          # A `workflow_dispatch` input is free-form text: interpolating it with
+          # `${{ }}` would let bash run whatever a backtick or `$(...)` contains.
+          # The environment keeps it a plain string.
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.version }}"
+            TAG="$INPUT_VERSION"
           else
             TAG="${GITHUB_REF_NAME}"
           fi
@@ -263,9 +273,10 @@ jobs:
 
       - name: Check the changelog matches the tag
         shell: bash
+        env:
+          TAG_VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
-          TAG_VERSION="${{ steps.release.outputs.version }}"
           CL_VERSION="$(python scripts/release_version.py)"
           if [ "v${TAG_VERSION}" != "${CL_VERSION}" ]; then
             echo "::error::tag v${TAG_VERSION} does not match the first released CHANGELOG entry (${CL_VERSION})"
@@ -296,22 +307,30 @@ jobs:
           ls -lah final-assets/
           cat final-assets/SHA256SUMS.txt
 
+      # The release title comes from the CHANGELOG heading and is therefore free
+      # form text. It MUST NOT be interpolated with `${{ }}` inside `run:`:
+      # GitHub substitutes the expression before bash parses the script, so the
+      # heading "… Binding templates & `pengu add` fixes" made bash execute
+      # `pengu add` as a command substitution and the step died with exit 127
+      # (`pengu: command not found`) without ever calling `gh`. Every
+      # changelog-derived value travels through the environment instead.
       - name: Publish GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TITLE: ${{ steps.changelog.outputs.title }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.changelog.outputs.prerelease }}
         run: |
           set -euo pipefail
-          TAG="${{ steps.release.outputs.tag }}"
-          ARGS=(--title "${{ steps.changelog.outputs.title }}"
+          ARGS=(--title "$RELEASE_TITLE"
                 --notes-file release_notes.md
                 --verify-tag)
-          if [ "${{ steps.changelog.outputs.prerelease }}" = "true" ]; then
+          if [ "$IS_PRERELEASE" = "true" ]; then
             ARGS+=(--prerelease)
-            echo "Publishing $TAG as a prerelease"
+            echo "Publishing $RELEASE_TAG as a prerelease"
           fi
-          # shellcheck disable=SC2086
-          gh release create "$TAG" final-assets/* "${ARGS[@]}"
+          gh release create "$RELEASE_TAG" final-assets/* "${ARGS[@]}"
 
   # ----------------------------------------------------------------------
   # The last gate (items 9.7 and 9.12): download each *published* artifact and
@@ -365,10 +384,13 @@ jobs:
       - name: Resolve the published tag
         id: release
         shell: bash
+        env:
+          # Free-form dispatch input: see the note in `publish-release`.
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.version }}"
+            TAG="$INPUT_VERSION"
           else
             TAG="${GITHUB_REF_NAME}"
           fi
@@ -383,21 +405,28 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Resolved from a tag ref or a free-form dispatch input: env, never `run:`.
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          ARTIFACT: ${{ matrix.artifact }}
         run: |
           set -euo pipefail
           mkdir -p dist
-          gh release download "${{ steps.release.outputs.tag }}" \
-            --pattern "${{ matrix.artifact }}" --dir dist --clobber
+          gh release download "$RELEASE_TAG" \
+            --pattern "$ARTIFACT" --dir dist --clobber
           ls -la dist/
-          test -s "dist/${{ matrix.artifact }}"
+          test -s "dist/$ARTIFACT"
 
       - name: Verify the artifact end-to-end (${{ matrix.layout }})
         shell: bash
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+          LAYOUT: ${{ matrix.layout }}
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
           python scripts/verify_release_artifact.py \
-            --artifact "dist/${{ matrix.artifact }}" \
-            --layout "${{ matrix.layout }}" \
-            --expected-version "${{ steps.release.outputs.version }}" \
+            --artifact "dist/$ARTIFACT" \
+            --layout "$LAYOUT" \
+            --expected-version "$EXPECTED_VERSION" \
             --check-signature \
-            --workdir "$RUNNER_TEMP/pengu-verify-${{ matrix.layout }}"
+            --workdir "$RUNNER_TEMP/pengu-verify-$LAYOUT"
