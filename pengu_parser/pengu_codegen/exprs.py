@@ -2037,7 +2037,11 @@ class ExprMixin:
                     # `to T` in a monomorphized body is a cast to the *concrete*
                     # type: emit `(int32_t)(2)`, never `(T)(2)`.
                     cast_target = cast_target.substitute(self.current_subst_map)
-                base = self._translate_expr(left_node)
+                # Translate the operand *with the cast target as context*: that
+                # is what lets `3.141592653589793 to f64` keep double precision
+                # (`_format_const_val` drops the `f` suffix for an `f64` target)
+                # instead of folding the literal as a single-precision `float`.
+                base = self._translate_expr(left_node, expected_type=cast_target)
                 if isinstance(cast_target, BaseType) and cast_target.name == "string":
                     # 'x to string' on a value that already *is* a string is the
                     # identity: going through pengu_to_string(…) would hand back

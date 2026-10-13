@@ -1,0 +1,711 @@
+## std/fractio.pengu — the fraction: methods that only make sense on
+## floating-point values, over the `Real` concept.
+##
+## `fractio` dota de métodos a `float`, `f32`, `f64` y `double`. La
+## clasificación IEEE 754, la aproximación y las utilidades puras viven en un
+## único bloque `enchanting shard T where T: Real:`; los transcendentales, que
+## llaman a `libm`, viven en dos bloques concretos (`enchanting float:` y
+## `enchanting f64:`) porque C expone símbolos distintos por ancho (`sqrtf`
+## frente a `sqrt`). El compilador monomorfiza cada método por tipo concreto
+## (`float_is_nan`, `f64_sqrt`, …), así que no hay vtables, boxing ni coste en
+## runtime más allá de la llamada a `libm`.
+##
+## ## Alcance
+## `fractio` cubre **solo** lo que tiene sentido en flotantes: clasificación
+## IEEE 754 (`is_nan`, `is_finite`, `is_infinite`, `is_positive_infinity`,
+## `is_negative_infinity`), comparación con tolerancia (`approx_eq`),
+## interpolación (`lerp`), utilidades (`reciprocal`, `copysign`, `degrees`,
+## `radians`) y transcendentales (`sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`,
+## `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `pow`, `hypot`).
+## Los métodos universales (`abs`, `signum`, `clamp`, `round`, `pow_int`, …)
+## viven en `std.numerus`; los exclusivos de enteros, en `std.integrum`.
+## `Real` implica `Num`, así que un programa que importe ambos tiene todo.
+##
+## ## Delegación
+## `std.arithmancy` expone equivalentes **concretos de `float`** de casi todos
+## los transcendentales (`arithmancy.sqrt`, `arithmancy.sin`, `arithmancy.pow`,
+## `arithmancy.lerp`, `arithmancy.deg_to_rad`, …) y de `hypot`. Al no ser
+## genéricos, un `shard T where T: Real` no puede delegar en ellos sin duplicar
+## por ancho, de modo que `fractio` implementa la lógica localmente (envoltura
+## directa de `libm`) y deja la dirección futura anotada con `# TODO(Fase 3.x)`.
+## `fractio` **no** importa `std.numerus`: no necesita ningún método universal
+## (las dos magnitudes que calcula, en `approx_eq` y `copysign`, son tres líneas
+## cada una) y un módulo hoja de matemáticas gana más quedándose sin
+## dependencias cruzadas que ahorrándose esos dos bucles. Un programa que
+## importe ambos sigue teniendo `abs`, `clamp`, `pow_int`, … porque `Real`
+## implica `Num` (`LANGUAGE.md` §11.3).
+##
+## ## Memoria
+## Ningún método de este módulo asigna memoria del heap. No hay nada que
+## liberar con `banish`.
+##
+## ## Precondiciones
+## Ninguna función panickea: el comportamiento en los casos límite es el de
+## C99 (`<math.h>`), con NaN e Inf propagados según IEEE 754.
+## - `sqrt`, `ln`, `log2`, `log10`: dominio `self >= 0` (`> 0` para los
+##   logaritmos). Fuera del dominio devuelven NaN (`ln(0)` devuelve -Inf).
+## - `asin`, `acos`: dominio `[-1, 1]`; fuera devuelven NaN.
+## - `reciprocal`: `self != 0`; con `0.0` devuelve ±Inf según el signo del cero.
+## - `approx_eq` usa tolerancia **absoluta**. Para magnitudes grandes escala
+##   `eps` con `|self|` (`1e20 * 1e-9`), no lo dejes fijo.
+##
+## ## Nota de implementación
+## Los `declare` nombran los símbolos **reales** de `libm` (`sqrtf`, `sqrt`, …):
+## `pengu_runtime.h` ya incluye `<math.h>`, así que sus prototipos están
+## disponibles y no hace falta una capa `pengu_c_*` por ancho. Los literales
+## numéricos de un cuerpo `T: Real` se escriben `(1.0 to T)`: un literal `int`
+## no es convertible a `T: Real` (`int` no implementa `Real`), un literal
+## flotante sí.
+##
+## ## Ejemplo
+## ```pengu
+## import std.spark
+## import std.fractio
+##
+## weave main into int:
+##     var x as f64 is 4.0
+##     var y as f64 is calling x.sqrt
+##     calling spark.println with "{y}"          # 2
+##     var neg as f64 is -1.0
+##     var bad as f64 is calling neg.sqrt
+##     if calling bad.is_nan:
+##         calling spark.println with "NaN"      # NaN
+##     return 0
+## ```
+
+include "math.h"
+
+import std.ward
+
+# ----------------------------------------------------------------------------
+# Module Version (LANGUAGE.md §19.0: every hand-written std module exports one)
+# ----------------------------------------------------------------------------
+
+## Fractio module version.
+const FRACTIO_VERSION as string is "2.0.0"
+
+# ----------------------------------------------------------------------------
+# libm declarations (symbols are the real C99 ones; <math.h> is already
+# included by pengu_runtime.h, and the bundle links -lm)
+# ----------------------------------------------------------------------------
+
+declare sqrtf with x as f32 into f32
+declare sqrt with x as f64 into f64
+declare cbrtf with x as f32 into f32
+declare cbrt with x as f64 into f64
+declare sinf with x as f32 into f32
+declare sin with x as f64 into f64
+declare cosf with x as f32 into f32
+declare cos with x as f64 into f64
+declare tanf with x as f32 into f32
+declare tan with x as f64 into f64
+declare asinf with x as f32 into f32
+declare asin with x as f64 into f64
+declare acosf with x as f32 into f32
+declare acos with x as f64 into f64
+declare atanf with x as f32 into f32
+declare atan with x as f64 into f64
+declare atan2f with y as f32, x as f32 into f32
+declare atan2 with y as f64, x as f64 into f64
+declare expf with x as f32 into f32
+declare exp with x as f64 into f64
+declare logf with x as f32 into f32
+declare log with x as f64 into f64
+declare log2f with x as f32 into f32
+declare log2 with x as f64 into f64
+declare log10f with x as f32 into f32
+declare log10 with x as f64 into f64
+declare powf with base as f32, exponent as f32 into f32
+declare pow with base as f64, exponent as f64 into f64
+declare hypotf with x as f32, y as f32 into f32
+declare hypot with x as f64, y as f64 into f64
+
+# ----------------------------------------------------------------------------
+# Pure methods (no libm): one body for all four float types
+# ----------------------------------------------------------------------------
+
+enchanting shard T where T: Real:
+
+    # ─── Clasificación IEEE 754 ──────────────────────────────────────────
+
+    ## Devuelve `true` si `self` es NaN (Not a Number).
+    ##
+    ## Funciona sin `libm`: `NaN != NaN` es siempre `true` por IEEE 754.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var x as f64 is 1.0
+    ## var neg as f64 is -1.0
+    ## var bad as f64 is calling neg.sqrt
+    ## calling spark.println with "{calling bad.is_nan}"   # true
+    ## ```
+    weave is_nan into bool:
+        return self != self
+
+    ## Devuelve `true` si `self` es +Inf o -Inf.
+    ##
+    ## Implementación puramente PenguScript: para un valor finito `x`,
+    ## `|x| - |x| == 0`; para `±Inf`, `Inf - Inf` es NaN y `NaN != 0` es
+    ## `true`. NaN se descarta primero para no confundirse con infinito.
+    weave is_infinite into bool:
+        if calling self.is_nan:
+            return false
+        var a as T is self
+        if a < donum T:
+            set a is -a
+        return (a - a) != donum T
+
+    ## Devuelve `true` si `self` es finito (ni NaN ni ±Inf).
+    weave is_finite into bool:
+        return (not (calling self.is_infinite)) and (not (calling self.is_nan))
+
+    ## Devuelve `true` si `self` es exactamente `+Inf`.
+    weave is_positive_infinity into bool:
+        return (self > donum T) and (calling self.is_infinite)
+
+    ## Devuelve `true` si `self` es exactamente `-Inf`.
+    weave is_negative_infinity into bool:
+        return (self < donum T) and (calling self.is_infinite)
+
+    # ─── Aproximación ────────────────────────────────────────────────────
+
+    ## Devuelve `true` si `|self - other| < eps`.
+    ##
+    ## ## Semántica
+    ## La tolerancia `eps` es **absoluta**, no relativa. Para magnitudes
+    ## grandes, escala `eps` con `|self|`: comparar `1e20` con `1e20 + 1`
+    ## necesita `eps` proporcional, no `1e-9`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as f64 is 0.1 + 0.2
+    ## var b as f64 is 0.3
+    ## calling spark.println with "{calling a.approx_eq with b, 1e-9}"   # true
+    ## ```
+    weave approx_eq with other as T, eps as T into bool:
+        var d as T is self - other
+        if d < donum T:
+            set d is -d
+        return d < eps
+
+    # ─── Utilidades ──────────────────────────────────────────────────────
+
+    ## Devuelve `1.0 / self`.
+    ##
+    ## ## Precondiciones
+    ## `self != 0.0`. Con `0.0` devuelve `+Inf` (o `-Inf` para `-0.0`), según
+    ## IEEE 754; no aborta.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var x as f64 is 2.0
+    ## calling spark.println with "{calling x.reciprocal}"   # 0.5
+    ## ```
+    weave reciprocal into T:
+        return (1.0 to T) / self
+
+    ## Interpolación lineal: `self + t * (other - self)`.
+    ##
+    ## ## Semántica
+    ## `t` no se acota: `t == 0` devuelve `self`, `t == 1` devuelve `other`, y
+    ## fuera de `[0, 1]` extrapola. Para acotar, aplica
+    ## `calling t.clamp with 0.0, 1.0` (de `std.numerus`).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as f64 is 0.0
+    ## var b as f64 is 10.0
+    ## calling spark.println with "{calling a.lerp with b, 0.5}"   # 5
+    ## ```
+    # TODO(Fase 3.x): arithmancy.lerp (float) should delegate here.
+    weave lerp with other as T, t as T into T:
+        return self + (t * (other - self))
+
+    ## Devuelve `|self|` con el signo de `sign_source`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var x as f64 is 3.0
+    ## var y as f64 is -1.0
+    ## calling spark.println with "{calling x.copysign with y}"   # -3
+    ## ```
+    weave copysign with sign_source as T into T:
+        var magnitude as T is self
+        if magnitude < donum T:
+            set magnitude is -magnitude
+        if sign_source < donum T:
+            return -magnitude
+        return magnitude
+
+    ## Convierte `self` de radianes a grados: `self * 180 / π`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var pi as f64 is 3.141592653589793
+    ## calling spark.println with "{calling pi.degrees}"   # ~180
+    ## ```
+    # TODO(Fase 3.x): arithmancy.rad_to_deg (float) should delegate here.
+    weave degrees into T:
+        return self * ((180.0 to T) / (3.141592653589793 to T))
+
+    ## Convierte `self` de grados a radianes: `self * π / 180`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var d as f64 is 180.0
+    ## calling spark.println with "{calling d.radians}"   # ~3.14159
+    ## ```
+    # TODO(Fase 3.x): arithmancy.deg_to_rad (float) should delegate here.
+    weave radians into T:
+        return self * ((3.141592653589793 to T) / (180.0 to T))
+
+# ----------------------------------------------------------------------------
+# Transcendentals on `float` (covers `float` and `f32`; C has one `float` type)
+# ----------------------------------------------------------------------------
+
+enchanting float:
+
+    ## Raíz cuadrada. Dominio `self >= 0`; un negativo devuelve NaN.
+    # TODO(Fase 3.x): arithmancy.sqrt (float) should delegate here.
+    weave sqrt into float:
+        return calling sqrtf with self
+
+    ## Raíz cúbica (definida para cualquier signo).
+    weave cbrt into float:
+        return calling cbrtf with self
+
+    ## Seno (radianes).
+    # TODO(Fase 3.x): arithmancy.sin (float) should delegate here.
+    weave sin into float:
+        return calling sinf with self
+
+    ## Coseno (radianes).
+    # TODO(Fase 3.x): arithmancy.cos (float) should delegate here.
+    weave cos into float:
+        return calling cosf with self
+
+    ## Tangente (radianes).
+    # TODO(Fase 3.x): arithmancy.tan (float) should delegate here.
+    weave tan into float:
+        return calling tanf with self
+
+    ## Arcoseno. Dominio `[-1, 1]`; fuera devuelve NaN.
+    # TODO(Fase 3.x): arithmancy.asin (float) should delegate here.
+    weave asin into float:
+        return calling asinf with self
+
+    ## Arcocoseno. Dominio `[-1, 1]`; fuera devuelve NaN.
+    # TODO(Fase 3.x): arithmancy.acos (float) should delegate here.
+    weave acos into float:
+        return calling acosf with self
+
+    ## Arcotangente.
+    # TODO(Fase 3.x): arithmancy.atan (float) should delegate here.
+    weave atan into float:
+        return calling atanf with self
+
+    ## Ángulo cuyo seno es `self` y cuyo coseno es `x`, en el cuadrante
+    ## correcto (radianes).
+    # TODO(Fase 3.x): arithmancy.atan2 (float) should delegate here.
+    weave atan2 with x as float into float:
+        return calling atan2f with self, x
+
+    ## Exponencial natural (`e^self`).
+    # TODO(Fase 3.x): arithmancy.exp (float) should delegate here.
+    weave exp into float:
+        return calling expf with self
+
+    ## Logaritmo natural. Dominio `self > 0`; `0` devuelve `-Inf` y un negativo
+    ## NaN.
+    # TODO(Fase 3.x): arithmancy.log (float) should delegate here.
+    weave ln into float:
+        return calling logf with self
+
+    ## Logaritmo en base 2. Dominio `self > 0`.
+    # TODO(Fase 3.x): arithmancy.log2 (float) should delegate here.
+    weave log2 into float:
+        return calling log2f with self
+
+    ## Logaritmo en base 10. Dominio `self > 0`.
+    # TODO(Fase 3.x): arithmancy.log10 (float) should delegate here.
+    weave log10 into float:
+        return calling log10f with self
+
+    ## `self` elevado a `exponent`.
+    # TODO(Fase 3.x): arithmancy.pow (float) should delegate here.
+    weave pow with exponent as float into float:
+        return calling powf with self, exponent
+
+    ## `sqrt(self² + other²)` sin desbordamiento intermedio.
+    # TODO(Fase 3.x): arithmancy.hypot (float) should delegate here.
+    weave hypot with other as float into float:
+        return calling hypotf with self, other
+
+# ----------------------------------------------------------------------------
+# Transcendentals on `f64` (covers `f64` and `double`)
+# ----------------------------------------------------------------------------
+
+enchanting f64:
+
+    ## Raíz cuadrada. Dominio `self >= 0`; un negativo devuelve NaN.
+    # TODO(Fase 3.x): arithmancy.sqrt (float) should delegate here.
+    weave sqrt into f64:
+        return calling sqrt with self
+
+    ## Raíz cúbica (definida para cualquier signo).
+    weave cbrt into f64:
+        return calling cbrt with self
+
+    ## Seno (radianes).
+    # TODO(Fase 3.x): arithmancy.sin (float) should delegate here.
+    weave sin into f64:
+        return calling sin with self
+
+    ## Coseno (radianes).
+    # TODO(Fase 3.x): arithmancy.cos (float) should delegate here.
+    weave cos into f64:
+        return calling cos with self
+
+    ## Tangente (radianes).
+    # TODO(Fase 3.x): arithmancy.tan (float) should delegate here.
+    weave tan into f64:
+        return calling tan with self
+
+    ## Arcoseno. Dominio `[-1, 1]`; fuera devuelve NaN.
+    # TODO(Fase 3.x): arithmancy.asin (float) should delegate here.
+    weave asin into f64:
+        return calling asin with self
+
+    ## Arcocoseno. Dominio `[-1, 1]`; fuera devuelve NaN.
+    # TODO(Fase 3.x): arithmancy.acos (float) should delegate here.
+    weave acos into f64:
+        return calling acos with self
+
+    ## Arcotangente.
+    # TODO(Fase 3.x): arithmancy.atan (float) should delegate here.
+    weave atan into f64:
+        return calling atan with self
+
+    ## Ángulo cuyo seno es `self` y cuyo coseno es `x`, en el cuadrante
+    ## correcto (radianes).
+    # TODO(Fase 3.x): arithmancy.atan2 (float) should delegate here.
+    weave atan2 with x as f64 into f64:
+        return calling atan2 with self, x
+
+    ## Exponencial natural (`e^self`).
+    # TODO(Fase 3.x): arithmancy.exp (float) should delegate here.
+    weave exp into f64:
+        return calling exp with self
+
+    ## Logaritmo natural. Dominio `self > 0`; `0` devuelve `-Inf` y un negativo
+    ## NaN.
+    # TODO(Fase 3.x): arithmancy.log (float) should delegate here.
+    weave ln into f64:
+        return calling log with self
+
+    ## Logaritmo en base 2. Dominio `self > 0`.
+    # TODO(Fase 3.x): arithmancy.log2 (float) should delegate here.
+    weave log2 into f64:
+        return calling log2 with self
+
+    ## Logaritmo en base 10. Dominio `self > 0`.
+    # TODO(Fase 3.x): arithmancy.log10 (float) should delegate here.
+    weave log10 into f64:
+        return calling log10 with self
+
+    ## `self` elevado a `exponent`.
+    # TODO(Fase 3.x): arithmancy.pow (float) should delegate here.
+    weave pow with exponent as f64 into f64:
+        return calling pow with self, exponent
+
+    ## `sqrt(self² + other²)` sin desbordamiento intermedio.
+    # TODO(Fase 3.x): arithmancy.hypot (float) should delegate here.
+    weave hypot with other as f64 into f64:
+        return calling hypot with self, other
+
+# ----------------------------------------------------------------------------
+# Tests
+# ----------------------------------------------------------------------------
+
+## Helper de test: falla salvo que `got` sea `true`.
+weave _t_true with got as bool into void:
+    calling ward.assert_true with got
+
+## Helper de test: falla salvo que `got` sea `false`.
+weave _t_false with got as bool into void:
+    calling ward.assert_false with got
+
+## Helper de test: igualdad exacta de `f64`.
+weave _t_f64 with got as f64, want as f64 into void:
+    if got != want:
+        calling ward.assert_true with false
+
+## Helper de test: igualdad aproximada de `f64` dentro de `eps` absoluto.
+weave _t_close with got as f64, want as f64, eps as f64 into void:
+    var d as f64 is got - want
+    if d < 0.0:
+        set d is -d
+    if d > eps:
+        calling ward.assert_true with false
+
+## Helper de test: `NaN` de `f64`.
+weave _t_nan with got as f64 into void:
+    if not (got != got):
+        calling ward.assert_true with false
+
+test "is_nan detects NaN from sqrt of a negative":
+    var neg as f64 is -1.0
+    var bad as f64 is calling neg.sqrt
+    calling _t_true with (calling bad.is_nan)
+
+test "is_nan is false for ordinary values":
+    var x as f64 is 1.5
+    var z as f64 is 0.0
+    calling _t_false with (calling x.is_nan)
+    calling _t_false with (calling z.is_nan)
+
+test "is_finite is true for ordinary values":
+    var x as f64 is 1.5
+    var z as f64 is 0.0
+    var n as f64 is -3.25
+    calling _t_true with (calling x.is_finite)
+    calling _t_true with (calling z.is_finite)
+    calling _t_true with (calling n.is_finite)
+
+test "is_finite is false for Inf and NaN":
+    var zero as f64 is 0.0
+    var inf as f64 is calling zero.reciprocal
+    var neg as f64 is -1.0
+    var bad as f64 is calling neg.sqrt
+    calling _t_false with (calling inf.is_finite)
+    calling _t_false with (calling bad.is_finite)
+
+test "is_infinite detects positive infinity":
+    var zero as f64 is 0.0
+    var inf as f64 is calling zero.reciprocal
+    calling _t_true with (calling inf.is_infinite)
+
+test "is_infinite detects negative infinity":
+    var zero as f64 is 0.0
+    var ninf as f64 is (0.0 - 1.0) / zero
+    calling _t_true with (calling ninf.is_infinite)
+
+test "is_infinite is false for finite values and NaN":
+    var x as f64 is 2.0
+    var z as f64 is 0.0
+    var neg as f64 is -1.0
+    var bad as f64 is calling neg.sqrt
+    calling _t_false with (calling x.is_infinite)
+    calling _t_false with (calling z.is_infinite)
+    calling _t_false with (calling bad.is_infinite)
+
+test "is_positive_infinity distinguishes the sign":
+    var zero as f64 is 0.0
+    var inf as f64 is calling zero.reciprocal
+    var ninf as f64 is (0.0 - 1.0) / zero
+    var one as f64 is 1.0
+    calling _t_true with (calling inf.is_positive_infinity)
+    calling _t_false with (calling ninf.is_positive_infinity)
+    calling _t_false with (calling one.is_positive_infinity)
+
+test "is_negative_infinity distinguishes the sign":
+    var zero as f64 is 0.0
+    var inf as f64 is calling zero.reciprocal
+    var ninf as f64 is (0.0 - 1.0) / zero
+    var one as f64 is 1.0
+    calling _t_true with (calling ninf.is_negative_infinity)
+    calling _t_false with (calling inf.is_negative_infinity)
+    calling _t_false with (calling one.is_negative_infinity)
+
+test "approx_eq accepts exact and near values":
+    var a as f64 is 1.0
+    var b as f64 is 1.0
+    calling _t_true with (calling a.approx_eq with b, 1e-9)
+    var c as f64 is 0.1 + 0.2
+    var d as f64 is 0.3
+    calling _t_true with (calling c.approx_eq with d, 1e-9)
+
+test "approx_eq rejects values outside eps":
+    var a as f64 is 1.0
+    var b as f64 is 1.001
+    calling _t_false with (calling a.approx_eq with b, 1e-9)
+    calling _t_true with (calling a.approx_eq with b, 1e-2)
+
+test "approx_eq works with negatives":
+    var a as f64 is -2.5
+    var b as f64 is -2.5
+    var c as f64 is -2.6
+    calling _t_true with (calling a.approx_eq with b, 1e-9)
+    calling _t_false with (calling a.approx_eq with c, 1e-9)
+
+test "reciprocal inverts the value":
+    var a as f64 is 2.0
+    var b as f64 is -1.0
+    calling _t_f64 with (calling a.reciprocal), 0.5
+    calling _t_f64 with (calling b.reciprocal), -1.0
+
+test "reciprocal of zero is infinity":
+    var zero as f64 is 0.0
+    var inf as f64 is calling zero.reciprocal
+    calling _t_true with (calling inf.is_infinite)
+
+test "lerp interpolates at the endpoints and the middle":
+    var a as f64 is 0.0
+    var b as f64 is 10.0
+    calling _t_f64 with (calling a.lerp with b, 0.0), 0.0
+    calling _t_f64 with (calling a.lerp with b, 1.0), 10.0
+    calling _t_f64 with (calling a.lerp with b, 0.5), 5.0
+
+test "lerp extrapolates outside the unit interval":
+    var a as f64 is 0.0
+    var b as f64 is 10.0
+    calling _t_f64 with (calling a.lerp with b, 2.0), 20.0
+
+test "copysign keeps the magnitude and takes the sign":
+    var p as f64 is 3.0
+    var n as f64 is -3.0
+    var neg as f64 is -1.0
+    var pos as f64 is 1.0
+    calling _t_f64 with (calling p.copysign with neg), -3.0
+    calling _t_f64 with (calling n.copysign with pos), 3.0
+    calling _t_f64 with (calling p.copysign with pos), 3.0
+    calling _t_f64 with (calling n.copysign with neg), -3.0
+
+test "degrees turns pi into 180":
+    var pi as f64 is 3.141592653589793
+    calling _t_close with (calling pi.degrees), 180.0, 1e-9
+    var half as f64 is pi / 2.0
+    calling _t_close with (calling half.degrees), 90.0, 1e-9
+
+test "radians turns 180 into pi":
+    var d as f64 is 180.0
+    var pi as f64 is 3.141592653589793
+    calling _t_close with (calling d.radians), pi, 1e-12
+
+test "sqrt of a perfect square is exact":
+    var a as f64 is 4.0
+    var b as f64 is 9.0
+    var c as float is 16.0
+    calling _t_f64 with (calling a.sqrt), 2.0
+    calling _t_f64 with (calling b.sqrt), 3.0
+    calling _t_f64 with (calling c.sqrt to f64), 4.0
+
+test "sqrt of a negative is NaN":
+    var neg as f64 is -1.0
+    var bad as f64 is calling neg.sqrt
+    calling _t_nan with bad
+
+test "cbrt handles both signs":
+    var a as f64 is 8.0
+    var b as f64 is -8.0
+    var z as f64 is 0.0
+    calling _t_f64 with (calling a.cbrt), 2.0
+    calling _t_f64 with (calling b.cbrt), -2.0
+    calling _t_f64 with (calling z.cbrt), 0.0
+
+test "sin and cos at the cardinal angles":
+    var zero as f64 is 0.0
+    var pi as f64 is 3.141592653589793
+    var half as f64 is pi / 2.0
+    calling _t_f64 with (calling zero.sin), 0.0
+    calling _t_close with (calling half.sin), 1.0, 1e-12
+    calling _t_f64 with (calling zero.cos), 1.0
+    calling _t_close with (calling half.cos), 0.0, 1e-12
+
+test "tan at zero and pi/4":
+    var zero as f64 is 0.0
+    var pi as f64 is 3.141592653589793
+    var quarter as f64 is pi / 4.0
+    calling _t_f64 with (calling zero.tan), 0.0
+    calling _t_close with (calling quarter.tan), 1.0, 1e-12
+
+test "asin and acos at the domain edges":
+    var one as f64 is 1.0
+    var zero as f64 is 0.0
+    var pi as f64 is 3.141592653589793
+    var half as f64 is pi / 2.0
+    calling _t_close with (calling one.asin), half, 1e-12
+    calling _t_f64 with (calling zero.asin), 0.0
+    calling _t_f64 with (calling one.acos), 0.0
+    calling _t_close with (calling zero.acos), half, 1e-12
+
+test "asin outside the domain is NaN":
+    var two as f64 is 2.0
+    var bad as f64 is calling two.asin
+    calling _t_nan with bad
+
+test "atan and atan2 in the first quadrant":
+    var one as f64 is 1.0
+    var pi as f64 is 3.141592653589793
+    var quarter as f64 is pi / 4.0
+    calling _t_close with (calling one.atan), quarter, 1e-12
+    calling _t_close with (calling one.atan2 with one), quarter, 1e-12
+
+test "exp at zero and one":
+    var zero as f64 is 0.0
+    var one as f64 is 1.0
+    var e as f64 is 2.718281828459045
+    calling _t_f64 with (calling zero.exp), 1.0
+    calling _t_close with (calling one.exp), e, 1e-12
+
+test "ln is the inverse of exp":
+    var one as f64 is 1.0
+    var e as f64 is 2.718281828459045
+    calling _t_f64 with (calling one.ln), 0.0
+    calling _t_close with (calling e.ln), 1.0, 1e-12
+
+test "ln of zero is negative infinity":
+    var zero as f64 is 0.0
+    var ninf as f64 is calling zero.ln
+    calling _t_true with (calling ninf.is_negative_infinity)
+
+test "ln of a negative is NaN":
+    var neg as f64 is -1.0
+    var bad as f64 is calling neg.ln
+    calling _t_nan with bad
+
+test "log2 and log10 on the powers of their base":
+    var one as f64 is 1.0
+    var eight as f64 is 8.0
+    var thousand as f64 is 1024.0
+    var hundred as f64 is 100.0
+    var thousand10 as f64 is 1000.0
+    calling _t_f64 with (calling one.log2), 0.0
+    calling _t_f64 with (calling eight.log2), 3.0
+    calling _t_f64 with (calling thousand.log2), 10.0
+    calling _t_f64 with (calling hundred.log10), 2.0
+    calling _t_f64 with (calling thousand10.log10), 3.0
+
+test "pow raises to a real exponent":
+    var two as f64 is 2.0
+    calling _t_f64 with (calling two.pow with 10.0), 1024.0
+    calling _t_f64 with (calling two.pow with 0.0), 1.0
+    calling _t_f64 with (calling two.pow with -1.0), 0.5
+
+test "hypot is the Pythagorean length":
+    var three as f64 is 3.0
+    var four as f64 is 4.0
+    var zero as f64 is 0.0
+    calling _t_f64 with (calling three.hypot with four), 5.0
+    calling _t_f64 with (calling zero.hypot with zero), 0.0
+
+test "the transcendental methods are monomorphized per width":
+    var wide as f64 is 2.25
+    var narrow as float is 2.25
+    calling _t_close with (calling wide.sqrt), 1.5, 1e-12
+    calling _t_close with ((calling narrow.sqrt to f64)), 1.5, 1e-6
+
+test "float and f32 aliases reach the same methods":
+    var a as f32 is 4.0
+    var b as double is 4.0
+    calling _t_close with ((calling a.sqrt to f64)), 2.0, 1e-6
+    calling _t_close with (calling b.sqrt), 2.0, 1e-12
+
+test "fractio and numerus compose when both are imported elsewhere":
+    # `fractio` deliberately does not import `std.numerus` (see the module
+    # docstring): this test only proves the `Real`->`Num` chain at the type
+    # level, using `fractio`'s own methods.
+    var x as f64 is 2.25
+    var r as f64 is calling x.reciprocal
+    calling _t_close with (calling r.reciprocal), x, 1e-12
+    calling _t_true with (calling x.is_finite)

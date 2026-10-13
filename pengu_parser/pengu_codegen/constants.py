@@ -8,18 +8,35 @@ from __future__ import annotations
 from ._base import (
     Any,
     AnyType,
+    AliasType,
     ArrayType,
+    FrozenType,
     Optional,
     RangeConst,
+    SealType,
     Token,
     Tree,
     Type,
+    TypeParam,
+    canonical_primitive_name,
 )
 from .ctype import (
     CTypeMapper,
     get_array_base_type,
     get_array_dims_and_base,
 )
+
+
+def _unwrap_to_primitive(t: Optional[Type]) -> Optional[Type]:
+    """Strips alias/frozen/seal wrappers so a primitive width can be seen."""
+    seen = 0
+    while isinstance(t, (AliasType, FrozenType, SealType)) and seen < 32:
+        nxt = getattr(t, "target", None) or getattr(t, "underlying", None)
+        if nxt is None or nxt is t:
+            break
+        t = nxt
+        seen += 1
+    return t
 
 class ConstMixin:
     """Global constants."""
@@ -33,6 +50,26 @@ class ConstMixin:
         elif isinstance(val, int):
             return str(val)
         elif isinstance(val, float):
+            # A bare float literal is a `float` (f32) in PenguScript
+            # (LANGUAGE.md §4.1), so the C literal carries the `f` suffix by
+            # default.  When the target is known to be `double`/`f64` the suffix
+            # must be dropped: `double x = 3.141592653589793f;` promotes the
+            # *single-precision* value to double and silently discards 29 bits
+            # of mantissa, contradicting the documented promise that writing
+            # `f64` gives 64-bit precision.
+            #
+            # A `T: Real` parameter is the same case one step removed: the
+            # surrounding `(T)` cast picks the width, and a plain double
+            # literal is exactly right for `f64` and correctly rounded for
+            # `float` -- whereas `(f64)(3.141592653589793f)` is already wrong.
+            unwrapped = _unwrap_to_primitive(expected_type)
+            primitive = canonical_primitive_name(unwrapped)
+            real_param = isinstance(unwrapped, TypeParam) and any(
+                bound in ("Real", "Num")
+                for bound in (getattr(unwrapped, "bounds", None) or [])
+            )
+            if primitive == "f64" or real_param:
+                return str(val)
             return f"{val}f" if abs(val) < 1e7 else str(val)
         elif isinstance(val, str):
             if val.startswith("'") and val.endswith("'"):

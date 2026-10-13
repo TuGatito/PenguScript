@@ -242,3 +242,26 @@ weave main into int:
     return 0
 """)
     assert "14 14 14" in out
+
+
+def test_f64_literal_precision_runs(compile_and_run):
+    """The `f64` annotation really buys double precision at runtime."""
+    out = compile_and_run("""
+import std.spark
+
+weave main into int:
+    var pi as f64 is 3.141592653589793
+    var expected as f64 is 6.283185307179586
+    var got as f64 is pi * 2.0
+    var d as f64 is got - expected
+    if d < 0.0:
+        set d is 0.0 - d
+    calling spark.println with "{d < 1e-15}"
+    var casted as f64 is (3.141592653589793 to f64)
+    var d2 as f64 is casted - pi
+    if d2 < 0.0:
+        set d2 is 0.0 - d2
+    calling spark.println with "{d2 < 1e-15}"
+    return 0
+""")
+    assert "true\ntrue" in out, out

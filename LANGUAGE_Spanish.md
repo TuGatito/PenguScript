@@ -36,7 +36,7 @@
 17. [Pruebas unitarias (`test`)](#17-unit-tests-test)
 18. [Construcción estilo bloque (expresiones `with:`)](#18-block-style-construction-with-expressions)
 19. [Biblioteca estándar](#19-standard-library)
-    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-23-modules)
+    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-24-modules)
     - 19.2 [Bindings externos (repositorios satélite)](#192-external-bindings-satellite-repositories)
     - 19.3 [Ejemplos de la biblioteca estándar central](#193-core-standard-library-examples)
     - 19.4 [Recursos embebidos del proyecto (`arca`)](#194-embedded-project-assets-arca)
@@ -193,6 +193,8 @@ Cada primitivo tiene **un tipo C canónico** y un conjunto de grafías Pengu ace
 | `void*` | `opaque` | puntero | handle C opaco |
 
 **`float` es de 32 bits, y es el tipo por defecto.** `float` y `f32` emiten ambos `float` de C; `f64` y `double` emiten ambos `double` de C. Una revisión anterior de esta tabla afirmaba que `float` era de 64 bits y que mapeaba a `double`; era falso y habría hecho que un lector esperase doble precisión y obtuviese simple en silencio. Escribe `f64` explícitamente cuando necesites 64 bits.
+
+Un **literal** flotante es un `float` (f32) hasta que su contexto diga lo contrario, así que `var x as f64 is 3.141592653589793` conserva las 16 cifras: un literal plegado hacia un destino `double`/`f64` (o hacia un parámetro `T: Real` que monomorfiza a `f64`) se emite como `double` de C, sin sufijo `f`. Solo un destino `float`/`f32` emite el literal de precisión simple `…f`.
 
 **`ssize_t` no es un tipo de Pengu.** `CTypeMapper.to_c_type` tenía una rama para él que la gramática nunca podía alcanzar (eliminada en el item 2.10). Usa `isize`, que emite `intptr_t`.
 
@@ -3044,7 +3046,7 @@ Métodos integrados admitidos dentro de los bloques `with` de colecciones:
 
 ## 19. Biblioteca estándar
 
-PenguScript incluye una biblioteca estándar completa de **23 módulos de
+PenguScript incluye una biblioteca estándar completa de **24 módulos de
 PenguScript puro** (`std.<module>`) que ofrecen abstracciones idiomáticas de alto
 nivel para E/S, cadenas, concurrencia, serialización, matemáticas, pruebas y
 puentes de memoria.
@@ -3080,7 +3082,7 @@ nombres ya mantiene cada módulo autocontenido (`std.<module>.<symbol>`), así q
 desacoplar la stdlib en paquetes versionados de forma independiente queda reservado
 para 2.0.
 
-### 19.1 Módulos de PenguScript puro (23 módulos)
+### 19.1 Módulos de PenguScript puro (24 módulos)
 
 Todos los módulos puros se encuentran en el directorio `std/` y se importan como `import std.<module>`.
 
@@ -3102,6 +3104,7 @@ Todos los módulos puros se encuentran en el directorio `std/` y se importan com
 | `std.atlas` | Utilidades de colecciones de tipo map multidato para 6 combinaciones clave-valor (`map of string to int`, `map of string to string`, `map of string to float`, `map of int to int`, `map of int to string`, `map of string to bool`). Aplica enchanting directamente sobre los tipos map (`calling m.keys`, `calling m.get_or with k, default`, `calling m.update with k, v`, `calling m.rename_key with old_k, new_k`, `calling m.clone`, `calling m.remove with k`, `calling m.clear`) junto con funciones de nivel de módulo (`calling atlas.keys with m`, `calling atlas.get_or_ss with m, k, def`). Incluye longitud y predicados (`size`, `is_empty`, `has_key`, `has_any_key`, `has_all_keys`), acceso (`get_or`, `get_safe`, `find_key_by_value`), mutación in situ (`update`, `rename_key`, `remove`, `clear`, `remove_all`), accesores masivos (`keys`, `values`, `keys_sorted`, `values_sorted`), reducciones numéricas (`sum_values`, `max_value`, `min_value`), contadores de bool (`count_true`, `count_false`), filtros y transformaciones (`filter_*`, `map_values_*`), combinación (`merge_*`, `merge_keep_left_*`), conversiones (`from_lists_*`, `to_keys_list`, `to_values_list`) y utilidades genéricas (`shard K, V`: `map_size`, `map_has_key`, `map_get_or`, `map_keys`, `map_values`, `map_put`, `map_remove`, `map_clear`). |
 | `std.coven` | Colecciones de conjuntos únicos (`SetString`, `SetInt`): inserción y predicados (`add`, `contains`, `remove`, `len`, `clear`, `is_empty`), álgebra de conjuntos completa (`union`, `intersect`, `difference`, `symmetric_difference`, `is_subset`, `is_superset`, `is_disjoint`, `equals`), conversiones (`to_list`, `to_set_int`, `to_set_string`, `from_list`, `clone`) y filtros especializados (`filter_starts_with`, `filter_length_ge`). |
 | `std.filum` | Primitivas de concurrencia multihilo: exclusión mutua (`Mutex` con `lock`, `unlock`, `try_lock`, `free`), contadores de sincronización (`WaitGroup` con `add`, `done`, `wait`, `free`), guardas de una sola vez (`Once` con `do_once`, `do_action`, `free`), variables de condición (`Cond` con `cond_wait`, `wait_mutex`, `signal`, `broadcast`, `free`), enteros thread-safe (`AtomicInt` con `load`, `store`, `add`, `sub`, `inc`, `dec`, `inc_and_get`, `dec_and_get`, `swap`, `get_and_set`, `compare_swap`, `is_zero`, `reset`, `free`), canales tipados (`ChanInt`, `ChanString`, `ChanFloat`, `ChanBool` con `new`, `with_capacity`, `send`, `recv`, `close`, `len`, `cap`, `free`) y utilidades de sistema/tiempo (`sleep`, `sleep_sec`, `num_cpu`, `goroutine_id`). |
+| `std.fractio` | Métodos exclusivos de flotantes mediante `enchanting shard T where T: Real:` más dos bloques concretos (`enchanting float:` y `enchanting f64:`) para los transcendentales de `libm`, porque C expone `sqrtf`/`sqrt` como símbolos distintos. Clasificación IEEE 754 (`is_nan`, `is_finite`, `is_infinite`, `is_positive_infinity`, `is_negative_infinity`); aproximación (`approx_eq` con tolerancia absoluta, `lerp`); utilidades (`reciprocal`, `copysign`, `degrees`, `radians`); transcendentales vía `libm`: `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `pow`, `hypot`. Monomorfizado a `f64_sqrt`, `float_is_nan`, … — cero sobrecoste en runtime. Los métodos universales viven en `std.numerus`; `Real` implica `Num`. |
 | `std.integrum` | Métodos exclusivos de enteros sobre todo primitivo con signo o sin él mediante `enchanting shard T where T: Integrum:`. Predicados (`is_even`, `is_odd`, `is_power_of_two`, `is_multiple_of`, `is_prime`); operaciones de bits (`bit_count`, `bit_length`, `leading_zeros`, `trailing_zeros`, `next_power_of_two`, `prev_power_of_two`); división euclidiana (`div_rem` → `(T, T)`, `div_floor`, `mod_floor`); teoría de números (`gcd`, `lcm`, `next_prime`, `prev_prime`, `factorial`); representaciones (`to_hex`, `to_bin`, `to_oct`, todas asignan memoria — libéralas con `banish`). Monomorfizado a `int_is_even`, `i64_gcd`, … — cero sobrecoste en runtime. Los métodos universales (`abs`, `clamp`, `pow_int`) viven en `std.numerus`; `Integrum` implica `Num`. |
 | `std.numerus` | Métodos numéricos universales sobre todo primitivo mediante `enchanting shard T where T: Num and T: Ordo and T: Par:`: `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`, predicados (`is_zero`, `is_positive`, `is_negative`, `is_non_negative`, `is_non_positive`), aritmética (`twice`, `half`, `square`, `cube`, `pow_int`), redondeo (`truncate`, `floor`, `ceil`, `round`), conversiones (`to_f64`, `to_i64`). Monomorfizado a `int_abs`, `f64_clamp`, … — cero sobrecoste en runtime. Los métodos exclusivos de enteros viven en `std.integrum`; los exclusivos de flotantes, en `std.fractio`. |
 | `std.loom` | Generación de secuencias, transformaciones funcionales y algoritmos genéricos: secuencias (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reducciones (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicados (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transformaciones (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), operaciones tipo conjunto ordenado (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), búsqueda (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), modificaciones estructurales (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), estadísticas (`median`, `mode`, `variance`, `stddev`, `percentile`) y algoritmos genéricos (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`). |

@@ -40,6 +40,27 @@ plain function call.
 
 ### Added
 
+- **`std.fractio`**: floating-point-only methods via `enchanting shard T
+  where T: Real:` (pure predicates, approximation, utilities) plus two
+  concrete blocks (`enchanting float:` and `enchanting f64:`) for the
+  `libm` transcendentals — because C exposes `sqrtf`/`sqrt` as distinct
+  symbols. IEEE 754 classification (`is_nan`, `is_finite`, `is_infinite`,
+  `is_positive_infinity`, `is_negative_infinity`); approximation
+  (`approx_eq` with absolute tolerance, `lerp`); utilities (`reciprocal`,
+  `copysign`, `degrees`, `radians`); transcendentals: `sqrt`, `cbrt`,
+  `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`,
+  `log2`, `log10`, `pow`, `hypot`. Monomorphized to `f64_sqrt`,
+  `float_is_nan`, … — zero runtime overhead. Universal methods live in
+  `std.numerus`; `Real` implies `Num`.
+- **Fixed**: an explicitly `f64`/`double` binding/parameter silently lost
+  precision. The constant folder appended the `f` suffix to every foldable
+  float literal, so `var pi as f64 is 3.141592653589793` emitted
+  `double pi = 3.141592653589793f;` — the single-precision value promoted to
+  double, discarding 29 bits of mantissa. `_format_const_val` now drops the
+  suffix for an `f64` target (and for a `T: Real` parameter, whose `(T)` cast
+  picks the width), and the operand of a `to` cast is translated with the cast
+  target as context so `3.141592653589793 to f64` also keeps every digit.
+  `float`/`f32` targets still emit the single-precision literal.
 - **`std.integrum`**: integer-only methods via `enchanting shard T where
   T: Integrum:`. Predicates (`is_even`, `is_odd`, `is_power_of_two`,
   `is_multiple_of`, `is_prime`); bit operations (`bit_count`, `bit_length`,

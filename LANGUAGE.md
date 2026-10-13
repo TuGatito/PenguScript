@@ -36,7 +36,7 @@
 17. [Unit tests (`test`)](#17-unit-tests-test)
 18. [Block-style construction (`with:` expressions)](#18-block-style-construction-with-expressions)
 19. [Standard library](#19-standard-library)
-    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-23-modules)
+    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-24-modules)
     - 19.2 [External bindings (satellite repositories)](#192-external-bindings-satellite-repositories)
     - 19.3 [Core Standard Library Examples](#193-core-standard-library-examples)
     - 19.4 [Embedded Project Assets (`arca`)](#194-embedded-project-assets-arca)
@@ -209,6 +209,12 @@ level.
 table claimed `float` was 64-bit and mapped to `double`, which was wrong: it
 would have led a reader to expect double precision and silently get single.
 Write `f64` explicitly when you need 64-bit precision.
+
+A float **literal** is a `float` (f32) until its context says otherwise, so
+`var x as f64 is 3.141592653589793` keeps all 16 digits: a literal folded into a
+`double`/`f64` target (or into a `T: Real` parameter that monomorphizes to
+`f64`) is emitted as a C `double`, with no `f` suffix. Only a `float`/`f32`
+target emits the single-precision `…f` literal.
 
 **`ssize_t` is not a Pengu type.** `CTypeMapper.to_c_type` has an arm for it, but
 the grammar's `base_type` production does not list it, so it cannot be written.
@@ -2997,7 +3003,7 @@ Supported built-in methods inside collection `with` blocks:
 
 ## 19. Standard library
 
-PenguScript ships with a comprehensive standard library of **23 pure PenguScript
+PenguScript ships with a comprehensive standard library of **24 pure PenguScript
 modules** (`std.<module>`), providing high-level, idiomatic abstractions for I/O,
 strings, concurrency, serialization, math, testing, and memory bridging.
 
@@ -3029,7 +3035,7 @@ exports that constant with the current toolchain version. Namespacing already
 keeps each module self-contained (`std.<module>.<symbol>`), so decoupling the
 stdlib into independently versioned packages is reserved for 2.0.
 
-### 19.1 Pure PenguScript Modules (23 modules)
+### 19.1 Pure PenguScript Modules (24 modules)
 
 All pure modules are located in the `std/` directory and imported as `import std.<module>`.
 
@@ -3051,6 +3057,7 @@ All pure modules are located in the `std/` directory and imported as `import std
 | `std.atlas` | Multi-type map collection utilities across 6 key-value combinations (`map of string to int`, `map of string to string`, `map of string to float`, `map of int to int`, `map of int to string`, `map of string to bool`). Enchants map types directly (`calling m.keys`, `calling m.get_or with k, default`, `calling m.update with k, v`, `calling m.rename_key with old_k, new_k`, `calling m.clone`, `calling m.remove with k`, `calling m.clear`) alongside module-level functions (`calling atlas.keys with m`, `calling atlas.get_or_ss with m, k, def`). Includes length & predicates (`size`, `is_empty`, `has_key`, `has_any_key`, `has_all_keys`), access (`get_or`, `get_safe`, `find_key_by_value`), in-place mutation (`update`, `rename_key`, `remove`, `clear`, `remove_all`), bulk accessors (`keys`, `values`, `keys_sorted`, `values_sorted`), numeric reductions (`sum_values`, `max_value`, `min_value`), bool counters (`count_true`, `count_false`), filters and transformations (`filter_*`, `map_values_*`), combination (`merge_*`, `merge_keep_left_*`), conversions (`from_lists_*`, `to_keys_list`, `to_values_list`), and generic utilities (`shard K, V`: `map_size`, `map_has_key`, `map_get_or`, `map_keys`, `map_values`, `map_put`, `map_remove`, `map_clear`). |
 | `std.coven` | Unique-set collections (`SetString`, `SetInt`): insertion and predicates (`add`, `contains`, `remove`, `len`, `clear`, `is_empty`), full set algebra (`union`, `intersect`, `difference`, `symmetric_difference`, `is_subset`, `is_superset`, `is_disjoint`, `equals`), conversions (`to_list`, `to_set_int`, `to_set_string`, `from_list`, `clone`), and specialized filters (`filter_starts_with`, `filter_length_ge`). |
 | `std.filum` | Multithreaded concurrency primitives: mutual exclusion (`Mutex` with `lock`, `unlock`, `try_lock`, `free`), synchronization counters (`WaitGroup` with `add`, `done`, `wait`, `free`), once guards (`Once` with `do_once`, `do_action`, `free`), condition variables (`Cond` with `cond_wait`, `wait_mutex`, `signal`, `broadcast`, `free`), thread-safe integers (`AtomicInt` with `load`, `store`, `add`, `sub`, `inc`, `dec`, `inc_and_get`, `dec_and_get`, `swap`, `get_and_set`, `compare_swap`, `is_zero`, `reset`, `free`), typed channels (`ChanInt`, `ChanString`, `ChanFloat`, `ChanBool` with `new`, `with_capacity`, `send`, `recv`, `close`, `len`, `cap`, `free`), and system/time utilities (`sleep`, `sleep_sec`, `num_cpu`, `goroutine_id`). |
+| `std.fractio` | Floating-point-only methods via `enchanting shard T where T: Real:` plus two concrete blocks (`enchanting float:` and `enchanting f64:`) for the `libm` transcendentals, because C exposes `sqrtf`/`sqrt` as distinct symbols. IEEE 754 classification (`is_nan`, `is_finite`, `is_infinite`, `is_positive_infinity`, `is_negative_infinity`); approximation (`approx_eq` with absolute tolerance, `lerp`); utilities (`reciprocal`, `copysign`, `degrees`, `radians`); transcendentals via `libm`: `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `pow`, `hypot`. Monomorphized to `f64_sqrt`, `float_is_nan`, … — zero runtime overhead. Universal methods live in `std.numerus`; `Real` implies `Num`. |
 | `std.integrum` | Integer-only methods across every signed/unsigned primitive via `enchanting shard T where T: Integrum:`. Predicates (`is_even`, `is_odd`, `is_power_of_two`, `is_multiple_of`, `is_prime`); bit operations (`bit_count`, `bit_length`, `leading_zeros`, `trailing_zeros`, `next_power_of_two`, `prev_power_of_two`); Euclidean division (`div_rem` → `(T, T)`, `div_floor`, `mod_floor`); number theory (`gcd`, `lcm`, `next_prime`, `prev_prime`, `factorial`); representations (`to_hex`, `to_bin`, `to_oct`, all allocating — `banish` them). Monomorphized to `int_is_even`, `i64_gcd`, … — zero runtime overhead. Universal methods (`abs`, `clamp`, `pow_int`) live in `std.numerus`; `Integrum` implies `Num`. |
 | `std.numerus` | Universal numeric methods across every primitive via `enchanting shard T where T: Num and T: Ordo and T: Par:`: `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`, predicates (`is_zero`, `is_positive`, `is_negative`, `is_non_negative`, `is_non_positive`), arithmetic (`twice`, `half`, `square`, `cube`, `pow_int`), rounding (`truncate`, `floor`, `ceil`, `round`), conversions (`to_f64`, `to_i64`). Monomorphized to `int_abs`, `f64_clamp`, … — zero runtime overhead. Integer-only methods live in `std.integrum`; floating-point-only methods in `std.fractio`. |
 | `std.loom` | Sequence generation, functional transformations, and generic algorithms: sequences (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reductions (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicates (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transforms (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), sorted set-like operations (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), search (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), structural modifications (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), statistics (`median`, `mode`, `variance`, `stddev`, `percentile`), and generic algorithms (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`). |

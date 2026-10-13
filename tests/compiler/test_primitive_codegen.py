@@ -312,3 +312,64 @@ weave use with a as int, b as i16 into bool:
 """)
     for symbol in ("int_helper", "i16_helper", "int_via_local", "i16_via_local"):
         assert symbol in c, f"{symbol} missing from the bundle"
+
+
+def test_f64_literal_keeps_double_precision(emit_c):
+    """`as f64` must deliver 64-bit precision (LANGUAGE.md §4.1).
+
+    Regression: `_format_const_val` appended the `f` suffix to every foldable
+    float literal, so `var pi as f64 is 3.141592653589793` emitted
+    `double pi = 3.141592653589793f;` -- the single-precision value promoted to
+    double, silently dropping 29 bits of mantissa.
+    """
+    c = emit_c("""
+weave main into int:
+    var wide as f64 is 3.141592653589793
+    var alias as double is 3.141592653589793
+    var narrow as float is 3.141592653589793
+    var narrow_alias as f32 is 3.141592653589793
+    return 0
+""")
+    assert "double wide = 3.141592653589793;" in c
+    assert "double alias = 3.141592653589793;" in c
+    assert "float narrow = 3.141592653589793f;" in c
+    assert "float narrow_alias = 3.141592653589793f;" in c
+    # Exactly the two single-precision variables carry the suffix.
+    assert c.count("3.141592653589793f") == 2
+
+
+def test_cast_to_f64_keeps_double_precision(emit_c):
+    """`3.141592653589793 to f64` is a double literal, not a float one."""
+    c = emit_c("""
+weave main into int:
+    var wide as f64 is (3.141592653589793 to f64)
+    var narrow as f32 is (3.141592653589793 to f32)
+    return 0
+""")
+    assert "((double)(3.141592653589793))" in c
+    assert "((float)(3.141592653589793f))" in c
+
+
+def test_real_bound_literal_follows_the_monomorphized_width(emit_c):
+    """A `T: Real` body that writes `3.14 to T` must not bake in float width.
+
+    The cast target is substituted per concrete receiver, so the `f64`
+    monomorphization has to use the double literal and the `float` one the
+    single-precision literal.
+    """
+    c = emit_c("""
+enchanting shard T where T: Real:
+    weave half_pi into T:
+        return (3.141592653589793 to T) / (2.0 to T)
+
+weave use_f64 with a as f64 into f64:
+    return calling a.half_pi
+
+weave use_f32 with b as float into float:
+    return calling b.half_pi
+""")
+    assert "double f64_half_pi(double self)" in c
+    assert "float float_half_pi(float self)" in c
+    # The double body keeps every digit; the float body is single precision.
+    assert "((double)(3.141592653589793))" in c
+    assert "((float)(3.141592653589793f))" in c
