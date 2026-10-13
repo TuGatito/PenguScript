@@ -2280,6 +2280,13 @@ deliberately last because it touches public APIs.
 
 ## 13. Manual Memory Management
 
+> [!NOTE]
+> For the low-level primitives (`alloc`, `alloc_array`, `resize_array`, `copy`,
+> `fill`, `zero`, `swap`, `compare`, `bytes_for`), see `std.memoria` (§19.1).
+> `banish`, `sigil of`, `essence of` and `size of` remain the language
+> operators; `std.memoria` does **not** duplicate them (`free`, `sizeof` and
+> `address_of` are deliberately absent).
+
 PenguScript has no garbage collector, no borrow checker and no automatic release
 at scope exit. Memory is managed by hand, like C, Zig, Odin and Nelua: **you
 allocate, you release.** The compiler checks types; it does not track lifetimes,
@@ -2460,6 +2467,19 @@ weave main into int:
     # 'rows at 0' and 'row' now alias the same buffer:
     banish row                                  # free it once, through either name
     banish rows                                 # frees only rows' own buffer
+    return 0
+```
+
+For a raw heap block, `std.memoria` is the canonical allocator; `banish`
+remains the release operator:
+
+```pengu
+import std.memoria
+
+weave main into int:
+    var buf as ref to int is calling memoria.alloc_array of int with 16
+    defer banish buf
+    calling memoria.zero of int with buf, 16
     return 0
 ```
 
@@ -3009,7 +3029,7 @@ Supported built-in methods inside collection `with` blocks:
 
 ## 19. Standard library
 
-PenguScript ships with a comprehensive standard library of **26 pure PenguScript
+PenguScript ships with a comprehensive standard library of **27 pure PenguScript
 modules** (`std.<module>`), providing high-level, idiomatic abstractions for I/O,
 strings, concurrency, serialization, math, testing, and memory bridging.
 
@@ -3041,7 +3061,7 @@ exports that constant with the current toolchain version. Namespacing already
 keeps each module self-contained (`std.<module>.<symbol>`), so decoupling the
 stdlib into independently versioned packages is reserved for 2.0.
 
-### 19.1 Pure PenguScript Modules (26 modules)
+### 19.1 Pure PenguScript Modules (27 modules)
 
 All pure modules are located in the `std/` directory and imported as `import std.<module>`.
 
@@ -3069,6 +3089,7 @@ All pure modules are located in the `std/` directory and imported as `import std
 | `std.logica` | Methods on `bool` via `enchanting bool:`. Chainable versions of the language operators (`toggle`, `and_with`, `or_with`); derived connectives the language has no operator for (`xor`, `iff` — biconditional, `nand`, `nor`, `implies` — material implication, `false` only when `self` is `true` and `other` is `false`); conversion `to_int` (`true` → 1, `false` → 0). Pure PenguScript — no C. Closes the primitive-methods series alongside `std.numerus`, `std.integrum`, `std.fractio` and `std.littera`. |
 | `std.numerus` | Universal numeric methods across every primitive via `enchanting shard T where T: Num and T: Ordo and T: Par:`: `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`, predicates (`is_zero`, `is_positive`, `is_negative`, `is_non_negative`, `is_non_positive`), arithmetic (`twice`, `half`, `square`, `cube`, `pow_int`), rounding (`truncate`, `floor`, `ceil`, `round`), conversions (`to_f64`, `to_i64`). Monomorphized to `int_abs`, `f64_clamp`, … — zero runtime overhead. Integer-only methods live in `std.integrum`; floating-point-only methods in `std.fractio`. |
 | `std.loom` | Sequence generation, functional transformations, and generic algorithms: sequences (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reductions (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicates (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transforms (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), sorted set-like operations (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), search (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), structural modifications (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), statistics (`median`, `mode`, `variance`, `stddev`, `percentile`), and generic algorithms (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`). |
+| `std.memoria` | Manual heap memory management via `shard T` module functions: `alloc`, `alloc_array`, `try_alloc`, `try_alloc_array`, `resize_array` (with explicit `old_n`), `try_resize_array`, `copy` (memmove semantics — safe with overlap), `fill`, `zero`, `swap`, `compare` (returns `-1`/`0`/`1` like `memcmp`), `bytes_for`. Zeroed by default; OOM aborts unless the `try_*` variant is used. Composes with `banish`/`defer banish`/`errdefer banish`/`derive Nexus`. `free`, `sizeof` and `address_of` are deliberately absent — those are `banish`, `size of` and `sigil of` in the language itself. Experts needing an uninitialized block use `antiquus`. |
 | `std.invoke` | Command-line interface (CLI) argument parsing: POSIX and GNU syntax (`--flag`, `--key=value`, `-k=value`), boolean flag negation (`--no-flag`), subcommands (`rune Subcommand`), typed options (int, float, bool, string, multi), repeat multi-options (`rune MultiOption`), Levenshtein typo suggestions, formatted help and usage strings (`usage_string`, `full_help`), error reporting, and robust parse variants (`parse`, `parse_no_exit`, `parse_or_exit`, `parse_or_usage`, `ParseResult` accessors `get`, `get_or`, `get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`, `get_all`, `to_map_values`, `to_map_flags`). |
 | `std.ffi` | Low-level C foreign function interface bridge: null pointer utilities (`null_void`, `null_char`, `null_byte`, `is_null`, `is_valid`, `ptr_eq`), architecture constants and inspection (`SIZEOF_POINTER`, `SIZEOF_INT`, `SIZEOF_FLOAT`, `pointer_size`, `size_of shard T`, `alignment_of shard T`), null-terminated C string conversions (`string_from_cstr`, `cstr_from_string`, `string_from_cstr_n`, `string_from_bytes`, `bytes_from_string`), memory views (`slice_from_ptr`), generic collections from C buffers (`list_from_ptr shard T`, `map_from_entries shard K, V`), raw memory copy/set (`memcpy_raw`, `memset_raw`), and 10 canonical C interop patterns. |
 | `std.ledger` | Tabular data, CSV/TSV parsing, serialization, and matrix operations: parsing (`parse_csv`, `parse_tsv`, `parse_line`, `detect_delimiter`, `parse_csv_strict`, `parse_csv_nocomments`, `parse_csv_skip`, `parse_line_strict`, `parse_csv_normalized`), table abstraction `rune CsvTable` (`from_csv`, `from_rows`, `row_count`, `column_count`, `has_column`, `column_index`, `get`, `get_or`, `column`, `row_as_map`, `to_csv`), matrix enchantments (`list of list of string`: `row_count`, `column_count`, `is_rectangular`, `column`, `transpose`), key-value map conversions (`parse_csv_as_pairs`, `parse_csv_key_value`, `write_key_value_map`), escaping (`escape_field`, `escape_field_rfc4180`, `escape_field_backslash`), formatters (`to_csv_string`, `to_tsv_string`, `to_csv_string_no_trailing_newline`, `to_csv_string_crlf`), and file operations (`read_csv`, `read_tsv`, `write_csv`, `write_tsv`, `write_csv_safe`). |

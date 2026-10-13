@@ -2216,6 +2216,13 @@ reciba el mismo tratamiento aditivo; la migración completa se sigue como el ite
 
 ## 13. Gestión manual de memoria
 
+> [!NOTE]
+> Para las primitivas de bajo nivel (`alloc`, `alloc_array`, `resize_array`,
+> `copy`, `fill`, `zero`, `swap`, `compare`, `bytes_for`), consulta
+> `std.memoria` (§19.1). `banish`, `sigil of`, `essence of` y `size of` siguen
+> siendo los operadores del lenguaje; `std.memoria` **no** los duplica
+> (`free`, `sizeof` y `address_of` están deliberadamente ausentes).
+
 PenguScript no tiene recolector de basura, ni borrow checker, ni liberación automática al
 salir del ámbito. La memoria se gestiona a mano, como en C, Zig, Odin y Nelua: **tú
 asignas, tú liberas.** El compilador comprueba tipos; no rastrea tiempos de vida, con la
@@ -2440,6 +2447,19 @@ weave main into int:
     # 'rows at 0' and 'row' now alias the same buffer:
     banish row                                  # free it once, through either name
     banish rows                                 # frees only rows' own buffer
+    return 0
+```
+
+Para un bloque crudo del heap, `std.memoria` es el asignador canónico; `banish`
+sigue siendo el operador de liberación:
+
+```pengu
+import std.memoria
+
+weave main into int:
+    var buf as ref to int is calling memoria.alloc_array of int with 16
+    defer banish buf
+    calling memoria.zero of int with buf, 16
     return 0
 ```
 
@@ -3053,7 +3073,7 @@ Métodos integrados admitidos dentro de los bloques `with` de colecciones:
 
 ## 19. Biblioteca estándar
 
-PenguScript incluye una biblioteca estándar completa de **26 módulos de
+PenguScript incluye una biblioteca estándar completa de **27 módulos de
 PenguScript puro** (`std.<module>`) que ofrecen abstracciones idiomáticas de alto
 nivel para E/S, cadenas, concurrencia, serialización, matemáticas, pruebas y
 puentes de memoria.
@@ -3089,7 +3109,7 @@ nombres ya mantiene cada módulo autocontenido (`std.<module>.<symbol>`), así q
 desacoplar la stdlib en paquetes versionados de forma independiente queda reservado
 para 2.0.
 
-### 19.1 Módulos de PenguScript puro (26 módulos)
+### 19.1 Módulos de PenguScript puro (27 módulos)
 
 Todos los módulos puros se encuentran en el directorio `std/` y se importan como `import std.<module>`.
 
@@ -3117,6 +3137,7 @@ Todos los módulos puros se encuentran en el directorio `std/` y se importan com
 | `std.logica` | Métodos sobre `bool` mediante `enchanting bool:`. Versiones encadenables de los operadores del lenguaje (`toggle`, `and_with`, `or_with`); conectivas derivadas que el lenguaje no tiene como operador (`xor`, `iff` — bicondicional, `nand`, `nor`, `implies` — implicación material, `false` solo cuando `self` es `true` y `other` es `false`); conversión `to_int` (`true` → 1, `false` → 0). PenguScript puro — sin C. Cierra la serie de módulos de primitivos junto a `std.numerus`, `std.integrum`, `std.fractio` y `std.littera`. |
 | `std.numerus` | Métodos numéricos universales sobre todo primitivo mediante `enchanting shard T where T: Num and T: Ordo and T: Par:`: `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`, predicados (`is_zero`, `is_positive`, `is_negative`, `is_non_negative`, `is_non_positive`), aritmética (`twice`, `half`, `square`, `cube`, `pow_int`), redondeo (`truncate`, `floor`, `ceil`, `round`), conversiones (`to_f64`, `to_i64`). Monomorfizado a `int_abs`, `f64_clamp`, … — cero sobrecoste en runtime. Los métodos exclusivos de enteros viven en `std.integrum`; los exclusivos de flotantes, en `std.fractio`. |
 | `std.loom` | Generación de secuencias, transformaciones funcionales y algoritmos genéricos: secuencias (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reducciones (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicados (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transformaciones (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), operaciones tipo conjunto ordenado (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), búsqueda (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), modificaciones estructurales (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), estadísticas (`median`, `mode`, `variance`, `stddev`, `percentile`) y algoritmos genéricos (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`). |
+| `std.memoria` | Gestión manual de memoria del heap mediante funciones de módulo `shard T`: `alloc`, `alloc_array`, `try_alloc`, `try_alloc_array`, `resize_array` (con `old_n` explícito), `try_resize_array`, `copy` (semántica `memmove` — segura con solapamiento), `fill`, `zero`, `swap`, `compare` (devuelve `-1`/`0`/`1` como `memcmp`), `bytes_for`. Zeroed por defecto; en OOM aborta salvo que se use la variante `try_*`. Compone con `banish`/`defer banish`/`errdefer banish`/`derive Nexus`. `free`, `sizeof` y `address_of` están deliberadamente ausentes: esos son `banish`, `size of` y `sigil of` en el propio lenguaje. Quien necesite un bloque sin inicializar usa `antiquus`. |
 | `std.invoke` | Análisis de argumentos de interfaz de línea de comandos (CLI): sintaxis POSIX y GNU (`--flag`, `--key=value`, `-k=value`), negación de flags booleanos (`--no-flag`), subcomandos (`rune Subcommand`), opciones tipadas (int, float, bool, string, multi), opciones multi repetibles (`rune MultiOption`), sugerencias de erratas por Levenshtein, cadenas de ayuda y uso formateadas (`usage_string`, `full_help`), informes de error y variantes robustas de análisis (`parse`, `parse_no_exit`, `parse_or_exit`, `parse_or_usage`, accesores de `ParseResult` `get`, `get_or`, `get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`, `get_all`, `to_map_values`, `to_map_flags`). |
 | `std.ffi` | Puente de interfaz de funciones externas de C de bajo nivel: utilidades de punteros nulos (`null_void`, `null_char`, `null_byte`, `is_null`, `is_valid`, `ptr_eq`), constantes e inspección de arquitectura (`SIZEOF_POINTER`, `SIZEOF_INT`, `SIZEOF_FLOAT`, `pointer_size`, `size_of shard T`, `alignment_of shard T`), conversiones de cadenas C terminadas en nulo (`string_from_cstr`, `cstr_from_string`, `string_from_cstr_n`, `string_from_bytes`, `bytes_from_string`), vistas de memoria (`slice_from_ptr`), colecciones genéricas a partir de búferes de C (`list_from_ptr shard T`, `map_from_entries shard K, V`), copia/escritura de memoria en bruto (`memcpy_raw`, `memset_raw`) y 10 patrones canónicos de interoperabilidad con C. |
 | `std.ledger` | Datos tabulares, análisis y serialización de CSV/TSV y operaciones con matrices: análisis (`parse_csv`, `parse_tsv`, `parse_line`, `detect_delimiter`, `parse_csv_strict`, `parse_csv_nocomments`, `parse_csv_skip`, `parse_line_strict`, `parse_csv_normalized`), abstracción de tabla `rune CsvTable` (`from_csv`, `from_rows`, `row_count`, `column_count`, `has_column`, `column_index`, `get`, `get_or`, `column`, `row_as_map`, `to_csv`), enchantments de matrices (`list of list of string`: `row_count`, `column_count`, `is_rectangular`, `column`, `transpose`), conversiones a mapas clave-valor (`parse_csv_as_pairs`, `parse_csv_key_value`, `write_key_value_map`), escape (`escape_field`, `escape_field_rfc4180`, `escape_field_backslash`), formateadores (`to_csv_string`, `to_tsv_string`, `to_csv_string_no_trailing_newline`, `to_csv_string_crlf`) y operaciones de archivos (`read_csv`, `read_tsv`, `write_csv`, `write_tsv`, `write_csv_safe`). |

@@ -2125,6 +2125,41 @@ int32_t memory_demo(void) {
 - `static var` with non-constant initializers is guarded so it initializes exactly once.
 - The compiler enforces one lifetime rule: returning a `slice of` a stack array is rejected (`E0051`), because the slice would dangle. Mutable globals are impossible by construction, which keeps lifetimes local and deterministic.
 
+### 12.4 Manual memory with `std.memoria`
+
+`import std.memoria` exposes the canonical heap primitives; every one is `shard T`, so it monomorphizes to a plain C function per element type.
+
+```pengu
+import std.memoria
+
+var p as ref to int is calling memoria.alloc of int
+defer banish p
+
+var buf as ref to int is calling memoria.alloc_array of int with 16
+defer banish buf
+
+calling memoria.zero of int with buf, 16
+calling memoria.fill of int with buf, 42, 16
+
+var dst as ref to int is buf at 4
+calling memoria.copy of int with dst, buf, 4      # memmove: overlap-safe
+
+set buf is calling memoria.resize_array of int with buf, 16, 32
+# The old pointer is invalid after a successful resize: keep only the return.
+# `defer banish buf` reads the variable at scope exit, so it frees the new block.
+
+let total_bytes is calling memoria.bytes_for of int with 32   # 128
+```
+
+**Rules:**
+- `alloc`/`alloc_array` are **zeroed**; there is no `alloc_uninit`.
+- `copy` is `memmove` (safe with overlap); `src` is `ref to frozen T`.
+- `compare` returns `-1`/`0`/`1`, like `memcmp`.
+- `resize_array` takes an explicit `old_n` (unlike C `realloc`) and preserves `min(old_n, new_n)`, zeroing the new tail.
+- OOM aborts; `try_alloc`/`try_alloc_array`/`try_resize_array` return `maybe` instead. Free a `maybe ref to T` with **two** banishes: `banish p` for the block and `banish mp` for the box.
+- `free`, `sizeof` and `address_of` are **not** in `memoria`: use `banish`, `size of T` and `sigil of x`.
+- `defer banish x` is function-scoped in the current implementation: do not declare `x` inside a loop/`if` body and defer it there (the generated C references an out-of-scope name). Banish it explicitly inside the block instead.
+
 ---
 
 ## 13. Modules, Imports & Project Layout

@@ -894,4 +894,151 @@ PenguMap pengu_ffi_map_si(PenguSlice keys, PenguSlice vals) {
     return map;
 }
 
+/* =========================================================================
+ * 26. std.memoria support (Phase 5)
+ *
+ * Manual heap primitives behind std/memoria.pengu: pure libc
+ * (calloc/realloc/free/memcpy/memset). No struct layout is touched, so
+ * PENGU_ABI_VERSION stays 2. The aborting variants route their failure
+ * through pengu_memoria_oom(), which honours the same PENGU_OOM_ABORT policy
+ * as pengu_sigil_alloc().
+ * ========================================================================= */
+
+/* Reports an out-of-memory condition under the configured runtime policy. */
+static void pengu_memoria_oom(size_t size) {
+#if PENGU_OOM_ABORT
+    fprintf(stderr, "\n[PENGU] out of memory: failed to allocate %zu byte(s)\n", size);
+    fflush(stderr);
+    abort();
+#else
+    (void)size;
+#endif
+}
+
+/* count * elem_size with overflow reported through *ok (0 on overflow). */
+static size_t pengu_memoria_bytes(size_t count, size_t elem_size, int *ok) {
+    if (elem_size != 0 && count > SIZE_MAX / elem_size) {
+        if (ok) *ok = 0;
+        return 0;
+    }
+    if (ok) *ok = 1;
+    return count * elem_size;
+}
+
+void *pengu_memoria_alloc(size_t n) {
+    void *p = calloc(1, n);
+    if (!p && n > 0) {
+        pengu_memoria_oom(n);
+    }
+    return p;
+}
+
+void *pengu_memoria_try_alloc(size_t n) {
+    return calloc(1, n);
+}
+
+void *pengu_memoria_alloc_array(size_t count, size_t elem_size) {
+    int ok = 1;
+    size_t bytes = pengu_memoria_bytes(count, elem_size, &ok);
+    void *p;
+    if (!ok) {
+        pengu_memoria_oom(SIZE_MAX);
+        return NULL;
+    }
+    p = calloc(1, bytes);
+    if (!p && bytes > 0) {
+        pengu_memoria_oom(bytes);
+    }
+    return p;
+}
+
+void *pengu_memoria_try_alloc_array(size_t count, size_t elem_size) {
+    int ok = 1;
+    size_t bytes = pengu_memoria_bytes(count, elem_size, &ok);
+    if (!ok) {
+        return NULL;
+    }
+    return calloc(1, bytes);
+}
+
+/* Shared body of resize/try_resize. abort_on_oom == 0 leaves the original
+ * block untouched and reports failure with NULL instead of aborting. */
+static void *pengu_memoria_resize_impl(void *p, size_t old_n, size_t new_n,
+                                       size_t elem_size, int abort_on_oom) {
+    int ok = 1;
+    size_t new_bytes = pengu_memoria_bytes(new_n, elem_size, &ok);
+    size_t old_bytes;
+    void *np;
+
+    if (!ok) {
+        if (abort_on_oom) {
+            pengu_memoria_oom(SIZE_MAX);
+        }
+        return NULL;
+    }
+
+    /* A NULL block is the documented "fresh allocation" case: zeroed. */
+    if (!p) {
+        np = calloc(1, new_bytes);
+        if (!np && new_bytes > 0) {
+            if (abort_on_oom) {
+                pengu_memoria_oom(new_bytes);
+            }
+        }
+        return np;
+    }
+
+    if (new_n == old_n) {
+        return p;
+    }
+
+    old_bytes = pengu_memoria_bytes(old_n, elem_size, NULL);
+    np = realloc(p, new_bytes);
+    if (!np) {
+        /* realloc left the original block valid and owned by the caller. */
+        if (abort_on_oom) {
+            pengu_memoria_oom(new_bytes);
+        }
+        return NULL;
+    }
+    if (new_bytes > old_bytes) {
+        memset((char *)np + old_bytes, 0, new_bytes - old_bytes);
+    }
+    return np;
+}
+
+void *pengu_memoria_resize(void *p, size_t old_n, size_t new_n, size_t elem_size) {
+    return pengu_memoria_resize_impl(p, old_n, new_n, elem_size, 1);
+}
+
+void *pengu_memoria_try_resize(void *p, size_t old_n, size_t new_n, size_t elem_size) {
+    return pengu_memoria_resize_impl(p, old_n, new_n, elem_size, 0);
+}
+
+void pengu_memoria_swap(void *a, void *b, size_t elem_size) {
+    unsigned char *pa = (unsigned char *)a;
+    unsigned char *pb = (unsigned char *)b;
+    size_t i;
+    if (!pa || !pb || pa == pb) {
+        return;
+    }
+    for (i = 0; i < elem_size; ++i) {
+        unsigned char tmp = pa[i];
+        pa[i] = pb[i];
+        pb[i] = tmp;
+    }
+}
+
+void pengu_memoria_fill(void *dst, const void *value, size_t count, size_t elem_size) {
+    char *d = (char *)dst;
+    const char *v = (const char *)value;
+    size_t i;
+    if (!d || !v || elem_size == 0) {
+        return;
+    }
+    for (i = 0; i < count; ++i) {
+        memcpy(d + (i * elem_size), v, elem_size);
+    }
+}
+
 #endif /* !PENGU_RUNTIME_SUBSYSTEM_ONLY */

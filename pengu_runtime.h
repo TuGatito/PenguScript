@@ -311,6 +311,78 @@ extern "C"
     }
   }
 
+  /* -------------------------------------------------------------------------
+   * `std.memoria` support (Phase 5).
+   *
+   * Manual heap primitives behind std/memoria.pengu. The compiler
+   * monomorphizes the `shard T` wrappers, so every size is resolved at compile
+   * time and these helpers stay byte-level and type-agnostic.
+   *
+   * Declarations only: the definitions live in pengu_runtime.c (core object)
+   * so a generated bundle links them exactly like the FFI bridges. They are
+   * purely additive and touch no struct layout, so PENGU_ABI_VERSION stays 2.
+   * The aborting variants honour PENGU_OOM_ABORT exactly like pengu_sigil_alloc.
+   * ------------------------------------------------------------------------- */
+
+  /**
+   * @brief Allocates a zero-initialized block of `n` bytes.
+   * @param n Number of bytes to allocate.
+   * @return Pointer to the zero-initialized block, or NULL when the OOM policy
+   *         is not `abort` and the allocation failed.
+   */
+  void *pengu_memoria_alloc(size_t n);
+
+  /**
+   * @brief Allocates a zero-initialized array of `count` elements.
+   * @param count Number of elements (precondition: > 0).
+   * @param elem_size Size of one element in bytes.
+   * @return Pointer to the zero-initialized block, or NULL under the
+   *         non-aborting OOM policy.
+   */
+  void *pengu_memoria_alloc_array(size_t count, size_t elem_size);
+
+  /**
+   * @brief Like pengu_memoria_alloc but never aborts: returns NULL on OOM.
+   */
+  void *pengu_memoria_try_alloc(size_t n);
+
+  /**
+   * @brief Like pengu_memoria_alloc_array but never aborts: returns NULL on OOM.
+   */
+  void *pengu_memoria_try_alloc_array(size_t count, size_t elem_size);
+
+  /**
+   * @brief Resizes a block to `new_n` elements, preserving min(old_n, new_n).
+   *
+   * New bytes are zeroed. A NULL `p` is a fresh, zeroed allocation. Aborts on
+   * OOM under the default policy. After a successful move the old pointer is
+   * invalid; the caller must use the return value only.
+   */
+  void *pengu_memoria_resize(void *p, size_t old_n, size_t new_n, size_t elem_size);
+
+  /**
+   * @brief Like pengu_memoria_resize but never aborts: returns NULL on OOM.
+   *
+   * When `p` was non-NULL and the resize fails, the original block stays valid
+   * and remains owned by the caller.
+   */
+  void *pengu_memoria_try_resize(void *p, size_t old_n, size_t new_n, size_t elem_size);
+
+  /**
+   * @brief Byte-by-byte swap of `elem_size` bytes at `a` and `b`.
+   *        NULL-safe; a == b is a no-op.
+   */
+  void pengu_memoria_swap(void *a, void *b, size_t elem_size);
+
+  /**
+   * @brief Fills `count` elements at `dst` with a copy of the `elem_size`-byte
+   *        pattern at `value`.
+   *
+   * Not `memset`: the pattern may be wider than one byte (a float, a pointer,
+   * a rune). NULL-safe; a zero `elem_size` is a no-op.
+   */
+  void pengu_memoria_fill(void *dst, const void *value, size_t count, size_t elem_size);
+
   /* =========================================================================
    * 4. Error Handling & Optionals (Maybe & Result)
    * ========================================================================= */

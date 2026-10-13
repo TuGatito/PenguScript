@@ -1,0 +1,807 @@
+## std/memoria.pengu — manual heap memory management.
+##
+## `memoria` expone las primitivas canónicas para reservar, redimensionar,
+## copiar y manipular bloques de memoria del heap en PenguScript. Cada método se
+## declara `shard T`, así que se monomorfiza por tipo concreto en tiempo de
+## compilación: no hay boxing, ni vtables, ni sobrecoste en runtime. `alloc of
+## int` y `alloc of Player` son dos funciones C distintas, cada una con su
+## `sizeof` ya resuelto.
+##
+## ## Lo que **no** está aquí
+## `memoria` **no** expone `free`, `sizeof` ni `address_of`: esos ya viven en
+## el lenguaje y duplicarlos sería anti-Pengunic. La forma canónica de cada
+## concepto es:
+##
+## | Concepto | Forma canónica |
+## |---|---|
+## | Liberar | `banish p` / `defer banish p` / `errdefer banish p` |
+## | Tamaño | `size of T` (operador) |
+## | Dirección | `sigil of x` (operador) |
+## | Desreferencia | `essence of p` (operador) |
+## | Destructor de rune | `derive Nexus` + `banish (essence of p)` |
+##
+## ## Zeroed por defecto
+## `alloc` y `alloc_array` devuelven memoria **puesta a cero**. No existe
+## `alloc_uninit`: un bloque sin inicializar es una deuda de seguridad, no una
+## primitiva de biblioteca. Si de verdad necesitas uno (rendimiento medido,
+## código de arranque), declara un bloque `antiquus` con
+## `#include <stdlib.h>` y llama a `malloc` directamente, documentando el
+## motivo en el punto de uso. La biblioteca estándar no esconderá esa deuda por
+## ti.
+##
+## ## OOM: aborta por defecto, `maybe` con `try_*`
+## Si el sistema se queda sin memoria, `alloc`, `alloc_array` y `resize_array`
+## abortan con `[PENGU] out of memory` (la política `PENGU_OOM_ABORT` del
+## runtime, ver LANGUAGE.md §5.0). Si prefieres manejar el fallo, usa
+## `try_alloc`, `try_alloc_array` o `try_resize_array`, que devuelven
+## `maybe none` en lugar de abortar. En `try_resize_array`, un fallo deja el
+## bloque original **válido y en propiedad del llamador**.
+##
+## ## Composición con el lenguaje
+## La pareja canónica es `memoria.alloc of T` + `banish`:
+##
+## ```pengu
+## import std.memoria
+##
+## rune Player:
+##     hp as int
+##
+## weave main into int:
+##     var p as ref to Player is calling memoria.alloc of Player
+##     defer banish p
+##     set p->hp is 100
+##     return 0
+## ```
+##
+## Para runes con `derive Nexus`, `banish p` libera el bloque pero **no**
+## invoca el destructor: llama a `banish (essence of p)` antes de `banish p`,
+## o envuelve la liberación en un helper.
+##
+## ## Memoria
+## **Todos** los métodos de este módulo devuelven punteros que el llamador debe
+## liberar con `banish`. No hay gestión automática: el heap manual es manual.
+##
+## ## Ejemplo: buffer dinámico
+## ```pengu
+## import std.memoria
+##
+## weave main into int:
+##     var cap as usize is 8
+##     var buf as ref to int is calling memoria.alloc_array of int with cap
+##     defer banish buf
+##     calling memoria.fill of int with buf, 42, cap
+##     set buf is calling memoria.resize_array of int with buf, cap, 16
+##     set cap is 16
+##     return 0
+## ```
+##
+## `defer banish buf` nombra la **variable**, así que libera el puntero
+## vigente al salir del scope (el que devolvió `resize_array`), no una copia
+## del valor inicial. No hay doble `banish`.
+
+include "string.h"
+
+import std.ward
+
+# ----------------------------------------------------------------------------
+# Module Version (LANGUAGE.md §19.0: every hand-written std module exports one)
+# ----------------------------------------------------------------------------
+
+## Memoria module version.
+const MEMORIA_VERSION as string is "2.0.0"
+
+# ----------------------------------------------------------------------------
+# Runtime declarations
+#
+# `pengu_memoria_*` are additive runtime helpers (pengu_runtime.{h,c}) that own
+# the alloc/realloc/OOM policy. `memmove`/`memset`/`memcmp` come straight from
+# <string.h>: they are byte-level and identical for every `T`, so a dedicated
+# runtime function would only add indirection.
+# ----------------------------------------------------------------------------
+
+## Reserva `n` bytes a cero; aborta según `PENGU_OOM_ABORT`.
+declare pengu_memoria_alloc             with n as usize into ref to void
+## Reserva `count` elementos de `elem_size` bytes a cero; aborta según OOM.
+declare pengu_memoria_alloc_array       with count as usize, elem_size as usize into ref to void
+## Como `pengu_memoria_alloc` pero devuelve NULL en OOM.
+declare pengu_memoria_try_alloc         with n as usize into ref to void
+## Como `pengu_memoria_alloc_array` pero devuelve NULL en OOM.
+declare pengu_memoria_try_alloc_array   with count as usize, elem_size as usize into ref to void
+## Redimensiona preservando `min(old_n, new_n)`; la cola nueva va a cero.
+declare pengu_memoria_resize            with p as ref to void, old_n as usize, new_n as usize, elem_size as usize into ref to void
+## Como `pengu_memoria_resize` pero devuelve NULL en OOM dejando `p` válido.
+declare pengu_memoria_try_resize        with p as ref to void, old_n as usize, new_n as usize, elem_size as usize into ref to void
+## Intercambio byte a byte de `elem_size` bytes.
+declare pengu_memoria_swap              with a as ref to void, b as ref to void, elem_size as usize into void
+## Relleno de `count` elementos con el patrón de `elem_size` bytes en `value`.
+declare pengu_memoria_fill              with dst as ref to void, value as ref to frozen void, count as usize, elem_size as usize into void
+
+## `memmove` de <string.h>: copia sin solapar ya soportado.
+declare memmove with dst as ref to void, src as ref to frozen void, n as usize into void
+## `memset` de <string.h>: relleno de bytes.
+declare memset  with dst as ref to void, value as int, n as usize into void
+## `memcmp` de <string.h>: comparación de bytes.
+declare memcmp  with a as ref to frozen void, b as ref to frozen void, n as usize into int
+
+# ----------------------------------------------------------------------------
+# 1. Alocación (4)
+# ----------------------------------------------------------------------------
+
+## Reserva un valor de tipo `T` en el heap, **inicializado a cero**.
+##
+## ## Memoria
+## El llamador debe liberar el resultado con `banish` (o `defer banish`).
+##
+## ## Ejemplo
+## ```pengu
+## var p as ref to Player is calling memoria.alloc of Player
+## defer banish p
+## ```
+weave alloc shard T into ref to T:
+    return calling pengu_memoria_alloc with (size of T)
+
+
+## Reserva un array de `n` elementos de tipo `T`, **inicializado a cero**.
+##
+## ## Precondiciones
+## `n > 0`. Con `n == 0` el comportamiento es el de `calloc(1, 0)`, que la
+## norma C deja a discreción de la implementación (NULL o un bloque mínimo);
+## no lo uses como caso normal.
+##
+## ## Memoria
+## El llamador debe liberar el resultado con `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var buf as ref to int is calling memoria.alloc_array of int with 100
+## defer banish buf
+## ```
+weave alloc_array shard T with n as usize into ref to T:
+    return calling pengu_memoria_alloc_array with n, (size of T)
+
+
+## Como `alloc`, pero devuelve `maybe none` en caso de OOM en lugar de abortar.
+##
+## ## Memoria
+## Hacen falta **dos** liberaciones, porque un `maybe ref to T` no es dueño del
+## bloque apuntado: la caja contiene una copia del puntero, no su propiedad.
+## 1. `banish p` libera el bloque que devolvió el runtime;
+## 2. `banish mp` libera la caja del `maybe`.
+##
+## ## Ejemplo
+## ```pengu
+## var mp as maybe ref to int is calling memoria.try_alloc of int
+## if p as ref to int is mp:
+##     set essence of p is 1
+##     banish p
+## banish mp
+## ```
+weave try_alloc shard T into maybe ref to T:
+    let p as ref to void is calling pengu_memoria_try_alloc with (size of T)
+    if p == null:
+        return maybe none
+    return some p
+
+
+## Como `alloc_array`, pero devuelve `maybe none` en caso de OOM.
+##
+## ## Memoria
+## Como en `try_alloc`: `banish p` libera el bloque y `banish mp` la caja.
+weave try_alloc_array shard T with n as usize into maybe ref to T:
+    let p as ref to void is calling pengu_memoria_try_alloc_array with n, (size of T)
+    if p == null:
+        return maybe none
+    return some p
+
+
+# ----------------------------------------------------------------------------
+# 2. Redimensionado (2)
+# ----------------------------------------------------------------------------
+
+## Redimensiona un bloque previamente asignado con `alloc_array`/`resize_array`.
+##
+## ## Por qué pide `old_n`
+## `realloc` de C no sabe cuántos elementos hay dentro del bloque. El llamador
+## tiene que saberlo igualmente, y olvidarlo es un bug silencioso que corrompe
+## la cola nueva. Al pedir `old_n` el contrato queda explícito y el runtime
+## puede preservar exactamente `min(old_n, new_n)` elementos y poner a cero el
+## resto.
+##
+## ## Semántica
+## - `new_n > old_n`: crece; contenido preservado, cola **zeroed**.
+## - `new_n < old_n`: encoge; primeros `new_n` elementos preservados.
+## - `new_n == old_n`: no-op; devuelve `p` **sin** liberarlo.
+## - `p == null`: equivale a `alloc_array of T with new_n`.
+## - `new_n == 0`: no soportado (igual que `realloc(p, 0)` en C: indefinido).
+##
+## ## Precondiciones
+## `p` debe provenir de `alloc_array`/`resize_array` sobre el mismo `T`, y
+## `old_n` debe ser el tamaño **actual** del bloque.
+##
+## ## Memoria
+## ⚠️ Tras una llamada con éxito, el puntero antiguo **queda inválido**: usa
+## solo el retorno. `realloc` libera el bloque viejo si tiene que moverlo, y si
+## no lo mueve el retorno es el mismo puntero. En ambos casos el patrón seguro
+## es reasignar la misma variable y dejar que `defer banish` la lea al salir:
+## ```pengu
+## var buf as ref to byte is calling memoria.alloc_array of byte with 8
+## defer banish buf
+## set buf is calling memoria.resize_array of byte with buf, 8, 16
+## # 'buf' ya apunta al bloque nuevo; el defer libera ESE puntero.
+## ```
+weave resize_array shard T with p as ref to T, old_n as usize, new_n as usize into ref to T:
+    return calling pengu_memoria_resize with p, old_n, new_n, (size of T)
+
+
+## Como `resize_array`, pero devuelve `maybe none` en caso de OOM.
+##
+## ## Memoria
+## Si el resultado es `maybe none` y `p` era no nulo, el bloque original sigue
+## siendo válido y propiedad del llamador. Si es `some np`, el bloque viejo
+## queda inválido: libera el bloque con `banish np` y la caja con `banish mp`.
+weave try_resize_array shard T with p as ref to T, old_n as usize, new_n as usize into maybe ref to T:
+    let np as ref to void is calling pengu_memoria_try_resize with p, old_n, new_n, (size of T)
+    if np == null:
+        return maybe none
+    return some np
+
+
+# ----------------------------------------------------------------------------
+# 3. Operaciones bulk (5)
+# ----------------------------------------------------------------------------
+
+## Copia `n` elementos de tipo `T` desde `src` a `dst`.
+##
+## ## Seguridad
+## Usa `memmove` internamente: es seguro aunque los bloques se solapen. El
+## coste extra frente a `memcpy` es despreciable (glibc detecta la ausencia de
+## solape). `src` es `ref to frozen T`: `copy` nunca escribe en el origen.
+##
+## ## Precondiciones
+## `dst` y `src` deben apuntar a bloques de al menos `n * (size of T)` bytes.
+##
+## ## Ejemplo
+## ```pengu
+## calling memoria.copy of int with dst, src, 4
+## ```
+weave copy shard T with dst as ref to T, src as ref to frozen T, n as usize into void:
+    calling memmove with dst, src, (n * (size of T))
+
+
+## Rellena `n` elementos de `dst` con el valor `value`.
+##
+## A diferencia de `zero`, el patrón no tiene por qué ser cero (un `int`, un
+## `float`, un puntero…). Se copia el patrón byte a byte, elemento a elemento.
+##
+## ## Ejemplo
+## ```pengu
+## calling memoria.fill of int with buf, 0, 100      # equivalente a zero
+## calling memoria.fill of int with buf, -1, 100
+## calling memoria.fill of float with buf, 1.5, 50
+## ```
+weave fill shard T with dst as ref to T, value as T, n as usize into void:
+    calling pengu_memoria_fill with dst, (sigil of value), n, (size of T)
+
+
+## Pone a cero `n` elementos de tipo `T` en `dst`.
+##
+## ## Por qué está separado de `fill`
+## Resetear un buffer es el patrón más común, y `memset` es más rápido que un
+## bucle de `fill` que copia un patrón de varios bytes.
+##
+## ## Ejemplo
+## ```pengu
+## calling memoria.zero of int with buf, 16
+## ```
+weave zero shard T with dst as ref to T, n as usize into void:
+    calling memset with dst, 0, (n * (size of T))
+
+
+## Intercambia los valores apuntados por `a` y `b` (byte a byte).
+##
+## ## Ejemplo
+## ```pengu
+## var x as int is 1
+## var y as int is 2
+## calling memoria.swap of int with (sigil of x), (sigil of y)
+## # x == 2, y == 1
+## ```
+weave swap shard T with a as ref to T, b as ref to T into void:
+    calling pengu_memoria_swap with a, b, (size of T)
+
+
+## Compara byte a byte `n` elementos de tipo `T` en `a` y `b`.
+##
+## ## Retorno
+## - `-1` si `a` es menor (el primer byte distinto es menor en `a`),
+## - `0` si son iguales,
+## - `1` si `a` es mayor.
+##
+## ## Nota
+## Es una comparación de bytes **sin signo**, como `memcmp`. No respeta el
+## orden lógico del tipo (para eso usa los métodos de `Ordo` sobre valores).
+##
+## ## Ejemplo
+## ```pengu
+## var n as int is calling memoria.compare of byte with a, b, 8
+## if n < 0: ... # a < b
+## ```
+weave compare shard T with a as ref to T, b as ref to T, n as usize into int:
+    let raw as int is calling memcmp with a, b, (n * (size of T))
+    if raw < 0:
+        return 0 - 1
+    if raw > 0:
+        return 1
+    return 0
+
+
+# ----------------------------------------------------------------------------
+# 4. Utilidad (1)
+# ----------------------------------------------------------------------------
+
+## Devuelve cuántos bytes ocupan `n` elementos de tipo `T`.
+##
+## Equivale a `n * (size of T)`, pero como función sirve en contextos genéricos
+## donde ya tienes un `T` y quieres el tamaño total del bloque.
+##
+## ## Ejemplo
+## ```pengu
+## let total is calling memoria.bytes_for of Player with 100
+## ```
+weave bytes_for shard T with n as usize into usize:
+    return n * (size of T)
+
+
+# ----------------------------------------------------------------------------
+# Tests
+# ----------------------------------------------------------------------------
+
+## Rune de apoyo para los tests: sin campos con dueño, `banish` libera directo.
+rune MemoriaPoint:
+    x as int
+    y as int
+
+## Helper de test: igualdad exacta de `int`.
+weave _t_int with got as int, want as int into void:
+    calling ward.assert_eq_int with got, want
+
+## Helper de test: igualdad exacta de `usize` expresada como `int`.
+weave _t_usize with got as usize, want as usize into void:
+    calling ward.assert_eq_int with (got to int), (want to int)
+
+# ─── alloc ──────────────────────────────────────────────────────────────────
+
+test "alloc returns a zeroed int":
+    var p as ref to int is calling alloc of int
+    calling _t_int with (essence of p), 0
+    banish p
+
+test "alloc supports writing and reading back":
+    var p as ref to int is calling alloc of int
+    set essence of p is 42
+    calling _t_int with (essence of p), 42
+    banish p
+
+test "alloc of float is zeroed":
+    var p as ref to float is calling alloc of float
+    calling ward.assert_eq_float with (essence of p), 0.0
+    set essence of p is 1.5
+    calling ward.assert_eq_float with (essence of p), 1.5
+    banish p
+
+test "alloc of byte is zeroed":
+    var p as ref to byte is calling alloc of byte
+    calling _t_int with ((essence of p) to int), 0
+    banish p
+
+test "alloc of a rune is zeroed":
+    var p as ref to MemoriaPoint is calling alloc of MemoriaPoint
+    calling _t_int with p->x, 0
+    calling _t_int with p->y, 0
+    set p->x is 7
+    set p->y is 9
+    calling _t_int with p->x, 7
+    calling _t_int with p->y, 9
+    banish p
+
+# ─── alloc_array ────────────────────────────────────────────────────────────
+
+test "alloc_array of one element is zeroed":
+    var buf as ref to int is calling alloc_array of int with 1
+    calling _t_int with (buf at 0), 0
+    banish buf
+
+test "alloc_array of many elements is zeroed":
+    var buf as ref to int is calling alloc_array of int with 100
+    var i as int is 0
+    var ok as bool is true
+    while i < 100:
+        if (buf at i) != 0:
+            set ok is false
+        set i is i + 1
+    calling ward.assert_true with ok
+    banish buf
+
+test "alloc_array supports indexed writes":
+    var buf as ref to int is calling alloc_array of int with 10
+    set buf at 0 is 5
+    set buf at 9 is 99
+    calling _t_int with (buf at 0), 5
+    calling _t_int with (buf at 9), 99
+    calling _t_int with (buf at 5), 0
+    banish buf
+
+test "alloc_array of byte keeps every value":
+    var buf as ref to byte is calling alloc_array of byte with 4
+    set buf at 0 is 1
+    set buf at 1 is 2
+    set buf at 2 is 3
+    set buf at 3 is 4
+    calling _t_int with ((buf at 0) to int), 1
+    calling _t_int with ((buf at 3) to int), 4
+    banish buf
+
+test "alloc_array of float is zeroed and writable":
+    var buf as ref to float is calling alloc_array of float with 3
+    calling ward.assert_eq_float with (buf at 0), 0.0
+    set buf at 2 is 2.5
+    calling ward.assert_eq_float with (buf at 2), 2.5
+    banish buf
+
+# ─── try_alloc / try_alloc_array ────────────────────────────────────────────
+
+test "try_alloc returns some and a usable pointer":
+    var mp as maybe ref to int is calling try_alloc of int
+    calling ward.assert_maybe_present with mp
+    if p as ref to int is mp:
+        set essence of p is 11
+        calling _t_int with (essence of p), 11
+        banish p
+    banish mp
+
+test "try_alloc_array returns some and zeroes":
+    var mp as maybe ref to int is calling try_alloc_array of int with 4
+    calling ward.assert_maybe_present with mp
+    if p as ref to int is mp:
+        calling _t_int with (p at 0), 0
+        set p at 3 is 7
+        calling _t_int with (p at 3), 7
+        banish p
+    banish mp
+
+test "try_alloc_array of one element":
+    var mp as maybe ref to byte is calling try_alloc_array of byte with 1
+    calling ward.assert_maybe_present with mp
+    if p as ref to byte is mp:
+        set p at 0 is 200
+        calling _t_int with ((p at 0) to int), 200
+        banish p
+    banish mp
+
+# ─── resize_array ───────────────────────────────────────────────────────────
+
+test "resize preserves the old content":
+    var buf as ref to int is calling alloc_array of int with 4
+    set buf at 0 is 10
+    set buf at 1 is 20
+    set buf at 2 is 30
+    set buf at 3 is 40
+    set buf is calling resize_array of int with buf, 4, 8
+    calling _t_int with (buf at 0), 10
+    calling _t_int with (buf at 3), 40
+    banish buf
+
+test "resize zeroes the new tail":
+    var buf as ref to int is calling alloc_array of int with 2
+    set buf at 0 is 1
+    set buf is calling resize_array of int with buf, 2, 6
+    calling _t_int with (buf at 1), 0
+    calling _t_int with (buf at 5), 0
+    banish buf
+
+test "resize shrink keeps the prefix":
+    var buf as ref to int is calling alloc_array of int with 6
+    set buf at 0 is 1
+    set buf at 5 is 6
+    set buf is calling resize_array of int with buf, 6, 2
+    calling _t_int with (buf at 0), 1
+    calling _t_int with (buf at 1), 0
+    banish buf
+
+test "resize with equal sizes keeps the content":
+    var buf as ref to int is calling alloc_array of int with 3
+    set buf at 1 is 55
+    set buf is calling resize_array of int with buf, 3, 3
+    calling _t_int with (buf at 1), 55
+    banish buf
+
+test "resize from null behaves like alloc_array":
+    var null_buf as ref to int is null
+    var buf as ref to int is calling resize_array of int with null_buf, 0, 4
+    calling _t_int with (buf at 0), 0
+    calling _t_int with (buf at 3), 0
+    set buf at 3 is 3
+    calling _t_int with (buf at 3), 3
+    banish buf
+
+test "resize grows a byte buffer":
+    var buf as ref to byte is calling alloc_array of byte with 2
+    set buf at 0 is 9
+    set buf is calling resize_array of byte with buf, 2, 5
+    calling _t_int with ((buf at 0) to int), 9
+    calling _t_int with ((buf at 4) to int), 0
+    banish buf
+
+# ─── try_resize_array ───────────────────────────────────────────────────────
+
+test "try_resize returns some and preserves content":
+    var buf as ref to int is calling alloc_array of int with 3
+    set buf at 0 is 8
+    var mp as maybe ref to int is calling try_resize_array of int with buf, 3, 6
+    if p as ref to int is mp:
+        calling _t_int with (p at 0), 8
+        calling _t_int with (p at 5), 0
+        banish p
+    else:
+        banish buf
+    banish mp
+
+test "try_resize with equal sizes returns the same pointer":
+    var buf as ref to int is calling alloc_array of int with 2
+    set buf at 0 is 4
+    var mp as maybe ref to int is calling try_resize_array of int with buf, 2, 2
+    calling ward.assert_maybe_present with mp
+    if p as ref to int is mp:
+        calling _t_int with (p at 0), 4
+        banish p
+    banish mp
+
+test "try_resize from null allocates zeroed":
+    var null_buf as ref to int is null
+    var mp as maybe ref to int is calling try_resize_array of int with null_buf, 0, 3
+    calling ward.assert_maybe_present with mp
+    if p as ref to int is mp:
+        calling _t_int with (p at 2), 0
+        banish p
+    banish mp
+
+# ─── copy ───────────────────────────────────────────────────────────────────
+
+test "copy moves non-overlapping blocks":
+    var src as ref to int is calling alloc_array of int with 3
+    set src at 0 is 1
+    set src at 1 is 2
+    set src at 2 is 3
+    var dst as ref to int is calling alloc_array of int with 3
+    calling copy of int with dst, src, 3
+    calling _t_int with (dst at 0), 1
+    calling _t_int with (dst at 2), 3
+    banish src
+    banish dst
+
+test "copy overlaps forward safely":
+    var buf as ref to int is calling alloc_array of int with 5
+    set buf at 0 is 1
+    set buf at 1 is 2
+    set buf at 2 is 3
+    set buf at 3 is 4
+    set buf at 4 is 5
+    calling copy of int with (sigil of (buf at 1)), (sigil of (buf at 0)), 3
+    calling _t_int with (buf at 1), 1
+    calling _t_int with (buf at 2), 2
+    calling _t_int with (buf at 3), 3
+    calling _t_int with (buf at 4), 5
+    banish buf
+
+test "copy overlaps backward safely":
+    var buf as ref to int is calling alloc_array of int with 5
+    set buf at 0 is 1
+    set buf at 1 is 2
+    set buf at 2 is 3
+    set buf at 3 is 4
+    set buf at 4 is 5
+    calling copy of int with (sigil of (buf at 0)), (sigil of (buf at 1)), 3
+    calling _t_int with (buf at 0), 2
+    calling _t_int with (buf at 1), 3
+    calling _t_int with (buf at 2), 4
+    calling _t_int with (buf at 3), 4
+    banish buf
+
+test "copy of zero elements is a no-op":
+    var a as ref to int is calling alloc_array of int with 2
+    var b as ref to int is calling alloc_array of int with 2
+    set b at 0 is 5
+    calling copy of int with a, b, 0
+    calling _t_int with (a at 0), 0
+    banish a
+    banish b
+
+test "copy works on byte buffers":
+    var src as ref to byte is calling alloc_array of byte with 2
+    set src at 0 is 7
+    set src at 1 is 8
+    var dst as ref to byte is calling alloc_array of byte with 2
+    calling copy of byte with dst, src, 2
+    calling _t_int with ((dst at 0) to int), 7
+    calling _t_int with ((dst at 1) to int), 8
+    banish src
+    banish dst
+
+# ─── fill ───────────────────────────────────────────────────────────────────
+
+test "fill writes a non-zero int pattern":
+    var buf as ref to int is calling alloc_array of int with 4
+    calling fill of int with buf, -1, 4
+    calling _t_int with (buf at 0), 0 - 1
+    calling _t_int with (buf at 3), 0 - 1
+    banish buf
+
+test "fill writes a float pattern":
+    var buf as ref to float is calling alloc_array of float with 3
+    calling fill of float with buf, 1.5, 3
+    calling ward.assert_eq_float with (buf at 0), 1.5
+    calling ward.assert_eq_float with (buf at 2), 1.5
+    banish buf
+
+test "fill with zero matches zero":
+    var buf as ref to int is calling alloc_array of int with 3
+    set buf at 0 is 9
+    calling fill of int with buf, 0, 3
+    calling _t_int with (buf at 0), 0
+    banish buf
+
+test "fill works on a single element":
+    var buf as ref to byte is calling alloc_array of byte with 1
+    calling fill of byte with buf, 255, 1
+    calling _t_int with ((buf at 0) to int), 255
+    banish buf
+
+# ─── zero ───────────────────────────────────────────────────────────────────
+
+test "zero clears one element":
+    var p as ref to int is calling alloc of int
+    set essence of p is 3
+    calling zero of int with p, 1
+    calling _t_int with (essence of p), 0
+    banish p
+
+test "zero clears many elements":
+    var buf as ref to int is calling alloc_array of int with 8
+    var i as int is 0
+    while i < 8:
+        set buf at i is i + 1
+        set i is i + 1
+    calling zero of int with buf, 8
+    calling _t_int with (buf at 0), 0
+    calling _t_int with (buf at 7), 0
+    banish buf
+
+test "zero clears a float buffer":
+    var buf as ref to float is calling alloc_array of float with 2
+    set buf at 0 is 2.5
+    set buf at 1 is 3.5
+    calling zero of float with buf, 2
+    calling ward.assert_eq_float with (buf at 0), 0.0
+    calling ward.assert_eq_float with (buf at 1), 0.0
+    banish buf
+
+# ─── swap ───────────────────────────────────────────────────────────────────
+
+test "swap exchanges two ints":
+    var x as int is 1
+    var y as int is 2
+    calling swap of int with (sigil of x), (sigil of y)
+    calling _t_int with x, 2
+    calling _t_int with y, 1
+
+test "swap is a no-op on equal values":
+    var x as int is 7
+    var y as int is 7
+    calling swap of int with (sigil of x), (sigil of y)
+    calling _t_int with x, 7
+    calling _t_int with y, 7
+
+test "swap exchanges two floats":
+    var x as float is 1.5
+    var y as float is 2.5
+    calling swap of float with (sigil of x), (sigil of y)
+    calling ward.assert_eq_float with x, 2.5
+    calling ward.assert_eq_float with y, 1.5
+
+test "swap exchanges two runes":
+    var a as MemoriaPoint is with x is 1, y is 2
+    var b as MemoriaPoint is with x is 3, y is 4
+    calling swap of MemoriaPoint with (sigil of a), (sigil of b)
+    calling _t_int with a.x, 3
+    calling _t_int with a.y, 4
+    calling _t_int with b.x, 1
+    calling _t_int with b.y, 2
+
+# ─── compare ────────────────────────────────────────────────────────────────
+
+test "compare returns zero for equal blocks":
+    var a as ref to int is calling alloc_array of int with 4
+    var b as ref to int is calling alloc_array of int with 4
+    set a at 0 is 5
+    set b at 0 is 5
+    calling _t_int with (calling compare of int with a, b, 4), 0
+    banish a
+    banish b
+
+test "compare returns minus one when a is smaller":
+    var a as ref to int is calling alloc_array of int with 2
+    var b as ref to int is calling alloc_array of int with 2
+    set a at 0 is 1
+    set b at 0 is 2
+    calling _t_int with (calling compare of int with a, b, 2), 0 - 1
+    banish a
+    banish b
+
+test "compare returns one when a is larger":
+    var a as ref to int is calling alloc_array of int with 2
+    var b as ref to int is calling alloc_array of int with 2
+    set a at 0 is 2
+    set b at 0 is 1
+    calling _t_int with (calling compare of int with a, b, 2), 1
+    banish a
+    banish b
+
+test "compare finds the first differing element":
+    var a as ref to int is calling alloc_array of int with 3
+    var b as ref to int is calling alloc_array of int with 3
+    set a at 0 is 1
+    set a at 1 is 2
+    set b at 0 is 1
+    set b at 1 is 3
+    calling _t_int with (calling compare of int with a, b, 3), 0 - 1
+    banish a
+    banish b
+
+test "compare of zero elements is zero":
+    var a as ref to int is calling alloc_array of int with 1
+    var b as ref to int is calling alloc_array of int with 1
+    calling _t_int with (calling compare of int with a, b, 0), 0
+    banish a
+    banish b
+
+test "compare works on byte buffers":
+    var a as ref to byte is calling alloc_array of byte with 2
+    var b as ref to byte is calling alloc_array of byte with 2
+    set a at 0 is 10
+    set b at 0 is 20
+    calling _t_int with (calling compare of byte with a, b, 2), 0 - 1
+    banish a
+    banish b
+
+# ─── bytes_for ──────────────────────────────────────────────────────────────
+
+test "bytes_for counts int elements":
+    calling _t_usize with (calling bytes_for of int with 4), 16
+
+test "bytes_for counts byte elements":
+    calling _t_usize with (calling bytes_for of byte with 7), 7
+
+test "bytes_for counts f64 elements":
+    calling _t_usize with (calling bytes_for of f64 with 3), 24
+
+test "bytes_for counts rune elements":
+    calling _t_usize with (calling bytes_for of MemoriaPoint with 5), 40
+
+test "bytes_for of zero elements is zero":
+    calling _t_usize with (calling bytes_for of int with 0), 0
+
+# ─── composición ────────────────────────────────────────────────────────────
+
+test "alloc, fill and banish compose":
+    var p as ref to MemoriaPoint is calling alloc of MemoriaPoint
+    calling fill of MemoriaPoint with p, (with x is 1, y is 2), 1
+    calling _t_int with p->x, 1
+    calling _t_int with p->y, 2
+    banish p
+
+test "resize plus defer frees exactly once":
+    var buf as ref to int is calling alloc_array of int with 4
+    set buf at 0 is 3
+    set buf is calling resize_array of int with buf, 4, 8
+    calling _t_int with (buf at 0), 3
+    banish buf

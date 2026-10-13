@@ -40,6 +40,13 @@ plain function call.
 
 ### Changed
 
+- **Pointer compatibility: `ref to void → ref to T` is now an implicit
+  assignment**, matching C's `void*` semantics. `ref to void → ref to frozen T`
+  and `ref to frozen void → ref to frozen T` are allowed too;
+  `ref to frozen void → ref to T` remains rejected (it would drop `const`). The
+  rule already existed in `RefType.is_compatible`; Phase 5 locks it with
+  regression tests in `tests/compiler/test_pointer_compat.py` and relies on it
+  for `std.memoria`'s typed allocators (no `transmute`, no spurious `[W0001]`).
 - **`std.arithmancy`'s scalar functions now delegate to the primitive-methods
   modules.** `abs_i`/`abs_f`/`min_i`/`max_i`/`min_f`/`max_f`/`clamp_i`/`clamp_f`/
   `sign`/`sign_i`/`lerp_f`/`to_int_round`/`to_int_floor`/`to_int_ceil` delegate to
@@ -76,6 +83,23 @@ plain function call.
 
 ### Added
 
+- **`std.memoria`**: the canonical manual-heap-management module via `shard T`
+  module functions. `alloc`, `alloc_array` (both zeroed by default),
+  `try_alloc`, `try_alloc_array` (return `maybe` on OOM), `resize_array`,
+  `try_resize_array` (take an explicit `old_n`, unlike C `realloc`), `copy`
+  (`memmove` semantics — safe with overlap), `fill`, `zero`, `swap`, `compare`
+  (returns `-1`/`0`/`1`, like `memcmp`) and `bytes_for`. Composes with
+  `banish`/`defer banish`/`errdefer banish`/`derive Nexus`. `free`, `sizeof`
+  and `address_of` are deliberately absent: those are `banish`, `size of` and
+  `sigil of` in the language itself. Experts needing an uninitialized block use
+  `antiquus`. Every method monomorphizes to a plain C function
+  (`memoria_alloc_int`, `memoria_resize_array_float`, …).
+- **Runtime additions** (`pengu_runtime.h`/`pengu_runtime.c`):
+  `pengu_memoria_alloc`, `pengu_memoria_alloc_array`, `pengu_memoria_try_alloc`,
+  `pengu_memoria_try_alloc_array`, `pengu_memoria_resize`,
+  `pengu_memoria_try_resize`, `pengu_memoria_swap`, `pengu_memoria_fill`. They
+  are purely additive, honour the existing `PENGU_OOM_ABORT` policy, and touch
+  no struct layout — `PENGU_ABI_VERSION` stays **2**.
 - **`std.logica`**: methods on `bool` via `enchanting bool:`. Chainable
   versions of the language operators (`toggle`, `and_with`, `or_with`);
   derived connectives the language has no operator for (`xor`, `iff` —

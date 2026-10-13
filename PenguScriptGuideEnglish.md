@@ -768,6 +768,53 @@ The five modules cover **every** primitive type of the language. Import the modu
 
 `std.arithmancy` keeps its scalar functions (`abs_i`, `clamp_f`, `sqrt_f`, …) for compatibility, but their implementation is a **one-line wrapper** over the methods of the five modules. The algorithm lives in exactly one place: the module that owns the bound. The `Vec2`/`Vec3`/`Mat4`/`Quat` types and the `PI`/`TAU`/`E`/`EPSILON` constants remain `arithmancy`'s responsibility.
 
+### 6.8 Manual memory with `std.memoria`
+
+`std.memoria` is the canonical API for reserving and manipulating heap blocks. It does **not** replace the language operators — it complements them: `banish` still frees, `size of T` still measures, `sigil of x` still takes an address, `essence of p` still dereferences.
+
+| You need | Use |
+|---|---|
+| Reserve one value | `calling memoria.alloc of T` |
+| Reserve N elements | `calling memoria.alloc_array of T with n` |
+| Grow/shrink a block | `calling memoria.resize_array of T with p, old_n, new_n` |
+| Copy blocks (possibly overlapping) | `calling memoria.copy of T with dst, src, n` |
+| Fill / reset a block | `calling memoria.fill of T with p, value, n` · `calling memoria.zero of T with p, n` |
+| Free | `banish p` (there is **no** `memoria.free`!) |
+| Size of `T` | `size of T` (there is **no** `memoria.sizeof`!) |
+
+Every method is `shard T`: the compiler monomorphizes the call into a plain C function (`memoria_alloc_int`, `memoria_alloc_array_byte`, `memoria_resize_array_float`, …). No boxing, no vtables.
+
+**Rule:** put `defer banish` (or `errdefer banish`) immediately after allocating:
+
+```pengu
+import std.memoria
+
+weave main into int:
+    var buf as ref to int is calling memoria.alloc_array of int with 16
+    defer banish buf
+    calling memoria.fill of int with buf, 7, 16
+    calling memoria.zero of int with buf, 16
+    return 0
+    # `defer banish buf` reads the *variable* at scope exit, so if `buf` was
+    # reassigned by `resize_array`, it frees the current pointer, not a snapshot.
+```
+
+`resize_array` takes an explicit `old_n` because C's `realloc` cannot know how many elements the block holds, and it may move the block: **after a successful resize the old pointer is invalid — use only the return value**. `defer banish buf` + `set buf is calling memoria.resize_array …` is the safe pattern.
+
+> ⚠️ A `defer banish` in the *same* scope as a `return` of the same pointer is a bug: the defer runs and frees the block, and the caller receives a dangling pointer. Return ownership by moving the release to the caller.
+
+**OOM**: `alloc`, `alloc_array` and `resize_array` abort with `[PENGU] out of memory`. When you would rather handle the failure, use the `try_*` variants, which return `maybe`:
+
+```pengu
+var mp as maybe ref to int is calling memoria.try_alloc of int
+if p as ref to int is mp:
+    set essence of p is 1
+    banish p        # free the block
+banish mp           # free the maybe box (a `maybe ref to T` owns the box, not the pointee)
+```
+
+**Zeroed by default**: `alloc` and `alloc_array` return zeroed memory. There is no `alloc_uninit`; if you truly need an uninitialized block (measured performance, startup code), use an `antiquus` block with `malloc` and document why.
+
 ---
 
 ## 7. Generics and bounds

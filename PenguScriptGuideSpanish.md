@@ -768,6 +768,53 @@ Los cinco módulos cubren **todos** los primitivos del lenguaje. Importa el mód
 
 `std.arithmancy` conserva sus funciones escalares (`abs_i`, `clamp_f`, `sqrt_f`, …) por compatibilidad, pero su implementación son **wrappers de una línea** sobre los métodos de los cinco módulos. El algoritmo vive en un único lugar: el módulo del bound que lo soporta. Los tipos `Vec2`/`Vec3`/`Mat4`/`Quat` y las constantes `PI`/`TAU`/`E`/`EPSILON` siguen siendo responsabilidad de `arithmancy`.
 
+### 6.8 Memoria manual con `std.memoria`
+
+`std.memoria` es la API canónica para reservar y manipular bloques del heap. **No** reemplaza los operadores del lenguaje: los complementa. `banish` sigue liberando, `size of T` sigue midiendo, `sigil of x` sigue tomando una dirección y `essence of p` sigue desreferenciando.
+
+| Necesitas | Usa |
+|---|---|
+| Reservar un valor | `calling memoria.alloc of T` |
+| Reservar N elementos | `calling memoria.alloc_array of T with n` |
+| Crecer/encoger un bloque | `calling memoria.resize_array of T with p, old_n, new_n` |
+| Copiar bloques (con posible solape) | `calling memoria.copy of T with dst, src, n` |
+| Rellenar / resetear | `calling memoria.fill of T with p, value, n` · `calling memoria.zero of T with p, n` |
+| Liberar | `banish p` (¡no hay `memoria.free`!) |
+| Tamaño de `T` | `size of T` (¡no hay `memoria.sizeof`!) |
+
+Cada método es `shard T`: el compilador monomorfiza la llamada a una función C plana (`memoria_alloc_int`, `memoria_alloc_array_byte`, `memoria_resize_array_float`, …). Sin boxing, sin vtables.
+
+**Regla**: pon `defer banish` (o `errdefer banish`) inmediatamente después de asignar:
+
+```pengu
+import std.memoria
+
+weave main into int:
+    var buf as ref to int is calling memoria.alloc_array of int with 16
+    defer banish buf
+    calling memoria.fill of int with buf, 7, 16
+    calling memoria.zero of int with buf, 16
+    return 0
+    # 'defer banish buf' lee la *variable* al salir del ámbito: si 'buf' fue
+    # reasignado por 'resize_array', libera el puntero vigente, no una copia.
+```
+
+`resize_array` pide `old_n` explícito porque el `realloc` de C no sabe cuántos elementos tiene el bloque, y además puede moverlo: **tras un resize con éxito el puntero antiguo queda inválido — usa solo el retorno**. El patrón seguro es `defer banish buf` + `set buf is calling memoria.resize_array …`.
+
+> ⚠️ Un `defer banish` en el **mismo** ámbito que un `return` del mismo puntero es un bug: el defer se ejecuta, libera el bloque y el llamador recibe un puntero colgante. Devuelve la propiedad moviendo la liberación al llamador.
+
+**OOM**: `alloc`, `alloc_array` y `resize_array` abortan con `[PENGU] out of memory`. Si prefieres manejar el fallo, usa las variantes `try_*`, que devuelven `maybe`:
+
+```pengu
+var mp as maybe ref to int is calling memoria.try_alloc of int
+if p as ref to int is mp:
+    set essence of p is 1
+    banish p        # libera el bloque
+banish mp           # libera la caja del maybe (un 'maybe ref to T' posee la caja, no el puntero)
+```
+
+**Zeroed por defecto**: `alloc` y `alloc_array` devuelven memoria a cero. No existe `alloc_uninit`; si de verdad necesitas un bloque sin inicializar (rendimiento medido, código de arranque), usa un bloque `antiquus` con `malloc` y documenta el motivo.
+
 ---
 
 ## 7. Genéricos y bounds
