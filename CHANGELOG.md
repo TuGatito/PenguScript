@@ -40,6 +40,32 @@ plain function call.
 
 ### Added
 
+- **`std.integrum`**: integer-only methods via `enchanting shard T where
+  T: Integrum:`. Predicates (`is_even`, `is_odd`, `is_power_of_two`,
+  `is_multiple_of`, `is_prime`); bit operations (`bit_count`, `bit_length`,
+  `leading_zeros`, `trailing_zeros`, `next_power_of_two`,
+  `prev_power_of_two`); Euclidean division (`div_rem` returning `(T, T)`,
+  `div_floor`, `mod_floor`); number theory (`gcd`, `lcm`, `next_prime`,
+  `prev_prime`, `factorial`); string representations (`to_hex`, `to_bin`,
+  `to_oct`, which allocate — `banish` them). Monomorphized to
+  `int_is_even`, `i64_gcd`, … — zero runtime overhead. Universal methods
+  live in `std.numerus`; `Integrum` implies `Num`.
+- **`Integrum` and `Real` now grant ordering.** `CONCEPT_OPERATORS` gives both
+  refinements of `Num` the `<`, `<=`, `>`, `>=` operators, exactly as they
+  already granted `==`/`!=`: every type satisfying either is a numeric
+  primitive, and every numeric primitive is ordered. The canonical
+  `enchanting shard T where T: Integrum:` trial-division idiom
+  (`while (k * k) <= n`) no longer needs a redundant `and T: Ordo`. Strictly
+  more permissive; `Num` on its own still rejects ordering with `E0049`.
+- **Tuple returns from monomorphized shard methods.** A
+  `weave div_rem … into (T, T)` on `enchanting shard T` now emits the product
+  struct (`_pengu_tup_tup_int_int`); previously the bundle named the typedef
+  without ever defining it and the C compiler failed with "unknown type name".
+- **Transitive monomorphization follows local receivers.** A shard body that
+  calls another shard method on a local of type `T` (not just on `self`) now
+  registers that callee for every concrete receiver. Before this, `gcd`
+  (`calling a.abs`) and `next_prime` (`calling n._is_prime_impl`) emitted calls
+  to `i16_abs` / `u32__is_prime_impl` that were never defined.
 - **`std.numerus`**: the canonical numeric-methods module. Provides
   `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`,
   the predicate family (`is_zero`, `is_positive`, `is_negative`,

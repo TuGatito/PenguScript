@@ -579,15 +579,29 @@ class CollectMixin:
                 "line": self._node_line(node),
             })
 
-        # Scan body statements for generic method calls on self to ensure transitive dependencies are monomorphized
+        # A monomorphized body can return a tuple just like a plain weave, so
+        # its product struct must be registered as well.  Without this the
+        # emitted C names `_pengu_tup_…` but no typedef is ever defined
+        # (`enchanting shard T: weave div_rem … into (T, T)`).
+        self._register_tuple_type(ret_type)
+
+        # Scan body statements for generic method calls to ensure transitive
+        # dependencies are monomorphized.
+        #
+        # The receiver does *not* have to be `self`: a monomorphized body
+        # routinely calls another shard method on a local of the shard's type
+        # parameter (`next_prime` calls `calling n._is_prime_impl`, `gcd` calls
+        # `calling a.abs`).  Inferring the receiver's static type here would
+        # duplicate the checker; registering the enclosing body's concrete
+        # substitution for every shard-method name it mentions is cheap and
+        # safe -- an over-registered body is simply an unused C function that
+        # `--gc-sections` drops.
         if enchanted_type is not None and hasattr(self, "symbols") and hasattr(self.symbols, "generic_methods"):
             base_tname = get_type_base_name(enchanted_type)
             t_args = getattr(enchanted_type, "type_args", [])
             # A primitive receiver ('shard T' monomorphized to int, or plain
-            # 'enchanting int') has no type_args, but its body may call another
-            # shard method on `self` (`is_odd` calling `self.is_even`).  Those are
-            # monomorphized for the same concrete primitive, otherwise the emitted
-            # body would call a function that is never defined.
+            # 'enchanting int') has no type_args, so the concrete substitution
+            # is the primitive itself.
             prim_recv = canonical_primitive_name(enchanted_type)
             for st in body_stmts:
                 if not isinstance(st, Tree):
@@ -595,36 +609,34 @@ class CollectMixin:
                 for sub in st.iter_subtrees():
                     if sub.data == "calling_expr" and sub.children:
                         target_node = sub.children[0]
-                        if isinstance(target_node, Tree) and target_node.children:
-                            is_self = str(target_node.children[0]) == "self"
-                            if is_self and len(target_node.children) >= 2:
-                                acc = target_node.children[1]
-                                m_name = None
-                                if isinstance(acc, Tree) and acc.data in ("dot_access", "arrow_access") and acc.children:
-                                    m_name = str(acc.children[0])
-                                elif isinstance(acc, (Token, str)):
-                                    m_name = str(acc)
-                                if not m_name:
-                                    continue
-                                if prim_recv is not None and (SHARD_RECEIVER_KEY, m_name) in self.symbols.generic_methods:
-                                    entry = self.symbols.generic_methods[(SHARD_RECEIVER_KEY, m_name)]
-                                    recv_p = list(entry[0]) if entry else []
-                                    method_ast = entry[2] if len(entry) > 2 else entry[-1]
-                                    concrete = BaseType(prim_recv)
-                                    cand = f"{prim_recv}_{m_name}"
-                                    self.symbols.monomorphized_methods[cand] = (
-                                        method_ast, {tp: concrete for tp in recv_p}, concrete)
-                                    continue
-                                if (base_tname, m_name) in self.symbols.generic_methods:
-                                    entry = self.symbols.generic_methods[(base_tname, m_name)]
-                                    recv_p, m_p, method_ast = (entry[0], entry[1], entry[2]) if len(entry) == 3 else (entry[0], [], entry[1])
-                                    type_params = list(recv_p) + list(m_p)
-                                    if t_args and len(t_args) == len(type_params):
-                                        c_m = self._c_ident(m_name)
-                                        rec_mangled = enchanted_type.get_mangled_name() if hasattr(enchanted_type, "get_mangled_name") else str(enchanted_type).replace(" ", "_")
-                                        cand = f"{rec_mangled}_{c_m}"
-                                        sub_map = dict(zip(type_params, t_args))
-                                        self.symbols.monomorphized_methods[cand] = (method_ast, sub_map, enchanted_type)
+                        if isinstance(target_node, Tree) and len(target_node.children) >= 2:
+                            acc = target_node.children[1]
+                            m_name = None
+                            if isinstance(acc, Tree) and acc.data in ("dot_access", "arrow_access") and acc.children:
+                                m_name = str(acc.children[0])
+                            elif isinstance(acc, (Token, str)):
+                                m_name = str(acc)
+                            if not m_name:
+                                continue
+                            if prim_recv is not None and (SHARD_RECEIVER_KEY, m_name) in self.symbols.generic_methods:
+                                entry = self.symbols.generic_methods[(SHARD_RECEIVER_KEY, m_name)]
+                                recv_p = list(entry[0]) if entry else []
+                                method_ast = entry[2] if len(entry) > 2 else entry[-1]
+                                concrete = BaseType(prim_recv)
+                                cand = f"{prim_recv}_{m_name}"
+                                self.symbols.monomorphized_methods[cand] = (
+                                    method_ast, {tp: concrete for tp in recv_p}, concrete)
+                                continue
+                            if (base_tname, m_name) in self.symbols.generic_methods:
+                                entry = self.symbols.generic_methods[(base_tname, m_name)]
+                                recv_p, m_p, method_ast = (entry[0], entry[1], entry[2]) if len(entry) == 3 else (entry[0], [], entry[1])
+                                type_params = list(recv_p) + list(m_p)
+                                if t_args and len(t_args) == len(type_params):
+                                    c_m = self._c_ident(m_name)
+                                    rec_mangled = enchanted_type.get_mangled_name() if hasattr(enchanted_type, "get_mangled_name") else str(enchanted_type).replace(" ", "_")
+                                    cand = f"{rec_mangled}_{c_m}"
+                                    sub_map = dict(zip(type_params, t_args))
+                                    self.symbols.monomorphized_methods[cand] = (method_ast, sub_map, enchanted_type)
     def _collect_weave(self, node: Tree, filepath: str, enchanted_type: Optional[Type], prefix: Optional[str] = None,
                        self_is_value: bool = False) -> None:
         """Collects function declaration details.

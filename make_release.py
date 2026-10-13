@@ -913,7 +913,7 @@ DESTDIR=/tmp/stage PREFIX=/usr ./install.sh   # package-manager staging
 {dist_dir.name}/
 ├── pengu{' .exe' if IS_WINDOWS else ''}
 ├── {vsix_name}
-├── std/                             # 22 pure-PenguScript modules
+├── std/                             # 23 pure-PenguScript modules
 └── runtime/
     ├── pengu_runtime.h
     ├── libpengu_runtime.a           # self-contained: libc/libm/pthreads only

@@ -196,3 +196,49 @@ weave main into int:
     return 0
 """)
     assert "-1" in out
+
+
+def test_shard_method_tuple_return_runs(compile_and_run):
+    """`div_rem` on a `shard T` receiver: the product struct is really defined."""
+    out = compile_and_run("""
+import std.spark
+
+enchanting shard T where T: Integrum:
+    weave div_rem with other as T into (T, T):
+        return (self / other), (self % other)
+
+weave main into int:
+    var a as int is 17
+    var b as i64 is 17
+    let (q, r) is calling a.div_rem with 5
+    let (s, t) is calling b.div_rem with 5
+    calling spark.println with "{q} {r} {s to int} {t to int}"
+    return 0
+""")
+    assert "3 2 3 2" in out
+
+
+def test_local_receiver_monomorphization_runs(compile_and_run):
+    """`gcd`-style delegation on a local of type `T` links for every width."""
+    out = compile_and_run("""
+import std.spark
+
+enchanting shard T where T: Integrum:
+    weave double_abs into T:
+        var n as T is self
+        if n < donum T:
+            set n is 0 - n
+        return n + n
+
+    weave twice_doubled into T:
+        var n as T is self
+        return calling n.double_abs
+
+weave main into int:
+    var a as int is -7
+    var b as i16 is -7
+    var c as u8 is 7
+    calling spark.println with "{calling a.twice_doubled} {calling b.twice_doubled to int} {calling c.twice_doubled}"
+    return 0
+""")
+    assert "14 14 14" in out

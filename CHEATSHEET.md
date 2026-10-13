@@ -1428,23 +1428,43 @@ Safety rules enforced by the checker: accessing `self` inside a `ritual` method 
 
 #### 9.1.1 Methods on primitives
 
-Every numeric primitive (`int`, `i8`–`i64`, `u8`–`u64`, `usize`, `isize`, `byte`, `float`, `f32`, `f64`, `double`) accepts methods when `std.numerus` is imported. A **single** `enchanting shard T where T: Num and T: Ordo and T: Par:` block covers them all; the compiler monomorphizes each method per concrete receiver (`int_abs`, `f64_clamp`, `u32_signum`), so there is no boxing, no vtable and no runtime cost.
+Every numeric primitive (`int`, `i8`–`i64`, `u8`–`u64`, `usize`, `isize`, `byte`, `float`, `f32`, `f64`, `double`) accepts methods when the module that declares them is imported. A **single** `enchanting shard T where T: …:` block covers them all; the compiler monomorphizes each method per concrete receiver (`int_abs`, `f64_clamp`, `u32_signum`), so there is no boxing, no vtable and no runtime cost.
+
+Universal numeric methods (`std.numerus`):
 
 ```pengu
+import std.spark
 import std.numerus
 
-(-5).abs                    # 5
-200.clamp with 0, 120       # 120
-2.7.floor                   # 2.0
-3.5.round                   # 4.0
-7.is_positive               # true
-0.is_zero                   # true
-2.pow_int with 10           # 1024
-(-3).signum                 # -1
-5.twice                     # 10
+weave main into int:
+    var edad as int is 200
+    var temp as f64 is -3.7
+    calling spark.println with "{calling edad.clamp with 0, 120}"   # 120
+    calling spark.println with "{calling temp.abs}"                 # 3.7
+    calling spark.println with "{calling edad.pow_int with 2}"      # 40000
+    calling spark.println with "{calling edad.is_positive}"         # true
+    return 0
 ```
 
-`Num` grants arithmetic only; ordering (`<`, `<=`, `>`, `>=`) needs `Ordo` and equality (`==`, `!=`) needs `Par` ([§9.4](#94-generics-shard-of--where)). Full method list in [`LANGUAGE.md` §19.1](LANGUAGE.md#191-pure-penguscript-modules-22-modules).
+Integer-only methods (`std.integrum`):
+
+```pengu
+import std.spark
+import std.integrum
+
+weave main into int:
+    var n as int is 12
+    calling spark.println with "{calling n.is_even}"          # true
+    calling spark.println with "{calling n.is_prime}"         # false
+    calling spark.println with "{calling n.gcd with 18}"      # 6
+    calling spark.println with "{calling n.bit_count}"        # 2
+    var h as string is calling n.to_hex                       # "c" (allocates!)
+    calling spark.println with h
+    banish h
+    return 0
+```
+
+`Num` grants arithmetic only; ordering (`<`, `<=`, `>`, `>=`) needs `Ordo` and equality (`==`, `!=`) needs `Par`. The refinements `Integrum` and `Real` grant both, so `std.integrum` writes `where T: Integrum:` and still compares ([§9.4](#94-generics-shard-of--where)). Full method lists in [`LANGUAGE.md` §19.1](LANGUAGE.md#191-pure-penguscript-modules-23-modules).
 
 ### 9.2 Scoped mutation `with target:`
 
@@ -2393,7 +2413,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 
 `std/spark.pengu` defines `SPARK_VERSION` and `STD_VERSION` constants; `spark.spark_version` returns the version string.
 
-### 15.2 Core module catalog (22 modules)
+### 15.2 Core module catalog (23 modules)
 
 | Module | Import | Implementation | Purpose & key functions |
 | ------ | ------ | -------------- | ----------------------- |
@@ -2413,6 +2433,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **ledger** | `import std.ledger` | Pure PenguScript | CSV/TSV: `escape_field`, `parse_line`, `parse_csv`, `to_csv_string`, `detect_delimiter`, TSV variants, and file helpers `read_csv`/`write_csv`/`read_tsv`/`write_tsv`. |
 | **cipher** | `import std.cipher` | Pure PenguScript | JSON + Base64: `parse_json`, `stringify_json`, `pretty_json`, `encode_base64`, `decode_base64`, `is_base64`, value-level `parse_value`/`stringify_value`, file helpers. |
 | **filum** | `import std.filum` | C primitives | Concurrency: `mutex`/`lock`/`unlock`/`try_lock`, `wait_group` (`add`, `done`, `wait`), `once`, channels, thread spawn, condition variables, atomics (opaque-handle value types). |
+| **integrum** | `import std.integrum` | Pure PenguScript | Integer-only methods over every signed/unsigned primitive via one `enchanting shard T where T: Integrum:`. Predicates `is_even`, `is_odd`, `is_power_of_two`, `is_multiple_of`, `is_prime`; bits `bit_count`, `bit_length`, `leading_zeros`, `trailing_zeros`, `next_power_of_two`, `prev_power_of_two`; Euclidean division `div_rem` (→ `(T, T)`), `div_floor`, `mod_floor`; number theory `gcd`, `lcm`, `next_prime`, `prev_prime`, `factorial`; representations `to_hex`, `to_bin`, `to_oct` (**allocate — `banish`**). Delegates `abs` to `std.numerus`. |
 | **numerus** | `import std.numerus` | Pure PenguScript | Universal numeric methods over every primitive via one `enchanting shard T where T: Num and T: Ordo and T: Par:`. `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`; predicates `is_zero`/`is_positive`/`is_negative`/`is_non_negative`/`is_non_positive`; `twice`, `half`, `square`, `cube`, `pow_int`; `truncate`, `floor`, `ceil`, `round`; `to_f64`, `to_i64`. Monomorphized — zero overhead. |
 | **loom** | `import std.loom` | Pure PenguScript | Functional collection utilities: `range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`, `sum`, `product_num`, `max_int`/`min_int`, `min_max`, plus map/filter/reduce style helpers, sorted set operations and zip/flattening. Prefer `loom` over `tally` when an empty input must be representable (see §19.1). |
 | **ward** | `import std.ward` | Pure PenguScript | Assertions & invariants: `assert`, `assert_msg`, `assert_true`/`assert_false`, `assert_eq_*` / `assert_ne_*` (int/string/bool), `assert_present_*`/`assert_none_*`, `assert_ok_*`/`assert_err_*`, `expect*` message variants, `panic`, `unreachable`, and result-returning `check*` helpers. |
@@ -2442,7 +2463,7 @@ Two consequences worth stating:
   `MANIFEST` so the satellite repositories can copy it; nothing in *this*
   repository downloads or builds those sources.
 
-`std/` therefore contains only the 22 pure-PenguScript modules in the catalog
+`std/` therefore contains only the 23 pure-PenguScript modules in the catalog
 above. `pengu bind` (§14.8) remains the tool for authoring a new binding from a
 C header, using the generic stubs in `c_bind_stubs/`.
 

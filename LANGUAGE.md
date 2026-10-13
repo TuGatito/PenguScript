@@ -36,7 +36,7 @@
 17. [Unit tests (`test`)](#17-unit-tests-test)
 18. [Block-style construction (`with:` expressions)](#18-block-style-construction-with-expressions)
 19. [Standard library](#19-standard-library)
-    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-22-modules)
+    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-23-modules)
     - 19.2 [External bindings (satellite repositories)](#192-external-bindings-satellite-repositories)
     - 19.3 [Core Standard Library Examples](#193-core-standard-library-examples)
     - 19.4 [Embedded Project Assets (`arca`)](#194-embedded-project-assets-arca)
@@ -1814,8 +1814,8 @@ ones marked *derivable* may also appear in a `derive` clause.
 | Concept | Latin | Operations / capabilities it enables |
 |---|---|---|
 | `Num` | *numerus* | `+`, `-`, `*`, `/` and unary `-` on a type parameter |
-| `Integrum` | *integer* | integer-only operators: `%`, `&`, `|`, `^`, `<<`, `>>`, `~` |
-| `Real` | *real* | floating-point only: `+`, `-`, `*`, `/` and unary `-` |
+| `Integrum` | *integer* | integer-only operators: `%`, `&`, `|`, `^`, `<<`, `>>`, `~`, plus `==`, `!=` and `<`, `<=`, `>`, `>=` |
+| `Real` | *real* | floating-point only: `+`, `-`, `*`, `/` and unary `-`, plus `==`, `!=` and `<`, `<=`, `>`, `>=` |
 | `Par` | *par* | `==`, `!=` |
 | `Ordo` | *ordo* | `<`, `<=`, `>`, `>=` |
 | `Vinculum` | *vinculum* | usable as a `map` key (hashing) |
@@ -1846,8 +1846,8 @@ adding one can never break code that already compiled:
                                concept-free plumbing, e.g.
                                `weave ident shard T with x as T into T`.
 Num         + - * / and unary -
-├─ Integrum    Num plus % & | ^ << >> ~
-└─ Real        Num                       (floats only)
+├─ Integrum    Num plus % & | ^ << >> ~ == != < <= > >=
+└─ Real        Num plus == != < <= > >=   (floats only)
 Par         == !=
 Ordo        < <= > >=
 Any         everything (an explicit escape hatch)
@@ -1869,8 +1869,8 @@ weave clamped shard T where T: Num and T: Ordo with lo as T, hi as T, v as T int
      names, comma separated. -->
 ```text bounds-ops
 Num: add, sub, mul, div, neg
-Integrum: add, sub, mul, div, neg, mod, band, bor, bxor, shl, shr, bnot, eq, ne
-Real: add, sub, mul, div, neg, eq, ne
+Integrum: add, sub, mul, div, neg, mod, band, bor, bxor, shl, shr, bnot, eq, ne, lt, le, gt, ge
+Real: add, sub, mul, div, neg, eq, ne, lt, le, gt, ge
 Par: eq, ne
 Ordo: lt, le, gt, ge
 ```
@@ -2016,24 +2016,26 @@ Operators are only available when the corresponding concept is in the bounds:
 | Bound | Operators available on `T` |
 |---|---|
 | `Num` | `+`, `-`, `*`, `/`, unary `-` |
-| `Integrum` | `%`, `&`, `\|`, `^`, `<<`, `>>`, `~`, `==`, `!=` (and everything `Num` allows) |
-| `Real` | `+`, `-`, `*`, `/`, unary `-`, `==`, `!=` (and everything `Num` allows) |
+| `Integrum` | `%`, `&`, `\|`, `^`, `<<`, `>>`, `~`, `==`, `!=`, `<`, `<=`, `>`, `>=` (and everything `Num` allows) |
+| `Real` | `+`, `-`, `*`, `/`, unary `-`, `==`, `!=`, `<`, `<=`, `>`, `>=` (and everything `Num` allows) |
 | `Par` | `==`, `!=` |
 | `Ordo` | `<`, `<=`, `>`, `>=` |
 
-`Integrum` grants equality as well as the integer-only operators: every type that
-satisfies `Integrum` in this language is an integer primitive, and every integer
-primitive satisfies `Par`. That is what lets the canonical primitive-enchanting
-idiom `enchanting shard T where T: Integrum:` write
-`(self % (2 to T)) == donum T` without restating `and T: Par` (§10.1).
+`Integrum` grants equality and ordering as well as the integer-only operators:
+every type that satisfies `Integrum` in this language is an integer primitive, and
+every integer primitive satisfies `Par` and `Ordo`. That is what lets the
+canonical primitive-enchanting idiom `enchanting shard T where T: Integrum:`
+write `(self % (2 to T)) == donum T` and `while (k * k) <= n` without restating
+`and T: Par` / `and T: Ordo` (§10.1).
 
 `Real` is the floating-point-only refinement: every type that satisfies `Real`
 satisfies `Num`, and the only primitives that satisfy it are `float`, `f32`,
-`f64` and `double`. It grants arithmetic and equality for the same reason
-`Integrum` does — every type satisfying `Real` is a floating-point primitive,
-and every floating-point primitive satisfies `Par` — so
-`enchanting shard T where T: Real:` can write `self != self` (`is_nan`) and
-`self + self` without restating `and T: Par`. The two refinements are disjoint:
+`f64` and `double`. It grants arithmetic, equality and ordering for the same
+reason `Integrum` does — every type satisfying `Real` is a floating-point
+primitive, and every floating-point primitive satisfies `Par` and `Ordo` — so
+`enchanting shard T where T: Real:` can write `self != self` (`is_nan`),
+`(a - b).abs < eps` (`approx_eq`) and `self + self` without restating
+`and T: Par` / `and T: Ordo`. The two refinements are disjoint:
 `Integrum` never satisfies `Real` and vice versa.
 
 The same table bounds `enchanting shard T:` method bodies: a method declared on a
@@ -2995,7 +2997,7 @@ Supported built-in methods inside collection `with` blocks:
 
 ## 19. Standard library
 
-PenguScript ships with a comprehensive standard library of **22 pure PenguScript
+PenguScript ships with a comprehensive standard library of **23 pure PenguScript
 modules** (`std.<module>`), providing high-level, idiomatic abstractions for I/O,
 strings, concurrency, serialization, math, testing, and memory bridging.
 
@@ -3027,7 +3029,7 @@ exports that constant with the current toolchain version. Namespacing already
 keeps each module self-contained (`std.<module>.<symbol>`), so decoupling the
 stdlib into independently versioned packages is reserved for 2.0.
 
-### 19.1 Pure PenguScript Modules (22 modules)
+### 19.1 Pure PenguScript Modules (23 modules)
 
 All pure modules are located in the `std/` directory and imported as `import std.<module>`.
 
@@ -3049,6 +3051,7 @@ All pure modules are located in the `std/` directory and imported as `import std
 | `std.atlas` | Multi-type map collection utilities across 6 key-value combinations (`map of string to int`, `map of string to string`, `map of string to float`, `map of int to int`, `map of int to string`, `map of string to bool`). Enchants map types directly (`calling m.keys`, `calling m.get_or with k, default`, `calling m.update with k, v`, `calling m.rename_key with old_k, new_k`, `calling m.clone`, `calling m.remove with k`, `calling m.clear`) alongside module-level functions (`calling atlas.keys with m`, `calling atlas.get_or_ss with m, k, def`). Includes length & predicates (`size`, `is_empty`, `has_key`, `has_any_key`, `has_all_keys`), access (`get_or`, `get_safe`, `find_key_by_value`), in-place mutation (`update`, `rename_key`, `remove`, `clear`, `remove_all`), bulk accessors (`keys`, `values`, `keys_sorted`, `values_sorted`), numeric reductions (`sum_values`, `max_value`, `min_value`), bool counters (`count_true`, `count_false`), filters and transformations (`filter_*`, `map_values_*`), combination (`merge_*`, `merge_keep_left_*`), conversions (`from_lists_*`, `to_keys_list`, `to_values_list`), and generic utilities (`shard K, V`: `map_size`, `map_has_key`, `map_get_or`, `map_keys`, `map_values`, `map_put`, `map_remove`, `map_clear`). |
 | `std.coven` | Unique-set collections (`SetString`, `SetInt`): insertion and predicates (`add`, `contains`, `remove`, `len`, `clear`, `is_empty`), full set algebra (`union`, `intersect`, `difference`, `symmetric_difference`, `is_subset`, `is_superset`, `is_disjoint`, `equals`), conversions (`to_list`, `to_set_int`, `to_set_string`, `from_list`, `clone`), and specialized filters (`filter_starts_with`, `filter_length_ge`). |
 | `std.filum` | Multithreaded concurrency primitives: mutual exclusion (`Mutex` with `lock`, `unlock`, `try_lock`, `free`), synchronization counters (`WaitGroup` with `add`, `done`, `wait`, `free`), once guards (`Once` with `do_once`, `do_action`, `free`), condition variables (`Cond` with `cond_wait`, `wait_mutex`, `signal`, `broadcast`, `free`), thread-safe integers (`AtomicInt` with `load`, `store`, `add`, `sub`, `inc`, `dec`, `inc_and_get`, `dec_and_get`, `swap`, `get_and_set`, `compare_swap`, `is_zero`, `reset`, `free`), typed channels (`ChanInt`, `ChanString`, `ChanFloat`, `ChanBool` with `new`, `with_capacity`, `send`, `recv`, `close`, `len`, `cap`, `free`), and system/time utilities (`sleep`, `sleep_sec`, `num_cpu`, `goroutine_id`). |
+| `std.integrum` | Integer-only methods across every signed/unsigned primitive via `enchanting shard T where T: Integrum:`. Predicates (`is_even`, `is_odd`, `is_power_of_two`, `is_multiple_of`, `is_prime`); bit operations (`bit_count`, `bit_length`, `leading_zeros`, `trailing_zeros`, `next_power_of_two`, `prev_power_of_two`); Euclidean division (`div_rem` → `(T, T)`, `div_floor`, `mod_floor`); number theory (`gcd`, `lcm`, `next_prime`, `prev_prime`, `factorial`); representations (`to_hex`, `to_bin`, `to_oct`, all allocating — `banish` them). Monomorphized to `int_is_even`, `i64_gcd`, … — zero runtime overhead. Universal methods (`abs`, `clamp`, `pow_int`) live in `std.numerus`; `Integrum` implies `Num`. |
 | `std.numerus` | Universal numeric methods across every primitive via `enchanting shard T where T: Num and T: Ordo and T: Par:`: `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`, predicates (`is_zero`, `is_positive`, `is_negative`, `is_non_negative`, `is_non_positive`), arithmetic (`twice`, `half`, `square`, `cube`, `pow_int`), rounding (`truncate`, `floor`, `ceil`, `round`), conversions (`to_f64`, `to_i64`). Monomorphized to `int_abs`, `f64_clamp`, … — zero runtime overhead. Integer-only methods live in `std.integrum`; floating-point-only methods in `std.fractio`. |
 | `std.loom` | Sequence generation, functional transformations, and generic algorithms: sequences (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reductions (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicates (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transforms (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), sorted set-like operations (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), search (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), structural modifications (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), statistics (`median`, `mode`, `variance`, `stddev`, `percentile`), and generic algorithms (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`). |
 | `std.invoke` | Command-line interface (CLI) argument parsing: POSIX and GNU syntax (`--flag`, `--key=value`, `-k=value`), boolean flag negation (`--no-flag`), subcommands (`rune Subcommand`), typed options (int, float, bool, string, multi), repeat multi-options (`rune MultiOption`), Levenshtein typo suggestions, formatted help and usage strings (`usage_string`, `full_help`), error reporting, and robust parse variants (`parse`, `parse_no_exit`, `parse_or_exit`, `parse_or_usage`, `ParseResult` accessors `get`, `get_or`, `get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`, `get_all`, `to_map_values`, `to_map_flags`). |

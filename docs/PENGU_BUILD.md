@@ -316,7 +316,7 @@ El sistema de compilación (`pengu_project.py`) enlazará automáticamente `-lpe
 
 ### Módulos en `std/`
 
-El `std/` de este repositorio contiene **22 módulos puros** de PenguScript: `spark`, `scrolls`, `oracle`, `compass`, `archivum`, `cipher`, `chronicle`, `lot`, `arithmancy`, `rites`, `whisper`, `ward`, `trial`, `tally`, `atlas`, `coven`, `filum`, `numerus`, `loom`, `invoke`, `ffi` y `ledger`. Los bindings C externos (raylib, SQLite3, WebUI, miniaudio, …) **se movieron a repositorios satélite** y se instalan por proyecto con `pengu add`; consulta `docs/EXTERNAL_MODULES.md`.
+El `std/` de este repositorio contiene **23 módulos puros** de PenguScript: `spark`, `scrolls`, `oracle`, `compass`, `archivum`, `cipher`, `chronicle`, `lot`, `arithmancy`, `rites`, `whisper`, `ward`, `trial`, `tally`, `atlas`, `coven`, `filum`, `integrum`, `numerus`, `loom`, `invoke`, `ffi` y `ledger`. Los bindings C externos (raylib, SQLite3, WebUI, miniaudio, …) **se movieron a repositorios satélite** y se instalan por proyecto con `pengu add`; consulta `docs/EXTERNAL_MODULES.md`.
 
 `pengu bind` sigue disponible para generar archivos `.d.pengu` a partir de cualquier cabecera C, usando los stubs genéricos de `c_bind_stubs/` y verificando el resultado con `pengu check`.
 

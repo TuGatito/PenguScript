@@ -1,0 +1,930 @@
+## std/integrum.pengu — the integer: methods that only make sense on whole
+## numbers, over the `Integrum` concept.
+##
+## `integrum` dota de métodos a **todos** los primitivos enteros de PenguScript
+## (`int`, `i8`–`i64`, `u8`–`u64`, `usize`, `isize`, `byte`) mediante un único
+## bloque `enchanting shard T where T: Integrum:`. El compilador monomorfiza
+## cada método por tipo concreto en tiempo de compilación (`int_is_even`,
+## `i64_gcd`, `u32_bit_count`, …), así que no hay vtables, boxing ni coste en
+## runtime.
+##
+## ## Alcance
+## `integrum` cubre **solo** lo que tiene sentido en enteros: paridad,
+## primalidad, bits, MCD/MCM, divisiones euclidianas y representaciones
+## (`to_hex`, `to_bin`, `to_oct`). Los métodos universales (`abs`, `signum`,
+## `clamp`, `pow_int`, `min_with`, `max_with`, `twice`, `half`, `round`) viven
+## en `std.numerus`; como `Integrum` implica `Num` (y concede igualdad y orden,
+## LANGUAGE.md §11.3), esos métodos siguen disponibles dentro de un cuerpo
+## acotado por `Integrum`. Los métodos exclusivos de flotantes viven en
+## `std.fractio`.
+##
+## ## Delegación
+## `integrum` importa `std.numerus` y delega en él siempre que necesita el
+## valor absoluto (`gcd`, `lcm`, `to_hex`, `to_bin`, `to_oct` usan
+## `calling self.abs`) en lugar de duplicar el `if self < donum T: return -self`.
+## `std.arithmancy` expone equivalentes **concretos** de `is_prime`, `gcd` y
+## `lcm` (`arithmancy.is_prime_int`, …), no genéricos, así que un
+## `shard T where T: Integrum` no puede delegar en ellos sin duplicar por tipo;
+## la dirección futura queda anotada con `# TODO(Fase 3.x)`.
+##
+## ## Memoria
+## Solo `to_hex`, `to_bin` y `to_oct` asignan memoria del heap: devuelven un
+## `string` nuevo que el llamador debe liberar con `banish` (o `defer banish`).
+## El resto de métodos no asigna memoria.
+##
+## ## Precondiciones
+## - `is_multiple_of`, `lcm`, `div_rem`, `div_floor`, `mod_floor`: `other != 0`
+##   (división por cero). No paniquean; el comportamiento es el de C.
+## - `is_prime`, `next_prime`, `prev_prime`: el algoritmo es O(√n) por división
+##   por tentativa con la optimización 6k±1. Viable hasta ~10^12; para
+##   criptografía con `u64` grande, usa una librería de primalidad dedicada.
+## - `factorial`: el resultado debe caber en `T`. En perfiles de depuración el
+##   desbordamiento **con signo** aborta (`-ftrapv`); en release envuelve según
+##   la aritmética de C. Límites seguros: `5!` cabe en `u8`, `7!` en `i16`,
+##   `12!` en `i32`, `20!` en `i64`.
+## - `next_power_of_two`: si `self` ya es la mayor potencia representable, el
+##   desplazamiento envuelve a 0.
+## - `to_hex`/`to_bin`/`to_oct`: en tipos con signo el resultado es
+##   signo-y-magnitud (`-255.to_hex` es `"-ff"`); para el valor mínimo de `T`
+##   (`INT_MIN`) la magnitud no es representable y el resultado es indefinido.
+##
+## ## Ejemplo
+## ```pengu
+## import std.spark
+## import std.integrum
+##
+## weave main into int:
+##     var n as int is 12
+##     calling spark.println with "{calling n.is_even}"       # true
+##     calling spark.println with "{calling n.gcd with 18}"   # 6
+##     var h as string is calling n.to_hex                    # "c"
+##     calling spark.println with h
+##     banish h
+##     return 0
+## ```
+
+import std.numerus
+import std.ward
+
+# ----------------------------------------------------------------------------
+# Module Version (LANGUAGE.md §19.0: every hand-written std module exports one)
+# ----------------------------------------------------------------------------
+
+## Integrum module version.
+const INTEGRUM_VERSION as string is "2.0.0"
+
+# ----------------------------------------------------------------------------
+# Private helpers (outside the shard: they do not need a `self`)
+# ----------------------------------------------------------------------------
+
+## Helper privado: un dígito hexadecimal (`0`–`15`) como `string`.
+##
+## Devuelve un `string` literal o interpolado; el llamador no lo libera (los
+## literales no poseen memoria y la interpolación de un `int` devuelve un
+## temporal que el runtime libera). Ver `to_hex`.
+weave _integrum_hex_digit with d as int into string:
+    if d < 10:
+        return "{d}"
+    if d == 10:
+        return "a"
+    if d == 11:
+        return "b"
+    if d == 12:
+        return "c"
+    if d == 13:
+        return "d"
+    if d == 14:
+        return "e"
+    return "f"
+
+# ----------------------------------------------------------------------------
+# Integer-only methods (one body, one C function per concrete receiver)
+# ----------------------------------------------------------------------------
+
+enchanting shard T where T: Integrum:
+
+    # ─── Helpers privados ────────────────────────────────────────────────
+    #
+    # NOTA DE DISEÑO: el plan de la fase pedía este helper como un `weave`
+    # genérico libre fuera del bloque, invocado con
+    # `calling _integrum_is_prime_impl of T with n`. Ese idiom está roto en el
+    # codegen actual: pasar el propio parámetro de tipo como argumento explícito
+    # de tipo monomorfiza con `T -> T` (no con el receptor concreto) y emite
+    # `void*` en lugar del primitivo. Un método `_`-prefijado en el mismo shard
+    # sí se monomorfiza por receptor concreto (`is_odd` → `self.is_even` es el
+    # patrón ya soportado). Ver el reporte de la fase.
+
+    ## Helper privado: primalidad por división por tentativa 6k±1.
+    ##
+    ## No forma parte de la API pública (prefijo `_`); `is_prime`, `next_prime`
+    ## y `prev_prime` lo usan para no triplicar el algoritmo.
+    weave _is_prime_impl into bool:
+        if self < (2 to T):
+            return false
+        if self == (2 to T):
+            return true
+        if self == (3 to T):
+            return true
+        if (self % (2 to T)) == donum T:
+            return false
+        if (self % (3 to T)) == donum T:
+            return false
+        var k as T is (5 to T)
+        while (k * k) <= self:
+            if (self % k) == donum T:
+                return false
+            if (self % (k + (2 to T))) == donum T:
+                return false
+            set k is k + (6 to T)
+        return true
+
+    # ─── Predicados ──────────────────────────────────────────────────────
+
+    ## Devuelve `true` si `self` es divisible por 2.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 4.is_even       # true
+    ## (-7).is_even    # false
+    ## ```
+    weave is_even into bool:
+        return (self % (2 to T)) == donum T
+
+    ## Devuelve `true` si `self` no es divisible por 2.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 4.is_odd        # false
+    ## (-7).is_odd     # true
+    ## ```
+    weave is_odd into bool:
+        return not calling self.is_even
+
+    ## Devuelve `true` si `self` es una potencia de 2 (1, 2, 4, 8, …).
+    ##
+    ## `0.is_power_of_two` es `false`. El truco `(n & (n - 1)) == 0` lo hace
+    ## O(1).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 1.is_power_of_two    # true
+    ## 8.is_power_of_two    # true
+    ## 6.is_power_of_two    # false
+    ## ```
+    weave is_power_of_two into bool:
+        if self <= donum T:
+            return false
+        return (self & (self - (1 to T))) == donum T
+
+    ## Devuelve `true` si `self` es múltiplo de `other` (o sea, `self % other == 0`).
+    ##
+    ## ## Precondiciones
+    ## `other != 0`. El comportamiento es indefinido si se viola.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var n as int is 12
+    ## calling n.is_multiple_of with 4    # true
+    ## calling n.is_multiple_of with 5    # false
+    ## var z as int is 0
+    ## calling z.is_multiple_of with 7    # true
+    ## ```
+    weave is_multiple_of with other as T into bool:
+        return (self % other) == donum T
+
+    ## Devuelve `true` si `self` es primo (mayor que 1 y sin divisores propios).
+    ##
+    ## ## Complejidad
+    ## O(√n) por división por tentativa con la optimización 6k±1. Viable en la
+    ## práctica hasta ~10^12; para criptografía usa primalidad probabilística.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 2.is_prime      # true
+    ## 17.is_prime     # true
+    ## 18.is_prime     # false
+    ## ```
+    # TODO(Fase 3.x): arithmancy.is_prime (int-only) should delegate here.
+    weave is_prime into bool:
+        return calling self._is_prime_impl
+
+    # ─── Bits ────────────────────────────────────────────────────────────
+
+    ## Cuenta los bits puestos a 1 (popcount) del ancho completo de `T`.
+    ##
+    ## Para tipos con signo se usa la representación en complemento a dos, así
+    ## que el bit de signo cuenta: `(-1).bit_count` es el ancho de `T`. El
+    ## recorrido está acotado por el ancho, de modo que un valor negativo no
+    ## buclea (un desplazamiento aritmético a la derecha nunca llega a 0).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 0b1011.bit_count    # 3
+    ## 255.bit_count       # 8
+    ## ```
+    weave bit_count into int:
+        var n as T is self
+        var count as int is 0
+        var i as int is 0
+        var w as int is (size of T) * 8
+        while i < w:
+            if (n & (1 to T)) == (1 to T):
+                set count is count + 1
+            set n is n >> 1
+            set i is i + 1
+        return count
+
+    ## Devuelve el número de bits necesarios para representar `self` (el índice
+    ## del bit más alto con valor 1, más uno).
+    ##
+    ## `0.bit_length == 0`, `1.bit_length == 1`, `255.bit_length == 8`. En
+    ## complemento a dos un valor negativo tiene el bit de signo puesto, así que
+    ## su longitud es el ancho de `T`: `(-1).bit_length == 32` en un `int`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 1.bit_length      # 1
+    ## 255.bit_length    # 8
+    ## 256.bit_length    # 9
+    ## ```
+    weave bit_length into int:
+        var n as T is self
+        var i as int is 0
+        var last as int is 0
+        var w as int is (size of T) * 8
+        while i < w:
+            if (n & (1 to T)) == (1 to T):
+                set last is i + 1
+            set n is n >> 1
+            set i is i + 1
+        return last
+
+    ## Cuenta los bits a cero más significativos (por encima del bit más alto
+    ## con valor 1), usando el ancho completo de `T`.
+    ##
+    ## `0.leading_zeros == (size of T) * 8`; siempre se cumple
+    ## `leading_zeros + bit_length == ancho`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## # En un int de 32 bits:
+    ## 1.leading_zeros      # 31
+    ## 255.leading_zeros    # 24
+    ## ```
+    weave leading_zeros into int:
+        return ((size of T) * 8) - calling self.bit_length
+
+    ## Cuenta los bits a cero menos significativos (por debajo del bit más bajo
+    ## con valor 1), usando el ancho completo de `T`.
+    ##
+    ## `0.trailing_zeros == (size of T) * 8`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 8.trailing_zeros     # 3
+    ## 12.trailing_zeros    # 2
+    ## ```
+    weave trailing_zeros into int:
+        var w as int is (size of T) * 8
+        if self == donum T:
+            return w
+        var n as T is self
+        var count as int is 0
+        while (n & (1 to T)) == donum T:
+            set count is count + 1
+            set n is n >> 1
+        return count
+
+    ## Devuelve la menor potencia de 2 estrictamente **mayor** que `self`.
+    ##
+    ## Para `self == 0` devuelve `1`; para un `self` que ya es potencia de 2
+    ## devuelve el doble. El resultado se desborda a `0` si `self` ya es la
+    ## mayor potencia representable.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 0.next_power_of_two     # 1
+    ## 5.next_power_of_two     # 8
+    ## 8.next_power_of_two     # 16
+    ## ```
+    weave next_power_of_two into T:
+        var p as T is (1 to T)
+        while p <= self:
+            set p is p << 1
+        return p
+
+    ## Devuelve la mayor potencia de 2 **menor o igual** que `self`.
+    ##
+    ## Para `self == 0` devuelve `0`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 5.prev_power_of_two     # 4
+    ## 8.prev_power_of_two     # 8
+    ## 0.prev_power_of_two     # 0
+    ## ```
+    weave prev_power_of_two into T:
+        if self == donum T:
+            return donum T
+        var p as T is (1 to T)
+        while (p << 1) <= self:
+            set p is p << 1
+        return p
+
+    # ─── Divisiones euclidianas ──────────────────────────────────────────
+
+    ## Devuelve una tupla `(cociente, resto)` de la división entera, calculando
+    ## la división una sola vez.
+    ##
+    ## ## Precondiciones
+    ## `other != 0`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var n as int is 17
+    ## let (q, r) is calling n.div_rem with 5
+    ## # q == 3, r == 2
+    ## ```
+    weave div_rem with other as T into (T, T):
+        return (self / other), (self % other)
+
+    ## División entera redondeada hacia −∞ (a diferencia de `/`, que trunca
+    ## hacia cero).
+    ##
+    ## ## Precondiciones
+    ## `other != 0`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var p as int is 7
+    ## calling p.div_floor with 2    # 3
+    ## var n as int is -7
+    ## calling n.div_floor with 2    # -4 (a diferencia de -7 / 2 == -3)
+    ## ```
+    weave div_floor with other as T into T:
+        let q as T is self / other
+        let r as T is self % other
+        if (r != donum T) and ((r < donum T) != (other < donum T)):
+            return q - (1 to T)
+        return q
+
+    ## Resto con el signo del divisor (no negativo cuando `other > 0`).
+    ##
+    ## ## Precondiciones
+    ## `other != 0`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var n as int is -7
+    ## calling n.mod_floor with 3    # 2  (signo del divisor)
+    ## var m as int is 7
+    ## calling m.mod_floor with 3    # 1
+    ## ```
+    weave mod_floor with other as T into T:
+        let r as T is self % other
+        if (r != donum T) and ((r < donum T) != (other < donum T)):
+            return r + other
+        return r
+
+    # ─── MCD / MCM ───────────────────────────────────────────────────────
+
+    ## Máximo común divisor por el algoritmo de Euclides, **no negativo**.
+    ##
+    ## Identidades: el MCD de `0` y `n` es `n`; el de `n` y `0` es `n`; el de
+    ## `0` y `0` es `0`. El signo se normaliza con `abs` (delegado en
+    ## `std.numerus`), así que el MCD de `-12` y `18` es `6`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as int is 12
+    ## calling a.gcd with 18   # 6
+    ## ```
+    # TODO(Fase 3.x): arithmancy.gcd (int-only) should delegate here.
+    weave gcd with other as T into T:
+        var a as T is self
+        var b as T is other
+        while b != donum T:
+            let t as T is b
+            set b is a % b
+            set a is t
+        return calling a.abs
+
+    ## Mínimo común múltiplo, **no negativo**.
+    ##
+    ## El MCM de `0` con cualquier valor, y de cualquier valor con `0`, es `0`.
+    ## Se calcula como
+    ## `(self / gcd(self, other)) * other`, que reduce el riesgo de desbordamiento
+    ## frente a `self * other / gcd`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var a as int is 4
+    ## calling a.lcm with 6     # 12
+    ## ```
+    # TODO(Fase 3.x): arithmancy.lcm (int-only) should delegate here.
+    weave lcm with other as T into T:
+        if self == donum T or other == donum T:
+            return donum T
+        let g as T is calling self.gcd with other
+        let p as T is (self / g) * other
+        return calling p.abs
+
+    # ─── Números primos ──────────────────────────────────────────────────
+
+    ## Devuelve el menor primo estrictamente mayor que `self`.
+    ##
+    ## Para `self < 2` devuelve `2`.
+    ##
+    ## ## Complejidad
+    ## O((hueco hasta el siguiente primo) × √n); el hueco medio es O(log n).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 12.next_prime    # 13
+    ## 0.next_prime     # 2
+    ## ```
+    weave next_prime into T:
+        var n as T is self + (1 to T)
+        if n < (2 to T):
+            set n is (2 to T)
+        while not calling n._is_prime_impl:
+            set n is n + (1 to T)
+        return n
+
+    ## Devuelve el mayor primo estrictamente menor que `self`.
+    ##
+    ## Para `self <= 2` devuelve `0` (no hay primo menor).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 100.prev_prime   # 97
+    ## 2.prev_prime     # 0
+    ## ```
+    weave prev_prime into T:
+        if self <= (2 to T):
+            return donum T
+        var n as T is self - (1 to T)
+        while n >= (2 to T):
+            if calling n._is_prime_impl:
+                return n
+            set n is n - (1 to T)
+        return donum T
+
+    ## Devuelve `self!` (factorial).
+    ##
+    ## `0! == 1`, `1! == 1`, `5! == 120`.
+    ##
+    ## ## Precondiciones
+    ## El resultado debe caber en `T`. En perfiles de depuración el
+    ## desbordamiento con signo aborta (`-ftrapv`); en release envuelve según la
+    ## aritmética de C. Límites seguros: `u8` → 5, `i16` → 7, `u16` → 8,
+    ## `i32`/`u32` → 12, `i64`/`u64` → 20.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## 5.factorial     # 120
+    ## ```
+    weave factorial into T:
+        if self <= (1 to T):
+            return (1 to T)
+        var acc as T is (1 to T)
+        var i as T is (2 to T)
+        while i <= self:
+            set acc is acc * i
+            set i is i + (1 to T)
+        return acc
+
+    # ─── Representaciones ────────────────────────────────────────────────
+    #
+    # Las tres asignan heap: devuelven un `string` nuevo que el llamador libera
+    # con `banish`. En tipos con signo la representación es signo-y-magnitud
+    # (`-255.to_hex` es `"-ff"`); para el mínimo de `T` la magnitud no es
+    # representable y el resultado es indefinido.
+
+    ## Convierte `self` a hexadecimal **sin prefijo `0x`**, en minúsculas.
+    ##
+    ## ## Memoria
+    ## Asigna un `string` nuevo en el heap. **Libéralo con `banish`**.
+    ##
+    ## ## Precondiciones
+    ## Para tipos con signo, `self` distinto del mínimo de `T` (`INT_MIN`).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var n as int is 255
+    ## var h as string is calling n.to_hex
+    ## calling spark.println with h          # "ff"
+    ## banish h
+    ## ```
+    weave to_hex into string:
+        if self == donum T:
+            return "0"
+        let negative as bool is self < donum T
+        var n as T is calling self.abs
+        var acc as string is ""
+        while n != donum T:
+            let d as int is (n % (16 to T)) to int
+            let hd as string is calling _integrum_hex_digit with d
+            set acc is "{hd}{acc}"
+            set n is n / (16 to T)
+        if negative:
+            return "-{acc}"
+        return acc
+
+    ## Convierte `self` a binario **sin prefijo `0b`**.
+    ##
+    ## ## Memoria
+    ## Asigna un `string` nuevo. **Libéralo con `banish`**.
+    ##
+    ## ## Precondiciones
+    ## Para tipos con signo, `self` distinto del mínimo de `T`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var n as int is 5
+    ## var b as string is calling n.to_bin
+    ## calling spark.println with b          # "101"
+    ## banish b
+    ## ```
+    weave to_bin into string:
+        if self == donum T:
+            return "0"
+        let negative as bool is self < donum T
+        var n as T is calling self.abs
+        var acc as string is ""
+        while n != donum T:
+            let bit as int is (n & (1 to T)) to int
+            set acc is "{bit}{acc}"
+            set n is n >> 1
+        if negative:
+            return "-{acc}"
+        return acc
+
+    ## Convierte `self` a octal **sin prefijo `0o`**.
+    ##
+    ## ## Memoria
+    ## Asigna un `string` nuevo. **Libéralo con `banish`**.
+    ##
+    ## ## Precondiciones
+    ## Para tipos con signo, `self` distinto del mínimo de `T`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var n as int is 8
+    ## var o as string is calling n.to_oct
+    ## calling spark.println with o          # "10"
+    ## banish o
+    ## ```
+    weave to_oct into string:
+        if self == donum T:
+            return "0"
+        let negative as bool is self < donum T
+        var n as T is calling self.abs
+        var acc as string is ""
+        while n != donum T:
+            let d as int is (n % (8 to T)) to int
+            set acc is "{d}{acc}"
+            set n is n / (8 to T)
+        if negative:
+            return "-{acc}"
+        return acc
+
+# ----------------------------------------------------------------------------
+# Tests
+# ----------------------------------------------------------------------------
+
+## Helper de test: compara dos `int` con el nombre del módulo ya resuelto.
+weave _t_int with got as int, want as int into void:
+    calling ward.assert_eq_int with got, want
+
+## Helper de test: compara dos `bool`.
+weave _t_bool with got as bool, want as bool into void:
+    calling ward.assert_eq_bool with got, want
+
+## Helper de test: compara dos `string`.
+weave _t_str with got as string, want as string into void:
+    calling ward.assert_eq_string with got, want
+
+test "is_even covers the four quadrants":
+    var p as int is 4
+    var q as int is 5
+    var r as int is -4
+    var s as int is -5
+    var z as int is 0
+    calling _t_bool with (calling p.is_even), true
+    calling _t_bool with (calling q.is_even), false
+    calling _t_bool with (calling r.is_even), true
+    calling _t_bool with (calling s.is_even), false
+    calling _t_bool with (calling z.is_even), true
+
+test "is_even works for narrow and wide receivers":
+    var a as i64 is 100
+    var b as u8 is 3
+    calling _t_bool with (calling a.is_even), true
+    calling _t_bool with (calling b.is_even), false
+
+test "is_odd is the complement of is_even":
+    var p as int is 7
+    var q as int is 8
+    var r as int is -7
+    calling _t_bool with (calling p.is_odd), true
+    calling _t_bool with (calling q.is_odd), false
+    calling _t_bool with (calling r.is_odd), true
+
+test "is_power_of_two accepts the powers and rejects the rest":
+    var a as int is 1
+    var b as int is 2
+    var c as int is 4
+    var d as int is 8
+    var e as int is 3
+    var f as int is 6
+    calling _t_bool with (calling a.is_power_of_two), true
+    calling _t_bool with (calling b.is_power_of_two), true
+    calling _t_bool with (calling c.is_power_of_two), true
+    calling _t_bool with (calling d.is_power_of_two), true
+    calling _t_bool with (calling e.is_power_of_two), false
+    calling _t_bool with (calling f.is_power_of_two), false
+
+test "is_power_of_two rejects zero and negatives":
+    var z as int is 0
+    var n as int is -4
+    calling _t_bool with (calling z.is_power_of_two), false
+    calling _t_bool with (calling n.is_power_of_two), false
+
+test "is_multiple_of handles exact, inexact and zero dividends":
+    var a as int is 12
+    var z as int is 0
+    var n as int is -12
+    calling _t_bool with (calling a.is_multiple_of with 4), true
+    calling _t_bool with (calling a.is_multiple_of with 5), false
+    calling _t_bool with (calling z.is_multiple_of with 7), true
+    calling _t_bool with (calling n.is_multiple_of with 4), true
+
+test "is_prime on the small cases":
+    var a as int is 0
+    var b as int is 1
+    var c as int is 2
+    var d as int is 3
+    var e as int is 4
+    var f as int is 17
+    var g as int is 100
+    calling _t_bool with (calling a.is_prime), false
+    calling _t_bool with (calling b.is_prime), false
+    calling _t_bool with (calling c.is_prime), true
+    calling _t_bool with (calling d.is_prime), true
+    calling _t_bool with (calling e.is_prime), false
+    calling _t_bool with (calling f.is_prime), true
+    calling _t_bool with (calling g.is_prime), false
+
+test "is_prime around a large prime":
+    var p as int is 7919
+    var q as int is 7920
+    calling _t_bool with (calling p.is_prime), true
+    calling _t_bool with (calling q.is_prime), false
+
+test "bit_count counts the set bits":
+    var a as int is 0
+    var b as int is 1
+    var c as int is 0b1011
+    var d as int is 255
+    calling _t_int with (calling a.bit_count), 0
+    calling _t_int with (calling b.bit_count), 1
+    calling _t_int with (calling c.bit_count), 3
+    calling _t_int with (calling d.bit_count), 8
+
+test "bit_count counts the sign bits of a negative":
+    var n as int is -1
+    calling _t_int with (calling n.bit_count), 32
+
+test "bit_length reports the width of the value":
+    var a as int is 0
+    var b as int is 1
+    var c as int is 255
+    var d as int is 256
+    calling _t_int with (calling a.bit_length), 0
+    calling _t_int with (calling b.bit_length), 1
+    calling _t_int with (calling c.bit_length), 8
+    calling _t_int with (calling d.bit_length), 9
+
+test "bit_length uses two's complement for negatives":
+    var n as int is -1
+    calling _t_int with (calling n.bit_length), 32
+
+test "leading_zeros complements bit_length":
+    var a as int is 0
+    var b as int is 1
+    var c as int is 255
+    calling _t_int with (calling a.leading_zeros), 32
+    calling _t_int with (calling b.leading_zeros), 31
+    calling _t_int with (calling c.leading_zeros), 24
+
+test "leading_zeros and bit_length add up to the width":
+    var x as int is 7919
+    calling _t_int with ((calling x.leading_zeros) + (calling x.bit_length)), 32
+
+test "trailing_zeros counts the low zero bits":
+    var a as int is 0
+    var b as int is 1
+    var c as int is 8
+    var d as int is 12
+    calling _t_int with (calling a.trailing_zeros), 32
+    calling _t_int with (calling b.trailing_zeros), 0
+    calling _t_int with (calling c.trailing_zeros), 3
+    calling _t_int with (calling d.trailing_zeros), 2
+
+test "next_power_of_two rounds strictly up":
+    var a as int is 0
+    var b as int is 1
+    var c as int is 4
+    var d as int is 5
+    var e as int is 1023
+    calling _t_int with (calling a.next_power_of_two), 1
+    calling _t_int with (calling b.next_power_of_two), 2
+    calling _t_int with (calling c.next_power_of_two), 8
+    calling _t_int with (calling d.next_power_of_two), 8
+    calling _t_int with (calling e.next_power_of_two), 1024
+
+test "prev_power_of_two rounds down inclusively":
+    var a as int is 0
+    var b as int is 1
+    var c as int is 4
+    var d as int is 5
+    var e as int is 1023
+    calling _t_int with (calling a.prev_power_of_two), 0
+    calling _t_int with (calling b.prev_power_of_two), 1
+    calling _t_int with (calling c.prev_power_of_two), 4
+    calling _t_int with (calling d.prev_power_of_two), 4
+    calling _t_int with (calling e.prev_power_of_two), 512
+
+test "div_rem returns quotient and remainder":
+    var a as int is 17
+    let (q, r) is calling a.div_rem with 5
+    calling _t_int with q, 3
+    calling _t_int with r, 2
+
+test "div_rem holds the Euclidean identity":
+    var a as int is -17
+    let (q, r) is calling a.div_rem with 5
+    calling _t_int with ((q * 5) + r), -17
+
+test "div_floor rounds toward minus infinity":
+    var p as int is 7
+    var n as int is -7
+    var q as int is 2
+    var m as int is -2
+    calling _t_int with (calling p.div_floor with q), 3
+    calling _t_int with (calling n.div_floor with q), -4
+    calling _t_int with (calling p.div_floor with m), -4
+    calling _t_int with (calling n.div_floor with m), 3
+
+test "mod_floor takes the sign of the divisor":
+    var p as int is 7
+    var n as int is -7
+    var q as int is 3
+    var m as int is -3
+    calling _t_int with (calling p.mod_floor with q), 1
+    calling _t_int with (calling n.mod_floor with q), 2
+    calling _t_int with (calling p.mod_floor with m), -2
+    calling _t_int with (calling n.mod_floor with m), -1
+
+test "gcd of the classic pair":
+    var a as int is 12
+    var b as int is 18
+    calling _t_int with (calling a.gcd with b), 6
+    calling _t_int with (calling b.gcd with a), 6
+
+test "gcd with zero and coprimes":
+    var n as int is 15
+    var z as int is 0
+    var c as int is 9
+    var d as int is 28
+    calling _t_int with (calling z.gcd with n), 15
+    calling _t_int with (calling n.gcd with z), 15
+    calling _t_int with (calling z.gcd with z), 0
+    calling _t_int with (calling c.gcd with d), 1
+
+test "gcd is non-negative for negative inputs":
+    var a as int is -12
+    var b as int is 18
+    var c as int is 12
+    var d as int is -18
+    calling _t_int with (calling a.gcd with b), 6
+    calling _t_int with (calling c.gcd with d), 6
+
+test "lcm of the classic pair":
+    var a as int is 4
+    var b as int is 6
+    calling _t_int with (calling a.lcm with b), 12
+    calling _t_int with (calling b.lcm with a), 12
+
+test "lcm with zero is zero":
+    var n as int is 9
+    var z as int is 0
+    calling _t_int with (calling z.lcm with n), 0
+    calling _t_int with (calling n.lcm with z), 0
+
+test "lcm is non-negative for negative inputs":
+    var a as int is -4
+    var b as int is 6
+    calling _t_int with (calling a.lcm with b), 12
+
+test "next_prime finds the following prime":
+    var a as int is 0
+    var b as int is 1
+    var c as int is 2
+    var d as int is 13
+    var e as int is 100
+    calling _t_int with (calling a.next_prime), 2
+    calling _t_int with (calling b.next_prime), 2
+    calling _t_int with (calling c.next_prime), 3
+    calling _t_int with (calling d.next_prime), 17
+    calling _t_int with (calling e.next_prime), 101
+
+test "prev_prime finds the preceding prime":
+    var a as int is 2
+    var b as int is 3
+    var c as int is 100
+    var d as int is 1
+    calling _t_int with (calling a.prev_prime), 0
+    calling _t_int with (calling b.prev_prime), 2
+    calling _t_int with (calling c.prev_prime), 97
+    calling _t_int with (calling d.prev_prime), 0
+
+test "factorial on the small cases":
+    var a as int is 0
+    var b as int is 1
+    var c as int is 5
+    var d as int is 10
+    calling _t_int with (calling a.factorial), 1
+    calling _t_int with (calling b.factorial), 1
+    calling _t_int with (calling c.factorial), 120
+    calling _t_int with (calling d.factorial), 3628800
+
+test "factorial works on a wide receiver":
+    var x as i64 is 12
+    calling _t_int with (calling x.factorial to int), 479001600
+
+test "to_hex on the boundaries":
+    var a as int is 255
+    var b as int is 15
+    var c as int is 16
+    var d as int is 0
+    var e as int is 4095
+    var ha as string is calling a.to_hex
+    var hb as string is calling b.to_hex
+    var hc as string is calling c.to_hex
+    var hd as string is calling d.to_hex
+    var he as string is calling e.to_hex
+    calling _t_str with ha, "ff"
+    calling _t_str with hb, "f"
+    calling _t_str with hc, "10"
+    calling _t_str with hd, "0"
+    calling _t_str with he, "fff"
+    banish ha
+    banish hb
+    banish hc
+    banish hd
+    banish he
+
+test "to_hex is sign and magnitude for negatives":
+    var x as int is -255
+    var h as string is calling x.to_hex
+    calling _t_str with h, "-ff"
+    banish h
+
+test "to_bin on the boundaries":
+    var a as int is 5
+    var b as int is 0
+    var c as int is 255
+    var ba as string is calling a.to_bin
+    var bb as string is calling b.to_bin
+    var bc as string is calling c.to_bin
+    calling _t_str with ba, "101"
+    calling _t_str with bb, "0"
+    calling _t_str with bc, "11111111"
+    banish ba
+    banish bb
+    banish bc
+
+test "to_oct on the boundaries":
+    var a as int is 8
+    var b as int is 7
+    var c as int is 63
+    var oa as string is calling a.to_oct
+    var ob as string is calling b.to_oct
+    var oc as string is calling c.to_oct
+    calling _t_str with oa, "10"
+    calling _t_str with ob, "7"
+    calling _t_str with oc, "77"
+    banish oa
+    banish ob
+    banish oc
+
+test "integrum composes with numerus on the same receiver":
+    var x as int is -12
+    var a as int is calling x.abs
+    var c as int is calling x.clamp with 0, 100
+    var p as int is calling x.pow_int with 2
+    calling _t_int with a, 12
+    calling _t_int with c, 0
+    calling _t_int with p, 144

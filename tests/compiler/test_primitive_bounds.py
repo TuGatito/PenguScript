@@ -109,3 +109,57 @@ weave check with a as f64 into bool:
 """)
     text = " ".join(str(e) for e in errors)
     assert "is_even" in text and "f64" in text
+
+
+def test_integrum_bound_grants_ordering(parse_and_check):
+    """`Integrum` grants `< <= > >=`, like it already granted `== !=`.
+
+    Every type satisfying `Integrum` is an integer primitive, and every integer
+    primitive is ordered, so the canonical `while (k * k) <= n` trial-division
+    idiom must not need a redundant `and T: Ordo`.
+    """
+    errors, _, _ = parse_and_check("""
+enchanting shard T where T: Integrum:
+    weave is_prime_small into bool:
+        if self < (2 to T):
+            return false
+        var k as T is (2 to T)
+        while (k * k) <= self:
+            if (self % k) == donum T:
+                return false
+            set k is k + (1 to T)
+        return true
+""")
+    assert errors == [], [str(e) for e in errors]
+
+
+def test_real_bound_grants_ordering(parse_and_check):
+    """`Real` grants `< <= > >=` too: `approx_eq` is `(a - b).abs < eps`.
+
+    Uses `T`-typed operands only: an `int` literal cannot be cast to `T: Real`
+    (`int` does not implement `Real`, so `BaseType.is_compatible(TypeParam)`
+    rejects `1 to T`). That is a separate, pre-existing restriction.
+    """
+    errors, _, _ = parse_and_check("""
+enchanting shard T where T: Real:
+    weave ordered into bool:
+        if self < self:
+            return false
+        return (self <= self) and (self > donum T)
+""")
+    assert errors == [], [str(e) for e in errors]
+
+
+def test_num_bound_does_not_grant_ordering(parse_and_check):
+    """The extra grants are a property of the refinements, not of `Num`.
+
+    `T: Num` must keep rejecting `<` with E0049, otherwise the monotone chain
+    documented in LANGUAGE.md §10.9 would be false.
+    """
+    errors, _, _ = parse_and_check("""
+enchanting shard T where T: Num:
+    weave bad into bool:
+        return self < donum T
+""")
+    assert any(e.code == "E0049" for e in errors), [e.code for e in errors]
+

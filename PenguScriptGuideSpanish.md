@@ -71,8 +71,8 @@ El lenguaje impone estilos por convención (`snake_case` para valores, `PascalCa
 | Módulo de capacidad | sustantivo **singular abstracto** | `std.cipher`, `std.loom` |
 
 **Reglas:**
-- Los módulos estándar viven bajo `std.` y su nombre es un **sustantivo latino o inglés**: `spark`, `scrolls`, `oracle`, `compass`, `archivum`, `cipher`, `chronicle`, `lot`, `arithmancy`, `rites`, `whisper`, `ward`, `trial`, `tally`, `atlas`, `coven`, `filum`, `numerus`, `loom`, `invoke`, `ffi`, `ledger`.
-- Los bindings C externos (`raylib`, `sqlite3`, `yaml`, …) **no** son módulos `std.*`: se extrajeron a repositorios satélite y se instalan con `pengu add <url>` (catálogo: [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)). El runtime solo enlaza `libc`/`libm`/`pthreads`, y los 22 módulos anteriores son toda la biblioteca estándar pura.
+- Los módulos estándar viven bajo `std.` y su nombre es un **sustantivo latino o inglés**: `spark`, `scrolls`, `oracle`, `compass`, `archivum`, `cipher`, `chronicle`, `lot`, `arithmancy`, `rites`, `whisper`, `ward`, `trial`, `tally`, `atlas`, `coven`, `filum`, `integrum`, `numerus`, `loom`, `invoke`, `ffi`, `ledger`.
+- Los bindings C externos (`raylib`, `sqlite3`, `yaml`, …) **no** son módulos `std.*`: se extrajeron a repositorios satélite y se instalan con `pengu add <url>` (catálogo: [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)). El runtime solo enlaza `libc`/`libm`/`pthreads`, y los 23 módulos anteriores son toda la biblioteca estándar pura.
 - Nunca uses `utils`, `helpers`, `common`, `misc`. Si no puedes nombrarlo con un sustantivo concreto, **el módulo no tiene una responsabilidad clara**.
 - Las siglas se escriben en `snake_case` minúsculo como módulo: `std.ffi`.
 
@@ -749,9 +749,18 @@ Reglas:
 1. **Un módulo por capacidad, no por tipo.** `numerus` (`Num`), `integrum` (`Integrum`), `fractio` (`Real`), `littera` (`char`), `logica` (`bool`).
 2. **El bound decide qué tipos tienen el método.** El compilador lo verifica en el punto de llamada: `(1.5).is_even` es `E0005` porque `float` no satisface `Integrum`.
 3. **Monomorfización por tipo concreto.** El C emitido es `int_abs`, `f64_abs`, etc. Cero sobrecoste.
-4. **`Num` no concede orden ni igualdad.** Ésos son los conceptos ortogonales `Ordo` (`<`, `<=`, `>`, `>=`) y `Par` (`==`, `!=`). Todo primitivo numérico satisface los tres, así que un método que compara escribe `where T: Num and T: Ordo and T: Par:` — es lo que hace `std.numerus`.
+4. **`Num` no concede orden ni igualdad.** Ésos son los conceptos ortogonales `Ordo` (`<`, `<=`, `>`, `>=`) y `Par` (`==`, `!=`). Los refinamientos `Integrum` y `Real` conceden ambos: todo tipo que satisface uno de ellos es un primitivo numérico, y todo primitivo numérico es ordenable y comparable. Por eso `std.integrum` puede escribir `where T: Integrum:` y usar `<`, `<=`, `==`. Un genérico que solo necesita `+ - * /` y compara a mano escribe `where T: Num and T: Ordo and T: Par:` — es lo que hace `std.numerus`.
 5. **Nunca `antiquus` para lógica trivial.** `declare` a `libm` cuando haga falta C (`sqrt`, `sin`).
 6. **Predicados con `is_*`.** Consultas puras con el nombre base (`abs`, `floor`).
+7. **Un método por bound correcto.** Si un método no puede funcionar en todos los tipos de un bound, muévelo al bound más estricto que encaje. `sqrt` no funciona en `int`; vive en `fractio` (`Real`), no en `numerus` (`Num`).
+
+| Módulo | Bound | Cubre | Métodos de ejemplo |
+|---|---|---|---|
+| `std.numerus` | `T: Num and T: Ordo and T: Par` | todos los primitivos numéricos | `abs`, `clamp`, `pow_int`, `round` |
+| `std.integrum` | `T: Integrum` | solo enteros | `is_even`, `gcd`, `bit_count`, `to_hex` |
+| `std.fractio` | `T: Real` | solo flotantes (próximo) | `sqrt`, `is_nan`, `approx_eq` |
+| `std.littera` | `char` | un solo `char` (próximo) | `is_digit`, `to_upper` |
+| `std.logica` | `bool` | `bool` (próximo) | `to_int`, `implies` |
 
 ---
 

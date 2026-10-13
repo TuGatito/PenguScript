@@ -88,8 +88,10 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## (-5).abs              # 5
-    ## 3.5.abs               # 3.5
+    ## var v1 as int is (-5)
+    ## calling v1.abs              # 5
+    ## var v2 as f64 is 3.5
+    ## calling v2.abs               # 3.5
     ## ```
     # TODO(Fase 3.x): arithmancy.abs / arithmancy.abs_i should delegate here.
     weave abs into T:
@@ -101,9 +103,12 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## (-42).signum    # -1
-    ## 0.signum        # 0
-    ## 7.5.signum      # 1.0
+    ## var v3 as int is (-42)
+    ## calling v3.signum    # -1
+    ## var v4 as int is 0
+    ## calling v4.signum        # 0
+    ## var v5 as f64 is 7.5
+    ## calling v5.signum      # 1.0
     ## ```
     # TODO(Fase 3.x): arithmancy.sign / arithmancy.sign_i should delegate here.
     weave signum into T:
@@ -125,8 +130,10 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 3.min_with with 7      # 3
-    ## 3.0.min_with with 2.5  # 2.5
+    ## var v6 as int is 3
+    ## calling v6.min_with with 7      # 3
+    ## var v7 as f64 is 3.0
+    ## calling v7.min_with with 2.5  # 2.5
     ## ```
     # TODO(Fase 3.x): arithmancy.min / arithmancy.min_i should delegate here.
     weave min_with with other as T into T:
@@ -138,7 +145,8 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 3.max_with with 7      # 7
+    ## var v8 as int is 3
+    ## calling v8.max_with with 7      # 7
     ## ```
     # TODO(Fase 3.x): arithmancy.max / arithmancy.max_i should delegate here.
     weave max_with with other as T into T:
@@ -153,9 +161,12 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 200.clamp with 0, 120    # 120
-    ## (-5).clamp with 0, 10    # 0
-    ## 7.clamp with 0, 10       # 7
+    ## var v9 as int is 200
+    ## calling v9.clamp with 0, 120    # 120
+    ## var v10 as int is (-5)
+    ## calling v10.clamp with 0, 10    # 0
+    ## var v11 as int is 7
+    ## calling v11.clamp with 0, 10       # 7
     ## ```
     # TODO(Fase 3.x): arithmancy.clamp / arithmancy.clamp_i should delegate here.
     weave clamp with lo as T, hi as T into T:
@@ -172,8 +183,10 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 5.is_between with 0, 10    # true
-    ## 15.is_between with 0, 10   # false
+    ## var v12 as int is 5
+    ## calling v12.is_between with 0, 10    # true
+    ## var v13 as int is 15
+    ## calling v13.is_between with 0, 10   # false
     ## ```
     weave is_between with lo as T, hi as T into bool:
         return self >= lo and self <= hi
@@ -184,8 +197,10 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 0.is_zero      # true
-    ## 0.0.is_zero    # true
+    ## var v14 as int is 0
+    ## calling v14.is_zero      # true
+    ## var v15 as f64 is 0.0
+    ## calling v15.is_zero    # true
     ## ```
     weave is_zero into bool:
         return self == donum T
@@ -222,8 +237,10 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 10.half     # 5
-    ## 2.5.half    # 1.25
+    ## var v16 as int is 10
+    ## calling v16.half     # 5
+    ## var v17 as f64 is 2.5
+    ## calling v17.half    # 1.25
     ## ```
     weave half into T:
         return self / (2 to T)
@@ -252,9 +269,12 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 2.pow_int with 10       # 1024
-    ## 2.0.pow_int with 10     # 1024.0
-    ## 2.0.pow_int with -1     # 0.5
+    ## var v18 as int is 2
+    ## calling v18.pow_int with 10       # 1024
+    ## var v19 as f64 is 2.0
+    ## calling v19.pow_int with 10     # 1024.0
+    ## var v20 as f64 is 2.0
+    ## calling v20.pow_int with -1     # 0.5
     ## ```
     # TODO(Fase 3.x): arithmancy.pow should delegate here for the f64 case.
     weave pow_int with exp as int into T:
@@ -284,8 +304,10 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 2.7.truncate      # 2.0
-    ## (-2.7).truncate   # -2.0
+    ## var v21 as f64 is 2.7
+    ## calling v21.truncate      # 2.0
+    ## var v22 as f64 is (-2.7)
+    ## calling v22.truncate   # -2.0
     ## ```
     # TODO(Fase 3.x): arithmancy.trunc should delegate here for the f64 case.
     weave truncate into T:
@@ -297,8 +319,10 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 2.7.floor         # 2.0
-    ## (-2.7).floor      # -3.0
+    ## var v23 as f64 is 2.7
+    ## calling v23.floor         # 2.0
+    ## var v24 as f64 is (-2.7)
+    ## calling v24.floor      # -3.0
     ## ```
     # TODO(Fase 3.x): arithmancy.floor should delegate here for the f64 case.
     weave floor into T:
@@ -313,8 +337,10 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 2.3.ceil          # 3.0
-    ## (-2.3).ceil       # -2.0
+    ## var v25 as f64 is 2.3
+    ## calling v25.ceil          # 3.0
+    ## var v26 as f64 is (-2.3)
+    ## calling v26.ceil       # -2.0
     ## ```
     # TODO(Fase 3.x): arithmancy.ceil should delegate here for the f64 case.
     weave ceil into T:
@@ -330,8 +356,10 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 3.5.round     # 4.0
-    ## 2.4.round     # 2.0
+    ## var v27 as f64 is 3.5
+    ## calling v27.round     # 4.0
+    ## var v28 as f64 is 2.4
+    ## calling v28.round     # 2.0
     ## ```
     # TODO(Fase 3.x): arithmancy.round should delegate here for the f64 case.
     weave round into T:
@@ -351,8 +379,10 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 42.to_f64       # 42.0
-    ## 2.5.to_f64      # 2.5
+    ## var v29 as int is 42
+    ## calling v29.to_f64       # 42.0
+    ## var v30 as f64 is 2.5
+    ## calling v30.to_f64      # 2.5
     ## ```
     weave to_f64 into f64:
         return self to f64
@@ -363,8 +393,10 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## 2.9.to_i64      # 2
-    ## (-2.9).to_i64   # -2
+    ## var v31 as f64 is 2.9
+    ## calling v31.to_i64      # 2
+    ## var v32 as f64 is (-2.9)
+    ## calling v32.to_i64   # -2
     ## ```
     weave to_i64 into i64:
         return self to i64

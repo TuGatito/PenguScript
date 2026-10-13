@@ -262,3 +262,53 @@ weave f with a as int into int:
     assert "int32_t _int_cmp(int32_t* self" in c
     assert "int_double(a)" in c
     assert "_int_cmp(&a, 1)" in c
+
+
+def test_monomorphized_tuple_return_gets_its_struct(emit_c):
+    """A `(T, T)`-returning shard method needs its product struct defined.
+
+    Regression: the monomorphized-weave collector registered the weave but not
+    the tuple type, so the bundle named `_pengu_tup_tup_int_int` without ever
+    emitting the typedef (`cc` then failed with "unknown type name").
+    """
+    c = emit_c("""
+enchanting shard T where T: Integrum:
+    weave div_rem with other as T into (T, T):
+        return (self / other), (self % other)
+
+weave use with a as int, b as i64 into int:
+    let (q, r) is calling a.div_rem with 3
+    let (s, t) is calling b.div_rem with 3
+    return (q + r) + ((s + t) to int)
+""")
+    assert "typedef struct" in c
+    assert "_pengu_tup_tup_int_int" in c
+    assert "_pengu_tup_tup_i64_i64" in c
+    # The struct must be *defined*, not merely referenced.
+    assert "struct _pengu_tup_tup_int_int {" in c
+    assert "typedef struct _pengu_tup_tup_int_int _pengu_tup_tup_int_int;" in c
+
+
+def test_transitive_monomorphization_follows_local_receivers(emit_c):
+    """A shard body that calls another shard method on a *local* of type `T`
+    must monomorphize that callee for every receiver too.
+
+    Regression: the transitive scan only looked at `calling self.method`, so
+    `gcd` (`calling a.abs`) and `next_prime` (`calling n._is_prime_impl`) emitted
+    a call to `i16_abs` / `u32__is_prime_impl` that was never defined.
+    """
+    c = emit_c("""
+enchanting shard T where T: Integrum:
+    weave helper into bool:
+        return self > donum T
+    weave via_local into bool:
+        var n as T is self
+        return calling n.helper
+
+weave use with a as int, b as i16 into bool:
+    if calling a.via_local:
+        return calling b.via_local
+    return false
+""")
+    for symbol in ("int_helper", "i16_helper", "int_via_local", "i16_via_local"):
+        assert symbol in c, f"{symbol} missing from the bundle"

@@ -1694,27 +1694,30 @@ CONCEPT_OPERATORS: Dict[str, FrozenSet[str]] = {
     # modulo/bitwise, so those need `Integrum`.
     "Num": frozenset({"add", "sub", "mul", "div", "neg"}),
     # `Integrum` refines `Num`: an integer bound also satisfies numeric needs.
-    # It also grants equality: every type that satisfies `Integrum` in this
-    # language is an integer primitive (see `_INT_CONCEPTS`), and every integer
-    # primitive satisfies `Par`.  Without this, the canonical
-    # `enchanting shard T where T: Integrum:` idiom -- `(self % (2 to T)) ==
-    # donum T` -- was rejected with E0049 and forced an explicit `and T: Par`
-    # on a bound that already implies it.
+    # It also grants equality and ordering.  Every type that satisfies
+    # `Integrum` in this language is an integer primitive (see `_INT_CONCEPTS`),
+    # and every integer primitive satisfies `Par` and `Ordo`.  Without this, the
+    # canonical `enchanting shard T where T: Integrum:` idioms -- `(self % (2 to
+    # T)) == donum T` and `while (k * k) <= n` -- were rejected with E0049 and
+    # forced an explicit `and T: Par` / `and T: Ordo` on a bound that already
+    # implies them.  (`Integrum` implies them as *grants*, not through
+    # `CONCEPT_REFINES`: the refines chain is single-parent, `Integrum -> Num`.)
     "Integrum": frozenset({
         "add", "sub", "mul", "div", "neg",
         "mod", "band", "bor", "bxor", "shl", "shr", "bnot",
-        "eq", "ne",
+        "eq", "ne", "lt", "le", "gt", "ge",
     }),
     # `Real` refines `Num` too, but from the opposite side: a floating-point
     # bound grants the same arithmetic and nothing integer-only.  It also grants
-    # equality for exactly the same reason `Integrum` does: every type that
-    # satisfies `Real` in this language is a floating-point primitive (see
-    # `_FLOAT_CONCEPTS`), and every floating-point primitive satisfies `Par`.
-    # Without it the flagship `is_nan` idiom -- `self != self` -- would be
-    # rejected with E0049 and force a redundant `and T: Par`.
+    # equality and ordering for exactly the same reason `Integrum` does: every
+    # type that satisfies `Real` in this language is a floating-point primitive
+    # (see `_FLOAT_CONCEPTS`), and every floating-point primitive satisfies
+    # `Par` and `Ordo`.  Without it the flagship `is_nan` idiom -- `self !=
+    # self` -- and the canonical tolerance test -- `(a - b).abs < eps` -- would
+    # be rejected with E0049 and force a redundant `and T: Par` / `and T: Ordo`.
     "Real": frozenset({
         "add", "sub", "mul", "div", "neg",
-        "eq", "ne",
+        "eq", "ne", "lt", "le", "gt", "ge",
     }),
     # Equality only.
     "Par": frozenset({"eq", "ne"}),
