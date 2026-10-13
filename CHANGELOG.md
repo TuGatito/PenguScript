@@ -2,6 +2,80 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.1.0] — 2026-10-13 — Binding templates & `pengu add` fixes
+
+Reusable packages now have first-class templates, and `pengu add` no longer
+leaves a dependency in a half-installed state. A pure PenguScript library or a
+binding to any C library is created, pushed, installed with `pengu add` and
+imported without hand-editing the consumer's `pengu.toml`.
+
+### Added
+
+- 🆕 `pengu init --template pengu-lib`: pure PenguScript library template.
+  The module lives in `pengu/<name>.pengu` with inline `test` blocks, and
+  `entry`/`src_dir` point at `pengu/` so `pengu test` runs inside the library.
+  Replaces the old `lib` template (kept as a deprecated alias).
+- 🆕 `pengu init --template cbind`: C library binding template. Ships
+  `pengu/<name>.d.pengu` (with `include "..."` + `link "..."`), a real
+  `include/<name>.h`, a toy `c/<name>.c` that compiles out of the box, an empty
+  `lib/`, a portable `build.py`, and a README. Consumers install it with
+  `pengu add <repo> --trust` and `import <name>`.
+- 🆕 `pengu new cbind <name>` / `pengu new pengu-lib <name>`: template-first
+  spelling of the above.
+- 🆕 `pengu init --force` (alias `-f`): write into an existing non-empty
+  directory. Without it, `init`/`new` refuse to touch a non-empty target.
+- 🆕 `pengu add` prints `👉 Try: import <name>` after installing, using the
+  real module stem (so `pengu_raylib` reports `import raylib`).
+- 🆕 `docs/BINDINGS.md`: the contract for pure PenguScript libraries and C
+  bindings, including how `link "..."` statements propagate from a binding's
+  `.d.pengu` to the consumer's link line.
+
+### Fixed
+
+- 🐛 `add_dependency` no longer duplicates `.pengu` files: root `.pengu` files
+  are **moved** into `pengu/` instead of copied, so `import <name>` cannot
+  resolve to a stale root-level copy.
+- 🐛 `add_dependency` now emits a warning when refreshing an existing Git
+  dependency fails (`git pull` previously failed silently with `check=False`).
+- 🐛 `update_project` includes the full git error text in its warning and
+  echoes the summary line on success.
+- 🐛 Dead `elif ext == ".toml":` branch removed from
+  `_update_config_dependency` (unreachable after the early `return`).
+- 🐛 `pengu init` no longer silently overwrites files in an existing
+  directory.
+- 🐛 `emit()` degrades characters the output encoding cannot represent instead
+  of raising `UnicodeEncodeError` on a redirected Windows stdout.
+
+### Changed
+
+- 🔧 `pengu init --template lib` is now an alias for `pengu-lib`; it prints a
+  deprecation notice but keeps working.
+- 🔧 `_SUBCOMMAND_DOCS` updated for `init` and `new` to document the new
+  templates, `--force`, and their exit codes.
+- 🔧 `init`/`new` errors (existing non-empty dir, unknown template, write
+  failure) are reported as `Error …` and exit 1 instead of a traceback.
+
+### Tests
+
+- 🧪 New `tests/compiler/test_cli_templates.py` covers:
+  - `init --template pengu-lib` creates `pengu/`, not `src/`;
+  - `init --template cbind` creates the full binding scaffold;
+  - `init` refuses non-empty directories; `--force` overrides without deleting;
+  - `pengu new cbind <name>` and `pengu new pengu-lib <name>` work;
+  - `--template lib` emits the deprecation notice;
+  - end-to-end `init cbind → add --trust → import → build` succeeds (skips
+    when the C toolchain or `libpengu_runtime.a` is unavailable);
+  - regression: `add_dependency` moves root `.pengu` into `pengu/` and prints
+    the import hint.
+
+### Docs
+
+- `README.md`: new "Making bindings" section (EN + ES) and updated command
+  table.
+- `docs/PENGU_BUILD.md`: template reference table and `--force` semantics.
+- `CHEATSHEET.md`: a binding walk-through for `cbind` + `pengu bind`.
+- `VERSION` and `pengu_version.FALLBACK_VERSION` bumped to `2.1.0`.
+
 ## [2.0.1] — 2026-10-13 — Audit patch
 
 Internal audit of `std.scrolls`, `std.tally`, `std.atlas`, `std.coven`,

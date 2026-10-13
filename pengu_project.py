@@ -3341,27 +3341,6 @@ def _update_config_dependency(base_dir: str, dep_name: str, source: str, branch:
         with open(cfg_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
-    elif ext == ".toml":
-        content = ""
-        if os.path.isfile(cfg_file):
-            with open(cfg_file, "r", encoding="utf-8") as f:
-                content = f.read()
-        section = f"[dependencies.{dep_name}]"
-        if section in content:
-            pattern = re.compile(rf"\[dependencies\.{re.escape(dep_name)}\][^\[]*", re.MULTILINE)
-            block = f'[dependencies.{dep_name}]\nurl = "{source}"\n'
-            if branch:
-                block += f'branch = "{branch}"\n'
-            content = pattern.sub(block, content, count=1)
-            with open(cfg_file, "w", encoding="utf-8") as f:
-                f.write(content)
-        else:
-            with open(cfg_file, "a", encoding="utf-8") as f:
-                f.write(f'\n[dependencies.{dep_name}]\nurl = "{source}"\n')
-                if branch:
-                    f.write(f'branch = "{branch}"\n')
-
-
 
 def _dependency_build_allowed(dep_name: str, trusted: bool = False) -> bool:
     """Decides whether a dependency's build script may run (roadmap 5.3).
@@ -3470,7 +3449,12 @@ def update_project(config_path: Optional[str] = None, verbose: bool = False,
                 print(f"   $ {' '.join(cmd_fetch)}", file=sys.stderr)
             res = subprocess.run(cmd_fetch, capture_output=True, text=True)
             if res.returncode != 0:
-                emit(f"     Warning git pull failed (code {res.returncode}):\n{res.stderr}", file=sys.stderr, color="yellow", level="warning")
+                detail = (res.stderr or res.stdout or "").strip()
+                emit(
+                    f"     Warning 'git pull' failed for '{dep_name}' "
+                    f"(rc={res.returncode}):\n  {detail}",
+                    file=sys.stderr, color="yellow", level="warning",
+                )
             else:
                 tail = (res.stdout or res.stderr or "").strip()
                 if tail:
@@ -3748,8 +3732,18 @@ def add_dependency(
         if os.path.isdir(target_dir):
             if os.path.isdir(os.path.join(target_dir, ".git")):
                 emit(f"    Updating existing Git repository in {target_dir}", color="yellow", level="progress")
-                cmd_fetch = ["git", "-C", target_dir, "pull"]
-                subprocess.run(cmd_fetch, check=False)
+                # A failed `git pull` must not look like a successful refresh:
+                # the old `check=False` left the user on the stale checkout with
+                # no hint that nothing was updated.
+                res = subprocess.run(["git", "-C", target_dir, "pull"],
+                                     capture_output=True, text=True)
+                if res.returncode != 0:
+                    emit(
+                        f"     Warning 'git pull' failed (rc={res.returncode}); "
+                        f"using the existing checkout. Run 'pengu update {dep_name}' "
+                        f"manually to see the error:\n{(res.stderr or '').strip()}",
+                        file=sys.stderr, color="yellow", level="warning",
+                    )
             else:
                 _rmtree_ignore_errors(target_dir)
         if not os.path.isdir(target_dir):
@@ -3788,13 +3782,27 @@ def add_dependency(
     os.makedirs(inc_sub, exist_ok=True)
     os.makedirs(lib_sub, exist_ok=True)
 
-    # Copy root .pengu files to pengu/ if they exist only in root
+    # Move root .pengu files into pengu/ so they are importable as
+    # `import <name>` and cannot shadow each other. `add_dependency` always
+    # operates on a fresh copy (clone or copytree), so moving is safe and does
+    # not touch the source repository.
     for item in os.listdir(target_dir):
         item_p = os.path.join(target_dir, item)
         if os.path.isfile(item_p) and item.endswith(".pengu"):
             dest_p = os.path.join(pengu_sub, item)
             if not os.path.exists(dest_p):
-                shutil.copy(item_p, dest_p)
+                try:
+                    shutil.move(item_p, dest_p)
+                except OSError as exc:
+                    emit(f"     Warning could not relocate {item} to pengu/: {exc}",
+                         file=sys.stderr, color="yellow", level="warning")
+            elif os.path.abspath(item_p) != os.path.abspath(dest_p):
+                # pengu/ already has it: drop the stale root copy so
+                # `import <name>` cannot resolve to it.
+                try:
+                    os.unlink(item_p)
+                except OSError:
+                    pass
 
     # 4. Run build script if present
     if run_build:
@@ -3821,6 +3829,24 @@ def add_dependency(
             # delete, and the rollback must leave no `lib/<name>/` behind.
             _rmtree_ignore_errors(target_dir)
             raise
+
+    # 7. Tell the user what to import: a binding's public module name is the
+    #    stem of the .pengu/.d.pengu file in pengu/, which is not always the
+    #    repository/dependency name (e.g. pengu_raylib -> raylib).
+    main_modules = []
+    if os.path.isdir(pengu_sub):
+        for f in sorted(os.listdir(pengu_sub)):
+            if f.endswith(".pengu"):
+                stem = f[: -len(".pengu")]
+                if stem.endswith(".d"):
+                    stem = stem[:-2]
+                if stem and stem not in main_modules:
+                    main_modules.append(stem)
+    if main_modules:
+        for mod in main_modules:
+            emit(f"     \U0001F449 Try: import {mod}", color="cyan", level="progress")
+    else:
+        emit(f"     \U0001F449 Try: import {dep_name}", color="cyan", level="progress")
     return target_dir
 
 
@@ -4389,6 +4415,333 @@ def print_dependency_tree(config: "ProjectConfig", as_json: bool = False) -> int
     return 0
 
 
+def _write_file(path: str, content: str) -> None:
+    """Writes text to ``path``, creating parent directories as needed."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(content)
+
+
+def _c_identifier(name: str) -> str:
+    """Turns an arbitrary project name into a valid C identifier prefix."""
+    ident = re.sub(r"[^0-9A-Za-z_]", "_", name or "")
+    if not ident or ident[0].isdigit():
+        ident = "_" + ident
+    return ident
+
+
+def _emit_pengu_lib_template(proj_dir: str, name: str) -> None:
+    """Scaffolds a pure PenguScript library (no C, no bindings).
+
+    The module lives in ``pengu/<name>.pengu`` so that ``pengu add``
+    (which standardises every dependency to ``pengu/``) does not have to move
+    anything, and so the file is importable as ``import <name>`` both inside
+    the library repo and from a consumer.
+    """
+    pengu_dir = os.path.join(proj_dir, "pengu")
+    os.makedirs(pengu_dir, exist_ok=True)
+
+    main_content = f"""## {name} - a pure PenguScript library.
+##
+## Import it from another project with:
+##     import {name}
+##
+## Consumers install this library with:
+##     pengu add <this-repo-url>
+
+import std.ward
+
+## Adds two integers.
+weave add with a as int, b as int into int:
+  return a + b
+
+## Subtracts `b` from `a`.
+weave sub with a as int, b as int into int:
+  return a - b
+
+## Multiplies two integers.
+weave mul with a as int, b as int into int:
+  return a * b
+
+test "add works":
+  calling ward.assert_eq_int with (calling add with 2, 3), 5
+
+test "sub works":
+  calling ward.assert_eq_int with (calling sub with 5, 3), 2
+
+test "mul works":
+  calling ward.assert_eq_int with (calling mul with 4, 3), 12
+"""
+    _write_file(os.path.join(pengu_dir, f"{name}.pengu"), main_content)
+
+    readme = f"""# {name}
+
+A pure PenguScript library. It has no C sources and no native dependencies.
+
+## Layout
+
+```
+{name}/
+|-- pengu.toml
+|-- README.md
+|-- .gitignore
+`-- pengu/
+    `-- {name}.pengu    # the library module + inline `test` blocks
+```
+
+## Install (from a consumer project)
+
+    pengu add <this-repo-url>
+
+Then:
+
+```pengu
+import {name}
+
+weave main into int:
+  return calling {name}.add with 2, 3
+```
+
+## Test this library
+
+    pengu test
+"""
+    _write_file(os.path.join(proj_dir, "README.md"), readme)
+
+    gitignore = """build/
+*.o
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+"""
+    _write_file(os.path.join(proj_dir, ".gitignore"), gitignore)
+
+
+def _emit_cbind_template(proj_dir: str, name: str) -> None:
+    """Scaffolds a binding to a C library: pengu/, include/, c/, lib/, build.py.
+
+    The layout is exactly what ``add_dependency`` standardises a dependency to,
+    so installing this repository into a consumer moves nothing and cannot
+    leave a duplicate module behind. ``build.py`` compiles the toy
+    ``c/<name>.c`` out of the box, so a freshly generated binding compiles and
+    links before the user replaces it with the real library.
+    """
+    ident = _c_identifier(name)
+    guard = ident.upper()
+
+    pengu_dir = os.path.join(proj_dir, "pengu")
+    inc_dir = os.path.join(proj_dir, "include")
+    c_dir = os.path.join(proj_dir, "c")
+    lib_dir = os.path.join(proj_dir, "lib")
+    for d in (pengu_dir, inc_dir, c_dir, lib_dir):
+        os.makedirs(d, exist_ok=True)
+    # .gitkeep so lib/ can be committed even before build.py produces anything.
+    _write_file(os.path.join(lib_dir, ".gitkeep"), "")
+
+    header = f"""/* {name}.h - replace with the real C header of the library you bind.
+ *
+ * The real header must live in this binding's include/ directory: the
+ * consumer's build adds lib/<name>/include/ to the compiler's -I path.
+ */
+#ifndef {guard}_H
+#define {guard}_H
+
+typedef struct {ident}_color {{ unsigned char r, g, b, a; }} {ident}_color;
+
+void {ident}_init(int width, int height, const char *title);
+void {ident}_close(void);
+int  {ident}_add(int a, int b);
+const char *{ident}_greet(void);
+
+#endif /* {guard}_H */
+"""
+    _write_file(os.path.join(inc_dir, f"{name}.h"), header)
+
+    c_source = f"""/* A toy implementation so `pengu init --template cbind` produces a binding
+ * that actually compiles and runs. Delete it once build.py fetches the real
+ * library. */
+#include "{name}.h"
+#include <stddef.h>
+
+void {ident}_init(int width, int height, const char *title) {{
+    (void)width; (void)height; (void)title;
+}}
+
+void {ident}_close(void) {{}}
+
+int {ident}_add(int a, int b) {{ return a + b; }}
+
+const char *{ident}_greet(void) {{ return "Hello from {name} binding!"; }}
+"""
+    _write_file(os.path.join(c_dir, f"{name}.c"), c_source)
+
+    dpengu = f"""## PenguScript binding to `{name}`.
+##
+## This is a declaration file: it only *declares* the C surface. The real
+## header is `include`d so the compiler sees the actual definitions.
+##
+## Regenerate with:
+##     pengu bind include/{name}.h --output pengu/{name}.d.pengu --links {name}
+##
+## Consumers use it with:
+##     import {name}
+##     calling {name}.{ident}_add with 1, 2
+
+include "{name}.h"
+
+# Native libraries this binding needs. These `link` statements propagate to the
+# consumer's link line automatically (see docs/BINDINGS.md).
+link "{name}"
+
+# --- Opaque handles ------------------------------------------------------
+# alias {ident}_context as opaque
+
+# --- Declarations --------------------------------------------------------
+declare {ident}_init with width as int, height as int, title as ref to frozen char into void
+declare {ident}_close into void
+declare {ident}_add with a as int, b as int into int
+declare {ident}_greet into ref to frozen char
+"""
+    _write_file(os.path.join(pengu_dir, f"{name}.d.pengu"), dpengu)
+
+    build_py = '''#!/usr/bin/env python3
+"""Builds the native part of the `__NAME__` PenguScript binding.
+
+Invoked by `pengu add <repo> --trust`, or manually with `python build.py` from
+the binding's own directory. It must leave the compiled library in ./lib/ and
+the header in ./include/, so the consumer's `pengu build` auto-detects both.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+LIB_DIR = os.path.join(HERE, "lib")
+INC_DIR = os.path.join(HERE, "include")
+C_DIR = os.path.join(HERE, "c")
+
+
+def _cc() -> str:
+    """The C compiler to use: $CC, else gcc, else clang, else cc."""
+    return os.environ.get("CC") or shutil.which("gcc") or shutil.which("clang") or "cc"
+
+
+def _ar() -> str:
+    """The static archiver to use: $AR, else ar, else llvm-ar."""
+    return os.environ.get("AR") or shutil.which("ar") or shutil.which("llvm-ar") or "ar"
+
+
+def main() -> int:
+    os.makedirs(LIB_DIR, exist_ok=True)
+    os.makedirs(INC_DIR, exist_ok=True)
+    os.makedirs(C_DIR, exist_ok=True)
+
+    # TODO: replace this block with the real fetch/compile logic for
+    # `__NAME__`. For example (raylib):
+    #     subprocess.run(["git", "clone", "--depth", "1",
+    #                     "https://github.com/raysan5/raylib.git", "vendor/raylib"],
+    #                    check=True)
+    #     subprocess.run(["make", "-C", "vendor/raylib/src",
+    #                     "PLATFORM=PLATFORM_DESKTOP"], check=True)
+    #     shutil.copy("vendor/raylib/src/libraylib.a", LIB_DIR)
+    #     shutil.copy("vendor/raylib/src/raylib.h", INC_DIR)
+    #
+    # Keep the script idempotent: `pengu update` re-runs it.
+
+    src = os.path.join(C_DIR, "__NAME__.c")
+    if os.path.isfile(src):
+        obj = os.path.join(LIB_DIR, "__NAME__.o")
+        lib = os.path.join(LIB_DIR, "lib__NAME__.a")
+        print("[cbind] compiling " + src)
+        subprocess.run([_cc(), "-c", "-fPIC", "-I", INC_DIR, src, "-o", obj],
+                       check=True)
+        print("[cbind] archiving " + lib)
+        subprocess.run([_ar(), "rcs", lib, obj], check=True)
+
+    print("[cbind] done - artifacts in " + LIB_DIR)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''.replace("__NAME__", name)
+    _write_file(os.path.join(proj_dir, "build.py"), build_py)
+
+    readme = f"""# {name} - PenguScript binding
+
+Binding to the `{name}` C library for PenguScript.
+
+## Install
+
+From any PenguScript project:
+
+    pengu add <this-repo-url> --trust
+
+`--trust` is required the first time because `build.py` compiles the native
+part.
+
+## Use
+
+```pengu
+import {name}
+
+weave main into int:
+  calling {name}.{ident}_init with 800, 600, "Hello"
+  var x as int is calling {name}.{ident}_add with 1, 2
+  calling {name}.{ident}_close
+  return x
+```
+
+## Regenerate the declarations
+
+If you change `include/{name}.h`, regenerate the binding:
+
+    pengu bind include/{name}.h --output pengu/{name}.d.pengu --links {name}
+
+## Structure
+
+```
+{name}/
+|-- pengu.toml
+|-- build.py                 # fetches/compiles the native part into lib/
+|-- pengu/
+|   `-- {name}.d.pengu       # declarations (include/link/declare)
+|-- include/
+|   `-- {name}.h             # the real C header
+|-- c/
+|   `-- {name}.c             # optional glue code
+`-- lib/                     # compiled native libraries (built by build.py)
+```
+
+The `link "{name}"` statement in `pengu/{name}.d.pengu` propagates to the
+consumer's link line automatically. See the PenguScript docs/BINDINGS.md for
+the full contract.
+"""
+    _write_file(os.path.join(proj_dir, "README.md"), readme)
+
+    gitignore = """build/
+*.o
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+# lib/ is where build.py places compiled artifacts. Committing them makes
+# `pengu add` work without a C toolchain; leaving them out keeps the repo
+# small. If you leave them out, `pengu add --trust` runs build.py to produce
+# them.
+# lib/
+"""
+    _write_file(os.path.join(proj_dir, ".gitignore"), gitignore)
+
+
 def init_project(
     name: str = "my_game",
     output_type: Optional[str] = None,
@@ -4398,6 +4751,7 @@ def init_project(
     target_dir: Optional[str] = None,
     manifest_format: str = "toml",
     template: str = "exe",
+    force: bool = False,
 ) -> str:
     """Initializes a new PenguScript project directory with Cargo-style structure (src/, lib/, include/, c/).
 
@@ -4409,31 +4763,76 @@ def init_project(
         output_name: Optional custom output artifact name.
         target_dir: Optional destination base directory.
         manifest_format: ``"toml"`` (canonical, roadmap 4.11) or ``"yaml"``.
-        template: Template flavour (``"exe"``, ``"cli"``, ``"lib"``, ``"game"``).
+        template: Template flavour (``"exe"``, ``"cli"``, ``"pengu-lib"``,
+            ``"cbind"``; ``"lib"`` is a deprecated alias for ``"pengu-lib"``).
+        force: True to write into an existing non-empty directory. Without it a
+            non-empty target raises :class:`FileExistsError` instead of being
+            silently overwritten.
 
     Returns:
         Path to initialized project directory.
     """
-    # `--template lib` produces a static library unless the caller explicitly
-    # chose an output type (roadmap 4.10).
+    # Normalize legacy/alias template names.
+    template_name = (template or "exe").strip().lower()
+    if template_name == "lib":
+        # Backwards compat: `lib` used to mean "pure PenguScript library".
+        # It is now spelled `pengu-lib`; `lib` keeps working with a notice.
+        emit("     Note '--template lib' is deprecated; use '--template pengu-lib' "
+             "or '--template cbind' for C bindings.", color="yellow", level="progress")
+        template_name = "pengu-lib"
+    if template_name not in ("exe", "cli", "pengu-lib", "cbind"):
+        raise ValueError(
+            f"unknown template '{template}'. Valid: exe, cli, pengu-lib, cbind."
+        )
+
+    # `--template lib`/`pengu-lib` produces a static library unless the caller
+    # explicitly chose an output type (roadmap 4.10). A `cbind` repo is not a
+    # program either: its manifest targets a C bundle.
     out_t = OutputType.from_string(output_type or "exe")
-    if (template or 'exe').strip().lower() == 'lib' and output_type is None:
+    if template_name == "pengu-lib" and output_type is None:
         out_t = OutputType.STATIC
+    elif template_name == "cbind" and output_type is None:
+        out_t = OutputType.C
     out_name = output_name or name
     base_root = target_dir or os.getcwd()
     proj_dir = os.path.abspath(os.path.join(base_root, name)) if target_dir else os.path.abspath(name)
 
-    src_dir = os.path.join(proj_dir, "src")
+    if os.path.isdir(proj_dir) and os.listdir(proj_dir) and not force:
+        raise FileExistsError(
+            f"directory '{proj_dir}' already exists and is not empty.\n"
+            f"  Use --force to write into it anyway, or choose another name."
+        )
+
+    # Per-template source layout and manifest entry/output.  A binding/library
+    # lives under pengu/ from the start, which is exactly where `pengu add`
+    # relocates modules to, so installing it moves nothing.
+    if template_name == "pengu-lib":
+        src_subdir = "pengu"
+        manifest_entry = f"pengu/{name}.pengu"
+        manifest_output = OutputType.STATIC.value
+    elif template_name == "cbind":
+        src_subdir = "pengu"
+        manifest_entry = f"pengu/{name}.d.pengu"
+        manifest_output = OutputType.C.value
+    else:
+        src_subdir = "src"
+        manifest_entry = "src/main.pengu"
+        manifest_output = out_t.value
+
+    src_dir = os.path.join(proj_dir, src_subdir)
     lib_dir = os.path.join(proj_dir, "lib")
     inc_dir = os.path.join(proj_dir, "include")
     c_dir = os.path.join(proj_dir, "c")
     assets_dir = os.path.join(proj_dir, "assets")
 
     os.makedirs(src_dir, exist_ok=True)
-    os.makedirs(lib_dir, exist_ok=True)
-    os.makedirs(inc_dir, exist_ok=True)
-    os.makedirs(c_dir, exist_ok=True)
-    os.makedirs(assets_dir, exist_ok=True)
+    if template_name in ("exe", "cli"):
+        # `cbind` creates include/, c/ and lib/ in its own helper, and a pure
+        # `pengu-lib` library needs no C directories at all.
+        os.makedirs(lib_dir, exist_ok=True)
+        os.makedirs(inc_dir, exist_ok=True)
+        os.makedirs(c_dir, exist_ok=True)
+        os.makedirs(assets_dir, exist_ok=True)
 
     links_list = [str(l) for l in (links or [])]
     links_formatted = json.dumps(links_list)
@@ -4441,12 +4840,12 @@ def init_project(
     yaml_content = f"""project:
   name: "{name}"
   version: "0.1.0"
-  entry: "src/main.pengu"
-  output: "{out_t.value}"
+  entry: "{manifest_entry}"
+  output: "{manifest_output}"
   output_name: "{out_name}"
 
 build:
-  src_dir: "src"
+  src_dir: "{src_subdir}"
   lib_dir: "lib"
   include_dir: "include"
   c_dir: "c"
@@ -4488,12 +4887,12 @@ profiles:
     toml_content = f"""[project]
 name = {json.dumps(name)}
 version = "0.1.0"
-entry = "src/main.pengu"
-output = {json.dumps(out_t.value)}
+entry = {json.dumps(manifest_entry)}
+output = {json.dumps(manifest_output)}
 output_name = {json.dumps(out_name)}
 
 [build]
-src_dir = "src"
+src_dir = {json.dumps(src_subdir)}
 lib_dir = "lib"
 include_dir = "include"
 c_dir = "c"
@@ -4561,30 +4960,11 @@ weave add with a as int, b as int into int:
   calling print with msg
 """
 
-    # Template flavours (roadmap 4.10).  `exe` is the historical default; the
-    # others only change the generated entry point (and, for `lib`, the output
-    # type when the caller did not choose one explicitly).
-    template_name = (template or "exe").strip().lower()
-    if template_name == "lib":
-        # A library template ships a smoke test so `pengu test` proves the
-        # exports work (roadmap 6.2 / BUG-6.7).
-        main_content = """import std.ward
-
-## Adds two integers.
-weave add with a as int, b as int into int:
-  return a + b
-
-## Subtracts `b` from `a`.
-weave sub with a as int, b as int into int:
-  return a - b
-
-test "add works":
-  calling ward.assert_eq_int with (calling add with 2, 3), 5
-
-test "sub works":
-  calling ward.assert_eq_int with (calling sub with 5, 3), 2
-"""
-    elif template_name == "cli":
+    # Template flavours (roadmap 4.10). `exe` is the historical default; `cli`
+    # adds an argument-parsing skeleton. `pengu-lib` and `cbind` are whole
+    # repository layouts emitted by the helpers above, so they never use
+    # `main_content`.
+    if template_name == "cli":
         # A real CLI skeleton: typed options parsed with std.invoke from the
         # process arguments (roadmap 6.2 / BUG-6.6).
         main_content = f"""import std.invoke
@@ -4644,7 +5024,18 @@ Run `pengu assets --list` to see the current embedded assets.
 """
 
     manifest_name = "pengu.toml" if manifest_format == "toml" else "pengu.yaml"
-    readme_content = f"""# {name}
+
+    with open(os.path.join(proj_dir, manifest_name), "w", encoding="utf-8") as f:
+        f.write(toml_content if manifest_format == "toml" else yaml_content)
+
+    if template_name == "cbind":
+        # A C binding is a whole repository layout (pengu/include/c/lib plus
+        # build.py); the helper writes its own README and .gitignore.
+        _emit_cbind_template(proj_dir, name)
+    elif template_name == "pengu-lib":
+        _emit_pengu_lib_template(proj_dir, name)
+    else:
+        readme_content = f"""# {name}
 
 A PenguScript v{PENGU_VERSION} project targeting `{out_t.value}` output.
 
@@ -4681,18 +5072,14 @@ pengu run
 pengu clean
 ```
 """
-
-    with open(os.path.join(proj_dir, "pengu.toml" if manifest_format == "toml" else "pengu.yaml"),
-              "w", encoding="utf-8") as f:
-        f.write(toml_content if manifest_format == "toml" else yaml_content)
-    with open(os.path.join(src_dir, "main.pengu"), "w", encoding="utf-8") as f:
-        f.write(main_content)
-    with open(os.path.join(assets_dir, "README.md"), "w", encoding="utf-8") as f:
-        f.write(assets_readme_content)
-    with open(os.path.join(proj_dir, ".gitignore"), "w", encoding="utf-8") as f:
-        f.write(gitignore_content)
-    with open(os.path.join(proj_dir, "README.md"), "w", encoding="utf-8") as f:
-        f.write(readme_content)
+        with open(os.path.join(src_dir, "main.pengu"), "w", encoding="utf-8") as f:
+            f.write(main_content)
+        with open(os.path.join(assets_dir, "README.md"), "w", encoding="utf-8") as f:
+            f.write(assets_readme_content)
+        with open(os.path.join(proj_dir, ".gitignore"), "w", encoding="utf-8") as f:
+            f.write(gitignore_content)
+        with open(os.path.join(proj_dir, "README.md"), "w", encoding="utf-8") as f:
+            f.write(readme_content)
 
     emit(f"     Created {out_t.value} project '{name}' at {proj_dir}", color="green", level="progress")
     return proj_dir
@@ -5869,7 +6256,14 @@ def emit(message: str = "", *, color: Optional[str] = None,
     if color is not None and _OUTPUT.color and _ANSI_COLORS.get(color):
         text = f"{_ANSI_COLORS[color]}{message}{_ANSI_RESET}"
     out = sys.stdout if file is None else file
-    out.write(text + end)
+    try:
+        out.write(text + end)
+    except UnicodeEncodeError:
+        # A redirected stdout on Windows is locale-encoded (e.g. cp1252) and
+        # cannot carry the emoji/bullets the CLI uses; degrade those characters
+        # instead of crashing mid-command.
+        enc = getattr(out, "encoding", None) or "ascii"
+        out.write(text.encode(enc, "replace").decode(enc, "replace") + end)
 
 
 _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
@@ -5878,8 +6272,14 @@ _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
         # Re-initialising writes into the existing directory (it does not reject
         # it), so claiming "1 directory exists" sent readers looking for an error
         # that never happens.  `new` already documented the real behaviour.
-        "epilog": "Exit codes: 0 created or written into, 1 write error, 2 bad usage.\n"
-                  "Example:\n  pengu init my_app --type exe",
+        "epilog": "Templates: exe (default program), cli (argument handling),\n"
+                  "pengu-lib (pure PenguScript library), cbind (C library binding).\n"
+                  "Exit codes: 0 created, 1 write error or existing non-empty dir\n"
+                  "(use --force), 2 bad usage.\n"
+                  "Examples:\n"
+                  "  pengu init my_app --type exe\n"
+                  "  pengu init my_lib --template pengu-lib\n"
+                  "  pengu init pengu_raylib --template cbind",
     },
     "add": {
         "description": "Add an external dependency by cloning it into lib/<name>.",
@@ -6021,11 +6421,12 @@ _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
     },
     "new": {
         "description": "Create a new project from a template (template-first `init`).",
-        "epilog": "Templates: exe (default program), cli (argument handling), lib (static\n"
-                  "library with a smoke test).\n"
-                  "Exit codes: 0 created, 1 write error, 2 bad usage. Like `init`, an\n"
-                  "existing directory is written into, not rejected.\n"
-                  "Example:\n  pengu new lib my_lib",
+        "epilog": "Templates: exe, cli, pengu-lib, cbind.\n"
+                  "Exit codes: 0 created, 1 write error or existing non-empty dir\n"
+                  "(use --force), 2 bad usage.\n"
+                  "Examples:\n"
+                  "  pengu new cbind pengu_raylib\n"
+                  "  pengu new pengu-lib my_algorithms",
     },
 }
 
@@ -6069,18 +6470,22 @@ def create_cli_parser() -> argparse.ArgumentParser:
     init_p = subparsers.add_parser("init", help="Create a new PenguScript project template")
     init_p.add_argument("name", help="Name of project directory to create")
     init_p.add_argument("--type", "-t", choices=["exe", "c", "obj", "static", "shared"], default=None,
-                        help="Target output type (default: exe, or static for --template lib)")
+                        help="Target output type (default: exe, or static for --template pengu-lib)")
     init_p.add_argument("--links", "-l", help="Comma-separated library names to link (e.g. m,pthread)")
     init_p.add_argument("--output-name", help="Custom output artifact base name")
     init_p.add_argument("--cc", default="gcc", help="C compiler command (default: gcc)")
     init_p.add_argument("--format", dest="manifest_format", choices=["toml", "yaml"], default="toml",
                         help="Project manifest format (default: toml, the canonical one)")
-    init_p.add_argument("--template", choices=["exe", "cli", "lib"], default=None,
-                        help="Project template flavour (default: derived from --type)")
+    init_p.add_argument("--template", choices=["exe", "cli", "lib", "pengu-lib", "cbind"], default=None,
+                        help="Project template (default: derived from --type; 'pengu-lib' = "
+                             "pure PenguScript library, 'cbind' = C library binding, "
+                             "'lib' = deprecated alias for pengu-lib)")
+    init_p.add_argument("--force", "-f", action="store_true",
+                        help="Write into an existing non-empty directory")
 
     # new (item 4.14): a template-first front end for `init`
     new_p = subparsers.add_parser("new", help="Create a new project from a template (template-first `init`)")
-    new_p.add_argument("template", choices=["exe", "cli", "lib"],
+    new_p.add_argument("template", choices=["exe", "cli", "lib", "pengu-lib", "cbind"],
                        help="Template flavour to create")
     new_p.add_argument("name", help="Name of project directory to create")
     new_p.add_argument("--links", "-l", help="Comma-separated library names to link (e.g. m,pthread)")
@@ -6088,6 +6493,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
     new_p.add_argument("--cc", default="gcc", help="C compiler command (default: gcc)")
     new_p.add_argument("--format", dest="manifest_format", choices=["toml", "yaml"], default="toml",
                        help="Project manifest format (default: toml, the canonical one)")
+    new_p.add_argument("--force", "-f", action="store_true",
+                       help="Write into an existing non-empty directory")
 
     # add
     add_p = subparsers.add_parser("add", help="Add an external dependency or binding to the project")
@@ -6566,28 +6973,38 @@ def main():
 
     if args.command == "init":
         links_list = [i.strip() for i in args.links.split(",") if i.strip()] if args.links else []
-        init_project(
-            name=args.name,
-            output_type=args.type,
-            links=links_list,
-            cc=args.cc,
-            output_name=args.output_name,
-            manifest_format=getattr(args, "manifest_format", "toml"),
-            template=getattr(args, "template", None) or "exe",
-        )
+        try:
+            init_project(
+                name=args.name,
+                output_type=args.type,
+                links=links_list,
+                cc=args.cc,
+                output_name=args.output_name,
+                manifest_format=getattr(args, "manifest_format", "toml"),
+                template=getattr(args, "template", None) or "exe",
+                force=getattr(args, "force", False),
+            )
+        except (FileExistsError, ValueError, OSError) as e:
+            emit(f"     Error {e}", file=sys.stderr, color="red", level="error")
+            sys.exit(1)
     elif args.command == "new":
         # Item 4.14: same machinery as `init`, chosen by template first. `init`
         # stays for the output-type-first spelling.
         links_list = [i.strip() for i in args.links.split(",") if i.strip()] if args.links else []
-        init_project(
-            name=args.name,
-            output_type=None,
-            links=links_list,
-            cc=args.cc,
-            output_name=args.output_name,
-            manifest_format=getattr(args, "manifest_format", "toml"),
-            template=args.template,
-        )
+        try:
+            init_project(
+                name=args.name,
+                output_type=None,
+                links=links_list,
+                cc=args.cc,
+                output_name=args.output_name,
+                manifest_format=getattr(args, "manifest_format", "toml"),
+                template=args.template,
+                force=getattr(args, "force", False),
+            )
+        except (FileExistsError, ValueError, OSError) as e:
+            emit(f"     Error {e}", file=sys.stderr, color="red", level="error")
+            sys.exit(1)
     elif args.command == "add":
         try:
             add_dependency(

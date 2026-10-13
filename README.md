@@ -207,6 +207,51 @@ PenguScript 2.0 is an **additive** release: every 1.x program still compiles, an
 
 ---
 
+### Making bindings (pure PenguScript libraries and C bindings)
+
+PenguScript supports two kinds of reusable packages, both installable with
+`pengu add <git-url>`:
+
+**Pure PenguScript libraries** — no C involved:
+
+```bash
+pengu init my_algorithms --template pengu-lib
+cd my_algorithms
+# edit pengu/my_algorithms.pengu, add inline `test` blocks
+# commit and push
+```
+
+Consumers do:
+
+```bash
+pengu add https://github.com/me/my_algorithms
+# then: import my_algorithms
+```
+
+**C library bindings** — wrap a native library (raylib, SDL, sqlite3, …):
+
+```bash
+pengu init pengu_raylib --template cbind
+cd pengu_raylib
+# edit build.py to fetch/compile raylib
+# edit pengu/raylib.d.pengu (or generate it with `pengu bind include/raylib.h`)
+# commit and push
+```
+
+Consumers do:
+
+```bash
+pengu add https://github.com/me/pengu_raylib --trust
+# then: import raylib
+```
+
+`--trust` is required the first time because `build.py` compiles the native
+part. See [docs/BINDINGS.md](docs/BINDINGS.md) for the full contract, including
+how `link "..."` statements propagate from the binding to the consumer's link
+line. `pengu init --template lib` is a deprecated alias for `pengu-lib`.
+
+---
+
 ### Quick Start
 
 #### Requirements
@@ -298,7 +343,8 @@ pengu run hello.pengu
 
 | Command    | Description                                                                                       |
 | ---------- | ------------------------------------------------------------------------------------------------- |
-| `init`     | Create a new project template (`--type exe\|static\|shared\|obj\|c`, `--links`, `--cc`).          |
+| `init`     | Create a new project template (`--type exe\|static\|shared\|obj\|c`, `--template exe\|cli\|pengu-lib\|cbind`, `--force`, `--links`, `--cc`). |
+| `new`      | Create a project from a template, template-first (`pengu new cbind pengu_raylib`; `pengu new pengu-lib my_lib`). |
 | `add`      | Add an external dependency or binding (git URL or local folder, optional build script); the source tree is copied into `lib/<name>/`. |
 | `build`    | Compile the project per its config (`--profile release`, `--cc`, `-D`, `--test`, `--verbose`).    |
 | `run`      | Build and execute the project target, or run a standalone `.pengu` file directly as a script.     |
@@ -562,6 +608,7 @@ PenguScript/
 ├── CHEATSHEET.md           # Full language syntax & C-translation reference
 └── docs/                   # Build guide, performance/fuzzing notes & archived docs
     ├── PENGU_BUILD.md      # Build system & project configuration guide
+    ├── BINDINGS.md         # Contract for pure libraries & C bindings (`link` propagation)
     ├── README_RELEASE.md   # Generated: standalone release package documentation
     └── archive/            # Historical, non-normative process documents
 ```
@@ -802,6 +849,53 @@ PenguScript 2.0 es una publicación **aditiva**: todo programa de la 1.x sigue c
 
 ---
 
+### Cómo crear bindings (bibliotecas puras y enlaces a C)
+
+PenguScript admite dos tipos de paquetes reutilizables, ambos instalables con
+`pengu add <url-de-git>`:
+
+**Bibliotecas puras de PenguScript** — sin C:
+
+```bash
+pengu init my_algorithms --template pengu-lib
+cd my_algorithms
+# edita pengu/my_algorithms.pengu y añade bloques `test` en línea
+# haz commit y push
+```
+
+Los consumidores hacen:
+
+```bash
+pengu add https://github.com/me/my_algorithms
+# después: import my_algorithms
+```
+
+**Enlaces a bibliotecas de C** — envuelven una biblioteca nativa (raylib, SDL,
+sqlite3, …):
+
+```bash
+pengu init pengu_raylib --template cbind
+cd pengu_raylib
+# edita build.py para descargar/compilar raylib
+# edita pengu/raylib.d.pengu (o genéralo con `pengu bind include/raylib.h`)
+# haz commit y push
+```
+
+Los consumidores hacen:
+
+```bash
+pengu add https://github.com/me/pengu_raylib --trust
+# después: import raylib
+```
+
+`--trust` es obligatorio la primera vez porque `build.py` compila la parte
+nativa. Consulta [docs/BINDINGS.md](docs/BINDINGS.md) para ver el contrato
+completo, incluida la propagación de las sentencias `link "..."` desde el
+binding hasta la línea de enlazado del consumidor. `pengu init --template lib`
+es un alias obsoleto de `pengu-lib`.
+
+---
+
 ### Inicio rápido
 
 #### Requisitos
@@ -893,7 +987,8 @@ pengu run hello.pengu
 
 | Comando    | Descripción                                                                                       |
 | ---------- | ------------------------------------------------------------------------------------------------- |
-| `init`     | Crea una plantilla de proyecto nueva (`--type exe\|static\|shared\|obj\|c`, `--links`, `--cc`).    |
+| `init`     | Crea una plantilla de proyecto nueva (`--type exe\|static\|shared\|obj\|c`, `--template exe\|cli\|pengu-lib\|cbind`, `--force`, `--links`, `--cc`). |
+| `new`      | Crea un proyecto a partir de una plantilla, con la plantilla primero (`pengu new cbind pengu_raylib`; `pengu new pengu-lib my_lib`). |
 | `add`      | Añade una dependencia o enlace externo (URL de git o carpeta local, con script de compilación opcional); el árbol de fuentes se copia en `lib/<name>/`. |
 | `build`    | Compila el proyecto según su configuración (`--profile release`, `--cc`, `-D`, `--test`, `--verbose`). |
 | `run`      | Compila y ejecuta el objetivo del proyecto, o ejecuta un archivo `.pengu` suelto directamente como script. |
@@ -1159,6 +1254,7 @@ PenguScript/
 ├── CHEATSHEET.md           # Full language syntax & C-translation reference
 └── docs/                   # Build guide, performance/fuzzing notes & archived docs
     ├── PENGU_BUILD.md      # Build system & project configuration guide
+    ├── BINDINGS.md         # Contract for pure libraries & C bindings (`link` propagation)
     ├── README_RELEASE.md   # Generated: standalone release package documentation
     └── archive/            # Historical, non-normative process documents
 ```

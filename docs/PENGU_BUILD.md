@@ -10,8 +10,8 @@ The PenguScript Build Manager (`pengu_project.py`) is a Cargo-style tool providi
 # Initialize a new project with template
 python pengu_project.py init <name> [--type <exe|c|obj|static|shared>] [--links lib1,lib2]
 
-# Create from a template (template-first `init`; templates: exe, cli, lib)
-python pengu_project.py new <exe|cli|lib> <name>
+# Create from a template (template-first `init`)
+python pengu_project.py new <exe|cli|pengu-lib|cbind> <name>
 
 # Build in default debug profile
 python pengu_project.py build
@@ -36,11 +36,35 @@ python pengu_project.py clean
 | `obj` | `python pengu_project.py init my_obj --type obj` | Single object file (`.o`) |
 | `c` | `python pengu_project.py init my_bundle --type c` | Pure C bundle generation without C compilation |
 
-Project *templates* are chosen with `--template <exe|cli|lib>` (or the
-template-first `pengu new <template> <name>`): `exe` is a standalone program,
-`cli` adds argument handling, and `lib` produces a static library with a smoke
-test. The old `game`/raylib template was removed together with the vendored
-bindings.
+Project *templates* are chosen with `--template <exe|cli|pengu-lib|cbind>` (or the
+template-first `pengu new <template> <name>`). `pengu init --template lib` is a
+deprecated alias for `pengu-lib` and prints a notice.
+
+### Templates
+
+| Template | Command | What it creates | Use it for |
+|---|---|---|---|
+| `exe` | `pengu init my_game` | `src/main.pengu` hello-world (`weave main into void:`) | Default standalone program |
+| `cli` | `pengu init my_tool --template cli` | `src/main.pengu` with a `std.invoke` argument parser | Command-line tools |
+| `pengu-lib` | `pengu init my_lib --template pengu-lib` | `pengu/my_lib.pengu` with inline `test` blocks; `entry`/`src_dir` point at `pengu/` | Pure PenguScript libraries consumable with `pengu add` |
+| `cbind` | `pengu init pengu_raylib --template cbind` | `pengu/raylib.d.pengu`, `include/raylib.h`, `c/raylib.c`, `lib/`, `build.py` | Bindings to a native C library |
+
+`pengu-lib` and `cbind` repositories are laid out exactly the way
+`pengu add` standardises a dependency (`pengu/`, `include/`, `c/`, `lib/`), so
+installing one into a consumer moves nothing and leaves no duplicate module
+behind. `cbind` ships a toy C library that compiles out of the box; replace
+`c/<name>.c` and `include/<name>.h` with the real library and let `build.py`
+fetch/compile it. The `link "..."` statements in `pengu/<name>.d.pengu`
+propagate to the consumer's link line automatically.
+
+See [BINDINGS.md](BINDINGS.md) for the full binding contract.
+
+### Non-empty directories
+
+`pengu init` (and `pengu new`) refuse to write into an existing non-empty
+directory, so a typo in the project name cannot overwrite an existing project.
+Pass `--force` (alias `-f`) to write into it anyway: `--force` adds the template
+files but never deletes what is already there.
 
 ---
 

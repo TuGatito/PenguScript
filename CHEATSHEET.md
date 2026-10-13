@@ -3184,3 +3184,35 @@ rune Aligned4:
     x as f32
     y as f32
 ```
+
+## Binding an external C library (2.1.0)
+
+Scaffold a binding repository, fill in the native build and the declarations,
+then install it from any project:
+
+```bash
+pengu init pengu_raylib --template cbind   # pengu/, include/, c/, lib/, build.py
+cd pengu_raylib
+#   edit build.py  -> fetch/compile raylib into lib/ and copy raylib.h into include/
+pengu bind include/raylib.h --output pengu/raylib.d.pengu --links raylib
+#   add `include "raylib.h"` and one `link "..."` per native library if missing
+git init && git add . && git commit -m "feat: raylib binding"
+
+# consume it
+pengu init my_game && cd my_game
+pengu add https://github.com/me/pengu_raylib --trust
+#   src/main.pengu: import raylib
+pengu build && pengu run
+```
+
+Key points:
+
+- `pengu add` prints `👉 Try: import <name>` with the module name to import.
+- `link "..."` in a binding's `.d.pengu` propagates to the consumer's link
+  line; declaring it only in the binding's `pengu.toml` does nothing for the
+  consumer.
+- A pure PenguScript library uses `pengu init my_lib --template pengu-lib`
+  instead (module in `pengu/my_lib.pengu`, no C). `--template lib` is the
+  deprecated alias.
+- `pengu init` refuses to overwrite a non-empty directory; pass `--force`.
+- Full contract: [docs/BINDINGS.md](docs/BINDINGS.md).
