@@ -242,11 +242,16 @@ def ensure_dependencies(py_exe: Path):
     if sys.version_info < (3, 11):
         packages.append(("tomli>=2.0.0", "tomli"))
 
+    # The probe must run with the interpreter that will later be asked to run
+    # PyInstaller (`py_exe`), not with the one that launched this script.  On CI
+    # the requirements are installed into the runner's Python while `.venv` is
+    # created empty, so importing in-process reported every package as present
+    # and skipped the install -- PyInstaller then failed with "No module named
+    # PyInstaller".
     missing = []
     for spec, module in packages:
-        try:
-            __import__(module)
-        except ImportError:
+        probe = run_cmd([str(py_exe), "-c", f"import {module}"], check=False, capture=True)
+        if probe.returncode != 0:
             missing.append(spec)
 
     if not missing:

@@ -184,6 +184,12 @@ def _detect_source_unit(lines: List[str], fallback: int) -> int:
     The smallest non-zero run of leading spaces is the unit: any deeper line is
     a multiple of it in idiomatic PenguScript.  A tab counts as one level.
 
+    Lines inside a multi-line (triple-quoted) literal are *string data*, not
+    source: their leading whitespace must not be mistaken for an indent level.
+    The C body of an ``antiquus`` block is the common case, and counting its
+    two-space indentation would halve the detected unit and double every block
+    in the file.
+
     Args:
         lines: Source lines (blank lines are ignored).
         fallback: Unit to use when no indented line exists.
@@ -192,15 +198,28 @@ def _detect_source_unit(lines: List[str], fallback: int) -> int:
         The detected number of spaces per indentation level, or 1 for tabs.
     """
     candidates = []
+    in_triple: Optional[str] = None
     for line in lines:
+        # A line inside an open literal is emitted verbatim, so its
+        # indentation tells us nothing about the source style.
+        if in_triple is not None:
+            if _triple_closes(line, in_triple):
+                in_triple = None
+            continue
         if not line.strip():
             continue
         leading = line[:len(line) - len(line.lstrip())]
-        if not leading:
-            continue
-        if leading[0] == "\t":
-            return 1
-        candidates.append(len(leading))
+        if leading:
+            if leading[0] == "\t":
+                return 1
+            candidates.append(len(leading))
+        # An opening line is source code (it is reindented), but the rest of
+        # the literal it opens is not: skip it from the next line on. Comment
+        # lines are excluded so a stray `"""` inside a doc comment is not read
+        # as an unterminated literal (the formatter proper does the same).
+        stripped = line.lstrip()
+        if not stripped.startswith("#"):
+            in_triple = _open_triple(_split_code_and_strings(stripped))
     return min(candidates) if candidates else fallback
 
 
