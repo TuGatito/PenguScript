@@ -22,10 +22,11 @@
 ## `integrum` importa `std.numerus` y delega en él siempre que necesita el
 ## valor absoluto (`gcd`, `lcm`, `to_hex`, `to_bin`, `to_oct` usan
 ## `calling self.abs`) en lugar de duplicar el `if self < donum T: return -self`.
-## `std.arithmancy` expone equivalentes **concretos** de `is_prime`, `gcd` y
-## `lcm` (`arithmancy.is_prime_int`, …), no genéricos, así que un
-## `shard T where T: Integrum` no puede delegar en ellos sin duplicar por tipo;
-## la dirección futura queda anotada con `# TODO(Fase 3.x)`.
+## Este módulo es la **fuente de verdad** de la teoría de números entera: las
+## funciones `is_prime`, `gcd`, `lcm` y `is_power_of_two` de `std.arithmancy`
+## son ahora wrappers de una línea sobre estos métodos. `arithmancy`
+## `next_power_of_two` **no** delega: su contrato es "la menor potencia de dos
+## `>= n`", mientras que el de aquí es "estrictamente mayor" (`4` → `8`).
 ##
 ## ## Memoria
 ## Solo `to_hex`, `to_bin` y `to_oct` asignan memoria del heap: devuelven un
@@ -130,7 +131,11 @@ enchanting shard T where T: Integrum:
         if (self % (3 to T)) == donum T:
             return false
         var k as T is (5 to T)
-        while (k * k) <= self:
+        # `k <= self / k` and not `k * k <= self`: for a 32-bit receiver the
+        # square overflows once `k` reaches ~46341, which made
+        # `2147483647.is_prime` (the Mersenne prime 2^31 - 1) report `false`.
+        # Dividing keeps every intermediate in range.
+        while k <= self / k:
             if (self % k) == donum T:
                 return false
             if (self % (k + (2 to T))) == donum T:
@@ -204,7 +209,6 @@ enchanting shard T where T: Integrum:
     ## 17.is_prime     # true
     ## 18.is_prime     # false
     ## ```
-    # TODO(Fase 3.x): arithmancy.is_prime (int-only) should delegate here.
     weave is_prime into bool:
         return calling self._is_prime_impl
 
@@ -399,7 +403,6 @@ enchanting shard T where T: Integrum:
     ## var a as int is 12
     ## calling a.gcd with 18   # 6
     ## ```
-    # TODO(Fase 3.x): arithmancy.gcd (int-only) should delegate here.
     weave gcd with other as T into T:
         var a as T is self
         var b as T is other
@@ -421,7 +424,6 @@ enchanting shard T where T: Integrum:
     ## var a as int is 4
     ## calling a.lcm with 6     # 12
     ## ```
-    # TODO(Fase 3.x): arithmancy.lcm (int-only) should delegate here.
     weave lcm with other as T into T:
         if self == donum T or other == donum T:
             return donum T
@@ -928,3 +930,16 @@ test "integrum composes with numerus on the same receiver":
     calling _t_int with a, 12
     calling _t_int with c, 0
     calling _t_int with p, 144
+
+test "is_prime survives the square root of a 32-bit maximum":
+    # Regression: `k * k <= self` overflowed near the end of the trial
+    # division for 2^31 - 1, so the one Mersenne prime in `int` range was
+    # reported composite.
+    var big as int is 2147483647
+    calling _t_bool with (calling big.is_prime), true
+
+test "is_prime still rejects its neighbours":
+    var even as int is 2147483646
+    var other as int is 2147483645
+    calling _t_bool with (calling even.is_prime), false
+    calling _t_bool with (calling other.is_prime), false

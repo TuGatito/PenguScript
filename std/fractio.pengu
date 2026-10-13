@@ -22,12 +22,12 @@
 ## `Real` implica `Num`, así que un programa que importe ambos tiene todo.
 ##
 ## ## Delegación
-## `std.arithmancy` expone equivalentes **concretos de `float`** de casi todos
-## los transcendentales (`arithmancy.sqrt`, `arithmancy.sin`, `arithmancy.pow`,
-## `arithmancy.lerp`, `arithmancy.deg_to_rad`, …) y de `hypot`. Al no ser
-## genéricos, un `shard T where T: Real` no puede delegar en ellos sin duplicar
-## por ancho, de modo que `fractio` implementa la lógica localmente (envoltura
-## directa de `libm`) y deja la dirección futura anotada con `# TODO(Fase 3.x)`.
+## Este módulo es la **fuente de verdad** de la matemática de punto flotante:
+## los transcendentales de `std.arithmancy` (`sqrt`, `pow`, `sin`, `cos`,
+## `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `log`, `log10`, `log2`,
+## `hypot`, `lerp`, `deg_to_rad`, `rad_to_deg`) son ahora wrappers de una línea
+## sobre estos métodos. `arithmancy.approx_eq` **no** delega: usa `<=` y éste
+## `<`, así que difieren justo cuando `|a - b| == eps`.
 ## `fractio` **no** importa `std.numerus`: no necesita ningún método universal
 ## (las dos magnitudes que calcula, en `approx_eq` y `copysign`, son tres líneas
 ## cada una) y un módulo hoja de matemáticas gana más quedándose sin
@@ -217,7 +217,6 @@ enchanting shard T where T: Real:
     ## var b as f64 is 10.0
     ## calling spark.println with "{calling a.lerp with b, 0.5}"   # 5
     ## ```
-    # TODO(Fase 3.x): arithmancy.lerp (float) should delegate here.
     weave lerp with other as T, t as T into T:
         return self + (t * (other - self))
 
@@ -244,7 +243,6 @@ enchanting shard T where T: Real:
     ## var pi as f64 is 3.141592653589793
     ## calling spark.println with "{calling pi.degrees}"   # ~180
     ## ```
-    # TODO(Fase 3.x): arithmancy.rad_to_deg (float) should delegate here.
     weave degrees into T:
         return self * ((180.0 to T) / (3.141592653589793 to T))
 
@@ -255,7 +253,6 @@ enchanting shard T where T: Real:
     ## var d as f64 is 180.0
     ## calling spark.println with "{calling d.radians}"   # ~3.14159
     ## ```
-    # TODO(Fase 3.x): arithmancy.deg_to_rad (float) should delegate here.
     weave radians into T:
         return self * ((3.141592653589793 to T) / (180.0 to T))
 
@@ -266,7 +263,6 @@ enchanting shard T where T: Real:
 enchanting float:
 
     ## Raíz cuadrada. Dominio `self >= 0`; un negativo devuelve NaN.
-    # TODO(Fase 3.x): arithmancy.sqrt (float) should delegate here.
     weave sqrt into float:
         return calling sqrtf with self
 
@@ -275,69 +271,56 @@ enchanting float:
         return calling cbrtf with self
 
     ## Seno (radianes).
-    # TODO(Fase 3.x): arithmancy.sin (float) should delegate here.
     weave sin into float:
         return calling sinf with self
 
     ## Coseno (radianes).
-    # TODO(Fase 3.x): arithmancy.cos (float) should delegate here.
     weave cos into float:
         return calling cosf with self
 
     ## Tangente (radianes).
-    # TODO(Fase 3.x): arithmancy.tan (float) should delegate here.
     weave tan into float:
         return calling tanf with self
 
     ## Arcoseno. Dominio `[-1, 1]`; fuera devuelve NaN.
-    # TODO(Fase 3.x): arithmancy.asin (float) should delegate here.
     weave asin into float:
         return calling asinf with self
 
     ## Arcocoseno. Dominio `[-1, 1]`; fuera devuelve NaN.
-    # TODO(Fase 3.x): arithmancy.acos (float) should delegate here.
     weave acos into float:
         return calling acosf with self
 
     ## Arcotangente.
-    # TODO(Fase 3.x): arithmancy.atan (float) should delegate here.
     weave atan into float:
         return calling atanf with self
 
     ## Ángulo cuyo seno es `self` y cuyo coseno es `x`, en el cuadrante
     ## correcto (radianes).
-    # TODO(Fase 3.x): arithmancy.atan2 (float) should delegate here.
     weave atan2 with x as float into float:
         return calling atan2f with self, x
 
     ## Exponencial natural (`e^self`).
-    # TODO(Fase 3.x): arithmancy.exp (float) should delegate here.
     weave exp into float:
         return calling expf with self
 
     ## Logaritmo natural. Dominio `self > 0`; `0` devuelve `-Inf` y un negativo
     ## NaN.
-    # TODO(Fase 3.x): arithmancy.log (float) should delegate here.
     weave ln into float:
         return calling logf with self
 
     ## Logaritmo en base 2. Dominio `self > 0`.
-    # TODO(Fase 3.x): arithmancy.log2 (float) should delegate here.
     weave log2 into float:
         return calling log2f with self
 
     ## Logaritmo en base 10. Dominio `self > 0`.
-    # TODO(Fase 3.x): arithmancy.log10 (float) should delegate here.
     weave log10 into float:
         return calling log10f with self
 
     ## `self` elevado a `exponent`.
-    # TODO(Fase 3.x): arithmancy.pow (float) should delegate here.
     weave pow with exponent as float into float:
         return calling powf with self, exponent
 
     ## `sqrt(self² + other²)` sin desbordamiento intermedio.
-    # TODO(Fase 3.x): arithmancy.hypot (float) should delegate here.
     weave hypot with other as float into float:
         return calling hypotf with self, other
 
@@ -348,7 +331,6 @@ enchanting float:
 enchanting f64:
 
     ## Raíz cuadrada. Dominio `self >= 0`; un negativo devuelve NaN.
-    # TODO(Fase 3.x): arithmancy.sqrt (float) should delegate here.
     weave sqrt into f64:
         return calling sqrt with self
 
@@ -357,69 +339,56 @@ enchanting f64:
         return calling cbrt with self
 
     ## Seno (radianes).
-    # TODO(Fase 3.x): arithmancy.sin (float) should delegate here.
     weave sin into f64:
         return calling sin with self
 
     ## Coseno (radianes).
-    # TODO(Fase 3.x): arithmancy.cos (float) should delegate here.
     weave cos into f64:
         return calling cos with self
 
     ## Tangente (radianes).
-    # TODO(Fase 3.x): arithmancy.tan (float) should delegate here.
     weave tan into f64:
         return calling tan with self
 
     ## Arcoseno. Dominio `[-1, 1]`; fuera devuelve NaN.
-    # TODO(Fase 3.x): arithmancy.asin (float) should delegate here.
     weave asin into f64:
         return calling asin with self
 
     ## Arcocoseno. Dominio `[-1, 1]`; fuera devuelve NaN.
-    # TODO(Fase 3.x): arithmancy.acos (float) should delegate here.
     weave acos into f64:
         return calling acos with self
 
     ## Arcotangente.
-    # TODO(Fase 3.x): arithmancy.atan (float) should delegate here.
     weave atan into f64:
         return calling atan with self
 
     ## Ángulo cuyo seno es `self` y cuyo coseno es `x`, en el cuadrante
     ## correcto (radianes).
-    # TODO(Fase 3.x): arithmancy.atan2 (float) should delegate here.
     weave atan2 with x as f64 into f64:
         return calling atan2 with self, x
 
     ## Exponencial natural (`e^self`).
-    # TODO(Fase 3.x): arithmancy.exp (float) should delegate here.
     weave exp into f64:
         return calling exp with self
 
     ## Logaritmo natural. Dominio `self > 0`; `0` devuelve `-Inf` y un negativo
     ## NaN.
-    # TODO(Fase 3.x): arithmancy.log (float) should delegate here.
     weave ln into f64:
         return calling log with self
 
     ## Logaritmo en base 2. Dominio `self > 0`.
-    # TODO(Fase 3.x): arithmancy.log2 (float) should delegate here.
     weave log2 into f64:
         return calling log2 with self
 
     ## Logaritmo en base 10. Dominio `self > 0`.
-    # TODO(Fase 3.x): arithmancy.log10 (float) should delegate here.
     weave log10 into f64:
         return calling log10 with self
 
     ## `self` elevado a `exponent`.
-    # TODO(Fase 3.x): arithmancy.pow (float) should delegate here.
     weave pow with exponent as f64 into f64:
         return calling pow with self, exponent
 
     ## `sqrt(self² + other²)` sin desbordamiento intermedio.
-    # TODO(Fase 3.x): arithmancy.hypot (float) should delegate here.
     weave hypot with other as f64 into f64:
         return calling hypot with self, other
 

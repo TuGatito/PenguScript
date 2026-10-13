@@ -1428,6 +1428,8 @@ Safety rules enforced by the checker: accessing `self` inside a `ritual` method 
 
 #### 9.1.1 Methods on primitives
 
+**Note on `arithmancy`:** its scalar functions (`arithmancy.abs_i`, `arithmancy.sqrt_f`, …) still exist but are one-line wrappers over the modules below. Prefer calling the method directly (`x.abs`, `x.sqrt`) when you import the module that provides it.
+
 Every numeric primitive (`int`, `i8`–`i64`, `u8`–`u64`, `usize`, `isize`, `byte`, `float`, `f32`, `f64`, `double`) accepts methods when the module that declares them is imported. A **single** `enchanting shard T where T: …:` block covers them all; the compiler monomorphizes each method per concrete receiver (`int_abs`, `f64_clamp`, `u32_signum`), so there is no boxing, no vtable and no runtime cost.
 
 Universal numeric methods (`std.numerus`):

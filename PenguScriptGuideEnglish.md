@@ -766,6 +766,8 @@ Transcendentals that call `libm` live in two **concrete** blocks (`enchanting fl
 
 The five modules cover **every** primitive type of the language. Import the module whose bound matches the receiver and the methods appear at zero runtime cost: the compiler monomorphizes each call into a plain C function (`int_abs`, `f64_sqrt`, `char_to_upper`, `bool_to_int`, …). A program that imports none of them pays nothing for them; a program that imports one pays only for the methods it actually calls.
 
+`std.arithmancy` keeps its scalar functions (`abs_i`, `clamp_f`, `sqrt_f`, …) for compatibility, but their implementation is a **one-line wrapper** over the methods of the five modules. The algorithm lives in exactly one place: the module that owns the bound. The `Vec2`/`Vec3`/`Mat4`/`Quat` types and the `PI`/`TAU`/`E`/`EPSILON` constants remain `arithmancy`'s responsibility.
+
 ---
 
 ## 7. Generics and bounds
@@ -1092,6 +1094,15 @@ weave sum shard T where T: Num with xs as list of T into T:
 ```
 
 A single `weave` serves `int`, `float`, `i64`, `f32`... and any user type with a `derive` of a `Num` concept.
+
+The same holds for a function that only wraps a method. Do not copy the algorithm; delegate:
+
+```pengu
+# ✅ Pengunic: the algorithm lives in std.numerus
+weave abs_i with x as int into int:
+    return calling x.abs
+```
+
 
 ---
 

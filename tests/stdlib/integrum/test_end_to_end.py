@@ -33,7 +33,7 @@ def test_module_self_tests_pass():
         f"module self-tests failed:\n--- stdout ---\n{res.stdout}\n"
         f"--- stderr ---\n{res.stderr}"
     )
-    assert "All 36 test(s) passed." in res.stdout, res.stdout
+    assert "All 38 test(s) passed." in res.stdout, res.stdout
 
 
 def test_realistic_prime_count(compile_and_run):

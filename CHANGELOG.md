@@ -38,6 +38,42 @@ The `shard T` form is monomorphized per concrete receiver (`int_is_even`,
 `i64_is_even`): the generic body never reaches the C, and the emitted call is a
 plain function call.
 
+### Changed
+
+- **`std.arithmancy`'s scalar functions now delegate to the primitive-methods
+  modules.** `abs_i`/`abs_f`/`min_i`/`max_i`/`min_f`/`max_f`/`clamp_i`/`clamp_f`/
+  `sign`/`sign_i`/`lerp_f`/`to_int_round`/`to_int_floor`/`to_int_ceil` delegate to
+  `std.numerus`; `is_prime`/`gcd`/`lcm`/`is_power_of_two` to `std.integrum`;
+  `sqrt_f`/`pow_f`/`sin_f`/`cos_f`/`tan_f`/`asin_f`/`acos_f`/`atan_f`/`atan2_f`/
+  `exp_f`/`log_f`/`log10_f`/`log2_f`/`hypot`/`deg_to_rad`/`rad_to_deg` to
+  `std.fractio`. **The public API is unchanged** — every existing call keeps
+  working; the algorithm now lives in exactly one place (the module that owns
+  the bound), which is what the deprecation policy asks for: no removal, just an
+  implementation move.
+- **Documented** the range limit of `std.numerus`'s `truncate`, `floor`, `ceil`
+  and `round`: they round through `int`, so on floats they are only exact while
+  `|self|` fits in `int`. `arithmancy.floor`/`ceil`/`round`/`trunc` are the C
+  functions and stay local for exactly that reason.
+- **`std.fractio`**: `degrees`/`radians` live in the `T: Real` shard (they
+  already did since Phase 3.3), so `float.radians`/`float.degrees` exist and
+  `arithmancy.deg_to_rad`/`rad_to_deg` can delegate for both widths.
+
+### Removed
+
+- **TODO markers**: the 47 `# TODO(Fase 3.x)` comments left in `std.numerus`,
+  `std.integrum` and `std.fractio` during the primitive-methods series are
+  closed. The ones whose target function is now delegated are gone; the ones
+  that cannot delegate (`truncate`/`floor`/`ceil`/`round` in `numerus`) became
+  `# NOTE` explaining the domain difference.
+
+### Fixed
+
+- **`std.integrum.is_prime` on 32-bit extremes.** The trial-division loop used
+  `(k * k) <= self`, and `k * k` overflows `int` once `k` reaches ~46341, so
+  `2147483647` (the Mersenne prime 2^31 - 1) was reported composite. The loop
+  now uses `k <= self / k`, which keeps every intermediate in range. Covered by
+  two embedded tests and the delegation test.
+
 ### Added
 
 - **`std.logica`**: methods on `bool` via `enchanting bool:`. Chainable
