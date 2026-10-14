@@ -39,6 +39,7 @@ from ._base import (
     _decl_layout,
     ast_to_type,
     eval_comptime,
+    unwrap_condition,
 )
 from .ast_utils import (
     is_failure_return_expr,
@@ -723,7 +724,7 @@ class StmtMixin:
             body_str = self._translate_nested_block(block_node)
             self.indent_level -= 1
 
-            res = f"{ind}if ({cond_str}) {{\n{body_str}\n{ind}}}"
+            res = f"{ind}if ({unwrap_condition(cond_str)}) {{\n{body_str}\n{ind}}}"
             if else_node:
                 self.indent_level += 1
                 else_str = self._translate_else_block(else_node)
@@ -754,7 +755,7 @@ class StmtMixin:
             body_str = self._translate_nested_block(block_node)
             self.indent_level -= 1
 
-            res = f"{ind}if (!({cond_str})) {{\n{body_str}\n{ind}}}"
+            res = f"{ind}if (!({unwrap_condition(cond_str)})) {{\n{body_str}\n{ind}}}"
             if else_node:
                 self.indent_level += 1
                 else_str = self._translate_else_block(else_node)

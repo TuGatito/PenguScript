@@ -23,6 +23,7 @@ from ._base import (
     Type,
     TypeInferrer,
     ast_to_type,
+    unwrap_condition,
 )
 from .ctype import (
     CTypeMapper,
@@ -114,7 +115,7 @@ class ValueIfMixin:
         if cond_c is None:
             cond_c = self._translate_if_cond(node.children[0])
         if negate:
-            cond_c = f"!({cond_c})"
+            cond_c = f"!({unwrap_condition(cond_c)})"
         block_node = node.children[1]
         else_node = node.children[2] if len(node.children) > 2 else None
         v_t = getattr(node, "_pengu_value_type", None) or expected_type
@@ -142,7 +143,7 @@ class ValueIfMixin:
             if is_void:
                 # Side effects only: any branch value is evaluated and dropped.
                 if not self.use_gnu_extensions:
-                    stmts = [f"if ({cond_c}) {{"]
+                    stmts = [f"if ({unwrap_condition(cond_c)}) {{"]
                     if then_body:
                         stmts.extend(then_body.splitlines())
                     if then_val:
@@ -164,7 +165,7 @@ class ValueIfMixin:
                 then_full = "\n".join(
                     p for p in (then_body, f"{then_val};" if then_val else "") if p
                 )
-                res = f"(__extension__(({{ if ({cond_c}) {{\n{then_full}\n}}"
+                res = f"(__extension__(({{ if ({unwrap_condition(cond_c)}) {{\n{then_full}\n}}"
                 if nested_else is not None:
                     res += f" else {{\n{nested_else};\n}}"
                 elif else_body or else_val:
@@ -179,7 +180,7 @@ class ValueIfMixin:
             tmp = self.get_temp_name("_if")
             decl_tmp = CTypeMapper.to_c_decl(v_t, tmp)
             if not self.use_gnu_extensions:
-                stmts = [f"{decl_tmp};", f"if ({cond_c}) {{"]
+                stmts = [f"{decl_tmp};", f"if ({unwrap_condition(cond_c)}) {{"]
                 if then_body:
                     stmts.extend(then_body.splitlines())
                 if then_val:
@@ -198,7 +199,7 @@ class ValueIfMixin:
                     stmts.append(f"}} else {{ {tmp} = {default}; }}")
                 return self._block_expr(stmts, tmp)
             res = (
-                f"(__extension__(({{ {decl_tmp}; if ({cond_c}) {{\n{then_body}\n"
+                f"(__extension__(({{ {decl_tmp}; if ({unwrap_condition(cond_c)}) {{\n{then_body}\n"
                 + (f"  {tmp} = {then_val};\n" if then_val else "")
                 + "}"
             )

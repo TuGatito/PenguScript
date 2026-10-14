@@ -40,3 +40,59 @@ from pengu_parser.pengu_dce import (
 # Public layout extractor lives in pengu_symbols; re-exported so every
 # mixin reaches it through this single module.
 _decl_layout = decl_layout
+
+
+def unwrap_condition(code: str) -> str:
+    """Drops one redundant outer parenthesis pair from a branch condition.
+
+    `if a == b:` used to reach the C compiler as ``if ((a == b))``. That is the
+    exact shape clang reports as ``-Wparentheses-equality`` ("equality comparison
+    with extraneous parentheses") -- the same shape as the classic
+    ``if ((a = b))`` typo -- and every comparison in every `std` module went
+    through it, so a small program importing one module produced dozens of
+    warnings.
+
+    The parentheses are **not** redundant where a comparison is an operand
+    (``(a == b) + x``, ``f((a == b))``), so the expression translator keeps
+    emitting them. The branch emitters wrap the condition in a pair of their own,
+    which is the only place the extra one can be dropped safely.
+
+    A pair is removed only when it encloses the *whole* string, so ``(a) + (b)``
+    is returned untouched. String and character literals are skipped, because a
+    parenthesised literal -- ``pengu_string_equal(s, "(")`` -- would otherwise
+    unbalance the scan.
+
+        '(a == b)'                   -> 'a == b'
+        '((a == b))'                 -> '(a == b)'
+        '(a) + (b)'                  -> unchanged
+        'f(x)'                       -> unchanged
+        'pengu_string_equal(s, "(")' -> unchanged
+    """
+    if len(code) < 2 or code[0] != "(" or code[-1] != ")":
+        return code
+    depth = 0
+    quote = ""
+    i = 0
+    last = len(code) - 1
+    while i <= last:
+        ch = code[i]
+        if quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+        elif ch in ('"', "'"):
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            # The first pair closed before the end: the string is a sequence of
+            # expressions, not one wrapped expression. Leave it alone.
+            if depth == 0 and i != last:
+                return code
+        i += 1
+    if depth != 0:
+        return code
+    return code[1:-1]

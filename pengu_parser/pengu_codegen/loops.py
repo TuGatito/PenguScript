@@ -25,6 +25,7 @@ from ._base import (
     Type,
     TypeInferrer,
     TypeParam,
+    unwrap_condition,
 )
 from .ctype import (
     CTypeMapper,
@@ -44,7 +45,7 @@ class LoopMixin:
         body_str = self._translate_loop_body(block_node, append_ctx)
         self.indent_level -= 1
 
-        return f"{ind}while ({cond_str}) {{\n{body_str}\n{ind}}}"
+        return f"{ind}while ({unwrap_condition(cond_str)}) {{\n{body_str}\n{ind}}}"
     def _translate_loop_body(self, block_node: Tree, append_ctx=None) -> str:
         """Body C of a loop.
 

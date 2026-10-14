@@ -42,6 +42,7 @@ from ._base import (
     get_type_base_name,
     os,
     SHARD_RECEIVER_KEY,
+    unwrap_condition,
 )
 from .ast_utils import (
     flatten_at_chain,
@@ -533,13 +534,13 @@ class ExprMixin:
                         f"{vd} = ({elem_c});",
                         f"{elem_ct} *{arr_p} = ({col_c});",
                         f"bool {flag} = false;",
-                        f"for (size_t {idx} = 0; {idx} < {col_t.size}; ++{idx}) {{ if ({cmp}) {{ {flag} = true; break; }} }}",
+                        f"for (size_t {idx} = 0; {idx} < {col_t.size}; ++{idx}) {{ if ({unwrap_condition(cmp)}) {{ {flag} = true; break; }} }}",
                     ], cond)
                 cmp = self._make_elem_eq(col_t.element, "(_arr)[_i]", "_val")
                 check_code = (
                     f"bool _f = false; "
                     f"for (size_t _i = 0; _i < {col_t.size}; ++_i) {{ "
-                    f"  if ({cmp}) {{ _f = true; break; }} "
+                    f"  if ({unwrap_condition(cmp)}) {{ _f = true; break; }} "
                     f"}} "
                     f"{'!_f' if is_not else '_f'};"
                 )
@@ -561,14 +562,14 @@ class ExprMixin:
                         f"{vd} = ({elem_c});",
                         f"PenguList {lc} = ({col_c});",
                         f"bool {flag} = false;",
-                        f"for (int32_t {idx} = 0; {idx} < {lc}.len; ++{idx}) {{ if ({cmp}) {{ {flag} = true; break; }} }}",
+                        f"for (int32_t {idx} = 0; {idx} < {lc}.len; ++{idx}) {{ if ({unwrap_condition(cmp)}) {{ {flag} = true; break; }} }}",
                     ], cond)
                 cmp = self._make_elem_eq(col_t.element, f"*({elem_c_t}*)pengu_list_at(&_lc, _i)", "_val")
                 return (
                     f"(__extension__({{ __auto_type _val = ({elem_c}); "
                     f"PenguList _lc = ({col_c}); bool _f = false; "
                     f"for (int32_t _i = 0; _i < _lc.len; ++_i) {{ "
-                    f"if ({cmp}) {{ _f = true; break; }} }} "
+                    f"if ({unwrap_condition(cmp)}) {{ _f = true; break; }} }} "
                     f"{'!_f' if is_not else '_f'}; }}))"
                 )
 
@@ -588,14 +589,14 @@ class ExprMixin:
                         f"{vd} = ({elem_c});",
                         f"PenguSlice {sl} = ({col_c});",
                         f"bool {flag} = false;",
-                        f"for (int32_t {idx} = 0; {idx} < {sl}.len; ++{idx}) {{ if ({cmp}) {{ {flag} = true; break; }} }}",
+                        f"for (int32_t {idx} = 0; {idx} < {sl}.len; ++{idx}) {{ if ({unwrap_condition(cmp)}) {{ {flag} = true; break; }} }}",
                     ], cond)
                 cmp = self._make_elem_eq(col_t.element, f"((({elem_c_t}*)(_sl).data)[_i])", "_val")
                 return (
                     f"(__extension__({{ __auto_type _val = ({elem_c}); "
                     f"PenguSlice _sl = ({col_c}); bool _f = false; "
                     f"for (int32_t _i = 0; _i < _sl.len; ++_i) {{ "
-                    f"if ({cmp}) {{ _f = true; break; }} }} "
+                    f"if ({unwrap_condition(cmp)}) {{ _f = true; break; }} }} "
                     f"{'!_f' if is_not else '_f'}; }}))"
                 )
 
@@ -1697,7 +1698,7 @@ class ExprMixin:
                 tmp_val = self.get_temp_name("_comp_val")
                 decl_char = self.get_temp_name("_ch")
                 decl_val = CTypeMapper.to_c_decl(then_t, tmp_val) if then_t else f"{then_elem_c} {tmp_val}"
-                cond_check = f"if ({cond_c}) " if cond_c else ""
+                cond_check = f"if ({unwrap_condition(cond_c)}) " if cond_c else ""
                 if not self.use_gnu_extensions:
                     stmts = []
                     if lit_decl:
@@ -1759,7 +1760,7 @@ class ExprMixin:
                 tmp_val = self.get_temp_name("_comp_val")
                 slot_var = self.get_temp_name("_slot")
                 idx_var = self.get_temp_name("_i")
-                cond_check = f"if ({cond_c}) " if cond_c else ""
+                cond_check = f"if ({unwrap_condition(cond_c)}) " if cond_c else ""
                 iter_elem_cast = CTypeMapper.to_c_decl(iter_elem_t, "*")
                 decl_val = CTypeMapper.to_c_decl(then_t, tmp_val) if then_t else f"{then_elem_c} {tmp_val}"
                 if not self.use_gnu_extensions:
@@ -1817,7 +1818,7 @@ class ExprMixin:
                         stmts += [
                             f"PenguList {tmp_list} = {_comp_list_new(alloc_sz)};",
                             f"{loop_head} {{",
-                            f"  if ({cond_c}) {{",
+                            f"  if ({unwrap_condition(cond_c)}) {{",
                             f"    {decl_val} = {then_c};",
                             f"    pengu_list_push(&{tmp_list}, &{tmp_val});",
                             "  }",
@@ -1829,7 +1830,7 @@ class ExprMixin:
                         f"{init_range}"
                         f"{ind}  PenguList {tmp_list} = {_comp_list_new(alloc_sz)};\n"
                         f"{ind}  {loop_head} {{\n"
-                        f"{ind}    if ({cond_c}) {{\n"
+                        f"{ind}    if ({unwrap_condition(cond_c)}) {{\n"
                         f"{ind}      {decl_val} = {then_c};\n"
                         f"{ind}      pengu_list_push(&{tmp_list}, &{tmp_val});\n"
                         f"{ind}    }}\n"
@@ -1879,7 +1880,7 @@ class ExprMixin:
                 stmts.append(f"for (int _i = 0; _i < {count_c}; _i++) {{")
                 stmts.append(f"  {decl_var} = {elem_access};")
                 if cond_c:
-                    stmts.append(f"  if ({cond_c}) {{")
+                    stmts.append(f"  if ({unwrap_condition(cond_c)}) {{")
                 stmts.append(f"    {decl_val} = {then_c};")
                 stmts.append(f"    pengu_list_push(&{tmp_list}, &{tmp_val});")
                 if cond_c:
@@ -1893,7 +1894,7 @@ class ExprMixin:
                     f"{lit_decl}"
                     f"{ind}  for (int _i = 0; _i < {count_c}; _i++) {{\n"
                     f"{ind}    {decl_var} = {elem_access};\n"
-                    f"{ind}    if ({cond_c}) {{\n"
+                    f"{ind}    if ({unwrap_condition(cond_c)}) {{\n"
                     f"{ind}      {decl_val} = {then_c};\n"
                     f"{ind}      pengu_list_push(&{tmp_list}, &{tmp_val});\n"
                     f"{ind}    }}\n"
@@ -2349,7 +2350,15 @@ class ExprMixin:
         elif rule == "paren_expr":
             # Keep the grouping visible in the C text; the tree already encodes
             # precedence, so this is only cosmetic.
-            return f"({self._translate_expr(node.children[0], expected_type)})"
+            #
+            # `unwrap_condition` first: the inner expression very often arrives
+            # already wrapped (every comparison and boolean operator emits its own
+            # pair), and `((a == b))` is exactly the shape clang flags as
+            # -Wparentheses-equality -- so `if (a == b):` used to warn even after
+            # the branch emitters stopped adding a pair of their own. The user's
+            # parentheses are emitted here; they must not be duplicated.
+            inner = unwrap_condition(self._translate_expr(node.children[0], expected_type))
+            return f"({inner})"
 
         elif rule in ("lambda_expr", "lambda_no_params"):
             # Lambdas are emitted as top-level 'static' functions by the
@@ -2529,11 +2538,11 @@ class ExprMixin:
                             field_access = f"{t_val}.data.{self._c_ident(simple_pat)}.{self._c_ident(pf)}"
                             clause_code.append(f"{c_t} {self._c_ident(pf)} = {field_access};")
                     if guard:
-                        clause_code.append(f"if ({guard}) {{ {t_res} = ({val}); goto {lbl_end}; }}")
+                        clause_code.append(f"if ({unwrap_condition(guard)}) {{ {t_res} = ({val}); goto {lbl_end}; }}")
                     else:
                         clause_code.append(f"{t_res} = ({val}); goto {lbl_end};")
                     body_str = " ".join(clause_code)
-                    lines.append(f"if ({cond}) {{ {body_str} }}")
+                    lines.append(f"if ({unwrap_condition(cond)}) {{ {body_str} }}")
                 lines.append(f"{t_res} = ({else_val});")
                 lines.append(f"{lbl_end}:;")
                 lines.append(f"{t_res};")

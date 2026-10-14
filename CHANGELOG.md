@@ -346,6 +346,31 @@ fixed, and carries a regression test.
 - 🐛 `pengu_parser/pengu_comptime.py` / `-D wasm`: the define satisfied `defined(wasm)` but **not**
   `when wasm:`, because the latter read the target field only. The two spellings now apply one rule
   (`is_wasm or defined("wasm")`), so they cannot disagree.
+- 🐛 **Code generation: conditions carried an extra pair of parentheses.**
+  `if a == b:` reached the C compiler as `if ((a == b))`, the exact shape clang reports as
+  `-Wparentheses-equality` (it is also the shape of the classic `if ((a = b))` typo); `while` and
+  `unless` did the same (`while ((i < n))`, `if (!((a == b)))`). Every comparison in every `std`
+  module goes through those emitters, so the noise scaled with the stdlib: a program importing
+  `std.tally` produced **50 warnings, 23 of them this one**, from a handful of conditions.
+  The comparison translator must keep its parentheses in *operand* position (`(a == b) + x`,
+  `f((a == b))`), so the fix is a targeted unwrap — `pengu_codegen/_base.py: unwrap_condition` —
+  applied where the code generator wraps a condition in a pair of its own. A pair is removed only
+  when it encloses the whole condition, so `(a) + (b)` and `(a == b) && (c == d)` are untouched, and
+  string / character literals are skipped so a parenthesised literal
+  (`pengu_string_equal(s, "(")`) cannot unbalance the scan.
+  The branch emitters were the reported three — `stmts.py` `if`/`unless`, `loops.py` `while` — but
+  asserting the invariant over a real bundle (rather than trusting that grep) found more of the same
+  mistake, all now fixed by the one helper: `paren_expr` in `exprs.py` added a pair on top of the one
+  the comparison translator already emits, so `if (a == b):` with **explicit source parentheses**
+  kept warning; and the comprehension/filter emitters (`for x in xs when <cond> then x`), the
+  `judge` guards and the `if`-binding emitters in `value_if.py` wrapped a translated condition in a
+  pair of their own.
+  Measured on the same three programs: `1 → 0`, `50 → 27` and `2 → 0` warnings, with
+  `-Wparentheses-equality` going `26 → 0` overall; the residual 27 are all the pre-existing
+  `-Wunused-function` class. After the fix, **0 of the 850 conditions** across those bundles still
+  carry a redundant envelope pair, and behaviour is unchanged (the same conditions were compiled and
+  run before and after, with identical output). Covered by
+  `tests/compiler/test_condition_parens.py` (33 tests).
 
 ### Notes
 
