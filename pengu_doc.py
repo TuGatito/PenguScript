@@ -331,7 +331,9 @@ def doc_project(
     if not os.path.isfile(entry_abs):
         print(f"\033[1;31m      Error\033[0m entry file not found: {entry_abs}", file=sys.stderr)
         return ""
-    order = resolve_imports(base_dir, entry_abs, parser)
+    order = resolve_imports(base_dir, entry_abs, parser,
+                            lib_dir=getattr(config, "lib_dir", "lib"),
+                            src_dir=getattr(config, "src_dir", "src"))
 
     # Parse + check each module once so doc comments and signatures are resolved.
     doc_pages: List[Tuple[str, str]] = []  # (relative output filename, content)
@@ -346,7 +348,9 @@ def doc_project(
             continue
         try:
             tree = parser.parse(code)
-            checker = PenguChecker(base_dir=base_dir, filename=mod_path, compile_env=compile_env)
+            checker = PenguChecker(base_dir=base_dir, filename=mod_path, compile_env=compile_env,
+                                   lib_dir=getattr(config, "lib_dir", "lib"),
+                                   src_dir=getattr(config, "src_dir", "src"))
             checker.check(tree, source=code, filename=mod_path)
         except PenguError as e:
             msg = str(e).splitlines()

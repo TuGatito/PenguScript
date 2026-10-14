@@ -503,10 +503,12 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
 
     parser = PenguParser()
     # Mirror the builder: resolve imports from the *project root* and honour the
-    # manifest's 'lib_dir' (a project may keep bindings outside './lib').
+    # manifest's 'src_dir' / 'lib_dir' (a project may keep its modules in
+    # 'pengu' and its bindings outside './lib').
     project_root = _project_root_for_path(file_path) if file_path else base_dir
     checker = PenguChecker(base_dir=project_root,
-                           lib_dir=_lib_dir_for_project(project_root))
+                           lib_dir=_lib_dir_for_project(project_root),
+                           src_dir=_src_dir_for_project(project_root))
 
     try:
         tree = parser.parse(source)
@@ -874,15 +876,26 @@ def definition(params: DefinitionParams):
     return None
 
 
+#: Files that mark a project root, in the same set the CLI uses when it walks
+#: up from a script (``pengu_project.py``: ``pengu.toml``, ``pengu.yaml``,
+#: ``pengu.yml``, ``pengu.json``, ``Pengu.toml``). ``pengu.toml`` is the default
+#: format, so an LSP that only knew ``pengu.yaml`` used the document's own
+#: directory as the project root and failed to resolve every ``import`` in a
+#: normal project — the binding looked like it exported nothing.
+_PROJECT_MARKERS = ("pengu.toml", "pengu.yaml", "pengu.yml", "pengu.json", "Pengu.toml")
+
+
 def _project_root_for_path(file_path: str) -> str:
-    """Walks up from a document until it finds a project marker (src/ or
-    pengu.yaml); falls back to the document's own directory. The walk is
-    bounded so a loose file never escalates to a filesystem root."""
+    """Walks up from a document until it finds a project marker (a project
+    manifest, or a ``src/`` directory for manifest-less layouts); falls back to
+    the document's own directory. The walk is bounded so a loose file never
+    escalates to a filesystem root."""
     cur = file_path if os.path.isdir(file_path) else os.path.dirname(file_path)
     start = os.path.abspath(cur)
     cur = start
     for _ in range(8):
-        if os.path.isfile(os.path.join(cur, "pengu.yaml")) or os.path.isdir(os.path.join(cur, "src")):
+        if (any(os.path.isfile(os.path.join(cur, marker)) for marker in _PROJECT_MARKERS)
+                or os.path.isdir(os.path.join(cur, "src"))):
             return cur
         parent = os.path.dirname(cur)
         if parent == cur:
@@ -905,6 +918,21 @@ def _lib_dir_for_project(project_root: str) -> str:
         return getattr(cfg, "lib_dir", "lib") or "lib"
     except Exception:
         return "lib"
+
+
+def _src_dir_for_project(project_root: str) -> str:
+    """Reads ``src_dir`` from the project's manifest (default ``'src'``).
+
+    Mirrors :func:`_lib_dir_for_project`: a project that keeps its modules in
+    ``src_dir = "pengu"`` must have them resolved from that directory, or every
+    ``import`` in a document outside it is reported as unresolved.
+    """
+    try:
+        from pengu_project import ProjectConfig
+        cfg = ProjectConfig.load(project_root)
+        return getattr(cfg, "src_dir", "src") or "src"
+    except Exception:
+        return "src"
 
 
 @server.feature(TEXT_DOCUMENT_IMPLEMENTATION)
@@ -1247,7 +1275,8 @@ def _file_symbols(path: str, text: str) -> Optional[SymbolTable]:
     if hit is not None and hit[0] == key:
         return hit[1]
     project_root = _project_root_for_path(path)
-    checker = PenguChecker(base_dir=project_root, lib_dir=_lib_dir_for_project(project_root))
+    checker = PenguChecker(base_dir=project_root, lib_dir=_lib_dir_for_project(project_root),
+                           src_dir=_src_dir_for_project(project_root))
     symbols: Optional[SymbolTable] = None
     try:
         checker.check(PenguParser().parse(text), source=text, filename=path)

@@ -682,7 +682,8 @@ class PenguBuilder:
                 self.compile_env.defines["emcc"] = True
         from pengu_parser.pengu_checker import PenguChecker as _PenguChecker
         self.checker = _PenguChecker(base_dir=config.base_dir, compile_env=self.compile_env,
-                                     lib_dir=getattr(config, "lib_dir", "lib"))
+                                     lib_dir=getattr(config, "lib_dir", "lib"),
+                                     src_dir=getattr(config, "src_dir", "src"))
         # Verbose mode: print the resolved module order, the exact C commands
         # being executed and phase timings.
         self.verbose = False
@@ -1434,7 +1435,8 @@ class PenguBuilder:
         if os.path.isfile(entry_abs):
             from pengu_parser.pengu_symbols import resolve_imports as _resolve_imports
             module_order = _resolve_imports(self.config.base_dir, entry_abs, self.parser,
-                                            lib_dir=getattr(self.config, "lib_dir", "lib"))
+                                            lib_dir=getattr(self.config, "lib_dir", "lib"),
+                                            src_dir=getattr(self.config, "src_dir", "src"))
         elif self.source_code is not None:
             module_order = [entry_abs]
         else:
@@ -1579,7 +1581,8 @@ class PenguBuilder:
             try:
                 from pengu_parser.pengu_symbols import resolve_imports as _resolve_imports
                 module_order = _resolve_imports(self.config.base_dir, entry_abs, self.parser,
-                                            lib_dir=getattr(self.config, "lib_dir", "lib"))
+                                            lib_dir=getattr(self.config, "lib_dir", "lib"),
+                                            src_dir=getattr(self.config, "src_dir", "src"))
             except Exception as e:  # noqa: BLE001 - parse/import failure in the entry graph
                 return False, [_diag(e, entry_abs)]
         else:
@@ -5873,16 +5876,21 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     # script resolve different modules depending on where it was invoked from.
     # The script's own directory is the predictable rule (and the one `check`
     # already uses); `--config` overrides it explicitly.
+    # A project file above the script (`src/app.pengu` inside a project) owns
+    # the layout, so the import roots come from the *manifest*: its `src_dir` /
+    # `lib_dir`, not the defaults.  Without this, `pengu run examples/x.pengu`
+    # in a project with `src_dir = "pengu"` looked for `import m` in
+    # `<base>/src/m.pengu` and never found the project's own modules.
+    project_files = ("pengu.toml", "pengu.yaml", "pengu.yml", "pengu.json", "Pengu.toml")
     if config_path:
-        base_dir = ProjectConfig.load(config_path).base_dir
+        manifest = ProjectConfig.load(config_path)
+        base_dir = manifest.base_dir
     else:
-        # A project file above the script (`src/app.pengu` inside a project) owns
-        # the layout, so the search walks up from the script; otherwise the
-        # script's own directory is the base.  The one thing it is never is the
-        # cwd: `pengu run` from two directories must resolve the same modules.
+        # The search walks up from the script; otherwise the script's own
+        # directory is the base.  The one thing it is never is the cwd: `pengu
+        # run` from two directories must resolve the same modules.
         base_dir = os.path.dirname(script_abs) or os.getcwd()
         probe = base_dir
-        project_files = ("pengu.toml", "pengu.yaml", "pengu.yml", "pengu.json", "Pengu.toml")
         while True:
             if any(os.path.isfile(os.path.join(probe, cand)) for cand in project_files):
                 base_dir = probe
@@ -5891,6 +5899,18 @@ def run_script(script: str, defines: Optional[List[str]] = None,
             if parent == probe:
                 break
             probe = parent
+        manifest = None
+        if any(os.path.isfile(os.path.join(base_dir, cand)) for cand in project_files):
+            try:
+                manifest = ProjectConfig.load(base_dir)
+            except Exception:
+                manifest = None
+    if manifest is not None:
+        script_src_dir = getattr(manifest, "src_dir", "src") or "src"
+        script_lib_dir = getattr(manifest, "lib_dir", "lib") or "lib"
+        include_dir = getattr(manifest, "include_dir", "include") or "include"
+    else:
+        script_src_dir, script_lib_dir, include_dir = "src", "lib", "include"
     rel = _display_relpath(script_abs, base_dir)
     entry = rel if not rel.startswith("..") else script_abs
     out_name = os.path.splitext(os.path.basename(script_abs))[0]
@@ -5902,6 +5922,9 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         output_name=out_name,
         name=out_name,
         assets_dir="",
+        src_dir=script_src_dir,
+        lib_dir=script_lib_dir,
+        include_dir=include_dir,
         # 'pengu run script.pengu' needs the runtime archive: the string /
         # container helpers it calls live in libpengu_runtime.a.
         links=["pengu_runtime"],
@@ -5940,7 +5963,8 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         from pengu_parser.pengu_parser import PenguParser as _PenguParser2
 
         def _resolve() -> List[str]:
-            return _resolve_imports3(base_dir, script_abs, _PenguParser2())
+            return _resolve_imports3(base_dir, script_abs, _PenguParser2(),
+                                     lib_dir=script_lib_dir, src_dir=script_src_dir)
 
         module_order = resolve_module_list_cached(script_abs, _resolve)
     except Exception:

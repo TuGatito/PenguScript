@@ -574,13 +574,16 @@ def get_stdlib_dirs(base_abs: str) -> List[str]:
 
 
 def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = None,
-                     lib_dir: str = "lib") -> Optional[str]:
+                     lib_dir: str = "lib", src_dir: str = "src") -> Optional[str]:
     """Finds candidate file for a dotted import path.
 
     Searches in:
     1. Standard library candidate directories (if dot_path starts with 'std').
     2. Relative to the importing file's directory (from_dir).
-    3. Project source directory (base_dir/src/).
+    3. Project source directory (base_dir/<src_dir>/); ``src_dir`` comes from the
+       project's manifest and defaults to 'src'. A project that keeps its
+       modules elsewhere (``src_dir = "pengu"``) still resolves them here, which
+       is what lets a document outside that directory `import` them.
     4. External bindings directory (base_dir/<lib_dir>/<binding>/pengu/ and
        base_dir/<lib_dir>/<binding>/); ``lib_dir`` comes from the project's
        ``pengu.yaml`` and defaults to 'lib'.
@@ -591,6 +594,7 @@ def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = Non
         dot_path: Dotted module import path (e.g. 'std.spark' or 'player').
         from_dir: Optional directory of the importing file.
         lib_dir: External bindings directory name (pengu.yaml 'lib_dir').
+        src_dir: Project source directory name (pengu.yaml 'src_dir').
 
     Returns:
         Resolved absolute file path string, or None if not found.
@@ -628,11 +632,11 @@ def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = Non
     if from_dir:
         _add_candidates(os.path.join(from_abs, *parts))
 
-    # 3. Project src/ directory
-    src_dir = os.path.join(base_abs, "src")
-    if os.path.isdir(src_dir):
-        _add_candidates(os.path.join(src_dir, *parts))
-        if parts[0] == "src":
+    # 3. Project source directory (manifest 'src_dir', default 'src')
+    src_root = os.path.join(base_abs, src_dir or "src")
+    if os.path.isdir(src_root):
+        _add_candidates(os.path.join(src_root, *parts))
+        if parts[0] == src_dir:
             _add_candidates(os.path.join(base_abs, *parts))
 
     # 4. Project external bindings directory (pengu.yaml 'lib_dir', default 'lib')
@@ -680,7 +684,7 @@ def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = Non
 
 
 def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None,
-                    lib_dir: str = "lib") -> List[str]:
+                    lib_dir: str = "lib", src_dir: str = "src") -> List[str]:
     """Resolves all module dependencies starting from an entry point and returns topological order.
 
     Args:
@@ -688,6 +692,7 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
         entry_file: Relative or absolute path to the main entry file.
         parser: Optional PenguParser instance for parsing import ASTs.
         lib_dir: External bindings directory name (pengu.yaml 'lib_dir').
+        src_dir: Project source directory name (pengu.yaml 'src_dir').
     """
     if parser is None:
         from .pengu_parser import PenguParser
@@ -695,7 +700,7 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
 
     entry_abs = os.path.abspath(os.path.join(base_dir, entry_file)) if not os.path.isabs(entry_file) else os.path.abspath(entry_file)
     if not os.path.isfile(entry_abs):
-        src_cand = os.path.abspath(os.path.join(base_dir, "src", entry_file))
+        src_cand = os.path.abspath(os.path.join(base_dir, src_dir or "src", entry_file))
         if os.path.isfile(src_cand):
             entry_abs = src_cand
 
@@ -726,7 +731,7 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
                     dot_path = ".".join(_extract_names(path_tree))
                     mod_path = find_module_path(base_abs, dot_path,
                                                 from_dir=os.path.dirname(file_path),
-                                                lib_dir=lib_dir)
+                                                lib_dir=lib_dir, src_dir=src_dir)
                     if not mod_path:
                         raise SemanticError(
                             f"Cannot resolve imported module '{dot_path}'",

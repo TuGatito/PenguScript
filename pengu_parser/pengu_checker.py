@@ -349,7 +349,8 @@ class PenguChecker:
         source_code: Optional[str] = None,
         base_dir: Optional[str] = None,
         compile_env: Optional[CompileTimeEnv] = None,
-        lib_dir: str = "lib"
+        lib_dir: str = "lib",
+        src_dir: str = "src"
     ):
         """Initializes semantic checker instance with source code and directory context.
 
@@ -360,10 +361,13 @@ class PenguChecker:
             base_dir: Base directory for module import resolution.
             compile_env: Optional compile-time environment for 'when' clauses.
             lib_dir: External bindings directory name (pengu.yaml 'lib_dir').
+            src_dir: Project source directory name (pengu.yaml 'src_dir'); the
+                directory import resolution searches before ``lib_dir``.
         """
         self.source_code = source_code if source_code is not None else source
         self.filename = filename
         self.lib_dir = lib_dir or "lib"
+        self.src_dir = src_dir or "src"
         if base_dir is not None:
             self.base_dir = os.path.abspath(base_dir)
         elif os.path.isabs(filename) or "/" in filename or "\\" in filename:
@@ -960,14 +964,16 @@ class PenguChecker:
                 mod_file = None
                 try:
                     from_d = os.path.dirname(os.path.abspath(self.filename)) if self.filename else None
-                    mod_file = find_module_path(self.base_dir, dot_path, from_dir=from_d)
+                    mod_file = find_module_path(self.base_dir, dot_path, from_dir=from_d,
+                                                lib_dir=self.lib_dir, src_dir=self.src_dir)
                     if mod_file and os.path.isfile(mod_file):
                         with open(mod_file, "r", encoding="utf-8") as mf:
                             mod_code = mf.read()
                         from .pengu_parser import PenguParser
                         sub_parser = PenguParser()
                         sub_tree = _cached_module_tree(mod_file, mod_code, sub_parser)
-                        sub_checker = PenguChecker(base_dir=self.base_dir)
+                        sub_checker = PenguChecker(base_dir=self.base_dir,
+                                                   lib_dir=self.lib_dir, src_dir=self.src_dir)
                         sub_checker.source_code = mod_code
                         sub_checker.filename = mod_file
                         sub_checker._collect_top_level(sub_tree, import_order=[])
@@ -2438,7 +2444,8 @@ class PenguChecker:
                 try:
                     order = resolve_imports(self.base_dir, target_file,
                                             parser=getattr(self, "parser", None),
-                                            lib_dir=getattr(self, "lib_dir", "lib"))
+                                            lib_dir=getattr(self, "lib_dir", "lib"),
+                                            src_dir=getattr(self, "src_dir", "src"))
                     self.symbols.import_order = order
                     from .pengu_parser import PenguParser
                     mod_parser = getattr(self, "parser", None) or PenguParser()
