@@ -18,6 +18,7 @@ is applied; the slow test proves the warning is actually gone.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -325,11 +326,16 @@ def test_no_extraneous_parentheses_warning(tmp_path, pengu_root):
 
     script = tmp_path / "cond.pengu"
     script.write_text(_CONDITION_SOURCE, encoding="utf-8")
+    # The environment must be inherited, not replaced: CI has no TCC bundle, so
+    # the driver falls back to the bare name 'gcc', whose own driver locates
+    # 'cc1'/'ld' through PATH.  A stripped env made gcc die with
+    # "cannot execute 'cc1'" on Linux runners (macOS 'gcc' is clang, which
+    # resolves its toolchain by absolute path, so only Linux broke).
     build = subprocess.run(
         [sys.executable, str(pengu_root / "pengu_project.py"), "run",
          "--no-cache", "--keep", str(script)],
         capture_output=True, text=True, timeout=600, cwd=str(tmp_path),
-        env={"PYTHONPATH": str(pengu_root)})
+        env={**os.environ, "PYTHONPATH": str(pengu_root)})
     assert build.returncode == 0, f"{build.stdout}\n{build.stderr}"
 
     bundle_dir = tmp_path / "build" / "cond_run"
