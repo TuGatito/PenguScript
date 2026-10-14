@@ -1,18 +1,46 @@
 import * as vscode from 'vscode';
 import {
+    CloseAction,
+    ErrorAction,
+    ErrorHandler,
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
     TransportKind
 } from 'vscode-languageclient/node';
+import { PenguCommand, isFile, resolvePenguCommand } from './penguPath';
 
-let client: LanguageClient;
+let client: LanguageClient | undefined;
 let penguTerminal: vscode.Terminal | undefined;
+let output: vscode.OutputChannel | undefined;
 
+/** Writes to the extension's own output channel (view: "PenguScript"). */
+function log(message: string): void {
+    output?.appendLine(`[pengus] ${message}`);
+}
+
+/**
+ * Feeds the current editor state into the pure search in `penguPath.ts`.
+ *
+ * `workspaceFolders` is what makes a project-local binary (`.venv/bin/pengu`,
+ * `./pengu`) win over nothing at all when `PATH` has no `pengu` — the normal
+ * case for a VS Code started from the desktop.
+ */
+function resolvePengu(): PenguCommand | undefined {
+    const configured = vscode.workspace.getConfiguration('pengus').get<string>('executablePath');
+    const workspaceFolders = (vscode.workspace.workspaceFolders ?? [])
+        .filter((folder) => folder.uri.scheme === 'file')
+        .map((folder) => folder.uri.fsPath);
+    return resolvePenguCommand({
+        configuredPath: configured,
+        envPath: process.env.PENGU_BIN_PATH,
+        workspaceFolders
+    });
+}
+
+/** The command the terminal commands should run (falls back to a bare name). */
 function getPenguCommand(): string {
-    const config = vscode.workspace.getConfiguration('pengus');
-    const customPath = config.get<string>('executablePath');
-    return customPath ? customPath : (process.platform === 'win32' ? 'pengu.exe' : 'pengu');
+    return resolvePengu()?.command ?? (process.platform === 'win32' ? 'pengu.exe' : 'pengu');
 }
 
 function getPenguProfile(): string {
@@ -33,16 +61,49 @@ function runInTerminal(cmd: string) {
     terminal.sendText(cmd);
 }
 
-export function activate(context: vscode.ExtensionContext) {
-    const command = getPenguCommand();
+async function reportMissingPengu(configured?: string): Promise<void> {
+    const detail = configured
+        ? `\`${configured}\` no existe.`
+        : 'No se encontró en `pengus.executablePath`, `$PENGU_BIN_PATH`, el `PATH` ni en las ubicaciones habituales.';
+    log(`no pengu executable: ${detail}`);
+    log(`PATH=${process.env.PATH || ''}`);
 
-    // Configuración del servidor: Ejecuta el binario o script LSP
+    const choice = await vscode.window.showErrorMessage(
+        `PenguScript: no se encontró el binario \`pengu\`. ${detail} ` +
+        'El servidor de lenguaje no puede arrancar.',
+        'Seleccionar el ejecutable…',
+        'Abrir ajustes',
+        'Ver registro'
+    );
+    if (choice === 'Seleccionar el ejecutable…') {
+        await vscode.commands.executeCommand('pengus.selectExecutable');
+    } else if (choice === 'Abrir ajustes') {
+        await vscode.commands.executeCommand('workbench.action.openSettings', 'pengus.executablePath');
+    } else if (choice === 'Ver registro') {
+        output?.show();
+    }
+}
+
+/** Starts the language client against the resolved executable. */
+function startClient(): void {
+    const resolved = resolvePengu();
+    if (!resolved) {
+        void reportMissingPengu();
+        return;
+    }
+    if (!isFile(resolved.command)) {
+        void reportMissingPengu(resolved.command);
+        return;
+    }
+    log(`launching "${resolved.command}" lsp --stdio (from ${resolved.source})`);
+
+    // Ejecuta el binario o script LSP.
     const serverOptions: ServerOptions = {
-        run: { command: command, args: ['lsp', '--stdio'], transport: TransportKind.stdio },
-        debug: { command: command, args: ['lsp', '--stdio'], transport: TransportKind.stdio }
+        run: { command: resolved.command, args: ['lsp', '--stdio'], transport: TransportKind.stdio },
+        debug: { command: resolved.command, args: ['lsp', '--stdio'], transport: TransportKind.stdio }
     };
 
-    // Opciones del cliente: observar los fuentes y los manifiestos del proyecto
+    // Observa los fuentes y los manifiestos del proyecto.
     const clientOptions: LanguageClientOptions = {
         documentSelector: [
             { scheme: 'file', language: 'pengus' }
@@ -60,10 +121,20 @@ export function activate(context: vscode.ExtensionContext) {
                     '**/{pengu,Pengu}.{toml,yaml,yml,json,lock}'
                 )
             ]
-        }
+        },
+        // Log every protocol error; keep the client library's own retry policy.
+        errorHandler: {
+            error: (error, message, count) => {
+                log(`protocol error (${message?.jsonrpc ?? '?'}, attempt ${count}): ${String(error)}`);
+                return { action: ErrorAction.Continue };
+            },
+            closed: () => {
+                log('connection closed');
+                return { action: CloseAction.Restart };
+            }
+        } as ErrorHandler
     };
 
-    // Crea y arranca el cliente LSP
     client = new LanguageClient(
         'pengusLSP',
         'PenguScript Language Server',
@@ -72,13 +143,68 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     client.start();
+}
+
+//: In-flight restart, so a command and the configuration listener that it
+//: triggers cannot both start a client.
+let restarting: Promise<void> | undefined;
+
+/** Stops the current client (if any) and starts a fresh one. */
+async function restartClient(): Promise<void> {
+    if (restarting) {
+        return restarting;
+    }
+    restarting = (async () => {
+        if (client) {
+            const previous = client;
+            client = undefined;
+            try {
+                await previous.stop();
+            } catch (error) {
+                log(`stopping the previous client failed: ${String(error)}`);
+            }
+        }
+        startClient();
+    })();
+    try {
+        await restarting;
+    } finally {
+        restarting = undefined;
+    }
+}
+
+async function selectExecutable(): Promise<void> {
+    const picked = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        openLabel: 'Usar este pengu',
+        title: 'Selecciona el ejecutable `pengu`'
+    });
+    if (!picked || picked.length === 0) {
+        return;
+    }
+    const chosen = picked[0].fsPath;
+    await vscode.workspace
+        .getConfiguration('pengus')
+        .update('executablePath', chosen, vscode.ConfigurationTarget.Global);
+    log(`pengus.executablePath -> ${chosen}`);
+    // `update()` fires onDidChangeConfiguration, which restarts the client; the
+    // serialised `restartClient` makes doing it here harmless.
+    await restartClient();
+}
+
+export function activate(context: vscode.ExtensionContext) {
+    output = vscode.window.createOutputChannel('PenguScript');
+    context.subscriptions.push(output);
+
+    startClient();
 
     // Registro de comandos
-    const restartCmd = vscode.commands.registerCommand('pengus.restartLsp', () => {
-        if (client) {
-            client.stop().then(() => client.start());
-        }
-    });
+    const restartCmd = vscode.commands.registerCommand('pengus.restartLsp', () => restartClient());
+
+    const selectExecutableCmd = vscode.commands.registerCommand(
+        'pengus.selectExecutable',
+        () => selectExecutable()
+    );
 
     const buildCmd = vscode.commands.registerCommand('pengus.build', () => {
         const cmd = getPenguCommand();
@@ -126,6 +252,7 @@ export function activate(context: vscode.ExtensionContext) {
             { label: '$(book) Generate Documentation', description: 'pengu doc', detail: 'Generate Markdown documentation from ## comments' },
             { label: '$(trash) Clean Project', description: 'pengu clean', detail: 'Clean build artifacts' },
             { label: '$(new-folder) Initialize Project', description: 'pengu init', detail: 'Initialize a new project scaffold' },
+            { label: '$(file-binary) Select pengu Executable', description: 'pengus.selectExecutable', detail: 'Point the extension at a specific pengu binary' },
             { label: '$(sync) Restart Language Server', description: 'pengus.restartLsp', detail: 'Restart the PenguScript LSP server' }
         ];
 
@@ -146,13 +273,42 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.commands.executeCommand('pengus.clean');
             } else if (selected.label.includes('Initialize Project')) {
                 vscode.commands.executeCommand('pengus.init');
+            } else if (selected.label.includes('Select pengu Executable')) {
+                vscode.commands.executeCommand('pengus.selectExecutable');
             } else if (selected.label.includes('Restart Language Server')) {
                 vscode.commands.executeCommand('pengus.restartLsp');
             }
         }
     });
 
-    context.subscriptions.push(restartCmd, buildCmd, runCmd, testCmd, docCmd, cleanCmd, initCmd, showMenuCmd);
+    // A path chosen in the settings takes effect immediately.
+    const configListener = vscode.workspace.onDidChangeConfiguration(async (event) => {
+        if (event.affectsConfiguration('pengus.executablePath')) {
+            log('pengus.executablePath changed; restarting the language client');
+            await restartClient();
+        }
+    });
+
+    // A folder added to the workspace can make a project-local binary visible.
+    const folderListener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        if (!client) {
+            startClient();
+        }
+    });
+
+    context.subscriptions.push(
+        restartCmd,
+        selectExecutableCmd,
+        buildCmd,
+        runCmd,
+        testCmd,
+        docCmd,
+        cleanCmd,
+        initCmd,
+        showMenuCmd,
+        configListener,
+        folderListener
+    );
 }
 
 export function deactivate(): Thenable<void> | undefined {

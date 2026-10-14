@@ -3,7 +3,7 @@
     "displayName": "PenguScript",
     "description": "Language support, LSP intelligence, and cargo-like project management for PenguScript.",
     "publisher": "pengus-lang",
-    "version": "2.2.2",
+    "version": "2.2.3",
     "icon": "./icons/pengu_icon.png",
     "keywords": [
         "pengus",
@@ -108,6 +108,11 @@
                 "category": "PenguScript"
             },
             {
+                "command": "pengus.selectExecutable",
+                "title": "PenguScript: Select pengu Executable",
+                "category": "PenguScript"
+            },
+            {
                 "command": "pengus.restartLsp",
                 "title": "PenguScript: Restart Language Server",
                 "category": "PenguScript"
@@ -125,7 +130,7 @@
                 "pengus.executablePath": {
                     "type": "string",
                     "default": "",
-                    "description": "Custom filesystem path to the 'pengu' standalone executable or binary."
+                    "markdownDescription": "Path to the `pengu` executable (standalone release, `pengu.exe`, or a project's `.venv/bin/pengu`). When empty the extension searches `$PENGU_BIN_PATH`, then `PATH`, then the usual release locations (`./pengu`, `./.venv/bin/pengu`, `~/pengu/pengu`, `~/.local/bin/pengu`, `/usr/local/bin/pengu`)."
                 },
                 "pengus.defaultProfile": {
                     "type": "string",

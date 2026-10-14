@@ -2,7 +2,103 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.2.3] — 2026-10-14 — VS Code: the extension finds `pengu` instead of `spawn pengu ENOENT`
+
+The VS Code extension shipped in 2.2.2 installed cleanly and then could not start
+the language server at all:
+
+```
+PenguScript Language Server client: couldn't create connection to server.
+Launching server using command pengu failed. Error: spawn pengu ENOENT
+```
+
+`pengu` was installed — a release unpacked into `~/pengu`, with `~/pengu` on the
+`PATH` a login shell builds. The editor simply never saw that `PATH`: a VS Code
+started from the desktop inherits the *graphical session's* environment, and on
+Linux that comes from systemd, not from `~/.bashrc`. `systemctl --user
+show-environment` shows the shorter `PATH` the editor really has.
+
+The extension made this worse by trusting a bare name: it spawned `pengu` and let
+`child_process` fail, so the only feedback was the raw spawn error above, with
+nothing about where the extension had looked or how to fix it.
+
+### Added
+
+- ✨ **`PenguScript: Select pengu Executable`** (`pengus.selectExecutable`): opens
+  a file picker and stores the choice in `pengus.executablePath`. It is also the
+  first button on the "no se encontró el binario `pengu`" message that the
+  extension now shows instead of a bare spawn failure.
+
+### Fixed
+
+- 🐛 **VS Code: `spawn pengu ENOENT` when `pengu` is not on the editor's
+  `PATH`.** `vscode-extension/src/penguPath.ts` resolves the executable in a
+  documented order — `pengus.executablePath`, then `$PENGU_BIN_PATH`, then
+  `PATH`, then the usual release locations (`./pengu`, `./bin/pengu`,
+  `./dist/pengu`, `./build/pengu`, `./.venv/bin/pengu` and the Windows `Scripts`
+  equivalents, `~/pengu/pengu`, `~/.local/bin/pengu`, `~/bin/pengu`,
+  `/usr/local/bin/pengu`, `/usr/bin/pengu`, `/opt/pengu/pengu`) — and logs the
+  winner and its origin to the "PenguScript" output channel. When nothing is
+  found the user gets an actionable message with **Seleccionar el ejecutable…**,
+  **Abrir ajustes** and **Ver registro**, and the client is simply not started
+  instead of failing obscurely. The module takes every input, including the
+  `isFile` predicate, as an option, which is what makes the whole table testable
+  under plain Node.
+- 🐛 **VS Code: two Windows lookups were off by one extension.** `PATHEXT` was
+  appended to a name that already ended in `.exe` (the search looked for
+  `pengu.exe.EXE`), and the virtualenv candidates built
+  `.venv/Scripts/pengu.exe.exe`. Both are pinned by the Node driver below. The
+  path flavour now follows the *target* platform rather than the host, so the
+  Windows branch is exercised from Linux.
+- 🐛 **VS Code: a `pengus.executablePath` change did nothing until reload.**
+  Changing the setting now restarts the language client immediately, and a
+  workspace folder added later retries the start (a project-local
+  `.venv/bin/pengu` only becomes visible once its folder is open). Restarts are
+  serialised, because writing the setting from `pengus.selectExecutable` also
+  fires the configuration listener.
+
+### Changed
+
+- 🔧 `VERSION`, `pengu_version.FALLBACK_VERSION`, `vscode-extension/package.json`
+  and its lockfile, the README version badge and `docs/README_RELEASE.md` carry
+  `2.2.3`; `vscode-extension/pengus-2.2.3.vsix` is packaged from the rebuilt
+  bundle.
+- 🔧 `vscode-extension/package.json` documents the search order in the
+  `pengus.executablePath` description, and `.vscodeignore` keeps the extension's
+  own `test/` driver out of the `.vsix`.
+
+### Tests
+
+- 🧪 `tests/lsp/test_vscode_pengu_path.py` drives
+  `vscode-extension/test/pengu_path_check.js` under Node: it compiles
+  `src/penguPath.ts` and pins the whole lookup table against a synthetic
+  filesystem — the reported case (`PATH` without `pengu`, plus `~/pengu/pengu`),
+  a workspace-local `.venv/bin/pengu` winning over the home copy, `PATH` winning
+  over both, the setting and `$PENGU_BIN_PATH` winning over everything, `~`
+  expansion, a blank setting being ignored, `PATHEXT` on Windows, and the
+  "found nothing" answer that triggers the message. Removing the
+  `~/pengu/pengu` candidate makes it fail, and fixing the Windows `PATHEXT` bug
+  is what made it pass. It skips when Node or the extension's `node_modules` is
+  absent, so it never blocks a fresh checkout.
+- 🧪 `pengu selftest --smoke`: **254 passed, 28 deselected**.
+- 🧪 Outside pytest, with the extension's real resolution inputs: against the
+  `PATH` a desktop-launched VS Code actually has
+  (`/usr/local/sbin:/usr/local/bin:/usr/bin:…`), the search resolves
+  `~/pengu/pengu`; with the compiler checkout open it resolves the checkout's
+  `.venv/bin/pengu`. Both were then driven over stdio with the
+  `textDocument/completion` sequence from 2.2.2 and answered
+  `x, y, width, height, move` for `player.`.
+- 🧪 The packaged `.vsix` was verified against the tree: the bundled
+  `out/extension.js` hash matches the local build, `test/` is excluded, the
+  manifest carries `2.2.3` and the new command, and the installed copy under
+  `~/.vscode-oss/extensions/pengus-lang.pengus-2.2.3` is byte-identical to it.
+  VS Code itself was not driven (its extension-test harness downloads a second
+  copy of the editor), so the remaining link — the editor calling
+  `child_process.spawn` with the resolved absolute path — is framework code this
+  release does not touch.
+
 ## [2.2.2] — 2026-10-14 — LSP: completions survive a half-typed line
+
 
 `var player as Player is with x is 1, …` followed by `player.` offered the
 keyword list instead of `x`, `y`, `width`, `height` — and typing the identifier
