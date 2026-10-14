@@ -1,6 +1,6 @@
 # PenguScript
 
-![Version](https://img.shields.io/badge/version-2.0.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+![Version](https://img.shields.io/badge/version-2.2.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) ![WebAssembly](https://img.shields.io/badge/target-WebAssembly%20%28Emscripten%29-purple)
 
 **🌍 Languages / Idiomas:** [🇬🇧 English](#-english) · [🇪🇸 Español](#-español)
 
@@ -11,7 +11,7 @@
 > repositorio; las secciones en español son traducciones **no normativas** del mismo
 > contenido.
 
-> **Status:** active development. CI builds the C runtime, runs `pytest tests/`, and packages a standalone release (compiler + VS Code extension) on **Windows, Linux and macOS** — see `.github/workflows/ci.yml`; tagged releases are published by `.github/workflows/release.yml`.
+> **Status:** active development. CI builds the C runtime, runs `pytest tests/`, packages a standalone release (compiler + VS Code extension) on **Windows, Linux and macOS**, and cross-builds the runtime plus a runnable demo for **WebAssembly (Emscripten)** — see `.github/workflows/ci.yml`; tagged releases are published by `.github/workflows/release.yml`.
 
 > [!WARNING]
 >
@@ -60,6 +60,12 @@
 > - Embed **literal C** in a `.pengu` file with `antiquus` (`r"""…"""` bodies,
 >   `@export("c_name")` to pin the emitted symbol) and chain methods in one
 >   `calling` (`calling x.a.b.c`) — see *What's new in 2.0* below.
+> - **Compile to WebAssembly** through Emscripten with
+>   `pengu build --target wasm32-unknown-emscripten` (alias `--target wasm`):
+>   a self-contained `app.html` + `app.js` + `app.wasm` page that `node app.js`
+>   also runs headlessly, `std.filum` threads as real Web Workers, and the
+>   `std.web` bridge for the JS console, the main loop, timers and `eval_js` —
+>   see *What's new in 2.2* below.
 >
 > Published measurements: [`BENCHMARKS.md`](BENCHMARKS.md). Operational release steps: [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md). Security policy: [`SECURITY.md`](SECURITY.md).
 >
@@ -73,6 +79,9 @@
 >   `--system-includes`, `--preprocessed`), but some third-party headers still
 >   need extra flags or hand-maintained tweaks, and the CLI has no `-I`/`-L`/`-l`
 >   flags — use `pengu.yaml`.
+> - **WASI** is not supported: `--target wasm32-wasi` is recognised and refused
+>   with a clear message. Emscripten (`wasm32-unknown-emscripten`) is the only
+>   WebAssembly target, and `shared` output is refused for it.
 >
 > P0 (operational hygiene), P1 (the C shapes the C-interop corpus needed), P2
 > (breadth and safety: 2-D arrays, explicit memory release, strict
@@ -92,6 +101,24 @@
 ---
 
 ## 🇬🇧 English
+
+### What's new in 2.2 — compile to WebAssembly
+
+PenguScript 2.2 adds a **WebAssembly target**: the same `.pengu` source builds natively *and* for the browser (or headless Node) through Emscripten, with no source changes and no per-target branches in user code. As with every release since 1.x, 2.2 is **additive** — no existing program stops compiling.
+
+- **`--target wasm32-unknown-emscripten`** — accepted by `pengu build`, `pengu run` and `pengu test`, and configurable as `target:` under `[build]`/`build:` in `pengu.toml`/`pengu.yaml`; `--target wasm` is a shorthand. The build needs the Emscripten SDK (`emcc`/`emar`) plus a runtime archive built for the target (`python build_runtime.py --target emscripten`); the host archive in `build/lib/` is never reused, because a wasm object and a host object are not interchangeable ([§20.2.3.1](LANGUAGE.md#20231-webassembly---target-wasm32-unknown-emscripten), [docs/WASM.md](docs/WASM.md)).
+- **Artifacts** — `exe` becomes a self-contained page (`app.html` + `app.js` + `app.wasm`); `node build/app.js` runs it headlessly and forwards the exit status. `obj` becomes a wasm object and `static` becomes `app.a`, an archive of real wasm objects built with `emar` and linkable into another wasm bundle. `c` is still `bundle.c`; `shared` is **refused** (a wasm side module would need `-fPIC` on every input, the runtime included).
+- **`std.web`** — the Web/Emscripten bridge: the JS console (`console_log`, `console_warn`, `console_error`, `console_trace`), a real main loop (`set_main_loop` with optional fps and `simulate_infinite_loop`, `cancel_main_loop`, `pause_main_loop`, `resume_main_loop`), monotonic `now_ms`, `eval_js` and flag-free timers (`set_timeout`/`clear_timeout`), plus the `IS_WASM` constant. Native builds get the same API (console → stderr, Web-only entry points `panic` with an actionable message), the untaken branch is folded away before codegen, and DCE drops wasm helpers a program does not call ([§19](LANGUAGE.md#19-standard-library)).
+- **Compile-time `wasm` / `wasm_target`** — `when wasm:` is true for any WebAssembly target, `when wasm_target == "emscripten":` distinguishes it from a future `wasi`, and `defined(wasm)` answers identically. `compiler` reports `emcc` for the target (configured or auto-detected) and `os` sees `emscripten` ([§16](LANGUAGE.md#16-conditional-compilation-when)).
+- **`std.filum` on real Web Workers** — `-pthread` is added exactly when a program imports `std.filum`, which is the same condition that switches the `PENGU_ENABLE_THREADS` gate on, so goroutines become Web Workers over `SharedArrayBuffer` + wasm atomics. A browser then needs `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`; Node is unaffected.
+- **`exec`/`spawn` do not exist in wasm** — `pengu_c_exec`/`pengu_c_spawn` write a diagnostic and return `-1` there instead of misreporting success. Everything else (strings, containers, `maybe`/`result`, `std.archivum`'s file API over Emscripten's virtual FS, time, math) works unchanged.
+- **WASI is not supported** — `wasm32-wasi` is recognised and refused with a clear message, never silently treated as the host.
+
+### What's new in 2.1 — reusable packages as templates
+
+- **`pengu init --template pengu-lib`** creates a pure PenguScript library: the module lives in `pengu/<name>.pengu` with inline `test` blocks, and `entry`/`src_dir` point at `pengu/` so `pengu test` runs inside the library.
+- **`pengu init --template cbind`** creates a C library binding: `pengu/<name>.d.pengu` (with `include "..."` + `link "..."`), a real `include/<name>.h`, a toy `c/<name>.c` that compiles out of the box, an empty `lib/`, a portable `build.py` and a README. Consumers install it with `pengu add <repo> --trust` and `import <name>`.
+- **`pengu new cbind <name>` / `pengu new pengu-lib <name>`** — the template-first spelling, and **`--force`** (`-f`) writes into an existing non-empty directory, which `init`/`new` otherwise refuse. See [Making bindings](#making-bindings-pure-penguscript-libraries-and-c-bindings).
 
 ### What's new in 2.0
 
@@ -175,7 +202,7 @@ PenguScript 2.0 is an **additive** release: every 1.x program still compiles, an
   ```
 
 - **`--strict-c99`** — ⏸️ **not functional for programs that import `std`** (measured: 34 of the 61 programs in `tests/std_programs/` fail `gcc -std=c99 -pedantic-errors`); deferred to 1.1. Do **not** use it as a CI or release portability gate ([§20.2](LANGUAGE.md#202-compilation--build-profiles-pengu-build)).
-- **Cross-compilation** — `pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc` selects the target OS from a triple; only **Linux ⇄ Windows** is supported ([§20.2.3](LANGUAGE.md#2023-cross-compilation---target)).
+- **Cross-compilation** — `pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc` selects the target OS from a triple; **Linux ⇄ Windows** and **wasm32-unknown-emscripten** are supported (see *What's new in 2.2*) ([§20.2.3](LANGUAGE.md#2023-cross-compilation---target)).
 - **Runtime ABI versioning** — `pengu_runtime.h` defines `PENGU_ABI_VERSION`, the frozen layout of the runtime containers; every bundle references `pengu_abi_version()`, so a `libpengu_runtime.a` built against a different ABI fails at link instead of reinterpreting struct fields ([§20.2.1](LANGUAGE.md#2021-runtime-abi-version)).
 - **JSON diagnostics** — `pengu check --json` and `pengu build --json` emit one `{"type":"diagnostic",…}` object per problem plus a final summary line, and nothing else on stdout ([§20.2.2](LANGUAGE.md#2022-machine-readable-diagnostics---json)):
 
@@ -198,10 +225,11 @@ PenguScript 2.0 is an **additive** release: every 1.x program still compiles, an
 - **Deterministic, manual cleanup** — `banish` frees a value now; `defer banish` / `errdefer banish` defer the release to scope exit or to an error return (LIFO). Nothing is released behind your back ([§13](LANGUAGE.md#13-manual-memory-management)).
 - **First-class C FFI** — `include`/`link`/`declare`, opaque types (`alias … as opaque`), `sigil of` (address-of) / `essence of` (deref), zero-copy `bytes of <string>` borrows, and `weave`s that decay to C function pointers ([§14](LANGUAGE.md#14-modules-imports--c-interop)).
 - **`pengu bind`** — auto-generates a `.d.pengu` declaration file from any C header (structs → `rune`, unions → `echo`, enums → `omen`, functions → `declare`, callbacks → `alias … as ref to weave`, doc comments preserved) with preprocessor extension blanking, sibling auto-imports, and flags (`--define`, `--cpp-flags`, `--system-includes`, `--preprocessed`) ([§20.6](LANGUAGE.md#206-c-header-binding-generator-pengu-bind)).
-- **Rich standard library** — `std/` ships **28 pure PenguScript modules** (I/O, strings, files, math, time, concurrency, logging, WebAssembly/Web, unit testing, …). Two of them bridge to C directly — `std.ffi` (FFI) and `std.web` (Emscripten/Web) — and are the only modules that use `include`/`declare`/`antiquus` ([§19](LANGUAGE.md#19-standard-library)). Bindings to external C libraries (raylib, sqlite3, webui, miniaudio, etc.) now live in satellite repositories — see [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md).
+- **Rich standard library** — `std/` ships **28 modules**, **26 of them pure PenguScript** (I/O, strings, files, math, time, concurrency, logging, WebAssembly/Web, unit testing, …). The other two bridge to C directly — `std.ffi` (FFI) and `std.web` (Emscripten/Web) — and are the only modules that use `include`/`declare`/`antiquus` ([§19](LANGUAGE.md#19-standard-library)). Bindings to external C libraries (raylib, sqlite3, webui, miniaudio, etc.) now live in satellite repositories — see [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md).
 - **Embedded project assets (`arca`)** — embed binary and text assets (textures, shaders, audio, fonts, HTML/JS/CSS, config files) directly into native `.rodata` sections or stream from disk with zero-copy pointer views and slice accessors ([§19.4](LANGUAGE.md#194-embedded-project-assets-arca)).
 - **Language Server (LSP)** — diagnostics with `help:`/`note:`/caret spans, documentation from `#` and `##` doc comments, type & memory-size hovers, module-scoped autocompletion, go-to-definition, formatting, and code actions ([§20.10](LANGUAGE.md#2010-language-server-protocol-pengu-lsp)).
 - **Unified project manager** — the `pengu` CLI creates (`init`), builds (`build`), runs (`run`), tests (`test`), checks (`check`), formats (`fmt`), cleans (`clean`), documents (`doc`), generates C bindings (`bind`), and launches the language server (`lsp`) ([§20](LANGUAGE.md#20-tooling--project-layout)).
+- **WebAssembly target** — `pengu build --target wasm32-unknown-emscripten` (alias `--target wasm`) compiles the same source through Emscripten into `app.html` + `app.js` + `app.wasm` (also runnable headlessly with `node app.js`), with `std.web` for the JS console, main loop, timers and `eval_js`, `std.filum` threads as real Web Workers, and a target runtime built by `python build_runtime.py --target emscripten` ([§20.2.3.1](LANGUAGE.md#20231-webassembly---target-wasm32-unknown-emscripten), [docs/WASM.md](docs/WASM.md)).
 - **Compile-time features** — `when` conditionals with `else when` / `else`, `defined(...)`, `-D name=value` defines, function `static var` state, and `when main:` guards for dual module/script files ([§16](LANGUAGE.md#16-conditional-compilation-when)).
 - **Robust diagnostics** — comprehensive Rust-style error catalog with codes `E0000`–`E0065` (documented in LANGUAGE.md §22.2) and warnings `W0001` (transmute), `W0002` (echo access), `W0004` (unreachable), `W0005` (shadowing), `W0006` (`@deprecated` use), `W0007` (`unsafe:` block) ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
 
@@ -246,7 +274,10 @@ pengu add https://github.com/me/pengu_raylib --trust
 ```
 
 `--trust` is required the first time because `build.py` compiles the native
-part. See [docs/BINDINGS.md](docs/BINDINGS.md) for the full contract, including
+part. Both templates also have a template-first spelling —
+`pengu new pengu-lib my_algorithms` / `pengu new cbind pengu_raylib` — and
+`--force` (`-f`) lets `init`/`new` write into an existing non-empty directory.
+See [docs/BINDINGS.md](docs/BINDINGS.md) for the full contract, including
 how `link "..."` statements propagate from the binding to the consumer's link
 line. `pengu init --template lib` is a deprecated alias for `pengu-lib`.
 
@@ -259,7 +290,8 @@ line. `pengu init --template lib` is a deprecated alias for `pengu-lib`.
 - **Python 3.11+** (3.10 also works — `requirements.txt` installs the `tomli` backport automatically there).
 - A **C compiler** (`gcc` or `clang`) and static archiver (`ar`/`llvm-ar`) on your `PATH` — on Windows use MinGW-w64 `gcc`. `gcc`/`clang` are the reference backends.
 - **CMake and Ninja** — build-system tools for the supported development environments.
-- **Node.js 18+ and npm** — only needed to develop or package the VS Code extension.
+- **Node.js 18+ and npm** — needed to develop or package the VS Code extension, and to run a WebAssembly build headlessly (`node build/app.js`).
+- **Emscripten SDK** (`emcc` + `emar`, optional) — only to build for WebAssembly (`--target wasm32-unknown-emscripten`); native builds do not need it. See [Compiling to WebAssembly](#compiling-to-webassembly-emscripten).
 
 ##### System Dependencies for Linux & macOS
 
@@ -301,7 +333,7 @@ pip install -r requirements.txt
 # Build the C runtime into build/lib
 python build_runtime.py
 
-# Confirm the toolchain version (prints the toolchain version, `pengu 2.0.0`);
+# Confirm the toolchain version (prints the toolchain version, `pengu 2.2.0`);
 # `pengu --version` is an alias.
 pengu -V
 
@@ -343,12 +375,12 @@ pengu run hello.pengu
 
 | Command    | Description                                                                                       |
 | ---------- | ------------------------------------------------------------------------------------------------- |
-| `init`     | Create a new project template (`--type exe\|static\|shared\|obj\|c`, `--template exe\|cli\|pengu-lib\|cbind`, `--force`, `--links`, `--cc`). |
-| `new`      | Create a project from a template, template-first (`pengu new cbind pengu_raylib`; `pengu new pengu-lib my_lib`). |
+| `init`     | Create a new project template (`--type exe\|c\|obj\|static\|shared`, `--template exe\|cli\|pengu-lib\|cbind`, `--format toml\|yaml`, `--links`, `--cc`, `--output-name`, `--force`). |
+| `new`      | Create a project from a template, template-first (`pengu new cbind pengu_raylib`; `pengu new pengu-lib my_lib`; `--links`, `--cc`, `--output-name`, `--format`, `--force`). |
 | `add`      | Add an external dependency or binding (git URL or local folder, optional build script); the source tree is copied into `lib/<name>/`. |
-| `build`    | Compile the project per its config (`--profile release`, `--cc`, `-D`, `--test`, `--verbose`).    |
-| `run`      | Build and execute the project target, or run a standalone `.pengu` file directly as a script.     |
-| `test`     | Compile in `--test` mode and run the project's integrated unit tests (`--json`, `--watch`).        |
+| `build`    | Compile the project per its config (`--profile release`, `--cc`, `-D`, `--test`, `--target wasm32-unknown-emscripten`, `--verbose`). |
+| `run`      | Build and execute the project target, or run a standalone `.pengu` file directly as a script (`--target wasm32-unknown-emscripten` runs the wasm build with Node). |
+| `test`     | Compile in `--test` mode and run the project's integrated unit tests (`--json`, `--watch`, `--target`).        |
 | `check`    | Parse and type-check every module without generating code — CI friendly.                          |
 | `update`   | Pull and rebuild each configured dependency.                                                      |
 | `bind`     | Generate a `.d.pengu` declaration file from a C header (`--prefix`, `--links`, `--ignore`, …).    |
@@ -359,7 +391,13 @@ pengu run hello.pengu
 | `assets`   | Generate or inspect embedded asset modules (`--list`, `--force`).                                 |
 
 ```bash
-pengu init my_app --type exe
+# Templates: exe (default), cli (argument handling), pengu-lib (pure library), cbind (C binding)
+pengu init my_app --type exe                        # or: --type c|obj|static|shared
+pengu init my_lib --template pengu-lib              # module in pengu/<name>.pengu, inline tests
+pengu init pengu_raylib --template cbind            # C binding scaffold (include/, c/, build.py)
+pengu new cbind pengu_raylib                        # template-first spelling of the above
+pengu init my_app --format yaml --output-name app2 --cc clang --force
+
 cd my_app
 pengu build                 # debug profile (bounds-checking active)
 pengu build --profile release
@@ -377,7 +415,7 @@ pengu doc -o docs/          # generate module reference
 
 The core cycle is `init` → `build` → `run`/`test` → `check` → `fmt` → `doc`/`bind`/`lsp`; `pengu -V` (or `pengu --version`) prints the toolchain version.
 
-Projects are configured with `pengu.toml` or `pengu.yaml` (mutually exclusive; if both exist, `pengu.toml` wins; examples in `LANGUAGE.md` §14.4 use YAML for brevity) — entry point, output type/name, includes, links, per-profile `cflags`/`defines`, and compiler selection. Bounds checking is emitted in **every** profile (`--profile release` cannot trade memory safety for speed): `debug` (default) also keeps `-g` and frame-stack traces, while `release` adds `-O3`. The only opt-outs are an explicit `unsafe:` block or `--release-unsafe` ([§5.0](LANGUAGE.md#50-safety-guarantees-and-their-opt-outs)). See [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md) for the full guide.
+Projects are configured with `pengu.toml` or `pengu.yaml` (mutually exclusive; if both exist, `pengu.toml` wins; examples in `LANGUAGE.md` §14.4 use YAML for brevity) — entry point, output type/name, includes, links, per-profile `cflags`/`defines`, compiler selection and the cross-compilation `target` (`build.target = "wasm32-unknown-emscripten"`, say). Bounds checking is emitted in **every** profile (`--profile release` cannot trade memory safety for speed): `debug` (default) also keeps `-g` and frame-stack traces, while `release` adds `-O3`. The only opt-outs are an explicit `unsafe:` block or `--release-unsafe` ([§5.0](LANGUAGE.md#50-safety-guarantees-and-their-opt-outs)). See [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md) for the full guide.
 
 #### VS Code extension
 
@@ -392,6 +430,38 @@ npm run package             # runs @vscode/vsce package -> pengus-<version>.vsix
 ```
 
 Then open VS Code → **Extensions** (`Ctrl+Shift+X`) → **`…`** → **Install from VSIX…** and pick the `.vsix` file. See [vscode-extension/README.md](vscode-extension/README.md) for settings (`pengus.executablePath`, `pengus.defaultProfile`) and development instructions.
+
+---
+
+### Compiling to WebAssembly (Emscripten)
+
+`pengu` can emit a WebAssembly bundle instead of a native binary — the same `.pengu` source, compiled by Emscripten. Install the SDK once (it puts `emcc` and `emar` on `PATH`), build the runtime once for the target, then build and run:
+
+```bash
+# One-time toolchain setup
+git clone https://github.com/emscripten-core/emsdk.git
+cd emsdk && ./emsdk install latest && ./emsdk activate latest && source ./emsdk_env.sh
+
+# Build the runtime for wasm (separate from build/lib; the two never mix)
+python build_runtime.py --target emscripten        # -> build/wasm/lib/libpengu_runtime.a
+
+# Build and run (`node` executes the generated app.js and its exit status is forwarded)
+pengu build --target wasm32-unknown-emscripten
+pengu run   --target wasm32-unknown-emscripten
+pengu run   --target wasm script.pengu             # 'wasm' is a shorthand for the full triple
+```
+
+| `output` | Artifact | How to run it |
+| -------- | -------- | ------------- |
+| `exe` (default) | `app.html` + `app.js` + `app.wasm` | serve the page over HTTP, or `node build/app.js` |
+| `static` | `app.a` (real wasm objects, archived with `emar`) | link it into another wasm bundle |
+| `obj` | `app.o` | a single wasm object |
+| `c` | `bundle.c` | unchanged — the generated C, for any toolchain |
+| `shared` | — | refused: a wasm side module needs `-fPIC` on every input |
+
+The three page files travel together (`app.html` loads `app.js`, which fetches `app.wasm`), so deploy the whole `build/` output and serve it over HTTP — `file://` blocks the `.wasm` fetch in most browsers. The target can also live in the manifest (`target = "wasm32-unknown-emscripten"` under `[build]`/`build:`), and `pengu test --target wasm32-unknown-emscripten` runs the integrated tests in the same runner. A missing `emcc` stops the build with the emsdk commands instead of a linker error, and the host archive in `build/lib/` is deliberately never offered to a wasm link.
+
+Threads are real: `-pthread` is added exactly when the program imports `std.filum`, so goroutines become Web Workers; a browser then needs `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` (Node is unaffected). Emitted pages use the shipped dark terminal shell (`pengu_wasm_shell.html`); `PENGU_WASM_SHELL=default` restores Emscripten's stock page, and any other value is a path to a custom shell. **WASI is not supported** — `--target wasm32-wasi` is recognised and refused. Full details, limitations and troubleshooting: [docs/WASM.md](docs/WASM.md).
 
 ---
 
@@ -553,6 +623,11 @@ Key rules:
 - `+ - * /` need `where T: Num`; `% & | ^ << >>` need `where T: Integrum`
   (which also satisfies `Num`); `==` needs `Par`; `< <= > >=` need `Ordo`.
   Missing bounds are reported with the exact clause to add (`E0049`).
+- `Integrum` and `Real` are the two **disjoint refinements** of `Num`: bound on
+  `Real` when the method is floating-point-only (`sqrt`, `is_nan`, `%`-free
+  arithmetic), on `Integrum` when it needs `%` or bit operations; a generic that
+  only needs `+ - * /` should stay on `Num`
+  ([LANGUAGE.md §10.9](LANGUAGE.md#109-built-in-concepts)).
 - `push`/`put` copy the element bytes with `memcpy` and banish releases only the
   container's own buffer, so a `list of string` needs an explicit
   `pengu_banish_string_list` (or one `banish` per element); see
@@ -568,12 +643,13 @@ plus leak checks; run them with `python -m pytest tests/codegen/test_generics_su
 
 #### Standard library
 
-`std/` contains **28 pure PenguScript modules** (verified: `ls std/*.pengu`); only `std.ffi` and `std.web` reach into C, the rest are written entirely in PenguScript. See [LANGUAGE.md §19](LANGUAGE.md#19-standard-library) for the full module catalog and code examples.
+`std/` contains **28 modules** (verified: `ls std/*.pengu`), **26 of them pure PenguScript**; the other two — `std.ffi` and `std.web` — are the only ones that reach into C. See [LANGUAGE.md §19](LANGUAGE.md#19-standard-library) for the full module catalog and code examples.
 
-- **Pure PenguScript modules (27):** `spark` (core I/O, formatted output, typed input, ranges & math helpers), `scrolls` (comprehensive string enchanting algorithms, metrics, casing & three-way string ordering), `oracle` (`Maybe`/`Result` containers with native/legacy interoperability), `compass` (cross-platform paths & pattern matching), `archivum` (files, binary I/O & directory traversal), `cipher` (JSON RFC 8259, Base64/32/Hex & validation), `chronicle` (dates, high-res clocks, timers & duration parsing), `lot` (PRNG, statistical distributions, sampling, shuffling & random strings), `arithmancy` (advanced math), `rites` (OS processes, cross-platform environment & system info), `whisper` (structured leveled logging & `Logger` rune), `ward` (defensive invariants, float/range/container assertions & generic `shard T` tests), `trial` (unit testing), `tally` (functional list operations, reductions, insertion sort & statistics), `atlas` (hash map key-value store, combination, bulk accessors & filters), `coven` (unique `SetString`/`SetInt` collections, ritual constructors & set algebra), `filum` (threads, typed channels, mutexes & atomic operations), `fractio` (floating-point methods: IEEE 754 classification, `approx_eq`, `sqrt`/`sin`/`exp`/`ln`/`pow`/`hypot` via `libm`, `degrees`/`radians`), `integrum` (integer-only methods: parity, primality, bit queries, `gcd`/`lcm`, Euclidean division, `to_hex`/`to_bin`/`to_oct`, all monomorphized), `littera` (methods on `char`: ASCII classification, `to_upper`/`to_lower`, `digit_value`, pure PenguScript — no `<ctype.h>` or locale), `logica` (methods on `bool`: `toggle`, `and_with`, `or_with`, `xor`, `iff`, `nand`, `nor`, `implies`, `to_int`), `numerus` (universal numeric methods over every primitive via `enchanting shard T where T: Num and T: Ordo and T: Par:` — `abs`, `clamp`, `pow_int`, `floor`, `round`, predicates & conversions, monomorphized to `int_abs`, `f64_clamp`, …), `loom` (sequence pipelines, windowing & generic algorithms), `memoria` (manual heap memory management via `shard T`: `alloc`, `alloc_array` — zeroed by default —, `resize_array` with explicit `old_n`, `copy` with `memmove` semantics, `fill`, `zero`, `swap`, `compare`, `bytes_for`; `try_*` variants return `maybe` on OOM), `invoke` (advanced CLI parsing, subcommands, typed flags, multi-options & typo suggestions), `ffi` (C bridge), and `ledger` (CSV/TSV parsing, tabular data & matrix enchantments).
+- **Pure PenguScript modules (26):** `spark` (core I/O, formatted output, typed input, ranges & math helpers), `scrolls` (comprehensive string enchanting algorithms, metrics, casing & three-way string ordering), `oracle` (`Maybe`/`Result` containers with native/legacy interoperability), `compass` (cross-platform paths & pattern matching), `archivum` (files, binary I/O & directory traversal), `cipher` (JSON RFC 8259, Base64/32/Hex & validation), `chronicle` (dates, high-res clocks, timers & duration parsing), `lot` (PRNG, statistical distributions, sampling, shuffling & random strings), `arithmancy` (advanced math), `rites` (OS processes, cross-platform environment & system info), `whisper` (structured leveled logging & `Logger` rune), `ward` (defensive invariants, float/range/container assertions & generic `shard T` tests), `trial` (unit testing), `tally` (functional list operations, reductions, insertion sort & statistics), `atlas` (hash map key-value store, combination, bulk accessors & filters), `coven` (unique `SetString`/`SetInt` collections, ritual constructors & set algebra), `filum` (threads, typed channels, mutexes & atomic operations), `fractio` (floating-point methods: IEEE 754 classification, `approx_eq`, `sqrt`/`sin`/`exp`/`ln`/`pow`/`hypot` via `libm`, `degrees`/`radians`), `integrum` (integer-only methods: parity, primality, bit queries, `gcd`/`lcm`, Euclidean division, `to_hex`/`to_bin`/`to_oct`, all monomorphized), `littera` (methods on `char`: ASCII classification, `to_upper`/`to_lower`, `digit_value`, pure PenguScript — no `<ctype.h>` or locale), `logica` (methods on `bool`: `toggle`, `and_with`, `or_with`, `xor`, `iff`, `nand`, `nor`, `implies`, `to_int`), `numerus` (universal numeric methods over every primitive via `enchanting shard T where T: Num and T: Ordo and T: Par:` — `abs`, `clamp`, `pow_int`, `floor`, `round`, predicates & conversions, monomorphized to `int_abs`, `f64_clamp`, …), `loom` (sequence pipelines, windowing & generic algorithms), `memoria` (manual heap memory management via `shard T`: `alloc`, `alloc_array` — zeroed by default —, `resize_array` with explicit `old_n`, `copy` with `memmove` semantics, `fill`, `zero`, `swap`, `compare`, `bytes_for`; `try_*` variants return `maybe` on OOM), `invoke` (advanced CLI parsing, subcommands, typed flags, multi-options & typo suggestions) and `ledger` (CSV/TSV parsing, tabular data & matrix enchantments).
+- **The two C bridges (2):** `ffi` (the general FFI bridge: slices, function pointers, opaque handles) and `web` (the Web/Emscripten bridge: console, main loop, `now_ms`, `eval_js`, flag-free timers, `IS_WASM`) — the only modules that use `include`/`declare`/`antiquus`.
 - **Bindings to external C libraries (raylib, sqlite3, webui, miniaudio, etc.) now live in satellite repositories.** See [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md); install one with `pengu add <url>` (the source tree is copied into `lib/<name>/`).
 
-The 27 modules ship comprehensive documentation (`#`/`##` doc comments, audited by `tests/docs/test_std_docs_completeness.py`), full test coverage across `debug` and `release` compilation profiles, 100% backward compatibility across every published version line (pinned by `tests/migration/`), and zero C compiler warnings.
+The 28 modules ship comprehensive documentation (`#`/`##` doc comments, audited by `tests/docs/test_std_docs_completeness.py`), full test coverage across `debug` and `release` compilation profiles, 100% backward compatibility across every published version line (pinned by `tests/migration/`), and zero C compiler warnings.
 
 ---
 
@@ -599,6 +675,7 @@ PenguScript/
 ├── extern/                 # Downloaded third-party C library sources (gitignored)
 ├── build/                  # Generated output (gitignored):
 │                           #   build/lib/libpengu_runtime.a + build/include/ headers
+│                           #   build/wasm/lib/… + build/app.html|app.js|app.wasm (--target emscripten/wasm)
 ├── tests/                  # Python test-suite (pytest tests/): compiler, LSP, CLI,
 │                           #   `pengu bind`, the std library & satellite modules
 ├── tests/std_programs/     # One PenguScript exercise program per std module
@@ -607,9 +684,11 @@ PenguScript/
 ├── CHANGELOG.md            # Version history & feature log
 ├── CHEATSHEET.md           # Full language syntax & C-translation reference
 └── docs/                   # Build guide, performance/fuzzing notes & archived docs
-    ├── PENGU_BUILD.md      # Build system & project configuration guide
-    ├── BINDINGS.md         # Contract for pure libraries & C bindings (`link` propagation)
-    ├── README_RELEASE.md   # Generated: standalone release package documentation
+    ├── PENGU_BUILD.md        # Build system & project configuration guide
+    ├── BINDINGS.md           # Contract for pure libraries & C bindings (`link` propagation)
+    ├── WASM.md               # WebAssembly/Emscripten target: setup, artifacts, threads, limits
+    ├── CROSS_COMPILATION.md  # Cross-compilation model and target triples
+    ├── README_RELEASE.md     # Generated: standalone release package documentation
     └── archive/            # Historical, non-normative process documents
 ```
 
@@ -620,11 +699,14 @@ PenguScript/
 `build_runtime.py` produces the static archive that `pengu` links into every binary. The runtime has **no external C dependencies** — it needs only libc, libm and pthreads/Win32 threads — so there is a single compile stage: `build_pengu_runtime` compiles `pengu_runtime.c` with `gcc`/`clang` + `ar` into `build/lib/libpengu_runtime.a` and stages the headers into `build/include/`:
 
 ```bash
-python build_runtime.py            # build the runtime
-python build_runtime.py --rebuild  # force a clean rebuild (~1.4 s, down from ~5–8 min)
+python build_runtime.py                 # build the host runtime
+python build_runtime.py --rebuild       # force a clean rebuild (~1.4 s, down from ~5–8 min)
+python build_runtime.py --target emscripten   # wasm runtime (emcc + emar) -> build/wasm/
 ```
 
 `build_pengu_runtime` produces only `libpengu_runtime.a`. Native archives for external C libraries are not bundled here: they are installed per project from satellite repositories with `pengu add` (see [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)).
+
+> `--target native` (the default) and `--target emscripten` write to different trees — `build/lib` and `build/wasm/lib` — because a wasm object and a host object share neither machine code nor ABI; the host archive is never offered to a wasm link. `--target wasi` exits with status 2 and a message saying it is not supported. See [docs/WASM.md](docs/WASM.md).
 
 > `extern_manifest.py` and its now-empty manifest are retained so the satellite repositories can reuse the download/hash infrastructure; the core build neither downloads nor compiles anything.
 
@@ -670,6 +752,8 @@ Additional references:
 | `MIGRATION.md`                                           | Migration guide across published version lines (named; kept alongside the corpus in `tests/migration/`) |
 | [VERSION](VERSION)                                       | The single source of truth for the toolchain version          |
 | [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md)               | `pengu` CLI, project config, and the build system             |
+| [docs/WASM.md](docs/WASM.md)                             | Compiling to WebAssembly with Emscripten: setup, artifacts, threads, limits |
+| [docs/CROSS_COMPILATION.md](docs/CROSS_COMPILATION.md)   | Cross-compilation model, target triples and the target runtime |
 | [CHANGELOG.md](CHANGELOG.md)                             | Version history and per-release feature log                   |
 | [docs/README_RELEASE.md](docs/README_RELEASE.md)         | The standalone `pengucc_build/` release package               |
 | [vscode-extension/README.md](vscode-extension/README.md) | VS Code extension: features, settings, installation           |
@@ -735,6 +819,28 @@ PenguScript is released under the **[MIT License](LICENSE)** — © 2026 TuGatit
 > detrás de esas afirmaciones es `AUDIT_1.0.md` (histórico). La instantánea de
 > preparación anterior, que describe una publicación más antigua, se conserva como
 > documento histórico en [`docs/archive/`](docs/archive/).
+>
+> La **2.2** añade además compilar a **WebAssembly** con Emscripten — el mismo
+> fuente, sin cambios, para el navegador o para Node — y como toda publicación
+> desde la 1.x es **aditiva**: ver *Novedades de la 2.2*.
+
+### Novedades de la 2.2 — compilar a WebAssembly
+
+PenguScript 2.2 añade un **objetivo WebAssembly**: el mismo fuente `.pengu` compila de forma nativa *y* para el navegador (o para Node sin interfaz) mediante Emscripten, sin tocar el código ni ramas por objetivo. Como toda publicación desde la 1.x, la 2.2 es **aditiva** — ningún programa existente deja de compilar.
+
+- **`--target wasm32-unknown-emscripten`** — lo aceptan `pengu build`, `pengu run` y `pengu test`, y se configura como `target:` bajo `[build]`/`build:` en `pengu.toml`/`pengu.yaml`; `--target wasm` es un atajo. La compilación necesita el SDK de Emscripten (`emcc`/`emar`) y un archivo del runtime compilado para el objetivo (`python build_runtime.py --target emscripten`); el archivo del host en `build/lib/` nunca se reutiliza, porque un objeto wasm y uno nativo no son intercambiables ([§20.2.3.1](LANGUAGE.md#20231-webassembly---target-wasm32-unknown-emscripten), [docs/WASM.md](docs/WASM.md)).
+- **Artefactos** — `exe` pasa a ser una página autocontenida (`app.html` + `app.js` + `app.wasm`); `node build/app.js` la ejecuta sin navegador y propaga el código de salida. `obj` pasa a ser un objeto wasm y `static` pasa a ser `app.a`, un archivo de objetos wasm reales creado con `emar` y enlazable en otro bundle wasm. `c` sigue siendo `bundle.c`; `shared` se **rechaza** (un side module de wasm necesitaría `-fPIC` en todas las entradas, incluido el runtime).
+- **`std.web`** — el puente Web/Emscripten: la consola de JS (`console_log`, `console_warn`, `console_error`, `console_trace`), un bucle principal real (`set_main_loop` con fps opcional y `simulate_infinite_loop`, `cancel_main_loop`, `pause_main_loop`, `resume_main_loop`), `now_ms` monotónico, `eval_js` y temporizadores sin flags (`set_timeout`/`clear_timeout`), más la constante `IS_WASM`. Las compilaciones nativas obtienen la misma API (la consola escribe en stderr y los puntos de entrada exclusivos de la Web hacen `panic` con un mensaje accionable), la rama no tomada se pliega antes de generar código y la DCE elimina los ayudantes wasm que el programa no llama ([§19](LANGUAGE.md#19-standard-library)).
+- **`wasm` / `wasm_target` en tiempo de compilación** — `when wasm:` es verdadero para cualquier objetivo WebAssembly, `when wasm_target == "emscripten":` lo distingue de un futuro `wasi`, y `defined(wasm)` responde igual. `compiler` informa `emcc` para ese objetivo (configurado o autodetectado) y `os` ve `emscripten` ([§16](LANGUAGE.md#16-conditional-compilation-when)).
+- **`std.filum` sobre Web Workers reales** — `-pthread` se añade exactamente cuando un programa importa `std.filum`, la misma condición que activa la puerta `PENGU_ENABLE_THREADS`, así que los goroutines pasan a ser Web Workers con `SharedArrayBuffer` + atómicos de wasm. Un navegador necesita entonces `Cross-Origin-Opener-Policy: same-origin` y `Cross-Origin-Embedder-Policy: require-corp`; Node no se ve afectado.
+- **`exec`/`spawn` no existen en wasm** — allí `pengu_c_exec`/`pengu_c_spawn` escriben un diagnóstico y devuelven `-1` en lugar de simular éxito. Todo lo demás (cadenas, contenedores, `maybe`/`result`, la API de archivos de `std.archivum` sobre el sistema de archivos virtual de Emscripten, tiempo, matemáticas) funciona igual.
+- **WASI no está soportado** — `wasm32-wasi` se reconoce y se rechaza con un mensaje claro; nunca se trata en silencio como el host.
+
+### Novedades de la 2.1 — paquetes reutilizables como plantillas
+
+- **`pengu init --template pengu-lib`** crea una biblioteca pura de PenguScript: el módulo vive en `pengu/<name>.pengu` con bloques `test` en línea, y `entry`/`src_dir` apuntan a `pengu/` para que `pengu test` se ejecute dentro de la biblioteca.
+- **`pengu init --template cbind`** crea un enlace a biblioteca de C: `pengu/<name>.d.pengu` (con `include "..."` + `link "..."`), un `include/<name>.h` real, un `c/<name>.c` de juguete que compila tal cual, un `lib/` vacío, un `build.py` portable y un README. Los consumidores lo instalan con `pengu add <repo> --trust` e `import <name>`.
+- **`pengu new cbind <name>` / `pengu new pengu-lib <name>`** — la forma de plantilla primero, y **`--force`** (`-f`) escribe en un directorio existente no vacío, que `init`/`new` rechazan sin ella. Consulta [Cómo crear bindings](#cómo-crear-bindings-bibliotecas-puras-y-enlaces-a-c).
 
 ### Novedades de la 2.0
 
@@ -818,7 +924,7 @@ PenguScript 2.0 es una publicación **aditiva**: todo programa de la 1.x sigue c
   ```
 
 - **`--strict-c99`** — ⏸️ **no es funcional para programas que importan `std`** (medido: 34 de los 61 programas de `tests/std_programs/` fallan con `gcc -std=c99 -pedantic-errors`); aplazado a la 1.1. **No** lo uses como puerta de portabilidad en CI o en la publicación ([§20.2](LANGUAGE.md#202-compilation--build-profiles-pengu-build)).
-- **Compilación cruzada** — `pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc` selecciona el SO destino a partir de un triple; solo se admite **Linux ⇄ Windows** ([§20.2.3](LANGUAGE.md#2023-cross-compilation---target)).
+- **Compilación cruzada** — `pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc` selecciona el SO destino a partir de un triple; se admiten **Linux ⇄ Windows** y **wasm32-unknown-emscripten** (ver *Novedades de la 2.2*) ([§20.2.3](LANGUAGE.md#2023-cross-compilation---target)).
 - **Versionado del ABI del runtime** — `pengu_runtime.h` define `PENGU_ABI_VERSION`, el diseño congelado de los contenedores del runtime; cada bundle referencia `pengu_abi_version()`, así que una `libpengu_runtime.a` compilada contra otro ABI falla al enlazar en lugar de reinterpretar los campos de los structs ([§20.2.1](LANGUAGE.md#2021-runtime-abi-version)).
 - **Diagnósticos JSON** — `pengu check --json` y `pengu build --json` emiten un objeto `{"type":"diagnostic",…}` por problema más una línea final de resumen, y nada más por stdout ([§20.2.2](LANGUAGE.md#2022-machine-readable-diagnostics---json)):
 
@@ -840,10 +946,11 @@ PenguScript 2.0 es una publicación **aditiva**: todo programa de la 1.x sigue c
 - **Limpieza determinista y manual** — `banish` libera un valor ahora; `defer banish` / `errdefer banish` difieren la liberación al salir del ámbito o a un retorno de error (LIFO). Nada se libera a tus espaldas ([§13](LANGUAGE.md#13-manual-memory-management)).
 - **FFI de C de primera clase** — `include`/`link`/`declare`, tipos opacos (`alias … as opaque`), `sigil of` (dirección de) / `essence of` (desreferencia), préstamos sin copia con `bytes of <string>` y `weave`s que decaen a punteros a función de C ([§14](LANGUAGE.md#14-modules-imports--c-interop)).
 - **`pengu bind`** — genera automáticamente un archivo de declaraciones `.d.pengu` a partir de cualquier cabecera de C (structs → `rune`, uniones → `echo`, enumeraciones → `omen`, funciones → `declare`, callbacks → `alias … as ref to weave`, conservando los comentarios de documentación) con blanqueo de extensiones del preprocesador, autoimportación de hermanos y opciones (`--define`, `--cpp-flags`, `--system-includes`, `--preprocessed`) ([§20.6](LANGUAGE.md#206-c-header-binding-generator-pengu-bind)).
-- **Biblioteca estándar completa** — `std/` incluye **28 módulos puros de PenguScript** (E/S, cadenas, archivos, matemáticas, tiempo, concurrencia, registro de logs, WebAssembly/Web, pruebas unitarias, …). Dos de ellos se conectan directamente con C — `std.ffi` (FFI) y `std.web` (Emscripten/Web) — y son los únicos que usan `include`/`declare`/`antiquus` ([§19](LANGUAGE.md#19-standard-library)). Los enlaces a bibliotecas externas de C (raylib, sqlite3, webui, miniaudio, etc.) viven ahora en repositorios satélite — consulta [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md).
+- **Biblioteca estándar completa** — `std/` incluye **28 módulos** (E/S, cadenas, archivos, matemáticas, tiempo, concurrencia, registro de logs, WebAssembly/Web, pruebas unitarias, …), **26 de ellos puros de PenguScript**. Los otros dos se conectan directamente con C — `std.ffi` (FFI) y `std.web` (Emscripten/Web) — y son los únicos que usan `include`/`declare`/`antiquus` ([§19](LANGUAGE.md#19-standard-library)). Los enlaces a bibliotecas externas de C (raylib, sqlite3, webui, miniaudio, etc.) viven ahora en repositorios satélite — consulta [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md).
 - **Recursos embebidos del proyecto (`arca`)** — incrusta recursos binarios y de texto (texturas, shaders, audio, fuentes, HTML/JS/CSS, archivos de configuración) directamente en secciones `.rodata` nativas o los lee desde disco con vistas de puntero sin copia y accesores de slice ([§19.4](LANGUAGE.md#194-embedded-project-assets-arca)).
 - **Servidor de lenguaje (LSP)** — diagnósticos con `help:`/`note:`/intervalos con cursor, documentación a partir de comentarios `#` y `##`, información emergente de tipos y tamaño en memoria, autocompletado con ámbito de módulo, ir a la definición, formateo y acciones de código ([§20.10](LANGUAGE.md#2010-language-server-protocol-pengu-lsp)).
 - **Gestor de proyectos unificado** — la CLI `pengu` crea (`init`), compila (`build`), ejecuta (`run`), prueba (`test`), verifica (`check`), formatea (`fmt`), limpia (`clean`), documenta (`doc`), genera enlaces de C (`bind`) y lanza el servidor de lenguaje (`lsp`) ([§20](LANGUAGE.md#20-tooling--project-layout)).
+- **Objetivo WebAssembly** — `pengu build --target wasm32-unknown-emscripten` (atajo `--target wasm`) compila el mismo fuente con Emscripten a `app.html` + `app.js` + `app.wasm` (ejecutable también sin navegador con `node app.js`), con `std.web` para la consola de JS, el bucle principal, los temporizadores y `eval_js`, los hilos de `std.filum` como Web Workers reales y un runtime del objetivo compilado con `python build_runtime.py --target emscripten` ([§20.2.3.1](LANGUAGE.md#20231-webassembly---target-wasm32-unknown-emscripten), [docs/WASM.md](docs/WASM.md)).
 - **Funciones en tiempo de compilación** — condicionales `when` con `else when` / `else`, `defined(...)`, definiciones `-D name=value`, estado `static var` de función y guardas `when main:` para archivos que sirven como módulo y como script ([§16](LANGUAGE.md#16-conditional-compilation-when)).
 - **Diagnósticos robustos** — catálogo completo de errores al estilo de Rust con códigos `E0000`–`E0065` y advertencias `W0001` (transmute), `W0002` (acceso a echo), `W0004` (código inalcanzable), `W0005` (shadowing), `W0006` (uso de `@deprecated`), `W0007` (bloque `unsafe:`) ([§22](LANGUAGE.md#22-appendix-compiler-diagnostic-catalog)).
 
@@ -889,7 +996,10 @@ pengu add https://github.com/me/pengu_raylib --trust
 ```
 
 `--trust` es obligatorio la primera vez porque `build.py` compila la parte
-nativa. Consulta [docs/BINDINGS.md](docs/BINDINGS.md) para ver el contrato
+nativa. Ambas plantillas tienen además su forma de plantilla primero —
+`pengu new pengu-lib my_algorithms` / `pengu new cbind pengu_raylib` — y
+`--force` (`-f`) permite a `init`/`new` escribir en un directorio existente no
+vacío. Consulta [docs/BINDINGS.md](docs/BINDINGS.md) para ver el contrato
 completo, incluida la propagación de las sentencias `link "..."` desde el
 binding hasta la línea de enlazado del consumidor. `pengu init --template lib`
 es un alias obsoleto de `pengu-lib`.
@@ -903,7 +1013,8 @@ es un alias obsoleto de `pengu-lib`.
 - **Python 3.11+** (3.10 también funciona — allí `requirements.txt` instala automáticamente el backport `tomli`).
 - Un **compilador de C** (`gcc` o `clang`) y un archivador estático (`ar`/`llvm-ar`) en tu `PATH` — en Windows usa el `gcc` de MinGW-w64. `gcc`/`clang` son los backends de referencia.
 - **CMake y Ninja** — herramientas de compilación para los entornos de desarrollo soportados.
-- **Node.js 18+ y npm** — solo se necesitan para desarrollar o empaquetar la extensión de VS Code.
+- **Node.js 18+ y npm** — necesarios para desarrollar o empaquetar la extensión de VS Code, y para ejecutar una compilación a WebAssembly sin navegador (`node build/app.js`).
+- **SDK de Emscripten** (`emcc` + `emar`, opcional) — solo para compilar a WebAssembly (`--target wasm32-unknown-emscripten`); las compilaciones nativas no lo necesitan. Consulta [Compilar a WebAssembly](#compilar-a-webassembly-emscripten).
 
 ##### Dependencias del sistema para Linux y macOS
 
@@ -945,7 +1056,7 @@ pip install -r requirements.txt
 # Build the C runtime into build/lib
 python build_runtime.py
 
-# Confirma la versión de la cadena de herramientas (imprime `pengu 2.0.0`);
+# Confirma la versión de la cadena de herramientas (imprime `pengu 2.2.0`);
 # `pengu --version` es un alias.
 pengu -V
 
@@ -987,12 +1098,12 @@ pengu run hello.pengu
 
 | Comando    | Descripción                                                                                       |
 | ---------- | ------------------------------------------------------------------------------------------------- |
-| `init`     | Crea una plantilla de proyecto nueva (`--type exe\|static\|shared\|obj\|c`, `--template exe\|cli\|pengu-lib\|cbind`, `--force`, `--links`, `--cc`). |
-| `new`      | Crea un proyecto a partir de una plantilla, con la plantilla primero (`pengu new cbind pengu_raylib`; `pengu new pengu-lib my_lib`). |
+| `init`     | Crea una plantilla de proyecto nueva (`--type exe\|c\|obj\|static\|shared`, `--template exe\|cli\|pengu-lib\|cbind`, `--format toml\|yaml`, `--links`, `--cc`, `--output-name`, `--force`). |
+| `new`      | Crea un proyecto a partir de una plantilla, con la plantilla primero (`pengu new cbind pengu_raylib`; `pengu new pengu-lib my_lib`; `--links`, `--cc`, `--output-name`, `--format`, `--force`). |
 | `add`      | Añade una dependencia o enlace externo (URL de git o carpeta local, con script de compilación opcional); el árbol de fuentes se copia en `lib/<name>/`. |
-| `build`    | Compila el proyecto según su configuración (`--profile release`, `--cc`, `-D`, `--test`, `--verbose`). |
-| `run`      | Compila y ejecuta el objetivo del proyecto, o ejecuta un archivo `.pengu` suelto directamente como script. |
-| `test`     | Compila en modo `--test` y ejecuta las pruebas unitarias integradas del proyecto (`--json`, `--watch`). |
+| `build`    | Compila el proyecto según su configuración (`--profile release`, `--cc`, `-D`, `--test`, `--target wasm32-unknown-emscripten`, `--verbose`). |
+| `run`      | Compila y ejecuta el objetivo del proyecto, o ejecuta un archivo `.pengu` suelto directamente como script (`--target wasm32-unknown-emscripten` ejecuta la compilación wasm con Node). |
+| `test`     | Compila en modo `--test` y ejecuta las pruebas unitarias integradas del proyecto (`--json`, `--watch`, `--target`). |
 | `check`    | Analiza y verifica tipos de todos los módulos sin generar código — ideal para CI.                 |
 | `update`   | Actualiza y recompila cada dependencia configurada.                                               |
 | `bind`     | Genera un archivo de declaraciones `.d.pengu` a partir de una cabecera de C (`--prefix`, `--links`, `--ignore`, …). |
@@ -1003,7 +1114,13 @@ pengu run hello.pengu
 | `assets`   | Genera o inspecciona módulos de recursos embebidos (`--list`, `--force`).                         |
 
 ```bash
-pengu init my_app --type exe
+# Plantillas: exe (predeterminada), cli (argumentos), pengu-lib (biblioteca pura), cbind (enlace a C)
+pengu init my_app --type exe                        # o: --type c|obj|static|shared
+pengu init my_lib --template pengu-lib              # módulo en pengu/<name>.pengu, con tests en línea
+pengu init pengu_raylib --template cbind            # andamiaje de enlace a C (include/, c/, build.py)
+pengu new cbind pengu_raylib                        # forma de plantilla primero de lo anterior
+pengu init my_app --format yaml --output-name app2 --cc clang --force
+
 cd my_app
 pengu build                 # debug profile (bounds-checking active)
 pengu build --profile release
@@ -1021,7 +1138,7 @@ pengu doc -o docs/          # generate module reference
 
 El ciclo principal es `init` → `build` → `run`/`test` → `check` → `fmt` → `doc`/`bind`/`lsp`; `pengu -V` (o `pengu --version`) imprime la versión de la cadena de herramientas.
 
-Los proyectos se configuran con `pengu.toml` o `pengu.yaml` (mutuamente excluyentes; si existen ambos, gana `pengu.toml`; los ejemplos de la §14.4 de `LANGUAGE.md` usan YAML por brevedad) — punto de entrada, tipo y nombre de salida, includes, links, `cflags`/`defines` por perfil y selección de compilador. La verificación de límites se emite en **todos** los perfiles (`--profile release` no puede canjear seguridad de memoria por velocidad): `debug` (el predeterminado) conserva además `-g` y las trazas de pila, mientras que `release` añade `-O3`. Las únicas exenciones son un bloque `unsafe:` explícito o `--release-unsafe` ([§5.0](LANGUAGE.md#50-safety-guarantees-and-their-opt-outs)). Consulta [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md) para la guía completa.
+Los proyectos se configuran con `pengu.toml` o `pengu.yaml` (mutuamente excluyentes; si existen ambos, gana `pengu.toml`; los ejemplos de la §14.4 de `LANGUAGE.md` usan YAML por brevedad) — punto de entrada, tipo y nombre de salida, includes, links, `cflags`/`defines` por perfil, selección de compilador y el `target` de compilación cruzada (`build.target = "wasm32-unknown-emscripten"`, por ejemplo). La verificación de límites se emite en **todos** los perfiles (`--profile release` no puede canjear seguridad de memoria por velocidad): `debug` (el predeterminado) conserva además `-g` y las trazas de pila, mientras que `release` añade `-O3`. Las únicas exenciones son un bloque `unsafe:` explícito o `--release-unsafe` ([§5.0](LANGUAGE.md#50-safety-guarantees-and-their-opt-outs)). Consulta [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md) para la guía completa.
 
 #### Extensión de VS Code
 
@@ -1036,6 +1153,38 @@ npm run package             # runs @vscode/vsce package -> pengus-<version>.vsix
 ```
 
 Luego abre VS Code → **Extensions** (`Ctrl+Shift+X`) → **`…`** → **Install from VSIX…** y elige el archivo `.vsix`. Consulta [vscode-extension/README.md](vscode-extension/README.md) para la configuración (`pengus.executablePath`, `pengus.defaultProfile`) y las instrucciones de desarrollo.
+
+---
+
+### Compilar a WebAssembly (Emscripten)
+
+`pengu` puede emitir un bundle de WebAssembly en lugar de un binario nativo — el mismo fuente `.pengu`, compilado por Emscripten. Instala el SDK una vez (deja `emcc` y `emar` en el `PATH`), compila el runtime una vez para el objetivo y luego compila y ejecuta:
+
+```bash
+# Configuración del toolchain (una sola vez)
+git clone https://github.com/emscripten-core/emsdk.git
+cd emsdk && ./emsdk install latest && ./emsdk activate latest && source ./emsdk_env.sh
+
+# Compila el runtime para wasm (separado de build/lib; los dos nunca se mezclan)
+python build_runtime.py --target emscripten        # -> build/wasm/lib/libpengu_runtime.a
+
+# Compila y ejecuta (`node` ejecuta el app.js generado y propaga su código de salida)
+pengu build --target wasm32-unknown-emscripten
+pengu run   --target wasm32-unknown-emscripten
+pengu run   --target wasm script.pengu             # 'wasm' es un atajo del triple completo
+```
+
+| `output` | Artefacto | Cómo ejecutarlo |
+| -------- | --------- | --------------- |
+| `exe` (predeterminado) | `app.html` + `app.js` + `app.wasm` | sirve la página por HTTP, o `node build/app.js` |
+| `static` | `app.a` (objetos wasm reales, archivados con `emar`) | enlázalo en otro bundle wasm |
+| `obj` | `app.o` | un único objeto wasm |
+| `c` | `bundle.c` | sin cambios — el C generado, para cualquier toolchain |
+| `shared` | — | rechazado: un side module de wasm necesita `-fPIC` en todas las entradas |
+
+Los tres archivos de la página viajan juntos (`app.html` carga `app.js`, que descarga `app.wasm`), así que publica todo el resultado de `build/` y sírvelo por HTTP — `file://` bloquea la descarga del `.wasm` en la mayoría de los navegadores. El objetivo también puede vivir en el manifiesto (`target = "wasm32-unknown-emscripten"` bajo `[build]`/`build:`), y `pengu test --target wasm32-unknown-emscripten` ejecuta las pruebas integradas con el mismo runner. Si falta `emcc`, la compilación se detiene con los comandos del emsdk en lugar de fallar en el enlazador, y el archivo del host en `build/lib/` nunca se ofrece a un enlazado wasm.
+
+Los hilos son reales: `-pthread` se añade exactamente cuando el programa importa `std.filum`, así que los goroutines se convierten en Web Workers; un navegador necesita entonces `Cross-Origin-Opener-Policy: same-origin` y `Cross-Origin-Embedder-Policy: require-corp` (Node no se ve afectado). Las páginas generadas usan el shell oscuro tipo terminal incluido (`pengu_wasm_shell.html`); `PENGU_WASM_SHELL=default` restaura la página estándar de Emscripten, y cualquier otro valor es una ruta a un shell propio. **WASI no está soportado** — `--target wasm32-wasi` se reconoce y se rechaza. Detalles completos, limitaciones y resolución de problemas: [docs/WASM.md](docs/WASM.md).
 
 ---
 
@@ -1198,6 +1347,11 @@ Reglas clave:
 - `+ - * /` necesitan `where T: Num`; `% & | ^ << >>` necesitan `where T: Integrum`
   (que también satisface `Num`); `==` necesita `Par`; `< <= > >=` necesitan `Ordo`.
   Cuando faltan cotas, se informa de la cláusula exacta que hay que añadir (`E0049`).
+- `Integrum` y `Real` son los dos **refinamientos disjuntos** de `Num`: usa
+  `Real` cuando el método sea exclusivo de flotantes (`sqrt`, `is_nan`,
+  aritmética sin `%`) e `Integrum` cuando necesite `%` u operaciones de bits; un
+  genérico que solo necesite `+ - * /` debe quedarse en `Num`
+  ([LANGUAGE.md §10.9](LANGUAGE.md#109-built-in-concepts)).
 - `push`/`put` copian los bytes del elemento con `memcpy` y banish libera solo el
   búfer propio del contenedor, así que una `list of string` necesita un
   `pengu_banish_string_list` explícito (o un `banish` por elemento); consulta
@@ -1214,12 +1368,13 @@ característica más comprobaciones de fugas; ejecútalos con
 
 #### Biblioteca estándar
 
-`std/` contiene **28 módulos puros de PenguScript** (verificado: `ls std/*.pengu`); solo `std.ffi` y `std.web` se conectan con C, el resto están escritos íntegramente en PenguScript. Consulta [LANGUAGE.md §19](LANGUAGE.md#19-standard-library) para el catálogo completo de módulos y ejemplos de código.
+`std/` contiene **28 módulos** (verificado: `ls std/*.pengu`), **26 de ellos puros de PenguScript**; los otros dos — `std.ffi` y `std.web` — son los únicos que se conectan con C. Consulta [LANGUAGE.md §19](LANGUAGE.md#19-standard-library) para el catálogo completo de módulos y ejemplos de código.
 
-- **Módulos en PenguScript puro (27):** `spark` (E/S básica, salida formateada, entrada tipada, rangos y ayudas matemáticas), `scrolls` (algoritmos completos de manipulación de cadenas, métricas, capitalización y ordenación de cadenas a tres bandas), `oracle` (contenedores `Maybe`/`Result` con interoperabilidad nativa y heredada), `compass` (rutas multiplataforma y coincidencia de patrones), `archivum` (archivos, E/S binaria y recorrido de directorios), `cipher` (JSON RFC 8259, Base64/32/Hex y validación), `chronicle` (fechas, relojes de alta resolución, temporizadores y análisis de duraciones), `lot` (PRNG, distribuciones estadísticas, muestreo, barajado y cadenas aleatorias), `arithmancy` (matemáticas avanzadas), `rites` (procesos del SO, entorno e información del sistema multiplataforma), `whisper` (registro de logs estructurado por niveles y rune `Logger`), `ward` (invariantes defensivos, aserciones de flotantes/rangos/contenedores y pruebas genéricas `shard T`), `trial` (pruebas unitarias), `tally` (operaciones funcionales sobre listas, reducciones, ordenación por inserción y estadísticas), `atlas` (almacén clave-valor con mapas hash, combinación, accesores masivos y filtros), `coven` (colecciones únicas `SetString`/`SetInt`, constructores rituales y álgebra de conjuntos), `filum` (hilos, canales tipados, mutex y operaciones atómicas), `fractio` (métodos de flotantes: clasificación IEEE 754, `approx_eq`, `sqrt`/`sin`/`exp`/`ln`/`pow`/`hypot` vía `libm`, `degrees`/`radians`), `integrum` (métodos exclusivos de enteros: paridad, primalidad, consultas de bits, `gcd`/`lcm`, división euclidiana, `to_hex`/`to_bin`/`to_oct`, todo monomorfizado), `littera` (métodos sobre `char`: clasificación ASCII, `to_upper`/`to_lower`, `digit_value`, PenguScript puro — sin `<ctype.h>` ni locale), `logica` (métodos sobre `bool`: `toggle`, `and_with`, `or_with`, `xor`, `iff`, `nand`, `nor`, `implies`, `to_int`), `numerus` (métodos numéricos universales sobre todo primitivo con `enchanting shard T where T: Num and T: Ordo and T: Par:` — `abs`, `clamp`, `pow_int`, `floor`, `round`, predicados y conversiones, monomorfizado a `int_abs`, `f64_clamp`, …), `loom` (pipelines de secuencias, ventanas y algoritmos genéricos), `memoria` (gestión manual de memoria del heap con `shard T`: `alloc`, `alloc_array` —zeroed por defecto—, `resize_array` con `old_n` explícito, `copy` con semántica `memmove`, `fill`, `zero`, `swap`, `compare`, `bytes_for`; las variantes `try_*` devuelven `maybe` en OOM), `invoke` (análisis avanzado de CLI, subcomandos, flags tipados, multiopciones y sugerencias ante erratas), `ffi` (puente con C) y `ledger` (análisis de CSV/TSV, datos tabulares y encantamientos de matrices).
+- **Módulos en PenguScript puro (26):** `spark` (E/S básica, salida formateada, entrada tipada, rangos y ayudas matemáticas), `scrolls` (algoritmos completos de manipulación de cadenas, métricas, capitalización y ordenación de cadenas a tres bandas), `oracle` (contenedores `Maybe`/`Result` con interoperabilidad nativa y heredada), `compass` (rutas multiplataforma y coincidencia de patrones), `archivum` (archivos, E/S binaria y recorrido de directorios), `cipher` (JSON RFC 8259, Base64/32/Hex y validación), `chronicle` (fechas, relojes de alta resolución, temporizadores y análisis de duraciones), `lot` (PRNG, distribuciones estadísticas, muestreo, barajado y cadenas aleatorias), `arithmancy` (matemáticas avanzadas), `rites` (procesos del SO, entorno e información del sistema multiplataforma), `whisper` (registro de logs estructurado por niveles y rune `Logger`), `ward` (invariantes defensivos, aserciones de flotantes/rangos/contenedores y pruebas genéricas `shard T`), `trial` (pruebas unitarias), `tally` (operaciones funcionales sobre listas, reducciones, ordenación por inserción y estadísticas), `atlas` (almacén clave-valor con mapas hash, combinación, accesores masivos y filtros), `coven` (colecciones únicas `SetString`/`SetInt`, constructores rituales y álgebra de conjuntos), `filum` (hilos, canales tipados, mutex y operaciones atómicas), `fractio` (métodos de flotantes: clasificación IEEE 754, `approx_eq`, `sqrt`/`sin`/`exp`/`ln`/`pow`/`hypot` vía `libm`, `degrees`/`radians`), `integrum` (métodos exclusivos de enteros: paridad, primalidad, consultas de bits, `gcd`/`lcm`, división euclidiana, `to_hex`/`to_bin`/`to_oct`, todo monomorfizado), `littera` (métodos sobre `char`: clasificación ASCII, `to_upper`/`to_lower`, `digit_value`, PenguScript puro — sin `<ctype.h>` ni locale), `logica` (métodos sobre `bool`: `toggle`, `and_with`, `or_with`, `xor`, `iff`, `nand`, `nor`, `implies`, `to_int`), `numerus` (métodos numéricos universales sobre todo primitivo con `enchanting shard T where T: Num and T: Ordo and T: Par:` — `abs`, `clamp`, `pow_int`, `floor`, `round`, predicados y conversiones, monomorfizado a `int_abs`, `f64_clamp`, …), `loom` (pipelines de secuencias, ventanas y algoritmos genéricos), `memoria` (gestión manual de memoria del heap con `shard T`: `alloc`, `alloc_array` —zeroed por defecto—, `resize_array` con `old_n` explícito, `copy` con semántica `memmove`, `fill`, `zero`, `swap`, `compare`, `bytes_for`; las variantes `try_*` devuelven `maybe` en OOM), `invoke` (análisis avanzado de CLI, subcomandos, flags tipados, multiopciones y sugerencias ante erratas) y `ledger` (análisis de CSV/TSV, datos tabulares y encantamientos de matrices).
+- **Los dos puentes con C (2):** `ffi` (el puente FFI general: slices, punteros a función, handles opacos) y `web` (el puente Web/Emscripten: consola, bucle principal, `now_ms`, `eval_js`, temporizadores sin flags, `IS_WASM`) — los únicos módulos que usan `include`/`declare`/`antiquus`.
 - **Los enlaces a bibliotecas externas de C (raylib, sqlite3, webui, miniaudio, etc.) viven ahora en repositorios satélite.** Consulta [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md); instala uno con `pengu add <url>` (el árbol de fuentes se copia en `lib/<name>/`).
 
-Los 27 módulos incluyen documentación completa (docstrings `##`), cobertura de pruebas total en los perfiles de compilación `debug` y `release`, compatibilidad hacia atrás del 100 % con cada línea de versión publicada (fijada por `tests/migration/`) y cero advertencias del compilador de C.
+Los 28 módulos incluyen documentación completa (docstrings `##`), cobertura de pruebas total en los perfiles de compilación `debug` y `release`, compatibilidad hacia atrás del 100 % con cada línea de versión publicada (fijada por `tests/migration/`) y cero advertencias del compilador de C.
 
 ---
 
@@ -1245,6 +1400,7 @@ PenguScript/
 ├── extern/                 # Downloaded third-party C library sources (gitignored)
 ├── build/                  # Generated output (gitignored):
 │                           #   build/lib/libpengu_runtime.a + build/include/ headers
+│                           #   build/wasm/lib/… + build/app.html|app.js|app.wasm (--target emscripten/wasm)
 ├── tests/                  # Python test-suite (pytest tests/): compiler, LSP, CLI,
 │                           #   `pengu bind`, the std library & satellite modules
 ├── tests/std_programs/     # One PenguScript exercise program per std module
@@ -1253,9 +1409,11 @@ PenguScript/
 ├── CHANGELOG.md            # Version history & feature log
 ├── CHEATSHEET.md           # Full language syntax & C-translation reference
 └── docs/                   # Build guide, performance/fuzzing notes & archived docs
-    ├── PENGU_BUILD.md      # Build system & project configuration guide
-    ├── BINDINGS.md         # Contract for pure libraries & C bindings (`link` propagation)
-    ├── README_RELEASE.md   # Generated: standalone release package documentation
+    ├── PENGU_BUILD.md        # Build system & project configuration guide
+    ├── BINDINGS.md           # Contract for pure libraries & C bindings (`link` propagation)
+    ├── WASM.md               # WebAssembly/Emscripten target: setup, artifacts, threads, limits
+    ├── CROSS_COMPILATION.md  # Cross-compilation model and target triples
+    ├── README_RELEASE.md     # Generated: standalone release package documentation
     └── archive/            # Historical, non-normative process documents
 ```
 
@@ -1266,11 +1424,14 @@ PenguScript/
 `build_runtime.py` produce el archivo estático que `pengu` enlaza en cada binario. El runtime **no tiene dependencias externas de C** — solo necesita libc, libm y pthreads/hilos de Win32 —, así que hay una única etapa de compilación: `build_pengu_runtime` compila `pengu_runtime.c` con `gcc`/`clang` + `ar` en `build/lib/libpengu_runtime.a` y prepara las cabeceras en `build/include/`:
 
 ```bash
-python build_runtime.py            # build the runtime
-python build_runtime.py --rebuild  # force a clean rebuild (~1.4 s, down from ~5–8 min)
+python build_runtime.py                 # compila el runtime del host
+python build_runtime.py --rebuild       # fuerza una recompilación limpia (~1.4 s, frente a ~5–8 min)
+python build_runtime.py --target emscripten   # runtime wasm (emcc + emar) -> build/wasm/
 ```
 
 `build_pengu_runtime` produce únicamente `libpengu_runtime.a`. Los archivos nativos de bibliotecas externas de C no se incluyen aquí: se instalan por proyecto desde repositorios satélite con `pengu add` (consulta [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md)).
+
+> `--target native` (el predeterminado) y `--target emscripten` escriben en árboles distintos — `build/lib` y `build/wasm/lib` — porque un objeto wasm y uno nativo no comparten ni código máquina ni ABI; el archivo del host nunca se ofrece a un enlazado wasm. `--target wasi` sale con estado 2 y un mensaje que dice que no está soportado. Consulta [docs/WASM.md](docs/WASM.md).
 
 > `extern_manifest.py` y su manifiesto ahora vacío se conservan para que los repositorios satélite reutilicen la infraestructura de descarga/hash; la compilación principal no descarga ni compila nada.
 
@@ -1316,6 +1477,8 @@ Referencias adicionales:
 | `MIGRATION.md`                                           | Guía de migración entre líneas de versión publicadas (nombrada; se conserva junto al corpus en `tests/migration/`) |
 | [VERSION](VERSION)                                       | La única fuente de verdad de la versión de la cadena de herramientas          |
 | [docs/PENGU_BUILD.md](docs/PENGU_BUILD.md)               | CLI `pengu`, configuración de proyecto y sistema de compilación               |
+| [docs/WASM.md](docs/WASM.md)                             | Compilar a WebAssembly con Emscripten: instalación, artefactos, hilos y límites |
+| [docs/CROSS_COMPILATION.md](docs/CROSS_COMPILATION.md)   | Modelo de compilación cruzada, triples objetivo y runtime del objetivo        |
 | [CHANGELOG.md](CHANGELOG.md)                             | Historial de versiones y registro de características por publicación          |
 | [docs/README_RELEASE.md](docs/README_RELEASE.md)         | El paquete de publicación independiente `pengucc_build/`                      |
 | [vscode-extension/README.md](vscode-extension/README.md) | Extensión de VS Code: características, configuración, instalación             |
