@@ -1,6 +1,6 @@
 # PenguScript
 
-![Version](https://img.shields.io/badge/version-2.2.1-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) ![WebAssembly](https://img.shields.io/badge/target-WebAssembly%20%28Emscripten%29-purple)
+![Version](https://img.shields.io/badge/version-2.2.2-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) ![WebAssembly](https://img.shields.io/badge/target-WebAssembly%20%28Emscripten%29-purple)
 
 **🌍 Languages / Idiomas:** [🇬🇧 English](#-english) · [🇪🇸 Español](#-español)
 
@@ -333,7 +333,7 @@ pip install -r requirements.txt
 # Build the C runtime into build/lib
 python build_runtime.py
 
-# Confirm the toolchain version (prints the toolchain version, `pengu 2.2.1`);
+# Confirm the toolchain version (prints the toolchain version, `pengu 2.2.2`);
 # `pengu --version` is an alias.
 pengu -V
 
@@ -1056,7 +1056,7 @@ pip install -r requirements.txt
 # Build the C runtime into build/lib
 python build_runtime.py
 
-# Confirma la versión de la cadena de herramientas (imprime `pengu 2.2.1`);
+# Confirma la versión de la cadena de herramientas (imprime `pengu 2.2.2`);
 # `pengu --version` es un alias.
 pengu -V
 

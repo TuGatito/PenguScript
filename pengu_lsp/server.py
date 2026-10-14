@@ -459,6 +459,129 @@ def _remap_shadow_paths(symbols, shadow_path: str, real_path: str) -> None:
                 sym.file_path = real_path
 
 
+# ---------------------------------------------------------------------------
+# Symbol recovery for a document that is being typed
+# ---------------------------------------------------------------------------
+#
+# The parser is all-or-nothing: while a line is half-typed (`player.`, `r->`,
+# `calling print with pla`) the whole buffer is rejected, `checker.check` never
+# runs, and the symbol table keeps its constructor value — the primitive types,
+# `print` and the built-in concepts, and nothing else. Completion then had
+# nothing to resolve `player` against, so `player.` fell through to the keyword
+# list and the local variable was missing from plain identifier completion.
+# Imported modules kept working only because `_MODULE_CACHE` is filled by
+# *other* documents that did parse, which is why `spark.` completed but
+# `player.` did not.
+#
+# `_recover_symbols` blanks the line the parser choked on and re-checks, one
+# line per attempt. Every declaration that is not on the line being edited
+# survives, which is exactly what an editor needs while the cursor line is
+# incomplete. The loop is bounded and the repaired source feeds the symbol
+# table only: diagnostics are always computed from the real text.
+
+#: How many lines the recovery pass may blank before giving up.
+_MAX_SYMBOL_REPAIR_ATTEMPTS = 8
+
+#: A pristine SymbolTable, used to tell "the check never ran" (builtins only)
+#: from "the check ran and collected something".
+_BARE_SYMBOL_TABLE: Optional[SymbolTable] = None
+
+
+def _has_no_user_symbols(symbols) -> bool:
+    """True when ``symbols`` holds nothing but the built-in globals.
+
+    A :class:`SymbolTable` built by the checker's constructor is not empty: it
+    already carries the primitive types, ``print`` and the built-in concepts.
+    A plain ``symbols is None`` test would therefore treat a check that never
+    ran as a usable table.
+
+    Args:
+        symbols: SymbolTable to test (may be None).
+
+    Returns:
+        True when no user declaration (scope, type or function) is present.
+    """
+    if symbols is None:
+        return True
+    if len(getattr(symbols, "all_scopes", None) or []) > 1:
+        return False
+    for table in (
+        "runes", "echos", "omens", "aliases", "seals", "functions", "consts",
+        "generic_runes", "generic_echos", "generic_omens", "generic_aliases",
+        "generic_functions", "generic_concepts", "imported_modules",
+    ):
+        if getattr(symbols, table, None):
+            return False
+    global _BARE_SYMBOL_TABLE
+    if _BARE_SYMBOL_TABLE is None:
+        _BARE_SYMBOL_TABLE = SymbolTable()
+    global_names = set(getattr(getattr(symbols, "global_scope", None), "symbols", {}) or {})
+    return global_names <= set(_BARE_SYMBOL_TABLE.global_scope.symbols)
+
+
+def _recover_symbols(
+    source: str,
+    filename: Optional[str],
+    project_root: str,
+    lib_dir: str,
+    src_dir: str,
+    first_error_line: Optional[int],
+):
+    """Best-effort SymbolTable for a document that does not parse yet.
+
+    Blanks the line the parser reported and re-parses, one line per attempt, so
+    a half-typed statement only costs the declarations on *that* line. Once a
+    candidate parses, the semantic check runs on it and its symbol table is
+    returned even when the check itself reports errors: a partial table is
+    still what completion and hover need.
+
+    Args:
+        source: The real document text (the document that failed to parse).
+        filename: Path handed to the checker (shadow path when applicable).
+        project_root: Project root used to resolve imports.
+        lib_dir: Manifest ``lib_dir`` for the checker.
+        src_dir: Manifest ``src_dir`` for the checker.
+        first_error_line: 1-based line the parser choked on, when known.
+
+    Returns:
+        A SymbolTable, or None when no bounded repair produced a parseable
+        document.
+    """
+    lines = source.splitlines()
+    error_line = first_error_line
+    # One parser for every attempt: building the Lark grammar costs ~13 ms and
+    # the repair loop may retry up to eight times.
+    parser = PenguParser()
+    for _ in range(_MAX_SYMBOL_REPAIR_ATTEMPTS):
+        if not error_line or not (1 <= error_line <= len(lines)):
+            return None
+        idx = error_line - 1
+        if not lines[idx].strip():
+            # The reported line is already blank; the offending token must be
+            # further up (a dangling block, for instance).
+            error_line -= 1
+            continue
+        lines[idx] = ""
+        candidate = "\n".join(lines) + "\n"
+        try:
+            tree = parser.parse(candidate)
+        except PenguError as exc:
+            nxt = getattr(exc, "line", None)
+            error_line = nxt if nxt and nxt != error_line else error_line - 1
+            continue
+        except Exception:
+            return None
+        checker = PenguChecker(base_dir=project_root, lib_dir=lib_dir, src_dir=src_dir)
+        try:
+            checker.check(tree, source=candidate, filename=filename)
+        except PenguError:
+            pass  # semantic errors still leave a partially filled table
+        except Exception:
+            return None
+        return checker.symbols
+    return None
+
+
 def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
     """Runs parse + semantic check for one document (pure computation).
 
@@ -506,9 +629,9 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
     # manifest's 'src_dir' / 'lib_dir' (a project may keep its modules in
     # 'pengu' and its bindings outside './lib').
     project_root = _project_root_for_path(file_path) if file_path else base_dir
-    checker = PenguChecker(base_dir=project_root,
-                           lib_dir=_lib_dir_for_project(project_root),
-                           src_dir=_src_dir_for_project(project_root))
+    lib_dir = _lib_dir_for_project(project_root)
+    src_dir = _src_dir_for_project(project_root)
+    checker = PenguChecker(base_dir=project_root, lib_dir=lib_dir, src_dir=src_dir)
 
     try:
         tree = parser.parse(source)
@@ -524,14 +647,26 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
     except PenguError as e:
         all_errs = e.all_errors if hasattr(e, "all_errors") and e.all_errors else [e]
         diags = diagnostics_from_errors(all_errs, source)
+        symbols = getattr(checker, "symbols", None)
+        if _has_no_user_symbols(symbols):
+            # Either the parser rejected the buffer (mid-typing) or the check
+            # died before collecting anything. Recover the declarations that
+            # are not on the line being edited so completion, hover and
+            # definition keep working while the user types.
+            recovered = _recover_symbols(
+                source, check_path, project_root, lib_dir, src_dir,
+                getattr(e, "line", None),
+            )
+            if recovered is not None and not _has_no_user_symbols(recovered):
+                symbols = recovered
         if shadow is not None:
-            _remap_shadow_paths(getattr(checker, "symbols", None), shadow, file_path)
+            _remap_shadow_paths(symbols, shadow, file_path)
         with server._validation_lock:
-            if hasattr(checker, "symbols"):
-                server._symbols[uri] = checker.symbols
+            if symbols is not None:
+                server._symbols[uri] = symbols
                 # Imports are collected in pass 1, so even an errored document
                 # still refreshes the module cache for autocompletion.
-                _refresh_module_cache(checker.symbols)
+                _refresh_module_cache(symbols)
         return diags
 
     except Exception as e:

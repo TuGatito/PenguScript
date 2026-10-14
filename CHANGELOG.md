@@ -2,6 +2,83 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.2.2] — 2026-10-14 — LSP: completions survive a half-typed line
+
+`var player as Player is with x is 1, …` followed by `player.` offered the
+keyword list instead of `x`, `y`, `width`, `height` — and typing the identifier
+`player` on a fresh line did not suggest the local at all. Imported modules were
+unaffected (`spark.` completed all of its members), which is what made the bug
+look specific to variables and struct fields.
+
+It was not. The parser is all-or-nothing: a half-typed line anywhere in the
+buffer (`player.`, `r->`, `if player.x > 0:` with an empty body) makes
+`parser.parse` reject the *whole* document, so `checker.check` never ran and
+`server._symbols[uri]` kept the value `PenguChecker.__init__` leaves behind — the
+ten primitive types, `print` and the built-in concepts. Nothing in that table can
+resolve `player` to `Player`, so `textDocument/completion` fell through to
+`BASE_KEYWORDS`. Module completion survived because `_MODULE_CACHE` is filled by
+*other* documents that did parse; a rune field and a local variable have no such
+backup.
+
+`pengu_lsp/server.py::_recover_symbols` now blanks the line the parser choked on
+and re-checks, one line per attempt (bounded to eight), so every declaration that
+is not on the line being edited is still collected. The repaired text feeds the
+symbol table only: diagnostics are still computed from the real buffer, and the
+recovery is only attempted when the symbol table came back with nothing but
+built-ins, so the semantic-error path is untouched.
+
+### Fixed
+
+- 🐛 **LSP: `player.` / `r->` returned keywords instead of the rune's members.**
+  Dot and arrow completion read an empty symbol table, so no `RuneType` was ever
+  reached and `_module_member_items` was the only branch that could answer.
+  `_recover_symbols` restores the fields *and* the methods attached with
+  `enchanting`, including nested access (`player.pos.`).
+- 🐛 **LSP: the local variable was missing from identifier completion.** The same
+  empty table meant a half-typed line anywhere in the file hid every local,
+  parameter and `import` alias. Recovered scopes keep the lexer's line ranges, so
+  `scope.start_line <= cursor_line <= scope.end_line` filters exactly as before.
+- 🐛 **LSP: recovery is skipped when the check failed for a semantic reason.**
+  `_has_no_user_symbols` compares against a pristine `SymbolTable` instead of a
+  `None` test, so a partially-filled table produced by a type error is kept as-is
+  (it is strictly better than a repaired one) and the extra parse+check only runs
+  when there is genuinely nothing to lose.
+- 🔧 **VS Code extension: project manifests are watched.** The client watched
+  `**/*.pengu` only, so a `pengu.toml`/`pengu.yaml` edit (a new `src_dir`,
+  `lib_dir` or a freshly installed binding) did not reach the server's
+  `workspace/didChangeWatchedFiles`, and the editor kept completing from the
+  previous layout until some source file happened to be reopened.
+
+### Changed
+
+- 🔧 `VERSION`, `pengu_version.FALLBACK_VERSION`, `vscode-extension/package.json`
+  and its lockfile, the README version badge and `docs/README_RELEASE.md` carry
+  `2.2.2`; `vscode-extension/pengus-2.2.2.vsix` is packaged from the rebuilt
+  bundle.
+
+### Tests
+
+- 🧪 New `tests/lsp/` package (14 tests, `smoke`-marked so CI's
+  `pengu selftest --smoke` picks them up): dot/arrow/nested completion while the
+  buffer is mid-edit, identifier completion with an incomplete line *elsewhere*
+  in the file, declarations that appear *below* the broken line, a clean document
+  left unchanged, diagnostics still pointing at the real error, the bounded
+  give-up path, that a semantic error does *not* pay for a repair pass, and the
+  `_has_no_user_symbols` / `_recover_symbols` units. Seven of the fourteen fail
+  with `_MAX_SYMBOL_REPAIR_ATTEMPTS = 0`, which is the pre-fix behaviour.
+- 🧪 `pengu selftest --smoke`: **253 passed, 28 deselected**.
+- 🧪 Outside pytest, two real clients, with the recovery on and with it disabled:
+  - Neovim 0.12.6 headless, `penguscript-nvim` loaded from the plugin directory
+    with `g:pengus_bin_path` pointing at this checkout's `pengu` — the plugin
+    attaches (`client=pengus`, `omnifunc=v:lua.vim.lsp.omnifunc`) and answers
+    `player.` with `x, y, width, height, move` and `pla` with `player`; with the
+    recovery disabled the very same session answers `{weave, rune, echo, …}` and
+    omits `player`. The plugin needed no change: it starts the server, sets the
+    capabilities and forwards the request.
+  - `textDocument/completion` over a raw stdio LSP session (`initialize` →
+    `didOpen` with the half-typed buffer → `completion` with
+    `triggerCharacter: "."`), which is the exact sequence both clients send.
+
 ## [2.2.1] — 2026-10-14 — Import resolution: LSP project roots and the manifest's `src_dir`
 
 Two import-resolution defects made a satellite C binding look like it exported

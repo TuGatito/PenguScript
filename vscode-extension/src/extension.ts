@@ -42,13 +42,24 @@ export function activate(context: vscode.ExtensionContext) {
         debug: { command: command, args: ['lsp', '--stdio'], transport: TransportKind.stdio }
     };
 
-    // Opciones del cliente: Observa los archivos .pengu y .pengus
+    // Opciones del cliente: observar los fuentes y los manifiestos del proyecto
     const clientOptions: LanguageClientOptions = {
         documentSelector: [
             { scheme: 'file', language: 'pengus' }
         ],
         synchronize: {
-            fileEvents: vscode.workspace.createFileSystemWatcher('**/*.pengu')
+            // Sources *and* manifests. The server caches module scopes and
+            // symbol tables per project, and drops them on
+            // `workspace/didChangeWatchedFiles`; watching only `**/*.pengu`
+            // left the editor completing from the previous layout after a
+            // `pengu.toml` (or `pengu.yaml`) edit until some source file was
+            // reopened.
+            fileEvents: [
+                vscode.workspace.createFileSystemWatcher('**/*.{pengu,pengus}'),
+                vscode.workspace.createFileSystemWatcher(
+                    '**/{pengu,Pengu}.{toml,yaml,yml,json,lock}'
+                )
+            ]
         }
     };
 
