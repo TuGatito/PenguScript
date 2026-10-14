@@ -2,6 +2,83 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.2.1] — 2026-10-14 — Import resolution: LSP project roots and the manifest's `src_dir`
+
+Two import-resolution defects made a satellite C binding look like it exported
+nothing. Worked from the raylib binding (`include/*.h` → `pengu/*.d.pengu`,
+installed with `pengu add`), the symptom was an editor that reported
+`E0004 Module 'raylib' has no exported member 'InitWindow'` — one diagnostic per
+member used — while `pengu check` and `pengu run` accepted the very same file.
+
+Neither defect was about visibility: `declare` symbols in a `.d.pengu` are public
+(`Scope.define` marks every name without a leading `_` as `is_public`), and a
+document sitting next to the module completes all 1351 of its members. The LSP
+never *found* the project root, and module search never looked at the manifest's
+`src_dir`; both are fixed here.
+
+### Fixed
+
+- 🐛 **LSP: the project root was not found in a `pengu.toml` project.**
+  `pengu_lsp/server.py::_project_root_for_path` recognised only `pengu.yaml` and
+  a directory literally named `src/` as project markers, so the walk-up from a
+  document fell back to the document's *own* directory. In a project whose
+  manifest is `pengu.toml` (the default — `pengu.toml`, `pengu.yaml`,
+  `pengu.yml`, `pengu.json` and `Pengu.toml` are all accepted by the CLI,
+  `pengu_project.py`), opening `examples/core/core_basic_window.pengu` resolved
+  `import raylib` against `examples/core/raylib.pengu`, failed with
+  `E0004 Cannot resolve imported module 'raylib'`, and then emitted the
+  misleading cascade — `E0004 Module 'raylib' has no exported member
+  'InitWindow'`, `… 'SetTargetFPS'`, `… 'BeginDrawing'` — one per member the
+  document touches, because an unresolved module has an empty scope. The marker
+  set is now the CLI's, plus `src/` for manifest-less layouts. Reproduced against
+  both the released binary and the source LSP, fixed, and re-verified: the same
+  document goes from 0 to 824 completion items including `InitWindow`, with no
+  diagnostics.
+- 🐛 **Import resolution ignored the manifest's `src_dir`.**
+  `pengu_parser/pengu_symbols.py::find_module_path` and `resolve_imports`
+  hardcoded `src/`, so a project that keeps its modules elsewhere —
+  `src_dir = "pengu"`, the layout `pengu add` produces for a binding — could only
+  resolve them from a document sitting next to them. Both take `src_dir` now
+  (default `"src"`, so nothing changes for the common layout), `PenguChecker`
+  forwards it, and `pengu_doc.py` and the LSP read it from the manifest
+  (`_src_dir_for_project`, mirroring the existing `_lib_dir_for_project`).
+- 🐛 **`PenguChecker.lib_dir` was stored and never used, and nested checkers
+  dropped both roots.** The checker's own module search called
+  `find_module_path` without `lib_dir`, discarding the `lib_dir` the LSP computes
+  from the manifest (a project with `lib_dir: "external"` still reported every
+  import from it as unresolved), and the sub-checker built for each imported
+  module was constructed with bare defaults. That second half is what made a
+  transitive import — a facade module that imports six others — resolve nothing
+  and therefore export nothing. `lib_dir`/`src_dir` are now passed to
+  `find_module_path`, to the recursive `resolve_imports` call, and to the
+  sub-checker.
+- 🐛 **`pengu run <script>` built a fresh `ProjectConfig` and lost the
+  manifest's layout.** Script mode already walked up from the script to the
+  project file to choose `base_dir`, but then used the dataclass defaults for
+  `src_dir`/`lib_dir`/`include_dir`, so `pengu run examples/core/x.pengu` in a
+  `src_dir = "pengu"` project could not see the project's own modules (the same
+  `E0004` as the LSP). It now reads those three keys from the manifest it found;
+  nothing else about script mode changes, and a loose script with no manifest
+  above it keeps the defaults.
+
+### Changed
+
+- 🔧 `VERSION`, `pengu_version.FALLBACK_VERSION`, `vscode-extension/package.json`
+  and its lockfile, the README version badge and `docs/README_RELEASE.md` carry
+  `2.2.1`.
+
+### Tests
+
+- 🧪 `pytest tests -q -n auto`: **405 passed, 16 skipped** (the skips are the
+  Emscripten ones, `emcc` not on `PATH`), with the five touched files
+  (`pengu_symbols.py`, `pengu_checker.py`, `pengu_project.py`, `pengu_doc.py`,
+  `pengu_lsp/server.py`) in place.
+- 🧪 Outside the suite, end-to-end against a satellite C binding installed with
+  `pengu add`: a windowed program that exercises six bindings builds and runs;
+  `pengu run examples/core/core_basic_window.pengu` compiles and opens its
+  window; and a document outside `src_dir` completes the whole binding under the
+  LSP, with the two fixes and with no compatibility shim of any kind.
+
 ## [2.2.0] — 2026-10-14 — WebAssembly, `std.web` and the Linux CI fix
 
 `v2.1.1` was published on schedule, but the three commits that followed it —
