@@ -1,0 +1,241 @@
+# std/web.pengu - The Web / Emscripten Bridge
+#
+# Thin, typed wrappers over the parts of the Emscripten runtime that every
+# WebAssembly build has, with no extra `emcc` flags and no satellite library:
+# the JS console, the main loop, high-resolution time, JS evaluation and
+# deferred calls.
+#
+# Scope rule (the same one that decides what lives in this repository at all):
+#   * always available with a plain `emcc` build        -> here
+#   * needs `-sASYNCIFY`, `-sFETCH=1`, `-lwebsocket.js`,
+#     `-sUSE_SDL=2`, `-lidbfs.js`, ...                  -> a satellite binding
+#
+# So `emscripten_sleep` (which requires `-sASYNCIFY`) is deliberately absent;
+# `set_timeout`/`clear_timeout` cover the "run something later" case and need no
+# flags at all. See docs/WASM.md.
+#
+# Native builds:
+#   Importing this module is always valid. In a native build every function
+#   still exists, so shared code compiles unchanged: the console functions write
+#   to stderr, `now_ms` reads the monotonic clock, and the genuinely Web-only
+#   entry points (`set_main_loop`, `eval_js`, ...) call `spark.panic` with a
+#   clear message instead of failing to link. Guard on `IS_WASM` (or the `when
+#   wasm:` compile-time variable) when you need one source for both targets.
+#
+# `std.spark` is the only import. In particular this module does NOT import
+# `std.chronicle` for the native clock: the runtime header already ships
+# `pengu_c_time_monotonic()` as a `static inline`, and reaching for it directly
+# keeps a whole module (and its generated helpers, which emit ~24
+# `-Wunused-function` warnings and their code) out of every wasm bundle.
+#
+# Why not `EM_ASM`:
+#   `EM_ASM` is rejected by Emscripten under `-std=c11` ("EM_ASM does not work in
+#   -std=c* modes"), which is the dialect this project's manifests and
+#   `build_runtime.py` select. Everything here therefore goes through a real C
+#   API from `emscripten.h`, `emscripten/console.h` and
+#   `emscripten/eventloop.h`, all of which compile in strict ISO C mode.
+
+import std.spark
+
+# ----------------------------------------------------------------------------
+# Module Version
+# ----------------------------------------------------------------------------
+
+## Version constant for std.web (the toolchain version it ships with, per the
+## stdlib versioning policy in LANGUAGE.md §19.0).
+const WEB_VERSION as string is "2.1.1"
+
+# ============================================================================
+# WebAssembly build
+# ============================================================================
+
+when wasm:
+
+    include "emscripten.h"
+    include "emscripten/console.h"
+    include "emscripten/eventloop.h"
+
+    ## High-resolution milliseconds since the page/module started
+    ## (the JS `performance.now()` clock).
+    declare emscripten_get_now into f64
+
+    ## Registers `cb` as the main-loop callback.
+    ## `fps` 0 means "drive it with requestAnimationFrame"; a positive value
+    ## requests that frame rate. `simulate_infinite_loop` non-zero makes the C
+    ## call never return (the classic `main` + main-loop shape).
+    declare emscripten_set_main_loop with cb as ref to weave into void , fps as int , simulate_infinite_loop as int into void
+
+    ## Stops the main loop; the program then falls through to its normal exit.
+    declare emscripten_cancel_main_loop into void
+
+    ## Parks the main loop without discarding it.
+    declare emscripten_pause_main_loop into void
+
+    ## Restarts a loop parked by `pause_main_loop`.
+    declare emscripten_resume_main_loop into void
+
+    ## Runs `code` as JavaScript. The escape hatch for touching the DOM (or any
+    ## other JS global) without a dedicated binding.
+    declare emscripten_run_script with script as ref to frozen char into void
+
+    ## Schedules `cb(user_data)` to run once, `msecs` from now.
+    ## Returns an id that `clear_timeout` accepts.
+    declare emscripten_set_timeout with cb as ref to weave with arg as ref to void into void , msecs as f64 , user_data as ref to void into int
+
+    ## Cancels a timeout scheduled by `set_timeout`.
+    declare emscripten_clear_timeout with timeout_id as int into void
+
+    # ------------------------------------------------------------------
+    # String plumbing. A PenguScript `string` is a PenguString (pointer + length
+    # + capacity), not a NUL-terminated `char*`, so each JS-facing call needs a
+    # view. `pengu_string_to_cstr` returns the internal buffer without copying
+    # (and a static "" for empty strings), so these wrappers allocate nothing.
+    # ------------------------------------------------------------------
+
+    ## Writes `msg` to the JavaScript `console.log`.
+    antiquus console_log with msg as string into void:
+        r"""
+        emscripten_console_log(pengu_string_to_cstr(&msg));
+        """
+
+    ## Writes `msg` to the JavaScript `console.warn`.
+    antiquus console_warn with msg as string into void:
+        r"""
+        emscripten_console_warn(pengu_string_to_cstr(&msg));
+        """
+
+    ## Writes `msg` to the JavaScript `console.error`.
+    antiquus console_error with msg as string into void:
+        r"""
+        emscripten_console_error(pengu_string_to_cstr(&msg));
+        """
+
+    ## Writes `msg` to the JavaScript `console.trace` (a stack trace).
+    antiquus console_trace with msg as string into void:
+        r"""
+        emscripten_console_trace(pengu_string_to_cstr(&msg));
+        """
+
+    ## Evaluates `code` as JavaScript.
+    antiquus eval_js with code as string into void:
+        r"""
+        emscripten_run_script(pengu_string_to_cstr(&code));
+        """
+
+    ## True: this binary is a WebAssembly build.
+    const IS_WASM as bool is true
+
+    ## Registers `cb` as the main-loop callback.
+    ##
+    ## ## Parámetros
+    ## - `cb`: called once per frame; must take no arguments and return void.
+    ## - `fps`: 0 (default) drives the loop with requestAnimationFrame.
+    ## - `simulate_infinite_loop`: true keeps the C call from returning, which is
+    ##   what a browser needs (the JS event loop must regain control). Pass false
+    ##   when you want to keep running C code after registering the loop.
+    weave set_main_loop with cb as ref to weave into void , fps as int is 0 , simulate_infinite_loop as bool is true into void:
+        calling emscripten_set_main_loop with cb , fps , (if simulate_infinite_loop then 1 else 0)
+
+    ## Stops the main loop.
+    weave cancel_main_loop into void:
+        calling emscripten_cancel_main_loop
+
+    ## Parks the main loop (`resume_main_loop` restarts it).
+    weave pause_main_loop into void:
+        calling emscripten_pause_main_loop
+
+    ## Restarts a loop parked by `pause_main_loop`.
+    weave resume_main_loop into void:
+        calling emscripten_resume_main_loop
+
+    ## Milliseconds from a high-resolution monotonic clock.
+    weave now_ms into f64:
+        return calling emscripten_get_now
+
+    ## Schedules `cb(arg)` to run once, `ms` milliseconds from now.
+    ## ## Retorno
+    ## An id for `clear_timeout`.
+    weave set_timeout with cb as ref to weave with arg as ref to void into void , ms as f64 , arg as ref to void into int:
+        return calling emscripten_set_timeout with cb , ms , arg
+
+    ## Cancels a timeout scheduled with `set_timeout`.
+    weave clear_timeout with timeout_id as int into void:
+        calling emscripten_clear_timeout with timeout_id
+
+# ============================================================================
+# Native build: same API, no Web runtime
+# ============================================================================
+#
+# The stubs below keep the *exact* parameter list of their wasm counterparts, so
+# a program can call either branch without `when` guards. Several of those
+# parameters are therefore deliberately unread here (a native binary has no
+# browser loop to drive): under the project's own flags (`-Wall -std=c11`, what
+# the manifest templates and build_runtime.py use) that is warning-free. A
+# stricter `-Wextra` build, which this project does not use, would additionally
+# report -Wunused-parameter for them -- the parameters exist for API parity and
+# must not be removed.
+
+when not wasm:
+
+    ## False: this binary is a native build, not WebAssembly.
+    const IS_WASM as bool is false
+
+    ## Writes `msg` to stderr (no JavaScript console outside a browser).
+    weave console_log with msg as string into void:
+        calling spark.eprintln with msg
+
+    ## Writes `msg` to stderr.
+    weave console_warn with msg as string into void:
+        calling spark.eprintln with msg
+
+    ## Writes `msg` to stderr.
+    weave console_error with msg as string into void:
+        calling spark.eprintln with msg
+
+    ## Writes `msg` to stderr (there is no stack trace to print natively).
+    weave console_trace with msg as string into void:
+        calling spark.eprintln with msg
+
+    ## The monotonic clock, in milliseconds.
+    ##
+    ## Calls the runtime's own `pengu_c_time_monotonic()` (a `static inline` in
+    ## `pengu_runtime.h`, already part of every bundle, with its own Windows
+    ## QueryPerformanceCounter path), so this needs no extra module import.
+    antiquus native_monotonic_ms into f64:
+        r"""
+        return pengu_c_time_monotonic() * 1000.0;
+        """
+
+    ## Milliseconds from the monotonic clock.
+    weave now_ms into f64:
+        return calling native_monotonic_ms
+
+    ## Fails: there is no JavaScript engine to evaluate `code` in.
+    weave eval_js with code as string into void:
+        calling spark.panic with "std.web.eval_js requires a wasm build (--target wasm32-unknown-emscripten)"
+
+    ## Fails: a native binary has no browser main loop.
+    weave set_main_loop with cb as ref to weave into void , fps as int is 0 , simulate_infinite_loop as bool is true into void:
+        calling spark.panic with "std.web.set_main_loop requires a wasm build (--target wasm32-unknown-emscripten)"
+
+    ## Fails: a native binary has no browser main loop.
+    weave cancel_main_loop into void:
+        calling spark.panic with "std.web.cancel_main_loop requires a wasm build (--target wasm32-unknown-emscripten)"
+
+    ## Fails: a native binary has no browser main loop.
+    weave pause_main_loop into void:
+        calling spark.panic with "std.web.pause_main_loop requires a wasm build (--target wasm32-unknown-emscripten)"
+
+    ## Fails: a native binary has no browser main loop.
+    weave resume_main_loop into void:
+        calling spark.panic with "std.web.resume_main_loop requires a wasm build (--target wasm32-unknown-emscripten)"
+
+    ## Fails: there is no JS event loop to schedule into. Use `chronicle.sleep_ms`
+    ## for a blocking sleep, or the platform's own timer API.
+    weave set_timeout with cb as ref to weave with arg as ref to void into void , ms as f64 , arg as ref to void into int:
+        calling spark.panic with "std.web.set_timeout requires a wasm build (--target wasm32-unknown-emscripten)"
+        return 0
+
+    ## Fails for the same reason as `set_timeout`.
+    weave clear_timeout with timeout_id as int into void:
+        calling spark.panic with "std.web.clear_timeout requires a wasm build (--target wasm32-unknown-emscripten)"

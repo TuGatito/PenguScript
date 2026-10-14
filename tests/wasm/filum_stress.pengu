@@ -1,0 +1,460 @@
+# tests/wasm/filum_stress.pengu
+#
+# Concurrency stress test for std.filum, written to run unchanged on the native
+# target and on wasm32-unknown-emscripten. It is deliberately the *only* filum
+# test that exercises every primitive at once, because a channel that works in
+# isolation can still corrupt a wait group when the scheduler interleaves them.
+#
+# What it proves, per primitive:
+#
+#   * ChanInt     - NWORKERS x PER_WORKER messages are all delivered, in full,
+#                   across real threads (a lost or duplicated message changes the
+#                   received count).
+#   * WaitGroup   - `wait` returns only after every worker has run to completion.
+#   * Mutex       - a *non-atomic* counter incremented MUTEX_ITERS times per
+#                   worker lands exactly on NWORKERS x MUTEX_ITERS; a broken lock
+#                   loses increments.
+#   * AtomicInt   - the same workload without the lock also lands exactly, and
+#                   add/load/store/swap/compare_swap are all exercised.
+#   * Cond        - a worker genuinely parks in cond_wait and main wakes it with
+#                   broadcast; the predicate loop means the test can never hang.
+#   * Once        - do_once runs its callback exactly once across all threads.
+#   * goroutine_id- at least two distinct OS threads are observed, which fails
+#                   loudly if the wasm build forgot `-pthread` (all ids equal).
+#   * *_free      - every handle allocated through the accessors below is
+#                   released, so an ASan/LSan run stays clean.
+#
+# Language constraints that shaped the design:
+#
+#   * Top-level `var` is forbidden (E0002), so shared state lives in `static var`
+#     inside a weave.
+#   * A C `static var` is function-local, so a handle and every operation on it
+#     must live in the *same* weave. Each resource below is therefore one weave
+#     dispatching on an integer op code: two weaves could not share one static,
+#     and the `free` would then release a different object than the one the
+#     workers used (which ASan reports as a leak).
+#   * Lambdas capture nothing, so spawned goroutines reach shared state only
+#     through those same weaves.
+#   * `main` calls the TOUCH op of every resource *before* spawning. A `static
+#     var` whose initializer is not a compile-time constant is emitted as
+#     `if (!initialized) { value = init; initialized = true; }` (see
+#     pengu_parser/pengu_codegen/stmts.py), which is NOT thread-safe: if two
+#     goroutines race the first use, each allocates its own handle and the
+#     losers' handles are orphaned. Initialising from one thread first sidesteps
+#     that pre-existing race, and is what a program using goroutines must do.
+#   * Every `maybe int` returned by `recv` is `banish`ed. `maybe T` is an *owned*
+#     heap cell (`some val` boxes the payload), so a received value that is only
+#     inspected still has to be released. Without it this test leaked exactly one
+#     4-byte allocation per received message -- 1200 of them -- which is what the
+#     ASan run reported. See the `banish m` comment in the channel accessors.
+
+import std.spark
+import std.filum
+
+# ---------------------------------------------------------------------------
+# Tunables
+# ---------------------------------------------------------------------------
+
+const NWORKERS as int is 4
+const PER_WORKER as int is 300
+const BUF as int is 64
+
+# Deliberately more iterations than workers so the lock is actually contended.
+const MUTEX_ITERS as int is 250
+const ATOMIC_ITERS as int is 250
+
+# Expected totals (hard-coded: `const` arithmetic is not guaranteed).
+const DATA_TOTAL as int is 1200
+const LOCK_TOTAL as int is 1000
+const ATOMIC_TOTAL as int is 1000
+
+# Op codes shared by every resource below.
+const OP_TOUCH as int is 8   # force the static initializer to run, do nothing
+const OP_FREE as int is 9    # release the handle
+const OP_CLOSE as int is 7   # channels only
+
+# ---------------------------------------------------------------------------
+# Resource 1: the data channel (ChanInt, buffered)
+#   op 0 send v -> 1 sent / 0 closed      op 1 recv -> value / -1 closed
+# ---------------------------------------------------------------------------
+
+weave data_chan with op as int, v as int into int:
+    static var g as filum.ChanInt is calling filum.chan_int with BUF
+    if op == 0:
+        if calling g.send with v:
+            return 1
+        return 0
+    if op == 1:
+        var m as maybe int is calling g.recv
+        var out as int is -1
+        if got as int is m:
+            set out is got
+        # `maybe int` is an *owned* heap cell: `some val` boxes the payload, so
+        # every recv allocates one and it must be released. Skipping this banish
+        # leaks 4 bytes per received message -- 1200 of them in this test, which
+        # is exactly what ASan reports (measured: 5 recvs -> 5 leaked objects
+        # without this line, 0 with it).
+        banish m
+        return out
+    if op == OP_TOUCH:
+        return 0
+    if op == OP_CLOSE:
+        calling g.close
+        return 0
+    calling filum.free_chan_int with (sigil of g)
+    return 0
+
+# ---------------------------------------------------------------------------
+# Resource 2: the goroutine-id channel
+# ---------------------------------------------------------------------------
+
+weave id_chan with op as int, v as int into int:
+    static var g as filum.ChanInt is calling filum.chan_int with NWORKERS
+    if op == 0:
+        if calling g.send with v:
+            return 1
+        return 0
+    if op == 1:
+        var m as maybe int is calling g.recv
+        var out as int is -1
+        if got as int is m:
+            set out is got
+        # `maybe int` is an *owned* heap cell: `some val` boxes the payload, so
+        # every recv allocates one and it must be released. Skipping this banish
+        # leaks 4 bytes per received message -- 1200 of them in this test, which
+        # is exactly what ASan reports (measured: 5 recvs -> 5 leaked objects
+        # without this line, 0 with it).
+        banish m
+        return out
+    if op == OP_TOUCH:
+        return 0
+    if op == OP_CLOSE:
+        calling g.close
+        return 0
+    calling filum.free_chan_int with (sigil of g)
+    return 0
+
+# ---------------------------------------------------------------------------
+# Resource 3: the wait group
+#   op 0 add 1, op 1 done, op 2 wait
+# ---------------------------------------------------------------------------
+
+weave wg with op as int into int:
+    static var g as filum.WaitGroup is calling filum.wait_group
+    if op == 0:
+        calling filum.add with (sigil of g), 1
+        return 0
+    if op == 1:
+        calling filum.done with (sigil of g)
+        return 0
+    if op == 2:
+        calling filum.wait with (sigil of g)
+        return 0
+    if op == OP_TOUCH:
+        return 0
+    calling filum.free_wait_group with (sigil of g)
+    return 0
+
+# ---------------------------------------------------------------------------
+# Resource 4: the mutex and the *non-atomic* counter it guards
+#   op 0 lock, op 1 unlock, op 2 try_lock -> 1/0, op 3 bump, op 4 read
+# ---------------------------------------------------------------------------
+
+weave guarded with op as int into int:
+    static var g as filum.Mutex is calling filum.mutex
+    static var counter as int is 0
+    if op == 0:
+        calling filum.lock with (sigil of g)
+        return 0
+    if op == 1:
+        calling filum.unlock with (sigil of g)
+        return 0
+    if op == 2:
+        if calling filum.try_lock with (sigil of g):
+            calling filum.unlock with (sigil of g)
+            return 1
+        return 0
+    if op == 3:
+        set counter is counter + 1
+        return counter
+    if op == 4:
+        return counter
+    if op == OP_TOUCH:
+        return 0
+    calling filum.free_mutex with (sigil of g)
+    return 0
+
+# ---------------------------------------------------------------------------
+# Resource 5: the atomic counter
+#   op 0 add delta -> new, op 1 load, op 2 store val,
+#   op 3 swap val -> old, op 4 compare_swap(old=delta, new=0) -> 1/0
+# ---------------------------------------------------------------------------
+
+weave atomic_count with op as int, delta as int into int:
+    static var g as filum.AtomicInt is calling filum.atomic_int with 0
+    if op == 0:
+        return (calling filum.add_atomic with (sigil of g), delta) + delta
+    if op == 1:
+        return calling filum.load with (sigil of g)
+    if op == 2:
+        calling filum.store with (sigil of g), delta
+        return 0
+    if op == 3:
+        return calling filum.swap with (sigil of g), delta
+    if op == 4:
+        if calling filum.compare_swap with (sigil of g), delta, 0:
+            return 1
+        return 0
+    if op == OP_TOUCH:
+        return 0
+    calling filum.free_atomic_int with (sigil of g)
+    return 0
+
+# ---------------------------------------------------------------------------
+# Resource 6: the Once guard and the counter its callback bumps
+# ---------------------------------------------------------------------------
+
+weave once_calls with op as int into int:
+    static var n as int is 0
+    if op == 0:
+        set n is n + 1
+        return n
+    return n
+
+weave once_body into void:
+    calling once_calls with 0
+
+weave once_guard with op as int into int:
+    static var g as filum.Once is calling filum.once
+    if op == 0:
+        var fp as ref to void is transmute (lambda into calling once_body) to ref to void
+        var fo as opaque is fp
+        calling filum.do_once with (sigil of g), fo
+        return 0
+    if op == OP_TOUCH:
+        return 0
+    calling filum.free_once with (sigil of g)
+    return 0
+
+# ---------------------------------------------------------------------------
+# Resource 7: the condition variable and the mutex cond_wait must pair with.
+#
+# The predicate (`ready`) and the diagnostics (`waited`, `woken`) live in the
+# same weave as the primitives, so no extra handles are needed. Every access to
+# them happens while `g_m` is held, which is what makes them race-free.
+#
+#   op 0 lock      op 1 unlock    op 2 wait (parks; marks waited first)
+#   op 3 broadcast op 4 signal    op 5 ready = 1
+#   op 6 get ready op 7 woken = 1 op 8 get woken
+#   op 9 get waited               op 10 free               op 11 touch
+# ---------------------------------------------------------------------------
+
+weave cond_gate with op as int into int:
+    static var g_c as filum.Cond is calling filum.cond
+    static var g_m as filum.Mutex is calling filum.mutex
+    static var ready as int is 0
+    static var waited as int is 0
+    static var woken as int is 0
+    if op == 0:
+        calling filum.lock with (sigil of g_m)
+        return 0
+    if op == 1:
+        calling filum.unlock with (sigil of g_m)
+        return 0
+    if op == 2:
+        set waited is 1
+        calling filum.cond_wait with (sigil of g_c), (sigil of g_m)
+        return 0
+    if op == 3:
+        calling filum.broadcast with (sigil of g_c)
+        return 0
+    if op == 4:
+        calling filum.signal with (sigil of g_c)
+        return 0
+    if op == 5:
+        set ready is 1
+        return 0
+    if op == 6:
+        return ready
+    if op == 7:
+        set woken is 1
+        return 0
+    if op == 8:
+        return woken
+    if op == 9:
+        return waited
+    if op == 11:
+        return 0
+    calling filum.free_cond with (sigil of g_c)
+    calling filum.free_mutex with (sigil of g_m)
+    return 0
+
+# ---------------------------------------------------------------------------
+# The goroutines
+# ---------------------------------------------------------------------------
+
+# Every worker publishes its OS thread, stays alive long enough that all
+# NWORKERS overlap (otherwise a finishing thread's Worker could be reused before
+# the next goroutine starts and two ids could legitimately coincide), then
+# hammers every primitive.
+weave worker into void:
+    calling id_chan with 0, (calling filum.goroutine_id)
+    calling filum.sleep with 300
+
+    var i as int is 0
+    while i < PER_WORKER:
+        calling data_chan with 0, i
+        set i is i + 1
+
+    set i is 0
+    while i < MUTEX_ITERS:
+        calling guarded with 0
+        calling guarded with 3
+        calling guarded with 1
+        set i is i + 1
+
+    set i is 0
+    while i < ATOMIC_ITERS:
+        calling atomic_count with 0, 1
+        set i is i + 1
+
+    calling guarded with 2
+    calling once_guard with 0
+    calling wg with 1
+
+# Parks in cond_wait until main sets `ready` and broadcasts.
+weave cond_waiter into void:
+    calling cond_gate with 0
+    while (calling cond_gate with 6) == 0:
+        calling cond_gate with 2
+    calling cond_gate with 7
+    calling cond_gate with 1
+    calling wg with 1
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+weave main into int:
+    var failures as int is 0
+
+    # --- initialise every resource from ONE thread, before spawning --------
+    calling data_chan with OP_TOUCH, 0
+    calling id_chan with OP_TOUCH, 0
+    calling wg with OP_TOUCH
+    calling guarded with OP_TOUCH
+    calling atomic_count with OP_TOUCH, 0
+    calling once_guard with OP_TOUCH
+    calling cond_gate with 11
+
+    # --- spawn -------------------------------------------------------------
+    var i as int is 0
+    while i < NWORKERS:
+        calling wg with 0
+        var fp as ref to void is transmute (lambda into calling worker) to ref to void
+        var fo as opaque is fp
+        calling filum.pengu_c_filum_go with fo
+        set i is i + 1
+
+    calling wg with 0
+    var cfp as ref to void is transmute (lambda into calling cond_waiter) to ref to void
+    var cfo as opaque is cfp
+    calling filum.pengu_c_filum_go with cfo
+
+    # --- channel: drain exactly DATA_TOTAL messages ------------------------
+    var received as int is 0
+    var closed as bool is false
+    while received < DATA_TOTAL and not closed:
+        var v as int is calling data_chan with 1, 0
+        if v == -1:
+            set closed is true
+        else:
+            set received is received + 1
+
+    # --- cond: wait until the waiter has parked, then wake it --------------
+    var spins as int is 0
+    var seen as int is 0
+    while spins < 2000:
+        calling cond_gate with 0
+        set seen is calling cond_gate with 6
+        calling cond_gate with 1
+        if seen == 1:
+            break
+        calling filum.sleep with 1
+        set spins is spins + 1
+
+    calling cond_gate with 4
+    calling cond_gate with 0
+    calling cond_gate with 5
+    calling cond_gate with 3
+    calling cond_gate with 1
+
+    # --- join --------------------------------------------------------------
+    calling wg with 2
+
+    # --- verify ------------------------------------------------------------
+    if received != DATA_TOTAL:
+        calling spark.println with "FAIL: channel message count"
+        set failures is failures + 1
+
+    if (calling guarded with 4) != LOCK_TOTAL:
+        calling spark.println with "FAIL: mutex-guarded counter lost increments"
+        set failures is failures + 1
+
+    if (calling atomic_count with 1, 0) != ATOMIC_TOTAL:
+        calling spark.println with "FAIL: atomic counter"
+        set failures is failures + 1
+
+    if (calling once_calls with 1) != 1:
+        calling spark.println with "FAIL: once ran more than once"
+        set failures is failures + 1
+
+    calling cond_gate with 0
+    set seen is calling cond_gate with 8
+    calling cond_gate with 1
+    if seen != 1:
+        calling spark.println with "FAIL: cond waiter was not released"
+        set failures is failures + 1
+
+    # AtomicInt beyond add/load: store, swap and compare_swap must round-trip.
+    calling atomic_count with 2, 42
+    if (calling atomic_count with 1, 0) != 42:
+        calling spark.println with "FAIL: atomic store"
+        set failures is failures + 1
+    if (calling atomic_count with 3, 7) != 42:
+        calling spark.println with "FAIL: atomic swap did not return the old value"
+        set failures is failures + 1
+    if (calling atomic_count with 4, 0) != 0:
+        calling spark.println with "FAIL: compare_swap(0) must not match a stored 7"
+        set failures is failures + 1
+    if (calling atomic_count with 4, 7) != 1:
+        calling spark.println with "FAIL: compare_swap(7) must match"
+        set failures is failures + 1
+    if (calling atomic_count with 1, 0) != 0:
+        calling spark.println with "FAIL: compare_swap did not store"
+        set failures is failures + 1
+
+    # --- thread identity ---------------------------------------------------
+    var id0 as int is calling id_chan with 1, 0
+    var id1 as int is calling id_chan with 1, 0
+    var id2 as int is calling id_chan with 1, 0
+    var id3 as int is calling id_chan with 1, 0
+    if id0 == id1 and id1 == id2 and id2 == id3:
+        calling spark.println with "FAIL: every goroutine shared one OS thread"
+        set failures is failures + 1
+
+    # --- release everything ------------------------------------------------
+    calling data_chan with OP_CLOSE, 0
+    calling id_chan with OP_CLOSE, 0
+    calling data_chan with OP_FREE, 0
+    calling id_chan with OP_FREE, 0
+    calling wg with OP_FREE
+    calling guarded with OP_FREE
+    calling atomic_count with OP_FREE, 0
+    calling once_guard with OP_FREE
+    calling cond_gate with 10
+
+    if failures == 0:
+        calling spark.println with "filum_stress: OK"
+        return 0
+    return 1

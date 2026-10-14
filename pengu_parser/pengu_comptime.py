@@ -82,12 +82,22 @@ class CompileTimeEnv:
         defines: Optional[Dict[str, bool]] = None,
         is_main: bool = False,
         is_debug: bool = False,
+        wasm_target: str = "",
     ):
         self.os_name = os_name if os_name is not None else default_os_name()
         self.arch = arch if arch is not None else default_arch_name()
         self.compiler = compiler if compiler is not None else default_compiler_name()
         self.is_main = is_main
         self.is_debug = is_debug
+        # `wasm_target` is the OS component of a WebAssembly triple:
+        # "emscripten", "wasi", or "" when building for the host. `is_wasm` is
+        # the boolean counterpart, so both spellings read naturally:
+        #     when wasm:                     when defined(wasm):
+        #     when wasm_target == "wasi":    when not wasm:
+        # Unlike os/arch/compiler these are *not* host defaults: with no
+        # `--target` the program is native, so both are falsy.
+        self.wasm_target = wasm_target or ""
+        self.is_wasm = bool(self.wasm_target)
         merged: Dict[str, bool] = {
             self.os_name: True,
             self.arch: True,
@@ -102,7 +112,15 @@ class CompileTimeEnv:
         self.defines = merged
 
     def defined(self, name: str) -> bool:
-        """Returns True when the given name was defined at compile time."""
+        """Returns True when the given name was defined at compile time.
+
+        ``wasm`` is derived from the target rather than stored, so the two
+        spellings of the same question can never disagree:
+
+            when wasm:              when defined(wasm):
+        """
+        if name == "wasm" and self.is_wasm:
+            return True
         return bool(self.defines.get(name, False))
 
     def copy(self) -> "CompileTimeEnv":
@@ -113,6 +131,7 @@ class CompileTimeEnv:
             defines=dict(self.defines),
             is_main=self.is_main,
             is_debug=self.is_debug,
+            wasm_target=self.wasm_target,
         )
 
     def with_override(self, **kwargs) -> "CompileTimeEnv":
@@ -126,6 +145,7 @@ class CompileTimeEnv:
             defines=defines,
             is_main=kwargs.pop("is_main", self.is_main),
             is_debug=kwargs.pop("is_debug", self.is_debug),
+            wasm_target=kwargs.pop("wasm_target", self.wasm_target),
         )
 
     def with_main(self, is_main: bool = True) -> "CompileTimeEnv":
@@ -133,7 +153,9 @@ class CompileTimeEnv:
         return self.with_override(is_main=is_main)
 
     def __repr__(self) -> str:
-        return f"CompileTimeEnv(os={self.os_name!r}, arch={self.arch!r}, compiler={self.compiler!r}, main={self.is_main!r}, debug={self.is_debug!r})"
+        return (f"CompileTimeEnv(os={self.os_name!r}, arch={self.arch!r}, "
+                f"compiler={self.compiler!r}, main={self.is_main!r}, "
+                f"debug={self.is_debug!r}, wasm_target={self.wasm_target!r})")
 
 
 def default_env() -> CompileTimeEnv:
@@ -284,6 +306,19 @@ def eval_comptime(env: CompileTimeEnv, node: Any) -> Optional[Any]:
             return env.is_main
         if name == "debug":
             return env.is_debug
+        # WebAssembly target, as a boolean and as its OS name ("" when native).
+        # Declared here so `when wasm:` and `when wasm_target == "wasi":` are
+        # ordinary compile-time expressions rather than `defined()` special cases.
+        #
+        # `wasm` is true when the *target* is wasm OR when the user forced it
+        # with `-D wasm`, which is exactly the rule `defined("wasm")` applies.
+        # The two spellings ask the same question and must answer alike; before
+        # this, `-D wasm` selected the branch for `when defined(wasm):` but not
+        # for `when wasm:`.
+        if name == "wasm":
+            return env.is_wasm or env.defined("wasm")
+        if name == "wasm_target":
+            return env.wasm_target
         return None
     if rule == "defined_expr":
         name = str(node.children[0]) if node.children else ""

@@ -240,6 +240,91 @@ jobs:
             --layout fhs
 
   # ----------------------------------------------------------------------
+  # WebAssembly (Emscripten).  Its own job because it needs a toolchain the
+  # other three do not: emsdk, plus a *separate* runtime archive compiled for
+  # wasm32 (build/wasm/lib/libpengu_runtime.a -- the host archive cannot be
+  # linked into a wasm binary).
+  #
+  # Node executes the generated app.js, so a wasm build is verified end to end
+  # without a browser.  The `-pthread` path is covered too: filum_stress spawns
+  # real Workers and asserts that >=2 distinct OS threads were observed, which
+  # is exactly what breaks if `-pthread` is ever dropped from the flag set.
+  # ----------------------------------------------------------------------
+  wasm:
+    name: WebAssembly (Emscripten)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
+        with:
+          build-runtime: 'true'
+          # The wasm suite runs the generated .js with node.
+          setup-node: 'true'
+
+      - name: Set up Emscripten
+        uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
+
+      - name: Build the wasm runtime
+        run: python build_runtime.py --target emscripten
+
+      - name: Verify the wasm runtime archive is wasm
+        run: |
+          # A host archive here would mean `--target emscripten` silently did
+          # nothing, and every later failure would look unrelated.
+          python - <<'PY'
+          import pathlib
+          import subprocess
+          import sys
+          import tempfile
+
+          archive = pathlib.Path("build/wasm/lib/libpengu_runtime.a").resolve()
+          if not archive.is_file():
+              sys.exit(f"{archive} was not produced")
+          if archive.read_bytes()[:8] != b"!<arch>\n":
+              sys.exit(f"{archive} is not an ar archive")
+          with tempfile.TemporaryDirectory() as tmp:
+              subprocess.run(["emar", "x", str(archive)], cwd=tmp, check=True)
+              members = sorted(pathlib.Path(tmp).glob("*.o"))
+              if not members:
+                  sys.exit("the archive has no object members")
+              for member in members:
+                  magic = member.read_bytes()[:4]
+                  if magic != b"\x00asm":
+                      sys.exit(f"{member.name} is not a wasm object (magic={magic!r})")
+                  print(f"ok {member.name} ({member.stat().st_size} bytes, wasm)")
+          PY
+
+      - name: WebAssembly target suite
+        run: |
+          python -m pytest tests/wasm/ -q -p no:cacheprovider --timeout=1800
+
+      - name: Build a runnable demo page
+        run: |
+          # `--keep` pins the output to a predictable path so it can be
+          # uploaded: app.html (open it in a browser) plus app.js + app.wasm
+          # (`node app.js` runs the same program headlessly).
+          python pengu_project.py run --target wasm32-unknown-emscripten \
+            --keep --no-cache tests/wasm/filum_stress.pengu
+
+      - name: Upload wasm artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wasm-artifacts-${{ github.run_id }}
+          path: |
+            build/wasm/lib/*.a
+            tests/wasm/build/filum_stress_run/*.html
+            tests/wasm/build/filum_stress_run/*.js
+            tests/wasm/build/filum_stress_run/*.wasm
+          if-no-files-found: warn
+
+  # ----------------------------------------------------------------------
   # Primitive enchanting (Phase 2).  The same tests the matrix runs, but with
   # `-v` and without the `-m` filter, so a regression in the feature points at
   # the exact assertion instead of "the suite is red".  Kept as its own job
@@ -311,7 +396,7 @@ jobs:
   # ----------------------------------------------------------------------
   auto-tag:
     name: Auto Tag
-    needs: [ smoke, test, primitive-enchanting, vscode-extension ]
+    needs: [ smoke, test, wasm, primitive-enchanting, vscode-extension ]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     timeout-minutes: 10

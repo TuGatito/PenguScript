@@ -247,6 +247,30 @@ int pengu_abi_version(void);
 #include <pthread.h>
 #endif
 
+/* =========================================================================
+ * WebAssembly / Emscripten
+ *
+ * `emcc` defines neither `_WIN32` nor `__linux__`, so the POSIX branch above is
+ * already the correct one: the Emscripten sysroot provides <pthread.h>,
+ * <dirent.h>, <unistd.h>, <sys/stat.h>, clock_gettime, nanosleep, realpath and
+ * the BSD socket headers.  This macro exists only to mark the few places where
+ * the WebAssembly sandbox cannot honour the POSIX contract at all -- today that
+ * is process spawning (`pengu_c_exec` / `pengu_c_spawn`), which has no process
+ * to spawn in a browser and must not silently call `system()`.
+ *
+ * Threading is real but opt-in: `-pthread` turns `pthread_create` into a Web
+ * Worker backed by `SharedArrayBuffer`, and without it Emscripten emulates the
+ * pthread calls as no-ops.  `pengu_project.py` therefore adds `-pthread` to a
+ * wasm build exactly when the program imports `std.filum`.
+ *
+ * `PENGU_EMSCRIPTEN` is always 0 on Windows: emcc never defines `_WIN32`.
+ * ========================================================================= */
+#if defined(__EMSCRIPTEN__)
+#define PENGU_EMSCRIPTEN 1
+#else
+#define PENGU_EMSCRIPTEN 0
+#endif
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -3368,12 +3392,26 @@ extern "C"
    * @brief Executes a command line with arguments via system().
    * @warning Uses system() internally; do NOT pass untrusted user input in cmd/args
    *          without proper sanitization.
+   * @note On WebAssembly (Emscripten) there is no process to spawn: the function
+   *       reports the failure on stderr and returns -1 without calling system().
+   *       See `docs/WASM.md` for the rationale and the alternatives.
    * @param cmd Command string.
    * @param args List of PenguString argument tokens.
-   * @return Return code from system(), or -1 on buffer allocation failure.
+   * @return Return code from system(), or -1 on buffer allocation failure. Always
+   *         -1 under `PENGU_EMSCRIPTEN`.
    */
   static inline int pengu_c_exec(PenguString cmd, PenguList args)
   {
+#if PENGU_EMSCRIPTEN
+    /* `system()` exists in the Emscripten libc but is a stub: in the browser it
+     * cannot work at all, and in Node it would need a synchronous spawn that
+     * blocks the event loop.  Failing loudly beats a silent no-op that reports
+     * success (Emscripten's stub returns a status the caller would misread). */
+    (void)cmd;
+    (void)args;
+    fprintf(stderr, "[PENGU] exec no soportado en wasm\n");
+    return -1;
+#else
     if (!cmd.data || cmd.len == 0)
       return -1;
     size_t total_len = (size_t)cmd.len + 1;
@@ -3413,8 +3451,14 @@ extern "C"
     if (heap)
       free(cmdbuf);
     return res;
+#endif /* PENGU_EMSCRIPTEN */
   }
 
+  /**
+   * @brief Spawns a command line with arguments (non-blocking alias of exec()).
+   * @note Under `PENGU_EMSCRIPTEN` this inherits the -1 result and the stderr
+   *       diagnostic of pengu_c_exec(); no process can be spawned in wasm.
+   */
   static inline int pengu_c_spawn(PenguString cmd, PenguList args)
   {
     return pengu_c_exec(cmd, args);

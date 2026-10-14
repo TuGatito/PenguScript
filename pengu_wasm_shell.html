@@ -1,0 +1,111 @@
+<!doctype html>
+<!--
+  pengu_wasm_shell.html - HTML shell for `pengu build --target wasm32-unknown-emscripten`.
+
+  Passed to `emcc --shell-file` when the output kind is EXE, so `-o app.html`
+  produces a self-contained dark terminal page instead of Emscripten's default
+  one. The only placeholder Emscripten requires is `{{{ SCRIPT }}}`, which it
+  replaces with the loader it generates next to the page.
+
+  Interactive stdin is intentionally NOT implemented: Emscripten's own
+  `shell.html` / `shell_minimal.html` do not implement it either, and doing it
+  correctly needs `readAsync` plus a line-editing buffer. A program that reads
+  stdin therefore sees EOF. To get the stock Emscripten page back (canvas,
+  progress spinner, its own styling), set `PENGU_WASM_SHELL=default`.
+
+  See docs/WASM.md.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PenguScript App</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: #0d1117; color: #c9d1d9;
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    display: flex; flex-direction: column;
+  }
+  #status {
+    padding: 6px 12px; background: #161b22; color: #8b949e;
+    border-bottom: 1px solid #30363d; font-size: 12px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  #status.error { color: #f85149; }
+  #progress { width: 100%; height: 3px; }
+  #term {
+    flex: 1 1 auto; padding: 12px; margin: 0;
+    white-space: pre-wrap; word-break: break-word; overflow-y: auto;
+  }
+  #term .err { color: #f85149; }
+  /* Hidden unless the program actually uses a canvas (WebGL / SDL surfaces). */
+  canvas.emscripten { display: block; margin: 0 auto; background: #000; border: 0; }
+</style>
+</head>
+<body>
+  <div id="status">Downloading&hellip;</div>
+  <progress id="progress" value="0" max="100" hidden></progress>
+  <pre id="term"></pre>
+  <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1" hidden></canvas>
+
+  <script>
+    var statusElement = document.getElementById('status');
+    var progressElement = document.getElementById('progress');
+    var termElement = document.getElementById('term');
+    var canvasElement = document.getElementById('canvas');
+
+    function setStatus(text) {
+      if (!setStatus.last) setStatus.last = { time: Date.now(), text: '' };
+      if (text === setStatus.last.text) return;
+      var m = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
+      var now = Date.now();
+      // Progress updates arrive far faster than a human can read; rate-limit them.
+      if (m && now - setStatus.last.time < 30) return;
+      setStatus.last.time = now;
+      setStatus.last.text = text;
+      if (m) {
+        statusElement.classList.remove('error');
+        progressElement.value = parseInt(m[2]) * 100;
+        progressElement.max = parseInt(m[4]) * 100;
+        progressElement.hidden = false;
+      } else {
+        progressElement.hidden = true;
+        statusElement.textContent = text;
+      }
+    }
+
+    function appendLine(text, isErr) {
+      var line = document.createElement('span');
+      if (isErr) line.className = 'err';
+      line.textContent = text + '\n';
+      termElement.appendChild(line);
+      termElement.scrollTop = termElement.scrollHeight;
+    }
+
+    // `Module` is read by the generated loader. print/printErr are the two
+    // hooks that carry the program's stdout/stderr.
+    var Module = {
+      print:  function (text) { appendLine(text, false); },
+      printErr: function (text) { appendLine(text, true); },
+      canvas: canvasElement,
+      setStatus: setStatus,
+      totalDependencies: 0,
+      monitorRunDependencies: function (left) {
+        this.totalDependencies = Math.max(this.totalDependencies, left);
+        setStatus(left
+          ? 'Preparing... (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')'
+          : 'Ready');
+      }
+    };
+
+    window.onerror = window.onunhandledrejection = function () {
+      statusElement.classList.add('error');
+      setStatus('Exception thrown, see the JavaScript console');
+    };
+    setStatus('Downloading...');
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

@@ -113,6 +113,11 @@ int pengu_c_filum_goroutine_id(void) {
     pthread_threadid_np(pthread_self(), &tid);
     return (int)(tid & 0x7fffffff);
 #else
+    /* Portable fallback -- also the Emscripten path: emcc defines `__unix__`
+     * but NOT `__linux__`, so neither the syscall branch above nor the Apple
+     * one is taken. `pthread_self()` is distinct per real Worker when the
+     * program is linked with `-pthread`, which is exactly the guarantee the
+     * callers of this function need. */
     return (int)((unsigned long)pthread_self() & 0x7fffffff);
 #endif
 }
@@ -125,11 +130,26 @@ void pengu_c_filum_go(void* f) {
 
 #if PENGU_WINDOWS
     uintptr_t th = _beginthreadex(NULL, 0, pengu_win32_thread_runner, arg, 0, NULL);
-    if (th) CloseHandle((HANDLE)th);
+    if (th) {
+        /* `go` is fire-and-forget (the Go model): closing the handle detaches,
+         * so the thread's resources are released when it exits and there is
+         * never a join to perform. */
+        CloseHandle((HANDLE)th);
+    } else {
+        /* No thread was created, so the runner never runs and would never free
+         * the argument; this is the only chance to release it. */
+        free(arg);
+    }
 #else
     pthread_t th;
     if (pthread_create(&th, NULL, pengu_posix_thread_runner, arg) == 0) {
+        /* Detach immediately for the same reason as the Windows branch above:
+         * without it the pthread_t handle leaks, and under Emscripten the Web
+         * Worker is never reclaimed. */
         pthread_detach(th);
+    } else {
+        /* See the Windows branch: the runner cannot free what never ran. */
+        free(arg);
     }
 #endif
 }
@@ -349,9 +369,21 @@ void pengu_c_filum_cond_broadcast(void* c) {
 #endif
 }
 
-/* AtomicInt */
+/* AtomicInt.
+ *
+ * The POSIX side declares a real `_Atomic long` member instead of casting a
+ * `volatile long` through `(atomic_long*)` at every call: accessing a
+ * non-atomic object through an atomic lvalue is undefined behaviour in C11 even
+ * when the layout matches, and a compiler is free to reorder or tear the access
+ * on that basis.  Windows keeps `volatile long` + the Interlocked family, which
+ * is the portable Win32 spelling (MSVC's <stdatomic.h> only arrived in C11
+ * mode). */
 typedef struct {
+#if PENGU_WINDOWS
     volatile long val;
+#else
+    atomic_long val;
+#endif
 } PenguNativeAtomicInt;
 
 void* pengu_c_filum_atomic_int_new(int initial) {
@@ -367,7 +399,7 @@ int pengu_c_filum_atomic_int_load(void* a) {
 #if PENGU_WINDOWS
     return (int)InterlockedCompareExchange(&na->val, 0, 0);
 #else
-    return (int)atomic_load((atomic_long*)&na->val);
+    return (int)atomic_load(&na->val);
 #endif
 }
 
@@ -377,7 +409,7 @@ void pengu_c_filum_atomic_int_store(void* a, int val) {
 #if PENGU_WINDOWS
     InterlockedExchange(&na->val, val);
 #else
-    atomic_store((atomic_long*)&na->val, val);
+    atomic_store(&na->val, val);
 #endif
 }
 
@@ -387,7 +419,7 @@ int pengu_c_filum_atomic_int_add(void* a, int delta) {
 #if PENGU_WINDOWS
     return (int)(InterlockedExchangeAdd(&na->val, delta));
 #else
-    return (int)(atomic_fetch_add((atomic_long*)&na->val, delta));
+    return (int)(atomic_fetch_add(&na->val, delta));
 #endif
 }
 
@@ -397,7 +429,7 @@ int pengu_c_filum_atomic_int_swap(void* a, int new_val) {
 #if PENGU_WINDOWS
     return (int)InterlockedExchange(&na->val, new_val);
 #else
-    return (int)atomic_exchange((atomic_long*)&na->val, new_val);
+    return (int)atomic_exchange(&na->val, new_val);
 #endif
 }
 
@@ -408,7 +440,7 @@ bool pengu_c_filum_atomic_int_compare_swap(void* a, int old_val, int new_val) {
     return (InterlockedCompareExchange(&na->val, new_val, old_val) == old_val);
 #else
     long expected = old_val;
-    return atomic_compare_exchange_strong((atomic_long*)&na->val, &expected, (long)new_val);
+    return atomic_compare_exchange_strong(&na->val, &expected, (long)new_val);
 #endif
 }
 
@@ -443,6 +475,13 @@ void* pengu_c_filum_chan_new(size_t elem_size, int cap) {
     ch->size = 0;
     ch->closed = false;
     ch->buffer = (uint8_t*)malloc((size_t)ch->elem_size * (size_t)cap);
+    if (!ch->buffer) {
+        /* Every later send/recv memcpy's into this buffer, so a NULL here would
+         * turn a failed allocation into a null dereference at the first message.
+         * Report the failure instead and leave no half-initialised handle. */
+        free(ch);
+        return NULL;
+    }
 #if PENGU_WINDOWS
     InitializeCriticalSection(&ch->cs);
     InitializeConditionVariable(&ch->not_empty);
@@ -586,9 +625,24 @@ void pengu_c_filum_mutex_free(void* m) {
 void pengu_c_filum_wait_group_free(void* wg) {
     if (!wg) return;
     PenguNativeWaitGroup* nwg = (PenguNativeWaitGroup*)wg;
+    /* Release anyone parked in `wait` before destroying the primitives they are
+     * parked on: zeroing the count makes the `while (count > 0)` loop fall
+     * through. Destroying a condition variable that still has waiters is
+     * undefined behaviour, and it is the one teardown defect the sanitizers
+     * cannot see (the object is freed, so there is no leak to report). The
+     * caller must still not free a wait group another thread is about to use --
+     * that contract is unchanged. */
 #if PENGU_WINDOWS
+    EnterCriticalSection(&nwg->cs);
+    nwg->count = 0;
+    WakeAllConditionVariable(&nwg->cv);
+    LeaveCriticalSection(&nwg->cs);
     DeleteCriticalSection(&nwg->cs);
 #else
+    pthread_mutex_lock(&nwg->mtx);
+    nwg->count = 0;
+    pthread_cond_broadcast(&nwg->cv);
+    pthread_mutex_unlock(&nwg->mtx);
     pthread_mutex_destroy(&nwg->mtx);
     pthread_cond_destroy(&nwg->cv);
 #endif
@@ -608,8 +662,15 @@ void pengu_c_filum_once_free(void* o) {
 
 void pengu_c_filum_cond_free(void* c) {
     if (!c) return;
-#if !PENGU_WINDOWS
-    pthread_cond_destroy(&((PenguNativeCond*)c)->cv);
+    PenguNativeCond* nc = (PenguNativeCond*)c;
+    /* Wake any waiter before destroying: a condition variable destroyed with
+     * waiters on it is undefined behaviour, and under Emscripten's pthread
+     * emulation the waiter would never observe the wake. */
+#if PENGU_WINDOWS
+    WakeAllConditionVariable(&nc->cv);
+#else
+    pthread_cond_broadcast(&nc->cv);
+    pthread_cond_destroy(&nc->cv);
 #endif
     free(c);
 }
@@ -622,9 +683,25 @@ void pengu_c_filum_atomic_int_free(void* a) {
 void pengu_c_filum_chan_free(void* c) {
     if (!c) return;
     PenguNativeChan* ch = (PenguNativeChan*)c;
+    /* Wake every blocked sender/receiver before tearing the primitives down.
+     * Destroying a condition variable that still has waiters is undefined
+     * behaviour, and Emscripten's pthread emulation is particularly unforgiving
+     * about it. Closing the channel first makes each blocked call return false
+     * ("closed channel"), which is a result the caller already handles. The
+     * caller must still not free a channel other threads are about to use. */
 #if PENGU_WINDOWS
+    EnterCriticalSection(&ch->cs);
+    ch->closed = true;
+    WakeAllConditionVariable(&ch->not_empty);
+    WakeAllConditionVariable(&ch->not_full);
+    LeaveCriticalSection(&ch->cs);
     DeleteCriticalSection(&ch->cs);
 #else
+    pthread_mutex_lock(&ch->mtx);
+    ch->closed = true;
+    pthread_cond_broadcast(&ch->not_empty);
+    pthread_cond_broadcast(&ch->not_full);
+    pthread_mutex_unlock(&ch->mtx);
     pthread_mutex_destroy(&ch->mtx);
     pthread_cond_destroy(&ch->not_empty);
     pthread_cond_destroy(&ch->not_full);

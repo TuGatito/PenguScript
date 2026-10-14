@@ -204,6 +204,16 @@ class TargetTriple:
     def is_linux(self) -> bool:
         return self.os == "linux"
 
+    @property
+    def is_emscripten(self) -> bool:
+        """True for ``wasm32-unknown-emscripten`` (WebAssembly via Emscripten)."""
+        return self.os == "emscripten"
+
+    @property
+    def is_wasi(self) -> bool:
+        """True for a WASI triple. Recognised so it can be rejected explicitly."""
+        return self.os == "wasi"
+
 
 def host_os() -> str:
     """Host OS in triple vocabulary ('windows' | 'darwin' | 'linux')."""
@@ -217,8 +227,12 @@ def host_os() -> str:
 def parse_target_triple(text: str) -> TargetTriple:
     """Parses a target triple like ``x86_64-w64-mingw32`` or ``aarch64-apple-darwin``.
 
-    Only the OS/environment are interpreted (Linux ⇄ Windows is the supported
-    cross pair); the architecture is kept for diagnostics and compiler lookup.
+    The OS/environment are interpreted (Linux ⇄ Windows and
+    ``wasm32-unknown-emscripten`` are the supported targets); the architecture is
+    kept for diagnostics and compiler lookup.
+
+    ``wasm`` / ``wasm32`` / ``emscripten`` alone are accepted as a convenience
+    spelling of ``wasm32-unknown-emscripten``.
     """
     raw = (text or "").strip()
     low = raw.lower()
@@ -228,6 +242,15 @@ def parse_target_triple(text: str) -> TargetTriple:
         os_name = "windows"
     elif "darwin" in low or "apple" in low or "macos" in low:
         os_name = "darwin"
+    elif "emscripten" in low or low in ("wasm", "wasm32", "emscripten"):
+        # WebAssembly via Emscripten. Deliberately checked before the generic
+        # `gnu`/`linux` fallback: `wasm32-unknown-emscripten` must never be
+        # classified as the host, which silently produced a native binary.
+        os_name = "emscripten"
+    elif "wasi" in low:
+        # Recognised only so the build can refuse it with a clear message
+        # instead of silently targeting the host.
+        os_name = "wasi"
     elif "linux" in low or "musl" in low or "gnu" in low:
         os_name = "linux"
     else:
@@ -614,6 +637,14 @@ class PenguBuilder:
 
         self.parser = _PenguParser()
         self.compile_env = _parse_cli_defines(config.defines)
+        # WebAssembly target, for the `when wasm:` / `when wasm_target == "..."`
+        # compile-time variables (and `defined(wasm)`). Derived from the resolved
+        # target triple, so it is correct for a manifest `target` and for
+        # `--target` alike -- both are applied to `config` before the builder is
+        # constructed. Native builds leave it empty, i.e. falsy.
+        _triple = parse_target_triple(str(getattr(config, "target", "") or ""))
+        self.compile_env.wasm_target = _triple.os if _triple.os in ("emscripten", "wasi") else ""
+        self.compile_env.is_wasm = bool(self.compile_env.wasm_target)
         explicit_debug = any(str(d).strip() == "debug" or str(d).strip().startswith("debug=") for d in (config.defines or []))
         if not explicit_debug:
             self.compile_env.is_debug = (getattr(config, "profile", "debug") == "debug")
@@ -634,6 +665,21 @@ class PenguBuilder:
                     self.compile_env.compiler = compiler_name
                     self.compile_env.defines.pop(old_compiler, None)
                     self.compile_env.defines[compiler_name] = True
+        # An `emscripten` target always runs `emcc`: it is the only cross
+        # compiler for that triple, whether it came from `--cc`/the manifest or
+        # was auto-detected by `resolve_compiler()`. Without this, `when
+        # compiler == "emcc":` was false on a wasm build whose manifest still
+        # named a host compiler -- i.e. the comptime variable described the
+        # *configured* compiler, not the one that actually runs. An explicit
+        # `-D compiler=...` still wins.
+        if self.compile_env.wasm_target == "emscripten" and self.compile_env.compiler != "emcc":
+            explicit_compiler = any(str(d).strip().startswith("compiler=")
+                                    for d in (config.defines or []))
+            if not explicit_compiler:
+                old_compiler = self.compile_env.compiler
+                self.compile_env.compiler = "emcc"
+                self.compile_env.defines.pop(old_compiler, None)
+                self.compile_env.defines["emcc"] = True
         from pengu_parser.pengu_checker import PenguChecker as _PenguChecker
         self.checker = _PenguChecker(base_dir=config.base_dir, compile_env=self.compile_env,
                                      lib_dir=getattr(config, "lib_dir", "lib"))
@@ -878,13 +924,42 @@ class PenguBuilder:
 
         ``--cc`` always wins.  Otherwise, for a Linux ⇄ Windows build the
         conventional ``<triple>-gcc`` / ``x86_64-w64-mingw32-gcc`` names are
-        probed, and a clear error is raised when none is installed (instead of
-        failing later with a confusing host-compiler link error).
+        probed, for ``wasm32-unknown-emscripten`` the Emscripten driver ``emcc``
+        is probed, and a clear error is raised when the toolchain is missing
+        (instead of failing later with a confusing host-compiler link error).
         """
         cc = str(getattr(self.config, "cc", "") or "")
         if not self.is_cross:
             return cc
         triple = self.target_triple
+        if self.target_os == "wasi":
+            # Recognised but unimplemented: say so instead of falling through to
+            # the MinGW-flavoured "no cross compiler" error below, which would
+            # send the user looking for the wrong toolchain.
+            raise CompileFailedError(
+                f"the target '{getattr(self.config, 'target', '')}' (WASI) is not "
+                f"supported yet.\n"
+                f"  WASI is planned but not part of this release; use\n"
+                f"  '--target wasm32-unknown-emscripten' for WebAssembly.\n"
+                f"  See docs/WASM.md."
+            )
+        if self.target_os == "emscripten":
+            # `emcc` is a driver of its own: the `<triple>-gcc` probe below can
+            # never match it, and its failure message would talk about MinGW.
+            if os.path.basename(cc).lower() in ("emcc", "emcc.exe"):
+                return cc
+            found = shutil.which("emcc")
+            if found:
+                return found
+            raise CompileFailedError(
+                f"'emcc' not found in PATH; the target "
+                f"'{getattr(self.config, 'target', '')}' needs the Emscripten SDK.\n"
+                f"Install and activate it:\n"
+                f"  git clone https://github.com/emscripten-core/emsdk.git\n"
+                f"  cd emsdk && ./emsdk install latest && ./emsdk activate latest\n"
+                f"  source ./emsdk_env.sh\n"
+                f"Then re-run the build, or pass --cc /absolute/path/to/emcc."
+            )
         if triple and triple.raw and cc not in ("", "gcc"):
             return cc
         candidates: List[str] = []
@@ -933,7 +1008,22 @@ class PenguBuilder:
 
         if out_type == OutputType.C:
             return "bundle.c"
-        elif out_type == OutputType.OBJ:
+        if target_os == "emscripten":
+            # Emscripten's EXE output is a *page*: `emcc -o app.html` writes
+            # app.html + app.js + app.wasm, and `node app.js` runs the same
+            # program. The `.html` name is therefore the real artifact.
+            if out_type == OutputType.EXE:
+                return f"{out_name}.html"
+            if out_type == OutputType.STATIC:
+                return f"{out_name}.a"
+            if out_type == OutputType.OBJ:
+                return f"{out_name}.o"
+            if out_type == OutputType.SHARED:
+                # Rejected in build_compile_commands; the name exists so callers
+                # that only inspect the artifact name still see something sane.
+                return f"{out_name}.wasm"
+            return f"{out_name}.html"
+        if out_type == OutputType.OBJ:
             return f"{out_name}.o"
         elif out_type == OutputType.STATIC:
             return f"{out_name}.a" if not is_win else f"{out_name}.lib"
@@ -1184,14 +1274,23 @@ class PenguBuilder:
         #    FHS install, PyInstaller _MEIPASS), plus a project-local runtime/
         #    vendored next to the project. These provide search paths (-L) so
         #    explicit links (e.g. -lpengu_runtime, or a satellite library) resolve.
-        for sub in ("build/lib", "runtime/lib", "runtime"):
-            p = os.path.join(self.config.base_dir, sub)
-            if os.path.isdir(p) and p not in lib_dirs:
-                lib_dirs.append(p)
-        for extra in runtime_lib_dirs():
-            s = str(extra)
-            if os.path.isdir(s) and s not in lib_dirs:
-                lib_dirs.append(s)
+        if self.target_os == "emscripten":
+            # A wasm build must never see a host archive: `-L build/lib` would
+            # let the linker pick native objects. Only the wasm directories are
+            # searched, and they are placed first so `-lpengu_runtime` cannot
+            # resolve to a host archive contributed by a project lib/ dir.
+            for extra in _wasm_runtime_lib_dirs():
+                if extra not in lib_dirs:
+                    lib_dirs.insert(0, extra)
+        else:
+            for sub in ("build/lib", "runtime/lib", "runtime"):
+                p = os.path.join(self.config.base_dir, sub)
+                if os.path.isdir(p) and p not in lib_dirs:
+                    lib_dirs.append(p)
+            for extra in runtime_lib_dirs():
+                s = str(extra)
+                if os.path.isdir(s) and s not in lib_dirs:
+                    lib_dirs.append(s)
 
         return lib_dirs, auto_links
 
@@ -1652,6 +1751,7 @@ class PenguBuilder:
         out_type = self.config.output
         is_win = self.target_os == "windows"
         is_mac = self.target_os == "darwin"
+        is_emscripten = self.target_os == "emscripten"
         commands: List[List[str]] = []
 
         # Merge base flags with profile flags
@@ -1683,10 +1783,17 @@ class PenguBuilder:
 
         # Extra flags from the environment (CFLAGS/LDFLAGS convention).  Used by
         # CI for -fsanitize=... runs without touching the project manifest.
-        _env_cflags = _env_flag_list("PENGU_CFLAGS")
-        for _flag in _env_cflags:
-            if _flag not in common_flags:
-                common_flags.append(_flag)
+        #
+        # Appended without de-duplication on purpose. The previous per-token
+        # `if _flag not in common_flags` silently corrupted any flag whose value
+        # is a *separate* argument: with `PENGU_LDFLAGS="-s EXIT_RUNTIME=1"` the
+        # `-s` was skipped (an identical `-s` was already in the list) while
+        # `EXIT_RUNTIME=1` was still appended, so emcc received a bare
+        # `EXIT_RUNTIME=1` and rejected it as a missing input file. A duplicate
+        # flag is harmless; a split pair is a build failure, and the user asked
+        # for these explicitly (they are appended last so they can override).
+        for _flag in _env_flag_list("PENGU_CFLAGS"):
+            common_flags.append(_flag)
 
         # Safety checks are decoupled from the profile (roadmap 5.2): they are ON
         # in every profile and only `--release-unsafe` removes them, both from the
@@ -1777,6 +1884,17 @@ class PenguBuilder:
         bundle_text = self._bundle_text(bundle_path)
         needed_std = self._imported_std_modules(bundle_path, bundle_text)
         self._vlog(f"[pengu] std modules imported: {sorted(needed_std) or '(none)'}")
+
+        # Emscripten threading is a compile-time decision: without `-pthread` the
+        # pthread calls are emulated as single-threaded no-ops and `__thread`
+        # becomes a plain shared global, so a program that spawns goroutines
+        # would silently run them sequentially. `std.filum` is exactly the import
+        # that switches the PENGU_ENABLE_THREADS gate on in the bundle, so it is
+        # also what turns the flag on here: the two must agree or the runtime
+        # archive (always built with -pthread) and the bundle would not link.
+        needs_threads = "filum" in needed_std
+        if is_emscripten and needs_threads and "-pthread" not in common_flags:
+            common_flags.append("-pthread")
 
         build_dir = self.get_build_directory()
 
@@ -1875,12 +1993,16 @@ class PenguBuilder:
             else:
                 link_flags.append(f"-l{link}")
 
-        if not is_win and not is_msvc and all_links:
+        if not is_win and not is_msvc and all_links and not is_emscripten:
             # Platform tail: the C library, libm and the dynamic loader.  The
             # tail follows the *target* OS, not the build host: a cross build
             # must not receive the host's libraries. `is_msvc` is excluded
             # outright because `cl.exe` accepts neither `-framework` nor `-lrt`
             # (item 4.11).
+            #
+            # Emscripten is excluded too: it has no libdl (its linker silently
+            # swallows -ldl) and the C library is always linked in, so the tail
+            # is replaced below by the `-s` settings emcc actually understands.
             link_flags += ["-pthread", "-lm", "-ldl"]
 
         # Section GC, step 2 of 2: drop every section no reachable symbol refers
@@ -1902,10 +2024,56 @@ class PenguBuilder:
             (not is_win or "cl" not in cc.lower() and "msvc" not in cc.lower())
             and not is_tcc
         )
-        if sys.platform.startswith("darwin"):
+        if sys.platform.startswith("darwin") and not is_emscripten:
+            # ld64 rejects --start-group. That is a property of the *linker*, so
+            # the check follows the target: an emscripten target uses wasm-ld
+            # (which supports the group) even when the build host is macOS.
             use_gnu_group = False
         if use_gnu_group and link_flags:
             link_flags = ["-Wl,--start-group"] + link_flags + ["-Wl,--end-group"]
+
+        # Emscripten linker settings. These are link-time only, which is why they
+        # join `link_flags` (used by the link/compile-and-link commands) and not
+        # `common_flags` (shared with the `-c` commands, where emcc would only
+        # warn "linker setting ignored during compilation").
+        if is_emscripten:
+            link_flags += [
+                "-s", "WASM=1",
+                # The runtime allocates freely (strings, lists, maps); a fixed
+                # heap would abort at 16 MB.
+                "-s", "ALLOW_MEMORY_GROWTH=1",
+                # EXIT_RUNTIME=0 is a deliberate trade-off between two cosmetic
+                # messages (neither affects output or exit status).
+                #   * 1 tears the runtime down the instant main returns, which
+                #     terminates the pooled Workers; because `pengu_c_filum_go`
+                #     detaches its threads, Node then prints a `received "6"
+                #     command from terminated worker` line per goroutine -- on the
+                #     *success* path of every concurrent program.
+                #   * 0 is silent there, and instead emits a keepRuntimeAlive()
+                #     notice when a program exits *explicitly* (rites.exit, a
+                #     failed assert, a panic) -- already a failure path.
+                # Silence on success wins. The entry wrapper fflushes both streams
+                # explicitly (see EntryMixin.generate_entry_point), so nothing is
+                # lost either way. An ASan/LSan run wants the teardown: pass
+                # `-s EXIT_RUNTIME=1` in PENGU_LDFLAGS.
+                "-s", "EXIT_RUNTIME=0",
+                "-s", "INITIAL_MEMORY=16MB",
+                "-s", "STACK_SIZE=1MB",
+                "-s", "EXPORTED_RUNTIME_METHODS=ccall,cwrap,FS",
+                # Node is a first-class target here: it is how the test suite
+                # runs a wasm build without a browser.
+                "-s", "ENVIRONMENT=web,node,worker",
+            ]
+            if needs_threads:
+                # Pre-spawn the Workers instead of creating them on demand: a
+                # program that launches several goroutines back-to-back otherwise
+                # pays Worker startup inside its first `go`. Extra goroutines
+                # beyond the pool still get a Worker, created on demand.
+                link_flags += ["-s", "PTHREAD_POOL_SIZE=4"]
+            if out_type == OutputType.EXE:
+                shell = _wasm_shell_file()
+                if shell:
+                    link_flags += ["--shell-file", shell]
 
         # Item 4.11: cl.exe takes none of the GNU link syntax. Translate the
         # whole list once here so every output kind below stays GNU-shaped.
@@ -1916,8 +2084,11 @@ class PenguBuilder:
             link_flags.append(ldflag)
 
         for _flag in _env_flag_list("PENGU_LDFLAGS"):
-            if _flag not in link_flags:
-                link_flags.append(_flag)
+            # No de-duplication: see the PENGU_CFLAGS note above. A per-token
+            # check splits `-s EXIT_RUNTIME=1` into a dropped `-s` and a stray
+            # `EXIT_RUNTIME=1`, which emcc rejects as an input file. This bites
+            # every emscripten build, where `-s` is already present.
+            link_flags.append(_flag)
 
         if out_type == OutputType.C:
             return []
@@ -1975,11 +2146,32 @@ class PenguBuilder:
 
             if is_win and ("cl" in cc.lower() or "msvc" in cc.lower()):
                 cmd_ar = ["lib", f"/OUT:{output_path}"] + temp_objs
+            elif is_emscripten:
+                # `ar` cannot write an archive of wasm objects (it would emit a
+                # host archive the wasm linker rejects); emar ships with emsdk
+                # precisely for this.
+                cmd_ar = [_emar_command(cc), "rcs", output_path] + temp_objs
             else:
                 cmd_ar = ["ar", "rcs", output_path] + temp_objs
             commands.append(cmd_ar)
 
         elif out_type == OutputType.SHARED:
+            if is_emscripten:
+                # A wasm "shared library" is an Emscripten SIDE_MODULE: it needs
+                # -fPIC on *every* input, including the runtime archive, and a
+                # MAIN_MODULE consumer that supplies libc. The runtime archive is
+                # not built with -fPIC, so this cannot be produced correctly yet;
+                # failing here is better than emitting a .wasm that cannot load.
+                raise CompileFailedError(
+                    "shared libraries are not supported for the "
+                    "wasm32-unknown-emscripten target yet.\n"
+                    "  A wasm side module requires -fPIC on every object, including\n"
+                    "  the runtime archive, and a matching MAIN_MODULE consumer.\n"
+                    "  Use `output = \"static\"` to produce an archive another bundle\n"
+                    "  can link, or the default executable output (a .html page plus\n"
+                    "  its .js/.wasm).\n"
+                    "  See docs/WASM.md."
+                )
             if is_msvc:
                 cmd = self._msvc_command(cc, [bundle_path] + c_sources, output_path,
                                          common_flags, link_flags, shared=True)
@@ -2163,8 +2355,11 @@ class PenguBuilder:
         # `c` output is just the emitted bundle and object outputs are archives
         # whose undefined symbols are resolved by their consumer.
         if self.config.output not in (OutputType.C, OutputType.OBJ, OutputType.STATIC):
-            if _find_runtime_archive() is None:
-                raise CompileFailedError(_missing_runtime_archive_message())
+            # The wasm archive is a different file from the host one, so the
+            # lookup has to follow the target, not the build machine.
+            _target_os = self.target_os
+            if _find_runtime_archive(_target_os) is None:
+                raise CompileFailedError(_missing_runtime_archive_message(_target_os))
         t_cc_all = time.time()
         error = _run_commands(commands)
 
@@ -2842,16 +3037,59 @@ def _resolve_insert_spaces(cfg: Optional[Dict[str, object]], tabs: Optional[bool
     return True
 
 
-def _find_runtime_archive() -> Optional[str]:
+def _wasm_runtime_lib_dirs() -> List[str]:
+    """Directories that may hold the *wasm* ``libpengu_runtime.a``.
+
+    A wasm object and a host object are not interchangeable, so this search is
+    deliberately disjoint from ``runtime_lib_dirs()``: falling back to the host
+    ``build/lib`` would link native objects into a wasm binary and fail with an
+    unrelated-looking diagnostic.
+
+    ``PENGU_LIB_DIR`` is an override (as everywhere else); ``PENGU_RUNTIME_CROSS``
+    contributes its ``lib/`` subdirectory so a manually cross-built runtime keeps
+    working. The default is ``build/wasm/lib``, written by
+    ``python build_runtime.py --target emscripten``.
+    """
+    dirs: List[str] = []
+
+    env = (os.environ.get("PENGU_LIB_DIR") or "").strip()
+    if env:
+        expanded = os.path.abspath(os.path.expanduser(env))
+        if os.path.isdir(expanded):
+            return [expanded]
+
+    cross = (os.environ.get("PENGU_RUNTIME_CROSS") or "").strip()
+    if cross:
+        root = os.path.abspath(os.path.expanduser(cross))
+        for cand in (os.path.join(root, "lib"), root):
+            if os.path.isdir(cand) and cand not in dirs:
+                dirs.append(cand)
+
+    for base in (os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+        p = os.path.join(base, "build", "wasm", "lib")
+        if os.path.isdir(p) and p not in dirs:
+            dirs.append(p)
+    return dirs
+
+
+def _find_runtime_archive(target_os: str = "") -> Optional[str]:
     """Returns the path of ``libpengu_runtime.a``, or None when it is missing.
 
     The archive is a hard build requirement (item 4.17): every bundle carries a
     reference to ``pengu_abi_version``, so without it the linker would fail with
     an inscrutable ``undefined reference``. Locating it up front lets the CLI
     report an actionable error instead.
+
+    ``target_os`` selects the flavour: ``"emscripten"`` searches only the
+    WebAssembly directories (see ``_wasm_runtime_lib_dirs``), anything else
+    searches the host ones.
     """
     try:
-        for d in runtime_lib_dirs():
+        if target_os == "emscripten":
+            directories = _wasm_runtime_lib_dirs()
+        else:
+            directories = [str(d) for d in runtime_lib_dirs()]
+        for d in directories:
             candidate = os.path.join(str(d), "libpengu_runtime.a")
             if os.path.isfile(candidate):
                 return candidate
@@ -2877,6 +3115,12 @@ def _compiler_dialect(cc: str) -> str:
         return "clang"
     if name.startswith("tcc"):
         return "tcc"
+    if name.startswith("emcc"):
+        # `emcc` is clang with a different driver; it takes the GNU attribute set
+        # (including `_Noreturn` and `__attribute__((always_inline))`) and the
+        # plain `restrict` spelling, so it is *not* the msvc dialect. It is kept
+        # as its own name so `--cc/--target-compiler emcc` round-trips.
+        return "emcc"
     return "gcc"
 
 
@@ -2904,6 +3148,12 @@ def _validate_target_compiler(cc: str, target_compiler: str) -> Optional[str]:
     # clang understands the GNU attribute set, so `--target-compiler gcc` with
     # clang is coherent; the reverse (cl with a GNU dialect) is not.
     if requested == "gcc" and actual == "clang":
+        return None
+    # emcc *is* clang, so both GNU dialects are coherent with it whichever way
+    # the user spelled the pair.
+    if actual == "emcc" and requested in ("gcc", "clang"):
+        return None
+    if requested == "emcc" and actual in ("gcc", "clang"):
         return None
     return (
         f"--target-compiler {requested} does not match the C compiler '{cc}'.\n"
@@ -3058,8 +3308,20 @@ def _resolve_cc_argument(cc: Optional[str]) -> Optional[str]:
     return cc
 
 
-def _missing_runtime_archive_message() -> str:
+def _missing_runtime_archive_message(target_os: str = "") -> str:
     """Actionable error text for a build with no ``libpengu_runtime.a``."""
+    if target_os == "emscripten":
+        searched = _wasm_runtime_lib_dirs()
+        paths = "\n".join(f"    {os.path.join(d, 'libpengu_runtime.a')}" for d in searched) \
+            or "    (no wasm runtime library directory found)"
+        return (
+            "The WebAssembly runtime archive libpengu_runtime.a was not found.\n"
+            "  A wasm build cannot use the host archive: the objects are not\n"
+            "  interchangeable, so a separate one is required.\n"
+            "  Build it with (after activating the Emscripten SDK):\n"
+            "    python build_runtime.py --target emscripten\n"
+            "  Searched:\n" + paths
+        )
     searched = [str(d) for d in runtime_lib_dirs()]
     paths = "\n".join(f"    {os.path.join(d, 'libpengu_runtime.a')}" for d in searched) \
         or "    (no runtime library directory found)"
@@ -3070,6 +3332,67 @@ def _missing_runtime_archive_message() -> str:
         "  directory that holds it, or install a release that ships it.\n"
         f"  Searched:\n{paths}"
     )
+
+
+def _emar_command(cc: str = "") -> str:
+    """Path of the Emscripten archiver (``emar``).
+
+    Preferred source is the directory that holds the ``emcc`` actually being
+    used, so a build pinned with ``--cc /path/to/emcc`` also archives with the
+    matching ``emar`` instead of whatever happens to be first on ``PATH``.
+    """
+    if cc and os.path.dirname(cc):
+        candidate = os.path.join(os.path.dirname(cc), "emar")
+        if os.path.isfile(candidate):
+            return candidate
+    return shutil.which("emar") or "emar"
+
+
+def _wasm_run_command(artifact: str) -> Optional[List[str]]:
+    """Command that executes a wasm-target artifact, or None when there is none.
+
+    ``emcc -o app.html`` also writes ``app.js`` and ``app.wasm``; the loader is
+    the runnable entry point, and Node is the only driver the CLI can use (a
+    browser is a manual step). ``None`` means either Node is absent or the loader
+    was not produced, in which case the caller should point the user at the
+    ``.html`` page rather than try to exec it.
+    """
+    node = shutil.which("node")
+    if not node:
+        return None
+    js_path = os.path.splitext(artifact)[0] + ".js"
+    if not os.path.isfile(js_path):
+        return None
+    return [node, js_path]
+
+
+def _wasm_shell_file() -> Optional[str]:
+    """Path of the wasm HTML shell, or None to use Emscripten's default page.
+
+    ``PENGU_WASM_SHELL=default`` opts out (the stock Emscripten page has a canvas
+    and a progress spinner); any other value is treated as a path to a custom
+    shell. Otherwise the shipped shell is looked up next to this module (source
+    checkout) and beside the runtime header (installed / portable layouts, where
+    ``pengu_runtime.h`` and the shell travel together). Returning None is safe:
+    emcc then writes its own default page, which works everywhere.
+    """
+    choice = (os.environ.get("PENGU_WASM_SHELL") or "").strip()
+    if choice:
+        if choice.lower() in ("default", "none", "0"):
+            return None
+        return choice if os.path.isfile(choice) else None
+
+    name = "pengu_wasm_shell.html"
+    candidates = [os.path.join(os.path.dirname(os.path.abspath(__file__)), name)]
+    try:
+        for directory in runtime_include_dirs():
+            candidates.append(os.path.join(str(directory), name))
+    except Exception:
+        pass
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return None
 
 
 def fmt_files(paths: List[str], check_only: bool = False, write: bool = True,
@@ -5404,6 +5727,28 @@ def _consume_script_args(raw: Optional[List[str]]) -> List[str]:
     return args
 
 
+def _test_run_command(artifact: str, target: str, config: "ProjectConfig") -> List[str]:
+    """Command that runs a compiled test bundle.
+
+    A wasm test bundle is a page plus a loader, so it runs through Node like any
+    other wasm executable; anything else is exec'd directly. ``--target`` on the
+    command line wins over the manifest, for the same reason as in
+    ``run_project``.
+    """
+    target_os = parse_target_triple(
+        target or str(getattr(config, "target", "") or "")).os
+    if target_os == "emscripten":
+        wasm_cmd = _wasm_run_command(artifact)
+        if wasm_cmd is None:
+            raise CompileFailedError(
+                f"the wasm test bundle {artifact} cannot be run here: Node.js is "
+                f"missing, or its loader .js was not produced.\n"
+                f"  Open the page in a browser, or install Node.js."
+            )
+        return wasm_cmd
+    return [artifact]
+
+
 def run_project(config_path: Optional[str] = None, profile: str = "debug", test: bool = False,
                 defines: Optional[List[str]] = None, cc: Optional[str] = None,
                 verbose: bool = False, pch: bool = False, no_dce: bool = False,
@@ -5435,6 +5780,22 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
                              target=target, locked=locked, frozen=frozen,
                              release_unsafe=release_unsafe)
     if config.output == OutputType.EXE and os.path.isfile(artifact):
+        # The freshly loaded `config` does not carry the `--target` override --
+        # `build_project` applies it to its own copy -- so the flag itself is the
+        # authoritative source, with the manifest value as the fallback.
+        target_os = parse_target_triple(
+            target or str(getattr(config, "target", "") or "")).os
+        if target_os == "emscripten":
+            run_cmd = _wasm_run_command(artifact)
+            if run_cmd is None:
+                emit(f"     Built {artifact}\n", color="cyan", level="progress")
+                emit("     Open the .html page in a browser to run it "
+                     "(Node.js is needed for `pengu run`).\n", color="cyan", level="progress")
+                return 0
+            emit(f"     Running {run_cmd[-1]} (node)\n", color="cyan", level="progress")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            return subprocess.run(run_cmd, cwd=config.base_dir).returncode
         emit(f"     Running {artifact}\n", color="cyan", level="progress")
         sys.stdout.flush()
         sys.stderr.flush()
@@ -5555,6 +5916,11 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         cfg.target_compiler = target_compiler
     if target:
         cfg.target = target
+    # Script mode was designed around "one self-contained executable": the cache
+    # stores a single file and the runner execs it. A wasm build is instead a
+    # page + a loader JS + a module, so it bypasses that binary cache and is
+    # executed with Node (see below).
+    script_is_wasm = parse_target_triple(str(getattr(cfg, "target", "") or "")).os == "emscripten"
     cfg.release_unsafe = bool(release_unsafe)
     cfg.deny_deprecated = bool(deny_deprecated)
     _set_release_unsafe(cfg.release_unsafe)
@@ -5623,7 +5989,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                 ) if d
             ] or None,
         )
-        cached = lookup_cached_binary(cache_key) if use_lookup else None
+        cached = lookup_cached_binary(cache_key) if (use_lookup and not script_is_wasm) else None
         if cached:
             if verbose:
                 print(f"[pengu] cache hit {cache_key} -> {cached}")
@@ -5673,10 +6039,22 @@ def run_script(script: str, defines: Optional[List[str]] = None,
             else:
                 say(f"    Finished in {elapsed:.2f}s -> {artifact}", color="green")
 
-            if cache_key and not ephemeral:
+            if cache_key and not ephemeral and not script_is_wasm:
                 stored = store_cached_binary(cache_key, artifact)
                 if stored and verbose:
                     print(f"[pengu] cached binary -> {stored}")
+
+            if script_is_wasm:
+                wasm_cmd = _wasm_run_command(artifact)
+                if wasm_cmd is None:
+                    say(f"     Built {artifact}; open it in a browser to run "
+                        f"(Node.js is needed for `pengu run`).\n", color="cyan")
+                    return 0
+                say(f"     Running {wasm_cmd[-1]} (node)\n", color="cyan")
+                sys.stdout.flush()
+                sys.stderr.flush()
+                return subprocess.run(wasm_cmd + list(script_args or []),
+                                      cwd=base_dir).returncode
 
             run_target = artifact
             if cache_key and not ephemeral:
@@ -5867,13 +6245,15 @@ def test_project(config_path: Optional[str] = None, profile: str = "debug", entr
         emit("     Running tests\n", color="cyan", level="progress")
         sys.stdout.flush()
         sys.stderr.flush()
-        res = subprocess.run([artifact], cwd=config.base_dir)
+        res = subprocess.run(_test_run_command(artifact, target, config),
+                             cwd=config.base_dir)
         return _exit_code_from_child(res.returncode)
 
     # JSON output mode
     env = dict(os.environ)
     env["PENGU_TEST_JSON"] = "1"
-    res = subprocess.run([artifact], cwd=config.base_dir, env=env, capture_output=True, text=True)
+    res = subprocess.run(_test_run_command(artifact, target, config), cwd=config.base_dir,
+                         env=env, capture_output=True, text=True)
     saw_end = False
     if res.stdout:
         for line in res.stdout.splitlines():
@@ -6590,11 +6970,13 @@ def create_cli_parser() -> argparse.ArgumentParser:
         _p.add_argument("--strict-c99", "--strict_c99", dest="strict_c99", action="store_true",
                         help="Emit portable C99: no GNU statement expressions nor __auto_type")
         _p.add_argument("--target-compiler", "--target_compiler", dest="target_compiler", default=None,
-                        choices=["gcc", "clang", "msvc", "tcc"],
+                        choices=["gcc", "clang", "msvc", "tcc", "emcc"],
                         help="C compiler dialect used for attributes/restrict (default: infer from --cc)")
         _p.add_argument("--target", dest="target", default=None,
-                        help="Cross-compilation target triple (e.g. x86_64-w64-mingw32); "
-                             "Linux <-> Windows only, needs a cross compiler and PENGU_RUNTIME_CROSS")
+                        help="Cross-compilation target triple (e.g. x86_64-w64-mingw32, "
+                             "wasm32-unknown-emscripten or the alias 'wasm'); a cross "
+                             "compiler and a runtime for the target are required "
+                             "(see docs/CROSS_COMPILATION.md and docs/WASM.md)")
         _p.add_argument("--locked", action="store_true",
                         help="Fail if pengu.lock is missing or out of date (never writes it)")
         _p.add_argument("--frozen", action="store_true",
@@ -6678,7 +7060,7 @@ def create_cli_parser() -> argparse.ArgumentParser:
     test_p.add_argument("--strict-c99", "--strict_c99", dest="strict_c99", action="store_true",
                         help="Emit portable C99: no GNU statement expressions nor __auto_type")
     test_p.add_argument("--target-compiler", "--target_compiler", dest="target_compiler", default=None,
-                        choices=["gcc", "clang", "msvc", "tcc"],
+                        choices=["gcc", "clang", "msvc", "tcc", "emcc"],
                         help="C compiler dialect used for attributes/restrict (default: infer from --cc)")
     test_p.add_argument("--target", dest="target", default=None,
                         help="Cross-compilation target triple (e.g. x86_64-w64-mingw32)")

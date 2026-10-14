@@ -2839,12 +2839,25 @@ let buffer_size as int is when arch == "x64" then 8192 else 4096
 ```
 
 ### Comptime Variables & Intrinsics:
-- **`defined(NAME)`:** Evaluates to `true` if identifier `NAME` was provided via `-D NAME` or exists in the predefined compiler environment.
+- **`defined(NAME)`:** Evaluates to `true` if identifier `NAME` was provided via `-D NAME` or exists in the predefined compiler environment. `defined(wasm)` is also true whenever the target is WebAssembly (see below).
 - **`main`:** `bool`. Evaluates to `true` **only** for the project entry-point module (`compile_env.is_main`). When the `-D main` or `-D main=true` CLI flag is passed (e.g. `pengu build -D main` or `pengu run main.pengu -D main`), `main_flag_requested` enables entry-main semantics exclusively for the entry module; imported secondary modules always compile with `is_main = false`, preventing conflicting entry points.
 - **`debug`:** `bool`, `true` when compiling with the `debug` profile or `-D debug`; `false` under `--profile release`.
-- **`os`:** String constant matching the target operating system (`'windows'`, `'linux'`, `'macos'`, `'freebsd'`).
+- **`os`:** String constant matching the host operating system (`'windows'`, `'linux'`, `'macos'`, `'freebsd'`). Note that `--target` does **not** change it — a `wasm32-unknown-emscripten` build still sees the host's `os` unless `-D os=emscripten` is passed. Use `wasm` / `wasm_target` below for the WebAssembly target.
 - **`arch`:** String constant matching target CPU architecture (`'x64'` / `'x86_64'`, `'arm64'`, `'x86'`).
-- **`compiler`:** String constant matching target C compiler (`'gcc'`, `'clang'`, `'msvc'`).
+- **`compiler`:** String constant matching the target C compiler (`'gcc'`, `'clang'`, `'msvc'`, `'tcc'`). A `wasm32-unknown-emscripten` target reports `'emcc'` — the driver that will actually run, whether it was configured or auto-detected — so `when compiler == "emcc":` is reliable. `-D compiler=...` always wins.
+- **`wasm`:** `bool`, `true` when the build target is WebAssembly — i.e. `os` is `'emscripten'` or `'wasi'`, which `--target wasm32-unknown-emscripten` (or `--target wasm`) selects. `false` for every native build. `-D wasm` forces it true, and the two spellings agree: `when wasm:` and `when defined(wasm):` always answer alike.
+- **`wasm_target`:** `string`. The WebAssembly target's OS name — `'emscripten'` or `'wasi'` — and the **empty string** for a native build. Use it to distinguish the two:
+
+  ```pengu
+  when wasm_target == "emscripten":
+      include "emscripten.h"
+      declare emscripten_get_now into f64
+  when not wasm:
+      weave now_ms into f64:
+          return 0.0
+  ```
+
+  Both variables resolve before code generation, so the inactive branch leaves no trace in `bundle.c`. `std.web` is built on exactly this mechanism; see [`docs/WASM.md`](docs/WASM.md).
 - Non-constant conditions in `when` constructs raise `E0039: SemanticError`.
 
 ---
@@ -3066,9 +3079,16 @@ exports that constant with the current toolchain version. Namespacing already
 keeps each module self-contained (`std.<module>.<symbol>`), so decoupling the
 stdlib into independently versioned packages is reserved for 2.0.
 
-### 19.1 Pure PenguScript Modules (27 modules)
+### 19.1 Pure PenguScript Modules (28 modules)
 
 All pure modules are located in the `std/` directory and imported as `import std.<module>`.
+
+"Pure" here means **no external C library**: everything ships in this repository and
+links against nothing but the PenguScript runtime. Two modules do reach into C
+directly — `std.ffi` (a general FFI bridge) and `std.web` (the Emscripten/Web
+bridge) — using `include`, `declare` and `antiquus`; the rest are written
+entirely in PenguScript. Bindings to third-party libraries are satellites
+installed with `pengu add`, not part of this list.
 
 | Module | Purpose & Core Capabilities |
 |---|---|
@@ -3097,6 +3117,7 @@ All pure modules are located in the `std/` directory and imported as `import std
 | `std.memoria` | Manual heap memory management via `shard T` module functions: `alloc`, `alloc_array`, `try_alloc`, `try_alloc_array`, `resize_array` (with explicit `old_n`), `try_resize_array`, `copy` (memmove semantics — safe with overlap), `fill`, `zero`, `swap`, `compare` (returns `-1`/`0`/`1` like `memcmp`), `bytes_for`. Zeroed by default; OOM aborts unless the `try_*` variant is used. Composes with `banish`/`defer banish`/`errdefer banish`/`derive Nexus`. `free`, `sizeof` and `address_of` are deliberately absent — those are `banish`, `size of` and `sigil of` in the language itself. Experts needing an uninitialized block use `antiquus`. |
 | `std.invoke` | Command-line interface (CLI) argument parsing: POSIX and GNU syntax (`--flag`, `--key=value`, `-k=value`), boolean flag negation (`--no-flag`), subcommands (`rune Subcommand`), typed options (int, float, bool, string, multi), repeat multi-options (`rune MultiOption`), Levenshtein typo suggestions, formatted help and usage strings (`usage_string`, `full_help`), error reporting, and robust parse variants (`parse`, `parse_no_exit`, `parse_or_exit`, `parse_or_usage`, `ParseResult` accessors `get`, `get_or`, `get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`, `get_all`, `to_map_values`, `to_map_flags`). |
 | `std.ffi` | Low-level C foreign function interface bridge: null pointer utilities (`null_void`, `null_char`, `null_byte`, `is_null`, `is_valid`, `ptr_eq`), architecture constants and inspection (`SIZEOF_POINTER`, `SIZEOF_INT`, `SIZEOF_FLOAT`, `pointer_size`, `size_of shard T`, `alignment_of shard T`), null-terminated C string conversions (`string_from_cstr`, `cstr_from_string`, `string_from_cstr_n`, `string_from_bytes`, `bytes_from_string`), memory views (`slice_from_ptr`), generic collections from C buffers (`list_from_ptr shard T`, `map_from_entries shard K, V`), raw memory copy/set (`memcpy_raw`, `memset_raw`), and 10 canonical C interop patterns. |
+| `std.web` | WebAssembly / Emscripten bridge, compiled away entirely on native targets. Picks the branch with the `when wasm:` compile-time variable, so on a native build every entry point still exists (safe stubs) and on wasm the Web calls are emitted. Console (`console_log`, `console_warn`, `console_error`, `console_trace` — reaching the JavaScript console, or stderr natively), a real main loop (`set_main_loop` with an optional fps and `simulate_infinite_loop`, `cancel_main_loop`, `pause_main_loop`, `resume_main_loop`), high-resolution monotonic time (`now_ms`), JavaScript evaluation (`eval_js`), deferred calls (`set_timeout`, `clear_timeout`), and the `IS_WASM` constant. `emscripten_sleep` is deliberately **not** here: it needs `-sASYNCIFY`, and everything in this module works with a plain `emcc` build. See `docs/WASM.md`. |
 | `std.ledger` | Tabular data, CSV/TSV parsing, serialization, and matrix operations: parsing (`parse_csv`, `parse_tsv`, `parse_line`, `detect_delimiter`, `parse_csv_strict`, `parse_csv_nocomments`, `parse_csv_skip`, `parse_line_strict`, `parse_csv_normalized`), table abstraction `rune CsvTable` (`from_csv`, `from_rows`, `row_count`, `column_count`, `has_column`, `column_index`, `get`, `get_or`, `column`, `row_as_map`, `to_csv`), matrix enchantments (`list of list of string`: `row_count`, `column_count`, `is_rectangular`, `column`, `transpose`), key-value map conversions (`parse_csv_as_pairs`, `parse_csv_key_value`, `write_key_value_map`), escaping (`escape_field`, `escape_field_rfc4180`, `escape_field_backslash`), formatters (`to_csv_string`, `to_tsv_string`, `to_csv_string_no_trailing_newline`, `to_csv_string_crlf`), and file operations (`read_csv`, `read_tsv`, `write_csv`, `write_tsv`, `write_csv_safe`). |
 | `std.arithmancy` | Advanced math and game-ready linear algebra. **Two parts:** (a) the scalar functions (`abs_i`, `abs_f`, `min_i`, `max_i`, `min_f`, `max_f`, `clamp_i`, `clamp_f`, `sqrt_f`, `pow_f`, `sin_f`, `cos_f`, `tan_f`, `asin_f`, `acos_f`, `atan_f`, `atan2_f`, `deg_to_rad`, `rad_to_deg`, `lerp_f`, `smoothstep_f`, `is_prime`, `gcd`, `lcm`, `is_power_of_two`) are now **thin wrappers** over the primitive-methods modules (`std.numerus`, `std.integrum`, `std.fractio`) — the algorithm lives in the module that owns the bound; (b) the vector/matrix/quaternion types (`Vec2`, `Vec3`, `Vec4`, `Mat4`, `Quat`) and the constants (`PI`, `TAU`, `E`, `EPSILON`, `HALF_PI`, `SQRT2`, …), which have no equivalent elsewhere and remain the source of truth. Four rounding helpers (`floor`/`ceil`/`round`/`trunc`), `approx_eq`, `fmod` and `next_power_of_two` deliberately stay local: they differ from the module methods in domain or boundary semantics. |
 
@@ -3346,7 +3367,7 @@ Compiles the PenguScript project into the designated target:
 
 ```bash
 pengu build [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--output OUTPUT] [--test] [--cc CC] [--verbose] [-D DEFINES]
-            [--strict-c99] [--target-compiler {gcc,clang,msvc,tcc}]
+            [--strict-c99] [--target-compiler {gcc,clang,msvc,tcc,emcc}]
 ```
 
 - `--profile, -p`: Selects optimization and diagnostic profiles:
@@ -3395,12 +3416,15 @@ pengu build [--profile PROFILE] [--config CONFIG] [--entry ENTRY] [--output OUTP
   > in GNU mode is harmless because `({ ... })` creates a scope enclosing the loop
   > variable, and in strict mode is out of scope. See `AUDIT_1.0_FASE3.md` §6–§7.
 - `--target-compiler`: Selects the C dialect used for attributes and `restrict`
-  (`gcc`, `clang`, `msvc`, `tcc`; default: inferred from `--cc`). Also
+  (`gcc`, `clang`, `msvc`, `tcc`, `emcc`; default: inferred from `--cc`). Also
   `PENGU_TARGET_COMPILER` or `build: target_compiler:` in `pengu.yaml`.
+  `emcc` is clang with a different driver, so it takes the GNU column below and
+  the plain `restrict` spelling; `--cc emcc` infers it automatically, and
+  `--target-compiler gcc|clang|emcc` are all coherent with it.
 
 Attribute mapping per target:
 
-| Pengu attribute | GCC / Clang / TCC | MSVC (`cl.exe`) |
+| Pengu attribute | GCC / Clang / TCC / emcc | MSVC (`cl.exe`) |
 | --- | --- | --- |
 | `@inline` | `static inline __attribute__((always_inline))` | `static __forceinline` |
 | `@cold` | `__attribute__((cold))` | omitted (no direct equivalent) |
@@ -3465,7 +3489,9 @@ pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc
 - `--target <triple>` (`build`, `run`, `test`; or `build: target:` in
   `pengu.yaml`) selects the target OS from a triple such as
   `x86_64-w64-mingw32`, `i686-w64-mingw32`, `aarch64-apple-darwin` or
-  `x86_64-unknown-linux-gnu`. Only **Linux ⇄ Windows** is supported in 1.0.
+  `x86_64-unknown-linux-gnu`. **Linux ⇄ Windows** and
+  **wasm32-unknown-emscripten** are the supported targets; see §20.2.3.1 for
+  WebAssembly and `docs/WASM.md` for its limitations.
 - Artifact extensions follow the target (`.exe`, `.dll`, `.dylib`, `.so`) and so
   do the native archives declared by the project's satellite bindings.
 - With a Windows target from a non-Windows host the compiler is auto-detected
@@ -3476,6 +3502,45 @@ pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc
   built for the target: point `PENGU_RUNTIME_CROSS` at its prefix and the build
   adds `-L<prefix>/lib -I<prefix>/include`. Satellite bindings must likewise provide
   native archives built for the target.
+
+### 20.2.3.1 WebAssembly (`--target wasm32-unknown-emscripten`)
+
+```bash
+python build_runtime.py --target emscripten             # once: build/wasm/lib/libpengu_runtime.a
+pengu build --target wasm32-unknown-emscripten          # build/app.html + app.js + app.wasm
+pengu run   --target wasm32-unknown-emscripten          # builds, then runs app.js with node
+pengu run   --target wasm script.pengu                  # 'wasm' is a shorthand for the full triple
+```
+
+- The backend is **Emscripten** (`emcc`/`emar`), invoked as a cross compiler.
+  `emcc` is auto-detected, or passed with `--cc`; when it is missing the build
+  stops with the emsdk installation commands instead of a linker error.
+- `--target <triple>` (`build`, `run`, `test`; or `build: target:` in
+  `pengu.yaml`). `wasm`, `wasm32` and `emscripten` are accepted shorthands.
+  `when os == ...` sees `emscripten` for this target.
+- **Artifacts.** `exe` → `app.html` (Emscripten also writes `app.js` and
+  `app.wasm`; `node app.js` runs the program headlessly). `static` → `app.a`, an
+  archive of wasm objects built with `emar`, linkable into another wasm bundle.
+  `obj` → `app.o`. `c` → `bundle.c`, unchanged. `shared` is **refused**: a wasm
+  side module needs `-fPIC` on every input, including the runtime archive.
+- **The runtime archive is target-specific.** `build/lib/libpengu_runtime.a` is
+  host-built and can never satisfy a wasm link, so the wasm search
+  (`build/wasm/lib`, or `PENGU_LIB_DIR`/`PENGU_RUNTIME_CROSS`) is disjoint from
+  the host one by design. A missing archive is reported before the compiler runs.
+- **Threads.** `-pthread` is added exactly when the program imports
+  `std.filum`, which is the same condition that switches `PENGU_ENABLE_THREADS`
+  on in the bundle. Goroutines then become real Web Workers
+  (`SharedArrayBuffer` + wasm atomics); in a browser that requires
+  `Cross-Origin-Opener-Policy: same-origin` and
+  `Cross-Origin-Embedder-Policy: require-corp`.
+- **`exec`/`spawn`.** There is no process to spawn: `pengu_c_exec` and
+  `pengu_c_spawn` return `-1` and write a diagnostic to stderr under
+  `PENGU_EMSCRIPTEN`. They are unchanged on every other target.
+- **WASI is not supported.** A `wasm32-wasi` target is recognized and refused
+  with an explicit message; it is not silently treated as the host.
+- Full details, limitations (the `static var` initialization race, why
+  LeakSanitizer cannot see `filum` handle leaks, stdin) and troubleshooting live
+  in [`docs/WASM.md`](docs/WASM.md).
 
 ### 20.2.4 Formatting (`pengu fmt`)
 

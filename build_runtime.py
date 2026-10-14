@@ -6,6 +6,10 @@ Compiles into ``build/lib/``:
   - ``build_pengu_runtime`` -> ``libpengu_runtime.a`` (core + filum)
   - ``build_runtime_pch``   -> ``build/include/pengu_runtime.h.gch`` (optional)
 
+With ``--target emscripten`` it instead compiles the same sources for
+WebAssembly with ``emcc``/``emar`` into ``build/wasm/lib/``, leaving the host
+archive untouched (see ``docs/WASM.md``).
+
 The runtime has **no external C dependencies**: it needs nothing beyond
 libc, libm and pthreads / Win32 threads. Bindings to external libraries
 (graphics, databases, compression, crypto, networking, document formats, ...)
@@ -36,6 +40,22 @@ BUILD_DIR = ROOT_DIR / "build"
 INCLUDE_DIR = BUILD_DIR / "include"
 LIB_DIR = BUILD_DIR / "lib"
 PARSER_DIR = ROOT_DIR / "pengu_parser"
+
+#: WebAssembly (Emscripten) output. Deliberately *not* ``build/lib``: a wasm
+#: object file and a host object file share neither machine code nor ABI, so
+#: mixing them in one search path would let a misconfigured build link the wrong
+#: one and fail with an unrelated-looking error much later.
+WASM_DIR = BUILD_DIR / "wasm"
+WASM_LIB_DIR = WASM_DIR / "lib"
+WASM_INCLUDE_DIR = WASM_DIR / "include"
+
+#: The emsdk install/activation instructions, quoted verbatim in the error that
+#: `--target emscripten` raises when the toolchain is missing.
+EMSDK_HELP = (
+    "  git clone https://github.com/emscripten-core/emsdk.git\n"
+    "  cd emsdk && ./emsdk install latest && ./emsdk activate latest\n"
+    "  source ./emsdk_env.sh"
+)
 
 IS_WINDOWS = sys.platform.startswith("win")
 IS_DARWIN = sys.platform.startswith("darwin")
@@ -91,6 +111,83 @@ def get_toolchain():
     if not ar:
         raise RuntimeError("No static archiver (ar/llvm-ar) found in PATH.")
     return cc, ar
+
+
+def get_toolchain_wasm():
+    """Detects the Emscripten compiler/archiver, or explains how to install it.
+
+    ``emcc`` and ``emar`` are both required: the runtime archive is a real ar
+    archive of wasm objects, and ``ar`` cannot build one (it would emit a host
+    archive whose members the wasm linker rejects).
+    """
+    cc = shutil.which("emcc")
+    ar = shutil.which("emar")
+    if not cc or not ar:
+        missing = ", ".join(n for n, p in (("emcc", cc), ("emar", ar)) if not p)
+        raise RuntimeError(
+            f"{missing} not found in PATH.\n"
+            f"  Install and activate the Emscripten SDK:\n{EMSDK_HELP}"
+        )
+    return cc, ar
+
+
+def build_pengu_runtime_wasm(cc, ar, rebuild=False):
+    """Compiles pengu_runtime.c into ``build/wasm/lib/libpengu_runtime.a``.
+
+    Same one-object-per-subsystem partition as the host build, but every object
+    is a wasm object produced by ``emcc``.  ``-pthread`` is mandatory even for
+    the core object: it is what makes Emscripten emit the atomics/shared-memory
+    target features, and an archive whose members disagree on them cannot be
+    linked together.
+    """
+    target_lib = WASM_LIB_DIR / "libpengu_runtime.a"
+    runtime_c = PARSER_DIR / "pengu_runtime.c"
+    runtime_h = ROOT_DIR / "pengu_runtime.h"
+
+    WASM_INCLUDE_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(runtime_h, WASM_INCLUDE_DIR / "pengu_runtime.h")
+
+    if not runtime_c.exists():
+        print("[RUNTIME-WASM] pengu_runtime.c not found yet, skipping.")
+        return None
+
+    if target_lib.exists() and not rebuild:
+        newest_input = max(runtime_c.stat().st_mtime, runtime_h.stat().st_mtime)
+        if target_lib.stat().st_mtime >= newest_input:
+            print(f"[RUNTIME-WASM] {target_lib.name} is up to date.")
+            return target_lib
+
+    print(f"[RUNTIME-WASM] Compiling pengu_runtime.c for wasm32 ({cc})...")
+    obj_dir = WASM_DIR / "obj_runtime"
+    obj_dir.mkdir(parents=True, exist_ok=True)
+
+    flags = [
+        "-O2",
+        "-std=c11",
+        # Required for <stdatomic.h> to lower to real wasm atomics and for
+        # `__thread` to become per-Worker TLS instead of a shared global.
+        "-pthread",
+        "-I" + str(ROOT_DIR),
+        "-I" + str(INCLUDE_DIR),
+    ] + SECTION_FLAGS
+
+    objects = []
+    for obj_name, on_gate in RUNTIME_OBJECTS:
+        obj_path = obj_dir / obj_name
+        gates = [f"-D{gate}=1" if gate == on_gate else f"-D{gate}=0"
+                 for gate in RUNTIME_GATES]
+        core = "-DPENGU_RUNTIME_SUBSYSTEM_ONLY=0" if on_gate is None \
+            else "-DPENGU_RUNTIME_SUBSYSTEM_ONLY=1"
+        cmd = [cc] + flags + gates + [core, "-c", str(runtime_c), "-o", str(obj_path)]
+        run_cmd(cmd)
+        objects.append(str(obj_path))
+
+    WASM_LIB_DIR.mkdir(parents=True, exist_ok=True)
+    if target_lib.exists():
+        target_lib.unlink()
+    run_cmd([ar, "rcs", str(target_lib)] + objects)
+    print(f"[RUNTIME-WASM] Created {target_lib} ({len(objects)} objects)")
+    return target_lib
 
 
 def run_cmd(cmd, cwd=None, env=None):
@@ -225,18 +322,46 @@ def main():
     parser = argparse.ArgumentParser(
         description="Build the PenguScript static runtime (no external dependencies).")
     parser.add_argument("--rebuild", action="store_true", help="Force a rebuild.")
+    parser.add_argument("--target", choices=["native", "emscripten", "wasi"],
+                        default="native",
+                        help="Runtime flavour to build: 'native' (host, default) or "
+                             "'emscripten' (wasm32 for WebAssembly).")
     parser.add_argument("--headers-only", action="store_true",
                         help="Only stage pengu_runtime.h into build/include/.")
     args = parser.parse_args()
-
-    cc, ar = get_toolchain()
-    print(f"=== Building PenguScript Runtime (CC: {cc}, AR: {ar}) ===")
 
     if args.headers_only:
         INCLUDE_DIR.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT_DIR / "pengu_runtime.h", INCLUDE_DIR / "pengu_runtime.h")
         print("[RUNTIME] staged pengu_runtime.h only (--headers-only)")
         return
+
+    if args.target == "wasi":
+        # Recognised on purpose rather than left to argparse: "wasi" is a
+        # plausible typo for a request this project cannot satisfy yet, and a
+        # bare "invalid choice" would hide that it is a roadmap item.
+        print("[RUNTIME] 'wasi' is not supported yet; only 'native' and "
+              "'emscripten' are available (see docs/WASM.md).", file=sys.stderr)
+        raise SystemExit(2)
+
+    if args.target == "emscripten":
+        try:
+            cc, ar = get_toolchain_wasm()
+        except RuntimeError as e:
+            # A missing SDK is a configuration problem, not a crash: print the
+            # actionable message instead of a traceback.
+            print(f"[RUNTIME-WASM] {e}", file=sys.stderr)
+            raise SystemExit(2)
+        print(f"=== Building PenguScript Runtime for wasm32 (CC: {cc}, AR: {ar}) ===")
+        # The wasm build deliberately does not touch build/lib: the host and wasm
+        # archives coexist so a project can build for both targets in one tree.
+        result = build_pengu_runtime_wasm(cc, ar, rebuild=args.rebuild)
+        print(f"=== Wasm runtime build finished. Built: "
+              f"{'RUNTIME-WASM' if result else '(none)'} ===")
+        return
+
+    cc, ar = get_toolchain()
+    print(f"=== Building PenguScript Runtime (CC: {cc}, AR: {ar}) ===")
 
     # The manifest is empty for the core runtime, but the download/hash
     # infrastructure stays in place for the satellite repositories that copy

@@ -306,6 +306,236 @@ fixed, and carries a regression test.
   semantics; reconciling them is a code-generator design change outside this
   audit.
 
+## [Unreleased] — `std.web` (the Web/Emscripten bridge)
+
+### Added
+
+- ✨ **`std.web` — the Web/Emscripten bridge** (`std/web.pengu`), one source for both targets. It
+  wraps the parts of the Emscripten runtime that need no extra linker flags: the JS console
+  (`console_log`, `console_warn`, `console_error`, `console_trace`), a real main loop
+  (`set_main_loop` — with optional fps and `simulate_infinite_loop` — plus `cancel_main_loop`,
+  `pause_main_loop`, `resume_main_loop`), high-resolution time (`now_ms`), JavaScript evaluation
+  (`eval_js`), deferred calls (`set_timeout` / `clear_timeout`, no flags needed) and the `IS_WASM`
+  constant. Native builds get the same API: the console functions write to stderr, `now_ms` reads
+  the runtime's monotonic clock, and the Web-only entry points `panic` with an actionable message
+  instead of failing to link. The untaken branch is folded away before codegen, so a native build
+  contains no Emscripten code, and DCE drops wasm helpers a program does not call (a program using
+  only `now_ms` emits `emscripten_get_now` and nothing else).
+- ✨ **Comptime variables `wasm` and `wasm_target`** (`pengu_parser/pengu_comptime.py`), alongside
+  `os`/`arch`/`compiler`: `when wasm:` is true for any WebAssembly target, `when wasm_target ==
+  "emscripten":` distinguishes it from `wasi`, and `wasm_target` is the empty string natively.
+  `defined(wasm)` answers identically, so the two spellings can never disagree. `std.web` is built
+  on exactly this mechanism.
+- ✨ `tests/wasm/test_std_web.py` (11 tests) and `tests/compiler/test_comptime_wasm.py` (14 tests),
+  plus `tests/wasm/std_web_smoke.pengu` as a runnable example. They cover both targets, the DCE
+  guarantee, the native stubs, monotonicity of `now_ms`, and that `std.web` contributes no `emcc`
+  warnings of its own.
+- 📝 `LANGUAGE.md` §16 documents `wasm` / `wasm_target`; §19.1 now lists 28 modules with a `std.web`
+  row and explains what "pure" means for the two modules that reach into C (`std.ffi`, `std.web`).
+- 📝 `docs/WASM.md` gains a `std.web` guide, including the scope rule (no module here needs an extra
+  `emcc` flag), what is deliberately excluded and where it belongs instead, and why `EM_ASM` is not
+  used.
+
+### Fixed
+
+- 🐛 `pengu_project.py` / comptime `compiler`: on a `wasm32-unknown-emscripten` target the variable
+  reported the *configured* compiler (often a host `gcc`) even though `emcc` is the driver that
+  actually runs — so `when compiler == "emcc":` was false on a wasm build unless `--cc emcc` was
+  passed explicitly. It now reports `emcc` for that target, configured or auto-detected. An
+  explicit `-D compiler=...` still wins.
+- 🐛 `pengu_parser/pengu_comptime.py` / `-D wasm`: the define satisfied `defined(wasm)` but **not**
+  `when wasm:`, because the latter read the target field only. The two spellings now apply one rule
+  (`is_wasm or defined("wasm")`), so they cannot disagree.
+
+### Notes
+
+- ⚠️ `emscripten_sleep` is intentionally absent from `std.web`: it requires `-sASYNCIFY`, and mixing
+  a flag-dependent API into a module whose whole contract is "works with a plain `emcc` build" would
+  make one function abort at runtime while the rest worked. `set_timeout`/`clear_timeout` cover the
+  deferred-call case flag-free; see `docs/WASM.md`.
+- ℹ️ `EM_ASM` cannot be used under `-std=c11` ("EM_ASM does not work in -std=c* modes"), the dialect
+  this project selects, so `std.web` reaches the console through `emscripten/console.h` instead. The
+  behaviour is identical (`console.log` / `console.error`); only the mechanism differs.
+- ℹ️ For reference: the "0 `emcc` warnings" criterion is met in the sense that `std.web` is
+  attributed none; residual warnings in a bundle come from the caller's own code and from generated
+  helpers. One class that used to be everywhere — `-Wparentheses-equality` from `if a == b:` — is
+  fixed in this release; see the Fixed list above.
+
+## [Unreleased] — WebAssembly support (`wasm32-unknown-emscripten`)
+
+PenguScript can now compile to WebAssembly through Emscripten. A build produces
+a self-contained page (`app.html`) plus its `app.js` loader and `app.wasm`
+module, and — because Node is a supported environment — `node app.js` runs the
+same program headlessly, which is how the test suite verifies it without a
+browser. `std.filum` works too: `-pthread` is added automatically when a program
+imports it, so goroutines become real Web Workers sharing memory instead of
+being emulated single-threaded.
+
+```bash
+# One-time toolchain setup
+git clone https://github.com/emscripten-core/emsdk.git
+cd emsdk && ./emsdk install latest && ./emsdk activate latest && source ./emsdk_env.sh
+
+python build_runtime.py --target emscripten        # build/wasm/lib/libpengu_runtime.a
+pengu build --target wasm32-unknown-emscripten     # build/app.html + app.js + app.wasm
+pengu run   --target wasm32-unknown-emscripten     # builds and runs it with node
+```
+
+`--target wasm` is accepted as a shorthand. WASI is recognised but deliberately
+refused with a clear message: it is not part of this release.
+
+### Added
+
+- ✨ `--target wasm32-unknown-emscripten` (alias `--target wasm`) for
+  `pengu build`, `pengu run` and `pengu test`. The host ⇄ WebAssembly pair joins
+  the existing Linux ⇄ Windows cross-compilation support.
+- ✨ `build_runtime.py --target emscripten` compiles the runtime with
+  `emcc`/`emar` into `build/wasm/lib/libpengu_runtime.a`. It is a **separate**
+  archive from `build/lib`: a wasm object and a host object share neither
+  machine code nor ABI, and the two searches are deliberately disjoint so a
+  misconfigured build fails with an actionable message instead of trying to link
+  native objects into a wasm binary. `--target native` (the default) is
+  unchanged, and the two archives coexist in one tree.
+- ✨ Output naming for the target: `exe` → `app.html` (plus `.js`/`.wasm`),
+  `static` → `app.a` (archived with `emar`, so its members are real wasm
+  objects), `obj` → `app.o`, `c` → `bundle.c` as before.
+- ✨ `pengu run --target wasm32-unknown-emscripten` executes the generated
+  `app.js` with Node and forwards its exit status; `process.exit(3)`-style
+  `rite.exit` codes propagate unchanged. Without Node it prints the path to the
+  `.html` page instead of failing.
+- ✨ A dark, terminal-style HTML shell (`pengu_wasm_shell.html`) is passed to
+  emcc via `--shell-file`, so `-o app.html` writes a readable page instead of
+  the stock Emscripten one. `PENGU_WASM_SHELL=default` restores the stock page;
+  any other value is treated as a path to a custom shell.
+- ✨ `emcc` is accepted as a `--target-compiler` dialect (it is clang-based, so
+  it takes the GNU attributes and the plain `restrict` spelling). `--cc emcc`
+  infers it automatically, and `--target-compiler gcc|clang|emcc` are all
+  coherent with it.
+- ✨ `tests/wasm/` — 42 tests: pure-Python checks for triple parsing, artifact
+  naming, dialect mapping and the runtime-archive lookup (`smoke`), plus
+  end-to-end builds and Node executions (`slow`), including a concurrency stress
+  program and a deterministic handle-leak check. Everything skips cleanly when
+  emcc, Node or the wasm runtime archive is absent, so the suite is safe in the
+  smoke job that installs none of them.
+- ✨ `ci.yml` gains a `WebAssembly (Emscripten)` job that builds the wasm
+  runtime, asserts its members really are wasm objects (`\0asm`), runs
+  `tests/wasm/`, and uploads a runnable `app.html`/`app.js`/`app.wasm` demo. It
+  is part of `Auto Tag`'s `needs`, so a broken wasm build blocks a release
+  rather than rotting silently.
+- 📝 `docs/WASM.md` — installation, flags, what works and what does not,
+  threading/COOP+COEP notes, and the troubleshooting list.
+- 📝 `LANGUAGE.md` §20.4 documents the new target.
+
+### Fixed
+
+- 🐛 `pengu_project.py` / `parse_target_triple`: `wasm32-unknown-emscripten`
+  and `wasm32-wasi` fell through every branch and were classified as the
+  **host**. `--target wasm32-unknown-emscripten` was therefore a silent no-op
+  that produced a native binary; it now classifies as its own OS, which also
+  makes `is_cross`, `target_os`, the compiler lookup and `_lock_target`'s
+  canonicalization correct.
+- 🐛 `pengu_project.py` / `_find_runtime_archive`: the pre-flight check looked
+  only for the host `libpengu_runtime.a`, so a wasm build either failed with an
+  inscrutable `undefined reference` or linked the wrong archive. It is now
+  target-aware and its error names the wasm build command.
+- 🐛 `pengu_project.py` / `build_compile_commands`: the platform link tail
+  (`-pthread -lm -ldl`) and the Darwin `--start-group` exclusion were applied by
+  *host* rather than by target. Emscripten has no `libdl`, and its linker is
+  wasm-ld regardless of the machine doing the building.
+- 🐛 `pengu_project.py` / `run_project`: `--target` was read back from a freshly
+  loaded config that never carried the override, so a wasm build's `.html` was
+  executed as if it were a native binary (`PermissionError`). Fixed to use the
+  flag itself, with the manifest value as the fallback.
+- 🐛 `pengu_project.py` / `PENGU_CFLAGS`, `PENGU_LDFLAGS`: the injected flags
+  were de-duplicated **per token**, which silently corrupted any flag whose value
+  is a separate argument. With `PENGU_LDFLAGS="-s EXIT_RUNTIME=1"` the `-s` was
+  dropped (an identical `-s` was already in the list for a wasm build) while
+  `EXIT_RUNTIME=1` was still appended, so `emcc` received a bare
+  `EXIT_RUNTIME=1` and rejected it as a missing input file — breaking the
+  documented sanitizer recipe. Environment flags are now appended verbatim: a
+  duplicate flag is harmless, a split pair is a build failure.
+- 🐛 `pengu_project.py` / `test_project`: `pengu test --target wasm...` exec'd
+  the built artifact directly, so it tried to run `app.html`
+  (`PermissionError`). It now runs the `.js` loader with Node, like `pengu run`,
+  and a failing test still exits non-zero.
+- 🐛 `pengu_project.py` / `run_script`: script mode's binary cache stores one
+  self-contained executable and execs it, which cannot describe a
+  `.html`+`.js`+`.wasm` triple. Wasm script runs now bypass that cache and go
+  through Node.
+- 🐛 `pengu_runtime.h` / `pengu_c_exec`, `pengu_c_spawn`: these called
+  `system()`, which Emscripten stubs out. In a browser it cannot work, and in
+  Node a synchronous spawn would block the event loop; the stub's return status
+  could also be misread as success. Both now report the limitation on stderr and
+  return `-1` under `PENGU_EMSCRIPTEN`, and behave exactly as before everywhere
+  else.
+- 🐛 `pengu_runtime.c` / `pengu_c_filum_go`: when `pthread_create` (or
+  `_beginthreadex`) failed, the `PenguThreadArg` wrapper was never freed — the
+  runner frees it, and a thread that never starts never runs the runner. It is
+  now released on the failure path.
+- 🐛 `pengu_runtime.c` / `pengu_c_filum_chan_new`: `ch->buffer` was used without
+  checking the allocation. Every later `send`/`recv` `memcpy`s into it, so a
+  failed allocation turned into a null dereference at the first message (or an
+  out-of-bounds write). The constructor now fails cleanly and leaves no
+  half-initialised handle.
+- 🐛 `pengu_runtime.c` / `pengu_c_filum_chan_free`, `..._wait_group_free`,
+  `..._cond_free`: the synchronisation primitives were destroyed **without
+  waking their waiters**. Destroying a condition variable that still has waiters
+  is undefined behaviour, and under Emscripten's pthread emulation the waiter
+  never observes the wake. Each `_free` now marks the object closed, broadcasts
+  and only then destroys — a blocked `send`/`recv`/`wait` returns the
+  documented "closed"/"done" result instead of spinning on freed memory.
+- 🐛 `pengu_runtime.c` / `PenguNativeAtomicInt`: the atomics were accessed by
+  casting a `volatile long` object to `atomic_long*`. That is undefined
+  behaviour in C11 even when the layout matches, and it was the one thing
+  standing between the runtime and a clean `-std=c11` build on a 32-bit `long`
+  target. The POSIX side now declares a real `_Atomic long` member; Windows
+  keeps `volatile long` + the Interlocked family (MSVC's `<stdatomic.h>` only
+  arrives in C11 mode).
+
+### Notes
+
+- ⚠️ **`static var` with a non-constant initializer is not thread-safe.** The
+  generator emits `if (!x_initialized) { x = <init>; x_initialized = true; }`
+  (`pengu_parser/pengu_codegen/stmts.py`). Two goroutines racing the first use
+  each run the initializer, so each allocates its own handle and the losers'
+  handles are orphaned — under wasm this manifested as a hang, because `main`
+  and a worker ended up using different channels. This is pre-existing (it
+  affects native threads identically) and is not fixed here: it needs a
+  once-init primitive in the emitted C with a per-platform implementation. In
+  the meantime, initialise such a `static var` from one thread before spawning
+  (which is what `tests/wasm/filum_stress.pengu` does, via its TOUCH op).
+- ⚠️ **LeakSanitizer cannot see filum handle leaks.** LSAN decides "leaked" by
+  scanning for pointers, and glibc keeps initialised `pthread_mutex_t` /
+  `pthread_cond_t` objects in internal lists, so a leaked channel, mutex, wait
+  group, once or cond looks "still reachable" and LSAN stays silent — measured:
+  an `AtomicInt` leak (plain `malloc`) is reported, a channel leak is not. A
+  clean ASan run therefore does **not** prove that `pengu_c_filum_*_free`
+  releases anything. `tests/wasm/filum_handles_leakcheck.c` closes that gap by
+  counting live allocations through `--wrap=malloc,free,...`; it runs on both
+  targets, and a mutation test (removing the ring-buffer free) makes it fail, so
+  it is not vacuous.
+- ⚠️ `LANGUAGE.md` §8.3 claims a `weave` or lambda decays to `ref to void` /
+  `ref to frozen void` at a call boundary. It does not in this compiler version
+  (`E0005` for both spellings), which is why spawning a goroutine requires
+  `transmute (lambda into calling work) to ref to void` and then an assignment
+  to an `opaque`. Changing that is a checker change and was left alone.
+- ℹ️ Wasm `SHARED` output is refused with an explicit message rather than
+  emitting a `.wasm` that cannot load. A wasm side module needs `-fPIC` on every
+  input — including the runtime archive — plus a matching `MAIN_MODULE`
+  consumer; `static` and `exe` cover the supported ways to ship code.
+- ℹ️ `EXIT_RUNTIME=0` is used on purpose, trading one cosmetic message for
+  another. With `1`, Emscripten tears the runtime down the instant `main`
+  returns, and because `pengu_c_filum_go` detaches its threads Node then prints a
+  `received "6" command from terminated worker` line to stderr per goroutine — on
+  the **success** path of every concurrent program. With `0` that is silent, at
+  the cost of a `keepRuntimeAlive()` notice when a program exits *explicitly*
+  (`rites.exit`, a failed assert, a panic), which is already a failure path.
+  Output and exit status are correct either way, and the entry wrapper already
+  `fflush`es both streams. `emscripten_force_exit` was rejected as a fix because
+  it skips the stdio flush `exit()` performs, which would lose a panic's
+  diagnostics. Pass `-s EXIT_RUNTIME=1` in `PENGU_LDFLAGS` to flip the trade-off
+  (an ASan run wants the teardown).
+
 ## [Unreleased] — Phase 2: Primitive enchanting
 
 Methods can now be attached to every primitive (`int`, `i8`–`i64`, `u8`–`u64`,

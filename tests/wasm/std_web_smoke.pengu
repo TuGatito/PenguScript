@@ -1,0 +1,55 @@
+# tests/wasm/std_web_smoke.pengu
+#
+# The `std.web` smoke program: one source that compiles and runs on both the
+# native and the WebAssembly target. It is the fixture for
+# tests/wasm/test_std_web.py, and doubles as the copy-paste starting point for a
+# wasm program with a main loop.
+#
+#   pengu run tests/wasm/std_web_smoke.pengu
+#   pengu run tests/wasm/std_web_smoke.pengu --target wasm   # -> node
+#
+# On wasm it prints through `console.log`, spins the main loop three times and
+# cancels it. Natively the same code takes the stub branch: `console_log` writes
+# to stderr and `now_ms` reads the monotonic clock.
+
+import std.spark
+import std.web
+
+# Frames are counted in a function-static so the callback can decide when to
+# stop; `set_main_loop` callbacks take no arguments.
+weave frames into int:
+    static var n as int is 0
+    set n is n + 1
+    return n
+
+weave tick into void:
+    var n as int is calling frames
+    if web.IS_WASM:
+        calling web.console_log with "tick"
+    else:
+        calling spark.println with "tick"
+    if n >= 3:
+        if web.IS_WASM:
+            calling web.console_log with "stopping the loop"
+        calling web.cancel_main_loop
+
+weave main into int:
+    if web.IS_WASM:
+        calling web.console_log with "std.web smoke: wasm"
+    else:
+        calling spark.println with "std.web smoke: native"
+
+    # Both targets must expose a monotonic clock.
+    var t0 as f64 is calling web.now_ms
+    if t0 <= 0.0:
+        calling spark.println with "FAIL: now_ms did not advance"
+        return 1
+
+    if web.IS_WASM:
+        # fps 0 => driven by requestAnimationFrame; false => the C call returns
+        # so this weave keeps running (and can print) before the loop starts.
+        calling web.set_main_loop with tick, 0, false
+        calling web.console_log with "loop registered"
+
+    calling spark.println with "std_web_smoke: OK"
+    return 0

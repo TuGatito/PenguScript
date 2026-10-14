@@ -336,6 +336,15 @@ def _assemble_portable(dist_dir: Path):
     if runtime_h.exists():
         shutil.copy2(runtime_h, dst_runtime / "pengu_runtime.h")
 
+    # The wasm HTML shell travels with the runtime header: it is looked up beside
+    # `pengu_runtime.h` in an installed layout (see pengu_project._wasm_shell_file).
+    # Without it emcc just writes its own default page, so this is a nicety, not
+    # a requirement.
+    wasm_shell = ROOT_DIR / "pengu_wasm_shell.html"
+    if wasm_shell.is_file():
+        shutil.copy2(wasm_shell, dst_runtime / wasm_shell.name)
+        print(f"  [WASM] Copied {wasm_shell.name} to runtime/")
+
     src_lib = BUILD_DIR / "lib"
     if src_lib.exists():
         for lib_file in src_lib.glob("*.*"):
@@ -412,6 +421,11 @@ def _assemble_fhs(dist_dir: Path):
     runtime_h = ROOT_DIR / "pengu_runtime.h"
     if runtime_h.is_file():
         shutil.copy2(runtime_h, dst_inc / "pengu_runtime.h")
+    # ...and the wasm shell beside it, so `pengu build --target wasm` finds the
+    # custom page in an installed prefix too.
+    wasm_shell = ROOT_DIR / "pengu_wasm_shell.html"
+    if wasm_shell.is_file():
+        shutil.copy2(wasm_shell, dst_inc / wasm_shell.name)
 
 
 def get_version() -> str:
@@ -918,6 +932,7 @@ def generate_release_readme(dist_dir: Path, layout: str = "portable"):
 ├── bin/pengu                        # Standalone CLI + LSP server
 ├── lib/pengu/*.a                    # Runtime static libraries
 ├── include/pengu/*.h                # Runtime + dependency headers
+├── include/pengu/pengu_wasm_shell.html   # HTML page for `--target wasm`
 ├── share/pengu/std/                 # Standard library modules
 ├── share/pengu/VERSION
 ├── {vsix_name}     # VS Code extension
@@ -940,6 +955,7 @@ DESTDIR=/tmp/stage PREFIX=/usr ./install.sh   # package-manager staging
 ├── std/                             # 26 pure-PenguScript modules
 └── runtime/
     ├── pengu_runtime.h
+    ├── pengu_wasm_shell.html        # HTML page for `--target wasm`
     ├── libpengu_runtime.a           # self-contained: libc/libm/pthreads only
     └── include/                     # pengu_runtime.h + optional shared PCH"""
         quickstart = f"""\\
