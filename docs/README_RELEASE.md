@@ -10,10 +10,11 @@ This directory contains the standalone distribution of the **PenguScript Compile
 \
 dist2/
 ├── pengu
-├── pengus-2.0.0.vsix
+├── pengus-2.2.0.vsix
 ├── std/                             # 26 pure-PenguScript modules
 └── runtime/
     ├── pengu_runtime.h
+    ├── pengu_wasm_shell.html        # HTML page for `--target wasm`
     ├── libpengu_runtime.a           # self-contained: libc/libm/pthreads only
     └── include/                     # pengu_runtime.h + optional shared PCH
 ```
@@ -34,7 +35,7 @@ the build machine's absolute layout (Phase 9, finding F9-N8).
 1. Open Visual Studio Code.
 2. Go to **Extensions** (`Ctrl+Shift+X`).
 3. Click the `...` menu (Views and More Actions) in the top-right corner.
-4. Select **Install from VSIX...** and choose `dist2/pengus-2.0.0.vsix` (relative to the unpacked archive).
+4. Select **Install from VSIX...** and choose `dist2/pengus-2.2.0.vsix` (relative to the unpacked archive).
 
 ### 3. Create a new project
 ```bash

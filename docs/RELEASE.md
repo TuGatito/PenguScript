@@ -134,6 +134,7 @@ That is exactly what `release.yml`'s `verify` job automates.
 | Failure | What it means | What to do |
 |---|---|---|
 | `release_version.py` exits non-zero | only `[Unreleased]` sections exist | promote the changelog, then push again |
+| `ci.yml` is green but there is **no new tag and no release** | the first *released* CHANGELOG heading is a version that is already tagged, so `auto-tag` writes `created=false` and skips *Dispatch the publishing workflow* — a green run only creates a tag when the changelog announces one that does not exist yet (this is how the WebAssembly work missed its release) | add the new `## [x.y.z] — date — title` section **above** the previous release, bump `VERSION`, and push to `main` |
 | `auto-tag` fails to push the tag | branch protection or a permissions change | check `permissions: contents: write` on the job; the tag must be pushed by CI or by hand |
 | `release.yml` fails before publishing | a build or a test failed | nothing was published; fix and re-run the workflow (`workflow_dispatch` with an existing tag) |
 | `gh release create` fails with "already exists" | that tag was published before | delete the release (`gh release delete <tag>`) or publish the next version |
