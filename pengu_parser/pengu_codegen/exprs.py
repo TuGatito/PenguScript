@@ -1041,6 +1041,19 @@ class ExprMixin:
                     # fallback (a program may bind only one of the aliases).
                     t_name = self._primitive_method_key(t_name, m_name) or prim_recv
 
+                # '@mutates' reserves 'get_<name>' as the pure surface form of the
+                # SAME C function the bare '<name>' denotes (one function, two
+                # spellings; see LANGUAGE.md §10.1).  Rewrite the logical name back
+                # to the declared one *before* any C symbol is derived from it, so
+                # every lookup below -- `_method_definition_c_name`, the
+                # monomorphized candidates, `fn_info` -- sees the real method and
+                # no second C function is ever emitted.
+                if t_name is not None and m_name.startswith("get_"):
+                    _base = m_name[4:]
+                    _mm = getattr(self.symbols, "mutating_methods", {}) or {}
+                    if (t_name, _base) in _mm or (SHARD_RECEIVER_KEY, _base) in _mm:
+                        m_name = _base
+
                 # Check if this is an enchanting method or concept binding method
                 is_enchanting_method = False
                 if t_name is not None:

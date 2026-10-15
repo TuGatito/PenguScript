@@ -34,6 +34,7 @@ from .pengu_errors import (
     UnknownArrayDimensionError, InvalidBuilderStatementError,
     DuplicateConceptBindingError, DuplicatePrimitiveMethodError, InfiniteTypeSizeError, UnknownAttributeError,
     StaticVarPlacementError, InvalidTestNameError, CFieldCollisionError,
+    MutatingMethodInExpressionError, InvalidMutatesAttributeError, MutatingGetterCollisionError,
     AntiquusBodyError,
     suggest_similar_identifier
 )
@@ -504,6 +505,8 @@ class PenguChecker:
         """Validates attributes against target declaration kind ('weave', 'declare', 'rune', 'field')."""
         valid_attrs = {
             "weave": {"inline", "cold", "deprecated", "noreturn", "export"},
+            # A weave inside 'enchanting': the only place '@mutates' is meaningful.
+            "enchanted_weave": {"inline", "cold", "deprecated", "noreturn", "export", "mutates"},
             "antiquus": {"inline", "cold", "deprecated", "noreturn", "export"},
             "declare": {"inline", "cold", "deprecated"},
             "rune": {"packed", "align", "deprecated"},
@@ -512,16 +515,38 @@ class PenguChecker:
         allowed = valid_attrs.get(target, set())
         for name, args in attrs.items():
             if name not in ("inline", "cold", "deprecated", "packed", "align",
-                            "noreturn", "export"):
+                            "noreturn", "export", "mutates"):
                 err = self._make_error(
                     UnknownAttributeError,
                     f"Unknown attribute '@{name}'",
                     node,
                     code="E0056",
                     help=("Supported attributes are @inline, @cold, @deprecated, "
-                          "@packed, @align(N), @noreturn, and @export(\"name\").")
+                          "@packed, @align(N), @noreturn, @export(\"name\") and @mutates.")
                 )
                 self._record_error(err)
+                continue
+            if name == "mutates":
+                # Handled before the generic 'not in allowed' branch below so a
+                # misplaced '@mutates' reports E0067 (its own condition) rather
+                # than E0056 ("unsupported here"), which would send the reader
+                # looking for a typo instead of at the placement.
+                if target != "enchanted_weave":
+                    err = self._make_error(
+                        InvalidMutatesAttributeError,
+                        "'@mutates' is only valid on a method inside an 'enchanting' block",
+                        node,
+                        help="Move the weave into an 'enchanting <Type>:' block, or remove '@mutates'.",
+                        note="In-place mutation needs a receiver the call site can assign back to.",
+                    )
+                    self._record_error(err)
+                elif len(args) != 0:
+                    err = self._make_error(
+                        InvalidMutatesAttributeError,
+                        f"Attribute '@mutates' takes 0 arguments, got {len(args)}",
+                        node,
+                    )
+                    self._record_error(err)
                 continue
             if name not in allowed:
                 err = self._make_error(
@@ -1990,7 +2015,11 @@ class PenguChecker:
                 for m_decl in stmt.children[1:]:
                     if isinstance(m_decl, Tree) and m_decl.data == "weave_decl":
                         m_attrs, _m_attr_idx = _extract_attributes(m_decl.children)
-                        self._validate_attributes(m_attrs, "weave", m_decl)
+                        # This pass pre-registers an enchanting method's
+                        # signature, so it is the 'enchanted_weave' target
+                        # ('@mutates' is legal here, unlike in a top-level weave
+                        # or a 'bind' block, which stay on the 'weave' target).
+                        self._validate_attributes(m_attrs, "enchanted_weave", m_decl)
                         m_inline, m_ritual, m_idx = _extract_weave_modifiers(m_decl.children)
                         m_name = str(m_decl.children[m_idx])
                         m_rem = [c for c in m_decl.children[m_idx+1:] if c is not None]
@@ -2591,7 +2620,7 @@ class PenguChecker:
 
             for child in rem_children:
                 if isinstance(child, Tree) and child.data == "weave_decl":
-                    self._check_enchanting_method(child, target_type, type_params=type_params, type_bounds=bind_bounds)
+                    self._check_enchanting_method(child, target_type, type_params=type_params, type_bounds=bind_bounds, allow_mutates=False)
                 else:
                     self._check_node(child)
 
@@ -2836,6 +2865,13 @@ class PenguChecker:
 
         elif rule == "expr_stmt":
             expr_node = node.children[0]
+            # A statement-position call to a '@mutates' method is rewritten into
+            # the equivalent 'set' before anything else looks at it, so the rest
+            # of the pipeline (mutability, codegen) sees an ordinary assignment.
+            if isinstance(expr_node, Tree) and expr_node.data == "calling_expr" \
+                    and self._rewrite_mutating_call_stmt(node, expr_node):
+                self._check_node(node)
+                return
             # A bare array/map literal is not a statement. 'x[0]' (C-style
             # indexing, which Pengu spells 'x at 0') parses as the variable
             # followed by a stray '[0]' statement, so this catches the typo
@@ -5552,7 +5588,7 @@ class PenguChecker:
                         self._record_error(e)
                 elif ret_type != VOID_TYPE and not isinstance(ret_type, AnyType):
                     if not self._stmt_always_returns(last_inner):
-                        stmt_desc = last_inner.data.replace("_stmt", "").replace("_decl", "")
+                        stmt_desc = self._stmt_end_description(last_inner)
                         err = self._make_error(
                             TypeMismatchError,
                             f"Function '{fn_name}' declared into '{ret_type}' does not return a value (ends with '{stmt_desc}')",
@@ -5667,6 +5703,16 @@ class PenguChecker:
             self.symbols.define(Symbol(name=tp, type=TypeParam(tp, bounds=tp_b), kind="type"))
 
         seen_methods: Dict[str, Tree] = {}
+        # The full set of names in this block, collected up front so a
+        # '@mutates weave foo' can detect a 'weave get_foo' declared *after* it
+        # (E0068).  `seen_methods` below is built incrementally, which is enough
+        # for duplicates but too late for the reserved getter.
+        block_method_names: Set[str] = set()
+        for child in node.children[1:]:
+            if isinstance(child, Tree) and child.data == "weave_decl":
+                _, _, pre_idx = _extract_weave_modifiers(child.children)
+                if pre_idx < len(child.children):
+                    block_method_names.add(str(child.children[pre_idx]))
         for child in node.children[1:]:
             if isinstance(child, Tree) and child.data == "weave_decl":
                 _, _, m_idx = _extract_weave_modifiers(child.children)
@@ -5686,7 +5732,7 @@ class PenguChecker:
                     child, target_type,
                     type_params=type_params, type_bounds=bounds,
                     self_is_value=self_is_value, receiver_key=receiver_key,
-                    prim_name=prim_name,
+                    prim_name=prim_name, sibling_names=block_method_names,
                 )
             else:
                 self._check_node(child)
@@ -5695,7 +5741,8 @@ class PenguChecker:
 
     def _check_enchanting_method(self, node: Tree, self_type: Type, type_params: Optional[List[str]] = None, type_bounds: Optional[Dict[str, List[str]]] = None,
                                  self_is_value: bool = False, receiver_key: Optional[str] = None,
-                                 prim_name: Optional[str] = None) -> None:
+                                 prim_name: Optional[str] = None, allow_mutates: bool = True,
+                                 sibling_names: Optional[Set[str]] = None) -> None:
         """Checks method definition within an enchanting block.
 
         Args:
@@ -5713,7 +5760,7 @@ class PenguChecker:
         """
         line, col = self._get_loc(node)
         w_attrs, _ = _extract_attributes(node.children)
-        self._validate_attributes(w_attrs, "weave", node)
+        self._validate_attributes(w_attrs, "enchanted_weave" if allow_mutates else "weave", node)
         is_inline, is_ritual, idx = _extract_weave_modifiers(node.children)
         fn_name = str(node.children[idx])
         rem_children = [c for c in node.children[idx+1:] if c is not None]
@@ -5839,6 +5886,40 @@ class PenguChecker:
                     self._record_error(err)
             else:
                 self.symbols.primitive_method_owners[(prim_name, fn_name)] = (self.filename or "", line)
+        # --- '@mutates' ---------------------------------------------------------
+        # One C function (`T_<name>`) serves two surface forms: the bare name
+        # assigns its result back to the receiver, and the reserved `get_<name>`
+        # spelling returns it.  Nothing extra is registered in `methods`: the
+        # inferrer aliases `get_<name>` back to `<name>` *before* it resolves and
+        # monomorphizes anything, so exactly one C function per receiver is ever
+        # generated.  `mutating_methods` is what drives the statement rewrite
+        # (checker) and rejects a value-position call with E0066 (inferrer).
+        is_mutating = "mutates" in w_attrs
+        if is_mutating:
+            ok = self._validate_mutates_method(
+                node, fn_name, self_type, ret_type, method_fn_type, stmt_children)
+        if is_mutating and ok:
+            getter_name = f"get_{fn_name}"
+            # The whole block's names were pre-scanned, so a `get_<name>`
+            # declared *after* this method is caught too (the incremental
+            # `seen_methods` pass would otherwise register after we do).
+            if getter_name in (sibling_names or set()):
+                err = self._make_error(
+                    MutatingGetterCollisionError,
+                    f"'@mutates' reserves '{getter_name}', but this 'enchanting' block also declares it",
+                    node,
+                    help=f"Remove the explicit 'weave {getter_name}', or rename it.",
+                    note="'@mutates' provides the pure 'get_<name>' form automatically.",
+                )
+                self._record_error(err)
+            else:
+                self.symbols.mutating_methods[(registration_key, fn_name)] = {
+                    "fn_type": method_fn_type,
+                    "getter": getter_name,
+                    "self_is_value": self_is_value,
+                    "receiver_key": registration_key,
+                }
+
         self.symbols.methods[(registration_key, fn_name)] = method_fn_type
         if isinstance(self_type, RuneType):
             self_type.methods[fn_name] = method_fn_type
@@ -5892,7 +5973,7 @@ class PenguChecker:
                     except SemanticError as e:
                         self._record_error(e)
                 elif not isinstance(ret_type, AnyType) and not self._stmt_always_returns(last_inner):
-                    stmt_desc = last_inner.data.replace("_stmt", "").replace("_decl", "")
+                    stmt_desc = self._stmt_end_description(last_inner)
                     err = self._make_error(
                         TypeMismatchError,
                         f"Method '{fn_name}' declared into '{ret_type}' does not return a value (ends with '{stmt_desc}')",
@@ -5906,6 +5987,238 @@ class PenguChecker:
             self.block_stmts_stack.pop()
 
         self.symbols.pop_scope(end_line=span_end)
+
+    # ------------------------------------------------------------------
+    # '@mutates'
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _subtree_touches_self(node: Any) -> bool:
+        """True when a subtree mentions the ``self`` identifier.
+
+        ``self`` reaches the AST in two shapes: a plain ``self`` token
+        (``set self->f is …``) and a ``self_ref``/``self_target`` node
+        (``set self is …``, ``set essence of self is …``).
+        """
+        if isinstance(node, Token):
+            return str(node) == "self"
+        if isinstance(node, Tree):
+            if node.data in ("self_ref", "self_target"):
+                return True
+            return any(PenguChecker._subtree_touches_self(c) for c in node.children)
+        return False
+
+    def _receiver_assignment_in(self, stmts: List[Tree]) -> Optional[Tree]:
+        """First ``set`` statement in ``stmts`` that assigns to the receiver.
+
+        A '@mutates' body is written as if it were pure: it ``return``s the new
+        value and the *call site* does the assignment.  A 'set' of the receiver
+        (``set self is …``, ``set self->f is …``, ``set essence of self is …``)
+        would instead mutate in place and return nothing, which is a different
+        method shape -- rejected with E0067 rather than silently ignored.
+        """
+        for stmt in stmts:
+            found = self._find_receiver_set(stmt)
+            if found is not None:
+                return found
+        return None
+
+    def _find_receiver_set(self, node: Any) -> Optional[Tree]:
+        """Deepest-first search for a ``set`` whose target mentions ``self``."""
+        if not isinstance(node, Tree):
+            return None
+        if node.data == "set_stmt" and node.children:
+            target = node.children[0]
+            inner = target.children[0] if (isinstance(target, Tree)
+                                           and target.data == "set_target"
+                                           and target.children) else target
+            if self._subtree_touches_self(inner):
+                return node
+        for child in node.children:
+            found = self._find_receiver_set(child)
+            if found is not None:
+                return found
+        return None
+
+    def _validate_mutates_method(self, node: Tree, fn_name: str, self_type: Type,
+                                 ret_type: Type, method_fn_type: FnType,
+                                 stmt_children: List[Tree]) -> bool:
+        """Validates a ``@mutates`` method; True when it may be registered.
+
+        Requirements (see ``LANGUAGE.md`` §10.1):
+
+        * the method returns the receiver's own type -- that value is what the
+          call site assigns back to the receiver;
+        * the body is *pure*: it returns the new value and never assigns to the
+          receiver.  'self' stays an immutable value inside the body, so the
+          existing E0006 rule is not relaxed;
+        * ``get_<name>`` is reserved for the pure surface form (E0068).
+
+        Anything else is E0067, which is a placement/shape error, not a type
+        error: it points at how the method was declared.
+        """
+        ok = True
+        if not self._same_receiver_type(ret_type, self_type):
+            err = self._make_error(
+                InvalidMutatesAttributeError,
+                f"'@mutates' method '{fn_name}' must return the receiver's type "
+                f"'{self_type}', but it returns '{ret_type}'",
+                node,
+                help=f"Declare it as 'weave {fn_name} … into {self_type}:'.",
+                note="The call site assigns the returned value back to the receiver.",
+            )
+            self._record_error(err)
+            ok = False
+
+        offending = self._receiver_assignment_in(stmt_children)
+        if offending is not None:
+            err = self._make_error(
+                InvalidMutatesAttributeError,
+                f"'@mutates' method '{fn_name}' assigns to its receiver; a "
+                f"'@mutates' body must return the new value instead",
+                offending,
+                help=("Return the new value and let the compiler assign it back. "
+                      "To mutate the receiver directly, drop '@mutates' and write "
+                      "an ordinary 'weave … into void' that sets it."),
+                note="'@mutates' does not relax the rule that 'self' is an immutable value.",
+            )
+            self._record_error(err)
+            ok = False
+        return ok
+
+    @staticmethod
+    def _same_receiver_type(a: Type, b: Type) -> bool:
+        """Structural comparison used to require ``into <receiver type>``."""
+        if a is b:
+            return True
+        a_name = get_type_base_name(a)
+        b_name = get_type_base_name(b)
+        if isinstance(a, TypeParam) or isinstance(b, TypeParam):
+            a_p = getattr(a, "name", None) if isinstance(a, TypeParam) else None
+            b_p = getattr(b, "name", None) if isinstance(b, TypeParam) else None
+            if a_p is not None and b_p is not None:
+                return a_p == b_p
+            return a_name == b_name
+        if a_name != b_name:
+            return False
+        a_args = getattr(a, "type_args", None) or []
+        b_args = getattr(b, "type_args", None) or []
+        if len(a_args) != len(b_args):
+            return False
+        return all(PenguChecker._same_receiver_type(x, y) for x, y in zip(a_args, b_args))
+
+    # ------------------------------------------------------------------
+    # '@mutates' call sites
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _stmt_end_description(last_inner: Any) -> str:
+        """How to name the final statement of a non-returning body (E0020).
+
+        A '@mutates' call was rewritten into the equivalent 'set' before it got
+        here, so reporting the raw rule name would tell the reader their body
+        "ends with 'set'" when they actually wrote ``calling x.twice``.  The
+        rewrite records the original method name on the node for this message.
+        """
+        mutating = getattr(last_inner, "_pengu_mutating_call", None)
+        if mutating:
+            # No inner quotes: the caller already wraps this in quotes.
+            return f"a call to mutating method {mutating}"
+        if isinstance(last_inner, Tree):
+            return last_inner.data.replace("_stmt", "").replace("_decl", "")
+        return str(last_inner)
+
+    def _receiver_key_for_type(self, recv_type: Optional[Type]) -> Optional[str]:
+        """Symbol-table key under which ``recv_type``'s methods are registered."""
+        if recv_type is None:
+            return None
+        prim = canonical_primitive_name(recv_type)
+        if prim is not None:
+            return prim
+        if isinstance(recv_type, RefType):
+            prim = canonical_primitive_name(recv_type.target)
+            if prim is not None:
+                return prim
+            return get_type_base_name(recv_type.target)
+        if isinstance(recv_type, TypeParam):
+            return SHARD_RECEIVER_KEY
+        return get_type_base_name(recv_type)
+
+    @staticmethod
+    def _mutating_call_parts(calling_expr: Tree) -> Optional[Tuple[Tree, str]]:
+        """Splits ``calling recv.name with …`` into ``(recv_target, name)``.
+
+        The method name is the trailing ``dot_access``; everything before it is
+        the receiver, which the rewrite assigns back to.  A target that is not a
+        plain access chain (a call result, a literal, a parenthesised
+        expression) yields None: those are not assignable.
+        """
+        if not calling_expr.children:
+            return None
+        target = calling_expr.children[0]
+        if not (isinstance(target, Tree) and target.data in ("normal_target", "with_target")):
+            return None
+        children = list(target.children)
+        if not children or not (isinstance(children[-1], Tree)
+                                and children[-1].data == "dot_access"
+                                and children[-1].children):
+            return None
+        name = str(children[-1].children[0])
+        recv_children = children[:-1]
+        if not recv_children:
+            return None
+        receiver = Tree("normal_target", recv_children, meta=target.meta)
+        return receiver, name
+
+    def _rewrite_mutating_call_stmt(self, stmt_node: Tree, calling_expr: Tree) -> bool:
+        """Turns a statement-position ``@mutates`` call into an assignment.
+
+        ``calling x.clamp with lo, hi`` becomes ``set x is (calling
+        x.get_clamp with lo, hi)``, which the ordinary ``set`` path then checks
+        and codegen already knows how to emit.  Doing it in the checker is what
+        makes the immutability rule free: a ``set`` on a ``let`` is E0006, so
+        ``calling let_x.clamp`` is rejected by the same code that rejects
+        ``set let_x is …``.
+
+        Returns True when the node was rewritten (the caller must re-dispatch).
+        """
+        parts = self._mutating_call_parts(calling_expr)
+        if parts is None:
+            return False
+        receiver, name = parts
+        if not getattr(self.symbols, "mutating_methods", None):
+            return False
+
+        # Resolve the receiver's type to pick the right registration key: the
+        # same method name may be ordinary on one type and '@mutates' on another.
+        try:
+            recv_type = self.inferrer.infer(receiver)
+        except SemanticError:
+            return False
+        key = self._receiver_key_for_type(recv_type)
+        registry = self.symbols.mutating_methods
+        # A concrete receiver may be served by an `enchanting shard T where …:`
+        # declaration, whose registration key is the shard placeholder rather
+        # than the receiver's own name.
+        if key is None or ((key, name) not in registry
+                           and (SHARD_RECEIVER_KEY, name) not in registry):
+            return False
+
+        # Rename the call to the reserved pure form, which resolves and emits the
+        # SAME C function (the codegen alias in exprs.py maps it back).
+        dot = calling_expr.children[0].children[-1]
+        old = dot.children[0]
+        dot.children[0] = Token(getattr(old, "type", "NAME"), f"get_{name}")
+
+        stmt_node.data = "set_stmt"
+        stmt_node.children = [
+            Tree("set_target", [receiver], meta=receiver.meta),
+            calling_expr,
+        ]
+        # Kept only so E0020 can name what the user wrote ("a call to mutating
+        # method 'twice'") instead of the 'set' this rewrite produced.
+        setattr(stmt_node, "_pengu_mutating_call", name)
+        return True
 
     def _check_if_stmt(self, node: Tree) -> None:
         """Checks if-statement branches and detects unreachable dead code branches.

@@ -1375,6 +1375,62 @@ enchanting Player:
    - Los métodos `ritual` se invocan exclusivamente sobre el nombre del tipo: `var p as Player is calling Player.new_hero with "Ada"`.
    - Invocar un método `ritual` sobre una instancia o un método de instancia sobre el nombre del tipo arroja `E0034: InvalidRitualCallError`.
 
+#### `@mutates` — un método, una forma in-place y una forma pura
+
+`@mutates` declara un método cuyo *resultado* el compilador asigna de vuelta al
+receptor. Solo es válido en un método dentro de un bloque `enchanting`, el método
+debe devolver el tipo del propio receptor, y el cuerpo se escribe como si fuera
+**puro**: `self` sigue siendo un valor inmutable y el cuerpo hace `return` del
+valor nuevo. El compilador **no** relaja `E0006` — la asignación ocurre en el
+punto de llamada, no dentro del método.
+
+Se emite **una sola** función C (<code>&lt;Type&gt;_&lt;method&gt;</code>); tiene
+dos formas superficiales en el punto de llamada:
+
+| Escritura | Significado | Devuelve |
+|---|---|---|
+| `calling x.clamp with lo, hi` | muta `x` in-place | nada (solo sentencia) |
+| `calling x.get_clamp with lo, hi` | puro | el valor nuevo |
+
+```pengu
+import std.spark
+
+enchanting int:
+    @mutates
+    weave clamp with lo as int, hi as int into int:
+        if self < lo:
+            return lo
+        if self > hi:
+            return hi
+        return self
+
+weave main into int:
+    var hp as int is 150
+    calling hp.clamp with 0, 100     # hp == 100 (muta)
+    var raw as int is calling hp.get_clamp with 0, 50
+    calling spark.println with "{hp} {raw}"
+    return 0
+```
+
+Reglas:
+
+- `@mutates` fuera de un bloque `enchanting`, con un tipo de retorno que no
+  coincide, o con un cuerpo que asigna al receptor, es `E0067`.
+- Declarar un `weave get_<name>` explícito junto a `@mutates weave <name>` es
+  `E0068`: la escritura `get_<name>` está reservada para la forma pura.
+- Usar el nombre mutante desnudo donde se espera un valor (un inicializador, un
+  argumento, un `return`) es `E0066`; ahí se usa `get_<name>`.
+- El receptor debe ser escribible: `calling let_x.clamp` es `E0006`, exactamente
+  igual que `set let_x is …`.
+- Las sentencias encadenadas siguen siendo secuenciales — `calling x.clamp`
+  seguido de `calling x.twice` emite `x = int_clamp(x, …); x = int_twice(x);`,
+  nunca un temporal anidado.
+
+Para un receptor de **referencia** (`string`, una colección, un `rune`) el mismo
+efecto está disponible sin `@mutates`: escribe un `weave <name> into void:`
+ordinario que mute a través de `self` (por ejemplo `set essence of self is …`) y
+declara el `weave get_<name> into T:` puro junto a él.
+
 #### Nomenclatura en C y prefijos de `insignia`:
 - Los métodos de instancia se emiten en C como `<Type>_<method>(Type* restrict self, ...)`:
   ```c
@@ -3225,11 +3281,11 @@ import std.scrolls
 
 weave demonstrate_strings into void:
     var raw as string is "  PenguScript,Systems,Language  "
-    var trimmed as string is calling raw.trim
+    var trimmed as string is calling raw.get_trim
     var parts as list of string is calling trimmed.split with ","
 
     for part in parts:
-        var upper_part as string is calling part.upper
+        var upper_part as string is calling part.get_upper
         if calling upper_part.contains with "SYSTEMS":
             calling spark.println with "Found target: {upper_part}"
 
@@ -3858,7 +3914,7 @@ error[E0006]: cannot assign to immutable variable 'count'
 
 <!-- BEGIN GENERATED DIAGNOSTIC CATALOG — tools/gen_error_catalog.py -->
 
-### 22.2 Catálogo de errores del compilador (`E0000`–`E0065`)
+### 22.2 Catálogo de errores del compilador (`E0000`–`E0068`)
 
 Generado desde el código por `tools/gen_error_catalog.py`. La forma legible por máquina es [`docs/error_catalog.json`](docs/error_catalog.json); `tests/test_error_catalog_sync.py` falla si el código y esta tabla divergen, así que **no se edita a mano**: `python tools/gen_error_catalog.py --write`.
 
@@ -3928,6 +3984,9 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0063` | `StaticVarPlacementError` | 1 | 'static var' declared outside a function body.  A function-static variable is C's ``static`` local: it belongs to one weave and is created once.  Declaring it in a ``test`` block, at module top level, or nested inside a conditional has no coherent C translation, so it is rejected on placement rather than on type.  This used to share ``E0035`` with the "name collides with a C reserved word" diagnostic -- two conditions with nothing in common, which made a code-based quick-fix impossible (roadmap Phase 7, item 7.2). | 1 help / 1 note |
 | `E0064` | `InvalidTestNameError` | 1 | a ``test`` block has no usable name.  Unit tests are reported by name, so ``test`` with an empty or ``_``-only name cannot be identified in the runner output.  This used to share ``E0035`` (roadmap Phase 7, item 7.2). | 1 help / 1 note |
 | `E0065` | `CFieldCollisionError` | 1 | two PenguScript fields map to the same C field name.  ``_c_ident`` escapes C keywords by prefixing an underscore, so ``x`` and ``_x`` both emit the C field ``_x``.  The collision is between two *user* fields, not with a C reserved word, which is why it is not ``E0035``.  This used to share ``E0035`` (roadmap Phase 7, item 7.2). | 1 help / 1 note |
+| `E0066` | `MutatingMethodInExpressionError` | 0 | a ``@mutates`` method used where a value is expected.  ``@mutates`` exposes one C function under two surface forms: the bare name assigns the result back to the receiver and yields nothing, while ``get_<name>`` returns the value.  The mutating spelling therefore has no value to contribute inside an initializer, an argument or a return, and it is rejected there instead of quietly behaving like the pure form. | 1 help / 1 note |
+| `E0067` | `InvalidMutatesAttributeError` | 0 | ``@mutates`` applied where in-place mutation cannot work.  ``@mutates`` is only meaningful on a method inside an ``enchanting`` block, and only when the method returns the receiver's own type -- that return value is what the call site assigns back to the receiver.  A top-level ``weave``, a ``declare``, a mismatched return type or a body that both returns a value and assigns to the receiver is rejected here. | 1 help / 1 note |
+| `E0068` | `MutatingGetterCollisionError` | 0 | ``@mutates weave foo`` collides with an explicit ``weave get_foo``.  The compiler reserves ``get_<name>`` for the pure form of a ``@mutates`` method, so declaring both would give ``get_<name>`` two definitions with no way to choose between them. | 1 help / 1 note |
 
 ### 22.3 Catálogo de advertencias del compilador (`W0000`–`W0013`)
 
@@ -4124,12 +4183,16 @@ se resuelve contra el tipo que produce el eslabón anterior:
 import std.scrolls
 
 weave acortar with raw as string into string:
-    return calling raw.trim.substring with 0, 2
+    return calling raw.get_trim.get_substring with 0, 2
 ```
 
 No es la sintaxis de llamada con paréntesis de los lenguajes tipo C: en PenguScript
 las llamadas a método reciben sus argumentos con `with`, y una cadena no añade
 paréntesis. La lista de argumentos `with` se aplica **solo al último** eslabón.
+
+Un eslabón encadenado debe producir un valor, así que un método `@mutates` (y las
+formas in-place de `std.scrolls`) no pueden aparecer en una cadena: no devuelven
+nada. Mientras se encadena se usa la escritura `get_<name>`, como arriba.
 
 ### 24.1 Cadenas multilínea
 
@@ -4141,8 +4204,8 @@ import std.scrolls
 
 weave acortar with raw as string into string:
     return calling raw
-        .trim
-        .substring with 0, 2
+        .get_trim
+        .get_substring with 0, 2
 ```
 
 El plegado preserva la numeración de líneas, así que un diagnóstico sobre una

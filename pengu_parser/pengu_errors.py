@@ -487,6 +487,52 @@ class CFieldCollisionError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
+class MutatingMethodInExpressionError(SemanticError):
+    """E0066: a ``@mutates`` method used where a value is expected.
+
+    ``@mutates`` exposes one C function under two surface forms: the bare name
+    assigns the result back to the receiver and yields nothing, while
+    ``get_<name>`` returns the value.  The mutating spelling therefore has no
+    value to contribute inside an initializer, an argument or a return, and it
+    is rejected there instead of quietly behaving like the pure form.
+    """
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0066")
+        kwargs.setdefault("help", "Use 'calling x.get_<name> with <args>' to obtain the value without mutating.")
+        kwargs.setdefault("note", "Mutating methods are statements; they return nothing to the caller.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class InvalidMutatesAttributeError(SemanticError):
+    """E0067: ``@mutates`` applied where in-place mutation cannot work.
+
+    ``@mutates`` is only meaningful on a method inside an ``enchanting`` block,
+    and only when the method returns the receiver's own type -- that return
+    value is what the call site assigns back to the receiver.  A top-level
+    ``weave``, a ``declare``, a mismatched return type or a body that both
+    returns a value and assigns to the receiver is rejected here.
+    """
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0067")
+        kwargs.setdefault("help", "Declare '@mutates weave <name> ... into <receiver type>' inside an 'enchanting' block.")
+        kwargs.setdefault("note", "'@mutates' marks a method whose result the compiler assigns back to the receiver.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
+class MutatingGetterCollisionError(SemanticError):
+    """E0068: ``@mutates weave foo`` collides with an explicit ``weave get_foo``.
+
+    The compiler reserves ``get_<name>`` for the pure form of a ``@mutates``
+    method, so declaring both would give ``get_<name>`` two definitions with no
+    way to choose between them.
+    """
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0068")
+        kwargs.setdefault("help", "Remove the explicit 'get_<name>' weave; '@mutates' provides it automatically.")
+        kwargs.setdefault("note", "The 'get_<name>' spelling is reserved for the pure form of a '@mutates' method.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
 class AntiquusBodyError(SemanticError):
     """E0059: an `antiquus` body is missing, empty, or not a triple-quoted string.
 

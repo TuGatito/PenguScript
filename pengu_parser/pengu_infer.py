@@ -30,7 +30,7 @@ from .pengu_errors import (
     InvalidRitualSelfAccessError, InvalidRitualCallError,
     ArraySizeMismatchError, InvalidRangeError, PrivateSymbolAccessError, NonExhaustiveJudgeError,
     UnknownArrayDimensionError, suggest_similar_identifier,
-    InvalidCharLiteralError
+    InvalidCharLiteralError, MutatingMethodInExpressionError
 )
 
 from .pengu_parser import extract_string_parts
@@ -2634,17 +2634,24 @@ class TypeInferrer:
                     note="Only variables and memory locations (lvalues) can be banished, not temporary expressions."
                 )
             t = self.infer(target)
+            # Must accept exactly what the statement path accepts
+            # (`_check_node`'s 'banish_stmt' branch): this branch serves
+            # 'defer banish x' / 'errdefer banish x', and the two used to
+            # disagree -- 'banish opt' on a `maybe float` compiled while
+            # 'defer banish opt' was E0008, which made the deferred form (the
+            # one that survives a panic) unusable for exactly the cleanup it is
+            # meant for.
             is_valid = isinstance(t, (RefType, AnyType, ListType, MapType)) or (
                 isinstance(t, BaseType) and t.name == "string"
-            ) or type_has_derived_nexus(t, self.symbols)
+            ) or isinstance(t, (MaybeType, ResultType)) or type_has_derived_nexus(t, self.symbols)
             if not is_valid:
                 raise self._make_error(
                     TypeMismatchError,
-                    f"'banish' requires a reference type (ref to T), string, list, map, or a type with 'derive Nexus', got '{t}'",
+                    f"'banish' requires a reference type (ref to T), string, list, map, maybe, result, or a type with 'derive Nexus', got '{t}'",
                     node,
                     code="E0008",
-                    help="Pass an allocated reference, string, list, map, or a 'derive Nexus' value to 'banish'. Nominal seal types are also rejected; cast first into a variable: 'var s as string is v to string; banish s'.",
-                    note="'banish' frees memory allocated behind a reference, collection, or derived destructor."
+                    help="Pass an allocated reference, string, list, map, maybe/result box, or a 'derive Nexus' value to 'banish'. Nominal seal types are also rejected; cast first into a variable: 'var s as string is v to string; banish s'.",
+                    note="'banish' frees memory allocated behind a reference, collection, maybe/result box, or derived destructor."
                 )
             return VOID_TYPE
 
@@ -4087,6 +4094,34 @@ class TypeInferrer:
                         note="Constants do not have mutable addresses in memory."
                     )
 
+    def _mutating_entry(self, obj_type: Optional[Type], name: str) -> Optional[dict]:
+        """The ``@mutates`` registration of ``name`` on this receiver, or None.
+
+        The registry is keyed exactly like ``symbols.methods`` (canonical
+        primitive name, ``__shard__`` for a bare ``shard T`` receiver, or the base
+        type name), so the receiver's possible keys are probed in the same order
+        the method lookup uses.  Returning a dict (not a bool) keeps the caller
+        free to read the recorded signature.
+        """
+        registry = getattr(self.symbols, "mutating_methods", None)
+        if not registry:
+            return None
+        keys: List[str] = list(primitive_lookup_order(obj_type))
+        keys.append(SHARD_RECEIVER_KEY)
+        keys.append(get_type_base_name(obj_type))
+        recv_t = obj_type.target if isinstance(obj_type, RefType) else obj_type
+        while isinstance(recv_t, (AliasType, FrozenType, SealType)):
+            recv_t = getattr(recv_t, "target", None) or getattr(recv_t, "underlying", None)
+        if recv_t is not None:
+            canonical = canonical_primitive_name(recv_t)
+            if canonical:
+                keys.append(canonical)
+            keys.append(getattr(recv_t, "name", "") or "")
+        for key in keys:
+            if key and (key, name) in registry:
+                return registry[(key, name)]
+        return None
+
     def _resolve_shard_method(self, obj_type: Optional[Type], m_name: str,
                               target_node: Tree) -> Optional[FnType]:
         """Resolves a method declared by ``enchanting shard T where T: …:``.
@@ -4403,6 +4438,27 @@ class TypeInferrer:
                             # receiver's own spelling stays the fallback: a program
                             # may declare only one of the aliases (`bind i32 with
                             # Ordered:` with no `bind int`).
+                            # '@mutates' (LANGUAGE.md §10.1).  A bare mutating name
+                            # is rejected here: the checker rewrites every
+                            # *statement*-position call into the equivalent 'set',
+                            # so reaching this point with the bare name means it was
+                            # used where a value is required (E0066).  The reserved
+                            # 'get_<name>' spelling is aliased to the real name
+                            # *before* any lookup, so resolution -- and the
+                            # monomorphization it records -- happens once, under the
+                            # declared name, and exactly one C function is emitted.
+                            if self._mutating_entry(obj_type, m_name) is not None:
+                                raise self._make_error(
+                                    MutatingMethodInExpressionError,
+                                    f"'{m_name}' mutates its receiver and cannot be used in expression position",
+                                    target_node,
+                                    help=f"Use 'calling x.get_{m_name} with <args>' to obtain the value without mutating.",
+                                    note="Mutating methods are statements; they return nothing to the caller.",
+                                )
+                            if m_name.startswith("get_") \
+                                    and self._mutating_entry(obj_type, m_name[4:]) is not None:
+                                m_name = m_name[4:]
+
                             for _cand in primitive_lookup_order(obj_type):
                                 if (_cand, m_name) in self.symbols.methods \
                                         or (_cand, m_name) in getattr(self.symbols, "generic_methods", {}) \

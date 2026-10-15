@@ -1459,6 +1459,62 @@ enchanting Player:
    - Los métodos `ritual` se invocan exclusivamente sobre el nombre del tipo: `var p as Player is calling Player.new_hero with "Ada"`.
    - Invocar un método `ritual` sobre una instancia o un método de instancia sobre el nombre del tipo arroja `E0034: InvalidRitualCallError`.
 
+#### `@mutates` — one method, an in-place form and a pure form
+
+`@mutates` declares a method whose *result* the compiler assigns back to the
+receiver. It is only valid on a method inside an `enchanting` block, the method
+must return the receiver's own type, and the body is written as if it were
+**pure**: `self` is still an immutable value and the body `return`s the new
+value. The compiler never relaxes `E0006` — the assignment happens at the call
+site, not inside the method.
+
+One C function is emitted (<code>&lt;Type&gt;_&lt;method&gt;</code>); it has two
+surface forms at the call site:
+
+| Spelling | Meaning | Returns |
+|---|---|---|
+| `calling x.clamp with lo, hi` | mutates `x` in place | nothing (statement only) |
+| `calling x.get_clamp with lo, hi` | pure | the new value |
+
+```pengu
+import std.spark
+
+enchanting int:
+    @mutates
+    weave clamp with lo as int, hi as int into int:
+        if self < lo:
+            return lo
+        if self > hi:
+            return hi
+        return self
+
+weave main into int:
+    var hp as int is 150
+    calling hp.clamp with 0, 100     # hp == 100 (mutates)
+    var raw as int is calling hp.get_clamp with 0, 50
+    calling spark.println with "{hp} {raw}"
+    return 0
+```
+
+Rules:
+
+- `@mutates` outside an `enchanting` block, with a mismatched return type, or on
+  a body that assigns to the receiver is `E0067`.
+- Declaring an explicit `weave get_<name>` next to `@mutates weave <name>` is
+  `E0068`: the `get_<name>` spelling is reserved for the pure form.
+- Using the bare mutating name where a value is required (an initializer, an
+  argument, a `return`) is `E0066`; use `get_<name>` there.
+- The receiver must be writable: `calling let_x.clamp` is `E0006`, exactly as
+  `set let_x is …` would be.
+- Chained statements stay sequential — `calling x.clamp` followed by
+  `calling x.twice` emits `x = int_clamp(x, …); x = int_twice(x);`, never one
+  nested temporary.
+
+For a **reference** receiver (`string`, a collection, a `rune`) the same effect
+is available without `@mutates`: write an ordinary `weave <name> into void:` that
+mutates through `self` (e.g. `set essence of self is …`) and declare the pure
+`weave get_<name> into T:` alongside it.
+
 #### Nomenclatura en C y prefijos de `insignia`:
 - Los métodos de instancia se emiten en C como `<Type>_<method>(Type* restrict self, ...)`:
   ```c
@@ -3198,11 +3254,11 @@ import std.scrolls
 
 weave demonstrate_strings into void:
     var raw as string is "  PenguScript,Systems,Language  "
-    var trimmed as string is calling raw.trim
+    var trimmed as string is calling raw.get_trim
     var parts as list of string is calling trimmed.split with ","
 
     for part in parts:
-        var upper_part as string is calling part.upper
+        var upper_part as string is calling part.get_upper
         if calling upper_part.contains with "SYSTEMS":
             calling spark.println with "Found target: {upper_part}"
 
@@ -3871,7 +3927,7 @@ error[E0006]: cannot assign to immutable variable 'count'
 
 <!-- BEGIN GENERATED DIAGNOSTIC CATALOG — tools/gen_error_catalog.py -->
 
-### 22.2 Compiler Error Catalog (`E0000`–`E0065`)
+### 22.2 Compiler Error Catalog (`E0000`–`E0068`)
 
 Generated from the compiler sources by `tools/gen_error_catalog.py` (error classes and their `code=` defaults in [`pengu_parser/pengu_errors.py`](pengu_parser/pengu_errors.py), every `code="Exxxx"` emission in `pengu_parser/`, `pengu_project.py` and `pengu_lsp/`).  The machine-readable form of this table is [`docs/error_catalog.json`](docs/error_catalog.json); `tests/test_error_catalog_sync.py` fails when the code and this table diverge, so **do not edit it by hand** — run `python tools/gen_error_catalog.py --write`.
 
@@ -3941,6 +3997,9 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0063` | `StaticVarPlacementError` | 1 | 'static var' declared outside a function body.  A function-static variable is C's ``static`` local: it belongs to one weave and is created once.  Declaring it in a ``test`` block, at module top level, or nested inside a conditional has no coherent C translation, so it is rejected on placement rather than on type.  This used to share ``E0035`` with the "name collides with a C reserved word" diagnostic -- two conditions with nothing in common, which made a code-based quick-fix impossible (roadmap Phase 7, item 7.2). | 1 help / 1 note |
 | `E0064` | `InvalidTestNameError` | 1 | a ``test`` block has no usable name.  Unit tests are reported by name, so ``test`` with an empty or ``_``-only name cannot be identified in the runner output.  This used to share ``E0035`` (roadmap Phase 7, item 7.2). | 1 help / 1 note |
 | `E0065` | `CFieldCollisionError` | 1 | two PenguScript fields map to the same C field name.  ``_c_ident`` escapes C keywords by prefixing an underscore, so ``x`` and ``_x`` both emit the C field ``_x``.  The collision is between two *user* fields, not with a C reserved word, which is why it is not ``E0035``.  This used to share ``E0035`` (roadmap Phase 7, item 7.2). | 1 help / 1 note |
+| `E0066` | `MutatingMethodInExpressionError` | 0 | a ``@mutates`` method used where a value is expected.  ``@mutates`` exposes one C function under two surface forms: the bare name assigns the result back to the receiver and yields nothing, while ``get_<name>`` returns the value.  The mutating spelling therefore has no value to contribute inside an initializer, an argument or a return, and it is rejected there instead of quietly behaving like the pure form. | 1 help / 1 note |
+| `E0067` | `InvalidMutatesAttributeError` | 0 | ``@mutates`` applied where in-place mutation cannot work.  ``@mutates`` is only meaningful on a method inside an ``enchanting`` block, and only when the method returns the receiver's own type -- that return value is what the call site assigns back to the receiver.  A top-level ``weave``, a ``declare``, a mismatched return type or a body that both returns a value and assigns to the receiver is rejected here. | 1 help / 1 note |
+| `E0068` | `MutatingGetterCollisionError` | 0 | ``@mutates weave foo`` collides with an explicit ``weave get_foo``.  The compiler reserves ``get_<name>`` for the pure form of a ``@mutates`` method, so declaring both would give ``get_<name>`` two definitions with no way to choose between them. | 1 help / 1 note |
 
 ### 22.3 Compiler Warning Catalog (`W0000`–`W0013`)
 
@@ -4137,12 +4196,16 @@ against the type produced by the previous link:
 import std.scrolls
 
 weave shorten with raw as string into string:
-    return calling raw.trim.substring with 0, 2
+    return calling raw.get_trim.get_substring with 0, 2
 ```
 
 This is *not* the parenthesis-call syntax of C-like languages: PenguScript method
 calls take their arguments with `with`, and a chain adds no parentheses. A `with`
 argument list binds to the **last** link only.
+
+A chained link must produce a value, so a `@mutates` method (and the in-place
+`string` forms of `std.scrolls`) cannot appear in a chain: it returns nothing.
+Use the `get_<name>` spelling while chaining, as above.
 
 ### 24.1 Multi-line chains
 
@@ -4154,8 +4217,8 @@ import std.scrolls
 
 weave shorten with raw as string into string:
     return calling raw
-        .trim
-        .substring with 0, 2
+        .get_trim
+        .get_substring with 0, 2
 ```
 
 The fold preserves line numbering, so a diagnostic on a chained expression

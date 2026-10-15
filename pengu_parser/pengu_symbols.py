@@ -211,6 +211,15 @@ class SymbolTable:
         # `where T: Integrum` is E0005, not a C error).
         self.shard_method_bounds: Dict[Tuple[str, str], Dict[str, List[str]]] = {}
 
+        # '@mutates' methods, keyed like `methods`: (receiver key, method name).
+        # The value records the two surface forms of the single C function:
+        #   * the bare name  -> the call site assigns the result to the receiver;
+        #   * 'get_<name>'   -> the pure form, registered in `methods` so ordinary
+        #                       expression inference resolves it.
+        # `mutating_methods` drives the statement rewrite and E0066; the same
+        # entry under the 'get_<name>' key drives the codegen alias lookup.
+        self.mutating_methods: Dict[Tuple[str, str], Dict[str, Any]] = {}
+
         # Monomorphized instances: mangled_name -> instance
         self.monomorphized_types: Dict[str, Type] = {}
         self.monomorphized_functions: Dict[str, Tuple[Any, Dict[str, Type]]] = {}

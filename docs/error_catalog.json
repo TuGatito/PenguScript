@@ -127,7 +127,7 @@
         "'or:' fallback produces '{}', but the success value is '{}'",
         "'or:' reached codegen with 'any' operand type; the checker must resolve the operand type before this point",
         "'or:' requires a 'maybe T' or 'result of T to E' operand, got '{}'",
-        "'ord' expects a string of length 1, got '{}'",
+        "'ord' expects a char or a string of length 1, got '{}'",
         "'ord' expects a string of length 1, got {} characters",
         "'some' cannot wrap a fixed array; use a slice or reference instead",
         "'some' cannot wrap a void or unknown value",
@@ -306,7 +306,7 @@
         "TypeMismatchError"
       ],
       "conditions": [
-        "'banish' requires a reference type (ref to T), string, list, map, or a type with 'derive Nexus', got '{}'",
+        "'banish' requires a reference type (ref to T), string, list, map, maybe, result, or a type with 'derive Nexus', got '{}'",
         "'essence of' requires reference type (ref to T), got '{}'",
         "'unsafe:' is only allowed inside function bodies (weave).",
         "'{}' is only allowed inside function bodies (weave).",
@@ -1059,6 +1059,42 @@
         {
           "help": "Rename one of the fields so their C identifiers differ.",
           "note": "PenguScript escapes C keywords by prefixing an underscore, which may clash with existing identifiers."
+        }
+      ]
+    },
+    "E0066": {
+      "classes": [
+        "MutatingMethodInExpressionError"
+      ],
+      "explanation": "a ``@mutates`` method used where a value is expected.\n\n``@mutates`` exposes one C function under two surface forms: the bare name\nassigns the result back to the receiver and yields nothing, while\n``get_<name>`` returns the value.  The mutating spelling therefore has no\nvalue to contribute inside an initializer, an argument or a return, and it\nis rejected there instead of quietly behaving like the pure form.",
+      "guidance": [
+        {
+          "help": "Use 'calling x.get_<name> with <args>' to obtain the value without mutating.",
+          "note": "Mutating methods are statements; they return nothing to the caller."
+        }
+      ]
+    },
+    "E0067": {
+      "classes": [
+        "InvalidMutatesAttributeError"
+      ],
+      "explanation": "``@mutates`` applied where in-place mutation cannot work.\n\n``@mutates`` is only meaningful on a method inside an ``enchanting`` block,\nand only when the method returns the receiver's own type -- that return\nvalue is what the call site assigns back to the receiver.  A top-level\n``weave``, a ``declare``, a mismatched return type or a body that both\nreturns a value and assigns to the receiver is rejected here.",
+      "guidance": [
+        {
+          "help": "Declare '@mutates weave <name> ... into <receiver type>' inside an 'enchanting' block.",
+          "note": "'@mutates' marks a method whose result the compiler assigns back to the receiver."
+        }
+      ]
+    },
+    "E0068": {
+      "classes": [
+        "MutatingGetterCollisionError"
+      ],
+      "explanation": "``@mutates weave foo`` collides with an explicit ``weave get_foo``.\n\nThe compiler reserves ``get_<name>`` for the pure form of a ``@mutates``\nmethod, so declaring both would give ``get_<name>`` two definitions with no\nway to choose between them.",
+      "guidance": [
+        {
+          "help": "Remove the explicit 'get_<name>' weave; '@mutates' provides it automatically.",
+          "note": "The 'get_<name>' spelling is reserved for the pure form of a '@mutates' method."
         }
       ]
     }
