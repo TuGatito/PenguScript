@@ -618,6 +618,18 @@ class CollectMixin:
                                 m_name = str(acc)
                             if not m_name:
                                 continue
+                            # `@mutates` reaches the method as `get_<name>`, but the
+                            # monomorphization must be registered under the declared
+                            # name -- that is also the emitted C symbol.  Without this
+                            # the nested `u8_abs` inside `gcd` was registered too late
+                            # (during body generation, i.e. after this fixpoint) and
+                            # the call site became an implicit declaration.
+                            _mm = getattr(self.symbols, "mutating_methods", {}) or {}
+                            if len(m_name) > 4 and m_name.startswith("get_"):
+                                _base = m_name[4:]
+                                if (SHARD_RECEIVER_KEY, _base) in _mm and (
+                                        SHARD_RECEIVER_KEY, _base) in self.symbols.generic_methods:
+                                    m_name = _base
                             if prim_recv is not None and (SHARD_RECEIVER_KEY, m_name) in self.symbols.generic_methods:
                                 entry = self.symbols.generic_methods[(SHARD_RECEIVER_KEY, m_name)]
                                 recv_p = list(entry[0]) if entry else []
