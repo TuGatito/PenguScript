@@ -37,7 +37,8 @@ nine concrete constructors `new_int_set`, `new_string_set`, `new_float_set`,
 | `self` in every method | borrowed receiver; `add`/`remove`/`clear` mutate `self.items` in place | never `banish self` |
 | `other`, `item`, `prefix`, `n`, `items` parameters | borrowed, read-only; never mutated or freed | caller keeps its own release |
 | the backing map `s.items` of any set | owned by the set; `add` copies the element into it (string elements for `SetString`/`SetInt`) | **`banish s.items`** |
-| every set return (`union`, `intersect`, `difference`, `symmetric_difference`, `clone`, `filter_starts_with`, `filter_length_ge`, `to_set_int`, `to_set_string`, all constructors) | owned, freshly allocated | `banish <name>.items` |
+| every set return (`union`, `intersect`, `difference`, `symmetric_difference`, `clone`, `filter_starts_with`, `filter_length_ge`, `to_set_int`, all constructors) | owned, freshly allocated; the result **borrows** its keys | `banish <name>.items` |
+| the `SetString` returned by `SetInt.to_set_string` | owned, freshly allocated **and owns its key buffers** (one owned copy per element) | `calling <name>.release` — `banish <name>.items` would leak the key buffers |
 | every list return (`to_list`, `to_list_int`) | owned, freshly allocated in backing-map hash order | `banish xs` |
 | scalar returns (`bool`, `int`) | plain value | never `banish` |
 
@@ -137,7 +138,7 @@ methods are declared in `enchanting SetInt`. The rune docstring carries
 | `sum_ints` | `() -> int` | Sum of the parsed elements; the empty set collapses to the identity `0`. |
 | `min_int` | `() -> int` | Smallest parsed element; empty set → `0`. |
 | `max_int` | `() -> int` | Largest parsed element; empty set → `0`. |
-| `to_set_string` | `() -> SetString` | Fresh `SetString` with the same (stringified) keys. |
+| `to_set_string` | `() -> SetString` | Fresh `SetString` with the same (stringified) keys. The result **owns its keys**: each key is a fresh interpolation handed to the result, so release it with `calling result.release`, not `banish result.items`. |
 
 ## `Set of T` — generic set
 

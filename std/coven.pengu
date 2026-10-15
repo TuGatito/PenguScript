@@ -6,8 +6,8 @@
 ## `items as map of ... to int` field, where the elements are the map keys.
 ##
 ## - `SetString` holds `string` elements (legacy 0.14.x API).
-## - `SetInt` holds `int` elements under their decimal string key (legacy
-##   0.14.x API).
+## - `SetInt` holds `int` elements directly as the `map of int to int` key
+##   (the 0.14.x decimal-string key was replaced; legacy 0.14.x API name).
 ## - `Set of T` is the generic set: `items as map of T to int`, so `T` may be
 ##   any hashable type — every integer width (`int`, `i8`..`i64`, `u8`..`u64`,
 ##   `byte`, `usize`, `isize`), `float`/`f32`/`f64`, `char`, `bool`, `string`
@@ -36,9 +36,45 @@
 ## ```
 ##
 ## ## Memory
-## A set OWNS its elements: `add` copies the element into the backing map, so a
-## later change to the caller's value never leaks into the set and no element is
-## stored twice. The caller keeps ownership of the value it passed.
+## A set **borrows** the string elements it stores. `add` copies the
+## `PenguString` header into the backing map but never the characters it points
+## at: under ABI v2 a runtime container "never clones on store and never recurses
+## on release" (`pengu_runtime.h`). An element passed to `add` must therefore
+## outlive the set. Handing `add` a temporary and then releasing it leaves the
+## set holding a dangling key, and a later `contains` reads freed memory -
+## exactly the lifetime rule `std.scrolls` documents for its views.
+##
+## That same rule is what makes `banish s.items` a *complete* release: the map
+## owns only its own entry buffers.
+##
+## Call `add_owned` when the set must own the element instead: it stores a
+## private copy, so the caller may release its own string immediately. Borrowed
+## and owned elements may be mixed in one set - every stored key carries its own
+## `is_owned` flag - and `release` frees exactly the owned ones before freeing
+## the map:
+##
+## ```pengu
+## var s as SetString is calling new_set_string
+## var src as string is "ada"
+## var tmp as string is calling src.upper
+## calling s.add_owned with tmp      # the set owns a private copy
+## banish tmp                        # safe: the set's copy survives
+## calling s.release                 # frees the owned copies, then the map
+## ```
+##
+## Release a set built with `add` using `banish s.items`; release one that used
+## `add_owned` (or `clone_owned`) with `release`. Calling `banish s.items` on a
+## set that owns copies frees the map entries but leaks the copies. `SetInt` and
+## `Set of int` store plain `int` keys, so they own nothing and need no
+## `add_owned`/`release`.
+##
+## A set returned by `union`, `intersect`, `difference`,
+## `symmetric_difference` or `filter_*` **borrows from `self` and `other`**: the
+## result is a fresh map, but its keys are the same headers, so both inputs must
+## outlive it. `clone_owned` is the way to obtain a set that owns its own keys.
+## `SetInt.to_set_string` is the one exception: it mints a fresh key per element,
+## hands that buffer to the result (`_put_owned`) and therefore returns a set
+## that **owns its keys** - release it with `release`, never `banish t.items`.
 ##
 ## Every constructor (`new_set_string`, `new_set_int`, `make_set shard T`,
 ## `from_items_set shard T` and the nine concrete generic constructors) returns a
@@ -126,7 +162,106 @@ import std.scrolls
 ## signature changes. 2.1.0 added the generic `Set of T`; 2.2.0 adds the wide
 ## integer constructors (`new_i64_set`, `new_u64_set`, `new_usize_set`,
 ## `new_isize_set`).
-const COVEN_VERSION as string is "2.2.0"
+const COVEN_VERSION as string is "2.3.0"
+
+# ----------------------------------------------------------------------------
+# Ownership bridges (raw-buffer plumbing)
+# ----------------------------------------------------------------------------
+#
+# ABI v2 freezes the container rule: `pengu_map_put` copies the *header* of a
+# `PenguString` key and `pengu_banish_map` frees only each entry's key/value
+# bytes - neither one ever touches the characters a key points at. A set that
+# owns its elements therefore has to allocate the copies itself and free them
+# explicitly, and the `is_owned` flag that tells a private copy from a borrowed
+# header is not reachable from PenguScript. These bridges are that plumbing; they
+# are the counterpart of `std/scrolls.pengu`'s `_view` and
+# `std/archivum.pengu`'s `_copy_string`.
+
+## Returns a fresh owned copy of `s`.
+##
+## ## Memoria
+## Allocates one owned buffer; release it with `banish`. `s` is borrowed and
+## never freed.
+antiquus coven_copy_string with s as string into string:
+    r"""
+return pengu_string_copy(s);
+"""
+
+## Frees every key the map owns, and then the map itself.
+##
+## ## Memoria
+## `pengu_banish_string` is a no-op for a borrowed key (`is_owned == 0`) and
+## frees a copied one (`is_owned == 1`), so a set that mixes `add` and
+## `add_owned` releases each element exactly once.
+antiquus _coven_release_string_set with m as ref to map of string to int into void:
+    r"""
+if (!m) return;
+if (m->entries) {
+    for (int i = 0; i < m->cap; ++i) {
+        if (m->entries[i].occupied && m->entries[i].key)
+            pengu_banish_string((PenguString *)m->entries[i].key);
+    }
+}
+pengu_banish_map(m);
+"""
+
+## Frees every key the map owns, leaving the map's entries in place.
+antiquus _coven_free_owned_keys with m as ref to map of string to int into void:
+    r"""
+if (!m || !m->entries) return;
+for (int i = 0; i < m->cap; ++i) {
+    if (m->entries[i].occupied && m->entries[i].key)
+        pengu_banish_string((PenguString *)m->entries[i].key);
+}
+"""
+
+## Inserts `item` into the map as a **non-owning** key: the set borrows it.
+##
+## ## Motivo
+## `pengu_map_put` copies the caller's `PenguString` header verbatim, so a
+## borrowed key arrives with `is_owned == 1` whenever the *caller* owns the
+## buffer. That makes "may the set free this key?" indistinguishable from "does
+## anybody own this view?", and a set that releases its own copies would free a
+## caller-owned buffer as well (a double free once the caller banishes it).
+## Clearing `is_owned` on the stored header reserves `is_owned == 1` *inside the
+## map* to mean "the set owns this copy", which is the invariant
+## `_coven_free_owned_keys` and `_coven_remove_string_key` rely on. The caller's
+## own `PenguString` is untouched: only the map's private header is rewritten.
+antiquus _coven_put_borrowed with m as ref to map of string to int, item as string into void:
+    r"""
+if (!m) return;
+PenguString borrowed = item;
+borrowed.is_owned = 0;
+int32_t one = 1;
+pengu_map_put(m, &borrowed, &one);
+"""
+
+## Removes `item`, freeing the owned key buffer when the set owned one.
+##
+## ## Motivo
+## The owned buffer must be captured *before* `pengu_map_remove` frees the entry
+## holding the pointer to it, and the removal itself has to hash the caller's
+## still-intact `item` rather than the key that is being released.
+antiquus _coven_remove_string_key with m as ref to map of string to int, item as string into bool:
+    r"""
+if (!m || m->cap == 0) return false;
+char *owned = NULL;
+uint32_t h = (item.data && item.len > 0) ? pengu_hash_bytes(item.data, (size_t)item.len) : 0;
+int idx = (int)(h % (uint32_t)m->cap);
+for (int i = 0; i < m->cap; ++i) {
+    int cur = (idx + i) % m->cap;
+    if (!m->entries[cur].occupied && !m->entries[cur].tombstone) break;
+    if (!m->entries[cur].occupied || m->entries[cur].hash != h) continue;
+    PenguString *k = (PenguString *)m->entries[cur].key;
+    if (k && k->len == item.len && (k->len == 0 || memcmp(k->data, item.data, (size_t)k->len) == 0)) {
+        if (k->is_owned) owned = k->data;
+        break;
+    }
+}
+bool removed = pengu_map_remove(m, &item);
+if (owned) free(owned);
+return removed;
+"""
 
 # ----------------------------------------------------------------------------
 # Value types
@@ -148,8 +283,10 @@ const COVEN_VERSION as string is "2.2.0"
 ## ```
 ##
 ## ## Memoria
-## The rune owns its backing map. Release it with `banish s.items`; a set
-## received as a parameter is borrowed and never released by these methods.
+## The rune owns its backing map but **borrows** the string elements stored by
+## `add`. Release a borrowing set with `banish s.items`; release one that used
+## `add_owned` or `clone_owned` with `release`. A set received as a parameter is
+## borrowed and never released by these methods.
 rune SetString:
     items as map of string to int
 
@@ -197,8 +334,19 @@ rune SetInt:
 ## ```
 ##
 ## ## Memoria
-## The rune owns its backing map. Release it with `banish s.items`; a set
-## received as a parameter is borrowed and never released by these methods.
+## The rune owns its backing map but **borrows** every element stored by `add`,
+## exactly like `SetString`: only the key header is copied, never the payload a
+## `string`, `list` or heap-owning rune element points at. An element must
+## outlive the set. Release the set with `banish s.items`; a set received as a
+## parameter is borrowed and never released by these methods.
+##
+## There is no `add_owned` for `Set of T`. A generic deep copy would have to call
+## the `Imago` clone callback of `T`, and `Imago` deliberately adds no callable
+## `.clone()` method to a type (LANGUAGE.md, derived concepts) - it only emits a
+## C-level helper whose name depends on the monomorphized `T`. Until the language
+## exposes a callable clone concept, use `SetString.add_owned` /
+## `SetString.clone_owned` when a set of strings must own its elements, or copy
+## each element yourself before inserting it.
 rune Set shard T:
     items as map of T to int
 
@@ -366,17 +514,21 @@ enchanting SetString:
     # Pre-existing instance methods (kept verbatim)
     # ------------------------------------------------------------------------
 
-    ## Inserts `item` into the set. Inserting a string already present is a
-    ## no-op, because a set stores each element at most once.
+    ## Inserts `item` into the set, **borrowing** it. Inserting a string already
+    ## present is a no-op, because a set stores each element at most once.
     ##
     ## ## Parámetros
-    ## - `item`: the string to insert; it is copied into the backing map.
+    ## - `item`: the string to insert. Only its header is copied into the backing
+    ##   map; the characters stay owned by the caller.
     ##
     ## ## Retorno
     ## Nothing; the method returns `void` and mutates the receiver in place.
     ##
     ## ## Memoria
-    ## The caller keeps ownership of `item`; the set stores its own copy.
+    ## **`item` must outlive the set.** Only the `PenguString` header is copied;
+    ## the character buffer is aliased, so releasing `item` while the set still
+    ## holds it leaves a dangling key and a later `contains` reads freed memory.
+    ## Use `add_owned` when the set must own the element.
     ##
     ## ## Ejemplo
     ## ```pengu
@@ -384,6 +536,79 @@ enchanting SetString:
     ## calling s.add with "ada"
     ## ```
     weave add with item as string into void:
+        calling _coven_put_borrowed with (sigil of self->items), item
+
+    ## Inserts a **private copy** of `item`, so the set owns the element and the
+    ## caller may release its own string immediately. Inserting a string already
+    ## present is a no-op.
+    ##
+    ## ## Parámetros
+    ## - `item`: the string to copy into the set; borrowed for the duration of
+    ##   the call only.
+    ##
+    ## ## Retorno
+    ## Nothing; the method returns `void` and mutates the receiver in place.
+    ##
+    ## ## Memoria
+    ## Allocates one owned copy per new element. A set that used `add_owned` (or
+    ## `clone_owned`) must be released with `release`, not `banish s.items`, or
+    ## the copies leak.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## var src as string is "ada"
+    ## var tmp as string is calling src.upper
+    ## calling s.add_owned with tmp
+    ## banish tmp                        # the set's copy survives
+    ## ```
+    weave add_owned with item as string into void:
+        var owned as string is calling coven_copy_string with item
+        calling _coven_remove_string_key with (sigil of self->items), item
+        calling self->items.put with owned , 1
+
+    ## Inserts `item` **taking ownership** of its character buffer, without
+    ## copying it. The set owns `item` afterwards; the caller must not release
+    ## it.
+    ##
+    ## ## Parámetros
+    ## - `item`: a freshly allocated owning string whose buffer is transferred to
+    ##   the set. Only call this with a string the caller does not keep.
+    ##
+    ## ## Retorno
+    ## Nothing; the method returns `void` and mutates the receiver in place.
+    ##
+    ## ## Motivo
+    ## `pengu_map_put` copies the key header verbatim, `is_owned` included, so an
+    ## interpolated string reaches the backing map still marked as owned. `add`
+    ## deliberately clears that flag (`_coven_put_borrowed`) because it only
+    ## borrows; `_put_owned` is the inverse bridge for the one internal caller
+    ## that hands the map a buffer nobody else holds, and it is what lets
+    ## `release` free that copy later. It allocates nothing, so - unlike
+    ## `add_owned` - it pays no second copy.
+    ##
+    ## ## Memoria
+    ## The set owns `item` afterwards; releasing `item` leaves a dangling key and
+    ## makes `release` double-free. A set filled through `_put_owned` must be
+    ## released with `release`, never `banish s.items`.
+    ##
+    ## Precondition: none. A key already present is dropped first (releasing it
+    ## when the set owned it), because `pengu_map_put` overwrites only the
+    ## *value* on a match and would otherwise leak the transferred buffer.
+    ## `SetInt.to_set_string` mints one distinct key per distinct `int` and never
+    ## hits that path, so the extra lookup costs nothing in practice; it is there
+    ## so the helper cannot be reused unsafely.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## let key as string is "ada"
+    ## var tmp as string is "{key}"
+    ## calling s._put_owned with tmp
+    ## # no banish tmp: the set owns the buffer now
+    ## ```
+    weave _put_owned with item as string into void:
+        calling _coven_remove_string_key with (sigil of self->items), item
         calling self->items.put with item , 1
 
     ## Returns true when `item` is currently a member of the set.
@@ -413,6 +638,11 @@ enchanting SetString:
     ## `true` when the element was present and has been removed, `false` when it
     ## was absent.
     ##
+    ## ## Memoria
+    ## Frees the element's own copy when the set owned one (an element inserted
+    ## with `add_owned` or `clone_owned`); a borrowed element is left to its
+    ## owner.
+    ##
     ## ## Ejemplo
     ## ```pengu
     ## var s as SetString is calling new_set_string
@@ -420,7 +650,7 @@ enchanting SetString:
     ## var removed as bool is calling s.remove with "ada"    # true
     ## ```
     weave remove with item as string into bool:
-        return calling self->items.remove with item
+        return calling _coven_remove_string_key with (sigil of self->items), item
 
     ## Returns the number of distinct elements currently stored in the set.
     ##
@@ -447,6 +677,11 @@ enchanting SetString:
     ## ## Retorno
     ## Nothing; the method returns `void` and mutates the receiver in place.
     ##
+    ## ## Memoria
+    ## Frees the owned copy of every element the set owns (those inserted with
+    ## `add_owned` or `clone_owned`); borrowed elements are left to their owners.
+    ## The set itself stays usable and its backing map stays allocated.
+    ##
     ## ## Ejemplo
     ## ```pengu
     ## var s as SetString is calling new_set_string
@@ -454,7 +689,39 @@ enchanting SetString:
     ## calling s.clear
     ## ```
     weave clear into void:
+        calling _coven_free_owned_keys with (sigil of self->items)
         calling self->items.clear
+
+    ## Frees the whole set: every element the set owns, and then the backing map.
+    ##
+    ## ## Parámetros
+    ## - None.
+    ##
+    ## ## Retorno
+    ## Nothing; the method returns `void` and consumes the receiver. Do not use
+    ## the set again after calling it.
+    ##
+    ## ## Motivo
+    ## `banish s.items` frees only the map's entry buffers, which is complete for a
+    ## set built with the borrowing `add`. A set that owns copies needs those
+    ## buffers released too, so this method walks the entries first and lets
+    ## `pengu_banish_string` free exactly the owned ones.
+    ##
+    ## ## Memoria
+    ## Releases every owned element buffer, then the map. Equivalent to `clear`
+    ## followed by `banish s.items`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## var src as string is "ada"
+    ## var tmp as string is calling src.upper
+    ## calling s.add_owned with tmp
+    ## banish tmp
+    ## calling s.release
+    ## ```
+    weave release into void:
+        calling _coven_release_string_set with (sigil of self->items)
 
     ## Returns true when the set holds no elements at all.
     ##
@@ -659,13 +926,19 @@ enchanting SetString:
             return false
         return calling self.is_subset with other
 
-    ## Returns a fresh independent copy of `self`.
+    ## Returns a fresh copy of `self` whose keys are **borrowed** from `self`.
     ##
     ## ## Parámetros
     ## - None: the receiver is copied.
     ##
     ## ## Retorno
-    ## An owned fresh `SetString`. Release its backing map with `banish c.items`.
+    ## A fresh `SetString` with its own map; release it with `banish c.items`,
+    ## which is complete because the elements stay owned by `self`.
+    ##
+    ## ## Memoria
+    ## **`self` must outlive the copy.** The new map holds the same key headers,
+    ## not copies of the characters. Use `clone_owned` for a set that owns its
+    ## own keys.
     ##
     ## ## Ejemplo
     ## ```pengu
@@ -677,6 +950,34 @@ enchanting SetString:
         var result as SetString is calling new_set_string
         for k in self->items:
             calling result.add with k
+        return result
+
+    ## Returns a fresh copy of `self` that **owns** a private copy of every key,
+    ## so it outlives `self`.
+    ##
+    ## ## Parámetros
+    ## - None: the receiver is deep-copied.
+    ##
+    ## ## Retorno
+    ## A fresh `SetString` independent of `self`. Release it with `release`, not
+    ## `banish c.items`, or the copied keys leak.
+    ##
+    ## ## Memoria
+    ## Allocates one owned copy per element. `self` may be released immediately
+    ## afterwards.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as SetString is calling new_set_string
+    ## calling s.add with "x"
+    ## var c as SetString is calling s.clone_owned
+    ## calling s.release
+    ## calling c.release
+    ## ```
+    weave clone_owned into SetString:
+        var result as SetString is calling new_set_string
+        for k in self->items:
+            calling result.add_owned with k
         return result
 
     ## Returns a fresh list containing all elements of `self` in internal hash
@@ -709,7 +1010,13 @@ enchanting SetString:
     ##
     ## ## Retorno
     ## An owned fresh `SetInt` with the parseable elements. Release its backing
-    ## map with `banish s.items`.
+    ## map with `banish s.items`. `SetInt` keys are plain `int`, so it owns no
+    ## extra element buffer.
+    ##
+    ## ## Memoria
+    ## Each `spark.parse_int` result is a fresh `maybe int` box; nothing releases
+    ## it automatically, so every box - parseable or not - is banished inside the
+    ## loop. The returned `SetInt` itself only owns its backing map.
     ##
     ## ## Ejemplo
     ## ```pengu
@@ -723,6 +1030,7 @@ enchanting SetString:
             var opt as maybe int is calling spark.parse_int with k
             if opt is present:
                 calling result.add with opt.value
+            banish opt
         return result
 
     ## Returns a fresh `SetString` containing only elements that start with
@@ -816,17 +1124,18 @@ enchanting SetInt:
     # Pre-existing instance methods (kept verbatim)
     # ------------------------------------------------------------------------
 
-    ## Inserts `item` into the set, storing it under the decimal string of the
-    ## int. Inserting an int already present is a no-op.
+    ## Inserts `item` into the set as an `int` map key. Inserting an int already
+    ## present is a no-op.
     ##
     ## ## Parámetros
-    ## - `item`: the integer to insert; it is stringified into the backing map.
+    ## - `item`: the integer to insert; stored directly as the backing map's key.
     ##
     ## ## Retorno
     ## Nothing; the method returns `void` and mutates the receiver in place.
     ##
     ## ## Memoria
-    ## The key string is owned by the backing map; the caller's `int` is a value.
+    ## The key is a plain `int` copied into the map entry; nothing is allocated
+    ## per element beyond the entry itself, so no per-key release is required.
     ##
     ## ## Ejemplo
     ## ```pengu
@@ -1238,18 +1547,27 @@ enchanting SetInt:
     ## - None: the receiver is converted.
     ##
     ## ## Retorno
-    ## An owned fresh `SetString`. Release its backing map with `banish s.items`.
+    ## An owned fresh `SetString`. Unlike every other set-returning method, this
+    ## one **owns its keys**: each key is a fresh interpolation whose buffer is
+    ## handed to the result, so release it with `release`, **not**
+    ## `banish t.items` (which would leak the key buffers).
+    ##
+    ## ## Memoria
+    ## One owned key buffer per element. Free them, and then the map, with
+    ## `calling t.release`.
     ##
     ## ## Ejemplo
     ## ```pengu
     ## var s as SetInt is calling new_set_int
     ## calling s.add with 7
     ## var t as SetString is calling s.to_set_string
+    ## calling t.release
     ## ```
     weave to_set_string into SetString:
         var result as SetString is calling new_set_string
         for k in self->items:
-            calling result.add with "{k}"
+            let s as string is "{k}"
+            calling result._put_owned with s
         return result
 
 # ----------------------------------------------------------------------------
@@ -1271,17 +1589,22 @@ enchanting Set shard T:
     # Instance methods
     # ------------------------------------------------------------------------
 
-    ## Inserts `item` into the set. Inserting an element already present is a
-    ## no-op, because a set stores each element at most once.
+    ## Inserts `item` into the set, **borrowing** it. Inserting an element already
+    ## present is a no-op, because a set stores each element at most once.
     ##
     ## ## Parámetros
-    ## - `item`: the element to insert; it is copied into the backing map.
+    ## - `item`: the element to insert. Only its key header is copied into the
+    ##   backing map, never the payload it points at.
     ##
     ## ## Retorno
     ## Nothing; the method returns `void` and mutates the receiver in place.
     ##
     ## ## Memoria
-    ## The caller keeps ownership of `item`; the set stores its own copy.
+    ## **`item` must outlive the set.** That is invisible for a plain value type
+    ## (`int`, `float`, `char`, `bool`, a POD rune), but a `string`, `list`, `map`
+    ## or heap-owning rune element aliases the caller's buffer: releasing it while
+    ## the set still holds it leaves a dangling key. See the `Set shard T` memory
+    ## note for why there is no `add_owned` here.
     ##
     ## ## Ejemplo
     ## ```pengu
@@ -2257,10 +2580,12 @@ test "set_int.min_int and max_int":
 test "set_int.to_set_string roundtrips":
     var s as SetInt is calling new_set_int
     calling s.add with 7
+    calling s.add with -3
     var t as SetString is calling s.to_set_string
-    calling _expect_coven_eq_int with (calling t.len), 1, "to_set_string len"
+    calling _expect_coven_eq_int with (calling t.len), 2, "to_set_string len"
     calling _expect_coven with (calling t.contains with "7"), "to_set_string 7"
-    banish t.items
+    calling _expect_coven with (calling t.contains with "-3"), "to_set_string -3"
+    calling t.release
     banish s.items
 
 test "empty_set_int and from_list_int":
@@ -2555,5 +2880,72 @@ test "custom rune elements deduplicate by derived value equality":
     calling _expect_coven with (calling s.contains with b), "rune equal value contains"
     banish s.items
 
-test "coven version is 2.2.0":
-    calling _expect_coven_eq_string with COVEN_VERSION, "2.2.0", "version"
+test "add_owned survives releasing the source string":
+    # The bug this pins: `add` only copies the PenguString header, so the set
+    # aliased a caller-owned buffer and a lookup after `banish` read freed
+    # memory (it silently answered "not found"). `add_owned` must store a copy.
+    var s as SetString is calling new_set_string
+    var src as string is "hello"
+    var tmp as string is calling src.get_upper
+    calling s.add_owned with tmp
+    banish tmp
+    banish src
+    var probe as string is "HELLO"
+    calling _expect_coven_eq_bool with (calling s.contains with probe), true, "add_owned keeps a copy"
+    calling _expect_coven_eq_int with (calling s.len), 1, "add_owned stores one element"
+    calling s.release
+
+test "borrowing add keeps its documented lifetime rule":
+    # `add` borrows: the stored key is a non-owning header. A caller-owned
+    # string stays the caller's, so `clear` must NOT free it (doing so was a
+    # double free once the caller banished its own string - see the audit test
+    # `test_coven_no_internal_leak`).
+    var s as SetString is calling new_set_string
+    var base as string is "borrowed"
+    var owned as string is calling base.get_upper
+    calling s.add with owned
+    calling _expect_coven_eq_bool with (calling s.contains with owned), true, "borrowed lookup"
+    calling s.clear
+    calling _expect_coven_eq_int with (calling s.len), 0, "clear empties"
+    banish owned       # safe: `clear` did not take ownership of it
+    banish s.items
+
+test "clone_owned outlives the set it came from":
+    var s as SetString is calling new_set_string
+    var src as string is "x"
+    calling s.add_owned with src
+    var c as SetString is calling s.clone_owned
+    calling s.release
+    var probe as string is "x"
+    calling _expect_coven_eq_bool with (calling c.contains with probe), true, "clone_owned is independent"
+    calling c.release
+
+test "remove and clear free the copies the set owns":
+    var s as SetString is calling new_set_string
+    var a as string is "aa"
+    var b as string is "bb"
+    calling s.add_owned with a
+    calling s.add_owned with b
+    calling _expect_coven_eq_bool with (calling s.remove with a), true, "remove owned element"
+    calling _expect_coven_eq_int with (calling s.len), 1, "one left after remove"
+    calling s.clear
+    calling _expect_coven_eq_int with (calling s.len), 0, "clear after remove"
+    banish s.items
+
+test "_put_owned replaces a duplicate key without leaking the old buffer":
+    # `pengu_map_put` keeps the first key on a match and overwrites only the
+    # value, so a naive transfer would leak the second buffer. `_put_owned`
+    # drops the existing entry first; under ASan this must not leak or
+    # double-free the replaced copy.
+    var s as SetString is calling new_set_string
+    var base as string is "dup"
+    var first as string is calling base.get_upper
+    calling s._put_owned with first
+    var second as string is calling base.get_upper
+    calling s._put_owned with second
+    calling _expect_coven_eq_int with (calling s.len), 1, "_put_owned dedupes"
+    calling _expect_coven_eq_bool with (calling s.contains with second), true, "_put_owned keeps the new key"
+    calling s.release
+
+test "coven version is 2.3.0":
+    calling _expect_coven_eq_string with COVEN_VERSION, "2.3.0", "version"
