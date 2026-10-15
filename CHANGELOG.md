@@ -2,6 +2,97 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.2.4] — 2026-10-14 — `enchanting`: methods a type gains from another module
+
+`enchanting` is how a PenguScript type gains methods from another module — 733 of
+them in `std/` — and it was invisible to the editor in three different ways at
+once. Found from the report
+
+```
+[E0004] Type 'f32' has no method 'clamp'
+help: Declare 'weave clamp' inside 'enchanting f32:'.
+note: Type 'f32' does not define method 'clamp'.
+```
+
+for `calling variable_flotante.clamp with 20, -20` after `import std.numerus`.
+`clamp` *is* declared, by ``enchanting shard T where T: Num and T: Ordo and
+T: Par:`` in `std/numerus.pengu`, and the compiler accepted the same file
+(`pengu check`: clean; `pengu run`: correct). Saving the file made the error
+disappear, which is what made it look intermittent.
+
+### Fixed
+
+- 🐛 **LSP: the import graph came from disk, not from the buffer.**
+  `pengu_parser/pengu_symbols.resolve_imports` re-read the file at
+  `checker.filename` to collect its imports, so a buffer that had just gained
+  `import std.numerus` was checked against the file as last saved: the module was
+  never collected, none of its methods were registered, and the first `x.clamp`
+  was rejected with `E0004`. `resolve_imports` now takes an `entry_source` and
+  `PenguChecker` hands it the text it was given, so only the *entry* comes from
+  memory — dependencies are still read from disk, because nobody is editing
+  those. `check()` also stops trusting text carried over from a previous file
+  when a caller changes `filename` without a `source`.
+- 🐛 **LSP: dot completion on a primitive or a container offered nothing.**
+  `pengu_lsp/completions.py` only ever looked at `symbols.methods` in its
+  `RuneType` branch, so `variable_flotante.` on a `float` completed to an empty
+  list. It now enumerates the methods of *any* receiver type: the canonical
+  primitive spellings (`float` and `f32` are the same C type, so every key in
+  `primitive_lookup_order` is probed), the container family (`list`, `map`,
+  `maybe`, `result`, `slice`, `array`) and its generic spellings (`map of K to V`
+  covers `map of string to int`, while `map of int to string` matches that one key
+  and no other), the bounded ``enchanting shard T where …:`` blocks — filtered
+  with `implements_concept`, so `float.is_even` from `where T: Integrum` is not
+  suggested — and the container methods the inferrer hardcodes (`len`, `at`,
+  `push`, `get`, …).
+- 🐛 **LSP: a rune imported from another module lost its `enchanting` methods.**
+  The `RuneType` branch read `actual_type.methods`, which is only populated on
+  the instance the checker collected the block into; the `RuneType` reached
+  through an imported symbol is a different one. The name-keyed
+  `symbols.methods` table is merged in now, so an imported `Vec2.normalized`
+  completes next to its fields.
+- 🐛 **LSP: a module imported for its methods was reported as an unused import.**
+  The warning was a textual scan for the module's name, and `import std.numerus`
+  followed by `x.clamp` never spells `numerus` — a false positive on the primary
+  purpose of every method-only module in `std/`. An import also counts as used
+  when the document calls a method that module attaches with `enchanting` (its
+  own blocks are scanned once per path+mtime and cached).
+
+### Changed
+
+- 🔧 `VERSION`, `pengu_version.FALLBACK_VERSION`, `vscode-extension/package.json`
+  and its lockfile, the README version badge and `docs/README_RELEASE.md` carry
+  `2.2.4`; `vscode-extension/pengus-2.2.4.vsix` is repackaged from the same
+  extension sources (only its version field changed).
+
+### Tests
+
+- 🧪 The `enchanting` surface is swept twice, from both ends.
+  `tests/lsp/test_enchanting_methods.py` proves the mechanism on a synthetic
+  project module — a bounded shard block, a concrete primitive block, a generic
+  container block and a rune block — and then runs the reported `std.numerus`
+  case verbatim, including the half-typed `variable_flotante.cla` state. The
+  synthetic cases cost milliseconds each and cover the mechanism without the
+  stdlib, which matters: `std.numerus` alone is ~1.4 s per check and
+  `std.tally` ~4.3 s, because the checker re-collects the whole transitive import
+  graph every time.
+  `tests/lsp/test_enchanting_std_surface.py` walks the real thing: 31
+  `enchanting` blocks and every one of their methods, asserting in one check plus
+  one completion per block that each method both resolves and is offered. The
+  sweep is 103 s, so it is marked `slow` and stays out of the smoke tier.
+- 🧪 `tests/lsp/test_unsaved_import.py` reproduces the editor state directly: a
+  saved file without the import, a buffer with it, a project-local module in the
+  same situation, and a three-module order (`c, b, a`) that proves the in-memory
+  entry text does not leak into the dependency walk.
+- 🧪 Outside pytest, an exhaustive audit drove the checker and the completion
+  engine over the same surface independently: every `enchanting` block in `std/`
+  with a probe-able receiver, 666 declared methods resolved and 344
+  method/receiver pairs offered — **0 unresolved, 0 unoffered**. The owned types
+  that need a constructor (`Vec2`, `DateTime`, `Logger`, the channels, the `Set`s)
+  are covered end to end by `tests/stdlib/`.
+- 🧪 `pengu selftest --smoke`: **280 passed, 28 deselected** (14 s).
+  `tests/compiler/` 240 passed, `tests/stdlib/` 109 passed, `tests/tooling/` 13
+  passed, and the `slow` sweep 31 passed.
+
 ## [2.2.3] — 2026-10-14 — VS Code: the extension finds `pengu` instead of `spawn pengu ENOENT`
 
 The VS Code extension shipped in 2.2.2 installed cleanly and then could not start

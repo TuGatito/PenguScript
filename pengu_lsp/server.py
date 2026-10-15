@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -363,7 +364,61 @@ def _refresh_module_cache(symbols) -> None:
                 _MODULE_CACHE[name] = mod_scope
 
 
-def _style_warning_diagnostics(source: str) -> List[Diagnostic]:
+#: Cache of ``module file -> methods its ``enchanting`` blocks declare``, keyed
+#: with the file's mtime so an edit on disk is picked up.
+_ENCHANTING_METHOD_CACHE: Dict[Tuple[str, float], frozenset] = {}
+
+
+def _enchanting_methods_of(module_file: Optional[str]) -> frozenset:
+    """Method names the ``enchanting`` blocks of ``module_file`` declare.
+
+    An import can be used without its name ever appearing in the document: that
+    is the whole point of ``enchanting``, where ``import std.numerus`` exists so
+    that ``x.clamp`` resolves. The textual "is the module named anywhere?" test
+    below called every such import unused.
+
+    Args:
+        module_file: Path to the imported module, or None.
+
+    Returns:
+        The set of method names declared inside ``enchanting`` blocks.
+    """
+    if not module_file:
+        return frozenset()
+    try:
+        key = (module_file, os.path.getmtime(module_file))
+    except OSError:
+        return frozenset()
+    cached = _ENCHANTING_METHOD_CACHE.get(key)
+    if cached is not None:
+        return cached
+    names: set = set()
+    try:
+        in_block = False
+        with open(module_file, "r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    # A blank line separates methods inside a block; it does not
+                    # end the block. Reading it as a dedent stopped the scan at
+                    # the first blank line and reported every block as empty.
+                    continue
+                if line[:1] not in (" ", "\t"):
+                    in_block = bool(re.match(r"enchanting\s+.+:\s*$", line.rstrip()))
+                    continue
+                if in_block:
+                    m = re.match(r"\s+weave\s+(?:ritual\s+)?([A-Za-z_][A-Za-z0-9_]*)", line)
+                    if m:
+                        names.add(m.group(1))
+    except OSError:
+        return frozenset()
+    result = frozenset(names)
+    if len(_ENCHANTING_METHOD_CACHE) > 512:
+        _ENCHANTING_METHOD_CACHE.clear()
+    _ENCHANTING_METHOD_CACHE[key] = result
+    return result
+
+
+def _style_warning_diagnostics(source: str, symbols=None) -> List[Diagnostic]:
     """Runs lightweight lint checks over a document that parsed cleanly.
 
     Produces warnings (not errors) for unused imports and unused local
@@ -373,13 +428,18 @@ def _style_warning_diagnostics(source: str) -> List[Diagnostic]:
     count. Private names (``_``-prefixed) are exempt, matching the language's
     discard convention.
 
+    An import is also used when the document calls a method that the imported
+    module attaches through ``enchanting``: ``import std.numerus`` followed by
+    ``x.clamp`` never spells ``numerus``, and reporting it as unused was a
+    false positive on the module's primary purpose.
+
     Args:
         source: Text content of a cleanly-parsed document.
+        symbols: Checked SymbolTable, used to locate each imported module file.
 
     Returns:
         List of Warning diagnostics.
     """
-    import re
 
     diags: List[Diagnostic] = []
     lines = source.splitlines()
@@ -396,7 +456,10 @@ def _style_warning_diagnostics(source: str) -> List[Diagnostic]:
         )
 
     # Unused imports: an import is used when its alias (or the last spec
-    # segment) appears somewhere outside the import block.
+    # segment) appears somewhere outside the import block, or when the document
+    # calls one of the methods the module attaches with `enchanting`.
+    called_methods = set(re.findall(r"\.\s*([A-Za-z_][A-Za-z0-9_]*)", source))
+    global_symbols = getattr(getattr(symbols, "global_scope", None), "symbols", {}) or {}
     import_lines: List[tuple] = []
     for i, line in enumerate(lines):
         m = re.match(
@@ -416,6 +479,10 @@ def _style_warning_diagnostics(source: str) -> List[Diagnostic]:
             if re.search(rf"\b{re.escape(token)}\b", line):
                 used = True
                 break
+        if not used and called_methods:
+            sym = global_symbols.get(token)
+            if called_methods & _enchanting_methods_of(getattr(sym, "file_path", None)):
+                used = True
         if not used:
             diags.append(_warn(f"Unused import '{spec}'", i, 0, len(lines[i]) if i < len(lines) else 0))
 
@@ -642,7 +709,7 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
         with server._validation_lock:
             server._symbols[uri] = checker.symbols
             _refresh_module_cache(checker.symbols)
-        return _style_warning_diagnostics(source)
+        return _style_warning_diagnostics(source, checker.symbols)
 
     except PenguError as e:
         all_errs = e.all_errors if hasattr(e, "all_errors") and e.all_errors else [e]
@@ -946,7 +1013,6 @@ def hover(params: HoverParams):
 @server.feature(TEXT_DOCUMENT_DEFINITION)
 def definition(params: DefinitionParams):
     """Handles textDocument/definition requests."""
-    import re
     uri = params.text_document.uri
     symbols = server._symbols.get(uri)
     doc_text = server.get_document_source(uri)
@@ -1202,7 +1268,6 @@ def workspace_symbols(params: WorkspaceSymbolParams) -> Optional[List[SymbolInfo
 
 def _is_declaration_occurrence(line: str, col: int, word: str) -> bool:
     """True when ``word`` at column ``col`` starts a top-level declaration."""
-    import re
     m = re.match(
         r"^\s*(?:weave|declare|const|rune|echo|omen|alias|seal|concept)\s+"
         r"([A-Za-z_][A-Za-z0-9_]*)\b",
@@ -1235,7 +1300,6 @@ def _lsp_lexer():
 
 def _interpolation_positions(raw: str, name: str, line: int, col: int) -> List[Tuple[int, int]]:
     """0-based positions of ``name`` inside the ``{...}`` parts of a string token."""
-    import re
     try:
         from pengu_parser.pengu_parser import extract_string_parts
         _is_raw, _is_triple, parts = extract_string_parts(raw)
@@ -1565,7 +1629,6 @@ def code_action(params: CodeActionParams):
 )
 def signature_help(params: SignatureHelpParams) -> Optional[SignatureHelp]:
     """Handles textDocument/signatureHelp requests."""
-    import re
     uri = params.text_document.uri
     symbols = server._symbols.get(uri)
     doc_text = server.get_document_source(uri)
@@ -1651,7 +1714,6 @@ def document_highlight(params: DocumentHighlightParams) -> Optional[List[Documen
     inside comments, string literals or member access (``obj.name``) are never
     highlighted.
     """
-    import re
     uri = params.text_document.uri
     doc_text = server.get_document_source(uri)
     if not doc_text:
@@ -1709,7 +1771,6 @@ def prepare_rename(params: PrepareRenameParams):
     Returns:
         The Range of the identifier, or None to signal "not renameable".
     """
-    import re
     uri = params.text_document.uri
     doc_text = server.get_document_source(uri)
     if not doc_text:
@@ -1766,7 +1827,6 @@ def rename_symbol(params: RenameParams) -> Optional[WorkspaceEdit]:
     Comments, string literals and member accesses are never rewritten; string
     interpolations (``"{x}"``) are, because they are real references.
     """
-    import re
     uri = params.text_document.uri
     doc_text = server.get_document_source(uri)
     if not doc_text:
@@ -2241,7 +2301,6 @@ def inlay_hints(params: InlayHintParams) -> Optional[List[InlayHint]]:
     parameter name before each call argument (``calling f with 1, 2`` →
     ``x: 1, y: 2``).  Explicitly typed bindings or parameters are not annotated.
     """
-    import re
     uri = params.text_document.uri
     doc_text = server.get_document_source(uri)
     if not doc_text:
@@ -2317,7 +2376,6 @@ def inlay_hints(params: InlayHintParams) -> Optional[List[InlayHint]]:
 @server.feature(TEXT_DOCUMENT_CODE_LENS)
 def code_lenses(params: CodeLensParams) -> Optional[List[CodeLens]]:
     """Handles textDocument/codeLens: a "Run test" lens per ``test`` block."""
-    import re
     uri = params.text_document.uri
     doc_text = server.get_document_source(uri)
     if not doc_text:

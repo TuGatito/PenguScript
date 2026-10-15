@@ -684,7 +684,8 @@ def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = Non
 
 
 def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None,
-                    lib_dir: str = "lib", src_dir: str = "src") -> List[str]:
+                    lib_dir: str = "lib", src_dir: str = "src",
+                    entry_source: Optional[str] = None) -> List[str]:
     """Resolves all module dependencies starting from an entry point and returns topological order.
 
     Args:
@@ -693,6 +694,14 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
         parser: Optional PenguParser instance for parsing import ASTs.
         lib_dir: External bindings directory name (pengu.yaml 'lib_dir').
         src_dir: Project source directory name (pengu.yaml 'src_dir').
+        entry_source: Optional in-memory text of ``entry_file``. When given, the
+            entry's imports come from this text instead of from disk. An editor
+            holds a buffer that is ahead of the file it will be saved to, so
+            reading the entry from disk made a freshly typed ``import std.numerus``
+            invisible: the module was never collected, its ``enchanting`` methods
+            were never registered, and the first ``x.clamp`` failed with
+            ``E0004 Type 'f32' has no method 'clamp'`` until the file was saved.
+            Only the *entry* is overridden; dependencies are still read from disk.
     """
     if parser is None:
         from .pengu_parser import PenguParser
@@ -708,10 +717,13 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
 
     def extract_imports(file_path: str) -> List[str]:
         """Parses a file and extracts all its direct module imports."""
-        if not os.path.isfile(file_path):
+        if entry_source is not None and os.path.abspath(file_path) == entry_abs:
+            code = entry_source
+        elif os.path.isfile(file_path):
+            with open(file_path, "r", encoding="utf-8") as f:
+                code = f.read()
+        else:
             raise SemanticError(f"Module file not found: {file_path}", code="E0004")
-        with open(file_path, "r", encoding="utf-8") as f:
-            code = f.read()
         tree = parser.parse(code)
         deps: List[str] = []
 

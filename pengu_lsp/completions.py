@@ -13,7 +13,7 @@ from lsprotocol.types import (
     Range,
     TextEdit,
 )
-from pengu_parser.pengu_symbols import SymbolTable, Symbol
+from pengu_parser.pengu_symbols import SymbolTable, Symbol, SHARD_RECEIVER_KEY
 from pengu_parser.pengu_types import (
     BaseType,
     RuneType,
@@ -21,6 +21,10 @@ from pengu_parser.pengu_types import (
     OmenType,
     RefType,
     FnType,
+    canonical_primitive_name,
+    get_type_base_name,
+    implements_concept,
+    primitive_lookup_order,
 )
 
 # Repository root (parent of pengu_lsp/); the standard library lives under it.
@@ -191,6 +195,123 @@ def _lookup_at(symbols, name: str, cursor_line: int):
         return symbols.lookup(name)
     except Exception:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Methods of a receiver type
+# ---------------------------------------------------------------------------
+#
+# Dot completion used to answer only for `rune` / `echo` / `omen` receivers, so
+# `x.clamp` on a `float` — or anything else whose methods come from an
+# `enchanting` block in an imported module — completed to nothing. The tables
+# below mirror the keys the checker resolves against.
+
+#: `T`, `K`, `V`, `E`: the type-parameter spellings a generic block registers
+#: under (`enchanting map of shard K to shard V where …:` -> 'map of K to V').
+_TYPE_PARAMETER = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+#: Methods the inferrer hardcodes for containers, so no `enchanting` block
+#: declares them and no symbol table carries them.
+_BUILTIN_METHODS = {
+    "list": ("push", "append", "pop", "clear", "len", "is_empty", "contains", "index_of", "at"),
+    "slice": ("len", "is_empty", "at"),
+    "array": ("len", "is_empty", "at"),
+    "map": ("put", "insert", "set", "get", "remove", "contains", "contains_key", "has", "len", "clear", "is_empty"),
+}
+
+
+def _receiver_keys(t) -> List[str]:
+    """Method-table keys a receiver of type ``t`` resolves against."""
+    keys: List[str] = []
+    for candidate in primitive_lookup_order(t):
+        if candidate not in keys:
+            keys.append(candidate)
+    name = getattr(t, "name", None)
+    if isinstance(name, str) and name and name not in keys:
+        keys.append(name)
+    base = get_type_base_name(t)
+    if base and base not in keys:
+        keys.append(base)
+    return keys
+
+
+def _generic_receiver_matches(key: str, receiver: str) -> bool:
+    """True when a generic receiver key covers ``receiver``.
+
+    ``'map of K to V'`` covers ``'map of string to int'`` (both parameters are
+    wildcards) but not ``'map of int to string'``, whose concrete halves must
+    match position by position.
+    """
+    if key == receiver:
+        return True
+    key_parts = re.split(r"\s+of\s+|\s+to\s+", key)
+    recv_parts = re.split(r"\s+of\s+|\s+to\s+", receiver)
+    if len(key_parts) != len(recv_parts):
+        return False
+    return all(
+        k == r or _TYPE_PARAMETER.match(k)
+        for k, r in zip(key_parts, recv_parts)
+    )
+
+
+def _shard_method_applies(symbols, method: str, t) -> bool:
+    """True when a bare ``enchanting shard T where …:`` method covers ``t``."""
+    canonical = canonical_primitive_name(t)
+    if canonical is None:
+        return False
+    bounds = getattr(symbols, "shard_method_bounds", {}).get((SHARD_RECEIVER_KEY, method), {})
+    concrete = BaseType(canonical)
+    for bound_list in bounds.values():
+        for bound in bound_list:
+            if not implements_concept(concrete, bound, symbols):
+                return False
+    return True
+
+
+def _method_item(name: str, signature) -> CompletionItem:
+    return CompletionItem(
+        label=name,
+        kind=CompletionItemKind.Method,
+        detail=f"method {signature}" if signature else "method",
+        insert_text=name,
+    )
+
+
+def _method_items_for_type(symbols, t) -> List[CompletionItem]:
+    """Every method callable on a receiver of type ``t``.
+
+    Covers the four ways the checker learns a method: a concrete
+    ``enchanting <T>:`` block, a ``enchanting shard T where …:`` block whose
+    bounds ``t`` satisfies, a container block (``list of shard T``,
+    ``map of shard K to shard V``), and the container methods the inferrer
+    hardcodes.
+
+    Args:
+        symbols: Checked SymbolTable.
+        t: Receiver type (references already unwrapped).
+
+    Returns:
+        Completion items, one per method, deduplicated by name.
+    """
+    items: Dict[str, CompletionItem] = {}
+    if symbols is None or t is None:
+        return []
+    receiver = getattr(t, "name", None) or str(t)
+    keys = set(_receiver_keys(t))
+
+    for (key, name), signature in getattr(symbols, "methods", {}).items():
+        if key in keys or _generic_receiver_matches(key, receiver):
+            items.setdefault(name, _method_item(name, signature))
+    for (key, name), entry in getattr(symbols, "generic_methods", {}).items():
+        if key in keys or _generic_receiver_matches(key, receiver):
+            items.setdefault(name, _method_item(name, None))
+        elif key == SHARD_RECEIVER_KEY and _shard_method_applies(symbols, name, t):
+            items.setdefault(name, _method_item(name, None))
+
+    base = get_type_base_name(t)
+    for name in _BUILTIN_METHODS.get(base, ()):
+        items.setdefault(name, _method_item(name, None))
+    return list(items.values())
 
 
 def _judge_context_items(doc_text: Optional[str], position: Position, symbols) -> Optional[List[CompletionItem]]:
@@ -730,16 +851,25 @@ def get_completions(
                                 insert_text=f_name,
                             )
                         )
+                    by_label = {item.label: item for item in field_items}
                     for m_name, m_type in getattr(actual_type, "methods", {}).items():
-                        field_items.append(
+                        by_label.setdefault(
+                            m_name,
                             CompletionItem(
                                 label=m_name,
                                 kind=CompletionItemKind.Method,
                                 detail=f"method {m_type}",
                                 insert_text=m_name,
-                            )
+                            ),
                         )
-                    return CompletionList(is_incomplete=False, items=field_items)
+                    # A rune declared in another module is a *different*
+                    # RuneType instance than the one the checker attached its
+                    # `enchanting` block to, so `actual_type.methods` is empty
+                    # for it. `symbols.methods` is keyed by name and does hold
+                    # them.
+                    for item in _method_items_for_type(symbols, actual_type):
+                        by_label.setdefault(item.label, item)
+                    return CompletionList(is_incomplete=False, items=list(by_label.values()))
 
                 # EchoType: suggest fields
                 elif isinstance(actual_type, EchoType):
@@ -766,6 +896,14 @@ def get_completions(
                                 insert_text=v_name,
                             )
                         )
+                    return CompletionList(is_incomplete=False, items=field_items)
+
+                # Everything else — primitives, containers, aliases, and runes
+                # whose methods come from an imported `enchanting` block. Without
+                # this, `x.clamp` on a `float` completed to nothing at all: only
+                # the RuneType branch ever looked at `symbols.methods`.
+                else:
+                    field_items.extend(_method_items_for_type(symbols, actual_type))
                     return CompletionList(is_incomplete=False, items=field_items)
 
             # Cache fallback: only reached when `sym` is None, i.e. the base

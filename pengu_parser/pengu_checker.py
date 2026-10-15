@@ -389,6 +389,9 @@ class PenguChecker:
         self.inferrer = TypeInferrer(self.symbols, source_code=self.source_code, filename=self.filename,
                                      compile_env=self.compile_env)
         self.const_folder = ConstFolder(self.symbols)
+        #: Text of ``filename`` when the caller handed it over; import
+        #: resolution prefers it over re-reading the file from disk.
+        self._entry_source: Optional[str] = self.source_code or None
 
     def check(
         self,
@@ -422,6 +425,15 @@ class PenguChecker:
             self.filename = filename
         if source is not None:
             self.source_code = source.replace("\r\n", "\n")
+            #: The text of ``self.filename`` as the caller handed it over. An
+            #: editor's buffer is ahead of the file on disk, so import
+            #: resolution must read *this* rather than re-open the file.
+            self._entry_source = self.source_code
+        elif filename is not None:
+            # The file being checked changed but its text was not handed over:
+            # whatever we hold belongs to the previous file and must not be
+            # used to resolve this one's imports.
+            self._entry_source = None
 
         self.errors = []
         self.warnings = []
@@ -2437,7 +2449,12 @@ class PenguChecker:
                 target_file = os.path.abspath(os.path.join(self.base_dir, target_file))
             self._collected_files.add(os.path.abspath(target_file))
 
-        if has_imports and target_file and os.path.exists(target_file):
+        # The caller's in-memory text belongs to the *entry* file. A recursive
+        # call collecting an imported module is handed a non-None
+        # ``import_order`` and must keep reading that module from disk.
+        entry_source = getattr(self, "_entry_source", None) if import_order is None else None
+
+        if has_imports and target_file and (os.path.exists(target_file) or entry_source):
             if import_order is not None:
                 self.symbols.import_order = import_order
             else:
@@ -2445,7 +2462,8 @@ class PenguChecker:
                     order = resolve_imports(self.base_dir, target_file,
                                             parser=getattr(self, "parser", None),
                                             lib_dir=getattr(self, "lib_dir", "lib"),
-                                            src_dir=getattr(self, "src_dir", "src"))
+                                            src_dir=getattr(self, "src_dir", "src"),
+                                            entry_source=entry_source)
                     self.symbols.import_order = order
                     from .pengu_parser import PenguParser
                     mod_parser = getattr(self, "parser", None) or PenguParser()

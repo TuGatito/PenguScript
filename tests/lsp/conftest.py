@@ -41,6 +41,9 @@ class LspHarness:
         self.directory = directory
         self.path = directory / name
         self.published: List[tuple] = []
+        #: The buffer the server is currently asked about. For :meth:`open` it is
+        #: also what is on disk; for :meth:`open_unsaved` it deliberately is not.
+        self.text: str = ""
 
     # -- buffer lifecycle ---------------------------------------------------
     @property
@@ -57,19 +60,26 @@ class LspHarness:
         """The symbol table the server kept for the current buffer."""
         return self._server.server._symbols.get(self.uri)
 
-    def open(self, source: str) -> "LspHarness":
-        """Materialises ``source`` on disk, validates it and caches its symbols.
-
-        The buffer is written to disk on purpose: an unsaved buffer is checked
-        through a temporary shadow file, and these tests are about symbols, not
-        about shadow-path remapping.
-        """
-        self.path.write_text(source, encoding="utf-8")
+    def _validate(self, source: str) -> "LspHarness":
+        self.text = source
         # Drop the content-hash cache entry so a repeat of the same text really
         # re-runs the parse + check instead of replaying the previous result.
         self._server.server._validation_cache.pop(self.uri, None)
         self._server.validate_document(self.uri, source)
         return self
+
+    def open(self, source: str) -> "LspHarness":
+        """Saves ``source`` to disk and validates it — the ordinary state."""
+        self.path.write_text(source, encoding="utf-8")
+        return self._validate(source)
+
+    def open_unsaved(self, source: str) -> "LspHarness":
+        """Validates ``source`` **without** writing it, leaving disk behind.
+
+        This is the editor state that matters for an import graph built from
+        disk: the buffer carries an ``import`` the saved file does not have yet.
+        """
+        return self._validate(source)
 
     # -- requests -----------------------------------------------------------
     def complete(self, line: int, character: int) -> List[str]:
@@ -77,7 +87,7 @@ class LspHarness:
         from lsprotocol.types import Position
         from pengu_lsp.completions import get_completions
 
-        source = self.path.read_text(encoding="utf-8")
+        source = self.text or self.path.read_text(encoding="utf-8")
         lines = source.splitlines()
         prefix = lines[line][:character] if 0 <= line < len(lines) else ""
         result = get_completions(
@@ -97,7 +107,7 @@ class LspHarness:
         ``marker`` is matched literally and the cursor lands on its last
         character, which is how a test says "the user just typed this".
         """
-        source = self.path.read_text(encoding="utf-8")
+        source = self.text or self.path.read_text(encoding="utf-8")
         lines = source.splitlines()
         seen = 0
         for index, text in enumerate(lines):
