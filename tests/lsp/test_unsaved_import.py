@@ -6,6 +6,10 @@ checker used to build the import graph by re-reading the *file* at
 or a document whose on-disk copy differed at all — was checked against the disk:
 the imported module was never collected, none of its ``enchanting`` methods were
 registered, and the first ``x.clamp`` failed with ``E0004`` until the file was
+resolved.
+
+Since ``std.numerus`` 2.1.0 ``clamp`` is ``@mutates``, so a *value* use is
+``get_clamp``; the LSP resolved the module fine either way.
 saved.
 
 ``pengu_parser/pengu_symbols.resolve_imports`` now takes ``entry_source`` and
@@ -30,7 +34,7 @@ BUFFER = '''import std.numerus
 
 weave main into int:
     var variable_flotante as f32 is 20.0
-    let resultado as f32 is calling variable_flotante.clamp with 20.0, -20.0
+    let resultado as f32 is calling variable_flotante.get_clamp with 20.0, -20.0
     return 0
 '''
 

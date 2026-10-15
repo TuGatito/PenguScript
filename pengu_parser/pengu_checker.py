@@ -2077,6 +2077,25 @@ class PenguChecker:
                                 self.symbols.methods[(prim_target or base_tname, m_name)] = impl_fn_t
                                 self.symbols.generic_methods[(prim_target or base_tname, m_name)] = (type_params or [], m_tparams or [], m_decl)
 
+                        # `@mutates` is a *declaration* fact, so it is registered
+                        # here, in pass 1 -- the pass that also runs for imported
+                        # modules.  Registering it only in pass 2 (the validation
+                        # walk, which visits the entry tree alone) left every
+                        # importing file without the `get_<name>` alias: the CLI
+                        # re-checks each module as its own entry and so worked,
+                        # but the LSP's single in-process `check()` reported a
+                        # false E0004 on `x.get_abs` right after `import
+                        # std.numerus`.
+                        if "mutates" in m_attrs:
+                            reg_key = SHARD_RECEIVER_KEY if isinstance(target_type, TypeParam) else (
+                                prim_target if prim_target is not None else target_name)
+                            self.symbols.mutating_methods[(reg_key, m_name)] = {
+                                "fn_type": impl_fn_t,
+                                "getter": f"get_{m_name}",
+                                "self_is_value": impl_fn_t.self_is_value,
+                                "receiver_key": reg_key,
+                            }
+
             elif rule == "declare_stmt":
                 d_attrs, d_idx = _extract_attributes(stmt.children)
                 self._validate_attributes(d_attrs, "declare", stmt)

@@ -180,7 +180,7 @@ CLAMP_PROGRAM = '''import std.numerus
 
 weave main into int:
     var variable_flotante as f32 is 20.0
-    let resultado as f32 is calling variable_flotante.clamp with 20.0, -20.0
+    let resultado as f32 is calling variable_flotante.get_clamp with 20.0, -20.0
     return 0
 '''
 
