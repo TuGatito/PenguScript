@@ -437,7 +437,7 @@ weave colorize with level as int, msg as string into string:
 ## var opt as maybe int is calling whisper.parse_level_string with "info"
 ## ```
 weave parse_level_string with s as string into maybe int:
-    var sl as string is calling s.lower
+    var sl as string is calling s.get_lower
     if sl == "trace":
         return some LOG_TRACE
     if sl == "debug":

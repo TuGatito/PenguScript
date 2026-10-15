@@ -1408,7 +1408,7 @@ weave to_iso with ts as float into string:
 ## let ts as maybe float is calling chronicle.from_iso with "1970-01-01T00:00:00Z"
 ## ```
 weave from_iso with s as string into maybe float:
-    let text as string is calling s.trim
+    let text as string is calling s.get_trim
     defer banish text
     let raw_len as int is calling text.len
     if raw_len < 10:
@@ -1766,7 +1766,7 @@ weave format_duration with sec as float into string:
 ## let d as maybe float is calling chronicle.parse_duration with "30m"
 ## ```
 weave parse_duration with s as string into maybe float:
-    let trimmed as string is calling s.trim
+    let trimmed as string is calling s.get_trim
     defer banish trimmed
     let n as int is calling trimmed.len
     if n == 0:
@@ -1777,11 +1777,11 @@ weave parse_duration with s as string into maybe float:
         return some ((num_only.value) to float)
     if n < 2:
         return maybe none
-    let last_c as string is calling trimmed.char_at with (n - 1)
+    let last_c as string is calling trimmed.get_char_at with (n - 1)
     defer banish last_c
-    let num_part as string is calling trimmed.substring with 0, (n - 1)
+    let num_part as string is calling trimmed.get_substring with 0, (n - 1)
     defer banish num_part
-    let cleaned as string is calling num_part.trim
+    let cleaned as string is calling num_part.get_trim
     defer banish cleaned
     let val_opt as maybe int is calling spark.parse_int with cleaned
     if val_opt is not present:
@@ -1960,7 +1960,7 @@ weave _epoch_days with y as int, m as int, d as int into int:
 
 ## Parses the `[from_i, to_i)` slice of `text` as a decimal int, freeing the slice.
 weave _parse_slice with text as string, from_i as int, to_i as int into maybe int:
-    let part as string is calling text.substring with from_i, to_i
+    let part as string is calling text.get_substring with from_i, to_i
     defer banish part
     return calling spark.parse_int with part
 

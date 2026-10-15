@@ -87,19 +87,19 @@ weave main into int:
     banish whole
 
     # substring / char_at bounds
-    calling eat with (calling ab_c.substring with 5, 100)
-    calling chk_s with (calling ab_c.substring with 5, 100), "", "substring past end"
-    calling chk_s with (calling ab_c.substring with 0, -3), "", "substring negative end"
-    calling chk_s with (calling ab_c.substring with -2, 2), "ab", "substring clamps start"
-    calling chk_s with (calling ab_c.char_at with 9), "", "char_at past end"
-    calling chk_s with (calling ab_c.char_at with -1), "", "char_at negative"
+    calling eat with (calling ab_c.get_substring with 5, 100)
+    calling chk_s with (calling ab_c.get_substring with 5, 100), "", "substring past end"
+    calling chk_s with (calling ab_c.get_substring with 0, -3), "", "substring negative end"
+    calling chk_s with (calling ab_c.get_substring with -2, 2), "ab", "substring clamps start"
+    calling chk_s with (calling ab_c.get_char_at with 9), "", "char_at past end"
+    calling chk_s with (calling ab_c.get_char_at with -1), "", "char_at negative"
 
     # trim / trim_start / trim_end on all-whitespace and empty input
-    calling chk_s with (calling spaces.trim), "", "trim all whitespace"
-    calling chk_s with (calling spaces.trim_start), "", "trim_start all whitespace"
-    calling chk_s with (calling spaces.trim_end), "", "trim_end all whitespace"
-    calling chk_s with (calling empty.trim), "", "trim empty"
-    calling chk_s with (calling ws_mix.trim), "x", "trim tabs and newlines"
+    calling chk_s with (calling spaces.get_trim), "", "trim all whitespace"
+    calling chk_s with (calling spaces.get_trim_start), "", "trim_start all whitespace"
+    calling chk_s with (calling spaces.get_trim_end), "", "trim_end all whitespace"
+    calling chk_s with (calling empty.get_trim), "", "trim empty"
+    calling chk_s with (calling ws_mix.get_trim), "x", "trim tabs and newlines"
 
     # starts_with / ends_with on the empty needle always match
     calling eq_b with (calling ab_c.starts_with with ""), true, "empty prefix"
@@ -113,11 +113,11 @@ weave main into int:
     banish none
 
     # padding and zfill keep the sign first
-    calling chk_s with (calling four_two.zfill with 5), "00042", "zfill positive"
-    calling chk_s with (calling neg_four_two.zfill with 5), "-0042", "zfill negative"
-    calling chk_s with (calling ab.center with 5, "-"), "-ab--", "center odd padding"
-    calling chk_s with (calling ab.ljust with 4, "."), "ab..", "ljust"
-    calling chk_s with (calling ab.rjust with 4, "."), "..ab", "rjust"
+    calling chk_s with (calling four_two.get_zfill with 5), "00042", "zfill positive"
+    calling chk_s with (calling neg_four_two.get_zfill with 5), "-0042", "zfill negative"
+    calling chk_s with (calling ab.get_center with 5, "-"), "-ab--", "center odd padding"
+    calling chk_s with (calling ab.get_ljust with 4, "."), "ab..", "ljust"
+    calling chk_s with (calling ab.get_rjust with 4, "."), "..ab", "rjust"
 
     # classification edges
     calling eq_b with (calling empty.is_space), false, "is_space empty is false"
@@ -142,34 +142,34 @@ weave main into int:
     calling eq_i with (calling letter_a.compare with ab_long), 0 - 1, "compare prefix lt"
 
     # replace only touches the first occurrence; empty needle inserts at the front
-    calling eat with (calling cat_cat.replace with "cat", "dog")
-    calling chk_s with (calling cat_cat.replace with "cat", "dog"), "dog, cat", "replace first"
-    calling eat with (calling cat_cat.replace_all with "cat", "dog")
-    calling chk_s with (calling cat_cat.replace_all with "cat", "dog"), "dog, dog", "replace_all"
-    calling eat with (calling ab_c.replace with "", "X")
-    calling chk_s with (calling ab_c.replace with "", "X"), "Xabc", "replace empty needle"
+    calling eat with (calling cat_cat.get_replace with "cat", "dog")
+    calling chk_s with (calling cat_cat.get_replace with "cat", "dog"), "dog, cat", "replace first"
+    calling eat with (calling cat_cat.get_replace_all with "cat", "dog")
+    calling chk_s with (calling cat_cat.get_replace_all with "cat", "dog"), "dog, dog", "replace_all"
+    calling eat with (calling ab_c.get_replace with "", "X")
+    calling chk_s with (calling ab_c.get_replace with "", "X"), "Xabc", "replace empty needle"
 
     # case conversion
-    calling eat with (calling mixed.lower)
-    calling chk_s with (calling mixed.lower), "mixed", "lower"
-    calling eat with (calling mixed.upper)
-    calling chk_s with (calling mixed.upper), "MIXED", "upper"
-    calling eat with (calling mixed.swap_case)
-    calling chk_s with (calling mixed.swap_case), "mIxEd", "swap_case"
-    calling eat with (calling hw.capitalize)
-    calling chk_s with (calling hw.capitalize), "Hello world", "capitalize"
-    calling eat with (calling hw_odd.title)
-    calling chk_s with (calling hw_odd.title), "Hello World", "title"
+    calling eat with (calling mixed.get_lower)
+    calling chk_s with (calling mixed.get_lower), "mixed", "lower"
+    calling eat with (calling mixed.get_upper)
+    calling chk_s with (calling mixed.get_upper), "MIXED", "upper"
+    calling eat with (calling mixed.get_swap_case)
+    calling chk_s with (calling mixed.get_swap_case), "mIxEd", "swap_case"
+    calling eat with (calling hw.get_capitalize)
+    calling chk_s with (calling hw.get_capitalize), "Hello world", "capitalize"
+    calling eat with (calling hw_odd.get_title)
+    calling chk_s with (calling hw_odd.get_title), "Hello World", "title"
 
     # identifier casing
-    calling eat with (calling camel.to_snake_case)
-    calling chk_s with (calling camel.to_snake_case), "hello_world", "snake_case"
-    calling eat with (calling camel.to_kebab_case)
-    calling chk_s with (calling camel.to_kebab_case), "hello-world", "kebab_case"
-    calling eat with (calling snake.pascal_case)
-    calling chk_s with (calling snake.pascal_case), "HelloWorld", "pascal_case"
-    calling eat with (calling acronym.pascal_case)
-    calling chk_s with (calling acronym.pascal_case), "HttpServer", "pascal_case acronym"
+    calling eat with (calling camel.get_to_snake_case)
+    calling chk_s with (calling camel.get_to_snake_case), "hello_world", "snake_case"
+    calling eat with (calling camel.get_to_kebab_case)
+    calling chk_s with (calling camel.get_to_kebab_case), "hello-world", "kebab_case"
+    calling eat with (calling snake.get_pascal_case)
+    calling chk_s with (calling snake.get_pascal_case), "HelloWorld", "pascal_case"
+    calling eat with (calling acronym.get_pascal_case)
+    calling chk_s with (calling acronym.get_pascal_case), "HttpServer", "pascal_case acronym"
 
     # numeric parsing
     var mi as maybe int is calling num_good.parse_int
@@ -200,33 +200,33 @@ def test_scrolls_no_internal_leak(compile_and_run):
     """
     out = compile_and_run(_PRE + """
 weave churn with src as string into void:
-    calling eat with (calling src.trim)
-    calling eat with (calling src.trim_start)
-    calling eat with (calling src.trim_end)
-    calling eat with (calling src.strip)
-    calling eat with (calling src.lower)
-    calling eat with (calling src.upper)
-    calling eat with (calling src.swap_case)
-    calling eat with (calling src.capitalize)
-    calling eat with (calling src.title)
-    calling eat with (calling src.to_snake_case)
-    calling eat with (calling src.to_kebab_case)
-    calling eat with (calling src.pascal_case)
-    calling eat with (calling src.reverse)
-    calling eat with (calling src.substring with 1, 4)
-    calling eat with (calling src.char_at with 2)
-    calling eat with (calling src.replace with "l", "L")
-    calling eat with (calling src.replace_all with "l", "L")
-    calling eat with (calling src.removeprefix with "  ")
-    calling eat with (calling src.removesuffix with "  ")
-    calling eat with (calling src.ljust with 20, ".")
-    calling eat with (calling src.rjust with 20, ".")
-    calling eat with (calling src.center with 20, ".")
-    calling eat with (calling src.zfill with 20)
-    calling eat with (calling src.truncate with 4, "...")
-    calling eat with (calling src.ellipsis with 4)
-    calling eat with (calling src.repeat with 2)
-    calling eat with (calling src.repeat_join with 2, "-")
+    calling eat with (calling src.get_trim)
+    calling eat with (calling src.get_trim_start)
+    calling eat with (calling src.get_trim_end)
+    calling eat with (calling src.get_strip)
+    calling eat with (calling src.get_lower)
+    calling eat with (calling src.get_upper)
+    calling eat with (calling src.get_swap_case)
+    calling eat with (calling src.get_capitalize)
+    calling eat with (calling src.get_title)
+    calling eat with (calling src.get_to_snake_case)
+    calling eat with (calling src.get_to_kebab_case)
+    calling eat with (calling src.get_pascal_case)
+    calling eat with (calling src.get_reverse)
+    calling eat with (calling src.get_substring with 1, 4)
+    calling eat with (calling src.get_char_at with 2)
+    calling eat with (calling src.get_replace with "l", "L")
+    calling eat with (calling src.get_replace_all with "l", "L")
+    calling eat with (calling src.get_removeprefix with "  ")
+    calling eat with (calling src.get_removesuffix with "  ")
+    calling eat with (calling src.get_ljust with 20, ".")
+    calling eat with (calling src.get_rjust with 20, ".")
+    calling eat with (calling src.get_center with 20, ".")
+    calling eat with (calling src.get_zfill with 20)
+    calling eat with (calling src.get_truncate with 4, "...")
+    calling eat with (calling src.get_ellipsis with 4)
+    calling eat with (calling src.get_repeat with 2)
+    calling eat with (calling src.get_repeat_join with 2, "-")
     var is_pal as bool is calling src.is_palindrome
     var alpha as bool is calling src.is_alpha
     var digit as bool is calling src.is_digit

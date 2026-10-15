@@ -296,8 +296,8 @@ weave parse_csv_skip with data as string , delimiter as string is "," , skip_row
 
 ## Normalizes CRLF / CR line endings to LF before parsing CSV.
 weave parse_csv_normalized with data as string , delimiter as string is "," into maybe list of list of string:
-    var s1 as string is calling data.replace_all with "\r\n" , "\n"
-    var s2 as string is calling s1.replace_all with "\r" , "\n"
+    var s1 as string is calling data.get_replace_all with "\r\n" , "\n"
+    var s2 as string is calling s1.get_replace_all with "\r" , "\n"
     return calling parse_csv with s2 , delimiter
 
 # ----------------------------------------------------------------------------

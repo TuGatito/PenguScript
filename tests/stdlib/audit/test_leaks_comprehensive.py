@@ -114,7 +114,7 @@ def test_leaks_std_composition(compile_and_run):
     out = compile_and_run(_PRE + """
 weave main into int:
     var src as string is "  Hello, World  "
-    var clean as string is calling src.trim
+    var clean as string is calling src.get_trim
     var parts as list of string is calling clean.split with ", "
     # split returns a list of *views* into `clean`, so banishing the list is
     # the whole release; every element is a no-op.

@@ -4132,8 +4132,8 @@ weave _pointer_segments with pointer as string into maybe list of string:
     var i as int is 1
     while i < raw.len:
         var seg as string is raw at i
-        var s1 as string is calling seg.replace_all with "~1", "/"
-        var s2 as string is calling s1.replace_all with "~0", "~"
+        var s1 as string is calling seg.get_replace_all with "~1", "/"
+        var s2 as string is calling s1.get_replace_all with "~0", "~"
         calling segs.push with s2
         set i is i + 1
     return some segs
@@ -4515,7 +4515,7 @@ weave write_json_file_pretty with path as string, data as map of string to strin
 ## quotes as `^`.
 weave _dq with s as string into string:
     var q as string is calling _quote_char
-    return calling s.replace_all with "^", q
+    return calling s.get_replace_all with "^", q
 
 ## Aborts unless `cond` holds.
 weave _expect_true with cond as bool, label as string into void:

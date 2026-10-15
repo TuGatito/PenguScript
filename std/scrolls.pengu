@@ -14,7 +14,7 @@
 ##
 ## weave main into int:
 ##     let raw as string is "  Hello, World  "
-##     var clean as string is calling raw.trim
+##     var clean as string is calling raw.get_trim
 ##     var parts as list of string is calling clean.split with ", "
 ##     var joined as string is calling scrolls.join with parts, "|"
 ##     calling spark.println with joined
@@ -22,19 +22,38 @@
 ## ```
 ##
 ## ## Memory
-## A `string` is a value: nothing mutates `self`. Parameters are never banished.
-## Results come in two ownership flavours:
+## A `string` is an owned buffer behind a value header. Every method that returns
+## a `string` comes in **two spellings**:
 ##
-## - **Owned copies** — `substring`, `char_at`, `trim`, `trim_start`, `trim_end`,
-##   `removeprefix`, `removesuffix`, `replace`, `replace_all`, `repeat`, the case
-##   transforms, the padding/alignment family and `join` all allocate a fresh
-##   `string`. Release each result with `banish`.
-## - **Views** — `split`, `splitn`, `rsplit`, `split_whitespace`, `words`,
-##   `lines`, `partition` and `chars` return a fresh `list of string` whose
-##   elements are non-owning views into the receiver (the runtime's
-##   `pengu_string_split` contract). The receiver must outlive the list, and
-##   `banish parts` releases everything: banishing a view is a no-op. Copy an
-##   element with `pengu_string_copy` when it has to outlive the receiver.
+## - **`<name>` mutates the receiver in place.** `calling s.trim` computes the
+##   new text, releases the buffer `s` used to own and installs the new one; it
+##   returns nothing, so it is only valid as a statement. Nothing is left to
+##   release: the replacement already released what it replaced.
+## - **`get_<name>` is pure.** It returns a fresh owned `string` and leaves the
+##   receiver untouched. Release the result with `banish`.
+##
+## ```pengu
+## var s as string is "  Hello  "
+## calling s.trim                       # s is now "Hello"
+## var t as string is calling s.get_trim
+## banish t
+## ```
+##
+## The mutating form is `substring`, `char_at`, `reverse`, `lower`, `upper`,
+## `to_lower`, `to_upper`, `capitalize`, `title`, `title_case`, `swap_case`,
+## `to_snake_case`, `to_kebab_case`, `snake_case`, `kebab_case`, `pascal_case`,
+## `trim`, `strip`, `trim_start`, `trim_end`, `lstrip`, `rstrip`, `replace`,
+## `replace_all`, `repeat`, `repeat_join`, `ljust`, `rjust`, `pad_left`,
+## `pad_right`, `zfill`, `center`, `removeprefix`, `removesuffix`, `truncate`
+## and `ellipsis`; each has a matching `get_<name>`.
+##
+## Parameters are never banished. A method that answers with a `list of string`
+## returns **views** — `split`, `splitn`, `rsplit`, `split_whitespace`, `words`,
+## `lines`, `partition` and `chars` return a fresh `list of string` whose
+## elements are non-owning views into the receiver (the runtime's
+## `pengu_string_split` contract). The receiver must outlive the list, and
+## `banish parts` releases everything: banishing a view is a no-op. Copy an
+## element with `pengu_string_copy` when it has to outlive the receiver.
 ##
 ## A `list of string` the caller builds by hand owns only its element buffer, so
 ## each element it allocated must be released individually before the list.
@@ -101,7 +120,7 @@
 declare pengu__find_sub with hay as string, needle as string, from_idx as int into int
 
 # --- Module directives --------------------------------------------------
-const SCROLLS_VERSION as string is "2.0.0"
+const SCROLLS_VERSION as string is "2.1.0"
 
 insignia pengu_
 
@@ -1125,7 +1144,7 @@ enchanting string:
     ## ```pengu
     ## calling "abcdef".substring with 1, 4    # "bcd"
     ## ```
-    weave substring with start_pos as int, end_pos as int into string:
+    weave get_substring with start_pos as int, end_pos as int into string:
         let sv is essence of self
         return sv at start_pos to end_pos
     ## The byte at `idx` as a one-character string.
@@ -1141,7 +1160,7 @@ enchanting string:
     ## ```pengu
     ## calling "abc".char_at with 1    # "b"
     ## ```
-    weave char_at with idx as int into string:
+    weave get_char_at with idx as int into string:
         let sv is essence of self
         return sv at idx to (idx + 1)
     ## Copy of the string with its bytes in reverse order.
@@ -1156,7 +1175,7 @@ enchanting string:
     ## ```pengu
     ## calling "pengu".reverse    # "ugnep"
     ## ```
-    weave reverse into string:
+    weave get_reverse into string:
         let sv is essence of self
         return calling pengu_string_reverse with sv
 
@@ -1173,7 +1192,7 @@ enchanting string:
     ## ```pengu
     ## calling "Hello!".lower    # "hello!"
     ## ```
-    weave lower into string:
+    weave get_lower into string:
         let sv is essence of self
         return calling _ascii_case with sv, 0
     ## Copy with the ASCII letters a-z uppercased.
@@ -1188,7 +1207,7 @@ enchanting string:
     ## ```pengu
     ## calling "abc".upper    # "ABC"
     ## ```
-    weave upper into string:
+    weave get_upper into string:
         let sv is essence of self
         return calling _ascii_case with sv, 1
     ## @deprecated Use lower instead.
@@ -1203,8 +1222,8 @@ enchanting string:
     ## ```pengu
     ## calling "AbC".to_lower    # "abc"
     ## ```
-    weave to_lower into string:
-        return calling self.lower
+    weave get_to_lower into string:
+        return calling self.get_lower
     ## @deprecated Use upper instead.
     ##
     ## ## Parámetros
@@ -1217,8 +1236,8 @@ enchanting string:
     ## ```pengu
     ## calling "AbC".to_upper    # "ABC"
     ## ```
-    weave to_upper into string:
-        return calling self.upper
+    weave get_to_upper into string:
+        return calling self.get_upper
     ## Copy with the first letter uppercased and the rest lowercased.
     ##
     ## ## Parámetros
@@ -1231,7 +1250,7 @@ enchanting string:
     ## ```pengu
     ## calling "hELLO".capitalize    # "Hello"
     ## ```
-    weave capitalize into string:
+    weave get_capitalize into string:
         let sv is essence of self
         return calling _capitalize_ascii with sv
     ## Copy with the initial of every word uppercased and the rest lowercased.
@@ -1247,7 +1266,7 @@ enchanting string:
     ## ```pengu
     ## calling "hello world".title    # "Hello World"
     ## ```
-    weave title into string:
+    weave get_title into string:
         let sv is essence of self
         return calling _title_ascii with sv
     ## @deprecated Use title instead.
@@ -1262,8 +1281,8 @@ enchanting string:
     ## ```pengu
     ## calling "hello world".title_case    # "Hello World"
     ## ```
-    weave title_case into string:
-        return calling self.title
+    weave get_title_case into string:
+        return calling self.get_title
     ## Copy with every ASCII letter case-swapped.
     ##
     ## ## Parámetros
@@ -1276,7 +1295,7 @@ enchanting string:
     ## ```pengu
     ## calling "a1B".swap_case    # "A1b"
     ## ```
-    weave swap_case into string:
+    weave get_swap_case into string:
         let sv is essence of self
         return calling _ascii_case with sv, 2
     ## Copy converted to `snake_case`.
@@ -1293,7 +1312,7 @@ enchanting string:
     ## ```pengu
     ## calling "HTTPServer".to_snake_case    # "http_server"
     ## ```
-    weave to_snake_case into string:
+    weave get_to_snake_case into string:
         let sv is essence of self
         return calling _identifier_case with sv, 0
     ## Copy converted to `kebab-case`.
@@ -1308,7 +1327,7 @@ enchanting string:
     ## ```pengu
     ## calling "HelloWorld".to_kebab_case    # "hello-world"
     ## ```
-    weave to_kebab_case into string:
+    weave get_to_kebab_case into string:
         let sv is essence of self
         return calling _identifier_case with sv, 1
     ## Short form of `to_snake_case`.
@@ -1323,8 +1342,8 @@ enchanting string:
     ## ```pengu
     ## calling "helloWorld".snake_case    # "hello_world"
     ## ```
-    weave snake_case into string:
-        return calling self.to_snake_case
+    weave get_snake_case into string:
+        return calling self.get_to_snake_case
     ## Short form of `to_kebab_case`.
     ##
     ## ## Parámetros
@@ -1337,8 +1356,8 @@ enchanting string:
     ## ```pengu
     ## calling "helloWorld".kebab_case    # "hello-world"
     ## ```
-    weave kebab_case into string:
-        return calling self.to_kebab_case
+    weave get_kebab_case into string:
+        return calling self.get_to_kebab_case
     ## Copy converted to `PascalCase`: every `snake_case` word capitalized.
     ##
     ## ## Parámetros
@@ -1351,7 +1370,7 @@ enchanting string:
     ## ```pengu
     ## calling "hello_world".pascal_case    # "HelloWorld"
     ## ```
-    weave pascal_case into string:
+    weave get_pascal_case into string:
         let sv is essence of self
         return calling _identifier_case with sv, 2
     ## True when every byte is an ASCII letter and there is at least one.
@@ -1460,7 +1479,7 @@ enchanting string:
     ## ```pengu
     ## calling "  x  ".trim    # "x"
     ## ```
-    weave trim into string:
+    weave get_trim into string:
         let sv is essence of self
         return calling _trim_ascii with sv, 0
     ## Alias of `trim` (both ends).
@@ -1475,8 +1494,8 @@ enchanting string:
     ## ```pengu
     ## calling "  x  ".strip    # "x"
     ## ```
-    weave strip into string:
-        return calling self.trim
+    weave get_strip into string:
+        return calling self.get_trim
     ## Copy without ASCII whitespace at the start.
     ##
     ## ## Parámetros
@@ -1489,7 +1508,7 @@ enchanting string:
     ## ```pengu
     ## calling "  x  ".trim_start    # "x  "
     ## ```
-    weave trim_start into string:
+    weave get_trim_start into string:
         let sv is essence of self
         return calling _trim_ascii with sv, 1
     ## Copy without ASCII whitespace at the end.
@@ -1504,7 +1523,7 @@ enchanting string:
     ## ```pengu
     ## calling "  x  ".trim_end    # "  x"
     ## ```
-    weave trim_end into string:
+    weave get_trim_end into string:
         let sv is essence of self
         return calling _trim_ascii with sv, 2
     ## @deprecated Use trim_start instead.
@@ -1519,8 +1538,8 @@ enchanting string:
     ## ```pengu
     ## calling " x".lstrip    # "x"
     ## ```
-    weave lstrip into string:
-        return calling self.trim_start
+    weave get_lstrip into string:
+        return calling self.get_trim_start
     ## @deprecated Use trim_end instead.
     ##
     ## ## Parámetros
@@ -1533,8 +1552,8 @@ enchanting string:
     ## ```pengu
     ## calling "x ".rstrip    # "x"
     ## ```
-    weave rstrip into string:
-        return calling self.trim_end
+    weave get_rstrip into string:
+        return calling self.get_trim_end
     ## True when the string is non-empty and every byte is ASCII whitespace.
     ##
     ## ## Parámetros
@@ -1716,7 +1735,7 @@ enchanting string:
     ## ```pengu
     ## calling "cat, cat".replace with "cat", "dog"    # "dog, cat"
     ## ```
-    weave replace with from_str as string, to_str as string into string:
+    weave get_replace with from_str as string, to_str as string into string:
         let sv is essence of self
         return calling _replace_first with sv, from_str, to_str
     ## Copy with **every** non-overlapping occurrence of `from_str` replaced.
@@ -1732,7 +1751,7 @@ enchanting string:
     ## ```pengu
     ## calling "cat, cat".replace_all with "cat", "dog"    # "dog, dog"
     ## ```
-    weave replace_all with from_str as string, to_str as string into string:
+    weave get_replace_all with from_str as string, to_str as string into string:
         let sv is essence of self
         return calling pengu_string_replace with sv, from_str, to_str
     ## Split on every occurrence of `delim`.
@@ -1873,7 +1892,7 @@ enchanting string:
     ## ```pengu
     ## calling "ha".repeat with 3    # "hahaha"
     ## ```
-    weave repeat with count as int into string:
+    weave get_repeat with count as int into string:
         let sv is essence of self
         return calling pengu_string_repeat with sv, count
     ## Copy repeated `count` times and joined with `sep`.
@@ -1890,7 +1909,7 @@ enchanting string:
     ## ```pengu
     ## calling "ab".repeat_join with 3, ", "    # "ab, ab, ab"
     ## ```
-    weave repeat_join with count as int, sep as string into string:
+    weave get_repeat_join with count as int, sep as string into string:
         let sv is essence of self
         if count <= 0 or (sv length) == 0:
             return ""
@@ -1916,7 +1935,7 @@ enchanting string:
     ## ```pengu
     ## calling "ab".ljust with 4, "."    # "ab.."
     ## ```
-    weave ljust with width as int, pad_char as string is " " into string:
+    weave get_ljust with width as int, pad_char as string is " " into string:
         let sv is essence of self
         let ll as int is sv length
         let pl as int is pad_char length
@@ -1943,7 +1962,7 @@ enchanting string:
     ## ```pengu
     ## calling "42".rjust with 5, "0"    # "00042"
     ## ```
-    weave rjust with width as int, pad_char as string is " " into string:
+    weave get_rjust with width as int, pad_char as string is " " into string:
         let sv is essence of self
         let ll as int is sv length
         let pl as int is pad_char length
@@ -1969,8 +1988,8 @@ enchanting string:
     ## ```pengu
     ## calling "42".pad_left with 5, "0"    # "00042"
     ## ```
-    weave pad_left with width as int, pad_char as string is " " into string:
-        return calling self.rjust with width, pad_char
+    weave get_pad_left with width as int, pad_char as string is " " into string:
+        return calling self.get_rjust with width, pad_char
     ## @deprecated Use ljust instead.
     ##
     ## ## Parámetros
@@ -1984,8 +2003,8 @@ enchanting string:
     ## ```pengu
     ## calling "ab".pad_right with 4, "."    # "ab.."
     ## ```
-    weave pad_right with width as int, pad_char as string is " " into string:
-        return calling self.ljust with width, pad_char
+    weave get_pad_right with width as int, pad_char as string is " " into string:
+        return calling self.get_ljust with width, pad_char
     ## Zero-pad on the left up to `width`, preserving a leading sign.
     ##
     ## ## Parámetros
@@ -1999,7 +2018,7 @@ enchanting string:
     ## ```pengu
     ## calling "-42".zfill with 6    # "-00042"
     ## ```
-    weave zfill with width as int into string:
+    weave get_zfill with width as int into string:
         let sv is essence of self
         if (sv length) >= width:
             return "{sv}"
@@ -2027,7 +2046,7 @@ enchanting string:
     ## ```pengu
     ## calling "ab".center with 5, "-"    # "-ab--"
     ## ```
-    weave center with width as int, pad_char as string is " " into string:
+    weave get_center with width as int, pad_char as string is " " into string:
         let sv is essence of self
         let ll as int is sv length
         if ll >= width or (pad_char length) == 0:
@@ -2055,7 +2074,7 @@ enchanting string:
     ## ```pengu
     ## calling "Hello".removeprefix with "He"    # "llo"
     ## ```
-    weave removeprefix with prefix as string into string:
+    weave get_removeprefix with prefix as string into string:
         let sv is essence of self
         if calling pengu_string_starts_with with sv, prefix:
             return sv at (prefix length) to (sv length)
@@ -2072,7 +2091,7 @@ enchanting string:
     ## ```pengu
     ## calling "Hello".removesuffix with "lo"    # "Hel"
     ## ```
-    weave removesuffix with suffix as string into string:
+    weave get_removesuffix with suffix as string into string:
         let sv is essence of self
         let ll as int is sv length
         let sl as int is suffix length
@@ -2114,7 +2133,7 @@ enchanting string:
     ## ```pengu
     ## calling "Hello, World!".truncate with 10, "..."    # "Hello, ..."
     ## ```
-    weave truncate with max_len as int, suffix as string into string:
+    weave get_truncate with max_len as int, suffix as string into string:
         let sv is essence of self
         let ll as int is sv length
         if ll <= max_len:
@@ -2140,8 +2159,8 @@ enchanting string:
     ## ```pengu
     ## calling "abcdef".ellipsis with 4    # "a..."
     ## ```
-    weave ellipsis with max_len as int into string:
-        return calling self.truncate with max_len, "..."
+    weave get_ellipsis with max_len as int into string:
+        return calling self.get_truncate with max_len, "..."
 
     # --- Parsing --------------------------------------------------------
     ## Interpret the string as an integer (optional whitespace and sign).
@@ -2191,13 +2210,814 @@ enchanting string:
     ## ```
     weave parse_float into maybe float:
         let sv as string is essence of self
-        let trimmed as string is calling sv.trim
+        let trimmed as string is calling sv.get_trim
         if not (calling trimmed.is_numeric):
             banish trimmed
             return maybe none
         let value as float is calling _float_from_literal with trimmed
         banish trimmed
         return some value
+
+
+    # ------------------------------------------------------------------
+    # In-place mutating forms.
+    #
+    # Each one computes the new text with the pure 'get_<name>' form, frees
+    # the buffer the receiver used to own, and installs the new one.  The
+    # order matters: the new text is read from the OLD buffer, so it must be
+    # computed before 'banish old' releases it.
+    # ------------------------------------------------------------------
+    ## In-place form of `get_substring`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_substring` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.substring with 0, 0
+    ## ```
+    weave substring with start_pos as int, end_pos as int into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_substring with start_pos, end_pos
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_char_at`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_char_at` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.char_at with 0
+    ## ```
+    weave char_at with idx as int into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_char_at with idx
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_reverse`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_reverse` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.reverse
+    ## ```
+    weave reverse into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_reverse
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_lower`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_lower` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.lower
+    ## ```
+    weave lower into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_lower
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_upper`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_upper` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.upper
+    ## ```
+    weave upper into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_upper
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_to_lower`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_to_lower` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.to_lower
+    ## ```
+    weave to_lower into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_to_lower
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_to_upper`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_to_upper` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.to_upper
+    ## ```
+    weave to_upper into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_to_upper
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_capitalize`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_capitalize` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.capitalize
+    ## ```
+    weave capitalize into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_capitalize
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_title`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_title` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.title
+    ## ```
+    weave title into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_title
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_title_case`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_title_case` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.title_case
+    ## ```
+    weave title_case into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_title_case
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_swap_case`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_swap_case` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.swap_case
+    ## ```
+    weave swap_case into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_swap_case
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_to_snake_case`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_to_snake_case` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.to_snake_case
+    ## ```
+    weave to_snake_case into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_to_snake_case
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_to_kebab_case`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_to_kebab_case` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.to_kebab_case
+    ## ```
+    weave to_kebab_case into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_to_kebab_case
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_snake_case`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_snake_case` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.snake_case
+    ## ```
+    weave snake_case into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_snake_case
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_kebab_case`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_kebab_case` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.kebab_case
+    ## ```
+    weave kebab_case into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_kebab_case
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_pascal_case`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_pascal_case` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.pascal_case
+    ## ```
+    weave pascal_case into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_pascal_case
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_trim`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_trim` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.trim
+    ## ```
+    weave trim into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_trim
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_strip`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_strip` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.strip
+    ## ```
+    weave strip into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_strip
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_trim_start`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_trim_start` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.trim_start
+    ## ```
+    weave trim_start into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_trim_start
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_trim_end`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_trim_end` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.trim_end
+    ## ```
+    weave trim_end into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_trim_end
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_lstrip`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_lstrip` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.lstrip
+    ## ```
+    weave lstrip into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_lstrip
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_rstrip`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_rstrip` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.rstrip
+    ## ```
+    weave rstrip into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_rstrip
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_replace`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_replace` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.replace with "-", "-"
+    ## ```
+    weave replace with from_str as string, to_str as string into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_replace with from_str, to_str
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_replace_all`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_replace_all` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.replace_all with "-", "-"
+    ## ```
+    weave replace_all with from_str as string, to_str as string into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_replace_all with from_str, to_str
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_repeat`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_repeat` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.repeat with 0
+    ## ```
+    weave repeat with count as int into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_repeat with count
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_repeat_join`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_repeat_join` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.repeat_join with 0, "-"
+    ## ```
+    weave repeat_join with count as int, sep as string into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_repeat_join with count, sep
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_ljust`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_ljust` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.ljust with 0
+    ## ```
+    weave ljust with width as int, pad_char as string is " " into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_ljust with width, pad_char
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_rjust`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_rjust` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.rjust with 0
+    ## ```
+    weave rjust with width as int, pad_char as string is " " into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_rjust with width, pad_char
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_pad_left`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_pad_left` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.pad_left with 0
+    ## ```
+    weave pad_left with width as int, pad_char as string is " " into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_pad_left with width, pad_char
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_pad_right`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_pad_right` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.pad_right with 0
+    ## ```
+    weave pad_right with width as int, pad_char as string is " " into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_pad_right with width, pad_char
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_zfill`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_zfill` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.zfill with 0
+    ## ```
+    weave zfill with width as int into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_zfill with width
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_center`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_center` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.center with 0
+    ## ```
+    weave center with width as int, pad_char as string is " " into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_center with width, pad_char
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_removeprefix`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_removeprefix` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.removeprefix with "-"
+    ## ```
+    weave removeprefix with prefix as string into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_removeprefix with prefix
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_removesuffix`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_removesuffix` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.removesuffix with "-"
+    ## ```
+    weave removesuffix with suffix as string into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_removesuffix with suffix
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_truncate`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_truncate` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.truncate with 0, "-"
+    ## ```
+    weave truncate with max_len as int, suffix as string into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_truncate with max_len, suffix
+        banish old
+        set essence of self is new_s
+
+    ## In-place form of `get_ellipsis`: computes the new text and installs it
+    ## in the receiver, releasing the buffer it replaces.
+    ##
+    ## ## Retorno
+    ## Nothing; the receiver is rewritten. Use `get_ellipsis` for the pure
+    ## form that returns a new `string`.
+    ##
+    ## ## Memoria
+    ## The old buffer is released; nothing is left for the caller to
+    ## banish.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is "abc"
+    ## calling s.ellipsis with 0
+    ## ```
+    weave ellipsis with max_len as int into void:
+        var old as string is essence of self
+        let new_s as string is calling self.get_ellipsis with max_len
+        banish old
+        set essence of self is new_s
 
 # --- Module functions ---------------------------------------------------
 # Functional form of every method: the receiver becomes the first parameter `s`
@@ -2356,7 +3176,7 @@ weave last_index_of with s as string, sub as string into int:
 ## calling scrolls.substring with "abcdef", 1, 3    # "bc"
 ## ```
 weave substring with s as string, start_pos as int, end_pos as int into string:
-    return calling s.substring with start_pos, end_pos
+    return calling s.get_substring with start_pos, end_pos
 ## Functional form of `char_at`: the byte at `idx` as a one-byte string.
 ##
 ## ## Parámetros
@@ -2371,7 +3191,7 @@ weave substring with s as string, start_pos as int, end_pos as int into string:
 ## calling scrolls.char_at with "abc", 1    # "b"
 ## ```
 weave char_at with s as string, idx as int into string:
-    return calling s.char_at with idx
+    return calling s.get_char_at with idx
 
 # --- Case ---------------------------------------------------------------
 ## Functional form of `lower`: ASCII A-Z lowered.
@@ -2387,7 +3207,7 @@ weave char_at with s as string, idx as int into string:
 ## calling scrolls.lower with "Ab"    # "ab"
 ## ```
 weave lower with s as string into string:
-    return calling s.lower
+    return calling s.get_lower
 ## Functional form of `upper`: ASCII a-z uppercased.
 ##
 ## ## Parámetros
@@ -2401,7 +3221,7 @@ weave lower with s as string into string:
 ## calling scrolls.upper with "Ab"    # "AB"
 ## ```
 weave upper with s as string into string:
-    return calling s.upper
+    return calling s.get_upper
 ## @deprecated Use lower instead.
 ##
 ## ## Parámetros
@@ -2415,7 +3235,7 @@ weave upper with s as string into string:
 ## calling scrolls.to_lower with "AbC"    # "abc"
 ## ```
 weave to_lower with s as string into string:
-    return calling s.to_lower
+    return calling s.get_to_lower
 ## @deprecated Use upper instead.
 ##
 ## ## Parámetros
@@ -2429,7 +3249,7 @@ weave to_lower with s as string into string:
 ## calling scrolls.to_upper with "AbC"    # "ABC"
 ## ```
 weave to_upper with s as string into string:
-    return calling s.to_upper
+    return calling s.get_to_upper
 
 # --- Whitespace ---------------------------------------------------------
 ## Functional form of `trim`: strip whitespace from both ends.
@@ -2445,7 +3265,7 @@ weave to_upper with s as string into string:
 ## calling scrolls.trim with "  a  "    # "a"
 ## ```
 weave trim with s as string into string:
-    return calling s.trim
+    return calling s.get_trim
 ## Functional form of `strip`: alias of `trim`.
 ##
 ## ## Parámetros
@@ -2459,7 +3279,7 @@ weave trim with s as string into string:
 ## calling scrolls.strip with "  a  "    # "a"
 ## ```
 weave strip with s as string into string:
-    return calling s.strip
+    return calling s.get_strip
 ## Functional form of `trim_start`: strip leading whitespace.
 ##
 ## ## Parámetros
@@ -2473,7 +3293,7 @@ weave strip with s as string into string:
 ## calling scrolls.trim_start with " a"    # "a"
 ## ```
 weave trim_start with s as string into string:
-    return calling s.trim_start
+    return calling s.get_trim_start
 ## Functional form of `trim_end`: strip trailing whitespace.
 ##
 ## ## Parámetros
@@ -2487,7 +3307,7 @@ weave trim_start with s as string into string:
 ## calling scrolls.trim_end with "a "    # "a"
 ## ```
 weave trim_end with s as string into string:
-    return calling s.trim_end
+    return calling s.get_trim_end
 
 # --- Replacing and splitting --------------------------------------------
 ## Functional form of `replace`: replace the first occurrence.
@@ -2505,7 +3325,7 @@ weave trim_end with s as string into string:
 ## calling scrolls.replace with "abc", "b", "X"    # "aXc"
 ## ```
 weave replace with s as string, from_str as string, to_str as string into string:
-    return calling s.replace with from_str, to_str
+    return calling s.get_replace with from_str, to_str
 ## Functional form of `replace_all`: replace every non-overlapping occurrence.
 ##
 ## ## Parámetros
@@ -2521,7 +3341,7 @@ weave replace with s as string, from_str as string, to_str as string into string
 ## calling scrolls.replace_all with "aaa", "a", "b"    # "bbb"
 ## ```
 weave replace_all with s as string, from_str as string, to_str as string into string:
-    return calling s.replace_all with from_str, to_str
+    return calling s.get_replace_all with from_str, to_str
 ## Functional form of `split`: split on every delimiter.
 ##
 ## ## Parámetros
@@ -2583,7 +3403,7 @@ weave rsplit with s as string, delim as string into list of string:
 ## calling scrolls.repeat with "ab", 2    # "abab"
 ## ```
 weave repeat with s as string, count as int into string:
-    return calling s.repeat with count
+    return calling s.get_repeat with count
 ## Functional form of `repeat_join`: repeat `s` and join with `sep`.
 ##
 ## ## Parámetros
@@ -2600,7 +3420,7 @@ weave repeat with s as string, count as int into string:
 ## calling scrolls.repeat_join with "ab", 2, "-"    # "ab-ab"
 ## ```
 weave repeat_join with s as string, count as int, sep as string into string:
-    return calling s.repeat_join with count, sep
+    return calling s.get_repeat_join with count, sep
 ## Functional form of `reverse`: bytes in reverse order.
 ##
 ## ## Parámetros
@@ -2614,7 +3434,7 @@ weave repeat_join with s as string, count as int, sep as string into string:
 ## calling scrolls.reverse with "abc"    # "cba"
 ## ```
 weave reverse with s as string into string:
-    return calling s.reverse
+    return calling s.get_reverse
 ## Functional form of `is_alpha`: true for one or more ASCII letters.
 ##
 ## ## Parámetros
@@ -2670,7 +3490,7 @@ weave is_alnum with s as string into bool:
 ## calling scrolls.capitalize with "hOLA"    # "Hola"
 ## ```
 weave capitalize with s as string into string:
-    return calling s.capitalize
+    return calling s.get_capitalize
 ## Functional form of `title`: every word capitalized.
 ##
 ## ## Parámetros
@@ -2684,7 +3504,7 @@ weave capitalize with s as string into string:
 ## calling scrolls.title with "a b"    # "A B"
 ## ```
 weave title with s as string into string:
-    return calling s.title
+    return calling s.get_title
 ## @deprecated Use title instead.
 ##
 ## ## Parámetros
@@ -2698,7 +3518,7 @@ weave title with s as string into string:
 ## calling scrolls.title_case with "a b"    # "A B"
 ## ```
 weave title_case with s as string into string:
-    return calling s.title_case
+    return calling s.get_title_case
 ## Functional form of `swap_case`: swap the case of every ASCII letter.
 ##
 ## ## Parámetros
@@ -2712,7 +3532,7 @@ weave title_case with s as string into string:
 ## calling scrolls.swap_case with "aB"    # "Ab"
 ## ```
 weave swap_case with s as string into string:
-    return calling s.swap_case
+    return calling s.get_swap_case
 ## Functional form of `to_snake_case`: convert to `snake_case`.
 ##
 ## ## Parámetros
@@ -2726,7 +3546,7 @@ weave swap_case with s as string into string:
 ## calling scrolls.to_snake_case with "aB"    # "a_b"
 ## ```
 weave to_snake_case with s as string into string:
-    return calling s.to_snake_case
+    return calling s.get_to_snake_case
 ## Functional form of `to_kebab_case`: convert to `kebab-case`.
 ##
 ## ## Parámetros
@@ -2740,7 +3560,7 @@ weave to_snake_case with s as string into string:
 ## calling scrolls.to_kebab_case with "aB"    # "a-b"
 ## ```
 weave to_kebab_case with s as string into string:
-    return calling s.to_kebab_case
+    return calling s.get_to_kebab_case
 ## Functional form of `snake_case`: short `to_snake_case`.
 ##
 ## ## Parámetros
@@ -2754,7 +3574,7 @@ weave to_kebab_case with s as string into string:
 ## calling scrolls.snake_case with "aB"    # "a_b"
 ## ```
 weave snake_case with s as string into string:
-    return calling s.snake_case
+    return calling s.get_snake_case
 ## Functional form of `kebab_case`: short `to_kebab_case`.
 ##
 ## ## Parámetros
@@ -2768,7 +3588,7 @@ weave snake_case with s as string into string:
 ## calling scrolls.kebab_case with "aB"    # "a-b"
 ## ```
 weave kebab_case with s as string into string:
-    return calling s.kebab_case
+    return calling s.get_kebab_case
 ## Functional form of `pascal_case`: convert to `PascalCase`.
 ##
 ## ## Parámetros
@@ -2782,7 +3602,7 @@ weave kebab_case with s as string into string:
 ## calling scrolls.pascal_case with "a_b"    # "AB"
 ## ```
 weave pascal_case with s as string into string:
-    return calling s.pascal_case
+    return calling s.get_pascal_case
 
 ## @deprecated Use index_of instead.
 ##
@@ -2857,7 +3677,7 @@ weave count_matches with s as string, sub as string into int:
 ## calling scrolls.lstrip with " a"    # "a"
 ## ```
 weave lstrip with s as string into string:
-    return calling s.lstrip
+    return calling s.get_lstrip
 ## @deprecated Use trim_end instead.
 ##
 ## ## Parámetros
@@ -2871,7 +3691,7 @@ weave lstrip with s as string into string:
 ## calling scrolls.rstrip with "a "    # "a"
 ## ```
 weave rstrip with s as string into string:
-    return calling s.rstrip
+    return calling s.get_rstrip
 ## Functional form of `is_space`: non-empty and only ASCII whitespace.
 ##
 ## ## Parámetros
@@ -3015,7 +3835,7 @@ weave word_count with s as string into int:
 ## calling scrolls.ljust with "ab", 4    # "ab  "
 ## ```
 weave ljust with s as string, width as int, pad_char as string is " " into string:
-    return calling s.ljust with width, pad_char
+    return calling s.get_ljust with width, pad_char
 ## Functional form of `rjust`: pad on the left to `width`.
 ##
 ## ## Parámetros
@@ -3031,7 +3851,7 @@ weave ljust with s as string, width as int, pad_char as string is " " into strin
 ## calling scrolls.rjust with "ab", 4    # "  ab"
 ## ```
 weave rjust with s as string, width as int, pad_char as string is " " into string:
-    return calling s.rjust with width, pad_char
+    return calling s.get_rjust with width, pad_char
 ## @deprecated Use rjust instead.
 ##
 ## ## Parámetros
@@ -3047,7 +3867,7 @@ weave rjust with s as string, width as int, pad_char as string is " " into strin
 ## calling scrolls.pad_left with "42", 5, "0"    # "00042"
 ## ```
 weave pad_left with s as string, width as int, pad_char as string is " " into string:
-    return calling s.pad_left with width, pad_char
+    return calling s.get_pad_left with width, pad_char
 ## @deprecated Use ljust instead.
 ##
 ## ## Parámetros
@@ -3063,7 +3883,7 @@ weave pad_left with s as string, width as int, pad_char as string is " " into st
 ## calling scrolls.pad_right with "ab", 4, "."    # "ab.."
 ## ```
 weave pad_right with s as string, width as int, pad_char as string is " " into string:
-    return calling s.pad_right with width, pad_char
+    return calling s.get_pad_right with width, pad_char
 ## Functional form of `zfill`: zero-pad on the left, preserving the sign.
 ##
 ## ## Parámetros
@@ -3078,7 +3898,7 @@ weave pad_right with s as string, width as int, pad_char as string is " " into s
 ## calling scrolls.zfill with "7", 3    # "007"
 ## ```
 weave zfill with s as string, width as int into string:
-    return calling s.zfill with width
+    return calling s.get_zfill with width
 ## Functional form of `center`: pad both sides to `width`.
 ##
 ## ## Parámetros
@@ -3094,7 +3914,7 @@ weave zfill with s as string, width as int into string:
 ## calling scrolls.center with "a", 3, "."    # ".a."
 ## ```
 weave center with s as string, width as int, pad_char as string is " " into string:
-    return calling s.center with width, pad_char
+    return calling s.get_center with width, pad_char
 
 # --- Prefixes and suffixes ----------------------------------------------
 ## Functional form of `removeprefix`: drop `prefix` when present.
@@ -3111,7 +3931,7 @@ weave center with s as string, width as int, pad_char as string is " " into stri
 ## calling scrolls.removeprefix with "abc", "a"    # "bc"
 ## ```
 weave removeprefix with s as string, prefix as string into string:
-    return calling s.removeprefix with prefix
+    return calling s.get_removeprefix with prefix
 ## Functional form of `removesuffix`: drop `suffix` when present.
 ##
 ## ## Parámetros
@@ -3126,7 +3946,7 @@ weave removeprefix with s as string, prefix as string into string:
 ## calling scrolls.removesuffix with "abc", "c"    # "ab"
 ## ```
 weave removesuffix with s as string, suffix as string into string:
-    return calling s.removesuffix with suffix
+    return calling s.get_removesuffix with suffix
 ## Functional form of `partition`: `[before, sep, after]`.
 ##
 ## ## Parámetros
@@ -3246,7 +4066,7 @@ weave bytes with s as string into list of int:
 ## calling scrolls.truncate with "abcdef", 4, ".."    # "ab.."
 ## ```
 weave truncate with s as string, max_len as int, suffix as string into string:
-    return calling s.truncate with max_len, suffix
+    return calling s.get_truncate with max_len, suffix
 ## Functional form of `ellipsis`: cut to `max_len` with "...".
 ##
 ## ## Parámetros
@@ -3261,7 +4081,7 @@ weave truncate with s as string, max_len as int, suffix as string into string:
 ## calling scrolls.ellipsis with "abcdef", 4    # "a..."
 ## ```
 weave ellipsis with s as string, max_len as int into string:
-    return calling s.ellipsis with max_len
+    return calling s.get_ellipsis with max_len
 ## Functional form of `is_numeric`: exact numeric literal test.
 ##
 ## ## Parámetros
@@ -3465,14 +4285,18 @@ test "is_empty distinguishes the empty string":
 test "chars returns a one-byte string per element":
     var s as string is "abc"
     var parts as list of string is calling s.chars
+    defer banish parts
     calling _expect_eq_int with (parts length), 3, "chars"
     var letters as list of string is calling chars with s
+    defer banish letters
     calling _expect_eq_string with (letters at 1), "b", "functional chars"
 test "bytes returns the ASCII codes":
     var s as string is "AB"
     var codes as list of int is calling s.bytes
+    defer banish codes
     calling _expect_eq_int with (codes at 0), 65, "bytes"
     var func_codes as list of int is calling bytes with s
+    defer banish func_codes
     calling _expect_eq_int with (func_codes at 1), 66, "functional bytes"
 
 # Search
@@ -3529,77 +4353,143 @@ test "functional position and count forms":
 # Slicing
 test "substring cuts the requested range":
     var s as string is "abcdef"
-    calling _expect_eq_string with (calling s.substring with 1, 4), "bcd", "substring"
-    calling _expect_eq_string with (calling substring with s, 0, 0), "", "empty range"
+    var _lt_4352 as string is calling s.get_substring with 1, 4
+    defer banish _lt_4352
+    calling _expect_eq_string with _lt_4352, "bcd", "substring"
+    var _ls_4359 as string is calling substring with s, 0, 0
+    defer banish _ls_4359
+    calling _expect_eq_string with _ls_4359, "", "empty range"
 test "char_at returns one byte as a string":
     var s as string is "abc"
-    calling _expect_eq_string with (calling s.char_at with 1), "b", "char_at"
-    calling _expect_eq_string with (calling char_at with s, 2), "c", "functional char_at"
+    var _lt_4356 as string is calling s.get_char_at with 1
+    defer banish _lt_4356
+    calling _expect_eq_string with _lt_4356, "b", "char_at"
+    var _lt_4357 as string is calling char_at with s, 2
+    defer banish _lt_4357
+    calling _expect_eq_string with _lt_4357, "c", "functional char_at"
 test "reverse flips the byte order":
     var s as string is "pengu"
-    calling _expect_eq_string with (calling s.reverse), "ugnep", "reverse"
-    calling _expect_eq_string with (calling reverse with s), "ugnep", "functional reverse"
+    var _lt_4360 as string is calling s.get_reverse
+    defer banish _lt_4360
+    calling _expect_eq_string with _lt_4360, "ugnep", "reverse"
+    var _lt_4361 as string is calling reverse with s
+    defer banish _lt_4361
+    calling _expect_eq_string with _lt_4361, "ugnep", "functional reverse"
 test "reverse of the empty string is empty":
     var empty_s as string is ""
-    calling _expect_eq_string with (calling empty_s.reverse), "", "empty reverse"
+    var _ls_4378 as string is calling empty_s.get_reverse
+    defer banish _ls_4378
+    calling _expect_eq_string with _ls_4378, "", "empty reverse"
 
 # Case
 test "lower converts A-Z and leaves the rest alone":
     var s as string is "Hello, World!"
-    calling _expect_eq_string with (calling s.lower), "hello, world!", "lower"
-    calling _expect_eq_string with (calling lower with s), "hello, world!", "functional lower"
+    var _lt_4369 as string is calling s.get_lower
+    defer banish _lt_4369
+    calling _expect_eq_string with _lt_4369, "hello, world!", "lower"
+    var _lt_4370 as string is calling lower with s
+    defer banish _lt_4370
+    calling _expect_eq_string with _lt_4370, "hello, world!", "functional lower"
 test "upper converts a-z to uppercase":
     var s as string is "abc"
-    calling _expect_eq_string with (calling s.upper), "ABC", "upper"
-    calling _expect_eq_string with (calling upper with s), "ABC", "functional upper"
+    var _lt_4373 as string is calling s.get_upper
+    defer banish _lt_4373
+    calling _expect_eq_string with _lt_4373, "ABC", "upper"
+    var _lt_4374 as string is calling upper with s
+    defer banish _lt_4374
+    calling _expect_eq_string with _lt_4374, "ABC", "functional upper"
 test "to_lower and to_upper still work":
     var s as string is "AbC"
-    calling _expect_eq_string with (calling s.to_lower), "abc", "to_lower"
-    calling _expect_eq_string with (calling to_upper with s), "ABC", "functional to_upper"
+    var _lt_4377 as string is calling s.get_to_lower
+    defer banish _lt_4377
+    calling _expect_eq_string with _lt_4377, "abc", "to_lower"
+    var _lt_4378 as string is calling to_upper with s
+    defer banish _lt_4378
+    calling _expect_eq_string with _lt_4378, "ABC", "functional to_upper"
 test "lower leaves UTF-8 bytes untouched":
     var s as string is "CAFé"
-    calling _expect_eq_string with (calling s.lower), "café", "UTF-8"
+    var _lt_4381 as string is calling s.get_lower
+    defer banish _lt_4381
+    calling _expect_eq_string with _lt_4381, "café", "UTF-8"
 test "capitalize keeps only the first letter uppercase":
     var s as string is "hELLO world"
-    calling _expect_eq_string with (calling s.capitalize), "Hello world", "capitalize"
-    calling _expect_eq_string with (calling capitalize with "1abc"), "1abc", "leading digit"
+    var _lt_4384 as string is calling s.get_capitalize
+    defer banish _lt_4384
+    calling _expect_eq_string with _lt_4384, "Hello world", "capitalize"
+    var _lt_4385 as string is calling capitalize with "1abc"
+    defer banish _lt_4385
+    calling _expect_eq_string with _lt_4385, "1abc", "leading digit"
 test "capitalize of the empty string is empty":
     var empty_s as string is ""
-    calling _expect_eq_string with (calling empty_s.capitalize), "", "empty capitalize"
+    var _ls_4420 as string is calling empty_s.get_capitalize
+    defer banish _ls_4420
+    calling _expect_eq_string with _ls_4420, "", "empty capitalize"
 test "title capitalizes the initial of every word":
     var s as string is "hello world"
-    calling _expect_eq_string with (calling s.title), "Hello World", "title"
-    calling _expect_eq_string with (calling title with s), "Hello World", "functional title"
+    var _lt_4391 as string is calling s.get_title
+    defer banish _lt_4391
+    calling _expect_eq_string with _lt_4391, "Hello World", "title"
+    var _lt_4392 as string is calling title with s
+    defer banish _lt_4392
+    calling _expect_eq_string with _lt_4392, "Hello World", "functional title"
 test "title preserves the original spacing":
     var s as string is "  a  b "
-    calling _expect_eq_string with (calling s.title), "  A  B ", "spaces"
+    var _lt_4395 as string is calling s.get_title
+    defer banish _lt_4395
+    calling _expect_eq_string with _lt_4395, "  A  B ", "spaces"
 test "title_case still works":
     var s as string is "hello world"
-    calling _expect_eq_string with (calling s.title_case), "Hello World", "title_case"
+    var _lt_4398 as string is calling s.get_title_case
+    defer banish _lt_4398
+    calling _expect_eq_string with _lt_4398, "Hello World", "title_case"
 test "swap_case flips the case of every letter":
     var s as string is "Hello, World!"
-    calling _expect_eq_string with (calling s.swap_case), "hELLO, wORLD!", "swap_case"
-    calling _expect_eq_string with (calling swap_case with "a1B"), "A1b", "non-letters"
+    var _lt_4401 as string is calling s.get_swap_case
+    defer banish _lt_4401
+    calling _expect_eq_string with _lt_4401, "hELLO, wORLD!", "swap_case"
+    var _lt_4402 as string is calling swap_case with "a1B"
+    defer banish _lt_4402
+    calling _expect_eq_string with _lt_4402, "A1b", "non-letters"
 test "to_snake_case splits camelCase and PascalCase":
     var s as string is "helloWorld"
-    calling _expect_eq_string with (calling s.to_snake_case), "hello_world", "camel"
-    calling _expect_eq_string with (calling to_snake_case with "HTTPServer"), "http_server", "acronym"
+    var _lt_4405 as string is calling s.get_to_snake_case
+    defer banish _lt_4405
+    calling _expect_eq_string with _lt_4405, "hello_world", "camel"
+    var _lt_4406 as string is calling to_snake_case with "HTTPServer"
+    defer banish _lt_4406
+    calling _expect_eq_string with _lt_4406, "http_server", "acronym"
 test "to_snake_case normalises separators":
     var s as string is "hello--world"
-    calling _expect_eq_string with (calling s.to_snake_case), "hello_world", "dashes"
-    calling _expect_eq_string with (calling to_snake_case with ""), "", "empty"
+    var _lt_4409 as string is calling s.get_to_snake_case
+    defer banish _lt_4409
+    calling _expect_eq_string with _lt_4409, "hello_world", "dashes"
+    var _ls_4460 as string is calling to_snake_case with ""
+    defer banish _ls_4460
+    calling _expect_eq_string with _ls_4460, "", "empty"
 test "to_kebab_case uses dashes":
     var s as string is "HelloWorld"
-    calling _expect_eq_string with (calling s.to_kebab_case), "hello-world", "kebab"
-    calling _expect_eq_string with (calling to_kebab_case with s), "hello-world", "functional kebab"
+    var _lt_4413 as string is calling s.get_to_kebab_case
+    defer banish _lt_4413
+    calling _expect_eq_string with _lt_4413, "hello-world", "kebab"
+    var _lt_4414 as string is calling to_kebab_case with s
+    defer banish _lt_4414
+    calling _expect_eq_string with _lt_4414, "hello-world", "functional kebab"
 test "snake_case and kebab_case are short forms":
     var s as string is "helloWorld"
-    calling _expect_eq_string with (calling s.snake_case), "hello_world", "snake_case"
-    calling _expect_eq_string with (calling kebab_case with s), "hello-world", "functional kebab_case"
+    var _lt_4417 as string is calling s.get_snake_case
+    defer banish _lt_4417
+    calling _expect_eq_string with _lt_4417, "hello_world", "snake_case"
+    var _lt_4418 as string is calling kebab_case with s
+    defer banish _lt_4418
+    calling _expect_eq_string with _lt_4418, "hello-world", "functional kebab_case"
 test "pascal_case capitalizes every word":
     var s as string is "hello_world"
-    calling _expect_eq_string with (calling s.pascal_case), "HelloWorld", "snake to pascal"
-    calling _expect_eq_string with (calling pascal_case with "helloWorld"), "HelloWorld", "functional"
+    var _lt_4421 as string is calling s.get_pascal_case
+    defer banish _lt_4421
+    calling _expect_eq_string with _lt_4421, "HelloWorld", "snake to pascal"
+    var _lt_4422 as string is calling pascal_case with "helloWorld"
+    defer banish _lt_4422
+    calling _expect_eq_string with _lt_4422, "HelloWorld", "functional"
 test "is_alpha demands ASCII letters only":
     var s as string is "aB"
     calling _expect_eq_bool with (calling s.is_alpha), true, "is_alpha"
@@ -3621,38 +4511,74 @@ test "is_palindrome detects palindromes":
     calling _expect_eq_bool with (calling s.is_palindrome), true, "palindrome"
     calling _expect_eq_bool with (calling is_palindrome with "ab"), false, "not a palindrome"
 test "functional case forms":
-    calling _expect_eq_string with (calling capitalize with "hOLA"), "Hola", "capitalize"
-    calling _expect_eq_string with (calling title with "a b"), "A B", "title"
-    calling _expect_eq_string with (calling swap_case with "aB"), "Ab", "swap_case"
+    var _lt_4444 as string is calling capitalize with "hOLA"
+    defer banish _lt_4444
+    calling _expect_eq_string with _lt_4444, "Hola", "capitalize"
+    var _lt_4445 as string is calling title with "a b"
+    defer banish _lt_4445
+    calling _expect_eq_string with _lt_4445, "A B", "title"
+    var _lt_4446 as string is calling swap_case with "aB"
+    defer banish _lt_4446
+    calling _expect_eq_string with _lt_4446, "Ab", "swap_case"
 test "functional style-conversion forms":
-    calling _expect_eq_string with (calling to_snake_case with "aB"), "a_b", "to_snake_case"
-    calling _expect_eq_string with (calling to_kebab_case with "aB"), "a-b", "to_kebab_case"
-    calling _expect_eq_string with (calling snake_case with "aB"), "a_b", "snake_case"
-    calling _expect_eq_string with (calling pascal_case with "a_b"), "AB", "pascal_case"
+    var _lt_4448 as string is calling to_snake_case with "aB"
+    defer banish _lt_4448
+    calling _expect_eq_string with _lt_4448, "a_b", "to_snake_case"
+    var _lt_4449 as string is calling to_kebab_case with "aB"
+    defer banish _lt_4449
+    calling _expect_eq_string with _lt_4449, "a-b", "to_kebab_case"
+    var _lt_4450 as string is calling snake_case with "aB"
+    defer banish _lt_4450
+    calling _expect_eq_string with _lt_4450, "a_b", "snake_case"
+    var _lt_4451 as string is calling pascal_case with "a_b"
+    defer banish _lt_4451
+    calling _expect_eq_string with _lt_4451, "AB", "pascal_case"
 test "functional legacy case forms":
-    calling _expect_eq_string with (calling to_lower with "AbC"), "abc", "to_lower"
-    calling _expect_eq_string with (calling to_upper with "AbC"), "ABC", "to_upper"
-    calling _expect_eq_string with (calling title_case with "a b"), "A B", "title_case"
+    var _lt_4453 as string is calling to_lower with "AbC"
+    defer banish _lt_4453
+    calling _expect_eq_string with _lt_4453, "abc", "to_lower"
+    var _lt_4454 as string is calling to_upper with "AbC"
+    defer banish _lt_4454
+    calling _expect_eq_string with _lt_4454, "ABC", "to_upper"
+    var _lt_4455 as string is calling title_case with "a b"
+    defer banish _lt_4455
+    calling _expect_eq_string with _lt_4455, "A B", "title_case"
 
 # Whitespace
 test "trim removes ASCII whitespace from both ends":
     var s as string is "\t\n x \r\v\f "
-    calling _expect_eq_string with (calling s.trim), "x", "trim"
-    calling _expect_eq_string with (calling trim with "  a  "), "a", "functional trim"
+    var _lt_4460 as string is calling s.get_trim
+    defer banish _lt_4460
+    calling _expect_eq_string with _lt_4460, "x", "trim"
+    var _lt_4461 as string is calling trim with "  a  "
+    defer banish _lt_4461
+    calling _expect_eq_string with _lt_4461, "a", "functional trim"
 test "strip is an alias of trim":
     var s as string is "  a  "
-    calling _expect_eq_string with (calling s.strip), "a", "strip"
-    calling _expect_eq_string with (calling strip with "\tx\t"), "x", "functional strip"
+    var _lt_4464 as string is calling s.get_strip
+    defer banish _lt_4464
+    calling _expect_eq_string with _lt_4464, "a", "strip"
+    var _lt_4465 as string is calling strip with "\tx\t"
+    defer banish _lt_4465
+    calling _expect_eq_string with _lt_4465, "x", "functional strip"
 test "trim_start removes only the leading side":
     var s as string is "  a  "
-    calling _expect_eq_string with (calling s.trim_start), "a  ", "trim_start"
+    var _lt_4468 as string is calling s.get_trim_start
+    defer banish _lt_4468
+    calling _expect_eq_string with _lt_4468, "a  ", "trim_start"
 test "trim_end removes only the trailing side":
     var s as string is "  a  "
-    calling _expect_eq_string with (calling s.trim_end), "  a", "trim_end"
+    var _lt_4471 as string is calling s.get_trim_end
+    defer banish _lt_4471
+    calling _expect_eq_string with _lt_4471, "  a", "trim_end"
 test "lstrip and rstrip still work":
     var s as string is "  a  "
-    calling _expect_eq_string with (calling s.lstrip), "a  ", "lstrip"
-    calling _expect_eq_string with (calling rstrip with s), "  a", "functional rstrip"
+    var _lt_4474 as string is calling s.get_lstrip
+    defer banish _lt_4474
+    calling _expect_eq_string with _lt_4474, "a  ", "lstrip"
+    var _lt_4475 as string is calling rstrip with s
+    defer banish _lt_4475
+    calling _expect_eq_string with _lt_4475, "  a", "functional rstrip"
 test "is_space is false for the empty string":
     var empty_s as string is ""
     calling _expect_eq_bool with (calling empty_s.is_space), false, "empty"
@@ -3668,24 +4594,34 @@ test "is_blank is true for empty or whitespace-only":
 test "split_whitespace ignores repeated spaces":
     var s as string is "  a  b "
     var parts as list of string is calling s.split_whitespace
+    defer banish parts
     calling _expect_eq_int with (parts length), 2, "split_whitespace"
     var func_words as list of string is calling split_whitespace with s
+    defer banish func_words
     calling _expect_eq_string with (func_words at 0), "a", "functional"
 test "words is the short form of split_whitespace":
     var s as string is "a\tb\nc"
-    calling _expect_eq_int with ((calling s.words) length), 3, "words"
-    calling _expect_eq_int with ((calling words with "   ") length), 0, "only spaces"
+    var _ll_4596 as list of string is calling s.words
+    defer banish _ll_4596
+    calling _expect_eq_int with (_ll_4596 length), 3, "words"
+    var _ll_4597 as list of string is calling words with "   "
+    defer banish _ll_4597
+    calling _expect_eq_int with (_ll_4597 length), 0, "only spaces"
 test "split_lines splits on LF and keeps the CR":
     var s as string is "a\r\nb"
     var parts as list of string is calling s.split_lines
+    defer banish parts
     calling _expect_eq_int with (parts length), 2, "split_lines"
     var func_lines as list of string is calling split_lines with s
+    defer banish func_lines
     calling _expect_eq_string with (func_lines at 0), "a\r", "functional"
 test "lines drops the trailing CR of every line":
     var s as string is "a\r\nb\nc"
     var parts as list of string is calling s.lines
+    defer banish parts
     calling _expect_eq_int with (parts length), 3, "lines"
     var func_clean as list of string is calling lines with s
+    defer banish func_clean
     calling _expect_eq_string with (func_clean at 0), "a", "functional"
 test "line_count counts LF-separated lines":
     var s as string is "a\nb\nc"
@@ -3696,15 +4632,31 @@ test "word_count counts whitespace-separated words":
     calling _expect_eq_int with (calling s.word_count), 2, "word_count"
     calling _expect_eq_int with (calling word_count with "abc"), 1, "one word"
 test "functional whitespace forms":
-    calling _expect_eq_string with (calling trim_start with " a"), "a", "trim_start"
-    calling _expect_eq_string with (calling trim_end with "a "), "a", "trim_end"
-    calling _expect_eq_string with (calling lstrip with " a"), "a", "lstrip"
-    calling _expect_eq_string with (calling rstrip with "a "), "a", "rstrip"
+    var _lt_4519 as string is calling trim_start with " a"
+    defer banish _lt_4519
+    calling _expect_eq_string with _lt_4519, "a", "trim_start"
+    var _lt_4520 as string is calling trim_end with "a "
+    defer banish _lt_4520
+    calling _expect_eq_string with _lt_4520, "a", "trim_end"
+    var _lt_4521 as string is calling lstrip with " a"
+    defer banish _lt_4521
+    calling _expect_eq_string with _lt_4521, "a", "lstrip"
+    var _lt_4522 as string is calling rstrip with "a "
+    defer banish _lt_4522
+    calling _expect_eq_string with _lt_4522, "a", "rstrip"
 test "functional whitespace-splitting forms":
-    calling _expect_eq_int with ((calling split_whitespace with "a b") length), 2, "split_whitespace"
-    calling _expect_eq_int with ((calling words with "a b") length), 2, "words"
-    calling _expect_eq_int with ((calling lines with "a\nb") length), 2, "lines"
-    calling _expect_eq_int with ((calling split_lines with "a\nb") length), 2, "split_lines"
+    var _ll_4636 as list of string is calling split_whitespace with "a b"
+    defer banish _ll_4636
+    calling _expect_eq_int with (_ll_4636 length), 2, "split_whitespace"
+    var _ll_4637 as list of string is calling words with "a b"
+    defer banish _ll_4637
+    calling _expect_eq_int with (_ll_4637 length), 2, "words"
+    var _ll_4638 as list of string is calling lines with "a\nb"
+    defer banish _ll_4638
+    calling _expect_eq_int with (_ll_4638 length), 2, "lines"
+    var _ll_4639 as list of string is calling split_lines with "a\nb"
+    defer banish _ll_4639
+    calling _expect_eq_int with (_ll_4639 length), 2, "split_lines"
 test "functional line and word count forms":
     calling _expect_eq_int with (calling line_count with "a\nb"), 2, "line_count"
     calling _expect_eq_int with (calling word_count with "a b"), 2, "word_count"
@@ -3714,161 +4666,270 @@ test "functional line and word count forms":
 # Replacing and splitting
 test "replace substitutes only the first occurrence":
     var s as string is "cat, dog, cat"
-    calling _expect_eq_string with (calling s.replace with "cat", "bird"), "bird, dog, cat", "replace"
-    calling _expect_eq_string with (calling replace with s, "cat", "bird"), "bird, dog, cat", "functional"
+    var _lt_4537 as string is calling s.get_replace with "cat", "bird"
+    defer banish _lt_4537
+    calling _expect_eq_string with _lt_4537, "bird, dog, cat", "replace"
+    var _lt_4538 as string is calling replace with s, "cat", "bird"
+    defer banish _lt_4538
+    calling _expect_eq_string with _lt_4538, "bird, dog, cat", "functional"
 test "replace without a match leaves the string alone":
     var s as string is "abc"
-    calling _expect_eq_string with (calling s.replace with "z", "x"), "abc", "no match"
+    var _ls_4669 as string is calling s.get_replace with "z", "x"
+    defer banish _ls_4669
+    calling _expect_eq_string with _ls_4669, "abc", "no match"
 test "replace with an empty from_str inserts at the start":
     var s as string is "abc"
-    calling _expect_eq_string with (calling s.replace with "", "X"), "Xabc", "legacy"
+    var _lt_4544 as string is calling s.get_replace with "", "X"
+    defer banish _lt_4544
+    calling _expect_eq_string with _lt_4544, "Xabc", "legacy"
 test "replace_all substitutes every occurrence":
     var s as string is "cat, dog, cat"
-    calling _expect_eq_string with (calling s.replace_all with "cat", "bird"), "bird, dog, bird", "replace_all"
-    calling _expect_eq_string with (calling replace_all with s, "cat", "bird"), "bird, dog, bird", "functional"
+    var _lt_4547 as string is calling s.get_replace_all with "cat", "bird"
+    defer banish _lt_4547
+    calling _expect_eq_string with _lt_4547, "bird, dog, bird", "replace_all"
+    var _lt_4548 as string is calling replace_all with s, "cat", "bird"
+    defer banish _lt_4548
+    calling _expect_eq_string with _lt_4548, "bird, dog, bird", "functional"
 test "replace_all with an empty from_str changes nothing":
     var s as string is "abc"
-    calling _expect_eq_string with (calling s.replace_all with "", "X"), "abc", "empty"
+    var _ls_4685 as string is calling s.get_replace_all with "", "X"
+    defer banish _ls_4685
+    calling _expect_eq_string with _ls_4685, "abc", "empty"
 test "split divides on every delimiter":
     var s as string is "a,,b"
     var parts as list of string is calling s.split with ","
+    defer banish parts
     calling _expect_eq_int with (parts length), 3, "split"
     var func_chunks as list of string is calling split with s, ","
+    defer banish func_chunks
     calling _expect_eq_string with (func_chunks at 1), "", "functional"
 test "split with an empty delimiter returns the whole string":
     var s as string is "abc"
     var parts as list of string is calling s.split with ""
+    defer banish parts
     calling _expect_eq_int with (parts length), 1, "empty split"
     calling _expect_eq_string with (parts at 0), "abc", "content"
 test "split with an absent delimiter returns one element":
     var s as string is "abc"
     var parts as list of string is calling s.split with "::"
+    defer banish parts
     calling _expect_eq_int with (parts length), 1, "absent"
 test "split accepts multi-byte delimiters":
     var s as string is "a::b::c"
     var parts as list of string is calling s.split with "::"
+    defer banish parts
     calling _expect_eq_int with (parts length), 3, "multi-char"
 test "splitn keeps the remaining delimiters in the last part":
     var s as string is "a,b,c,d"
     var parts as list of string is calling s.splitn with ",", 3
+    defer banish parts
     calling _expect_eq_int with (parts length), 3, "splitn"
     calling _expect_eq_string with (parts at 2), "c,d", "last part"
     var single as list of string is calling splitn with s, ",", 1
+    defer banish single
     calling _expect_eq_int with (single length), 1, "functional one part"
     calling _expect_eq_string with (single at 0), "a,b,c,d", "functional whole"
 test "splitn with n <= 0 does not split":
     var s as string is "a,b"
     var parts as list of string is calling s.splitn with ",", 0
+    defer banish parts
     calling _expect_eq_int with (parts length), 1, "no split"
     calling _expect_eq_string with (parts at 0), "a,b", "whole string"
 test "rsplit scans from the right and preserves the order":
     var s as string is "a:b:c"
     var parts as list of string is calling s.rsplit with ":"
+    defer banish parts
     calling _expect_eq_int with (parts length), 3, "rsplit"
     calling _expect_eq_string with (parts at 0), "a", "first"
     calling _expect_eq_string with (parts at 2), "c", "last"
     var func_parts as list of string is calling rsplit with s, ":"
+    defer banish func_parts
     calling _expect_eq_int with (func_parts length), 3, "functional rsplit"
 test "rsplit keeps empty pieces and handles an empty delimiter":
     var s as string is "a::b"
     var parts as list of string is calling s.rsplit with ":"
+    defer banish parts
     calling _expect_eq_string with (parts at 1), "", "empty piece"
     var whole as list of string is calling s.rsplit with ""
+    defer banish whole
     calling _expect_eq_int with (whole length), 1, "empty delimiter"
 test "partition returns before, separator and after":
     var s as string is "a=b=c"
     var parts as list of string is calling s.partition with "="
+    defer banish parts
     calling _expect_eq_int with (parts length), 3, "partition"
     var func_parts as list of string is calling partition with s, "="
+    defer banish func_parts
     calling _expect_eq_string with (func_parts at 2), "b=c", "functional"
 test "partition without a separator returns the string and two empties":
     var s as string is "abc"
     var parts as list of string is calling s.partition with "="
+    defer banish parts
     calling _expect_eq_string with (parts at 0), "abc", "no sep"
     calling _expect_eq_string with (parts at 1), "", "empty"
 test "repeat repeats the string count times":
     var s as string is "ha"
-    calling _expect_eq_string with (calling s.repeat with 3), "hahaha", "repeat"
-    calling _expect_eq_string with (calling repeat with s, 1), "ha", "functional repeat"
+    var _lt_4611 as string is calling s.get_repeat with 3
+    defer banish _lt_4611
+    calling _expect_eq_string with _lt_4611, "hahaha", "repeat"
+    var _lt_4612 as string is calling repeat with s, 1
+    defer banish _lt_4612
+    calling _expect_eq_string with _lt_4612, "ha", "functional repeat"
 test "repeat with a non-positive count is empty":
     var s as string is "ha"
-    calling _expect_eq_string with (calling s.repeat with 0), "", "zero"
-    calling _expect_eq_string with (calling s.repeat with -1), "", "negative"
+    var _ls_4768 as string is calling s.get_repeat with 0
+    defer banish _ls_4768
+    calling _expect_eq_string with _ls_4768, "", "zero"
+    var _ls_4769 as string is calling s.get_repeat with -1
+    defer banish _ls_4769
+    calling _expect_eq_string with _ls_4769, "", "negative"
 test "repeat_join joins the repetitions with the separator":
     var s as string is "ab"
-    calling _expect_eq_string with (calling s.repeat_join with 3, ", "), "ab, ab, ab", "repeat_join"
-    calling _expect_eq_string with (calling repeat_join with s, 1, ","), "ab", "one copy"
+    var _lt_4619 as string is calling s.get_repeat_join with 3, ", "
+    defer banish _lt_4619
+    calling _expect_eq_string with _lt_4619, "ab, ab, ab", "repeat_join"
+    var _lt_4620 as string is calling repeat_join with s, 1, ","
+    defer banish _lt_4620
+    calling _expect_eq_string with _lt_4620, "ab", "one copy"
 test "functional replacement and splitting forms":
-    calling _expect_eq_string with (calling replace with "abc", "b", "X"), "aXc", "replace"
-    calling _expect_eq_string with (calling replace_all with "abc", "", "X"), "abc", "replace_all"
-    calling _expect_eq_int with ((calling split with "a,b", ",") length), 2, "split"
-    calling _expect_eq_int with ((calling partition with "a=b", "=") length), 3, "partition"
+    var _lt_4622 as string is calling replace with "abc", "b", "X"
+    defer banish _lt_4622
+    calling _expect_eq_string with _lt_4622, "aXc", "replace"
+    var _ls_4782 as string is calling replace_all with "abc", "", "X"
+    defer banish _ls_4782
+    calling _expect_eq_string with _ls_4782, "abc", "replace_all"
+    var _ll_4771 as list of string is calling split with "a,b", ","
+    defer banish _ll_4771
+    calling _expect_eq_int with (_ll_4771 length), 2, "split"
+    var _ll_4772 as list of string is calling partition with "a=b", "="
+    defer banish _ll_4772
+    calling _expect_eq_int with (_ll_4772 length), 3, "partition"
 
 # Alignment
 test "ljust pads on the right":
     var s as string is "ab"
-    calling _expect_eq_string with (calling s.ljust with 4, "."), "ab..", "ljust"
-    calling _expect_eq_string with (calling ljust with s, 4, "."), "ab..", "functional ljust"
+    var _lt_4630 as string is calling s.get_ljust with 4, "."
+    defer banish _lt_4630
+    calling _expect_eq_string with _lt_4630, "ab..", "ljust"
+    var _lt_4631 as string is calling ljust with s, 4, "."
+    defer banish _lt_4631
+    calling _expect_eq_string with _lt_4631, "ab..", "functional ljust"
 test "ljust leaves what already fits and respects an empty pad_char":
     var s as string is "abc"
-    calling _expect_eq_string with (calling s.ljust with 2, "."), "abc", "already fits"
-    calling _expect_eq_string with (calling s.ljust with 5, ""), "abc", "empty pad"
+    var _lt_4634 as string is calling s.get_ljust with 2, "."
+    defer banish _lt_4634
+    calling _expect_eq_string with _lt_4634, "abc", "already fits"
+    var _lt_4635 as string is calling s.get_ljust with 5, ""
+    defer banish _lt_4635
+    calling _expect_eq_string with _lt_4635, "abc", "empty pad"
 test "ljust truncates when a multi-character pad overflows":
     var s as string is "ab"
-    calling _expect_eq_string with (calling s.ljust with 5, "xy"), "abxyx", "truncation"
+    var _lt_4638 as string is calling s.get_ljust with 5, "xy"
+    defer banish _lt_4638
+    calling _expect_eq_string with _lt_4638, "abxyx", "truncation"
 test "rjust pads on the left":
     var s as string is "42"
-    calling _expect_eq_string with (calling s.rjust with 5, "0"), "00042", "rjust"
-    calling _expect_eq_string with (calling rjust with s, 5, "0"), "00042", "functional rjust"
+    var _lt_4641 as string is calling s.get_rjust with 5, "0"
+    defer banish _lt_4641
+    calling _expect_eq_string with _lt_4641, "00042", "rjust"
+    var _lt_4642 as string is calling rjust with s, 5, "0"
+    defer banish _lt_4642
+    calling _expect_eq_string with _lt_4642, "00042", "functional rjust"
 test "rjust truncates when a multi-character pad overflows":
     var s as string is "ab"
-    calling _expect_eq_string with (calling s.rjust with 5, "xy"), "yxyab", "truncation"
+    var _lt_4645 as string is calling s.get_rjust with 5, "xy"
+    defer banish _lt_4645
+    calling _expect_eq_string with _lt_4645, "yxyab", "truncation"
 test "pad_left and pad_right still work":
     var s as string is "42"
-    calling _expect_eq_string with (calling s.pad_left with 5, "0"), "00042", "pad_left"
-    calling _expect_eq_string with (calling pad_right with "ab", 4, "."), "ab..", "pad_right"
+    var _lt_4648 as string is calling s.get_pad_left with 5, "0"
+    defer banish _lt_4648
+    calling _expect_eq_string with _lt_4648, "00042", "pad_left"
+    var _lt_4649 as string is calling pad_right with "ab", 4, "."
+    defer banish _lt_4649
+    calling _expect_eq_string with _lt_4649, "ab..", "pad_right"
 test "zfill pads with zeros on the left":
     var s as string is "42"
-    calling _expect_eq_string with (calling s.zfill with 5), "00042", "zfill"
-    calling _expect_eq_string with (calling zfill with s, 5), "00042", "functional zfill"
+    var _lt_4652 as string is calling s.get_zfill with 5
+    defer banish _lt_4652
+    calling _expect_eq_string with _lt_4652, "00042", "zfill"
+    var _lt_4653 as string is calling zfill with s, 5
+    defer banish _lt_4653
+    calling _expect_eq_string with _lt_4653, "00042", "functional zfill"
 test "zfill preserves the sign and leaves what already fits":
     var a as string is "-42"
     var b as string is "+42"
-    calling _expect_eq_string with (calling a.zfill with 6), "-00042", "negative"
-    calling _expect_eq_string with (calling b.zfill with 5), "+0042", "positive"
+    var _lt_4657 as string is calling a.get_zfill with 6
+    defer banish _lt_4657
+    calling _expect_eq_string with _lt_4657, "-00042", "negative"
+    var _lt_4658 as string is calling b.get_zfill with 5
+    defer banish _lt_4658
+    calling _expect_eq_string with _lt_4658, "+0042", "positive"
 test "center spreads the padding on both sides":
     var s as string is "42"
-    calling _expect_eq_string with (calling s.center with 6, "-"), "--42--", "center"
-    calling _expect_eq_string with (calling center with s, 6, "-"), "--42--", "functional center"
+    var _lt_4661 as string is calling s.get_center with 6, "-"
+    defer banish _lt_4661
+    calling _expect_eq_string with _lt_4661, "--42--", "center"
+    var _lt_4662 as string is calling center with s, 6, "-"
+    defer banish _lt_4662
+    calling _expect_eq_string with _lt_4662, "--42--", "functional center"
 test "center gives the smaller half to the left":
     var s as string is "ab"
-    calling _expect_eq_string with (calling s.center with 5, "-"), "-ab--", "odd"
+    var _lt_4665 as string is calling s.get_center with 5, "-"
+    defer banish _lt_4665
+    calling _expect_eq_string with _lt_4665, "-ab--", "odd"
 test "center with a multi-character pad does not truncate":
     var s as string is "ab"
-    calling _expect_eq_string with (calling s.center with 6, "xy"), "xyxyabxyxy", "multi-char"
+    var _lt_4668 as string is calling s.get_center with 6, "xy"
+    defer banish _lt_4668
+    calling _expect_eq_string with _lt_4668, "xyxyabxyxy", "multi-char"
 test "functional alignment forms":
-    calling _expect_eq_string with (calling ljust with "ab", 4), "ab  ", "ljust"
-    calling _expect_eq_string with (calling rjust with "ab", 4), "  ab", "rjust"
-    calling _expect_eq_string with (calling zfill with "7", 3), "007", "zfill"
-    calling _expect_eq_string with (calling center with "a", 3, "."), ".a.", "center"
+    var _lt_4670 as string is calling ljust with "ab", 4
+    defer banish _lt_4670
+    calling _expect_eq_string with _lt_4670, "ab  ", "ljust"
+    var _lt_4671 as string is calling rjust with "ab", 4
+    defer banish _lt_4671
+    calling _expect_eq_string with _lt_4671, "  ab", "rjust"
+    var _lt_4672 as string is calling zfill with "7", 3
+    defer banish _lt_4672
+    calling _expect_eq_string with _lt_4672, "007", "zfill"
+    var _lt_4673 as string is calling center with "a", 3, "."
+    defer banish _lt_4673
+    calling _expect_eq_string with _lt_4673, ".a.", "center"
 
 # Prefixes and suffixes
 test "removeprefix drops the prefix when present":
     var s as string is "Hello"
-    calling _expect_eq_string with (calling s.removeprefix with "He"), "llo", "removeprefix"
-    calling _expect_eq_string with (calling removeprefix with s, ""), "Hello", "empty prefix"
+    var _lt_4678 as string is calling s.get_removeprefix with "He"
+    defer banish _lt_4678
+    calling _expect_eq_string with _lt_4678, "llo", "removeprefix"
+    var _lt_4679 as string is calling removeprefix with s, ""
+    defer banish _lt_4679
+    calling _expect_eq_string with _lt_4679, "Hello", "empty prefix"
 test "removeprefix leaves the string alone when it does not match":
     var s as string is "Hello"
-    calling _expect_eq_string with (calling s.removeprefix with "x"), "Hello", "no match"
-    calling _expect_eq_string with (calling s.removeprefix with "Hello!"), "Hello", "longer"
+    var _lt_4682 as string is calling s.get_removeprefix with "x"
+    defer banish _lt_4682
+    calling _expect_eq_string with _lt_4682, "Hello", "no match"
+    var _lt_4683 as string is calling s.get_removeprefix with "Hello!"
+    defer banish _lt_4683
+    calling _expect_eq_string with _lt_4683, "Hello", "longer"
 test "removesuffix drops the suffix when present":
     var s as string is "Hello"
-    calling _expect_eq_string with (calling s.removesuffix with "lo"), "Hel", "removesuffix"
-    calling _expect_eq_string with (calling removesuffix with s, ""), "Hello", "empty suffix"
+    var _lt_4686 as string is calling s.get_removesuffix with "lo"
+    defer banish _lt_4686
+    calling _expect_eq_string with _lt_4686, "Hel", "removesuffix"
+    var _lt_4687 as string is calling removesuffix with s, ""
+    defer banish _lt_4687
+    calling _expect_eq_string with _lt_4687, "Hello", "empty suffix"
 test "removesuffix leaves the string alone when it does not match":
     var s as string is "Hello"
-    calling _expect_eq_string with (calling s.removesuffix with "x"), "Hello", "no match"
-    calling _expect_eq_string with (calling s.removesuffix with "Hello!"), "Hello", "longer"
+    var _lt_4690 as string is calling s.get_removesuffix with "x"
+    defer banish _lt_4690
+    calling _expect_eq_string with _lt_4690, "Hello", "no match"
+    var _lt_4691 as string is calling s.get_removesuffix with "Hello!"
+    defer banish _lt_4691
+    calling _expect_eq_string with _lt_4691, "Hello", "longer"
 
 # Comparison
 test "compare orders lexicographically by byte":
@@ -3891,29 +4952,52 @@ test "compare distinguishes uppercase from lowercase":
 # Truncation
 test "truncate appends the suffix when it cuts":
     var s as string is "Hello, PenguScript!"
-    calling _expect_eq_string with (calling s.truncate with 10, "..."), "Hello, ...", "truncate"
-    calling _expect_eq_string with (calling truncate with s, 10, "..."), "Hello, ...", "functional"
+    var _lt_4714 as string is calling s.get_truncate with 10, "..."
+    defer banish _lt_4714
+    calling _expect_eq_string with _lt_4714, "Hello, ...", "truncate"
+    var _lt_4715 as string is calling truncate with s, 10, "..."
+    defer banish _lt_4715
+    calling _expect_eq_string with _lt_4715, "Hello, ...", "functional"
 test "truncate leaves what already fits":
     var s as string is "abc"
-    calling _expect_eq_string with (calling s.truncate with 10, "..."), "abc", "no cut"
+    var _lt_4718 as string is calling s.get_truncate with 10, "..."
+    defer banish _lt_4718
+    calling _expect_eq_string with _lt_4718, "abc", "no cut"
 test "truncate with a small max_len cuts without the suffix":
     var s as string is "abcdef"
-    calling _expect_eq_string with (calling s.truncate with 3, "..."), "abc", "no suffix"
-    calling _expect_eq_string with (calling s.truncate with 0, "..."), "", "zero"
+    var _lt_4721 as string is calling s.get_truncate with 3, "..."
+    defer banish _lt_4721
+    calling _expect_eq_string with _lt_4721, "abc", "no suffix"
+    var _ls_4953 as string is calling s.get_truncate with 0, "..."
+    defer banish _ls_4953
+    calling _expect_eq_string with _ls_4953, "", "zero"
 test "ellipsis cuts adding an ellipsis":
     var s as string is "Hello, PenguScript!"
-    calling _expect_eq_string with (calling s.ellipsis with 10), "Hello, ...", "ellipsis"
-    calling _expect_eq_string with (calling ellipsis with "abcdef", 3), "abc", "functional"
+    var _lt_4725 as string is calling s.get_ellipsis with 10
+    defer banish _lt_4725
+    calling _expect_eq_string with _lt_4725, "Hello, ...", "ellipsis"
+    var _lt_4726 as string is calling ellipsis with "abcdef", 3
+    defer banish _lt_4726
+    calling _expect_eq_string with _lt_4726, "abc", "functional"
 test "functional truncation and prefix forms":
-    calling _expect_eq_string with (calling truncate with "abcdef", 4, ".."), "ab..", "truncate"
-    calling _expect_eq_string with (calling ellipsis with "abcdef", 4), "a...", "ellipsis"
-    calling _expect_eq_string with (calling removeprefix with "abc", "a"), "bc", "removeprefix"
-    calling _expect_eq_string with (calling removesuffix with "abc", "c"), "ab", "removesuffix"
+    var _lt_4728 as string is calling truncate with "abcdef", 4, ".."
+    defer banish _lt_4728
+    calling _expect_eq_string with _lt_4728, "ab..", "truncate"
+    var _lt_4729 as string is calling ellipsis with "abcdef", 4
+    defer banish _lt_4729
+    calling _expect_eq_string with _lt_4729, "a...", "ellipsis"
+    var _lt_4730 as string is calling removeprefix with "abc", "a"
+    defer banish _lt_4730
+    calling _expect_eq_string with _lt_4730, "bc", "removeprefix"
+    var _lt_4731 as string is calling removesuffix with "abc", "c"
+    defer banish _lt_4731
+    calling _expect_eq_string with _lt_4731, "ab", "removesuffix"
 
 # Parsing
 test "parse_int reads integers with spaces and sign":
     var s as string is " 42 "
     var m as maybe int is calling s.parse_int
+    defer banish m
     calling _expect_eq_bool with (m.is_present), true, "present"
     if v as int is m:
         calling _expect_eq_int with v, 42, "value"
@@ -3927,6 +5011,7 @@ test "parse_int rejects garbage and overflow":
 test "parse_float computes the decimal value":
     var s as string is "3.5"
     var m as maybe float is calling s.parse_float
+    defer banish m
     if v as float is m:
         calling _expect with (v > 3.4 and v < 3.6), "3.5"
     else:
@@ -3935,11 +5020,17 @@ test "parse_float accepts a sign, a leading dot and spaces":
     var a as string is "-0.25"
     var b as string is ".5"
     var c as string is " 2 "
-    if va as float is (calling a.parse_float):
+    var opt_va as maybe float is calling a.parse_float
+    defer banish opt_va
+    if va as float is opt_va:
         calling _expect with (va > -0.3 and va < -0.2), "-0.25"
-    if vb as float is (calling b.parse_float):
+    var opt_vb as maybe float is calling b.parse_float
+    defer banish opt_vb
+    if vb as float is opt_vb:
         calling _expect with (vb > 0.4 and vb < 0.6), ".5"
-    if vc as float is (calling c.parse_float):
+    var opt_vc as maybe float is calling c.parse_float
+    defer banish opt_vc
+    if vc as float is opt_vc:
         calling _expect with (vc > 1.9 and vc < 2.1), " 2 "
 test "parse_float rejects empty, garbage and exponents":
     var empty_s as string is ""
@@ -3965,38 +5056,64 @@ test "is_numeric rejects spaces, exponents and garbage":
 # join
 test "join connects the elements with the separator":
     var parts as list of string is ["alpha", "beta", "gamma"]
-    calling _expect_eq_string with (calling join with parts, ", "), "alpha, beta, gamma", "join"
-    calling _expect_eq_string with (calling join with parts, "|"), "alpha|beta|gamma", "other sep"
+    defer banish parts
+    var _lt_4788 as string is calling join with parts, ", "
+    defer banish _lt_4788
+    calling _expect_eq_string with _lt_4788, "alpha, beta, gamma", "join"
+    var _lt_4789 as string is calling join with parts, "|"
+    defer banish _lt_4789
+    calling _expect_eq_string with _lt_4789, "alpha|beta|gamma", "other sep"
 test "join of an empty list is empty":
     var parts as list of string is list of string
-    calling _expect_eq_string with (calling join with parts, ","), "", "empty"
+    defer banish parts
+    var _ls_5049 as string is calling join with parts, ","
+    defer banish _ls_5049
+    calling _expect_eq_string with _ls_5049, "", "empty"
 test "join of one element adds no separator":
     var parts as list of string is ["x"]
-    calling _expect_eq_string with (calling join with parts, ","), "x", "one element"
+    defer banish parts
+    var _lt_4795 as string is calling join with parts, ","
+    defer banish _lt_4795
+    calling _expect_eq_string with _lt_4795, "x", "one element"
 test "join preserves the empty elements":
     var parts as list of string is ["", "x", ""]
-    calling _expect_eq_string with (calling join with parts, "|"), "|x|", "empties"
+    defer banish parts
+    var _lt_4798 as string is calling join with parts, "|"
+    defer banish _lt_4798
+    calling _expect_eq_string with _lt_4798, "|x|", "empties"
 
 # Functional forms and edges
 test "functional length and slicing forms":
     calling _expect_eq_int with (calling len with "abcd"), 4, "len"
-    calling _expect_eq_string with (calling substring with "abcdef", 1, 3), "bc", "substring"
-    calling _expect_eq_string with (calling char_at with "abc", 1), "b", "char_at"
+    var _lt_4803 as string is calling substring with "abcdef", 1, 3
+    defer banish _lt_4803
+    calling _expect_eq_string with _lt_4803, "bc", "substring"
+    var _lt_4804 as string is calling char_at with "abc", 1
+    defer banish _lt_4804
+    calling _expect_eq_string with _lt_4804, "b", "char_at"
 test "functional chars and bytes forms":
-    calling _expect_eq_int with ((calling chars with "ab") length), 2, "chars"
+    var _ll_5056 as list of string is calling chars with "ab"
+    defer banish _ll_5056
+    calling _expect_eq_int with (_ll_5056 length), 2, "chars"
     var letter_a as string is "A"
     var codes_a as list of int is calling bytes with letter_a
+    defer banish codes_a
     calling _expect_eq_int with (codes_a at 0), 65, "bytes"
     calling _expect_eq_bool with (calling is_empty with ""), true, "is_empty"
 test "the methods do not mutate the receiver":
     var s as string is "  hola  "
-    var t as string is calling s.trim
+    var t as string is calling s.get_trim
+    defer banish t
     calling _expect_eq_string with s, "  hola  ", "receiver intact"
     calling _expect_eq_string with t, "hola", "result"
 test "chars and bytes of the empty string are empty":
     var empty_s as string is ""
-    calling _expect_eq_int with ((calling empty_s.chars) length), 0, "chars"
-    calling _expect_eq_int with ((calling bytes with empty_s) length), 0, "bytes"
+    var _ll_5070 as list of string is calling empty_s.chars
+    defer banish _ll_5070
+    calling _expect_eq_int with (_ll_5070 length), 0, "chars"
+    var _ll_5071 as list of int is calling bytes with empty_s
+    defer banish _ll_5071
+    calling _expect_eq_int with (_ll_5071 length), 0, "bytes"
 test "the content predicates are false for the empty string":
     var empty_s as string is ""
     calling _expect_eq_bool with (calling empty_s.is_alpha), false, "is_alpha"
@@ -4009,7 +5126,9 @@ test "functional predicate forms":
     calling _expect_eq_bool with (calling is_lower with "a1"), true, "is_lower"
 test "to_snake_case separates letters from digits":
     var s as string is "a1B"
-    calling _expect_eq_string with (calling s.to_snake_case), "a1_b", "digit"
+    var _lt_4832 as string is calling s.get_to_snake_case
+    defer banish _lt_4832
+    calling _expect_eq_string with _lt_4832, "a1_b", "digit"
 test "parse_int of the empty string is none":
     var empty_s as string is ""
     var m as maybe int is calling empty_s.parse_int
@@ -4020,10 +5139,13 @@ test "index_of and last_index_of with an empty sub on empty":
     calling _expect_eq_int with (calling empty_s.last_index_of with ""), 0, "last_index_of"
 test "repeat_join with an empty separator":
     var s as string is "ab"
-    calling _expect_eq_string with (calling s.repeat_join with 2, ""), "abab", "no separator"
+    var _lt_4843 as string is calling s.get_repeat_join with 2, ""
+    defer banish _lt_4843
+    calling _expect_eq_string with _lt_4843, "abab", "no separator"
 test "lines with a trailing LF adds an empty line":
     var s as string is "a\n"
     var parts as list of string is calling s.lines
+    defer banish parts
     calling _expect_eq_int with (parts length), 2, "two lines"
     calling _expect_eq_string with (parts at 1), "", "last empty"
 test "is_numeric rejects a lone sign":
@@ -4037,45 +5159,110 @@ test "compare with a common prefix and different lengths":
     var short_s as string is "ab"
     calling _expect_eq_int with (calling short_s.compare with "abc"), -1, "shorter"
 test "functional reverse and repetition forms":
-    calling _expect_eq_string with (calling reverse with "abc"), "cba", "reverse"
-    calling _expect_eq_string with (calling repeat with "ab", 2), "abab", "repeat"
+    var _lt_4860 as string is calling reverse with "abc"
+    defer banish _lt_4860
+    calling _expect_eq_string with _lt_4860, "cba", "reverse"
+    var _lt_4861 as string is calling repeat with "ab", 2
+    defer banish _lt_4861
+    calling _expect_eq_string with _lt_4861, "abab", "repeat"
 
 # New in 2.0: strip, splitn, rsplit and the any-prefix/any-suffix predicates
 test "starts_with_any matches any prefix":
     var s as string is "abc"
     var some_prefixes as list of string is ["x", "ab"]
+    defer banish some_prefixes
     var no_prefixes as list of string is list of string
+    defer banish no_prefixes
     var other_prefixes as list of string is ["x"]
+    defer banish other_prefixes
     calling _expect_eq_bool with (calling s.starts_with_any with some_prefixes), true, "match"
     calling _expect_eq_bool with (calling s.starts_with_any with no_prefixes), false, "empty list"
     calling _expect_eq_bool with (calling starts_with_any with s, other_prefixes), false, "functional"
 test "ends_with_any matches any suffix":
     var s as string is "abc"
     var some_suffixes as list of string is ["x", "bc"]
+    defer banish some_suffixes
     var no_suffixes as list of string is list of string
+    defer banish no_suffixes
     var other_suffixes as list of string is ["x"]
+    defer banish other_suffixes
     calling _expect_eq_bool with (calling s.ends_with_any with some_suffixes), true, "match"
     calling _expect_eq_bool with (calling s.ends_with_any with no_suffixes), false, "empty list"
     calling _expect_eq_bool with (calling ends_with_any with s, other_suffixes), false, "functional"
 test "starts_with_any and ends_with_any accept the empty pattern":
     var s as string is "abc"
     var empty_prefixes as list of string is [""]
+    defer banish empty_prefixes
     var empty_suffixes as list of string is [""]
+    defer banish empty_suffixes
     calling _expect_eq_bool with (calling s.starts_with_any with empty_prefixes), true, "empty prefix"
     calling _expect_eq_bool with (calling s.ends_with_any with empty_suffixes), true, "empty suffix"
 test "strip is the module alias of trim":
-    calling _expect_eq_string with (calling strip with "  x  "), "x", "strip"
+    var _lt_4887 as string is calling strip with "  x  "
+    defer banish _lt_4887
+    calling _expect_eq_string with _lt_4887, "x", "strip"
     var raw as string is "\n x \t"
-    calling _expect_eq_string with (calling raw.strip), "x", "method strip"
+    var _lt_4889 as string is calling raw.get_strip
+    defer banish _lt_4889
+    calling _expect_eq_string with _lt_4889, "x", "method strip"
 test "splitn splits into at most n parts":
     var s as string is "a,b,c"
     var parts as list of string is calling s.splitn with ",", 2
+    defer banish parts
     calling _expect_eq_int with (parts length), 2, "two parts"
     calling _expect_eq_string with (parts at 1), "b,c", "remainder"
     var func_parts as list of string is calling splitn with s, ",", 4
+    defer banish func_parts
     calling _expect_eq_int with (func_parts length), 3, "functional"
 test "rsplit agrees with split on a simple string":
     var s as string is "a-b-c"
     var parts as list of string is calling s.rsplit with "-"
+    defer banish parts
     calling _expect_eq_int with (parts length), 3, "rsplit"
     calling _expect_eq_string with (parts at 1), "b", "middle"
+test "mutating trim rewrites the receiver in place":
+    var s as string is "  x  "
+    calling s.trim
+    calling _expect_eq_string with s, "x", "trim mutates"
+    banish s
+test "get_trim returns the value without mutating":
+    var s as string is "  x  "
+    var out as string is calling s.get_trim
+    calling _expect_eq_string with out, "x", "get_trim result"
+    calling _expect_eq_string with s, "  x  ", "get_trim leaves the receiver"
+    banish out
+    banish s
+test "mutating methods chain sequentially":
+    # Each statement must see the previous one's result: no temporary nesting.
+    var s as string is "  Hello  "
+    calling s.trim
+    calling s.upper
+    calling _expect_eq_string with s, "HELLO", "trim then upper"
+    banish s
+test "mutating replace forwards its arguments":
+    var s as string is "a-b"
+    calling s.replace with "-", "+"
+    calling _expect_eq_string with s, "a+b", "replace mutates"
+    banish s
+test "mutating zfill and center pad in place":
+    var s as string is "42"
+    calling s.zfill with 5
+    calling _expect_eq_string with s, "00042", "zfill mutates"
+    banish s
+    var t as string is "ab"
+    calling t.center with 6, "-"
+    calling _expect_eq_string with t, "--ab--", "center mutates"
+    banish t
+test "mutating substring shrinks the receiver":
+    var s as string is "abcdef"
+    calling s.substring with 1, 4
+    calling _expect_eq_string with s, "bcd", "substring mutates"
+    banish s
+test "mutating an owned buffer releases the buffer it replaces":
+    # `get_upper` returns an owned string; mutating it in place replaces that
+    # buffer and must release the original (the leak audit runs this under ASan).
+    var base as string is "abc"
+    var owned as string is calling base.get_upper
+    calling owned.reverse
+    calling _expect_eq_string with owned, "CBA", "reverse mutates an owned buffer"
+    banish owned
