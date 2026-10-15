@@ -12,6 +12,73 @@ its satellite repository.
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
 
+## 2.3.0 → 2.4.0: mutating methods in the primitive modules
+
+The toolchain stays at **2.3.0**; this entry covers the **module** releases that
+ride with it.  `std.numerus`, `std.integrum`, `std.fractio`, `std.littera` and
+`std.logica` go to **2.1.0**: every method that returned the receiver's own type
+now mutates the receiver and returns `void`, with `get_<name>` as the pure form.
+This is the same split `std.scrolls` took in 2.3.0, now applied through
+`@mutates`.
+
+### Pattern
+
+```pengu
+# Before (2.3.0)
+let y as int is calling x.abs
+calling ward.assert_eq_int with (calling x.clamp with 0, 10), 10
+
+# After (2.4.0)
+let y as int is calling x.get_abs
+calling x.clamp with 0, 10
+calling ward.assert_eq_int with x, 10
+```
+
+A bare mutating call is a **statement**; using it where a value is required is
+`E0066`.  A mutating call on a binding that cannot be assigned is `E0006` -- the
+same rule as `set x is ...`.
+
+### Method table
+
+| Module | Mutating (statement) | Pure form |
+|---|---|---|
+| `numerus` | `abs`, `signum`, `negated`, `twice`, `half`, `square`, `cube`, `truncate`, `floor`, `ceil`, `round` | `get_<name>` |
+| `numerus` | `min_with`, `max_with`, `clamp`, `pow_int` | `get_<name>` |
+| `integrum` | `next_power_of_two`, `prev_power_of_two`, `next_prime`, `prev_prime`, `factorial` | `get_<name>` |
+| `integrum` | `div_floor`, `mod_floor`, `gcd`, `lcm` | `get_<name>` |
+| `fractio` | `reciprocal`, `degrees`, `radians`, `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `exp`, `ln`, `log2`, `log10` | `get_<name>` |
+| `fractio` | `lerp`, `copysign`, `atan2`, `pow`, `hypot` | `get_<name>` |
+| `littera` | `to_upper`, `to_lower` | `get_to_upper`, `get_to_lower` |
+| `logica` | `toggle`, `and_with`, `or_with`, `xor`, `iff`, `nand`, `nor`, `implies` | `get_<name>` |
+
+Every one of those names also has a `get_` spelling; the second and fourth rows
+are simply the methods that take an argument.
+
+### Unchanged
+
+- Predicates and conversions (`is_even`, `is_prime`, `is_nan`, `approx_eq`,
+  `to_int`, `to_hex`, `div_rem`, ...) still return a value and take no part in the
+  split.
+- The `char` methods of `std.littera` are a different type from the `string`
+  methods of `std.scrolls`; the two were already independent.
+- Module-level functions that only delegate (`arithmancy.abs_i`,
+  `arithmancy.sqrt`, ...) are **not** mutating: they take their operand as an
+  argument, so they have no receiver to write back to.
+
+### Chaining
+
+Mutations on one receiver are written as consecutive statements:
+
+```pengu
+calling x.clamp with -30, 30
+calling x.abs
+calling x.twice
+```
+
+A chain (`calling x.get_abs.get_twice`) is the pure spelling and does **not**
+touch `x`; a mutating link cannot appear inside a chain because it returns
+nothing.
+
 ## 2.2.x → 2.3.0
 
 ### `std.scrolls`: methods that return `string` now mutate in place

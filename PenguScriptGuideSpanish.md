@@ -756,13 +756,21 @@ Reglas:
 7. **Un método por bound correcto.** Si un método no puede funcionar en todos los tipos de un bound, muévelo al bound más estricto que encaje. `sqrt` no funciona en `int`; vive en `fractio` (`Real`), no en `numerus` (`Num`).
 8. **`@mutates` para el par mutante/puro.** Un método que devuelve el propio tipo del receptor puede marcarse con `@mutates`: `calling x.clamp with …` **muta `x`** (solo como sentencia) y `calling x.get_clamp with …` devuelve el valor sin tocarlo. Se emite **una sola** función C y el cuerpo sigue siendo puro (`self` es un valor, `E0006` intacto): la asignación la hace el punto de llamada. Fuera de un bloque `enchanting`, con un `into` distinto del tipo del receptor, o con un cuerpo que asigna a `self`, es `E0067`; declarar además `get_<name>` es `E0068`; usar la forma mutante donde se espera un valor es `E0066`. Ver `LANGUAGE.md` §10.1.
 
-| Módulo | Bound | Cubre | Métodos de ejemplo |
-|---|---|---|---|
-| `std.numerus` | `T: Num and T: Ordo and T: Par` | todos los primitivos numéricos | `abs`, `clamp`, `pow_int`, `round` |
-| `std.integrum` | `T: Integrum` | solo enteros | `is_even`, `gcd`, `bit_count`, `to_hex` |
-| `std.fractio` | `T: Real` | `float`, `f32`, `f64`, `double` | `sqrt`, `sin`, `exp`, `is_nan`, `approx_eq` |
-| `std.littera` | `char` | `char` | `is_digit`, `to_upper`, `digit_value` |
-| `std.logica` | `bool` | `bool` | `to_int`, `implies`, `xor`, `iff` |
+| Módulo | Bound | Cubre | Muta (sentencia) | Forma pura |
+|---|---|---|---|---|
+| `std.numerus` | `T: Num and T: Ordo and T: Par` | todos los primitivos numéricos | `abs`, `clamp`, `pow_int`, `round` | `get_abs`, `get_clamp`, … |
+| `std.integrum` | `T: Integrum` | solo enteros | `gcd`, `lcm`, `next_prime`, `factorial` | `get_gcd`, `get_lcm`, … |
+| `std.fractio` | `T: Real` | `float`, `f32`, `f64`, `double` | `sqrt`, `sin`, `exp`, `reciprocal` | `get_sqrt`, `get_sin`, … |
+| `std.littera` | `char` | `char` | `to_upper`, `to_lower` | `get_to_upper`, `get_to_lower` |
+| `std.logica` | `bool` | `bool` | `implies`, `xor`, `iff`, `toggle` | `get_implies`, `get_xor`, … |
+
+Desde la versión 2.1.0 de estos módulos, todo método que devolvía el propio tipo
+del receptor está marcado `@mutates`: `calling x.abs` **reescribe `x`** y solo
+vale como sentencia, mientras que `calling x.get_abs` devuelve el valor sin tocar
+`x`. Se emite **una sola** función C por receptor. Los predicados (`is_even`,
+`is_nan`, `approx_eq`) y las conversiones (`to_int`, `to_hex`, `div_rem`) siguen
+devolviendo su valor y no participan del desdoblamiento. Ver `LANGUAGE.md` §10.1
+y `MIGRATION.md`.
 
 Los transcendentales que llaman a `libm` viven en dos bloques **concretos** (`enchanting float:` y `enchanting f64:`) en lugar de en el shard, porque C expone símbolos distintos por ancho (`sqrtf` frente a `sqrt`). Los predicados y utilidades puras se quedan en el único bloque `enchanting shard T where T: Real:`. Declara solo los nombres canónicos (`float`, `f64`): `f32` y `double` son alias del mismo tipo C, y declarar ambas grafías es `E0047`.
 

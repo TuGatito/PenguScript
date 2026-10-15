@@ -2,6 +2,89 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.4.0] — 2026-10-15 — `@mutates` reaches the five primitive modules
+
+`@mutates` (2.3.0) was only used by `std.scrolls`, and `scrolls` spells its two
+forms out by hand.  This release annotates the five modules that define the
+numeric, character and boolean methods, so one C function per method now serves
+both spellings everywhere:
+
+| Call | Meaning |
+|---|---|
+| `calling x.clamp with 0, 100` | **mutates `x`**, returns nothing (statement only) |
+| `calling x.get_clamp with 0, 100` | returns the value, leaves `x` alone |
+
+No method body changed -- the attribute is the whole declaration change.  The
+toolchain stays at 2.3.0; the five modules move to 2.1.0.
+
+### Added
+
+- **`std.numerus` 2.1.0** — `abs`, `signum`, `negated`, `min_with`, `max_with`,
+  `clamp`, `twice`, `half`, `square`, `cube`, `pow_int`, `truncate`, `floor`,
+  `ceil` and `round` are now `@mutates`.  Pure forms via `get_*`.
+- **`std.integrum` 2.1.0** — `next_power_of_two`, `prev_power_of_two`,
+  `div_floor`, `mod_floor`, `gcd`, `lcm`, `next_prime`, `prev_prime` and
+  `factorial`.
+- **`std.fractio` 2.1.0** — `reciprocal`, `lerp`, `copysign`, `degrees` and
+  `radians` on the `Real` shard, plus the 15 transcendentals (`sqrt`, `cbrt`,
+  `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`,
+  `log10`, `pow`, `hypot`) in both the `float` and `f64` blocks.
+- **`std.littera` 2.1.0** — `to_upper` and `to_lower`.
+- **`std.logica` 2.1.0** — `toggle`, `and_with`, `or_with`, `xor`, `iff`, `nand`,
+  `nor` and `implies`.
+
+Predicates and conversions are deliberately untouched: a method that answers
+`bool`, `int`, `usize`, `string`, a tuple or a list has no receiver to write back
+to.
+
+### Fixed
+
+Three compiler bugs, all in `@mutates` itself, surfaced by annotating real
+modules rather than a test fixture:
+
+- **DCE pruned `@mutates` weaves.** The reference collector reads raw identifiers,
+  and a `@mutates` method is reached as `get_<name>`, so the underlying weave was
+  never marked alive and was dropped while its call site kept emitting the symbol:
+  `error: declaración implícita de la función 'bool_implies'`.  A `get_<name>`
+  mention now counts as a mention of `<name>`.
+- **The `__shard__` lookup ignored the declared bounds** and acted as a wildcard,
+  so `string.get_truncate` matched `std.numerus`'s `shard T where T: Num and
+  T: Ordo and T: Par` method and resolved to `std.scrolls`' *mutating* `truncate`
+  (E0005: `'string', but initialized with 'void'`).  It now applies the same
+  bounds test as ordinary resolution.
+- **Nested monomorphizations were registered too late.**  A `shard T` body that
+  calls another `@mutates` shard method had its inner instance registered during
+  body generation -- after the definitions were assembled -- so `u8_abs` was
+  called inside `u8_gcd` and defined nowhere (only some widths failed, depending
+  on which body reached it first).  Collection now maps the name through the
+  `@mutates` alias too.
+
+And one long-standing library leak, found by the ASan gate on `integrum`:
+
+- **`to_hex`, `to_bin` and `to_oct` leaked on every call** (1216 bytes in 19
+  allocations, measured).  `set acc is "{d}{acc}"` allocates and never released
+  the previous accumulator, `_integrum_hex_digit` leaked its interpolated
+  `"{d}"`, and the negative branch leaked `acc` again via `return "-{acc}"`.
+  `_integrum_hex_digit`'s docstring claimed "the runtime frees the interpolated
+  temporary" -- it does not, the memory model is manual -- and now states the
+  real contract.
+
+### Tests
+
+- `std/logica` 27 -> **44**, `std/littera` 26 -> **32**, `std/numerus` 38 ->
+  **69**, `std/integrum` 38 -> **57**, `std/fractio` 37 -> **108**: a mutating and
+  a pure test per method, plus a chained-mutation test per module.
+- **ASan/UBSan: 0 leaks** for all five modules (the three that had leaks or UB
+  are listed above; the other two were already clean).
+- `tests/stdlib/{numerus,integrum,fractio,littera,logica,arithmancy}` migrated
+  and green.
+
+### Migration
+
+Value-position uses must move to `get_<name>`; a bare mutating call is now a
+statement.  `MIGRATION.md` has the section `2.3.x -> 2.4.0` and the full method
+table.
+
 ## [2.3.0] — 2026-10-15 — `@mutates`: one method, an in-place form and a pure form
 
 `@mutates` is a new attribute for a `weave` declared inside an `enchanting`

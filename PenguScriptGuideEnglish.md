@@ -756,13 +756,21 @@ Rules:
 7. **One method per correct bound.** If a method cannot work for every type of a bound, move it to the strictest bound that fits. `sqrt` does not work on `int`, so it lives in `fractio` (`Real`), not in `numerus` (`Num`).
 8. **`@mutates` for the mutating/pure pair.** A method that returns the receiver's own type may be marked `@mutates`: `calling x.clamp with …` **mutates `x`** (statement only) and `calling x.get_clamp with …` returns the value without touching it. Exactly **one** C function is emitted and the body stays pure (`self` is a value, `E0006` intact): the call site does the assignment. Outside an `enchanting` block, with an `into` that is not the receiver's type, or with a body that assigns to `self`, it is `E0067`; declaring `get_<name>` as well is `E0068`; using the mutating form where a value is required is `E0066`. See `LANGUAGE.md` §10.1.
 
-| Module | Bound | Covers | Example methods |
-|---|---|---|---|
-| `std.numerus` | `T: Num and T: Ordo and T: Par` | all numeric primitives | `abs`, `clamp`, `pow_int`, `round` |
-| `std.integrum` | `T: Integrum` | integers only | `is_even`, `gcd`, `bit_count`, `to_hex` |
-| `std.fractio` | `T: Real` | `float`, `f32`, `f64`, `double` | `sqrt`, `sin`, `exp`, `is_nan`, `approx_eq` |
-| `std.littera` | `char` | `char` | `is_digit`, `to_upper`, `digit_value` |
-| `std.logica` | `bool` | `bool` | `to_int`, `implies`, `xor`, `iff` |
+| Module | Bound | Covers | Mutating (statement) | Pure form |
+|---|---|---|---|---|
+| `std.numerus` | `T: Num and T: Ordo and T: Par` | all numeric primitives | `abs`, `clamp`, `pow_int`, `round` | `get_abs`, `get_clamp`, ... |
+| `std.integrum` | `T: Integrum` | integers only | `gcd`, `lcm`, `next_prime`, `factorial` | `get_gcd`, `get_lcm`, ... |
+| `std.fractio` | `T: Real` | `float`, `f32`, `f64`, `double` | `sqrt`, `sin`, `exp`, `reciprocal` | `get_sqrt`, `get_sin`, ... |
+| `std.littera` | `char` | `char` | `to_upper`, `to_lower` | `get_to_upper`, `get_to_lower` |
+| `std.logica` | `bool` | `bool` | `implies`, `xor`, `iff`, `toggle` | `get_implies`, `get_xor`, ... |
+
+Since version 2.1.0 of these modules every method that returned the receiver's own
+type is marked `@mutates`: `calling x.abs` **rewrites `x`** and is only valid as
+a statement, while `calling x.get_abs` returns the value and leaves `x` alone.
+Exactly **one** C function per receiver is emitted.  Predicates (`is_even`,
+`is_nan`, `approx_eq`) and conversions (`to_int`, `to_hex`, `div_rem`) still
+return their value and take no part in the split.  See `LANGUAGE.md` §10.1 and
+`MIGRATION.md`.
 
 Transcendentals that call `libm` live in two **concrete** blocks (`enchanting float:` and `enchanting f64:`) rather than in the shard, because C exposes different symbols per width (`sqrtf` vs `sqrt`). Pure predicates and utilities stay in the single `enchanting shard T where T: Real:` block. Declare only the canonical names (`float`, `f64`): `f32` and `double` are aliases of the same C type, and declaring both spellings is `E0047`.
 

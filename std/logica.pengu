@@ -52,7 +52,7 @@ import std.ward
 # ----------------------------------------------------------------------------
 
 ## Logica module version.
-const LOGICA_VERSION as string is "2.0.0"
+const LOGICA_VERSION as string is "2.1.0"
 
 # ----------------------------------------------------------------------------
 # Methods on `bool`
