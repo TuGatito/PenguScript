@@ -107,6 +107,7 @@ Toda `weave` usa **`snake_case`** con el verbo en forma base (sin `to`, sin `-in
 | Constructor | `new`, `from_*`, `with_*` | `new`, `from_csv`, `with_capacity` |
 | Mutador | verbo transitivo | `push`, `pop`, `set_volume`, `clear`, `remove` |
 | Getter no-trivial | `get_*` | `get_or`, `get_flag_value`, `getenv_or` |
+| Forma pura de un mutante `@mutates` | `get_<nombre>` | `get_clamp` (pura), `clamp` (muta); ver §6.7 |
 | Getter trivial | sustantivo (sin prefijo) | `len`, `size`, `first`, `keys`, `values` |
 | Formateador | `format_*`, `describe_*` | `format_duration`, `describe_result_int` |
 | I/O de líneas | `read_*`, `write_*` | `read_file`, `write_lines`, `read_int` |
@@ -753,6 +754,7 @@ Reglas:
 5. **Nunca `antiquus` para lógica trivial.** `declare` a `libm` cuando haga falta C (`sqrt`, `sin`).
 6. **Predicados con `is_*`.** Consultas puras con el nombre base (`abs`, `floor`).
 7. **Un método por bound correcto.** Si un método no puede funcionar en todos los tipos de un bound, muévelo al bound más estricto que encaje. `sqrt` no funciona en `int`; vive en `fractio` (`Real`), no en `numerus` (`Num`).
+8. **`@mutates` para el par mutante/puro.** Un método que devuelve el propio tipo del receptor puede marcarse con `@mutates`: `calling x.clamp with …` **muta `x`** (solo como sentencia) y `calling x.get_clamp with …` devuelve el valor sin tocarlo. Se emite **una sola** función C y el cuerpo sigue siendo puro (`self` es un valor, `E0006` intacto): la asignación la hace el punto de llamada. Fuera de un bloque `enchanting`, con un `into` distinto del tipo del receptor, o con un cuerpo que asigna a `self`, es `E0067`; declarar además `get_<name>` es `E0068`; usar la forma mutante donde se espera un valor es `E0066`. Ver `LANGUAGE.md` §10.1.
 
 | Módulo | Bound | Cubre | Métodos de ejemplo |
 |---|---|---|---|
@@ -1628,6 +1630,20 @@ return with
     retries is 3
 ```
 
+### 14.25 Usar la forma mutante de `@mutates` donde se espera un valor
+
+```pengu
+# ❌ E0066: 'clamp' muta el receptor y no devuelve nada
+var capped as int is calling hp.clamp with 0, 100
+
+# ✅ Pengunic: la forma pura devuelve el valor
+var capped as int is calling hp.get_clamp with 0, 100
+```
+
+Un método `@mutates` (y las formas in-place de `std.scrolls`) es una **sentencia**:
+muta el receptor y no produce ningún valor. Dentro de una cadena o de una
+expresión hay que usar `get_<name>`. Ver §6.7 y `LANGUAGE.md` §10.1.
+
 ---
 
 ## 15. Excepciones documentadas
@@ -1682,7 +1698,7 @@ La sintaxis `calling x.a.b.c` permite encadenar varias llamadas a método sobre 
 
 ```pengu
 # ✅ Pengunic: cada paso transforma el valor anterior
-let slug is calling raw.trim.lower.replace with " ", "-"
+let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
 
 # ✅ Pengunic: cadena de transformaciones puras sobre colecciones
 let top5 is calling scores.filter_positive.sort_desc.take with 5
@@ -1720,7 +1736,7 @@ let slug is calling raw
     .replace with " ", "-"
 
 # ❌ Anti-Pengunic: línea larga ilegible
-let slug is calling raw.trim.lower.replace with " ", "-"
+let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
 ```
 
 **Reglas de formato:**
@@ -1735,17 +1751,17 @@ let slug is calling raw.trim.lower.replace with " ", "-"
 
 ```pengu
 # ✅ 'with " ", "-"' se aplica a '.replace', no a '.lower'
-let slug is calling raw.trim.lower.replace with " ", "-"
+let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
 ```
 
 Si un eslabón intermedio necesita argumentos y no es el último, la cadena no se puede escribir; pártela:
 
 ```pengu
 # ❌ Anti-Pengunic: no hay forma de dar 'with 0, 4' al 'substring' intermedio
-# let slug is calling raw.trim.substring with 0, 4.lower
+# let slug is calling raw.get_trim.get_substring with 0, 4.lower
 
 # ✅ Pengunic: dos expresiones, nombres explícitos
-let head is calling raw.trim.substring with 0, 4
+let head is calling raw.get_trim.get_substring with 0, 4
 let slug is calling head.lower
 ```
 
@@ -1789,7 +1805,7 @@ calling p.address.city.zip_code
 calling xs.push with 10.reverse
 
 # ❌ Cadena de más de 5 eslabones
-calling raw.trim.lower.replace(" ", "-").split("-").filter_nonempty.first_or("none")
+calling raw.get_trim.get_lower.get_replace(" ", "-").split("-").filter_nonempty.first_or("none")
 
 # ❌ Mezclar '.' y '->'
 calling self.method1->method2

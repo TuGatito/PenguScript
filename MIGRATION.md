@@ -8,9 +8,100 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.0.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.3.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.2.x → 2.3.0
+
+### `std.scrolls`: methods that return `string` now mutate in place
+
+From 2.3.0 the 36 `std.scrolls` methods that returned a `string` mutate the
+receiver and return `void`, matching the `@mutates` rule of
+[`LANGUAGE.md` §10.1](LANGUAGE.md). This is what lets a string be transformed by
+a sequence of statements instead of a chain of temporaries:
+
+```pengu
+# Before (2.2.x)
+var s as string is "  hola  "
+let t as string is calling s.trim
+calling spark.println with t
+
+# After (2.3.0)
+var s as string is "  hola  "
+calling s.trim                       # s == "hola"
+calling spark.println with s
+```
+
+To obtain the value **without** mutating the receiver, use the `get_*` variant:
+
+```pengu
+var s as string is "  hola  "
+let t as string is calling s.get_trim   # s untouched
+```
+
+### Method table
+
+Every affected method keeps its name for the mutating form and gains a `get_`
+spelling for the pure one:
+
+| Method (mutates) | Pure form | Method (mutates) | Pure form |
+|---|---|---|---|
+| `substring` | `get_substring` | `replace` | `get_replace` |
+| `char_at` | `get_char_at` | `replace_all` | `get_replace_all` |
+| `reverse` | `get_reverse` | `repeat` | `get_repeat` |
+| `lower` | `get_lower` | `repeat_join` | `get_repeat_join` |
+| `upper` | `get_upper` | `ljust` | `get_ljust` |
+| `to_lower` | `get_to_lower` | `rjust` | `get_rjust` |
+| `to_upper` | `get_to_upper` | `pad_left` | `get_pad_left` |
+| `capitalize` | `get_capitalize` | `pad_right` | `get_pad_right` |
+| `title` | `get_title` | `zfill` | `get_zfill` |
+| `title_case` | `get_title_case` | `center` | `get_center` |
+| `swap_case` | `get_swap_case` | `removeprefix` | `get_removeprefix` |
+| `to_snake_case` | `get_to_snake_case` | `removesuffix` | `get_removesuffix` |
+| `to_kebab_case` | `get_to_kebab_case` | `truncate` | `get_truncate` |
+| `snake_case` | `get_snake_case` | `ellipsis` | `get_ellipsis` |
+| `kebab_case` | `get_kebab_case` | `trim` | `get_trim` |
+| `pascal_case` | `get_pascal_case` | `strip` | `get_strip` |
+| `trim_start` | `get_trim_start` | `trim_end` | `get_trim_end` |
+| `lstrip` | `get_lstrip` | `rstrip` | `get_rstrip` |
+
+### What to change
+
+Wherever the old result was **used**, ask for the pure form:
+
+```pengu
+# Before
+var clean as string is calling raw.trim
+return calling raw.trim.substring with 0, 2
+
+# After
+var clean as string is calling raw.get_trim
+return calling raw.get_trim.get_substring with 0, 2
+```
+
+Where the old call was a **statement whose result was discarded**, the new
+behaviour is usually what you wanted: `calling s.trim` now actually trims `s`.
+
+Chaining consumes a value, so a chain must use the `get_` links throughout — the
+mutating form returns nothing and cannot appear mid-chain. Calling a bare
+`@mutates` method where a value is required is `E0066`.
+
+### What does *not* change
+
+- The **module-level functional forms** are still pure: `calling scrolls.trim
+  with s` keeps returning a new `string`.
+- Methods that answer with a `list of string` (`split`, `splitn`, `rsplit`,
+  `split_whitespace`, `words`, `lines`, `partition`, `chars`) are untouched, and
+  their elements are still non-owning views into the receiver.
+- `std.littera`'s `char.to_upper`/`char.to_lower` and `std.tally`'s list helpers
+  are different methods on different types and are unaffected.
+- `std.numerus`, `std.integrum`, `std.fractio`, `std.littera` and `std.logica`
+  are **not** part of this release; their methods still return their value.
+
+`std.scrolls` spells the two forms out explicitly rather than using `@mutates`,
+so the mutating body can release the buffer it replaces; the call-site semantics
+are identical.
 
 ## 0. Phase 1 (Unreleased): external bindings moved to satellite repositories
 

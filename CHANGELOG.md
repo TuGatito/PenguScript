@@ -2,6 +2,97 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.3.0] — 2026-10-15 — `@mutates`: one method, an in-place form and a pure form
+
+`@mutates` is a new attribute for a `weave` declared inside an `enchanting`
+block. It marks a method whose **result the call site assigns back to the
+receiver**, so a single C function gains two surface forms: `calling x.clamp
+with 0, 10` mutates `x`, and `calling x.get_clamp with 0, 10` returns the value
+without touching it. The body stays pure — `self` is still an immutable value and
+`E0006` is *not* relaxed; the assignment happens at the call site.
+
+### Changed
+
+- ⚠️ **BREAKING — `std.scrolls`: the 36 methods that returned a `string` now
+  mutate the receiver in place and return `void`.** They are `substring`,
+  `char_at`, `reverse`, `lower`, `upper`, `to_lower`, `to_upper`, `capitalize`,
+  `title`, `title_case`, `swap_case`, `to_snake_case`, `to_kebab_case`,
+  `snake_case`, `kebab_case`, `pascal_case`, `trim`, `strip`, `trim_start`,
+  `trim_end`, `lstrip`, `rstrip`, `replace`, `replace_all`, `repeat`,
+  `repeat_join`, `ljust`, `rjust`, `pad_left`, `pad_right`, `zfill`, `center`,
+  `removeprefix`, `removesuffix`, `truncate` and `ellipsis`. Each has a matching
+  **`get_<name>`** that returns a fresh owned `string` and leaves the receiver
+  alone. `SCROLLS_VERSION` is now `2.1.0`. See `MIGRATION.md` for the migration
+  pattern.
+- The module-level **functional forms are unchanged**: `calling scrolls.trim
+  with s` still returns a new `string`. Methods that answer with a `list of
+  string` (`split`, `splitn`, `rsplit`, `words`, `lines`, `chars`,
+  `split_whitespace`, `partition`) are untouched and their elements are still
+  non-owning views into the receiver.
+
+### Added
+
+- **`@mutates`** — an attribute for a `weave` inside an `enchanting` block. Three
+  new diagnostics ship with it: **`E0066`** (the mutating spelling used where a
+  value is required — use `get_<name>`), **`E0067`** (`@mutates` outside an
+  `enchanting` block, a return type that is not the receiver's, or a body that
+  assigns to `self`) and **`E0068`** (an explicit `weave get_<name>` collides
+  with the reserved pure form). It works for primitives, bare `shard T`
+  receivers, `string`/collection receivers and runes. **One C function per
+  receiver** is emitted; `get_<name>` is a surface alias, never a second symbol.
+- **`std.coven` ownership API** — `SetString.add_owned` stores a private copy of
+  an element, `clone_owned` returns a set that owns its own keys and `release`
+  frees those copies before the backing map. `banish s.items` remains the
+  correct and complete release for a set built with the borrowing `add`.
+  `COVEN_VERSION` is now `2.3.0`.
+
+### Fixed
+
+- **`std.coven.to_set_int`** leaked the `maybe int` box returned by
+  `spark.parse_int` (8 bytes per call). It is now released on both branches.
+- **`std.coven.to_set_string`** leaked the interpolated key handed to `add` (64
+  bytes per element). It now transfers ownership through a private `_put_owned`
+  bridge, which drops an existing entry first so a duplicate key cannot leak the
+  transferred buffer.
+- **`std.coven` borrow/own documentation.** `SetString.add` and `SetInt.add`
+  promised a copy the runtime never made (`pengu_map_put` copies only the
+  `PenguString` header), and `SetInt.add` still described the 0.14.x
+  decimal-string key. The contract now matches what the code does, and the same
+  correction applies to the module header.
+- **Compiler: `defer banish x` and `banish x` disagreed.** The deferred form
+  (`defer banish opt`, the one that survives a panic) rejected a `maybe`/`result`
+  payload with `E0008` while the plain statement accepted it. Both paths now
+  accept the same set of types.
+- **`std.scrolls` embedded tests leaked 175 allocations (7719 bytes).** Released
+  them with `defer banish`; LeakSanitizer is now silent for the module.
+
+### Tests
+
+- `tests/compiler` + `tests/lsp` + `tests/tooling`: **356 passed** (31 new tests
+  for `@mutates`: 24 parse/check/emit-C, 7 end-to-end).
+- `tests/stdlib`: **109 passed**. `tests/wasm`: **59 passed**.
+- `std/scrolls.pengu` embedded: **142 passed** (+7 for the mutating forms).
+  `std/coven.pengu` embedded: **60 passed**.
+- **ASan/UBSan: zero LeakSanitizer output** for both `std/coven.pengu` and
+  `std/scrolls.pengu`.
+- `tools/check_doc_blocks.py --check`: 226 blocks verified.
+  `tools/gen_error_catalog.py --check`: in sync (65 codes).
+
+### Migration
+
+- Rename value-position uses of the 36 `std.scrolls` methods to `get_<name>`
+  (e.g. `var clean as string is calling raw.trim` →
+  `calling raw.get_trim`). A bare mutating call must be a statement; inside a
+  chain use the `get_` links throughout. `MIGRATION.md` has the full table.
+
+### Notes
+
+- The same treatment for `std.numerus`, `std.integrum`, `std.fractio`,
+  `std.littera` and `std.logica` is **not** part of 2.3.0: those methods still
+  return their value and are unchanged. `@mutates` is already the mechanism they
+  need, so that work — the attribute plus the value-position migration of their
+  call sites — is planned for **2.4.0**.
+
 ## [2.2.4] — 2026-10-14 — `enchanting`: methods a type gains from another module
 
 `enchanting` is how a PenguScript type gains methods from another module — 733 of

@@ -2522,7 +2522,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | Module | Import | Implementation | Purpose & key functions |
 | ------ | ------ | -------------- | ----------------------- |
 | **spark** | `import std.spark` | C runtime + Pengu wrappers | Core runtime & terminal I/O: `print`, `println`/`print_line`, `eprint_line`, `input`, `panic`, `assert`/`assert_msg`, conversions (`str_int`, `str_float`, `str_bool`, `parse_int`, `parse_float`), `len_string`, `range`, `spark_version`. |
-| **scrolls** | `import std.scrolls` | Pure PenguScript | Full string API: `contains`, `starts_with`, `ends_with`, `index_of`, `last_index_of`, `substring`, `char_at`, `trim`/`trim_start`/`trim_end`, `replace`, `split`, `repeat`, `reverse`, `len`, `is_empty`, ASCII case & classification (`lower`, `upper`, `is_alpha`, `is_digit`, `is_alnum`) via `ord`/`chr`. Enchants `string` (`calling s.trim`). |
+| **scrolls** | `import std.scrolls` | Pure PenguScript | Full string API: `contains`, `starts_with`, `ends_with`, `index_of`, `last_index_of`, `substring`, `char_at`, `trim`/`trim_start`/`trim_end`, `replace`, `split`, `repeat`, `reverse`, `len`, `is_empty`, ASCII case & classification (`lower`, `upper`, `is_alpha`, `is_digit`, `is_alnum`) via `ord`/`chr`. Enchants `string`. Each `string`-returning method has two spellings: `calling s.trim` mutates `s` in place (statement only) and `calling s.get_trim` returns a fresh owned `string` you `banish`. |
 | **oracle** | `import std.oracle` | Pure PenguScript | Optional/result value types: `MaybeInt`, `MaybeFloat`, `MaybeString`, `ResultInt`, `ResultString` with constructors (`maybe_some_int`, `maybe_none_string`, `result_ok_int`, `result_err_string`, …) and methods `is_present`, `is_none`, `unwrap`, `unwrap_or`, `is_ok`, `is_err`. |
 | **tally** | `import std.tally` | Pure PenguScript | Dynamic list utilities: `is_empty`, `sum`, `max_val`, `min_val`, plus element indexing and transformations. |
 | **atlas** | `import std.atlas` | Pure PenguScript | Hash map helpers over the built-in `map of K to V` (`map_len_str_int`, …). |
@@ -3103,12 +3103,12 @@ var v as int is grid at 0 at 0   # grid[0][0]
 
 ```pengu
 # One line: `with` binds to the LAST link only.
-let part is calling raw.trim.substring with 0, 2
+let part is calling raw.get_trim.get_substring with 0, 2
 
 # Several lines: a `.`-prefixed line continues the chain.
 let part is calling raw
-    .trim
-    .substring with 0, 2
+    .get_trim
+    .get_substring with 0, 2
 ```
 
 ## Multiple return values (1.1.0)

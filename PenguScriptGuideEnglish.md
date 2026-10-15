@@ -107,6 +107,7 @@ Every `weave` uses **`snake_case`** with the verb in base form (no `to`, no `-in
 | Constructor | `new`, `from_*`, `with_*` | `new`, `from_csv`, `with_capacity` |
 | Mutator | transitive verb | `push`, `pop`, `set_volume`, `clear`, `remove` |
 | Non-trivial getter | `get_*` | `get_or`, `get_flag_value`, `getenv_or` |
+| Pure form of a `@mutates` method | `get_<name>` | `get_clamp` (pure), `clamp` (mutates); see §6.7 |
 | Trivial getter | noun (no prefix) | `len`, `size`, `first`, `keys`, `values` |
 | Formatter | `format_*`, `describe_*` | `format_duration`, `describe_result_int` |
 | Line I/O | `read_*`, `write_*` | `read_file`, `write_lines`, `read_int` |
@@ -753,6 +754,7 @@ Rules:
 5. **Never `antiquus` for trivial logic.** Use `declare` to `libm` when C is genuinely needed (`sqrt`, `sin`).
 6. **Predicates with `is_*`.** Pure queries keep the bare name (`abs`, `floor`).
 7. **One method per correct bound.** If a method cannot work for every type of a bound, move it to the strictest bound that fits. `sqrt` does not work on `int`, so it lives in `fractio` (`Real`), not in `numerus` (`Num`).
+8. **`@mutates` for the mutating/pure pair.** A method that returns the receiver's own type may be marked `@mutates`: `calling x.clamp with …` **mutates `x`** (statement only) and `calling x.get_clamp with …` returns the value without touching it. Exactly **one** C function is emitted and the body stays pure (`self` is a value, `E0006` intact): the call site does the assignment. Outside an `enchanting` block, with an `into` that is not the receiver's type, or with a body that assigns to `self`, it is `E0067`; declaring `get_<name>` as well is `E0068`; using the mutating form where a value is required is `E0066`. See `LANGUAGE.md` §10.1.
 
 | Module | Bound | Covers | Example methods |
 |---|---|---|---|
@@ -1628,6 +1630,20 @@ return with
     retries is 3
 ```
 
+### 14.25 Using the `@mutates` form where a value is expected
+
+```pengu
+# ❌ E0066: 'clamp' mutates the receiver and returns nothing
+var capped as int is calling hp.clamp with 0, 100
+
+# ✅ Pengunic: the pure form returns the value
+var capped as int is calling hp.get_clamp with 0, 100
+```
+
+A `@mutates` method (and the in-place forms of `std.scrolls`) is a **statement**:
+it mutates the receiver and produces no value. Inside a chain or an expression you
+must use `get_<name>`. See §6.7 and `LANGUAGE.md` §10.1.
+
 ---
 
 ## 15. Documented exceptions
@@ -1682,7 +1698,7 @@ The syntax `calling x.a.b.c` chains several method calls on a single receiver. E
 
 ```pengu
 # ✅ Pengunic: each step transforms the previous value
-let slug is calling raw.trim.lower.replace with " ", "-"
+let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
 
 # ✅ Pengunic: chain of pure transformations over collections
 let top5 is calling scores.filter_positive.sort_desc.take with 5
@@ -1720,7 +1736,7 @@ let slug is calling raw
     .replace with " ", "-"
 
 # ❌ Anti-Pengunic: unreadable long line
-let slug is calling raw.trim.lower.replace with " ", "-"
+let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
 ```
 
 **Formatting rules:**
@@ -1735,17 +1751,17 @@ let slug is calling raw.trim.lower.replace with " ", "-"
 
 ```pengu
 # ✅ 'with " ", "-"' applies to '.replace', not to '.lower'
-let slug is calling raw.trim.lower.replace with " ", "-"
+let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
 ```
 
 If an intermediate link needs arguments and is not the last one, the chain cannot be written; split it:
 
 ```pengu
 # ❌ Anti-Pengunic: there is no way to pass 'with 0, 4' to the intermediate 'substring'
-# let slug is calling raw.trim.substring with 0, 4.lower
+# let slug is calling raw.get_trim.get_substring with 0, 4.lower
 
 # ✅ Pengunic: two expressions, explicit names
-let head is calling raw.trim.substring with 0, 4
+let head is calling raw.get_trim.get_substring with 0, 4
 let slug is calling head.lower
 ```
 
@@ -1789,7 +1805,7 @@ calling p.address.city.zip_code
 calling xs.push with 10.reverse
 
 # ❌ Chain of more than 5 links
-calling raw.trim.lower.replace(" ", "-").split("-").filter_nonempty.first_or("none")
+calling raw.get_trim.get_lower.get_replace(" ", "-").split("-").filter_nonempty.first_or("none")
 
 # ❌ Mixing '.' and '->'
 calling self.method1->method2
