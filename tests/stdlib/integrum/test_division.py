@@ -53,18 +53,18 @@ weave main into int:
     var mtwo as int is -2
     var three as int is 3
     var mthree as int is -3
-    calling eq_i with (calling p.div_floor with two), 3, "7 div_floor 2"
-    calling eq_i with (calling n.div_floor with two), -4, "-7 div_floor 2"
-    calling eq_i with (calling p.div_floor with mtwo), -4, "7 div_floor -2"
-    calling eq_i with (calling n.div_floor with mtwo), 3, "-7 div_floor -2"
-    calling eq_i with (calling p.mod_floor with three), 1, "7 mod_floor 3"
-    calling eq_i with (calling n.mod_floor with three), 2, "-7 mod_floor 3"
-    calling eq_i with (calling p.mod_floor with mthree), -2, "7 mod_floor -3"
-    calling eq_i with (calling n.mod_floor with mthree), -1, "-7 mod_floor -3"
+    calling eq_i with (calling p.get_div_floor with two), 3, "7 div_floor 2"
+    calling eq_i with (calling n.get_div_floor with two), -4, "-7 div_floor 2"
+    calling eq_i with (calling p.get_div_floor with mtwo), -4, "7 div_floor -2"
+    calling eq_i with (calling n.get_div_floor with mtwo), 3, "-7 div_floor -2"
+    calling eq_i with (calling p.get_mod_floor with three), 1, "7 mod_floor 3"
+    calling eq_i with (calling n.get_mod_floor with three), 2, "-7 mod_floor 3"
+    calling eq_i with (calling p.get_mod_floor with mthree), -2, "7 mod_floor -3"
+    calling eq_i with (calling n.get_mod_floor with mthree), -1, "-7 mod_floor -3"
     var four as int is 12
-    calling eq_i with (calling four.mod_floor with three), 0, "exact multiple"
+    calling eq_i with (calling four.get_mod_floor with three), 0, "exact multiple"
     var u as u32 is 7
-    calling eq_i with (calling u.div_floor with 2), 3, "unsigned div_floor"
+    calling eq_i with (calling u.get_div_floor with 2), 3, "unsigned div_floor"
     calling spark.println with "DONE"
     return 0
 """)

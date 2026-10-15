@@ -257,14 +257,14 @@ weave is_prime with n as int into bool:
 ## ## Delegación
 ## Wrapper delgado sobre `std.integrum`: el algoritmo vive en `a.gcd with b`.
 weave gcd with a as int , b as int into int:
-    return calling a.gcd with b
+    return calling a.get_gcd with b
 
 ## Least common multiple of `a` and `b`.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.integrum`: el algoritmo vive en `a.lcm with b`.
 weave lcm with a as int , b as int into int:
-    return calling a.lcm with b
+    return calling a.get_lcm with b
 
 ## Smaller of two floats.
 ##

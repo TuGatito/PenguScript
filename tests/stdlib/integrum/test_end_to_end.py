@@ -33,7 +33,7 @@ def test_module_self_tests_pass():
         f"module self-tests failed:\n--- stdout ---\n{res.stdout}\n"
         f"--- stderr ---\n{res.stderr}"
     )
-    assert "All 38 test(s) passed." in res.stdout, res.stdout
+    assert "All 57 test(s) passed." in res.stdout, res.stdout
 
 
 def test_realistic_prime_count(compile_and_run):
@@ -50,7 +50,7 @@ weave main into int:
     calling spark.println with "{count}"
     var a as int is 12
     var b as int is 18
-    calling spark.println with "{calling a.gcd with b} {calling a.lcm with b}"
+    calling spark.println with "{calling a.get_gcd with b} {calling a.get_lcm with b}"
     var h as string is calling a.to_hex
     calling spark.println with h
     banish h
@@ -105,9 +105,9 @@ weave main into int:
         set total is total + 1
     if calling l.is_even:
         set total is total + 1
-    set total is total + (calling a.gcd with 6)
-    set total is total + (calling f.gcd with 6)
-    set total is total + (calling h.gcd with 6)
+    set total is total + (calling a.get_gcd with 6)
+    set total is total + (calling f.get_gcd with 6)
+    set total is total + (calling h.get_gcd with 6)
     calling spark.println with "{total}"
     return 0
 """)
@@ -124,9 +124,9 @@ def test_monomorphized_symbols_and_delegation(tmp_path):
         "    var a as int is -12\n"
         "    var b as i64 is -12\n"
         "    var c as u32 is 12\n"
-        "    let g1 is calling a.gcd with 18\n"
-        "    let g2 is calling b.gcd with 18\n"
-        "    let p is calling c.next_prime\n"
+        "    let g1 is calling a.get_gcd with 18\n"
+        "    let g2 is calling b.get_gcd with 18\n"
+        "    let p is calling c.get_next_prime\n"
         "    var h as string is calling a.to_hex\n"
         "    banish h\n"
         "    return 0\n",

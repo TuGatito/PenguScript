@@ -73,8 +73,8 @@ weave main into int:
     var four as int is 4
     var six as int is 6
     var eight as int is 8
-    calling eq_i with (calling arithmancy.gcd with twelve, eighteen), (calling twelve.gcd with eighteen), "gcd"
-    calling eq_i with (calling arithmancy.lcm with four, six), (calling four.lcm with six), "lcm"
+    calling eq_i with (calling arithmancy.gcd with twelve, eighteen), (calling twelve.get_gcd with eighteen), "gcd"
+    calling eq_i with (calling arithmancy.lcm with four, six), (calling four.get_lcm with six), "lcm"
     var g1 as bool is calling arithmancy.is_prime with big
     var g2 as bool is calling big.is_prime
     if g1 != g2:

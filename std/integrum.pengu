@@ -80,9 +80,11 @@ const INTEGRUM_VERSION as string is "2.0.0"
 
 ## Helper privado: un dígito hexadecimal (`0`–`15`) como `string`.
 ##
-## Devuelve un `string` literal o interpolado; el llamador no lo libera (los
-## literales no poseen memoria y la interpolación de un `int` devuelve un
-## temporal que el runtime libera). Ver `to_hex`.
+## Devuelve un `string` literal (`"a"`–`"f"`) o, para `0`–`9`, un interpolado
+## **owned**. El llamador es responsable de liberarlo: `banish` es un no-op sobre
+## el literal y libera el interpolado, así que `banish` sobre el resultado es
+## correcto en ambos casos. (El runtime no libera nada por su cuenta: el modelo
+## de memoria es manual.) Ver `to_hex`.
 weave _integrum_hex_digit with d as int into string:
     if d < 10:
         return "{d}"
@@ -311,6 +313,7 @@ enchanting shard T where T: Integrum:
     ## 5.next_power_of_two     # 8
     ## 8.next_power_of_two     # 16
     ## ```
+    @mutates
     weave next_power_of_two into T:
         var p as T is (1 to T)
         while p <= self:
@@ -327,6 +330,7 @@ enchanting shard T where T: Integrum:
     ## 8.prev_power_of_two     # 8
     ## 0.prev_power_of_two     # 0
     ## ```
+    @mutates
     weave prev_power_of_two into T:
         if self == donum T:
             return donum T
@@ -365,6 +369,7 @@ enchanting shard T where T: Integrum:
     ## var n as int is -7
     ## calling n.div_floor with 2    # -4 (a diferencia de -7 / 2 == -3)
     ## ```
+    @mutates
     weave div_floor with other as T into T:
         let q as T is self / other
         let r as T is self % other
@@ -384,6 +389,7 @@ enchanting shard T where T: Integrum:
     ## var m as int is 7
     ## calling m.mod_floor with 3    # 1
     ## ```
+    @mutates
     weave mod_floor with other as T into T:
         let r as T is self % other
         if (r != donum T) and ((r < donum T) != (other < donum T)):
@@ -403,6 +409,7 @@ enchanting shard T where T: Integrum:
     ## var a as int is 12
     ## calling a.gcd with 18   # 6
     ## ```
+    @mutates
     weave gcd with other as T into T:
         var a as T is self
         var b as T is other
@@ -424,10 +431,11 @@ enchanting shard T where T: Integrum:
     ## var a as int is 4
     ## calling a.lcm with 6     # 12
     ## ```
+    @mutates
     weave lcm with other as T into T:
         if self == donum T or other == donum T:
             return donum T
-        let g as T is calling self.gcd with other
+        let g as T is calling self.get_gcd with other
         let p as T is (self / g) * other
         return calling p.get_abs
 
@@ -445,6 +453,7 @@ enchanting shard T where T: Integrum:
     ## 12.next_prime    # 13
     ## 0.next_prime     # 2
     ## ```
+    @mutates
     weave next_prime into T:
         var n as T is self + (1 to T)
         if n < (2 to T):
@@ -462,6 +471,7 @@ enchanting shard T where T: Integrum:
     ## 100.prev_prime   # 97
     ## 2.prev_prime     # 0
     ## ```
+    @mutates
     weave prev_prime into T:
         if self <= (2 to T):
             return donum T
@@ -486,6 +496,7 @@ enchanting shard T where T: Integrum:
     ## ```pengu
     ## 5.factorial     # 120
     ## ```
+    @mutates
     weave factorial into T:
         if self <= (1 to T):
             return (1 to T)
@@ -527,10 +538,15 @@ enchanting shard T where T: Integrum:
         while n != donum T:
             let d as int is (n % (16 to T)) to int
             let hd as string is calling _integrum_hex_digit with d
-            set acc is "{hd}{acc}"
+            let joined as string is "{hd}{acc}"
+            banish hd
+            banish acc
+            set acc is joined
             set n is n / (16 to T)
         if negative:
-            return "-{acc}"
+            let signed as string is "-{acc}"
+            banish acc
+            return signed
         return acc
 
     ## Convierte `self` a binario **sin prefijo `0b`**.
@@ -556,10 +572,14 @@ enchanting shard T where T: Integrum:
         var acc as string is ""
         while n != donum T:
             let bit as int is (n & (1 to T)) to int
-            set acc is "{bit}{acc}"
+            let joined as string is "{bit}{acc}"
+            banish acc
+            set acc is joined
             set n is n >> 1
         if negative:
-            return "-{acc}"
+            let signed as string is "-{acc}"
+            banish acc
+            return signed
         return acc
 
     ## Convierte `self` a octal **sin prefijo `0o`**.
@@ -585,10 +605,14 @@ enchanting shard T where T: Integrum:
         var acc as string is ""
         while n != donum T:
             let d as int is (n % (8 to T)) to int
-            set acc is "{d}{acc}"
+            let joined as string is "{d}{acc}"
+            banish acc
+            set acc is joined
             set n is n / (8 to T)
         if negative:
-            return "-{acc}"
+            let signed as string is "-{acc}"
+            banish acc
+            return signed
         return acc
 
 # ----------------------------------------------------------------------------
@@ -740,11 +764,11 @@ test "next_power_of_two rounds strictly up":
     var c as int is 4
     var d as int is 5
     var e as int is 1023
-    calling _t_int with (calling a.next_power_of_two), 1
-    calling _t_int with (calling b.next_power_of_two), 2
-    calling _t_int with (calling c.next_power_of_two), 8
-    calling _t_int with (calling d.next_power_of_two), 8
-    calling _t_int with (calling e.next_power_of_two), 1024
+    calling _t_int with (calling a.get_next_power_of_two), 1
+    calling _t_int with (calling b.get_next_power_of_two), 2
+    calling _t_int with (calling c.get_next_power_of_two), 8
+    calling _t_int with (calling d.get_next_power_of_two), 8
+    calling _t_int with (calling e.get_next_power_of_two), 1024
 
 test "prev_power_of_two rounds down inclusively":
     var a as int is 0
@@ -752,11 +776,11 @@ test "prev_power_of_two rounds down inclusively":
     var c as int is 4
     var d as int is 5
     var e as int is 1023
-    calling _t_int with (calling a.prev_power_of_two), 0
-    calling _t_int with (calling b.prev_power_of_two), 1
-    calling _t_int with (calling c.prev_power_of_two), 4
-    calling _t_int with (calling d.prev_power_of_two), 4
-    calling _t_int with (calling e.prev_power_of_two), 512
+    calling _t_int with (calling a.get_prev_power_of_two), 0
+    calling _t_int with (calling b.get_prev_power_of_two), 1
+    calling _t_int with (calling c.get_prev_power_of_two), 4
+    calling _t_int with (calling d.get_prev_power_of_two), 4
+    calling _t_int with (calling e.get_prev_power_of_two), 512
 
 test "div_rem returns quotient and remainder":
     var a as int is 17
@@ -774,61 +798,61 @@ test "div_floor rounds toward minus infinity":
     var n as int is -7
     var q as int is 2
     var m as int is -2
-    calling _t_int with (calling p.div_floor with q), 3
-    calling _t_int with (calling n.div_floor with q), -4
-    calling _t_int with (calling p.div_floor with m), -4
-    calling _t_int with (calling n.div_floor with m), 3
+    calling _t_int with (calling p.get_div_floor with q), 3
+    calling _t_int with (calling n.get_div_floor with q), -4
+    calling _t_int with (calling p.get_div_floor with m), -4
+    calling _t_int with (calling n.get_div_floor with m), 3
 
 test "mod_floor takes the sign of the divisor":
     var p as int is 7
     var n as int is -7
     var q as int is 3
     var m as int is -3
-    calling _t_int with (calling p.mod_floor with q), 1
-    calling _t_int with (calling n.mod_floor with q), 2
-    calling _t_int with (calling p.mod_floor with m), -2
-    calling _t_int with (calling n.mod_floor with m), -1
+    calling _t_int with (calling p.get_mod_floor with q), 1
+    calling _t_int with (calling n.get_mod_floor with q), 2
+    calling _t_int with (calling p.get_mod_floor with m), -2
+    calling _t_int with (calling n.get_mod_floor with m), -1
 
 test "gcd of the classic pair":
     var a as int is 12
     var b as int is 18
-    calling _t_int with (calling a.gcd with b), 6
-    calling _t_int with (calling b.gcd with a), 6
+    calling _t_int with (calling a.get_gcd with b), 6
+    calling _t_int with (calling b.get_gcd with a), 6
 
 test "gcd with zero and coprimes":
     var n as int is 15
     var z as int is 0
     var c as int is 9
     var d as int is 28
-    calling _t_int with (calling z.gcd with n), 15
-    calling _t_int with (calling n.gcd with z), 15
-    calling _t_int with (calling z.gcd with z), 0
-    calling _t_int with (calling c.gcd with d), 1
+    calling _t_int with (calling z.get_gcd with n), 15
+    calling _t_int with (calling n.get_gcd with z), 15
+    calling _t_int with (calling z.get_gcd with z), 0
+    calling _t_int with (calling c.get_gcd with d), 1
 
 test "gcd is non-negative for negative inputs":
     var a as int is -12
     var b as int is 18
     var c as int is 12
     var d as int is -18
-    calling _t_int with (calling a.gcd with b), 6
-    calling _t_int with (calling c.gcd with d), 6
+    calling _t_int with (calling a.get_gcd with b), 6
+    calling _t_int with (calling c.get_gcd with d), 6
 
 test "lcm of the classic pair":
     var a as int is 4
     var b as int is 6
-    calling _t_int with (calling a.lcm with b), 12
-    calling _t_int with (calling b.lcm with a), 12
+    calling _t_int with (calling a.get_lcm with b), 12
+    calling _t_int with (calling b.get_lcm with a), 12
 
 test "lcm with zero is zero":
     var n as int is 9
     var z as int is 0
-    calling _t_int with (calling z.lcm with n), 0
-    calling _t_int with (calling n.lcm with z), 0
+    calling _t_int with (calling z.get_lcm with n), 0
+    calling _t_int with (calling n.get_lcm with z), 0
 
 test "lcm is non-negative for negative inputs":
     var a as int is -4
     var b as int is 6
-    calling _t_int with (calling a.lcm with b), 12
+    calling _t_int with (calling a.get_lcm with b), 12
 
 test "next_prime finds the following prime":
     var a as int is 0
@@ -836,35 +860,35 @@ test "next_prime finds the following prime":
     var c as int is 2
     var d as int is 13
     var e as int is 100
-    calling _t_int with (calling a.next_prime), 2
-    calling _t_int with (calling b.next_prime), 2
-    calling _t_int with (calling c.next_prime), 3
-    calling _t_int with (calling d.next_prime), 17
-    calling _t_int with (calling e.next_prime), 101
+    calling _t_int with (calling a.get_next_prime), 2
+    calling _t_int with (calling b.get_next_prime), 2
+    calling _t_int with (calling c.get_next_prime), 3
+    calling _t_int with (calling d.get_next_prime), 17
+    calling _t_int with (calling e.get_next_prime), 101
 
 test "prev_prime finds the preceding prime":
     var a as int is 2
     var b as int is 3
     var c as int is 100
     var d as int is 1
-    calling _t_int with (calling a.prev_prime), 0
-    calling _t_int with (calling b.prev_prime), 2
-    calling _t_int with (calling c.prev_prime), 97
-    calling _t_int with (calling d.prev_prime), 0
+    calling _t_int with (calling a.get_prev_prime), 0
+    calling _t_int with (calling b.get_prev_prime), 2
+    calling _t_int with (calling c.get_prev_prime), 97
+    calling _t_int with (calling d.get_prev_prime), 0
 
 test "factorial on the small cases":
     var a as int is 0
     var b as int is 1
     var c as int is 5
     var d as int is 10
-    calling _t_int with (calling a.factorial), 1
-    calling _t_int with (calling b.factorial), 1
-    calling _t_int with (calling c.factorial), 120
-    calling _t_int with (calling d.factorial), 3628800
+    calling _t_int with (calling a.get_factorial), 1
+    calling _t_int with (calling b.get_factorial), 1
+    calling _t_int with (calling c.get_factorial), 120
+    calling _t_int with (calling d.get_factorial), 3628800
 
 test "factorial works on a wide receiver":
     var x as i64 is 12
-    calling _t_int with (calling x.factorial to int), 479001600
+    calling _t_int with (calling x.get_factorial to int), 479001600
 
 test "to_hex on the boundaries":
     var a as int is 255
@@ -943,3 +967,93 @@ test "is_prime still rejects its neighbours":
     var other as int is 2147483645
     calling _t_bool with (calling even.is_prime), false
     calling _t_bool with (calling other.is_prime), false
+
+# --- In-place mutation vs the pure `get_` form -------------------------------
+
+test "next_power_of_two mutates the receiver":
+    var x as int is 5
+    calling x.next_power_of_two
+    calling _t_int with x, 8
+test "get_next_power_of_two returns without mutating":
+    var x as int is 5
+    var y as int is calling x.get_next_power_of_two
+    calling _t_int with y, 8
+    calling _t_int with x, 5
+test "prev_power_of_two mutates the receiver":
+    var x as int is 5
+    calling x.prev_power_of_two
+    calling _t_int with x, 4
+test "get_prev_power_of_two returns without mutating":
+    var x as int is 5
+    var y as int is calling x.get_prev_power_of_two
+    calling _t_int with y, 4
+    calling _t_int with x, 5
+test "div_floor mutates the receiver":
+    var x as int is 17
+    calling x.div_floor with 5
+    calling _t_int with x, 3
+test "get_div_floor returns without mutating":
+    var x as int is 17
+    var y as int is calling x.get_div_floor with 5
+    calling _t_int with y, 3
+    calling _t_int with x, 17
+test "mod_floor mutates the receiver":
+    var x as int is 17
+    calling x.mod_floor with 5
+    calling _t_int with x, 2
+test "get_mod_floor returns without mutating":
+    var x as int is 17
+    var y as int is calling x.get_mod_floor with 5
+    calling _t_int with y, 2
+    calling _t_int with x, 17
+test "gcd mutates the receiver":
+    var x as int is 12
+    calling x.gcd with 18
+    calling _t_int with x, 6
+test "get_gcd returns without mutating":
+    var x as int is 12
+    var y as int is calling x.get_gcd with 18
+    calling _t_int with y, 6
+    calling _t_int with x, 12
+test "lcm mutates the receiver":
+    var x as int is 4
+    calling x.lcm with 6
+    calling _t_int with x, 12
+test "get_lcm returns without mutating":
+    var x as int is 4
+    var y as int is calling x.get_lcm with 6
+    calling _t_int with y, 12
+    calling _t_int with x, 4
+test "next_prime mutates the receiver":
+    var x as int is 8
+    calling x.next_prime
+    calling _t_int with x, 11
+test "get_next_prime returns without mutating":
+    var x as int is 8
+    var y as int is calling x.get_next_prime
+    calling _t_int with y, 11
+    calling _t_int with x, 8
+test "prev_prime mutates the receiver":
+    var x as int is 8
+    calling x.prev_prime
+    calling _t_int with x, 7
+test "get_prev_prime returns without mutating":
+    var x as int is 8
+    var y as int is calling x.get_prev_prime
+    calling _t_int with y, 7
+    calling _t_int with x, 8
+test "factorial mutates the receiver":
+    var x as int is 5
+    calling x.factorial
+    calling _t_int with x, 120
+test "get_factorial returns without mutating":
+    var x as int is 5
+    var y as int is calling x.get_factorial
+    calling _t_int with y, 120
+    calling _t_int with x, 5
+test "chained mutations on one receiver":
+    var x as int is 20
+    calling x.gcd with 12      # 4
+    calling x.lcm with 6       # 12
+    calling x.twice            # 24
+    calling _t_int with x, 24

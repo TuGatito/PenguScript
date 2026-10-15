@@ -65,18 +65,18 @@ weave main into int:
     var four as int is 4
     var five as int is 5
     var big as int is 1023
-    calling eq_i with (calling zero.next_power_of_two), 1, "next 0"
-    calling eq_i with (calling one.next_power_of_two), 2, "next 1"
-    calling eq_i with (calling four.next_power_of_two), 8, "next 4"
-    calling eq_i with (calling five.next_power_of_two), 8, "next 5"
-    calling eq_i with (calling big.next_power_of_two), 1024, "next 1023"
-    calling eq_i with (calling zero.prev_power_of_two), 0, "prev 0"
-    calling eq_i with (calling one.prev_power_of_two), 1, "prev 1"
-    calling eq_i with (calling four.prev_power_of_two), 4, "prev 4"
-    calling eq_i with (calling five.prev_power_of_two), 4, "prev 5"
-    calling eq_i with (calling big.prev_power_of_two), 512, "prev 1023"
+    calling eq_i with (calling zero.get_next_power_of_two), 1, "next 0"
+    calling eq_i with (calling one.get_next_power_of_two), 2, "next 1"
+    calling eq_i with (calling four.get_next_power_of_two), 8, "next 4"
+    calling eq_i with (calling five.get_next_power_of_two), 8, "next 5"
+    calling eq_i with (calling big.get_next_power_of_two), 1024, "next 1023"
+    calling eq_i with (calling zero.get_prev_power_of_two), 0, "prev 0"
+    calling eq_i with (calling one.get_prev_power_of_two), 1, "prev 1"
+    calling eq_i with (calling four.get_prev_power_of_two), 4, "prev 4"
+    calling eq_i with (calling five.get_prev_power_of_two), 4, "prev 5"
+    calling eq_i with (calling big.get_prev_power_of_two), 512, "prev 1023"
     var narrow as u8 is 100
-    calling eq_i with (calling narrow.next_power_of_two), 128, "next u8"
+    calling eq_i with (calling narrow.get_next_power_of_two), 128, "next u8"
     calling spark.println with "DONE"
     return 0
 """)
