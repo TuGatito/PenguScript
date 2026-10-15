@@ -15,7 +15,8 @@ both spellings everywhere:
 | `calling x.get_clamp with 0, 100` | returns the value, leaves `x` alone |
 
 No method body changed -- the attribute is the whole declaration change.  The
-toolchain stays at 2.3.0; the five modules move to 2.1.0.
+toolchain moves to **2.4.0** (three compiler fixes landed with it, below) and the
+five modules move to 2.1.0.
 
 ### Added
 
@@ -39,7 +40,7 @@ to.
 
 ### Fixed
 
-Three compiler bugs, all in `@mutates` itself, surfaced by annotating real
+Five compiler bugs, all in `@mutates` itself, surfaced by annotating real
 modules rather than a test fixture:
 
 - **DCE pruned `@mutates` weaves.** The reference collector reads raw identifiers,
@@ -58,6 +59,21 @@ modules rather than a test fixture:
   called inside `u8_gcd` and defined nowhere (only some widths failed, depending
   on which body reached it first).  Collection now maps the name through the
   `@mutates` alias too.
+- **`E0066` inside a string interpolation was reported as `E0019`.**  The
+  interpolation handler caught the sub-expression's diagnostic with a bare
+  `except Exception` and re-labelled it, so `"{calling x.abs}"` produced a vague
+  "invalid expression inside string interpolation" and dropped the
+  `help: use 'get_abs'`.  The inner diagnostic now keeps its own code, message and
+  guidance; only the position moves to the interpolation.
+- **`@mutates` metadata did not survive an `import`.**  `mutating_methods` was
+  populated only in pass 2 -- the validation walk, which visits the entry tree
+  alone -- while pass 1 is the pass that also collects imported modules.  The CLI
+  re-checks each module as its own entry and so was correct, but the LSP calls
+  `PenguChecker.check()` once for the open buffer and reported a **false `E0004`**
+  (`Type 'int' has no method 'get_abs'`) for code the command line compiled
+  happily.  Registration moved to pass 1, where it is a declaration fact.  Three
+  LSP tests had been passing *because* of this bug -- they used `x.clamp` in value
+  position, which is now correctly `E0066` -- and were updated to `get_clamp`.
 
 And one long-standing library leak, found by the ASan gate on `integrum`:
 

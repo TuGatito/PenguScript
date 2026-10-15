@@ -8,14 +8,14 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.3.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.4.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
 
 ## 2.3.0 → 2.4.0: mutating methods in the primitive modules
 
-The toolchain stays at **2.3.0**; this entry covers the **module** releases that
-ride with it.  `std.numerus`, `std.integrum`, `std.fractio`, `std.littera` and
+This entry covers both halves of the release: the toolchain (three `@mutates`
+compiler fixes) and the **module** releases that ride with it.  `std.numerus`, `std.integrum`, `std.fractio`, `std.littera` and
 `std.logica` go to **2.1.0**: every method that returned the receiver's own type
 now mutates the receiver and returns `void`, with `get_<name>` as the pure form.
 This is the same split `std.scrolls` took in 2.3.0, now applied through
