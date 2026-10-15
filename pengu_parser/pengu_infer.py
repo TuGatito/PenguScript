@@ -4031,6 +4031,23 @@ class TypeInferrer:
                     help=f"Ensure variable '{var_err_name}' is declared before interpolating it in string.",
                     note="String interpolation expressions evaluate variables in current scope."
                 )
+            except MutatingMethodInExpressionError as e:
+                # The sub-expression already produced a precise diagnostic, with
+                # its own `help:` ("use `get_<name>`").  The generic handler below
+                # re-labelled it E0019 and dropped that advice, so
+                # `"{calling x.abs}"` reported a vague interpolation error instead
+                # of E0066.  Keep the code and the guidance; only the position
+                # moves, to the interpolation itself.
+                raise self._make_error(
+                    MutatingMethodInExpressionError,
+                    getattr(e, "message", str(e)),
+                    node,
+                    line=line,
+                    col=col,
+                    code=getattr(e, "code", None) or "E0066",
+                    help=getattr(e, "help", None),
+                    note=getattr(e, "note", None),
+                ) from None
             except Exception as e:
                 if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', expr_str):
                     sym = self.symbols.lookup(expr_str) if self.symbols else None
