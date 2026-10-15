@@ -93,6 +93,7 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## var v2 as f64 is 3.5
     ## calling v2.abs               # 3.5
     ## ```
+    @mutates
     weave abs into T:
         if self < donum T:
             return -self
@@ -109,6 +110,7 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## var v5 as f64 is 7.5
     ## calling v5.signum      # 1.0
     ## ```
+    @mutates
     weave signum into T:
         if self > donum T:
             return (1 to T)
@@ -119,6 +121,7 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## Devuelve `-self`. Equivalente al menos unario, pero encadenable.
     ##
     ## En tipos sin signo el resultado envuelve (aritmética modular de C).
+    @mutates
     weave negated into T:
         return -self
 
@@ -133,6 +136,7 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## var v7 as f64 is 3.0
     ## calling v7.min_with with 2.5  # 2.5
     ## ```
+    @mutates
     weave min_with with other as T into T:
         if self < other:
             return self
@@ -145,6 +149,7 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## var v8 as int is 3
     ## calling v8.max_with with 7      # 7
     ## ```
+    @mutates
     weave max_with with other as T into T:
         if self > other:
             return self
@@ -164,6 +169,7 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## var v11 as int is 7
     ## calling v11.clamp with 0, 10       # 7
     ## ```
+    @mutates
     weave clamp with lo as T, hi as T into T:
         if self < lo:
             return lo
@@ -222,6 +228,7 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## Devuelve `self + self` (el doble de `self`).
     ##
     ## El nombre es `twice` y no `double` porque `double` es un tipo.
+    @mutates
     weave twice into T:
         return self + self
 
@@ -237,14 +244,17 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## var v17 as f64 is 2.5
     ## calling v17.half    # 1.25
     ## ```
+    @mutates
     weave half into T:
         return self / (2 to T)
 
     ## Devuelve `self * self`.
+    @mutates
     weave square into T:
         return self * self
 
     ## Devuelve `self * self * self`.
+    @mutates
     weave cube into T:
         return self * self * self
 
@@ -271,9 +281,10 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## var v20 as f64 is 2.0
     ## calling v20.pow_int with -1     # 0.5
     ## ```
+    @mutates
     weave pow_int with exp as int into T:
         if exp < 0:
-            return (1 to T) / (calling self.pow_int with (0 - exp))
+            return (1 to T) / (calling self.get_pow_int with (0 - exp))
         var r as T is (1 to T)
         var base as T is self
         var e as int is exp
@@ -309,6 +320,7 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## ```
     # NOTE: `arithmancy.trunc` is the full-domain C `trunc`; this one rounds
     # through `int`, so it is only exact while `|self|` fits in `int`.
+    @mutates
     weave truncate into T:
         return (self to int) to T
 
@@ -331,6 +343,7 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## ```
     # NOTE: `arithmancy.floor` is the full-domain C `floor`; this one rounds
     # through `int`, so it is only exact while `|self|` fits in `int`.
+    @mutates
     weave floor into T:
         let t as int is self to int
         if (t to T) > self:
@@ -354,6 +367,7 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## ```
     # NOTE: `arithmancy.ceil` is the full-domain C `ceil`; this one rounds
     # through `int`, so it is only exact while `|self|` fits in `int`.
+    @mutates
     weave ceil into T:
         let t as int is self to int
         if (t to T) < self:
@@ -378,6 +392,7 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
     ## ```
     # NOTE: `arithmancy.round` is the full-domain C `round`; this one rounds
     # through `int`, so it is only exact while `|self|` fits in `int`.
+    @mutates
     weave round into T:
         let half as T is (1 to T) / (2 to T)
         if self < donum T:
@@ -423,78 +438,78 @@ enchanting shard T where T: Num and T: Ordo and T: Par:
 
 test "abs leaves positives untouched":
     var x as int is 5
-    calling ward.assert_eq_int with (calling x.abs), 5
+    calling ward.assert_eq_int with (calling x.get_abs), 5
 
 test "abs flips negatives":
     var x as int is -3
-    calling ward.assert_eq_int with (calling x.abs), 3
+    calling ward.assert_eq_int with (calling x.get_abs), 3
 
 test "abs is the identity at zero":
     var x as int is 0
-    calling ward.assert_eq_int with (calling x.abs), 0
+    calling ward.assert_eq_int with (calling x.get_abs), 0
 
 test "abs works for wide and unsigned integers":
     var a as i64 is -9000000
     var b as u32 is 7
-    calling ward.assert_eq_int with (calling a.abs to int), 9000000
-    calling ward.assert_eq_int with (calling b.abs), 7
+    calling ward.assert_eq_int with (calling a.get_abs to int), 9000000
+    calling ward.assert_eq_int with (calling b.get_abs), 7
 
 test "abs works for every float width":
     var a as f64 is -3.5
     var b as f32 is -2.5
     var c as float is -1.5
-    calling ward.assert_true with (calling a.abs) == 3.5
-    calling ward.assert_true with ((calling b.abs to f64)) == 2.5
-    calling ward.assert_true with ((calling c.abs to f64)) == 1.5
+    calling ward.assert_true with (calling a.get_abs) == 3.5
+    calling ward.assert_true with ((calling b.get_abs to f64)) == 2.5
+    calling ward.assert_true with ((calling c.get_abs to f64)) == 1.5
 
 test "signum reports the sign of each type":
     var a as int is -42
     var b as int is 0
     var c as f64 is 7.5
     var d as u32 is 9
-    calling ward.assert_eq_int with (calling a.signum), -1
-    calling ward.assert_eq_int with (calling b.signum), 0
-    calling ward.assert_true with (calling c.signum) == 1.0
-    calling ward.assert_eq_int with (calling d.signum), 1
+    calling ward.assert_eq_int with (calling a.get_signum), -1
+    calling ward.assert_eq_int with (calling b.get_signum), 0
+    calling ward.assert_true with (calling c.get_signum) == 1.0
+    calling ward.assert_eq_int with (calling d.get_signum), 1
 
 test "negated inverts the value":
     var a as int is 12
     var b as int is -12
     var c as int is 0
-    calling ward.assert_eq_int with (calling a.negated), -12
-    calling ward.assert_eq_int with (calling b.negated), 12
-    calling ward.assert_eq_int with (calling c.negated), 0
+    calling ward.assert_eq_int with (calling a.get_negated), -12
+    calling ward.assert_eq_int with (calling b.get_negated), 12
+    calling ward.assert_eq_int with (calling c.get_negated), 0
 
 test "min_with picks the smaller operand":
     var x as int is 3
-    calling ward.assert_eq_int with (calling x.min_with with 7), 3
-    calling ward.assert_eq_int with (calling x.min_with with 2), 2
-    calling ward.assert_eq_int with (calling x.min_with with 3), 3
+    calling ward.assert_eq_int with (calling x.get_min_with with 7), 3
+    calling ward.assert_eq_int with (calling x.get_min_with with 2), 2
+    calling ward.assert_eq_int with (calling x.get_min_with with 3), 3
 
 test "max_with picks the larger operand":
     var x as int is 3
-    calling ward.assert_eq_int with (calling x.max_with with 7), 7
-    calling ward.assert_eq_int with (calling x.max_with with 2), 3
-    calling ward.assert_eq_int with (calling x.max_with with 3), 3
+    calling ward.assert_eq_int with (calling x.get_max_with with 7), 7
+    calling ward.assert_eq_int with (calling x.get_max_with with 2), 3
+    calling ward.assert_eq_int with (calling x.get_max_with with 3), 3
 
 test "clamp restricts below, inside and above":
     var x as int is 200
-    calling ward.assert_eq_int with (calling x.clamp with 0, 120), 120
-    calling ward.assert_eq_int with (calling x.clamp with 0, 500), 200
+    calling ward.assert_eq_int with (calling x.get_clamp with 0, 120), 120
+    calling ward.assert_eq_int with (calling x.get_clamp with 0, 500), 200
     var y as int is -5
-    calling ward.assert_eq_int with (calling y.clamp with 0, 10), 0
+    calling ward.assert_eq_int with (calling y.get_clamp with 0, 10), 0
 
 test "clamp keeps the inclusive boundaries":
     var x as int is 10
-    calling ward.assert_eq_int with (calling x.clamp with 0, 10), 10
+    calling ward.assert_eq_int with (calling x.get_clamp with 0, 10), 10
     var z as int is 0
-    calling ward.assert_eq_int with (calling z.clamp with 0, 10), 0
+    calling ward.assert_eq_int with (calling z.get_clamp with 0, 10), 0
 
 test "clamp works on floats":
     var x as f64 is 145.7
-    calling ward.assert_true with (calling x.clamp with 0.0, 100.0) == 100.0
+    calling ward.assert_true with (calling x.get_clamp with 0.0, 100.0) == 100.0
     var y as f64 is -3.0
-    calling ward.assert_true with (calling y.clamp with 0.0, 100.0) == 0.0
+    calling ward.assert_true with (calling y.get_clamp with 0.0, 100.0) == 0.0
 
 test "is_between accepts the closed range only":
     var x as int is 5
@@ -556,102 +571,102 @@ test "twice doubles without losing the type":
     var a as int is 21
     var b as int is -4
     var c as f64 is 2.5
-    calling ward.assert_eq_int with (calling a.twice), 42
-    calling ward.assert_eq_int with (calling b.twice), -8
-    calling ward.assert_true with (calling c.twice) == 5.0
+    calling ward.assert_eq_int with (calling a.get_twice), 42
+    calling ward.assert_eq_int with (calling b.get_twice), -8
+    calling ward.assert_true with (calling c.get_twice) == 5.0
 
 test "half truncates toward zero for integers":
     var a as int is 10
     var b as int is 5
     var c as int is -5
-    calling ward.assert_eq_int with (calling a.half), 5
-    calling ward.assert_eq_int with (calling b.half), 2
-    calling ward.assert_eq_int with (calling c.half), -2
+    calling ward.assert_eq_int with (calling a.get_half), 5
+    calling ward.assert_eq_int with (calling b.get_half), 2
+    calling ward.assert_eq_int with (calling c.get_half), -2
 
 test "half is exact for floats":
     var a as f64 is 2.5
-    calling ward.assert_true with (calling a.half) == 1.25
+    calling ward.assert_true with (calling a.get_half) == 1.25
 
 test "square keeps the sign of the input":
     var a as int is 4
     var b as int is -4
     var c as int is 0
-    calling ward.assert_eq_int with (calling a.square), 16
-    calling ward.assert_eq_int with (calling b.square), 16
-    calling ward.assert_eq_int with (calling c.square), 0
+    calling ward.assert_eq_int with (calling a.get_square), 16
+    calling ward.assert_eq_int with (calling b.get_square), 16
+    calling ward.assert_eq_int with (calling c.get_square), 0
 
 test "cube keeps the sign of the input":
     var a as int is 3
     var b as int is -3
     var c as int is 0
-    calling ward.assert_eq_int with (calling a.cube), 27
-    calling ward.assert_eq_int with (calling b.cube), -27
-    calling ward.assert_eq_int with (calling c.cube), 0
+    calling ward.assert_eq_int with (calling a.get_cube), 27
+    calling ward.assert_eq_int with (calling b.get_cube), -27
+    calling ward.assert_eq_int with (calling c.get_cube), 0
 
 test "pow_int with a zero exponent is one":
     var x as int is 7
-    calling ward.assert_eq_int with (calling x.pow_int with 0), 1
+    calling ward.assert_eq_int with (calling x.get_pow_int with 0), 1
 
 test "pow_int with a positive exponent":
     var x as int is 2
-    calling ward.assert_eq_int with (calling x.pow_int with 10), 1024
-    calling ward.assert_eq_int with (calling x.pow_int with 1), 2
+    calling ward.assert_eq_int with (calling x.get_pow_int with 10), 1024
+    calling ward.assert_eq_int with (calling x.get_pow_int with 1), 2
 
 test "pow_int truncates for integer negative exponents":
     var x as int is 2
-    calling ward.assert_eq_int with (calling x.pow_int with -3), 0
+    calling ward.assert_eq_int with (calling x.get_pow_int with -3), 0
 
 test "pow_int is fractional for float negative exponents":
     var x as f64 is 2.0
-    calling ward.assert_true with (calling x.pow_int with -1) == 0.5
+    calling ward.assert_true with (calling x.get_pow_int with -1) == 0.5
 
 test "truncate drops the fractional part toward zero":
     var a as f64 is 2.7
     var b as f64 is -2.7
-    calling ward.assert_eq_int with (calling a.truncate to int), 2
-    calling ward.assert_eq_int with (calling b.truncate to int), -2
+    calling ward.assert_eq_int with (calling a.get_truncate to int), 2
+    calling ward.assert_eq_int with (calling b.get_truncate to int), -2
 
 test "truncate is the identity for integers":
     var x as int is 42
-    calling ward.assert_eq_int with (calling x.truncate), 42
+    calling ward.assert_eq_int with (calling x.get_truncate), 42
 
 test "floor rounds toward negative infinity":
     var a as f64 is 2.7
     var b as f64 is -2.7
     var c as f64 is 2.0
-    calling ward.assert_eq_int with (calling a.floor to int), 2
-    calling ward.assert_eq_int with (calling b.floor to int), -3
-    calling ward.assert_eq_int with (calling c.floor to int), 2
+    calling ward.assert_eq_int with (calling a.get_floor to int), 2
+    calling ward.assert_eq_int with (calling b.get_floor to int), -3
+    calling ward.assert_eq_int with (calling c.get_floor to int), 2
 
 test "ceil rounds toward positive infinity":
     var a as f64 is 2.3
     var b as f64 is -2.3
     var c as f64 is 2.0
-    calling ward.assert_eq_int with (calling a.ceil to int), 3
-    calling ward.assert_eq_int with (calling b.ceil to int), -2
-    calling ward.assert_eq_int with (calling c.ceil to int), 2
+    calling ward.assert_eq_int with (calling a.get_ceil to int), 3
+    calling ward.assert_eq_int with (calling b.get_ceil to int), -2
+    calling ward.assert_eq_int with (calling c.get_ceil to int), 2
 
 test "round uses half away from zero":
     var a as f64 is 2.4
     var b as f64 is 2.5
     var c as f64 is 2.6
-    calling ward.assert_eq_int with (calling a.round to int), 2
-    calling ward.assert_eq_int with (calling b.round to int), 3
-    calling ward.assert_eq_int with (calling c.round to int), 3
+    calling ward.assert_eq_int with (calling a.get_round to int), 2
+    calling ward.assert_eq_int with (calling b.get_round to int), 3
+    calling ward.assert_eq_int with (calling c.get_round to int), 3
 
 test "round is symmetric for negatives":
     var a as f64 is -2.4
     var b as f64 is -2.5
     var c as f64 is -2.6
-    calling ward.assert_eq_int with (calling a.round to int), -2
-    calling ward.assert_eq_int with (calling b.round to int), -3
-    calling ward.assert_eq_int with (calling c.round to int), -3
+    calling ward.assert_eq_int with (calling a.get_round to int), -2
+    calling ward.assert_eq_int with (calling b.get_round to int), -3
+    calling ward.assert_eq_int with (calling c.get_round to int), -3
 
 test "round is the identity for integers":
     var x as int is 5
     var y as int is -5
-    calling ward.assert_eq_int with (calling x.round), 5
-    calling ward.assert_eq_int with (calling y.round), -5
+    calling ward.assert_eq_int with (calling x.get_round), 5
+    calling ward.assert_eq_int with (calling y.get_round), -5
 
 test "to_f64 widens integers and floats":
     var a as int is 42
@@ -671,7 +686,154 @@ test "to_i64 truncates floats toward zero":
 
 test "methods chain across the module":
     var raw as f64 is -145.7
-    var magnitude as f64 is calling raw.abs
-    var clamped as f64 is calling magnitude.clamp with 0.0, 100.0
-    var rounded as int is calling clamped.round to int
+    var magnitude as f64 is calling raw.get_abs
+    var clamped as f64 is calling magnitude.get_clamp with 0.0, 100.0
+    var rounded as int is calling clamped.get_round to int
     calling ward.assert_eq_int with rounded, 100
+
+# --- In-place mutation vs the pure `get_` form -------------------------------
+#
+# Every method above is `@mutates`: `calling x.abs` rewrites `x`, while
+# `calling x.get_abs` returns the value and leaves `x` alone.
+
+test "abs mutates the receiver":
+    var x as int is -3
+    calling x.abs
+    calling ward.assert_eq_int with x, 3
+test "get_abs returns without mutating":
+    var x as int is -3
+    var y as int is calling x.get_abs
+    calling ward.assert_eq_int with y, 3
+    calling ward.assert_eq_int with x, -3
+test "signum mutates the receiver":
+    var x as int is -5
+    calling x.signum
+    calling ward.assert_eq_int with x, -1
+test "get_signum returns without mutating":
+    var x as int is -5
+    var y as int is calling x.get_signum
+    calling ward.assert_eq_int with y, -1
+    calling ward.assert_eq_int with x, -5
+test "negated mutates the receiver":
+    var x as int is 7
+    calling x.negated
+    calling ward.assert_eq_int with x, -7
+test "get_negated returns without mutating":
+    var x as int is 7
+    var y as int is calling x.get_negated
+    calling ward.assert_eq_int with y, -7
+    calling ward.assert_eq_int with x, 7
+test "min_with mutates the receiver":
+    var x as int is 10
+    calling x.min_with with 3
+    calling ward.assert_eq_int with x, 3
+test "get_min_with returns without mutating":
+    var x as int is 10
+    var y as int is calling x.get_min_with with 3
+    calling ward.assert_eq_int with y, 3
+    calling ward.assert_eq_int with x, 10
+test "max_with mutates the receiver":
+    var x as int is 10
+    calling x.max_with with 3
+    calling ward.assert_eq_int with x, 10
+test "get_max_with returns without mutating":
+    var x as int is 10
+    var y as int is calling x.get_max_with with 3
+    calling ward.assert_eq_int with y, 10
+    calling ward.assert_eq_int with x, 10
+test "clamp mutates the receiver":
+    var x as int is 150
+    calling x.clamp with 0, 100
+    calling ward.assert_eq_int with x, 100
+test "get_clamp returns without mutating":
+    var x as int is 150
+    var y as int is calling x.get_clamp with 0, 100
+    calling ward.assert_eq_int with y, 100
+    calling ward.assert_eq_int with x, 150
+test "twice mutates the receiver":
+    var x as int is 4
+    calling x.twice
+    calling ward.assert_eq_int with x, 8
+test "get_twice returns without mutating":
+    var x as int is 4
+    var y as int is calling x.get_twice
+    calling ward.assert_eq_int with y, 8
+    calling ward.assert_eq_int with x, 4
+test "half mutates the receiver":
+    var x as int is 9
+    calling x.half
+    calling ward.assert_eq_int with x, 4
+test "get_half returns without mutating":
+    var x as int is 9
+    var y as int is calling x.get_half
+    calling ward.assert_eq_int with y, 4
+    calling ward.assert_eq_int with x, 9
+test "square mutates the receiver":
+    var x as int is 3
+    calling x.square
+    calling ward.assert_eq_int with x, 9
+test "get_square returns without mutating":
+    var x as int is 3
+    var y as int is calling x.get_square
+    calling ward.assert_eq_int with y, 9
+    calling ward.assert_eq_int with x, 3
+test "cube mutates the receiver":
+    var x as int is 2
+    calling x.cube
+    calling ward.assert_eq_int with x, 8
+test "get_cube returns without mutating":
+    var x as int is 2
+    var y as int is calling x.get_cube
+    calling ward.assert_eq_int with y, 8
+    calling ward.assert_eq_int with x, 2
+test "pow_int mutates the receiver":
+    var x as int is 2
+    calling x.pow_int with 5
+    calling ward.assert_eq_int with x, 32
+test "get_pow_int returns without mutating":
+    var x as int is 2
+    var y as int is calling x.get_pow_int with 5
+    calling ward.assert_eq_int with y, 32
+    calling ward.assert_eq_int with x, 2
+test "truncate mutates the receiver":
+    var f as float is 3.7
+    calling f.truncate
+    calling ward.assert_true with f == 3.0
+test "get_truncate returns without mutating":
+    var f as float is 3.7
+    var g as float is calling f.get_truncate
+    calling ward.assert_true with g == 3.0
+    calling ward.assert_true with f == 3.7
+test "floor mutates the receiver":
+    var f as float is 3.7
+    calling f.floor
+    calling ward.assert_true with f == 3.0
+test "get_floor returns without mutating":
+    var f as float is 3.7
+    var g as float is calling f.get_floor
+    calling ward.assert_true with g == 3.0
+    calling ward.assert_true with f == 3.7
+test "ceil mutates the receiver":
+    var f as float is 3.2
+    calling f.ceil
+    calling ward.assert_true with f == 4.0
+test "get_ceil returns without mutating":
+    var f as float is 3.2
+    var g as float is calling f.get_ceil
+    calling ward.assert_true with g == 4.0
+    calling ward.assert_true with f == 3.2
+test "round mutates the receiver":
+    var f as float is 3.5
+    calling f.round
+    calling ward.assert_true with f == 4.0
+test "get_round returns without mutating":
+    var f as float is 3.5
+    var g as float is calling f.get_round
+    calling ward.assert_true with g == 4.0
+    calling ward.assert_true with f == 3.5
+test "chained mutations on one receiver":
+    var x as int is -50
+    calling x.clamp with -30, 30
+    calling x.abs
+    calling x.twice
+    calling ward.assert_eq_int with x, 60

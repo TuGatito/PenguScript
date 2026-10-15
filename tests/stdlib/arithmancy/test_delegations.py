@@ -33,30 +33,30 @@ def test_numerus_delegations(compile_and_run):
     out = compile_and_run(_PREAMBLE + """
 weave main into int:
     var i as int is -5
-    calling eq_i with (calling arithmancy.abs_i with i), (calling i.abs), "abs_i"
+    calling eq_i with (calling arithmancy.abs_i with i), (calling i.get_abs), "abs_i"
     calling eq_i with (calling arithmancy.abs_i with 5), 5, "abs_i positive"
-    calling eq_i with (calling arithmancy.sign_i with i), (calling i.signum), "sign_i"
+    calling eq_i with (calling arithmancy.sign_i with i), (calling i.get_signum), "sign_i"
     var a as int is 3
     var b as int is 7
-    calling eq_i with (calling arithmancy.min_i with a, b), (calling a.min_with with b), "min_i"
-    calling eq_i with (calling arithmancy.max_i with a, b), (calling a.max_with with b), "max_i"
+    calling eq_i with (calling arithmancy.min_i with a, b), (calling a.get_min_with with b), "min_i"
+    calling eq_i with (calling arithmancy.max_i with a, b), (calling a.get_max_with with b), "max_i"
     var hundred as int is 100
-    calling eq_i with (calling arithmancy.clamp_i with hundred, 0, 50), (calling hundred.clamp with 0, 50), "clamp_i"
+    calling eq_i with (calling arithmancy.clamp_i with hundred, 0, 50), (calling hundred.get_clamp with 0, 50), "clamp_i"
     var f as float is -2.5
-    calling eq_f with (calling arithmancy.abs with f), (calling f.abs), 0.0, "abs"
-    calling eq_f with (calling arithmancy.sign with f), (calling f.signum), 0.0, "sign"
+    calling eq_f with (calling arithmancy.abs with f), (calling f.get_abs), 0.0, "abs"
+    calling eq_f with (calling arithmancy.sign with f), (calling f.get_signum), 0.0, "sign"
     var p as float is 3.0
     var q as float is 7.0
-    calling eq_f with (calling arithmancy.min with p, q), (calling p.min_with with q), 0.0, "min"
-    calling eq_f with (calling arithmancy.max with p, q), (calling p.max_with with q), 0.0, "max"
+    calling eq_f with (calling arithmancy.min with p, q), (calling p.get_min_with with q), 0.0, "min"
+    calling eq_f with (calling arithmancy.max with p, q), (calling p.get_max_with with q), 0.0, "max"
     var hundred_f as float is 100.0
-    calling eq_f with (calling arithmancy.clamp with hundred_f, 0.0, 50.0), (calling hundred_f.clamp with 0.0, 50.0), 0.0, "clamp"
+    calling eq_f with (calling arithmancy.clamp with hundred_f, 0.0, 50.0), (calling hundred_f.get_clamp with 0.0, 50.0), 0.0, "clamp"
     calling eq_f with (calling arithmancy.lerp with 0.0, 10.0, 0.5), 5.0, 0.0, "lerp"
     var r as float is 2.6
-    calling eq_i with (calling arithmancy.to_int_round with r), (calling r.round to int), "to_int_round"
-    calling eq_i with (calling arithmancy.to_int_floor with r), (calling r.floor to int), "to_int_floor"
+    calling eq_i with (calling arithmancy.to_int_round with r), (calling r.get_round to int), "to_int_round"
+    calling eq_i with (calling arithmancy.to_int_floor with r), (calling r.get_floor to int), "to_int_floor"
     var s as float is 2.4
-    calling eq_i with (calling arithmancy.to_int_ceil with s), (calling s.ceil to int), "to_int_ceil"
+    calling eq_i with (calling arithmancy.to_int_ceil with s), (calling s.get_ceil to int), "to_int_ceil"
     calling spark.println with "DONE"
     return 0
 """)

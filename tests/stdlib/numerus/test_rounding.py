@@ -29,16 +29,16 @@ weave main into int:
     var whole as f64 is 2.0
     var ints as int is 42
     var negint as int is -42
-    calling eq_i with (calling pos.truncate to int), 2, "truncate positive"
-    calling eq_i with (calling neg.truncate to int), -2, "truncate negative"
-    calling eq_i with (calling whole.truncate to int), 2, "truncate whole"
-    calling eq_i with (calling ints.truncate), 42, "truncate int identity"
-    calling eq_i with (calling pos.floor to int), 2, "floor positive"
-    calling eq_i with (calling neg.floor to int), -3, "floor negative"
-    calling eq_i with (calling whole.floor to int), 2, "floor whole"
-    calling eq_i with (calling negint.floor), -42, "floor int identity"
+    calling eq_i with (calling pos.get_truncate to int), 2, "truncate positive"
+    calling eq_i with (calling neg.get_truncate to int), -2, "truncate negative"
+    calling eq_i with (calling whole.get_truncate to int), 2, "truncate whole"
+    calling eq_i with (calling ints.get_truncate), 42, "truncate int identity"
+    calling eq_i with (calling pos.get_floor to int), 2, "floor positive"
+    calling eq_i with (calling neg.get_floor to int), -3, "floor negative"
+    calling eq_i with (calling whole.get_floor to int), 2, "floor whole"
+    calling eq_i with (calling negint.get_floor), -42, "floor int identity"
     var half as f64 is 2.5
-    calling eq_i with (calling half.floor to int), 2, "floor .5 down"
+    calling eq_i with (calling half.get_floor to int), 2, "floor .5 down"
     calling spark.println with "DONE"
     return 0
 """)
@@ -54,23 +54,23 @@ weave main into int:
     var whole as f64 is 2.0
     var ints as int is 5
     var negint as int is -5
-    calling eq_i with (calling pos.ceil to int), 3, "ceil positive"
-    calling eq_i with (calling neg.ceil to int), -2, "ceil negative"
-    calling eq_i with (calling whole.ceil to int), 2, "ceil whole"
-    calling eq_i with (calling ints.ceil), 5, "ceil int identity"
+    calling eq_i with (calling pos.get_ceil to int), 3, "ceil positive"
+    calling eq_i with (calling neg.get_ceil to int), -2, "ceil negative"
+    calling eq_i with (calling whole.get_ceil to int), 2, "ceil whole"
+    calling eq_i with (calling ints.get_ceil), 5, "ceil int identity"
     var low as f64 is 2.4
     var mid as f64 is 2.5
     var high as f64 is 2.6
-    calling eq_i with (calling low.round to int), 2, "round .4"
-    calling eq_i with (calling mid.round to int), 3, "round .5 away from zero"
-    calling eq_i with (calling high.round to int), 3, "round .6"
+    calling eq_i with (calling low.get_round to int), 2, "round .4"
+    calling eq_i with (calling mid.get_round to int), 3, "round .5 away from zero"
+    calling eq_i with (calling high.get_round to int), 3, "round .6"
     var nlow as f64 is -2.4
     var nmid as f64 is -2.5
     var nhigh as f64 is -2.6
-    calling eq_i with (calling nlow.round to int), -2, "round -2.4"
-    calling eq_i with (calling nmid.round to int), -3, "round -2.5 away from zero"
-    calling eq_i with (calling nhigh.round to int), -3, "round -2.6"
-    calling eq_i with (calling negint.round), -5, "round int identity"
+    calling eq_i with (calling nlow.get_round to int), -2, "round -2.4"
+    calling eq_i with (calling nmid.get_round to int), -3, "round -2.5 away from zero"
+    calling eq_i with (calling nhigh.get_round to int), -3, "round -2.6"
+    calling eq_i with (calling negint.get_round), -5, "round int identity"
     calling spark.println with "DONE"
     return 0
 """)

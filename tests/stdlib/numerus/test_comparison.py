@@ -37,15 +37,15 @@ weave main into int:
     var f as f64 is 2.5
     var g as f64 is 3.5
     var u as u16 is 4
-    calling eq_i with (calling x.min_with with big), 3, "min a<b"
-    calling eq_i with (calling x.min_with with small), 2, "min a>b"
-    calling eq_i with (calling x.min_with with x), 3, "min a==b"
-    calling eq_i with (calling x.max_with with big), 7, "max a<b"
-    calling eq_i with (calling x.max_with with small), 3, "max a>b"
-    calling eq_i with (calling x.max_with with x), 3, "max a==b"
-    calling eq_f with (calling f.min_with with g), 2.5, "min f64"
-    calling eq_f with (calling f.max_with with g), 3.5, "max f64"
-    calling eq_i with (calling u.min_with with 9), 4, "min unsigned"
+    calling eq_i with (calling x.get_min_with with big), 3, "min a<b"
+    calling eq_i with (calling x.get_min_with with small), 2, "min a>b"
+    calling eq_i with (calling x.get_min_with with x), 3, "min a==b"
+    calling eq_i with (calling x.get_max_with with big), 7, "max a<b"
+    calling eq_i with (calling x.get_max_with with small), 3, "max a>b"
+    calling eq_i with (calling x.get_max_with with x), 3, "max a==b"
+    calling eq_f with (calling f.get_min_with with g), 2.5, "min f64"
+    calling eq_f with (calling f.get_max_with with g), 3.5, "max f64"
+    calling eq_i with (calling u.get_min_with with 9), 4, "min unsigned"
     calling spark.println with "DONE"
     return 0
 """)
@@ -61,15 +61,15 @@ weave main into int:
     var inside as int is 7
     var lo as int is 0
     var hi as int is 10
-    calling eq_i with (calling over.clamp with 0, 120), 120, "clamp above"
-    calling eq_i with (calling under.clamp with 0, 10), 0, "clamp below"
-    calling eq_i with (calling inside.clamp with 0, 10), 7, "clamp inside"
-    calling eq_i with (calling hi.clamp with 0, 10), 10, "clamp on hi"
-    calling eq_i with (calling lo.clamp with 0, 10), 0, "clamp on lo"
+    calling eq_i with (calling over.get_clamp with 0, 120), 120, "clamp above"
+    calling eq_i with (calling under.get_clamp with 0, 10), 0, "clamp below"
+    calling eq_i with (calling inside.get_clamp with 0, 10), 7, "clamp inside"
+    calling eq_i with (calling hi.get_clamp with 0, 10), 10, "clamp on hi"
+    calling eq_i with (calling lo.get_clamp with 0, 10), 0, "clamp on lo"
     var f as f64 is 145.7
-    calling eq_f with (calling f.clamp with 0.0, 100.0), 100.0, "clamp f64 above"
+    calling eq_f with (calling f.get_clamp with 0.0, 100.0), 100.0, "clamp f64 above"
     var negf as f64 is -3.0
-    calling eq_f with (calling negf.clamp with 0.0, 100.0), 0.0, "clamp f64 below"
+    calling eq_f with (calling negf.get_clamp with 0.0, 100.0), 0.0, "clamp f64 below"
     calling eq_b with (calling inside.is_between with 0, 10), true, "between inside"
     calling eq_b with (calling over.is_between with 0, 10), false, "between above"
     calling eq_b with (calling under.is_between with 0, 10), false, "between below"

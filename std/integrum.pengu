@@ -410,7 +410,7 @@ enchanting shard T where T: Integrum:
             let t as T is b
             set b is a % b
             set a is t
-        return calling a.abs
+        return calling a.get_abs
 
     ## Mínimo común múltiplo, **no negativo**.
     ##
@@ -429,7 +429,7 @@ enchanting shard T where T: Integrum:
             return donum T
         let g as T is calling self.gcd with other
         let p as T is (self / g) * other
-        return calling p.abs
+        return calling p.get_abs
 
     # ─── Números primos ──────────────────────────────────────────────────
 
@@ -522,7 +522,7 @@ enchanting shard T where T: Integrum:
         if self == donum T:
             return "0"
         let negative as bool is self < donum T
-        var n as T is calling self.abs
+        var n as T is calling self.get_abs
         var acc as string is ""
         while n != donum T:
             let d as int is (n % (16 to T)) to int
@@ -552,7 +552,7 @@ enchanting shard T where T: Integrum:
         if self == donum T:
             return "0"
         let negative as bool is self < donum T
-        var n as T is calling self.abs
+        var n as T is calling self.get_abs
         var acc as string is ""
         while n != donum T:
             let bit as int is (n & (1 to T)) to int
@@ -581,7 +581,7 @@ enchanting shard T where T: Integrum:
         if self == donum T:
             return "0"
         let negative as bool is self < donum T
-        var n as T is calling self.abs
+        var n as T is calling self.get_abs
         var acc as string is ""
         while n != donum T:
             let d as int is (n % (8 to T)) to int
@@ -924,9 +924,9 @@ test "to_oct on the boundaries":
 
 test "integrum composes with numerus on the same receiver":
     var x as int is -12
-    var a as int is calling x.abs
-    var c as int is calling x.clamp with 0, 100
-    var p as int is calling x.pow_int with 2
+    var a as int is calling x.get_abs
+    var c as int is calling x.get_clamp with 0, 100
+    var p as int is calling x.get_pow_int with 2
     calling _t_int with a, 12
     calling _t_int with c, 0
     calling _t_int with p, 144

@@ -97,7 +97,7 @@ weave main into int:
     calling eq_f with u.y, 0.8, 1e-6, "normalized y"
     var raw as float is 145.7
     var clamped as float is calling arithmancy.clamp with raw, 0.0, 100.0
-    var rounded as float is calling raw.round
+    var rounded as float is calling raw.get_round
     calling eq_f with clamped, 100.0, 1e-6, "clamp delegated"
     calling eq_f with rounded, 146.0, 1e-6, "round method"
     var angle as float is calling arithmancy.rad_to_deg with arithmancy.PI

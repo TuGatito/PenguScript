@@ -32,18 +32,18 @@ weave main into int:
     var zero as int is 0
     var odd as int is 5
     var f as f64 is 2.5
-    calling eq_i with (calling pos.twice), 42, "twice positive"
-    calling eq_i with (calling neg.twice), -8, "twice negative"
-    calling eq_i with (calling zero.twice), 0, "twice zero"
-    calling eq_i with (calling pos.half), 10, "half even"
-    calling eq_i with (calling odd.half), 2, "half odd truncates"
-    calling eq_i with (calling neg.half), -2, "half negative truncates"
-    calling eq_f with (calling f.half), 1.25, "half f64"
-    calling eq_i with (calling neg.square), 16, "square negative"
-    calling eq_i with (calling zero.square), 0, "square zero"
-    calling eq_i with (calling neg.cube), -64, "cube negative"
-    calling eq_i with (calling zero.cube), 0, "cube zero"
-    calling eq_i with (calling pos.square), 441, "square positive"
+    calling eq_i with (calling pos.get_twice), 42, "twice positive"
+    calling eq_i with (calling neg.get_twice), -8, "twice negative"
+    calling eq_i with (calling zero.get_twice), 0, "twice zero"
+    calling eq_i with (calling pos.get_half), 10, "half even"
+    calling eq_i with (calling odd.get_half), 2, "half odd truncates"
+    calling eq_i with (calling neg.get_half), -2, "half negative truncates"
+    calling eq_f with (calling f.get_half), 1.25, "half f64"
+    calling eq_i with (calling neg.get_square), 16, "square negative"
+    calling eq_i with (calling zero.get_square), 0, "square zero"
+    calling eq_i with (calling neg.get_cube), -64, "cube negative"
+    calling eq_i with (calling zero.get_cube), 0, "cube zero"
+    calling eq_i with (calling pos.get_square), 441, "square positive"
     calling spark.println with "DONE"
     return 0
 """)
@@ -57,14 +57,14 @@ weave main into int:
     var two as int is 2
     var f as f64 is 2.0
     var three as f64 is 3.0
-    calling eq_i with (calling two.pow_int with 0), 1, "pow exp 0"
-    calling eq_i with (calling two.pow_int with 1), 2, "pow exp 1"
-    calling eq_i with (calling two.pow_int with 10), 1024, "pow exp 10"
-    calling eq_i with (calling two.pow_int with -3), 0, "pow int neg truncates"
-    calling eq_f with (calling f.pow_int with 10), 1024.0, "pow f64 exp 10"
-    calling eq_f with (calling f.pow_int with -1), 0.5, "pow f64 neg fractional"
-    calling eq_f with (calling three.pow_int with 3), 27.0, "pow f64 cube"
-    calling eq_f with (calling three.pow_int with 0), 1.0, "pow f64 exp 0"
+    calling eq_i with (calling two.get_pow_int with 0), 1, "pow exp 0"
+    calling eq_i with (calling two.get_pow_int with 1), 2, "pow exp 1"
+    calling eq_i with (calling two.get_pow_int with 10), 1024, "pow exp 10"
+    calling eq_i with (calling two.get_pow_int with -3), 0, "pow int neg truncates"
+    calling eq_f with (calling f.get_pow_int with 10), 1024.0, "pow f64 exp 10"
+    calling eq_f with (calling f.get_pow_int with -1), 0.5, "pow f64 neg fractional"
+    calling eq_f with (calling three.get_pow_int with 3), 27.0, "pow f64 cube"
+    calling eq_f with (calling three.get_pow_int with 0), 1.0, "pow f64 exp 0"
     calling spark.println with "DONE"
     return 0
 """)

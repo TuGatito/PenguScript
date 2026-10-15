@@ -40,7 +40,7 @@ def test_module_self_tests_pass():
         f"module self-tests failed:\n--- stdout ---\n{res.stdout}\n"
         f"--- stderr ---\n{res.stderr}"
     )
-    assert "All 38 test(s) passed." in res.stdout, res.stdout
+    assert "All 69 test(s) passed." in res.stdout, res.stdout
 
 
 def test_realistic_pipeline(compile_and_run):
@@ -51,12 +51,12 @@ import std.numerus
 
 weave main into int:
     var raw as f64 is 145.7
-    var clamped as f64 is calling raw.clamp with 0.0, 100.0
-    var rounded as f64 is calling clamped.round
+    var clamped as f64 is calling raw.get_clamp with 0.0, 100.0
+    var rounded as f64 is calling clamped.get_round
     calling spark.println with "{rounded to int}"
     var bonus as f64 is -12.5
-    var magnitude as f64 is calling bonus.abs
-    var normalized as int is calling magnitude.round to int
+    var magnitude as f64 is calling bonus.get_abs
+    var normalized as int is calling magnitude.get_round to int
     calling spark.println with "{normalized}"
     return 0
 """)
@@ -88,22 +88,22 @@ weave main into int:
     var o as f64 is -3.5
     var p as double is -4.5
     var total as int is 0
-    set total is total + (calling a.abs)
-    set total is total + (calling b.abs)
-    set total is total + (calling c.abs)
-    set total is total + (calling d.abs)
-    set total is total + (calling e.abs to int)
-    set total is total + (calling f.abs)
-    set total is total + (calling g.abs)
-    set total is total + (calling h.abs)
-    set total is total + (calling i.abs)
-    set total is total + (calling j.abs)
-    set total is total + (calling k.abs to int)
-    set total is total + (calling l.abs)
-    set total is total + (calling m.abs to int)
-    set total is total + (calling n.abs to int)
-    set total is total + (calling o.abs to int)
-    set total is total + (calling p.abs to int)
+    set total is total + (calling a.get_abs)
+    set total is total + (calling b.get_abs)
+    set total is total + (calling c.get_abs)
+    set total is total + (calling d.get_abs)
+    set total is total + (calling e.get_abs to int)
+    set total is total + (calling f.get_abs)
+    set total is total + (calling g.get_abs)
+    set total is total + (calling h.get_abs)
+    set total is total + (calling i.get_abs)
+    set total is total + (calling j.get_abs)
+    set total is total + (calling k.get_abs to int)
+    set total is total + (calling l.get_abs)
+    set total is total + (calling m.get_abs to int)
+    set total is total + (calling n.get_abs to int)
+    set total is total + (calling o.get_abs to int)
+    set total is total + (calling p.get_abs to int)
     calling spark.println with "{total}"
     return 0
 """)
@@ -120,9 +120,9 @@ def test_monomorphized_symbols_are_emitted(tmp_path):
         "    var a as int is -5\n"
         "    var b as f64 is -2.5\n"
         "    var c as u32 is 7\n"
-        "    let x is calling a.abs\n"
-        "    let y is calling b.clamp with 0.0, 1.0\n"
-        "    let z is calling c.signum\n"
+        "    let x is calling a.get_abs\n"
+        "    let y is calling b.get_clamp with 0.0, 1.0\n"
+        "    let z is calling c.get_signum\n"
         "    return 0\n",
         encoding="utf-8",
     )

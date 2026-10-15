@@ -106,14 +106,14 @@ declare pengu_c_atanh with x as float into float
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.abs`.
 weave abs with x as float into float:
-    return calling x.abs
+    return calling x.get_abs
 
 ## Absolute value of integer `x`.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.abs`.
 weave abs_i with x as int into int:
-    return calling x.abs
+    return calling x.get_abs
 
 ## Square root of `x` (C sqrt). Domain: x >= 0.
 ##
@@ -271,42 +271,42 @@ weave lcm with a as int , b as int into int:
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `a.min_with with b`.
 weave min with a as float , b as float into float:
-    return calling a.min_with with b
+    return calling a.get_min_with with b
 
 ## Smaller of two ints.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `a.min_with with b`.
 weave min_i with a as int , b as int into int:
-    return calling a.min_with with b
+    return calling a.get_min_with with b
 
 ## Larger of two floats.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `a.max_with with b`.
 weave max with a as float , b as float into float:
-    return calling a.max_with with b
+    return calling a.get_max_with with b
 
 ## Larger of two ints.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `a.max_with with b`.
 weave max_i with a as int , b as int into int:
-    return calling a.max_with with b
+    return calling a.get_max_with with b
 
 ## Clamps float `val` into the inclusive range [min_val, max_val].
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `val.clamp`.
 weave clamp with val as float , min_val as float , max_val as float into float:
-    return calling val.clamp with min_val , max_val
+    return calling val.get_clamp with min_val , max_val
 
 ## Clamps int `val` into the inclusive range [lo, hi].
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `val.clamp`.
 weave clamp_i with val as int , lo as int , hi as int into int:
-    return calling val.clamp with lo , hi
+    return calling val.get_clamp with lo , hi
 
 ## Linear interpolation between `a` and `b`: a + (b - a) * t.
 ##
@@ -334,14 +334,14 @@ weave rad_to_deg with rad as float into float:
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.signum`.
 weave sign with x as float into float:
-    return calling x.signum
+    return calling x.get_signum
 
 ## Returns -1, 0, or 1 depending on the sign of int `x`.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.signum`.
 weave sign_i with x as int into int:
-    return calling x.signum
+    return calling x.get_signum
 
 ## Compares two floats for approximate equality within `eps` tolerance.
 ##
@@ -476,21 +476,21 @@ weave next_power_of_two with n as int into int:
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.round`.
 weave to_int_round with x as float into int:
-    return (calling x.round) to int
+    return (calling x.get_round) to int
 
 ## Rounds float `x` down to int.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.floor`.
 weave to_int_floor with x as float into int:
-    return (calling x.floor) to int
+    return (calling x.get_floor) to int
 
 ## Rounds float `x` up to int.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.ceil`.
 weave to_int_ceil with x as float into int:
-    return (calling x.ceil) to int
+    return (calling x.get_ceil) to int
 
 ## Inverse square: 1 / (x * x). Returns 0.0 if x == 0.
 ##

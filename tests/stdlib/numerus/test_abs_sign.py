@@ -38,17 +38,17 @@ weave main into int:
     var byt as byte is 9
     var sz as usize is 11
     var iz as isize is -13
-    calling eq_i with (calling neg.abs), 5, "int negative"
-    calling eq_i with (calling pos.abs), 5, "int positive identity"
-    calling eq_i with (calling zero.abs), 0, "int zero"
-    calling eq_i with (calling wide.abs to int), 9000000, "i64 negative"
-    calling eq_i with (calling small.abs), 7, "i8 negative"
-    calling eq_f with (calling half.abs to f64), 2.5, "f32 negative"
-    calling eq_f with (calling real.abs), 3.5, "f64 negative"
-    calling eq_i with (calling un.abs), 7, "u32 identity"
-    calling eq_i with (calling byt.abs), 9, "byte identity"
-    calling eq_i with (calling sz.abs), 11, "usize identity"
-    calling eq_i with (calling iz.abs to int), 13, "isize negative"
+    calling eq_i with (calling neg.get_abs), 5, "int negative"
+    calling eq_i with (calling pos.get_abs), 5, "int positive identity"
+    calling eq_i with (calling zero.get_abs), 0, "int zero"
+    calling eq_i with (calling wide.get_abs to int), 9000000, "i64 negative"
+    calling eq_i with (calling small.get_abs), 7, "i8 negative"
+    calling eq_f with (calling half.get_abs to f64), 2.5, "f32 negative"
+    calling eq_f with (calling real.get_abs), 3.5, "f64 negative"
+    calling eq_i with (calling un.get_abs), 7, "u32 identity"
+    calling eq_i with (calling byt.get_abs), 9, "byte identity"
+    calling eq_i with (calling sz.get_abs), 11, "usize identity"
+    calling eq_i with (calling iz.get_abs to int), 13, "isize negative"
     calling spark.println with "DONE"
     return 0
 """)
@@ -65,16 +65,16 @@ weave main into int:
     var fpos as f64 is 7.5
     var fneg as f64 is -0.5
     var un as u32 is 9
-    calling eq_i with (calling neg.signum), -1, "signum int negative"
-    calling eq_i with (calling zero.signum), 0, "signum int zero"
-    calling eq_i with (calling pos.signum), 1, "signum int positive"
-    calling eq_f with (calling fpos.signum), 1.0, "signum f64 positive"
-    calling eq_f with (calling fneg.signum), -1.0, "signum f64 negative"
-    calling eq_i with (calling un.signum), 1, "signum unsigned positive"
-    calling eq_i with (calling neg.negated), 42, "negated int negative"
-    calling eq_i with (calling zero.negated), 0, "negated int zero"
-    calling eq_i with (calling pos.negated), -7, "negated int positive"
-    calling eq_f with (calling fpos.negated), -7.5, "negated f64 positive"
+    calling eq_i with (calling neg.get_signum), -1, "signum int negative"
+    calling eq_i with (calling zero.get_signum), 0, "signum int zero"
+    calling eq_i with (calling pos.get_signum), 1, "signum int positive"
+    calling eq_f with (calling fpos.get_signum), 1.0, "signum f64 positive"
+    calling eq_f with (calling fneg.get_signum), -1.0, "signum f64 negative"
+    calling eq_i with (calling un.get_signum), 1, "signum unsigned positive"
+    calling eq_i with (calling neg.get_negated), 42, "negated int negative"
+    calling eq_i with (calling zero.get_negated), 0, "negated int zero"
+    calling eq_i with (calling pos.get_negated), -7, "negated int positive"
+    calling eq_f with (calling fpos.get_negated), -7.5, "negated f64 positive"
     calling spark.println with "DONE"
     return 0
 """)
