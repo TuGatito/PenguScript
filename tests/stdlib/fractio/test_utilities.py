@@ -30,13 +30,13 @@ weave main into int:
     var d180 as f64 is 180.0
     var d90 as f64 is 90.0
     var zero as f64 is 0.0
-    calling eq_f with (calling pi.degrees), 180.0, 1e-12, "pi -> 180"
-    calling eq_f with (calling half.degrees), 90.0, 1e-12, "pi/2 -> 90"
-    calling eq_f with (calling zero.degrees), 0.0, 1e-12, "0 -> 0"
-    calling eq_f with (calling d180.radians), pi, 1e-15, "180 -> pi"
-    calling eq_f with (calling d90.radians), half, 1e-15, "90 -> pi/2"
+    calling eq_f with (calling pi.get_degrees), 180.0, 1e-12, "pi -> 180"
+    calling eq_f with (calling half.get_degrees), 90.0, 1e-12, "pi/2 -> 90"
+    calling eq_f with (calling zero.get_degrees), 0.0, 1e-12, "0 -> 0"
+    calling eq_f with (calling d180.get_radians), pi, 1e-15, "180 -> pi"
+    calling eq_f with (calling d90.get_radians), half, 1e-15, "90 -> pi/2"
     var pi32 as float is 3.141592653589793
-    calling eq_f with ((calling pi32.degrees) to f64), 180.0, 1e-4, "pi f32 -> 180"
+    calling eq_f with ((calling pi32.get_degrees) to f64), 180.0, 1e-4, "pi f32 -> 180"
     calling spark.println with "DONE"
     return 0
 """)
@@ -49,14 +49,14 @@ def test_hypot_as_distance(compile_and_run):
 weave distance_2d with x1 as f64, y1 as f64, x2 as f64, y2 as f64 into f64:
     var dx as f64 is x2 - x1
     var dy as f64 is y2 - y1
-    return calling dx.hypot with dy
+    return calling dx.get_hypot with dy
 
 weave main into int:
     calling eq_f with (calling distance_2d with 0.0, 0.0, 3.0, 4.0), 5.0, 1e-12, "3-4-5"
     calling eq_f with (calling distance_2d with 1.0, 1.0, 4.0, 5.0), 5.0, 1e-12, "offset 3-4-5"
     calling eq_f with (calling distance_2d with 2.0, 2.0, 2.0, 2.0), 0.0, 1e-12, "degenerate"
     var big as f64 is 1e200
-    calling eq_f with (calling big.hypot with 0.0), 1e200, 1e190, "no overflow at 1e200"
+    calling eq_f with (calling big.get_hypot with 0.0), 1e200, 1e190, "no overflow at 1e200"
     calling spark.println with "DONE"
     return 0
 """)

@@ -56,24 +56,24 @@ weave main into int:
     var four as f64 is 4.0
     var neg as f64 is -1.0
     var zero as f64 is 0.0
-    calling eq_f with (calling two.reciprocal), 0.5, "reciprocal 2"
-    calling eq_f with (calling four.reciprocal), 0.25, "reciprocal 4"
-    calling eq_f with (calling neg.reciprocal), -1.0, "reciprocal -1"
-    var inf as f64 is calling zero.reciprocal
+    calling eq_f with (calling two.get_reciprocal), 0.5, "reciprocal 2"
+    calling eq_f with (calling four.get_reciprocal), 0.25, "reciprocal 4"
+    calling eq_f with (calling neg.get_reciprocal), -1.0, "reciprocal -1"
+    var inf as f64 is calling zero.get_reciprocal
     calling eq_b with (calling inf.is_infinite), true, "reciprocal 0 -> Inf"
     var lo as f64 is 0.0
     var hi as f64 is 10.0
-    calling eq_f with (calling lo.lerp with hi, 0.0), 0.0, "lerp t=0"
-    calling eq_f with (calling lo.lerp with hi, 1.0), 10.0, "lerp t=1"
-    calling eq_f with (calling lo.lerp with hi, 0.5), 5.0, "lerp t=0.5"
-    calling eq_f with (calling lo.lerp with hi, 2.0), 20.0, "lerp extrapolates"
+    calling eq_f with (calling lo.get_lerp with hi, 0.0), 0.0, "lerp t=0"
+    calling eq_f with (calling lo.get_lerp with hi, 1.0), 10.0, "lerp t=1"
+    calling eq_f with (calling lo.get_lerp with hi, 0.5), 5.0, "lerp t=0.5"
+    calling eq_f with (calling lo.get_lerp with hi, 2.0), 20.0, "lerp extrapolates"
     var p as f64 is 3.0
     var n as f64 is -3.0
     var pos as f64 is 1.0
-    calling eq_f with (calling p.copysign with neg), -3.0, "copysign + -"
-    calling eq_f with (calling n.copysign with pos), 3.0, "copysign - +"
-    calling eq_f with (calling p.copysign with pos), 3.0, "copysign + +"
-    calling eq_f with (calling n.copysign with neg), -3.0, "copysign - -"
+    calling eq_f with (calling p.get_copysign with neg), -3.0, "copysign + -"
+    calling eq_f with (calling n.get_copysign with pos), 3.0, "copysign - +"
+    calling eq_f with (calling p.get_copysign with pos), 3.0, "copysign + +"
+    calling eq_f with (calling n.get_copysign with neg), -3.0, "copysign - -"
     calling spark.println with "DONE"
     return 0
 """)

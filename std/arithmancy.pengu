@@ -120,14 +120,14 @@ weave abs_i with x as int into int:
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.sqrt`.
 weave sqrt with x as float into float:
-    return calling x.sqrt
+    return calling x.get_sqrt
 
 ## Raises `x` to the power `y` (C pow).
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.pow with y`.
 weave pow with x as float , y as float into float:
-    return calling x.pow with y
+    return calling x.get_pow with y
 
 ## Largest integer not greater than `x`, returned as a float (C floor).
 ##
@@ -173,77 +173,77 @@ weave fmod with x as float , y as float into float:
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.sin`.
 weave sin with x as float into float:
-    return calling x.sin
+    return calling x.get_sin
 
 ## Cosine of angle `x` in radians (C cos).
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.cos`.
 weave cos with x as float into float:
-    return calling x.cos
+    return calling x.get_cos
 
 ## Tangent of angle `x` in radians (C tan).
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.tan`.
 weave tan with x as float into float:
-    return calling x.tan
+    return calling x.get_tan
 
 ## Arc sine of `x` in radians (C asin). Domain: [-1, 1].
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.asin`.
 weave asin with x as float into float:
-    return calling x.asin
+    return calling x.get_asin
 
 ## Arc cosine of `x` in radians (C acos). Domain: [-1, 1].
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.acos`.
 weave acos with x as float into float:
-    return calling x.acos
+    return calling x.get_acos
 
 ## Arc tangent of `x` in radians (C atan).
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.atan`.
 weave atan with x as float into float:
-    return calling x.atan
+    return calling x.get_atan
 
 ## Four-quadrant arc tangent of `y` / `x` in radians (C atan2).
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `y.atan2 with x`.
 weave atan2 with y as float , x as float into float:
-    return calling y.atan2 with x
+    return calling y.get_atan2 with x
 
 ## Exponential: e raised to the power `x` (C exp).
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.exp`.
 weave exp with x as float into float:
-    return calling x.exp
+    return calling x.get_exp
 
 ## Natural logarithm of `x` (C log). Domain: x > 0.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.ln`.
 weave log with x as float into float:
-    return calling x.ln
+    return calling x.get_ln
 
 ## Base-10 logarithm of `x` (C log10). Domain: x > 0.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.log10`.
 weave log10 with x as float into float:
-    return calling x.log10
+    return calling x.get_log10
 
 ## Base-2 logarithm of `x` (C log2). Domain: x > 0.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.log2`.
 weave log2 with x as float into float:
-    return calling x.log2
+    return calling x.get_log2
 
 ## Primality test for integer `n` using 6k +/- 1 trial division.
 ##
@@ -313,21 +313,21 @@ weave clamp_i with val as int , lo as int , hi as int into int:
 ## ## Delegación
 ## Wrapper delgado sobre `std.numerus`: el algoritmo vive en `a.lerp with b, t`.
 weave lerp with a as float , b as float , t as float into float:
-    return calling a.lerp with b , t
+    return calling a.get_lerp with b , t
 
 ## Converts angle from degrees to radians.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `deg.radians`.
 weave deg_to_rad with deg as float into float:
-    return calling deg.radians
+    return calling deg.get_radians
 
 ## Converts angle from radians to degrees.
 ##
 ## ## Delegación
 ## Wrapper delgado sobre `std.fractio`: el algoritmo vive en `rad.degrees`.
 weave rad_to_deg with rad as float into float:
-    return calling rad.degrees
+    return calling rad.get_degrees
 
 ## Returns -1.0, 0.0, or 1.0 depending on the sign of float `x`.
 ##
@@ -510,7 +510,7 @@ weave inv_sq with x as float into float:
 ## La versión de `fractio` llama a `libm` `hypot`, que además evita el
 ## desbordamiento intermedio de `a*a + b*b`.
 weave hypot with a as float , b as float into float:
-    return calling a.hypot with b
+    return calling a.get_hypot with b
 
 ## 2D Euclidean distance between (x1, y1) and (x2, y2).
 ##

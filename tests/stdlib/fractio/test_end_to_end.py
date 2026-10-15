@@ -33,7 +33,7 @@ def test_module_self_tests_pass():
         f"module self-tests failed:\n--- stdout ---\n{res.stdout}\n"
         f"--- stderr ---\n{res.stderr}"
     )
-    assert "All 37 test(s) passed." in res.stdout, res.stdout
+    assert "All 108 test(s) passed." in res.stdout, res.stdout
 
 
 def test_realistic_geometry(compile_and_run):
@@ -46,11 +46,11 @@ import std.numerus
 weave main into int:
     var x as f64 is 3.0
     var y as f64 is 4.0
-    var length as f64 is calling x.hypot with y
+    var length as f64 is calling x.get_hypot with y
     calling spark.println with "{length}"
-    var angle as f64 is calling y.atan2 with x
-    var degrees as f64 is calling angle.degrees
-    calling spark.println with "{calling degrees.round to int}"
+    var angle as f64 is calling y.get_atan2 with x
+    var degrees as f64 is calling angle.get_degrees
+    calling spark.println with "{calling degrees.get_round to int}"
     var unit as f64 is x / length
     calling spark.println with "{calling unit.approx_eq with 0.6, 1e-12}"
     return 0
@@ -69,12 +69,12 @@ def test_two_blocks_emit_per_width_symbols(tmp_path):
         "    var a as f64 is 4.0\n"
         "    var b as float is 4.0\n"
         "    var c as f32 is 4.0\n"
-        "    let s1 is calling a.sqrt\n"
-        "    let s2 is calling b.sqrt\n"
-        "    let s3 is calling c.sin\n"
+        "    let s1 is calling a.get_sqrt\n"
+        "    let s2 is calling b.get_sqrt\n"
+        "    let s3 is calling c.get_sin\n"
         "    let n1 is calling a.is_nan\n"
-        "    let e1 is calling a.exp\n"
-        "    let h1 is calling a.hypot with 3.0\n"
+        "    let e1 is calling a.get_exp\n"
+        "    let h1 is calling a.get_hypot with 3.0\n"
         "    return 0\n",
         encoding="utf-8",
     )

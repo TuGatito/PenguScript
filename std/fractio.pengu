@@ -201,6 +201,7 @@ enchanting shard T where T: Real:
     ## var x as f64 is 2.0
     ## calling spark.println with "{calling x.reciprocal}"   # 0.5
     ## ```
+    @mutates
     weave reciprocal into T:
         return (1.0 to T) / self
 
@@ -217,6 +218,7 @@ enchanting shard T where T: Real:
     ## var b as f64 is 10.0
     ## calling spark.println with "{calling a.lerp with b, 0.5}"   # 5
     ## ```
+    @mutates
     weave lerp with other as T, t as T into T:
         return self + (t * (other - self))
 
@@ -228,6 +230,7 @@ enchanting shard T where T: Real:
     ## var y as f64 is -1.0
     ## calling spark.println with "{calling x.copysign with y}"   # -3
     ## ```
+    @mutates
     weave copysign with sign_source as T into T:
         var magnitude as T is self
         if magnitude < donum T:
@@ -243,6 +246,7 @@ enchanting shard T where T: Real:
     ## var pi as f64 is 3.141592653589793
     ## calling spark.println with "{calling pi.degrees}"   # ~180
     ## ```
+    @mutates
     weave degrees into T:
         return self * ((180.0 to T) / (3.141592653589793 to T))
 
@@ -253,6 +257,7 @@ enchanting shard T where T: Real:
     ## var d as f64 is 180.0
     ## calling spark.println with "{calling d.radians}"   # ~3.14159
     ## ```
+    @mutates
     weave radians into T:
         return self * ((3.141592653589793 to T) / (180.0 to T))
 
@@ -263,64 +268,79 @@ enchanting shard T where T: Real:
 enchanting float:
 
     ## Raíz cuadrada. Dominio `self >= 0`; un negativo devuelve NaN.
+    @mutates
     weave sqrt into float:
         return calling sqrtf with self
 
     ## Raíz cúbica (definida para cualquier signo).
+    @mutates
     weave cbrt into float:
         return calling cbrtf with self
 
     ## Seno (radianes).
+    @mutates
     weave sin into float:
         return calling sinf with self
 
     ## Coseno (radianes).
+    @mutates
     weave cos into float:
         return calling cosf with self
 
     ## Tangente (radianes).
+    @mutates
     weave tan into float:
         return calling tanf with self
 
     ## Arcoseno. Dominio `[-1, 1]`; fuera devuelve NaN.
+    @mutates
     weave asin into float:
         return calling asinf with self
 
     ## Arcocoseno. Dominio `[-1, 1]`; fuera devuelve NaN.
+    @mutates
     weave acos into float:
         return calling acosf with self
 
     ## Arcotangente.
+    @mutates
     weave atan into float:
         return calling atanf with self
 
     ## Ángulo cuyo seno es `self` y cuyo coseno es `x`, en el cuadrante
     ## correcto (radianes).
+    @mutates
     weave atan2 with x as float into float:
         return calling atan2f with self, x
 
     ## Exponencial natural (`e^self`).
+    @mutates
     weave exp into float:
         return calling expf with self
 
     ## Logaritmo natural. Dominio `self > 0`; `0` devuelve `-Inf` y un negativo
     ## NaN.
+    @mutates
     weave ln into float:
         return calling logf with self
 
     ## Logaritmo en base 2. Dominio `self > 0`.
+    @mutates
     weave log2 into float:
         return calling log2f with self
 
     ## Logaritmo en base 10. Dominio `self > 0`.
+    @mutates
     weave log10 into float:
         return calling log10f with self
 
     ## `self` elevado a `exponent`.
+    @mutates
     weave pow with exponent as float into float:
         return calling powf with self, exponent
 
     ## `sqrt(self² + other²)` sin desbordamiento intermedio.
+    @mutates
     weave hypot with other as float into float:
         return calling hypotf with self, other
 
@@ -331,64 +351,79 @@ enchanting float:
 enchanting f64:
 
     ## Raíz cuadrada. Dominio `self >= 0`; un negativo devuelve NaN.
+    @mutates
     weave sqrt into f64:
         return calling sqrt with self
 
     ## Raíz cúbica (definida para cualquier signo).
+    @mutates
     weave cbrt into f64:
         return calling cbrt with self
 
     ## Seno (radianes).
+    @mutates
     weave sin into f64:
         return calling sin with self
 
     ## Coseno (radianes).
+    @mutates
     weave cos into f64:
         return calling cos with self
 
     ## Tangente (radianes).
+    @mutates
     weave tan into f64:
         return calling tan with self
 
     ## Arcoseno. Dominio `[-1, 1]`; fuera devuelve NaN.
+    @mutates
     weave asin into f64:
         return calling asin with self
 
     ## Arcocoseno. Dominio `[-1, 1]`; fuera devuelve NaN.
+    @mutates
     weave acos into f64:
         return calling acos with self
 
     ## Arcotangente.
+    @mutates
     weave atan into f64:
         return calling atan with self
 
     ## Ángulo cuyo seno es `self` y cuyo coseno es `x`, en el cuadrante
     ## correcto (radianes).
+    @mutates
     weave atan2 with x as f64 into f64:
         return calling atan2 with self, x
 
     ## Exponencial natural (`e^self`).
+    @mutates
     weave exp into f64:
         return calling exp with self
 
     ## Logaritmo natural. Dominio `self > 0`; `0` devuelve `-Inf` y un negativo
     ## NaN.
+    @mutates
     weave ln into f64:
         return calling log with self
 
     ## Logaritmo en base 2. Dominio `self > 0`.
+    @mutates
     weave log2 into f64:
         return calling log2 with self
 
     ## Logaritmo en base 10. Dominio `self > 0`.
+    @mutates
     weave log10 into f64:
         return calling log10 with self
 
     ## `self` elevado a `exponent`.
+    @mutates
     weave pow with exponent as f64 into f64:
         return calling pow with self, exponent
 
     ## `sqrt(self² + other²)` sin desbordamiento intermedio.
+    @mutates
     weave hypot with other as f64 into f64:
         return calling hypot with self, other
 
@@ -407,7 +442,10 @@ weave _t_false with got as bool into void:
 ## Helper de test: igualdad exacta de `f64`.
 weave _t_f64 with got as f64, want as f64 into void:
     if got != want:
-        calling ward.assert_true with false
+        # Route the failure through `ward` so the message carries both values.
+        # The narrowing cast only happens on the failing path, so it cannot cost
+        # precision in a passing comparison.
+        calling ward.assert_eq_float with (got to float), (want to float)
 
 ## Helper de test: igualdad aproximada de `f64` dentro de `eps` absoluto.
 weave _t_close with got as f64, want as f64, eps as f64 into void:
@@ -415,7 +453,7 @@ weave _t_close with got as f64, want as f64, eps as f64 into void:
     if d < 0.0:
         set d is -d
     if d > eps:
-        calling ward.assert_true with false
+        calling ward.assert_eq_float with (got to float), (want to float), (eps to float)
 
 ## Helper de test: `NaN` de `f64`.
 weave _t_nan with got as f64 into void:
@@ -424,7 +462,7 @@ weave _t_nan with got as f64 into void:
 
 test "is_nan detects NaN from sqrt of a negative":
     var neg as f64 is -1.0
-    var bad as f64 is calling neg.sqrt
+    var bad as f64 is calling neg.get_sqrt
     calling _t_true with (calling bad.is_nan)
 
 test "is_nan is false for ordinary values":
@@ -443,15 +481,15 @@ test "is_finite is true for ordinary values":
 
 test "is_finite is false for Inf and NaN":
     var zero as f64 is 0.0
-    var inf as f64 is calling zero.reciprocal
+    var inf as f64 is calling zero.get_reciprocal
     var neg as f64 is -1.0
-    var bad as f64 is calling neg.sqrt
+    var bad as f64 is calling neg.get_sqrt
     calling _t_false with (calling inf.is_finite)
     calling _t_false with (calling bad.is_finite)
 
 test "is_infinite detects positive infinity":
     var zero as f64 is 0.0
-    var inf as f64 is calling zero.reciprocal
+    var inf as f64 is calling zero.get_reciprocal
     calling _t_true with (calling inf.is_infinite)
 
 test "is_infinite detects negative infinity":
@@ -463,14 +501,14 @@ test "is_infinite is false for finite values and NaN":
     var x as f64 is 2.0
     var z as f64 is 0.0
     var neg as f64 is -1.0
-    var bad as f64 is calling neg.sqrt
+    var bad as f64 is calling neg.get_sqrt
     calling _t_false with (calling x.is_infinite)
     calling _t_false with (calling z.is_infinite)
     calling _t_false with (calling bad.is_infinite)
 
 test "is_positive_infinity distinguishes the sign":
     var zero as f64 is 0.0
-    var inf as f64 is calling zero.reciprocal
+    var inf as f64 is calling zero.get_reciprocal
     var ninf as f64 is (0.0 - 1.0) / zero
     var one as f64 is 1.0
     calling _t_true with (calling inf.is_positive_infinity)
@@ -479,7 +517,7 @@ test "is_positive_infinity distinguishes the sign":
 
 test "is_negative_infinity distinguishes the sign":
     var zero as f64 is 0.0
-    var inf as f64 is calling zero.reciprocal
+    var inf as f64 is calling zero.get_reciprocal
     var ninf as f64 is (0.0 - 1.0) / zero
     var one as f64 is 1.0
     calling _t_true with (calling ninf.is_negative_infinity)
@@ -510,127 +548,127 @@ test "approx_eq works with negatives":
 test "reciprocal inverts the value":
     var a as f64 is 2.0
     var b as f64 is -1.0
-    calling _t_f64 with (calling a.reciprocal), 0.5
-    calling _t_f64 with (calling b.reciprocal), -1.0
+    calling _t_f64 with (calling a.get_reciprocal), 0.5
+    calling _t_f64 with (calling b.get_reciprocal), -1.0
 
 test "reciprocal of zero is infinity":
     var zero as f64 is 0.0
-    var inf as f64 is calling zero.reciprocal
+    var inf as f64 is calling zero.get_reciprocal
     calling _t_true with (calling inf.is_infinite)
 
 test "lerp interpolates at the endpoints and the middle":
     var a as f64 is 0.0
     var b as f64 is 10.0
-    calling _t_f64 with (calling a.lerp with b, 0.0), 0.0
-    calling _t_f64 with (calling a.lerp with b, 1.0), 10.0
-    calling _t_f64 with (calling a.lerp with b, 0.5), 5.0
+    calling _t_f64 with (calling a.get_lerp with b, 0.0), 0.0
+    calling _t_f64 with (calling a.get_lerp with b, 1.0), 10.0
+    calling _t_f64 with (calling a.get_lerp with b, 0.5), 5.0
 
 test "lerp extrapolates outside the unit interval":
     var a as f64 is 0.0
     var b as f64 is 10.0
-    calling _t_f64 with (calling a.lerp with b, 2.0), 20.0
+    calling _t_f64 with (calling a.get_lerp with b, 2.0), 20.0
 
 test "copysign keeps the magnitude and takes the sign":
     var p as f64 is 3.0
     var n as f64 is -3.0
     var neg as f64 is -1.0
     var pos as f64 is 1.0
-    calling _t_f64 with (calling p.copysign with neg), -3.0
-    calling _t_f64 with (calling n.copysign with pos), 3.0
-    calling _t_f64 with (calling p.copysign with pos), 3.0
-    calling _t_f64 with (calling n.copysign with neg), -3.0
+    calling _t_f64 with (calling p.get_copysign with neg), -3.0
+    calling _t_f64 with (calling n.get_copysign with pos), 3.0
+    calling _t_f64 with (calling p.get_copysign with pos), 3.0
+    calling _t_f64 with (calling n.get_copysign with neg), -3.0
 
 test "degrees turns pi into 180":
     var pi as f64 is 3.141592653589793
-    calling _t_close with (calling pi.degrees), 180.0, 1e-9
+    calling _t_close with (calling pi.get_degrees), 180.0, 1e-9
     var half as f64 is pi / 2.0
-    calling _t_close with (calling half.degrees), 90.0, 1e-9
+    calling _t_close with (calling half.get_degrees), 90.0, 1e-9
 
 test "radians turns 180 into pi":
     var d as f64 is 180.0
     var pi as f64 is 3.141592653589793
-    calling _t_close with (calling d.radians), pi, 1e-12
+    calling _t_close with (calling d.get_radians), pi, 1e-12
 
 test "sqrt of a perfect square is exact":
     var a as f64 is 4.0
     var b as f64 is 9.0
     var c as float is 16.0
-    calling _t_f64 with (calling a.sqrt), 2.0
-    calling _t_f64 with (calling b.sqrt), 3.0
-    calling _t_f64 with (calling c.sqrt to f64), 4.0
+    calling _t_f64 with (calling a.get_sqrt), 2.0
+    calling _t_f64 with (calling b.get_sqrt), 3.0
+    calling _t_f64 with (calling c.get_sqrt to f64), 4.0
 
 test "sqrt of a negative is NaN":
     var neg as f64 is -1.0
-    var bad as f64 is calling neg.sqrt
+    var bad as f64 is calling neg.get_sqrt
     calling _t_nan with bad
 
 test "cbrt handles both signs":
     var a as f64 is 8.0
     var b as f64 is -8.0
     var z as f64 is 0.0
-    calling _t_f64 with (calling a.cbrt), 2.0
-    calling _t_f64 with (calling b.cbrt), -2.0
-    calling _t_f64 with (calling z.cbrt), 0.0
+    calling _t_f64 with (calling a.get_cbrt), 2.0
+    calling _t_f64 with (calling b.get_cbrt), -2.0
+    calling _t_f64 with (calling z.get_cbrt), 0.0
 
 test "sin and cos at the cardinal angles":
     var zero as f64 is 0.0
     var pi as f64 is 3.141592653589793
     var half as f64 is pi / 2.0
-    calling _t_f64 with (calling zero.sin), 0.0
-    calling _t_close with (calling half.sin), 1.0, 1e-12
-    calling _t_f64 with (calling zero.cos), 1.0
-    calling _t_close with (calling half.cos), 0.0, 1e-12
+    calling _t_f64 with (calling zero.get_sin), 0.0
+    calling _t_close with (calling half.get_sin), 1.0, 1e-12
+    calling _t_f64 with (calling zero.get_cos), 1.0
+    calling _t_close with (calling half.get_cos), 0.0, 1e-12
 
 test "tan at zero and pi/4":
     var zero as f64 is 0.0
     var pi as f64 is 3.141592653589793
     var quarter as f64 is pi / 4.0
-    calling _t_f64 with (calling zero.tan), 0.0
-    calling _t_close with (calling quarter.tan), 1.0, 1e-12
+    calling _t_f64 with (calling zero.get_tan), 0.0
+    calling _t_close with (calling quarter.get_tan), 1.0, 1e-12
 
 test "asin and acos at the domain edges":
     var one as f64 is 1.0
     var zero as f64 is 0.0
     var pi as f64 is 3.141592653589793
     var half as f64 is pi / 2.0
-    calling _t_close with (calling one.asin), half, 1e-12
-    calling _t_f64 with (calling zero.asin), 0.0
-    calling _t_f64 with (calling one.acos), 0.0
-    calling _t_close with (calling zero.acos), half, 1e-12
+    calling _t_close with (calling one.get_asin), half, 1e-12
+    calling _t_f64 with (calling zero.get_asin), 0.0
+    calling _t_f64 with (calling one.get_acos), 0.0
+    calling _t_close with (calling zero.get_acos), half, 1e-12
 
 test "asin outside the domain is NaN":
     var two as f64 is 2.0
-    var bad as f64 is calling two.asin
+    var bad as f64 is calling two.get_asin
     calling _t_nan with bad
 
 test "atan and atan2 in the first quadrant":
     var one as f64 is 1.0
     var pi as f64 is 3.141592653589793
     var quarter as f64 is pi / 4.0
-    calling _t_close with (calling one.atan), quarter, 1e-12
-    calling _t_close with (calling one.atan2 with one), quarter, 1e-12
+    calling _t_close with (calling one.get_atan), quarter, 1e-12
+    calling _t_close with (calling one.get_atan2 with one), quarter, 1e-12
 
 test "exp at zero and one":
     var zero as f64 is 0.0
     var one as f64 is 1.0
     var e as f64 is 2.718281828459045
-    calling _t_f64 with (calling zero.exp), 1.0
-    calling _t_close with (calling one.exp), e, 1e-12
+    calling _t_f64 with (calling zero.get_exp), 1.0
+    calling _t_close with (calling one.get_exp), e, 1e-12
 
 test "ln is the inverse of exp":
     var one as f64 is 1.0
     var e as f64 is 2.718281828459045
-    calling _t_f64 with (calling one.ln), 0.0
-    calling _t_close with (calling e.ln), 1.0, 1e-12
+    calling _t_f64 with (calling one.get_ln), 0.0
+    calling _t_close with (calling e.get_ln), 1.0, 1e-12
 
 test "ln of zero is negative infinity":
     var zero as f64 is 0.0
-    var ninf as f64 is calling zero.ln
+    var ninf as f64 is calling zero.get_ln
     calling _t_true with (calling ninf.is_negative_infinity)
 
 test "ln of a negative is NaN":
     var neg as f64 is -1.0
-    var bad as f64 is calling neg.ln
+    var bad as f64 is calling neg.get_ln
     calling _t_nan with bad
 
 test "log2 and log10 on the powers of their base":
@@ -639,42 +677,440 @@ test "log2 and log10 on the powers of their base":
     var thousand as f64 is 1024.0
     var hundred as f64 is 100.0
     var thousand10 as f64 is 1000.0
-    calling _t_f64 with (calling one.log2), 0.0
-    calling _t_f64 with (calling eight.log2), 3.0
-    calling _t_f64 with (calling thousand.log2), 10.0
-    calling _t_f64 with (calling hundred.log10), 2.0
-    calling _t_f64 with (calling thousand10.log10), 3.0
+    calling _t_f64 with (calling one.get_log2), 0.0
+    calling _t_f64 with (calling eight.get_log2), 3.0
+    calling _t_f64 with (calling thousand.get_log2), 10.0
+    calling _t_f64 with (calling hundred.get_log10), 2.0
+    calling _t_f64 with (calling thousand10.get_log10), 3.0
 
 test "pow raises to a real exponent":
     var two as f64 is 2.0
-    calling _t_f64 with (calling two.pow with 10.0), 1024.0
-    calling _t_f64 with (calling two.pow with 0.0), 1.0
-    calling _t_f64 with (calling two.pow with -1.0), 0.5
+    calling _t_f64 with (calling two.get_pow with 10.0), 1024.0
+    calling _t_f64 with (calling two.get_pow with 0.0), 1.0
+    calling _t_f64 with (calling two.get_pow with -1.0), 0.5
 
 test "hypot is the Pythagorean length":
     var three as f64 is 3.0
     var four as f64 is 4.0
     var zero as f64 is 0.0
-    calling _t_f64 with (calling three.hypot with four), 5.0
-    calling _t_f64 with (calling zero.hypot with zero), 0.0
+    calling _t_f64 with (calling three.get_hypot with four), 5.0
+    calling _t_f64 with (calling zero.get_hypot with zero), 0.0
 
 test "the transcendental methods are monomorphized per width":
     var wide as f64 is 2.25
     var narrow as float is 2.25
-    calling _t_close with (calling wide.sqrt), 1.5, 1e-12
-    calling _t_close with ((calling narrow.sqrt to f64)), 1.5, 1e-6
+    calling _t_close with (calling wide.get_sqrt), 1.5, 1e-12
+    calling _t_close with ((calling narrow.get_sqrt to f64)), 1.5, 1e-6
 
 test "float and f32 aliases reach the same methods":
     var a as f32 is 4.0
     var b as double is 4.0
-    calling _t_close with ((calling a.sqrt to f64)), 2.0, 1e-6
-    calling _t_close with (calling b.sqrt), 2.0, 1e-12
+    calling _t_close with ((calling a.get_sqrt to f64)), 2.0, 1e-6
+    calling _t_close with (calling b.get_sqrt), 2.0, 1e-12
 
 test "fractio and numerus compose when both are imported elsewhere":
     # `fractio` deliberately does not import `std.numerus` (see the module
     # docstring): this test only proves the `Real`->`Num` chain at the type
     # level, using `fractio`'s own methods.
     var x as f64 is 2.25
-    var r as f64 is calling x.reciprocal
-    calling _t_close with (calling r.reciprocal), x, 1e-12
+    var r as f64 is calling x.get_reciprocal
+    calling _t_close with (calling r.get_reciprocal), x, 1e-12
     calling _t_true with (calling x.is_finite)
+
+# --- In-place mutation vs the pure `get_` form -------------------------------
+#
+# Every method above is `@mutates`: `calling x.sqrt` rewrites `x`, while
+# `calling x.get_sqrt` returns the value and leaves `x` alone.  Floats are
+# compared with `_t_close`, which carries a tolerance.
+
+test "reciprocal mutates the receiver (float)":
+    var x as float is 4.0
+    calling x.reciprocal
+    calling _t_close with x, 0.25, 1e-6
+
+test "get_reciprocal returns without mutating (float)":
+    var x as float is 4.0
+    var r as float is calling x.get_reciprocal
+    calling _t_close with r, 0.25, 1e-6
+    calling _t_close with x, 4.0, 1e-6
+
+test "lerp mutates the receiver (float)":
+    var x as float is 0.0
+    calling x.lerp with 10.0, 0.5
+    calling _t_close with x, 5.0, 1e-6
+
+test "get_lerp returns without mutating (float)":
+    var x as float is 0.0
+    var r as float is calling x.get_lerp with 10.0, 0.5
+    calling _t_close with r, 5.0, 1e-6
+    calling _t_close with x, 0.0, 1e-6
+
+test "copysign mutates the receiver (float)":
+    var x as float is 3.0
+    calling x.copysign with -1.0
+    calling _t_close with x, -3.0, 1e-6
+
+test "get_copysign returns without mutating (float)":
+    var x as float is 3.0
+    var r as float is calling x.get_copysign with -1.0
+    calling _t_close with r, -3.0, 1e-6
+    calling _t_close with x, 3.0, 1e-6
+
+test "degrees mutates the receiver (float)":
+    var x as float is 3.141592653589793
+    calling x.degrees
+    calling _t_close with x, 180.0, 1e-6
+
+test "get_degrees returns without mutating (float)":
+    var x as float is 3.141592653589793
+    var r as float is calling x.get_degrees
+    calling _t_close with r, 180.0, 1e-6
+    calling _t_close with x, 3.141592653589793, 1e-6
+
+test "radians mutates the receiver (float)":
+    var x as float is 180.0
+    calling x.radians
+    calling _t_close with x, 3.141592653589793, 1e-6
+
+test "get_radians returns without mutating (float)":
+    var x as float is 180.0
+    var r as float is calling x.get_radians
+    calling _t_close with r, 3.141592653589793, 1e-6
+    calling _t_close with x, 180.0, 1e-6
+
+test "sqrt mutates the receiver (float)":
+    var x as float is 4.0
+    calling x.sqrt
+    calling _t_close with x, 2.0, 1e-6
+
+test "get_sqrt returns without mutating (float)":
+    var x as float is 4.0
+    var r as float is calling x.get_sqrt
+    calling _t_close with r, 2.0, 1e-6
+    calling _t_close with x, 4.0, 1e-6
+
+test "cbrt mutates the receiver (float)":
+    var x as float is 8.0
+    calling x.cbrt
+    calling _t_close with x, 2.0, 1e-6
+
+test "get_cbrt returns without mutating (float)":
+    var x as float is 8.0
+    var r as float is calling x.get_cbrt
+    calling _t_close with r, 2.0, 1e-6
+    calling _t_close with x, 8.0, 1e-6
+
+test "sin mutates the receiver (float)":
+    var x as float is 0.0
+    calling x.sin
+    calling _t_close with x, 0.0, 1e-6
+
+test "get_sin returns without mutating (float)":
+    var x as float is 0.0
+    var r as float is calling x.get_sin
+    calling _t_close with r, 0.0, 1e-6
+    calling _t_close with x, 0.0, 1e-6
+
+test "cos mutates the receiver (float)":
+    var x as float is 0.0
+    calling x.cos
+    calling _t_close with x, 1.0, 1e-6
+
+test "get_cos returns without mutating (float)":
+    var x as float is 0.0
+    var r as float is calling x.get_cos
+    calling _t_close with r, 1.0, 1e-6
+    calling _t_close with x, 0.0, 1e-6
+
+test "tan mutates the receiver (float)":
+    var x as float is 0.0
+    calling x.tan
+    calling _t_close with x, 0.0, 1e-6
+
+test "get_tan returns without mutating (float)":
+    var x as float is 0.0
+    var r as float is calling x.get_tan
+    calling _t_close with r, 0.0, 1e-6
+    calling _t_close with x, 0.0, 1e-6
+
+test "asin mutates the receiver (float)":
+    var x as float is 1.0
+    calling x.asin
+    calling _t_close with x, 1.5707963267948966, 1e-6
+
+test "get_asin returns without mutating (float)":
+    var x as float is 1.0
+    var r as float is calling x.get_asin
+    calling _t_close with r, 1.5707963267948966, 1e-6
+    calling _t_close with x, 1.0, 1e-6
+
+test "acos mutates the receiver (float)":
+    var x as float is 1.0
+    calling x.acos
+    calling _t_close with x, 0.0, 1e-6
+
+test "get_acos returns without mutating (float)":
+    var x as float is 1.0
+    var r as float is calling x.get_acos
+    calling _t_close with r, 0.0, 1e-6
+    calling _t_close with x, 1.0, 1e-6
+
+test "atan mutates the receiver (float)":
+    var x as float is 0.0
+    calling x.atan
+    calling _t_close with x, 0.0, 1e-6
+
+test "get_atan returns without mutating (float)":
+    var x as float is 0.0
+    var r as float is calling x.get_atan
+    calling _t_close with r, 0.0, 1e-6
+    calling _t_close with x, 0.0, 1e-6
+
+test "atan2 mutates the receiver (float)":
+    var x as float is 1.0
+    calling x.atan2 with 1.0
+    calling _t_close with x, 0.7853981633974483, 1e-6
+
+test "get_atan2 returns without mutating (float)":
+    var x as float is 1.0
+    var r as float is calling x.get_atan2 with 1.0
+    calling _t_close with r, 0.7853981633974483, 1e-6
+    calling _t_close with x, 1.0, 1e-6
+
+test "exp mutates the receiver (float)":
+    var x as float is 0.0
+    calling x.exp
+    calling _t_close with x, 1.0, 1e-6
+
+test "get_exp returns without mutating (float)":
+    var x as float is 0.0
+    var r as float is calling x.get_exp
+    calling _t_close with r, 1.0, 1e-6
+    calling _t_close with x, 0.0, 1e-6
+
+test "ln mutates the receiver (float)":
+    var x as float is 1.0
+    calling x.ln
+    calling _t_close with x, 0.0, 1e-6
+
+test "get_ln returns without mutating (float)":
+    var x as float is 1.0
+    var r as float is calling x.get_ln
+    calling _t_close with r, 0.0, 1e-6
+    calling _t_close with x, 1.0, 1e-6
+
+test "log2 mutates the receiver (float)":
+    var x as float is 8.0
+    calling x.log2
+    calling _t_close with x, 3.0, 1e-6
+
+test "get_log2 returns without mutating (float)":
+    var x as float is 8.0
+    var r as float is calling x.get_log2
+    calling _t_close with r, 3.0, 1e-6
+    calling _t_close with x, 8.0, 1e-6
+
+test "log10 mutates the receiver (float)":
+    var x as float is 100.0
+    calling x.log10
+    calling _t_close with x, 2.0, 1e-6
+
+test "get_log10 returns without mutating (float)":
+    var x as float is 100.0
+    var r as float is calling x.get_log10
+    calling _t_close with r, 2.0, 1e-6
+    calling _t_close with x, 100.0, 1e-6
+
+test "pow mutates the receiver (float)":
+    var x as float is 2.0
+    calling x.pow with 10.0
+    calling _t_close with x, 1024.0, 1e-6
+
+test "get_pow returns without mutating (float)":
+    var x as float is 2.0
+    var r as float is calling x.get_pow with 10.0
+    calling _t_close with r, 1024.0, 1e-6
+    calling _t_close with x, 2.0, 1e-6
+
+test "hypot mutates the receiver (float)":
+    var x as float is 3.0
+    calling x.hypot with 4.0
+    calling _t_close with x, 5.0, 1e-6
+
+test "get_hypot returns without mutating (float)":
+    var x as float is 3.0
+    var r as float is calling x.get_hypot with 4.0
+    calling _t_close with r, 5.0, 1e-6
+    calling _t_close with x, 3.0, 1e-6
+
+test "sqrt mutates the receiver (f64)":
+    var x as f64 is 4.0
+    calling x.sqrt
+    calling _t_close with x, 2.0, 1e-6
+
+test "get_sqrt returns without mutating (f64)":
+    var x as f64 is 4.0
+    var r as f64 is calling x.get_sqrt
+    calling _t_close with r, 2.0, 1e-6
+    calling _t_close with x, 4.0, 1e-6
+
+test "cbrt mutates the receiver (f64)":
+    var x as f64 is 8.0
+    calling x.cbrt
+    calling _t_close with x, 2.0, 1e-6
+
+test "get_cbrt returns without mutating (f64)":
+    var x as f64 is 8.0
+    var r as f64 is calling x.get_cbrt
+    calling _t_close with r, 2.0, 1e-6
+    calling _t_close with x, 8.0, 1e-6
+
+test "sin mutates the receiver (f64)":
+    var x as f64 is 0.0
+    calling x.sin
+    calling _t_close with x, 0.0, 1e-6
+
+test "get_sin returns without mutating (f64)":
+    var x as f64 is 0.0
+    var r as f64 is calling x.get_sin
+    calling _t_close with r, 0.0, 1e-6
+    calling _t_close with x, 0.0, 1e-6
+
+test "cos mutates the receiver (f64)":
+    var x as f64 is 0.0
+    calling x.cos
+    calling _t_close with x, 1.0, 1e-6
+
+test "get_cos returns without mutating (f64)":
+    var x as f64 is 0.0
+    var r as f64 is calling x.get_cos
+    calling _t_close with r, 1.0, 1e-6
+    calling _t_close with x, 0.0, 1e-6
+
+test "tan mutates the receiver (f64)":
+    var x as f64 is 0.0
+    calling x.tan
+    calling _t_close with x, 0.0, 1e-6
+
+test "get_tan returns without mutating (f64)":
+    var x as f64 is 0.0
+    var r as f64 is calling x.get_tan
+    calling _t_close with r, 0.0, 1e-6
+    calling _t_close with x, 0.0, 1e-6
+
+test "asin mutates the receiver (f64)":
+    var x as f64 is 1.0
+    calling x.asin
+    calling _t_close with x, 1.5707963267948966, 1e-6
+
+test "get_asin returns without mutating (f64)":
+    var x as f64 is 1.0
+    var r as f64 is calling x.get_asin
+    calling _t_close with r, 1.5707963267948966, 1e-6
+    calling _t_close with x, 1.0, 1e-6
+
+test "acos mutates the receiver (f64)":
+    var x as f64 is 1.0
+    calling x.acos
+    calling _t_close with x, 0.0, 1e-6
+
+test "get_acos returns without mutating (f64)":
+    var x as f64 is 1.0
+    var r as f64 is calling x.get_acos
+    calling _t_close with r, 0.0, 1e-6
+    calling _t_close with x, 1.0, 1e-6
+
+test "atan mutates the receiver (f64)":
+    var x as f64 is 0.0
+    calling x.atan
+    calling _t_close with x, 0.0, 1e-6
+
+test "get_atan returns without mutating (f64)":
+    var x as f64 is 0.0
+    var r as f64 is calling x.get_atan
+    calling _t_close with r, 0.0, 1e-6
+    calling _t_close with x, 0.0, 1e-6
+
+test "atan2 mutates the receiver (f64)":
+    var x as f64 is 1.0
+    calling x.atan2 with 1.0
+    calling _t_close with x, 0.7853981633974483, 1e-6
+
+test "get_atan2 returns without mutating (f64)":
+    var x as f64 is 1.0
+    var r as f64 is calling x.get_atan2 with 1.0
+    calling _t_close with r, 0.7853981633974483, 1e-6
+    calling _t_close with x, 1.0, 1e-6
+
+test "exp mutates the receiver (f64)":
+    var x as f64 is 0.0
+    calling x.exp
+    calling _t_close with x, 1.0, 1e-6
+
+test "get_exp returns without mutating (f64)":
+    var x as f64 is 0.0
+    var r as f64 is calling x.get_exp
+    calling _t_close with r, 1.0, 1e-6
+    calling _t_close with x, 0.0, 1e-6
+
+test "ln mutates the receiver (f64)":
+    var x as f64 is 1.0
+    calling x.ln
+    calling _t_close with x, 0.0, 1e-6
+
+test "get_ln returns without mutating (f64)":
+    var x as f64 is 1.0
+    var r as f64 is calling x.get_ln
+    calling _t_close with r, 0.0, 1e-6
+    calling _t_close with x, 1.0, 1e-6
+
+test "log2 mutates the receiver (f64)":
+    var x as f64 is 8.0
+    calling x.log2
+    calling _t_close with x, 3.0, 1e-6
+
+test "get_log2 returns without mutating (f64)":
+    var x as f64 is 8.0
+    var r as f64 is calling x.get_log2
+    calling _t_close with r, 3.0, 1e-6
+    calling _t_close with x, 8.0, 1e-6
+
+test "log10 mutates the receiver (f64)":
+    var x as f64 is 100.0
+    calling x.log10
+    calling _t_close with x, 2.0, 1e-6
+
+test "get_log10 returns without mutating (f64)":
+    var x as f64 is 100.0
+    var r as f64 is calling x.get_log10
+    calling _t_close with r, 2.0, 1e-6
+    calling _t_close with x, 100.0, 1e-6
+
+test "pow mutates the receiver (f64)":
+    var x as f64 is 2.0
+    calling x.pow with 10.0
+    calling _t_close with x, 1024.0, 1e-6
+
+test "get_pow returns without mutating (f64)":
+    var x as f64 is 2.0
+    var r as f64 is calling x.get_pow with 10.0
+    calling _t_close with r, 1024.0, 1e-6
+    calling _t_close with x, 2.0, 1e-6
+
+test "hypot mutates the receiver (f64)":
+    var x as f64 is 3.0
+    calling x.hypot with 4.0
+    calling _t_close with x, 5.0, 1e-6
+
+test "get_hypot returns without mutating (f64)":
+    var x as f64 is 3.0
+    var r as f64 is calling x.get_hypot with 4.0
+    calling _t_close with r, 5.0, 1e-6
+    calling _t_close with x, 3.0, 1e-6
+
+test "chained mutations on one float receiver":
+    var x as float is 16.0
+    calling x.sqrt        # 4
+    calling x.reciprocal  # 0.25
+    calling x.exp         # e^0.25
+    calling _t_close with x, 1.2840254166877414, 1e-6

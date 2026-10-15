@@ -119,10 +119,10 @@ weave main into int:
     calling eq_f with (calling arithmancy.deg_to_rad with 180.0), 3.141592653589793, 1e-6, "deg_to_rad"
     calling eq_f with (calling arithmancy.rad_to_deg with 3.141592653589793), 180.0, 1e-3, "rad_to_deg"
     var x as float is 2.5
-    calling eq_f with (calling arithmancy.sqrt with x), (calling x.sqrt), 1e-6, "sqrt matches method"
+    calling eq_f with (calling arithmancy.sqrt with x), (calling x.get_sqrt), 1e-6, "sqrt matches method"
     var y as float is -1.0
     var bad1 as float is calling arithmancy.sqrt with y
-    var bad2 as float is calling y.sqrt
+    var bad2 as float is calling y.get_sqrt
     if (bad1 != bad1) != (bad2 != bad2):
         calling spark.println with "FAIL NaN agreement"
     calling spark.println with "DONE"

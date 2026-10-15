@@ -25,11 +25,11 @@ def test_nan_classification(compile_and_run):
     out = compile_and_run(_PREAMBLE + """
 weave main into int:
     var neg as f64 is -1.0
-    var bad as f64 is calling neg.sqrt
+    var bad as f64 is calling neg.get_sqrt
     var also_bad as f64 is (0.0 / 0.0)
     var one as f64 is 1.0
     var zero as f64 is 0.0
-    var inf as f64 is calling zero.reciprocal
+    var inf as f64 is calling zero.get_reciprocal
     calling eq_b with (calling bad.is_nan), true, "sqrt(-1) is NaN"
     calling eq_b with (calling also_bad.is_nan), true, "0/0 is NaN"
     calling eq_b with (calling one.is_nan), false, "1 is not NaN"
@@ -50,11 +50,11 @@ def test_infinity_family(compile_and_run):
     out = compile_and_run(_PREAMBLE + """
 weave main into int:
     var zero as f64 is 0.0
-    var pos as f64 is calling zero.reciprocal
+    var pos as f64 is calling zero.get_reciprocal
     var ninf as f64 is (0.0 - 1.0) / zero
     var one as f64 is 1.0
     var neg as f64 is -1.0
-    var bad as f64 is calling neg.sqrt
+    var bad as f64 is calling neg.get_sqrt
     calling eq_b with (calling pos.is_infinite), true, "+Inf is infinite"
     calling eq_b with (calling ninf.is_infinite), true, "-Inf is infinite"
     calling eq_b with (calling one.is_infinite), false, "1 is finite"
