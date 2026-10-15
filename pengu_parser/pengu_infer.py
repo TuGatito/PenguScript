@@ -4107,7 +4107,6 @@ class TypeInferrer:
         if not registry:
             return None
         keys: List[str] = list(primitive_lookup_order(obj_type))
-        keys.append(SHARD_RECEIVER_KEY)
         keys.append(get_type_base_name(obj_type))
         recv_t = obj_type.target if isinstance(obj_type, RefType) else obj_type
         while isinstance(recv_t, (AliasType, FrozenType, SealType)):
@@ -4120,7 +4119,47 @@ class TypeInferrer:
         for key in keys:
             if key and (key, name) in registry:
                 return registry[(key, name)]
-        return None
+        # `__shard__` is a fallback, not a wildcard: a `shard T` method exists for
+        # this receiver only when the receiver could actually resolve it.  Without
+        # the same guards `_resolve_shard_method` applies, the alias fired for any
+        # type -- `string.get_truncate` matched `std.numerus`'s `shard T` `truncate`
+        # (`T: Num and T: Ordo and T: Par`) and resolved to `std.scrolls`' *mutating*
+        # `truncate`, which returns void.
+        return self._shard_mutating_entry(obj_type, name, recv_t)
+
+    def _shard_mutating_entry(self, obj_type: Optional[Type], name: str,
+                              recv_t: Optional[Type]) -> Optional[dict]:
+        """The ``__shard__`` ``@mutates`` registration, if it applies here.
+
+        Mirrors ``_resolve_shard_method``'s applicability test: the method has to
+        be a real generic shard method, the receiver has to be a type parameter or
+        a primitive, and it has to satisfy every declared ``where`` bound.
+        """
+        registry = getattr(self.symbols, "mutating_methods", {}) or {}
+        entry = registry.get((SHARD_RECEIVER_KEY, name))
+        if entry is None:
+            return None
+        generic = getattr(self.symbols, "generic_methods", {}) or {}
+        if (SHARD_RECEIVER_KEY, name) not in generic:
+            return None
+        if isinstance(recv_t, TypeParam):
+            return entry
+        canonical = canonical_primitive_name(recv_t)
+        if canonical is None:
+            return None
+        bounds = getattr(self.symbols, "shard_method_bounds", {}).get(
+            (SHARD_RECEIVER_KEY, name), {})
+        if not bounds:
+            return entry
+        gm_type = self.symbols.methods.get((SHARD_RECEIVER_KEY, name))
+        recv_params = [str(p) for p in (generic.get((SHARD_RECEIVER_KEY, name)) or [[]])[0]] \
+            or list(getattr(gm_type, "type_params", None) or []) or ["T"]
+        concrete = BaseType(canonical)
+        for tp in recv_params:
+            for bound in bounds.get(tp, []):
+                if not implements_concept(concrete, bound, self.symbols):
+                    return None
+        return entry
 
     def _resolve_shard_method(self, obj_type: Optional[Type], m_name: str,
                               target_node: Tree) -> Optional[FnType]:
