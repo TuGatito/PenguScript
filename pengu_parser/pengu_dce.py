@@ -129,6 +129,16 @@ def collect_references(stmts: Iterable[Any]) -> Set[str]:
                         refs |= _identifiers_in_text(getattr(part, "text", "") or str(part))
         except Exception:
             continue
+    # `@mutates` exposes the pure form of a method as `get_<name>`, which is not a
+    # declared weave: the emitted C symbol is still `<Type>_<name>`.  Treating a
+    # `get_` mention as a mention of the underlying name keeps that weave alive;
+    # without it, DCE pruned e.g. `std/logica`'s `implies` (referenced only as
+    # `get_implies`) and the call site became a C implicit declaration.  This is
+    # deliberately conservative -- a real method named `get_foo` also keeps a
+    # `foo` alive -- because keeping a weave costs size, dropping one is UB.
+    for name in list(refs):
+        if len(name) > 4 and name.startswith("get_"):
+            refs.add(name[4:])
     return refs
 
 
