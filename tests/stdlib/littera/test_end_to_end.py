@@ -33,7 +33,7 @@ def test_module_self_tests_pass():
         f"module self-tests failed:\n--- stdout ---\n{res.stdout}\n"
         f"--- stderr ---\n{res.stderr}"
     )
-    assert "All 26 test(s) passed." in res.stdout, res.stdout
+    assert "All 32 test(s) passed." in res.stdout, res.stdout
 
 
 def test_hex_parser(compile_and_run):
@@ -86,7 +86,7 @@ def test_char_symbols_are_emitted(tmp_path):
         "weave main into int:\n"
         "    var c as char is 'a'\n"
         "    let a is calling c.is_digit\n"
-        "    let b is calling c.to_upper\n"
+        "    let b is calling c.get_to_upper\n"
         "    let d is calling c.digit_value\n"
         "    let e is calling c.is_whitespace\n"
         "    return 0\n",

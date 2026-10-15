@@ -29,17 +29,17 @@ weave main into int:
     var five as char is '5'
     var sp as char is ' '
     var bang as char is '!'
-    calling eq_i with (ord (calling a.to_upper)), (ord 'A'), "a -> A"
-    calling eq_i with (ord (calling z.to_upper)), (ord 'Z'), "z -> Z"
-    calling eq_i with (ord (calling big_a.to_lower)), (ord 'a'), "A -> a"
-    calling eq_i with (ord (calling big_z.to_lower)), (ord 'z'), "Z -> z"
-    calling eq_i with (ord (calling big_a.to_upper)), (ord 'A'), "A -> A"
-    calling eq_i with (ord (calling five.to_upper)), (ord '5'), "5 -> 5"
-    calling eq_i with (ord (calling sp.to_lower)), (ord ' '), "space -> space"
-    calling eq_i with (ord (calling bang.to_upper)), (ord '!'), "! -> !"
+    calling eq_i with (ord (calling a.get_to_upper)), (ord 'A'), "a -> A"
+    calling eq_i with (ord (calling z.get_to_upper)), (ord 'Z'), "z -> Z"
+    calling eq_i with (ord (calling big_a.get_to_lower)), (ord 'a'), "A -> a"
+    calling eq_i with (ord (calling big_z.get_to_lower)), (ord 'z'), "Z -> z"
+    calling eq_i with (ord (calling big_a.get_to_upper)), (ord 'A'), "A -> A"
+    calling eq_i with (ord (calling five.get_to_upper)), (ord '5'), "5 -> 5"
+    calling eq_i with (ord (calling sp.get_to_lower)), (ord ' '), "space -> space"
+    calling eq_i with (ord (calling bang.get_to_upper)), (ord '!'), "! -> !"
     var q as char is 'q'
-    var up as char is calling q.to_upper
-    var down as char is calling up.to_lower
+    var up as char is calling q.get_to_upper
+    var down as char is calling up.get_to_lower
     calling eq_i with (ord down), (ord 'q'), "round trip"
     calling spark.println with "DONE"
     return 0

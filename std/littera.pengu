@@ -147,6 +147,7 @@ enchanting char:
     ## var a as char is 'a'
     ## var upper as char is calling a.to_upper     # 'A'
     ## ```
+    @mutates
     weave to_upper into char:
         if calling self.is_lower:
             return ((ord self) - 32) to char
@@ -160,6 +161,7 @@ enchanting char:
     ## var a as char is 'A'
     ## var lower as char is calling a.to_lower     # 'a'
     ## ```
+    @mutates
     weave to_lower into char:
         if calling self.is_upper:
             return ((ord self) + 32) to char
@@ -418,9 +420,9 @@ test "to_upper shifts lowercase letters":
     var a as char is 'a'
     var z as char is 'z'
     var m as char is 'm'
-    var ua as char is calling a.to_upper
-    var uz as char is calling z.to_upper
-    var um as char is calling m.to_upper
+    var ua as char is calling a.get_to_upper
+    var uz as char is calling z.get_to_upper
+    var um as char is calling m.get_to_upper
     calling _t_char with ua, 'A'
     calling _t_char with uz, 'Z'
     calling _t_char with um, 'M'
@@ -430,31 +432,31 @@ test "to_upper leaves non-lowercase characters alone":
     var five as char is '5'
     var sp as char is ' '
     var bang as char is '!'
-    calling _t_char with (calling big.to_upper), 'A'
-    calling _t_char with (calling five.to_upper), '5'
-    calling _t_char with (calling sp.to_upper), ' '
-    calling _t_char with (calling bang.to_upper), '!'
+    calling _t_char with (calling big.get_to_upper), 'A'
+    calling _t_char with (calling five.get_to_upper), '5'
+    calling _t_char with (calling sp.get_to_upper), ' '
+    calling _t_char with (calling bang.get_to_upper), '!'
 
 test "to_lower shifts uppercase letters":
     var big_a as char is 'A'
     var big_z as char is 'Z'
     var big_m as char is 'M'
-    calling _t_char with (calling big_a.to_lower), 'a'
-    calling _t_char with (calling big_z.to_lower), 'z'
-    calling _t_char with (calling big_m.to_lower), 'm'
+    calling _t_char with (calling big_a.get_to_lower), 'a'
+    calling _t_char with (calling big_z.get_to_lower), 'z'
+    calling _t_char with (calling big_m.get_to_lower), 'm'
 
 test "to_lower leaves non-uppercase characters alone":
     var a as char is 'a'
     var five as char is '5'
     var sp as char is ' '
-    calling _t_char with (calling a.to_lower), 'a'
-    calling _t_char with (calling five.to_lower), '5'
-    calling _t_char with (calling sp.to_lower), ' '
+    calling _t_char with (calling a.get_to_lower), 'a'
+    calling _t_char with (calling five.get_to_lower), '5'
+    calling _t_char with (calling sp.get_to_lower), ' '
 
 test "to_upper and to_lower round-trip":
     var a as char is 'q'
-    var up as char is calling a.to_upper
-    var down as char is calling up.to_lower
+    var up as char is calling a.get_to_upper
+    var down as char is calling up.get_to_lower
     calling _t_char with down, 'q'
 
 test "to_int returns the ASCII code":
@@ -523,3 +525,40 @@ test "the classification predicates are mutually consistent on a sample":
     calling _t_true with ((calling a.is_alpha) and (calling a.is_alnum))
     calling _t_true with ((calling sp.is_space) and (calling sp.is_whitespace))
     calling _t_true with ((calling bang.is_punctuation) and (calling bang.is_printable))
+
+# --- In-place mutation vs the pure `get_` form -------------------------------
+#
+# `@mutates` gives `to_upper`/`to_lower` two spellings: `calling c.to_upper`
+# rewrites `c`, `calling c.get_to_upper` returns the value and leaves `c` alone.
+
+test "to_upper mutates the receiver":
+    var c as char is 'a'
+    calling c.to_upper
+    calling _t_char with c, 'A'
+test "get_to_upper returns without mutating":
+    var c as char is 'a'
+    var r as char is calling c.get_to_upper
+    calling _t_char with r, 'A'
+    calling _t_char with c, 'a'
+test "to_lower mutates the receiver":
+    var c as char is 'Z'
+    calling c.to_lower
+    calling _t_char with c, 'z'
+test "get_to_lower returns without mutating":
+    var c as char is 'Z'
+    var r as char is calling c.get_to_lower
+    calling _t_char with r, 'z'
+    calling _t_char with c, 'Z'
+test "a non-alphabetic byte is unchanged by either form":
+    var c as char is '5'
+    calling c.to_upper
+    calling _t_char with c, '5'
+    var r as char is calling c.get_to_lower
+    calling _t_char with r, '5'
+    calling _t_char with c, '5'
+test "chained case mutations on one receiver":
+    var c as char is 'q'
+    calling c.to_upper     # 'Q'
+    calling c.to_lower     # 'q'
+    calling c.to_upper     # 'Q'
+    calling _t_char with c, 'Q'
