@@ -33,7 +33,7 @@ def test_module_self_tests_pass():
         f"module self-tests failed:\n--- stdout ---\n{res.stdout}\n"
         f"--- stderr ---\n{res.stderr}"
     )
-    assert "All 27 test(s) passed." in res.stdout, res.stdout
+    assert "All 44 test(s) passed." in res.stdout, res.stdout
 
 
 def test_permission_check(compile_and_run):
@@ -43,9 +43,9 @@ import std.spark
 import std.logica
 
 weave can_access with is_admin as bool, is_owner as bool, is_locked as bool into bool:
-    var unlocked as bool is calling is_locked.toggle
-    var owner_ok as bool is calling is_owner.and_with with unlocked
-    return calling is_admin.or_with with owner_ok
+    var unlocked as bool is calling is_locked.get_toggle
+    var owner_ok as bool is calling is_owner.get_and_with with unlocked
+    return calling is_admin.get_or_with with owner_ok
 
 weave main into int:
     var t as bool is true
@@ -89,9 +89,9 @@ def test_bool_symbols_are_emitted(tmp_path):
         "    var a as bool is true\n"
         "    var b as bool is false\n"
         "    let n is calling a.to_int\n"
-        "    let x is calling a.xor with b\n"
-        "    let i is calling a.implies with b\n"
-        "    let t is calling a.toggle\n"
+        "    let x is calling a.get_xor with b\n"
+        "    let i is calling a.get_implies with b\n"
+        "    let t is calling a.get_toggle\n"
         "    return 0\n",
         encoding="utf-8",
     )

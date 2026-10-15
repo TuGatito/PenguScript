@@ -27,19 +27,19 @@ def test_chainable_operators(compile_and_run):
 weave main into int:
     var t as bool is true
     var f as bool is false
-    calling eq_b with (calling t.toggle), false, "toggle true"
-    calling eq_b with (calling f.toggle), true, "toggle false"
-    var once as bool is calling t.toggle
-    var twice as bool is calling once.toggle
+    calling eq_b with (calling t.get_toggle), false, "toggle true"
+    calling eq_b with (calling f.get_toggle), true, "toggle false"
+    var once as bool is calling t.get_toggle
+    var twice as bool is calling once.get_toggle
     calling eq_b with twice, true, "toggle twice is identity"
-    calling eq_b with (calling t.and_with with t), true, "T and T"
-    calling eq_b with (calling t.and_with with f), false, "T and F"
-    calling eq_b with (calling f.and_with with t), false, "F and T"
-    calling eq_b with (calling f.and_with with f), false, "F and F"
-    calling eq_b with (calling t.or_with with t), true, "T or T"
-    calling eq_b with (calling t.or_with with f), true, "T or F"
-    calling eq_b with (calling f.or_with with t), true, "F or T"
-    calling eq_b with (calling f.or_with with f), false, "F or F"
+    calling eq_b with (calling t.get_and_with with t), true, "T and T"
+    calling eq_b with (calling t.get_and_with with f), false, "T and F"
+    calling eq_b with (calling f.get_and_with with t), false, "F and T"
+    calling eq_b with (calling f.get_and_with with f), false, "F and F"
+    calling eq_b with (calling t.get_or_with with t), true, "T or T"
+    calling eq_b with (calling t.get_or_with with f), true, "T or F"
+    calling eq_b with (calling f.get_or_with with t), true, "F or T"
+    calling eq_b with (calling f.get_or_with with f), false, "F or F"
     calling spark.println with "DONE"
     return 0
 """)
@@ -52,26 +52,26 @@ def test_derived_connectives(compile_and_run):
 weave main into int:
     var t as bool is true
     var f as bool is false
-    calling eq_b with (calling t.xor with t), false, "T xor T"
-    calling eq_b with (calling t.xor with f), true, "T xor F"
-    calling eq_b with (calling f.xor with t), true, "F xor T"
-    calling eq_b with (calling f.xor with f), false, "F xor F"
-    calling eq_b with (calling t.iff with t), true, "T iff T"
-    calling eq_b with (calling t.iff with f), false, "T iff F"
-    calling eq_b with (calling f.iff with t), false, "F iff T"
-    calling eq_b with (calling f.iff with f), true, "F iff F"
-    calling eq_b with (calling t.nand with t), false, "T nand T"
-    calling eq_b with (calling t.nand with f), true, "T nand F"
-    calling eq_b with (calling f.nand with t), true, "F nand T"
-    calling eq_b with (calling f.nand with f), true, "F nand F"
-    calling eq_b with (calling t.nor with t), false, "T nor T"
-    calling eq_b with (calling t.nor with f), false, "T nor F"
-    calling eq_b with (calling f.nor with t), false, "F nor T"
-    calling eq_b with (calling f.nor with f), true, "F nor F"
-    calling eq_b with (calling t.implies with t), true, "T implies T"
-    calling eq_b with (calling t.implies with f), false, "T implies F"
-    calling eq_b with (calling f.implies with t), true, "F implies T"
-    calling eq_b with (calling f.implies with f), true, "F implies F"
+    calling eq_b with (calling t.get_xor with t), false, "T xor T"
+    calling eq_b with (calling t.get_xor with f), true, "T xor F"
+    calling eq_b with (calling f.get_xor with t), true, "F xor T"
+    calling eq_b with (calling f.get_xor with f), false, "F xor F"
+    calling eq_b with (calling t.get_iff with t), true, "T iff T"
+    calling eq_b with (calling t.get_iff with f), false, "T iff F"
+    calling eq_b with (calling f.get_iff with t), false, "F iff T"
+    calling eq_b with (calling f.get_iff with f), true, "F iff F"
+    calling eq_b with (calling t.get_nand with t), false, "T nand T"
+    calling eq_b with (calling t.get_nand with f), true, "T nand F"
+    calling eq_b with (calling f.get_nand with t), true, "F nand T"
+    calling eq_b with (calling f.get_nand with f), true, "F nand F"
+    calling eq_b with (calling t.get_nor with t), false, "T nor T"
+    calling eq_b with (calling t.get_nor with f), false, "T nor F"
+    calling eq_b with (calling f.get_nor with t), false, "F nor T"
+    calling eq_b with (calling f.get_nor with f), true, "F nor F"
+    calling eq_b with (calling t.get_implies with t), true, "T implies T"
+    calling eq_b with (calling t.get_implies with f), false, "T implies F"
+    calling eq_b with (calling f.get_implies with t), true, "F implies T"
+    calling eq_b with (calling f.get_implies with f), true, "F implies F"
     calling spark.println with "DONE"
     return 0
 """)
