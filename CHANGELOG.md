@@ -2,6 +2,78 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.5.0] — 2026-10-16 — `judge` over `rune`
+
+A `rune` that models a C tagged union — every variant's fields in one struct,
+plus an `omen` field that says which is live — can now be matched directly:
+
+```pengu
+judge e over kind:
+    when Literal with int_value -> int_value
+    when Binary with op, left, right ->
+        let l is calling eval with left
+        let r is calling eval with right
+        judge op:
+            when Add -> l + r
+            when Sub -> l - r
+            when Mul -> l * r
+    when Neg with left -> 0 - (calling eval with left)
+```
+
+`over` is a soft keyword (an identifier named `over` still works), the `with`
+list binds **rune fields by name** — any order, unlike an `omen`'s positional
+payload — guards are allowed, and exhaustiveness is enforced (`E0044`).  A
+non-lvalue subject is evaluated exactly once into a `_judge_subj_N` temporary.
+The construct is zero-cost: it lowers to the same C `switch` a hand-written tag
+check would use.
+
+See `LANGUAGE.md` §7.4.1, the Pengunic guide §4.5.1 and §14.20, and
+`tests/compiler/fixtures/judge_over/` for the twelve-case conformance corpus.
+
+### Added
+
+- **`judge <rune> over <discriminant>:`** — tagged-union pattern matching with
+  named bindings, guards and mandatory exhaustiveness.  Errors: `E0005` (not a
+  rune / not an `omen` discriminant), `E0013` (unknown field or binding),
+  `E0043` (private field), `E0044` (non-exhaustive), `E0006` (assignment to a
+  binding), `E0000` (a pattern form outside the 2.5.0 set).
+- **Block clause bodies.** A `when` clause body may now be an indented
+  statement block whose last statement is its value, instead of only a
+  same-line expression.  This is what lets a clause declare `let`s and nest a
+  second `judge`.  It applies to plain `judge` too.
+- **LSP** — hover on a `with` binding (`let <field> as <T>`), go-to-definition
+  of a binding and of the `over` discriminant (both jump to the rune's field),
+  completions after `over ` (omen fields) and after `with ` (rune fields), and
+  semantic tokens that mark the discriminant as a field and the bindings as
+  read-only variables.  `pengu_lsp/judge_over.py` holds the text-driven
+  resolution.
+- **Conformance corpus** — `tests/compiler/fixtures/judge_over/`, one program
+  per supported case (value, `ref to`, guards, `else`, nesting, nested subject,
+  no bindings, one binding, complex subject, `derive Par`, `frozen`, `seal`),
+  each with an `.expected` stdout.
+
+### Fixed
+
+- **A rune field whose type is an `omen` can be initialised and matched.**
+  Rune field types are collected as nominal placeholders
+  (`RuneType('Kind', fields={})`), so `with kind is Kind.A` failed with a
+  spurious `E0005` and `judge r.sub:` rejected `r.sub` as "not an omen".  The
+  inferrer now resolves a nominal placeholder through the symbol table before
+  comparing it (struct initialisers) or returning it (`.`/`->` field access).
+- **A plain `omen` now implements `Par`.**  A non-algebraic, non-string omen is
+  a C integer enum, so identity is `==` on the tag; without this,
+  `rune X derive Par` was rejected as soon as any field was a plain omen
+  (`E0032`).  Algebraic and string-valued omens still need an explicit `bind`.
+- **A block-valued expression can end a `judge` clause followed by another
+  clause.**  `when A -> judge x: …` (and `-> do: …`) used to fail to parse
+  because the clause body required a `_NEWLINE` that a DEDENT-terminated
+  expression had already consumed.
+
+### Changed
+
+- Toolchain version `2.5.0` (`VERSION`, `pengu_version.py`, the README badge,
+  `vscode-extension/package.json` and `package-lock.json`, `MIGRATION.md`).
+
 ## [2.4.0] — 2026-10-15 — `@mutates` reaches the five primitive modules
 
 `@mutates` (2.3.0) was only used by `std.scrolls`, and `scrolls` spells its two

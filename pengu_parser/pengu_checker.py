@@ -2923,6 +2923,10 @@ class PenguChecker:
             self._check_judge_expr(node)
             return
 
+        elif rule == "judge_over_expr":
+            self._check_judge_over_expr(node)
+            return
+
         elif rule == "when_stmt":
             self._check_when_stmt(node)
             return
@@ -3575,6 +3579,9 @@ class PenguChecker:
         if rule == "judge_expr":
             self._check_judge_expr(node)
             return
+        if rule == "judge_over_expr":
+            self._check_judge_over_expr(node)
+            return
         if rule == "struct_init":
             unwrapped_expected = expected
             while isinstance(unwrapped_expected, (AliasType, FrozenType)):
@@ -3769,6 +3776,326 @@ class PenguChecker:
 
             elif isinstance(child, Tree) and child.data == "else_clause":
                 self._check_node(child)
+
+    @staticmethod
+    def _strip_judge_over_wrappers(t: Any) -> Any:
+        """Peels ``ref to`` / ``frozen`` / ``alias`` / ``seal`` off a subject type.
+
+        ``judge <rune> over <field>:`` accepts the rune by value, by reference
+        (``ref to Expr``), read-only (``frozen Expr`` / ``ref to frozen Expr``),
+        and through an ``alias`` or a nominal ``seal``.  All of them name the
+        same nominal rune, so the checker and the codegen agree on the fields.
+        """
+        seen = 0
+        while t is not None and seen < 32:
+            if isinstance(t, RefType):
+                nxt = getattr(t, "target", None)
+            elif isinstance(t, (AliasType, FrozenType)):
+                nxt = getattr(t, "target", None)
+            elif isinstance(t, SealType):
+                nxt = getattr(t, "underlying", None)
+            else:
+                break
+            if nxt is None or nxt is t:
+                break
+            t = nxt
+            seen += 1
+        return t
+
+    def _resolve_nominal_type(self, t: Any) -> Any:
+        """Resolves nominal placeholders (rune/omen/echo) through the symbol table.
+
+        A rune's field types are stored as nominal placeholders
+        (``RuneType('ExprKind', fields={})``) rather than as the resolved
+        ``OmenType``, so a discriminant or a ``with`` binding whose declared type
+        is an omen would not expose its variants to a nested ``judge``.  ``ref
+        to`` / ``frozen`` wrappers are preserved.
+        """
+        if isinstance(t, RefType):
+            inner = self._resolve_nominal_type(t.target)
+            return RefType(target=inner) if inner is not t.target else t
+        if isinstance(t, FrozenType):
+            inner = self._resolve_nominal_type(t.target)
+            return FrozenType(target=inner) if inner is not t.target else t
+        u = self._strip_judge_over_wrappers(t)
+        name = getattr(u, "name", None)
+        if name and self.symbols is not None:
+            resolved = self.symbols.lookup_type(name)
+            if resolved is not None and resolved is not u:
+                return resolved
+        return u
+
+    def _resolve_omen_field(self, t: Any) -> Any:
+        """Resolves a rune field type to its nominal ``OmenType`` when possible.
+
+        A rune's field types are stored as nominal placeholders
+        (``RuneType('ExprKind', fields={})``) rather than as the resolved
+        ``OmenType``; looking the name up in the symbol table recovers the
+        variants the exhaustiveness check needs.
+        """
+        u = self._strip_judge_over_wrappers(t)
+        if isinstance(u, OmenType) and u.variants:
+            return u
+        name = getattr(u, "name", None)
+        if name and self.symbols is not None:
+            resolved = self.symbols.lookup_type(name)
+            if resolved is not None and resolved is not u:
+                r = self._strip_judge_over_wrappers(resolved)
+                if isinstance(r, OmenType):
+                    return r
+        return u
+
+    def _owns_private_member(self, nominal: Any) -> bool:
+        """True when private ``_field`` members of ``nominal`` are reachable here.
+
+        Mirrors the rule the ``with``-field access path applies: a field whose
+        name starts with ``_`` is private to its rune, except inside an
+        ``enchanting`` block for that rune or in the module that owns it.
+        """
+        is_enchanting = (
+            self.symbols.is_in_enchanting()
+            and self.symbols.current_enchanting_type() == nominal
+        )
+        is_module_owner = (
+            hasattr(nominal, "module")
+            and nominal.module == getattr(self.symbols, "current_module", None)
+        )
+        return bool(is_enchanting or is_module_owner)
+
+    def _check_judge_over_expr(self, node: Tree) -> None:
+        """Checks ``judge <rune> over <discriminant>:`` (tagged-union match).
+
+        The subject must be a rune (by value, ``ref to``, ``frozen``, alias or
+        seal), the ``over`` field must exist and be an ``omen``, every ``with``
+        binding must name a field of that rune, and the clauses must cover every
+        variant of the omen unless an ``else ->`` branch is present.  Guards do
+        not count towards exhaustiveness, exactly like the plain ``judge``.
+        """
+        children = list(node.children)
+        subj_node = children[0]
+        field_tok = children[1]
+        field_name = str(field_tok)
+
+        # The checker may see the same node from more than one entry point (a
+        # value block and the enclosing statement, a declaration and its
+        # initializer); validating twice would duplicate every diagnostic.
+        if getattr(node, "_pengu_judge_over_checked", False):
+            return
+        setattr(node, "_pengu_judge_over_checked", True)
+
+        self._check_node(subj_node)
+        try:
+            subj_t = self.inferrer.infer(subj_node)
+        except SemanticError as exc:
+            self._record_error(exc)
+            return
+        except Exception:
+            return
+
+        base = self._strip_judge_over_wrappers(subj_t)
+        if isinstance(subj_t, TypeParam) or not isinstance(base, RuneType):
+            self._record_error(self._make_error(
+                SemanticError,
+                f"'judge over' requires a 'rune' subject; got '{subj_t}'. "
+                "Use 'judge <expr>:' for omen/bool/int/string/char.",
+                subj_node,
+                code="E0005",
+                help="Model the subject as a 'rune' with an 'omen' discriminant "
+                     "field, or use the plain 'judge <expr>:' form.",
+                note="'judge over' branches on the variant of one omen field of a rune.",
+            ))
+            return
+
+        rune = self._resolve_nominal_type(base)
+        if not isinstance(rune, RuneType):
+            rune = base
+        if field_name not in rune.fields:
+            available = ", ".join(sorted(rune.fields)) or "(none)"
+            self._record_error(self._make_error(
+                SemanticError,
+                f"Rune '{rune.name}' has no field '{field_name}'",
+                field_tok,
+                code="E0013",
+                help=f"Available fields of rune '{rune.name}': {available}.",
+                note="The field after 'over' must be a declared field of the rune.",
+            ))
+            return
+
+        disc_t = rune.fields[field_name]
+        disc = self._resolve_omen_field(disc_t)
+        if not isinstance(disc, OmenType):
+            self._record_error(self._make_error(
+                SemanticError,
+                f"'judge over' requires an 'omen' discriminant; field "
+                f"'{field_name}' of rune '{rune.name}' has type '{disc_t}'.",
+                field_tok,
+                code="E0005",
+                help="Declare the discriminant field with an 'omen' type, "
+                     "optionally wrapped in a 'seal'.",
+                note="'judge over' branches on the variants of an omen.",
+            ))
+            return
+
+        omen = disc
+        if field_name.startswith("_") and not self._owns_private_member(rune):
+            self._record_error(self._make_error(
+                PrivateSymbolAccessError,
+                f"Field '{field_name}' is private to rune '{rune.name}'",
+                field_tok,
+                code="E0043",
+                help=f"Field '{field_name}' is private to rune '{rune.name}'.",
+                note="Fields starting with '_' cannot be matched from outside their rune.",
+            ))
+            return
+
+        covered: Set[str] = set()
+        branch_types: List[Type] = []
+        has_else = False
+
+        for child in children[2:]:
+            if not isinstance(child, Tree):
+                continue
+            if child.data == "when_clause":
+                pat_node = child.children[0]
+                variant, _variant_fields = self._resolve_omen_variant(pat_node, omen)
+                payload_node = None
+                guard_node = None
+                for sub in child.children[1:-1]:
+                    if isinstance(sub, Tree):
+                        if sub.data == "when_payload":
+                            payload_node = sub
+                        elif sub.data == "when_guard":
+                            guard_node = sub
+
+                variant_ok = bool(variant) and variant in omen.variants
+                if not variant_ok:
+                    available = ", ".join(omen.variants.keys()) or "(none)"
+                    self._record_error(self._make_error(
+                        SemanticError,
+                        f"Omen '{omen.name}' has no variant '{variant or pat_node}'",
+                        pat_node,
+                        code="E0005",
+                        help=f"Available variants: {available}.",
+                        note="A 'judge over' pattern names a variant of the discriminant omen.",
+                    ))
+                if variant_ok and guard_node is None:
+                    covered.add(variant)
+
+                self.symbols.push_scope(kind="when_clause")
+                try:
+                    fields = self._extract_payload_fields(payload_node) if payload_node else []
+                    for f_name, f_node in fields:
+                        if f_name not in rune.fields:
+                            available = ", ".join(sorted(rune.fields)) or "(none)"
+                            self._record_error(self._make_error(
+                                SemanticError,
+                                f"Rune '{rune.name}' has no field '{f_name}'",
+                                f_node,
+                                code="E0013",
+                                help=f"Available fields of rune '{rune.name}': {available}.",
+                                note="'judge over' binds rune fields by name; "
+                                     "positional variant payloads belong to a plain 'judge'.",
+                            ))
+                            continue
+                        if f_name.startswith("_") and not self._owns_private_member(rune):
+                            self._record_error(self._make_error(
+                                PrivateSymbolAccessError,
+                                f"Field '{f_name}' is private to rune '{rune.name}'",
+                                f_node,
+                                code="E0043",
+                                help=f"Field '{f_name}' is private to rune '{rune.name}'.",
+                                note="Fields starting with '_' cannot be bound outside their rune.",
+                            ))
+                            continue
+                        self.symbols.define(Symbol(
+                            name=f_name,
+                            type=self._resolve_nominal_type(rune.fields[f_name]),
+                            kind="let",
+                            is_mutable=False,
+                            line=getattr(f_node, "line", 1),
+                            column=getattr(f_node, "column", 1),
+                        ))
+
+                    if guard_node is not None:
+                        guard_expr_node = guard_node.children[0]
+                        self._check_node(guard_expr_node)
+                        try:
+                            guard_t = self.inferrer.infer(guard_expr_node)
+                            if not (guard_t == BOOL_TYPE or guard_t.is_compatible(BOOL_TYPE)):
+                                self._record_error(self._make_error(
+                                    TypeMismatchError,
+                                    f"Judge guard must be boolean, got '{guard_t}'",
+                                    guard_node,
+                                    code="E0005",
+                                ))
+                        except SemanticError as exc:
+                            self._record_error(exc)
+
+                    body_node = child.children[-1]
+                    # A block body (`->` + indented statements, an `if`/loop
+                    # used as a value, a nested `judge`, …) is validated by the
+                    # shared value-block walker; anything else is an ordinary
+                    # expression checked statement-wise.  Doing both would walk
+                    # the body twice and duplicate every diagnostic inside it.
+                    if isinstance(body_node, Tree) and body_node.data in (
+                        "do_expr", "if_stmt", "unless_stmt", "while_stmt",
+                        "for_range_stmt", "for_in_stmt", "with_init_expr",
+                        "or_block", "judge_expr", "judge_over_expr",
+                    ):
+                        self._check_value_exprs(body_node)
+                    else:
+                        self._check_node(body_node)
+                    try:
+                        branch_types.append(self.inferrer.infer(body_node))
+                    except SemanticError as exc:
+                        self._record_error(exc)
+                finally:
+                    self.symbols.pop_scope()
+
+            elif child.data == "else_clause":
+                has_else = True
+                self._check_node(child)
+                try:
+                    branch_types.append(self.inferrer.infer(child.children[0]))
+                except SemanticError as exc:
+                    self._record_error(exc)
+
+        if not has_else:
+            missing = set(omen.variants) - covered
+            if missing:
+                self._record_error(self._make_error(
+                    NonExhaustiveJudgeError,
+                    f"Judge over rune is not exhaustive and has no 'else ->' branch "
+                    f"(missing: {', '.join(sorted(missing))})",
+                    node,
+                    code="E0044",
+                    help=f"Add the missing variants ({', '.join(sorted(missing))}) "
+                         "or an 'else ->' default branch.",
+                    note="Guarded 'when' clauses do not count towards exhaustiveness.",
+                ))
+
+        if branch_types:
+            unified = branch_types[0]
+            for bt in branch_types[1:]:
+                if unified.is_compatible(bt):
+                    continue
+                self._record_error(self._make_error(
+                    TypeMismatchError,
+                    f"Judge branches have incompatible return types: '{unified}' vs '{bt}'",
+                    node,
+                    code="E0005",
+                    help="Ensure all 'when' branches and the 'else' branch return "
+                         "compatible types.",
+                    note="A 'judge over rune' expression produces one value; every "
+                         "clause must agree on its type.",
+                ))
+                unified = None
+                break
+            if unified is not None:
+                setattr(node, "_pengu_value_type", unified)
+        # Marked so the inferrer does not repeat the checks (and duplicate the
+        # diagnostics) when it is asked for the node's type.
+        setattr(node, "_pengu_judge_over_checked", True)
 
     def _extract_payload_fields(self, payload_node: Tree) -> List[Tuple[str, Any]]:
         fields = []

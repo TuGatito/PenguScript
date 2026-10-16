@@ -655,6 +655,40 @@ class TypeInferrer:
                  "ambiguous."
         )
 
+    @staticmethod
+    def _strip_aliasish_local(t: Any) -> Any:
+        """Peels alias/frozen/seal wrappers (no ``ref to``) off a type."""
+        seen = 0
+        while t is not None and seen < 32:
+            if isinstance(t, (AliasType, FrozenType)):
+                nxt = getattr(t, "target", None)
+            elif isinstance(t, SealType):
+                nxt = getattr(t, "underlying", None)
+            else:
+                break
+            if nxt is None or nxt is t:
+                break
+            t = nxt
+            seen += 1
+        return t
+
+    def _resolve_nominal_local(self, t: Any) -> Any:
+        """Resolves a nominal placeholder (rune/omen/echo) to its definition.
+
+        Field types collected for a ``rune`` keep the *name* of a custom type
+        (``RuneType('ShapeKind', fields={})``) instead of the resolved
+        ``OmenType``; the symbol table recovers the real definition so a field
+        initializer is compared against the type it actually is.
+        """
+        u = self._strip_aliasish_local(t)
+        if isinstance(u, (RuneType, EchoType, OmenType)):
+            name = getattr(u, "name", None)
+            if name and self.symbols is not None:
+                resolved = self.symbols.lookup_type(name)
+                if resolved is not None and resolved is not u:
+                    return resolved
+        return u
+
     def _extract_payload_fields(self, payload_node: Tree) -> List[Tuple[str, Any]]:
         fields = []
         for c in payload_node.children:
@@ -1301,7 +1335,7 @@ class TypeInferrer:
                         field_attrs = getattr(sym_t, "field_attributes", {})
                 if field_name in field_attrs:
                     self._check_deprecated_symbol(field_attrs[field_name], field_name)
-                f_type = fields[field_name]
+                f_type = self._resolve_nominal_local(fields[field_name])
                 return FrozenType(f_type) if is_frozen else f_type
 
             elif isinstance(target_type, EchoType):
@@ -1474,7 +1508,7 @@ class TypeInferrer:
                         field_attrs = getattr(sym_t, "field_attributes", {})
                 if field_name in field_attrs:
                     self._check_deprecated_symbol(field_attrs[field_name], field_name)
-                f_type = inner.fields[field_name]
+                f_type = self._resolve_nominal_local(inner.fields[field_name])
                 return FrozenType(f_type) if is_frozen else f_type
             elif isinstance(inner, EchoType):
                 # No position: see the note on the arrow_access W0002 above.
@@ -1499,7 +1533,7 @@ class TypeInferrer:
                         field_attrs = getattr(sym_t, "field_attributes", {})
                 if field_name in field_attrs:
                     self._check_deprecated_symbol(field_attrs[field_name], field_name)
-                f_type = inner.fields[field_name]
+                f_type = self._resolve_nominal_local(inner.fields[field_name])
                 return FrozenType(f_type) if is_frozen else f_type
             elif isinstance(inner, MaybeType):
                 if field_name == "is_present":
@@ -1611,7 +1645,7 @@ class TypeInferrer:
                                 help=f"Remove '{f_name}' or add it to rune '{unwrapped_expected.name}'.",
                                 note=f"Rune '{unwrapped_expected.name}' fields are: {', '.join(fields.keys())}."
                             )
-                        expected_f_type = fields[f_name]
+                        expected_f_type = self._resolve_nominal_local(fields[f_name])
                         if not f_type.is_compatible(expected_f_type) and not (f_type.is_numeric() and expected_f_type.is_numeric()):
                             raise self._make_error(
                                 TypeMismatchError,
@@ -1681,7 +1715,7 @@ class TypeInferrer:
                         note="Opaque types represent opaque C handles without known layout."
                     )
                 for f_name, f_type in field_inits.items():
-                    expected_f_type = matched_rune.fields[f_name]
+                    expected_f_type = self._resolve_nominal_local(matched_rune.fields[f_name])
                     if not f_type.is_compatible(expected_f_type) and not (f_type.is_numeric() and expected_f_type.is_numeric()):
                         raise self._make_error(
                             TypeMismatchError,
@@ -2193,6 +2227,129 @@ class TypeInferrer:
                         code="E0005",
                         help="Ensure all 'when' branches and 'else' branch return compatible types.",
                         note="Judge expressions must produce values of unified type."
+                    )
+            return first_type
+
+        elif rule == "judge_over_expr":
+            # The checker (`PenguChecker._check_judge_over_expr`) validates the
+            # subject, the discriminant, the `with` bindings, privacy and
+            # exhaustiveness, and records the unified branch type on the node.
+            # This branch only re-derives the type when the inferrer is used
+            # without the checker (e.g. codegen-time inference of a synthesized
+            # node), so the diagnostics are never duplicated.
+            if getattr(node, "_pengu_judge_over_checked", False):
+                return getattr(node, "_pengu_value_type", VOID_TYPE)
+
+            subj_node = node.children[0]
+            subj_t = self.infer(subj_node)
+            base = subj_t
+            seen = 0
+            while base is not None and seen < 32:
+                if isinstance(base, (RefType, AliasType, FrozenType)):
+                    nxt = getattr(base, "target", None)
+                elif isinstance(base, SealType):
+                    nxt = getattr(base, "underlying", None)
+                else:
+                    break
+                if nxt is None or nxt is base:
+                    break
+                base = nxt
+                seen += 1
+            if isinstance(subj_t, TypeParam) or not isinstance(base, RuneType):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"'judge over' requires a 'rune' subject; got '{subj_t}'. "
+                    "Use 'judge <expr>:' for omen/bool/int/string/char.",
+                    subj_node,
+                    code="E0005",
+                    help="Model the subject as a 'rune' with an 'omen' discriminant field.",
+                    note="'judge over' branches on the variant of one omen field of a rune.",
+                )
+            rune = base
+            field_name = str(node.children[1])
+            if field_name not in rune.fields:
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"Rune '{rune.name}' has no field '{field_name}'",
+                    node,
+                    code="E0013",
+                    help=f"Available fields: {', '.join(sorted(rune.fields)) or '(none)'}.",
+                    note="The field after 'over' must be a declared field of the rune.",
+                )
+            disc = self._strip_aliasish_local(rune.fields[field_name])
+            if not isinstance(disc, OmenType):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"'judge over' requires an 'omen' discriminant; field "
+                    f"'{field_name}' of rune '{rune.name}' has type '{rune.fields[field_name]}'.",
+                    node,
+                    code="E0005",
+                    help="Declare the discriminant field with an 'omen' type.",
+                    note="'judge over' branches on the variants of an omen.",
+                )
+            omen = disc
+            covered: Set[str] = set()
+            branch_types: List[Type] = []
+            has_else = False
+            for child in node.children[2:]:
+                if not isinstance(child, Tree):
+                    continue
+                if child.data == "when_clause":
+                    pat_node = child.children[0]
+                    variant, _vf = self._resolve_omen_variant(pat_node, omen)
+                    payload_node = None
+                    guard_node = None
+                    for sub in child.children[1:-1]:
+                        if isinstance(sub, Tree):
+                            if sub.data == "when_payload":
+                                payload_node = sub
+                            elif sub.data == "when_guard":
+                                guard_node = sub
+                    if variant in omen.variants and guard_node is None:
+                        covered.add(variant)
+                    self.symbols.push_scope(kind="when_clause")
+                    try:
+                        for f_name, _f_node in (self._extract_payload_fields(payload_node)
+                                                if payload_node else []):
+                            if f_name in rune.fields:
+                                self.symbols.define(Symbol(
+                                    name=f_name, type=rune.fields[f_name],
+                                    kind="let", is_mutable=False))
+                        if guard_node is not None:
+                            self.infer(guard_node.children[0])
+                        branch_types.append(self.infer(child.children[-1]))
+                    finally:
+                        self.symbols.pop_scope()
+                elif child.data == "else_clause":
+                    has_else = True
+                    branch_types.append(self.infer(child.children[0]))
+
+            if not has_else:
+                missing = set(omen.variants) - covered
+                if missing:
+                    raise self._make_error(
+                        NonExhaustiveJudgeError,
+                        f"Judge over rune is not exhaustive and has no 'else ->' branch "
+                        f"(missing: {', '.join(sorted(missing))})",
+                        node,
+                        code="E0044",
+                        help=f"Add the missing variants ({', '.join(sorted(missing))}) "
+                             "or an 'else ->' default branch.",
+                        note="Guarded 'when' clauses do not count towards exhaustiveness.",
+                    )
+
+            if not branch_types:
+                return VOID_TYPE
+            first_type = branch_types[0]
+            for bt in branch_types[1:]:
+                if not first_type.is_compatible(bt):
+                    raise self._make_error(
+                        TypeMismatchError,
+                        f"Judge branches have incompatible return types: '{first_type}' vs '{bt}'",
+                        node,
+                        code="E0005",
+                        help="Ensure all 'when' branches and 'else' branch return compatible types.",
+                        note="Judge expressions must produce values of unified type.",
                     )
             return first_type
 

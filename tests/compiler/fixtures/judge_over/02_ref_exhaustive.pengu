@@ -1,0 +1,39 @@
+## `judge over` on a `ref to` rune, with recursion: the classic tagged-union AST.
+import std.spark
+
+rune Expr:
+    kind as ExprKind
+    int_value as int
+    bin_op as BinOp
+    left as ref to Expr
+    right as ref to Expr
+
+omen ExprKind:
+    Literal
+    Binary
+    Neg
+
+omen BinOp:
+    Add
+    Sub
+    Mul
+
+weave eval with e as ref to Expr into int:
+    judge e over kind:
+        when Literal with int_value -> int_value
+        when Binary with bin_op, left, right ->
+            let l is calling eval with left
+            let r is calling eval with right
+            judge bin_op:
+                when Add -> l + r
+                when Sub -> l - r
+                when Mul -> l * r
+        when Neg with left -> 0 - (calling eval with left)
+
+weave main into int:
+    var two as Expr is with kind is ExprKind.Literal, int_value is 2, bin_op is BinOp.Add, left is null, right is null
+    var three as Expr is with kind is ExprKind.Literal, int_value is 3, bin_op is BinOp.Add, left is null, right is null
+    var sum as Expr is with kind is ExprKind.Binary, int_value is 0, bin_op is BinOp.Add, left is sigil of two, right is sigil of three
+    var neg as Expr is with kind is ExprKind.Neg, int_value is 0, bin_op is BinOp.Add, left is sigil of sum, right is null
+    calling spark.println with "{calling eval with (sigil of neg)}"
+    return 0

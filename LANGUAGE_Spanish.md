@@ -726,6 +726,170 @@ let state_desc is judge state:
   ```
   Los patrones con guarda no cuentan para la exhaustividad; se requiere un patrón sin guarda o una cláusula `else ->`.
 - **Codegen:** Emite una sentencia `switch` de C cuando todos los casos de patrón son constantes enteras en tiempo de compilación sin guardas ni cargas útiles; genera ramas `if` estructuradas con extracción de carga útil y evaluación de guardas cuando hay cargas útiles o guardas, o recurre a una cadena ternaria `if-else` para patrones de cadena o variables.
+- **Segunda forma:** Un `rune` cuya variante viaja en un campo (`kind`, `op_kind`, …) se compara con la forma `over` descrita en §7.4.1.
+
+### 7.4.1 `judge` sobre `rune`
+
+`judge` compara un `omen` *directamente*. La otra forma habitual —la unión
+etiquetada de C, donde un `rune` lleva los campos de todas las variantes y un
+campo `omen` dice cuál está viva— no tiene una sintaxis limpia con la forma
+anterior: el usuario escribe cadenas de `if`/`else if` que comparan la
+etiqueta, no obtiene comprobación de exhaustividad y no puede ligar los campos
+del rune.
+
+`judge <sujeto> over <discriminante>:` cierra ese hueco. El sujeto es un
+`rune`, `over` nombra uno de sus campos y el tipo de ese campo es el `omen`
+cuyas variantes seleccionan la rama. `over` es una **palabra clave blanda**:
+solo significa esto dentro de la cabecera de un `judge`, así que
+`var over as int is 5` sigue compilando.
+
+```pengu
+judge <sujeto> over <discriminante>:
+    when <Variante> with <campo1>, <campo2> [if <guarda>] -> <expr>
+    when <Variante> [if <guarda>] -> <expr>
+    else -> <expr>
+```
+
+El uso canónico es un árbol de expresiones recursivo:
+
+```pengu
+rune Expr:
+    kind as ExprKind
+    int_value as int
+    bin_op as BinOp
+    left as ref to Expr
+    right as ref to Expr
+
+omen ExprKind:
+    Literal
+    Binary
+    Neg
+
+omen BinOp:
+    Add
+    Sub
+    Mul
+
+weave eval with e as ref to Expr into int:
+    judge e over kind:
+        when Literal with int_value -> int_value
+        when Binary with bin_op, left, right ->
+            let l is calling eval with left
+            let r is calling eval with right
+            judge bin_op:
+                when Add -> l + r
+                when Sub -> l - r
+                when Mul -> l * r
+        when Neg with left -> 0 - (calling eval with left)
+```
+
+**Reglas.**
+
+- **Sujeto.** Un valor `rune`, `ref to` un rune, un rune `frozen`, o un `alias`
+  / `seal` nominal sobre uno. Cualquier otra cosa es `E0005`; usa la forma
+  simple `judge <expr>:` para `omen`/`bool`/`int`/`string`/`char`. El sujeto
+  puede ser un nombre, `w.inner`, `p->inner`, `self->node` o cualquier
+  expresión; un sujeto que no sea un lvalue se evalúa **una sola vez** en un
+  temporal `_judge_subj_N`, de modo que una llamada en el sujeto no puede
+  ejecutarse dos veces.
+- **Discriminante.** El nombre tras `over` debe ser un campo del rune (`E0013`
+  en caso contrario) cuyo tipo sea un `omen` —posiblemente tras un `seal`, que
+  se desenvuelve porque el compilador conoce su representación (`E0005` en caso
+  contrario). Como todo campo, un discriminante que empieza por `_` es privado
+  de su rune (`E0043`).
+- **Los bindings son por nombre de campo, no por posición.** `with a, b` liga
+  esos dos campos del *rune*; el orden es libre y los nombres son identificadores
+  normales dentro de la cláusula. `with left, op` y `with op, left` son la misma
+  cláusula. Un nombre que no sea campo del rune es `E0013`. Como el rune es un
+  único struct, todos los campos existen en todas las cláusulas:
+  `when Literal with left` compila, aunque `left` solo tenga sentido para
+  `Binary`.
+- **Los bindings son `let` inmutables.** `set campo is …` dentro de una cláusula
+  es `E0006`. Viven en su cláusula y no se filtran entre cláusulas.
+- **Guardas.** `when Binary with op if op == Op.Add ->` es válido; las guardas
+  ven los bindings y el ámbito contenedor, y pueden llamar a funciones con
+  efectos. El sujeto original sigue accesible.
+- **Exhaustividad.** Si al `omen` le quedan variantes no cubiertas por una
+  cláusula *sin guarda* y no hay `else ->`, la cláusula es `E0044:
+  NonExhaustiveJudgeError`, con las variantes que faltan en el mensaje. Una
+  cláusula con guarda nunca cuenta como cobertura, igual que en §7.4.
+- **Cuerpos de cláusula.** El cuerpo de una cláusula es una expresión en la
+  misma línea, o un bloque de sentencias indentado cuyo valor es su última
+  sentencia —la forma de `do:`. La forma de bloque es la que permite declarar
+  `let`s y anidar otro `judge`.
+
+```pengu
+judge shape over kind:
+    when Square with width if width > 0 -> width * width
+    when Square -> 0
+    when Rect with height, width -> width * height
+    else -> 0 - 1
+```
+
+**C generado.** Se hace `switch` directamente sobre el discriminante, cada
+cláusula recibe un `case` con llaves que declara sus bindings, y no se emite
+`default:` cuando las cláusulas son exhaustivas (un `else` se convierte en el
+`default`). Una variante con solo guardas salta al bloque `default` compartido,
+así que nada se duplica:
+
+```c
+int32_t _judge_res_1 = (0);
+switch (e->kind) {
+case ExprKind_Literal: {
+  int32_t int_value = e->int_value;
+  _judge_res_1 = (int_value);
+  break;
+}
+case ExprKind_Binary: {
+  int32_t bin_op = e->bin_op;
+  Expr* left = e->left;
+  ...
+  break;
+}
+default: _judge_over_default_2: { _judge_res_1 = (0); break; }
+}
+_judge_res_1;
+```
+
+`judge over rune` tiene coste cero: se reduce al mismo `switch` que usaría una
+comprobación de etiqueta escrita a mano, sin reservas de memoria, boxing ni
+vtable. Un `omen` con valores de cadena no puede ser un `switch` de C, así que
+ese discriminante (raro) recurre a una cadena de `pengu_string_equal`.
+
+**Diferencias con comparar un `omen` directamente.**
+
+| | `judge <omen>:` (§7.4) | `judge <rune> over <campo>:` (§7.4.1) |
+| --- | --- | --- |
+| Sujeto | el propio `omen` | un `rune` y uno de sus campos `omen` |
+| Lista `with` | campos de carga útil **de la variante**, posicionales | campos **del rune** por nombre, en cualquier orden |
+| Campos disponibles en una cláusula | solo la carga útil de esa variante | cualquier campo del rune |
+| Campos compartidos (`line`, `col`) | repetidos por variante | declarados una vez |
+| Layout en C | etiqueta + unión dimensionada por variante | un struct plano, layout estable |
+| Exhaustividad | obligatoria | obligatoria |
+
+**Interacción con `seal`, `frozen`, `derive`.**
+
+- `seal X as OmenY`: el discriminante se desenvuelve y se comparan las variantes
+  del seal; el seal sigue siendo nominal en todo lo demás.
+- `frozen Expr` / `ref to frozen Expr`: permitidos, y cada binding se emite como
+  una copia `const`, de modo que un rune de solo lectura no pueda mutarse a
+  través de la coincidencia.
+- `derive Par`: un `rune` con un discriminante `omen` simple puede derivar
+  `Par`; el `==` derivado compara la etiqueta. (Los omens algebraicos y con
+  valores de cadena siguen necesitando un `bind` explícito).
+
+**Limitaciones (2.5.0).** Los patrones anidados
+(`when Binary with left as Literal`), los or-patterns, los patrones de tupla,
+de array/lista y de `maybe`/`result` **no** están soportados; un patrón anidado
+es un error de sintaxis (`E0000`). No hay forma de binding posicional: los
+nombres son siempre campos del rune. Cada `judge` compara con un solo campo
+discriminante; para una segunda etiqueta se anida otro `judge`, como hace el
+ejemplo de `eval`.
+
+**Diagnósticos.** `E0005` (el sujeto no es un rune / el discriminante no es un
+`omen`), `E0013` (discriminante o binding desconocido), `E0043` (campo
+privado), `E0044` (no exhaustivo), `E0006` (asignación a un binding), `E0000`
+(una forma de patrón fuera del conjunto soportado).
 
 ### 7.5 `break` / `continue` / `return`
 
@@ -3927,7 +4091,7 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0002` | `VarLetTopLevelError` | 3 | var/let declared at top-level. | 1 help / 1 note |
 | `E0003` | `SelfDotAccessError`, `SemanticError` | 7 | self accessed with dot instead of arrow. | 1 help / 1 note |
 | `E0004` | `SemanticError`, `UndefinedIdentifierError` | 15 | identifier not defined in symbol table. | 1 help / 1 note |
-| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 139 | types incompatible. | 1 help / 1 note |
+| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 142 | types incompatible. | 1 help / 1 note |
 | `E0006` | `InvalidMemoryOpError`, `MutabilityError` | 12 | assignment to immutable let binding or constant. | 1 help / 1 note |
 | `E0007` | `InvalidControlFlowError` | 1 | break/continue outside loop. | 1 help / 1 note |
 | `E0008` | `InvalidMemoryOpError`, `SemanticError`, `TypeMismatchError` | 15 | invalid sigil/banish on literal/const. | 1 help / 1 note |
@@ -3935,7 +4099,7 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0010` | `SemanticError` | 1 | — | — |
 | `E0011` | `SemanticError` | 1 | — | — |
 | `E0012` | `SemanticError` | 1 | — | — |
-| `E0013` | `SemanticError` | 10 | — | — |
+| `E0013` | `SemanticError`, `TypeMismatchError` | 10 | — | — |
 | `E0014` | `InvalidBuilderStatementError`, `SemanticError`, `TypeMismatchError` | 10 | invalid statement inside with: builder block. | 1 help / 1 note |
 | `E0015` | `SemanticError`, `UnknownArrayDimensionError` | 4 | Array dimension size is unknown and cannot be inferred. | 1 help / 1 note |
 | `E0016` | `UndefinedIdentifierError` | 1 | — | — |
@@ -3966,7 +4130,7 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0041` | `ArraySizeMismatchError`, `SemanticError` | 9 | Array literal dimensions or row length do not match declared size. | 1 help / 1 note |
 | `E0042` | `InvalidRangeError` | 3 | Invalid range expression bounds. | 1 help / 1 note |
 | `E0043` | `PrivateSymbolAccessError` | 2 | Attempted access to private symbol from another module. | 1 help / 1 note |
-| `E0044` | `NonExhaustiveJudgeError` | 1 | Non-exhaustive judge expression without default else clause. | 1 help / 1 note |
+| `E0044` | `NonExhaustiveJudgeError` | 2 | Non-exhaustive judge expression without default else clause. | 1 help / 1 note |
 | `E0045` | `SemanticError`, `TypeMismatchError` | 4 | — | — |
 | `E0046` | `SemanticError` | 5 | — | — |
 | `E0047` | `DuplicatePrimitiveMethodError` | 2 | a method of a primitive is provided twice.  ``enchanting int:`` emits the C function ``int_clamp`` with external linkage, so the ``(primitive, method)`` pair may only be provided once in the whole program: two modules (or two blocks in one module) would emit the same symbol, and a call site could not choose between them. | 1 help / 1 note |

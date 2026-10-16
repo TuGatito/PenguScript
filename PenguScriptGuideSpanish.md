@@ -393,6 +393,104 @@ let desc is judge state:
     else -> "?"
 ```
 
+### 4.5.1 Cuándo usar `judge over rune`
+
+`judge` puede casar dos formas distintas, y elegir entre ellas es una decisión de modelado de datos, no de sintaxis:
+
+- **`omen` algebraico — lo predeterminado.** Cada variante lleva solo sus propios campos, el compilador guarda la representación más compacta y la cláusula liga el payload de la variante por posición. Prefiérelo siempre que las variantes sean cosas genuinamente distintas.
+- **`rune` con un discriminante — cuando las variantes comparten campos.** Declara los campos compartidos (`line`, `col`, `type`) una sola vez en el rune y casa la etiqueta con `judge <rune> over <field>:`. Úsalo también cuando necesites un **layout estable** para FFI o para un struct C externo, y siempre que el valor se entregue a C.
+
+Lado a lado:
+
+`omen` algebraico:
+```pengu
+omen Shape:
+    Circle with radius as f64
+    Rect with width as f64, height as f64
+
+weave area with s as Shape into f64:
+    judge s:
+        when Circle with radius -> 3.14159 * radius * radius
+        when Rect with width, height -> width * height
+```
+
+`rune` con un discriminante:
+```pengu
+rune Expr:
+    kind as ExprKind
+    int_value as int
+    bin_op as BinOp
+    left as ref to Expr
+    right as ref to Expr
+
+omen ExprKind:
+    Literal
+    Binary
+    Neg
+
+omen BinOp:
+    Add
+    Sub
+    Mul
+
+weave eval with e as ref to Expr into int:
+    judge e over kind:
+        when Literal with int_value -> int_value
+        when Binary with bin_op, left, right ->
+            let l is calling eval with left
+            let r is calling eval with right
+            judge bin_op:
+                when Add -> l + r
+                when Sub -> l - r
+                when Mul -> l * r
+        when Neg with left -> 0 - (calling eval with left)
+```
+
+**Anti-Pengunic:** un rune con discriminante donde bastaría un `omen` algebraico:
+```pengu
+# ❌ Anti-Pengunic: ninguna variante comparte un campo; el rune solo añade una
+# etiqueta a una unión que siempre ocupa el tamaño de la unión
+rune Shape:
+    kind as ShapeKind
+    radius as f64
+    width as f64
+    height as f64
+
+omen ShapeKind:
+    Circle
+    Rect
+
+# ✅ Pengunic: el `omen` algebraico lleva solo los campos de cada variante
+omen Shape:
+    Circle with radius as f64
+    Rect with width as f64, height as f64
+```
+
+**Anti-Pengunic:** un `omen` algebraico cuando las variantes comparten campos:
+```pengu
+# ❌ Anti-Pengunic: `line` y `col` se repiten en cada variante, y la unión se
+# rellena hasta el tamaño de la variante mayor
+omen Token:
+    Ident with text as string, line as int, col as int
+    Number with value as f64, line as int, col as int
+
+# ✅ Pengunic: los campos compartidos viven una sola vez, en el rune
+rune Token:
+    kind as TokenKind
+    text as string
+    value as f64
+    line as int
+    col as int
+
+omen TokenKind:
+    Ident
+    Number
+```
+
+**Reglas de nombres:**
+- Llama al discriminante `kind` (Pengunic), o dale un sustantivo concreto como `op_kind` o `node_type`. **No** inventes nombres genéricos como `type`, `tag` o `which`.
+- Los bindings de `with` son los nombres de campo del rune **literalmente**; no los renombres. Escribe `when Rect with width, height ->`, no `with w, h`.
+
 ### 4.6 `with:` builder sobre asignaciones campo a campo
 
 **Anti-Pengunic:**
@@ -1651,6 +1749,26 @@ var capped as int is calling hp.get_clamp with 0, 100
 Un método `@mutates` (y las formas in-place de `std.scrolls`) es una **sentencia**:
 muta el receptor y no produce ningún valor. Dentro de una cadena o de una
 expresión hay que usar `get_<name>`. Ver §6.7 y `LANGUAGE.md` §10.1.
+
+### 14.26 Rune con discriminante cuando bastaría un `omen`
+
+```pengu
+# ❌ Anti-Pengunic: el discriminante añade una etiqueta que la unión no necesita
+rune Event:
+    kind as EventKind
+    key as string
+    x as int
+    y as int
+
+omen EventKind:
+    Key
+    Click
+
+# ✅ Pengunic: el `omen` algebraico dice exactamente qué lleva cada variante
+omen Event:
+    Key with key as string
+    Click with x as int, y as int
+```
 
 ---
 

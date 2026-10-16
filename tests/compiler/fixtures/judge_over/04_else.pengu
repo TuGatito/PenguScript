@@ -1,0 +1,21 @@
+## `else ->` covers every variant not listed (and every failed guard).
+import std.spark
+
+rune Shape:
+    kind as ShapeKind
+    width as int
+
+omen ShapeKind:
+    Square
+    Rect
+    Circle
+
+weave area with s as Shape into int:
+    judge s over kind:
+        when Square with width -> width * width
+        else -> 0 - 1
+
+weave main into int:
+    var c as Shape is with kind is ShapeKind.Circle, width is 9
+    calling spark.println with "{calling area with c}"
+    return 0

@@ -17,6 +17,7 @@ from ._base import (
     FnType,
     FrozenType,
     INT_TYPE,
+    List,
     ListType,
     ManyType,
     MapType,
@@ -30,7 +31,8 @@ from ._base import (
     STRING_TYPE,
     SealType,
     SemanticError,
-    SliceType,
+    Set,
+    VOID_TYPE,    SliceType,
     Symbol,
     Token,
     Tree,
@@ -2384,6 +2386,9 @@ class ExprMixin:
                     code="E0000")
             return self._cast_fn_value(name, expected_type)
 
+        elif rule == "judge_over_expr":
+            return self._emit_judge_over(node, expected_type)
+
         elif rule == "judge_expr":
             matched_node = node.children[0]
             matched_type = self._infer_node_type(matched_node)
@@ -2864,3 +2869,392 @@ class ExprMixin:
             if isinstance(base, Token):
                 return True
         return False
+
+    # ------------------------------------------------------------------
+    # `judge <rune> over <discriminant>:` — tagged-union pattern matching
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _judge_over_simple_subject(subject: Any) -> bool:
+        """True when ``subject`` may be re-read without side effects or cost.
+
+        A plain name (``e``), ``self``, and one level of field access off either
+        (``w.inner``, ``p->inner``, ``self->node``) are safe to read once per
+        clause.  Anything else (a call, an index, a dereference, a chain) is
+        materialized into a temporary so its side effects run exactly once.
+        """
+        if isinstance(subject, Token):
+            return True
+        if not isinstance(subject, Tree):
+            return True
+        if subject.data in ("var_ref", "self_ref"):
+            return True
+        if subject.data in ("field_access", "arrow_access") and subject.children:
+            base = subject.children[0]
+            if isinstance(base, Token):
+                return True
+            if isinstance(base, Tree) and base.data in ("var_ref", "self_ref"):
+                return True
+        return False
+
+    def _judge_over_strip(self, t: Any):
+        """Peels ``ref to`` / ``frozen`` / ``alias`` / ``seal`` wrappers.
+
+        Returns ``(underlying, is_ref, is_frozen)``.  ``is_frozen`` is True when
+        any ``frozen`` wrapper was crossed, which makes the ``with`` bindings
+        ``const`` so a read-only rune cannot be mutated through a copy.
+        """
+        is_ref = False
+        is_frozen = False
+        seen = 0
+        while t is not None and seen < 32:
+            if isinstance(t, RefType):
+                is_ref = True
+                nxt = t.target
+            elif isinstance(t, FrozenType):
+                is_frozen = True
+                nxt = t.target
+            elif isinstance(t, AliasType):
+                nxt = t.target
+            elif isinstance(t, SealType):
+                nxt = t.underlying
+            else:
+                break
+            if nxt is None or nxt is t:
+                break
+            t = nxt
+            seen += 1
+        return t, is_ref, is_frozen
+
+    def _judge_over_subject_fields(self, subj_type: Any):
+        """Returns ``(fields, is_ref, is_frozen)`` for the rune behind ``subj_type``."""
+        t, is_ref, is_frozen = self._judge_over_strip(subj_type)
+        fields: Dict[str, Any] = {}
+        if isinstance(t, RuneType):
+            for key in (getattr(t, "c_name", None), getattr(t, "name", None)):
+                if key and key in self.runes:
+                    fields = self.runes[key]
+                    break
+            else:
+                fields = dict(getattr(t, "fields", {}) or {})
+        return fields, is_ref, is_frozen
+
+    def _judge_over_omen(self, field_type: Any):
+        """Resolves a discriminant field type to its key + variant table."""
+        t, _is_ref, _is_frozen = self._judge_over_strip(field_type)
+        candidates = []
+        if isinstance(t, OmenType):
+            candidates = [getattr(t, "c_name", None), getattr(t, "name", None)]
+        else:
+            nm = getattr(t, "name", None)
+            if nm:
+                candidates = [nm]
+        for key in candidates:
+            if key and key in self.omens:
+                return key, self.omens[key]
+        # Fall back to a resolved symbol-table lookup (nominal placeholder).
+        for key in candidates:
+            if not key:
+                continue
+            resolved = self._lookup_type_fn(key)
+            if isinstance(resolved, OmenType):
+                rkey = getattr(resolved, "c_name", None) or resolved.name
+                if rkey in self.omens:
+                    return rkey, self.omens[rkey]
+                if resolved.name in self.omens:
+                    return resolved.name, self.omens[resolved.name]
+                return rkey, resolved.variants
+        if isinstance(t, OmenType):
+            key = getattr(t, "c_name", None) or getattr(t, "name", "")
+            return key, t.variants
+        return None, {}
+
+    @staticmethod
+    def _judge_over_variant(pat_node: Any, omen_key: str, omen_t: Any) -> str:
+        """Extracts the simple variant name from a ``when_pattern`` node."""
+        names = [getattr(omen_t, "name", ""), omen_key or ""]
+        if isinstance(pat_node, Tree) and pat_node.data == "when_pattern" and pat_node.children:
+            if len(pat_node.children) > 1:
+                parts = [str(p) for p in pat_node.children if str(p) != "."]
+                raw = parts[-1] if parts else ""
+            else:
+                raw = str(pat_node.children[0])
+        else:
+            raw = str(pat_node)
+        for prefix in (f"{names[0]}_", f"{names[1]}_"):
+            if prefix != "_" and raw.startswith(prefix):
+                raw = raw[len(prefix):]
+                break
+        return raw
+
+    @staticmethod
+    def _judge_over_uses_name(node: Any, name: str) -> bool:
+        """True when ``name`` appears anywhere under ``node`` (bindings, guards)."""
+        if node is None:
+            return False
+        if isinstance(node, Token):
+            return str(node) == name
+        if isinstance(node, Tree):
+            if node.data == "var_ref" and node.children and str(node.children[0]) == name:
+                return True
+            for child in node.children:
+                if ExprMixin._judge_over_uses_name(child, name):
+                    return True
+        return False
+
+    @staticmethod
+    def _judge_over_payload_names(payload_node: Any) -> List[str]:
+        names: List[str] = []
+        if payload_node is None:
+            return names
+        for child in payload_node.children:
+            if isinstance(child, Tree) and child.data == "when_field":
+                names.append(str(child.children[0]))
+            elif isinstance(child, Token) and child.type == "NAME":
+                names.append(str(child))
+        return names
+
+    def _emit_judge_over(self, node: Tree, expected_type: Optional[Type] = None) -> str:
+        """Emits C for ``judge <rune> over <discriminant>:``.
+
+        The subject is read once (materialized into ``_judge_subj_N`` unless it
+        is a plain lvalue), the discriminant is switched on, and each clause is
+        a braced ``case`` block that declares its ``with`` bindings.  Guards nest
+        as ``if`` statements inside their case; a variant whose every clause is
+        guarded falls through to ``default`` (only reachable when an ``else``
+        exists, since exhaustiveness is enforced by the checker).
+        """
+        subject = node.children[0]
+        field_name = str(node.children[1])
+        clauses_nodes = [c for c in node.children[2:]
+                         if isinstance(c, Tree) and c.data == "when_clause"]
+        else_node = next((c for c in node.children[2:]
+                          if isinstance(c, Tree) and c.data == "else_clause"), None)
+
+        subj_type = self._infer_node_type(subject)
+        rune_fields, subj_is_ref, subj_is_frozen = self._judge_over_subject_fields(subj_type)
+
+        res_type = expected_type or self._infer_node_type(node)
+        if res_type is None or isinstance(res_type, AnyType) or res_type == VOID_TYPE:
+            res_type = None
+            is_void = True
+        else:
+            is_void = False
+        res_c_type = CTypeMapper.to_c_type(res_type) if res_type is not None else "void"
+
+        # --- Step 1: materialize the subject exactly once -------------------
+        lead: List[str] = []
+        if self._judge_over_simple_subject(subject):
+            subj_ref = self._translate_expr(subject)
+        else:
+            subj_ref = self.get_temp_name("_judge_subj")
+            if subj_type is not None and not isinstance(subj_type, AnyType):
+                decl = CTypeMapper.to_c_decl(subj_type, subj_ref)
+            else:
+                decl = f"__auto_type {subj_ref}"
+            lead.append(f"{decl} = ({self._translate_expr(subject)});")
+
+        sep = "->" if subj_is_ref else "."
+        field_c = self._c_ident(field_name)
+        disc_access = f"{subj_ref}{sep}{field_c}"
+
+        field_type = rune_fields.get(field_name)
+        omen_key, variants = self._judge_over_omen(field_type)
+        omen_t = self._lookup_type_fn(omen_key) if omen_key else None
+        if not isinstance(omen_t, OmenType):
+            omen_t = OmenType(omen_key or field_name, variants)
+        # Algebraic omens carry a tag inside the field struct; plain enums are
+        # the switch value itself.
+        switch_expr = (f"{disc_access}.tag" if omen_t.is_algebraic and not omen_t.is_string_valued
+                       else disc_access)
+        is_string_valued = bool(omen_t.is_string_valued)
+
+        # --- Step 2: collect the clauses -----------------------------------
+        groups: "Dict[str, List[Dict[str, Any]]]" = {}
+        order: List[str] = []
+        for clause in clauses_nodes:
+            pat_node = clause.children[0]
+            payload_node = None
+            guard_node = None
+            for sub in clause.children[1:-1]:
+                if isinstance(sub, Tree):
+                    if sub.data == "when_payload":
+                        payload_node = sub
+                    elif sub.data == "when_guard":
+                        guard_node = sub
+
+            variant = self._judge_over_variant(pat_node, omen_key or "", omen_t)
+            binding_names = self._judge_over_payload_names(payload_node)
+            bindings = []
+            for bn in binding_names:
+                bindings.append((bn, rune_fields.get(bn), self._c_ident(bn)))
+
+            saved_locals = dict(self.local_vars)
+            try:
+                for bn, bt, _bc in bindings:
+                    self.local_vars[bn] = bt
+                body_node = clause.children[-1]
+                body_c = self._translate_expr(body_node, expected_type=res_type)
+                guard_c = None
+                if guard_node is not None:
+                    guard_c = unwrap_condition(self._translate_expr(guard_node.children[0]))
+            finally:
+                self.local_vars = saved_locals
+
+            entry = {
+                "variant": variant,
+                "bindings": bindings,
+                "guard": guard_c,
+                "body": body_c,
+                "body_node": clause.children[-1],
+                "guard_node": guard_node,
+            }
+            if variant not in groups:
+                groups[variant] = []
+                order.append(variant)
+            groups[variant].append(entry)
+
+        if else_node is not None:
+            else_c = self._translate_expr(else_node.children[0], expected_type=res_type)
+        else:
+            else_c = self._judge_over_fallback(res_type, res_c_type)
+
+        # --- Step 3: emit ------------------------------------------------
+        lines: List[str] = list(lead)
+        t_res = None
+        if not is_void:
+            t_res = self.get_temp_name("_judge_res")
+            # Seed with the fallback so a `switch` the C compiler cannot prove
+            # exhaustive never leaves the result uninitialized (-Wmaybe-uninitialized).
+            lines.append(f"{CTypeMapper.to_c_decl(res_type, t_res)} = ({else_c});")
+        default_label = self.get_temp_name("_judge_over_default")
+        end_label = self.get_temp_name("_judge_over_end")
+        fallback = else_node is not None
+
+        def _group_bindings(entries: List[Dict[str, Any]]):
+            """Union of ``with`` bindings across one variant's clauses."""
+            seen: Set[str] = set()
+            out = []
+            for entry in entries:
+                for bn, bt, bc in entry["bindings"]:
+                    if bc in seen:
+                        continue
+                    seen.add(bc)
+                    used = False
+                    for other in entries:
+                        if (ExprMixin._judge_over_uses_name(other["body_node"], bn)
+                                or (other["guard_node"] is not None
+                                    and ExprMixin._judge_over_uses_name(other["guard_node"], bn))):
+                            used = True
+                            break
+                    out.append((bn, bt, bc, used))
+            return out
+
+        def _declare_bindings(entries: List[Dict[str, Any]], indent: str) -> List[str]:
+            out = []
+            for _bn, bt, bc, used in _group_bindings(entries):
+                if subj_is_frozen and bt is not None and not isinstance(bt, (FrozenType, AnyType)):
+                    bt = FrozenType(bt)
+                decl = (CTypeMapper.to_c_decl(bt, bc)
+                        if (bt is not None and not isinstance(bt, AnyType))
+                        else f"__auto_type {bc}")
+                out.append(f"{indent}{decl} = {subj_ref}{sep}{bc};")
+                if not used:
+                    out.append(f"{indent}(void){bc};")
+            return out
+
+        def _assign(entry: Dict[str, Any]) -> str:
+            return (f"{t_res} = ({entry['body']});" if not is_void
+                    else f"{entry['body']};")
+
+        def _else_assign() -> str:
+            return f"{else_c};" if is_void else f"{t_res} = ({else_c});"
+
+        if is_string_valued:
+            # A string-valued omen cannot be `switch`ed; compare and jump.
+            chain_open = False
+            for variant in order:
+                entries = groups[variant]
+                label = self._get_omen_variant_c_name(omen_key, variant) if omen_key else variant
+                unguarded = [e for e in entries if e["guard"] is None]
+                guarded = [e for e in entries if e["guard"] is not None]
+                kw = "if" if not chain_open else "else if"
+                chain_open = True
+                lines.append(f"{kw} (pengu_string_equal({subj_ref}{sep}{field_c}, {label})) {{")
+                lines.extend(_declare_bindings(entries, "  "))
+                for entry in guarded:
+                    lines.append(f"  if ({entry['guard']}) {{ {_assign(entry)} goto {end_label}; }}")
+                if unguarded:
+                    lines.append(f"  {_assign(unguarded[0])}")
+                    lines.append(f"  goto {end_label};")
+                elif fallback:
+                    lines.append(f"  goto {default_label};")
+                lines.append("}")
+            if fallback:
+                lines.append("else {")
+                lines.append(f"  {default_label}:")
+                lines.append(f"  {_else_assign()}")
+                lines.append("}")
+            lines.append(f"{end_label}:;")
+            if not fallback and not is_void:
+                lines.append(f"{t_res} = ({else_c});")
+        else:
+            lines.append(f"switch ({switch_expr}) {{")
+            for variant in order:
+                label = self._get_omen_variant_c_name(omen_key, variant) if omen_key else variant
+                entries = groups[variant]
+                unguarded = [e for e in entries if e["guard"] is None]
+                guarded = [e for e in entries if e["guard"] is not None]
+                lines.append(f"case {label}: {{")
+                lines.extend(_declare_bindings(entries, "  "))
+                for entry in guarded:
+                    lines.append(f"  if ({entry['guard']}) {{ {_assign(entry)} break; }}")
+                if unguarded:
+                    # Unconditional clauses are the variant's fallback; keep the
+                    # first so a duplicated pattern still emits valid C.
+                    lines.append(f"  {_assign(unguarded[0])}")
+                    lines.append("  break;")
+                elif fallback:
+                    # Every clause of this variant is guarded: the shared
+                    # default block is where a failed guard lands.
+                    lines.append(f"  goto {default_label};")
+                else:
+                    # Unreachable (exhaustiveness is enforced), but never emit
+                    # a path that leaves the result unassigned.
+                    if not is_void:
+                        lines.append(f"  {t_res} = ({else_c});")
+                    lines.append("  break;")
+                lines.append("}")
+            if fallback:
+                lines.append(f"default: {default_label}: {{ {_else_assign()} break; }}")
+            lines.append("}")
+
+        if is_void:
+            if not self.use_gnu_extensions:
+                for ln in lines:
+                    self._hoist(ln)
+                return "((void)0)"
+            body_c = "\n".join(lines) if lines else "(void)0;"
+            return f"(__extension__(({{\n{body_c}\n}})))"
+
+        lines.append(f"{t_res};")
+        if not self.use_gnu_extensions:
+            for ln in lines[:-1]:
+                self._hoist(ln)
+            return t_res
+        body_c = "\n".join(lines)
+        return f"(__extension__(({{\n{body_c}\n}})))"
+
+    def _judge_over_fallback(self, res_type: Optional[Type], res_c_type: str) -> str:
+        """A type-correct placeholder value for an exhaustive switch without else."""
+        if res_type is None:
+            return "((void)0)"
+        if isinstance(res_type, AnyType):
+            return "0"
+        if res_type.is_numeric():
+            return "0"
+        if res_type.is_string():
+            return 'pengu_string_from_cstr("")'
+        if isinstance(res_type, (FnType, RefType)):
+            return "NULL"
+        return f"({res_c_type}){{0}}"

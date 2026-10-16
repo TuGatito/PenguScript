@@ -117,6 +117,11 @@ from pengu_parser.pengu_types import FnType
 from .formatting import format_pengu_source, load_format_config
 from .completions import get_completions
 from .hover import get_hover, get_word_at_position
+from .judge_over import (
+    binding_token_spans,
+    discriminant_token_spans,
+    judge_over_definition,
+)
 from .code_actions import (
     add_missing_import_action,
     remove_unused_variable_action,
@@ -1022,6 +1027,13 @@ def definition(params: DefinitionParams):
     word = get_word_at_position(doc_text, params.position)
     if not word:
         return None
+
+    # `judge <rune> over <field>:` — a `with` binding (an immutable `let` scoped
+    # to its clause) or the `over` discriminant has no addressable symbol, so
+    # its definition is the rune's field declaration.
+    jor_location = judge_over_definition(doc_text, params.position, symbols)
+    if jor_location is not None:
+        return jor_location
 
     target_sym = None
     target_uri = uri
@@ -2245,10 +2257,23 @@ def semantic_tokens_full(params: SemanticTokensParams) -> Optional[SemanticToken
         return None
 
     raw: List[Tuple[int, int, int, int, int]] = []
+    # `judge <rune> over <field>:` binds no symbol of its own, so the
+    # discriminant is highlighted as a field and each `with` binding as an
+    # immutable variable.  The spans are matched by (0-based) line/column
+    # against the lexer's NAME tokens.
+    over_spans = {(l - 1, c - 1) for l, c, _n in discriminant_token_spans(doc_text)}
+    binding_spans = {(l - 1, c - 1) for l, c, _n in binding_token_spans(doc_text)}
     for tok in tokens:
         entry = _semantic_token_entry(tok, symbols)
-        if entry is not None:
-            raw.append(entry)
+        if entry is None:
+            continue
+        line0, col0, length, t_idx, mods = entry
+        if (line0, col0) in over_spans:
+            t_idx = _TOKEN_TYPE_INDEX["property"]
+        elif (line0, col0) in binding_spans:
+            t_idx = _TOKEN_TYPE_INDEX["variable"]
+            mods |= 1 << _TOKEN_MOD_INDEX["readonly"]
+        raw.append((line0, col0, length, t_idx, mods))
 
     raw.sort(key=lambda e: (e[0], e[1], e[2]))
     data: List[int] = []

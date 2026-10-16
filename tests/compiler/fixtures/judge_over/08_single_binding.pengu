@@ -1,0 +1,21 @@
+## `with` takes one field, or several in any order.
+import std.spark
+
+rune R:
+    kind as K
+    a as int
+    b as int
+
+omen K:
+    X
+    Y
+
+weave f with r as R into int:
+    judge r over kind:
+        when X with a -> a
+        when Y with b, a -> a * 10 + b
+
+weave main into int:
+    var r as R is with kind is K.Y, a is 3, b is 4
+    calling spark.println with "{calling f with r}"
+    return 0

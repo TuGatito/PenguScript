@@ -1,0 +1,22 @@
+## A `seal` over an omen is unwrapped: the discriminant is compared as the omen.
+import std.spark
+
+omen K:
+    A
+    B
+
+seal Kind as K
+
+rune R:
+    kind as Kind
+    v as int
+
+weave f with r as R into int:
+    judge r over kind:
+        when A with v -> v
+        when B -> 0
+
+weave main into int:
+    var r as R is with kind is K.A, v is 5
+    calling spark.println with "{calling f with r}"
+    return 0

@@ -1,0 +1,20 @@
+## A call as the subject is materialized once into `_judge_subj_N`.
+import std.spark
+
+rune R:
+    kind as K
+    v as int
+
+omen K:
+    A
+    B
+
+weave make with v as int into R:
+    return with kind is K.A, v is v
+
+weave main into int:
+    var x as int is judge (calling make with 6) over kind:
+        when A with v -> v * v
+        when B -> 0
+    calling spark.println with "{x}"
+    return 0

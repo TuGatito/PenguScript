@@ -14,6 +14,7 @@ from pengu_parser.pengu_types import (
     Type, RuneType, EchoType, OmenType, FnType, AliasType,
     estimate_size,
 )
+from .judge_over import judge_over_hover
 
 
 KEYWORD_DOCS = {
@@ -301,6 +302,13 @@ def get_hover(
 
     if not symbols:
         return None
+
+    # `judge <rune> over <field>:` — a `with` binding or the discriminant field
+    # has no ordinary symbol (the binding is scoped to its clause), so it is
+    # resolved from the rune's declaration before the generic lookup.
+    jor_hover = judge_over_hover(text, position, symbols)
+    if jor_hover is not None:
+        return jor_hover
 
     custom_types = getattr(symbols, "runes", {})
 

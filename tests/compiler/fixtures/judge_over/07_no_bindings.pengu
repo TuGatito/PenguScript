@@ -1,0 +1,20 @@
+## Clauses without `with` match the variant alone.
+import std.spark
+
+rune R:
+    kind as K
+    v as int
+
+omen K:
+    A
+    B
+
+weave f with r as R into int:
+    judge r over kind:
+        when A -> 1
+        when B -> 2
+
+weave main into int:
+    var r as R is with kind is K.A, v is 0
+    calling spark.println with "{calling f with r}"
+    return 0

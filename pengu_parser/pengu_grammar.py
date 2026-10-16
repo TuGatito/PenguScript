@@ -211,7 +211,16 @@ with_stmt: "with" expr ":" _NEWLINE _INDENT stmt+ _DEDENT
 # number of statements and can be nested.
 unsafe_stmt: "unsafe" block
 
-when_clause: "when" when_pattern ["with" when_payload] [when_guard] "->" expr _NEWLINE
+when_clause: "when" when_pattern ["with" when_payload] [when_guard] "->" when_body
+# A clause body is either a single expression on the same line, or an indented
+# statement block whose value is its last statement (the same shape as `do:`).
+# The block alternative is aliased to `do_expr` so the checker, the inferrer and
+# the codegen reuse the block-as-value path they already have instead of
+# growing a second, subtly different one.  `when_body` is inlined (`?`) so the
+# single-expression form keeps its historical `children[-1] == <expr>` shape.
+?when_body: expr _NEWLINE
+          | expr
+          | _NEWLINE _INDENT stmt+ _DEDENT -> do_expr
 when_guard: ("if" | "when") guard_expr
 
 ?guard_expr: guard_bool_or
@@ -323,6 +332,7 @@ result_type: "result" "of" type_or_param ["to" type_or_param]
 ?try_expr: "try" try_expr    -> try_expr
          | if_expr
          | when_expr
+         | judge_over_expr
          | judge_expr
          | for_comp_expr
          | bool_or_expr
@@ -350,6 +360,15 @@ if_expr: "if" expr "then" expr "else" expr
 when_expr: "when" expr "then" expr "else" expr
 
 judge_expr: "judge" expr ":" _NEWLINE _INDENT when_clause+ [else_clause] _DEDENT
+
+# `judge <rune> over <discriminant>:` — pattern matching on a `rune` whose
+# `over` field is an `omen` (the C tagged-union pattern).  It reuses
+# `when_clause`/`when_payload`: the syntax is identical to an omen `judge`, and
+# only the *semantics* of the `with` list differ (field names of the rune
+# instead of positional payload bindings), which the discriminator `over`
+# selects.  `over` is a *soft* keyword: it is a plain string literal, so an
+# identifier named `over` keeps working everywhere else (see `frozen`).
+judge_over_expr: "judge" expr "over" NAME ":" _NEWLINE _INDENT when_clause+ [else_clause] _DEDENT
 
 for_comp_expr: "for" NAME "in" expr ["when" expr] "then" expr -> for_comp
 
@@ -545,6 +564,7 @@ do_expr: "do" ":" _NEWLINE _INDENT stmt+ _DEDENT
 ?list_try_expr: "try" list_try_expr -> try_expr
               | if_expr
               | when_expr
+              | judge_over_expr
               | judge_expr
               | for_comp_expr
               | comparison

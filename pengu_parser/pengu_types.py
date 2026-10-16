@@ -2010,6 +2010,12 @@ def type_implements_builtin_concept(t: Type, concept_name: str) -> bool:
         return type_implements_builtin_concept(t.target, concept_name)
     if isinstance(t, BaseType):
         return concept_name in PRIMITIVE_IMPLS.get(t.name, set())
+    if isinstance(t, OmenType) and not t.is_algebraic and not t.is_string_valued:
+        # A plain omen is a C integer enum, so identity is `==` on the tag:
+        # `derive Par` on a rune with a plain-omen discriminant is sound and
+        # would otherwise be rejected because no `bind OmenType with Par:` can
+        # name every enum.  Algebraic/string omens still need an explicit bind.
+        return concept_name == "Par"
     if isinstance(t, ArrayType):
         # A fixed array borrows its element's capabilities: 'array of string'
         # is an Imago/Nexus field, 'array of int' too.
@@ -2165,6 +2171,14 @@ def implements_concept(t: Type, concept_name: str, symbols: Any) -> bool:
         return True
     if symbols is None:
         return False
+    # A rune/omen field type is stored as a nominal placeholder
+    # (`RuneType('ShapeKind', fields={})`); resolve it so a plain omen counts as
+    # `Par` and a `derive Par` on the enclosing rune is not rejected.
+    if isinstance(t, (RuneType, OmenType, EchoType)) \
+            and not getattr(t, "fields", None) and not getattr(t, "variants", None):
+        resolved = symbols.lookup_type(getattr(t, "name", ""))
+        if resolved is not None and resolved is not t:
+            return implements_concept(resolved, concept_name, symbols)
 
     t_name = getattr(t, "name", str(t))
     base_tname = t.get_base_name() if hasattr(t, "get_base_name") else (t_name.split("_")[0] if "_" in t_name else t_name)

@@ -1124,6 +1124,15 @@ Patterns may be integers, floats, strings, characters, `true`/`false`, `maybe no
 **Exhaustiveness validation (`E0044`)**:
 When evaluating an `omen` or a `bool` subject without an `else ->` fallback, the checker verifies that every variant or boolean state is covered. If any branch is missing, the compiler raises `error[E0044]` (`NonExhaustiveJudgeError`).
 
+`judge <rune> over <discriminant>:` matches a C-style tagged union: the subject is a `rune`, `over` names the `omen` field that selects the variant, and `when <Variant> with <field>, ...` binds the rune's fields by name. `over` is a **soft keyword** (it only means this inside a `judge` header); guards (`if <cond>`) and exhaustiveness (`E0044`) apply as above.
+
+```pengu
+judge e over kind:
+    when Literal with int_value -> int_value
+    when Binary with left, right -> calling eval with left
+    when Neg with left -> 0 - (calling eval with left)
+```
+
 ### 7.5 Integrated tests: `test …`
 
 Top-level `test "name":` (or `test name:`) blocks are validated semantically in every build but only compiled when requested with `--test`:

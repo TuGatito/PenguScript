@@ -1,0 +1,27 @@
+## A `judge` (of either form) nests inside a clause's block body.
+import std.spark
+
+rune R:
+    kind as K
+    sub as S
+
+omen K:
+    A
+    B
+
+omen S:
+    P
+    Q
+
+weave f with r as R into int:
+    judge r over kind:
+        when A ->
+            judge r.sub:
+                when P -> 1
+                when Q -> 2
+        when B -> 3
+
+weave main into int:
+    var r as R is with kind is K.A, sub is S.Q
+    calling spark.println with "{calling f with r}"
+    return 0

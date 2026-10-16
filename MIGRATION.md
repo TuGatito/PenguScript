@@ -8,9 +8,19 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.4.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.5.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.4.0 → 2.5.0: `judge` over `rune` is additive
+
+Nothing to change. `judge <rune> over <discriminant>:` is a new form; the plain
+`judge` keeps its spelling and semantics, and `over` stays a valid identifier
+outside a `judge` header. The one behaviour worth knowing is a **fix**, not a
+break: a `rune` field whose type is an `omen` can now be initialised
+(`with kind is Kind.A`) and matched (`judge r.sub:`), where it previously failed
+with a spurious `E0005`. A plain `omen` now also implements `Par`, so
+`rune X derive Par` accepts a plain-omen field.
 
 ## 2.3.0 → 2.4.0: mutating methods in the primitive modules
 

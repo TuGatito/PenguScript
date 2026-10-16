@@ -1,0 +1,23 @@
+## `judge over` coexists with `derive Par` (the derived `==` compares the tag).
+import std.spark
+
+omen ShapeKind:
+    Square
+    Rect
+
+rune Shape derive Par:
+    kind as ShapeKind
+    width as int
+
+weave area with s as Shape into int:
+    judge s over kind:
+        when Square with width -> width * width
+        when Rect with width -> width * 2
+
+weave main into int:
+    var a as Shape is with kind is ShapeKind.Square, width is 4
+    var b as Shape is with kind is ShapeKind.Square, width is 4
+    calling spark.println with "{calling area with a}"
+    if a == b:
+        calling spark.println with "equal"
+    return 0

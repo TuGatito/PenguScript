@@ -393,6 +393,104 @@ let desc is judge state:
     else -> "?"
 ```
 
+### 4.5.1 When to use `judge over rune`
+
+`judge` can match two different shapes, and choosing between them is a data-modelling decision, not a syntax one:
+
+- **Algebraic `omen` — the default.** Each variant carries only its own fields, the compiler stores the most compact representation, and the clause binds the variant's payload positionally. Prefer it whenever the variants are genuinely different things.
+- **`rune` with a discriminant — when the variants share fields.** Declare the shared fields (`line`, `col`, `type`) once on the rune and match the tag with `judge <rune> over <field>:`. Reach for it as well when you need a **stable layout** for FFI or an external C struct, and whenever the value is handed to C.
+
+Side by side:
+
+Algebraic `omen`:
+```pengu
+omen Shape:
+    Circle with radius as f64
+    Rect with width as f64, height as f64
+
+weave area with s as Shape into f64:
+    judge s:
+        when Circle with radius -> 3.14159 * radius * radius
+        when Rect with width, height -> width * height
+```
+
+`rune` with a discriminant:
+```pengu
+rune Expr:
+    kind as ExprKind
+    int_value as int
+    bin_op as BinOp
+    left as ref to Expr
+    right as ref to Expr
+
+omen ExprKind:
+    Literal
+    Binary
+    Neg
+
+omen BinOp:
+    Add
+    Sub
+    Mul
+
+weave eval with e as ref to Expr into int:
+    judge e over kind:
+        when Literal with int_value -> int_value
+        when Binary with bin_op, left, right ->
+            let l is calling eval with left
+            let r is calling eval with right
+            judge bin_op:
+                when Add -> l + r
+                when Sub -> l - r
+                when Mul -> l * r
+        when Neg with left -> 0 - (calling eval with left)
+```
+
+**Anti-Pengunic:** a rune with a discriminant where an algebraic `omen` would do:
+```pengu
+# ❌ Anti-Pengunic: no variant shares a field; the rune only adds a tag to a
+# union that is always union-sized
+rune Shape:
+    kind as ShapeKind
+    radius as f64
+    width as f64
+    height as f64
+
+omen ShapeKind:
+    Circle
+    Rect
+
+# ✅ Pengunic: the algebraic `omen` carries only each variant's fields
+omen Shape:
+    Circle with radius as f64
+    Rect with width as f64, height as f64
+```
+
+**Anti-Pengunic:** an algebraic `omen` when the variants share fields:
+```pengu
+# ❌ Anti-Pengunic: `line` and `col` repeat in every variant, and the union is
+# padded to the largest variant
+omen Token:
+    Ident with text as string, line as int, col as int
+    Number with value as f64, line as int, col as int
+
+# ✅ Pengunic: the shared fields live once, in the rune
+rune Token:
+    kind as TokenKind
+    text as string
+    value as f64
+    line as int
+    col as int
+
+omen TokenKind:
+    Ident
+    Number
+```
+
+**Naming rules:**
+- Call the discriminant `kind` (Pengunic), or give it a concrete noun such as `op_kind` or `node_type`. Do **not** invent generic names like `type`, `tag` or `which`.
+- The `with` bindings are the rune's field names **verbatim**; do not rename them. Write `when Rect with width, height ->`, not `with w, h`.
+
 ### 4.6 `with:` builder over field-by-field assignments
 
 **Anti-Pengunic:**
@@ -1651,6 +1749,26 @@ var capped as int is calling hp.get_clamp with 0, 100
 A `@mutates` method (and the in-place forms of `std.scrolls`) is a **statement**:
 it mutates the receiver and produces no value. Inside a chain or an expression you
 must use `get_<name>`. See §6.7 and `LANGUAGE.md` §10.1.
+
+### 14.26 Rune with a discriminant when an `omen` would do
+
+```pengu
+# ❌ Anti-Pengunic: the discriminant adds a tag the union does not need
+rune Event:
+    kind as EventKind
+    key as string
+    x as int
+    y as int
+
+omen EventKind:
+    Key
+    Click
+
+# ✅ Pengunic: the algebraic `omen` says exactly what each variant carries
+omen Event:
+    Key with key as string
+    Click with x as int, y as int
+```
 
 ---
 

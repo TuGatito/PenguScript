@@ -14,6 +14,7 @@ from lsprotocol.types import (
     TextEdit,
 )
 from pengu_parser.pengu_symbols import SymbolTable, Symbol, SHARD_RECEIVER_KEY
+from .judge_over import judge_over_completions
 from pengu_parser.pengu_types import (
     BaseType,
     RuneType,
@@ -766,7 +767,14 @@ def get_completions(
     """
     cursor_line = position.line + 1
 
-    # 0aa. Judge context first: a `when` inside a judge block must not fall
+    # 0aa. `judge <rune> over ` / `when <Variant> with ` — the discriminant
+    # fields and the rune's fields. Checked before the plain judge context so a
+    # clause inside a `judge over` block does not fall through to it.
+    jor_items = judge_over_completions(doc_text, position, symbols)
+    if jor_items is not None:
+        return CompletionList(is_incomplete=False, items=jor_items)
+
+    # 0ab. Judge context: a `when` inside a judge block must not fall
     # through to the compile-time `when` (main/os/arch/...) suggestions.
     judge_items = _judge_context_items(doc_text, position, symbols)
     if judge_items is not None:

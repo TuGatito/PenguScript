@@ -771,6 +771,162 @@ let state_desc is judge state:
   ```
   Guarded patterns do not count toward exhaustiveness; an unguarded pattern or `else ->` is required.
 - **Codegen:** Emits a C `switch` statement when all pattern cases are compile-time integer constants without guards or payloads; generates structured `if` branches with payload extraction and guard checks when payloads or guards are present, or falls back to an `if-else` ternary chain for string or variable patterns.
+- **Second form:** A `rune` whose variant is carried by a field (`kind`, `op_kind`, …) is matched with the `over` form described in §7.4.1 instead.
+
+### 7.4.1 `judge` over `rune`
+
+`judge` matches an `omen` *directly*. The other common shape — the C tagged
+union, where a `rune` carries every variant's fields and an `omen` field says
+which of them is live — has no clean spelling with the form above: the user
+writes `if`/`else if` chains that compare the tag, get no exhaustiveness check
+and cannot bind the rune's fields.
+
+`judge <subject> over <discriminant>:` closes that gap. The subject is a
+`rune`, `over` names one of its fields, and that field's type is the `omen`
+whose variants select the branch. `over` is a **soft keyword**: it only means
+this inside a `judge` header, so `var over as int is 5` still compiles.
+
+```pengu
+judge <subject> over <discriminant>:
+    when <Variant> with <field1>, <field2> [if <guard>] -> <expr>
+    when <Variant> [if <guard>] -> <expr>
+    else -> <expr>
+```
+
+The canonical use is a recursive expression tree:
+
+```pengu
+rune Expr:
+    kind as ExprKind
+    int_value as int
+    bin_op as BinOp
+    left as ref to Expr
+    right as ref to Expr
+
+omen ExprKind:
+    Literal
+    Binary
+    Neg
+
+omen BinOp:
+    Add
+    Sub
+    Mul
+
+weave eval with e as ref to Expr into int:
+    judge e over kind:
+        when Literal with int_value -> int_value
+        when Binary with bin_op, left, right ->
+            let l is calling eval with left
+            let r is calling eval with right
+            judge bin_op:
+                when Add -> l + r
+                when Sub -> l - r
+                when Mul -> l * r
+        when Neg with left -> 0 - (calling eval with left)
+```
+
+**Rules.**
+
+- **Subject.** A `rune` value, `ref to` a rune, `frozen` rune, or an `alias` /
+  nominal `seal` over one. Anything else is `E0005`; use the plain
+  `judge <expr>:` form for `omen`/`bool`/`int`/`string`/`char`. The subject may
+  be a name, `w.inner`, `p->inner`, `self->node`, or any expression; a
+  non-lvalue subject is evaluated **once** into a `_judge_subj_N` temporary, so
+  a call in the subject cannot run twice.
+- **Discriminant.** The name after `over` must be a field of the rune (`E0013`
+  otherwise) whose type is an `omen` — possibly behind a `seal`, which is
+  unwrapped because the compiler knows the representation (`E0005` otherwise).
+  Like every field, a leading-underscore discriminant is private to its rune
+  (`E0043`).
+- **Bindings are by field name, not by position.** `with a, b` binds those two
+  fields of the *rune*; the order is free and the names are ordinary
+  identifiers in the clause. `with left, op` and `with op, left` are the same
+  clause. A name that is not a rune field is `E0013`. Because the rune is a
+  single struct, every field exists in every clause: `when Literal with left`
+  compiles, even though `left` is only meaningful for `Binary`.
+- **Bindings are immutable `let`s.** `set field is …` inside a clause is
+  `E0006`. They are scoped to their clause and never leak between clauses.
+- **Guards.** `when Binary with op if op == Op.Add ->` is allowed; guards see
+  the bindings and the enclosing scope, and may call functions with effects.
+  The original subject stays accessible.
+- **Exhaustiveness.** If the `omen` has variants not covered by an *unguarded*
+  clause and there is no `else ->`, the clause is `E0044:
+  NonExhaustiveJudgeError`, with the missing variants named in the message. A
+  guarded clause never counts as coverage, exactly like §7.4.
+- **Clause bodies.** A clause body is an expression on the same line, or an
+  indented statement block whose last statement is its value — the `do:` shape.
+  The block form is what lets a clause declare `let`s and nest another `judge`.
+
+```pengu
+judge shape over kind:
+    when Square with width if width > 0 -> width * width
+    when Square -> 0
+    when Rect with height, width -> width * height
+    else -> 0 - 1
+```
+
+**Generated C.** The discriminant is switched on directly, each clause gets a
+braced `case` that declares its bindings, and no `default:` is emitted when the
+clauses are exhaustive (an `else` becomes the `default`). A guarded-only
+variant jumps to the shared default block, so nothing is duplicated:
+
+```c
+int32_t _judge_res_1 = (0);
+switch (e->kind) {
+case ExprKind_Literal: {
+  int32_t int_value = e->int_value;
+  _judge_res_1 = (int_value);
+  break;
+}
+case ExprKind_Binary: {
+  int32_t bin_op = e->bin_op;
+  Expr* left = e->left;
+  ...
+  break;
+}
+default: _judge_over_default_2: { _judge_res_1 = (0); break; }
+}
+_judge_res_1;
+```
+
+`judge over rune` is zero-cost: it lowers to the same `switch` a hand-written
+tag check would use, with no allocation, boxing or vtable. A string-valued
+`omen` cannot be a C `switch`, so that (rare) discriminant falls back to a
+`pengu_string_equal` chain.
+
+**Differences from matching an `omen` directly.**
+
+| | `judge <omen>:` (§7.4) | `judge <rune> over <field>:` (§7.4.1) |
+| --- | --- | --- |
+| Subject | the `omen` itself | a `rune` and one of its `omen` fields |
+| `with` list | positional payload fields **of the variant** | named fields **of the rune**, any order |
+| Field available in a clause | only that variant's payload | any rune field |
+| Shared fields (`line`, `col`) | repeated per variant | declared once |
+| C layout | tag + union sized per variant | one flat struct, stable layout |
+| Exhaustiveness | required | required |
+
+**Interaction with `seal`, `frozen`, `derive`.**
+
+- `seal X as OmenY`: the discriminant is unwrapped and the seal's variants are
+  matched; the seal stays nominal everywhere else.
+- `frozen Expr` / `ref to frozen Expr`: allowed, and each binding is emitted as
+  a `const` copy so a read-only rune cannot be mutated through a match.
+- `derive Par`: a `rune` with a plain-`omen` discriminant may derive `Par`; the
+  derived `==` compares the tag. (Algebraic and string-valued omens still need
+  an explicit `bind`.)
+
+**Limitations (2.5.0).** Nested patterns (`when Binary with left as Literal`),
+or-patterns, tuple patterns, array/list patterns, and `maybe`/`result` patterns
+are **not** supported; a nested pattern is a syntax error (`E0000`). There is no
+positional binding form: the names are always rune fields. Matching is on one
+discriminant field per `judge`; branch on a second tag with a nested `judge`,
+as the `eval` example does.
+
+**Diagnostics.** `E0005` (subject is not a rune / discriminant is not an
+`omen`), `E0013` (unknown discriminant or binding), `E0043` (private field),
+`E0044` (non-exhaustive), `E0006` (assignment to a binding), `E0000` (a pattern
+form outside the supported set).
 
 ### 7.5 `break` / `continue` / `return`
 
@@ -3940,7 +4096,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0002` | `VarLetTopLevelError` | 3 | var/let declared at top-level. | 1 help / 1 note |
 | `E0003` | `SelfDotAccessError`, `SemanticError` | 7 | self accessed with dot instead of arrow. | 1 help / 1 note |
 | `E0004` | `SemanticError`, `UndefinedIdentifierError` | 15 | identifier not defined in symbol table. | 1 help / 1 note |
-| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 139 | types incompatible. | 1 help / 1 note |
+| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 142 | types incompatible. | 1 help / 1 note |
 | `E0006` | `InvalidMemoryOpError`, `MutabilityError` | 12 | assignment to immutable let binding or constant. | 1 help / 1 note |
 | `E0007` | `InvalidControlFlowError` | 1 | break/continue outside loop. | 1 help / 1 note |
 | `E0008` | `InvalidMemoryOpError`, `SemanticError`, `TypeMismatchError` | 15 | invalid sigil/banish on literal/const. | 1 help / 1 note |
@@ -3948,7 +4104,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0010` | `SemanticError` | 1 | — | — |
 | `E0011` | `SemanticError` | 1 | — | — |
 | `E0012` | `SemanticError` | 1 | — | — |
-| `E0013` | `SemanticError` | 10 | — | — |
+| `E0013` | `SemanticError`, `TypeMismatchError` | 10 | — | — |
 | `E0014` | `InvalidBuilderStatementError`, `SemanticError`, `TypeMismatchError` | 10 | invalid statement inside with: builder block. | 1 help / 1 note |
 | `E0015` | `SemanticError`, `UnknownArrayDimensionError` | 4 | Array dimension size is unknown and cannot be inferred. | 1 help / 1 note |
 | `E0016` | `UndefinedIdentifierError` | 1 | — | — |
@@ -3979,7 +4135,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0041` | `ArraySizeMismatchError`, `SemanticError` | 9 | Array literal dimensions or row length do not match declared size. | 1 help / 1 note |
 | `E0042` | `InvalidRangeError` | 3 | Invalid range expression bounds. | 1 help / 1 note |
 | `E0043` | `PrivateSymbolAccessError` | 2 | Attempted access to private symbol from another module. | 1 help / 1 note |
-| `E0044` | `NonExhaustiveJudgeError` | 1 | Non-exhaustive judge expression without default else clause. | 1 help / 1 note |
+| `E0044` | `NonExhaustiveJudgeError` | 2 | Non-exhaustive judge expression without default else clause. | 1 help / 1 note |
 | `E0045` | `SemanticError`, `TypeMismatchError` | 4 | — | — |
 | `E0046` | `SemanticError` | 5 | — | — |
 | `E0047` | `DuplicatePrimitiveMethodError` | 2 | a method of a primitive is provided twice.  ``enchanting int:`` emits the C function ``int_clamp`` with external linkage, so the ``(primitive, method)`` pair may only be provided once in the whole program: two modules (or two blocks in one module) would emit the same symbol, and a call site could not choose between them. | 1 help / 1 note |

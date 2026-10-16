@@ -118,6 +118,8 @@
         "'if' branches have incompatible types: '{}' vs '{}'",
         "'if' condition must be bool, got '{}'",
         "'is not present' cannot be combined with a binding ('{}')",
+        "'judge over' requires a 'rune' subject; got '{}'. Use 'judge <expr>:' for omen/bool/int/string/char.",
+        "'judge over' requires an 'omen' discriminant; field '{}' of rune '{}' has type '{}'.",
         "'judge' subject must be an omen, bool, int, or string, got '{}'",
         "'many' parameters are not allowed in 'antiquus' declarations",
         "'many' parameters are not allowed in 'declare' statements",
@@ -214,6 +216,7 @@
         "Missing required argument '{}'",
         "Non-default parameter '{}' follows default parameter in function '{}'",
         "Non-default parameter '{}' follows default parameter in method '{}'",
+        "Omen '{}' has no variant '{}'",
         "Operator '{}' element type '{}' is incompatible with collection element type '{}'",
         "Operator '{}' expects a collection (range, string, array, slice, list, or map), got '{}'",
         "Operator '{}' for string collection requires char, byte, or string element, got '{}'",
@@ -373,7 +376,8 @@
     },
     "E0013": {
       "classes": [
-        "SemanticError"
+        "SemanticError",
+        "TypeMismatchError"
       ],
       "conditions": [
         "Cannot access field '{}' on non-struct type '{}'",
@@ -824,7 +828,8 @@
         "NonExhaustiveJudgeError"
       ],
       "conditions": [
-        "Judge over omen/bool is not exhaustive and has no 'else ->' branch"
+        "Judge over omen/bool is not exhaustive and has no 'else ->' branch",
+        "Judge over rune is not exhaustive and has no 'else ->' branch (missing: {})"
       ],
       "explanation": "Non-exhaustive judge expression without default else clause.",
       "guidance": [

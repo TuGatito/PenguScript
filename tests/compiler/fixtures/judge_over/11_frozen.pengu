@@ -1,0 +1,21 @@
+## A `frozen` subject makes every binding a `const` copy.
+import std.spark
+
+rune Shape:
+    kind as ShapeKind
+    width as int
+    height as int
+
+omen ShapeKind:
+    Square
+    Rect
+
+weave f with s as frozen Shape into int:
+    judge s over kind:
+        when Square with width -> width
+        when Rect with width, height -> width + height
+
+weave main into int:
+    var s as Shape is with kind is ShapeKind.Rect, width is 3, height is 4
+    calling spark.println with "{calling f with s}"
+    return 0

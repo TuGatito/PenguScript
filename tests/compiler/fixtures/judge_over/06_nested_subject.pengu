@@ -1,0 +1,23 @@
+## The subject may be a nested field: `judge w.inner over kind:`.
+import std.spark
+
+rune Inner:
+    kind as K
+    v as int
+
+omen K:
+    A
+    B
+
+rune Wrapper:
+    inner as Inner
+
+weave f with w as Wrapper into int:
+    judge w.inner over kind:
+        when A with v -> v
+        when B -> 0 - 1
+
+weave main into int:
+    var w as Wrapper is with inner is (with kind is K.A, v is 42)
+    calling spark.println with "{calling f with w}"
+    return 0
