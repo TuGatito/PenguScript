@@ -25,6 +25,7 @@ from pengu_parser.pengu_types import (
     TypeParam, NullType, INT_TYPE, I32_TYPE, I64_TYPE, FLOAT_TYPE, F32_TYPE, F64_TYPE, BOOL_TYPE,
     STRING_TYPE, VOID_TYPE, ERROR_TYPE, OPAQUE_TYPE, CVarArgsType, ast_to_type, get_type_base_name,
     type_has_derived_nexus, type_owns_heap, canonical_primitive_name, primitive_lookup_order,
+    canonical_type_name,
 )
 from pengu_parser.pengu_symbols import SymbolTable, Symbol, decl_layout, SHARD_RECEIVER_KEY
 from pengu_parser.pengu_infer import ConstFolder, TypeInferrer, RangeConst

@@ -15,6 +15,7 @@ from lsprotocol.types import (
 )
 from pengu_parser.pengu_symbols import SymbolTable, Symbol, SHARD_RECEIVER_KEY
 from .judge_over import judge_over_completions
+from .labels import loop_label_completions
 from pengu_parser.pengu_types import (
     BaseType,
     RuneType,
@@ -773,6 +774,13 @@ def get_completions(
     jor_items = judge_over_completions(doc_text, position, symbols)
     if jor_items is not None:
         return CompletionList(is_incomplete=False, items=jor_items)
+
+    # 0aa2. `break ` / `continue ` — the labels of the loops that enclose the
+    # cursor. A bare `break`/`continue` has no label position and falls through
+    # to the ordinary keyword list.
+    label_items = loop_label_completions(doc_text, position)
+    if label_items is not None:
+        return CompletionList(is_incomplete=False, items=label_items)
 
     # 0ab. Judge context: a `when` inside a judge block must not fall
     # through to the compile-time `when` (main/os/arch/...) suggestions.

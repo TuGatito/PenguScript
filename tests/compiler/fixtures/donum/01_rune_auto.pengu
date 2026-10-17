@@ -1,0 +1,26 @@
+## A rune whose fields all implement `Donum` is defaultable without `derive`
+## or `bind`; nesting is recursive.
+import std.spark
+
+rune Point:
+    x as int
+    y as int
+
+rune Wrapper:
+    p as Point
+    tag as string
+
+weave main into int:
+    var p as Point is donum Point
+    calling spark.println with "{p.x},{p.y}"
+
+    var w as Wrapper is donum Wrapper
+    calling spark.println with "{w.p.x},{w.tag}"
+
+    # The annotation can also be inferred from a call argument.
+    var q as Point is calling zero_point
+    calling spark.println with "{q.y}"
+    return 0
+
+weave zero_point into Point:
+    return donum Point

@@ -695,6 +695,35 @@ class PenguParser:
                     continue
                 subtree.children[idx] = Token.new_borrow_pos("ANTIQUUS_BODY", bodies[inner], child)
 
+    @staticmethod
+    def _attach_loop_labels(tree: Tree) -> None:
+        """Unwraps ``label: for/while`` into the loop node plus a label attribute.
+
+        The grammar produces a ``labeled_loop`` wrapper so LALR(1) has a distinct
+        production to reduce, but every later pass (checker, inferrer, codegen,
+        LSP) dispatches on the loop rules themselves.  Flattening the wrapper
+        here — recording the label as ``loop_label`` on the loop node — keeps
+        those passes unchanged and keeps the loop node's children exactly where
+        they always were.
+
+        Args:
+            tree: The freshly parsed tree, mutated in place.
+        """
+        def _walk(node: Any) -> None:
+            if not isinstance(node, Tree):
+                return
+            for idx, child in enumerate(node.children):
+                if isinstance(child, Tree) and child.data == "labeled_loop":
+                    label = str(child.children[0])
+                    loop = child.children[1]
+                    loop.loop_label = label
+                    node.children[idx] = loop
+                    _walk(loop)
+                else:
+                    _walk(child)
+
+        _walk(tree)
+
     def parse(self, code: str) -> Tree:
         """Parses PenguScript source code into a Lark AST Tree.
 
@@ -728,6 +757,7 @@ class PenguParser:
         except LarkBaseError as exc:
             raise self._parse_error(code, exc) from None
         self._restitch_antiquus_bodies(tree, antiquus_bodies)
+        self._attach_loop_labels(tree)
         return tree
 
     def parse_expr(self, code: str) -> Tree:

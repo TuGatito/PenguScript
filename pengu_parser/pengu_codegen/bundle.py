@@ -292,3 +292,73 @@ class BundleMixin:
     def indent(self) -> str:
         """Returns current indentation spaces string."""
         return "  " * self.indent_level
+
+    @staticmethod
+    def _loop_label_target(node: Tree) -> Optional[str]:
+        """Label of a ``break label`` / ``continue label`` node, or None.
+
+        An unlabeled ``break``/``continue`` has no children; the labeled form
+        carries the label as its first (and only) child.
+        """
+        children = getattr(node, "children", None)
+        if not children:
+            return None
+        first = children[0]
+        return str(first) if first is not None else None
+
+    @staticmethod
+    def _c_loop_label(label: str, kind: str) -> str:
+        """C label name for the ``continue``/``break`` anchor of loop ``label``.
+
+        The ``_pengu_`` prefix marks a compiler-generated identifier, and C
+        labels live in their own namespace (separate from variables and tags),
+        so the name cannot clash with a user identifier.  Two loops can never
+        generate the same anchor: loop labels are unique per function (E0069).
+        """
+        return f"_pengu_label_{label}_{kind}"
+
+    @staticmethod
+    def _loop_label_is_used(node: Tree, label: str, kind: str) -> bool:
+        """True when the loop subtree contains ``break label`` / ``continue label``.
+
+        The anchor is emitted only when something jumps to it: an unused C label
+        is ``-Wunused-label``, and this compiler builds its bundles with
+        ``-Werror``.  A labeled loop that nobody breaks out of therefore costs
+        exactly zero lines of C.
+        """
+        from pengu_parser.pengu_grammar import SIMPLE_STMT_ALIASES
+
+        wanted = "break_stmt" if kind == "break" else "continue_stmt"
+        for sub in node.iter_subtrees():
+            if not isinstance(sub, Tree):
+                continue
+            data = SIMPLE_STMT_ALIASES.get(sub.data, sub.data)
+            if data != wanted or not sub.children:
+                continue
+            first = sub.children[0]
+            if first is not None and str(first) == label:
+                return True
+        return False
+
+    def _loop_continue_label(self, node: Tree, body_ind: str) -> str:
+        """``_<label>_continue: ;`` emitted at the end of a labeled loop body.
+
+        Placed last inside the loop braces, so a ``goto`` from the body still
+        runs the C loop's step expression and condition — exactly what
+        ``continue`` does for the innermost loop.
+        """
+        label = getattr(node, "loop_label", None)
+        if not label or not self._loop_label_is_used(node, label, "continue"):
+            return ""
+        return f"\n{body_ind}{self._c_loop_label(label, 'continue')}: ;"
+
+    def _loop_break_label(self, node: Tree, ind: str) -> str:
+        """``_<label>_break: ;`` emitted right after a labeled loop.
+
+        Goes *after* the loop's own cleanup (e.g. the banish of a materialized
+        iterable), so breaking out of the loop does not leak it.
+        """
+        label = getattr(node, "loop_label", None)
+        if not label or not self._loop_label_is_used(node, label, "break"):
+            return ""
+        return f"\n{ind}{self._c_loop_label(label, 'break')}: ;"

@@ -35,7 +35,7 @@ from .pengu_errors import (
     DuplicateConceptBindingError, DuplicatePrimitiveMethodError, InfiniteTypeSizeError, UnknownAttributeError,
     StaticVarPlacementError, InvalidTestNameError, CFieldCollisionError,
     MutatingMethodInExpressionError, InvalidMutatesAttributeError, MutatingGetterCollisionError,
-    AntiquusBodyError,
+    AntiquusBodyError, DuplicateLabelError,
     suggest_similar_identifier
 )
 
@@ -1240,6 +1240,22 @@ class PenguChecker:
                 if "Nexus" in derived_concepts and "Imago" not in derived_concepts:
                     derived_concepts.append("Imago")
                 for d_concept in derived_concepts:
+                    if d_concept == "Donum":
+                        # 'Donum' is *automatic*: a rune whose fields are all
+                        # defaultable already implements it, so asking for the
+                        # derive only hides that rule (and used to be rejected as
+                        # "not derivable", which was true but unhelpful).
+                        err = self._make_error(
+                            SemanticError,
+                            f"'Donum' is automatic for rune '{r_name}'; no 'derive' is needed",
+                            stmt,
+                            code="E0005",
+                            help="Remove 'derive Donum'. A rune implements 'Donum' automatically when "
+                                 "every field does.",
+                            note="'Donum' is never written in a 'derive' clause; it is implied by the fields."
+                        )
+                        self._record_error(err)
+                        continue
                     if d_concept not in ("Par", "Ordo", "Vinculum", "Imago", "Nexus"):
                         err = self._make_error(
                             SemanticError,
@@ -1343,6 +1359,20 @@ class PenguChecker:
                 # so equality/ordering/hashing would read whichever member the
                 # last write left behind. Deriving a concept on it is unsound.
                 for d_concept in derived_concepts:
+                    if d_concept == "Donum":
+                        # Not a soundness problem, just redundant: 'Donum' is
+                        # automatic for any rune/echo whose fields are.
+                        err = self._make_error(
+                            SemanticError,
+                            f"'Donum' is automatic for echo '{e_name}'; no 'derive' is needed",
+                            stmt,
+                            code="E0005",
+                            help="Remove 'derive Donum'. An echo implements 'Donum' automatically "
+                                 "when every field does.",
+                            note="'Donum' is never written in a 'derive' clause; it is implied by the fields."
+                        )
+                        self._record_error(err)
+                        continue
                     err = self._make_error(
                         SemanticError,
                         f"Concept '{d_concept}' cannot be derived for echo '{e_name}'",
@@ -2870,13 +2900,20 @@ class PenguChecker:
             return
 
         elif rule in ("break_stmt", "continue_stmt"):
-            if not self.symbols.is_in_loop():
+            keyword = rule.split('_')[0]
+            label = str(node.children[0]) if node.children and node.children[0] is not None else None
+            if label:
+                # 'break outer' / 'continue outer': the label must name a loop
+                # that encloses this statement (E0004 when unknown, E0007 when
+                # it exists but does not enclose).
+                self._check_labeled_break_continue(node, keyword, label)
+            elif not self.symbols.is_in_loop():
                 err = self._make_error(
                     InvalidControlFlowError,
-                    f"'{rule.split('_')[0]}' is only allowed inside loops (for / while).",
+                    f"'{keyword}' is only allowed inside loops (for / while).",
                     node,
                     code="E0007",
-                    help=f"Remove '{rule.split('_')[0]}' or place it inside a 'for' or 'while' loop.",
+                    help=f"Remove '{keyword}' or place it inside a 'for' or 'while' loop.",
                     note="Loop control statements are only valid within an active loop."
                 )
                 self._record_error(err)
@@ -6660,6 +6697,54 @@ class PenguChecker:
                 self.block_stmts_stack.pop()
             self.symbols.pop_scope(end_line=e_end)
 
+    def _declare_loop_label(self, node: Tree) -> None:
+        """Registers ``label:`` on the enclosing function scope (E0069 on reuse).
+
+        Loop labels live in their own per-function namespace: they are not
+        module symbols, they are not visible from another weave and they cannot
+        be imported.  Declaring the same name twice in one function is E0069
+        because both loops would lower to the same C label.
+        """
+        label = getattr(node, "loop_label", None)
+        if not label:
+            return
+        if not self.symbols.declare_loop_label(label, node):
+            err = self._make_error(
+                DuplicateLabelError,
+                f"Loop label '{label}' is already used by another loop in this function",
+                node,
+                code="E0069",
+                help=f"Rename one of the two '{label}:' loops; labels must be unique within a function.",
+                note="A loop label is the target of 'break label' / 'continue label', so it must name exactly one loop."
+            )
+            self._record_error(err)
+
+    def _check_labeled_break_continue(self, node: Tree, keyword: str, label: str) -> None:
+        """Validates ``break label`` / ``continue label`` against enclosing loops."""
+        if self.symbols.enclosing_loop_label(label) is not None:
+            return
+        declared = self.symbols.current_function_scope().loop_labels
+        if label in declared:
+            err = self._make_error(
+                InvalidControlFlowError,
+                f"'{keyword} {label}' cannot jump to loop '{label}': it does not enclose this statement",
+                node,
+                code="E0007",
+                help=f"Move the statement inside the '{label}:' loop, or use the label of a loop that encloses it.",
+                note="A labeled 'break'/'continue' only reaches a loop it is nested in."
+            )
+            self._record_error(err)
+            return
+        err = self._make_error(
+            UndefinedIdentifierError,
+            f"Undefined loop label '{label}' in '{keyword} {label}'",
+            node,
+            code="E0004",
+            help="Use the label of an enclosing labeled loop ('outer: for …').",
+            note="Loop labels are function-local and must be declared on an enclosing loop."
+        )
+        self._record_error(err)
+
     def _check_while_stmt(self, node: Tree, collect: bool = False,
                           expected_element: Optional[Type] = None) -> Type:
         """Checks while-loop condition and body statements.
@@ -6693,7 +6778,8 @@ class PenguChecker:
             self._record_error(e)
 
         span_start, span_end = self._get_node_span(node)
-        self.symbols.push_scope(kind="while", in_loop=True, start_line=span_start, end_line=span_end)
+        self._declare_loop_label(node)
+        self.symbols.push_scope(kind="while", in_loop=True, loop_label=getattr(node, "loop_label", None), start_line=span_start, end_line=span_end)
         elem_t: Type = VOID_TYPE
         b_stmts = [c for c in block_node.children if isinstance(c, Tree)] if (isinstance(block_node, Tree) and block_node.data == "block") else ([block_node] if isinstance(block_node, Tree) else [])
         self.block_stmts_stack.append(b_stmts)
@@ -6803,7 +6889,8 @@ class PenguChecker:
             self._record_error(e)
 
         span_start, span_end = self._get_node_span(node)
-        self.symbols.push_scope(kind="for", in_loop=True, start_line=span_start, end_line=span_end)
+        self._declare_loop_label(node)
+        self.symbols.push_scope(kind="for", in_loop=True, loop_label=getattr(node, "loop_label", None), start_line=span_start, end_line=span_end)
         self.symbols.define(Symbol(name=var_name, type=INT_TYPE, kind="var", is_mutable=False, line=line, column=col))
         elem_t: Type = VOID_TYPE
         b_stmts = [c for c in block_node.children if isinstance(c, Tree)] if (isinstance(block_node, Tree) and block_node.data == "block") else ([block_node] if isinstance(block_node, Tree) else [])
@@ -6900,7 +6987,8 @@ class PenguChecker:
             self._record_error(err)
 
         span_start, span_end = self._get_node_span(node)
-        self.symbols.push_scope(kind="for", in_loop=True, start_line=span_start, end_line=span_end)
+        self._declare_loop_label(node)
+        self.symbols.push_scope(kind="for", in_loop=True, loop_label=getattr(node, "loop_label", None), start_line=span_start, end_line=span_end)
         if index_name is not None and index_name != "_":
             self.symbols.define(Symbol(name=index_name, type=INT_TYPE, kind="var", is_mutable=False, line=line, column=col))
         if elem_name != "_":

@@ -587,13 +587,32 @@ var p as ref to int is sigil of x     # &x
 var v as int is essence of p          # *p
 set essence of p is 42                # *p = 42 (LHS of assignment)
 let n as usize is size of MyRune      # sizeof(MyRune)
+let t as string is type of p          # "ref to int" (static type; p is not evaluated)
 let raw_ptr as ref to void is transmute p to ref to void   # unsafe bit-cast
 ```
 
 - **`sigil of expr` (`&`):** Takes the address of an lvalue. Cannot be applied to literals, expressions, `const`, or `frozen` variables (`E0008: InvalidMemoryOpError`).
 - **`essence of expr` (`*`):** Dereferences a pointer. The operand must be a `ref to T` or `Any`. It can be used both as an rvalue and as the left-hand side target of a `set` assignment (`set essence of ptr is val`).
 - **`size of TYPE`:** Evaluates the compile-time byte size of any type (`sizeof(T)` in C) and returns `usize`.
+- **`type of expr`:** Reports the **static** type of `expr` as a `string`, using the canonical PenguScript spelling. It is a compile-time operator: the operand is type-checked but **never evaluated**, so side effects inside it do not run. The result is a borrowed string literal (`pengu_string_from_cstr("int")`, `is_owned == 0`): it costs nothing at runtime, and `banish` on it only clears the handle, like on any borrowed string. `type` and `of` are **soft keywords** — `type of` is one lexer token only when the two words are adjacent on the same line, so `var type as int is 5` (and `var size as int is 5`, which used to collide with `size of`; that is fixed) still work as ordinary identifiers.
 - **`transmute expr to TYPE`:** Unsafe bit-level reinterpretation cast. Always triggers compiler warning `[W0001] transmute is unsafe`. If the source and destination types have different estimated sizes, `W0001` includes a size mismatch notification. Safe conversions must use `(expr to TYPE)`.
+
+Canonical names reported by `type of` (every spelling of the same C type gives the same name — `int32`, `int32_t`, `i32` and `int` all give `"int"`):
+
+| C type (any accepted spelling) | `type of` reports |
+|---|---|
+| `int32_t` (`int`, `i32`, `int32`, …) | `"int"` |
+| `int64_t` (`i64`, `int64`, `long`, …) | `"i64"` |
+| `uint8_t` (`byte`, `u8`, `uint8`, …) | `"byte"` |
+| `size_t` (`usize`, …) | `"size_t"` |
+| `intptr_t` (`isize`) | `"isize"` |
+| `double` (`f64`) | `"f64"` |
+| `float` (`f32`) | `"float"` |
+| `char` / `bool` / `void` | `"char"` / `"bool"` / `"void"` |
+| `opaque` (C `void*`) | `"opaque"` |
+| `PenguString` (`string`) | `"string"` |
+
+Composites are recursive and spelled in PenguScript: `"ref to T"`, `"ref to frozen T"`, `"frozen T"`, `"list of T"`, `"slice of T"`, `"map of K to V"`, `"maybe T"`, `"result of T to E"`, `"array of T with size N"`, `"({T}, {U})"` for tuples, and `"weave with {T} into {U}"` for function types. A nominal type reports its **local** base name, never the module qualifier (`rune Point` → `"Point"`, likewise `omen`, `echo`, `seal` and `alias`); a monomorphized generic reports `"Box of int"`. Inside generic code the operator resolves **per instantiation**: in `weave describe shard T with x as T into string:` it yields `"int"` for `calling describe with 42` and `"string"` for `calling describe with "hi"`. Use it for diagnostics, generic self-description and test assertions — **not** as a runtime type check to branch on behaviour, because it is a compile-time constant (style guide §14.28).
 
 ### 6.5 Character & byte primitives
 
@@ -693,7 +712,13 @@ var i as int is 0
 while i < 10:
     calling tick with i
     set i is i + 1
+
+outer: while i < 10:          # optional label: NAME ':' before the loop (§7.5)
+    calling tick with i
+    set i is i + 1
 ```
+
+- **Loop labels:** A `while` may carry an optional `NAME ":"` immediately before the keyword, on the same line. `break NAME` / `continue NAME` target that loop instead of the innermost one; a label is function-local and must be unique within the function (`E0069`). See §7.5.
 
 ### 7.3 `for`
 
@@ -707,7 +732,13 @@ for item in items:             # array / list / slice / string / map iteration
 for i, item in indexed:        # indexed form (i is iteration counter)
 for _, v in values:            # discard index
 for j from 5 to 0 step -1:     # negative step
+
+rows: for i from 0 to 3:       # label any of the three loop forms (§7.5)
+    for j from 0 to 3:
+        continue rows
 ```
+
+- **Loop Labels:** `NAME ":"` may precede `for … from … to … [step …]` or `for … in …`, on the same line. `break NAME` / `continue NAME` target it; bare `break` / `continue` still target the innermost loop. A label is **function-local** and not a symbol: it is not in `symbols.functions`, cannot be imported, and is invisible outside its weave. Two loops with the same label in one function are `E0069`, even when they are siblings rather than nested. See §7.5.
 
 - **Loop Bindings Validation (`E0037`):** In the indexed form `for i, v in col`, the index identifier `i` and element identifier `v` must be distinct. Using the same identifier name for both raises `E0037`. The wildcard `_` can be used to discard either binding.
 - **String Iteration:** Iterating over a string (`for ch in "abc":`) yields each character as a single-character `PenguString` via `pengu_string_char_at`.
@@ -786,7 +817,7 @@ and cannot bind the rune's fields.
 whose variants select the branch. `over` is a **soft keyword**: it only means
 this inside a `judge` header, so `var over as int is 5` still compiles.
 
-```pengu
+```pengu-fragment
 judge <subject> over <discriminant>:
     when <Variant> with <field1>, <field2> [if <guard>] -> <expr>
     when <Variant> [if <guard>] -> <expr>
@@ -858,7 +889,7 @@ weave eval with e as ref to Expr into int:
   indented statement block whose last statement is its value — the `do:` shape.
   The block form is what lets a clause declare `let`s and nest another `judge`.
 
-```pengu
+```pengu-fragment
 judge shape over kind:
     when Square with width if width > 0 -> width * width
     when Square -> 0
@@ -931,6 +962,29 @@ form outside the supported set).
 ### 7.5 `break` / `continue` / `return`
 
 Standard control flow statements. `break` and `continue` are only permitted inside loop blocks (`E0007`). `return` must produce a type matching the enclosing weave's `into` specification (`E0020`); bare `return` is valid only in `void` weaves.
+
+A loop may be **labeled**, which makes `break` / `continue` able to leave more than the innermost loop:
+
+```pengu
+import std.spark
+
+weave main into int:
+    var lines as list of string is ["a;b", "c}d", "e"]
+    outer: for line in lines:
+        for ch in line:
+            if ch == ";":
+                continue outer          # next line: step + condition run
+            if ch == "}":
+                break outer             # leave the labeled loop
+            calling spark.println with "{ch}"
+    return 0
+```
+
+- **Syntax:** `NAME ":"` immediately before a `while`, a `for … from … to … [step …]`, or a `for … in …`, on the same line. A jump is written `break label` / `continue label`; bare `break` / `continue` are unchanged and target the innermost loop, even inside a labeled one.
+- **Semantics:** `continue label` continues the *labeled* loop — its step expression and condition run again, exactly as a `continue` of that loop would. `break label` leaves the labeled loop. The label must name an **enclosing labeled loop**.
+- **Errors:** an unknown label is `E0004`; a label that exists but does not enclose the statement is `E0007`; a label used twice in one function is `E0069` (`DuplicateLabelError`), even for two sibling loops. Labels are **function-local** and are not symbols: they are not in `symbols.functions`, cannot be imported, and are invisible outside their weave.
+- **Codegen lowering:** C has no labeled `break`, so a labeled jump lowers to `goto _pengu_label_<label>_<continue|break>;`. The `_continue` anchor is emitted as the last line of the labeled loop's body, so the C step and condition still run (exactly `continue` semantics); the `_break` anchor is emitted right after the loop but **before** the loop's own cleanup (for example the `banish` of a materialized iterable), so both the normal exit and a jump out of the loop run that cleanup. A jump that also leaves an *enclosing* loop cannot release that loop's temporaries: C has no unwinding, the same reason an early `return` skips scope releases. An anchor is emitted only when a jump targets it, so an unused label costs zero lines of C and does not trigger `-Wunused-label`.
+- **Pengunic naming:** `snake_case`, descriptive (`outer`, `lines_loop`, `next_row`), never a single letter. Label a loop only when at least two loops are nested and you must leave the outer one from inside it.
 
 ### 7.6 Block expressions: `do:`, value-position `if` / `unless`, and loops
 
@@ -2107,15 +2161,23 @@ compiler's concept table:
 | integer primitives (`int`, `i8`…`u64`, `usize`, `isize`, `byte`, …) | `Num`, `Integrum`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
 | floats (`float`, `f32`, `f64`, `double`) | `Num`, `Real`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
 | `bool` | `Par`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
-| `char` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma` |
+| `char` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
 | `string` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum`, `Iterabilis` |
 | `list of T` / `map of K to V` | `Par`, `Iterabilis`, `Imago`, `Nexus` |
 | `slice of T` | `Par`, `Iterabilis` |
 | `maybe T` / `result of T to E` | `Par`, `Imago`, `Nexus` |
+| `rune` (every field implements `Donum`) | `Donum` (automatic; a single non-defaultable field removes it) |
 
 Runes, echos and algebraic omens gain a concept through `derive` (§9.1.2) or an
 explicit `bind` (§10.3); a `where` bound is then satisfied by the derived
-implementation.
+implementation. `Donum` is the exception: a `rune` or `echo` whose **every**
+field implements `Donum` implements it automatically — no `derive` and no `bind`
+— recursively through nested runes, `ref to T` (always `NULL`), `frozen`/`alias`/`seal`
+wrappers and arrays. A single non-defaultable field (a container, or a generic
+parameter without a defaultable bound) removes `Donum` from the type. See §11.4.
+
+`char` and `byte` are defaultable like their aliases (`i8`, `u8`): `donum char`
+and `donum byte` are both `0`.
 
 ### 10.10 Coherence of `bind`
 
@@ -2300,6 +2362,48 @@ var s as string is donum string           # empty string
 var f as float is donum float             # 0.0
 ```
 
+**Automatic `Donum` for runes and echos.** A `rune` or `echo` implements
+`Donum` automatically when **every field** implements `Donum`; no `derive
+Donum`, no `bind X with Donum:` and no helper are needed. The rule is recursive
+through the field types:
+
+- a field whose type is another all-defaultable `rune`/`echo` counts;
+- `ref to T` is always defaultable (`NULL`), whatever `T` is;
+- `frozen T`, `alias X as T` and `seal X as T` delegate to what they wrap;
+- `array of T with size N` follows `T` (`N` zeroed elements).
+
+A single non-defaultable field removes `Donum` from the whole rune, and the
+error names the rune: `donum Bag` for `rune Bag: items as list of int` is
+`E0049` with "not every field implements 'Donum'". `char` and `byte` are
+defaultable like their aliases (`i8`, `u8`).
+
+**Generic runes.** `rune Box shard T: value as T` is `Donum` only under a
+defaultable bound such as `where T: Donum` (or another bound from the compiler's
+defaultable set: `Num`, `Integrum`, `Real`, `Par`, `Ordo`, `Forma`, `Donum`).
+`donum (Box of T)` without such a bound is `E0049`. A concrete instantiation
+such as `donum (Box of int)` is accepted, because `int` itself is defaultable:
+
+```pengu
+rune Box shard T where T: Donum:
+    value as T
+
+weave zero_box shard T where T: Donum into Box of T:
+    return donum (Box of T)               # requires the bound above
+```
+
+**Containers are deliberately excluded.** `list`, `map`, `slice`, `maybe` and
+`result` do **not** implement `Donum`. `donum (list of int)` is therefore
+`E0049` ("containers have no zero value"), not `(PenguList){0}`: that C zero
+initialiser would leave `elem_size == 0`, which is a **corrupt container**, not
+an empty one. The fix is an explicit default — an empty literal such as
+`list of int` / `map of string to int`, `maybe none`, `calling ok_of with v` —
+or a rune wrapper whose field is the container and which provides its own
+`new`/`empty` helper.
+
+**`derive Donum` is rejected** with `E0005` ("`Donum` is automatic for rune
+'X'; no 'derive' is needed"). `Donum` is *not* one of the derivable concepts;
+the five remain `Par`, `Ordo`, `Vinculum`, `Imago` and `Nexus` (§11.6).
+
 ### 11.5 Iterating generics
 
 Iteration needs a concrete element type. `list of T`, `slice of T`, arrays,
@@ -2345,9 +2449,9 @@ Exactly five, and each one produces something different:
 | `Nexus` | ✅ | `_pengu_cleanup_<T>`, the destructor `banish` calls |
 | `Forma` | ❌ | `E0005 Concept 'Forma' cannot be automatically derived` |
 | `Iterabilis` | ❌ | `E0005` |
-| `Donum` | ❌ | `E0005` |
+| `Donum` | ❌ (automatic) | never written in `derive`: implied when every field is defaultable (§11.4); `derive Donum` is `E0005` |
 
-Two details that are easy to get wrong:
+Three details that are easy to get wrong:
 
 * **`Imago` does not add a `.clone()` method to the rune.** It emits the C
   callback; writing `a.clone` on a `derive Imago` rune is `E0004 Type 'T' has no
@@ -2356,6 +2460,12 @@ Two details that are easy to get wrong:
   `_pengu_clone_T` and `_pengu_cleanup_T`.
 * Deriving a comparison concept on a **generic** rune bounds the parameters, so
   the check happens at the substitution site, not at the declaration.
+* **`Donum` is never derived.** A rune or echo gets it automatically when every
+  field implements it (§11.4); `derive Donum` is `E0005`. A **generic** rune is
+  defaultable only under a defaultable bound: write
+  `rune Box shard T where T: Donum:` so that `donum (Box of T)` is accepted.
+  Without the bound, `donum (Box of T)` is `E0049`; a concrete
+  `donum (Box of int)` is still fine because `int` is defaultable.
 
 ### 11.7 Associated types (not implemented — ⏸️ deferred to 1.1)
 
@@ -3227,12 +3337,122 @@ see [§7.6](#76-block-expressions-do-value-position-if--unless-and-loops).
 > with `with target:` scopes. `set x is 10` inside the block would assign a
 > *local variable* named `x`, which normally does not exist.
 >
-> A builder block is itself a value, so it can appear anywhere a value is
-> expected: as a field initializer (nesting, above), as a loop iteration value,
-> as a branch of a value-position `if`/`unless`, and as a `do:` block tail.
-> The `as T` annotation on `var`/`let`/`static var` is only needed at the
-> outermost level; inner builders infer their type from the field they are
-> assigned to.
+> A builder block is itself a value, so it can appear as a field initializer
+> (nesting, above), as a loop iteration value, as a branch of a value-position
+> `if`/`unless`, and as a `do:` block tail. It is **not** a general expression:
+> it cannot sit inside a call argument list or as an arithmetic operand — see the
+> position table below. The `as T` annotation on `var`/`let`/`static var` is only
+> needed at the outermost level; inner builders infer their type from the field
+> they are assigned to.
+
+### `with:` in value positions (verified)
+
+A `with:` builder needs a **target type** before it can be checked. The table
+says where the compiler can supply one and where it cannot; every ✅ row was
+verified by compiling the example with `pengu check`.
+
+| Position | Valid? | Notes |
+|---|---|---|
+| `var`/`let`/`static var` initializer with an annotation | ✅ | type inferred from the annotation (`as T`) |
+| `var`/`let` initializer without an annotation | ❌ | `E0014`: a builder cannot infer from the enclosing `into`; use `return with:` (next row) |
+| `return with:` | ✅ | target type comes from the weave's `into` |
+| `set .field is with:` and `set x is with:` | ✅ | nested builder infers from the field; `set x is with:` reuses the local's declared type |
+| `with:` as the iteration value of a loop | ✅ | element type from the annotated `list of T`; one element per iteration |
+| `with:` in a value-position `if`/`unless` branch | ✅ | branch type from the expected slot; every branch must agree |
+| `with:` as the tail of a `do:` block | ✅ | `do:` yields the builder |
+| `with:` as a call argument | ❌ | `calling f with (with: …)` is `E0000`; the bare form is `E0014`. Pass a named value, or the one-line `with x is …` literal |
+| `with:` as the last field of an enclosing `with:` | ✅ | nested builder; the last field may be any block value |
+| Multiline `with:` whose last field is itself a block value | ✅ | e.g. a value-position `if`/`unless` or a nested `with:` as the last field |
+| `with:` as an arithmetic operand | ❌ | bare is `E0014`; even `(with: …).x` is `E0000`. Assign the builder to a typed variable first |
+
+The annotation/expected type is what the builder uses; there is no inference
+from field assignments alone:
+
+```pengu-fragment
+var p as Point with:              # 1: the annotation supplies Point
+    set .x is 1
+    set .y is 2
+
+let q as Point with:              # 1: 'let' works the same way
+    set .x is 3
+    set .y is 4
+
+weave build into Point:
+    return with:                  # 3: 'into Point' supplies the target type
+        set .x is 5
+        set .y is 6
+
+set p is with:                    # 4: reuses the declared type of 'p'
+    set .x is 7
+    set .y is 8
+
+var seg as Segment with:
+    set .start is with:           # 4: nested builder infers Point from the field
+        set .x is 0
+        set .y is 0
+    set .end_pt is with:
+        set .x is 1
+        set .y is 1
+```
+
+```pengu-fragment
+var ps as list of Point is for i from 0 to 3:
+    with:                         # 5: one Point per iteration
+        set .x is i
+        set .y is i * 2
+
+var p as Point is if flag:        # 6: value-position branch
+    with:
+        set .x is 1
+        set .y is 2
+else:
+    with:
+        set .x is 3
+        set .y is 4
+
+var q as Point is do:             # 7: 'do:' yields its tail
+    var seed as int is 10
+    with:
+        set .x is seed
+        set .y is seed + 1
+```
+
+```pengu-fragment
+var s as Segment with:
+    set .start is with:           # 9: first field is an enclosing-builder field
+        set .x is 0
+        set .y is 0
+    set .end_pt is if flag:       # 10: last field is itself a block value
+        with:
+            set .x is 3
+            set .y is 4
+    else:
+        with:
+            set .x is 5
+            set .y is 6
+```
+
+A call argument must be a named value or a one-line struct literal — a block
+builder is not accepted in either parenthesised or bare form:
+
+```pengu-fragment
+calling show with p                       # ✅ named value
+calling show with with x is 1, y is 2     # ✅ one-line struct literal
+```
+
+```pengu-invalid
+calling show with (with:          # E0000: '(' cannot open a builder block
+    set .x is 1
+    set .y is 2)
+
+calling show with with:           # E0014: no target type reaches the argument
+    set .x is 1
+    set .y is 2
+
+var n as int is 1 + with:         # E0014: not an arithmetic operand
+    set .x is 1
+    set .y is 2
+```
 
 ### 18.2 `with` scopes on collections (`list` and `map`)
 
@@ -4083,7 +4303,7 @@ error[E0006]: cannot assign to immutable variable 'count'
 
 <!-- BEGIN GENERATED DIAGNOSTIC CATALOG — tools/gen_error_catalog.py -->
 
-### 22.2 Compiler Error Catalog (`E0000`–`E0068`)
+### 22.2 Compiler Error Catalog (`E0000`–`E0069`)
 
 Generated from the compiler sources by `tools/gen_error_catalog.py` (error classes and their `code=` defaults in [`pengu_parser/pengu_errors.py`](pengu_parser/pengu_errors.py), every `code="Exxxx"` emission in `pengu_parser/`, `pengu_project.py` and `pengu_lsp/`).  The machine-readable form of this table is [`docs/error_catalog.json`](docs/error_catalog.json); `tests/test_error_catalog_sync.py` fails when the code and this table diverge, so **do not edit it by hand** — run `python tools/gen_error_catalog.py --write`.
 
@@ -4095,10 +4315,10 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0001` | `ConstInsideWeaveError` | 1 | const declared inside weave / function body. | 1 help / 1 note |
 | `E0002` | `VarLetTopLevelError` | 3 | var/let declared at top-level. | 1 help / 1 note |
 | `E0003` | `SelfDotAccessError`, `SemanticError` | 7 | self accessed with dot instead of arrow. | 1 help / 1 note |
-| `E0004` | `SemanticError`, `UndefinedIdentifierError` | 15 | identifier not defined in symbol table. | 1 help / 1 note |
-| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 142 | types incompatible. | 1 help / 1 note |
+| `E0004` | `SemanticError`, `UndefinedIdentifierError` | 16 | identifier not defined in symbol table. | 1 help / 1 note |
+| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 144 | types incompatible. | 1 help / 1 note |
 | `E0006` | `InvalidMemoryOpError`, `MutabilityError` | 12 | assignment to immutable let binding or constant. | 1 help / 1 note |
-| `E0007` | `InvalidControlFlowError` | 1 | break/continue outside loop. | 1 help / 1 note |
+| `E0007` | `InvalidControlFlowError` | 2 | break/continue outside loop. | 1 help / 1 note |
 | `E0008` | `InvalidMemoryOpError`, `SemanticError`, `TypeMismatchError` | 15 | invalid sigil/banish on literal/const. | 1 help / 1 note |
 | `E0009` | `InvalidWithTargetError`, `SemanticError` | 2 | leading dot access outside with block. | 1 help / 1 note |
 | `E0010` | `SemanticError` | 1 | — | — |
@@ -4139,7 +4359,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0045` | `SemanticError`, `TypeMismatchError` | 4 | — | — |
 | `E0046` | `SemanticError` | 5 | — | — |
 | `E0047` | `DuplicatePrimitiveMethodError` | 2 | a method of a primitive is provided twice.  ``enchanting int:`` emits the C function ``int_clamp`` with external linkage, so the ``(primitive, method)`` pair may only be provided once in the whole program: two modules (or two blocks in one module) would emit the same symbol, and a call site could not choose between them. | 1 help / 1 note |
-| `E0049` | `SemanticError` | 8 | — | — |
+| `E0049` | `SemanticError` | 10 | — | — |
 | `E0050` | `InfiniteTypeSizeError` | 1 | recursive type without indirection (infinite size). | 1 help / 1 note |
 | `E0051` | `SemanticError` | 1 | — | — |
 | `E0052` | `DuplicateConceptBindingError` | 2 | duplicate concept binding or duplicate (type, method) implementation.  Covers two cases: binding the same ``(type, concept)`` pair twice, and two distinct concepts providing the same ``(type, method)`` pair (which a call site could not resolve). | 1 help / 1 note |
@@ -4156,6 +4376,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0066` | `MutatingMethodInExpressionError` | 0 | a ``@mutates`` method used where a value is expected.  ``@mutates`` exposes one C function under two surface forms: the bare name assigns the result back to the receiver and yields nothing, while ``get_<name>`` returns the value.  The mutating spelling therefore has no value to contribute inside an initializer, an argument or a return, and it is rejected there instead of quietly behaving like the pure form. | 1 help / 1 note |
 | `E0067` | `InvalidMutatesAttributeError` | 0 | ``@mutates`` applied where in-place mutation cannot work.  ``@mutates`` is only meaningful on a method inside an ``enchanting`` block, and only when the method returns the receiver's own type -- that return value is what the call site assigns back to the receiver.  A top-level ``weave``, a ``declare``, a mismatched return type or a body that both returns a value and assigns to the receiver is rejected here. | 1 help / 1 note |
 | `E0068` | `MutatingGetterCollisionError` | 0 | ``@mutates weave foo`` collides with an explicit ``weave get_foo``.  The compiler reserves ``get_<name>`` for the pure form of a ``@mutates`` method, so declaring both would give ``get_<name>`` two definitions with no way to choose between them. | 1 help / 1 note |
+| `E0069` | `DuplicateLabelError` | 1 | two loops in the same function declare the same label.  A loop label (``outer: for …``) is a *function-local* name; the code generator turns it into a single C label, so two loops sharing a name inside one function would emit two identical C labels.  The rule is deliberately stricter than "two nested loops may not share a name": two *sibling* loops with the same label are rejected as well, because the name no longer identifies one place to jump to. | 1 help / 1 note |
 
 ### 22.3 Compiler Warning Catalog (`W0000`–`W0013`)
 

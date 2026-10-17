@@ -157,9 +157,13 @@ Toda `weave` usa **`snake_case`** con el verbo en forma base (sin `to`, sin `-in
 | Parámetro | `snake_case`, corto si es obvio | `x`, `y`, `item`, `key`, `fallback` |
 | Booleano local | prefijo `is_`, `has_`, `can_` | `is_ready`, `has_key`, `can_retry` |
 | Índice de loop | `i`, `j`, `k` solo en loops cortos; si no, `index`, `row`, `col` | |
+| Etiqueta de bucle (`break label` / `continue label`) | `snake_case` descriptivo, nunca una letra | `outer`, `lines_loop`, `next_row` |
 | Acumulador | `acc`, `sum`, `total`, `result` | |
 | Discard | `_` | `for _, v in col:` |
 | Temporal interno | `tmp`, `raw`, `staged` | Nunca expuesto en API |
+
+Etiqueta un bucle solo cuando haya al menos dos bucles anidados y necesites salir
+del externo desde dentro; una etiqueta en un único bucle es ruido (ver §14.27).
 
 ### 2.7 Constantes top-level
 
@@ -518,6 +522,63 @@ var person as Person with:
         set .zip is "12345"
 ```
 
+### 4.6.1 `with:` en posición de valor
+
+Un constructor `with:` es una expresión solo donde el compilador ya conoce el
+tipo destino. Úsalo cuando el valor sea un struct construido en el sitio: en una
+anotación de `var`/`let`/`static var`, un `return`, un campo, el tipo de elemento
+de un bucle, una rama en posición de valor o la cola de un `do:`. **No** es una
+expresión general: un argumento de llamada necesita un valor con nombre o el
+literal en una línea `with x is …`, y un operando aritmético necesita primero una
+variable tipada (la tabla de posiciones verificada está en `LANGUAGE.md` §18).
+
+**✅ Pengunic: construye en el hueco que aporta el tipo**
+
+```pengu
+var p as Point with:              # la anotación aporta Point
+    set .x is 1
+    set .y is 2
+
+weave origin into Point:
+    return with:                  # 'into Point' aporta Point
+        set .x is 0
+        set .y is 0
+```
+
+**❌ Anti-Pengunic: construir un struct desechable solo para copiarlo en un valor existente**
+
+```pengu
+var p as Point is calling default_point     # p ya existe
+
+var fresh as Point with:                    # ❌ construido solo para copiarlo
+    set .x is 3
+    set .y is 4
+with p:
+    set .x is fresh.x
+    set .y is fresh.y
+
+# ✅ Pengunic: una sola mutación 'with target:', sin valor desechable
+with p:
+    set .x is 3
+    set .y is 4
+```
+
+**Cuándo no usar un constructor.** Un único valor trivial se lee mejor como el
+literal de struct en una línea; y `with:` (construcción de un valor nuevo) no es
+`with target:` (mutación de uno existente):
+
+```pengu
+# ✅ una línea, sin constructor
+var q as Point is with x is 5, y is 6
+
+# ✅ 'with:' construye un valor nuevo; 'with target:' muta uno existente
+var fresh as Point with:
+    set .x is 1
+    set .y is 2
+with fresh:
+    set .x is 3
+```
+
 ### 4.7 `with target:` para mutar colecciones o structs existentes
 
 **Anti-Pengunic:**
@@ -658,6 +719,12 @@ let cfg is calling parse_config with raw or:
     calling spark.eprintln with "Parse failed: {error}"
     return default_config
 ```
+
+**Depuración:** cuando un pipeline genérico hace que el tipo estático de un
+opcional no sea obvio, imprime `type of value` (`"maybe int"`, `"result of int to
+string"`). Es una cadena de tiempo de compilación con cero coste en runtime —
+úsala para diagnósticos y aserciones, nunca como comprobación de tipos en
+runtime para ramificar (§14.28).
 
 **Solo un `or:` por cadena de operaciones** — si necesitas dos, divide en funciones.
 
@@ -853,6 +920,12 @@ Reglas:
 6. **Predicados con `is_*`.** Consultas puras con el nombre base (`abs`, `floor`).
 7. **Un método por bound correcto.** Si un método no puede funcionar en todos los tipos de un bound, muévelo al bound más estricto que encaje. `sqrt` no funciona en `int`; vive en `fractio` (`Real`), no en `numerus` (`Num`).
 8. **`@mutates` para el par mutante/puro.** Un método que devuelve el propio tipo del receptor puede marcarse con `@mutates`: `calling x.clamp with …` **muta `x`** (solo como sentencia) y `calling x.get_clamp with …` devuelve el valor sin tocarlo. Se emite **una sola** función C y el cuerpo sigue siendo puro (`self` es un valor, `E0006` intacto): la asignación la hace el punto de llamada. Fuera de un bloque `enchanting`, con un `into` distinto del tipo del receptor, o con un cuerpo que asigna a `self`, es `E0067`; declarar además `get_<name>` es `E0068`; usar la forma mutante donde se espera un valor es `E0066`. Ver `LANGUAGE.md` §10.1.
+
+**`Donum` es automático para las runes.** Una `rune` o un `echo` cuyos campos son todos
+defaultables implementa `Donum` — `donum Point` simplemente funciona,
+sin `derive Donum` ni `bind` (ver `LANGUAGE.md` §11.4). Un campo contenedor
+(`list`, `map`, `slice`, `maybe`, `result`) lo elimina, porque un contenedor a
+cero sería corrupto en vez de vacío; `derive Donum` es `E0005` (§14.29).
 
 | Módulo | Bound | Cubre | Muta (sentencia) | Forma pura |
 |---|---|---|---|---|
@@ -1769,6 +1842,56 @@ omen Event:
     Key with key as string
     Click with x as int, y as int
 ```
+
+### 14.27 Etiqueta innecesaria en un único bucle
+
+```pengu
+# ❌ Anti-Pengunic: una etiqueta que ningún 'break'/'continue' apunta
+outer: for x in xs:
+    calling process with x
+
+# ✅ Pengunic: el único bucle no necesita etiqueta
+for x in xs:
+    calling process with x
+```
+
+Una etiqueta sirve para abandonar un bucle **externo** desde dentro de uno
+interno (`LANGUAGE.md` §7.5). En un único bucle añade un nombre, riesgo de
+`E0069` (las etiquetas son locales a la función y únicas) y ninguna capacidad.
+
+### 14.28 `type of` usado como comprobación de tipos en runtime
+
+```pengu
+# ❌ Anti-Pengunic: 'type of' es una constante de compilación, no una comprobación en runtime
+if type of value == "int":
+    calling handle_int with value
+else:
+    calling handle_other with value
+
+# ✅ Pengunic: ramifica en tiempo de compilación con un genérico (o una sobrecarga)
+weave handle shard T with value as T into void:
+    calling print with "{value}"
+```
+
+`type of expr` produce un literal de cadena prestado elegido al compilar; la rama
+`else` de arriba está muerta antes de emitir C. Úsalo para diagnósticos y
+aserciones de tests, y usa un genérico/sobrecarga para el comportamiento.
+
+### 14.29 `derive Donum`
+
+```pengu
+# ❌ E0005: 'Donum' is automatic for rune 'Point'; no 'derive' is needed
+rune Point derive Donum:
+    x as int
+
+# ✅ Pengunic: todos los campos son defaultables, así que 'donum Point' funciona
+rune Point:
+    x as int
+```
+
+`Donum` **no** es uno de los cinco conceptos derivables (`Par`, `Ordo`,
+`Vinculum`, `Imago`, `Nexus`). Una rune o un echo lo obtiene automáticamente
+cuando todos sus campos son defaultables (`LANGUAGE.md` §11.4).
 
 ---
 

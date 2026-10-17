@@ -15,6 +15,8 @@ from pengu_parser.pengu_types import (
     estimate_size,
 )
 from .judge_over import judge_over_hover
+from .labels import loop_label_hover
+from .type_of import type_of_hover
 
 
 KEYWORD_DOCS = {
@@ -299,6 +301,20 @@ def get_hover(
                 value=KEYWORD_DOCS[clean_kw]
             )
         )
+
+    # Loop labels (`outer: for …`, `break outer`) are not symbols, so they are
+    # resolved from the parsed tree before the symbol-table lookup — and even
+    # when there is no table at all, so a half-checked buffer keeps them.
+    label_hover = loop_label_hover(text, position)
+    if label_hover is not None:
+        return label_hover
+
+    # `type of expr` is a compile-time operator: its resolved name is recorded on
+    # the checked node, so hovering it (or its operand) reports the canonical
+    # type name the generated C will carry.
+    type_name_hover = type_of_hover(text, position)
+    if type_name_hover is not None:
+        return type_name_hover
 
     if not symbols:
         return None

@@ -1,0 +1,10 @@
+list of Point
+list of ref to Point
+map of string to int
+maybe int
+result of int to string
+ref to Point
+array of Point with size 4
+slice of Point
+frozen Point
+(int, bool)

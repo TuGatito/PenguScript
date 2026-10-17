@@ -34,6 +34,7 @@ from ._base import (
     SHARD_RECEIVER_KEY,
     canonical_primitive_name,
     primitive_lookup_order,
+    canonical_type_name,
     type_owns_heap,
 )
 from .ctype import (
@@ -273,6 +274,36 @@ class SymbolMixin:
             self.symbols.current_scope = saved_scope
             if len(self.symbols.all_scopes) > saved_all_scopes_len:
                 del self.symbols.all_scopes[saved_all_scopes_len:]
+    def _translate_type_of(self, node: Tree, expected_type: Optional[Type] = None) -> str:
+        """Emits the C for ``type of expr``.
+
+        The operand is never evaluated: the emitted C is a *string literal*
+        holding the canonical PenguScript name of the operand's static type
+        (``pengu_string_from_cstr("list of int")``, borrowed, ``is_owned == 0``),
+        so the operator costs nothing at runtime.  In generic code the type is
+        read after the active substitution map is applied, which is what turns
+        ``type of x`` into ``int`` / ``string`` inside each monomorphization.
+
+        Args:
+            node: the ``type_of`` AST node (one child: the operand).
+            expected_type: type required by the enclosing slot; a ``ref to char``
+                slot takes the raw C string literal, exactly like a string literal.
+
+        Returns:
+            C expression producing the type name as a ``PenguString``.
+        """
+        operand = node.children[0]
+        inferred = self._infer_node_type(operand)
+        if inferred is not None and getattr(self, "current_subst_map", None):
+            inferred = inferred.substitute(self.current_subst_map)
+        if inferred is None:
+            # Fall back to the name the checker resolved (a node the codegen
+            # could not re-infer, e.g. one built from an opaque expression).
+            name = getattr(node, "_resolved_type_name", None) or "any"
+        else:
+            name = canonical_type_name(inferred)
+        return self._translate_string_lit(f'"{name}"', as_c_literal=self._is_ref_char_type(expected_type))
+
     def _lookup_type_fn(self, name: str) -> Optional[Type]:
         """Type lookup resolver for AST conversion during codegen."""
         if hasattr(self, "current_subst_map") and self.current_subst_map and name in self.current_subst_map:

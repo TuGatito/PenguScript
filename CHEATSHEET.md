@@ -764,6 +764,7 @@ all normal `set` rules (mutable, may be a field or `.field` in a `with` scope).
 | `sigil of x` | address of (C `&x`) | `let p as ref to int is sigil of x` |
 | `essence of p` | dereference (C `*p`) | `set essence of p is 100` |
 | `size of T` | byte size of a type | `let n is size of int` → `sizeof(...)` |
+| `type of expr` | static type name as a string (compile time, zero cost) | `type of x` → `"int"`; `type of p` → `"ref to Point"` |
 | `banish p` | free a heap allocation | `banish buffer` (also a statement) |
 | `some v` | present `maybe T` from value `v` | `let m as maybe int is some 42` |
 | `ord s` | byte code of a single-character string | `ord "A"` → `65` |
@@ -1703,6 +1704,8 @@ void main(void) {
 ```
 
 Generics are monomorphized — one concrete C struct/function per specialization — so there is zero runtime abstraction cost. Generic runes/echos/omens/aliases/functions/concepts all accept `shard`, and `of T and U` supplies the arguments at use sites. Unfulfilled concept bounds are rejected at specialization time (`E0032`).
+
+**`Donum` is automatic for runes.** A `rune` or `echo` whose every field implements `Donum` is defaultable — `donum Point` works with no `derive Donum` and no `bind`. Recursive through nested runes, `ref to T` (`NULL`), `frozen`/`alias`/`seal` and arrays; a container field (`list`, `map`, `slice`, `maybe`, `result`) removes it. A generic rune needs a defaultable bound: `rune Box shard T where T: Donum:`. `derive Donum` is `E0005`.
 
 ---
 
@@ -3001,6 +3004,7 @@ weave main into int:
 | `with target:` | Scoped mutations on a target |
 | `defer` / `errdefer` / `banish` | Deterministic cleanup |
 | `return` / `break` / `continue` | Function / loop control |
+| `break label` / `continue label` | Leave / continue the `label:`-tagged outer loop (labels are function-local; duplicate is `E0069`) |
 
 ### 20.3 Expressions
 
@@ -3015,6 +3019,7 @@ weave main into int:
 | `bytes of s` | Borrow string / byte-array memory |
 | `sigil of x` / `essence of p` | Address-of / dereference |
 | `size of T` | `sizeof` of a type |
+| `type of expr` | Compile-time static type name (a `string`; the operand is not evaluated) |
 | `transmute x to T` | Raw bit reinterpretation |
 | `null` / `true` / `false` | Literals |
 | `defined(NAME)` | Compile-time flag test |

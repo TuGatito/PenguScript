@@ -157,9 +157,13 @@ Every `weave` uses **`snake_case`** with the verb in base form (no `to`, no `-in
 | Parameter | `snake_case`, short if obvious | `x`, `y`, `item`, `key`, `fallback` |
 | Boolean local | prefix `is_`, `has_`, `can_` | `is_ready`, `has_key`, `can_retry` |
 | Loop index | `i`, `j`, `k` only in short loops; otherwise `index`, `row`, `col` | |
+| Loop label (`break label` / `continue label`) | descriptive `snake_case`, never one letter | `outer`, `lines_loop`, `next_row` |
 | Accumulator | `acc`, `sum`, `total`, `result` | |
 | Discard | `_` | `for _, v in col:` |
 | Internal temporary | `tmp`, `raw`, `staged` | Never exposed in an API |
+
+Label a loop only when at least two loops are nested and you must leave the
+outer one from inside it; a label on a single loop is noise (see §14.27).
 
 ### 2.7 Top-level constants
 
@@ -518,6 +522,63 @@ var person as Person with:
         set .zip is "12345"
 ```
 
+### 4.6.1 `with:` in value position
+
+A `with:` builder is an expression only where the compiler already knows the
+target type. Use it when the value is a struct built on the spot: in a
+`var`/`let`/`static var` annotation, a `return`, a field, a loop element type, a
+value-position branch or a `do:` tail. It is **not** a general expression: a call
+argument needs a named value or the one-line `with x is …` literal, and an
+arithmetic operand needs a typed variable first (`LANGUAGE.md` §18 has the
+verified position table).
+
+**✅ Pengunic: build in the slot that supplies the type**
+
+```pengu
+var p as Point with:              # the annotation supplies Point
+    set .x is 1
+    set .y is 2
+
+weave origin into Point:
+    return with:                  # 'into Point' supplies Point
+        set .x is 0
+        set .y is 0
+```
+
+**❌ Anti-Pengunic: build a throw-away struct only to copy it into an existing value**
+
+```pengu
+var p as Point is calling default_point     # p already exists
+
+var fresh as Point with:                    # ❌ built only to be copied
+    set .x is 3
+    set .y is 4
+with p:
+    set .x is fresh.x
+    set .y is fresh.y
+
+# ✅ Pengunic: one 'with target:' mutation, no throw-away value
+with p:
+    set .x is 3
+    set .y is 4
+```
+
+**When not to use a builder.** A single trivial value is clearer as the one-line
+struct literal; and `with:` (construction of a new value) is not `with target:`
+(mutation of an existing one):
+
+```pengu
+# ✅ one line, no builder
+var q as Point is with x is 5, y is 6
+
+# ✅ 'with:' constructs a new value; 'with target:' mutates an existing one
+var fresh as Point with:
+    set .x is 1
+    set .y is 2
+with fresh:
+    set .x is 3
+```
+
 ### 4.7 `with target:` to mutate existing collections or structs
 
 **Anti-Pengunic:**
@@ -658,6 +719,11 @@ let cfg is calling parse_config with raw or:
     calling spark.eprintln with "Parse failed: {error}"
     return default_config
 ```
+
+**Debugging:** when a generic pipeline makes an optional's static type
+non-obvious, print `type of value` (`"maybe int"`, `"result of int to string"`).
+It is a compile-time string with zero runtime cost — use it for diagnostics and
+assertions, never as a runtime type check to branch on (§14.28).
 
 **Only one `or:` per operation chain** — if you need two, split into functions.
 
@@ -853,6 +919,12 @@ Rules:
 6. **Predicates with `is_*`.** Pure queries keep the bare name (`abs`, `floor`).
 7. **One method per correct bound.** If a method cannot work for every type of a bound, move it to the strictest bound that fits. `sqrt` does not work on `int`, so it lives in `fractio` (`Real`), not in `numerus` (`Num`).
 8. **`@mutates` for the mutating/pure pair.** A method that returns the receiver's own type may be marked `@mutates`: `calling x.clamp with …` **mutates `x`** (statement only) and `calling x.get_clamp with …` returns the value without touching it. Exactly **one** C function is emitted and the body stays pure (`self` is a value, `E0006` intact): the call site does the assignment. Outside an `enchanting` block, with an `into` that is not the receiver's type, or with a body that assigns to `self`, it is `E0067`; declaring `get_<name>` as well is `E0068`; using the mutating form where a value is required is `E0066`. See `LANGUAGE.md` §10.1.
+
+**`Donum` is automatic for runes.** A `rune` or `echo` whose every field is
+defaultable implements `Donum` — `donum Point` just works, with no `derive
+Donum` and no `bind` (see `LANGUAGE.md` §11.4). A container field (`list`, `map`,
+`slice`, `maybe`, `result`) removes it, because a zeroed container would be
+corrupt rather than empty; `derive Donum` is `E0005` (§14.29).
 
 | Module | Bound | Covers | Mutating (statement) | Pure form |
 |---|---|---|---|---|
@@ -1769,6 +1841,56 @@ omen Event:
     Key with key as string
     Click with x as int, y as int
 ```
+
+### 14.27 Unnecessary label on a single loop
+
+```pengu
+# ❌ Anti-Pengunic: a label that no 'break'/'continue' targets
+outer: for x in xs:
+    calling process with x
+
+# ✅ Pengunic: the only loop needs no label
+for x in xs:
+    calling process with x
+```
+
+A label is for leaving an **outer** loop from inside an inner one (`LANGUAGE.md`
+§7.5). On a single loop it adds a name, an `E0069` risk (labels are function-local
+and unique) and no capability.
+
+### 14.28 `type of` used as a runtime type check
+
+```pengu
+# ❌ Anti-Pengunic: 'type of' is a compile-time constant, not a runtime check
+if type of value == "int":
+    calling handle_int with value
+else:
+    calling handle_other with value
+
+# ✅ Pengunic: branch at compile time with a generic (or an overload)
+weave handle shard T with value as T into void:
+    calling print with "{value}"
+```
+
+`type of expr` yields a borrowed string literal chosen while compiling; the
+`else` branch above is dead before C is emitted. Use it for diagnostics and test
+assertions, and use a generic/overload for behaviour.
+
+### 14.29 `derive Donum`
+
+```pengu
+# ❌ E0005: 'Donum' is automatic for rune 'Point'; no 'derive' is needed
+rune Point derive Donum:
+    x as int
+
+# ✅ Pengunic: every field is defaultable, so 'donum Point' just works
+rune Point:
+    x as int
+```
+
+`Donum` is **not** one of the five derivable concepts (`Par`, `Ordo`, `Vinculum`,
+`Imago`, `Nexus`). A rune or echo gets it automatically when every field is
+defaultable (`LANGUAGE.md` §11.4).
 
 ---
 

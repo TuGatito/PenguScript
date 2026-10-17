@@ -1,0 +1,22 @@
+## `type of` on the primitive surface: every spelling reports the stdlib's
+## canonical name.
+import std.spark
+
+weave main into int:
+    var a as int is 1
+    var b as i64 is 2
+    var c as byte is 3
+    var d as f64 is 4.0
+    var e as bool is true
+    var f as char is 'x'
+    var g as string is "s"
+    calling spark.println with "{type of a} {type of b} {type of c} {type of d}"
+    calling spark.println with "{type of e} {type of f} {type of g}"
+
+    # Aliases of the same C type report the same canonical name.
+    var h as int32_t is 5
+    var i as uint8_t is 6
+    var j as usize is 7
+    var k as double is 8.0
+    calling spark.println with "{type of h} {type of i} {type of j} {type of k}"
+    return 0

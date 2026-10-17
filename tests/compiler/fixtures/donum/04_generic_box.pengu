@@ -1,0 +1,14 @@
+## A generic rune is defaultable when the parameter is bounded by a defaultable
+## concept.
+import std.spark
+
+rune Box shard T:
+    value as T
+
+weave zero_box shard T where T: Donum into Box of T:
+    return donum (Box of T)
+
+weave main into int:
+    var b as Box of int is calling zero_box of int
+    calling spark.println with "b={b.value}"
+    return 0

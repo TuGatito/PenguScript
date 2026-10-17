@@ -42,20 +42,26 @@ class LoopMixin:
         cond_str = self._translate_expr(cond_node)
 
         self.indent_level += 1
-        body_str = self._translate_loop_body(block_node, append_ctx)
+        body_str = self._translate_loop_body(block_node, append_ctx, loop_node=node)
         self.indent_level -= 1
 
         return f"{ind}while ({unwrap_condition(cond_str)}) {{\n{body_str}\n{ind}}}"
-    def _translate_loop_body(self, block_node: Tree, append_ctx=None) -> str:
+    def _translate_loop_body(self, block_node: Tree, append_ctx=None, loop_node: Optional[Tree] = None) -> str:
         """Body C of a loop.
 
         With ``append_ctx`` = ``(list_tmp, elem_c, elem_t)`` the body's final
         statement is the iteration's *value*: it is pushed onto the collecting
         list instead of being emitted (so the push sits at the end of the body and
         ``continue`` naturally skips it while ``break`` ends the loop).
+
+        ``loop_node`` is the loop this body belongs to; when it carries a label
+        the ``_<label>_continue`` anchor is emitted as the very last line of the
+        body, so a ``goto`` there behaves exactly like a C ``continue`` for that
+        loop (step + condition run again).
         """
         if append_ctx is None:
-            return self._translate_nested_block(block_node)
+            body = self._translate_nested_block(block_node)
+            return body + self._loop_continue_label(loop_node, self.indent())
         val_node_box: Optional[list] = None
         if len(append_ctx) == 4:
             list_tmp, elem_c, elem_t, val_node_box = append_ctx
@@ -69,7 +75,7 @@ class LoopMixin:
                 parts.extend(self._emit_iteration_value(
                     list_tmp, elem_c, val, elem_t,
                     val_node_box[-1] if val_node_box else None))
-            return "\n".join(parts)
+            return "\n".join(parts) + self._loop_continue_label(loop_node, self.indent())
         finally:
             self.local_vars = saved_locals
     def _translate_loop_value(self, node: Tree, expected_type: Optional[Type] = None) -> str:
@@ -135,7 +141,7 @@ class LoopMixin:
         prev_var = self.local_vars.get(var_name, _MISSING)
         self.local_vars[var_name] = I64_TYPE if counter_t == "int64_t" else INT_TYPE
         self.indent_level += 1
-        body_str = self._translate_loop_body(block_node, append_ctx)
+        body_str = self._translate_loop_body(block_node, append_ctx, loop_node=node)
         self.indent_level -= 1
         if prev_var is _MISSING:
             self.local_vars.pop(var_name, None)
@@ -236,7 +242,7 @@ class LoopMixin:
             if want_index:
                 self.local_vars[index_name] = INT_TYPE
             self.indent_level += 1
-            body_str = self._translate_loop_body(block_node, append_ctx)
+            body_str = self._translate_loop_body(block_node, append_ctx, loop_node=node)
             self.indent_level -= 1
             if want_elem:
                 if prev_elem is _MISSING:
@@ -333,7 +339,7 @@ class LoopMixin:
         if want_elem:
             self.local_vars[elem_name] = elem_t
         self.indent_level += 1
-        body_str = self._translate_loop_body(block_node, append_ctx)
+        body_str = self._translate_loop_body(block_node, append_ctx, loop_node=node)
         self.indent_level -= 1
         if want_index:
             if prev_index is _MISSING:
@@ -382,11 +388,20 @@ class LoopMixin:
             # this line, an early 'return' does not, like every scope release).
             iter_suffix = (f"{ind}pengu_banish_list(&{iter_tmp});\n"
                            if iter_tmp is not None else "")
+            # The labeled-'break' anchor goes *before* that release, so a
+            # `break label` out of this loop still falls through it; the normal
+            # end of the loop falls through it too.  (A jump that also leaves an
+            # enclosing owning loop cannot unwound that one: C has no unwinding,
+            # the same reason an early 'return' skips scope releases.)
+            break_anchor = self._loop_break_label(node, ind) if iter_tmp is not None else ""
+            if break_anchor:
+                node._pengu_break_anchor_emitted = True
             return (
                 f"{lit_decl}"
                 f"{ind}for (int32_t {iter_idx} = 0; {iter_idx} < ({col_str}).len; {iter_idx}++) {{\n"
                 f"{body_prefix}"
                 f"{body_str}\n{ind}}}\n"
+                f"{break_anchor}"
                 f"{iter_suffix}"
             )
         elif is_string_iter:

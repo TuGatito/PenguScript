@@ -188,6 +188,11 @@ class PenguCodegen(
         self.bundle_display_path: Optional[str] = None
         self._expr_depth = 0
         self.const_folder = ConstFolder(symbols) if symbols else ConstFolder(SymbolTable())
+        # `type of` must not be folded here: this folder sees the *symbol table*,
+        # whose locals are gone by codegen time (the generator tracks them in
+        # `local_vars`), so a same-named local elsewhere could be resolved by
+        # mistake.  `_translate_type_of` infers with the real local context.
+        self.const_folder.fold_type_of = False
 
         # Declarations registry
         self.runes: Dict[str, Dict[str, Type]] = {}

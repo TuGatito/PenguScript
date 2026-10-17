@@ -1,0 +1,11 @@
+## `array of T with size N` is defaultable when `T` is.
+import std.spark
+
+rune Point:
+    x as int
+
+weave main into int:
+    var arr as array of Point with size 3 is donum (array of Point with size 3)
+    var first as Point is arr at 0
+    calling spark.println with "first={first.x}"
+    return 0

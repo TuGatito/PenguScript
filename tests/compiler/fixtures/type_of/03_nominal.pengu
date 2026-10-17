@@ -1,0 +1,30 @@
+## `type of` reports the local name of a nominal type, never the module
+## qualifier or the mangled C spelling.
+import std.spark
+
+rune Point:
+    x as int
+
+seal UserId as int
+alias Meters as int
+
+omen Color:
+    red
+    green
+
+echo Bits:
+    a as int
+    b as int
+
+weave main into int:
+    var p as Point is with x is 0
+    var u as UserId is 5 to UserId
+    var m as Meters is 3
+    var c as Color is Color.red
+    var bi as Bits is with a is 1, b is 2
+    calling spark.println with "{type of p}"
+    calling spark.println with "{type of u}"
+    calling spark.println with "{type of m}"
+    calling spark.println with "{type of c}"
+    calling spark.println with "{type of bi}"
+    return 0

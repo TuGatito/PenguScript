@@ -1,0 +1,11 @@
+## A labeled `for ... from ... to ... step ...`: `continue outer` still runs the
+## step expression.
+import std.spark
+
+weave main into int:
+    outer: for i from 0 to 7 step 2:
+        for j from 0 to 2:
+            if j == 1:
+                continue outer
+            calling spark.println with "{i}{j}"
+    return 0

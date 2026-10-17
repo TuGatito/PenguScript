@@ -1,0 +1,13 @@
+## Inside a shard weave the name is the type parameter; each monomorphization
+## resolves it to the concrete type.
+import std.spark
+
+weave describe shard T with x as T into string:
+    return "valor de tipo {type of x}"
+
+weave main into int:
+    calling spark.println with (calling describe with 42)
+    calling spark.println with (calling describe with "hola")
+    calling spark.println with (calling describe with 3.5)
+    calling spark.println with (calling describe with true)
+    return 0

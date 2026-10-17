@@ -1,0 +1,14 @@
+## Bare `break` / `continue` still target the innermost loop, even inside a
+## labeled one.
+import std.spark
+
+weave main into int:
+    outer: for i from 0 to 3:
+        for j from 0 to 5:
+            if j == 1:
+                continue
+            if j == 3:
+                break
+            calling spark.println with "{i}{j}"
+        calling spark.println with "row {i} done"
+    return 0

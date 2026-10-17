@@ -1,0 +1,42 @@
+## `type of` on composites is recursive and spelled in PenguScript.
+import std.spark
+
+rune Point:
+    x as int
+    y as int
+
+weave pair into (int, bool):
+    return 1, true
+
+weave main into int:
+    var xs as list of Point is list of Point
+    calling spark.println with "{type of xs}"
+
+    var nested as list of ref to Point is list of ref to Point
+    calling spark.println with "{type of nested}"
+
+    var m as map of string to int is map of string to int
+    calling spark.println with "{type of m}"
+
+    var opt as maybe int is some 42
+    calling spark.println with "{type of opt}"
+
+    var res as result of int to string is calling ok_of with 1
+    calling spark.println with "{type of res}"
+
+    var p as Point is with x is 0, y is 0
+    var r as ref to Point is null
+    calling spark.println with "{type of r}"
+
+    var arr as array of Point with size 4 is donum (array of Point with size 4)
+    calling spark.println with "{type of arr}"
+
+    var sl as slice of Point is arr at 0 to 2
+    calling spark.println with "{type of sl}"
+
+    var fz as frozen Point is p
+    calling spark.println with "{type of fz}"
+
+    var tup as (int, bool) is calling pair
+    calling spark.println with "{type of tup}"
+    return 0

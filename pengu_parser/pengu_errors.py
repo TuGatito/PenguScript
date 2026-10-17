@@ -533,6 +533,23 @@ class MutatingGetterCollisionError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
+class DuplicateLabelError(SemanticError):
+    """E0069: two loops in the same function declare the same label.
+
+    A loop label (``outer: for …``) is a *function-local* name; the code
+    generator turns it into a single C label, so two loops sharing a name inside
+    one function would emit two identical C labels.  The rule is deliberately
+    stricter than "two nested loops may not share a name": two *sibling* loops
+    with the same label are rejected as well, because the name no longer
+    identifies one place to jump to.
+    """
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0069")
+        kwargs.setdefault("help", "Rename one of the two loops; labels must be unique within a function.")
+        kwargs.setdefault("note", "A loop label ('outer: for …') is a function-local name; two loops cannot share it.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
 class AntiquusBodyError(SemanticError):
     """E0059: an `antiquus` body is missing, empty, or not a triple-quoted string.
 

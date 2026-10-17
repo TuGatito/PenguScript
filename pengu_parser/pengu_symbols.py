@@ -81,6 +81,7 @@ class Scope:
         is_ritual: bool = False,
         start_line: int = 0,
         end_line: int = 0,
+        loop_label: Optional[str] = None,
     ):
         """Initializes a new lexical scope.
 
@@ -97,6 +98,8 @@ class Scope:
             is_ritual: True if scope is inside a ritual method.
             start_line: Starting 1-indexed source line of the scope.
             end_line: Ending 1-indexed source line of the scope.
+            loop_label: Label of the loop this scope belongs to ('outer:' in
+                'outer: for …'), or None for an unlabeled loop.
         """
         self.kind = kind
         self.parent = parent
@@ -111,6 +114,12 @@ class Scope:
         self.is_ritual = is_ritual
         self.start_line = start_line
         self.end_line = end_line
+        self.loop_label = loop_label
+        #: Labels declared directly in this scope when it is a function body
+        #: (weave / enchanting method): label name -> declaring AST node.  Loop
+        #: labels are unique per function (E0069), so they are tracked on the
+        #: function scope rather than on the global symbol table.
+        self.loop_labels: Dict[str, Any] = {}
 
     def define(self, symbol: Symbol) -> None:
         """Defines a symbol in this local scope.
@@ -311,6 +320,7 @@ class SymbolTable:
             is_ritual=is_ritual,
             start_line=start_line,
             end_line=end_line,
+            loop_label=kwargs.get("loop_label"),
         )
         self.current_scope = new_scope
         if new_scope not in self.all_scopes:
@@ -505,6 +515,52 @@ class SymbolTable:
     def is_in_loop(self) -> bool:
         """Returns True if current execution context is inside a loop."""
         return self.current_scope.in_loop
+
+    def current_function_scope(self) -> "Scope":
+        """Returns the innermost weave / enchanting body scope.
+
+        Loop labels are unique per *function*, so they are recorded on this
+        scope.  Falls back to the global scope for top-level code (where a loop
+        cannot appear anyway).
+        """
+        sc = self.current_scope
+        while sc is not None:
+            if sc.kind in ("weave", "enchanting"):
+                return sc
+            sc = sc.parent
+        return self.global_scope
+
+    def enclosing_loop_label(self, label: str) -> Optional["Scope"]:
+        """Returns the scope of the nearest enclosing loop labeled ``label``.
+
+        Walks the lexical scope chain outwards; only scopes created by a
+        ``label: for/while`` carry a ``loop_label``, so an unlabeled loop or a
+        label from a sibling loop never matches.
+        """
+        sc = self.current_scope
+        while sc is not None:
+            if getattr(sc, "loop_label", None) == label:
+                return sc
+            sc = sc.parent
+        return None
+
+    def declare_loop_label(self, label: Optional[str], node: Any) -> bool:
+        """Records ``label`` on the current function scope.
+
+        Returns:
+            True when the label was free, False when the same name was already
+            declared in this function (the caller reports E0069).  Re-declaring
+            the *same* node is not a conflict: a value block may be checked more
+            than once.
+        """
+        if not label:
+            return True
+        fn_scope = self.current_function_scope()
+        previous = fn_scope.loop_labels.get(label)
+        if previous is not None and previous is not node:
+            return False
+        fn_scope.loop_labels[label] = node
+        return True
 
     def is_in_or_block(self) -> bool:
         """Returns True if current context is inside an 'or:' block."""

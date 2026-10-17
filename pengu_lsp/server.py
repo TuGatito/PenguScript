@@ -122,6 +122,12 @@ from .judge_over import (
     discriminant_token_spans,
     judge_over_definition,
 )
+from . import type_of as type_of_lsp
+from .labels import (
+    loop_label_definition,
+    loop_label_prepare_rename,
+    loop_label_rename,
+)
 from .code_actions import (
     add_missing_import_action,
     remove_unused_variable_action,
@@ -707,6 +713,9 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
 
     try:
         tree = parser.parse(source)
+        # The check below records the resolved name of every `type of` on this
+        # tree; the hover handler reads it back for exactly this text.
+        type_of_lsp.remember(source, tree)
         checker.check(tree, source=source, filename=check_path)
         if shadow is not None:
             _remap_shadow_paths(checker.symbols, shadow, file_path)
@@ -1021,7 +1030,17 @@ def definition(params: DefinitionParams):
     uri = params.text_document.uri
     symbols = server._symbols.get(uri)
     doc_text = server.get_document_source(uri)
-    if not symbols or not doc_text:
+    if not doc_text:
+        return None
+
+    # Loop labels (`break outer`) are never symbols: their definition is the
+    # `outer:` on the enclosing loop, resolved from the parsed tree. Checked
+    # before the symbol-table guard so a half-checked buffer still jumps.
+    label_location = loop_label_definition(doc_text, params.position, uri)
+    if label_location is not None:
+        return label_location
+
+    if not symbols:
         return None
 
     word = get_word_at_position(doc_text, params.position)
@@ -1811,6 +1830,12 @@ def prepare_rename(params: PrepareRenameParams):
     if start == end:
         return None
 
+    # A loop label is not a symbol, so the ordinary resolution below would
+    # reject it: accept it here, from the parsed tree.
+    label_range = loop_label_prepare_rename(doc_text, params.position)
+    if label_range is not None:
+        return label_range
+
     # Member accesses are not renameable: `obj.field` (field) and
     # `self->field` (field), plus `self` itself.
     if start > 0 and line[start - 1] == ".":
@@ -1866,6 +1891,12 @@ def rename_symbol(params: RenameParams) -> Optional[WorkspaceEdit]:
             )
             for ln, col in positions
         ]
+
+    # A loop label is not a symbol: rename its declaration and every
+    # `break`/`continue` enclosed by that loop, within the same function.
+    label_edit = loop_label_rename(doc_text, params.position, new_name, uri)
+    if label_edit is not None:
+        return label_edit
 
     symbols = server._symbols.get(uri)
     sym = _resolve_symbol_at(symbols, params.position, clean_old)

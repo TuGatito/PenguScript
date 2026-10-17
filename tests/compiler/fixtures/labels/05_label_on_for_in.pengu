@@ -1,0 +1,13 @@
+## A label on `for ... in`, escaping an inner list walk from the outer one.
+import std.spark
+
+weave main into int:
+    var xs as list of int is [1, 2, 3]
+    var hits as int is 0
+    rows: for x in xs:
+        for y in xs:
+            if y == 2:
+                continue rows
+            set hits += x + y
+    calling spark.println with "hits={hits}"
+    return 0

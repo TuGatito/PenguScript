@@ -347,6 +347,17 @@ class CollectMixin:
                 expr_idx = 2
             expr_node = stmt.children[expr_idx]
             val = self.const_folder.fold(expr_node)
+            if val is None and self.symbols:
+                # The checker is the authority for a constant's value: it folds
+                # with the *scoped* symbol table (and, for `type of`, without
+                # baking a generic parameter into the tree), while this folder
+                # runs after the locals are gone.  Falling back to the recorded
+                # value keeps `const S as string is type of 42` a #define of the
+                # literal instead of an invalid file-scope initialiser.
+                sym_const = self.symbols.lookup(name)
+                recorded = getattr(sym_const, "const_val", None)
+                if recorded is not None:
+                    val = recorded
             if (c_type is None or isinstance(c_type, AnyType)) and self.symbols:
                 sym = self.symbols.lookup(name)
                 if sym and sym.type and not isinstance(sym.type, AnyType):

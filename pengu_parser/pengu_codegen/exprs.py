@@ -309,6 +309,19 @@ class ExprMixin:
                 dt = dt.substitute(self.current_subst_map)
             if dt is None:
                 return "{0}"
+            # An array is not assignable in C, so it cannot be *initialised*
+            # from a compound literal either: `Point a[2] = (Point[2]){0};` is
+            # "invalid initializer".  The brace form is the zero initialiser for
+            # an array-typed slot ('alias Row as array of int with size 4'
+            # included, hence the unwrapping).
+            probe = dt
+            for _ in range(8):
+                if isinstance(probe, (AliasType, FrozenType)):
+                    probe = getattr(probe, "target", None)
+                else:
+                    break
+            if isinstance(probe, ArrayType):
+                return "{0}"
             c_t = CTypeMapper.to_c_type(dt)
             if c_t.strip() in ("void", ""):
                 return "{0}"
@@ -645,6 +658,8 @@ class ExprMixin:
                 t = t.substitute(self.current_subst_map)
             t_str = CTypeMapper.to_c_type(t)
             return f"sizeof({t_str})"
+        elif rule == "type_of":
+            return self._translate_type_of(node, expected_type)
         elif rule == "banish_expr":
             return self._translate_banish_target(node.children[0])
 

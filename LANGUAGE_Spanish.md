@@ -542,13 +542,32 @@ var p as ref to int is sigil of x     # &x
 var v as int is essence of p          # *p
 set essence of p is 42                # *p = 42 (LHS of assignment)
 let n as usize is size of MyRune      # sizeof(MyRune)
+let t as string is type of p          # "ref to int" (tipo estático; p no se evalúa)
 let raw_ptr as ref to void is transmute p to ref to void   # unsafe bit-cast
 ```
 
 - **`sigil of expr` (`&`):** Toma la dirección de un lvalue. No puede aplicarse a literales, expresiones, `const` ni variables `frozen` (`E0008: InvalidMemoryOpError`).
 - **`essence of expr` (`*`):** Desreferencia un puntero. El operando debe ser un `ref to T` o `Any`. Puede usarse tanto como rvalue como objetivo del lado izquierdo de una asignación `set` (`set essence of ptr is val`).
 - **`size of TYPE`:** Evalúa el tamaño en bytes en tiempo de compilación de cualquier tipo (`sizeof(T)` en C) y devuelve `usize`.
+- **`type of expr`:** Informa del tipo **estático** de `expr` como un `string`, con la grafía canónica de PenguScript. Es un operador de tiempo de compilación: el operando se comprueba pero **nunca se evalúa**, así que sus efectos secundarios no se ejecutan. El resultado es un literal de cadena prestado (`pengu_string_from_cstr("int")`, `is_owned == 0`): no cuesta nada en runtime, y `banish` sobre él solo limpia el handle, como en cualquier cadena prestada. `type` y `of` son **palabras clave suaves**: `type of` es un único token del lexer solo cuando las dos palabras son adyacentes en la misma línea, así que `var type as int is 5` (y `var size as int is 5`, que antes chocaba con `size of`; eso está corregido) siguen funcionando como identificadores normales.
 - **`transmute expr to TYPE`:** Conversión insegura de reinterpretación a nivel de bits. Siempre dispara la advertencia del compilador `[W0001] transmute is unsafe`. Si los tipos de origen y destino tienen tamaños estimados diferentes, `W0001` incluye una notificación de discrepancia de tamaño. Las conversiones seguras deben usar `(expr to TYPE)`.
+
+Nombres canónicos que informa `type of` (cada grafía del mismo tipo C da el mismo nombre — `int32`, `int32_t`, `i32` e `int` dan todos `"int"`):
+
+| Tipo C (cualquier grafía aceptada) | `type of` informa |
+|---|---|
+| `int32_t` (`int`, `i32`, `int32`, …) | `"int"` |
+| `int64_t` (`i64`, `int64`, `long`, …) | `"i64"` |
+| `uint8_t` (`byte`, `u8`, `uint8`, …) | `"byte"` |
+| `size_t` (`usize`, …) | `"size_t"` |
+| `intptr_t` (`isize`) | `"isize"` |
+| `double` (`f64`) | `"f64"` |
+| `float` (`f32`) | `"float"` |
+| `char` / `bool` / `void` | `"char"` / `"bool"` / `"void"` |
+| `opaque` (C `void*`) | `"opaque"` |
+| `PenguString` (`string`) | `"string"` |
+
+Los compuestos son recursivos y se escriben en grafía PenguScript: `"ref to T"`, `"ref to frozen T"`, `"frozen T"`, `"list of T"`, `"slice of T"`, `"map of K to V"`, `"maybe T"`, `"result of T to E"`, `"array of T with size N"`, `"({T}, {U})"` para tuplas y `"weave with {T} into {U}"` para tipos de función. Un tipo nominal informa de su nombre **local** base, nunca del calificador de módulo (`rune Point` → `"Point"`, igual para `omen`, `echo`, `seal` y `alias`); un genérico monomorfizado informa `"Box of int"`. Dentro de código genérico el operador se resuelve **por instanciación**: en `weave describe shard T with x as T into string:` da `"int"` para `calling describe with 42` y `"string"` para `calling describe with "hi"`. Úsalo para diagnósticos, autodescripción genérica y aserciones de tests — **no** como comprobación de tipos en runtime para ramificar comportamiento, porque es una constante de compilación (guía de estilo §14.28).
 
 ### 6.5 Primitivas de carácter y byte
 
@@ -648,7 +667,13 @@ var i as int is 0
 while i < 10:
     calling tick with i
     set i is i + 1
+
+outer: while i < 10:          # etiqueta opcional: NAME ':' antes del bucle (§7.5)
+    calling tick with i
+    set i is i + 1
 ```
+
+- **Etiquetas de bucle:** Un `while` puede llevar un `NAME ":"` opcional inmediatamente antes de la palabra clave, en la misma línea. `break NAME` / `continue NAME` apuntan a ese bucle en lugar del más interno; una etiqueta es local a la función y debe ser única dentro de ella (`E0069`). Ver §7.5.
 
 ### 7.3 `for`
 
@@ -662,7 +687,13 @@ for item in items:             # array / list / slice / string / map iteration
 for i, item in indexed:        # indexed form (i is iteration counter)
 for _, v in values:            # discard index
 for j from 5 to 0 step -1:     # negative step
+
+rows: for i from 0 to 3:       # etiqueta cualquiera de las tres formas (§7.5)
+    for j from 0 to 3:
+        continue rows
 ```
+
+- **Etiquetas de bucle:** `NAME ":"` puede preceder a `for … from … to … [step …]` o a `for … in …`, en la misma línea. `break NAME` / `continue NAME` apuntan a él; `break` / `continue` desnudos siguen apuntando al bucle más interno. Una etiqueta es **local a la función** y no es un símbolo: no está en `symbols.functions`, no se puede importar y es invisible fuera de su weave. Dos bucles con la misma etiqueta en una función son `E0069`, incluso si son hermanos y no están anidados. Ver §7.5.
 
 - **Validación de bindings de bucle (`E0037`):** En la forma indexada `for i, v in col`, el identificador de índice `i` y el identificador de elemento `v` deben ser distintos. Usar el mismo nombre de identificador para ambos produce `E0037`. El comodín `_` puede usarse para descartar cualquiera de los dos bindings.
 - **Iteración sobre cadenas:** Iterar sobre una cadena (`for ch in "abc":`) produce cada carácter como un `PenguString` de un solo carácter mediante `pengu_string_char_at`.
@@ -743,7 +774,7 @@ cuyas variantes seleccionan la rama. `over` es una **palabra clave blanda**:
 solo significa esto dentro de la cabecera de un `judge`, así que
 `var over as int is 5` sigue compilando.
 
-```pengu
+```pengu-fragment
 judge <sujeto> over <discriminante>:
     when <Variante> with <campo1>, <campo2> [if <guarda>] -> <expr>
     when <Variante> [if <guarda>] -> <expr>
@@ -818,7 +849,7 @@ weave eval with e as ref to Expr into int:
   sentencia —la forma de `do:`. La forma de bloque es la que permite declarar
   `let`s y anidar otro `judge`.
 
-```pengu
+```pengu-fragment
 judge shape over kind:
     when Square with width if width > 0 -> width * width
     when Square -> 0
@@ -894,6 +925,29 @@ privado), `E0044` (no exhaustivo), `E0006` (asignación a un binding), `E0000`
 ### 7.5 `break` / `continue` / `return`
 
 Sentencias de control de flujo estándar. `break` y `continue` solo se permiten dentro de bloques de bucle (`E0007`). `return` debe producir un tipo que coincida con la especificación `into` del weave contenedor (`E0020`); un `return` desnudo solo es válido en weaves `void`.
+
+Un bucle puede ir **etiquetado**, lo que permite que `break` / `continue` salgan de algo más que el bucle más interno:
+
+```pengu
+import std.spark
+
+weave main into int:
+    var lines as list of string is ["a;b", "c}d", "e"]
+    outer: for line in lines:
+        for ch in line:
+            if ch == ";":
+                continue outer          # next line: step + condition run
+            if ch == "}":
+                break outer             # leave the labeled loop
+            calling spark.println with "{ch}"
+    return 0
+```
+
+- **Sintaxis:** `NAME ":"` inmediatamente antes de un `while`, un `for … from … to … [step …]` o un `for … in …`, en la misma línea. Un salto se escribe `break label` / `continue label`; `break` / `continue` desnudos no cambian y apuntan al bucle más interno, incluso dentro de uno etiquetado.
+- **Semántica:** `continue label` continúa el bucle *etiquetado* — su expresión de paso y su condición se ejecutan de nuevo, exactamente como un `continue` de ese bucle. `break label` abandona el bucle etiquetado. La etiqueta debe nombrar un **bucle etiquetado que la encierre**.
+- **Errores:** una etiqueta desconocida es `E0004`; una etiqueta que existe pero no encierra la sentencia es `E0007`; una etiqueta usada dos veces en una función es `E0069` (`DuplicateLabelError`), incluso para dos bucles hermanos. Las etiquetas son **locales a la función** y no son símbolos: no están en `symbols.functions`, no se pueden importar y son invisibles fuera de su weave.
+- **Lowering en el codegen:** C no tiene `break` etiquetado, así que un salto etiquetado se traduce a `goto _pengu_label_<label>_<continue|break>;`. El ancla `_continue` se emite como última línea del cuerpo del bucle etiquetado, de modo que el paso y la condición de C siguen ejecutándose (exactamente la semántica de `continue`); el ancla `_break` se emite justo después del bucle pero **antes** de la limpieza propia del bucle (por ejemplo el `banish` de un iterable materializado), de modo que tanto la salida normal como un salto fuera del bucle ejecutan esa limpieza. Un salto que además abandona un bucle *envolvente* no puede liberar los temporales de ese bucle: C no desenrolla ámbitos, por la misma razón por la que un `return` temprano se salta las liberaciones de ámbito. Un ancla solo se emite cuando algún salto la apunta, así que una etiqueta sin usar cuesta cero líneas de C y no dispara `-Wunused-label`.
+- **Nomenclatura Pengunic:** `snake_case`, descriptiva (`outer`, `lines_loop`, `next_row`), nunca una sola letra. Etiqueta un bucle solo cuando haya al menos dos bucles anidados y necesites salir del externo desde dentro.
 
 ### 7.6 Expresiones de bloque: `do:`, `if` / `unless` en posición de valor y bucles
 
@@ -2019,13 +2073,16 @@ Qué tipos primitivos y de contenedor satisfacen cada concepto lo fija la tabla 
 | primitivos enteros (`int`, `i8`…`u64`, `usize`, `isize`, `byte`, …) | `Num`, `Integrum`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
 | flotantes (`float`, `f32`, `f64`, `double`) | `Num`, `Real`, `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
 | `bool` | `Par`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
-| `char` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma` |
+| `char` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
 | `string` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum`, `Iterabilis` |
 | `list of T` / `map of K to V` | `Par`, `Iterabilis`, `Imago`, `Nexus` |
 | `slice of T` | `Par`, `Iterabilis` |
 | `maybe T` / `result of T to E` | `Par`, `Imago`, `Nexus` |
+| `rune` (todos sus campos implementan `Donum`) | `Donum` (automático; un solo campo no defaultable lo elimina) |
 
-Las runes, los echos y los omens algebraicos obtienen un concepto mediante `derive` (§9.1.2) o mediante un `bind` explícito (§10.3); un bound de `where` queda entonces satisfecho por la implementación derivada.
+Las runes, los echos y los omens algebraicos obtienen un concepto mediante `derive` (§9.1.2) o mediante un `bind` explícito (§10.3); un bound de `where` queda entonces satisfecho por la implementación derivada. `Donum` es la excepción: una `rune` o un `echo` que tiene **todos** sus campos defaultables lo implementa automáticamente — sin `derive` ni `bind` — de forma recursiva a través de runes anidadas, `ref to T` (siempre `NULL`), envoltorios `frozen`/`alias`/`seal` y arrays. Un solo campo no defaultable (un contenedor, o un parámetro genérico sin un bound defaultable) elimina `Donum` del tipo. Ver §11.4.
+
+`char` y `byte` admiten valor por defecto igual que sus alias (`i8`, `u8`): `donum char` y `donum byte` son ambos `0`.
 
 ### 10.10 Coherencia de `bind`
 
@@ -2217,6 +2274,48 @@ var s as string is donum string           # empty string
 var f as float is donum float             # 0.0
 ```
 
+**`Donum` automático para runes y echos.** Una `rune` o un `echo` implementa
+`Donum` automáticamente cuando **todos sus campos** implementan `Donum`; no hace
+falta `derive Donum`, ni `bind X with Donum:`, ni un ayudante. La regla es
+recursiva a través de los tipos de los campos:
+
+- un campo cuyo tipo es otra `rune`/`echo` totalmente defaultable cuenta;
+- `ref to T` siempre admite valor por defecto (`NULL`), sea cual sea `T`;
+- `frozen T`, `alias X as T` y `seal X as T` delegan en lo que envuelven;
+- `array of T with size N` sigue a `T` (`N` elementos a cero).
+
+Un solo campo no defaultable elimina `Donum` de toda la rune, y el error nombra
+la rune: `donum Bag` para `rune Bag: items as list of int` es `E0049` con "not
+every field implements 'Donum'". `char` y `byte` admiten valor por defecto igual
+que sus alias (`i8`, `u8`).
+
+**Runes genéricas.** `rune Box shard T: value as T` es `Donum` solo bajo un
+bound defaultable como `where T: Donum` (u otro bound del conjunto defaultable
+del compilador: `Num`, `Integrum`, `Real`, `Par`, `Ordo`, `Forma`, `Donum`).
+`donum (Box of T)` sin ese bound es `E0049`. Una instanciación concreta como
+`donum (Box of int)` se acepta, porque `int` sí es defaultable:
+
+```pengu
+rune Box shard T where T: Donum:
+    value as T
+
+weave zero_box shard T where T: Donum into Box of T:
+    return donum (Box of T)               # requiere el bound de arriba
+```
+
+**Los contenedores están excluidos a propósito.** `list`, `map`, `slice`,
+`maybe` y `result` **no** implementan `Donum`. Por eso `donum (list of int)` es
+`E0049` ("containers have no zero value"), no `(PenguList){0}`: ese inicializador
+a cero de C dejaría `elem_size == 0`, que es un **contenedor corrupto**, no uno
+vacío. La solución es un valor por defecto explícito — un literal vacío como
+`list of int` / `map of string to int`, `maybe none`, `calling ok_of with v` — o
+una rune envoltorio cuyo campo sea el contenedor y que aporte su propio ayudante
+`new`/`empty`.
+
+**`derive Donum` se rechaza** con `E0005` ("`Donum` is automatic for rune 'X';
+no 'derive' is needed"). `Donum` *no* es uno de los conceptos derivables; los
+cinco siguen siendo `Par`, `Ordo`, `Vinculum`, `Imago` y `Nexus` (§11.6).
+
 ### 11.5 Iterar genéricos
 
 La iteración necesita un tipo de elemento concreto. `list of T`, `slice of T`, los
@@ -2262,9 +2361,9 @@ Exactamente cinco, y cada uno produce algo distinto:
 | `Nexus` | ✅ | `_pengu_cleanup_<T>`, el destructor que invoca `banish` |
 | `Forma` | ❌ | `E0005 Concept 'Forma' cannot be automatically derived` |
 | `Iterabilis` | ❌ | `E0005` |
-| `Donum` | ❌ | `E0005` |
+| `Donum` | ❌ (automático) | nunca se escribe en `derive`: implícito cuando todos los campos son defaultables (§11.4); `derive Donum` es `E0005` |
 
-Dos detalles fáciles de confundir:
+Tres detalles fáciles de confundir:
 
 * **`Imago` no añade un método `.clone()` a la rune.** Emite el ayudante de C;
   escribir `a.clone` sobre una rune `derive Imago` es
@@ -2274,6 +2373,12 @@ Dos detalles fáciles de confundir:
 * Derivar un concepto de comparación sobre una rune **genérica** acota los
   parámetros, así que la comprobación ocurre en el punto de sustitución, no en la
   declaración.
+* **`Donum` nunca se deriva.** Una rune o un echo lo obtienen automáticamente
+  cuando todos sus campos lo implementan (§11.4); `derive Donum` es `E0005`. Una
+  rune **genérica** solo es defaultable bajo un bound defaultable: escribe
+  `rune Box shard T where T: Donum:` para que `donum (Box of T)` se acepte. Sin
+  el bound, `donum (Box of T)` es `E0049`; un `donum (Box of int)` concreto sigue
+  siendo válido porque `int` es defaultable.
 
 ### 11.7 Tipos asociados (no implementado — ⏸️ diferido a 1.1)
 
@@ -3266,12 +3371,123 @@ véase [§7.6](#76-block-expressions-do-value-position-if--unless-and-loops).
 > con los ámbitos `with target:`. `set x is 10` dentro del bloque asignaría una
 > *variable local* llamada `x`, que normalmente no existe.
 >
-> Un bloque constructor es en sí mismo un valor, así que puede aparecer en cualquier lugar donde
-> se espere un valor: como inicializador de campo (anidamiento, arriba), como valor de iteración de un bucle,
+> Un bloque constructor es en sí mismo un valor, así que puede aparecer como
+> inicializador de campo (anidamiento, arriba), como valor de iteración de un bucle,
 > como rama de un `if`/`unless` en posición de valor y como cola de un bloque `do:`.
-> La anotación `as T` en `var`/`let`/`static var` solo es necesaria en el
+> **No** es una expresión general: no puede ir dentro de una lista de argumentos
+> ni como operando aritmético — véase la tabla de posiciones de abajo. La
+> anotación `as T` en `var`/`let`/`static var` solo es necesaria en el
 > nivel más externo; los constructores internos infieren su tipo a partir del campo al que
 > se asignan.
+
+### `with:` en posiciones de valor (verificado)
+
+Un constructor `with:` necesita un **tipo destino** antes de poder comprobarse. La
+tabla indica dónde puede aportarlo el compilador y dónde no; cada fila ✅ se
+verificó compilando el ejemplo con `pengu check`.
+
+| Posición | ¿Válido? | Notas |
+|---|---|---|
+| inicializador de `var`/`let`/`static var` con anotación | ✅ | el tipo se infiere de la anotación (`as T`) |
+| inicializador de `var`/`let` sin anotación | ❌ | `E0014`: el constructor no puede inferir del `into` contenedor; usa `return with:` (fila siguiente) |
+| `return with:` | ✅ | el tipo destino viene del `into` del weave |
+| `set .field is with:` y `set x is with:` | ✅ | el constructor anidado infiere del campo; `set x is with:` reutiliza el tipo declarado de la local |
+| `with:` como valor de iteración de un bucle | ✅ | tipo de elemento del `list of T` anotado; un elemento por iteración |
+| `with:` en una rama de `if`/`unless` en posición de valor | ✅ | tipo de rama desde el hueco esperado; todas las ramas deben coincidir |
+| `with:` como cola de un bloque `do:` | ✅ | `do:` devuelve el constructor |
+| `with:` como argumento de llamada | ❌ | `calling f with (with: …)` es `E0000`; la forma desnuda es `E0014`. Pasa un valor con nombre, o el literal en una línea `with x is …` |
+| `with:` como último campo de un `with:` contenedor | ✅ | constructor anidado; el último campo puede ser cualquier valor de bloque |
+| `with:` multilínea cuyo último campo es a su vez un valor de bloque | ✅ | p. ej. un `if`/`unless` en posición de valor o un `with:` anidado como último campo |
+| `with:` como operando aritmético | ❌ | desnudo es `E0014`; incluso `(with: …).x` es `E0000`. Asigna el constructor a una variable tipada primero |
+
+La anotación/tipo esperado es lo que usa el constructor; no hay inferencia a
+partir de las asignaciones de campos:
+
+```pengu-fragment
+var p as Point with:              # 1: the annotation supplies Point
+    set .x is 1
+    set .y is 2
+
+let q as Point with:              # 1: 'let' works the same way
+    set .x is 3
+    set .y is 4
+
+weave build into Point:
+    return with:                  # 3: 'into Point' supplies the target type
+        set .x is 5
+        set .y is 6
+
+set p is with:                    # 4: reuses the declared type of 'p'
+    set .x is 7
+    set .y is 8
+
+var seg as Segment with:
+    set .start is with:           # 4: nested builder infers Point from the field
+        set .x is 0
+        set .y is 0
+    set .end_pt is with:
+        set .x is 1
+        set .y is 1
+```
+
+```pengu-fragment
+var ps as list of Point is for i from 0 to 3:
+    with:                         # 5: one Point per iteration
+        set .x is i
+        set .y is i * 2
+
+var p as Point is if flag:        # 6: value-position branch
+    with:
+        set .x is 1
+        set .y is 2
+else:
+    with:
+        set .x is 3
+        set .y is 4
+
+var q as Point is do:             # 7: 'do:' yields its tail
+    var seed as int is 10
+    with:
+        set .x is seed
+        set .y is seed + 1
+```
+
+```pengu-fragment
+var s as Segment with:
+    set .start is with:           # 9: first field is an enclosing-builder field
+        set .x is 0
+        set .y is 0
+    set .end_pt is if flag:       # 10: last field is itself a block value
+        with:
+            set .x is 3
+            set .y is 4
+    else:
+        with:
+            set .x is 5
+            set .y is 6
+```
+
+Un argumento de llamada debe ser un valor con nombre o un literal de struct en
+una línea — un constructor de bloque no se acepta ni entre paréntesis ni desnudo:
+
+```pengu-fragment
+calling show with p                       # ✅ named value
+calling show with with x is 1, y is 2     # ✅ one-line struct literal
+```
+
+```pengu-invalid
+calling show with (with:          # E0000: '(' cannot open a builder block
+    set .x is 1
+    set .y is 2)
+
+calling show with with:           # E0014: no target type reaches the argument
+    set .x is 1
+    set .y is 2
+
+var n as int is 1 + with:         # E0014: not an arithmetic operand
+    set .x is 1
+    set .y is 2
+```
 
 ### 18.2 Ámbitos `with` sobre colecciones (`list` y `map`)
 
@@ -4078,7 +4294,7 @@ error[E0006]: cannot assign to immutable variable 'count'
 
 <!-- BEGIN GENERATED DIAGNOSTIC CATALOG — tools/gen_error_catalog.py -->
 
-### 22.2 Catálogo de errores del compilador (`E0000`–`E0068`)
+### 22.2 Catálogo de errores del compilador (`E0000`–`E0069`)
 
 Generado desde el código por `tools/gen_error_catalog.py`. La forma legible por máquina es [`docs/error_catalog.json`](docs/error_catalog.json); `tests/test_error_catalog_sync.py` falla si el código y esta tabla divergen, así que **no se edita a mano**: `python tools/gen_error_catalog.py --write`.
 
@@ -4090,10 +4306,10 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0001` | `ConstInsideWeaveError` | 1 | const declared inside weave / function body. | 1 help / 1 note |
 | `E0002` | `VarLetTopLevelError` | 3 | var/let declared at top-level. | 1 help / 1 note |
 | `E0003` | `SelfDotAccessError`, `SemanticError` | 7 | self accessed with dot instead of arrow. | 1 help / 1 note |
-| `E0004` | `SemanticError`, `UndefinedIdentifierError` | 15 | identifier not defined in symbol table. | 1 help / 1 note |
-| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 142 | types incompatible. | 1 help / 1 note |
+| `E0004` | `SemanticError`, `UndefinedIdentifierError` | 16 | identifier not defined in symbol table. | 1 help / 1 note |
+| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 144 | types incompatible. | 1 help / 1 note |
 | `E0006` | `InvalidMemoryOpError`, `MutabilityError` | 12 | assignment to immutable let binding or constant. | 1 help / 1 note |
-| `E0007` | `InvalidControlFlowError` | 1 | break/continue outside loop. | 1 help / 1 note |
+| `E0007` | `InvalidControlFlowError` | 2 | break/continue outside loop. | 1 help / 1 note |
 | `E0008` | `InvalidMemoryOpError`, `SemanticError`, `TypeMismatchError` | 15 | invalid sigil/banish on literal/const. | 1 help / 1 note |
 | `E0009` | `InvalidWithTargetError`, `SemanticError` | 2 | leading dot access outside with block. | 1 help / 1 note |
 | `E0010` | `SemanticError` | 1 | — | — |
@@ -4134,7 +4350,7 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0045` | `SemanticError`, `TypeMismatchError` | 4 | — | — |
 | `E0046` | `SemanticError` | 5 | — | — |
 | `E0047` | `DuplicatePrimitiveMethodError` | 2 | a method of a primitive is provided twice.  ``enchanting int:`` emits the C function ``int_clamp`` with external linkage, so the ``(primitive, method)`` pair may only be provided once in the whole program: two modules (or two blocks in one module) would emit the same symbol, and a call site could not choose between them. | 1 help / 1 note |
-| `E0049` | `SemanticError` | 8 | — | — |
+| `E0049` | `SemanticError` | 10 | — | — |
 | `E0050` | `InfiniteTypeSizeError` | 1 | recursive type without indirection (infinite size). | 1 help / 1 note |
 | `E0051` | `SemanticError` | 1 | — | — |
 | `E0052` | `DuplicateConceptBindingError` | 2 | duplicate concept binding or duplicate (type, method) implementation.  Covers two cases: binding the same ``(type, concept)`` pair twice, and two distinct concepts providing the same ``(type, method)`` pair (which a call site could not resolve). | 1 help / 1 note |
@@ -4151,6 +4367,7 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0066` | `MutatingMethodInExpressionError` | 0 | a ``@mutates`` method used where a value is expected.  ``@mutates`` exposes one C function under two surface forms: the bare name assigns the result back to the receiver and yields nothing, while ``get_<name>`` returns the value.  The mutating spelling therefore has no value to contribute inside an initializer, an argument or a return, and it is rejected there instead of quietly behaving like the pure form. | 1 help / 1 note |
 | `E0067` | `InvalidMutatesAttributeError` | 0 | ``@mutates`` applied where in-place mutation cannot work.  ``@mutates`` is only meaningful on a method inside an ``enchanting`` block, and only when the method returns the receiver's own type -- that return value is what the call site assigns back to the receiver.  A top-level ``weave``, a ``declare``, a mismatched return type or a body that both returns a value and assigns to the receiver is rejected here. | 1 help / 1 note |
 | `E0068` | `MutatingGetterCollisionError` | 0 | ``@mutates weave foo`` collides with an explicit ``weave get_foo``.  The compiler reserves ``get_<name>`` for the pure form of a ``@mutates`` method, so declaring both would give ``get_<name>`` two definitions with no way to choose between them. | 1 help / 1 note |
+| `E0069` | `DuplicateLabelError` | 1 | two loops in the same function declare the same label.  A loop label (``outer: for …``) is a *function-local* name; the code generator turns it into a single C label, so two loops sharing a name inside one function would emit two identical C labels.  The rule is deliberately stricter than "two nested loops may not share a name": two *sibling* loops with the same label are rejected as well, because the name no longer identifies one place to jump to. | 1 help / 1 note |
 
 ### 22.3 Catálogo de advertencias del compilador (`W0000`–`W0013`)
 

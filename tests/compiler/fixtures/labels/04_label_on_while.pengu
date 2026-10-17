@@ -1,0 +1,16 @@
+## A label on a `while`, with `continue` re-testing the condition and `break`
+## leaving the loop.
+import std.spark
+
+weave main into int:
+    var i as int is 0
+    var total as int is 0
+    counting: while i < 10:
+        set i += 1
+        if i == 3:
+            continue counting
+        if i == 6:
+            break counting
+        set total += i
+    calling spark.println with "total={total}"
+    return 0

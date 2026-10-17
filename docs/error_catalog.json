@@ -91,6 +91,7 @@
         "Undefined concept '{}' in bind declaration",
         "Undefined function '{}'",
         "Undefined identifier '{}'",
+        "Undefined loop label '{}' in '{} {}'",
         "Undefined type '{}' in 'size of'",
         "Undefined type '{}' in bind declaration"
       ],
@@ -109,6 +110,8 @@
         "TypeMismatchError"
       ],
       "conditions": [
+        "'Donum' is automatic for echo '{}'; no 'derive' is needed",
+        "'Donum' is automatic for rune '{}'; no 'derive' is needed",
         "'bytes of' expects a string or an 'array of byte', got '{}'",
         "'chr' byte value {} is out of range 0-255",
         "'chr' expects an integer byte value, got '{}'",
@@ -292,6 +295,7 @@
         "InvalidControlFlowError"
       ],
       "conditions": [
+        "'{} {}' cannot jump to loop '{}': it does not enclose this statement",
         "'{}' is only allowed inside loops (for / while)."
       ],
       "explanation": "break/continue outside loop.",
@@ -884,6 +888,8 @@
         "SemanticError"
       ],
       "conditions": [
+        "'{}' does not implement 'Donum': containers have no zero value",
+        "'{}' has no default value: not every field implements 'Donum'",
         "Cannot use comparison '{}' on type '{}' without the '{}' concept",
         "Cannot use equality comparison '{}' on type parameter '{}' without 'Par' bound",
         "Cannot use operator '{}' on type parameter '{}' without 'Integrum' bound",
@@ -1100,6 +1106,21 @@
         {
           "help": "Remove the explicit 'get_<name>' weave; '@mutates' provides it automatically.",
           "note": "The 'get_<name>' spelling is reserved for the pure form of a '@mutates' method."
+        }
+      ]
+    },
+    "E0069": {
+      "classes": [
+        "DuplicateLabelError"
+      ],
+      "conditions": [
+        "Loop label '{}' is already used by another loop in this function"
+      ],
+      "explanation": "two loops in the same function declare the same label.\n\nA loop label (``outer: for …``) is a *function-local* name; the code\ngenerator turns it into a single C label, so two loops sharing a name inside\none function would emit two identical C labels.  The rule is deliberately\nstricter than \"two nested loops may not share a name\": two *sibling* loops\nwith the same label are rejected as well, because the name no longer\nidentifies one place to jump to.",
+      "guidance": [
+        {
+          "help": "Rename one of the two loops; labels must be unique within a function.",
+          "note": "A loop label ('outer: for …') is a function-local name; two loops cannot share it."
         }
       ]
     }

@@ -8,9 +8,30 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.5.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.6.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.5.0 → 2.6.0: labels, `type of` and automatic `Donum` are additive
+
+Nothing to change. All three additions accept programs that did not compile
+before and change no existing spelling:
+
+* `outer: for …` plus `break outer` / `continue outer` — bare `break` /
+  `continue` keep their meaning, and an identifier followed by `:` before a loop
+  was a syntax error before this release, so no existing program can be
+  reinterpreted.
+* `type of expr` — a compile-time operator yielding the canonical type name.
+  `type` and `size` stay ordinary identifiers (`size of` improved: `var size as
+  int` followed by `return size` used to be unparsable).
+* A `rune`/`echo` whose fields are all defaultable now implements `Donum`, so a
+  `donum T` that used to be `E0049` compiles. `derive Donum` is *rejected* with a
+  clear message — if a 2.5.0 program carried it (it could not: it was already
+  `E0005`), remove the clause.
+* `else: <short statement>` on one line is now accepted, matching `if c: break`.
+  Additive: it was a syntax error.
+
+One behaviour to know: `donum` on `char` and `byte` now works, like `i8`/`u8`.
 
 ## 2.4.0 → 2.5.0: `judge` over `rune` is additive
 

@@ -786,18 +786,23 @@ class StmtMixin:
             return ""
 
         elif rule == "while_stmt":
-            return self._translate_while(node)
+            return self._translate_while(node) + self._loop_break_label(node, self.indent())
 
         elif rule in ("for_stmt", "for_range_stmt", "for_in_stmt"):
             if rule == "for_range_stmt":
-                return self._translate_for_range(node)
+                return self._translate_for_range(node) + self._loop_break_label(node, self.indent())
             elif rule == "for_in_stmt":
-                return self._translate_for_in(node)
+                loop_c = self._translate_for_in(node)
+                # A materialized iterable puts the anchor before its release, so
+                # it is already in the emitted loop.
+                if getattr(node, "_pengu_break_anchor_emitted", False):
+                    return loop_c
+                return loop_c + self._loop_break_label(node, self.indent())
             first_child = node.children[0]
             if isinstance(first_child, Tree) and first_child.data == "for_range_stmt":
-                return self._translate_for_range(first_child)
+                return self._translate_for_range(first_child) + self._loop_break_label(first_child, self.indent())
             elif isinstance(first_child, Tree) and first_child.data == "for_in_stmt":
-                return self._translate_for_in(first_child)
+                return self._translate_for_in(first_child) + self._loop_break_label(first_child, self.indent())
             return ""
 
         elif rule == "unsafe_stmt":
@@ -937,9 +942,15 @@ class StmtMixin:
             return f"{cleanup_str}{pop_stmt}\n{ind}return;"
 
         elif rule == "break_stmt":
+            label = self._loop_label_target(node)
+            if label:
+                return f"{ind}goto {self._c_loop_label(label, 'break')};"
             return f"{ind}break;"
 
         elif rule == "continue_stmt":
+            label = self._loop_label_target(node)
+            if label:
+                return f"{ind}goto {self._c_loop_label(label, 'continue')};"
             return f"{ind}continue;"
 
         elif rule == "expr_stmt":

@@ -151,6 +151,7 @@ stmt: var_decl
     | break_stmt
     | continue_stmt
     | expr_stmt
+    | labeled_loop_stmt
 
 set_stmt: "set" set_target "is" value_expr [_NEWLINE]
         | "set" set_target COMPOUND_OP expr [_NEWLINE]   -> compound_set_stmt
@@ -175,15 +176,18 @@ banish_stmt: "banish" unary _NEWLINE
 # returned expression ('return if c: …', 'return calling f with if c: …') already
 # consumed the line break, exactly like 'expr_stmt' and 'var_decl'.
 return_stmt: "return" [value_expr ("," value_expr)*] [_NEWLINE]
-break_stmt: "break" _NEWLINE
-continue_stmt: "continue" _NEWLINE
+# 'break'/'continue' take an optional loop label ('break outer').  The label is
+# an ordinary NAME: the checker resolves it against the enclosing labeled loops
+# and the codegen lowers it to a 'goto' (C has no labeled break).
+break_stmt: "break" [NAME] _NEWLINE
+continue_stmt: "continue" [NAME] _NEWLINE
 expr_stmt: expr [_NEWLINE]
 
 block: ":" _NEWLINE _INDENT stmt+ _DEDENT
      | ":" simple_stmt _NEWLINE
 
-simple_stmt: "continue" -> continue_simple
-           | "break"    -> break_simple
+simple_stmt: "continue" [NAME] -> continue_simple
+           | "break"    [NAME] -> break_simple
            | "return" [expr] -> return_simple
            | "set" set_target "is" expr -> set_simple
            | "set" set_target COMPOUND_OP expr -> compound_set_simple
@@ -194,12 +198,24 @@ if_cond: NAME "as" type "is" expr "is" "present" -> if_cond_binding_present
        | NAME "as" type "is" expr               -> if_cond_binding
        | expr
 
+# The one-line form matches `block`'s: `if c: break` already accepted a simple
+# statement, so `else: break` must too (it was a syntax error, an asymmetry
+# found while testing labels on one-line breaks).
 else_block: "else" ":" _NEWLINE _INDENT stmt+ _DEDENT
+          | "else" ":" simple_stmt _NEWLINE
           | "else" if_stmt
 
 unless_stmt: "unless" expr block [else_block]
 
 while_stmt: "while" expr block
+
+# A labeled loop: 'outer: for line in lines: …'.  The label is a *wrapper* node
+# the parser unwraps again (see PenguParser._attach_loop_labels): the emitted
+# tree is the plain while/for node carrying a 'loop_label' attribute, so every
+# existing pass that dispatches on 'while_stmt'/'for_range_stmt'/'for_in_stmt'
+# keeps working unchanged.
+labeled_loop_stmt: NAME ":" while_stmt -> labeled_loop
+                 | NAME ":" for_stmt   -> labeled_loop
 
 for_stmt: "for" NAME "from" expr_no_cast "to" expr_no_cast ["step" expr_no_cast] block -> for_range_stmt
         | "for" NAME ("," NAME)? "in" expr block                                   -> for_in_stmt
@@ -419,7 +435,13 @@ for_comp_expr: "for" NAME "in" expr ["when" expr] "then" expr -> for_comp
       | "sigil" "of" unary               -> sigil_of
       | "essence" "of" unary             -> essence_of
       | "transmute" unary_no_cast "to" type -> transmute
-      | "size" "of" type                 -> size_of
+      | _SIZE_OF type                    -> size_of
+      # 'type of expr' is a compile-time operator: it yields the canonical
+      # PenguScript spelling of the *static* type of expr as a string and never
+      # evaluates the operand.  Both words are soft keywords, matched by the
+      # compound terminals below, so `var type as int is 5` and `var size as int
+      # is 5` keep working as ordinary identifiers.
+      | _TYPE_OF unary                   -> type_of
       | "banish" unary                   -> banish_expr
       | "some" unary                     -> some_expr
       # NOTE: 'ok expr' / 'err expr' are deliberately NOT grammar keywords yet.
@@ -601,6 +623,18 @@ _NEWLINE: /(\r?\n[\t ]*)+/
 %ignore /##[\s\S]*?##/
 
 NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
+
+# Compound soft keywords.  Lexing 'type of' / 'size of' as ONE terminal is what
+# keeps 'type' and 'size' usable as ordinary identifiers: an anonymous "type"
+# literal would win over NAME in every expression state, which is exactly the
+# bug that made `var size as int is 5` + `return size` fail to parse.  Priority
+# above NAME (and above the string terminals) so the two-word form wins when it
+# really is the operator.  Leading underscore: filtered out of the AST, so the
+# `size_of` / `type_of` nodes keep their single (operand) child.
+# `\b` after 'of' keeps a name starting with `of` ('of_x') out of the match.
+_TYPE_OF.5: /type[ \t]+of\b/
+_SIZE_OF.5: /size[ \t]+of\b/
+
 # Inert marker substituted for an ``antiquus`` C body before parsing; it is
 # restored to an ANTIQUUS_BODY token right after the parse.  See
 # PenguParser._extract_antiquus_bodies / _restitch_antiquus_bodies.

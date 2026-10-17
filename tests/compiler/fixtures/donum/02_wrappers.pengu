@@ -1,0 +1,28 @@
+## `seal`, `alias`, `frozen` and `ref` all follow their underlying type's
+## defaultability.
+import std.spark
+
+rune Point:
+    x as int
+
+seal UserId as int
+alias Meters as int
+
+rune Holder:
+    u as UserId
+    m as Meters
+    p as ref to Point
+
+weave main into int:
+    var u as UserId is donum UserId
+    calling spark.println with "u={u}"
+
+    var m as Meters is donum Meters
+    calling spark.println with "m={m}"
+
+    var fz as frozen Point is donum (frozen Point)
+    calling spark.println with "fz={fz.x}"
+
+    var h as Holder is donum Holder
+    calling spark.println with "h={h.u},{h.m},{h.p == null}"
+    return 0

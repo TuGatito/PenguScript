@@ -18,7 +18,8 @@ from .pengu_types import (
     implements_concept,
     typeparam_accepts_value, resolve_concept_method, ast_to_type, is_opaque_type, _same_pointee,
     get_type_base_name, type_has_derived_nexus,
-    canonical_primitive_name, primitive_lookup_order,
+    canonical_primitive_name, primitive_lookup_order, canonical_type_name, DEFAULTABLE_CONCEPTS,
+    type_has_unresolved_parts,
 )
 from .pengu_symbols import SymbolTable, Symbol, Scope, SHARD_RECEIVER_KEY
 from .pengu_comptime import CompileTimeEnv, default_env, eval_comptime, c_int_div, c_int_mod, parse_int_literal
@@ -156,6 +157,14 @@ class ConstFolder:
             symbols: Active symbol table for constant symbol lookup.
         """
         self.symbols = symbols
+        #: Whether ``type of`` may be folded here.  True while *checking* (the
+        #: symbol table's current scope is the scope being checked, so the
+        #: operand resolves correctly and a `const X as string is type of 42`
+        #: works), False in the code generator: there the symbol table no longer
+        #: tracks locals (the codegen keeps them in ``local_vars``), so folding
+        #: could resolve the operand to a same-named *caller* local.  The codegen
+        #: has a dedicated `type_of` branch that infers with the right context.
+        self.fold_type_of = True
 
     def fold(self, node: Any) -> Optional[Any]:
         """Attempts to evaluate node as compile-time constant value.
@@ -337,6 +346,30 @@ class ConstFolder:
         elif rule == "bytes_expr":
             # Bytes view is a runtime pointer cast; never a compile-time value.
             return None
+
+        elif rule == "type_of":
+            # Never fall through to the single-child fallback below: it folds
+            # `type of 42` to `42`.  When folding is disabled (in the code
+            # generator) the dedicated codegen branch handles the operator.
+            if not self.fold_type_of:
+                return None
+            # Compile-time by construction, so it *is* foldable: the value is the
+            # canonical type name as a Python string, and `_format_const_val`
+            # turns that into the same `pengu_string_from_cstr("…")` literal the
+            # dedicated codegen branch emits.  It is deliberately not folded when
+            # the operand's type is not fully concrete (a `shard T` body checked
+            # before monomorphization): the fold would bake a type-parameter name
+            # into every instantiation.  The single-child fallback below must
+            # never see this node — it would fold `type of 42` to `42`.
+            try:
+                operand_t = TypeInferrer(self.symbols).infer(node.children[0])
+            except Exception:
+                return None
+            if type_has_unresolved_parts(operand_t):
+                return None
+            name = canonical_type_name(operand_t)
+            node._resolved_type_name = name
+            return name
 
         elif rule in ("to_expr", "range_dotdot"):
             rhs = node.children[-1]
@@ -1128,8 +1161,7 @@ class TypeInferrer:
             if isinstance(candidate_t, AnyType):
                 return AnyType()
             if isinstance(candidate_t, TypeParam):
-                _DEFAULTABLE = {"Num", "Integrum", "Real", "Par", "Ordo", "Forma", "Donum"}
-                if candidate_t.bounds and not (set(candidate_t.bounds) & _DEFAULTABLE):
+                if candidate_t.bounds and not (set(candidate_t.bounds) & DEFAULTABLE_CONCEPTS):
                     raise self._make_error(
                         SemanticError,
                         f"Type parameter '{candidate_t.name}' cannot be defaulted with 'donum'",
@@ -1140,6 +1172,31 @@ class TypeInferrer:
                     )
                 return candidate_t
             if not implements_concept(candidate_t, "Donum", self.symbols):
+                # Container types get their own wording: 'donum' lowers to
+                # '(T){0}', which is a *corrupt* container, not an empty one, so
+                # the fix is a semantic default rather than another concept.
+                if isinstance(candidate_t, (ListType, MapType, SliceType, MaybeType, ResultType)):
+                    raise self._make_error(
+                        SemanticError,
+                        f"'{candidate_t}' does not implement 'Donum': containers have no zero value",
+                        node,
+                        code="E0049",
+                        help="Use an explicit default (an empty literal or a documented helper), "
+                             "or wrap the container in a rune whose fields are defaultable.",
+                        note="'donum T' is '(T){0}'; zeroing 'list'/'map'/'slice'/'maybe'/'result' "
+                             "would leave a container with no storage, so they are deliberately "
+                             "not defaultable."
+                    )
+                if isinstance(candidate_t, (RuneType, EchoType)):
+                    raise self._make_error(
+                        SemanticError,
+                        f"'{candidate_t}' has no default value: not every field implements 'Donum'",
+                        node,
+                        code="E0049",
+                        help="Make every field defaultable, or give the rune an explicit default "
+                             "with a helper weave (e.g. 'weave new … into ' + the type name).",
+                        note="A rune implements 'Donum' automatically when all of its fields do."
+                    )
                 raise self._make_error(
                     SemanticError,
                     f"Type '{candidate_t}' has no default value for 'donum'",
@@ -2594,6 +2651,18 @@ class TypeInferrer:
                     return MapType(key=STRING_TYPE, value=first_val_t)
                 return MapType(key=STRING_TYPE, value=INT_TYPE)
 
+
+        elif rule == "type_of":
+            # 'type of expr' is compile-time only: the operand is *checked* (an
+            # undefined identifier inside it is still E0004) but never
+            # evaluated, and the result is a string literal with the canonical
+            # PenguScript spelling of its static type.  The resolved name is
+            # recorded on the node so the LSP can show it without re-inferring;
+            # the codegen recomputes it with the active substitution map, which
+            # is what makes 'type of x' concrete inside a generic instantiation.
+            operand_t = self.infer(node.children[0])
+            node._resolved_type_name = canonical_type_name(operand_t)
+            return STRING_TYPE
 
         elif rule == "size_of":
             target_type_node = node.children[0]

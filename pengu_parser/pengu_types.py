@@ -1822,8 +1822,8 @@ PRIMITIVE_IMPLS: Dict[str, Set[str]] = {
 PRIMITIVE_IMPLS.update({name: set(_FLOAT_CONCEPTS) for name in _FLOAT_NAMES})
 PRIMITIVE_IMPLS.update({
     "bool": {"Par", "Vinculum", "Imago", "Nexus", "Forma", "Donum"},
-    "char": {"Par", "Ordo", "Vinculum", "Imago", "Nexus", "Forma"},
-    "byte": {"Par", "Integrum", "Ordo", "Vinculum", "Imago", "Nexus"},
+    "char": {"Par", "Ordo", "Vinculum", "Imago", "Nexus", "Forma", "Donum"},
+    "byte": {"Par", "Integrum", "Ordo", "Vinculum", "Imago", "Nexus", "Donum"},
     "string": {"Par", "Ordo", "Vinculum", "Imago", "Nexus", "Forma", "Donum", "Iterabilis"},
     "list": {"Par", "Iterabilis", "Imago", "Nexus"},
     "map": {"Par", "Iterabilis", "Imago", "Nexus"},
@@ -1894,6 +1894,127 @@ def canonical_primitive_name(name: Any) -> Optional[str]:
             if not isinstance(name, str):
                 return None
     return PRIMITIVE_ALIASES.get(name)
+
+
+#: Display overrides for ``type of``.  The compiler's canonical *method* name
+#: for the 8-bit unsigned integer is ``u8`` (that is the key of its entry in
+#: ``PRIMITIVE_ALIAS_GROUPS``, and the prefix of ``u8_*`` symbols), but the
+#: name PenguScript code writes -- and the one LANGUAGE.md §4.1 recommends by
+#: measured usage -- is ``byte``.  ``size_t``/``usize`` differ the same way.
+#: Only the *reported* name changes; method lookup keeps using u8/usize.
+_CANONICAL_DISPLAY_OVERRIDES: Dict[str, str] = {
+    "u8": "byte",
+    "usize": "size_t",
+}
+
+#: C spellings the language documents (LANGUAGE.md §4.1 "signed pointer-sized")
+#: but that ``PRIMITIVE_ALIAS_GROUPS`` deliberately omits from *method lookup*:
+#: a pointer-sized integer is written ``isize``/``usize`` in PenguScript.  They
+#: still need a canonical name for ``type of``.
+_CANONICAL_EXTRA_ALIASES: Dict[str, str] = {
+    "intptr_t": "isize",
+    "uintptr_t": "usize",
+    "ptrdiff_t": "isize",
+}
+
+
+def type_has_unresolved_parts(t: Optional[Type], _seen: Optional[Set[int]] = None) -> bool:
+    """True when ``t`` still contains a type parameter, ``any`` or ``null``.
+
+    Used to decide whether a type-derived compile-time value may be folded: the
+    canonical name of a fully concrete type is stable, but the name of ``T``
+    changes with every monomorphization, so it must not be baked into the tree
+    while the generic body is being checked.
+    """
+    if t is None:
+        return True
+    if _seen is None:
+        _seen = set()
+    if isinstance(t, (TypeParam, AnyType, NullType)):
+        return True
+    if isinstance(t, (list, tuple)):
+        return any(type_has_unresolved_parts(i, _seen) for i in t)
+    if isinstance(t, dict):
+        return any(type_has_unresolved_parts(v, _seen) for v in t.values())
+    if not isinstance(t, Type):
+        return False
+    if id(t) in _seen:
+        return False
+    _seen.add(id(t))
+    for value in vars(t).values():
+        if type_has_unresolved_parts(value, _seen):
+            return True
+    return False
+
+
+def canonical_type_name(t: Optional[Type]) -> str:
+    """Canonical PenguScript spelling of ``t``, for the ``type of`` operator.
+
+    The result is what ``type of expr`` evaluates to as a compile-time string:
+    always the PenguScript spelling (``list of int``, never ``PenguList``),
+    always the *local* name of a user type (``Point``, never ``player.Point``)
+    and always the stdlib's preferred primitive name (``byte``, ``size_t``,
+    ``i64``).  Nesting is recursive: ``list of ref to Point``.
+
+    Generic code is reported with its type parameters until monomorphization
+    substitutes them, so ``type of x`` inside ``weave shard T`` is ``T`` there
+    and the concrete name in each instantiation.
+    """
+    if t is None:
+        return "void"
+    if isinstance(t, AnyType):
+        return "any"
+    if isinstance(t, TypeParam):
+        return t.name
+    if isinstance(t, FrozenType):
+        return f"frozen {canonical_type_name(t.target)}"
+    if isinstance(t, RefType):
+        return f"ref to {canonical_type_name(t.target)}"
+    if isinstance(t, ListType):
+        return f"list of {canonical_type_name(t.element)}"
+    if isinstance(t, SliceType):
+        return f"slice of {canonical_type_name(t.element)}"
+    if isinstance(t, MapType):
+        return f"map of {canonical_type_name(t.key)} to {canonical_type_name(t.value)}"
+    if isinstance(t, MaybeType):
+        return f"maybe {canonical_type_name(t.element)}"
+    if isinstance(t, ResultType):
+        return f"result of {canonical_type_name(t.ok_type)} to {canonical_type_name(t.err_type)}"
+    if isinstance(t, ArrayType):
+        if t.size is None:
+            return f"array of {canonical_type_name(t.element)}"
+        return f"array of {canonical_type_name(t.element)} with size {t.size}"
+    if isinstance(t, TupleType):
+        return "(" + ", ".join(canonical_type_name(e) for e in t.elements) + ")"
+    if isinstance(t, RangeType):
+        return f"range of {canonical_type_name(t.element)}"
+    if isinstance(t, ManyType):
+        return f"many {canonical_type_name(t.element)}"
+    if isinstance(t, FnType):
+        params = ", ".join(canonical_type_name(p_t) for _, p_t in t.params)
+        if params:
+            return f"weave with {params} into {canonical_type_name(t.return_type)}"
+        return f"weave into {canonical_type_name(t.return_type)}"
+    if isinstance(t, NullType):
+        return "null"
+    if isinstance(t, BaseType):
+        canonical = canonical_primitive_name(t) or _CANONICAL_EXTRA_ALIASES.get(t.name)
+        if canonical is None:
+            # Not a scalar in the alias table: 'string', 'void', 'opaque', 'any'.
+            return t.name
+        return _CANONICAL_DISPLAY_OVERRIDES.get(canonical, canonical)
+    # Nominal types: rune / omen / echo / seal / alias / concept.  The local
+    # base name is what PenguScript code uses; the module qualifier (and the
+    # mangled `Box_int` spelling) are codegen details.
+    base_getter = getattr(t, "get_base_name", None)
+    base = base_getter() if callable(base_getter) else getattr(t, "name", None)
+    if not isinstance(base, str) or not base:
+        base = getattr(t, "name", None) or str(t)
+    type_args = [a for a in getattr(t, "type_args", None) or []
+                 if not isinstance(a, TypeParam)]
+    if type_args:
+        return f"{base} of " + ", ".join(canonical_type_name(a) for a in type_args)
+    return base
 
 
 def is_floating_type(t: Any) -> bool:
@@ -2155,6 +2276,125 @@ def receiver_deep_copies_on_store(t: Optional[Type], symbols: Any = None) -> boo
     return False
 
 
+#: Concept bounds that guarantee a zero/default value.  A type parameter bounded
+#: by any of these is defaultable with ``donum T`` (LANGUAGE.md §11.4), and a
+#: *field* of such a parameter type makes its rune automatically ``Donum``.
+DEFAULTABLE_CONCEPTS: Set[str] = {"Num", "Integrum", "Real", "Par", "Ordo", "Forma", "Donum"}
+
+#: Container types that deliberately have no ``Donum``: ``(PenguList){0}`` has
+#: ``elem_size == 0``, so a blindly zeroed container is corrupt, not empty.
+_NON_DONUM_CONTAINERS = (ListType, MapType, SliceType, MaybeType, ResultType)
+
+
+def automatic_donum(t: Optional[Type], symbols: Any = None,
+                    _seen: Optional[Set[int]] = None) -> Optional[bool]:
+    """The *automatic* ``Donum`` rule for ``t``: True, False, or None.
+
+    A ``rune`` (or echo) implements ``Donum`` automatically when every one of
+    its fields does — no ``derive Donum`` and no ``bind X with Donum:`` are
+    needed, because ``donum T`` lowers to ``(T){0}`` and a struct is zeroable
+    exactly when each of its fields is.  The rule is recursive (a rune field
+    that is itself a ``Donum`` rune counts), and it is decided here rather than
+    in the primitive tables because it needs the symbol table to resolve
+    nominal field types and generic instantiations.
+
+    ``None`` means "the automatic rule does not apply", so the caller falls back
+    to explicit bindings and ``derive`` clauses (primitives, references and
+    plain omens are decided by :func:`type_implements_builtin_concept` first).
+
+    Args:
+        t: the type to test.
+        symbols: symbol table used to resolve nominal/placeholder field types.
+        _seen: internal cycle guard (a recursive rune is already E0050).
+    """
+    if t is None:
+        return None
+    if _seen is None:
+        _seen = set()
+    if id(t) in _seen:
+        return False
+    # Wrappers delegate to what they wrap.
+    if isinstance(t, FrozenType):
+        return automatic_donum(t.target, symbols, _seen)
+    if isinstance(t, AliasType):
+        return automatic_donum(t.target, symbols, _seen)
+    if isinstance(t, SealType):
+        decision = automatic_donum(t.underlying, symbols, _seen)
+        if decision is not None:
+            return decision
+        # A seal is a nominal wrapper: it borrows the *capabilities* of what it
+        # wraps (`seal UserId as int` is defaultable) even though assignment and
+        # passing stay nominal.  `type_implements_builtin_concept` has no
+        # SealType arm, so the delegation is spelled out here.
+        if t.underlying is not None and type_implements_builtin_concept(t.underlying, "Donum"):
+            return True
+        return None
+    if isinstance(t, ArrayType):
+        # Every element is zeroed, so the array follows its element type.
+        return automatic_donum(t.element, symbols, _seen)
+    if isinstance(t, RefType):
+        return True                     # NULL
+    if isinstance(t, AnyType):
+        return None
+    if isinstance(t, _NON_DONUM_CONTAINERS):
+        return False
+    if isinstance(t, (RuneType, EchoType, OmenType)):
+        fields = getattr(t, "fields", None)
+        variants = getattr(t, "variants", None)
+        if not fields and not variants:
+            # Either a real field-less rune/echo (trivially defaultable) or a
+            # nominal *placeholder* built by ast_to_type for a named type.  Only
+            # the symbol table can tell them apart.
+            resolved = None
+            if symbols is not None and hasattr(symbols, "lookup_type"):
+                resolved = symbols.lookup_type(getattr(t, "name", ""))
+            if resolved is not None and resolved is not t:
+                return automatic_donum(resolved, symbols, _seen)
+            if isinstance(t, OmenType) and variants is not None:
+                return None
+            base = t.get_base_name() if hasattr(t, "get_base_name") else getattr(t, "name", "")
+            registry = getattr(symbols, "runes", None) or {} if symbols is not None else {}
+            registry_e = getattr(symbols, "echos", None) or {} if symbols is not None else {}
+            if base in registry or base in registry_e or resolved is t:
+                return True
+            return None
+        if isinstance(t, OmenType):
+            # Only a plain omen is a zeroable enum tag (same reasoning as the
+            # built-in 'Par' rule); algebraic/string omens need an explicit bind.
+            if getattr(t, "is_algebraic", False) or getattr(t, "is_string_valued", False):
+                return None
+            return True
+        _seen.add(id(t))
+        try:
+            for field_t in (fields or {}).values():
+                if not _field_type_is_donum(field_t, symbols, _seen):
+                    return False
+        finally:
+            _seen.discard(id(t))
+        return True
+    return None
+
+
+def _field_type_is_donum(field_t: Optional[Type], symbols: Any, seen: Set[int]) -> bool:
+    """True when a rune field of type ``field_t`` has a zero value.
+
+    A type parameter follows :data:`DEFAULTABLE_CONCEPTS` (the same set the
+    ``donum T`` check uses), so ``rune Box shard T: value as T`` is ``Donum``
+    only under a bound such as ``where T: Donum`` — which is what makes
+    ``donum (Box of T)`` an E0049 without that bound.
+    """
+    if field_t is None:
+        return False
+    if isinstance(field_t, TypeParam):
+        return bool(set(getattr(field_t, "bounds", None) or ()) & DEFAULTABLE_CONCEPTS)
+    if isinstance(field_t, AnyType):
+        return True
+    decision = automatic_donum(field_t, symbols, seen)
+    if decision is not None:
+        return decision
+    return implements_concept(field_t, "Donum", symbols)
+
+
 def implements_concept(t: Type, concept_name: str, symbols: Any) -> bool:
     """Checks if type t implements concept_name via registered concept bindings or built-ins."""
     if t is None:
@@ -2167,6 +2407,12 @@ def implements_concept(t: Type, concept_name: str, symbols: Any) -> bool:
         # 'Integrum' and 'Real' refine 'Num': either bound satisfies numeric
         # needs.  The chain is directional, so 'Num' does not satisfy 'Real'.
         return any(concept_implies(b, concept_name) for b in t.bounds)
+    if concept_name.split("_")[0] == "Donum" and automatic_donum(t, symbols) is True:
+        # Automatic 'Donum' (LANGUAGE.md §10.9): a rune/echo whose fields are all
+        # defaultable is defaultable, with no 'derive' or 'bind' clause.  Only a
+        # *positive* decision short-circuits, so an explicit
+        # 'bind Foo with Donum:' still wins for a type the rule rejects.
+        return True
     if type_implements_builtin_concept(t, concept_name):
         return True
     if symbols is None:

@@ -1,0 +1,11 @@
+## `type of` inspects the static type only: the operand is never evaluated.
+import std.spark
+
+weave side_effect into int:
+    calling spark.println with "SIDE EFFECT RAN"
+    return 7
+
+weave main into int:
+    var s as string is type of (calling side_effect)
+    calling spark.println with "result={s}"
+    return 0

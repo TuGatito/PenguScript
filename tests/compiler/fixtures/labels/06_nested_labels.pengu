@@ -1,0 +1,13 @@
+## Two distinct labels: `break inner` stops the inner loop, `continue outer`
+## skips to the next row.
+import std.spark
+
+weave main into int:
+    outer: for a from 0 to 3:
+        inner: for b from 0 to 5:
+            if b == 2:
+                continue outer
+            if b == 1:
+                break inner
+            calling spark.println with "{a}{b}"
+    return 0

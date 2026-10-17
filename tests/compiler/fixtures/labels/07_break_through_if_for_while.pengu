@@ -1,0 +1,12 @@
+## `break target` from inside an `if` inside a `for` inside a labeled `while`.
+import std.spark
+
+weave main into int:
+    var k as int is 0
+    grid: while k < 3:
+        for x in [1, 2, 3]:
+            if x == 2:
+                break grid
+            calling spark.println with "{k}:{x}"
+        set k += 1
+    return 0

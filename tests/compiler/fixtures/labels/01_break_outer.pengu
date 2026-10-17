@@ -1,0 +1,10 @@
+## `break outer` from two levels of nesting.
+import std.spark
+
+weave main into int:
+    outer: for i from 0 to 4:
+        for j from 0 to 4:
+            if j == 2:
+                break outer
+            calling spark.println with "{i}{j}"
+    return 0

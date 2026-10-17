@@ -2,6 +2,105 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.6.0] — 2026-10-16 — labels, `type of`, automatic `Donum`
+
+Four Phase 0 (syntax) improvements that close the pre-self-hosting surface.  All
+are additive: no existing program changes meaning.
+
+```pengu
+outer: for line in lines:            # 1. labels on break/continue
+    for ch in line:
+        if ch == ';':
+            continue outer
+        if ch == '}':
+            break outer
+
+calling spark.println with "x is {type of x}"   # 2. compile-time type name
+
+rune Point:                          # 3. automatic Donum: no derive needed
+    x as int
+    y as int
+var p as Point is donum Point        # (Point){0}
+```
+
+### Added
+
+- **Labels on `break` / `continue`.**  `NAME ":"` may prefix a `while`, a
+  `for … from … to … [step …]` or a `for … in …`; `break label` /
+  `continue label` then target that loop from any depth, while bare `break` /
+  `continue` keep targeting the innermost one.  A label is function-local: two
+  loops with the same label in one function is the new `E0069`
+  (`DuplicateLabelError`), an unknown label is `E0004` and a label that does not
+  enclose the statement is `E0007`.  Labels are not symbols (not in
+  `symbols.functions`, not importable).  C has no labeled break, so the codegen
+  lowers a labeled jump to `goto _pengu_label_<label>_<continue|break>`; the
+  `continue` anchor is the last line of the labeled body (the C step and
+  condition still run) and the `break` anchor follows the loop just before its
+  own cleanup (so a jump out of the loop still releases a materialized iterable).
+  An anchor is emitted only when something jumps to it, so an unused
+  label costs zero C and no `-Wunused-label`.  See `LANGUAGE.md` §7.2, §7.3,
+  §7.5.
+- **`type of expr`.**  A compile-time operator that yields the canonical
+  PenguScript spelling of the operand's *static* type as a `string`
+  (`"int"`, `"Player"`, `"list of ref to Point"`, `"maybe Player"`, …).  The
+  operand is never evaluated, the generated C is a borrowed string literal
+  (`pengu_string_from_cstr("int")`, `is_owned == 0`), and inside a `shard T`
+  weave the name resolves per monomorphization.  `type` stays an ordinary
+  identifier (`var type as int is 5` works) because the operator is lexed as one
+  compound soft keyword.  See `LANGUAGE.md` §6.4.
+- **Automatic `Donum` for runes.**  A `rune`/`echo` whose fields all implement
+  `Donum` now implements it too — no `derive` and no `bind` — because `donum T`
+  is `(T){0}`.  The rule is recursive, follows `frozen`/`alias`/`seal`/`ref`/
+  `array` wrappers, and is bound-driven for generic runes
+  (`rune Box shard T` needs `where T: Donum`).  Containers stay excluded on
+  purpose: `(PenguList){0}` has `elem_size == 0`, which is a corrupt container,
+  not an empty one.  `derive Donum` is rejected with a message saying it is
+  automatic.  See `LANGUAGE.md` §10.9, §11.4, §11.6.
+- **`with:` documented in every value position** — initializer (annotated and
+  inferred), `return with:`, `set .field is with:`, iteration value,
+  value-position `if`/`unless`, `do:` tail, call argument, and nesting — with an
+  explicit valid/invalid table in `LANGUAGE.md` §18 and a new "`with:` in value
+  position" section in the Pengunic guide.
+- **LSP** — labels: hover (declaration and jump), go-to-definition, completion
+  after `break `/`continue ` offering only the *enclosing* labels, and rename of
+  a label within its function.  `type of`: hover reports the resolved canonical
+  name on the keyword and on the operand.  `pengu_lsp/labels.py` and
+  `pengu_lsp/type_of.py` hold the resolution.
+- **Conformance corpus** — `tests/compiler/fixtures/labels/` (8 programs),
+  `.../type_of/` (5) and `.../donum/` (4), each with an `.expected` stdout.
+
+### Changed
+
+- `donum` on the container types reports a dedicated `E0049` message
+  (`'list of int' does not implement 'Donum': containers have no zero value`)
+  instead of the generic "has no default value".
+- A rune that is not `Donum` reports which rule failed
+  (`'Container' has no default value: not every field implements 'Donum'`)
+  instead of the same generic message.
+
+### Fixed
+
+- **`size` was not usable as an identifier.**  `size of T` was parsed from two
+  anonymous literals, so the contextual lexer preferred the keyword in every
+  expression state: `var size as int is 5` followed by `return size` (or
+  `size + 1`) was a syntax error.  `size of` is now one compound terminal, and
+  `type of` uses the same technique so it never regresses the other way.
+- **`donum (array of T with size N)` emitted an invalid initializer.**
+  `(T[N]){0}` cannot initialise an array in C ("invalid initializer"); the
+  array case now emits the brace form `{0}`, including through an
+  `alias Row as array of T with size N`.
+- **`type of` was constant-folded to its operand's value.**  The const folder's
+  single-child fallback folded `type of 42` to `42`, which then emitted
+  `PenguString s = 42;`.  The operator now folds to the canonical *name* when
+  the type is fully concrete, and is not folded at all while the type is still a
+  `shard T` parameter.
+- **`char` and `byte` lacked `Donum`** while their aliases `i8`/`u8` had it, so
+  `donum char` was `E0049` for the same C zero value.  Both are defaultable now.
+- **`else: <short statement>` on one line was a syntax error** while
+  `if c: break` was accepted; `else_block` now takes the same one-line form.
+- **`seal X as T` was not `Donum`** even when `T` was, because
+  `type_implements_builtin_concept` had no `SealType` arm.
+
 ## [2.5.0] — 2026-10-16 — `judge` over `rune`
 
 A `rune` that models a C tagged union — every variant's fields in one struct,
