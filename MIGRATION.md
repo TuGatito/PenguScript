@@ -8,9 +8,34 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.7.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.8.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.7.0 → 2.8.0: thick functions and context pipelines (additive)
+
+2.8.0 adds two standard-library modules and changes no language syntax or
+semantics. Existing programs keep compiling and behaving identically.
+
+* **`std/functor.pengu`** — `Fn0<R>`, `Fn1<A,R>`, `Fn2<A,B,R>` and
+  `Fn3<A,B,C,R>`: a function pointer plus a borrowed context, with `make_fn0` …
+  `make_fn3`, `call`, `is_null` and `call_or`. This is the explicit answer to
+  "I need a closure": the context is a value you pass, not an environment the
+  compiler captures. Nothing allocates; the context must outlive the `Fn`.
+* **`std/loom.pengu`** — `map_ctx`, `filter_ctx`, `fold_ctx`, `for_each_ctx`,
+  `zip_with_ctx`, `find_first_ctx`, `any_ctx`, `all_ctx`, `partition_ctx` and
+  `filter_map_ctx`. Each takes the callback's context as an argument, so a
+  pipeline step can carry configuration without a lambda or a closure.
+* **No language change.** Lambdas still do not capture (`LANGUAGE.md` §8.4.1
+  now explains why, and lists the five explicit replacement patterns).
+
+Two compiler bugs found while building the modules are fixed: a struct field of
+function-pointer type emitted an invalid declarator (`R (*)(A) name;` instead of
+`R (*name)(A);`), and a partial `with`/`donum` initializer of a rune with a
+`list`/`map`/`slice` field zeroed the container instead of giving it a usable
+empty default. A module can also opt out of a specific warning it deliberately
+triggers with `# pengu: allow-warnings W0001` (used by `std.functor` for its
+thick-function cast).
 
 ## 2.6.0 → 2.7.0: debt release — patterns, ownership, module privacy
 

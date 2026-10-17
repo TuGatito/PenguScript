@@ -1,0 +1,14 @@
+import std.functor
+import std.spark
+
+rune Scale:
+    factor as int
+
+weave sum3 with s as ref to Scale, x as int, y as int, z as int into int:
+    return s->factor * (x + y + z)
+
+weave main into int:
+    var s as Scale is with factor is 2
+    var f as functor.Fn3 of int, int, int, int is calling functor.make_fn3 with sum3, (sigil of s)
+    calling spark.println with "{calling f.call with 1, 2, 3}"
+    return 0

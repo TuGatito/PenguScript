@@ -174,6 +174,39 @@ Runtime primitive: resolves the target of the symlink at `path`.
 Runtime primitive: canonicalizes `path` to an absolute path.
 
 
+### `_copy_string`
+
+> **archivum__copy_string**(s: string) -> string
+
+Returns a fresh owned copy of `s` (`pengu_string_copy` without a public symbol).
+Motivo
+`pengu_string_split` returns a list whose elements are *views* into the source
+buffer, so a split result cannot outlive the string it came from. The line
+readers need owned elements in order to release the file text they read; this
+bridge deep-copies one view without adding a public `declare` for the runtime
+primitive (which `std/filum.pengu` already owns).
+Memoria
+Allocates one owned buffer and returns it; the caller releases it with
+`banish`. The input `s` is borrowed and never freed.
+
+
+### `_join_lines`
+
+> **archivum__join_lines**(lines: list of string) -> string
+
+Joins `lines` with "\n" and appends one trailing "\n".
+Motivo
+The PenguScript spelling of a linear join (`for x in lines: out = "{out}{x}"`)
+is quadratic and leaks the accumulator on every step. This block sums the
+lengths, allocates the result once and `memcpy`s each piece, so the cost is
+linear and the copy is binary-exact (embedded NULs survive, matching
+`pengu_string_format_ex`).
+Memoria
+Allocates one owned buffer of exactly the joined length (plus the NUL) and
+returns it; the caller releases it with `banish`. The input list and its
+strings are only read, never retained.
+
+
 ### `read_file`
 
 > **archivum_read_file**(path: string) -> maybe string
@@ -652,8 +685,9 @@ entry does not exist or `stat` fails. Contract of the returned map keys:
 - "accessed": decimal string of Unix epoch timestamp in seconds.
 - "permissions": decimal string of POSIX permission mode bits (st_mode & 0777).
 Memoria
-The map and its key/value strings are owned by the caller; release the buffer
-with `banish`.
+The map and its key/value strings are owned by the caller. `banish` on the
+`maybe` frees the entry table only, so walk the map (`for k in md`), `banish`
+each key and its `md.get` value, and then `banish` the wrapper.
 Ejemplo
 ```pengu
 let md as maybe map of string to string is calling archivum.metadata with "notes.txt"
@@ -1087,6 +1121,19 @@ Ejemplo
 ```pengu
 let abs_path as maybe string is calling archivum.realpath with "notes.txt"
 ```
+
+
+### `_release_metadata`
+
+> **archivum__release_metadata**(m: maybe map of string to string) -> void
+
+Releases every key/value string of a metadata map, then the map and its
+`maybe` wrapper.
+`pengu_c_archivum_metadata` builds 8 owned keys and 8 owned values with
+`pengu_string_new` and stores them in a map that keeps only the *bytes* of the
+`PenguString` header.  `banish m` on the wrapper frees the entry cells but not
+the 16 payload buffers, so a consumer that only reads one key must walk the
+map and release every key and value explicitly.
 
 
 ### `_metadata_int`

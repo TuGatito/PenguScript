@@ -127,7 +127,7 @@ insignia loom_
 # --- Public constants ---------------------------------------------------
 
 ## The version of the loom module.
-const LOOM_VERSION as string is "2.2.0"
+const LOOM_VERSION as string is "2.8.0"
 
 # --- Sequence generation ------------------------------------------------
 
@@ -2350,6 +2350,365 @@ weave _running_extreme_int with items as list of int, want_max as bool into list
         calling out.push with best
     return out
 
+# --- Context-taking pipelines (`*_ctx`) -----------------------------------
+#
+# A context-free `map`/`filter`/`fold` would need a closure to carry the extra
+# state, and PenguScript has no closures (LANGUAGE.md §8.4).  The `*_ctx`
+# family is the explicit alternative: the callback takes the context as its
+# first parameter and the caller passes it once.  Every function is
+# self-contained (no call into a non-`_ctx` version) and pure: it only reads
+# `xs`/`ys` and returns fresh owned lists.  The context is **borrowed**; it must
+# only be alive for the duration of the call, which is synchronous.
+#
+# A tiny `rune` is the usual context.  When the state is one scalar, passing
+# `ref to int`/`ref to string` directly avoids inventing a type; when the
+# callback must mutate it, a rune with a `list`/`int` field is the idiomatic
+# accumulator (see `for_each_ctx`'s example).
+
+## Applies `f` to every element of `xs`, passing `ctx` on each call.
+##
+## ## Parámetros
+## - `xs`: the source list; it is only read.
+## - `ctx`: the borrowed context; it is passed to every call unchanged.
+## - `f`: the callback, `(ref to C, T) -> U`.
+##
+## ## Retorno
+## A new owned `list of U` with one element per input element; release it with
+## `banish`.
+##
+## ## Memoria
+## No posee `ctx`: el llamador lo libera (si aloca) después de la última
+## llamada. El `list` de salida es nuevo y suyo.
+##
+## ## Ejemplo
+## ```pengu
+## rune Scaler:
+##     factor as int
+##
+## weave scale with s as ref to Scaler, x as int into int:
+##     return s->factor * x
+##
+## var s as Scaler is with factor is 3
+## var xs as list of int is [1, 2, 3]
+## var ys as list of int is calling loom.map_ctx with xs, (sigil of s), scale
+## # ys == [3, 6, 9]
+## ```
+weave map_ctx shard T, U, C with xs as list of T, ctx as ref to C, f as weave with c as ref to C, x as T into U into list of U:
+    var out as list of U is list of U
+    for x in xs:
+        calling out.push with (calling f with ctx, x)
+    return out
+
+## Keeps the elements for which `f` returns `true`, passing `ctx` on each call.
+##
+## ## Parámetros
+## - `xs`: the source list; it is only read.
+## - `ctx`: the borrowed context; it is passed to every call unchanged.
+## - `f`: the predicate, `(ref to C, T) -> bool`.
+##
+## ## Retorno
+## A new owned `list of T` with the matching elements, in input order; release
+## it with `banish`.
+##
+## ## Memoria
+## El `list` de salida es nuevo; los elementos se copian tal cual (un `string`
+## o `list` dentro de `T` sigue siendo un préstamo, no una copia profunda).
+## `ctx` no se posee.
+##
+## ## Ejemplo
+## ```pengu
+## weave is_multiple with m as ref to int, x as int into bool:
+##     return (x % (essence of m)) == 0
+##
+## var m as int is 3
+## var xs as list of int is [1, 2, 3, 4, 5, 6]
+## calling loom.filter_ctx with xs, (sigil of m), is_multiple    # [3, 6]
+## ```
+weave filter_ctx shard T, C with xs as list of T, ctx as ref to C, f as weave with c as ref to C, x as T into bool into list of T:
+    var out as list of T is list of T
+    for x in xs:
+        if calling f with ctx, x:
+            calling out.push with x
+    return out
+
+## Left-folds `xs` from `init`, passing `ctx` on each call.
+##
+## ## Parámetros
+## - `xs`: the source list; it is only read.
+## - `init`: the initial accumulator; its type may differ from the element type.
+## - `ctx`: the borrowed context; it is passed to every call unchanged.
+## - `f`: the step, `(ref to C, U, T) -> U`.
+##
+## ## Retorno
+## The final accumulator. No list is allocated.
+##
+## ## Memoria
+## No aloca memoria. Si `U` posee memoria, `init` y cada resultado de `f` se
+## mueven al acumulador; el llamador sigue siendo el dueño de `init`.
+##
+## ## Ejemplo
+## ```pengu
+## rune Separator:
+##     sep as string
+##
+## weave join_step with s as ref to Separator, acc as string, x as int into string:
+##     return "{acc}{s->sep}{x}"
+##
+## var s as Separator is with sep is "-"
+## calling loom.fold_ctx with [1, 2, 3], "0", (sigil of s), join_step    # "0-1-2-3"
+## ```
+weave fold_ctx shard T, U, C with xs as list of T, init as U, ctx as ref to C, f as weave with c as ref to C, acc as U, x as T into U into U:
+    var acc as U is init
+    for x in xs:
+        set acc is calling f with ctx, acc, x
+    return acc
+
+## Calls `f` on every element of `xs`, passing `ctx` on each call.
+##
+## Use it for side effects (accumulating into the context, printing, updating a
+## counter). The callback returns `void`.
+##
+## ## Parámetros
+## - `xs`: the source list; it is only read.
+## - `ctx`: the borrowed context; it is passed to every call unchanged.
+## - `f`: the callback, `(ref to C, T) -> void`.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Memoria
+## No aloca memoria por sí misma. El `ctx` puede mutar; si el callback aloca,
+## el llamador es responsable de liberarlo.
+##
+## ## Ejemplo
+## ```pengu
+## rune Counter:
+##     total as int
+##
+## weave add_up with c as ref to Counter, x as int into void:
+##     set c->total is c->total + x
+##
+## var c as Counter is with total is 0
+## calling loom.for_each_ctx with [1, 2, 3], (sigil of c), add_up
+## # c.total == 6
+## ```
+weave for_each_ctx shard T, C with xs as list of T, ctx as ref to C, f as weave with c as ref to C, x as T into void into void:
+    for x in xs:
+        calling f with ctx, x
+
+## Combines `xs` and `ys` element by element with `f`, passing `ctx` on each
+## call; stops at the shorter list, exactly like `zip_with_op`.
+##
+## ## Parámetros
+## - `xs`: the left operands; only read.
+## - `ys`: the right operands; only read.
+## - `ctx`: the borrowed context; it is passed to every call unchanged.
+## - `f`: the combiner, `(ref to C, T, U) -> V`.
+##
+## ## Retorno
+## A new owned `list of V` of size `min(len(xs), len(ys))`; release it with
+## `banish`.
+##
+## ## Memoria
+## El `list` de salida es nuevo; las dos entradas solo se leen. `ctx` no se posee.
+##
+## ## Ejemplo
+## ```pengu
+## weave add_bias with bias as ref to int, x as int, y as int into int:
+##     return x + y + (essence of bias)
+##
+## var bias as int is 10
+## calling loom.zip_with_ctx with [1, 2], [3], (sigil of bias), add_bias    # [14]
+## ```
+weave zip_with_ctx shard T, U, V, C with xs as list of T, ys as list of U, ctx as ref to C, f as weave with c as ref to C, x as T, y as U into V into list of V:
+    var out as list of V is list of V
+    let limit as int is (if (calling ys.len) < (calling xs.len) then (calling ys.len) else (calling xs.len))
+    var i as int is 0
+    while i < limit:
+        calling out.push with (calling f with ctx, (xs at i), (ys at i))
+        set i is i + 1
+    return out
+
+## Returns the first element for which `f` returns `true`, passing `ctx`.
+##
+## Unlike `find_first` (equality search that returns an **index**), this is a
+## predicate search that returns the **element** itself. The context is the
+## only thing `f` needs beyond the element, so it is passed on every call.
+##
+## ## Parámetros
+## - `xs`: the source list; only read.
+## - `ctx`: the borrowed context; passed to every call unchanged.
+## - `f`: the predicate, `(ref to C, T) -> bool`.
+##
+## ## Retorno
+## `some element` for the first match, or `maybe none` when nothing matches.
+##
+## ## Memoria
+## No aloca memoria. El elemento se copia en el `maybe`; si `T` presta memoria,
+## el préstamo sigue siendo del llamador.
+##
+## ## Ejemplo
+## ```pengu
+## weave over with limit as ref to int, x as int into bool:
+##     return x > (essence of limit)
+##
+## var limit as int is 10
+## calling loom.find_first_ctx with [1, 12, 20], (sigil of limit), over    # some 12
+## ```
+weave find_first_ctx shard T, C with xs as list of T, ctx as ref to C, f as weave with c as ref to C, x as T into bool into maybe T:
+    for x in xs:
+        if calling f with ctx, x:
+            return some x
+    return maybe none
+
+## `true` when `f` returns `true` for at least one element of `xs`.
+##
+## ## Parámetros
+## - `xs`: the source list; only read.
+## - `ctx`: the borrowed context; passed to every call unchanged.
+## - `f`: the predicate, `(ref to C, T) -> bool`.
+##
+## ## Retorno
+## `false` for an empty list (there is no witness). Stops at the first match.
+##
+## ## Memoria
+## No aloca memoria.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.any_ctx with [1, 2, 3], (sigil of limit), over    # true
+## ```
+weave any_ctx shard T, C with xs as list of T, ctx as ref to C, f as weave with c as ref to C, x as T into bool into bool:
+    for x in xs:
+        if calling f with ctx, x:
+            return true
+    return false
+
+## `true` when `f` returns `true` for every element of `xs`.
+##
+## ## Parámetros
+## - `xs`: the source list; only read.
+## - `ctx`: the borrowed context; passed to every call unchanged.
+## - `f`: the predicate, `(ref to C, T) -> bool`.
+##
+## ## Retorno
+## `true` for an empty list (the vacuous truth). Stops at the first failure.
+##
+## ## Memoria
+## No aloca memoria.
+##
+## ## Ejemplo
+## ```pengu
+## calling loom.all_ctx with [12, 20], (sigil of limit), over    # true
+## ```
+weave all_ctx shard T, C with xs as list of T, ctx as ref to C, f as weave with c as ref to C, x as T into bool into bool:
+    for x in xs:
+        if not (calling f with ctx, x):
+            return false
+    return true
+
+## Splits `xs` in two: the elements matching `f` and the ones that do not,
+## preserving input order in both halves.
+##
+## ## Parámetros
+## - `xs`: the source list; only read.
+## - `ctx`: the borrowed context; passed to every call unchanged.
+## - `f`: the predicate, `(ref to C, T) -> bool`.
+##
+## ## Retorno
+## A fresh tuple `(matching, rest)`. Both lists are owned by the caller: release
+## each one with `banish` (a tuple of lists is not itself released).
+##
+## ## Memoria
+## Dos `list` nuevos, en el orden de entrada. `ctx` no se posee.
+##
+## ## Ejemplo
+## ```pengu
+## let (yes, no) is calling loom.partition_ctx with xs, (sigil of m), is_multiple
+## ```
+weave partition_ctx shard T, C with xs as list of T, ctx as ref to C, f as weave with c as ref to C, x as T into bool into (list of T, list of T):
+    var yes as list of T is list of T
+    var no as list of T is list of T
+    for x in xs:
+        if calling f with ctx, x:
+            calling yes.push with x
+        else:
+            calling no.push with x
+    return yes, no
+
+## Maps and filters in one pass: keeps the `some` results of `f` and drops the
+## `none`s, passing `ctx` on every call.
+##
+## ## Parámetros
+## - `xs`: the source list; only read.
+## - `ctx`: the borrowed context; passed to every call unchanged.
+## - `f`: the callback, `(ref to C, T) -> maybe U`.
+##
+## ## Retorno
+## A new owned `list of U` with the present results, in input order; release it
+## with `banish`.
+##
+## ## Memoria
+## El `list` de salida es nuevo; `ctx` no se posee.
+##
+## ## Ejemplo
+## ```pengu
+## weave half_if_even with m as ref to int, x as int into maybe int:
+##     if (x % 2) == 0:
+##         return some (x * (essence of m))
+##     return maybe none
+##
+## calling loom.filter_map_ctx with [1, 2, 3, 4], (sigil of m), half_if_even    # [6, 12]
+## ```
+weave filter_map_ctx shard T, U, C with xs as list of T, ctx as ref to C, f as weave with c as ref to C, x as T into maybe U into list of U:
+    var out as list of U is list of U
+    for x in xs:
+        if value as U is (calling f with ctx, x):
+            calling out.push with value
+    return out
+
+# --- Test-only context fixtures ------------------------------------------
+# Module-level so the `test` blocks below can name them; they follow the same
+# `_` privacy convention as the rest of the harness.
+
+## Adds `offset` to its element.
+weave _ctx_add with offset as ref to int, x as int into int:
+    return (essence of offset) + x
+
+## True when `x` is above `limit`.
+weave _ctx_above with limit as ref to int, x as int into bool:
+    return x > (essence of limit)
+
+## Folds by adding the element and the context offset to the accumulator.
+weave _ctx_fold_add with offset as ref to int, acc as int, x as int into int:
+    return acc + x + (essence of offset)
+
+## Appends the element to the rune's list and adds it to the rune's total.
+weave _ctx_collect with c as ref to _CtxCollector, x as int into void:
+    set c->total is c->total + x
+    calling c->items.push with x
+
+## Multiplies an even element by `factor` and drops an odd one.
+weave _ctx_half_if_even with factor as ref to int, x as int into maybe int:
+    if (x % 2) == 0:
+        return some (x * (essence of factor))
+    return maybe none
+
+## Adds two elements and the context bias.
+weave _ctx_add_pair with bias as ref to int, x as int, y as int into int:
+    return x + y + (essence of bias)
+
+## Returns the context word for a positive element, `"other"` otherwise.
+weave _ctx_word_for with word as ref to string, x as int into string:
+    if x > 0:
+        return essence of word
+    return "other"
+
+## A mutable accumulator used by the `for_each_ctx` test.
+rune _CtxCollector:
+    total as int
+    items as list of int
+
 ## Internal harness: panics with `label` when `cond` is false.
 weave _expect with cond as bool, label as string into void:
     if not cond:
@@ -2398,6 +2757,10 @@ weave _expect_some shard T where T: Par with m as maybe T, expected as T, label 
             calling spark.panic with "loom test failed: {label}"
     else:
         calling spark.panic with "loom test failed: {label}: none"
+## Internal harness: `maybe T` is absent.
+weave _expect_none shard T where T: Par with m as maybe T, label as string into void:
+    if value as T is m:
+        calling spark.panic with "loom test failed: {label}: expected none"
 ## Internal harness: integer `Pair` (the `Pair` argument goes last because of the parser).
 weave _expect_pair with first_expected as int, second_expected as int, label as string, pair as Pair of int and int into void:
     if pair.first != first_expected:
@@ -3123,5 +3486,82 @@ test "a bound seal orders through the Ordered concept":
     calling _expect_eq with (calling is_strictly_asc with xs), false, "seal is_strictly_asc"
     var first_low as LoomUserId is merged at 0
     calling _expect_eq with (first_low to int), 3, "seal order"
-test "LOOM_VERSION is version 2.2.0":
-    calling _expect with LOOM_VERSION == "2.2.0", "version"
+# Context-taking pipelines (`*_ctx`)
+test "map_ctx applies the callback with the context":
+    var offset as int is 10
+    var xs as list of int is [1, 2, 3]
+    var ys as list of int is calling map_ctx with xs, (sigil of offset), _ctx_add
+    defer banish ys
+    var exp as list of int is [11, 12, 13]
+    calling _expect_eq_ints with ys, exp, "map_ctx"
+test "filter_ctx keeps the elements the predicate accepts":
+    var limit as int is 2
+    var xs as list of int is [1, 3, 4]
+    var ys as list of int is calling filter_ctx with xs, (sigil of limit), _ctx_above
+    defer banish ys
+    var exp as list of int is [3, 4]
+    calling _expect_eq_ints with ys, exp, "filter_ctx"
+test "fold_ctx threads the context through every step":
+    var offset as int is 1
+    var xs as list of int is [1, 2, 3]
+    calling _expect_eq with (calling fold_ctx with xs, 0, (sigil of offset), _ctx_fold_add), 9, "fold_ctx"
+test "for_each_ctx can mutate the context":
+    var c as _CtxCollector is with total is 0
+    var xs as list of int is [1, 2, 3]
+    calling for_each_ctx with xs, (sigil of c), _ctx_collect
+    defer banish c.items
+    calling _expect_eq with c.total, 6, "for_each_ctx total"
+    calling _expect_eq with (calling c.items.len), 3, "for_each_ctx len"
+    calling _expect_eq with (c.items at 2), 3, "for_each_ctx last"
+test "zip_with_ctx truncates at the shorter list":
+    var bias as int is 100
+    var xs as list of int is [1, 2, 3]
+    var ys as list of int is [10, 20]
+    var zs as list of int is calling zip_with_ctx with xs, ys, (sigil of bias), _ctx_add_pair
+    defer banish zs
+    var exp as list of int is [111, 122]
+    calling _expect_eq_ints with zs, exp, "zip_with_ctx"
+test "find_first_ctx returns the first matching element":
+    var limit as int is 2
+    var xs as list of int is [1, 3, 4]
+    calling _expect_some with (calling find_first_ctx with xs, (sigil of limit), _ctx_above), 3, "find_first_ctx"
+    var high as int is 10
+    calling _expect_none with (calling find_first_ctx with xs, (sigil of high), _ctx_above), "find_first_ctx none"
+test "any_ctx and all_ctx handle the empty list":
+    var limit as int is 2
+    var empty as list of int is list of int
+    var xs as list of int is [3, 4]
+    var mixed as list of int is [3, 1]
+    var low as list of int is [1, 2]
+    calling _expect with (calling any_ctx with xs, (sigil of limit), _ctx_above), "any_ctx true"
+    calling _expect with not (calling any_ctx with low, (sigil of limit), _ctx_above), "any_ctx false"
+    calling _expect with not (calling any_ctx with empty, (sigil of limit), _ctx_above), "any_ctx empty"
+    calling _expect with (calling all_ctx with xs, (sigil of limit), _ctx_above), "all_ctx true"
+    calling _expect with not (calling all_ctx with mixed, (sigil of limit), _ctx_above), "all_ctx false"
+    calling _expect with (calling all_ctx with empty, (sigil of limit), _ctx_above), "all_ctx empty"
+test "partition_ctx splits in input order":
+    var limit as int is 2
+    var xs as list of int is [1, 2, 3, 4]
+    let (yes, no) is calling partition_ctx with xs, (sigil of limit), _ctx_above
+    defer banish yes
+    defer banish no
+    var exp_yes as list of int is [3, 4]
+    var exp_no as list of int is [1, 2]
+    calling _expect_eq_ints with yes, exp_yes, "partition_ctx yes"
+    calling _expect_eq_ints with no, exp_no, "partition_ctx no"
+test "filter_map_ctx keeps the some results":
+    var factor as int is 3
+    var xs as list of int is [1, 2, 3, 4]
+    var ys as list of int is calling filter_map_ctx with xs, (sigil of factor), _ctx_half_if_even
+    defer banish ys
+    var exp as list of int is [6, 12]
+    calling _expect_eq_ints with ys, exp, "filter_map_ctx"
+test "a string context works in map_ctx":
+    var word as string is "positive"
+    var xs as list of int is [1, -1, 2]
+    var ys as list of string is calling map_ctx with xs, (sigil of word), _ctx_word_for
+    defer banish ys
+    calling _expect_eq with (ys at 0), "positive", "string ctx positive"
+    calling _expect_eq with (ys at 1), "other", "string ctx other"
+test "LOOM_VERSION is version 2.8.0":
+    calling _expect with LOOM_VERSION == "2.8.0", "version"

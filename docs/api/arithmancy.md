@@ -6,6 +6,134 @@
 
 ---
 
+### `sqrt`
+
+> **sqrt**(x: float) -> float
+
+Square root of `x` (C sqrt). Domain: x >= 0.
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.sqrt`.
+
+
+### `sin`
+
+> **sin**(x: float) -> float
+
+Sine of angle `x` in radians (C sin).
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.sin`.
+
+
+### `cos`
+
+> **cos**(x: float) -> float
+
+Cosine of angle `x` in radians (C cos).
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.cos`.
+
+
+### `tan`
+
+> **tan**(x: float) -> float
+
+Tangent of angle `x` in radians (C tan).
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.tan`.
+
+
+### `asin`
+
+> **asin**(x: float) -> float
+
+Arc sine of `x` in radians (C asin). Domain: [-1, 1].
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.asin`.
+
+
+### `acos`
+
+> **acos**(x: float) -> float
+
+Arc cosine of `x` in radians (C acos). Domain: [-1, 1].
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.acos`.
+
+
+### `atan`
+
+> **atan**(x: float) -> float
+
+Arc tangent of `x` in radians (C atan).
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.atan`.
+
+
+### `atan2`
+
+> **atan2**(y: float, x: float) -> float
+
+Four-quadrant arc tangent of `y` / `x` in radians (C atan2).
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `y.atan2 with x`.
+
+
+### `exp`
+
+> **exp**(x: float) -> float
+
+Exponential: e raised to the power `x` (C exp).
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.exp`.
+
+
+### `log`
+
+> **log**(x: float) -> float
+
+Natural logarithm of `x` (C log). Domain: x > 0.
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.ln`.
+
+
+### `log2`
+
+> **log2**(x: float) -> float
+
+Base-2 logarithm of `x` (C log2). Domain: x > 0.
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.log2`.
+
+
+### `log10`
+
+> **log10**(x: float) -> float
+
+Base-10 logarithm of `x` (C log10). Domain: x > 0.
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.log10`.
+
+
+### `pow`
+
+> **pow**(x: float, y: float) -> float
+
+Raises `x` to the power `y` (C pow).
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `x.pow with y`.
+
+
+### `hypot`
+
+> **hypot**(a: float, b: float) -> float
+
+Hypotenuse: sqrt(a^2 + b^2).
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `a.hypot with b`.
+La versión de `fractio` llama a `libm` `hypot`, que además evita el
+desbordamiento intermedio de `a*a + b*b`.
+
+
 ### `ARITHMANCY_VERSION`
 
 > const string` = 2.0.0`
@@ -277,6 +405,8 @@ _Undocumented function._
 > **abs**(x: float) -> float
 
 Absolute value of `x` (C fabs).
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.abs`.
 
 
 ### `abs_i`
@@ -284,20 +414,8 @@ Absolute value of `x` (C fabs).
 > **abs_i**(x: int) -> int
 
 Absolute value of integer `x`.
-
-
-### `sqrt`
-
-> **sqrt**(x: float) -> float
-
-Square root of `x` (C sqrt). Domain: x >= 0.
-
-
-### `pow`
-
-> **pow**(x: float, y: float) -> float
-
-Raises `x` to the power `y` (C pow).
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.abs`.
 
 
 ### `floor`
@@ -305,6 +423,10 @@ Raises `x` to the power `y` (C pow).
 > **floor**(x: float) -> float
 
 Largest integer not greater than `x`, returned as a float (C floor).
+Nota
+**No** delega en `std.numerus`. El `floor` del shard `Num` pasa por `int`
+(`(self to int)`), así que solo es exacto mientras `|x|` quepa en `int`;
+éste es el `floor` de C y cubre todo el dominio de `float`/`f64`.
 
 
 ### `ceil`
@@ -312,6 +434,9 @@ Largest integer not greater than `x`, returned as a float (C floor).
 > **ceil**(x: float) -> float
 
 Smallest integer not less than `x`, returned as a float (C ceil).
+Nota
+**No** delega en `std.numerus`, por la misma razón que `floor`: el del shard
+pasa por `int` y pierde los valores fuera de ese rango.
 
 
 ### `round`
@@ -319,6 +444,8 @@ Smallest integer not less than `x`, returned as a float (C ceil).
 > **round**(x: float) -> float
 
 Rounds `x` to the nearest integer, returned as a float (C round).
+Nota
+**No** delega en `std.numerus`, por la misma razón que `floor`.
 
 
 ### `trunc`
@@ -326,6 +453,8 @@ Rounds `x` to the nearest integer, returned as a float (C round).
 > **trunc**(x: float) -> float
 
 Truncates `x` towards zero (drops fractional part), returned as a float.
+Nota
+**No** delega en `std.numerus.truncate`, por la misma razón que `floor`.
 
 
 ### `fmod`
@@ -333,83 +462,9 @@ Truncates `x` towards zero (drops fractional part), returned as a float.
 > **fmod**(x: float, y: float) -> float
 
 Floating-point remainder of `x` divided by `y` (C fmod).
-
-
-### `sin`
-
-> **sin**(x: float) -> float
-
-Sine of angle `x` in radians (C sin).
-
-
-### `cos`
-
-> **cos**(x: float) -> float
-
-Cosine of angle `x` in radians (C cos).
-
-
-### `tan`
-
-> **tan**(x: float) -> float
-
-Tangent of angle `x` in radians (C tan).
-
-
-### `asin`
-
-> **asin**(x: float) -> float
-
-Arc sine of `x` in radians (C asin). Domain: [-1, 1].
-
-
-### `acos`
-
-> **acos**(x: float) -> float
-
-Arc cosine of `x` in radians (C acos). Domain: [-1, 1].
-
-
-### `atan`
-
-> **atan**(x: float) -> float
-
-Arc tangent of `x` in radians (C atan).
-
-
-### `atan2`
-
-> **atan2**(y: float, x: float) -> float
-
-Four-quadrant arc tangent of `y` / `x` in radians (C atan2).
-
-
-### `exp`
-
-> **exp**(x: float) -> float
-
-Exponential: e raised to the power `x` (C exp).
-
-
-### `log`
-
-> **log**(x: float) -> float
-
-Natural logarithm of `x` (C log). Domain: x > 0.
-
-
-### `log10`
-
-> **log10**(x: float) -> float
-
-Base-10 logarithm of `x` (C log10). Domain: x > 0.
-
-
-### `log2`
-
-> **log2**(x: float) -> float
-
-Base-2 logarithm of `x` (C log2). Domain: x > 0.
+Nota
+Sin equivalente en los módulos de primitivos: `%` es de `Integrum` (solo
+enteros) y `fractio` no expone `fmod`. Se queda aquí.
 
 
 ### `is_prime`
@@ -417,6 +472,8 @@ Base-2 logarithm of `x` (C log2). Domain: x > 0.
 > **is_prime**(n: int) -> bool
 
 Primality test for integer `n` using 6k +/- 1 trial division.
+Delegación
+Wrapper delgado sobre `std.integrum`: el algoritmo vive en `n.is_prime`.
 
 
 ### `gcd`
@@ -424,6 +481,8 @@ Primality test for integer `n` using 6k +/- 1 trial division.
 > **gcd**(a: int, b: int) -> int
 
 Greatest common divisor of `a` and `b` (Euclid's algorithm).
+Delegación
+Wrapper delgado sobre `std.integrum`: el algoritmo vive en `a.gcd with b`.
 
 
 ### `lcm`
@@ -431,6 +490,8 @@ Greatest common divisor of `a` and `b` (Euclid's algorithm).
 > **lcm**(a: int, b: int) -> int
 
 Least common multiple of `a` and `b`.
+Delegación
+Wrapper delgado sobre `std.integrum`: el algoritmo vive en `a.lcm with b`.
 
 
 ### `min`
@@ -438,6 +499,8 @@ Least common multiple of `a` and `b`.
 > **min**(a: float, b: float) -> float
 
 Smaller of two floats.
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `a.min_with with b`.
 
 
 ### `min_i`
@@ -445,6 +508,8 @@ Smaller of two floats.
 > **min_i**(a: int, b: int) -> int
 
 Smaller of two ints.
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `a.min_with with b`.
 
 
 ### `max`
@@ -452,6 +517,8 @@ Smaller of two ints.
 > **max**(a: float, b: float) -> float
 
 Larger of two floats.
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `a.max_with with b`.
 
 
 ### `max_i`
@@ -459,6 +526,8 @@ Larger of two floats.
 > **max_i**(a: int, b: int) -> int
 
 Larger of two ints.
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `a.max_with with b`.
 
 
 ### `clamp`
@@ -466,6 +535,8 @@ Larger of two ints.
 > **clamp**(val: float, min_val: float, max_val: float) -> float
 
 Clamps float `val` into the inclusive range [min_val, max_val].
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `val.clamp`.
 
 
 ### `clamp_i`
@@ -473,6 +544,8 @@ Clamps float `val` into the inclusive range [min_val, max_val].
 > **clamp_i**(val: int, lo: int, hi: int) -> int
 
 Clamps int `val` into the inclusive range [lo, hi].
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `val.clamp`.
 
 
 ### `lerp`
@@ -480,6 +553,8 @@ Clamps int `val` into the inclusive range [lo, hi].
 > **lerp**(a: float, b: float, t: float) -> float
 
 Linear interpolation between `a` and `b`: a + (b - a) * t.
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `a.lerp with b, t`.
 
 
 ### `deg_to_rad`
@@ -487,6 +562,8 @@ Linear interpolation between `a` and `b`: a + (b - a) * t.
 > **deg_to_rad**(deg: float) -> float
 
 Converts angle from degrees to radians.
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `deg.radians`.
 
 
 ### `rad_to_deg`
@@ -494,6 +571,8 @@ Converts angle from degrees to radians.
 > **rad_to_deg**(rad: float) -> float
 
 Converts angle from radians to degrees.
+Delegación
+Wrapper delgado sobre `std.fractio`: el algoritmo vive en `rad.degrees`.
 
 
 ### `sign`
@@ -501,6 +580,8 @@ Converts angle from radians to degrees.
 > **sign**(x: float) -> float
 
 Returns -1.0, 0.0, or 1.0 depending on the sign of float `x`.
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.signum`.
 
 
 ### `sign_i`
@@ -508,6 +589,8 @@ Returns -1.0, 0.0, or 1.0 depending on the sign of float `x`.
 > **sign_i**(x: int) -> int
 
 Returns -1, 0, or 1 depending on the sign of int `x`.
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.signum`.
 
 
 ### `approx_eq`
@@ -515,6 +598,11 @@ Returns -1, 0, or 1 depending on the sign of int `x`.
 > **approx_eq**(a: float, b: float, eps: float) -> bool
 
 Compares two floats for approximate equality within `eps` tolerance.
+Nota
+**No** delega en `std.fractio.approx_eq`: ése usa `<` estricto y éste usa
+`<=`, así que difieren justo cuando `|a - b| == eps`. Cambiar la comparación
+sería un cambio de comportamiento observable, y la política de esta fase es
+no alterar la API existente.
 
 
 ### `smoothstep`
@@ -522,6 +610,9 @@ Compares two floats for approximate equality within `eps` tolerance.
 > **smoothstep**(edge0: float, edge1: float, x: float) -> float
 
 Smoothstep: Hermite interpolation between `edge0` and `edge1`.
+Nota
+Lógica propia de `arithmancy` (no hay equivalente en los módulos de
+primitivos). Usa `clamp`, que sí es un wrapper de `std.numerus`.
 
 
 ### `step`
@@ -529,6 +620,8 @@ Smoothstep: Hermite interpolation between `edge0` and `edge1`.
 > **step**(edge: float, x: float) -> float
 
 Step function: returns 0.0 if `x < edge`, 1.0 otherwise.
+Nota
+Lógica propia; sin equivalente en los módulos de primitivos.
 
 
 ### `remap`
@@ -536,6 +629,8 @@ Step function: returns 0.0 if `x < edge`, 1.0 otherwise.
 > **remap**(v: float, in_min: float, in_max: float, out_min: float, out_max: float) -> float
 
 Remaps `v` from range [in_min, in_max] to range [out_min, out_max].
+Nota
+Lógica propia (composición de aritmética simple); sin equivalente.
 
 
 ### `wrap_val`
@@ -543,6 +638,9 @@ Remaps `v` from range [in_min, in_max] to range [out_min, out_max].
 > **wrap_val**(val: float, lo: float, hi: float) -> float
 
 Wraps `val` into the range [lo, hi).
+Nota
+Lógica propia; se apoya en `fmod`, que es local (no hay `fmod` en los
+módulos de primitivos).
 
 
 ### `wrap_angle`
@@ -550,6 +648,8 @@ Wraps `val` into the range [lo, hi).
 > **wrap_angle**(a: float) -> float
 
 Normalizes an angle into [0, 2*PI).
+Nota
+Lógica propia; usa `wrap_val` y la constante `TAU`.
 
 
 ### `angle_diff`
@@ -557,6 +657,8 @@ Normalizes an angle into [0, 2*PI).
 > **angle_diff**(a: float, b: float) -> float
 
 Shortest angular difference from angle `a` to `b` in radians (range [-PI, PI]).
+Nota
+Lógica propia; usa `fmod` y la constante `PI`.
 
 
 ### `move_towards`
@@ -564,6 +666,8 @@ Shortest angular difference from angle `a` to `b` in radians (range [-PI, PI]).
 > **move_towards**(current: float, target: float, max_delta: float) -> float
 
 Moves `current` towards `target` by at most `max_delta`.
+Nota
+Lógica propia; usa `abs` y `sign`, que sí delegan en `std.numerus`.
 
 
 ### `ping_pong`
@@ -571,6 +675,8 @@ Moves `current` towards `target` by at most `max_delta`.
 > **ping_pong**(t: float, length: float) -> float
 
 Ping-pong oscillating value between 0.0 and `length`.
+Nota
+Lógica propia; usa `fmod`.
 
 
 ### `repeat_val`
@@ -578,6 +684,8 @@ Ping-pong oscillating value between 0.0 and `length`.
 > **repeat_val**(t: float, length: float) -> float
 
 Repeats `t` in the range [0.0, length).
+Nota
+Lógica propia; usa `fmod`.
 
 
 ### `is_power_of_two`
@@ -585,6 +693,9 @@ Repeats `t` in the range [0.0, length).
 > **is_power_of_two**(n: int) -> bool
 
 Returns true if integer `n` is a positive power of two.
+Delegación
+Wrapper delgado sobre `std.integrum`: el algoritmo vive en
+`n.is_power_of_two`.
 
 
 ### `next_power_of_two`
@@ -592,6 +703,11 @@ Returns true if integer `n` is a positive power of two.
 > **next_power_of_two**(n: int) -> int
 
 Returns the smallest power of two greater than or equal to `n`.
+Nota
+**No** delega en `std.integrum.next_power_of_two`: ése devuelve la potencia
+**estrictamente mayor** (`4.next_power_of_two == 8`), mientras que ésta
+devuelve `n` cuando `n` ya es potencia de dos (`arithmancy.next_power_of_two
+with 4 == 4`). Son contratos distintos; unificarlos cambiaría resultados.
 
 
 ### `to_int_round`
@@ -599,6 +715,8 @@ Returns the smallest power of two greater than or equal to `n`.
 > **to_int_round**(x: float) -> int
 
 Rounds float `x` to nearest int.
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.round`.
 
 
 ### `to_int_floor`
@@ -606,6 +724,8 @@ Rounds float `x` to nearest int.
 > **to_int_floor**(x: float) -> int
 
 Rounds float `x` down to int.
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.floor`.
 
 
 ### `to_int_ceil`
@@ -613,6 +733,8 @@ Rounds float `x` down to int.
 > **to_int_ceil**(x: float) -> int
 
 Rounds float `x` up to int.
+Delegación
+Wrapper delgado sobre `std.numerus`: el algoritmo vive en `x.ceil`.
 
 
 ### `inv_sq`
@@ -620,13 +742,10 @@ Rounds float `x` up to int.
 > **inv_sq**(x: float) -> float
 
 Inverse square: 1 / (x * x). Returns 0.0 if x == 0.
-
-
-### `hypot`
-
-> **hypot**(a: float, b: float) -> float
-
-Hypotenuse: sqrt(a^2 + b^2).
+Nota
+Sin equivalente en los módulos de primitivos (`fractio.reciprocal` es
+`1 / x`, no `1 / x²`). Tres líneas locales no justifican una ruta de
+delegación.
 
 
 ### `dist_2d`
@@ -634,6 +753,10 @@ Hypotenuse: sqrt(a^2 + b^2).
 > **dist_2d**(x1: float, y1: float, x2: float, y2: float) -> float
 
 2D Euclidean distance between (x1, y1) and (x2, y2).
+Nota
+Lógica propia; la resta es local y la raíz la pone `sqrt`, que sí delega en
+`std.fractio`. Se conserva `sqrt(dx² + dy²)` (y no `hypot`) para no alterar
+el resultado de una función ya publicada.
 
 
 ### `dist_3d`
@@ -641,6 +764,8 @@ Hypotenuse: sqrt(a^2 + b^2).
 > **dist_3d**(x1: float, y1: float, z1: float, x2: float, y2: float, z2: float) -> float
 
 3D Euclidean distance between (x1, y1, z1) and (x2, y2, z2).
+Nota
+Lógica propia; compone la resta con `sqrt`, que sí delega en `fractio`.
 
 
 ### `Vec2`

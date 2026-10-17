@@ -1,0 +1,12 @@
+import std.functor
+import std.spark
+
+weave twice with c as ref to void, x as int into int:
+    return x * 2
+
+weave main into int:
+    var f as functor.Fn1 of int, int is calling functor.make_fn1 with twice, null
+    var empty as functor.Fn1 of int, int is donum (functor.Fn1 of int, int)
+    calling spark.println with "real={calling f.is_null} {calling f.call_or with 21, -1}"
+    calling spark.println with "empty={calling empty.is_null} {calling empty.call_or with 21, -1}"
+    return 0

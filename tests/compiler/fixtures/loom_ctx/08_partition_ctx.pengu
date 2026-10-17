@@ -1,0 +1,16 @@
+import std.loom
+import std.spark
+
+weave above with limit as ref to int, x as int into bool:
+    return x > (essence of limit)
+
+weave main into int:
+    var limit as int is 2
+    var xs as list of int is [1, 2, 3, 4]
+    let (yes, no) is calling loom.partition_ctx with xs, (sigil of limit), above
+    calling spark.println with "{calling yes.len} {yes at 0} {yes at 1}"
+    calling spark.println with "{calling no.len} {no at 0} {no at 1}"
+    banish yes
+    banish no
+    banish xs
+    return 0

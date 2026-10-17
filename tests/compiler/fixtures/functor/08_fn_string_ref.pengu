@@ -1,0 +1,26 @@
+import std.functor
+import std.spark
+
+rune Expected:
+    text as string
+
+rune Multiplier:
+    factor as int
+
+weave text_is with e as ref to Expected, s as string into bool:
+    return s == e->text
+
+weave sum_factors with m as ref to Multiplier, other as ref to Multiplier into int:
+    return m->factor + other->factor
+
+weave main into int:
+    var e as Expected is with text is "pengu"
+    var f as functor.Fn1 of string, bool is calling functor.make_fn1 with text_is, (sigil of e)
+    var a as Multiplier is with factor is 2
+    var b as Multiplier is with factor is 5
+    var g as functor.Fn1 of ref to Multiplier, int is calling functor.make_fn1 with sum_factors, (sigil of a)
+    var yes_word as string is "pengu"
+    var no_word as string is "other"
+    calling spark.println with "{calling f.call with yes_word} {calling f.call with no_word}"
+    calling spark.println with "{calling g.call with (sigil of b)}"
+    return 0

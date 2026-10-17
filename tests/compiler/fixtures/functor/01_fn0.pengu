@@ -1,0 +1,14 @@
+import std.functor
+import std.spark
+
+rune Ctx:
+    base as int
+
+weave get_base with c as ref to Ctx into int:
+    return c->base
+
+weave main into int:
+    var c as Ctx is with base is 42
+    var f as functor.Fn0 of int is calling functor.make_fn0 with get_base, (sigil of c)
+    calling spark.println with "{calling f.call}"
+    return 0

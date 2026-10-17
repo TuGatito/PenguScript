@@ -11,7 +11,7 @@ week, so it is generated instead — from the same `render_module_doc` the
 
 Scope
 -----
-The **27 hand-written modules** (`std/*.pengu`, excluding the generated
+The **29 hand-written modules** (`std/*.pengu`, excluding the generated
 `*.d.pengu` bindings). The bindings' documentation text is the upstream C header
 comment, so gating their coverage here would mean grading somebody else's
 headers; `docs/DEPRECATIONS.md` and `LANGUAGE.md` §19 cover them instead.
@@ -45,7 +45,7 @@ if str(REPO) not in sys.path:
 OUT_DIR = REPO / "docs" / "api"
 
 #: Measured floor for the share of public declarations that carry a summary.
-#: Measured at 94.1 % (1483/1576) across the 27 hand-written modules — above the
+#: Measured at 94.1 % (1483/1576) across the 29 hand-written modules — above the
 #: 90 % that roadmap item 7.13 asks for. Raise it when the number goes up; never
 #: lower it. The remaining gap is `const` tables and a handful of `rune`s whose
 #: meaning is in the name.

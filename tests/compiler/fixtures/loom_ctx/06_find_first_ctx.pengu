@@ -1,0 +1,22 @@
+import std.loom
+import std.spark
+
+weave above with limit as ref to int, x as int into bool:
+    return x > (essence of limit)
+
+weave main into int:
+    var limit as int is 2
+    var xs as list of int is [1, 3, 4]
+    var found as maybe int is calling loom.find_first_ctx with xs, (sigil of limit), above
+    if value as int is found:
+        calling spark.println with "{value}"
+    else:
+        calling spark.println with "none"
+    var high as int is 10
+    var missing as maybe int is calling loom.find_first_ctx with xs, (sigil of high), above
+    if other as int is missing:
+        calling spark.println with "unreachable {other}"
+    else:
+        calling spark.println with "none"
+    banish xs
+    return 0

@@ -986,6 +986,15 @@ class StmtMixin:
             cleanup_lines = self._get_return_cleanup_lines(is_err_ret=is_err_ret, ind=ind)
             cleanup_str = "\n".join(cleanup_lines) + ("\n" if cleanup_lines else "")
             pop_stmt = f"{ind}pengu_frame_pop();"
+            # A void-returning weave (concrete or a `shard R` monomorphized to
+            # `void`, e.g. `Fn1<A, void>`) cannot store the call in a temporary:
+            # `void _ret = call; return _ret;` is invalid C.  Evaluate the
+            # expression for its effects, then return nothing.
+            ret_is_void = (isinstance(self.current_return_type, BaseType)
+                           and self.current_return_type.name == "void")
+            if ret_expr is not None and ret_is_void:
+                releases = "".join(f"{ind}{rel}\n" for rel in self._loop_exit_releases())
+                return f"{ind}{ret_val_str};\n{cleanup_str}{releases}{pop_stmt}\n{ind}return;"
             if ret_expr is not None:
                 # Phase 3 item 3.7: always evaluate the return expression into a
                 # temporary *before* popping the frame. This used to be done only

@@ -36,7 +36,7 @@
 17. [Pruebas unitarias (`test`)](#17-unit-tests-test)
 18. [Construcción estilo bloque (expresiones `with:`)](#18-block-style-construction-with-expressions)
 19. [Biblioteca estándar](#19-standard-library)
-    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-26-modules)
+    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-29-modules)
     - 19.2 [Bindings externos (repositorios satélite)](#192-external-bindings-satellite-repositories)
     - 19.3 [Ejemplos de la biblioteca estándar central](#193-core-standard-library-examples)
     - 19.4 [Recursos embebidos del proyecto (`arca`)](#194-embedded-project-assets-arca)
@@ -1219,6 +1219,54 @@ outer: for i from 0 to 3:
     var step as weave into int is lambda into do:
         break outer            # E0004: 'outer' etiqueta un bucle de otra función
     var ignored as int is calling step
+```
+
+### 8.4.1 Por qué las lambdas no capturan
+
+Una lambda es una función **estática** sin entorno oculto. Es una decisión del
+lenguaje, no una carencia.
+
+Los pares de PenguScript — Zig, Odin y Nelua — tampoco tienen closures.
+Implementarlas requiere una de tres cosas: un recolector de basura (excluido por
+§13), seguimiento de lifetimes (un sistema de tipos nuevo) o un trampolín de
+enlace tardío (no es C99 portable y no es coste cero). Las tres violarían
+**explicit over hidden** y la regla de abstracciones de coste cero. Los casos
+que hacen que un programador eche de menos un closure tienen respuesta
+explícita:
+
+| Necesitas… | Usa… |
+|---|---|
+| un callback C con `void* user_data` | `ref to void` + `sigil of` (§8.3) |
+| un visitor sobre un AST | `concept` + `bind` + `judge over rune` (§10.2, §7.4.1) |
+| un paso de pipeline con un parámetro extra | `std.loom.*_ctx` (§19.3) |
+| devolver una función configurada | un `rune` con un `concept`, o `std.functor.Fn1` (§19.3) |
+| un callback que se guarda para después | `std.functor.Fn1` / `Fn2` / `Fn3` (§19.3) |
+| un handler de evento con estado | un `rune` + `enchanting` (§10.1) |
+
+No es un compromiso impuesto al compilador: la cadena de herramientas
+autohospedada usa exactamente estos patrones. El formateador es un visitor
+`concept` sobre el AST, el generador de documentación guarda callbacks
+`std.functor.Fn*` y las etapas de pipeline que necesitan configuración reciben
+contextos `loom.*_ctx`. Un callback que recuerda algo es un **valor que
+construyes explícitamente**, nunca un entorno que el compilador captura a tus
+espaldas.
+
+```pengu
+# El patrón de función gruesa de std.functor: el contexto es un valor explícito.
+import std.functor
+import std.spark
+
+rune Multiplier:
+    factor as int
+
+weave apply with m as ref to Multiplier, x as int into int:
+    return m->factor * x
+
+weave main into int:
+    var m as Multiplier is with factor is 3
+    var f as functor.Fn1 of int, int is calling functor.make_fn1 with apply, (sigil of m)
+    calling spark.println with "{calling f.call with 5}"     # 15
+    return 0
 ```
 
 ### 8.5 Métodos `ritual` (estáticos)
@@ -3659,7 +3707,7 @@ Métodos integrados admitidos dentro de los bloques `with` de colecciones:
 
 ## 19. Biblioteca estándar
 
-PenguScript incluye una biblioteca estándar completa de **27 módulos de
+PenguScript incluye una biblioteca estándar completa de **29 módulos de
 PenguScript puro** (`std.<module>`) que ofrecen abstracciones idiomáticas de alto
 nivel para E/S, cadenas, concurrencia, serialización, matemáticas, pruebas y
 puentes de memoria.
@@ -3677,9 +3725,10 @@ La biblioteca estándar se distribuye **acoplada al compilador** en la serie 1.x
 (decisión D6): un programa compilado con PenguScript 1.4 usa el `std/` que se
 distribuyó con 1.4, y no hay una versión de stdlib separada que resolver. Cada
 módulo puro exporta una constante `<MODULE>_VERSION` (p. ej. `std.ffi` →
-`FFI_VERSION`, `std.archivum` → `ARCHIVUM_VERSION`) con la versión del toolchain a
-la que pertenece, de modo que el código puede comprobar la biblioteca contra la que
-se construyó:
+`FFI_VERSION`, `std.archivum` → `ARCHIVUM_VERSION`, `std.loom` → `LOOM_VERSION`,
+`std.functor` → `FUNCTOR_VERSION`) con la release que cambió ese módulo por
+última vez, de modo que el código puede comprobar la biblioteca contra la que se
+construyó:
 
 ```pengu
 import std.archivum
@@ -3689,13 +3738,14 @@ test "stdlib version":
         assert false
 ```
 
-`tests/test_std_versioning.py` exige que cada módulo escrito a mano de `std/`
-exporte esa constante con la versión actual del toolchain. El uso de espacios de
+`tests/stdlib/test_std_versioning.py` exige que cada módulo escrito a mano de
+`std/` exporte esa constante con una versión de release válida (opcionalmente
+con sufijo de prerelease semver), y que `std.functor` y `std.loom` estén en 2.8.0. El uso de espacios de
 nombres ya mantiene cada módulo autocontenido (`std.<module>.<symbol>`), así que
 desacoplar la stdlib en paquetes versionados de forma independiente queda reservado
 para 2.0.
 
-### 19.1 Módulos de PenguScript puro (27 módulos)
+### 19.1 Módulos de PenguScript puro (29 módulos)
 
 Todos los módulos puros se encuentran en el directorio `std/` y se importan como `import std.<module>`.
 
@@ -3722,7 +3772,8 @@ Todos los módulos puros se encuentran en el directorio `std/` y se importan com
 | `std.littera` | Métodos sobre `char` mediante `enchanting char:`. Clasificación ASCII (`is_digit`, `is_alpha`, `is_alnum`, `is_upper`, `is_lower`, `is_space`, `is_whitespace`, `is_control`, `is_printable`, `is_punctuation`, `is_hex_digit`, `is_ascii`); conversiones (`to_upper`, `to_lower`, `to_int`, `digit_value`). PenguScript puro — sin `<ctype.h>`, sin locale, determinista en Linux/macOS/Windows. `is_space` es solo `' '`; usa `is_whitespace` para el conjunto completo de `isspace`. `to_int` es `ord` (el byte sin signo, 0–255). |
 | `std.logica` | Métodos sobre `bool` mediante `enchanting bool:`. Versiones encadenables de los operadores del lenguaje (`toggle`, `and_with`, `or_with`); conectivas derivadas que el lenguaje no tiene como operador (`xor`, `iff` — bicondicional, `nand`, `nor`, `implies` — implicación material, `false` solo cuando `self` es `true` y `other` es `false`); conversión `to_int` (`true` → 1, `false` → 0). PenguScript puro — sin C. Cierra la serie de módulos de primitivos junto a `std.numerus`, `std.integrum`, `std.fractio` y `std.littera`. |
 | `std.numerus` | Métodos numéricos universales sobre todo primitivo mediante `enchanting shard T where T: Num and T: Ordo and T: Par:`: `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`, predicados (`is_zero`, `is_positive`, `is_negative`, `is_non_negative`, `is_non_positive`), aritmética (`twice`, `half`, `square`, `cube`, `pow_int`), redondeo (`truncate`, `floor`, `ceil`, `round`), conversiones (`to_f64`, `to_i64`). Monomorfizado a `int_abs`, `f64_clamp`, … — cero sobrecoste en runtime. Los métodos exclusivos de enteros viven en `std.integrum`; los exclusivos de flotantes, en `std.fractio`. |
-| `std.loom` | Generación de secuencias, transformaciones funcionales y algoritmos genéricos: secuencias (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reducciones (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicados (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transformaciones (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), operaciones tipo conjunto ordenado (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), búsqueda (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), modificaciones estructurales (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), estadísticas (`median`, `mode`, `variance`, `stddev`, `percentile`) y algoritmos genéricos (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`). |
+| `std.loom` | Generación de secuencias, transformaciones funcionales y algoritmos genéricos: secuencias (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reducciones (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicados (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transformaciones (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), operaciones tipo conjunto ordenado (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), búsqueda (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), modificaciones estructurales (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), estadísticas (`median`, `mode`, `variance`, `stddev`, `percentile`) y algoritmos genéricos (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`), más los pipelines con contexto `map_ctx`, `filter_ctx`, `fold_ctx`, `for_each_ctx`, `zip_with_ctx`, `find_first_ctx`, `any_ctx`, `all_ctx`, `partition_ctx` y `filter_map_ctx`. |
+| `std.functor` | Funciones gruesas: un callback explícito más un contexto prestado, sin closures. `Fn0<R>`, `Fn1<A,R>`, `Fn2<A,B,R>` y `Fn3<A,B,C,R>` (dos punteros cada uno), constructores `make_fn0`..`make_fn3`, métodos `call`, `is_null` y `call_or`, y `FUNCTOR_VERSION`. La construcción reinterpreta el puntero a función una vez (el patrón Zig/Odin, el único `transmute` del módulo); llamar es una única llamada indirecta de C y no aloca nada. |
 | `std.memoria` | Gestión manual de memoria del heap mediante funciones de módulo `shard T`: `alloc`, `alloc_array`, `try_alloc`, `try_alloc_array`, `resize_array` (con `old_n` explícito), `try_resize_array`, `copy` (semántica `memmove` — segura con solapamiento), `fill`, `zero`, `swap`, `compare` (devuelve `-1`/`0`/`1` como `memcmp`), `bytes_for`. Zeroed por defecto; en OOM aborta salvo que se use la variante `try_*`. Compone con `banish`/`defer banish`/`errdefer banish`/`derive Nexus`. `free`, `sizeof` y `address_of` están deliberadamente ausentes: esos son `banish`, `size of` y `sigil of` en el propio lenguaje. Quien necesite un bloque sin inicializar usa `antiquus`. |
 | `std.invoke` | Análisis de argumentos de interfaz de línea de comandos (CLI): sintaxis POSIX y GNU (`--flag`, `--key=value`, `-k=value`), negación de flags booleanos (`--no-flag`), subcomandos (`rune Subcommand`), opciones tipadas (int, float, bool, string, multi), opciones multi repetibles (`rune MultiOption`), sugerencias de erratas por Levenshtein, cadenas de ayuda y uso formateadas (`usage_string`, `full_help`), informes de error y variantes robustas de análisis (`parse`, `parse_no_exit`, `parse_or_exit`, `parse_or_usage`, accesores de `ParseResult` `get`, `get_or`, `get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`, `get_all`, `to_map_values`, `to_map_flags`). |
 | `std.ffi` | Puente de interfaz de funciones externas de C de bajo nivel: utilidades de punteros nulos (`null_void`, `null_char`, `null_byte`, `is_null`, `is_valid`, `ptr_eq`), constantes e inspección de arquitectura (`SIZEOF_POINTER`, `SIZEOF_INT`, `SIZEOF_FLOAT`, `pointer_size`, `size_of shard T`, `alignment_of shard T`), conversiones de cadenas C terminadas en nulo (`string_from_cstr`, `cstr_from_string`, `string_from_cstr_n`, `string_from_bytes`, `bytes_from_string`), vistas de memoria (`slice_from_ptr`), colecciones genéricas a partir de búferes de C (`list_from_ptr shard T`, `map_from_entries shard K, V`), copia/escritura de memoria en bruto (`memcpy_raw`, `memset_raw`) y 10 patrones canónicos de interoperabilidad con C. |
@@ -3843,6 +3894,62 @@ weave demonstrate_concurrency into void:
     calling filum.free_mutex with (sigil of m)
     calling filum.free_wait_group with (sigil of wg)
 ```
+
+#### Funciones gruesas (`std.functor`)
+
+Un `Fn1` es un puntero a función más un contexto prestado. La construcción hace
+el único `transmute` una vez; cada llamada es una llamada indirecta de C normal.
+
+```pengu
+import std.functor
+import std.spark
+
+rune Multiplier:
+    factor as int
+
+weave apply with m as ref to Multiplier, x as int into int:
+    return m->factor * x
+
+weave main into int:
+    var m as Multiplier is with factor is 3
+    var f as functor.Fn1 of int, int is calling functor.make_fn1 with apply, (sigil of m)
+    calling spark.println with "{calling f.call with 5}"   # 15
+    return 0
+```
+
+El contexto se presta, nunca se posee: libéralo después de la última llamada. Un
+`Fn` es la herramienta correcta cuando el callback debe **guardarse** (un campo,
+una lista, un struct) o **devolverse**; cuando solo se invoca dentro de un bucle,
+la familia `loom.*_ctx` no necesita envoltorio alguno.
+
+#### Pipelines con contexto explícito (`loom.*_ctx`)
+
+`map_ctx` y sus nueve hermanos reciben el contexto del callback como argumento,
+así que un paso de pipeline puede llevar configuración sin un closure:
+
+```pengu
+import std.loom
+import std.spark
+
+rune Scaler:
+    factor as int
+
+weave scale with s as ref to Scaler, x as int into int:
+    return s->factor * x
+
+weave main into int:
+    var s as Scaler is with factor is 3
+    var xs as list of int is [1, 2, 3]
+    var ys as list of int is calling loom.map_ctx with xs, (sigil of s), scale
+    calling spark.println with "{ys at 0} {ys at 1} {ys at 2}"   # 3 6 9
+    banish ys
+    return 0
+```
+
+`ctx` se presta durante la llamada (síncrona); la lista devuelta es nueva y del
+llamador. `filter_ctx`, `fold_ctx`, `for_each_ctx`, `zip_with_ctx`,
+`find_first_ctx`, `any_ctx`, `all_ctx`, `partition_ctx` y `filter_map_ctx`
+siguen el mismo contrato.
 
 ### 19.4 Recursos embebidos del proyecto (`arca`)
 

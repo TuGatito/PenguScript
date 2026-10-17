@@ -14,7 +14,9 @@ from ._base import (
     OmenType,
     Optional,
     RefType,
+    RuneType,
     SealType,
+    TupleType,
     Type,
 )
 from .ctype import (
@@ -118,12 +120,16 @@ class TypesMixin:
 
         # 2. Runes (Structs)
         #
-        # Tuple product structs are embedded *by value* in rune fields (and in
-        # other tuples), so they must be complete before the struct that contains
-        # them: emit them first, keeping their registration order (an inner tuple
-        # is registered before its outer one).
+        # A by-value field requires the field's struct to be complete, so the
+        # definitions are emitted in dependency order.  This matters for tuple
+        # product structs (embedded by value in rune fields, and in other
+        # tuples) and for a rune that stores a monomorphized generic rune by
+        # value: `Fn1_int_int` is registered during code generation, *after*
+        # the module's own runes, but must be defined before them.  The
+        # original registration order is the deterministic tie-breaker.
         rune_order = [n for n in self.runes if n.startswith("_pengu_tup_")]
         rune_order += [n for n in self.runes if not n.startswith("_pengu_tup_")]
+        rune_order = self._order_runes_by_value(rune_order)
         for name in rune_order:
             fields = self.runes[name]
             if name in self.declaration_types:
@@ -165,13 +171,8 @@ class TypesMixin:
                     else:
                         fa_parts.append(f"aligned({fa['align'][0]})")
                 fa_str = (f" __attribute__(({', '.join(fa_parts)}))" if fa_parts else "")
-                if isinstance(f_type, ArrayType) and f_type.size is not None:
-                    elem_str = CTypeMapper.to_c_type(f_type.element)
-                    rune_lines.append(
-                        f"  {fa_prefix}{elem_str} {self._c_ident(f_name)}[{f_type.size}]{fa_str};")
-                else:
-                    f_str = CTypeMapper.to_c_type(f_type)
-                    rune_lines.append(f"  {fa_prefix}{f_str} {self._c_ident(f_name)}{fa_str};")
+                member = self._declared_member(f_type, self._c_ident(f_name))
+                rune_lines.append(f"  {fa_prefix}{member}{fa_str};")
             rune_lines.append("};" + packed_suffix)
             blocks.append("\n".join(rune_lines))
 
@@ -181,12 +182,8 @@ class TypesMixin:
                 continue
             echo_lines = [f"union {name} {{"]
             for f_name, f_type in fields.items():
-                if isinstance(f_type, ArrayType) and f_type.size is not None:
-                    elem_str = CTypeMapper.to_c_type(f_type.element)
-                    echo_lines.append(f"  {elem_str} {self._c_ident(f_name)}[{f_type.size}];")
-                else:
-                    f_str = CTypeMapper.to_c_type(f_type)
-                    echo_lines.append(f"  {f_str} {self._c_ident(f_name)};")
+                member = self._declared_member(f_type, self._c_ident(f_name))
+                echo_lines.append(f"  {member};")
             echo_lines.append("};")
             blocks.append("\n".join(echo_lines))
 
@@ -216,12 +213,8 @@ class TypesMixin:
                     if v_fields:
                         omen_lines.append("    struct {")
                         for f_name, f_type in v_fields.items():
-                            if isinstance(f_type, ArrayType) and f_type.size is not None:
-                                elem_str = CTypeMapper.to_c_type(f_type.element)
-                                omen_lines.append(f"      {elem_str} {self._c_ident(f_name)}[{f_type.size}];")
-                            else:
-                                f_str = CTypeMapper.to_c_type(f_type)
-                                omen_lines.append(f"      {f_str} {self._c_ident(f_name)};")
+                            member = self._declared_member(f_type, self._c_ident(f_name))
+                            omen_lines.append(f"      {member};")
                         omen_lines.append(f"    }} {self._c_ident(v_name)};")
                 omen_lines.extend([
                     "  } data;",
@@ -265,6 +258,85 @@ class TypesMixin:
             " * ------------------------------------------------------------------------- */",
         ]
         return "\n".join(header) + "\n" + "\n\n".join(blocks) + "\n"
+    def _rune_value_deps(self, t: Type, deps: set) -> None:
+        """Adds the rune structs that ``t`` needs *complete* when used by value.
+
+        A pointer to a rune only needs the forward declaration, so `ref to T`
+        deliberately adds nothing; a by-value field (directly, through an
+        array/frozen/alias/seal wrapper, or as a tuple field) does need the full
+        definition first.
+        """
+        if isinstance(t, RuneType):
+            name = getattr(t, "c_name", None) or t.name
+            if name in self.runes:
+                deps.add(name)
+            return
+        if isinstance(t, TupleType):
+            name = t.c_name()
+            if name in self.runes:
+                deps.add(name)
+            return
+        if isinstance(t, FrozenType):
+            self._rune_value_deps(t.target, deps)
+        elif isinstance(t, AliasType):
+            self._rune_value_deps(t.target, deps)
+        elif isinstance(t, SealType):
+            self._rune_value_deps(t.underlying, deps)
+        elif isinstance(t, ArrayType):
+            self._rune_value_deps(t.element, deps)
+
+    def _order_runes_by_value(self, names: list) -> list:
+        """Topologically orders rune definitions so every by-value field is complete.
+
+        Cycles are impossible for by-value fields (the checker rejects an
+        infinitely sized type), but a cycle through pointers is ignored here
+        because pointers only need the forward declaration.  A ``visit`` that
+        re-enters an in-progress name therefore just stops.
+        """
+        order: list = []
+        state: dict = {}
+
+        def visit(name: str) -> None:
+            mark = state.get(name, 0)
+            if mark:
+                return
+            state[name] = 1
+            deps: set = set()
+            for f_type in self.runes.get(name, {}).values():
+                self._rune_value_deps(f_type, deps)
+            for candidate in names:
+                if candidate != name and candidate in deps:
+                    visit(candidate)
+            state[name] = 2
+            order.append(name)
+
+        for name in names:
+            visit(name)
+        return order
+
+    def _declared_member(self, f_type: Type, ident: str) -> str:
+        """C declaration of one struct/union member named ``ident``.
+
+        A function-pointer type must keep the name *inside* the declarator
+        (``R (*ident)(A)``); appending the name after ``to_c_type`` produced the
+        invalid ``R (*)(A) ident``.  Arrays of function pointers need the same
+        treatment, with the dimensions after the identifier.  Every other type
+        keeps the historical ``<type> <ident>`` shape.
+        """
+        is_fn_ptr = isinstance(f_type, FnType) or (
+            isinstance(f_type, RefType) and isinstance(f_type.target, FnType)
+        )
+        if isinstance(f_type, ArrayType) and f_type.size is not None:
+            inner = f_type.element
+            inner_fn = isinstance(inner, FnType) or (
+                isinstance(inner, RefType) and isinstance(inner.target, FnType)
+            )
+            if inner_fn:
+                return CTypeMapper.to_c_decl(inner, f"{ident}[{f_type.size}]")
+            return f"{CTypeMapper.to_c_type(inner)} {ident}[{f_type.size}]"
+        if is_fn_ptr:
+            return CTypeMapper.to_c_decl(f_type, ident)
+        return f"{CTypeMapper.to_c_type(f_type)} {ident}"
     def _member_sep(self, obj_type: Optional[Type], obj_expr: str = "") -> str:
         """Returns '.' or '->' for accessing a member of a receiver expression.
 

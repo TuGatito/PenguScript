@@ -1000,6 +1000,201 @@ banish mp           # libera la caja del maybe (un 'maybe ref to T' posee la caj
 
 ---
 
+### 6.9 Funciones gruesas y callbacks con contexto
+
+PenguScript no tiene closures, por diseño (`LANGUAGE.md` §8.4.1). Un callback
+que "recuerda" algo no es un entorno que el compilador captura; es un **valor
+que pasas explícitamente**. Cinco patrones cubren todos los casos que
+resolvería un closure, todos con coste cero y visibles en el sitio de llamada.
+
+#### Patrón 1 — un callback C con `void* user_data`
+
+Esto ya funciona con las primitivas del lenguaje: declara la firma de C con
+`ref to void` en el hueco de estado del callback, pasa la dirección de tu estado
+con `sigil of` y recupérala dentro del callback.
+
+```pengu-fragment
+# C: void visit_all(void (*cb)(void *item, void *user), void *items, int n);
+declare visit_all with cb as ref to weave with item as ref to void, user as ref to void into void, items as ref to void, n as int into void
+
+weave count_item with item as ref to void, user as ref to void into void:
+    var counter as ref to int is transmute user to ref to int
+    set essence of counter is (essence of counter) + 1
+
+weave main into int:
+    var hits as int is 0
+    var xs as list of int is [1, 2, 3]
+    calling visit_all with count_item, (sigil of xs), 3
+    return 0
+```
+
+El `transmute` es la frontera de C hablando; es la misma conversión que
+escribiría el propio C. Mantenlo dentro del callback, nunca en el pipeline.
+
+#### Patrón 2 — un visitor sobre un AST
+
+Un visitor tiene varios métodos que comparten estado, así que el estado vive en
+un `rune` y el contrato en un `concept`. `bind` implementa el contrato y
+`judge over rune` despacha sobre el nodo sin vtable ni closure:
+
+```pengu
+import std.spark
+
+rune Expr:
+    kind as ExprKind
+    int_value as int
+    left as ref to Expr
+    right as ref to Expr
+
+omen ExprKind:
+    Literal
+    Binary
+    Neg
+
+concept ExprVisitor:
+    weave visit_literal with e as ref to Expr into int
+    weave visit_binary with e as ref to Expr into int
+    weave visit_neg with e as ref to Expr into int
+
+rune Printer:
+    marker as int
+
+bind Printer with ExprVisitor:
+    weave visit_literal with e as ref to Expr into int:
+        return e->int_value
+    weave visit_binary with e as ref to Expr into int:
+        return (calling walk with (essence of self), e->left) + (calling walk with (essence of self), e->right)
+    weave visit_neg with e as ref to Expr into int:
+        return 0 - (calling walk with (essence of self), e->left)
+
+weave walk shard V where V: ExprVisitor with v as V, e as ref to Expr into int:
+    judge e over kind:
+        when Literal -> calling v.visit_literal with e
+        when Binary -> calling v.visit_binary with e
+        when Neg -> calling v.visit_neg with e
+
+weave main into int:
+    var one as Expr is with kind is Literal, int_value is 3
+    var two as Expr is with kind is Literal, int_value is 4
+    var sum as Expr is with kind is Binary, left is (sigil of one), right is (sigil of two)
+    var neg as Expr is with kind is Neg, left is (sigil of sum)
+    var p as Printer is with marker is 0
+    calling spark.println with "{calling walk with p, (sigil of neg)}"   # -7
+    return 0
+```
+
+El `walk` se monomorfiza por visitor, así que llamar a `visit_literal` es una
+llamada C normal. Añadir una variante significa añadir un método al `concept`:
+el compilador avisa de cada `bind` que no lo implemente.
+
+#### Patrón 3 — un paso de pipeline con un parámetro extra
+
+Cuando el callback solo se llama dentro de un bucle, no necesita un `Fn`:
+pásale el contexto a la familia `*_ctx`. El contexto puede ser un rune, un
+escalar, un `ref to` o un `string`.
+
+```pengu
+import std.loom
+import std.spark
+
+rune Scaler:
+    factor as int
+    min_value as int
+
+weave scale with s as ref to Scaler, x as int into int:
+    return s->factor * x
+
+weave keep with s as ref to Scaler, x as int into bool:
+    return x >= s->min_value
+
+weave main into int:
+    var s as Scaler is with factor is 2, min_value is 6
+    var xs as list of int is [1, 2, 3, 4]
+    var scaled as list of int is calling loom.map_ctx with xs, (sigil of s), scale
+    var kept as list of int is calling loom.filter_ctx with scaled, (sigil of s), keep
+    calling spark.println with "{scaled at 0} {scaled at 3} {kept at 0} {kept at 1}"   # 2 8 6 8
+    banish scaled
+    banish kept
+    return 0
+```
+
+`fold_ctx`, `for_each_ctx`, `zip_with_ctx`, `find_first_ctx`, `any_ctx`,
+`all_ctx`, `partition_ctx` y `filter_map_ctx` reciben el mismo contexto
+explícito. El contexto se presta durante la llamada síncrona; la lista devuelta
+es tuya.
+
+#### Patrón 4 — devolver una función configurada
+
+Dos formas, ambas explícitas:
+
+```pengu-fragment
+# (a) un rune con un método: el tipo nombra la configuración
+rune Doubler:
+    factor as int
+
+enchanting Doubler:
+    weave call with a as int into int:
+        return self->factor * a
+
+# (b) std.functor.Fn1: un solo tipo de callable para toda configuración
+import std.functor
+
+rune Multiplier:
+    factor as int
+
+weave apply with m as ref to Multiplier, x as int into int:
+    return m->factor * x
+
+var m as Multiplier is with factor is 3
+var f as functor.Fn1 of int, int is calling functor.make_fn1 with apply, (sigil of m)
+```
+
+Usa (a) cuando el callable forma parte del dominio (un `Validator`, un
+`Filter`, un `Reducer`) y merece un nombre y doc comments. Usa (b) cuando el
+callable es un detalle de implementación que se guarda en un campo o atraviesa
+varias capas: un solo tipo `Fn1` sirve para toda configuración, pero el
+contexto debe vivir más que él y la llamada es dinámica.
+
+#### Patrón 5 — guardar un callback con estado
+
+Un `Fn1`/`Fn2`/`Fn3` es un valor, así que puede ser un campo de un rune mayor.
+Esta es la forma del handler de evento: el estado vive en el contexto, el rune
+guarda el callback y el llamador posee ambos lifetimes explícitamente.
+
+```pengu
+import std.functor
+import std.spark
+
+rune Button:
+    label as string
+    on_click as functor.Fn1 of int, void
+
+weave log_click with clicks as ref to int, button as int into void:
+    set essence of clicks is (essence of clicks) + 1
+    calling spark.println with "button {button} clicked {essence of clicks}"
+
+weave main into int:
+    var clicks as int is 0
+    var f as functor.Fn1 of int, void is calling functor.make_fn1 with log_click, (sigil of clicks)
+    var b as Button is with label is "Save", on_click is f
+    calling b.on_click.call with 1
+    calling b.on_click.call with 1
+    return 0
+```
+
+| Necesitas… | Usa… |
+|---|---|
+| un callback C con `void*` | `ref to void` + `sigil of` |
+| un visitor sobre un AST | `concept` + `bind` + `judge over rune` |
+| un paso de pipeline con un parámetro extra | `loom.*_ctx` |
+| devolver una función configurada | un `rune` con un método **o** `functor.Fn1` |
+| un callback que se guarda para después | `functor.Fn1` / `Fn2` / `Fn3` |
+| un handler de evento con estado | un `rune` + `functor.FnN`, o `rune` + `enchanting` si el handler es un método |
+
+La regla: **construye el contexto como un valor, pásalo explícitamente y deja
+que el tipo diga quién posee qué**. Si un callback necesita más de una operación
+o varios trozos de estado, es un `concept`/`rune`, no un `Fn`.
+
 ## 7. Genéricos y bounds
 
 ### 7.1 Declaración
@@ -1895,6 +2090,98 @@ rune Point:
 `Vinculum`, `Imago`, `Nexus`). Una rune o un echo lo obtiene automáticamente
 cuando todos sus campos son defaultables (`LANGUAGE.md` §11.4).
 
+### 14.30 Un closure disfrazado de rune con un solo campo `ctx`
+
+```pengu
+# ❌ Anti-Pengunic: el rune solo existe para llevar un parámetro por un bucle
+rune Multiplier:
+    factor as int
+
+weave apply_all with xs as list of int, m as ref to Multiplier into list of int:
+    var out as list of int is list of int
+    for x in xs:
+        calling out.push with (m->factor * x)
+    return out
+
+# ✅ Pengunic: la transformación es un callback con nombre; el bucle es cosa de loom
+rune Multiplier:
+    factor as int
+
+weave scale with m as ref to Multiplier, x as int into int:
+    return m->factor * x
+
+var ys as list of int is calling loom.map_ctx with xs, (sigil of m), scale
+```
+
+Si el rune solo existe para llevar un parámetro por un bucle, lo que hay que
+quitar es el bucle: `loom.map_ctx` ya sabe iterar, el callback se reutiliza
+fuera del bucle y no se inventa un tipo nuevo. Un rune es un concepto de
+dominio, no un closure con nombre.
+
+### 14.31 Envolver todo en `Fn1` cuando un `concept` + `bind` es más claro
+
+```pengu-fragment
+# ❌ Anti-Pengunic: un Fn1 por método, y el visitor tiene tres
+var visit as functor.Fn1 of Expr, void is calling functor.make_fn1 with visit_one, (sigil of self)
+calling visit.call with e
+
+# ✅ Pengunic: varios métodos que comparten estado son un concept + bind
+concept ExprVisitor:
+    weave visit_literal with e as ref to Expr into int
+    weave visit_binary with e as ref to Expr into int
+    weave visit_neg with e as ref to Expr into int
+
+bind Printer with ExprVisitor:
+    weave visit_literal with e as ref to Expr into int:
+        return e->int_value
+    weave visit_binary with e as ref to Expr into int:
+        return 0
+    weave visit_neg with e as ref to Expr into int:
+        return 0
+```
+
+`functor.Fn1` es **un** callback con **un** contexto. Si el visitor tiene varios
+métodos que comparten estado, un `concept` nombra cada operación, `bind` pone el
+estado en un `rune` y la llamada sigue monomorfizada. Un `Fn1` obligaría a una
+llamada dinámica por operación y enterraría el contrato en el sitio de llamada.
+
+### 14.32 `loom.map_ctx` para lógica compleja que merece un rune con nombre
+
+```pengu
+# ❌ Anti-Pengunic: lógica de negocio enterrada en un callback
+omen Mode:
+    Fast
+    Slow
+
+rune Config:
+    mode as Mode
+
+weave apply_complex with cfg as ref to Config, x as int into int:
+    if cfg->mode == Mode.Fast:
+        return x * 2
+    if x < 0:
+        return 0
+    return x + 1
+
+var results as list of int is calling loom.map_ctx with xs, (sigil of cfg), apply_complex
+
+# ✅ Pengunic: la lógica tiene nombre y hogar
+enchanting Config:
+    weave transform with x as int into int:
+        if self->mode == Mode.Fast:
+            return x * 2
+        if x < 0:
+            return 0
+        return x + 1
+
+var results2 as list of int is for x in xs then (calling cfg.transform with x)
+```
+
+`loom.map_ctx` es para una transformación **pura y simple**. Cuando el callback
+tiene ramas, constantes y "personalidad", es un método del rune que posee el
+estado: gana un nombre, un docstring, tests y un sitio de llamada que se lee
+como código de dominio en vez de un bucle con una lambda.
+
 ---
 
 ## 15. Excepciones documentadas
@@ -1911,8 +2198,8 @@ derivación completa está en [`AUDIT_1.0_FASE7.md`](AUDIT_1.0_FASE7.md) §7.7.
 | Un `weave` público lleva docstring `##` (§11.2) | **Exigida** | `weave` 1314/1315. La única excepción es `std/cipher.pengu:375 weave _b32_val`, un helper **privado** — así que la cobertura de funciones *públicas* es del 100 % | `python -m pytest tests/test_std_docs_completeness.py -q` |
 | Todo `declare` / `const` / `alias` / `omen` está documentado (§11.3) | **Acotada fuera** | `declare` 630/1862 (33,8 %), `const` 123/593 (20,7 %), `alias` 50/153 (32,7 %), `omen` 4/66 (6,1 %). La mayoría son **bindings generados** cuyo texto de documentación es el comentario de la cabecera C de origen; exigir el 100 % obligaría a inventar prosa para superficie de terceros | `python -m pytest tests/test_std_docs_completeness.py -q` |
 | Indentar con 4 espacios, nunca tabuladores (§3.1) | **Exigida** | `.pengufmt.toml` y `std/.pengufmt.toml` fijan `tab_size = 4`, `pengu_project._resolve_indent` devuelve 4 por defecto, y el formateador es idempotente en toda la stdlib | `python pengu_project.py fmt --check std/` |
-| Un local no puede ensombrecer un `weave` global (§2.6) | **Exigida** | `0 W0005` en los 27 módulos escritos a mano de `std/` | `python pengu_project.py check --entry std/<módulo>.pengu` |
-| Sin conversiones inseguras (§9.4) | **Exigida** | `0 W0001` en los 27 módulos y **cero** llamadas a `transmute` en `std/` — la única aparición es un comentario explicativo en `std/ffi.pengu:67`. Si alguna vez hiciera falta, queda confinada a `std/ffi` y `std/filum` y debe ser del mismo tamaño | `python pengu_project.py check --entry std/<módulo>.pengu` |
+| Un local no puede ensombrecer un `weave` global (§2.6) | **Exigida** | `0 W0005` en los 29 módulos escritos a mano de `std/` | `python pengu_project.py check --entry std/<módulo>.pengu` |
+| Sin conversiones inseguras (§9.4) | **Exigida** | `0 W0001` en los 29 módulos. `std/functor` es la **única excepción con nombre**: sus ocho `transmute` son el constructor de funciones gruesas Zig/Odin, silenciados con una directiva `# pengu: allow-warnings W0001` de módulo (ver `LANGUAGE.md` §8.4.1). En el resto de `std/` no hay ninguna llamada a `transmute`; la otra aparición es un comentario explicativo en `std/ffi.pengu:67`. Si otro módulo lo necesitara, queda confinado a `std/ffi`/`std/filum` y debe ser del mismo tamaño | `python pengu_project.py check --entry std/<módulo>.pengu` |
 | Los nombres y las firmas son consistentes entre módulos (§10.3) | **Relajada — excepción con nombre** | `std.loom` y `std.tally` comparten deliberadamente 15 nombres con contratos *distintos* (`loom.mean([1,2]) == 1.5` frente a `tally.mean([1,2]) == 1`; `loom.mode([])` → `none` frente a `tally.mode([])` → `0`). Son contratos documentados, no deriva | ver [`LANGUAGE.md` §19.1.1](LANGUAGE.md#1911-choosing-between-stdloom-and-stdtally) |
 | Los `antiquus` públicos documentan motivo medible (§20.6) | **En observación** | Sin corpus todavía; primera medición en la próxima fase | `python -m pytest tests/test_antiquus_docs.py -q` (pendiente) |
 | Los `@export` usan prefijo `pengu_<módulo>_` (§19.2) | **En observación** | Sin corpus todavía | `python pengu_project.py check --entry std/<módulo>.pengu` |

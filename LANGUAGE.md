@@ -36,7 +36,7 @@
 17. [Unit tests (`test`)](#17-unit-tests-test)
 18. [Block-style construction (`with:` expressions)](#18-block-style-construction-with-expressions)
 19. [Standard library](#19-standard-library)
-    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-26-modules)
+    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-29-modules)
     - 19.2 [External bindings (satellite repositories)](#192-external-bindings-satellite-repositories)
     - 19.3 [Core Standard Library Examples](#193-core-standard-library-examples)
     - 19.4 [Embedded Project Assets (`arca`)](#194-embedded-project-assets-arca)
@@ -1252,6 +1252,52 @@ outer: for i from 0 to 3:
     var step as weave into int is lambda into do:
         break outer            # E0004: 'outer' labels a loop in another function
     var ignored as int is calling step
+```
+
+### 8.4.1 Why lambdas don't capture
+
+A lambda is a **static** function with no hidden environment. That is a
+language decision, not a missing feature.
+
+PenguScript's peers — Zig, Odin and Nelua — do not have closures either.
+Implementing them requires one of: a garbage collector (excluded by §13),
+lifetime tracking (a new type system), or a late-binding trampoline (not
+portable C99 and not zero-cost). All three would violate **explicit over
+hidden** and the zero-cost-abstraction rule. The cases that make programmers
+reach for a closure have explicit answers:
+
+| You need… | Use… |
+|---|---|
+| a C callback with `void* user_data` | `ref to void` + `sigil of` (§8.3) |
+| a visitor over an AST | `concept` + `bind` + `judge over rune` (§10.2, §7.4.1) |
+| a pipeline step with an extra parameter | `std.loom.*_ctx` (§19.3) |
+| to return a configured function | a `rune` with a `concept`, or `std.functor.Fn1` (§19.3) |
+| a callback stored for later | `std.functor.Fn1` / `Fn2` / `Fn3` (§19.3) |
+| an event handler with state | a `rune` + `enchanting` (§10.1) |
+
+This is not a compromise forced on the compiler: the self-hosted toolchain uses
+exactly these patterns. The formatter is a `concept` visitor over the AST, the
+documentation generator stores `std.functor.Fn*` callbacks, and the pipeline
+stages that need configuration take `loom.*_ctx` contexts. A callback that
+remembers something is a **value you build explicitly**, never an environment
+the compiler captures behind your back.
+
+```pengu
+# The thick-function pattern from std.functor: the context is an explicit value.
+import std.functor
+import std.spark
+
+rune Multiplier:
+    factor as int
+
+weave apply with m as ref to Multiplier, x as int into int:
+    return m->factor * x
+
+weave main into int:
+    var m as Multiplier is with factor is 3
+    var f as functor.Fn1 of int, int is calling functor.make_fn1 with apply, (sigil of m)
+    calling spark.println with "{calling f.call with 5}"     # 15
+    return 0
 ```
 
 ### 8.5 `ritual` methods (static)
@@ -3620,7 +3666,7 @@ Supported built-in methods inside collection `with` blocks:
 
 ## 19. Standard library
 
-PenguScript ships with a comprehensive standard library of **27 pure PenguScript
+PenguScript ships with a comprehensive standard library of **29 pure PenguScript
 modules** (`std.<module>`), providing high-level, idiomatic abstractions for I/O,
 strings, concurrency, serialization, math, testing, and memory bridging.
 
@@ -3636,8 +3682,9 @@ The standard library ships **coupled to the compiler** in the 1.x series (decisi
 D6): a program compiled with PenguScript 1.4 uses the `std/` that shipped with
 1.4, and there is no separate stdlib version to resolve. Each pure module exports
 a `<MODULE>_VERSION` constant (e.g. `std.ffi` → `FFI_VERSION`, `std.archivum` →
-`ARCHIVUM_VERSION`) holding the toolchain version it belongs to, so code can
-assert the library it was built against:
+`ARCHIVUM_VERSION`, `std.loom` → `LOOM_VERSION`, `std.functor` →
+`FUNCTOR_VERSION`) holding the release that last changed that module, so code
+can assert the library it was built against:
 
 ```pengu
 import std.archivum
@@ -3647,12 +3694,13 @@ test "stdlib version":
         assert false
 ```
 
-`tests/test_std_versioning.py` enforces that every hand-written `std/` module
-exports that constant with the current toolchain version. Namespacing already
+`tests/stdlib/test_std_versioning.py` enforces that every hand-written `std/`
+module exports that constant with a valid release version (optionally with a
+semver prerelease suffix), and that `std.functor` and `std.loom` are at 2.8.0. Namespacing already
 keeps each module self-contained (`std.<module>.<symbol>`), so decoupling the
 stdlib into independently versioned packages is reserved for 2.0.
 
-### 19.1 Pure PenguScript Modules (28 modules)
+### 19.1 Pure PenguScript Modules (29 modules)
 
 All pure modules are located in the `std/` directory and imported as `import std.<module>`.
 
@@ -3686,7 +3734,8 @@ installed with `pengu add`, not part of this list.
 | `std.littera` | Methods on `char` via `enchanting char:`. ASCII classification (`is_digit`, `is_alpha`, `is_alnum`, `is_upper`, `is_lower`, `is_space`, `is_whitespace`, `is_control`, `is_printable`, `is_punctuation`, `is_hex_digit`, `is_ascii`); conversions (`to_upper`, `to_lower`, `to_int`, `digit_value`). Pure PenguScript — no `<ctype.h>`, no locale, deterministic across Linux/macOS/Windows. `is_space` is only `' '`; use `is_whitespace` for the full C `isspace` set. `to_int` is `ord` (the unsigned byte, 0–255). |
 | `std.logica` | Methods on `bool` via `enchanting bool:`. Chainable versions of the language operators (`toggle`, `and_with`, `or_with`); derived connectives the language has no operator for (`xor`, `iff` — biconditional, `nand`, `nor`, `implies` — material implication, `false` only when `self` is `true` and `other` is `false`); conversion `to_int` (`true` → 1, `false` → 0). Pure PenguScript — no C. Closes the primitive-methods series alongside `std.numerus`, `std.integrum`, `std.fractio` and `std.littera`. |
 | `std.numerus` | Universal numeric methods across every primitive via `enchanting shard T where T: Num and T: Ordo and T: Par:`: `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`, predicates (`is_zero`, `is_positive`, `is_negative`, `is_non_negative`, `is_non_positive`), arithmetic (`twice`, `half`, `square`, `cube`, `pow_int`), rounding (`truncate`, `floor`, `ceil`, `round`), conversions (`to_f64`, `to_i64`). Monomorphized to `int_abs`, `f64_clamp`, … — zero runtime overhead. Integer-only methods live in `std.integrum`; floating-point-only methods in `std.fractio`. |
-| `std.loom` | Sequence generation, functional transformations, and generic algorithms: sequences (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reductions (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicates (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transforms (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), sorted set-like operations (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), search (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), structural modifications (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), statistics (`median`, `mode`, `variance`, `stddev`, `percentile`), and generic algorithms (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`). |
+| `std.loom` | Sequence generation, functional transformations, and generic algorithms: sequences (`range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`), reductions (`mean`, `sum_squares`, `running_sum`, `running_max`, `running_min`, `differences`), predicates (`any_zero`, `all_equal`, `is_strictly_asc`, `is_strictly_desc`, `is_sorted_asc`, `is_sorted_desc`), transforms (`zip_with`, `zip_longest`, `enumerate`, `interleave`, `round_robin`, `rotate_left`, `rotate_right`, `intersperse`, `pairwise`, `flat_map_identity`), sorted set-like operations (`union_sorted`, `intersect_sorted`, `difference_sorted`, `symmetric_difference_sorted`), search (`find_first`, `find_last`, `binary_search`, `count_if_even`, `count_if_positive`, `index_min`, `index_max`), structural modifications (`insert_at`, `remove_at`, `replace_at`, `swap_at`, `pad_left`, `pad_right`), statistics (`median`, `mode`, `variance`, `stddev`, `percentile`), and generic algorithms (`shard T`: `first_or`, `generic_take`, `generic_take_last`, `generic_reverse`, `generic_chain`, `generic_index_of`), plus the context-taking pipelines `map_ctx`, `filter_ctx`, `fold_ctx`, `for_each_ctx`, `zip_with_ctx`, `find_first_ctx`, `any_ctx`, `all_ctx`, `partition_ctx` and `filter_map_ctx`. |
+| `std.functor` | Thick functions: an explicit callback plus a borrowed context, with no closures. `Fn0<R>`, `Fn1<A,R>`, `Fn2<A,B,R>` and `Fn3<A,B,C,R>` (two pointers each), constructors `make_fn0`..`make_fn3`, methods `call`, `is_null` and `call_or`, and `FUNCTOR_VERSION`. Construction reinterprets the function pointer once (the Zig/Odin pattern, the only `transmute` in the module); calling is one C indirect call and allocates nothing. |
 | `std.memoria` | Manual heap memory management via `shard T` module functions: `alloc`, `alloc_array`, `try_alloc`, `try_alloc_array`, `resize_array` (with explicit `old_n`), `try_resize_array`, `copy` (memmove semantics — safe with overlap), `fill`, `zero`, `swap`, `compare` (returns `-1`/`0`/`1` like `memcmp`), `bytes_for`. Zeroed by default; OOM aborts unless the `try_*` variant is used. Composes with `banish`/`defer banish`/`errdefer banish`/`derive Nexus`. `free`, `sizeof` and `address_of` are deliberately absent — those are `banish`, `size of` and `sigil of` in the language itself. Experts needing an uninitialized block use `antiquus`. |
 | `std.invoke` | Command-line interface (CLI) argument parsing: POSIX and GNU syntax (`--flag`, `--key=value`, `-k=value`), boolean flag negation (`--no-flag`), subcommands (`rune Subcommand`), typed options (int, float, bool, string, multi), repeat multi-options (`rune MultiOption`), Levenshtein typo suggestions, formatted help and usage strings (`usage_string`, `full_help`), error reporting, and robust parse variants (`parse`, `parse_no_exit`, `parse_or_exit`, `parse_or_usage`, `ParseResult` accessors `get`, `get_or`, `get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`, `get_all`, `to_map_values`, `to_map_flags`). |
 | `std.ffi` | Low-level C foreign function interface bridge: null pointer utilities (`null_void`, `null_char`, `null_byte`, `is_null`, `is_valid`, `ptr_eq`), architecture constants and inspection (`SIZEOF_POINTER`, `SIZEOF_INT`, `SIZEOF_FLOAT`, `pointer_size`, `size_of shard T`, `alignment_of shard T`), null-terminated C string conversions (`string_from_cstr`, `cstr_from_string`, `string_from_cstr_n`, `string_from_bytes`, `bytes_from_string`), memory views (`slice_from_ptr`), generic collections from C buffers (`list_from_ptr shard T`, `map_from_entries shard K, V`), raw memory copy/set (`memcpy_raw`, `memset_raw`), and 10 canonical C interop patterns. |
@@ -3808,6 +3857,62 @@ weave demonstrate_concurrency into void:
     calling filum.free_mutex with (sigil of m)
     calling filum.free_wait_group with (sigil of wg)
 ```
+
+#### Thick functions (`std.functor`)
+
+A `Fn1` is a function pointer plus a borrowed context. Construction does the
+only `transmute` once; every call is a plain C indirect call.
+
+```pengu
+import std.functor
+import std.spark
+
+rune Multiplier:
+    factor as int
+
+weave apply with m as ref to Multiplier, x as int into int:
+    return m->factor * x
+
+weave main into int:
+    var m as Multiplier is with factor is 3
+    var f as functor.Fn1 of int, int is calling functor.make_fn1 with apply, (sigil of m)
+    calling spark.println with "{calling f.call with 5}"   # 15
+    return 0
+```
+
+The context is borrowed, never owned: free it after the last call. A `Fn` is the
+right tool when the callback must be **stored** (a field, a list, a struct) or
+**returned**; when it is only invoked inside a loop, the `loom.*_ctx` family
+needs no wrapper at all.
+
+#### Pipelines with an explicit context (`loom.*_ctx`)
+
+`map_ctx` and its nine siblings take the callback's context as an argument, so a
+pipeline step can carry configuration without a closure:
+
+```pengu
+import std.loom
+import std.spark
+
+rune Scaler:
+    factor as int
+
+weave scale with s as ref to Scaler, x as int into int:
+    return s->factor * x
+
+weave main into int:
+    var s as Scaler is with factor is 3
+    var xs as list of int is [1, 2, 3]
+    var ys as list of int is calling loom.map_ctx with xs, (sigil of s), scale
+    calling spark.println with "{ys at 0} {ys at 1} {ys at 2}"   # 3 6 9
+    banish ys
+    return 0
+```
+
+`ctx` is borrowed for the duration of the (synchronous) call; the returned list
+is new and belongs to the caller. `filter_ctx`, `fold_ctx`, `for_each_ctx`,
+`zip_with_ctx`, `find_first_ctx`, `any_ctx`, `all_ctx`, `partition_ctx` and
+`filter_map_ctx` follow the same contract.
 
 ### 19.4 Embedded Project Assets (`arca`)
 

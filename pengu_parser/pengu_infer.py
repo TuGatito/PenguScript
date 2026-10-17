@@ -3310,20 +3310,27 @@ class TypeInferrer:
                                 )
 
                     specialized_method_type = fn_type.substitute(subst_map)
-                    rec_mangled = receiver_type.get_mangled_name() if hasattr(receiver_type, "get_mangled_name") else rec_tname.replace(' ', '_')
-                    c_m = method_name
-                    m_suf = "_".join(subst_map[p].get_mangled_name() for p in m_params) if m_params else ""
-                    if m_suf:
-                        mangled_method_name = f"{rec_mangled}_{c_m}_{m_suf}"
-                    else:
-                        mangled_method_name = f"{rec_mangled}_{c_m}"
+                    # Register a monomorphization only when every substitution is
+                    # concrete.  Inside a generic body (`Box of T`, `Fn1 of A,
+                    # R`) this call site resolves against a type parameter, and
+                    # registering it produced an unspecialized `Box_T_get`
+                    # template with a C type that does not exist.  The concrete
+                    # call site registers the real specialization later.
+                    if not any(type_has_unresolved_parts(v) for v in subst_map.values()):
+                        rec_mangled = receiver_type.get_mangled_name() if hasattr(receiver_type, "get_mangled_name") else rec_tname.replace(' ', '_')
+                        c_m = method_name
+                        m_suf = "_".join(subst_map[p].get_mangled_name() for p in m_params) if m_params else ""
+                        if m_suf:
+                            mangled_method_name = f"{rec_mangled}_{c_m}_{m_suf}"
+                        else:
+                            mangled_method_name = f"{rec_mangled}_{c_m}"
 
-                    self.symbols.monomorphized_methods[mangled_method_name] = (method_ast, subst_map, receiver_type)
-                    if rec_args:
-                        alt_args = "_".join(subst_map[tp].get_mangled_name() for tp in type_params)
-                        self.symbols.monomorphized_methods[f"{base_tname}_{alt_args}_{method_name}"] = (method_ast, subst_map, receiver_type)
-                        self.symbols.monomorphized_methods[f"{base_tname}_{method_name}_{alt_args}"] = (method_ast, subst_map, receiver_type)
-                    self.symbols.methods[(receiver_type.name, method_name)] = specialized_method_type
+                        self.symbols.monomorphized_methods[mangled_method_name] = (method_ast, subst_map, receiver_type)
+                        if rec_args:
+                            alt_args = "_".join(subst_map[tp].get_mangled_name() for tp in type_params)
+                            self.symbols.monomorphized_methods[f"{base_tname}_{alt_args}_{method_name}"] = (method_ast, subst_map, receiver_type)
+                            self.symbols.monomorphized_methods[f"{base_tname}_{method_name}_{alt_args}"] = (method_ast, subst_map, receiver_type)
+                        self.symbols.methods[(receiver_type.name, method_name)] = specialized_method_type
                     fn_type = specialized_method_type
 
             if has_variadic:
@@ -4870,10 +4877,16 @@ class TypeInferrer:
                                     if t_args and len(t_args) == len(type_params):
                                         subst_map = dict(zip(type_params, t_args))
                                         gm_type = gm_type.substitute(subst_map)
-                                        mangled_args = "_".join(t.get_mangled_name() for t in t_args)
-                                        mangled_method_name = f"{base_tname}_{mangled_args}_{m_name}"
-                                        self.symbols.monomorphized_methods[mangled_method_name] = (method_ast, subst_map, rec_type)
-                                        self.symbols.methods[(rec_type.name, m_name)] = gm_type
+                                        # A generic body (`Box of T` inside a
+                                        # `shard T` weave) must not register a
+                                        # monomorphization: `Box_T_get(Box*)` is
+                                        # not a type.  The concrete call site
+                                        # registers the real `Box_int_get`.
+                                        if not any(type_has_unresolved_parts(t) for t in t_args):
+                                            mangled_args = "_".join(t.get_mangled_name() for t in t_args)
+                                            mangled_method_name = f"{base_tname}_{mangled_args}_{m_name}"
+                                            self.symbols.monomorphized_methods[mangled_method_name] = (method_ast, subst_map, rec_type)
+                                            self.symbols.methods[(rec_type.name, m_name)] = gm_type
                                         return gm_type, obj_type
                                     elif t_args and len(t_args) == len(recv_params):
                                         subst_map = dict(zip(recv_params, t_args))

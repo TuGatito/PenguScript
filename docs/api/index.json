@@ -4583,7 +4583,7 @@
       "kind": "weave",
       "module": "compass",
       "name": "cp_is_letter",
-      "signature": "**cp_is_letter**(c: string) -> bool"
+      "signature": "**cp_is_letter**(b: int) -> bool"
     },
     {
       "deprecated": false,
@@ -4599,7 +4599,7 @@
       "kind": "weave",
       "module": "compass",
       "name": "cp_is_sep",
-      "signature": "**cp_is_sep**(c: string) -> bool"
+      "signature": "**cp_is_sep**(b: int) -> bool"
     },
     {
       "deprecated": false,
@@ -4648,6 +4648,14 @@
       "module": "compass",
       "name": "cp_relative_to",
       "signature": "**cp_relative_to**(target: string, base: string) -> maybe string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compass",
+      "name": "cp_release_strings",
+      "signature": "**cp_release_strings**(xs: list of string) -> void"
     },
     {
       "deprecated": false,
@@ -5008,6 +5016,14 @@
       "module": "coven",
       "name": "SetString",
       "signature": "**SetString** : SetString"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "coven",
+      "name": "coven_copy_string",
+      "signature": "**coven_copy_string**(s: string) -> string"
     },
     {
       "deprecated": false,
@@ -6365,6 +6381,334 @@
       "deprecated": false,
       "documented": true,
       "kind": "const",
+      "module": "fractio",
+      "name": "FRACTIO_VERSION",
+      "signature": "**FRACTIO_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "acos",
+      "signature": "**acos**(x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "acosf",
+      "signature": "**acosf**(x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "asin",
+      "signature": "**asin**(x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "asinf",
+      "signature": "**asinf**(x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "atan",
+      "signature": "**atan**(x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "atan2",
+      "signature": "**atan2**(y: f64, x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "atan2f",
+      "signature": "**atan2f**(y: f32, x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "atanf",
+      "signature": "**atanf**(x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "cbrt",
+      "signature": "**cbrt**(x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "cbrtf",
+      "signature": "**cbrtf**(x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "cos",
+      "signature": "**cos**(x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "cosf",
+      "signature": "**cosf**(x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "exp",
+      "signature": "**exp**(x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "expf",
+      "signature": "**expf**(x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "hypot",
+      "signature": "**hypot**(x: f64, y: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "hypotf",
+      "signature": "**hypotf**(x: f32, y: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "log",
+      "signature": "**log**(x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "log10",
+      "signature": "**log10**(x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "log10f",
+      "signature": "**log10f**(x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "log2",
+      "signature": "**log2**(x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "log2f",
+      "signature": "**log2f**(x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "logf",
+      "signature": "**logf**(x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "pow",
+      "signature": "**pow**(base: f64, exponent: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "powf",
+      "signature": "**powf**(base: f32, exponent: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "sin",
+      "signature": "**sin**(x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "sinf",
+      "signature": "**sinf**(x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "sqrt",
+      "signature": "**sqrt**(x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "sqrtf",
+      "signature": "**sqrtf**(x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "tan",
+      "signature": "**tan**(x: f64) -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": false,
+      "kind": "declare",
+      "module": "fractio",
+      "name": "tanf",
+      "signature": "**tanf**(x: f32) -> f32"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "functor",
+      "name": "FUNCTOR_VERSION",
+      "signature": "**FUNCTOR_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "functor",
+      "name": "Fn0",
+      "signature": "**Fn0** : Fn0"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "functor",
+      "name": "Fn1",
+      "signature": "**Fn1** : Fn1"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "functor",
+      "name": "Fn2",
+      "signature": "**Fn2** : Fn2"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "functor",
+      "name": "Fn3",
+      "signature": "**Fn3** : Fn3"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "functor",
+      "name": "make_fn0",
+      "signature": "**functor_make_fn0**(f: weave with c: ref to C into R, ctx: ref to C) -> Fn0"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "functor",
+      "name": "make_fn1",
+      "signature": "**functor_make_fn1**(f: weave with c: ref to C, a: A into R, ctx: ref to C) -> Fn1"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "functor",
+      "name": "make_fn2",
+      "signature": "**functor_make_fn2**(f: weave with c: ref to C, a: A, b: B into R, ctx: ref to C) -> Fn2"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "functor",
+      "name": "make_fn3",
+      "signature": "**functor_make_fn3**(f: weave with c: ref to C, a: A, b: B, c2: C2 into R, ctx: ref to C) -> Fn3"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "integrum",
+      "name": "INTEGRUM_VERSION",
+      "signature": "**INTEGRUM_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
       "module": "invoke",
       "name": "INVOKE_VERSION",
       "signature": "**INVOKE_VERSION** : string"
@@ -6669,6 +7013,22 @@
       "deprecated": false,
       "documented": true,
       "kind": "const",
+      "module": "littera",
+      "name": "LITTERA_VERSION",
+      "signature": "**LITTERA_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "logica",
+      "name": "LOGICA_VERSION",
+      "signature": "**LOGICA_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
       "module": "loom",
       "name": "LOOM_VERSION",
       "signature": "**LOOM_VERSION** : string"
@@ -6686,8 +7046,24 @@
       "documented": true,
       "kind": "weave",
       "module": "loom",
+      "name": "all_ctx",
+      "signature": "**loom_all_ctx**(xs: list of T, ctx: ref to C, f: weave with c: ref to C, x: T into bool) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "loom",
       "name": "all_equal",
       "signature": "**loom_all_equal**(nums: list of T) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "loom",
+      "name": "any_ctx",
+      "signature": "**loom_any_ctx**(xs: list of T, ctx: ref to C, f: weave with c: ref to C, x: T into bool) -> bool"
     },
     {
       "deprecated": false,
@@ -6782,8 +7158,32 @@
       "documented": true,
       "kind": "weave",
       "module": "loom",
+      "name": "filter_ctx",
+      "signature": "**loom_filter_ctx**(xs: list of T, ctx: ref to C, f: weave with c: ref to C, x: T into bool) -> list of T"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "loom",
+      "name": "filter_map_ctx",
+      "signature": "**loom_filter_map_ctx**(xs: list of T, ctx: ref to C, f: weave with c: ref to C, x: T into maybe U) -> list of U"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "loom",
       "name": "find_first",
       "signature": "**loom_find_first**(items: list of T, target: T) -> maybe int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "loom",
+      "name": "find_first_ctx",
+      "signature": "**loom_find_first_ctx**(xs: list of T, ctx: ref to C, f: weave with c: ref to C, x: T into bool) -> maybe T"
     },
     {
       "deprecated": false,
@@ -6824,6 +7224,22 @@
       "module": "loom",
       "name": "flatten_generic",
       "signature": "**loom_flatten_generic**(nested: list of list of T) -> list of T"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "loom",
+      "name": "fold_ctx",
+      "signature": "**loom_fold_ctx**(xs: list of T, init: U, ctx: ref to C, f: weave with c: ref to C, acc: U, x: T into U) -> U"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "loom",
+      "name": "for_each_ctx",
+      "signature": "**loom_for_each_ctx**(xs: list of T, ctx: ref to C, f: weave with c: ref to C, x: T into void) -> void"
     },
     {
       "deprecated": false,
@@ -6958,6 +7374,14 @@
       "documented": true,
       "kind": "weave",
       "module": "loom",
+      "name": "map_ctx",
+      "signature": "**loom_map_ctx**(xs: list of T, ctx: ref to C, f: weave with c: ref to C, x: T into U) -> list of U"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "loom",
       "name": "max_int",
       "signature": "**loom_max_int**(items: list of T) -> T"
     },
@@ -7032,6 +7456,14 @@
       "module": "loom",
       "name": "pairwise_pairs",
       "signature": "**loom_pairwise_pairs**(items: list of T) -> list of Pair"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "loom",
+      "name": "partition_ctx",
+      "signature": "**loom_partition_ctx**(xs: list of T, ctx: ref to C, f: weave with c: ref to C, x: T into bool) -> (list of T, list of T)"
     },
     {
       "deprecated": false,
@@ -7248,6 +7680,14 @@
       "module": "loom",
       "name": "zip_with",
       "signature": "**loom_zip_with**(a: list of T, b: list of T, op: int) -> list of T"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "loom",
+      "name": "zip_with_ctx",
+      "signature": "**loom_zip_with_ctx**(xs: list of T, ys: list of U, ctx: ref to C, f: weave with c: ref to C, x: T, y: U into V) -> list of V"
     },
     {
       "deprecated": false,
@@ -7848,6 +8288,214 @@
       "module": "lot",
       "name": "shuffle_string",
       "signature": "**lot_shuffle_string**(items: list of string) -> list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "memoria",
+      "name": "MEMORIA_VERSION",
+      "signature": "**MEMORIA_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "declare",
+      "module": "memoria",
+      "name": "memcmp",
+      "signature": "**memcmp**(a: ref to frozen void, b: ref to frozen void, n: usize) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "declare",
+      "module": "memoria",
+      "name": "memmove",
+      "signature": "**memmove**(dst: ref to void, src: ref to frozen void, n: usize) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "declare",
+      "module": "memoria",
+      "name": "memset",
+      "signature": "**memset**(dst: ref to void, value: int, n: usize) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "declare",
+      "module": "memoria",
+      "name": "pengu_memoria_alloc",
+      "signature": "**pengu_memoria_alloc**(n: usize) -> ref to void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "declare",
+      "module": "memoria",
+      "name": "pengu_memoria_alloc_array",
+      "signature": "**pengu_memoria_alloc_array**(count: usize, elem_size: usize) -> ref to void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "declare",
+      "module": "memoria",
+      "name": "pengu_memoria_fill",
+      "signature": "**pengu_memoria_fill**(dst: ref to void, value: ref to frozen void, count: usize, elem_size: usize) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "declare",
+      "module": "memoria",
+      "name": "pengu_memoria_resize",
+      "signature": "**pengu_memoria_resize**(p: ref to void, old_n: usize, new_n: usize, elem_size: usize) -> ref to void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "declare",
+      "module": "memoria",
+      "name": "pengu_memoria_swap",
+      "signature": "**pengu_memoria_swap**(a: ref to void, b: ref to void, elem_size: usize) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "declare",
+      "module": "memoria",
+      "name": "pengu_memoria_try_alloc",
+      "signature": "**pengu_memoria_try_alloc**(n: usize) -> ref to void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "declare",
+      "module": "memoria",
+      "name": "pengu_memoria_try_alloc_array",
+      "signature": "**pengu_memoria_try_alloc_array**(count: usize, elem_size: usize) -> ref to void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "declare",
+      "module": "memoria",
+      "name": "pengu_memoria_try_resize",
+      "signature": "**pengu_memoria_try_resize**(p: ref to void, old_n: usize, new_n: usize, elem_size: usize) -> ref to void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "memoria",
+      "name": "MemoriaPoint",
+      "signature": "**MemoriaPoint** : MemoriaPoint"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "memoria",
+      "name": "alloc",
+      "signature": "**alloc**() -> ref to T"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "memoria",
+      "name": "alloc_array",
+      "signature": "**alloc_array**(n: usize) -> ref to T"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "memoria",
+      "name": "bytes_for",
+      "signature": "**bytes_for**(n: usize) -> usize"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "memoria",
+      "name": "compare",
+      "signature": "**compare**(a: ref to T, b: ref to T, n: usize) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "memoria",
+      "name": "copy",
+      "signature": "**copy**(dst: ref to T, src: ref to frozen T, n: usize) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "memoria",
+      "name": "fill",
+      "signature": "**fill**(dst: ref to T, value: T, n: usize) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "memoria",
+      "name": "resize_array",
+      "signature": "**resize_array**(p: ref to T, old_n: usize, new_n: usize) -> ref to T"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "memoria",
+      "name": "swap",
+      "signature": "**swap**(a: ref to T, b: ref to T) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "memoria",
+      "name": "try_alloc",
+      "signature": "**try_alloc**() -> maybe ref to T"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "memoria",
+      "name": "try_alloc_array",
+      "signature": "**try_alloc_array**(n: usize) -> maybe ref to T"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "memoria",
+      "name": "try_resize_array",
+      "signature": "**try_resize_array**(p: ref to T, old_n: usize, new_n: usize) -> maybe ref to T"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "memoria",
+      "name": "zero",
+      "signature": "**zero**(dst: ref to T, n: usize) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "numerus",
+      "name": "NUMERUS_VERSION",
+      "signature": "**NUMERUS_VERSION** : string"
     },
     {
       "deprecated": false,
@@ -11752,6 +12400,126 @@
       "module": "ward",
       "name": "unreachable",
       "signature": "**unreachable**(msg: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "web",
+      "name": "IS_WASM",
+      "signature": "**IS_WASM** : bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "web",
+      "name": "WEB_VERSION",
+      "signature": "**WEB_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "cancel_main_loop",
+      "signature": "**cancel_main_loop**() -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "clear_timeout",
+      "signature": "**clear_timeout**(timeout_id: int) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "console_error",
+      "signature": "**console_error**(msg: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "console_log",
+      "signature": "**console_log**(msg: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "console_trace",
+      "signature": "**console_trace**(msg: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "console_warn",
+      "signature": "**console_warn**(msg: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "eval_js",
+      "signature": "**eval_js**(code: string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "native_monotonic_ms",
+      "signature": "**native_monotonic_ms**() -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "now_ms",
+      "signature": "**now_ms**() -> f64"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "pause_main_loop",
+      "signature": "**pause_main_loop**() -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "resume_main_loop",
+      "signature": "**resume_main_loop**() -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "set_main_loop",
+      "signature": "**set_main_loop**(cb: ref to weave into void, fps: int, simulate_infinite_loop: bool) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "web",
+      "name": "set_timeout",
+      "signature": "**set_timeout**(cb: ref to weave with arg as ref to void into void, ms: f64, arg: ref to void) -> int"
     },
     {
       "deprecated": false,

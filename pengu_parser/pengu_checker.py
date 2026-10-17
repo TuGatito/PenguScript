@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import re
 from typing import List, Set, Optional, Dict, Tuple, Any
 from lark import Tree, Token
 
@@ -311,6 +312,39 @@ def check_infinite_size(t: Type, target_base_name: str, seen: Optional[Set[str]]
 _LOOP_RULES = ("while_stmt", "for_range_stmt", "for_in_stmt")
 
 
+# Module-level opt-out for warnings that are *deliberate* in a trusted module.
+#
+# `std.functor` builds a thick function by reinterpreting a function pointer to
+# the equivalent signature with `ref to void` as its first parameter.  That is
+# the Zig/Odin pattern and it is safe on every real ABI, but it is a `transmute`,
+# so the inferrer reports W0001.  A library that imports `std.functor` must not
+# inherit that warning: it is about code the importer never wrote and cannot
+# change.  A module declares the opt-out once, at the top of the file:
+#
+#     # pengu: allow-warnings W0001
+#
+# The directive is deliberately textual and per-file: it is visible in review,
+# it cannot leak into another module, and it names the exact codes it silences.
+# Unknown codes are ignored (a typo silences nothing, rather than everything).
+_WARNING_DIRECTIVE_RE = re.compile(
+    r"^#\s*pengu:\s*allow-warnings\s+([Ww]\d{4}(?:[\s,]+[Ww]\d{4})*)\s*$",
+    re.M,
+)
+_WARNING_CODE_RE = re.compile(r"^\[(W\d{4})\]")
+
+
+def _warning_codes_from_directive(source: Optional[str]) -> Set[str]:
+    """Warning codes a source file opts out of with `# pengu: allow-warnings`."""
+    if not source:
+        return set()
+    codes: Set[str] = set()
+    for match in _WARNING_DIRECTIVE_RE.finditer(source):
+        for raw in re.split(r"[\s,]+", match.group(1).strip()):
+            if raw:
+                codes.add(raw.upper())
+    return codes
+
+
 # Imported modules are re-parsed every time a module imports them (the
 # sub-checker below needs their top-level symbols).  Caching the parsed tree by
 # (path, mtime, size) removes ~200 redundant parses per build for a program that
@@ -379,6 +413,8 @@ class PenguChecker:
 
         self.errors: List[PenguError] = []
         self.warnings: List[str] = []
+        #: Codes silenced by this module's `# pengu: allow-warnings` directive.
+        self._allowed_warning_codes: Set[str] = set()
         self.symbols = SymbolTable()
         self.block_stmts_stack: List[List[Tree]] = []
         # Nesting depth of 'test' blocks. A local whose name matches a
@@ -393,6 +429,25 @@ class PenguChecker:
         #: Text of ``filename`` when the caller handed it over; import
         #: resolution prefers it over re-reading the file from disk.
         self._entry_source: Optional[str] = self.source_code or None
+
+    def _apply_warning_directive(self) -> None:
+        """Drops the warnings this module explicitly opted out of.
+
+        Runs at the end of :meth:`check`, after every pass has emitted its
+        warnings, so a directive covers the whole file regardless of which pass
+        produced the diagnostic.  Only the codes the module names are removed;
+        everything else keeps flowing to the CLI.
+        """
+        self._allowed_warning_codes = _warning_codes_from_directive(self.source_code)
+        if not self._allowed_warning_codes or not self.warnings:
+            return
+        kept: List[str] = []
+        for warning in self.warnings:
+            match = _WARNING_CODE_RE.match(str(warning))
+            if match and match.group(1) in self._allowed_warning_codes:
+                continue
+            kept.append(warning)
+        self.warnings = kept
 
     def check(
         self,
@@ -465,6 +520,9 @@ class PenguChecker:
 
         # Append inferrer warnings
         self.warnings.extend(self.inferrer.warnings)
+        # Honour the module's `# pengu: allow-warnings` opt-out (see the
+        # directive's definition near the top of this module).
+        self._apply_warning_directive()
 
         if self.errors:
             reporter = ErrorReporter(source=self.source_code, filename=self.filename)

@@ -20,7 +20,7 @@ would mangle the C symbol into `pengu_pengu__find_sub` and fail to link.
 
 ### `SCROLLS_VERSION`
 
-> const string` = 2.0.0`
+> const string` = 2.1.0`
 
 --- Module directives --------------------------------------------------
 
@@ -196,6 +196,159 @@ would allocate one single-byte string per position.
 Memoria
 Returns a freshly allocated owned `PenguString`, or an empty string when `s` is
 empty. Release it with `banish`. `s` is borrowed and never freed.
+
+
+### `_ascii_case`
+
+> **pengu__ascii_case**(s: string, mode: int) -> string
+
+ASCII case mapping in one allocation.
+Motivo
+Doing this in Pengu requires one `char_at` allocation per byte plus a
+`list of string` plus `_concat`, so a single `calling s.upper` leaked O(n)
+temporary buffers. Here the whole result is one `malloc`.
+Memoria
+Returns a freshly allocated owned string (empty string view for an empty
+input, which `banish` treats as a no-op). `s` is borrowed.
+`mode`: 0 = lower, 1 = upper, 2 = swap.
+
+
+### `_ascii_all`
+
+> **pengu__ascii_all**(s: string, kind: int) -> bool
+
+ASCII classification of a whole string, allocation-free.
+Motivo
+The `for ch in s` form allocates a one-byte owning copy per iteration; a
+predicate that only inspects bytes must not allocate at all.
+Memoria
+Allocates nothing. `s` is borrowed.
+`kind`: 0 = is_alpha, 1 = is_digit, 2 = is_alnum, 3 = is_space,
+4 = is_lower, 5 = is_upper, 6 = is_blank.
+
+
+### `_is_palindrome`
+
+> **pengu__is_palindrome**(s: string) -> bool
+
+Byte-level palindrome test, allocation-free.
+Motivo
+Slicing two one-byte strings per position allocated 2*n buffers per call.
+Memoria
+Allocates nothing. `s` is borrowed. The empty string is a palindrome.
+
+
+### `_compare_bytes`
+
+> **pengu__compare_bytes**(a: string, b: string) -> int
+
+Byte-lexicographic comparison returning exactly -1, 0 or 1.
+Motivo
+`ord (sv at i)` allocated two one-byte strings per compared byte.
+Memoria
+Allocates nothing. `a` and `b` are borrowed.
+
+
+### `_is_numeric_bytes`
+
+> **pengu__is_numeric_bytes**(s: string) -> bool
+
+True when every byte is a digit with at most one dot and one leading sign.
+Motivo
+The `for i, ch in sv` form allocated one owning copy per byte.
+Memoria
+Allocates nothing. `s` is borrowed.
+
+
+### `_float_from_literal`
+
+> **pengu__float_from_literal**(s: string) -> float
+
+Decimal value of a valid numeric literal, allocation-free.
+Motivo
+The Pengu form allocated a one-byte string per digit and one more for the
+sign test.
+Memoria
+Allocates nothing. `s` is borrowed; exponents are not supported.
+
+
+### `_trim_ascii`
+
+> **pengu__trim_ascii**(s: string, mode: int) -> string
+
+ASCII trim returning a fresh owned string.
+Motivo
+The Pengu form both allocated a one-byte string per inspected byte and
+leaked the intermediate of `trim` (`trim_start` then `trim_end`).
+Memoria
+Returns a freshly allocated owned copy (never a view, so the caller can
+`banish` it unconditionally). `s` is borrowed.
+`mode`: 0 = both ends, 1 = start only, 2 = end only.
+
+
+### `_view`
+
+> **pengu__view**(s: string, start: int, end: int) -> string
+
+ASCII view of a byte range: no allocation, no ownership.
+Motivo
+`split`, `chars` and friends used to allocate one owning substring per
+element, so `banish` on the returned list leaked all of them. A view is what
+the runtime's own `pengu_string_split` already returns and what `banish`
+handles correctly (a view is a no-op).
+Memoria
+Allocates nothing and returns a non-owning view into `s`. The receiver must
+outlive every view taken from it; `banish` on a view is a no-op.
+
+
+### `_title_ascii`
+
+> **pengu__title_ascii**(s: string) -> string
+
+`string.upper()` on the first byte of every whitespace-separated word.
+Motivo
+One `malloc` instead of a `list of string` plus one owning byte per
+character.
+Memoria
+Returns a freshly allocated owned string. `s` is borrowed.
+
+
+### `_capitalize_ascii`
+
+> **pengu__capitalize_ascii**(s: string) -> string
+
+`string.upper()` on the first byte, `string.lower()` on the rest.
+Motivo
+One `malloc` instead of an owning byte per character plus a list.
+Memoria
+Returns a freshly allocated owned string (empty view for an empty input).
+
+
+### `_identifier_case`
+
+> **pengu__identifier_case**(s: string, mode: int) -> string
+
+snake_case / kebab_case / PascalCase in one allocation.
+Motivo
+The Pengu versions built a `list of string` of owning one-byte strings and
+then leaked the list; the word-boundary heuristic also allocated a byte per
+inspected neighbour.
+Memoria
+Returns a freshly allocated owned string. `s` is borrowed.
+`mode`: 0 = snake_case, 1 = kebab_case, 2 = PascalCase.
+
+
+### `_replace_first`
+
+> **pengu__replace_first**(s: string, from: string, to: string) -> string
+
+Replace the first occurrence of `from` with `to`, in one allocation.
+Motivo
+The Pengu form built two owning substring temporaries (`head`, `tail`) and
+then an interpolated result, leaking the first two on every call.
+Memoria
+Returns a freshly allocated owned copy of `s` (also when `from` does not
+occur or is empty). `s`, `from` and `to` are borrowed.
 
 
 ### `len`
@@ -1474,17 +1627,6 @@ Parámetros
 - `pad_char`: the padding text.
 Retorno
 A new owned string; the caller releases it with `banish`.
-
-
-### `_float_from_literal`
-
-> **pengu__float_from_literal**(s: string) -> float
-
-Decimal value of a valid numeric literal (precondition: `is_numeric`).
-Parámetros
-- `s`: a literal accepted by `is_numeric`.
-Retorno
-The `float` value; exponents are not supported.
 
 
 ### `_expect`

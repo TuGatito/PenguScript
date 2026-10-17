@@ -1,0 +1,16 @@
+import std.loom
+import std.spark
+
+weave double_if_even with factor as ref to int, x as int into maybe int:
+    if (x % 2) == 0:
+        return some (x * (essence of factor))
+    return maybe none
+
+weave main into int:
+    var factor as int is 3
+    var xs as list of int is [1, 2, 3, 4]
+    var ys as list of int is calling loom.filter_map_ctx with xs, (sigil of factor), double_if_even
+    calling spark.println with "{calling ys.len} {ys at 0} {ys at 1}"
+    banish ys
+    banish xs
+    return 0

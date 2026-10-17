@@ -2455,6 +2455,29 @@ int64_t digest(PenguString msg) {
 ### 14.5 Struct-to-C `ref` parameters & callbacks
 
 References (`ref to T`) are passed as pointers, enabling in-place mutation from C and efficient `self` receivers for methods ([9.1](#91-enchanting-receiver-blocks)). Weaves can be handed to C as function pointers: a `weave` name decays to its C function pointer wherever a callback alias is expected ([8.5](#85-function-pointers)). The runtime provides helpers (such as `pengu_call_callback_int`) that let C call back into PenguScript weaves. Coroutine support (`minicoro`) is **not** bundled here: its binding and wrapper source moved to a satellite repository and installs per project with `pengu add` (see `docs/EXTERNAL_MODULES.md`).
+**Callbacks that remember something.** There are no closures. A C callback with
+`void* user_data` uses `ref to void` + `sigil of`; a callback that must be stored
+becomes a `std.functor.Fn1` (function pointer + borrowed context); a callback that
+is only called inside a pipeline passes its context to `loom.*_ctx`. All three are
+explicit, allocation-free and portable C99.
+
+```pengu
+import std.functor
+import std.spark
+
+rune Multiplier:
+    factor as int
+
+weave apply with m as ref to Multiplier, x as int into int:
+    return m->factor * x
+
+weave main into int:
+    var m as Multiplier is with factor is 3
+    var f as functor.Fn1 of int, int is calling functor.make_fn1 with apply, (sigil of m)
+    calling spark.println with "{calling f.call with 5}"   # 15
+    return 0
+```
+
 
 ### 14.6 Passing strings to C
 
@@ -2565,7 +2588,8 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **littera** | `import std.littera` | Pure PenguScript | Methods on `char` via `enchanting char:`. Classification `is_digit`, `is_alpha`, `is_alnum`, `is_upper`, `is_lower`, `is_space`, `is_whitespace`, `is_control`, `is_printable`, `is_punctuation`, `is_hex_digit`, `is_ascii`; conversions `to_upper`, `to_lower`, `to_int` (the unsigned byte, `ord`), `digit_value` (`-1` on non-hex). No `<ctype.h>`, no locale. |
 | **logica** | `import std.logica` | Pure PenguScript | Methods on `bool` via `enchanting bool:`. Chainable basics `toggle`, `and_with`, `or_with`; derived connectives `xor`, `iff`, `nand`, `nor`, `implies` (material implication); `to_int` (`true` → 1). No C dependency. |
 | **numerus** | `import std.numerus` | Pure PenguScript | Universal numeric methods over every primitive via one `enchanting shard T where T: Num and T: Ordo and T: Par:`. `abs`, `signum`, `negated`, `min_with`, `max_with`, `clamp`, `is_between`; predicates `is_zero`/`is_positive`/`is_negative`/`is_non_negative`/`is_non_positive`; `twice`, `half`, `square`, `cube`, `pow_int`; `truncate`, `floor`, `ceil`, `round`; `to_f64`, `to_i64`. Monomorphized — zero overhead. |
-| **loom** | `import std.loom` | Pure PenguScript | Functional collection utilities: `range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`, `sum`, `product_num`, `max_int`/`min_int`, `min_max`, plus map/filter/reduce style helpers, sorted set operations and zip/flattening. Prefer `loom` over `tally` when an empty input must be representable (see §19.1). |
+| **loom** | `import std.loom` | Pure PenguScript | Functional collection utilities: `range`, `repeat`, `take`, `skip`, `chain`, `chunks`, `windows`, `sum`, `product_num`, `max_int`/`min_int`, `min_max`, plus map/filter/reduce style helpers, sorted set operations and zip/flattening. The context-taking pipelines `map_ctx`, `filter_ctx`, `fold_ctx`, `for_each_ctx`, `zip_with_ctx`, `find_first_ctx`, `any_ctx`, `all_ctx`, `partition_ctx` and `filter_map_ctx` replace a closure with an explicit context. Prefer `loom` over `tally` when an empty input must be representable (see §19.1). |
+| **functor** | `import std.functor` | Pure PenguScript | Thick functions: `Fn0<R>`, `Fn1<A,R>`, `Fn2<A,B,R>`, `Fn3<A,B,C,R>` plus `make_fn0`..`make_fn3`, `call`, `is_null` and `call_or`. A callback with an explicit borrowed context, built once and stored anywhere; zero allocation, one C indirect call. |
 | **ward** | `import std.ward` | Pure PenguScript | Assertions & invariants: `assert`, `assert_msg`, `assert_true`/`assert_false`, `assert_eq_*` / `assert_ne_*` (int/string/bool), `assert_present_*`/`assert_none_*`, `assert_ok_*`/`assert_err_*`, `expect*` message variants, `panic`, `unreachable`, and result-returning `check*` helpers. |
 | **trial** | `import std.trial` | Pure PenguScript | Unit-test framework: re-exports `ward` assertions, plus suites (`new_suite`), `test_case`/`test`, lifecycle hooks and colored reporting (`summary`). |
 | **whisper** | `import std.whisper` | C primitives + Pengu | Structured logging: `set_level`, `get_level`, `get_level_name`, level constants `LOG_TRACE`…`LOG_FATAL`, and level loggers `trace`, `debug`, `info`, `warn`, `error`, `fatal`. |

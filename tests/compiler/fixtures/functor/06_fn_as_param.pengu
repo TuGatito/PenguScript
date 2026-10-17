@@ -1,0 +1,17 @@
+import std.functor
+import std.spark
+
+rune Multiplier:
+    factor as int
+
+weave multiply with m as ref to Multiplier, x as int into int:
+    return m->factor * x
+
+weave run_it with f as (functor.Fn1 of int, int), a as int into int:
+    return calling f.call with a
+
+weave main into int:
+    var m as Multiplier is with factor is 5
+    var f as functor.Fn1 of int, int is calling functor.make_fn1 with multiply, (sigil of m)
+    calling spark.println with "{calling run_it with f, 2}"
+    return 0

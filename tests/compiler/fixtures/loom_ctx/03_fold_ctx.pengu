@@ -1,0 +1,13 @@
+import std.loom
+import std.spark
+
+weave fold_add with offset as ref to int, acc as int, x as int into int:
+    return acc + x + (essence of offset)
+
+weave main into int:
+    var offset as int is 1
+    var xs as list of int is [1, 2, 3]
+    var total as int is calling loom.fold_ctx with xs, 0, (sigil of offset), fold_add
+    calling spark.println with "{total}"
+    banish xs
+    return 0

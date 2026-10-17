@@ -108,6 +108,47 @@ and returns it; the caller releases it with `banish`. The input list and its
 strings are only read, never retained.
 
 
+### `_byte_at`
+
+> **cipher__byte_at**(s: string, i: int) -> int
+
+Byte value at `i` without allocating.
+Motivo
+`(calling _byte_at with s, i)` materializes a fresh one-character owning string per inspected
+byte, so every scan loop leaked one buffer per byte. Reading the byte through
+`.data`/`.len` allocates nothing.
+Memoria
+Allocates nothing. `s` is borrowed. Out-of-range reads yield `0`.
+
+
+### `_finish_parts`
+
+> **cipher__finish_parts**(parts: list of string) -> string
+
+Concatenates `parts` and releases every element and the list itself.
+Motivo
+`_concat_parts` copies the bytes of its input, so the caller's `parts` list
+and every owned element it holds become garbage the moment the result exists.
+The codecs built that list with one `parts.push` per character and then
+returned the concatenation, leaking the whole working set.
+Memoria
+Consumes `parts`: the returned string is freshly allocated and the caller
+releases it with `banish`; the input list must not be used afterwards.
+
+
+### `_drop_parts`
+
+> **cipher__drop_parts**(parts: list of string) -> void
+
+Releases a working `parts` list without building a result.
+Motivo
+The scanners return `maybe none` from a dozen points once they have already
+pushed characters into `parts`; every one of those exits leaked the working
+set. `_drop_parts` is the release for those paths.
+Memoria
+Consumes `parts`: every owned element and the list buffer are released.
+
+
 ### `_zero_bytes`
 
 > **cipher__zero_bytes**(n: int) -> string
@@ -563,6 +604,16 @@ Retorno
 `0..15` for a hex digit, or `-1` for anything else.
 
 
+### `_hex_val_byte`
+
+> **cipher__hex_val_byte**(code: int) -> int
+
+Byte form of `_hex_val`: the digit value of one already-extracted byte.
+Memoria
+Allocates nothing. The scanners use this form so they never materialize a
+one-character owning string per inspected byte.
+
+
 ### `encode_hex`
 
 > **cipher_encode_hex**(data: string) -> string
@@ -653,7 +704,7 @@ var b as maybe string is calling cipher.decode_base32 with "NBUQ===="
 
 ### `_char_index`
 
-> **cipher__char_index**(alphabet: string, c: string) -> int
+> **cipher__char_index**(alphabet: string, cb: int) -> int
 
 Index of the character `c` inside `alphabet`, or `-1` when absent.
 Parámetros

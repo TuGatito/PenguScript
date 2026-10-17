@@ -36,6 +36,7 @@ from ._base import (
     Symbol,
     Token,
     Tree,
+    TupleType,
     Type,
     TypeInferrer,
     ast_to_type,
@@ -143,6 +144,71 @@ class ExprMixin:
 
         body = "\n".join("    " + line for line in lines)
         return f"(__extension__(({{\n{body}\n    {last_name};\n}})))"
+
+    def _default_c_value(self, dt: Optional[Type], _seen: Optional[Set[str]] = None) -> str:
+        """C initializer for the *semantic* default of ``dt``.
+
+        ``(T){0}`` is the right zero value for scalars, pointers and a rune made
+        of them, but it is a corrupt container: ``(PenguList){0}`` has
+        ``elem_size == 0``, so the first ``push`` copies zero bytes.  This helper
+        recurses into a rune's fields and emits the allocation-free empty value
+        for every container field (the same literals ``donum (list of T)``
+        uses); a field whose default really is zero is omitted, keeping the
+        common case as small as before.
+        """
+        if dt is None:
+            return "{0}"
+        if _seen is None:
+            _seen = set()
+        probe = dt
+        for _ in range(8):
+            if isinstance(probe, (AliasType, FrozenType)) and getattr(probe, "target", None) is not None:
+                probe = probe.target
+            else:
+                break
+        if isinstance(probe, ArrayType):
+            # Arrays cannot be assigned from a compound literal; the brace form
+            # is the only portable initializer.  An array of containers keeps
+            # the historical `{0}` (fixing it would need per-element code).
+            return "{0}"
+        if isinstance(probe, ListType):
+            elem_c = CTypeMapper.to_c_type(probe.element)
+            return f"((PenguList){{ .elem_size = sizeof({elem_c}) }})"
+        if isinstance(probe, MapType):
+            key_c = CTypeMapper.to_c_type(probe.key)
+            val_c = CTypeMapper.to_c_type(probe.value)
+            return (f"((PenguMap){{ .key_size = sizeof({key_c}), "
+                    f".val_size = sizeof({val_c}) }})")
+        if isinstance(probe, SliceType):
+            elem_c = CTypeMapper.to_c_type(probe.element)
+            return f"((PenguSlice){{ .elem_size = sizeof({elem_c}) }})"
+        if isinstance(probe, MaybeType):
+            return "pengu_maybe_none()"
+        if isinstance(probe, (RuneType, TupleType)):
+            key = getattr(probe, "name", "?")
+            if key in _seen:
+                return "{0}"
+            _seen = _seen | {key}
+            c_t = CTypeMapper.to_c_type(dt)
+            if isinstance(probe, TupleType):
+                field_types = {f"v{i}": e for i, e in enumerate(probe.elements)}
+            else:
+                field_types = probe.fields
+            parts = []
+            for f_name, f_type in field_types.items():
+                val = self._default_c_value(f_type, _seen)
+                if val in ("{0}", "NULL"):
+                    continue
+                parts.append(f".{self._c_ident(f_name)} = {val}")
+            if not parts:
+                return "{0}"
+            return f"({c_t}){{{', '.join(parts)}}}"
+        if isinstance(probe, (RefType, FnType)):
+            return "NULL"
+        c_t = CTypeMapper.to_c_type(dt)
+        if c_t.strip() in ("void", ""):
+            return "{0}"
+        return f"({c_t}){{0}}"
 
     def _translate_expr(self, node: Any, expected_type: Optional[Type] = None) -> str:
         """Translates an expression node, tracking that we are in expression context.
@@ -556,29 +622,12 @@ class ExprMixin:
                     probe = getattr(probe, "target", None)
                 else:
                     break
-            if isinstance(probe, ArrayType):
-                return "{0}"
             # A container's default is a semantic *empty* value, not a blind
             # zero: `(PenguList){0}` has `elem_size == 0`, so the first `push`
-            # would copy zero bytes.  Every literal below is allocation-free and
-            # leaves the container in a state the runtime grows on demand.
-            if isinstance(probe, ListType):
-                elem_c = CTypeMapper.to_c_type(probe.element)
-                return f"((PenguList){{ .elem_size = sizeof({elem_c}) }})"
-            if isinstance(probe, MapType):
-                key_c = CTypeMapper.to_c_type(probe.key)
-                val_c = CTypeMapper.to_c_type(probe.value)
-                return (f"((PenguMap){{ .key_size = sizeof({key_c}), "
-                        f".val_size = sizeof({val_c}) }})")
-            if isinstance(probe, SliceType):
-                elem_c = CTypeMapper.to_c_type(probe.element)
-                return f"((PenguSlice){{ .elem_size = sizeof({elem_c}) }})"
-            if isinstance(probe, MaybeType):
-                return "pengu_maybe_none()"
-            c_t = CTypeMapper.to_c_type(dt)
-            if c_t.strip() in ("void", ""):
-                return "{0}"
-            return f"({c_t}){{0}}"
+            # would copy zero bytes.  `_default_c_value` holds the literals and
+            # recurses into a rune's fields, which is what makes
+            # `donum SomeRune` valid when a field is a container (2.8.0).
+            return self._default_c_value(dt)
         elif rule == "error_lit":
             return "error"
         elif rule in ("try_expr", "or_else", "or_return"):
@@ -2454,6 +2503,21 @@ class ExprMixin:
                     # designated initialiser.  Managing the buffer is up to you.
                     field_inits.append((f_name, f_val, f_raw))
 
+            # A partial `with a is 1` leaves the other fields zero, which is a
+            # corrupt container for a `list`/`map`/`slice` field.  Fill every
+            # omitted field with its semantic default (the same `donum`
+            # literals); fields whose default really is zero stay omitted.
+            if isinstance(unwrapped_struct_t, RuneType):
+                specified = {name for name, _, _ in field_inits}
+                specified |= {raw for _, _, raw in field_inits}
+                for f_raw, f_type in unwrapped_struct_t.fields.items():
+                    if f_raw in specified or self._c_ident(f_raw) in specified:
+                        continue
+                    default_val = self._default_c_value(f_type)
+                    if default_val in ("{0}", "NULL"):
+                        continue
+                    field_inits.append((self._c_ident(f_raw), default_val, f_raw))
+
             if expected_type is not None and isinstance(expected_type, OmenType):
                 omen_cname = getattr(expected_type, "c_name", None) or expected_type.name
                 if not expected_type.is_algebraic:
@@ -2587,12 +2651,13 @@ class ExprMixin:
                 self.with_type_stack.pop()
                 self.with_stack.pop()
             body = " ".join(parts)
+            init_c = self._default_c_value(build_t)
             if not self.use_gnu_extensions:
-                self._hoist(f"{c_t} {tmp} = {{0}};")
+                self._hoist(f"{c_t} {tmp} = {init_c};")
                 for p in parts:
                     self._hoist(p)
                 return tmp
-            return f"(__extension__(({{ {c_t} {tmp} = {{0}}; {body} {tmp}; }})))"
+            return f"(__extension__(({{ {c_t} {tmp} = {init_c}; {body} {tmp}; }})))"
 
         elif rule == "do_expr":
             # General statement-block expression: run the statements in order

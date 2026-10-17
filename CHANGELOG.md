@@ -2,6 +2,93 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.8.0] — 2026-10-17 — thick functions and context pipelines
+
+The first half of Phase 1 (base libraries for self-hosting): callbacks without
+closures.  Two entirely additive modules, five explicit patterns replacing a
+closure, and the compiler fixes they exposed.
+
+```pengu
+rune Multiplier:
+    factor as int
+
+weave apply with m as ref to Multiplier, x as int into int:
+    return m->factor * x
+
+var m as Multiplier is with factor is 3
+var f as functor.Fn1 of int, int is calling functor.make_fn1 with apply, (sigil of m)
+calling f.call with 5      # 15
+
+var ys as list of int is calling loom.map_ctx with xs, (sigil of m), apply
+```
+
+### Added
+
+- **`std.functor`** — thick functions, the explicit Zig/Odin answer to "I need a
+  closure".  `Fn0<R>`, `Fn1<A,R>`, `Fn2<A,B,R>` and `Fn3<A,B,C,R>` are a
+  function pointer plus a borrowed context; `make_fn0`..`make_fn3` build them,
+  `call` invokes them, and `is_null` / `call_or` cover the empty value.  A `Fn`
+  is two pointers, lives wherever you put it, and allocation-free; the context
+  is never owned by the module.  Construction performs the only `transmute`
+  once (the standard thick-function reinterpretation), documented under
+  `## Seguridad` on every constructor.
+- **`std.loom.*_ctx`** — the context-taking pipeline family: `map_ctx`,
+  `filter_ctx`, `fold_ctx`, `for_each_ctx`, `zip_with_ctx`, `find_first_ctx`,
+  `any_ctx`, `all_ctx`, and the two nice-to-haves `partition_ctx` and
+  `filter_map_ctx`.  Each takes `ctx as ref to C` and a callback
+  `(ref to C, …) -> …`; no `transmute`, no closure, monomorphized per call site.
+  `zip_with_ctx` truncates at the shorter list like `zip_with_op`;
+  `find_first_ctx` is predicate-based and returns the *element* (unlike
+  `find_first`, which is equality-based and returns an index).
+- **Documentation of the decision** — `LANGUAGE.md` §8.4.1 (and its Spanish
+  mirror) explains why lambdas do not capture, lists the five explicit patterns
+  and shows the thick-function example.  `LANGUAGE.md` §19.0/§19.1/§19.3 add
+  `std.functor`, the ten `*_ctx` functions and two worked examples; the style
+  guides gain §6.9 (five patterns + decision table) and three anti-patterns
+  (§14.30–§14.32): a closure disguised as a one-field rune, `Fn1` where a
+  `concept` + `bind` is clearer, and `map_ctx` for logic that deserves a named
+  rune.  `CHEATSHEET.md` gains the module row and the callback menu.
+- **Tests** — 14 `test` blocks inside `std/functor`, 12 new `test` blocks inside
+  `std/loom` (156 total), 17 conformance programs under
+  `tests/compiler/fixtures/{functor,loom_ctx}`, stdlib end-to-end suites, LSP
+  hover/definition/completion tests, and codegen regressions for every compiler
+  fix below.
+
+### Changed
+
+- `std.functor` and `std.loom.*_ctx` are **the idiomatic answer** to "necesito
+  closures": use a `Fn` when the callback is stored or returned, `*_ctx` when it
+  is only called in a loop, a `concept` + `bind` when it has several methods,
+  and `ref to void` + `sigil of` at a raw C boundary.
+- `LOOM_VERSION` moves to `2.8.0`; `FUNCTOR_VERSION` starts at `2.8.0`.
+- A module may now opt out of a specific warning it deliberately triggers with
+  `# pengu: allow-warnings W0001` (comma- or space-separated codes, per file,
+  never leaked to importers).  `std.functor` uses it for its documented
+  thick-function cast, so importing the module emits no `W0001`.
+
+### Fixed
+
+- **A struct field of function-pointer type emitted invalid C.**
+  `fn_ptr as ref to weave with ctx as ref to void, a as A into R` produced
+  `int32_t (*)(void*, int32_t) fn_ptr;` instead of
+  `int32_t (*fn_ptr)(void*, int32_t);`.  Rune, echo and algebraic-omen fields
+  (including arrays of function pointers) now use the declarator form.
+- **An unspecialized generic method was emitted for a generic rune.**
+  Calling `b.get` on `Box of T` inside a generic body registered `Box_T_get`
+  with the non-existent C type `Box*`; only the concrete `Box_int_get` is
+  emitted now, so methods of generic runes compile and run from every call site.
+- **A by-value field of a monomorphized generic rune was defined too late.**
+  Rune definitions are emitted in dependency order, so a rune that stores a
+  `Fn1`/`Box of int` by value sees the complete struct.
+- **A partial `with`/`donum` initializer corrupted a container field.**
+  `(Rune){.total = 0}` zeroed a `list`/`map`/`slice` field (`elem_size == 0`,
+  so the first `push` copied zero bytes).  Omitted container fields now receive
+  the same allocation-free empty default as `donum (list of T)`, recursively
+  through nested runes and tuples.
+- **A generic weave monomorphized to `void` emitted `void _ret = call;`.**
+  `Fn1<A, void>` (an event handler) now lowers a value-returning call in a void
+  function to the call statement plus a bare `return;`.
+
 ## [2.7.0] — 2026-10-16 — debt release: patterns, ownership, module privacy
 
 Closes every item of `TODO_2.6.0.md`.  Six of them are language features; two are

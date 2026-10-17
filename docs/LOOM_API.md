@@ -5,7 +5,7 @@
 > against. A change to a signature here is a breaking change and must bump
 > `LOOM_VERSION`.
 >
-> Module revision: **`2.2.0`** (`LOOM_VERSION`).
+> Module revision: **`2.8.0`** (`LOOM_VERSION`).
 > Source: [`std/loom.pengu`](../std/loom.pengu).
 
 `loom` is the **safe** family of list helpers: sequence generation, slicing,
@@ -162,6 +162,36 @@ strings, so the `Par` group needs no concept. The `Ordo`-bounded group
 | `is_sorted_asc shard T where T: Ordered` | `(nums: list of T) -> bool` | Non-decreasing (`x[i] <= x[i+1]`). |
 | `is_sorted_desc shard T where T: Ordered` | `(nums: list of T) -> bool` | Non-increasing (`x[i] >= x[i+1]`). |
 | `is_partitioned shard T` | `(items: list of T, predicate: weave with x as T into bool) -> bool` | `true` when every element satisfying the predicate precedes every element that does not; `[]` and one-element lists give `true`. |
+
+## Context-taking pipelines (`*_ctx`)
+
+Added in 2.8.0. These are the no-closure answer to `map(xs, lambda …)`: the
+callback takes the borrowed context as its first parameter, so configuration
+travels without an environment.
+
+| Function | Signature (all `shard T, …, C`) |
+|---|---|
+| `map_ctx` | `(list of T, ref to C, (ref to C, T) -> U) -> list of U` |
+| `filter_ctx` | `(list of T, ref to C, (ref to C, T) -> bool) -> list of T` |
+| `fold_ctx` | `(list of T, U, ref to C, (ref to C, U, T) -> U) -> U` |
+| `for_each_ctx` | `(list of T, ref to C, (ref to C, T) -> void) -> void` |
+| `zip_with_ctx` | `(list of T, list of U, ref to C, (ref to C, T, U) -> V) -> list of V` |
+| `find_first_ctx` | `(list of T, ref to C, (ref to C, T) -> bool) -> maybe T` |
+| `any_ctx` | `(list of T, ref to C, (ref to C, T) -> bool) -> bool` |
+| `all_ctx` | `(list of T, ref to C, (ref to C, T) -> bool) -> bool` |
+| `partition_ctx` | `(list of T, ref to C, (ref to C, T) -> bool) -> (list of T, list of T)` |
+| `filter_map_ctx` | `(list of T, ref to C, (ref to C, T) -> maybe U) -> list of U` |
+
+Every function is self-contained (there is no context-free `map`/`filter`/
+`fold` in `loom` to delegate to) and uses no `transmute`: the callback is
+monomorphized like any other function parameter. `zip_with_ctx` truncates at the
+shorter list, exactly like `zip_with_op`. `find_first_ctx` is predicate-based
+and returns the **element**; the older `find_first` is equality-based and
+returns an **index**. `any_ctx` on `[]` is `false`; `all_ctx` on `[]` is `true`.
+`partition_ctx` returns two owned lists (release each one, not the tuple).
+
+Memory: the context is **borrowed** and must live for the synchronous call; the
+returned list is new and released by the caller with `banish`.
 
 ## Transformations and combinations
 

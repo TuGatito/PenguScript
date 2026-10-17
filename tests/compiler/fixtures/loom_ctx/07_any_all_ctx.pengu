@@ -1,0 +1,21 @@
+import std.loom
+import std.spark
+
+weave above with limit as ref to int, x as int into bool:
+    return x > (essence of limit)
+
+weave main into int:
+    var limit as int is 2
+    var present as list of int is [3, 4]
+    var low as list of int is [1, 2]
+    var empty as list of int is list of int
+    calling spark.println with "{calling loom.any_ctx with present, (sigil of limit), above}"
+    calling spark.println with "{calling loom.any_ctx with low, (sigil of limit), above}"
+    calling spark.println with "{calling loom.any_ctx with empty, (sigil of limit), above}"
+    calling spark.println with "{calling loom.all_ctx with present, (sigil of limit), above}"
+    calling spark.println with "{calling loom.all_ctx with low, (sigil of limit), above}"
+    calling spark.println with "{calling loom.all_ctx with empty, (sigil of limit), above}"
+    banish present
+    banish low
+    banish empty
+    return 0

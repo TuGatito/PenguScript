@@ -281,6 +281,11 @@ Returns a read-only byte view of the string's internal buffer (never NULL).
 
 Copies up to `max_len` bytes from `cstr` into a new owned string, stopping early
 if a NUL ('\0') character is encountered.
+Memoria
+Returns a freshly allocated owned string (empty for `null` or a
+non-positive bound); release it with `banish`. The copy is one `malloc`:
+the former per-byte `"{out}{chr b}"` accumulation allocated, and leaked, one
+buffer per character.
 
 
 ### `string_from_bytes`
@@ -288,6 +293,27 @@ if a NUL ('\0') character is encountered.
 > **string_from_bytes**(data: ref to byte, count: int) -> string
 
 Copies exactly `count` bytes from `data` into a new owned PenguScript string.
+Memoria
+Returns a freshly allocated owned string (empty for `null` or a
+non-positive count), byte-exact including embedded NULs; release it with
+`banish`. One `malloc`, like `string_from_cstr_n`.
+
+
+### `_cstr_n_to_string`
+
+> **_cstr_n_to_string**(cstr: ref to char, max_len: int) -> string
+
+Bounded NUL-terminated copy in one allocation. Private bridge for
+`string_from_cstr_n` (the language cannot slice a `ref to char` into owned
+bytes without an allocation per byte).
+
+
+### `_bytes_to_string`
+
+> **_bytes_to_string**(data: ref to byte, count: int) -> string
+
+Byte-exact copy of `count` bytes in one allocation. Private bridge for
+`string_from_bytes` (embedded NULs survive).
 
 
 ### `slice_from_ptr`

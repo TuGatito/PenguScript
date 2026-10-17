@@ -1,0 +1,16 @@
+import std.loom
+import std.spark
+
+weave pair_add with bias as ref to int, x as int, y as int into int:
+    return x + y + (essence of bias)
+
+weave main into int:
+    var bias as int is 100
+    var xs as list of int is [1, 2, 3]
+    var ys as list of int is [10, 20]
+    var zs as list of int is calling loom.zip_with_ctx with xs, ys, (sigil of bias), pair_add
+    calling spark.println with "{calling zs.len} {zs at 0} {zs at 1}"
+    banish zs
+    banish xs
+    banish ys
+    return 0

@@ -1,0 +1,14 @@
+import std.loom
+import std.spark
+
+weave add_offset with offset as ref to int, x as int into int:
+    return (essence of offset) + x
+
+weave main into int:
+    var offset as int is 10
+    var xs as list of int is [1, 2, 3]
+    var ys as list of int is calling loom.map_ctx with xs, (sigil of offset), add_offset
+    calling spark.println with "{ys at 0} {ys at 1} {ys at 2}"
+    banish ys
+    banish xs
+    return 0

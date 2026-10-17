@@ -1,0 +1,531 @@
+# pengu: allow-warnings W0001
+##
+## std/functor.pengu — thick functions: a function pointer plus an explicit context.
+##
+## A `Fn0`/`Fn1`/`Fn2`/`Fn3` is the PenguScript answer to "a callback that
+## remembers something" **without closures**. The value is a plain rune with two
+## pointers: the function to call and the context to pass it. Construction is
+## explicit and happens once; every call is one C indirect call.
+##
+## ## Why not closures
+## PenguScript deliberately has no closures (see `LANGUAGE.md` §8.4). Zig, Odin
+## and Nelua — the language's peers — do not have them either: a closure needs a
+## garbage collector, lifetime tracking, or a non-portable trampoline, and all
+## three would violate "explicit over hidden" and zero-cost abstractions. The
+## idiom those languages use instead is a *thick function*: the caller passes
+## the context explicitly, and the callee thread it through. This module is that
+## idiom as a reusable type.
+##
+## ## Example
+## ```pengu
+## import std.functor
+## import std.spark
+##
+## rune Multiplier:
+##     factor as int
+##
+## weave apply with m as ref to Multiplier, x as int into int:
+##     return m->factor * x
+##
+## weave main into int:
+##     var m as Multiplier is with factor is 3
+##     var f as functor.Fn1 of int, int is calling functor.make_fn1 with apply, (sigil of m)
+##     calling spark.println with "{calling f.call with 5}"   # 15
+##     return 0
+## ```
+##
+## ## Memory
+## Nothing here allocates: `make_fn*` returns a struct of two pointers and
+## `call` is one indirect call. The context is **borrowed**, never owned: the
+## caller must keep it alive for as long as the `Fn` is used. If the context
+## owns memory, free it yourself (`defer banish ctx`) after the last call.
+##
+## ## Safety
+## Construction reinterprets the function pointer with `transmute` so that its
+## first parameter becomes `ref to void`. In strict C99, calling through an
+## incompatible function-pointer type is technically undefined behaviour, but it
+## is the standard Zig/Odin pattern and works on every real ABI (GCC, Clang,
+## MSVC, TCC): a pointer is a pointer and the context is passed in the same
+## register/stack slot either way. The reinterpretation is confined to
+## `make_fn*`; `call` only calls the stored pointer with the stored context.
+##
+## ## See also
+## `std.loom`'s `map_ctx`, `filter_ctx`, `fold_ctx`, `for_each_ctx`,
+## `zip_with_ctx`, `find_first_ctx`, `any_ctx`, `all_ctx`, `partition_ctx` and
+## `filter_map_ctx` — the pipeline functions that take the context explicitly
+## and need no `Fn` at all. Use a `Fn` when the callback must be **stored** or
+## **returned**; use `loom.*_ctx` when it is only called inside a loop.
+
+import std.spark
+
+insignia functor_
+
+# --- Public constants ---------------------------------------------------
+
+## The version of the functor module.
+const FUNCTOR_VERSION as string is "2.8.0"
+
+# --- Types --------------------------------------------------------------
+
+## A thick function of no arguments: `fn_ptr(ctx) -> R`.
+##
+## `ctx` is the borrowed context; `fn_ptr` has been reinterpreted to receive it
+## as `ref to void` (see `make_fn0`). Treat both fields as read-only.
+rune Fn0 shard R:
+    fn_ptr as ref to weave with ctx as ref to void into R
+    ctx as ref to void
+
+## A thick function of one argument: `fn_ptr(ctx, a) -> R`.
+##
+## `ctx` is the borrowed context; `fn_ptr` has been reinterpreted to receive it
+## as `ref to void` (see `make_fn1`). Treat both fields as read-only.
+rune Fn1 shard A, R:
+    fn_ptr as ref to weave with ctx as ref to void, a as A into R
+    ctx as ref to void
+
+## A thick function of two arguments: `fn_ptr(ctx, a, b) -> R`.
+##
+## `ctx` is the borrowed context; `fn_ptr` has been reinterpreted to receive it
+## as `ref to void` (see `make_fn2`). Treat both fields as read-only.
+rune Fn2 shard A, B, R:
+    fn_ptr as ref to weave with ctx as ref to void, a as A, b as B into R
+    ctx as ref to void
+
+## A thick function of three arguments: `fn_ptr(ctx, a, b, c) -> R`.
+##
+## `ctx` is the borrowed context; `fn_ptr` has been reinterpreted to receive it
+## as `ref to void` (see `make_fn3`). Treat both fields as read-only.
+rune Fn3 shard A, B, C, R:
+    fn_ptr as ref to weave with ctx as ref to void, a as A, b as B, c as C into R
+    ctx as ref to void
+
+# --- Constructors -------------------------------------------------------
+
+## Builds an `Fn0` from a function and a context.
+##
+## ## Parámetros
+## - `f`: the function to store. Its first parameter is the typed context
+##   (`c as ref to C`); any additional parameters become the call arguments.
+## - `ctx`: the context passed to `f` on every call. It is **borrowed**: this
+##   module never frees it.
+##
+## ## Retorno
+## An `Fn0` (two pointers) that calls `f(ctx)`.
+##
+## ## Seguridad
+## `f` is `transmute`d to the equivalent signature with `ref to void` as its
+## first parameter. In strict C99, calling through an incompatible
+## function-pointer type is technically undefined behaviour, but this is the
+## standard Zig/Odin pattern and works on every real ABI. The reinterpretation
+## happens here, once; `call` never casts.
+##
+## ## Tiempos de vida
+## `ctx` must outlive the `Fn0` and every call made through it.
+##
+## ## Memoria
+## No aloca memoria. The returned `Fn0` lives wherever the caller stores it.
+##
+## ## Ejemplo
+## ```pengu
+## var counter as int is 0
+## var f as functor.Fn0 of int is calling functor.make_fn0 with read_counter, (sigil of counter)
+## calling f.call    # reads counter
+## ```
+weave make_fn0 shard R, C with f as weave with c as ref to C into R, ctx as ref to C into Fn0 of R:
+    var fp as ref to weave with ctx as ref to void into R is transmute f to (ref to weave with ctx as ref to void into R)
+    var cp as ref to void is transmute ctx to ref to void
+    return with fn_ptr is fp, ctx is cp
+
+## Builds an `Fn1` from a function and a context.
+##
+## ## Parámetros
+## - `f`: the function to store. Its first parameter is the typed context
+##   (`c as ref to C`); the second is the call argument.
+## - `ctx`: the context passed to `f` on every call. It is **borrowed**: this
+##   module never frees it.
+##
+## ## Retorno
+## An `Fn1` (two pointers) that calls `f(ctx, a)`.
+##
+## ## Seguridad
+## `f` is `transmute`d to the equivalent signature with `ref to void` as its
+## first parameter. In strict C99, calling through an incompatible
+## function-pointer type is technically undefined behaviour, but this is the
+## standard Zig/Odin pattern and works on every real ABI. The reinterpretation
+## happens here, once; `call` never casts.
+##
+## ## Tiempos de vida
+## `ctx` must outlive the `Fn1` and every call made through it.
+##
+## ## Memoria
+## No aloca memoria. The returned `Fn1` lives wherever the caller stores it.
+##
+## ## Ejemplo
+## ```pengu
+## rune Multiplier:
+##     factor as int
+##
+## weave apply with m as ref to Multiplier, x as int into int:
+##     return m->factor * x
+##
+## var m as Multiplier is with factor is 3
+## var f as functor.Fn1 of int, int is calling functor.make_fn1 with apply, (sigil of m)
+## calling f.call with 5      # 15
+## ```
+weave make_fn1 shard A, R, C with f as weave with c as ref to C, a as A into R, ctx as ref to C into Fn1 of A, R:
+    var fp as ref to weave with ctx as ref to void, a as A into R is transmute f to (ref to weave with ctx as ref to void, a as A into R)
+    var cp as ref to void is transmute ctx to ref to void
+    return with fn_ptr is fp, ctx is cp
+
+## Builds an `Fn2` from a function and a context.
+##
+## ## Parámetros
+## - `f`: the function to store. Its first parameter is the typed context
+##   (`c as ref to C`); the next two are the call arguments.
+## - `ctx`: the context passed to `f` on every call. It is **borrowed**: this
+##   module never frees it.
+##
+## ## Retorno
+## An `Fn2` (two pointers) that calls `f(ctx, a, b)`.
+##
+## ## Seguridad
+## `f` is `transmute`d to the equivalent signature with `ref to void` as its
+## first parameter. In strict C99, calling through an incompatible
+## function-pointer type is technically undefined behaviour, but this is the
+## standard Zig/Odin pattern and works on every real ABI. The reinterpretation
+## happens here, once; `call` never casts.
+##
+## ## Tiempos de vida
+## `ctx` must outlive the `Fn2` and every call made through it.
+##
+## ## Memoria
+## No aloca memoria. The returned `Fn2` lives wherever the caller stores it.
+##
+## ## Ejemplo
+## ```pengu
+## var f as functor.Fn2 of int, int, int is calling functor.make_fn2 with add, (sigil of base)
+## calling f.call with 2, 3      # base + 5
+## ```
+weave make_fn2 shard A, B, R, C with f as weave with c as ref to C, a as A, b as B into R, ctx as ref to C into Fn2 of A, B, R:
+    var fp as ref to weave with ctx as ref to void, a as A, b as B into R is transmute f to (ref to weave with ctx as ref to void, a as A, b as B into R)
+    var cp as ref to void is transmute ctx to ref to void
+    return with fn_ptr is fp, ctx is cp
+
+## Builds an `Fn3` from a function and a context.
+##
+## The third argument type is named `C2` internally because `C` already names
+## the context type (`ctx as ref to C`). This is a spelling detail of the
+## declaration only; callers write `functor.Fn3 of A, B, C2, R` with their own
+## names.
+##
+## ## Parámetros
+## - `f`: the function to store. Its first parameter is the typed context
+##   (`c as ref to C`); the next three are the call arguments.
+## - `ctx`: the context passed to `f` on every call. It is **borrowed**: this
+##   module never frees it.
+##
+## ## Retorno
+## An `Fn3` (two pointers) that calls `f(ctx, a, b, c2)`.
+##
+## ## Seguridad
+## `f` is `transmute`d to the equivalent signature with `ref to void` as its
+## first parameter. In strict C99, calling through an incompatible
+## function-pointer type is technically undefined behaviour, but this is the
+## standard Zig/Odin pattern and works on every real ABI. The reinterpretation
+## happens here, once; `call` never casts.
+##
+## ## Tiempos de vida
+## `ctx` must outlive the `Fn3` and every call made through it.
+##
+## ## Memoria
+## No aloca memoria. The returned `Fn3` lives wherever the caller stores it.
+##
+## ## Ejemplo
+## ```pengu
+## var f as functor.Fn3 of int, int, int, int is calling functor.make_fn3 with sum3, (sigil of base)
+## calling f.call with 1, 2, 3
+## ```
+weave make_fn3 shard A, B, C2, R, C with f as weave with c as ref to C, a as A, b as B, c2 as C2 into R, ctx as ref to C into Fn3 of A, B, C2, R:
+    var fp as ref to weave with ctx as ref to void, a as A, b as B, c2 as C2 into R is transmute f to (ref to weave with ctx as ref to void, a as A, b as B, c2 as C2 into R)
+    var cp as ref to void is transmute ctx to ref to void
+    return with fn_ptr is fp, ctx is cp
+
+# --- Call surface -------------------------------------------------------
+
+## Methods of `Fn0`: call it, ask whether it is null, or call it with a fallback.
+enchanting Fn0 shard R:
+    ## Calls the stored function with the stored context and returns its result.
+    ##
+    ## ## Retorno
+    ## Whatever `fn_ptr` returns.
+    ##
+    ## ## Memoria
+    ## No aloca memoria; the context is passed through unchanged.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling f.call
+    ## ```
+    weave call into R:
+        var fp as ref to weave with ctx as ref to void into R is self->fn_ptr
+        return calling fp with self->ctx
+
+    ## Returns `true` when the `Fn0` holds no function.
+    ##
+    ## A `Fn0` built by `make_fn0` is never null (the function argument must be
+    ## a real function); this is for values that crossed `donum` or were
+    ## initialised field by field.
+    weave is_null into bool:
+        return self->fn_ptr == null
+
+    ## Calls the stored function, or returns `fallback` when it is null.
+    ##
+    ## ## Memoria
+    ## No aloca memoria. `fallback` is returned by value.
+    weave call_or with fallback as R into R:
+        if self->fn_ptr == null:
+            return fallback
+        var fp as ref to weave with ctx as ref to void into R is self->fn_ptr
+        return calling fp with self->ctx
+
+## Methods of `Fn1`: call it, ask whether it is null, or call it with a fallback.
+enchanting Fn1 shard A, R:
+    ## Calls the stored function with the stored context and `a`.
+    ##
+    ## ## Retorno
+    ## Whatever `fn_ptr` returns.
+    ##
+    ## ## Memoria
+    ## No aloca memoria; the context and `a` are passed through unchanged.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling f.call with 5
+    ## ```
+    weave call with a as A into R:
+        var fp as ref to weave with ctx as ref to void, a as A into R is self->fn_ptr
+        return calling fp with self->ctx, a
+
+    ## Returns `true` when the `Fn1` holds no function.
+    weave is_null into bool:
+        return self->fn_ptr == null
+
+    ## Calls the stored function with `a`, or returns `fallback` when null.
+    ##
+    ## ## Memoria
+    ## No aloca memoria. `fallback` is returned by value.
+    weave call_or with a as A, fallback as R into R:
+        if self->fn_ptr == null:
+            return fallback
+        var fp as ref to weave with ctx as ref to void, a as A into R is self->fn_ptr
+        return calling fp with self->ctx, a
+
+## Methods of `Fn2`: call it, ask whether it is null, or call it with a fallback.
+enchanting Fn2 shard A, B, R:
+    ## Calls the stored function with the stored context, `a` and `b`.
+    ##
+    ## ## Memoria
+    ## No aloca memoria; the context and the arguments pass through unchanged.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling f.call with 2, 3
+    ## ```
+    weave call with a as A, b as B into R:
+        var fp as ref to weave with ctx as ref to void, a as A, b as B into R is self->fn_ptr
+        return calling fp with self->ctx, a, b
+
+    ## Returns `true` when the `Fn2` holds no function.
+    weave is_null into bool:
+        return self->fn_ptr == null
+
+    ## Calls the stored function with `a` and `b`, or returns `fallback` when null.
+    weave call_or with a as A, b as B, fallback as R into R:
+        if self->fn_ptr == null:
+            return fallback
+        var fp as ref to weave with ctx as ref to void, a as A, b as B into R is self->fn_ptr
+        return calling fp with self->ctx, a, b
+
+## Methods of `Fn3`: call it, ask whether it is null, or call it with a fallback.
+enchanting Fn3 shard A, B, C, R:
+    ## Calls the stored function with the stored context, `a`, `b` and `c`.
+    ##
+    ## ## Memoria
+    ## No aloca memoria; the context and the arguments pass through unchanged.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling f.call with 1, 2, 3
+    ## ```
+    weave call with a as A, b as B, c as C into R:
+        var fp as ref to weave with ctx as ref to void, a as A, b as B, c as C into R is self->fn_ptr
+        return calling fp with self->ctx, a, b, c
+
+    ## Returns `true` when the `Fn3` holds no function.
+    weave is_null into bool:
+        return self->fn_ptr == null
+
+    ## Calls the stored function with the three arguments, or returns `fallback`.
+    weave call_or with a as A, b as B, c as C, fallback as R into R:
+        if self->fn_ptr == null:
+            return fallback
+        var fp as ref to weave with ctx as ref to void, a as A, b as B, c as C into R is self->fn_ptr
+        return calling fp with self->ctx, a, b, c
+
+# --- Tests --------------------------------------------------------------
+# Private fixtures (see the module header). These run under `pengu test` and do
+# not depend on `std.ward`: a panic is enough for a unit test.
+
+## A three-times multiplier used by the constructor and call tests.
+rune _Multiplier:
+    factor as int
+
+## A context that owns the expected text, for the `string` argument test.
+rune _LengthCtx:
+    expected as string
+
+## A rune that stores a `Fn1`: the "callback as a field" case.
+rune _Holder:
+    f as Fn1 of int, int
+
+## A mutable click counter for the `Fn1<A, void>` side-effect case.
+rune _ClickCounter:
+    hits as int
+
+## Panics with `label` when `actual` and `expected` differ.
+weave _expect_int with actual as int, expected as int, label as string into void:
+    if actual != expected:
+        calling spark.panic with "functor test failed: {label}: {actual} != {expected}"
+
+## Panics with `label` when `cond` is false.
+weave _expect with cond as bool, label as string into void:
+    if not cond:
+        calling spark.panic with "functor test failed: {label}"
+
+## `(ref to _Multiplier, int) -> int`, the canonical context function.
+weave _multiply with m as ref to _Multiplier, x as int into int:
+    return m->factor * x
+
+## `(ref to _Multiplier) -> int`, the zero-argument case.
+weave _factor10 with m as ref to _Multiplier into int:
+    return m->factor * 10
+
+## `(ref to _Multiplier, int, int) -> int`, the two-argument case.
+weave _multiply_sum with m as ref to _Multiplier, x as int, y as int into int:
+    return m->factor * (x + y)
+
+## `(ref to _Multiplier, int, int, int) -> int`, the three-argument case.
+weave _multiply_sum3 with m as ref to _Multiplier, x as int, y as int, z as int into int:
+    return m->factor * (x + y + z)
+
+## `(ref to _Multiplier, ref to _Multiplier) -> int`, the `ref to rune` argument case.
+weave _sum_factors with m as ref to _Multiplier, other as ref to _Multiplier into int:
+    return m->factor + other->factor
+
+## `(ref to _LengthCtx, string) -> bool`, the `string` argument case.
+weave _string_len_is with c as ref to _LengthCtx, s as string into bool:
+    return s == c->expected
+
+## `(ref to int, int) -> int`, the plain-value context case.
+weave _add_offset with offset as ref to int, x as int into int:
+    return (essence of offset) + x
+
+## `(ref to void, int) -> int`: ignores its context, for the null-context test.
+weave _twice with c as ref to void, x as int into int:
+    return x * 2
+
+## `(ref to _ClickCounter, int) -> void`: the side-effect callback case.
+weave _count_click with c as ref to _ClickCounter, button as int into void:
+    set c->hits is c->hits + button
+
+## Passes a `Fn1` to another function: the "callback as a parameter" case.
+weave _run_it with f as (Fn1 of int, int), a as int into int:
+    return calling f.call with a
+
+# Zero-argument constructor and call.
+test "make_fn0 calls the function with the context":
+    var m as _Multiplier is with factor is 3
+    var f as Fn0 of int is calling make_fn0 with _factor10, (sigil of m)
+    calling _expect_int with (calling f.call), 30, "fn0"
+
+# One-argument constructor and call, with a rune context.
+test "make_fn1 calls the function with the context and the argument":
+    var m as _Multiplier is with factor is 3
+    var f as Fn1 of int, int is calling make_fn1 with _multiply, (sigil of m)
+    calling _expect_int with (calling f.call with 5), 15, "fn1"
+
+# A string argument.
+test "make_fn1 carries a string argument":
+    var c as _LengthCtx is with expected is "abc"
+    var f as Fn1 of string, bool is calling make_fn1 with _string_len_is, (sigil of c)
+    calling _expect with (calling f.call with "abc"), "fn1 string"
+    calling _expect with not (calling f.call with "abcd"), "fn1 string mismatch"
+
+# A `ref to rune` argument.
+test "make_fn1 carries a reference argument":
+    var a as _Multiplier is with factor is 2
+    var b as _Multiplier is with factor is 5
+    var f as Fn1 of ref to _Multiplier, int is calling make_fn1 with _sum_factors, (sigil of a)
+    calling _expect_int with (calling f.call with (sigil of b)), 7, "fn1 ref"
+
+# A plain-value context (ref to int rather than ref to rune).
+test "make_fn1 accepts a plain-value context":
+    var offset as int is 10
+    var f as Fn1 of int, int is calling make_fn1 with _add_offset, (sigil of offset)
+    calling _expect_int with (calling f.call with 4), 14, "fn1 int ctx"
+
+# Two-argument constructor and call.
+test "make_fn2 calls the function with two arguments":
+    var m as _Multiplier is with factor is 3
+    var f as Fn2 of int, int, int is calling make_fn2 with _multiply_sum, (sigil of m)
+    calling _expect_int with (calling f.call with 2, 3), 15, "fn2"
+
+# Three-argument constructor and call.
+test "make_fn3 calls the function with three arguments":
+    var m as _Multiplier is with factor is 2
+    var f as Fn3 of int, int, int, int is calling make_fn3 with _multiply_sum3, (sigil of m)
+    calling _expect_int with (calling f.call with 1, 2, 3), 12, "fn3"
+
+# Storing a Fn1 in another rune.
+test "a Fn1 can be stored in a rune field":
+    var m as _Multiplier is with factor is 4
+    var f as Fn1 of int, int is calling make_fn1 with _multiply, (sigil of m)
+    var h as _Holder is with f is f
+    calling _expect_int with (calling h.f.call with 3), 12, "fn1 in rune"
+
+# Passing a Fn1 to another function.
+test "a Fn1 can be passed to another function":
+    var m as _Multiplier is with factor is 5
+    var f as Fn1 of int, int is calling make_fn1 with _multiply, (sigil of m)
+    calling _expect_int with (calling _run_it with f, 2), 10, "fn1 as parameter"
+
+# A null context for a function that ignores it.
+test "a Fn1 accepts a null context":
+    var f as Fn1 of int, int is calling make_fn1 with _twice, null
+    calling _expect with not (calling f.is_null), "null context not null"
+    calling _expect_int with (calling f.call with 21), 42, "null context call"
+
+# is_null and call_or on a real Fn.
+test "is_null is false and call_or uses the function":
+    var m as _Multiplier is with factor is 3
+    var f as Fn1 of int, int is calling make_fn1 with _multiply, (sigil of m)
+    calling _expect with not (calling f.is_null), "fn1 is_null"
+    calling _expect_int with (calling f.call_or with 5, -1), 15, "fn1 call_or"
+
+# is_null and call_or on a null Fn built field by field.
+test "a donum Fn1 is null and call_or returns the fallback":
+    var f as Fn1 of int, int is donum (Fn1 of int, int)
+    calling _expect with (calling f.is_null), "donum is_null"
+    calling _expect_int with (calling f.call_or with 5, -1), -1, "donum call_or"
+
+# A `void` result: the callback exists for its side effect.
+test "a Fn1 of void supports side effects":
+    var c as _ClickCounter is with hits is 0
+    var f as Fn1 of int, void is calling make_fn1 with _count_click, (sigil of c)
+    calling f.call with 3
+    calling f.call with 4
+    calling _expect_int with c.hits, 7, "fn1 void"
+
+# The version marker follows the toolchain release.
+test "functor version is 2.8.0":
+    calling _expect with FUNCTOR_VERSION == "2.8.0", "version"

@@ -1,0 +1,14 @@
+import std.functor
+import std.spark
+
+rune Bias:
+    amount as int
+
+weave add_biased with b as ref to Bias, x as int, y as int into int:
+    return x + y + b->amount
+
+weave main into int:
+    var b as Bias is with amount is 100
+    var f as functor.Fn2 of int, int, int is calling functor.make_fn2 with add_biased, (sigil of b)
+    calling spark.println with "{calling f.call with 2, 3}"
+    return 0
