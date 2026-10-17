@@ -124,18 +124,18 @@ weave f into int:
     assert errors == [], [f"{e.code}: {e}" for e in errors]
 
 
-def test_container_field_breaks_the_rule(parse_and_check):
+def test_container_field_is_defaultable_since_2_7(parse_and_check):
+    """A `list` field has a semantic empty default, so it no longer breaks the rule."""
     errors, _ast, _symbols = parse_and_check("""
 rune Container:
     items as list of int
 
 weave f into int:
     var c as Container is donum Container
-    return 0
+    calling c.items.push with 1
+    return c.items.length
 """)
-    assert "E0049" in [e.code for e in errors], [f"{e.code}: {e}" for e in errors]
-    messages = " ".join(str(e) for e in errors)
-    assert "Donum" in messages
+    assert errors == [], [f"{e.code}: {e}" for e in errors]
 
 
 @pytest.mark.parametrize("declaration", [
@@ -205,18 +205,29 @@ weave zero shard T into Box of T:
     "map of string to int",
     "slice of int",
     "maybe int",
-    "result of int to string",
 ])
-def test_containers_do_not_implement_donum(parse_and_check, type_spelling):
+def test_containers_have_a_semantic_default(parse_and_check, type_spelling):
+    """`donum` of a container is an *empty* container, not `(T){0}`."""
     errors, _ast, _symbols = parse_and_check(f"""
 weave f into int:
     var v as {type_spelling} is donum ({type_spelling})
     return 0
 """)
+    assert errors == [], [f"{e.code}: {e}" for e in errors]
+
+
+def test_result_has_no_default(parse_and_check):
+    """A result is either ok or err and both payloads are heap pointers."""
+    errors, _ast, _symbols = parse_and_check("""
+weave f into int:
+    var v as result of int to string is donum (result of int to string)
+    return 0
+""")
     assert "E0049" in [e.code for e in errors], [f"{e.code}: {e}" for e in errors]
     message = " ".join(str(e) for e in errors)
-    assert "does not implement 'Donum'" in message, message
-    assert "zero" in message, message
+    assert "no 'donum' default" in message, message
+    help_text = " ".join(str(getattr(e, "help", "")) for e in errors)
+    assert "ok_of" in help_text and "err_of" in help_text, help_text
 
 
 # ---------------------------------------------------------------------------
@@ -334,16 +345,17 @@ def test_automatic_donum_needs_the_symbol_table_for_nominal_fields():
     assert automatic_donum(INT_TYPE, None) is None
 
 
-def test_containers_are_never_automatically_donum():
+def test_containers_are_donum_except_result():
+    """`list`/`map`/`slice`/`maybe` are defaultable; `result` is not."""
     from pengu_parser.pengu_types import (
         INT_TYPE, ListType, MapType, MaybeType, ResultType, SliceType,
         automatic_donum,
     )
 
     for container in (ListType(INT_TYPE), MapType(INT_TYPE, INT_TYPE),
-                      SliceType(INT_TYPE), MaybeType(INT_TYPE),
-                      ResultType(INT_TYPE, INT_TYPE)):
-        assert automatic_donum(container, None) is False
+                      SliceType(INT_TYPE), MaybeType(INT_TYPE)):
+        assert automatic_donum(container, None) is True, container
+    assert automatic_donum(ResultType(INT_TYPE, INT_TYPE), None) is False
 
 
 def test_reference_is_always_donum():

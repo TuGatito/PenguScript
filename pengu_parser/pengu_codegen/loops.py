@@ -42,7 +42,11 @@ class LoopMixin:
         cond_str = self._translate_expr(cond_node)
 
         self.indent_level += 1
-        body_str = self._translate_loop_body(block_node, append_ctx, loop_node=node)
+        self._push_loop_scope(node)
+        try:
+            body_str = self._translate_loop_body(block_node, append_ctx, loop_node=node)
+        finally:
+            self._pop_loop_scope()
         self.indent_level -= 1
 
         return f"{ind}while ({unwrap_condition(cond_str)}) {{\n{body_str}\n{ind}}}"
@@ -141,7 +145,11 @@ class LoopMixin:
         prev_var = self.local_vars.get(var_name, _MISSING)
         self.local_vars[var_name] = I64_TYPE if counter_t == "int64_t" else INT_TYPE
         self.indent_level += 1
-        body_str = self._translate_loop_body(block_node, append_ctx, loop_node=node)
+        self._push_loop_scope(node)
+        try:
+            body_str = self._translate_loop_body(block_node, append_ctx, loop_node=node)
+        finally:
+            self._pop_loop_scope()
         self.indent_level -= 1
         if prev_var is _MISSING:
             self.local_vars.pop(var_name, None)
@@ -202,6 +210,10 @@ class LoopMixin:
         except Exception:
             pass
 
+        # An alias (or `frozen`) of a container iterates like the container: the
+        # C typedef is layout-identical, so only the *type* needs unwrapping.
+        col_t = self._unwrap_container_alias(col_t)
+
         # A bare type parameter only becomes concrete after monomorphization.
         # If it is still abstract here the element type is unknowable, which
         # would emit invalid C; fail loudly instead (the checker reports the
@@ -242,7 +254,11 @@ class LoopMixin:
             if want_index:
                 self.local_vars[index_name] = INT_TYPE
             self.indent_level += 1
-            body_str = self._translate_loop_body(block_node, append_ctx, loop_node=node)
+            self._push_loop_scope(node)
+            try:
+                body_str = self._translate_loop_body(block_node, append_ctx, loop_node=node)
+            finally:
+                self._pop_loop_scope()
             self.indent_level -= 1
             if want_elem:
                 if prev_elem is _MISSING:
@@ -339,7 +355,14 @@ class LoopMixin:
         if want_elem:
             self.local_vars[elem_name] = elem_t
         self.indent_level += 1
-        body_str = self._translate_loop_body(block_node, append_ctx, loop_node=node)
+        self._push_loop_scope(
+            node,
+            f"pengu_banish_list(&{iter_tmp});" if iter_tmp is not None else "",
+        )
+        try:
+            body_str = self._translate_loop_body(block_node, append_ctx, loop_node=node)
+        finally:
+            self._pop_loop_scope()
         self.indent_level -= 1
         if want_index:
             if prev_index is _MISSING:
@@ -384,15 +407,15 @@ class LoopMixin:
             else:
                 body_prefix = f"{ind}  (void)(*({elem_cast})pengu_list_at(&({col_str}), {iter_idx}));\n"
             # A materialized non-lvalue iterable ('for v in calling make()') owns
-            # the list: release it once the loop ends (a 'break' still reaches
-            # this line, an early 'return' does not, like every scope release).
+            # the list: release it once the loop ends. A 'break' reaches this
+            # line, and so does a 'break label' (the anchor sits just above it);
+            # a 'return' and a jump out of an enclosing loop release it through
+            # `_loop_exit_releases` / `_loop_jump_releases` instead.
             iter_suffix = (f"{ind}pengu_banish_list(&{iter_tmp});\n"
                            if iter_tmp is not None else "")
             # The labeled-'break' anchor goes *before* that release, so a
             # `break label` out of this loop still falls through it; the normal
-            # end of the loop falls through it too.  (A jump that also leaves an
-            # enclosing owning loop cannot unwound that one: C has no unwinding,
-            # the same reason an early 'return' skips scope releases.)
+            # end of the loop falls through it too.
             break_anchor = self._loop_break_label(node, ind) if iter_tmp is not None else ""
             if break_anchor:
                 node._pengu_break_anchor_emitted = True

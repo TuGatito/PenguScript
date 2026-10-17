@@ -36,6 +36,8 @@ from lark import Token, Tree
 from lsprotocol.types import (
     CompletionItem,
     CompletionItemKind,
+    DocumentHighlight,
+    DocumentHighlightKind,
     Hover,
     Location,
     MarkupContent,
@@ -66,6 +68,16 @@ _LABELED_CONTROL_RE = re.compile(
 
 #: A valid PenguScript identifier, used to validate a rename target.
 _IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+#: Cheap pre-check for the semantic-token handler, which runs on every
+#: keystroke: a label declaration (``outer: for ...``) or a labeled jump
+#: (``break outer`` / ``continue outer``).  A buffer with neither shape cannot
+#: contain a label token, so it is not parsed at all.
+_MAYBE_LABEL_RE = re.compile(
+    r"^[ \t]*[A-Za-z_][A-Za-z0-9_]*[ \t]*:"
+    r"|\b(?:break|continue)[ \t]+[A-Za-z_]",
+    re.MULTILINE,
+)
 
 #: Content hash -> parsed tree (or None when the text does not parse).  Bounded
 #: because completion parses on every keystroke: keeping the last few buffers is
@@ -231,6 +243,37 @@ def _label_refs(tree: Tree) -> List[LabelRef]:
     return refs
 
 
+def loop_label_token_spans(doc_text: Optional[str]) -> List[Tuple[int, int, int]]:
+    """Every loop-label token as 1-based ``(line, column, length)``.
+
+    A label produces two kinds of token: the declaration (``outer:`` on a
+    ``while`` / ``for`` line) and the label of every labeled ``break`` /
+    ``continue``.  Both are returned so the semantic-token handler can give them
+    their own type instead of the lexer's generic ``NAME`` classification.
+
+    The coordinates are 1-based to match the lexer tokens the handler already
+    works with (and the other ``*_token_spans`` helpers in this package).
+
+    Args:
+        doc_text: Full document text, or None.
+
+    Returns:
+        One ``(line, column, length)`` tuple per label token, in tree order;
+        empty when the text has no labels or does not parse.
+    """
+    if not doc_text or not _MAYBE_LABEL_RE.search(doc_text):
+        return []
+    tree = _parse(doc_text)
+    if tree is None:
+        return []
+    lines = str(doc_text).splitlines()
+    spans = [(decl.line + 1, decl.column + 1, len(decl.label))
+             for decl in _label_decls(tree, lines)]
+    spans.extend((ref.line + 1, ref.column + 1, len(ref.label))
+                 for ref in _label_refs(tree))
+    return spans
+
+
 def _encloses(decl: LabelDecl, line0: int, column: int) -> bool:
     """True when 0-based ``(line0, column)`` sits inside ``decl``'s loop body."""
     if line0 < decl.line or line0 > decl.end_line:
@@ -358,6 +401,70 @@ def loop_label_definition(
                          character=target.column + len(target.label)),
         ),
     )
+
+
+def loop_label_highlights(
+    doc_text: Optional[str],
+    position: Position,
+) -> Optional[List[DocumentHighlight]]:
+    """Document highlights for the loop label under the cursor.
+
+    The label is the declaration plus every ``break`` / ``continue`` enclosed by
+    that loop (a labeled jump can only target an enclosing loop).  A homonym in
+    another function is a different label and is left out: enclosure is decided
+    from the loop's indentation block, exactly like rename.
+
+    Every occurrence is reported as :attr:`DocumentHighlightKind.Read`.  A label
+    is never assigned at runtime — ``break outer`` / ``continue outer`` only read
+    the jump target resolved at compile time — so marking the declaration
+    ``Write`` would describe a mutation that does not exist.
+
+    Args:
+        doc_text: Full document text.
+        position: Cursor position.
+
+    Returns:
+        The highlights (declaration and jumps in source order), or None when the
+        cursor is not on a loop label; the caller then keeps its ordinary
+        symbol-based highlighting unchanged.
+    """
+    tree = _parse(doc_text)
+    if tree is None:
+        return None
+    lines = str(doc_text).splitlines()
+    decls = _label_decls(tree, lines)
+    refs = _label_refs(tree)
+
+    target_ref: Optional[LabelRef] = None
+    decl = _decl_at(decls, position)
+    if decl is None:
+        target_ref = _ref_at(refs, position)
+        if target_ref is None:
+            return None
+        decl = _decl_for_ref(decls, target_ref)
+        if decl is None:
+            return None
+
+    spans = [(decl.line, decl.column, decl.label)]
+    for ref in refs:
+        if ref.label != decl.label:
+            continue
+        # `_decl_for_ref` falls back to a unique declaration when indentation
+        # cannot prove enclosure; the jump under the cursor still belongs to it.
+        if ref is target_ref or _encloses(decl, ref.line, ref.column):
+            spans.append((ref.line, ref.column, ref.label))
+    spans.sort(key=lambda span: (span[0], span[1]))
+
+    return [
+        DocumentHighlight(
+            range=Range(
+                start=Position(line=line0, character=column),
+                end=Position(line=line0, character=column + len(label)),
+            ),
+            kind=DocumentHighlightKind.Read,
+        )
+        for line0, column, label in spans
+    ]
 
 
 def loop_label_completions(

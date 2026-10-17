@@ -525,7 +525,9 @@ class SymbolTable:
         """
         sc = self.current_scope
         while sc is not None:
-            if sc.kind in ("weave", "enchanting"):
+            # A lambda body is emitted as its own C function, so it is a function
+            # boundary for labels too (`kind == "lambda"`).
+            if sc.kind in ("weave", "enchanting", "lambda"):
                 return sc
             sc = sc.parent
         return self.global_scope
@@ -541,6 +543,10 @@ class SymbolTable:
         while sc is not None:
             if getattr(sc, "loop_label", None) == label:
                 return sc
+            if sc.kind == "lambda":
+                # A lambda body is a separate C function: a `break`/`goto` there
+                # cannot reach a loop of the enclosing weave.
+                return None
             sc = sc.parent
         return None
 

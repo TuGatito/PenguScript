@@ -1,0 +1,27 @@
+## Or-patterns cover several variants in one clause, in both judge forms.
+import std.spark
+
+omen Kind:
+    A
+    B
+    C
+
+weave letter with k as Kind into string:
+    return judge k:
+        when Kind.A | Kind.B -> "ab"
+        when Kind.C -> "c"
+
+weave bucket with n as int into string:
+    return judge n:
+        when 1 | 2 | 3 -> "low"
+        when 4 -> "four"
+        else -> "other"
+
+weave main into int:
+    calling spark.println with (calling letter with Kind.A)
+    calling spark.println with (calling letter with Kind.B)
+    calling spark.println with (calling letter with Kind.C)
+    calling spark.println with (calling bucket with 2)
+    calling spark.println with (calling bucket with 4)
+    calling spark.println with (calling bucket with 9)
+    return 0

@@ -293,6 +293,67 @@ class BundleMixin:
         """Returns current indentation spaces string."""
         return "  " * self.indent_level
 
+    def _push_loop_scope(self, node: Tree, release: str = "") -> None:
+        """Records an entered loop body for labeled-jump unwinding.
+
+        C has no unwinding, so a `break outer` / `continue outer` that leaves an
+        inner loop must run that inner loop's own cleanup *before* the `goto`.
+        Each loop body pushes ``(label, release statement)``; the jump site looks
+        its target up and emits the releases of everything above it.
+
+        Args:
+            node: the loop node being entered.
+            release: the statement that releases the loop's temporaries (empty
+                for a loop that owns nothing).
+        """
+        stack = getattr(self, "_loop_release_stack", None)
+        if stack is None:
+            stack = []
+            self._loop_release_stack = stack
+        stack.append((getattr(node, "loop_label", None), release))
+
+    def _pop_loop_scope(self) -> None:
+        """Leaves the innermost loop body (see :meth:`_push_loop_scope`)."""
+        stack = getattr(self, "_loop_release_stack", None)
+        if stack:
+            stack.pop()
+
+    def _loop_exit_releases(self) -> list:
+        """Release statements for every loop a `return` leaves.
+
+        A `return` unwinds the whole function, so each active owning loop's
+        temporary must be released before the frame is popped.  The elements of a
+        materialized iterable are copied into the loop variable, so releasing the
+        buffer does not invalidate an element returned from inside the loop.
+        """
+        stack = getattr(self, "_loop_release_stack", None) or []
+        return [release for _label, release in reversed(stack) if release]
+
+    def _loop_jump_releases(self, label: str) -> list:
+        """Release statements for the loops a labeled jump leaves behind.
+
+        Returns the releases of every loop nested *inside* the loop named
+        ``label``, outermost first (so an inner list is released before the
+        outer one that may own it).  The target loop's own release is not
+        included: a `break` lands on its anchor, which runs it, and a
+        `continue` keeps the loop alive.
+
+        Args:
+            label: the target loop label of the jump.
+
+        Returns:
+            The statements to emit before the `goto` (empty when none).
+        """
+        stack = getattr(self, "_loop_release_stack", None) or []
+        target = None
+        for index in range(len(stack) - 1, -1, -1):
+            if stack[index][0] == label:
+                target = index
+                break
+        if target is None:
+            return []
+        return [release for _label, release in stack[target + 1:] if release]
+
     @staticmethod
     def _loop_label_target(node: Tree) -> Optional[str]:
         """Label of a ``break label`` / ``continue label`` node, or None.
@@ -355,8 +416,10 @@ class BundleMixin:
     def _loop_break_label(self, node: Tree, ind: str) -> str:
         """``_<label>_break: ;`` emitted right after a labeled loop.
 
-        Goes *after* the loop's own cleanup (e.g. the banish of a materialized
-        iterable), so breaking out of the loop does not leak it.
+        Goes *before* the loop's own cleanup (e.g. the banish of a materialized
+        iterable), so falling through the anchor runs that cleanup exactly once,
+        and a jump out of the loop releases the temporaries it leaves by
+        emitting them at the jump site (``_loop_jump_releases``).
         """
         label = getattr(node, "loop_label", None)
         if not label or not self._loop_label_is_used(node, label, "break"):

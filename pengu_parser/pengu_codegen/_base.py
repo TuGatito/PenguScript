@@ -31,7 +31,9 @@ from pengu_parser.pengu_symbols import SymbolTable, Symbol, decl_layout, SHARD_R
 from pengu_parser.pengu_infer import ConstFolder, TypeInferrer, RangeConst
 from pengu_parser.pengu_comptime import CompileTimeEnv, default_env, eval_comptime
 from pengu_parser.pengu_errors import SemanticError
-from pengu_parser.pengu_grammar import SIMPLE_STMT_ALIASES
+from pengu_parser.pengu_grammar import (
+    SIMPLE_STMT_ALIASES, pattern_group_name, split_when_pattern,
+)
 from pengu_parser.pengu_dce import (
     collect_references as _dce_collect_refs,
     prune_weaves,

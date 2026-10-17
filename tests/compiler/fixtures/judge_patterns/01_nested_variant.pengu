@@ -1,0 +1,25 @@
+## Nested patterns: `left as Literal` narrows a rune field whose discriminant is
+## the same omen as the enclosing `judge over`.
+import std.spark
+
+omen Kind:
+    Literal
+    Neg
+
+rune Expr:
+    kind as Kind
+    int_value as int
+    left as ref to Expr
+
+weave describe with e as ref to Expr into string:
+    judge e over kind:
+        when Literal -> "literal"
+        when Neg with left as Literal -> "neg of literal"
+        when Neg -> "neg"
+
+weave main into int:
+    var lit as Expr is with kind is Kind.Literal, int_value is 5
+    var neg as Expr is with kind is Kind.Neg, left is sigil of lit
+    calling spark.println with (calling describe with sigil of lit)
+    calling spark.println with (calling describe with sigil of neg)
+    return 0

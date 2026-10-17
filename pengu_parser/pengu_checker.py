@@ -20,7 +20,7 @@ from .pengu_types import (
 from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports, find_module_path, decl_layout, SHARD_RECEIVER_KEY
 from .pengu_infer import TypeInferrer, ConstFolder
 from .pengu_comptime import CompileTimeEnv, default_env, eval_comptime
-from .pengu_grammar import SIMPLE_STMT_ALIASES
+from .pengu_grammar import SIMPLE_STMT_ALIASES, split_when_pattern
 from .pengu_errors import (
     PenguError, ErrorReporter, SemanticError, ConstInsideWeaveError, VarLetTopLevelError,
     SelfDotAccessError, UndefinedIdentifierError, TypeMismatchError, MutabilityError,
@@ -1183,7 +1183,7 @@ class PenguChecker:
 
                 fields: Dict[str, Type] = {}
                 field_attrs: Dict[str, Dict[str, List[Any]]] = {}
-                rune_t = RuneType(name=r_name, fields=fields, type_params=type_params, base_name=r_name, c_name=c_r_name, derived_concepts=list(derived_concepts), bounds=bounds, attributes=r_attrs, field_attributes=field_attrs)
+                rune_t = RuneType(name=r_name, fields=fields, type_params=type_params, base_name=r_name, c_name=c_r_name, derived_concepts=list(derived_concepts), bounds=bounds, attributes=r_attrs, field_attributes=field_attrs, module=self._type_module(self.filename))
                 if type_params:
                     self.symbols.generic_runes[r_name] = (type_params, stmt)
                 self.symbols.runes[r_name] = rune_t
@@ -1388,9 +1388,9 @@ class PenguChecker:
 
                 if type_params:
                     self.symbols.generic_echos[e_name] = (type_params, stmt)
-                    echo_t = EchoType(name=e_name, fields=fields, type_params=type_params, c_name=c_e_name, derived_concepts=list(derived_concepts), bounds=bounds)
+                    echo_t = EchoType(name=e_name, fields=fields, type_params=type_params, c_name=c_e_name, derived_concepts=list(derived_concepts), bounds=bounds, module=self._type_module(self.filename))
                 else:
-                    echo_t = EchoType(name=e_name, fields=fields, c_name=c_e_name, derived_concepts=list(derived_concepts))
+                    echo_t = EchoType(name=e_name, fields=fields, c_name=c_e_name, derived_concepts=list(derived_concepts), module=self._type_module(self.filename))
 
                 for d_concept in derived_concepts:
                     self.symbols.concept_bindings[(e_name, d_concept)] = {}
@@ -1619,9 +1619,9 @@ class PenguChecker:
 
                 if type_params:
                     self.symbols.generic_omens[o_name] = (type_params, stmt)
-                    omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, type_params=type_params, c_name=c_o_name, derived_concepts=list(derived_concepts), bounds=bounds)
+                    omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, type_params=type_params, c_name=c_o_name, derived_concepts=list(derived_concepts), bounds=bounds, module=self._type_module(self.filename))
                 else:
-                    omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, c_name=c_o_name, derived_concepts=list(derived_concepts))
+                    omen_t = OmenType(name=o_name, variants=variants, variant_values=variant_values, c_name=c_o_name, derived_concepts=list(derived_concepts), module=self._type_module(self.filename))
 
                 for d_concept in derived_concepts:
                     self.symbols.concept_bindings.setdefault((o_name, d_concept), {})
@@ -1675,7 +1675,7 @@ class PenguChecker:
                     return self.symbols.lookup_type(tname)
 
                 target_t = ast_to_type(rem_children[0], lookup_tp)
-                alias_obj = AliasType(name=a_name, target=target_t, type_params=type_params, c_name=c_a_name)
+                alias_obj = AliasType(name=a_name, target=target_t, type_params=type_params, c_name=c_a_name, module=self._type_module(self.filename))
                 if type_params:
                     self.symbols.generic_aliases[a_name] = (type_params, stmt)
                 self.symbols.aliases[a_name] = alias_obj
@@ -1701,7 +1701,7 @@ class PenguChecker:
                     continue
                 c_s_name = f"{current_insignia}{s_name}" if current_insignia else s_name
                 underlying_t = ast_to_type(stmt.children[1], self.symbols.lookup_type)
-                seal_obj = SealType(name=s_name, underlying=underlying_t, c_name=c_s_name)
+                seal_obj = SealType(name=s_name, underlying=underlying_t, c_name=c_s_name, module=self._type_module(self.filename))
                 self.symbols.seals[s_name] = seal_obj
                 if c_s_name != s_name:
                     self.symbols.seals[c_s_name] = seal_obj
@@ -2866,12 +2866,21 @@ class PenguChecker:
                     self._record_error(err)
                     return
 
+                # An alias is transparent: `alias Numbers as list of int` names
+                # the same owning value as `list of int`, so it must be
+                # banishable like one (the code generator unwraps it too).
+                t_probe = t
+                for _ in range(8):
+                    if isinstance(t_probe, AliasType):
+                        t_probe = getattr(t_probe, "target", None)
+                    else:
+                        break
                 is_valid_type = (
-                    isinstance(t, (RefType, ListType, MapType, AnyType))
-                    or (isinstance(t, BaseType) and t.name == "string")
+                    isinstance(t_probe, (RefType, ListType, MapType, AnyType))
+                    or (isinstance(t_probe, BaseType) and t_probe.name == "string")
+                    or isinstance(t_probe, (MaybeType, ResultType))
                     # 'maybe T' / 'result of T to E' own their payload box, so
                     # 'banish m' is the explicit way to release payload + box.
-                    or isinstance(t, (MaybeType, ResultType))
                     or (isinstance(curr, Tree) and curr.data == "essence_of")
                     # A value type with a derived Nexus owns its fields and has
                     # a generated destructor, so it can be released explicitly:
@@ -3006,6 +3015,10 @@ class PenguChecker:
                 self._record_error(err)
             return
 
+        elif rule in ("lambda_expr", "lambda_no_params"):
+            self._check_lambda_body(node)
+            return
+
         # Generic traversal for other nodes
         for child in node.children:
             if isinstance(child, Tree):
@@ -3014,6 +3027,37 @@ class PenguChecker:
     # -------------------------------------------------------------------------
     # Specific Statement Checkers
     # -------------------------------------------------------------------------
+    def _check_lambda_body(self, node: Tree) -> None:
+        """Checks a lambda body inside its own function scope.
+
+        A lambda becomes a separate top-level C function, so the body is a
+        *function boundary*: `break`/`continue` (bare or labeled) inside it must
+        not resolve to a loop of the enclosing weave, and its labels are its own.
+        The body sees only its parameters — lambdas do not capture.
+
+        Args:
+            node: a ``lambda_expr`` / ``lambda_no_params`` node.
+        """
+        if node.data == "lambda_no_params":
+            params: List[Any] = []
+            body = node.children[0] if node.children else None
+        else:
+            plist = node.children[0] if node.children else None
+            body = node.children[1] if len(node.children) > 1 else None
+            params = [p for p in (plist.children if isinstance(plist, Tree) else [])
+                      if isinstance(p, Tree) and len(p.children) >= 2]
+        self.symbols.push_scope(kind="lambda", in_loop=False)
+        try:
+            for p in params:
+                p_name = str(p.children[0])
+                p_type = ast_to_type(p.children[1], self.symbols.lookup_type)
+                self.symbols.define(Symbol(name=p_name, type=p_type, kind="param",
+                                           is_mutable=False))
+            if isinstance(body, Tree):
+                self._check_value_exprs(body)
+        finally:
+            self.symbols.pop_scope()
+
     def _check_simple_stmt(self, node: Tree) -> None:
         """Checks a single-line block statement (``if c: return 0``).
 
@@ -3056,6 +3100,11 @@ class PenguChecker:
                 return True
         if rule == "array_lit":
             return all(self._is_static_const_expr(c) for c in node.children if isinstance(c, (Tree, Token)))
+        if rule in ("lambda_expr", "lambda_no_params"):
+            # A lambda body is a separate C function: check it behind a function
+            # boundary so `break`/`continue` cannot target the enclosing loops.
+            self._check_lambda_body(node)
+            return
         if rule == "struct_init":
             field_inits = [c for c in node.children if isinstance(c, Tree) and c.data == "field_init"]
             return all(self._is_static_const_expr(fi.children[-1]) for fi in field_inits)
@@ -3619,6 +3668,11 @@ class PenguChecker:
         if rule == "judge_over_expr":
             self._check_judge_over_expr(node)
             return
+        if rule in ("lambda_expr", "lambda_no_params"):
+            # A lambda body is a separate C function: check it behind a function
+            # boundary so `break`/`continue` cannot target the enclosing loops.
+            self._check_lambda_body(node)
+            return
         if rule == "struct_init":
             unwrapped_expected = expected
             while isinstance(unwrapped_expected, (AliasType, FrozenType)):
@@ -3743,15 +3797,40 @@ class PenguChecker:
                         elif sub.data == "when_guard":
                             guard_node = sub
 
+                alternatives = split_when_pattern(pat_node)
                 if unwrapped_subj is not None and len(child.children) >= 1:
-                    self._check_when_pattern_type(pat_node, unwrapped_subj, subj_t)
+                    for alternative in alternatives:
+                        self._check_when_pattern_type(pat_node, unwrapped_subj, subj_t,
+                                                      group=alternative)
 
                 var_name = None
                 variant_fields: Dict[str, Type] = {}
+                per_alternative: List[Dict[str, Type]] = []
                 if isinstance(unwrapped_subj, OmenType):
-                    var_name, variant_fields = self._resolve_omen_variant(pat_node, unwrapped_subj)
+                    variant_fields = {}
+                    for index, alternative in enumerate(alternatives):
+                        alt_name, alt_fields = self._variant_from_alternative(alternative, unwrapped_subj)
+                        per_alternative.append(alt_fields)
+                        if index == 0:
+                            var_name, variant_fields = alt_name, alt_fields
 
                 payload_fields = self._extract_payload_fields(payload_node) if payload_node else []
+                for f_name, f_node in payload_fields:
+                    if self._field_pattern_node(f_node) is not None:
+                        # `when A with opt as none` is only meaningful when the
+                        # clause has a rune to test; ignoring the pattern made the
+                        # first clause win whatever the field held.
+                        self._record_error(self._make_error(
+                            SemanticError,
+                            "Narrowing patterns ('field as <pattern>') are only "
+                            "supported in 'judge <rune> over <field>'",
+                            f_node,
+                            code="E0005",
+                            help="Use the 'over' form to narrow a field, or bind it "
+                                 "by name and narrow with a guard.",
+                            note="A plain 'judge' matches an omen value; it has no "
+                                 "rune field to test.",
+                        ))
                 if payload_fields:
                     if not isinstance(unwrapped_subj, OmenType):
                         self._record_error(self._make_error(
@@ -3775,6 +3854,18 @@ class PenguChecker:
                                     f"Variant '{var_name}' has no field '{f_name}'",
                                     f_node,
                                     code="E0005"
+                                ))
+                                continue
+                            if any(f_name not in alt for alt in per_alternative):
+                                self._record_error(self._make_error(
+                                    SemanticError,
+                                    f"Binding '{f_name}' must exist in every alternative of an "
+                                    f"or-pattern; it is missing in one of them",
+                                    f_node,
+                                    code="E0005",
+                                    help="List only fields that every alternative carries, or "
+                                         "split the clause into one clause per variant.",
+                                    note="A `when A | B with x` clause binds `x` for both variants.",
                                 ))
 
                 # Register payload variables in when_clause scope
@@ -3812,7 +3903,19 @@ class PenguChecker:
                     self.symbols.pop_scope()
 
             elif isinstance(child, Tree) and child.data == "else_clause":
-                self._check_node(child)
+                self._check_judge_else(child)
+
+    def _check_judge_else(self, child: Tree) -> None:
+        """Checks a `judge` `else ->` body (an expression or an indented block)."""
+        body = child.children[0] if child.children else None
+        if isinstance(body, Tree) and body.data in (
+            "do_expr", "if_stmt", "unless_stmt", "while_stmt", "for_range_stmt",
+            "for_in_stmt", "with_init_expr", "or_block", "judge_expr",
+            "judge_over_expr",
+        ):
+            self._check_value_exprs(body)
+        else:
+            self._check_node(body)
 
     @staticmethod
     def _strip_judge_over_wrappers(t: Any) -> Any:
@@ -3862,6 +3965,200 @@ class PenguChecker:
                 return resolved
         return u
 
+    @staticmethod
+    def _field_pattern_node(when_field: Any) -> Optional[Tree]:
+        """The ``as <pattern>`` node of a ``with`` entry, or None.
+
+        A `with` entry is ``NAME`` or ``NAME as <pattern>``; the second child,
+        when present, is either a ``field_tuple`` or the state/variant name.
+        """
+        if not isinstance(when_field, Tree) or when_field.data != "when_field":
+            return None
+        for child in when_field.children[1:]:
+            if isinstance(child, Tree):
+                return child
+        return None
+
+    def _find_nested_discriminant(self, nested: RuneType, omen: OmenType) -> Optional[str]:
+        """Name of ``nested``'s field whose omen type is ``omen``, if any.
+
+        A nested pattern (``left as Literal``) matches the *same* discriminant
+        omen as the enclosing ``judge``: `left` must be a rune carrying a field of
+        that omen type.  This finds that field.
+        """
+        for candidate, type_ in (nested.fields or {}).items():
+            resolved = self._resolve_omen_field(type_)
+            if isinstance(resolved, OmenType) and resolved.name == omen.name:
+                return candidate
+        return None
+
+    def _check_judge_over_field_pattern(self, pat_node: Tree, field_name: str,
+                                        field_node: Any, rune: RuneType,
+                                        omen: OmenType) -> Tuple[bool, bool]:
+        """Validates ``field as <pattern>`` in a ``judge over`` ``with`` list.
+
+        Three pattern shapes are supported:
+
+        * ``field as (a, b)`` — tuple destructuring.  The tuple always has that
+          shape, so this is a *binding* form: it declares one immutable binding
+          per element and does **not** bind the field itself.
+        * ``field as some`` / ``none`` / ``ok`` / ``err`` — a state test on a
+          ``maybe``/``result`` field (``.is_present`` / ``.is_ok``).  The field is
+          also bound, so a guard can read it.
+        * ``field as Variant`` (optionally ``Kind.Variant``) — a nested variant
+          test on a rune field whose discriminant is the same ``omen`` as the
+          enclosing judge.  The field is bound too.
+
+        Args:
+            pat_node: the ``field_pattern`` node.
+            field_name: the rune field being narrowed.
+            field_node: the ``when_field`` (for diagnostics).
+            rune: the enclosing subject rune.
+            omen: the discriminant omen.
+
+        Returns:
+            ``(binds_field, is_test)``: whether the field itself becomes a
+            binding, and whether the pattern narrows (so the clause cannot count
+            as full coverage of the variant).
+        """
+        pattern = pat_node
+        if isinstance(pattern, Tree) and pattern.data == "field_pattern" and pattern.children:
+            pattern = pattern.children[0]
+
+        field_type = self._resolve_nominal_type(rune.fields[field_name])
+        probe = self._strip_judge_over_wrappers(field_type)
+
+        if isinstance(pattern, Tree) and pattern.data == "field_tuple":
+            self._check_judge_over_tuple_pattern(pattern, field_name, field_node, probe)
+            return False, False
+
+        if isinstance(pattern, Tree):
+            names = [str(c) for c in pattern.children if not isinstance(c, Tree)]
+        else:
+            names = [str(pattern)]
+        state = names[-1] if names else ""
+
+        if isinstance(probe, MaybeType):
+            if state not in ("some", "none"):
+                self._record_error(self._make_error(
+                    SemanticError,
+                    f"'maybe' field '{field_name}' can only be matched as 'some' or "
+                    f"'none', not '{state}'",
+                    field_node,
+                    code="E0005",
+                    help=f"Write 'when … with {field_name} as some' or "
+                         f"'{field_name} as none'.",
+                    note="A 'maybe' has exactly two states.",
+                ))
+            return True, True
+        if isinstance(probe, ResultType):
+            if state not in ("ok", "err"):
+                self._record_error(self._make_error(
+                    SemanticError,
+                    f"'result' field '{field_name}' can only be matched as 'ok' or "
+                    f"'err', not '{state}'",
+                    field_node,
+                    code="E0005",
+                    help=f"Write 'when … with {field_name} as ok' or '{field_name} as err'.",
+                    note="A 'result' has exactly two states.",
+                ))
+            return True, True
+
+        if not isinstance(probe, RuneType):
+            self._record_error(self._make_error(
+                SemanticError,
+                f"Field '{field_name}' cannot be matched with 'as {state}': its type "
+                f"'{field_type}' is not a rune, 'maybe' or 'result'",
+                field_node,
+                code="E0005",
+                help="A nested pattern narrows a rune field whose discriminant is the "
+                     "same omen as the enclosing 'judge over', or a 'maybe'/'result' "
+                     "field. A tuple field is destructured with 'as (a, b)'.",
+                note="Only a value with a known discriminant can be narrowed.",
+            ))
+            return True, True
+
+        disc_field = self._find_nested_discriminant(probe, omen)
+        if disc_field is None:
+            self._record_error(self._make_error(
+                SemanticError,
+                f"Rune '{probe.name}' of field '{field_name}' has no '{omen.name}' "
+                f"discriminant to match '{state}' against",
+                field_node,
+                code="E0005",
+                help=f"A nested pattern needs a field of type '{omen.name}' in "
+                     f"'{probe.name}'.",
+                note="Nested patterns follow the same discriminant as the outer judge.",
+            ))
+            return True, True
+        if state not in omen.variants:
+            available = ", ".join(sorted(omen.variants)) or "(none)"
+            self._record_error(self._make_error(
+                SemanticError,
+                f"Omen '{omen.name}' has no variant '{state}'",
+                field_node,
+                code="E0005",
+                help=f"Available variants: {available}.",
+                note="A nested pattern names a variant of the discriminant omen.",
+            ))
+        return True, True
+
+    def _check_judge_over_tuple_pattern(self, pat_node: Tree, field_name: str,
+                                        field_node: Any, field_type: Any) -> bool:
+        """Validates ``field as (a, b)`` and declares the element bindings.
+
+        Returns:
+            False: a tuple pattern never binds the field itself (the elements are
+            the bindings).
+        """
+        names = [str(c) for c in pat_node.children if not isinstance(c, Tree)]
+        tuple_t = field_type
+        if not isinstance(tuple_t, TupleType):
+            self._record_error(self._make_error(
+                SemanticError,
+                f"Field '{field_name}' can only be destructured with 'as (a, b)' "
+                f"when its type is a tuple; it is '{field_type}'",
+                field_node,
+                code="E0005",
+                help="Use a field whose type is a tuple, or bind it by name.",
+                note="A tuple pattern binds one name per element.",
+            ))
+            return False
+        elements = tuple_t.elements
+        if len(names) != len(elements):
+            self._record_error(self._make_error(
+                SemanticError,
+                f"Tuple of field '{field_name}' has {len(elements)} element(s), "
+                f"but the pattern lists {len(names)}",
+                field_node,
+                code="E0005",
+                help=f"List exactly {len(elements)} name(s) in the tuple pattern.",
+                note="A tuple pattern must name every element.",
+            ))
+            return False
+        seen: Set[str] = set()
+        for name, element_t in zip(names, elements):
+            if name in seen:
+                self._record_error(self._make_error(
+                    SemanticError,
+                    f"Duplicate binding '{name}' in a tuple pattern",
+                    field_node,
+                    code="E0053",
+                    help="Give each element binding a distinct name.",
+                    note="Tuple destructuring declares one variable per element.",
+                ))
+                continue
+            seen.add(name)
+            self.symbols.define(Symbol(
+                name=name,
+                type=self._resolve_nominal_type(element_t),
+                kind="let",
+                is_mutable=False,
+                line=getattr(field_node, "line", 1),
+                column=getattr(field_node, "column", 1),
+            ))
+        return False
+
     def _resolve_omen_field(self, t: Any) -> Any:
         """Resolves a rune field type to its nominal ``OmenType`` when possible.
 
@@ -3882,6 +4179,36 @@ class PenguChecker:
                     return r
         return u
 
+    @staticmethod
+    def _module_id(path: Optional[str]) -> Optional[str]:
+        """Identity of the module a file belongs to (its normalised path).
+
+        Two checks compare this against the ``module`` recorded on a nominal
+        type, so a private ``_field`` is reachable from the file that declares
+        the type and from nowhere else.
+        """
+        if not path:
+            return None
+        try:
+            return os.path.normcase(os.path.abspath(path))
+        except (OSError, ValueError):  # pragma: no cover - pathological cwd
+            return path
+
+    def _in_owning_module(self, nominal: Any) -> bool:
+        """True when ``nominal`` is declared in the module being checked."""
+        declared = getattr(nominal, "module", None)
+        return declared is not None and declared == self._module_id(self.filename)
+
+    @staticmethod
+    def _type_module(path: Optional[str]) -> Optional[str]:
+        """``module`` value to stamp on a type declared while checking ``path``."""
+        if not path:
+            return None
+        try:
+            return os.path.normcase(os.path.abspath(path))
+        except (OSError, ValueError):  # pragma: no cover
+            return path
+
     def _owns_private_member(self, nominal: Any) -> bool:
         """True when private ``_field`` members of ``nominal`` are reachable here.
 
@@ -3893,10 +4220,7 @@ class PenguChecker:
             self.symbols.is_in_enchanting()
             and self.symbols.current_enchanting_type() == nominal
         )
-        is_module_owner = (
-            hasattr(nominal, "module")
-            and nominal.module == getattr(self.symbols, "current_module", None)
-        )
+        is_module_owner = self._in_owning_module(nominal)
         return bool(is_enchanting or is_module_owner)
 
     def _check_judge_over_expr(self, node: Tree) -> None:
@@ -3994,7 +4318,6 @@ class PenguChecker:
                 continue
             if child.data == "when_clause":
                 pat_node = child.children[0]
-                variant, _variant_fields = self._resolve_omen_variant(pat_node, omen)
                 payload_node = None
                 guard_node = None
                 for sub in child.children[1:-1]:
@@ -4004,20 +4327,25 @@ class PenguChecker:
                         elif sub.data == "when_guard":
                             guard_node = sub
 
-                variant_ok = bool(variant) and variant in omen.variants
-                if not variant_ok:
-                    available = ", ".join(omen.variants.keys()) or "(none)"
-                    self._record_error(self._make_error(
-                        SemanticError,
-                        f"Omen '{omen.name}' has no variant '{variant or pat_node}'",
-                        pat_node,
-                        code="E0005",
-                        help=f"Available variants: {available}.",
-                        note="A 'judge over' pattern names a variant of the discriminant omen.",
-                    ))
-                if variant_ok and guard_node is None:
-                    covered.add(variant)
+                # `when A | B` matches either variant; each alternative must be a
+                # real variant, and each one it covers counts for exhaustiveness.
+                variants_in_clause: List[str] = []
+                for alternative in split_when_pattern(pat_node):
+                    alt_variant, _alt_fields = self._variant_from_alternative(alternative, omen)
+                    if not alt_variant or alt_variant not in omen.variants:
+                        available = ", ".join(omen.variants.keys()) or "(none)"
+                        self._record_error(self._make_error(
+                            SemanticError,
+                            f"Omen '{omen.name}' has no variant '{alt_variant or alternative}'",
+                            pat_node,
+                            code="E0005",
+                            help=f"Available variants: {available}.",
+                            note="A 'judge over' pattern names a variant of the discriminant omen.",
+                        ))
+                        continue
+                    variants_in_clause.append(alt_variant)
 
+                narrowed = False
                 self.symbols.push_scope(kind="when_clause")
                 try:
                     fields = self._extract_payload_fields(payload_node) if payload_node else []
@@ -4044,14 +4372,24 @@ class PenguChecker:
                                 note="Fields starting with '_' cannot be bound outside their rune.",
                             ))
                             continue
-                        self.symbols.define(Symbol(
-                            name=f_name,
-                            type=self._resolve_nominal_type(rune.fields[f_name]),
-                            kind="let",
-                            is_mutable=False,
-                            line=getattr(f_node, "line", 1),
-                            column=getattr(f_node, "column", 1),
-                        ))
+                        field_pattern = self._field_pattern_node(f_node)
+                        binds_field = True
+                        if field_pattern is not None:
+                            binds_field, is_test = self._check_judge_over_field_pattern(
+                                field_pattern, f_name, f_node, rune, omen)
+                            # A narrowed field is a *test*, not just a binding: it
+                            # cannot complete the variant's coverage, exactly like
+                            # a guard, so the variant is not marked covered below.
+                            narrowed = narrowed or is_test
+                        if binds_field:
+                            self.symbols.define(Symbol(
+                                name=f_name,
+                                type=self._resolve_nominal_type(rune.fields[f_name]),
+                                kind="let",
+                                is_mutable=False,
+                                line=getattr(f_node, "line", 1),
+                                column=getattr(f_node, "column", 1),
+                            ))
 
                     if guard_node is not None:
                         guard_expr_node = guard_node.children[0]
@@ -4089,9 +4427,12 @@ class PenguChecker:
                 finally:
                     self.symbols.pop_scope()
 
+                if guard_node is None and not narrowed:
+                    covered.update(variants_in_clause)
+
             elif child.data == "else_clause":
                 has_else = True
-                self._check_node(child)
+                self._check_judge_else(child)
                 try:
                     branch_types.append(self.inferrer.infer(child.children[0]))
                 except SemanticError as exc:
@@ -4144,9 +4485,19 @@ class PenguChecker:
         return fields
 
     def _resolve_omen_variant(self, pat_node: Any, omen: OmenType) -> Tuple[Optional[str], Dict[str, Type]]:
-        if not isinstance(pat_node, Tree) or pat_node.data != "when_pattern":
+        """First alternative of a ``when`` pattern as ``(variant, fields)``."""
+        groups = split_when_pattern(pat_node)
+        return self._variant_from_alternative(groups[0], omen) if groups else (None, {})
+
+    def _variant_from_alternative(self, group: Any, omen: OmenType) -> Tuple[Optional[str], Dict[str, Type]]:
+        """Resolves one alternative (a group from :func:`split_when_pattern`).
+
+        A group is the list of name tokens of one pattern: ``[Token("A")]`` for a
+        plain variant, ``[Token("Kind"), Token("A")]`` for a qualified one.
+        """
+        if not group:
             return None, {}
-        children = [c for c in pat_node.children if (isinstance(c, Token) and c.type == "NAME") or (isinstance(c, str))]
+        children = [c for c in group if (isinstance(c, Token) and c.type == "NAME") or (isinstance(c, str))]
         if not children:
             return None, {}
         raw_name = str(children[-1])
@@ -4162,10 +4513,20 @@ class PenguChecker:
             return raw_name, omen.variants[raw_name]
         return var_name, {}
 
-    def _check_when_pattern_type(self, pat_node: Any, unwrapped_subj: Type, subj_t: Type) -> None:
-        if not isinstance(pat_node, Tree) or pat_node.data != "when_pattern":
-            return
-        children = pat_node.children
+    def _check_when_pattern_type(self, pat_node: Any, unwrapped_subj: Type, subj_t: Type,
+                                 group: Any = None) -> None:
+        """Validates one alternative of a `when` pattern against the subject type.
+
+        Args:
+            pat_node: the whole ``when_pattern`` node (used for diagnostics).
+            unwrapped_subj: the subject type with aliases/seals peeled.
+            subj_t: the subject type as written.
+            group: the alternative to check; defaults to the first one.
+        """
+        if group is None:
+            groups = split_when_pattern(pat_node)
+            group = groups[0] if groups else []
+        children = list(group)
         if not children:
             return
         if all(isinstance(c, Token) and c.type == "NAME" for c in children):
@@ -4941,7 +5302,7 @@ class PenguChecker:
                         )
                         is_module_owner = (
                             hasattr(with_t, "module")
-                            and with_t.module == getattr(self.symbols, "current_module", None)
+                            and self._in_owning_module(with_t)
                         )
                         if not (is_enchanting or is_module_owner):
                             raise self._make_error(
@@ -4992,7 +5353,7 @@ class PenguChecker:
                                     )
                                     is_module_owner = (
                                         hasattr(curr_t, "module")
-                                        and curr_t.module == getattr(self.symbols, "current_module", None)
+                                        and self._in_owning_module(curr_t)
                                     )
                                     if not (is_enchanting or is_module_owner):
                                         raise self._make_error(
@@ -5290,7 +5651,7 @@ class PenguChecker:
                                     )
                                     is_module_owner = (
                                         hasattr(unwrapped_t, "module")
-                                        and unwrapped_t.module == getattr(self.symbols, "current_module", None)
+                                        and self._in_owning_module(unwrapped_t)
                                     )
                                     if not (is_enchanting or is_module_owner):
                                         raise self._make_error(

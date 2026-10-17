@@ -129,21 +129,16 @@ weave f with r as R into int:
         when B -> 2
         when C -> 3
 """, "E0013"),
-    # 5. a private `over` field is rejected from outside its rune.
-    ("""
-omen Kind:
-    A
-    B
-
-rune R:
-    _kind as Kind
-    v as int
-
+    # 5. a mismatched binding is E0013 (the private-field case moved to
+    #    `test_module_privacy.py`: since 2.7.0 a `_field` is private to its
+    #    *module*, so the declaration file may match it).
+    (_RUNE_PRELUDE + """
 weave f with r as R into int:
-    judge r over _kind:
-        when A -> 1
+    judge r over kind:
+        when A with nope -> 1
         when B -> 2
-""", "E0043"),
+        when C -> 3
+""", "E0013"),
     # 6. missing variants with no `else`.
     (_RUNE_PRELUDE + """
 weave f with r as R into int:
@@ -175,20 +170,22 @@ def test_diagnostics(parse_and_check, source, code):
     assert code in [e.code for e in errors], [f"{e.code}: {e}" for e in errors]
 
 
-def test_nested_pattern_is_a_syntax_error():
-    """`when Binary with left as Literal ->` is not part of 2.5.0."""
-    from pengu_parser.pengu_errors import ParseError
-    from pengu_parser.pengu_parser import PenguParser
+def test_nested_pattern_parses_since_2_7(parse_and_check):
+    """`when Binary with left as Literal ->` was a 2.5.0 limitation (see 2.7.0).
 
-    with pytest.raises(ParseError) as excinfo:
-        PenguParser().parse(_RUNE_PRELUDE + """
+    Whether the *nested* rune has the right discriminant is checked
+    semantically; here only the syntax is exercised (`v` is an int field, so the
+    pattern is rejected with E0005, not with a parse error).
+    """
+    errors, _ast, _symbols = parse_and_check(_RUNE_PRELUDE + """
 weave f with r as R into int:
     judge r over kind:
         when A with v as Literal -> 1
         when B -> 2
         when C -> 3
 """)
-    assert excinfo.value.code == "E0000"
+    assert "E0000" not in [e.code for e in errors], [f"{e.code}: {e}" for e in errors]
+    assert "E0005" in [e.code for e in errors], [f"{e.code}: {e}" for e in errors]
 
 
 def test_guarded_variant_without_else_reports_the_variant(parse_and_check):

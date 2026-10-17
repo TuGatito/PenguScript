@@ -279,9 +279,26 @@ when_guard: ("if" | "when") guard_expr
               | guard_postfix "length" -> length_expr
               | guard_postfix "." NAME -> field_access
 when_payload: when_field (("," | _AND_SEP) when_field)*
-when_field: NAME
-else_clause: "else" "->" expr _NEWLINE
-!when_pattern: INT
+# A `with` entry either binds a rune field (`op`) or binds *and narrows* it with
+# a pattern (`left as Literal`, `opt as none`, `pair as (n, flag)`).
+when_field: NAME ["as" field_pattern]
+field_pattern: field_tuple
+             | field_state
+# Destructuring bind of a tuple-typed field: always matches (a tuple has one
+# shape), so it is a binding form, not a test.
+field_tuple: "(" NAME ("," NAME)+ ")"
+# One word, optionally qualified.  `some`/`none`/`ok`/`err` are ordinary names
+# here; the checker decides whether they mean a maybe/result state or a nested
+# rune variant, from the field's type.
+?field_state: NAME ("." NAME)*
+# `else -> <expr>` or an indented body: the same two shapes a `when` body takes,
+# so a multi-statement default does not need a `do:` wrapper.
+else_clause: "else" "->" when_body
+# A pattern may list alternatives: `when A | B ->`.  PAT_OR is a *named*
+# terminal (not the anonymous `|`) so the tree keeps it and a clause can tell
+# `when A | B` (three children) from a qualified `when Kind.A` (two).
+when_pattern: when_variant (PAT_OR when_variant)*
+?when_variant: INT
              | FLOAT
              | string_token
              | CHAR_LIT
@@ -652,10 +669,56 @@ CHAR_LIT: /'([^'\\]|\\u\{[0-9a-fA-F]+\}|\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2}|\\[0
 # Compound assignment operators. Declared after the single-char operators with
 # higher priority so '<<='/'>>=' win over '<<'/'>=' at lexing time.
 COMPOUND_OP.3: "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>="
+# Pattern alternation inside a `when`: `when A | B -> …`.  Named (not the
+# anonymous `|`) so it survives in the tree; higher priority than the boolean
+# `or`/bitwise `|` when both are acceptable.
+PAT_OR.6: "|"
 ARROW: "->"
 DOTDOT.5: ".."
 VARARGS.6: "..."
 """
+
+
+#: Terminal that separates the alternatives of a ``when`` pattern.
+PAT_OR_TOKEN = "PAT_OR"
+
+
+def split_when_pattern(pat_node):
+    """Splits a ``when`` pattern into its ``|`` alternatives.
+
+    ``when A | B ->`` is one clause that matches either variant, and ``when
+    Kind.A ->`` is one qualified variant; the two must not be confused, which is
+    why the separator is a *named* terminal (``PAT_OR``) that survives in the
+    tree.  Each returned group is the list of nodes/tokens of one alternative:
+    ``[Token("A")]`` for a plain variant, ``[Token("Kind"), Token("A")]`` for a
+    qualified one.
+
+    Args:
+        pat_node: the clause's ``when_pattern`` node (or a bare token/tree).
+
+    Returns:
+        One list per alternative, in source order (never empty).
+    """
+    if getattr(pat_node, "data", None) != "when_pattern":
+        return [[pat_node]]
+    groups = [[]]
+    for child in getattr(pat_node, "children", []):
+        if getattr(child, "type", None) == PAT_OR_TOKEN:
+            groups.append([])
+        elif getattr(child, "data", None) == "when_variant":
+            # A qualified name (`Kind.A`) keeps a wrapper node (the rule has two
+            # children, so `?` cannot inline it); flatten it so every group is a
+            # flat list of name/literal nodes.
+            groups[-1].extend(child.children)
+        else:
+            groups[-1].append(child)
+    groups = [g for g in groups if g]
+    return groups or [[pat_node]]
+
+
+def pattern_group_name(group) -> str:
+    """The textual name of one pattern alternative (``A``, ``Kind.A``)."""
+    return ".".join(str(part) for part in group)
 
 # Single-line block statements ('if c: return 0') parse as their own grammar
 # nodes (aliased from ``simple_stmt``); each one is exactly the canonical

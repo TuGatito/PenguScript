@@ -5,8 +5,11 @@ Part of :class:`~pengu_parser.pengu_codegen.main.PenguCodegen`; see
 """
 from __future__ import annotations
 
+import re
+
 from ._base import (
     RefType,
+    Token,
     Tree,
 )
 from .ctype import (
@@ -116,6 +119,135 @@ class ProtoMixin:
         # module level, or `main` would be imported while it is still building.
         from .main import PenguCodegen
         return PenguCodegen._format_attributes(w, is_msvc=False)
+    @staticmethod
+    def _referenced_names(body_stmts) -> set:
+        """Names a function body actually mentions in the generated C.
+
+        Used to decide which parameters need a ``(void)name;`` to silence
+        ``-Wunused-parameter``.  The scan is deliberately conservative — a name
+        it cannot see through (an interpolation's ``{expr}`` text, a lambda body
+        that shadows it) counts as *used*, so the compiler only adds the cast
+        where the parameter is provably invisible to C.
+
+        Args:
+            body_stmts: The statements of the function body.
+
+        Returns:
+            The set of identifier names referenced anywhere in the body.
+        """
+        used: set = set()
+
+        def note_token(token) -> None:
+            if isinstance(token, Token) and token.type == "NAME":
+                used.add(str(token))
+
+        def walk(node) -> None:
+            if isinstance(node, Token):
+                return
+            if not isinstance(node, Tree):
+                return
+            if node.data == "type_of":
+                # `type of expr` inspects its operand's static type and emits a
+                # string literal: nothing inside the operand reaches the C.
+                return
+            if node.data in ("var_ref", "self_ref") and node.children:
+                note_token(node.children[0])
+            elif node.data == "normal_target" and node.children:
+                # A call/assignment target is a bare NAME (a parameter called as
+                # a function pointer, or `set param is …`), not a var_ref.
+                note_token(node.children[0])
+            elif node.data in ("string_lit", "interpolated_string"):
+                # Interpolations are re-parsed at codegen time, so their operand
+                # names live in the literal's text rather than in the tree.
+                text = " ".join(str(c) for c in node.children)
+                for match in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*", text):
+                    used.add(match.group(0))
+            for child in node.children:
+                walk(child)
+
+        for stmt in body_stmts or []:
+            walk(stmt)
+        return used
+
+    @staticmethod
+    def _local_declaration_names(body_stmts) -> set:
+        """Names of the local bindings a function body declares.
+
+        Covers `var`, `let`, `static var`, `const` (a function-local constant is
+        emitted as a static local) and the destructuring forms, which carry a
+        `var_name_list`.
+
+        Args:
+            body_stmts: The statements of the function body.
+
+        Returns:
+            The declared names.
+        """
+        names: set = set()
+
+        def walk(node) -> None:
+            if isinstance(node, Token) or not isinstance(node, Tree):
+                return
+            if node.data in ("var_decl", "let_decl", "static_var_decl", "const_decl") and node.children:
+                first = node.children[0]
+                if isinstance(first, Tree) and first.data == "var_name_list":
+                    for tok in first.children:
+                        names.add(str(tok))
+                elif not isinstance(first, Tree):
+                    names.add(str(first))
+            for child in node.children:
+                walk(child)
+
+        for stmt in body_stmts or []:
+            walk(stmt)
+        return names
+
+    def _unused_local_names(self, body_stmts) -> set:
+        """C identifiers of the locals a body declares but never uses in C.
+
+        Emitting ``(void)name;`` right after such a declaration keeps the bundle
+        clean under ``-Wall -Wextra`` (`-Wunused-variable`,
+        `-Wunused-but-set-variable`) without changing behaviour.  A binding that
+        is only read by ``type of`` counts as unused, because its value never
+        reaches the generated C.
+
+        Args:
+            body_stmts: The statements of the function body.
+
+        Returns:
+            The C identifiers to void.
+        """
+        declared = self._local_declaration_names(body_stmts)
+        used = self._referenced_names(body_stmts)
+        return {self._c_ident(n) for n in declared if n not in used}
+
+    def _unused_parameter_names(self, w, body_stmts) -> list:
+        """C identifiers of the parameters (and receiver) a body never reads.
+
+        Emitting ``(void)name;`` for them keeps the generated C clean under
+        ``-Wall -Wextra -Werror`` without changing behaviour: the cast is a
+        no-op statement.  ``antiquus`` bodies are literal C and are left alone,
+        and a parameter whose value the code generator injects implicitly (the
+        receiver of an ``enchanting`` method) is never "removed" — the cast is
+        merely a hint to the C compiler.
+
+        Args:
+            w: The collected weave record.
+            body_stmts: The statements of its body.
+
+        Returns:
+            The C identifiers to void, in declaration order.
+        """
+        if w.get("c_body") is not None:
+            return []
+        used = self._referenced_names(body_stmts)
+        names = []
+        if w["enchanted_type"] is not None and not w.get("is_ritual", False):
+            names.append("self")
+        names.extend(p_info[0] for p_info in w["params"])
+        unused = [self._c_ident(name) for name in names if name not in used]
+        return unused
+
     def generate_function_definitions(self) -> str:
         """Generates function implementation bodies in topological module order."""
         lines = [
@@ -204,6 +336,12 @@ class ProtoMixin:
             # is the result.  Translating it as a real ``return_stmt`` gives the
             # same cleanup handling as an explicit ``return``.
             body_stmts = w["body_stmts"]
+            # Parameters the body never mentions: one `(void)name;` each, so the
+            # bundle is clean under `-Wextra -Werror` (`type of p` is exactly
+            # such a case: the operand is inspected, never emitted).
+            for unused_param in self._unused_parameter_names(w, body_stmts):
+                lines.append(f"{self.indent()}(void){unused_param};")
+            self._void_locals = self._unused_local_names(body_stmts)
             tail_expr = self._implicit_return_expr(body_stmts, w.get("return_type"))
             if tail_expr is not None:
                 body_code = self._translate_block(body_stmts[:-1])
@@ -239,5 +377,6 @@ class ProtoMixin:
             self.indent_level -= 1
             lines.append("}")
             lines.append("")
+            self._void_locals = set()
 
         return "\n".join(lines)

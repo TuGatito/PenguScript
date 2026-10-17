@@ -1,0 +1,41 @@
+## State patterns (`opt as some` / `res as err`) and tuple destructuring in a
+## `with` list.
+import std.spark
+
+omen Kind:
+    A
+    B
+
+rune Pair:
+    x as int
+    y as bool
+
+weave make_pair into (int, bool):
+    return 3, true
+
+rune Holder:
+    kind as Kind
+    opt as maybe int
+    res as result of int to string
+    pair as (int, bool)
+    tag as string
+
+weave inspect with h as Holder into string:
+    judge h over kind:
+        when A with opt as some, pair as (n, flag), tag ->
+            "a {n} {flag} {tag}"
+        when A with opt as none ->
+            "a none"
+        when B with res as err ->
+            "b err"
+        when B with res as ok ->
+            "b ok"
+        else ->
+            "unreachable"
+
+weave main into int:
+    var okc as Holder is with kind is Kind.A, opt is some 7, pair is calling make_pair, tag is "hey"
+    var errc as Holder is with kind is Kind.B, res is calling err_of with "boom"
+    calling spark.println with (calling inspect with okc)
+    calling spark.println with (calling inspect with errc)
+    return 0

@@ -126,6 +126,7 @@
         "'judge' subject must be an omen, bool, int, or string, got '{}'",
         "'many' parameters are not allowed in 'antiquus' declarations",
         "'many' parameters are not allowed in 'declare' statements",
+        "'maybe' field '{}' can only be matched as 'some' or 'none', not '{}'",
         "'or else' fallback type '{}' incompatible with '{}'",
         "'or else' left operand must be maybe or Result, got '{}'",
         "'or:' cannot be applied to a value of unknown type 'any'",
@@ -134,6 +135,7 @@
         "'or:' requires a 'maybe T' or 'result of T to E' operand, got '{}'",
         "'ord' expects a char or a string of length 1, got '{}'",
         "'ord' expects a string of length 1, got {} characters",
+        "'result' field '{}' can only be matched as 'ok' or 'err', not '{}'",
         "'some' cannot wrap a fixed array; use a slice or reference instead",
         "'some' cannot wrap a void or unknown value",
         "'try' requires Result or Maybe type, got '{}'",
@@ -159,6 +161,7 @@
         "Array/Slice index must be an integer, got '{}'",
         "Binding '{}' as '{}' from '{}'",
         "Binding '{}' cannot be bound to a 'void' value",
+        "Binding '{}' must exist in every alternative of an or-pattern; it is missing in one of them",
         "Binding '{}' requires a maybe value, got '{}'",
         "Cannot assign value of type '{}' to target of type '{}'",
         "Cannot assign value of type '{}' to target of type '{}' (bound: {})",
@@ -200,6 +203,8 @@
         "Duplicate parameter name '{}' in function '{}'",
         "Duplicate parameter name '{}' in method '{}'",
         "Duplicate type parameter in generic declaration '{}'",
+        "Field '{}' can only be destructured with 'as (a, b)' when its type is a tuple; it is '{}'",
+        "Field '{}' cannot be matched with 'as {}': its type '{}' is not a rune, 'maybe' or 'result'",
         "Field '{}' expected '{}', got '{}'",
         "Function expects at least {} arguments, but received {}",
         "Function expects between {} and {} arguments, but received {}",
@@ -217,6 +222,7 @@
         "Map of {} to {} put value expects {}, got {}",
         "Missing argument(s) for parameter(s) {} of '{}'",
         "Missing required argument '{}'",
+        "Narrowing patterns ('field as <pattern>') are only supported in 'judge <rune> over <field>'",
         "Non-default parameter '{}' follows default parameter in function '{}'",
         "Non-default parameter '{}' follows default parameter in method '{}'",
         "Omen '{}' has no variant '{}'",
@@ -238,11 +244,13 @@
         "Pointer index must be an integer, got '{}'",
         "Positional argument after named argument",
         "Range {} must be an integer, got '{}'",
+        "Rune '{}' of field '{}' has no '{}' discriminant to match '{}' against",
         "Slice range bounds must be integers, got '{}'",
         "Slice range bounds must be integers, got '{}' to '{}'",
         "Static variable '{}' cannot be bound to a 'void' value",
         "String index must be an integer, got '{}'",
         "String interpolation is not supported when expecting a C string literal (ref to char)",
+        "Tuple of field '{}' has {} element(s), but the pattern lists {}",
         "Type '{}' does not satisfy bound '{}' required by method '{}'",
         "Unary '-' requires numeric type, got '{}'",
         "Unknown named argument '{}' for '{}'",
@@ -833,6 +841,7 @@
       ],
       "conditions": [
         "Judge over omen/bool is not exhaustive and has no 'else ->' branch",
+        "Judge over omen/bool is not exhaustive and has no 'else ->' branch (missing: {})",
         "Judge over rune is not exhaustive and has no 'else ->' branch (missing: {})"
       ],
       "explanation": "Non-exhaustive judge expression without default else clause.",
@@ -888,7 +897,7 @@
         "SemanticError"
       ],
       "conditions": [
-        "'{}' does not implement 'Donum': containers have no zero value",
+        "'result of T to E' has no 'donum' default: a result is either ok or err",
         "'{}' has no default value: not every field implements 'Donum'",
         "Cannot use comparison '{}' on type '{}' without the '{}' concept",
         "Cannot use equality comparison '{}' on type parameter '{}' without 'Par' bound",
@@ -944,6 +953,7 @@
         "SemanticError"
       ],
       "conditions": [
+        "Duplicate binding '{}' in a tuple pattern",
         "Duplicate binding name '{}' in destructuring",
         "Redefinition of '{}' in the same scope"
       ]

@@ -404,6 +404,8 @@ let desc is judge state:
 - **`omen` algebraico — lo predeterminado.** Cada variante lleva solo sus propios campos, el compilador guarda la representación más compacta y la cláusula liga el payload de la variante por posición. Prefiérelo siempre que las variantes sean cosas genuinamente distintas.
 - **`rune` con un discriminante — cuando las variantes comparten campos.** Declara los campos compartidos (`line`, `col`, `type`) una sola vez en el rune y casa la etiqueta con `judge <rune> over <field>:`. Úsalo también cuando necesites un **layout estable** para FFI o para un struct C externo, y siempre que el valor se entregue a C.
 
+Los or-patterns (`when A | B ->`) permiten que dos variantes compartan una cláusula; un patrón *estrechado* (`when Binary with left as Literal ->`) es una prueba, no cobertura — la variante sigue necesitando una cláusula normal o un `else`.
+
 Lado a lado:
 
 `omen` algebraico:

@@ -698,6 +698,10 @@ class ArrayType(Type):
             # A mutable value flows into a read-only view (C allows
             # adding 'const'); the reverse is rejected by FrozenType.
             return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            # An alias is transparent: `alias Window as slice of int` names the
+            # same type as `slice of int`, so it flows both ways.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, ArrayType):
@@ -750,6 +754,10 @@ class RangeType(Type):
             # A mutable value flows into a read-only view (C allows
             # adding 'const'); the reverse is rejected by FrozenType.
             return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            # An alias is transparent: `alias Window as slice of int` names the
+            # same type as `slice of int`, so it flows both ways.
+            return self.is_compatible(other.target)
         if isinstance(other, (AnyType, TypeParam)):
             return True
         if isinstance(other, RangeType):
@@ -793,6 +801,10 @@ class SliceType(Type):
         if isinstance(other, FrozenType):
             # A mutable value flows into a read-only view (C allows
             # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            # An alias is transparent: `alias Window as slice of int` names the
+            # same type as `slice of int`, so it flows both ways.
             return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
@@ -840,6 +852,10 @@ class ManyType(Type):
         if isinstance(other, FrozenType):
             # A mutable value flows into a read-only view (C allows
             # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            # An alias is transparent: `alias Window as slice of int` names the
+            # same type as `slice of int`, so it flows both ways.
             return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
@@ -920,6 +936,10 @@ class ListType(Type):
             # A mutable value flows into a read-only view (C allows
             # adding 'const'); the reverse is rejected by FrozenType.
             return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            # An alias is transparent: `alias Window as slice of int` names the
+            # same type as `slice of int`, so it flows both ways.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, ListType):
@@ -970,6 +990,10 @@ class MapType(Type):
             # A mutable value flows into a read-only view (C allows
             # adding 'const'); the reverse is rejected by FrozenType.
             return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            # An alias is transparent: `alias Window as slice of int` names the
+            # same type as `slice of int`, so it flows both ways.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, MapType):
@@ -1010,6 +1034,10 @@ class MaybeType(Type):
         if isinstance(other, FrozenType):
             # A mutable value flows into a read-only view (C allows
             # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            # An alias is transparent: `alias Window as slice of int` names the
+            # same type as `slice of int`, so it flows both ways.
             return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
@@ -1057,6 +1085,10 @@ class TupleType(Type):
     def is_compatible(self, other: Type) -> bool:
         if isinstance(other, FrozenType):
             return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            # An alias is transparent: `alias Window as slice of int` names the
+            # same type as `slice of int`, so it flows both ways.
+            return self.is_compatible(other.target)
         if isinstance(other, (AnyType, TypeParam)):
             return True
         if isinstance(other, TupleType):
@@ -1099,6 +1131,10 @@ class ResultType(Type):
             # A mutable value flows into a read-only view (C allows
             # adding 'const'); the reverse is rejected by FrozenType.
             return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            # An alias is transparent: `alias Window as slice of int` names the
+            # same type as `slice of int`, so it flows both ways.
+            return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
         if isinstance(other, ResultType):
@@ -1128,6 +1164,11 @@ class RuneType(Type):
     bounds: Dict[str, List[str]] = field(default_factory=dict)
     attributes: Dict[str, List[Any]] = field(default_factory=dict)
     field_attributes: Dict[str, Dict[str, List[Any]]] = field(default_factory=dict)
+    #: Identity of the module that declares the rune (its file path).  Private
+    #: ``_field`` members are reachable only inside it (or inside an
+    #: ``enchanting`` block for the rune).  Deliberately excluded from equality
+    #: and repr: where a type was declared is not part of its identity.
+    module: Optional[str] = field(default=None, compare=False, repr=False)
 
     def get_base_name(self) -> str:
         if self.base_name:
@@ -1157,14 +1198,18 @@ class RuneType(Type):
         base = self.get_base_name()
         if new_args and not any(isinstance(a, TypeParam) for a in new_args):
             mangled = f"{base}_{'_'.join(a.get_mangled_name() for a in new_args)}"
-            return RuneType(name=mangled, fields=new_fields, methods=new_methods, type_params=[], type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds), attributes=dict(self.attributes), field_attributes=dict(self.field_attributes))
-        return RuneType(name=self.name, fields=new_fields, methods=new_methods, type_params=self.type_params, type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds), attributes=dict(self.attributes), field_attributes=dict(self.field_attributes))
+            return RuneType(name=mangled, fields=new_fields, methods=new_methods, type_params=[], type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds), attributes=dict(self.attributes), field_attributes=dict(self.field_attributes), module=self.module)
+        return RuneType(name=self.name, fields=new_fields, methods=new_methods, type_params=self.type_params, type_args=new_args, base_name=base, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds), attributes=dict(self.attributes), field_attributes=dict(self.field_attributes), module=self.module)
 
     def is_compatible(self, other: Type) -> bool:
         """Checks rune compatibility by nominal type name."""
         if isinstance(other, FrozenType):
             # A mutable value flows into a read-only view (C allows
             # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            # An alias is transparent: `alias Window as slice of int` names the
+            # same type as `slice of int`, so it flows both ways.
             return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
@@ -1197,6 +1242,8 @@ class EchoType(Type):
     base_name: Optional[str] = None
     derived_concepts: List[str] = field(default_factory=list)
     bounds: Dict[str, List[str]] = field(default_factory=dict)
+    #: Declaring module's file path; see :class:`RuneType`.
+    module: Optional[str] = field(default=None, compare=False, repr=False)
 
     def get_base_name(self) -> str:
         if self.base_name:
@@ -1225,14 +1272,18 @@ class EchoType(Type):
         base_name = self.get_base_name()
         if new_args and not any(isinstance(a, TypeParam) for a in new_args):
             mangled = f"{base_name}_{'_'.join(a.get_mangled_name() for a in new_args)}"
-            return EchoType(name=mangled, fields=new_fields, type_params=[], type_args=new_args, base_name=base_name, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds))
-        return EchoType(name=self.name, fields=new_fields, type_params=self.type_params, type_args=new_args, base_name=base_name, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds))
+            return EchoType(name=mangled, fields=new_fields, type_params=[], type_args=new_args, base_name=base_name, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds), module=self.module)
+        return EchoType(name=self.name, fields=new_fields, type_params=self.type_params, type_args=new_args, base_name=base_name, derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds), module=self.module)
 
     def is_compatible(self, other: Type) -> bool:
         """Checks echo union compatibility by nominal type name."""
         if isinstance(other, FrozenType):
             # A mutable value flows into a read-only view (C allows
             # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            # An alias is transparent: `alias Window as slice of int` names the
+            # same type as `slice of int`, so it flows both ways.
             return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
@@ -1261,6 +1312,8 @@ class OmenType(Type):
     base_name: Optional[str] = None
     derived_concepts: List[str] = field(default_factory=list)
     bounds: Dict[str, List[str]] = field(default_factory=dict)
+    #: Declaring module's file path; see :class:`RuneType`.
+    module: Optional[str] = field(default=None, compare=False, repr=False)
 
     def get_base_name(self) -> str:
         if self.base_name:
@@ -1318,16 +1371,22 @@ class OmenType(Type):
             # (Status_string), not the generic base (Status).
             return OmenType(name=mangled, variants=new_variants, variant_values=self.variant_values,
                             type_params=[], type_args=new_args, c_name=None, base_name=base_name,
-                            derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds))
+                            derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds),
+                            module=self.module)
         return OmenType(name=self.name, variants=new_variants, variant_values=self.variant_values,
                         type_params=self.type_params, type_args=new_args, c_name=self.c_name, base_name=base_name,
-                        derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds))
+                        derived_concepts=list(self.derived_concepts), bounds=dict(self.bounds),
+                        module=self.module)
 
     def is_compatible(self, other: Type) -> bool:
         """Checks omen sum type compatibility by nominal type name."""
         if isinstance(other, FrozenType):
             # A mutable value flows into a read-only view (C allows
             # adding 'const'); the reverse is rejected by FrozenType.
+            return self.is_compatible(other.target)
+        if isinstance(other, AliasType):
+            # An alias is transparent: `alias Window as slice of int` names the
+            # same type as `slice of int`, so it flows both ways.
             return self.is_compatible(other.target)
         if isinstance(other, AnyType) or isinstance(other, TypeParam):
             return True
@@ -1512,6 +1571,8 @@ class SealType(Type):
     name: str = ""
     underlying: Optional[Type] = None
     c_name: Optional[str] = None
+    #: Declaring module's file path; see :class:`RuneType`.
+    module: Optional[str] = field(default=None, compare=False, repr=False)
 
     def is_compatible(self, other: Type) -> bool:
         """Strict nominal compatibility: only compatible with same SealType."""
@@ -1551,7 +1612,8 @@ class SealType(Type):
         if not type_map:
             return self
         new_underlying = self.underlying.substitute(type_map)
-        return SealType(name=self.name, underlying=new_underlying, c_name=self.c_name)
+        return SealType(name=self.name, underlying=new_underlying, c_name=self.c_name,
+                        module=self.module)
 
     def __eq__(self, other: Any) -> bool:
         return isinstance(other, SealType) and self.name == other.name
@@ -1563,7 +1625,7 @@ class SealType(Type):
 class AliasType(Type):
     """Type alias representing a user-defined alias for an underlying target type."""
 
-    def __init__(self, name: str, target: Type, type_params: Optional[List[str]] = None, type_args: Optional[List[Type]] = None, c_name: Optional[str] = None, base_name: Optional[str] = None):
+    def __init__(self, name: str, target: Type, type_params: Optional[List[str]] = None, type_args: Optional[List[Type]] = None, c_name: Optional[str] = None, base_name: Optional[str] = None, module: Optional[str] = None):
         """Initializes a new Type alias."""
         self.name = name
         self.target = target
@@ -1571,6 +1633,8 @@ class AliasType(Type):
         self.type_args = type_args or []
         self.c_name = c_name
         self.base_name = base_name
+        #: Declaring module's file path; see :class:`RuneType`.
+        self.module = module
 
     def get_base_name(self) -> str:
         if self.base_name:
@@ -1596,8 +1660,8 @@ class AliasType(Type):
         base_name = self.get_base_name()
         if new_args and not any(isinstance(a, TypeParam) for a in new_args):
             mangled = f"{base_name}_{'_'.join(a.get_mangled_name() for a in new_args)}"
-            return AliasType(name=mangled, target=new_target, type_params=[], type_args=new_args, base_name=base_name)
-        return AliasType(name=self.name, target=new_target, type_params=self.type_params, type_args=new_args, base_name=base_name)
+            return AliasType(name=mangled, target=new_target, type_params=[], type_args=new_args, base_name=base_name, module=self.module)
+        return AliasType(name=self.name, target=new_target, type_params=self.type_params, type_args=new_args, base_name=base_name, module=self.module)
 
     def is_compatible(self, other: Type) -> bool:
         """Checks compatibility by alias name or underlying target type."""
@@ -1825,10 +1889,10 @@ PRIMITIVE_IMPLS.update({
     "char": {"Par", "Ordo", "Vinculum", "Imago", "Nexus", "Forma", "Donum"},
     "byte": {"Par", "Integrum", "Ordo", "Vinculum", "Imago", "Nexus", "Donum"},
     "string": {"Par", "Ordo", "Vinculum", "Imago", "Nexus", "Forma", "Donum", "Iterabilis"},
-    "list": {"Par", "Iterabilis", "Imago", "Nexus"},
-    "map": {"Par", "Iterabilis", "Imago", "Nexus"},
-    "slice": {"Par", "Iterabilis"},
-    "maybe": {"Par", "Imago", "Nexus"},
+    "list": {"Par", "Iterabilis", "Imago", "Nexus", "Donum"},
+    "map": {"Par", "Iterabilis", "Imago", "Nexus", "Donum"},
+    "slice": {"Par", "Iterabilis", "Donum"},
+    "maybe": {"Par", "Imago", "Nexus", "Donum"},
     "result": {"Par", "Imago", "Nexus"},
 })
 
@@ -2281,9 +2345,18 @@ def receiver_deep_copies_on_store(t: Optional[Type], symbols: Any = None) -> boo
 #: *field* of such a parameter type makes its rune automatically ``Donum``.
 DEFAULTABLE_CONCEPTS: Set[str] = {"Num", "Integrum", "Real", "Par", "Ordo", "Forma", "Donum"}
 
-#: Container types that deliberately have no ``Donum``: ``(PenguList){0}`` has
-#: ``elem_size == 0``, so a blindly zeroed container is corrupt, not empty.
-_NON_DONUM_CONTAINERS = (ListType, MapType, SliceType, MaybeType, ResultType)
+#: The one container with no default: a ``PenguResult`` stores *both* payloads
+#: as heap pointers, so a zeroed result would hand out a NULL ``.error`` /
+#: ``.value`` (a crash) and a real one would need an allocation, which ``donum``
+#: must not do (it is usable in a static initialiser).  ``list``, ``map``,
+#: ``slice`` and ``maybe`` do have an allocation-free empty value, emitted by the
+#: code generator as ``{ .elem_size = sizeof(T) }`` / ``pengu_maybe_none()``.
+_NON_DONUM_CONTAINERS = (ResultType,)
+
+#: Container types whose ``Donum`` is a *semantic* empty value rather than the
+#: blind ``(T){0}`` zero initialiser.  ``(PenguList){0}`` has ``elem_size == 0``,
+#: which breaks ``push``; these get a designated-initialiser literal instead.
+SEMANTIC_DONUM_CONTAINERS = (ListType, MapType, SliceType, MaybeType)
 
 
 def automatic_donum(t: Optional[Type], symbols: Any = None,
@@ -2297,6 +2370,10 @@ def automatic_donum(t: Optional[Type], symbols: Any = None,
     that is itself a ``Donum`` rune counts), and it is decided here rather than
     in the primitive tables because it needs the symbol table to resolve
     nominal field types and generic instantiations.
+
+    Containers implement ``Donum`` *semantically* (an empty list / map / slice or
+    ``maybe none``), which the code generator lowers specially; only ``result``
+    has no default, because both of its payloads are heap pointers.
 
     ``None`` means "the automatic rule does not apply", so the caller falls back
     to explicit bindings and ``derive`` clauses (primitives, references and
@@ -2337,7 +2414,11 @@ def automatic_donum(t: Optional[Type], symbols: Any = None,
     if isinstance(t, AnyType):
         return None
     if isinstance(t, _NON_DONUM_CONTAINERS):
-        return False
+        return False                    # `result`: no allocation-free default
+    if isinstance(t, SEMANTIC_DONUM_CONTAINERS):
+        # An empty container: valid for any element type, and cheap (no
+        # allocation).  The code generator emits the designated literal.
+        return True
     if isinstance(t, (RuneType, EchoType, OmenType)):
         fields = getattr(t, "fields", None)
         variants = getattr(t, "variants", None)

@@ -1,0 +1,31 @@
+## `donum` of a container is a semantic empty value: a list/map/slice with the
+## right element size, and `maybe none`.
+import std.spark
+
+rune Bag:
+    items as list of int
+    name as string
+
+weave main into int:
+    var xs as list of int is donum (list of int)
+    calling xs.push with 7
+    calling spark.println with "list len={xs.length} first={xs at 0}"
+
+    var m as map of string to int is donum (map of string to int)
+    calling m.put with "a", 1
+    calling spark.println with "map len={m.length}"
+
+    var sl as slice of int is donum (slice of int)
+    calling spark.println with "slice len={sl.length}"
+
+    var opt as maybe int is donum (maybe int)
+    calling spark.println with "present={opt is present}"
+
+    var nested as list of list of int is donum (list of list of int)
+    calling spark.println with "nested len={nested.length}"
+
+    var bag as Bag is donum Bag
+    calling bag.items.push with 3
+    calling spark.println with "bag items={bag.items.length}"
+    banish bag.items
+    return 0

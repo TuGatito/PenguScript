@@ -8,9 +8,38 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.6.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.7.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.6.0 → 2.7.0: debt release — patterns, ownership, module privacy
+
+Four changes are **not** purely additive; each has a one-line consequence:
+
+* **Private fields are private to their module.** `rune R: _hidden as int` is now
+  readable from the file that declares `R` (and from an `enchanting` block for
+  `R`), where 2.6.0 rejected it — that is a fix. It is still `E0043` from any
+  other module, so a program that reached into another module's `_field` was
+  already failing; it keeps failing. The old checker heuristic (any file under
+  `std/` could reach any other std file's privates) is gone.
+* **`break`/`continue` inside a `lambda` body now fails** (`E0007`/`E0004`).
+  It used to pass the checker and then emit a C `break` in a function with no
+  loop — a compile error at best. A loop *inside* the lambda is unaffected.
+* **`donum` of a container is an empty container**, not `E0049`: `list`, `map`,
+  `slice` and `maybe` are defaultable. `result` is still not (it has no neutral
+  value). A rune with a `list` field is now `Donum` too, so code that relied on
+  the rejection must drop its workaround.
+* **A `string` temporary created for a call is released by the caller** after the
+  call returns (the parameter borrows it). See `LANGUAGE.md` §19. If a callee
+  *returns* the borrowed buffer, the release is skipped (pointer comparison), so
+  a pass-through helper keeps working; if the callee returns a container that may
+  hold it, nothing is released (the old behaviour).
+
+Everything else is additive: `judge` or-patterns and nested patterns (`when A | B`,
+`when Binary with left as Literal`), `with opt as some` / `res as err` field
+states, `pair as (a, b)` tuple destructuring, an indented `else ->` body, and
+`(void)name;` casts for unused bindings so the generated C stays clean under
+`-Wextra`.
 
 ## 2.5.0 → 2.6.0: labels, `type of` and automatic `Donum` are additive
 

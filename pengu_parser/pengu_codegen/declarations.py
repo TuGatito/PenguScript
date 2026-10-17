@@ -254,6 +254,10 @@ class CollectMixin:
                     f_type = ast_to_type(f.children[f_idx+1], self._lookup_type_fn)
                     fields[f_name] = f_type
                     field_attrs[f_name] = f_attrs
+                    # A tuple-typed field needs its product struct defined too,
+                    # not only a tuple *return* type (`rune R: pair as (int, bool)`
+                    # otherwise emits a field of incomplete type).
+                    self._register_tuple_type(f_type)
             self.runes[c_name] = fields
             self.rune_field_attributes[c_name] = field_attrs
             self._rune_file_paths[c_name] = filepath or ""
@@ -276,6 +280,7 @@ class CollectMixin:
                     f_type = ast_to_type(f.children[f_idx+1], self._lookup_type_fn)
                     fields[f_name] = f_type
                     field_attrs[f_name] = f_attrs
+                    self._register_tuple_type(f_type)
             self.echos[c_name] = fields
             self.rune_field_attributes[c_name] = field_attrs
             self._rune_file_paths[c_name] = filepath or ""

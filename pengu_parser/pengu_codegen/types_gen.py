@@ -117,7 +117,15 @@ class TypesMixin:
             blocks.append("\n".join(seal_lines))
 
         # 2. Runes (Structs)
-        for name, fields in self.runes.items():
+        #
+        # Tuple product structs are embedded *by value* in rune fields (and in
+        # other tuples), so they must be complete before the struct that contains
+        # them: emit them first, keeping their registration order (an inner tuple
+        # is registered before its outer one).
+        rune_order = [n for n in self.runes if n.startswith("_pengu_tup_")]
+        rune_order += [n for n in self.runes if not n.startswith("_pengu_tup_")]
+        for name in rune_order:
+            fields = self.runes[name]
             if name in self.declaration_types:
                 continue
             r_attrs = self.rune_attributes.get(name, {})

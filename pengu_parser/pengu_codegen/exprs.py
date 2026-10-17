@@ -43,7 +43,9 @@ from ._base import (
     eval_comptime,
     get_type_base_name,
     os,
+    pattern_group_name,
     SHARD_RECEIVER_KEY,
+    split_when_pattern,
     unwrap_condition,
 )
 from .ast_utils import (
@@ -152,9 +154,243 @@ class ExprMixin:
         """
         self._expr_depth += 1
         try:
+            owned = self._translate_call_with_owned_string_args(node, expected_type)
+            if owned is not None:
+                return owned
             return self._translate_expr_impl(node, expected_type)
         finally:
             self._expr_depth -= 1
+
+    @staticmethod
+    def _strip_parens(node: Any) -> Any:
+        """Removes cosmetic grouping nodes around an argument."""
+        seen = 0
+        while (isinstance(node, Tree)
+               and node.data in ("paren_expr", "value_expr", "expr", "primary")
+               and len(node.children) == 1 and seen < 16):
+            node = node.children[0]
+            seen += 1
+        return node
+
+    def _is_owned_string_arg(self, node: Any) -> bool:
+        """True when ``node`` is a string expression that *allocates* its value.
+
+        Only the two forms the code generator itself creates are considered:
+
+        * an interpolation with at least one ``{expr}`` part
+          (``pengu_string_format_ex``), and
+        * a ``to string`` conversion of a non-string value
+          (``pengu_string_from_*``).
+
+        A string literal is borrowed (``is_owned == 0``), and a variable, field
+        or call result belongs to someone else, so none of those are released:
+        the callee *borrows* a `string` parameter, and only a temporary created
+        for this call is the caller's to free.
+        """
+        node = self._strip_parens(node)
+        if not isinstance(node, Tree):
+            return False
+        if node.data == "string_lit" and node.children:
+            from pengu_parser.pengu_parser import extract_string_parts
+
+            try:
+                _raw, _triple, parts = extract_string_parts(str(node.children[0]))
+            except Exception:
+                return False
+            return any(getattr(p, "is_expr", False) for p in parts)
+        if node.data == "cast_expr" and len(node.children) >= 2:
+            target = ast_to_type(node.children[1], self._lookup_type_fn)
+            target = self._unwrap_owned_type(target)
+            return isinstance(target, BaseType) and target.name == "string"
+        if node.data == "to_expr" and len(node.children) >= 2:
+            # `x to string` parses as a `to_expr` whose right side names a type
+            # (the same shape as the range operator, told apart by the type
+            # lookup the emitter uses).
+            right = node.children[1]
+            if isinstance(right, Tree) and right.data in (
+                    "base_type", "custom_type", "ref_type", "fn_type",
+                    "array_type", "slice_type", "var_ref"):
+                try:
+                    target = ast_to_type(right, self._lookup_type_fn)
+                except Exception:
+                    return False
+                target = self._unwrap_owned_type(target)
+                return isinstance(target, BaseType) and target.name == "string"
+        return False
+
+    def _call_owned_string_args(self, node: Tree) -> List[Any]:
+        """Argument nodes of a ``calling_expr`` that allocate their string."""
+        found: List[Any] = []
+        for child in node.children[1:]:
+            if not (isinstance(child, Tree) and child.data == "arg_list"):
+                continue
+            for arg in child.children:
+                if not isinstance(arg, Tree):
+                    continue
+                if arg.data == "pos_arg" and arg.children:
+                    candidate = arg.children[0]
+                elif arg.data == "named_arg" and len(arg.children) >= 2:
+                    candidate = arg.children[1]
+                else:
+                    continue
+                if self._is_owned_string_arg(candidate):
+                    found.append(candidate)
+        return found
+
+    def _translate_call_with_owned_string_args(self, node: Any,
+                                               expected_type: Optional[Type] = None) -> Optional[str]:
+        """Releases the string temporaries a call would otherwise leak.
+
+        A `string` parameter is *borrowed*: the caller keeps ownership, so a
+        value the caller created for the call — ``"{a} {b}"`` or ``n to string``
+        — must be freed once the callee returns.  The call is emitted inside a
+        GNU statement expression that binds each temporary, makes the call and
+        banishes them:
+
+        ``(__extension__(({ PenguString _arg_1 = fmt(...); f(_arg_1);
+        pengu_banish_string(&_arg_1); })))``
+
+        Strict C99 mode has no statement expressions, so it keeps the previous
+        behaviour (the temporary is not released); see LANGUAGE.md §19.5.
+        """
+        if not isinstance(node, Tree) or node.data != "calling_expr":
+            return None
+        if not self.use_gnu_extensions:
+            return None
+        # A nested call inside another call's arguments is handled by the inner
+        # translation (this method runs again there).
+        if getattr(self, "_call_arg_overrides", None):
+            return None
+        arg_nodes = self._call_owned_string_args(node)
+        if not arg_nodes:
+            return None
+        mode = self._owned_arg_cleanup_mode(node)
+        if mode == "skip":
+            # The result may hold the borrowed buffer: releasing it here could
+            # dangle (see `_owned_arg_cleanup_mode`).
+            return None
+
+        preludes: List[str] = []
+        arg_tmps: List[str] = []
+        overrides: dict = {}
+        for arg in arg_nodes:
+            arg_c = self._translate_expr(arg)
+            stripped = arg_c.strip()
+            if stripped.startswith('"') or stripped.isidentifier():
+                # A C literal / a plain reference: not an owned temporary.
+                continue
+            tmp = self.get_temp_name("_arg")
+            preludes.append(f"PenguString {tmp} = ({arg_c});")
+            arg_tmps.append(tmp)
+            overrides[id(arg)] = tmp
+        if not preludes:
+            return None
+
+        self._call_arg_overrides = overrides
+        try:
+            call_c = self._translate_expr_impl(node, expected_type)
+        finally:
+            self._call_arg_overrides = None
+
+        res_t = expected_type or self._infer_node_type(node)
+        is_void = res_t is None or res_t == VOID_TYPE or isinstance(res_t, AnyType)
+        if is_void:
+            banishes = [f"pengu_banish_string(&{tmp});" for tmp in arg_tmps]
+            body = " ".join(preludes + [f"{call_c};"] + banishes)
+            return f"(__extension__(({{ {body} }})))"
+        res_c = CTypeMapper.to_c_type(res_t)
+        tmp_res = self.get_temp_name("_argres")
+        if mode == "guarded":
+            # The callee may have returned the borrowed buffer itself
+            # (`weave id with s as string into string: return s`): release only
+            # an argument the result does not point at.
+            banishes = [
+                f"if ({tmp_res}.data != {tmp}.data) pengu_banish_string(&{tmp});"
+                for tmp in arg_tmps
+            ]
+        else:
+            banishes = [f"pengu_banish_string(&{tmp});" for tmp in arg_tmps]
+        body = " ".join(
+            preludes
+            + [f"{res_c} {tmp_res} = ({call_c});"]
+            + banishes
+            + [f"{tmp_res};"]
+        )
+        return f"(__extension__(({{ {body} }})))"
+
+    def _translate_call_block_strict(self, node: Tree, ind: str) -> Optional[str]:
+        """Releases a statement call's string temporaries without a statement expr.
+
+        Strict C99 mode has no GNU statement expressions, but a call in
+        *statement* position needs no value, so a plain block does the job: bind
+        the temporaries, call, release.  (A call in value position still cannot
+        release them in that mode; see LANGUAGE.md §19.)
+        """
+        if self.use_gnu_extensions:
+            return None
+        if not isinstance(node, Tree) or node.data != "calling_expr":
+            return None
+        if getattr(self, "_call_arg_overrides", None):
+            return None
+        arg_nodes = self._call_owned_string_args(node)
+        if not arg_nodes:
+            return None
+        if self._owned_arg_cleanup_mode(node) == "skip":
+            return None
+        inner = ind + "  "
+        lines = [f"{ind}{{"]
+        overrides = {}
+        tmps = []
+        for arg in arg_nodes:
+            arg_c = self._translate_expr(arg)
+            stripped = arg_c.strip()
+            if stripped.startswith('"') or stripped.isidentifier():
+                continue
+            tmp = self.get_temp_name("_arg")
+            lines.append(f"{inner}PenguString {tmp} = ({arg_c});")
+            tmps.append(tmp)
+            overrides[id(arg)] = tmp
+        if not tmps:
+            return None
+        self._call_arg_overrides = overrides
+        try:
+            call_c = self._translate_expr_impl(node)
+        finally:
+            self._call_arg_overrides = None
+        lines.append(f"{inner}{call_c};")
+        for tmp in tmps:
+            lines.append(f"{inner}pengu_banish_string(&{tmp});")
+        lines.append(f"{ind}}}")
+        return "\n".join(lines)
+
+    def _owned_arg_cleanup_mode(self, node: Tree) -> str:
+        """How the temporaries of a call may be released: free / guarded / skip.
+
+        A callee may hand a borrowed `string` parameter back to its caller
+        (``weave id with s as string into string: return s``).  When it does, the
+        buffer must survive the call, so the release depends on the result type:
+
+        * ``void`` — the callee cannot return the pointer: release.
+        * a scalar (number, bool, char, plain omen) — cannot carry a pointer:
+          release.
+        * ``string`` — the result may *be* the argument: release only when it is
+          a different buffer (``res.data != arg.data``), which keeps the
+          pass-through case alive and the allocate-a-new-string case leak-free.
+        * anything else (a reference, a rune, a container, ``maybe``/``result``) —
+          the pointer may have been stored inside the result: do not release
+          (the previous behaviour).  See LANGUAGE.md §19.5.
+        """
+        res_t = self._infer_node_type(node)
+        if res_t is None or res_t == VOID_TYPE or isinstance(res_t, AnyType):
+            return "free"
+        probe = self._unwrap_owned_type(res_t)
+        if isinstance(probe, BaseType):
+            if probe.name == "string":
+                return "guarded"
+            return "free"
+        if isinstance(probe, OmenType) and not probe.is_algebraic and not probe.is_string_valued:
+            return "free"
+        return "skip"
 
     def _resolve_monomorphized_call(self, base_names, m_name, arg_nodes):
         """Resolve the exact monomorphized C name of a generic call.
@@ -322,6 +558,23 @@ class ExprMixin:
                     break
             if isinstance(probe, ArrayType):
                 return "{0}"
+            # A container's default is a semantic *empty* value, not a blind
+            # zero: `(PenguList){0}` has `elem_size == 0`, so the first `push`
+            # would copy zero bytes.  Every literal below is allocation-free and
+            # leaves the container in a state the runtime grows on demand.
+            if isinstance(probe, ListType):
+                elem_c = CTypeMapper.to_c_type(probe.element)
+                return f"((PenguList){{ .elem_size = sizeof({elem_c}) }})"
+            if isinstance(probe, MapType):
+                key_c = CTypeMapper.to_c_type(probe.key)
+                val_c = CTypeMapper.to_c_type(probe.value)
+                return (f"((PenguMap){{ .key_size = sizeof({key_c}), "
+                        f".val_size = sizeof({val_c}) }})")
+            if isinstance(probe, SliceType):
+                elem_c = CTypeMapper.to_c_type(probe.element)
+                return f"((PenguSlice){{ .elem_size = sizeof({elem_c}) }})"
+            if isinstance(probe, MaybeType):
+                return "pengu_maybe_none()"
             c_t = CTypeMapper.to_c_type(dt)
             if c_t.strip() in ("void", ""):
                 return "{0}"
@@ -1964,6 +2217,10 @@ class ExprMixin:
                         var_t = self.runes.get(b_type.name, {}).get(t_field)
             if var_t is None:
                 var_t = self._infer_node_type(parts[0])
+            # An alias (or `frozen`) of a container is the same container as far
+            # as indexing is concerned: `alias Numbers as list of int` must lower
+            # to `pengu_list_at`, not to `numbers[0]`.
+            var_t = self._unwrap_container_alias(var_t)
             for idx_node in parts[1:]:
                 current_base = base
                 idx = self._translate_expr(idx_node)
@@ -2419,7 +2676,8 @@ class ExprMixin:
             for c in node.children[1:]:
                 if isinstance(c, Tree):
                     if c.data == "when_clause":
-                        pat_node = c.children[0]
+                        pattern_root = c.children[0]
+                        pat_node = pattern_root
                         payload_node = None
                         guard_node = None
                         for sub in c.children[1:-1]:
@@ -2437,13 +2695,17 @@ class ExprMixin:
                         pat = None
                         simple_pat = None
                         if isinstance(pat_node, Tree) and pat_node.data == "when_pattern" and pat_node.children:
-                            if len(pat_node.children) > 1:
-                                pat_parts = [str(p) for p in pat_node.children if str(p) != "."]
+                            # Only the FIRST alternative is resolved here; the
+                            # rest of an or-pattern are resolved after the omen is
+                            # known (see `pats` below).
+                            first_group = split_when_pattern(pat_node)[0]
+                            if len(first_group) > 1:
+                                pat_parts = [str(p) for p in first_group if str(p) != "."]
                                 pat = "_".join(pat_parts)
                                 simple_pat = pat_parts[-1]
                             else:
-                                simple_pat = str(pat_node.children[0])
-                                pat_node = pat_node.children[0]
+                                simple_pat = str(first_group[0]) if first_group else ""
+                                pat_node = first_group[0] if first_group else pat_node
                         if pat is None:
                             pat = self._translate_expr(pat_node)
 
@@ -2513,8 +2775,26 @@ class ExprMixin:
                         finally:
                             self.local_vars = old_locals
 
+                        # `when A | B`: resolve every alternative to its C
+                        # constant.  They all name variants of the same omen, so
+                        # the omen/variant-field resolution above (done for the
+                        # first one) applies to the rest by name.
+                        pats = [pat]
+                        for alternative in split_when_pattern(pattern_root)[1:]:
+                            alt_name = pattern_group_name(alternative)
+                            alt_simple = alt_name.rsplit(".", 1)[-1]
+                            if target_omen and alt_simple in self.omens.get(target_omen, {}):
+                                pats.append(self._get_omen_variant_c_name(target_omen, alt_simple))
+                            elif len(alternative) == 1:
+                                # A literal alternative (int/string/char/bool) is a
+                                # single node; translate *it*, never the group list.
+                                pats.append(self._translate_expr(alternative[0]))
+                            else:
+                                pats.append(alt_name)
+
                         clauses.append({
                             "pat": pat,
+                            "pats": pats,
                             "simple_pat": simple_pat,
                             "target_omen": target_omen,
                             "payload_vars": payload_vars,
@@ -2557,12 +2837,15 @@ class ExprMixin:
                     payload_vars = cl["payload_vars"]
                     guard = cl["guard"]
                     val = cl["val"]
-                    if is_algebraic_omen:
-                        cond = f"{t_val}.tag == {pat}"
-                    elif matched_type and matched_type.is_string():
-                        cond = f"pengu_string_equal({t_val}, {pat})"
-                    else:
-                        cond = f"{t_val} == {pat}"
+                    conds = []
+                    for one in cl.get("pats", [pat]):
+                        if is_algebraic_omen:
+                            conds.append(f"{t_val}.tag == {one}")
+                        elif matched_type and matched_type.is_string():
+                            conds.append(f"pengu_string_equal({t_val}, {one})")
+                        else:
+                            conds.append(f"{t_val} == {one}")
+                    cond = " || ".join(conds)
 
                     clause_code = []
                     if is_algebraic_omen and payload_vars and simple_pat:
@@ -2592,7 +2875,11 @@ class ExprMixin:
                     return True
                 return False
 
-            all_switchable = len(clauses) > 0 and (is_enum_or_int or is_algebraic_omen) and all(_is_c_switchable(cl["pat"]) for cl in clauses)
+            all_switchable = (
+                len(clauses) > 0 and (is_enum_or_int or is_algebraic_omen)
+                and all(_is_c_switchable(one)
+                        for cl in clauses for one in cl.get("pats", [cl["pat"]]))
+            )
             if all_switchable and (is_enum_or_int or is_algebraic_omen):
                 t_val = self.get_temp_name("_val")
                 t_res = self.get_temp_name("_res")
@@ -2601,7 +2888,11 @@ class ExprMixin:
                             else f"__typeof__(({matched_expr})) {t_val}")
                 decl_res = CTypeMapper.to_c_decl(res_type, t_res) if (res_type and not isinstance(res_type, AnyType)) else f"__typeof__(({else_val})) {t_res}"
                 switch_expr = f"{t_val}.tag" if is_algebraic_omen else t_val
-                cases_str = " ".join(f"case {cl['pat']}: {t_res} = ({cl['val']}); break;" for cl in clauses)
+                cases_str = " ".join(
+                    " ".join(f"case {one}:" for one in cl.get("pats", [cl["pat"]]))
+                    + f" {t_res} = ({cl['val']}); break;"
+                    for cl in clauses
+                )
                 if not self.use_gnu_extensions:
                     self._hoist(f"{decl_val} = ({matched_expr});")
                     self._hoist(f"{decl_res};")
@@ -2615,14 +2906,17 @@ class ExprMixin:
             t_v = self.get_temp_name("_v")
             subj = t_v if needs_wrapper else matched_expr
             for cl in reversed(clauses):
-                pat = cl["pat"]
                 val = cl["val"]
-                if matched_type and matched_type.is_string():
-                    curr = f"(pengu_string_equal({subj}, {pat}) ? ({val}) : ({curr}))"
-                elif is_algebraic_omen:
-                    curr = f"(({subj}.tag == {pat}) ? ({val}) : ({curr}))"
-                else:
-                    curr = f"(({subj} == {pat}) ? ({val}) : ({curr}))"
+                conds = []
+                for one in cl.get("pats", [cl["pat"]]):
+                    if matched_type and matched_type.is_string():
+                        conds.append(f"pengu_string_equal({subj}, {one})")
+                    elif is_algebraic_omen:
+                        conds.append(f"{subj}.tag == {one}")
+                    else:
+                        conds.append(f"{subj} == {one}")
+                cond = " || ".join(conds)
+                curr = f"(({cond}) ? ({val}) : ({curr}))"
             if needs_wrapper:
                 decl_tv = CTypeMapper.to_c_decl(matched_type, t_v) if (matched_type and not isinstance(matched_type, AnyType)) else f"__auto_type {t_v}"
                 if not self.use_gnu_extensions:
@@ -2986,14 +3280,21 @@ class ExprMixin:
 
     @staticmethod
     def _judge_over_variant(pat_node: Any, omen_key: str, omen_t: Any) -> str:
-        """Extracts the simple variant name from a ``when_pattern`` node."""
+        """Extracts the simple variant name from one pattern alternative.
+
+        ``pat_node`` is either a ``when_pattern`` (first alternative is used) or
+        one group from :func:`~pengu_parser.pengu_grammar.split_when_pattern`.
+        """
         names = [getattr(omen_t, "name", ""), omen_key or ""]
         if isinstance(pat_node, Tree) and pat_node.data == "when_pattern" and pat_node.children:
-            if len(pat_node.children) > 1:
-                parts = [str(p) for p in pat_node.children if str(p) != "."]
-                raw = parts[-1] if parts else ""
-            else:
-                raw = str(pat_node.children[0])
+            groups = split_when_pattern(pat_node)
+            pat_node = groups[0] if groups else []
+        if isinstance(pat_node, (list, tuple)):
+            parts = [str(p) for p in pat_node if str(p) != "."]
+            raw = parts[-1] if parts else ""
+        elif isinstance(pat_node, Tree):
+            parts = [str(p) for p in pat_node.children if not isinstance(p, Tree)]
+            raw = parts[-1] if parts else str(pat_node)
         else:
             raw = str(pat_node)
         for prefix in (f"{names[0]}_", f"{names[1]}_"):
@@ -3001,6 +3302,67 @@ class ExprMixin:
                 raw = raw[len(prefix):]
                 break
         return raw
+
+    @staticmethod
+    def _judge_over_field_pattern_node(when_field: Any) -> Optional[Tree]:
+        """The ``as <pattern>`` node of a ``with`` entry, or None."""
+        if not isinstance(when_field, Tree) or when_field.data != "when_field":
+            return None
+        for child in when_field.children[1:]:
+            if isinstance(child, Tree):
+                return child
+        return None
+
+    def _judge_over_nested_discriminant(self, field_type: Any, omen_t: Any) -> Optional[str]:
+        """Name of the nested rune's field that carries the same omen."""
+        stripped, _is_ref, _is_frozen = self._judge_over_strip(field_type)
+        fields = getattr(stripped, "fields", None) or {}
+        if not fields:
+            fields = self.runes.get(getattr(stripped, "name", ""), {}) or {}
+        omen_name = getattr(omen_t, "name", "")
+        for candidate, candidate_t in fields.items():
+            nested_omen, _variants = self._judge_over_omen(candidate_t)
+            if nested_omen and (nested_omen == omen_name or nested_omen.endswith(f"_{omen_name}")):
+                return candidate
+        return None
+
+    def _judge_over_field_condition(self, pattern: Any, access: str,
+                                    field_type: Any, omen_t: Any) -> str:
+        """C condition for ``field as <pattern>`` (empty when it always matches).
+
+        Args:
+            pattern: the pattern node (a bare name, or ``Kind.Name``).
+            access: the C expression naming the field.
+            field_type: the field's declared type.
+            omen_t: the enclosing discriminant omen.
+
+        Returns:
+            A boolean C expression, or "" for a pattern that binds only.
+        """
+        if isinstance(pattern, Tree):
+            names = [str(c) for c in pattern.children if not isinstance(c, Tree)]
+        else:
+            names = [str(pattern)]
+        state = names[-1] if names else ""
+        stripped, is_ref, _is_frozen = self._judge_over_strip(field_type)
+        sep = "->" if is_ref else "."
+        if isinstance(stripped, MaybeType):
+            return (f"{access}{sep}is_present" if state == "some"
+                    else f"!({access}{sep}is_present)")
+        if isinstance(stripped, ResultType):
+            return (f"{access}{sep}is_ok" if state == "ok"
+                    else f"!({access}{sep}is_ok)")
+        disc_field = self._judge_over_nested_discriminant(field_type, omen_t)
+        if disc_field is None:
+            return ""
+        omen_key = getattr(omen_t, "name", "")
+        label = self._get_omen_variant_c_name(omen_key, state) if omen_key else state
+        nested_access = f"{access}{sep}{self._c_ident(disc_field)}"
+        if getattr(omen_t, "is_algebraic", False) and not getattr(omen_t, "is_string_valued", False):
+            nested_access = f"{nested_access}.tag"
+        elif getattr(omen_t, "is_string_valued", False):
+            return f"pengu_string_equal({nested_access}, {label})"
+        return f"{nested_access} == {label}"
 
     @staticmethod
     def _judge_over_uses_name(node: Any, name: str) -> bool:
@@ -3098,15 +3460,58 @@ class ExprMixin:
                     elif sub.data == "when_guard":
                         guard_node = sub
 
-            variant = self._judge_over_variant(pat_node, omen_key or "", omen_t)
-            binding_names = self._judge_over_payload_names(payload_node)
-            bindings = []
-            for bn in binding_names:
-                bindings.append((bn, rune_fields.get(bn), self._c_ident(bn)))
+            # `when A | B`: one clause that matches either variant, emitted as
+            # one entry per alternative (same bindings, same body).
+            variants = [self._judge_over_variant(alt, omen_key or "", omen_t)
+                        for alt in split_when_pattern(pat_node)]
+
+            # A `with` entry may narrow its field (`left as Literal`,
+            # `opt as none`) or destructure it (`pair as (a, flag)`); the
+            # narrowing is an extra condition, the destructuring replaces the
+            # field binding with one per element.
+            field_conditions: List[str] = []
+            bindings: List[Any] = []  # (pengu name, type, C name, access expr)
+            if payload_node is not None:
+                for field in payload_node.children:
+                    if not (isinstance(field, Tree) and field.data == "when_field"):
+                        if isinstance(field, Token) and field.type == "NAME":
+                            bn = str(field)
+                            bindings.append((bn, rune_fields.get(bn), self._c_ident(bn),
+                                             f"{subj_ref}{sep}{self._c_ident(bn)}"))
+                        continue
+                    bn = str(field.children[0])
+                    c_bn = self._c_ident(bn)
+                    field_t = rune_fields.get(bn)
+                    pattern = self._judge_over_field_pattern_node(field)
+                    if pattern is None:
+                        bindings.append((bn, field_t, c_bn, f"{subj_ref}{sep}{c_bn}"))
+                        continue
+                    pattern_node = pattern
+                    if (isinstance(pattern_node, Tree)
+                            and pattern_node.data == "field_pattern"
+                            and pattern_node.children):
+                        pattern_node = pattern_node.children[0]
+                    if isinstance(pattern_node, Tree) and pattern_node.data == "field_tuple":
+                        probe_t = CTypeMapper.to_c_type(field_t) if field_t is not None else None
+                        elem_names = [str(c) for c in pattern_node.children
+                                      if not isinstance(c, Tree)]
+                        tuple_t, tuple_is_ref, _tuple_frozen = self._judge_over_strip(field_t)
+                        elements = list(getattr(tuple_t, "elements", []) or [])
+                        for index, elem_name in enumerate(elem_names):
+                            elem_t = elements[index] if index < len(elements) else None
+                            tuple_sep = "->" if tuple_is_ref else "."
+                            bindings.append((elem_name, elem_t, self._c_ident(elem_name),
+                                             f"{subj_ref}{sep}{c_bn}{tuple_sep}v{index}"))
+                        continue
+                    cond = self._judge_over_field_condition(
+                        pattern_node, f"{subj_ref}{sep}{c_bn}", field_t, omen_t)
+                    if cond:
+                        field_conditions.append(cond)
+                    bindings.append((bn, field_t, c_bn, f"{subj_ref}{sep}{c_bn}"))
 
             saved_locals = dict(self.local_vars)
             try:
-                for bn, bt, _bc in bindings:
+                for bn, bt, _bc, _acc in bindings:
                     self.local_vars[bn] = bt
                 body_node = clause.children[-1]
                 body_c = self._translate_expr(body_node, expected_type=res_type)
@@ -3116,18 +3521,30 @@ class ExprMixin:
             finally:
                 self.local_vars = saved_locals
 
+            # A narrowing condition and the user's guard are both ANDed into the
+            # clause's guard, so the existing "every clause of the variant is
+            # guarded -> default" logic applies unchanged.
+            if field_conditions:
+                combined = [f"({c})" for c in field_conditions]
+                if guard_c:
+                    combined.append(f"({guard_c})")
+                guard_c = " && ".join(combined)
+            # else: the user's guard is already a single condition; keep it
+            # exactly as before (no extra parentheses in the emitted C).
+
             entry = {
-                "variant": variant,
+                "variant": variants[0] if variants else "",
                 "bindings": bindings,
                 "guard": guard_c,
                 "body": body_c,
                 "body_node": clause.children[-1],
                 "guard_node": guard_node,
             }
-            if variant not in groups:
-                groups[variant] = []
-                order.append(variant)
-            groups[variant].append(entry)
+            for variant in variants:
+                if variant not in groups:
+                    groups[variant] = []
+                    order.append(variant)
+                groups[variant].append(dict(entry, variant=variant))
 
         if else_node is not None:
             else_c = self._translate_expr(else_node.children[0], expected_type=res_type)
@@ -3145,13 +3562,21 @@ class ExprMixin:
         default_label = self.get_temp_name("_judge_over_default")
         end_label = self.get_temp_name("_judge_over_end")
         fallback = else_node is not None
+        # The shared default block is only reachable through a `goto` emitted for
+        # a variant whose every clause is guarded; when no variant is guarded the
+        # block is plain `default:` and the label would be unused
+        # (-Wunused-label under -Werror).
+        needs_default_label = fallback and any(
+            not [e for e in groups[v] if e["guard"] is None] for v in order
+        )
+        default_label_decl = f"{default_label}: " if needs_default_label else ""
 
         def _group_bindings(entries: List[Dict[str, Any]]):
             """Union of ``with`` bindings across one variant's clauses."""
             seen: Set[str] = set()
             out = []
             for entry in entries:
-                for bn, bt, bc in entry["bindings"]:
+                for bn, bt, bc, acc in entry["bindings"]:
                     if bc in seen:
                         continue
                     seen.add(bc)
@@ -3162,18 +3587,18 @@ class ExprMixin:
                                     and ExprMixin._judge_over_uses_name(other["guard_node"], bn))):
                             used = True
                             break
-                    out.append((bn, bt, bc, used))
+                    out.append((bn, bt, bc, acc, used))
             return out
 
         def _declare_bindings(entries: List[Dict[str, Any]], indent: str) -> List[str]:
             out = []
-            for _bn, bt, bc, used in _group_bindings(entries):
+            for _bn, bt, bc, acc, used in _group_bindings(entries):
                 if subj_is_frozen and bt is not None and not isinstance(bt, (FrozenType, AnyType)):
                     bt = FrozenType(bt)
                 decl = (CTypeMapper.to_c_decl(bt, bc)
                         if (bt is not None and not isinstance(bt, AnyType))
                         else f"__auto_type {bc}")
-                out.append(f"{indent}{decl} = {subj_ref}{sep}{bc};")
+                out.append(f"{indent}{decl} = {acc};")
                 if not used:
                     out.append(f"{indent}(void){bc};")
             return out
@@ -3198,7 +3623,9 @@ class ExprMixin:
                 lines.append(f"{kw} (pengu_string_equal({subj_ref}{sep}{field_c}, {label})) {{")
                 lines.extend(_declare_bindings(entries, "  "))
                 for entry in guarded:
-                    lines.append(f"  if ({entry['guard']}) {{ {_assign(entry)} goto {end_label}; }}")
+                    lines.append(
+                        f"  if ({unwrap_condition(entry['guard'])}) "
+                        f"{{ {_assign(entry)} goto {end_label}; }}")
                 if unguarded:
                     lines.append(f"  {_assign(unguarded[0])}")
                     lines.append(f"  goto {end_label};")
@@ -3223,7 +3650,9 @@ class ExprMixin:
                 lines.append(f"case {label}: {{")
                 lines.extend(_declare_bindings(entries, "  "))
                 for entry in guarded:
-                    lines.append(f"  if ({entry['guard']}) {{ {_assign(entry)} break; }}")
+                    lines.append(
+                        f"  if ({unwrap_condition(entry['guard'])}) "
+                        f"{{ {_assign(entry)} break; }}")
                 if unguarded:
                     # Unconditional clauses are the variant's fallback; keep the
                     # first so a duplicated pattern still emits valid C.
@@ -3241,7 +3670,7 @@ class ExprMixin:
                     lines.append("  break;")
                 lines.append("}")
             if fallback:
-                lines.append(f"default: {default_label}: {{ {_else_assign()} break; }}")
+                lines.append(f"default: {default_label_decl}{{ {_else_assign()} break; }}")
             lines.append("}")
 
         if is_void:

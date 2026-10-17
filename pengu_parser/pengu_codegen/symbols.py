@@ -274,6 +274,39 @@ class SymbolMixin:
             self.symbols.current_scope = saved_scope
             if len(self.symbols.all_scopes) > saved_all_scopes_len:
                 del self.symbols.all_scopes[saved_all_scopes_len:]
+    @staticmethod
+    def _unwrap_container_alias(t: Optional[Type]) -> Optional[Type]:
+        """Strips ``alias``/``frozen``/``seal`` wrappers, including through ``ref``.
+
+        An alias is transparent: `alias Numbers as list of int` names the same
+        owning value as `list of int`, so indexing, iteration and `banish` must
+        see the container, not the nominal wrapper.  A ``ref`` keeps being a
+        reference, but its target is unwrapped so ``ref to Numbers`` indexes like
+        ``ref to list of int``.
+        """
+        if t is None:
+            return None
+
+        def strip(value: Optional[Type]) -> Optional[Type]:
+            seen = 0
+            while value is not None and seen < 8:
+                seen += 1
+                if isinstance(value, (AliasType, FrozenType, SealType)):
+                    nxt = getattr(value, "target", None) or getattr(value, "underlying", None)
+                    if nxt is None or nxt is value:
+                        break
+                    value = nxt
+                    continue
+                break
+            return value
+
+        stripped = strip(t)
+        if isinstance(stripped, RefType):
+            inner = strip(stripped.target)
+            if inner is not stripped.target:
+                return RefType(target=inner)
+        return stripped
+
     def _translate_type_of(self, node: Tree, expected_type: Optional[Type] = None) -> str:
         """Emits the C for ``type of expr``.
 

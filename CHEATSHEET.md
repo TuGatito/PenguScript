@@ -188,7 +188,7 @@ The LSP and `pengu doc` turn `##` documentation into tooltips / Markdown pages, 
 
 ### 3.3 Identifiers
 
-Identifiers match `[a-zA-Z_][a-zA-Z0-9_]*`. `_` alone is the discard binding (e.g. `for _, v in col`); it never creates a variable. Names are case-sensitive; conventional style uses `snake_case` for values and `PascalCase` for type declarations. Private symbols starting with `_` (such as `_private_fn` or `_secret_field`) are encapsulated and cannot be accessed outside their defining module or rune (`E0043`). `main` is reserved: `var main`, `let main`, `static var main`, or `const main` raise `error[E0040]` because `main` is a compile-time variable (see [Standalone scripts](#24-standalone-scripts)). Defining the entry function `weave main …` is unaffected.
+Identifiers match `[a-zA-Z_][a-zA-Z0-9_]*`. `_` alone is the discard binding (e.g. `for _, v in col`); it never creates a variable. Names are case-sensitive; conventional style uses `snake_case` for values and `PascalCase` for type declarations. Private symbols starting with `_` (such as `_private_fn` or `_secret_field`) are encapsulated and cannot be accessed outside their defining module (`E0043`); a private rune field is private to the module that declares the rune, plus any `enchanting` block for it (see [10.1](#101-rune--structs)). `main` is reserved: `var main`, `let main`, `static var main`, or `const main` raise `error[E0040]` because `main` is a compile-time variable (see [Standalone scripts](#24-standalone-scripts)). Defining the entry function `weave main …` is unaffected.
 
 ### 3.4 Words with multiple jobs
 
@@ -1120,12 +1120,12 @@ PenguString describe(int32_t key) {
 }
 ```
 
-Patterns may be integers, floats, strings, characters, `true`/`false`, `maybe none`, or named constants; an `else ->` clause is optional. Integer/enum subjects compile to C `switch`, and string comparisons use the runtime string equality helper. (Note: payload bindings `when Variant with field -> …` are reserved grammar and rejected with `E0005` in 0.12.0 until full algebraic variant destructuring is introduced).
+Patterns may be integers, floats, strings, characters, `true`/`false`, `maybe none`, or named constants; an `else ->` clause is optional. Integer/enum subjects compile to C `switch`, and string comparisons use the runtime string equality helper. Payload bindings `when Variant with field -> …` bind the variant's payload fields inside the clause.
 
 **Exhaustiveness validation (`E0044`)**:
 When evaluating an `omen` or a `bool` subject without an `else ->` fallback, the checker verifies that every variant or boolean state is covered. If any branch is missing, the compiler raises `error[E0044]` (`NonExhaustiveJudgeError`).
 
-`judge <rune> over <discriminant>:` matches a C-style tagged union: the subject is a `rune`, `over` names the `omen` field that selects the variant, and `when <Variant> with <field>, ...` binds the rune's fields by name. `over` is a **soft keyword** (it only means this inside a `judge` header); guards (`if <cond>`) and exhaustiveness (`E0044`) apply as above.
+`judge <rune> over <discriminant>:` matches a C-style tagged union: the subject is a `rune`, `over` names the `omen` field that selects the variant, and `when <Variant> with <field>, ...` binds the rune's fields by name. `over` is a **soft keyword** (it only means this inside a `judge` header); guards (`if <cond>`) and exhaustiveness (`E0044`) apply as above. A guard that reads through `->` must parenthesise it (`if (right->int_value) > 0`), because `->` is also the clause separator.
 
 ```pengu
 judge e over kind:
@@ -1133,6 +1133,10 @@ judge e over kind:
     when Binary with left, right -> calling eval with left
     when Neg with left -> 0 - (calling eval with left)
 ```
+
+- **Or-patterns (`when A | B ->`):** one clause matches either alternative, and each one counts for exhaustiveness; with an `int` subject the alternatives become adjacent C labels (`case 1: case 2:`). A `with` binding must exist in **every** alternative (`E0005`).
+- **Narrowed patterns (`over` form only):** a `with` entry may narrow its field with `as`: a nested variant (`left as Literal`), a `maybe` state (`opt as some` / `opt as none`), a `result` state (`res as ok` / `res as err`) or a tuple bind (`pair as (n, flag)`). The field stays bound — except in the tuple form, which binds one name per element and not the field. A narrowed clause is a **test**, exactly like a guard: it does not complete coverage of its variant, so keep a plain `when Variant -> …` or an `else` (`E0044` otherwise).
+- **`else ->`** takes an expression or an indented block body, so the default branch can declare `let`s.
 
 ### 7.5 Integrated tests: `test …`
 
@@ -1236,6 +1240,8 @@ void demo_calls(void) {
     CloseWindow();
 }
 ```
+
+A parameter or local the program never reads is emitted with a `(void)name;` cast, so the generated C stays clean under `-Wall -Wextra -Werror`. `type of p` inspects the static type and never emits `p`, so that parameter counts as unread.
 
 ### 8.4 Variadic parameters: `many`
 
@@ -1705,7 +1711,9 @@ void main(void) {
 
 Generics are monomorphized — one concrete C struct/function per specialization — so there is zero runtime abstraction cost. Generic runes/echos/omens/aliases/functions/concepts all accept `shard`, and `of T and U` supplies the arguments at use sites. Unfulfilled concept bounds are rejected at specialization time (`E0032`).
 
-**`Donum` is automatic for runes.** A `rune` or `echo` whose every field implements `Donum` is defaultable — `donum Point` works with no `derive Donum` and no `bind`. Recursive through nested runes, `ref to T` (`NULL`), `frozen`/`alias`/`seal` and arrays; a container field (`list`, `map`, `slice`, `maybe`, `result`) removes it. A generic rune needs a defaultable bound: `rune Box shard T where T: Donum:`. `derive Donum` is `E0005`.
+**`Donum` is automatic for runes.** A `rune` or `echo` whose every field implements `Donum` is defaultable — `donum Point` works with no `derive Donum` and no `bind`. Recursive through nested runes, `ref to T` (`NULL`), `frozen`/`alias`/`seal`, arrays and the defaultable containers (`list`, `map`, `slice`, `maybe`). A `result` field (or a generic parameter without a defaultable bound) removes it. A generic rune needs a defaultable bound: `rune Box shard T where T: Donum:`. `derive Donum` is `E0005`.
+
+**`donum` of a container is an empty value, not a zeroed struct.** `donum (list of int)` is a `PenguList` with `elem_size` set and no allocation (`data == NULL`, `len == 0`, `cap == 0`), so the first `push` allocates; `map` sets `key_size`/`val_size`, `slice` sets `elem_size`, `maybe T` is `pengu_maybe_none()`. `result of T to E` has **no** `Donum` (both payloads are heap pointers): `donum (result …)` is `E0049` — build it with `calling ok_of with v` / `calling err_of with e`.
 
 ---
 
@@ -1761,6 +1769,8 @@ void struct_demo(void) {
 ```
 
 Struct initializers use `with field is value and …`. Element access is `.` on values and `->` on references.
+
+**Private fields (`_field`) are private to their module.** A leading underscore makes the field readable from the module (file) that declares the rune and from any `enchanting` block for it, wherever that block lives. From any other module it is `E0043: PrivateSymbolAccessError` — including `judge <rune> over _field` and binding `_field` in a `with` list.
 
 ### 10.2 `echo` — C-compatible unions
 
@@ -2134,6 +2144,7 @@ int32_t memory_demo(void) {
 - `push`/`put` copy the element bytes with `memcpy` and never clone; `pengu_banish_list` / `pengu_banish_map` free only the container's own buffer/entries, never the elements (`pengu_banish_string_list` is the opt-in helper that also frees string elements).
 - `maybe`/`result` present values are boxed with `pengu_sigil_alloc` + `memcpy`; the box neither clones nor frees any heap buffer the payload references. `maybe none` and error results carry no allocation.
 - `bytes of <string>` returns a **non-owning** read-only pointer to the string's internal buffer — do not store it beyond the operand's lifetime (see [14.6](#146-passing-strings-to-c)).
+- **A `string` parameter is borrowed.** The callee must not `banish` it or keep it past the call. A temporary the *caller* creates for a call — an interpolation `"{a} {b}"` or `x to string` — is released by the caller once the call returns; only when it cannot dangle (`void` or scalar result; for a `string` result only if `res.data != arg.data`; never for a reference, rune or container result). A variable, field or call-result argument is never released (`calling spark.println with s` keeps `s`). `return` releases the loop temporaries it leaves, a labeled `break`/`continue` releases the loops it leaves, and `strict_c99: true` releases statement-position calls through a plain block but cannot in value position.
 - `static var` with non-constant initializers is guarded so it initializes exactly once.
 - The compiler enforces one lifetime rule: returning a `slice of` a stack array is rejected (`E0051`), because the slice would dangle. Mutable globals are impossible by construction, which keeps lifetimes local and deterministic.
 
@@ -3091,8 +3102,9 @@ key lookups for arrays and maps. `10 to float` remains a cast (casts live in
 ### A.4 Symbol visibility
 
 There is no visibility keyword: an identifier that starts with `_` is private
-to its defining module/rune (access from another module raises `E0043`), and
-any other identifier is public.
+to its defining module (access from another module raises `E0043`); a private
+rune field follows the module that declares the rune, not the call site. Every
+other identifier is public.
 
 ### A.5 Multi-statement `defer:` / `errdefer:` blocks
 

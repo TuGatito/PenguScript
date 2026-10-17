@@ -2,6 +2,87 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.7.0] — 2026-10-16 — debt release: patterns, ownership, module privacy
+
+Closes every item of `TODO_2.6.0.md`.  Six of them are language features; two are
+quality work that makes the generated C and the LSP complete.
+
+```pengu
+judge e over kind:                       # 1. nested patterns + alternatives
+    when Neg with left as Literal -> "neg of literal"
+    when Neg | Binary -> "compound"
+
+var xs as list of int is donum (list of int)   # 2. semantic container default
+calling xs.push with 7                          #    (usable empty list)
+
+calling spark.println with "a={a} b={b}"        # 3. the temporary is released
+```
+
+### Added
+
+- **`judge` patterns.**  `when A | B ->` (or-patterns, both judge forms),
+  `when Binary with left as Literal` (nested variant test: the field must be a
+  rune carrying the same discriminant omen, it is also bound, and the clause does
+  not complete coverage — exactly like a guard), `when X with opt as some` /
+  `opt as none` / `res as ok` / `res as err` (maybe/result field states) and
+  `when X with pair as (a, b)` (tuple destructuring, one immutable binding per
+  element).  `else ->` now accepts an indented body like a `when` body.  See
+  `LANGUAGE.md` §7.4, §7.4.1.
+- **Semantic `Donum` for containers.**  `list`, `map`, `slice` and `maybe` are
+  defaultable: `donum (list of int)` is an empty list with the right element
+  size (allocation-free designated initialiser), `donum (maybe int)` is
+  `pengu_maybe_none()`.  A rune with a `list` field is now `Donum`.  `result`
+  deliberately stays out (both payloads are heap pointers, so there is no neutral
+  value).  See §10.9, §11.4.
+- **Ownership of expression temporaries.**  A `string` parameter is borrowed, so
+  the caller releases the temporary it built for the call (`"{a} {b}"`,
+  `x to string`) once the call returns.  The release is skipped when the result
+  may point at it (a `string` result only when it is a different buffer; a
+  reference/rune/container result never).  A `return` releases every active loop
+  temporary, and a labeled jump releases the loops it leaves.  See §19.
+- **Private fields are private to their module.**  Every nominal type records
+  the module that declares it, so `_hidden` is readable from `secret.pengu`
+  (where 2.6.0 rejected it) and `E0043` from every other module — including
+  `judge … over _field` and `with` bindings.  See §9.1.
+- **LSP** — loop labels now appear in semantic tokens (custom `label` type) and
+  `textDocument/documentHighlight` marks the declaration and every enclosed jump.
+- **`(void)name;` for unused bindings.**  A parameter or local the program never
+  reads (including one used only by `type of`) gets a cast, so generated C stays
+  clean under `-Wall -Wextra -Werror`.
+
+### Changed
+
+- A `break`/`continue` inside a `lambda` body is now `E0007`/`E0004`: a lambda is
+  a separate C function, so it cannot target the enclosing weave's loop.  Its own
+  loops (and labels) work normally.
+- `donum` of a `result` reports a dedicated `E0049` message (`a result is either
+  ok or err`), pointing at `ok_of`/`err_of`.
+- The unused-parameter heuristic in the checker's private-field rule (any file
+  under `std/`) is gone.
+
+### Fixed
+
+- **`alias` of a container is transparent.**  `alias Numbers as list of int`
+  could not be indexed (`numbers[0]` — invalid C), iterated, `banish`ed, or
+  assigned from the container it aliases.  Four sites compared the nominal
+  wrapper instead of the target; the composite `is_compatible` methods now unwrap
+  an `AliasType` like they already unwrapped `frozen`.
+- **A tuple-typed rune field emitted an incomplete type.**  The product struct of
+  `rune R: pair as (int, bool)` was emitted after the rune that embeds it by
+  value; tuple structs are now emitted first.
+- **A qualified `judge` pattern lost its payload binding** in the type inferrer
+  (`when Kind.A with value -> value` was `E0004`), which broke `std.cipher`.
+- **A narrowed clause cleared its whole variant.**  The `None` child an absent
+  `as <pattern>` leaves behind counted as a pattern, so every clause looked
+  narrowed and exhaustiveness failed on `std.cipher`'s dispatcher.
+- **`type of` in a generic resolved a same-named callee local** (2.6.0 regression
+  fixed here): the const folder no longer folds the operator in the code
+  generator, and `const X as string is type of 42` falls back to the value the
+  checker recorded.
+- **`seal X as T` was not `Donum`** when `T` was, and **`char`/`byte` lacked
+  `Donum`** while `i8`/`u8` had it (both from 2.6.0, fixed there; noted here for
+  completeness).
+
 ## [2.6.0] — 2026-10-16 — labels, `type of`, automatic `Donum`
 
 Four Phase 0 (syntax) improvements that close the pre-self-hosting surface.  All

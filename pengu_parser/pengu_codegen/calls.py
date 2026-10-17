@@ -25,6 +25,14 @@ class CallMixin:
     """Argument lowering for `calling ... with ...`."""
 
     def _translate_call_arg(self, a: Any, pt: Optional[Type]) -> str:
+        overrides = getattr(self, "_call_arg_overrides", None)
+        if overrides:
+            replacement = overrides.get(id(a))
+            if replacement is not None:
+                # The argument was bound to a local so it can be released once
+                # the call returns (a borrowed `string` parameter does not own
+                # it).  See `_translate_call_with_owned_string_args`.
+                return replacement
         slice_arg = self._slice_argument(a, pt)
         if slice_arg is not None:
             return slice_arg

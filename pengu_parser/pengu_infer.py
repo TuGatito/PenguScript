@@ -35,6 +35,7 @@ from .pengu_errors import (
 )
 
 from .pengu_parser import extract_string_parts
+from .pengu_grammar import split_when_pattern
 
 # Word tests that apply to the expression on their left. They are ambiguous in
 # argument position (`calling f with x is true` tests the argument), so the
@@ -548,6 +549,44 @@ class TypeInferrer:
                 note="Modulo, bitwise and shift operators work only on integer bit patterns."
             )
 
+    def _module_identity(self) -> Optional[str]:
+        """Normalised identity of the module whose body is being inferred."""
+        if not self.filename:
+            return None
+        try:
+            return os.path.normcase(os.path.abspath(self.filename))
+        except (OSError, ValueError):  # pragma: no cover - pathological cwd
+            return self.filename
+
+    def _is_owner_module(self, nominal: Any) -> bool:
+        """True when ``nominal`` was declared in the module being inferred.
+
+        A private ``_field`` is reachable from the file that declares the rune
+        and from nowhere else.  Declarations record their module path when the
+        checker collects them (see ``RuneType.module``), so this is exact — it
+        replaces the old "any file under std/ may reach anything" heuristic.
+        """
+        declared = getattr(nominal, "module", None)
+        current = self._module_identity()
+        return declared is not None and current is not None and declared == current
+
+    def _is_enchanting_for(self, nominal: Any) -> bool:
+        """True when the current scope is an ``enchanting`` block for ``nominal``.
+
+        The name must match *and*, when both sides know their module, the module
+        too: a ``Point`` in another module is a different rune.
+        """
+        if self.symbols is None:
+            return False
+        ench = self.symbols.current_enchanting_type()
+        if ench is None or getattr(ench, "name", "") != getattr(nominal, "name", ""):
+            return False
+        ench_module = getattr(ench, "module", None)
+        nominal_module = getattr(nominal, "module", None)
+        if ench_module is not None and nominal_module is not None:
+            return ench_module == nominal_module
+        return True
+
     def _make_error(self, err_cls, message: str, node: Any = None, **kwargs) -> PenguError:
         """Constructs a PenguError with rich source context and coordinates."""
         line, col = self._get_loc(node) if node is not None else (None, None)
@@ -732,9 +771,17 @@ class TypeInferrer:
         return fields
 
     def _resolve_omen_variant(self, pat_node: Any, omen: OmenType) -> Tuple[Optional[str], Dict[str, Type]]:
+        """First alternative of a `when` pattern as ``(variant, payload fields)``.
+
+        The pattern may be qualified (`Kind.A`), bare (`A`) or an or-pattern
+        (`A | B`, whose first alternative is resolved here); the alternatives are
+        split by :func:`~pengu_parser.pengu_grammar.split_when_pattern`.
+        """
         if not isinstance(pat_node, Tree) or pat_node.data != "when_pattern":
             return None, {}
-        children = [c for c in pat_node.children if (isinstance(c, Token) and c.type == "NAME") or (isinstance(c, str))]
+        groups = split_when_pattern(pat_node)
+        children = [c for c in (groups[0] if groups else [])
+                    if (isinstance(c, Token) and c.type == "NAME") or (isinstance(c, str))]
         if not children:
             return None, {}
         raw_name = str(children[-1])
@@ -1172,20 +1219,21 @@ class TypeInferrer:
                     )
                 return candidate_t
             if not implements_concept(candidate_t, "Donum", self.symbols):
-                # Container types get their own wording: 'donum' lowers to
-                # '(T){0}', which is a *corrupt* container, not an empty one, so
-                # the fix is a semantic default rather than another concept.
-                if isinstance(candidate_t, (ListType, MapType, SliceType, MaybeType, ResultType)):
+                # `list`/`map`/`slice`/`maybe` DO have an empty default (the code
+                # generator emits a designated initialiser / `pengu_maybe_none`).
+                # `result` does not: both of its payloads are heap pointers, so a
+                # zeroed result hands out a NULL `.error`/`.value`, and a real one
+                # would need an allocation (impossible in a static initialiser).
+                if isinstance(candidate_t, ResultType):
                     raise self._make_error(
                         SemanticError,
-                        f"'{candidate_t}' does not implement 'Donum': containers have no zero value",
+                        "'result of T to E' has no 'donum' default: a result is either ok or err",
                         node,
                         code="E0049",
-                        help="Use an explicit default (an empty literal or a documented helper), "
-                             "or wrap the container in a rune whose fields are defaultable.",
-                        note="'donum T' is '(T){0}'; zeroing 'list'/'map'/'slice'/'maybe'/'result' "
-                             "would leave a container with no storage, so they are deliberately "
-                             "not defaultable."
+                        help="Initialise it explicitly: 'calling ok_of with v' or 'calling err_of with e'.",
+                        note="'donum' is a zero/neutral value. A result has no neutral value — "
+                             "both payloads are heap pointers — so it is not defaultable. "
+                             "'list', 'map', 'slice' and 'maybe' are (an empty container)."
                     )
                 if isinstance(candidate_t, (RuneType, EchoType)):
                     raise self._make_error(
@@ -1357,10 +1405,8 @@ class TypeInferrer:
                 target_type = getattr(target_type, "target", None) or getattr(target_type, "underlying", None)
 
             if isinstance(target_type, RuneType):
-                ench_type = self.symbols.current_enchanting_type() if self.symbols else None
-                is_enchanting = ench_type is not None and getattr(ench_type, "name", "") == target_type.name
-                is_stdlib = bool(self.filename and any(p in ("std", "tests_std", "std_programs") for p in self.filename.replace("\\", "/").split("/")))
-                is_module_owner = is_stdlib or bool(self.symbols and getattr(self.symbols, "insignia", None))
+                is_enchanting = self._is_enchanting_for(target_type)
+                is_module_owner = self._is_owner_module(target_type)
                 if field_name.startswith("_") and not (is_enchanting or is_module_owner):
                     raise self._make_error(
                         PrivateSymbolAccessError,
@@ -1535,10 +1581,8 @@ class TypeInferrer:
                     is_frozen = True
                 inner = getattr(inner, "target", None) or getattr(inner, "underlying", None)
             if isinstance(inner, RuneType):
-                ench_type = self.symbols.current_enchanting_type() if self.symbols else None
-                is_enchanting = ench_type is not None and getattr(ench_type, "name", "") == inner.name
-                is_stdlib = bool(self.filename and any(p in ("std", "tests_std", "std_programs") for p in self.filename.replace("\\", "/").split("/")))
-                is_module_owner = is_stdlib or bool(self.symbols and getattr(self.symbols, "insignia", None))
+                is_enchanting = self._is_enchanting_for(inner)
+                is_module_owner = self._is_owner_module(inner)
                 if field_name.startswith("_") and not (is_enchanting or is_module_owner):
                     raise self._make_error(
                         PrivateSymbolAccessError,
@@ -2150,10 +2194,32 @@ class TypeInferrer:
             for child in node.children[1:]:
                 if isinstance(child, Tree) and child.data == "when_clause":
                     pattern_node = child.children[0]
-                    if isinstance(pattern_node, Tree) and pattern_node.data == "when_pattern":
-                        if len(pattern_node.children) > 1 and isinstance(unwrapped_matched, OmenType):
-                            qualifier = str(pattern_node.children[0])
-                            var_part = str(pattern_node.children[-1])
+                    payload_node = None
+                    guard_node = None
+                    for sub in child.children[1:-1]:
+                        if isinstance(sub, Tree):
+                            if sub.data == "when_payload":
+                                payload_node = sub
+                            elif sub.data == "when_guard":
+                                guard_node = sub
+
+                    # `when A | B` matches either variant, and a narrowed field
+                    # (`with left as Literal`) is a test, not coverage: same rules
+                    # as the checker, so both agree on exhaustiveness.
+                    # A `with` entry always keeps a `None` child for the
+                    # absent `as <pattern>`; only a real pattern node narrows.
+                    narrowed = bool(
+                        payload_node is not None
+                        and any(
+                            isinstance(f, Tree) and f.data == "when_field"
+                            and any(isinstance(c, Tree) for c in f.children[1:])
+                            for f in payload_node.children
+                        )
+                    )
+                    for alternative in split_when_pattern(pattern_node):
+                        if len(alternative) > 1 and isinstance(unwrapped_matched, OmenType):
+                            qualifier = str(alternative[0])
+                            var_part = str(alternative[-1])
                             omen_names = {unwrapped_matched.name}
                             if getattr(unwrapped_matched, "c_name", None):
                                 omen_names.add(unwrapped_matched.c_name)
@@ -2166,46 +2232,35 @@ class TypeInferrer:
                                     help=f"Match using '{unwrapped_matched.name}.{var_part}' or bare '{var_part}'.",
                                     note="Patterns in 'when' clauses must match the type of the subject."
                                 )
-                        for pat in pattern_node.children:
-                            p_name = None
-                            if isinstance(pat, Tree) and pat.data == "var_ref":
-                                p_name = str(pat.children[0])
-                            elif isinstance(pat, Tree) and pat.data == "field_access":
-                                p_name = str(pat.children[1])
-                            elif isinstance(pat, Tree) and pat.data in ("true_lit", "false_lit"):
-                                p_name = "true" if pat.data == "true_lit" else "false"
-                            elif isinstance(pat, Token):
-                                p_name = str(pat)
-                            else:
-                                p_name = str(pat)
-                            if p_name:
-                                if isinstance(unwrapped_matched, OmenType):
-                                    if p_name.startswith(f"{unwrapped_matched.name}_"):
-                                        p_variant = p_name[len(unwrapped_matched.name) + 1:]
-                                    elif getattr(unwrapped_matched, "c_name", None) and p_name.startswith(f"{unwrapped_matched.c_name}_"):
-                                        p_variant = p_name[len(unwrapped_matched.c_name) + 1:]
-                                    elif p_name in unwrapped_matched.variants:
-                                        p_variant = p_name
-                                    elif "_" in p_name:
-                                        p_variant = p_name.rsplit("_", 1)[-1]
-                                    else:
-                                        p_variant = p_name
+                        last = alternative[-1] if alternative else None
+                        p_name = None
+                        if isinstance(last, Tree) and last.data == "var_ref":
+                            p_name = str(last.children[0])
+                        elif isinstance(last, Tree) and last.data == "field_access":
+                            p_name = str(last.children[1])
+                        elif isinstance(last, Tree) and last.data in ("true_lit", "false_lit"):
+                            p_name = "true" if last.data == "true_lit" else "false"
+                        elif isinstance(last, Token):
+                            p_name = str(last)
+                        elif last is not None:
+                            p_name = str(last)
+                        p_variant = ""
+                        if p_name:
+                            if isinstance(unwrapped_matched, OmenType):
+                                if p_name.startswith(f"{unwrapped_matched.name}_"):
+                                    p_variant = p_name[len(unwrapped_matched.name) + 1:]
+                                elif getattr(unwrapped_matched, "c_name", None) and p_name.startswith(f"{unwrapped_matched.c_name}_"):
+                                    p_variant = p_name[len(unwrapped_matched.c_name) + 1:]
+                                elif p_name in unwrapped_matched.variants:
+                                    p_variant = p_name
+                                elif "_" in p_name:
+                                    p_variant = p_name.rsplit("_", 1)[-1]
                                 else:
                                     p_variant = p_name
-                    else:
-                        p_variant = str(pattern_node)
-
-                    payload_node = None
-                    guard_node = None
-                    for sub in child.children[1:-1]:
-                        if isinstance(sub, Tree):
-                            if sub.data == "when_payload":
-                                payload_node = sub
-                            elif sub.data == "when_guard":
-                                guard_node = sub
-
-                    if guard_node is None and p_variant:
-                        covered_variants.add(p_variant)
+                            else:
+                                p_variant = p_name
+                        if guard_node is None and not narrowed and p_variant:
+                            covered_variants.add(p_variant)
 
                     var_name = None
                     variant_fields = {}
@@ -2253,7 +2308,8 @@ class TypeInferrer:
                     if missing:
                         raise self._make_error(
                             NonExhaustiveJudgeError,
-                            "Judge over omen/bool is not exhaustive and has no 'else ->' branch",
+                            f"Judge over omen/bool is not exhaustive and has no 'else ->' branch "
+                            f"(missing: {', '.join(sorted(missing))})",
                             node,
                             code="E0044",
                             help=f"Add missing variants ({', '.join(sorted(missing))}) or an 'else ->' default branch.",

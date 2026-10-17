@@ -54,14 +54,44 @@ from .ctype import (
 class StmtMixin:
     """Statement dispatch, blocks and assignment targets."""
 
+    def _translate_labeled_jump(self, node: Tree, label: str, kind: str, ind: str) -> str:
+        """Emits a labeled `break`/`continue`, releasing the loops it leaves.
+
+        C has no unwinding: a `goto` out of an inner `for v in <non-lvalue>` loop
+        must run that loop's `pengu_banish_list` first, or the materialized
+        iterable leaks.  The loop scopes pushed by the loop emitters (see
+        :meth:`~pengu_parser.pengu_codegen.bundle.BundleMixin._loop_jump_releases`)
+        say which releases are due; the target loop's own cleanup is left to its
+        anchor.
+
+        Args:
+            node: the ``break_stmt`` / ``continue_stmt``.
+            label: the target loop label.
+            kind: ``"break"`` or ``"continue"``.
+            ind: indentation of the jump.
+
+        Returns:
+            The C for the releases plus the ``goto``.
+        """
+        releases = self._loop_jump_releases(label)
+        lines = [f"{ind}{release}" for release in releases]
+        lines.append(f"{ind}goto {self._c_loop_label(label, kind)};")
+        return "\n".join(lines)
+
     def _translate_block(self, stmts: List[Tree]) -> str:
         """Translates a list of statements in a block.
 
         Each statement is preceded by a `#line` marker (statement context only)
         so compiler diagnostics point at the `.pengu` line that produced the C.
+
+        A declaration whose binding the body never reads in C is followed by a
+        ``(void)name;`` cast: the language allows binding a value and ignoring
+        it, and the generated C must stay clean under ``-Wall -Wextra``.  See
+        :meth:`~pengu_parser.pengu_codegen.prototypes.ProtoMixin._unused_local_names`.
         """
         lines = []
         markers = self.emit_line_markers and self._expr_depth == 0
+        void_locals = getattr(self, "_void_locals", set())
         for stmt in stmts:
             s_code = self._translate_stmt(stmt)
             if s_code:
@@ -70,7 +100,34 @@ class StmtMixin:
                     if marker:
                         lines.append(marker)
                 lines.append(s_code)
+                if void_locals:
+                    lines.extend(self._void_declaration_casts(stmt, void_locals))
         return "\n".join(lines)
+
+    def _void_declaration_casts(self, stmt: Tree, void_locals: set) -> List[str]:
+        """``(void)name;`` lines for the unused bindings of one declaration.
+
+        Only a direct ``var``/``let``/``static var``/``const`` statement (or its
+        ``stmt`` wrapper) declares names that the C scope keeps alive at that
+        point, so the cast is emitted immediately after it.
+
+        Args:
+            stmt: The statement that was just translated.
+            void_locals: C identifiers of the function's unused bindings.
+
+        Returns:
+            The lines to append (empty for a non-declaration).
+        """
+        node = stmt
+        while isinstance(node, Tree) and node.data in ("stmt", "simple_stmt") and node.children:
+            node = node.children[0]
+        if not isinstance(node, Tree) or node.data not in (
+                "var_decl", "let_decl", "static_var_decl", "const_decl"):
+            return []
+        names = self._local_declaration_names([node])
+        ind = self.indent()
+        return [f"{ind}(void){self._c_ident(n)};" for n in sorted(names)
+                if self._c_ident(n) in void_locals]
     def _format_defer_cleanup(self, d: str, ind: str) -> str:
         """Formats a deferred cleanup statement or block with appropriate indentation."""
         if d.startswith("{\n") and d.endswith("}"):
@@ -912,7 +969,9 @@ class StmtMixin:
                             + ", ".join(parts) + " }")
                 tuple_tmp = self.get_temp_name("_ret")
                 tuple_decl = CTypeMapper.to_c_decl(self.current_return_type, tuple_tmp)
+                releases = "".join(f"{ind}{rel}\n" for rel in self._loop_exit_releases())
                 return (f"{ind}{tuple_decl} = {compound};\n"
+                        f"{releases}"
                         f"{ind}pengu_frame_pop();\n{ind}return {tuple_tmp};")
             ret_expr = node.children[0] if node.children else None
             ret_val_str = self._translate_expr(ret_expr, expected_type=self.current_return_type) if ret_expr is not None else ""
@@ -938,23 +997,39 @@ class StmtMixin:
                 # function instead of the real call chain.
                 tmp = self.get_temp_name("_ret")
                 ret_decl = CTypeMapper.to_c_decl(self.current_return_type, tmp)
-                return f"{ind}{ret_decl} = {ret_val_str};\n{cleanup_str}{pop_stmt}\n{ind}return {tmp};"
-            return f"{cleanup_str}{pop_stmt}\n{ind}return;"
+                releases = "".join(f"{ind}{rel}\n" for rel in self._loop_exit_releases())
+                return (f"{ind}{ret_decl} = {ret_val_str};\n"
+                        f"{cleanup_str}{releases}{pop_stmt}\n{ind}return {tmp};")
+            releases = "".join(f"{ind}{rel}\n" for rel in self._loop_exit_releases())
+            return f"{cleanup_str}{releases}{pop_stmt}\n{ind}return;"
 
         elif rule == "break_stmt":
             label = self._loop_label_target(node)
             if label:
-                return f"{ind}goto {self._c_loop_label(label, 'break')};"
+                return self._translate_labeled_jump(node, label, "break", ind)
             return f"{ind}break;"
 
         elif rule == "continue_stmt":
             label = self._loop_label_target(node)
             if label:
-                return f"{ind}goto {self._c_loop_label(label, 'continue')};"
+                return self._translate_labeled_jump(node, label, "continue", ind)
             return f"{ind}continue;"
 
         elif rule == "expr_stmt":
-            expr_code = self._translate_expr(node.children[0])
+            strict_block = None
+            if not self.use_gnu_extensions and isinstance(node.children[0], Tree):
+                strict_block = self._translate_call_block_strict(node.children[0], ind)
+            if strict_block is not None:
+                return strict_block
+            expr_node = node.children[0]
+            expr_code = self._translate_expr(expr_node)
+            if isinstance(expr_node, Tree) and expr_node.data in (
+                    "judge_expr", "judge_over_expr", "do_expr",
+                    "while_stmt", "for_range_stmt", "for_in_stmt"):
+                # A value-producing block used as a statement discards its value;
+                # `(void)` keeps clang's -Wunused-value quiet (the statement
+                # expression's last expression is a bare `_res;` otherwise).
+                return f"{ind}(void)({expr_code});"
             return f"{ind}{expr_code};"
 
         return ""

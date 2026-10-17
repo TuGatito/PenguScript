@@ -40,6 +40,7 @@
     - 19.2 [External bindings (satellite repositories)](#192-external-bindings-satellite-repositories)
     - 19.3 [Core Standard Library Examples](#193-core-standard-library-examples)
     - 19.4 [Embedded Project Assets (`arca`)](#194-embedded-project-assets-arca)
+    - 19.5 [Memory model: borrowed `string` parameters and expression temporaries](#195-memory-model-borrowed-string-parameters-and-expression-temporaries)
 20. [Tooling & project layout](#20-tooling--project-layout)
 21. [Complete example](#21-complete-example)
 22. [Appendix: Compiler Diagnostic Catalog (`E0000`–`E0050` & Warnings)](#22-appendix-compiler-diagnostic-catalog)
@@ -144,7 +145,7 @@ value, and `"\u{1F427}"` is a valid escape). If you need non-ASCII *text*, put i
 in a string; if you need it in an identifier, transliterate
 (`const 日本語 as int` → `const nihongo as int`).
 
-- **Module & Rune Privacy (`_` prefix):** Any top-level symbol (function, type, constant) starting with `_` is strictly private to its module. Any rune field starting with `_` (e.g. `_internal_ptr`) is strictly private to its rune definition. Accessing a private symbol from outside its module or rune raises `E0043: PrivateSymbolAccessError`.
+- **Module & Rune Privacy (`_` prefix):** Any top-level symbol (function, type, constant) starting with `_` is strictly private to its module. Any rune field starting with `_` (e.g. `_internal_ptr`) is strictly private to the module that declares the rune (and to any `enchanting` block for it, §9.1). Accessing a private symbol from outside its module raises `E0043: PrivateSymbolAccessError`.
 - **Compiler Internals (`_pengu_*`):** All compiler-generated symbols, temporaries, and runtime helpers use the `_pengu_` or `pengu_` prefix. Users should avoid declaring identifiers with this prefix to prevent symbol collisions.
 - **Discard Binding (`_`):** A standalone underscore `_` acts as a wildcard discard binding (`for _, v in col`). It discards the value without binding an identifier in the symbol table.
 - **Reserved Entry Point (`main`):** `main` is reserved as the entry point weave (`weave main …`). It cannot be declared as a local or global variable, constant, or static variable (`var main`, `let main`, `const main`, `static var main` all raise `E0040`).
@@ -506,7 +507,7 @@ Scopes are delimited by indentation: weave bodies, `if`/`while`/`for` branches, 
 
 ### 5.3 Visibility recap
 
-Symbols are public across modules by default. Any top-level symbol or rune field starting with a leading underscore (`_`) is strictly private (`E0043`). There is no `pub` keyword; leading underscores provide the sole encapsulation mechanism.
+Symbols are public across modules by default. Any top-level symbol or rune field starting with a leading underscore (`_`) is strictly private (`E0043`); a private rune field is private to the module that declares the rune (§9.1). There is no `pub` keyword; leading underscores provide the sole encapsulation mechanism.
 
 ---
 
@@ -783,7 +784,10 @@ let state_desc is judge state:
   - Dotted variant name: `when Phase.Ready ->`
   - Full C name: `when Phase_Ready ->`
   - Literals: `when 42 ->`, `when "admin" ->`, `when 'X' ->`
-  - Fallback default: `else -> <expr>`
+  - Alternatives: `when Ready | Loading ->` — either one matches, and each
+    alternative counts as covered (see below).
+  - Fallback default: `else -> <expr>`, or an indented body (`else ->` followed
+    by a block), which lets a default declare `let`s exactly like a `when` body.
 - **Exhaustiveness Rules (`E0044`):**
   - For `omen` and `bool` subjects, all possible variants/values must be handled unless a default `else ->` clause is provided. Missing branches raise `E0044: NonExhaustiveJudgeError`.
   - For `int`, `string`, and `char`, exhaustiveness is not enforced. If no `else ->` is present and no pattern matches, the expression evaluates to its default zero/empty value (`0`, `""`, `'\0'`).
@@ -801,6 +805,8 @@ let state_desc is judge state:
       when Number.Val with n -> "zero"
   ```
   Guarded patterns do not count toward exhaustiveness; an unguarded pattern or `else ->` is required.
+- **Or-patterns (`when A | B ->`):** One clause matches either alternative, and every alternative counts as covered, so `when A | B -> 1` plus `when C -> 2` is exhaustive over `A`, `B`, `C`. A `with` list may follow the alternatives, but a name it binds must be a field of **every** alternative (`E0005` otherwise). With an `int` subject the alternatives share one clause body and become adjacent C labels (`case 1: case 2:`); in the `over` form each alternative gets its own `case`.
+- **Narrowed `with` patterns are `over`-only:** `field as Literal` (a nested variant), `field as some` / `none` (a `maybe`), `field as ok` / `err` (a `result`) and `field as (a, b)` (a tuple) are described in §7.4.1 and apply to the `judge <rune> over <field>` form. The `with` list of this form binds the variant's payload fields as they are.
 - **Codegen:** Emits a C `switch` statement when all pattern cases are compile-time integer constants without guards or payloads; generates structured `if` branches with payload extraction and guard checks when payloads or guards are present, or falls back to an `if-else` ternary chain for string or variable patterns.
 - **Second form:** A `rune` whose variant is carried by a field (`kind`, `op_kind`, …) is matched with the `over` form described in §7.4.1 instead.
 
@@ -868,19 +874,41 @@ weave eval with e as ref to Expr into int:
 - **Discriminant.** The name after `over` must be a field of the rune (`E0013`
   otherwise) whose type is an `omen` — possibly behind a `seal`, which is
   unwrapped because the compiler knows the representation (`E0005` otherwise).
-  Like every field, a leading-underscore discriminant is private to its rune
-  (`E0043`).
+  Like every field, a leading-underscore discriminant is private to the module
+  that declares the rune (`E0043`, §9.1).
 - **Bindings are by field name, not by position.** `with a, b` binds those two
   fields of the *rune*; the order is free and the names are ordinary
   identifiers in the clause. `with left, op` and `with op, left` are the same
   clause. A name that is not a rune field is `E0013`. Because the rune is a
   single struct, every field exists in every clause: `when Literal with left`
   compiles, even though `left` is only meaningful for `Binary`.
+- **Narrowing a field (`field as <pattern>`).** A `with` entry may narrow the
+  field it binds; the field is still bound, so the clause body and its guard
+  can read it. The pattern is a *test* on top of the variant match:
+  - **Nested variant** — `when Binary with left as Literal -> …`: `left` must be
+    a rune carrying a field of the **same** discriminant `omen` as the enclosing
+    `judge`, and the clause additionally requires `e.left->kind ==
+    ExprKind_Literal`. A non-rune field or a different `omen` is `E0005`.
+  - **`maybe` state** — `opt as some` / `opt as none` on a `maybe T` field,
+    emitted as `is_present` / `!(…is_present)`.
+  - **`result` state** — `res as ok` / `res as err` on a `result of T to E`
+    field, emitted as `is_ok` / `!(…is_ok)`.
+  - **Tuple destructuring** — `pair as (n, flag)` on a `(int, bool)` field binds
+    one immutable name per element (`.v0`, `.v1`); the arity must match
+    (`E0005`) and the field itself is **not** bound. A tuple always has that
+    shape, so this form is a binding, not a test.
+
+  A narrowed clause is a **test**, exactly like a guard: it does **not** complete
+  coverage of its variant. Without a plain `when Binary -> …` (or an `else`) the
+  uncovered variant is `E0044`.
 - **Bindings are immutable `let`s.** `set field is …` inside a clause is
   `E0006`. They are scoped to their clause and never leak between clauses.
 - **Guards.** `when Binary with op if op == Op.Add ->` is allowed; guards see
   the bindings and the enclosing scope, and may call functions with effects.
-  The original subject stays accessible.
+  The original subject stays accessible. A guard that reads a field through `->`
+  must parenthesise the access — `if (right->int_value) > 0` — because `->` is
+  also the clause separator; a bare `right->int_value` in a guard is a syntax
+  error.
 - **Exhaustiveness.** If the `omen` has variants not covered by an *unguarded*
   clause and there is no `else ->`, the clause is `E0044:
   NonExhaustiveJudgeError`, with the missing variants named in the message. A
@@ -888,13 +916,39 @@ weave eval with e as ref to Expr into int:
 - **Clause bodies.** A clause body is an expression on the same line, or an
   indented statement block whose last statement is its value — the `do:` shape.
   The block form is what lets a clause declare `let`s and nest another `judge`.
+  `else ->` takes the same two shapes, so the default branch can also declare
+  locals:
 
 ```pengu-fragment
 judge shape over kind:
     when Square with width if width > 0 -> width * width
     when Square -> 0
     when Rect with height, width -> width * height
-    else -> 0 - 1
+    else ->
+        var fallback as int is 0 - 1
+        fallback
+```
+
+The narrowing forms on one recursive tree — a nested variant, an or-pattern and
+a plain clause that completes coverage:
+
+```pengu
+omen ExprKind:
+    Literal
+    Neg
+    Binary
+
+rune Expr:
+    kind as ExprKind
+    int_value as int
+    left as ref to Expr
+    right as ref to Expr
+
+weave describe with e as ref to Expr into string:
+    judge e over kind:
+        when Literal -> "literal"
+        when Neg with left as Literal -> "neg of a literal"
+        when Neg | Binary -> "compound"
 ```
 
 **Generated C.** The discriminant is switched on directly, each clause gets a
@@ -924,7 +978,18 @@ _judge_res_1;
 `judge over rune` is zero-cost: it lowers to the same `switch` a hand-written
 tag check would use, with no allocation, boxing or vtable. A string-valued
 `omen` cannot be a C `switch`, so that (rare) discriminant falls back to a
-`pengu_string_equal` chain.
+`pengu_string_equal` chain. A narrowed clause adds its test as an `if` inside
+the `case`, and the remaining clauses for that same variant run after it in the
+same `case`, in source order:
+
+```c
+case ExprKind_Neg: {
+  Expr* left = e->left;
+  if (e->left->kind == ExprKind_Literal) { _judge_res_1 = (…); break; }
+  _judge_res_1 = (…);   /* the `when Neg -> …` that completes coverage */
+  break;
+}
+```
 
 **Differences from matching an `omen` directly.**
 
@@ -947,17 +1012,30 @@ tag check would use, with no allocation, boxing or vtable. A string-valued
   derived `==` compares the tag. (Algebraic and string-valued omens still need
   an explicit `bind`.)
 
-**Limitations (2.5.0).** Nested patterns (`when Binary with left as Literal`),
-or-patterns, tuple patterns, array/list patterns, and `maybe`/`result` patterns
-are **not** supported; a nested pattern is a syntax error (`E0000`). There is no
-positional binding form: the names are always rune fields. Matching is on one
-discriminant field per `judge`; branch on a second tag with a nested `judge`,
-as the `eval` example does.
+**Limitations (2.7.0).** Nested variant patterns, or-patterns, `maybe`/`result`
+field states and tuple destructuring are supported (above). The remaining gap is
+a **deliberate design boundary**, not a pending feature: **array/list patterns**
+(`items as [a, b]`) are absent. A list pattern is a hidden length test plus one
+bind per element — O(n) work the syntax does not show — and the language already
+expresses it without hiding anything, with the length test in the open:
+
+```pengu-fragment
+# What `items as [callee, arg]` would hide; spell it out instead:
+when Call with items if items.length == 2 ->
+    let callee is items at 0
+    let arg is items at 1
+```
+
+`judge` also has no `maybe`/`result` *subject* form: an optional is matched with
+`if v as T is m is present:` (§7.1) or unwrapped with `or:`. There is no
+positional binding form — the names are always rune fields — and matching is on
+one discriminant field per `judge`; branch on a second tag with a nested
+`judge`, as the `eval` example does.
 
 **Diagnostics.** `E0005` (subject is not a rune / discriminant is not an
-`omen`), `E0013` (unknown discriminant or binding), `E0043` (private field),
-`E0044` (non-exhaustive), `E0006` (assignment to a binding), `E0000` (a pattern
-form outside the supported set).
+`omen` / an ill-typed narrowing), `E0013` (unknown discriminant or binding),
+`E0043` (private field), `E0044` (non-exhaustive), `E0006` (assignment to a
+binding), `E0000` (a pattern form outside the grammar).
 
 ### 7.5 `break` / `continue` / `return`
 
@@ -983,7 +1061,7 @@ weave main into int:
 - **Syntax:** `NAME ":"` immediately before a `while`, a `for … from … to … [step …]`, or a `for … in …`, on the same line. A jump is written `break label` / `continue label`; bare `break` / `continue` are unchanged and target the innermost loop, even inside a labeled one.
 - **Semantics:** `continue label` continues the *labeled* loop — its step expression and condition run again, exactly as a `continue` of that loop would. `break label` leaves the labeled loop. The label must name an **enclosing labeled loop**.
 - **Errors:** an unknown label is `E0004`; a label that exists but does not enclose the statement is `E0007`; a label used twice in one function is `E0069` (`DuplicateLabelError`), even for two sibling loops. Labels are **function-local** and are not symbols: they are not in `symbols.functions`, cannot be imported, and are invisible outside their weave.
-- **Codegen lowering:** C has no labeled `break`, so a labeled jump lowers to `goto _pengu_label_<label>_<continue|break>;`. The `_continue` anchor is emitted as the last line of the labeled loop's body, so the C step and condition still run (exactly `continue` semantics); the `_break` anchor is emitted right after the loop but **before** the loop's own cleanup (for example the `banish` of a materialized iterable), so both the normal exit and a jump out of the loop run that cleanup. A jump that also leaves an *enclosing* loop cannot release that loop's temporaries: C has no unwinding, the same reason an early `return` skips scope releases. An anchor is emitted only when a jump targets it, so an unused label costs zero lines of C and does not trigger `-Wunused-label`.
+- **Codegen lowering:** C has no labeled `break`, so a labeled jump lowers to `goto _pengu_label_<label>_<continue|break>;`. The `_continue` anchor is emitted as the last line of the labeled loop's body, so the C step and condition still run (exactly `continue` semantics); the `_break` anchor is emitted right after the loop but **before** the loop's own cleanup (for example the `banish` of a materialized iterable), so both the normal exit and a jump out of the loop run that cleanup. The jump itself also releases the temporaries of every loop it leaves *between* itself and its target, innermost first, because C does not unwind scopes. An anchor is emitted only when a jump targets it, so an unused label costs zero lines of C and does not trigger `-Wunused-label`.
 - **Pengunic naming:** `snake_case`, descriptive (`outer`, `lines_loop`, `next_row`), never a single letter. Label a loop only when at least two loops are nested and you must leave the outer one from inside it.
 
 ### 7.6 Block expressions: `do:`, value-position `if` / `unless`, and loops
@@ -1167,6 +1245,14 @@ let add as weave with a as int, b as int into int is lambda a as int, b as int i
 - **No Closures / Static Functions:** Lambdas do not capture surrounding local variables. They can access only their own parameters and module-level constants, types, and weaves.
 - **Codegen:** Lambdas are pre-scanned and emitted as top-level `static` C functions named `_pengu_lambda_1`, `_pengu_lambda_2`, etc. At the call site, the lambda evaluates to the static function's address.
 - **Runtime Callstack Tracking:** Lambda functions participate in the runtime's 64-frame ring buffer by emitting `pengu_frame_push("_pengu_lambda_N", file, line)` and `pengu_frame_pop()`, ensuring panics and fatal crash signals originating within lambdas accurately report their source line.
+- **A lambda body is a function boundary.** Because the body becomes its own C function, `break` / `continue` inside it can never target a loop of the enclosing `weave`: a bare jump is `E0007` (there is no loop in *this* function) and a labeled one is `E0004` (the label is not in the lambda). A loop *inside* the lambda works normally, and its labels are the lambda's own, so the same label name may appear in the lambda and in the enclosing weave (`E0069` counts duplicates within one function only).
+
+```pengu-fragment
+outer: for i from 0 to 3:
+    var step as weave into int is lambda into do:
+        break outer            # E0004: 'outer' labels a loop in another function
+    var ignored as int is calling step
+```
 
 ### 8.5 `ritual` methods (static)
 
@@ -1198,7 +1284,7 @@ rune Player:
     name as string
     hp as int
     is_alive as bool
-    _secret_id as int                    # private field (E0043 outside rune)
+    _secret_id as int                    # private field (E0043 outside its module)
 ```
 
 Construction:
@@ -1221,8 +1307,28 @@ var hero as Person with:
 
 - **Layout:** Runes map 1:1 to C structs, preserving exact memory layout and field alignment across C FFI boundaries.
 - **Field Access:** Direct access uses `p.name`; access through a reference `ref to Player` uses pointer arrow syntax `p->name` (`E0003` if dot is used on reference).
-- **Encapsulation (`E0043`):** Fields with a leading underscore (e.g. `_secret_id`) are strictly private to the defining rune. Attempting to access or assign a private field via dot (`p._secret_id`) or pointer arrow (`p->_secret_id`) from outside the rune definition or its module owner raises `E0043: PrivateSymbolAccessError`.
 - **Destructuring:** Runes can be unpacked into local variables using destructuring declarations: `let (n, h, a) is p` (§5.1).
+- **Encapsulation (`E0043`):** Fields with a leading underscore (e.g. `_secret_id`) are private to the **module** that declares the rune — its file — and to any `enchanting` block for that rune, wherever it lives. Access or assignment via dot (`p._secret_id`) or pointer arrow (`p->_secret_id`) from any other module raises `E0043: PrivateSymbolAccessError`; so does `judge p over _secret_id` and binding `_secret_id` in a `with` list from another module. Two modules of one program:
+
+```pengu-fragment
+# --- secret.pengu: the module that declares the rune owns its privates ------
+rune Box:
+    _hidden as int
+    shown as int
+
+weave peek with b as Box into int:
+    return b._hidden                       # OK: same module
+
+enchanting Box:
+    weave bump with n as int into int:
+        return self->_hidden + n           # OK: an enchanting block is inside the rune
+
+# --- main.pengu: a different module ----------------------------------------
+import secret
+
+weave steal with b as secret.Box into int:
+    return b._hidden                       # E0043: private to 'secret'
+```
 
 #### 9.1.1 `cyclus` — self-referential types
 
@@ -2163,9 +2269,10 @@ compiler's concept table:
 | `bool` | `Par`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
 | `char` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum` |
 | `string` | `Par`, `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Donum`, `Iterabilis` |
-| `list of T` / `map of K to V` | `Par`, `Iterabilis`, `Imago`, `Nexus` |
-| `slice of T` | `Par`, `Iterabilis` |
-| `maybe T` / `result of T to E` | `Par`, `Imago`, `Nexus` |
+| `list of T` / `map of K to V` | `Par`, `Iterabilis`, `Imago`, `Nexus`, `Donum` |
+| `slice of T` | `Par`, `Iterabilis`, `Donum` |
+| `maybe T` | `Par`, `Imago`, `Nexus`, `Donum` |
+| `result of T to E` | `Par`, `Imago`, `Nexus` (no `Donum`: its payloads are heap pointers, §11.4) |
 | `rune` (every field implements `Donum`) | `Donum` (automatic; a single non-defaultable field removes it) |
 
 Runes, echos and algebraic omens gain a concept through `derive` (§9.1.2) or an
@@ -2173,7 +2280,8 @@ explicit `bind` (§10.3); a `where` bound is then satisfied by the derived
 implementation. `Donum` is the exception: a `rune` or `echo` whose **every**
 field implements `Donum` implements it automatically — no `derive` and no `bind`
 — recursively through nested runes, `ref to T` (always `NULL`), `frozen`/`alias`/`seal`
-wrappers and arrays. A single non-defaultable field (a container, or a generic
+wrappers, arrays and the defaultable containers (`list`, `map`, `slice`,
+`maybe`). A single non-defaultable field (`result of T to E`, or a generic
 parameter without a defaultable bound) removes `Donum` from the type. See §11.4.
 
 `char` and `byte` are defaultable like their aliases (`i8`, `u8`): `donum char`
@@ -2342,8 +2450,10 @@ weave mod2 shard T where T: Num with a as T, b as T into T:
 
 ### 11.4 `donum T` — default values
 
-`donum T` is the zero/default value of a defaultable type. It lowers to the C
-compound literal `(T){0}`, which is valid for scalars, pointers and structs:
+`donum T` is the zero/default value of a defaultable type. For scalars,
+pointers and structs it lowers to the C compound literal `(T){0}` (an
+array-typed slot gets the brace form `{0}`); containers and `maybe` have a
+*semantic* default instead (see "Container defaults" below):
 
 ```pengu
 weave sum shard T where T: Num with xs as list of T into T:
@@ -2370,12 +2480,14 @@ through the field types:
 - a field whose type is another all-defaultable `rune`/`echo` counts;
 - `ref to T` is always defaultable (`NULL`), whatever `T` is;
 - `frozen T`, `alias X as T` and `seal X as T` delegate to what they wrap;
-- `array of T with size N` follows `T` (`N` zeroed elements).
+- `array of T with size N` follows `T` (`N` zeroed elements);
+- `list of T`, `map of K to V`, `slice of T` and `maybe T` are defaultable — an
+  empty value, not a blind zero (below) — so a rune field of any of them counts.
 
 A single non-defaultable field removes `Donum` from the whole rune, and the
-error names the rune: `donum Bag` for `rune Bag: items as list of int` is
-`E0049` with "not every field implements 'Donum'". `char` and `byte` are
-defaultable like their aliases (`i8`, `u8`).
+error names the rune: `donum Bag` for `rune Bag: payload as result of int to
+string` is `E0049` with "not every field implements 'Donum'". `char` and `byte`
+are defaultable like their aliases (`i8`, `u8`).
 
 **Generic runes.** `rune Box shard T: value as T` is `Donum` only under a
 defaultable bound such as `where T: Donum` (or another bound from the compiler's
@@ -2391,14 +2503,43 @@ weave zero_box shard T where T: Donum into Box of T:
     return donum (Box of T)               # requires the bound above
 ```
 
-**Containers are deliberately excluded.** `list`, `map`, `slice`, `maybe` and
-`result` do **not** implement `Donum`. `donum (list of int)` is therefore
-`E0049` ("containers have no zero value"), not `(PenguList){0}`: that C zero
-initialiser would leave `elem_size == 0`, which is a **corrupt container**, not
-an empty one. The fix is an explicit default — an empty literal such as
-`list of int` / `map of string to int`, `maybe none`, `calling ok_of with v` —
-or a rune wrapper whose field is the container and which provides its own
-`new`/`empty` helper.
+**Container defaults are semantic empty values.** `list`, `map`, `slice` and
+`maybe` implement `Donum`. Their default is not a blind `(T){0}`: it is a
+designated-initialiser compound literal that sets only the metadata the
+container needs, leaving every other field zero, so the value is a *usable empty
+container* and the first `push`/`put` allocates:
+
+```pengu-fragment
+var xs as list of int is donum (list of int)              # ((PenguList){ .elem_size = sizeof(int32_t) })
+var m as map of string to int is donum (map of string to int)
+var sl as slice of int is donum (slice of int)
+var opt as maybe int is donum (maybe int)                 # pengu_maybe_none()
+```
+
+- `list` / `slice`: `elem_size` is set; `data` is `NULL`, `len` and `cap` are 0.
+- `map`: `key_size` and `val_size` are set; there are no entries.
+- `maybe T`: `pengu_maybe_none()` — not present.
+
+None of these allocate, so `donum (list of int)` is usable in any value
+position: a local, a struct field, an argument, a `static var` initialiser. The
+reason the default is not `(PenguList){0}` is that a blind zero leaves
+`elem_size == 0`, which is a **corrupt** container, not an empty one — the first
+`push` would copy zero bytes.
+
+**`result` deliberately has no default.** `result of T to E` does not implement
+`Donum`: both payloads are heap pointers, so a zeroed result would hand out a
+`NULL` `.error` / `.value` (a crash) and a real one would need an allocation,
+which `donum` must not perform. `donum (result of int to string)` is `E0049`,
+and the message points at the constructors:
+
+```pengu-invalid
+# Invalid: a result has no neutral value.
+var r as result of int to string is donum (result of int to string)
+
+# Fix: build one side explicitly.
+var ok_r as result of int to string is calling ok_of with 1
+var err_r as result of int to string is calling err_of with "boom"
+```
 
 **`derive Donum` is rejected** with `E0005` ("`Donum` is automatic for rune
 'X'; no 'derive' is needed"). `Donum` is *not* one of the derivable concepts;
@@ -3769,6 +3910,68 @@ weave main into int:
     return 0
 ```
 
+### 19.5 Memory model: borrowed `string` parameters and expression temporaries
+
+Manual memory (§13) is the rule; the compiler only steps in where a temporary it
+created would otherwise leak. Four rules cover the whole model:
+
+- **A `string` parameter is borrowed.** The callee may read it for the duration
+  of the call; it must not `banish` it and must not keep it past the return. The
+  caller keeps ownership. This is the contract `std.spark.println` relies on.
+- **A temporary the caller creates for a call is released by the caller.** An
+  interpolation (`"{a} {b}"`) or a `to string` conversion allocates a
+  `PenguString` that the callee only borrows. The call is emitted inside a GNU
+  statement expression that binds the temporary, makes the call and banishes it:
+
+```c
+(__extension__(({ PenguString _arg_1 = (pengu_string_format_ex(...));
+                  spark_println(_arg_1);
+                  pengu_banish_string(&_arg_1); })))
+```
+
+  The release happens only when it cannot dangle. It is unconditional for a
+  `void` or scalar result (numbers, `bool`, `char`, a plain `omen`). For a
+  `string` result it is guarded — `if (res.data != arg.data)
+  pengu_banish_string(&arg)` — because a callee may return its parameter
+  (`weave id with s as string into string: return s`) and the returned buffer
+  must survive. For a reference, rune or container result (including
+  `maybe`/`result`) nothing is released: the result could have stored the
+  borrowed pointer.
+- **A value the caller already owns is never released.** A variable, a field or
+  a call result passed as an argument stays with the caller: `calling
+  spark.println with s` does not free `s`, and you still write `banish s`.
+- **`strict_c99: true` has no statement expressions.** A call in *statement*
+  position releases through a plain block (bind, call, banish); a call in
+  *value* position cannot, and keeps the old behaviour (no release).
+
+`return` unwinds loops too: it releases every active loop temporary before the
+frame is popped, so a `for v in calling make_list()` cannot leak when the body
+returns early — the element is copied into the loop variable before the release.
+The same rule drives labeled jumps (§7.5): a `break` / `continue label` releases
+the temporaries of every loop it leaves, and the owning loop's `_break` anchor
+sits *before* its release, so the normal exit and a jump out of the loop both
+run it.
+
+A complete program — the interpolation is a caller-owned temporary, released as
+soon as `spark.println` returns:
+
+```pengu
+import std.spark
+
+weave greet with name as string, n as int into int:
+    calling spark.println with "hello {name}, n={n}"   # temporary freed after the call
+    return n
+
+weave main into int:
+    return calling greet with "pengu", 2
+```
+
+**Generated C is warning-clean for unused bindings.** A parameter or local the
+program never reads is emitted with a `(void)name;` cast, so a program that
+binds a value and ignores it still compiles under `-Wall -Wextra -Werror`.
+`type of p` is the sharpest case: it inspects the static type and never emits
+`p`, so that parameter counts as unread and gets the cast.
+
 ---
 
 ## 20. Tooling & project layout
@@ -4316,7 +4519,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0002` | `VarLetTopLevelError` | 3 | var/let declared at top-level. | 1 help / 1 note |
 | `E0003` | `SelfDotAccessError`, `SemanticError` | 7 | self accessed with dot instead of arrow. | 1 help / 1 note |
 | `E0004` | `SemanticError`, `UndefinedIdentifierError` | 16 | identifier not defined in symbol table. | 1 help / 1 note |
-| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 144 | types incompatible. | 1 help / 1 note |
+| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 152 | types incompatible. | 1 help / 1 note |
 | `E0006` | `InvalidMemoryOpError`, `MutabilityError` | 12 | assignment to immutable let binding or constant. | 1 help / 1 note |
 | `E0007` | `InvalidControlFlowError` | 2 | break/continue outside loop. | 1 help / 1 note |
 | `E0008` | `InvalidMemoryOpError`, `SemanticError`, `TypeMismatchError` | 15 | invalid sigil/banish on literal/const. | 1 help / 1 note |
@@ -4355,7 +4558,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0041` | `ArraySizeMismatchError`, `SemanticError` | 9 | Array literal dimensions or row length do not match declared size. | 1 help / 1 note |
 | `E0042` | `InvalidRangeError` | 3 | Invalid range expression bounds. | 1 help / 1 note |
 | `E0043` | `PrivateSymbolAccessError` | 2 | Attempted access to private symbol from another module. | 1 help / 1 note |
-| `E0044` | `NonExhaustiveJudgeError` | 2 | Non-exhaustive judge expression without default else clause. | 1 help / 1 note |
+| `E0044` | `NonExhaustiveJudgeError` | 3 | Non-exhaustive judge expression without default else clause. | 1 help / 1 note |
 | `E0045` | `SemanticError`, `TypeMismatchError` | 4 | — | — |
 | `E0046` | `SemanticError` | 5 | — | — |
 | `E0047` | `DuplicatePrimitiveMethodError` | 2 | a method of a primitive is provided twice.  ``enchanting int:`` emits the C function ``int_clamp`` with external linkage, so the ``(primitive, method)`` pair may only be provided once in the whole program: two modules (or two blocks in one module) would emit the same symbol, and a call site could not choose between them. | 1 help / 1 note |
@@ -4363,7 +4566,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0050` | `InfiniteTypeSizeError` | 1 | recursive type without indirection (infinite size). | 1 help / 1 note |
 | `E0051` | `SemanticError` | 1 | — | — |
 | `E0052` | `DuplicateConceptBindingError` | 2 | duplicate concept binding or duplicate (type, method) implementation.  Covers two cases: binding the same ``(type, concept)`` pair twice, and two distinct concepts providing the same ``(type, method)`` pair (which a call site could not resolve). | 1 help / 1 note |
-| `E0053` | `SemanticError` | 2 | — | — |
+| `E0053` | `SemanticError` | 3 | — | — |
 | `E0054` | `SemanticError` | 1 | — | — |
 | `E0055` | `SemanticError` | 1 | — | — |
 | `E0056` | `SemanticError`, `UnknownAttributeError` | 9 | unknown attribute or invalid attribute usage. | 1 help / 1 note |

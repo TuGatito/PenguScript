@@ -404,6 +404,8 @@ let desc is judge state:
 - **Algebraic `omen` — the default.** Each variant carries only its own fields, the compiler stores the most compact representation, and the clause binds the variant's payload positionally. Prefer it whenever the variants are genuinely different things.
 - **`rune` with a discriminant — when the variants share fields.** Declare the shared fields (`line`, `col`, `type`) once on the rune and match the tag with `judge <rune> over <field>:`. Reach for it as well when you need a **stable layout** for FFI or an external C struct, and whenever the value is handed to C.
 
+Or-patterns (`when A | B ->`) let two variants share one clause; a *narrowed* pattern (`when Binary with left as Literal ->`) is a test, not coverage — the variant still needs a plain clause or an `else`.
+
 Side by side:
 
 Algebraic `omen`:

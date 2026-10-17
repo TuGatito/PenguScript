@@ -125,8 +125,10 @@ from .judge_over import (
 from . import type_of as type_of_lsp
 from .labels import (
     loop_label_definition,
+    loop_label_highlights,
     loop_label_prepare_rename,
     loop_label_rename,
+    loop_label_token_spans,
 )
 from .code_actions import (
     add_missing_import_action,
@@ -1744,11 +1746,23 @@ def document_highlight(params: DocumentHighlightParams) -> Optional[List[Documen
     variables/parameters are restricted to their lexical scope, and occurrences
     inside comments, string literals or member access (``obj.name``) are never
     highlighted.
+
+    A loop label is not a symbol, so it is resolved from the parsed tree first
+    (:func:`pengu_lsp.labels.loop_label_highlights`): the declaration and every
+    enclosed ``break`` / ``continue`` that targets it, and nothing from a
+    same-named label in another function.  Any other position falls through to
+    the symbol-based scan below unchanged.
     """
     uri = params.text_document.uri
     doc_text = server.get_document_source(uri)
     if not doc_text:
         return None
+
+    # Labels never enter the symbol table, so the scan below would treat one as
+    # an unresolved name and highlight every homonym in the file.
+    label_highlights = loop_label_highlights(doc_text, params.position)
+    if label_highlights is not None:
+        return label_highlights
 
     word = get_word_at_position(doc_text, params.position)
     if not word:
@@ -2189,6 +2203,12 @@ _SEMANTIC_TOKEN_TYPES = [
     "parameter", "variable", "property", "enumMember", "event", "function",
     "method", "macro", "keyword", "modifier", "comment", "string", "number",
     "regexp", "operator", "decorator",
+    # ``label`` is not one of LSP's standard token types, but this legend is the
+    # custom string list the server sends in ``initialize`` (clients decode the
+    # data array through it), so a custom type is legal.  A loop label is a
+    # compiler-defined jump target rather than a variable, hence its own type.
+    # It is appended last so every existing type keeps its index.
+    "label",
 ]
 _SEMANTIC_TOKEN_MODIFIERS = [
     "declaration", "definition", "readonly", "static", "deprecated",
@@ -2275,6 +2295,9 @@ def semantic_tokens_full(params: SemanticTokensParams) -> Optional[SemanticToken
     Tokens come from the real lexer and are classified with the symbol table
     (functions, types, namespaces, readonly/deprecated/defaultLibrary modifiers),
     so the editor gets semantic highlighting on top of the TextMate grammar.
+    Loop labels are not symbols: their declaration and the label of every
+    labeled ``break`` / ``continue`` are read from the parsed tree and typed
+    ``label``.
     """
     uri = params.text_document.uri
     doc_text = server.get_document_source(uri)
@@ -2294,12 +2317,23 @@ def semantic_tokens_full(params: SemanticTokensParams) -> Optional[SemanticToken
     # against the lexer's NAME tokens.
     over_spans = {(l - 1, c - 1) for l, c, _n in discriminant_token_spans(doc_text)}
     binding_spans = {(l - 1, c - 1) for l, c, _n in binding_token_spans(doc_text)}
+    # Labels are not symbols either, and the lexer cannot tell `outer:` /
+    # `break outer` from an ordinary name.  The helper is bounded (cheap regex
+    # pre-check plus labels.py's content-hash parse cache) because this handler
+    # runs on every keystroke; a buffer that does not parse contributes no
+    # label spans and keeps its ordinary lexical tokens.
+    label_spans = {(l - 1, c - 1) for l, c, _n in loop_label_token_spans(doc_text)}
     for tok in tokens:
         entry = _semantic_token_entry(tok, symbols)
         if entry is None:
             continue
         line0, col0, length, t_idx, mods = entry
-        if (line0, col0) in over_spans:
+        if (line0, col0) in label_spans:
+            # A label may share its name with a variable in the same function
+            # (separate namespaces), so drop the symbol-derived modifiers too.
+            t_idx = _TOKEN_TYPE_INDEX["label"]
+            mods = 0
+        elif (line0, col0) in over_spans:
             t_idx = _TOKEN_TYPE_INDEX["property"]
         elif (line0, col0) in binding_spans:
             t_idx = _TOKEN_TYPE_INDEX["variable"]
