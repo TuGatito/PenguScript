@@ -101,6 +101,31 @@ alias petitio_request as opaque
 ## the fields you need: every getter below copies into an owned `string`.
 alias petitio_response as opaque
 
+## A libcurl-multi engine: several requests on one thread.
+alias petitio_multi as opaque
+
+# Creates the engine. NULL only on allocation or libcurl-init failure.
+declare petitio_multi_new into ref to petitio_multi
+
+# Adds `request` (takes ownership on success). Returns the request index, or -1.
+declare petitio_multi_add with multi as ref to petitio_multi, request as ref to petitio_request into int
+
+# Pumps the engine; returns the number of transfers still running.
+declare petitio_multi_perform with multi as ref to petitio_multi into int
+
+# Blocks up to `timeout_ms` waiting for activity.
+declare petitio_multi_wait with multi as ref to petitio_multi, timeout_ms as int into void
+
+# Number of requests added so far.
+declare petitio_multi_count with multi as ref to frozen petitio_multi into int
+
+# Pops one finished response (owned by the caller) and writes its index to
+# `out_index`. NULL when nothing is ready.
+declare petitio_multi_pop with multi as ref to petitio_multi, out_index as ref to int into ref to petitio_response
+
+# Releases the engine, every request, response, mime body and libcurl handle.
+declare petitio_multi_free with multi as ref to petitio_multi into void
+
 # ------------------------------------------------------------------
 # Request builder
 # ------------------------------------------------------------------

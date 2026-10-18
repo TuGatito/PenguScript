@@ -1086,6 +1086,259 @@ petitio_response *petitio_request_perform_stream(petitio_request *request,
 }
 
 /* -------------------------------------------------------------------------
+ * Concurrent transfers (libcurl-multi)
+ *
+ * One engine, one thread. Each transfer owns its easy handle, its response,
+ * its multipart body and its `petitio_request`. The request's strings stay
+ * alive until the transfer is released, because CURLOPT_POSTFIELDS and the
+ * header list point into them.
+ * ------------------------------------------------------------------------- */
+
+typedef struct petitio_transfer {
+    CURL *curl;
+    petitio_request *request;
+    petitio_response *response;
+    struct curl_mime *mime;
+    int index;
+    int finished;
+    int queued;
+} petitio_transfer;
+
+struct petitio_multi {
+    CURLM *multi;
+    petitio_transfer *transfers;
+    int count;
+    int cap;
+    int *queue;
+    int queue_len;
+    int queue_cap;
+    int running;
+};
+
+static int petitio_multi_queue_push(petitio_multi *multi, int index)
+{
+    if (multi->queue_len == multi->queue_cap) {
+        int next_cap = multi->queue_cap == 0 ? 8 : multi->queue_cap * 2;
+        int *grown = (int *)realloc(multi->queue, (size_t)next_cap * sizeof(int));
+        if (grown == NULL)
+            return 0;
+        multi->queue = grown;
+        multi->queue_cap = next_cap;
+    }
+    multi->queue[multi->queue_len] = index;
+    multi->queue_len += 1;
+    return 1;
+}
+
+petitio_multi *petitio_multi_new(void)
+{
+    petitio_multi *multi;
+    petitio_global_init();
+    multi = (petitio_multi *)calloc(1, sizeof(petitio_multi));
+    if (multi == NULL)
+        return NULL;
+    multi->multi = curl_multi_init();
+    if (multi->multi == NULL) {
+        free(multi);
+        return NULL;
+    }
+    return multi;
+}
+
+static int petitio_multi_grow(petitio_multi *multi)
+{
+    int next_cap;
+    petitio_transfer *grown;
+    if (multi->count < multi->cap)
+        return 1;
+    next_cap = multi->cap == 0 ? 4 : multi->cap * 2;
+    grown = (petitio_transfer *)realloc(
+        multi->transfers, (size_t)next_cap * sizeof(petitio_transfer));
+    if (grown == NULL)
+        return 0;
+    multi->transfers = grown;
+    multi->cap = next_cap;
+    return 1;
+}
+
+int petitio_multi_add(petitio_multi *multi, petitio_request *request)
+{
+    petitio_transfer *transfer;
+    petitio_response *response;
+    CURL *curl;
+    CURLcode code;
+    struct curl_mime *mime = NULL;
+    int index;
+
+    if (multi == NULL || request == NULL)
+        return -1;
+    if (!petitio_multi_grow(multi))
+        return -1;
+    response = petitio_response_new();
+    if (response == NULL)
+        return -1;
+    response->max_body = request->max_body;
+
+    index = multi->count;
+    transfer = &multi->transfers[index];
+    memset(transfer, 0, sizeof(*transfer));
+    transfer->index = index;
+    transfer->request = request;
+    transfer->response = response;
+    multi->count += 1;
+
+    curl = curl_easy_init();
+    if (curl == NULL) {
+        petitio_response_set_error(response, PETITIO_OUT_OF_MEMORY,
+                                   "curl_easy_init failed");
+        transfer->finished = 1;
+        (void)petitio_multi_queue_push(multi, index);
+        return index;
+    }
+    code = petitio_apply_options(curl, request, response, petitio_write_cb,
+                                 response, &mime);
+    if (code != CURLE_OK) {
+        if (mime != NULL)
+            curl_mime_free(mime);
+        curl_easy_cleanup(curl);
+        petitio_response_set_error(response, PETITIO_PROTOCOL_ERROR,
+                                   "libcurl rejected a request option");
+        transfer->finished = 1;
+        (void)petitio_multi_queue_push(multi, index);
+        return index;
+    }
+    if (curl_multi_add_handle(multi->multi, curl) != CURLM_OK) {
+        if (mime != NULL)
+            curl_mime_free(mime);
+        curl_easy_cleanup(curl);
+        petitio_response_set_error(response, PETITIO_PROTOCOL_ERROR,
+                                   "libcurl could not add the transfer");
+        transfer->finished = 1;
+        (void)petitio_multi_queue_push(multi, index);
+        return index;
+    }
+    curl_easy_setopt(curl, CURLOPT_PRIVATE, (void *)(intptr_t)index);
+    transfer->curl = curl;
+    transfer->mime = mime;
+    return index;
+}
+
+int petitio_multi_perform(petitio_multi *multi)
+{
+    CURLMsg *message;
+    int messages_left = 0;
+    if (multi == NULL)
+        return 0;
+
+    if (curl_multi_perform(multi->multi, &multi->running) != CURLM_OK)
+        multi->running = 0;
+
+    while ((message = curl_multi_info_read(multi->multi, &messages_left)) != NULL) {
+        CURL *easy;
+        char *private_data = NULL;
+        int index;
+        petitio_transfer *transfer;
+        if (message->msg != CURLMSG_DONE)
+            continue;
+        easy = message->easy_handle;
+        if (curl_easy_getinfo(easy, CURLINFO_PRIVATE, &private_data) != CURLE_OK)
+            continue;
+        index = (int)(intptr_t)private_data;
+        if (index < 0 || index >= multi->count)
+            continue;
+        transfer = &multi->transfers[index];
+        if (transfer->curl != easy || transfer->finished)
+            continue;
+        petitio_finish_response(transfer->request, transfer->response, easy,
+                                message->data.result, 0, NULL,
+                                (int64_t)transfer->response->body_len);
+        curl_multi_remove_handle(multi->multi, easy);
+        curl_easy_cleanup(easy);
+        transfer->curl = NULL;
+        if (transfer->mime != NULL) {
+            curl_mime_free(transfer->mime);
+            transfer->mime = NULL;
+        }
+        transfer->finished = 1;
+        (void)petitio_multi_queue_push(multi, index);
+        transfer->queued = 1;
+    }
+    return multi->running;
+}
+
+void petitio_multi_wait(petitio_multi *multi, int timeout_ms)
+{
+    if (multi == NULL || timeout_ms < 0)
+        return;
+#if LIBCURL_VERSION_NUM >= 0x074200 /* 7.66.0 */
+    (void)curl_multi_poll(multi->multi, NULL, 0, timeout_ms, NULL);
+#else
+    (void)curl_multi_wait(multi->multi, NULL, 0, timeout_ms, NULL);
+#endif
+}
+
+int petitio_multi_count(const petitio_multi *multi)
+{
+    return multi == NULL ? 0 : multi->count;
+}
+
+petitio_response *petitio_multi_pop(petitio_multi *multi, int *out_index)
+{
+    int index;
+    petitio_transfer *transfer;
+    petitio_response *response;
+    if (multi == NULL || multi->queue_len == 0)
+        return NULL;
+    index = multi->queue[0];
+    memmove(multi->queue, multi->queue + 1,
+            (size_t)(multi->queue_len - 1) * sizeof(int));
+    multi->queue_len -= 1;
+    if (index < 0 || index >= multi->count)
+        return NULL;
+    transfer = &multi->transfers[index];
+    if (!transfer->finished)
+        return NULL;
+    response = transfer->response;
+    transfer->response = NULL;
+    transfer->queued = 0;
+    if (out_index != NULL)
+        *out_index = index;
+    return response;
+}
+
+void petitio_multi_free(petitio_multi *multi)
+{
+    int i;
+    if (multi == NULL)
+        return;
+    for (i = 0; i < multi->count; ++i) {
+        petitio_transfer *transfer = &multi->transfers[i];
+        if (transfer->curl != NULL) {
+            curl_multi_remove_handle(multi->multi, transfer->curl);
+            curl_easy_cleanup(transfer->curl);
+            transfer->curl = NULL;
+        }
+        if (transfer->mime != NULL) {
+            curl_mime_free(transfer->mime);
+            transfer->mime = NULL;
+        }
+        if (transfer->response != NULL) {
+            petitio_response_free(transfer->response);
+            transfer->response = NULL;
+        }
+        if (transfer->request != NULL) {
+            petitio_request_free(transfer->request);
+            transfer->request = NULL;
+        }
+    }
+    free(multi->transfers);
+    free(multi->queue);
+    if (multi->multi != NULL)
+        curl_multi_cleanup(multi->multi);
+    free(multi);
+}
+
+/* -------------------------------------------------------------------------
  * Response accessors
  * ------------------------------------------------------------------------- */
 

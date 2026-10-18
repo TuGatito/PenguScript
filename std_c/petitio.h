@@ -167,6 +167,38 @@ petitio_response *petitio_request_perform_stream(petitio_request *request,
                                                  petitio_stream_fn callback,
                                                  void *user);
 
+/* --- Concurrent transfers (libcurl-multi) ------------------------------- */
+
+/* An engine that runs several requests on one thread. Every `add` takes
+ * ownership of the `petitio_request`; `pop` hands out one finished response at
+ * a time and the caller owns it. */
+typedef struct petitio_multi petitio_multi;
+
+/* Creates the engine. Returns NULL only on allocation or libcurl-init failure. */
+petitio_multi *petitio_multi_new(void);
+
+/* Adds `request` (takes ownership on success). Returns the request index, or
+ * -1 on allocation failure (the caller still owns the request then). */
+int petitio_multi_add(petitio_multi *multi, petitio_request *request);
+
+/* Pumps the engine and queues every transfer that finished. Returns the number
+ * of transfers still running. */
+int petitio_multi_perform(petitio_multi *multi);
+
+/* Blocks up to `timeout_ms` waiting for activity. */
+void petitio_multi_wait(petitio_multi *multi, int timeout_ms);
+
+/* Number of requests added so far. */
+int petitio_multi_count(const petitio_multi *multi);
+
+/* Pops one finished response (the caller owns it) and writes its request index
+ * to `*out_index`. Returns NULL when nothing is ready. */
+petitio_response *petitio_multi_pop(petitio_multi *multi, int *out_index);
+
+/* Aborts anything still running and releases every request, response, mime
+ * body and libcurl handle. Responses never popped are freed here. */
+void petitio_multi_free(petitio_multi *multi);
+
 /* --- Response ----------------------------------------------------------- */
 
 /* One of `petitio_error`. */

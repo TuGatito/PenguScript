@@ -943,11 +943,13 @@ enchanting Request:
         if not content.is_present:
             banish content
             return false
+        # `data` is a borrowed view: `banish content` releases the payload
+        # buffer *and* the box through the derived Nexus, so releasing the view
+        # too would free the same block twice.
         var data as string is content.value
         var filename as string is calling compass.basename with path
         calling self.multipart_bytes with name, data, filename, PETITIO_BINARY_CONTENT_TYPE
         banish filename
-        banish data
         banish content
         return true
 
@@ -1726,6 +1728,18 @@ weave _cookie_expired_by_date with value as string into bool:
     var now as i64 is (calling chronicle.time) to i64
     return stamp <= now
 
+## Releases every string of an owned `list of string`, then the list buffer.
+##
+## `banish list` frees only the element buffer (`PenguList` never recurses), so
+## a list returned by `scrolls.split` needs one release per element too.
+weave _free_strings with items as list of string into void:
+    var i as int is 0
+    while i < items.len:
+        var item as string is items at i
+        banish item
+        set i is i + 1
+    banish items
+
 # ----------------------------------------------------------------------------
 # Sessions
 # ----------------------------------------------------------------------------
@@ -1797,6 +1811,73 @@ enchanting Session:
             if not removed or self->_cookies.len >= before:
                 break
 
+    ## Loads cookies from a Netscape-format cookie file.
+    ##
+    ## The jar is a name → value store: the domain, path, secure flag and expiry
+    ## columns are ignored (the wrapper does not scope cookies per host). A file
+    ## written by curl or by `save_cookies_to_file` loads; cookies already in the
+    ## session with the same name are replaced.
+    ##
+    ## ## Parámetros
+    ## - `path`: file to read. Missing or unreadable files are an error.
+    ##
+    ## ## Retorno
+    ## `ok n` with the number of cookies loaded, or `err IoError`.
+    weave load_cookies_from_file with path as string into result of int to HttpError:
+        var content as maybe string is calling archivum.read_file with path
+        if not content.is_present:
+            banish content
+            var reason as string is "cannot read cookie file: {path}"
+            var failure as HttpError is with IoError is reason
+            return calling err_of with failure
+        # Borrowed view: `banish content` releases the buffer and the box.
+        var text as string is content.value
+        var lines as list of string is calling scrolls.lines with text
+        var loaded as int is 0
+        var i as int is 0
+        while i < lines.len:
+            var line as string is lines at i
+            if (line length) > 0:
+                var raw as ref to frozen byte is bytes of line
+                if (raw at 0) != 35:
+                    var fields as list of string is calling scrolls.split with line, "\t"
+                    if fields.len >= 7:
+                        var name as string is fields at 5
+                        var value as string is fields at 6
+                        if (name length) > 0:
+                            calling self.set_cookie with name, value
+                            set loaded is loaded + 1
+                    calling _free_strings with fields
+            set i is i + 1
+        banish lines
+        banish content
+        return calling ok_of with loaded
+
+    ## Writes the current cookies as a Netscape-format cookie file.
+    ##
+    ## The domain, path, secure and expiry columns are placeholders (`.`,
+    ## `TRUE`, `/`, `FALSE`, `0`): the jar keeps only names and values, so the
+    ## file round-trips through `load_cookies_from_file` but does not describe
+    ## host scoping.
+    ##
+    ## ## Retorno
+    ## `ok 0`, or `err IoError` when the file cannot be written.
+    weave save_cookies_to_file with path as string into result of void to HttpError:
+        var sb as StringBuilder is calling StringBuilder.new
+        calling sb.append with "# Netscape HTTP Cookie File\n"
+        for name in self->_cookies:
+            var value as string is calling self->_cookies.get with name
+            calling sb.append with "{name}\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n"
+        var text as string is calling sb.finish
+        banish sb
+        var written as bool is calling archivum.write_file with path, text
+        banish text
+        if not written:
+            var reason as string is "cannot write cookie file: {path}"
+            var failure as HttpError is with IoError is reason
+            return calling err_of with failure
+        return calling ok_of with 0
+
     ## The number of stored cookies.
     weave cookie_count into int:
         return self->_cookies.len
@@ -1804,6 +1885,16 @@ enchanting Session:
     ## `true` when the session stores `name`.
     weave has_cookie with name as string into bool:
         return calling self->_cookies.contains with name
+
+    ## The value stored for cookie `name`, or `""`.
+    ##
+    ## ## Memoria
+    ## An owned copy; `banish` it. `has_cookie` distinguishes a missing cookie
+    ## from one whose value is empty.
+    weave cookie with name as string into string:
+        if not (calling self->_cookies.contains with name):
+            return ""
+        return calling _copy with (calling self->_cookies.get with name)
 
     ## Sends `req` with the session's headers and cookies, and updates the
     ## cookie jar from the response.
@@ -1933,6 +2024,104 @@ weave post_text with url as string, body as string, content_type as string into 
 ## The `User-Agent` this module sends when a request does not set one.
 weave default_user_agent into string:
     return PETITIO_DEFAULT_USER_AGENT
+
+## Sends every request in `requests` concurrently on one thread.
+##
+## ## Detalles
+## libcurl's `multi` engine multiplexes the transfers: HTTP/2 requests share one
+## connection, HTTP/1.1 ones are spread over the engine's connections. There are
+## no threads and no async machinery; the call blocks until every transfer has
+## finished. The result order matches the input order, so `results at i`
+## describes `requests at i`.
+##
+## ## Propiedad
+## The input `Request` structs stay owned by the caller: `banish` them after the
+## call. The C handles built from them are owned and released by `fetch_many`.
+## The returned list is owned and each `result` inside is independent; release
+## them with `banish` (an `ok` result owns its `Response`, an `error` owns its
+## message).
+##
+## ## Retorno
+## `list of result of Response to HttpError`, one per input, in order. A request
+## whose handle could not be built yields `err OutOfMemory`.
+##
+## ## Ejemplo
+## ```pengu
+## var reqs as list of Request is list of Request
+## calling reqs.push with (calling Request.new with "GET", "https://example.com/a")
+## calling reqs.push with (calling Request.new with "GET", "https://example.com/b")
+## var results as list of result of Response to HttpError is calling fetch_many with reqs
+## for r in results:
+##     if r.is_ok:
+##         calling spark.println_int with r.value.status
+##     banish r
+## banish results
+## for req in reqs:
+##     banish req
+## banish reqs
+## ```
+weave fetch_many with requests as list of Request into list of result of Response to HttpError:
+    var results as list of result of Response to HttpError is list of result of Response to HttpError
+    var n as int is requests.len
+    var i as int is 0
+    while i < n:
+        calling results.push with (calling err_of with (with OutOfMemory is 0))
+        set i is i + 1
+    if n == 0:
+        return results
+
+    var engine as ref to petitio_multi is calling petitio_multi_new
+    if calling ffi.is_null with engine:
+        return results
+    defer calling petitio_multi_free with engine
+
+    var no_defaults as map of string to string is map of string to string
+    var no_cookies as map of string to string is map of string to string
+    var added as int is 0
+    set i is 0
+    while i < n:
+        var request as ref to Request is (sigil of (requests at i))
+        var handle as ref to petitio_request is calling _build_handle with request, (sigil of no_defaults), (sigil of no_cookies)
+        if calling ffi.is_null with handle:
+            set i is i + 1
+            continue
+        var index as int is calling petitio_multi_add with engine, handle
+        if index < 0:
+            calling petitio_request_free with handle
+        else:
+            set added is added + 1
+        set i is i + 1
+    banish no_defaults
+    banish no_cookies
+
+    var done as int is 0
+    while done < added:
+        var ignored as int is calling petitio_multi_perform with engine
+        var pending as bool is true
+        while pending:
+            var index as int is -1
+            var raw as ref to petitio_response is calling petitio_multi_pop with engine, (sigil of index)
+            if calling ffi.is_null with raw:
+                set pending is false
+            else:
+                if index >= 0 and index < n:
+                    var request as ref to Request is (sigil of (requests at index))
+                    var previous as result of Response to HttpError is results at index
+                    banish previous
+                    var code as int is calling petitio_response_error with raw
+                    if code == 0:
+                        var response as Response is calling _response_from_c with raw, request
+                        set results at index is (calling ok_of with response)
+                    else:
+                        var reason as string is calling petitio_response_error_message with raw
+                        var failure as HttpError is calling _error_from_code with code, reason, request
+                        banish reason
+                        set results at index is (calling err_of with failure)
+                    set done is done + 1
+                calling petitio_response_free with raw
+        if done < added:
+            calling petitio_multi_wait with engine, 50
+    return results
 
 ## The libcurl runtime version this build links against (e.g. `"8.22.0"`).
 ##
@@ -2141,6 +2330,13 @@ test "streaming error variants carry a message":
     banish cancelled_message
     banish cancelled
 
+test "fetch_many on an empty list returns an empty list":
+    var reqs as list of Request is list of Request
+    var results as list of result of Response to HttpError is calling fetch_many with reqs
+    calling _expect_int with results.len, 0, "empty result"
+    banish results
+    banish reqs
+
 test "Session cookie jar operations":
     var session as Session is calling Session.new
     calling session.set_cookie with "sid", "abc"
@@ -2153,6 +2349,46 @@ test "Session cookie jar operations":
     calling session.set_cookie with "b", "2"
     calling session.clear_cookies
     calling _expect_int with (calling session.cookie_count), 0, "clear_cookies"
+    banish session
+
+test "cookie files round-trip through the Netscape format":
+    var session as Session is calling Session.new
+    calling session.set_cookie with "sid", "abc"
+    calling session.set_cookie with "theme", "dark"
+    var saved as result of void to HttpError is calling session.save_cookies_to_file with "/tmp/petitio_cookies_test.txt"
+    calling _expect with saved.is_ok, "save ok"
+    banish saved
+    var loaded_session as Session is calling Session.new
+    var loaded as result of int to HttpError is calling loaded_session.load_cookies_from_file with "/tmp/petitio_cookies_test.txt"
+    calling _expect with loaded.is_ok, "load ok"
+    if loaded.is_ok:
+        calling _expect_int with loaded.value, 2, "two cookies loaded"
+    banish loaded
+    calling _expect_int with (calling loaded_session.cookie_count), 2, "loaded jar size"
+    var sid as string is calling loaded_session.cookie with "sid"
+    calling _expect_str with sid, "abc", "sid value"
+    banish sid
+    var missing as string is calling loaded_session.cookie with "nope"
+    calling _expect_int with (missing length), 0, "missing cookie"
+    banish missing
+    banish loaded_session
+    banish session
+    var removed as bool is calling archivum.delete_file with "/tmp/petitio_cookies_test.txt"
+    calling _expect with removed, "cleanup"
+
+test "loading a missing cookie file is an error":
+    var session as Session is calling Session.new
+    var loaded as result of int to HttpError is calling session.load_cookies_from_file with "/tmp/petitio_no_such_cookie_file.txt"
+    calling _expect with not loaded.is_ok, "missing file"
+    if not loaded.is_ok:
+        var failure as HttpError is calling take_error with (sigil of loaded)
+        judge failure:
+            when IoError with reason ->
+                calling _expect with (reason length) > 0, "io reason"
+            else ->
+                calling spark.panic with "petitio test failed: wrong missing-file variant"
+        banish failure
+    banish loaded
     banish session
 
 test "take_response and take_error leave the result banish-safe":
