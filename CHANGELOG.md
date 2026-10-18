@@ -2,6 +2,113 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.12.0] — 2026-10-18 — HTTP client and compiler fixes
+
+Closes Phase 1d: **`std.petitio`** is a complete, `requests`-shaped HTTP client
+over the system **libcurl**, with smart linking down to the function level. The
+same release fixes six compiler bugs found while building it (statement-block
+`judge`, module-qualified name resolution, private-field typing, generic
+shadowing, and two ownership leaks in `or else`/`try`).
+
+```pengu
+import std.json
+import std.petitio
+import std.spark
+
+weave main into int:
+    var req as Request is calling Request.new with "GET", "https://api.example.com/items"
+    defer banish req
+    calling req.header with "Accept", "application/json"
+    calling req.timeout with 5.0
+    var r as result of Response to HttpError is calling req.send
+    defer banish r
+    if not r.is_ok:
+        var failure as HttpError is calling petitio.take_error with (sigil of r)
+        var why as string is calling failure.message
+        calling spark.eprintln with why
+        banish why
+        banish failure
+        return 1
+    var resp as Response is calling petitio.take_response with (sigil of r)
+    defer banish resp
+    calling spark.println_int with resp.status
+    return 0
+```
+
+### Added
+
+- **`std.petitio`** — HTTP client with a `requests`-shaped API:
+  GET/POST/PUT/DELETE/HEAD/PATCH/OPTIONS and custom methods; request headers
+  (case-insensitive); JSON, form-urlencoded, text and multipart bodies; query
+  strings (`build_query_string` sorts and encodes) and URL parsing into
+  `UrlParts`; total and connect timeouts; redirect limits or `no_redirects`;
+  TLS verification toggle (`insecure`); Basic and Bearer authentication; HTTP
+  proxy with credentials; a response body cap (`max_body_bytes`); `Session` with
+  persistent headers and a cookie jar (`Max-Age=0` deletion); `Response.text`,
+  `.json()`, `.header`, `.has_header`, `.raise_for_status` and the `is_*`
+  predicates; one-shot `get`/`head`/`delete`/`options`/`post`/`post_json`/
+  `post_form`/`post_text`/`put_json`/`patch_json`; and explicit payload moves
+  `take_response`/`take_error`. See `docs/PETITIO.md`.
+- **`std_c/petitio.c`/`petitio.h`** — the C transport layer. A warning-clean
+  (`-std=c99 -Wall -Wextra -Werror`) bridge that copies every string across the
+  boundary, restricts the URL protocol to HTTP/HTTPS, decodes compressed
+  responses, enforces the body cap inside the write callback and keeps
+  duplicate response headers in receipt order.
+- **Smart linking for HTTP** — `std/petitio.d.pengu` declares
+  `link "petitio"` and `link "curl"`, so only an importing program receives
+  `-lpetitio -lcurl`; `-ffunction-sections --gc-sections` then drops the bridge
+  functions the program never calls. `build_runtime.py` archives `std_c/*.c` and
+  soft-skips a unit whose system headers are missing.
+- **`docs/PETITIO.md`** — the design decision (naett vs libcurl), the full API,
+  the feature matrix, ownership rules, six worked examples, limitations, the
+  `requests` comparison and the binding-generation recipe.
+- **Tests** — offline unit and conformance programs
+  (`tests/stdlib/test_petitio.py`, four `petitio_*.pengu` corpus programs), a
+  live-socket comparison against `urllib`/`requests`
+  (`tests/compat/test_petitio_vs_requests.py`), the smart-linking matrix entry,
+  and two LeakSanitizer gates.
+
+### Changed
+
+- The standard library now has **39 modules** (39 `*.pengu` files plus three
+  internal `*.d.pengu` companions); `std.petitio` is the fifth module with an
+  explicit C boundary and the third wrapper over a C library.
+- Every `std/` module reports `"2.12.0"` (`PETITIO_VERSION` is new;
+  `SPARK_VERSION` keeps its own API revision and `JSONRPC_PROTOCOL_VERSION`
+  stays `"2.0"`).
+- `Request.json_body`/`form_body` always set the matching `Content-Type`; call
+  `header` afterwards to use a vendor media type.
+- `Response.header` returns an owned `string` (`""` when absent) plus a new
+  `has_header`, instead of a `maybe string`: the compiler cannot move an owned
+  payload out of a `maybe` box, and the previous shape leaked the box or the
+  copy.
+
+### Fixed
+
+- **`judge` with statement-block clause bodies** — codegen declared a `void
+  _res_N;` temporary and assigned a void statement-expression to it, so every
+  `judge` whose clauses were blocks failed to compile ("variable declared
+  void"). Statement-position judges now emit a structured `if` chain; value
+  positions keep the temporary.
+- **Module-qualified calls** — `scrolls.contains(a, b)` was emitted as tally's
+  generic `contains_string(list, string)` once `std.tally` was in the program,
+  because the bare name was looked up before the named module's scope.
+- **Concrete functions shadowed by generics** — a call to `scrolls.compare` was
+  routed through memoria's `compare shard T` (same source name) and rejected
+  with "could not infer type parameter(s) T". Genericity is now read from the
+  resolved signature, not from the bare name.
+- **Private `_fields` at codegen time** — the inferrer used by code generation
+  had no module identity, so it rejected every `_field` access the checker had
+  accepted and typed the node as `None` (breaking `for x in b->_items`). It is
+  now bound to `current_source_file`.
+- **`or else` / `or return` / `try` leaked the payload box of an rvalue
+  operand** — 16 bytes per evaluation of `calling make() or else …`. The box is
+  now released after the payload is copied out, the discarded error payload is
+  released on the fallback path, and an lvalue operand still keeps its box.
+- **`build_runtime.py` warnings from optional system headers** — a `std_c` unit
+  that needs a missing system header (libcurl) is skipped with an actionable
+  message instead of failing the whole runtime build.
+
 ## [2.11.0] — 2026-10-18 — internationalised text and smart-linked C
 
 Closes Phase 1c: `std.lingua` and `std.regulus` wrap the two vendored

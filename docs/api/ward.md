@@ -64,7 +64,7 @@ calling ward.panic with "invalid state"
 
 ### `WARD_VERSION`
 
-> const string` = 2.11.0`
+> const string` = 2.12.0`
 
 Standard library ward module version.
 

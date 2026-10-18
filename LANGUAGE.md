@@ -36,11 +36,12 @@
 17. [Unit tests (`test`)](#17-unit-tests-test)
 18. [Block-style construction (`with:` expressions)](#18-block-style-construction-with-expressions)
 19. [Standard library](#19-standard-library)
-    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-38-modules)
+    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-39-modules)
     - 19.1.1 [Choosing between `std.loom` and `std.tally`](#1911-choosing-between-stdloom-and-stdtally)
     - 19.1.2 [The four fundamental modules](#1912-the-four-fundamental-modules)
     - 19.1.3 [The data modules: `std.diagnostic`, `std.json`, `std.jsonrpc`](#1913-the-data-modules-stddiagnostic-stdjson-stdjsonrpc)
     - 19.1.4 [The text modules: `std.lingua` and `std.regulus`](#1914-the-text-modules-stdlingua-and-stdregulus)
+    - 19.1.5 [The HTTP module: `std.petitio`](#1915-the-http-module-stdpetitio)
     - 19.2 [External bindings (satellite repositories)](#192-external-bindings-satellite-repositories)
     - 19.3 [Core Standard Library Examples](#193-core-standard-library-examples)
     - 19.4 [Embedded Project Assets (`arca`)](#194-embedded-project-assets-arca)
@@ -254,25 +255,6 @@ double: f64, double
 
 Integer literal suffixes and `to` casts are available (`1.5 to int`, `x to string`).
 
-<!-- Machine-readable form of the table above. tests/test_docs_primitive_types.py
-     parses this block and fails if it disagrees with the mapping that
-     CTypeMapper.to_c_type actually emits. One line per canonical C type:
-     ctype: spelling1, spelling2, ... -->
-```text prim-c-map
-int32_t: int, i32, int32, int32_t
-int64_t: i64, int64, int64_t, long
-int16_t: i16, int16, int16_t, short
-int8_t: i8, int8, int8_t
-uint32_t: u32, uint32, uint32_t, uint
-uint64_t: u64, uint64, uint64_t, ulong
-uint16_t: u16, uint16, uint16_t, ushort
-uint8_t: byte, u8, uint8, uint8_t
-size_t: usize, size_t
-intptr_t: isize, ssize_t
-float: f32
-double: float, f64, double
-```
-
 > [!NOTE]
 > **Size Estimation (`estimate_size`):**
 > The compiler calculates byte size approximations using `estimate_size` (`pengu_types.py`). For `rune` structs, `estimate_size` directly sums the estimated sizes of its constituent fields without computing native C alignment padding. Exact memory layout and struct padding are handled natively by the downstream C compiler during code generation. This estimate is surfaced in LSP hover tooltips and used for container layout heuristics.
@@ -283,7 +265,7 @@ PenguScript defines clean, C-compatible container structs in `pengu_runtime.h`:
 
 | Pengu | Runtime C type | Layout & Struct Definition |
 |-------|----------------|----------------------------|
-| `string` | `PenguString` | `typedef struct { char *data; int len; } PenguString;` |
+| `string` | `PenguString` | `typedef struct { char *data; int len; int32_t is_owned; } PenguString;` |
 | `slice of T` | `PenguSlice` | `typedef struct { void *data; int len; size_t elem_size; } PenguSlice;` |
 | `list of T` | `PenguList` | `typedef struct { void *data; int len; int cap; size_t elem_size; } PenguList;` |
 | `map of K to V` | `PenguMap` | `typedef struct { PenguMapEntry *entries; int len; int cap; size_t key_size; size_t val_size; } PenguMap;` |
@@ -3670,8 +3652,8 @@ Supported built-in methods inside collection `with` blocks:
 
 ## 19. Standard library
 
-PenguScript ships with **38 standard-library modules** (`std.<module>`), providing high-level, idiomatic abstractions for I/O,
-strings, concurrency, serialization, math, testing, and memory bridging.
+PenguScript ships with **39 standard-library modules** (`std.<module>`), providing high-level, idiomatic abstractions for I/O,
+strings, networking, concurrency, serialization, math, testing, and memory bridging.
 
 Bindings to external C libraries are no longer part of `std/`: they are distributed
 as satellite repositories installed per project with `pengu add <url>` (§19.2).
@@ -3701,34 +3683,36 @@ test "stdlib version":
 module exports that constant with a valid release version (optionally with a
 semver prerelease suffix). Because the standard library is coupled to the
 compiler, the constant names the **stdlib release it ships with**, not the last
-release that happened to edit that file: every module of 2.11.0 reports
-`"2.11.0"` (except `std.spark`, whose `SPARK_VERSION` keeps its own
+release that happened to edit that file: every module of 2.12.0 reports
+`"2.12.0"` (except `std.spark`, whose `SPARK_VERSION` keeps its own
 `0.8.0-spark` API revision, and `JSONRPC_PROTOCOL_VERSION`, which is the wire
 protocol version `"2.0"`). Namespacing already keeps each module
 self-contained (`std.<module>.<symbol>`), so decoupling the stdlib into
 independently versioned packages is reserved for 2.0.
 
 The four fundamental modules of the 2.9 series, the three data modules of the
-2.10 series and the two text modules of 2.11 (`std.lingua`, `std.regulus`) all
-follow the same rule. `std.builder` exports `BUILDER_VERSION`, `std.arena`
+2.10 series, the two text modules of 2.11 (`std.lingua`, `std.regulus`) and the
+HTTP module of 2.12 (`std.petitio`) all follow the same rule. `std.builder` exports `BUILDER_VERSION`, `std.arena`
 exports `ARENA_VERSION`, `std.sourcemap` exports `SOURCEMAP_VERSION`,
 `std.bitset` exports `BITSET_VERSION`, `std.diagnostic` exports
 `DIAGNOSTIC_VERSION`, `std.json` exports `JSON_VERSION`, `std.jsonrpc` exports
-`JSONRPC_VERSION`, `std.lingua` exports `LINGUA_VERSION` and `std.regulus`
-exports `REGULUS_VERSION`, all `"2.11.0"`. The builder and arena modules also
+`JSONRPC_VERSION`, `std.lingua` exports `LINGUA_VERSION`, `std.regulus`
+exports `REGULUS_VERSION` and `std.petitio` exports `PETITIO_VERSION`, all
+`"2.12.0"`. The builder and arena modules also
 export their default tuning constants (`BUILDER_DEFAULT_CAPACITY`,
 `ARENA_DEFAULT_BLOCK_SIZE`, `ARENA_DEFAULT_ALIGNMENT`) for callers that want to
 reserve exactly what the module would reserve.
 
-### 19.1 Pure PenguScript Modules (38 modules)
+### 19.1 Pure PenguScript Modules (39 modules)
 
 All pure modules are located in the `std/` directory and imported as `import std.<module>`.
 
 "Pure" here means **no external C library**: everything ships in this repository and
-links against nothing but the PenguScript runtime. Two modules are general C bridges — `std.ffi` and `std.web` — and two more are
-deliberate wrappers over the vendored single-file C libraries
-(`std.lingua` over `std_c/utf8.h`, `std.regulus` over `std_c/re.h`/`re.c`).
-Those four use `include`, `declare`, `link` and `antiquus` as the explicit
+links against nothing but the PenguScript runtime. Two modules are general C bridges — `std.ffi` and `std.web` — and three more are
+deliberate wrappers over C libraries (`std.lingua` over the vendored `std_c/utf8.h`,
+`std.regulus` over `std_c/re.h`/`re.c`, and `std.petitio` over the system
+`libcurl` through the vendored `std_c/petitio.c` bridge).
+Those five use `include`, `declare`, `link` and `antiquus` as the explicit
 boundary; the other 34 are written entirely in PenguScript. Bindings to
 third-party libraries are satellites installed with `pengu add`, not part of
 this list.
@@ -3775,6 +3759,7 @@ this list.
 
 | `std.lingua` | UTF-8 text over codepoints: `Codepoint` (a `seal` over `u32`), `LinguaError` with byte offsets, `decode`/`decode_prefix`, `encode`/`encode_one`, `is_valid`/`validate`, `codepoint_count`/`utf16_length`, `is_ascii`/`is_bmp`/`is_letter`/`is_digit`/`is_whitespace`/`is_punctuation`/`is_symbol`/`is_control`/`is_surrogate`, `to_u32`/`from_u32`/`to_utf16`, `codepoint_at`/`byte_offset_of`/`next_codepoint`/`prev_codepoint`, and an approximate `grapheme_count`. Wrapper over `std_c/utf8.h` (sheredom, public domain). See `docs/LINGUA.md`. Comparable to `utf8proc` (Julia) and Lua's `utf8`. |
 | `std.regulus` | Small, explicit regular expressions: `Regex.compile`, `pattern`, `is_match`, `match`, `match_at`, `matches`, `replace_first`, `replace_all`, `split`, `escape`, `Match` and `RegexError`, plus one-shot `is_match`/`find_first`. Complete grammar: `. ^ $ * + ? [] \d \w \s`; **no** groups, alternation, `{n,m}`, lookaround, backreferences or Unicode classes. Wrapper over `std_c/re.h` + `re.c` (kokke/tiny-regex-c, public domain). See `docs/REGULUS.md`. Comparable to Python's `re` for basic search. |
+| `std.petitio` | High-level HTTP client with a `requests`-shaped API: `Request` (`new`, `header`, `remove_header`, `has_header`, `text_body`, `json_body`, `form_body`, `bytes_body`, `timeout`, `connect_timeout`, `no_redirects`, `max_redirects`, `insecure`, `auth_basic`, `auth_bearer`, `proxy`, `max_body_bytes`, `multipart_field`, `multipart_bytes`, `multipart_file`, `send`), `Response` (`status`, `headers`, `body`, `url`, `elapsed_sec`, `redirected`, `cookies`, `cleared_cookies`, `is_ok`/`is_redirect`/`is_client_error`/`is_server_error`, `text`, `json`, `header`, `has_header`, `raise_for_status`), `Session` (persistent headers and cookies), `FormPart`, `HttpError`, `UrlParts`, one-shot `get`/`head`/`delete`/`options`/`post`/`post_json`/`post_form`/`post_text`/`put_json`/`patch_json`, URL helpers `url_encode`/`url_decode`/`build_query_string`/`with_query`/`parse_url`, explicit moves `take_response`/`take_error`, and `libcurl_version`. Wrapper over the system `libcurl` through `std_c/petitio.c` (naett was evaluated and rejected: no total timeout, redirect or cookie control). See `docs/PETITIO.md`. Comparable to Python's `requests`. |
 
 ### 19.1.1 Choosing between `std.loom` and `std.tally`
 
@@ -3819,7 +3804,7 @@ whichever family loses (item 6.5, `AUDIT_1.0_FASE6.md`).
 
 ### 19.1.2 The four fundamental modules
 
-The 2.11.0 line keeps the three data modules and the four fundamental modules of
+The 2.12.0 line keeps the three data modules and the four fundamental modules of
 the 2.9 series. The fundamental modules provide the building blocks the
 self-hosted compiler (and every other tool that builds text, trees, positions or
 dense sets) needs first. They are deliberately
@@ -4186,6 +4171,73 @@ contains neither header and links no `libre.a`. `build_runtime.py` builds
 `build/lib/libre.a` from `std_c/re.c` (it is not part of
 `libpengu_runtime.a`). The matrix is enforced by
 `tests/build/test_smart_linking.py`.
+
+### 19.1.5 The HTTP module: `std.petitio`
+
+`std.petitio` is the network client of the standard library: a synchronous,
+`result`-returning wrapper over **libcurl** with a `requests`-shaped API. It is
+not a satellite binding, because a language that cannot fetch a URL cannot run
+`pengu add <url>` or talk to an API without a third-party repository; it is a
+first-class module with the same explicit boundary as `std.lingua` and
+`std.regulus` (`include`, `declare`, `link`, one vendored C bridge).
+
+**Base library.** `naett` (single header, MIT) was evaluated first and rejected:
+its public API has no total timeout, no redirect limit or control, no cookie
+engine, no TLS toggle, no proxy, no multipart, and it loses duplicate response
+headers. Its Linux backend is libcurl anyway. libcurl has the same licence family
+and exposes every knob the wrapper documents; see `docs/PETITIO.md` §1.
+
+**Errors.** Every operation returns `result … to HttpError`. The variants are
+`ConnectionFailed`, `Timeout`, `TooManyRedirects`, `InvalidUrl`, `TlsError`,
+`ProtocolError`, `BodyTooLarge`, `OutOfMemory`, `Unsupported` and `HttpStatus`
+(from `raise_for_status`). No network failure panics; malformed *program input* to
+a builder (a header containing CR/LF, a method with a space) does, because it is a
+bug in the caller, not a condition.
+
+**Ownership.** `Request`, `Response`, `Session` and `UrlParts` derive `Nexus`, so
+`banish` releases every string, map and list inside them. A `result` owns its
+payload: either borrow it (`r.value` / `r.error`) and release only the result, or
+move it out with `take_response` / `take_error` and release both halves. String
+getters (`text`, `header`, `message`) return owned copies.
+
+```pengu
+import std.json
+import std.petitio
+import std.spark
+
+weave main into int:
+    var req as Request is calling Request.new with "POST", "https://api.example.com/items"
+    defer banish req
+    calling req.header with "Accept", "application/json"
+    calling req.timeout with 5.0
+    calling req.auth_bearer with "token"
+
+    var r as result of Response to HttpError is calling req.send
+    defer banish r
+    if not r.is_ok:
+        var failure as HttpError is calling petitio.take_error with (sigil of r)
+        var why as string is calling failure.message
+        calling spark.eprintln with why
+        banish why
+        banish failure
+        return 1
+    var resp as Response is calling petitio.take_response with (sigil of r)
+    defer banish resp
+    calling spark.println_int with resp.status          # 200
+    calling spark.println with resp.body
+    return 0
+```
+
+**Smart linking.** `std/petitio.d.pengu` emits `include "petitio.h"`,
+`link "petitio"` and `link "curl"`, and only an importing program receives
+`-lpetitio -lcurl`. `build_runtime.py` builds `build/lib/libpetitio.a` from
+`std_c/petitio.c` (strict `-std=c99 -Wall -Wextra -Werror`) when `curl/curl.h` is
+available and skips it with an actionable message otherwise, so a machine without
+the libcurl headers can still build every other module. The same
+`tests/build/test_smart_linking.py` matrix covers it, including the fact that
+unreferenced bridge functions are garbage-collected. Streaming downloads, async
+requests and cookie date expiry are deliberately out of scope and listed in
+`docs/PETITIO.md` §8.
 
 ### 19.2 External bindings (satellite repositories)
 

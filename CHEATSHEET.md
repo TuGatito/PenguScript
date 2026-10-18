@@ -2676,11 +2676,11 @@ The output is declaration-only: the real header stays `include`d, so no C struct
 
 ### 15.1 Architecture
 
-The standard library lives under `std/` and is written in PenguScript. High-level logic — string search/slicing/trimming/splitting/case mapping & ASCII classification, Base64/JSON, CSV/TSV, path manipulation, range/collection helpers, CLI parsing, assertions, test runners, logging composition — is pure PenguScript compiled through the normal pipeline. Only true byte/memory primitives (string allocation/concat/equality, list/map/maybe/result operations) and platform backends (stdio & console, file system, time, rand, processes/environment, threads) remain in the self-contained C runtime (`pengu_runtime.h` static-inline primitives plus `pengu_runtime.c` externs) and are reached via `declare`; it needs only libc, libm and pthreads. Backends that wrap an external C library (regex, XML/HTML, HTTP, hashing/compression, SQL, graphics, …) are **not** part of this repository — they ship as satellite repositories installed per project with `pengu add` (see `docs/EXTERNAL_MODULES.md` and §15.3). The migration was unlocked by the keyword primitives `some`, `ord`, `chr`, and `bytes of` (sections 6.3 & 14.4) plus the `insignia pengu_` module prefix for module-level weaves.
+The standard library lives under `std/` and is written in PenguScript. High-level logic — string search/slicing/trimming/splitting/case mapping & ASCII classification, Base64/JSON, CSV/TSV, path manipulation, range/collection helpers, CLI parsing, assertions, test runners, logging composition — is pure PenguScript compiled through the normal pipeline. Only true byte/memory primitives (string allocation/concat/equality, list/map/maybe/result operations) and platform backends (stdio & console, file system, time, rand, processes/environment, threads) remain in the self-contained C runtime (`pengu_runtime.h` static-inline primitives plus `pengu_runtime.c` externs) and are reached via `declare`; it needs only libc, libm and pthreads. Backends that wrap an external C library (regex, XML/HTML, hashing/compression, SQL, graphics, …) are **not** part of this repository — they ship as satellite repositories installed per project with `pengu add`. The exceptions are the vendored single-file libraries and HTTP: `std.lingua`/`std.regulus` wrap `std_c/`, and `std.petitio` wraps the system libcurl through `std_c/petitio.c`, because a language that cannot fetch a URL cannot run `pengu add <url>` (see `docs/EXTERNAL_MODULES.md` and §15.3). The migration was unlocked by the keyword primitives `some`, `ord`, `chr`, and `bytes of` (sections 6.3 & 14.4) plus the `insignia pengu_` module prefix for module-level weaves.
 
 `std/spark.pengu` defines `SPARK_VERSION` and `STD_VERSION` constants; `spark.spark_version` returns the version string.
 
-### 15.2 Core module catalog (38 modules)
+### 15.2 Core module catalog (39 modules)
 
 | Module | Import | Implementation | Purpose & key functions |
 | ------ | ------ | -------------- | ----------------------- |
@@ -2705,6 +2705,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **jsonrpc** | `import std.jsonrpc` | Pure PenguScript | JSON-RPC 2.0: request/notification/response/error, batch, standard error codes, `encode_*`, `parse_message`/`parse_batch`, and LSP `Content-Length` framing (`encode_framed`, `decode_framed_bytes`). |
 | **lingua** | `import std.lingua` | C header (`std_c/utf8.h`) + Pengu wrapper | UTF-8 over codepoints: `Codepoint` (`seal` over `u32`), `LinguaError` with byte offsets, `decode`/`decode_prefix`, `encode`/`encode_one`, `is_valid`/`validate`, `codepoint_count`/`utf16_length`, classification (`is_letter`, `is_digit`, `is_whitespace`, `is_punctuation`, `is_symbol`, `is_control`), `from_u32`/`to_utf16`, navigation (`codepoint_at`, `byte_offset_of`, `next_codepoint`, `prev_codepoint`) and `grapheme_count`. Smart-linked: `utf8.h` only when imported. See `docs/LINGUA.md`. |
 | **regulus** | `import std.regulus` | C (`std_c/re.h` + `re.c`) + Pengu wrapper | Small regex: `Regex.compile`, `pattern`, `is_match`, `match`, `match_at`, `matches`, `replace_first`, `replace_all`, `split`, `escape`, `Match`, `RegexError`; one-shot `regulus.is_match`/`find_first`. Grammar: `. ^ $ * + ? [] \d \w \s`; no groups/alternation/`{n,m}`/lookaround. Smart-linked: `-lre` only when imported. See `docs/REGULUS.md`. |
+| **petitio** | `import std.petitio` | C (`std_c/petitio.h` + `petitio.c`) over system **libcurl** + Pengu wrapper | HTTP client with a `requests`-shaped API: `Request` (`new`, `header`, `text_body`, `json_body`, `form_body`, `timeout`, `no_redirects`, `auth_basic`, `auth_bearer`, `proxy`, `max_body_bytes`, `multipart_*`, `send`), `Response` (`status`, `headers`, `body`, `text`, `json`, `header`, `raise_for_status`, `is_ok`…), `Session` with cookies, `HttpError`, `UrlParts`, one-shot `get`/`post_json`/`post_form`/`put_json`/`delete`/`head`, URL helpers `url_encode`/`url_decode`/`build_query_string`/`with_query`/`parse_url`, and explicit moves `take_response`/`take_error`. Smart-linked: `-lpetitio -lcurl` only when imported. See `docs/PETITIO.md`. |
 | **filum** | `import std.filum` | C primitives | Concurrency: `mutex`/`lock`/`unlock`/`try_lock`, `wait_group` (`add`, `done`, `wait`), `once`, channels, thread spawn, condition variables, atomics (opaque-handle value types). |
 | **fractio** | `import std.fractio` | Pure PenguScript + `libm` | Float-only methods: a shard `where T: Real:` for IEEE 754 classification (`is_nan`, `is_finite`, `is_infinite`, `is_positive_infinity`, `is_negative_infinity`), `approx_eq`, `lerp`, `reciprocal`, `copysign`, `degrees`, `radians`; plus concrete `float`/`f64` blocks for the `libm` transcendentals `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `pow`, `hypot`. Monomorphized to `f64_sqrt`, `float_is_nan`. |
 | **integrum** | `import std.integrum` | Pure PenguScript | Integer-only methods over every signed/unsigned primitive via one `enchanting shard T where T: Integrum:`. Predicates `is_even`, `is_odd`, `is_power_of_two`, `is_multiple_of`, `is_prime`; bits `bit_count`, `bit_length`, `leading_zeros`, `trailing_zeros`, `next_power_of_two`, `prev_power_of_two`; Euclidean division `div_rem` (→ `(T, T)`), `div_floor`, `mod_floor`; number theory `gcd`, `lcm`, `next_prime`, `prev_prime`, `factorial`; representations `to_hex`, `to_bin`, `to_oct` (**allocate — `banish`**). Delegates `abs` to `std.numerus`. |
@@ -2761,18 +2762,68 @@ weave main into int:
 - `DiagnosticBag.error/warning/info/hint` add a one-label diagnostic;
   `render_json` is the LSP form.
 
-### 15.3 External bindings (satellite repositories)
+### 15.3 HTTP requests (`std.petitio`)
 
-This repository vendors no external C library. `build_runtime.py` compiles only
-`libpengu_runtime.a` and the runtime is self-contained (libc, libm, pthreads).
-The 25 `.d.pengu` bindings that used to live in `std/` — raylib, raymath, rlgl,
-rlights, raygui, SQLite3, WebUI, miniaudio, tomlum, yaml, uuid, xxHash, xlsxio,
-imago/scriptor/typis/pactum/datastructura/perlinum, the stb resize and
-herringbone headers, nanosvg/nanosvgrast, minicoro, fenestra — plus the
-native-wrapping modules `std.regulus` (PCRE2), `std.parchment` (libxml2),
-`std.seal` (mbedTLS/zlib) and `std.xlsx` (xlsxio) have all **moved to satellite
-repositories**. Install one per project with `pengu add <repo>`; it lands in
-`lib/<binding>/` and is imported like any other binding package (§13).
+The client is libcurl under a `requests`-shaped wrapper. Build a `Request`,
+configure it, `send`, branch on the result, then release the response.
+
+```pengu
+import std.json
+import std.petitio
+import std.spark
+
+weave main into int:
+    var req as Request is calling Request.new with "GET", "https://api.example.com/items"
+    defer banish req
+    calling req.header with "Accept", "application/json"
+    calling req.timeout with 5.0
+
+    var r as result of Response to HttpError is calling req.send
+    defer banish r
+    if not r.is_ok:
+        var failure as HttpError is calling petitio.take_error with (sigil of r)
+        var why as string is calling failure.message
+        calling spark.eprintln with why
+        banish why
+        banish failure
+        return 1
+    var resp as Response is calling petitio.take_response with (sigil of r)
+    defer banish resp
+    calling spark.println_int with resp.status
+    calling spark.println with resp.body
+    return 0
+```
+
+- One-shots: `petitio.get`, `post`, `post_json`, `post_form`, `put_json`,
+  `patch_json`, `delete`, `head`, `options`, `post_text`.
+- `json_body`/`form_body` set the content type; call `header` **after** them to
+  override it.
+- Query strings: `build_query_string` sorts and encodes; `with_query` appends.
+- `Session` keeps default headers and a cookie jar across requests.
+- Every string getter is an owned copy. A `result` owns its payload: either
+  borrow it (`r.value`) and release only the result, or move it with
+  `take_response`/`take_error` and release both halves — never both releases on
+  a borrowed payload.
+- Smart-linked: `-lpetitio -lcurl` only when imported. See `docs/PETITIO.md`.
+
+### 15.4 External bindings (satellite repositories)
+
+`std_c/` vendors three C dependencies: `utf8.h` (sheredom, public domain) for
+`std.lingua`, `re.h`/`re.c` (kokke/tiny-regex-c, public domain) for
+`std.regulus`, and `petitio.h`/`petitio.c` (the First-party libcurl bridge) for
+`std.petitio`. `build_runtime.py` archives each `std_c/*.c` into its own
+`build/lib/lib<name>.a`, and a module's `link "..."` lines reach only the
+programs that import it. The runtime itself stays self-contained (libc, libm,
+pthreads).
+
+Everything else that used to live in `std/` as a `.d.pengu` binding — raylib,
+raymath, rlgl, rlights, raygui, SQLite3, WebUI, miniaudio, tomlum, yaml, uuid,
+xxHash, xlsxio, imago/scriptor/typis/pactum/datastructura/perlinum, the stb
+resize and herringbone headers, nanosvg/nanosvgrast, minicoro, fenestra — plus
+the native-wrapping modules `std.parchment` (libxml2), `std.seal`
+(mbedTLS/zlib) and `std.xlsx` (xlsxio) has **moved to satellite repositories**.
+Install one per project with `pengu add <repo>`; it lands in `lib/<binding>/`
+and is imported like any other binding package (§13).
 
 Two consequences worth stating:
 
@@ -2783,9 +2834,10 @@ Two consequences worth stating:
   `MANIFEST` so the satellite repositories can copy it; nothing in *this*
   repository downloads or builds those sources.
 
-`std/` therefore contains only the 26 pure-PenguScript modules in the catalog
-above. `pengu bind` (§14.8) remains the tool for authoring a new binding from a
-C header, using the generic stubs in `c_bind_stubs/`.
+`std/` therefore contains only the 39 core modules in the catalog above, of
+which `std.lingua`, `std.regulus` and `std.petitio` are thin wrappers over the
+vendored `std_c/` code. `pengu bind` (§14.8) remains the tool for authoring a
+new binding from a C header, using the generic stubs in `c_bind_stubs/`.
 
 `std/archivum` additionally exposes pure recursive `copy_tree` and
 `list_files_recursive`.

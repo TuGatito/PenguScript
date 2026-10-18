@@ -8,7 +8,7 @@
 
 ### `FRACTIO_VERSION`
 
-> const string` = 2.11.0`
+> const string` = 2.12.0`
 
 Fractio module version.
 

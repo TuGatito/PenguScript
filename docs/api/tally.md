@@ -144,7 +144,7 @@ calling reverse with xs    # [2, 1, 3]
 
 ### `TALLY_VERSION`
 
-> const string` = 2.11.0`
+> const string` = 2.12.0`
 
 Version of the `tally` module.
 

@@ -805,6 +805,58 @@ documented grammar: `. ^ $ * + ? [] \d \w \s`. No groups, no alternation, no
 `{n,m}`, no lookaround, no backreferences. If the pattern needs any of those,
 install a PCRE satellite explicitly rather than encoding a parser in a regex.
 
+### 4.20 HTTP requests: `Request` → `send` → `Response`
+
+`std.petitio` is the HTTP client. The shape is always the same: build a
+`Request`, configure it with the builder methods, `send` it, and **check the
+result** before touching the payload. Network failures are values, not
+exceptions:
+
+1. `Request.new(method, url)` gives you a request with sane defaults (follows 30
+   redirects, verifies TLS, no timeout).
+2. Configure it with `header`, `timeout`, `json_body`, `auth_bearer`, … — each
+   builder mutates the request and returns nothing, so call them as statements.
+3. `send` returns `result of Response to HttpError`. Check `r.is_ok` first.
+4. Move the response out with `take_response` (or borrow it with `r.value`) and
+   release it with `banish` / `defer banish`.
+5. Parse JSON with `resp.json`, which is another `result` — handle it too.
+
+```pengu
+import std.json
+import std.petitio
+import std.spark
+
+weave main into int:
+    var req as Request is calling Request.new with "GET", "https://api.example.com/items"
+    defer banish req
+    calling req.header with "Accept", "application/json"
+    calling req.timeout with 5.0
+
+    var r as result of Response to HttpError is calling req.send
+    defer banish r
+    if not r.is_ok:
+        var failure as HttpError is calling petitio.take_error with (sigil of r)
+        var why as string is calling failure.message
+        calling spark.eprintln with why
+        banish why
+        banish failure
+        return 1
+    var resp as Response is calling petitio.take_response with (sigil of r)
+    defer banish resp
+
+    var parsed as result of JsonValue to json.JsonError is calling resp.json
+    defer banish parsed
+    if not parsed.is_ok:
+        return 1
+    var root as JsonValue is parsed.value
+    calling spark.println_int with (calling root.array_len)
+    return 0
+```
+
+Use the one-shot helpers (`petitio.get`, `petitio.post_json`, …) when you do not
+need to configure anything: they build, send and release the request themselves.
+Use a `Session` when several requests share headers or cookies.
+
 ---
 
 ## 5. Optionals, results and errors
@@ -3178,3 +3230,89 @@ A regex can reject obvious typos. It cannot prove an address exists, and RFC 532
 has comments, quoted local parts and domain literals that this engine cannot
 express. If the validation is genuinely complex, install a PCRE satellite and
 document the grammar; do not smuggle a parser into a tiny engine.
+
+### 14.40 Ignoring the `result` of `send`
+
+```pengu-invalid
+# ❌ Anti-Pengunic: the response (and the error) of a request is a `result`.
+var r as result of Response to HttpError is calling petitio.get with url
+var resp as Response is r.value          # unsafe when r is an error
+calling spark.println with resp.body     # empty Response, no explanation
+```
+
+```pengu
+# ✅ Pengunic: branch on the result, then move or borrow the payload
+var r as result of Response to HttpError is calling petitio.get with url
+defer banish r
+if not r.is_ok:
+    var failure as HttpError is calling petitio.take_error with (sigil of r)
+    var why as string is calling failure.message
+    calling spark.eprintln with why
+    banish why
+    banish failure
+    return 1
+var resp as Response is calling petitio.take_response with (sigil of r)
+defer banish resp
+var body as string is calling resp.text
+calling spark.println with body
+banish body
+```
+
+A `result` is the whole point: DNS failure, a timeout, a TLS error and a 500 all
+look different and all need a decision. `r.value` on a failed result yields a
+zeroed payload, and the failure reason is silently dropped — along with the
+diagnostic that would have explained the bug.
+
+### 14.41 Building a URL by concatenating unencoded strings
+
+```pengu-invalid
+# ❌ Anti-Pengunic: a space, '&', '#', '?' or a non-ASCII byte corrupts the URL.
+var url as string is "https://api.example.com/search?q=" + query
+```
+
+```pengu
+# ✅ Pengunic: encode, or let build_query_string sort and encode for you
+var params as map of string to string is map of string to string
+calling params.put with "q", query
+var url as string is calling petitio.with_query with "https://api.example.com/search", params
+defer banish url
+banish params
+```
+
+`+` is not concatenation in PenguScript (see §14.1), but the same mistake comes
+back as interpolating raw input into a URL. `url_encode` escapes every byte
+outside RFC 3986's unreserved set, and `build_query_string` also sorts the keys so
+the same parameters always produce the same URL.
+
+### 14.42 Releasing a `result` and the payload it owns
+
+```pengu-invalid
+# ❌ Anti-Pengunic: the result owns the Response; both banishes free its strings.
+var r as result of Response to HttpError is calling petitio.get with url
+var resp as Response is r.value
+banish resp
+banish r
+```
+
+```pengu
+# ✅ Pengunic: one owner, one release. Borrow and release the result...
+var r as result of Response to HttpError is calling petitio.get with url
+defer banish r
+if not r.is_ok:
+    return 1
+var resp as Response is r.value          # borrowed copy: do not banish
+calling spark.println_int with resp.status
+
+# ...or move the payload out and release each half independently.
+var box as result of Response to HttpError is calling petitio.get with url
+defer banish box
+if not box.is_ok:
+    return 1
+var owned as Response is calling petitio.take_response with (sigil of box)
+defer banish owned
+```
+
+`r.value` / `r.error` hand out a shallow copy of the payload box; the box still
+owns the strings. Releasing the copy and the result frees the same buffers twice.
+Use `take_response` / `take_error` when the value must outlive the result scope:
+they clear the box so the two releases are independent.

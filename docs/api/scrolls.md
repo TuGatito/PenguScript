@@ -20,7 +20,7 @@ would mangle the C symbol into `pengu_pengu__find_sub` and fail to link.
 
 ### `SCROLLS_VERSION`
 
-> const string` = 2.11.0`
+> const string` = 2.12.0`
 
 --- Module directives --------------------------------------------------
 

@@ -1,298 +1,331 @@
-# 🧠 Ah, ahora te entiendo — **un solo agente, la pregunta es el tamaño del chunk**
+# 🐧 Fase 1 — Filtro de módulos `std.*` para PenguScript 3.0
 
-Perfecto. Eso cambia completamente el análisis. No estamos hablando de paralelismo ni de topologías multi-agente: estamos hablando de **cómo trocear un trabajo de ~30 archivos + tests + runtime para que un solo agente no se ahogue en su propio contexto, no derive estilísticamente y no se cargue la coherencia a mitad de camino.**
-
-Vamos a pensarlo bien, porque la respuesta a "5 u 8" no es trivial y creo que **ambos números son respuestas equivocadas a la pregunta correcta.** 🎯
+Perfecto. Antes de meter código, apliquemos el filtro. Voy a ser riguroso con las dos condiciones que planteaste, porque **"usable por el usuario para más cosas que el compilador"** es una condición más exigente de lo que parece a primera vista. Hay módulos que *parecen* generales pero que en realidad son "cosas que usas cuando escribes un compilador".
 
 ---
 
-## 🔍 1. Por qué el tamaño del chunk importa *muchísimo* con un solo agente
+## 📋 1. Los dos criterios, formalizados
 
-Con múltiples agentes, el tamaño del chunk importa por paralelismo y conflictos. Con **un solo agente**, importa por otras cinco razones — y son las que verdaderamente nos deberían preocupar:
+> **C1 — Implementabilidad:** el módulo se puede escribir **enteramente en PenguScript** o envolver una **librería single-header** (binding + wrapper).
+>
+> **C2 — Generalidad:** el módulo tiene **al menos dos dominios de uso no relacionados con el compilador** donde aporta valor real, **sin que el usuario tenga que reimplementar** el dominio de la Fase 0.
 
-### 1.1 Ventana de contexto 🪟
+Algunos matices que aplican al filtro:
 
-Cada módulo `.pengu` que el agente reescribe consume contexto. Pero no solo el archivo final — también:
-
-- El `read_file` inicial del módulo viejo.
-- La guía de estilo (o la checklist destilada, que aún ocupa).
-- Las decisiones de estilo de chunks anteriores (implícitas en el historial).
-- Los errores de `pengu check` y sus correcciones.
-- Los cambios en `tests/*.py` que el propio agente va tocando.
-
-Un módulo de `std.*` reescrito a Pengunic 2.0 pesa fácilmente **500-900 líneas** entre código, docstrings y tests. Tras 5-6 módulos el agente acumula **~4000-5000 líneas** de código propio en contexto, más las instrucciones. Si a eso le sumas los tests, los errores, y las iteraciones, te plantas en un consumo alto.
-
-### 1.2 Deriva estilística 🎨
-
-Este es el problema **más insidioso** y no lo atrapa ningún test. Tras 4-5 módulos, el agente empieza a:
-
-- Acortar docstrings ("esto ya lo expliqué en otro módulo").
-- Reintroducir `if/else` donde antes usaba `judge`.
-- Olvidar `defer banish` en temporales nuevos.
-- Inventar un helper en línea en vez de reusar el módulo `spark`.
-
-Ninguno de esos rompe el build. Todos ellos **rompen el alma Pengunic.**
-
-### 1.3 Radio de explosión 💥
-
-Si el agente toma una decisión equivocada en el módulo 8 de un chunk de 8 (p. ej. "voy a reescribir `parse_int` a `parse_int_or`"), esa decisión contamina:
-
-- Los 4-5 módulos siguientes del mismo chunk.
-- Los tests de todos ellos.
-- Los módulos posteriores que llamen a esa función.
-
-**Cuanto más pequeño el chunk, más pequeña la explosión.**
-
-### 1.4 Coste de verificación ✅
-
-Entre chunks hay que **parar y verificar**. Eso tiene un coste fijo:
-
-- Correr `pengu check` sobre todos los módulos.
-- Correr `pengu test` (los bloques locales).
-- Correr la suite pytest.
-- Correr `tests/std_programs/` (61 programas que compilan y ejecutan).
-- Mirar `pengu fmt --check std/`.
-
-Con un chunk **demasiado pequeño** (1-2 módulos), ese coste de verificación **domina** el tiempo total: pasas más tiempo verificando que escribiendo. Con uno **demasiado grande**, te saltas verificaciones por pereza y los errores se acumulan hasta explotar al final.
-
-### 1.5 Recuperación tras un fallo 🔧
-
-Si un chunk falla a la mitad y hay que **rehacerlo**, ¿cuántos módulos hay que deshacer? Con chunks de 8, hasta 8. Con chunks de 3, como mucho 3. Y rehacer un módulo que ya estaba bien es **tiempo perdido que se acumula linealmente con el tamaño del chunk**.
+- **C1 no excluye `antiquus`.** Un módulo "puro" puede usar `antiquus` localmente si está justificado (p. ej. syscalls). Un módulo "binding" puede usar `declare` + `include` + `link`. Ambos cuentan.
+- **C2 no exige que el módulo sea trivial.** Exige que exista un usuario no-compilador con un problema que el módulo resuelve **mejor que la alternativa existente**.
+- **`std.cipher`, `std.scrolls`, etc. ya existen.** Si un módulo nuevo solapa con uno existente sin un motivo claro, es mejor **extender el existente** que crear uno nuevo.
 
 ---
 
-## 📊 2. Análisis honesto de 5 vs 8
+## 🎯 2. Veredicto módulo por módulo
 
-Ahora la pregunta concreta. Vamos a hacer el cálculo real con números.
+### ✅ Pasa los dos filtros — va al stdlib
 
-Quedan **21 módulos** (el `spark` ya lo dejamos cerrado; `seal`, `celeris`, `precis`, `regulus`, `parchment` y `xlsx` ya no viven en `std/`), más tests transversales, más `docs/`, más `CHANGELOG.md`.
-
-| Chunk size | Nº de chunks | Ventajas | Problemas graves |
+| Módulo | C1 | C2 | Justificación |
 |---|---|---|---|
-| **1** (extremo granular) | 21 | Aislamiento total. Rollback trivial. | Overhead brutal. 21 verificaciones. Cero agrupación temática. |
-| **2-3** (chunk pequeño) | 9-13 | Buen balance. Rollback fácil. Agrupación semántica posible. | Más verificaciones que con 5. |
-| **5** (tu opción A) | ~6 | Menos overhead de verificación. Agrupaciones temáticas naturales. | Rollback caro. Deriva estilística empieza a notarse. |
-| **8** (tu opción B) | ~4 | Overhead mínimo. Poca fragmentación. | Rollback muy caro. Deriva alta. Chunks no temáticos. |
-| **21** (monolítico) | 1 | Nada de overhead entre chunks. | Imposible. Contexto desbordado. Sin verificación. Sin rollback. |
+| **`std.arena`** | ✅ Puro | ✅ | Cualquier programa que construya un árbol o un grafo temporal y quiera liberarlo de golpe. No es solo compiladores: parsers, deserializadores, editores de texto, renderers. |
+| **`std.builder`** | ✅ Puro | ✅ | Cualquier programa que genere texto por partes. Logs, CSV, HTML, plantillas, correos, reportes. Absolutamente general. |
+| **`std.diagnostic`** | ✅ Puro | ✅ | Cualquier herramienta que reporte errores **con posición en un fichero fuente**: linters, validadores de JSON/YAML/TOML, herramientas de migración, correctores ortográficos. Es **general si se diseña general** (ver §3.1). |
+| **`std.sourcemap`** | ✅ Puro | ✅ | Cualquier herramienta que traduzca entre offset/línea/columna: editores, diff tools, visores de logs, formateadores, extractores de snippets. General. |
+| **`std.bitset`** | ✅ Puro | ✅ | Conjuntos de enteros densos, filtros Bloom, máscaras, grafos de adyacencia, histogramas, validaciones por campo. Cualquier usuario lo usa. |
+| **`std.json`** | ✅ Puro o binding | ✅ | Intercambio de datos universal. En 3.0 lo implementaría **puro** (extendiendo `std.cipher`) para evitar el binding; ver §4.2. |
+| **`std.jsonrpc`** | ✅ Puro | ✅ | LSP, MCP (Model Context Protocol), APIs remotas, comunicación entre procesos. General. |
+| **`std.unicode`** | ⚠️ Binding recomendado | ✅ | Texto no-ASCII es universal. `utf8.h` (single-header, MIT, ~2000 LOC) es perfecto. Binding + wrapper puro para la API idiomática. |
+| **`std.regex`** | ⚠️ Binding recomendado | ✅ | Búsqueda de patrones en texto es universal. `tiny-regex-c` (single-header, ~200 LOC) o `re.h` (single-header, más completo). Binding + wrapper. |
+| **`std.graph`** | ✅ Puro | ✅ | Ordenación topológica, BFS/DFS, componentes fuertemente conexas: build systems, gestores de paquetes, resolución de dependencias, planificación de tareas, análisis de redes. **Pero** ver §3.2: los *dominadores* son específicos de compiladores. |
+| **`std.lexer`** | ✅ Puro | ⚠️ Matiz | **¿Es general?** Solo si el diseño es **"primitivas de lexer"** (cursor, peek, advance, error recovery, token stream genérico) y **no** "el lexer de PenguScript". Con ese diseño, sirve a cualquiera que escriba un DSL, un tokenizador de configuración, un parser de expresiones, etc. **Diseñarlo así.** |
+| **`std.parser`** | ✅ Puro | ⚠️ Matiz | Igual que `std.lexer`: **"primitivas de parser"** (cursor de tokens, combinatorios manuales, error recovery, backtracking explícito) y no "el parser de PenguScript". Sin closures, los combinatorios clásicos son incómodos; el diseño correcto son **primitivas de recursive descent** (lookahead, consume, expect, recover). Diseñarlo así y sirve a cualquier DSL. |
+| **`std.cst`** | ✅ Puro | ⚠️ Matiz | **"CST genérico con trivia"** sirve a formatters, refactorings, syntax highlighters, editores de código, generadores de diff estructural. Diseñarlo genérico (nodos con `kind`, `children`, `trivia`, `span`) y no específico de PenguScript. |
 
-### 🚨 Por qué **8 es peor que 5** aquí
+### ❌ No pasa C2 — va a repositorio satélite o al propio compilador
 
-- **8 módulos es más que la mitad de un cluster temático.** Por ejemplo, `tally`, `loom`, `ward`, `atlas`, `coven`, `compass`, `lot`, `whisper` son 8 pero son **tres cosas distintas** (colecciones, mapas/sets, aleatoriedad/log). Agruparlos sin criterio es peor que partir por temática.
-- **Tras 8 módulos, la deriva estilística es estadísticamente segura.** No hay checklist que aguante 8 archivos sin una revisión intermedia.
-- **El fallo de un chunk de 8 te cuesta 8 módulos.** Y un fallo de chunk es casi siempre conceptual, no sintáctico: aparece tras correr `pengu test` y ver 40 errores, uno por cada módulo.
-
-### ✅ Por qué **5 es aceptable pero no óptimo**
-
-- 5 es un número cómodo para el contexto: 5 módulos × ~700 líneas = ~3500 líneas de código propio, más lo que ya había. Cabe.
-- Pero 5 no tiene por qué **alinearse con la semántica**. El agente va a tener que decidir "qué 5" y esa decisión introduce ruido (¿por qué estos 5 y no otros?).
-
-### 🎯 El número correcto no es 5 ni 8
-
-Es **"el cluster temático más pequeño que tenga sentido"**, que en la práctica caerá entre **2 y 4 módulos**.
-
-Razón: los módulos `std.*` de PenguScript **ya están agrupados por afinidad temática** en la guía §19.1. Ese agrupamiento no es casual — es la forma natural en que un lector humano los entiende. Si el chunk sigue ese agrupamiento, ganas tres cosas:
-
-1. **Coherencia interna**: los módulos del mismo cluster comparten vocabulario, helpers y decisiones de diseño.
-2. **Checklist más específica**: el agente sabe que "en este chunk, todo es manipulación de strings" y no tiene que cambiar de mentalidad entre módulos.
-3. **Verificación temática**: puedes escribir tests de integración para el cluster completo.
-
----
-
-## 🗂️ 3. Plan concreto de chunks (por cluster temático, no por número)
-
-Este es el plan que yo seguiría. **9 chunks**, cada uno de **2-4 módulos**, agrupados por afinidad. Los he ordenado por **dependencia** (los módulos de los que otros dependen, primero).
-
-### Chunk 1 ✅ (ya hecho)
-
-- **Módulos**: `spark`
-- **También**: `pengu_runtime.h` con los 5 símbolos nuevos
-- **Producto**: `docs/SPARK_API.md`, `docs/PENGUNIC_CHECKLIST.md`, `std/_template.pengu`
-
-### Chunk 2 — String layer
-
-- **Módulos**: `scrolls`, `oracle`
-- **Por qué juntos**: `scrolls` manipula strings; `oracle` gestiona `maybe`/`result` de esos strings. Comparten idioms de composición.
-- **Tamaño**: 2 módulos.
-
-### Chunk 3 — Collections (numeric-focused)
-
-- **Módulos**: `tally`, `loom`, `ward`
-- **Por qué juntos**: `tally` opera sobre `list of int` con reducciones; `loom` es la versión funcional más abstracta; `ward` es la capa de aserciones usadas en tests de todos.
-- **Tamaño**: 3 módulos.
-
-### Chunk 4 — Collections (key-value & set)
-
-- **Módulos**: `atlas`, `coven`, `compass`
-- **Por qué juntos**: `atlas` = maps tipados, `coven` = sets, `compass` = paths (que son casi strings indexados).
-- **Tamaño**: 3 módulos.
-
-### Chunk 5 — System & FS
-
-- **Módulos**: `archivum`, `rites`, `chronicle`
-- **Por qué juntos**: los tres tocan el SO (FS, procesos, tiempo). Comparten `pengu_maybe` sobre strings y el estilo de "operación → maybe bool/maybe string".
-- **Tamaño**: 3 módulos.
-
-### Chunk 6 — Aleatoriedad & logging
-
-- **Módulos**: `lot`, `whisper`
-- **Por qué juntos**: son dos módulos pequeños y "transversales". No encajan en ningún cluster grande.
-- **Tamaño**: 2 módulos.
-
-### Chunk 7 — Encoding
-
-- **Módulos**: `cipher`
-- **Por qué solo**: `seal` (hashes y compresión) se movió a un repositorio satélite en la Fase 1; `cipher` queda como el único módulo de encoding in-tree.
-- **Tamaño**: 1 módulo.
-
-### Chunk 8 — Concurrency
-
-- **Módulos**: `filum`
-- **Por qué solo**: `celeris` (benchmarks) se movió a un repositorio satélite en la Fase 1.
-- **Tamaño**: 1 módulo.
-
-### Chunk 9 — CLI
-
-- **Módulos**: `invoke`
-- **Por qué solo**: `precis` (HTTP/sockets) se movió a un repositorio satélite en la Fase 1.
-- **Tamaño**: 1 módulo.
-
-### Chunk 10 — Parsing (fuera de `std/`)
-
-- **Módulos**: ninguno — `regulus` (regex) y `parchment` (XML) se movieron a repositorios satélite en la Fase 1.
-- **Tamaño**: 0 módulos.
-
-### Chunk 11 — FFI bridge
-
-- **Módulos**: `ffi`
-- **Por qué solo**: es el único módulo que **cambia el modelo de ownership** (introduce vistas no-owned, slices sobre punteros, etc.). Merece su propio chunk, con documentación extra.
-- **Tamaño**: 1 módulo.
-
-### Chunk 12 — Cierre transversal
-
-- **Producto**: tests de `tests/*.py`, `tests/std_programs/`, `CHANGELOG.md`, benchmarks, `docs/ABI.md`, `docs/error_catalog.json`.
-- **Por qué es un chunk propio**: aquí no se reescribe código de `std.*`, solo se **verifica y documenta** lo hecho.
-- **Tamaño**: N/A.
-
-**Total: 12 chunks, con 21 módulos + docs + tests.** El agente trabaja de forma natural, agrupando por temática.
-
----
-
-## 🛡️ 4. Protocolo de checkpoint entre chunks (lo más importante)
-
-Aquí está el verdadero secreto del éxito con un solo agente. **Sin esto, el plan se cae a la mitad del chunk 5.**
-
-Al final de **cada chunk**, el agente debe:
-
-### 4.1 ✅ Verificación técnica (obligatoria)
-
-```bash
-pengu check --entry std/<módulo1>.pengu
-pengu check --entry std/<módulo2>.pengu
-pengu test --entry std/<módulo1>.pengu
-pengu fmt --check std/
-```
-
-Y si toca algo del runtime:
-
-```bash
-python -m pytest tests/test_abi_layout.py -q
-```
-
-**Gate**: no se pasa al siguiente chunk hasta que el anterior compile limpio.
-
-### 4.2 📝 Actualización del "ledger" de progreso
-
-Aquí está el truco. El agente debe escribir un archivo `docs/MIGRATION_2.0_PROGRESS.md` (o similar) que actualice al final de cada chunk. Contiene:
-
-- ✅ Qué módulos se completaron.
-- ✅ Qué decisiones de estilo **nuevas** se tomaron en este chunk (si alguna).
-- ⚠️ Qué decisiones **pendientes** quedan.
-- 🐞 Qué bugs conocidos quedan abiertos.
-- 📌 Qué helper nuevo (si alguno) se ha añadido a `spark` o al runtime.
-- 🔗 Qué módulos siguientes se ven afectados por lo hecho.
-
-Esto **no es burocracia**: es la forma de que el agente, al empezar el chunk N+1, no dependa de recordar el contexto completo de chunks anteriores. **Releer este ledger al inicio de cada chunk es más eficiente que releer los 5 archivos anteriores.**
-
-### 4.3 🔄 Releer la checklist
-
-Al inicio de cada chunk, el agente debe **releer `docs/PENGUNIC_CHECKLIST.md`** entero. Parece redundante, pero es la forma más barata y efectiva de combatir la deriva estilística. El humano que revisa PRs hace lo mismo: relee la guía antes de cada review.
-
-### 4.4 🧪 Test rápido de coherencia
-
-Un mini-test que el agente se hace a sí mismo: coge un módulo del chunk 1 (`scrolls`), otro del chunk 4 (`atlas`) y compara su estilo. Si hay diferencias de estilo visibles, hay drift. **Corregir drift en el chunk 5 cuesta 10× menos que en el chunk 10.**
-
-### 4.5 📸 Commit claro
-
-```text
-feat(std): migrate string layer to Pengunic 2.0
-
-- std/scrolls: full Pengunic rewrite
-- std/oracle: aligned unwrap helpers with spark 0.8.0 API
-- docs/MIGRATION_2.0_PROGRESS.md: chunk 2 done
-```
-
-Un commit por chunk, no por módulo. Así el `git log` cuenta la historia real del trabajo.
-
----
-
-## 🚨 5. Señales de alarma durante la ejecución
-
-Mientras el agente trabaja, hay que vigilar estas señales. Si aparecen, **hay que parar y hacer un mini-chunk, no seguir adelante.**
-
-| Señal | Diagnóstico | Acción |
+| Módulo | Razón | Destino |
 |---|---|---|
-| El agente empieza a acortar docstrings | Deriva estilística temprana | Parar. Releer checklist. Redo chunk. |
-| Dos módulos del mismo chunk tienen helpers duplicados | Falta de visión transversal | Fusionar en `spark` o en un `_common`. Redo. |
-| El agente toca `pengu_runtime.h` "de paso" | Invasión de scope | Prohibido. Solo se toca en chunk 1. |
-| `pengu check` tarda > 2 min en un solo módulo | Complejidad excesiva | Dividir el módulo. Redo chunk. |
-| El ledger de progreso se queda en blanco al final del chunk | El agente está perdiendo contexto | Parar. Forzar escritura del ledger. |
-| El agente reintroduce patrones anti-Pengunic (`var tmp` + `if`, `+` sobre strings) | Regresión grave | Parar. Hacer re-pasada completa del módulo. |
-| El diff de un módulo toca > 40% de sus líneas | El agente está reescribiendo de más | Reducir. Revisar si es un módulo "difícil". |
+| **`std.incremental`** | Caching incremental de compilación es específico del compilador. Un usuario que quiera cachear resultados tiene `std.lot` (PRNG) o puede construirlo. No merece un `std.*`. | **Compilador** o repositorio satélite `pengu-incremental`. |
+| **Dominadores, dataflow, SSA** | Específicos de compiladores. Aunque `std.graph` es general, los algoritmos de dominadores no lo son. | **Compilador.** No entran en `std.graph`. |
+| **Inferencia de tipos, unificación** | Específicos de compiladores de lenguajes con tipos. | **Compilador.** |
+| **Codegen helpers** (emit `switch`, emit casts) | Específicos del backend de PenguScript. | **Compilador.** |
+| **`std.regexp` full PCRE** | Un binding a PCRE2 no es single-header (son varios ficheros + dependencias). Va contra C1. | **Repositorio satélite** `pengu-pcre` si alguien lo quiere. |
+| **`std.yaml`, `std.toml`, `std.xml`** | No están en la lista de Fase 1, pero por si acaso: son generales pero **no son de la Fase 1**. Se pueden añadir en 3.1+ si hay demanda. | **Futuras fases.** |
 
----
+### 🤔 Casos límite que hay que decidir explícitamente
 
-## 🎼 6. Sobre la cadencia temporal
-
-Un cálculo honesto, asumiendo ~30-60 min por módulo (depende de tamaño y complejidad):
-
-| Chunk | Módulos | Estimación |
+| Caso | Decisión propuesta | Razón |
 |---|---|---|
-| 1 ✅ | `spark` + runtime | Ya hecho (2-3 h) |
-| 2 | 2 módulos | ~1.5 h |
-| 3 | 3 módulos | ~2 h |
-| 4 | 3 módulos | ~2 h |
-| 5 | 3 módulos | ~2 h |
-| 6 | 2 módulos | ~1 h |
-| 7 | 1 módulo | ~30 min |
-| 8 | 1 módulo | ~30 min |
-| 9 | 1 módulo | ~30 min |
-| 10 | — (parsers satélite) | — |
-| 11 | `ffi` (grande) | ~1.5 h |
-| 12 | Tests + docs | ~3 h |
-| **Total** | **21 módulos + cierre** | **~18-20 h de trabajo** |
-
-Y ojo: **los módulos "grandes"** (`scrolls`, `atlas`, `archivum`, `ffi`) son los que más se resienten del contexto. Están repartidos a propósito entre chunks distintos para no saturar.
-
-**No metas los 4 módulos grandes en un mismo chunk.** Es la trampa en la que caerías con chunks de 8.
+| **`std.diagnostic`** — ¿general o específico de compilador? | **General, con extensión opcional.** El tipo `Diagnostic` base tiene `severity`, `message`, `location`, `help`, `note`. Nada de "AST node", "type trace", "symbol table entry". El compilador, si quiere, envuelve `Diagnostic` en un `rune CompilerDiagnostic` que añade esos campos. | General: linters, validadores, herramientas de migración. |
+| **`std.graph`** — ¿incluye dominadores? | **No.** `std.graph` tiene BFS, DFS, topo sort, SCC, caminos mínimos genéricos. Dominadores van al compilador. | Dominadores son específicos. |
+| **`std.cst`** — ¿incluye nodos específicos de PenguScript? | **No.** `std.cst` tiene `CstNode`, `CstKind` (enum cerrado pero genérico: Token, Group, List, Error, Comment…), `Span`, `Trivia`. El compilador define sus propios `kind` extendiendo o envolviendo. | General: formatters, refactorings, editores. |
+| **`std.json` vs extender `std.cipher`** | **Crear `std.json` como módulo propio y deprecar el JSON de `cipher`** con una ventana de dos releases. | Coherencia: `cipher` es "codificaciones y hashing"; JSON es "formato de datos estructurado". Son dominios distintos. |
+| **`std.lexer` / `std.parser`** — ¿módulos separados o `std.cst` con todo? | **Separados.** `std.cst` define la estructura; `std.lexer` produce tokens; `std.parser` los consume. Separación limpia. | Coherencia. |
+| **`std.unicode`** — ¿binding o puro? | **Binding + wrapper puro.** `utf8.h` es MIT, single-header, ~2000 LOC, bien testeado, y reimplementar UTF-8 correctamente en puro es trabajo de semanas. La API pública (`std.unicode`) es puro PenguScript; el binding interno es la implementación. | C1 permite el binding. C2 lo exige. |
+| **`std.regex`** — ¿binding a qué? | **Binding a `tiny-regex-c` + wrapper puro.** ~200 LOC, single-header, MIT. Cubre `^ $ . * + ? [] [^] | ()`. Para regex más potente, el usuario instala `pengu-pcre` como satélite. | C1 permite el binding. C2 lo exige. |
 
 ---
 
-## 🏁 7. Recomendación final
+## 📦 3. Notas de diseño críticas (para que no te pase lo que a otros)
 
-**Ni 5 ni 8. Usa chunks semánticos de 2-4 módulos, agrupados por temática.**
+### 3.1 `std.diagnostic` debe ser general 🎯
 
-- ✅ **Coherencia**: los módulos de un chunk comparten vocabulario.
-- ✅ **Contexto**: 2-4 módulos caben sin saturar la ventana.
-- ✅ **Rollback**: falla 1, rehaces 3.
-- ✅ **Verificación**: puedes correr tests temáticos por cluster.
-- ✅ **Ledger**: cada chunk deja una huella clara.
+Diseña la API pensando en un **validador de YAML**, no en el compilador de PenguScript:
 
-Si me fuerzas a elegir un número, **5 está mejor que 8** — pero mi recomendación real es "**el cluster temático más pequeño que tenga sentido**". Para los 21 módulos que quedan, eso son **9 chunks principales + 1 de cierre**, agrupados así: `(scrolls, oracle)`, `(tally, loom, ward)`, `(atlas, coven, compass)`, `(archivum, rites, chronicle)`, `(lot, whisper)`, `(cipher)`, `(filum)`, `(invoke)`, `(ffi)`, `(cierre)`.
+```pengu
+## std/diagnostic.pengu
+rune Span:
+    file as string
+    start_line as int
+    start_col as int
+    end_line as int
+    end_col as int
+    start_byte as int
+    end_byte as int
 
-**Lo crítico no es el número de módulos por chunk. Lo crítico es:**
+omen Severity:
+    Error
+    Warning
+    Info
+    Hint
 
-1. 📝 **Un ledger actualizado al final de cada chunk** — sin esto, el agente se olvida de lo que hizo.
-2. 🎨 **Releer la checklist al inicio de cada chunk** — sin esto, deriva.
-3. ✅ **Gate de verificación entre chunks** — sin esto, los errores se acumulan.
-4. 🎯 **Nunca tocar `pengu_runtime.h` fuera del chunk 1** — sin esto, scope creep garantizado.
+rune Diagnostic:
+    severity as Severity
+    code as string           # "E0005" o "my-lint-rule"
+    message as string
+    span as Span
+    help as maybe string
+    note as maybe string
+    related as list of Diagnostic   # relacionados (para "did you mean?")
 
+rune DiagnosticBag:
+    items as list of Diagnostic
+    error_count as int
+    warning_count as int
+
+enchanting DiagnosticBag:
+    weave add with d as Diagnostic into void:
+        # actualiza counts + añade
+    weave has_errors into bool:
+        # error_count > 0
+    weave render with color as bool into string:
+        # render estilo Rust con --> ^^^, help:, note:
+```
+
+**Nada** de `ast_node: ref to Expr`. Nada de `type: TypeInfo`. Si el compilador necesita más, envuelve.
+
+### 3.2 `std.graph` debe ser genérico, no específico 🎯
+
+```pengu
+## std/graph.pengu
+rune Graph:
+    n_nodes as int
+    adjacency as list of list of int   # lista de adyacencia
+
+enchanting Graph:
+    weave ritual from_edges with n as int, edges as list of (int, int) into Graph
+    weave ritual from_adjacency with adj as list of list of int into Graph
+    weave bfs with start as int into list of int
+    weave dfs with start as int into list of int
+    weave topological_sort into maybe (list of int)   # none si hay ciclo
+    weave has_cycle into bool
+    weave scc into list of list of int                # Tarjan o Kosaraju
+    weave shortest_path with from as int, to as int into maybe (list of int)
+    weave connected_components into list of list of int
+```
+
+**No** incluyas dominadores, post-dominadores, dataflow. Eso son 2000 líneas de código específico de compilador y no tienen otro uso.
+
+### 3.3 `std.cst` debe ser genérico 🎯
+
+```pengu
+## std/cst.pengu
+omen CstKind:
+    Token               # terminal concreto
+    Group               # agrupación delimitada (paréntesis, llaves…)
+    List                # secuencia con separadores
+    Error               # nodo de error (recuperación)
+    Comment             # trivia: comentario
+    Whitespace          # trivia: espacio en blanco
+    Eof
+
+rune CstNode:
+    kind as CstKind
+    text as string             # el texto del token, o "" para nodos compuestos
+    children as list of ref to CstNode
+    span as diagnostic.Span
+
+rune Cst:
+    root as ref to CstNode
+    source as string           # texto original completo
+```
+
+**No** incluyas `PenguScriptFunctionDeclNode`, `PenguScriptLetStmtNode`, etc. Eso es del compilador.
+
+### 3.4 `std.lexer` / `std.parser` como primitivas, no como frameworks 🎯
+
+```pengu
+## std/lexer.pengu
+rune Cursor:
+    src as string
+    pos as int
+    line as int
+    col as int
+
+enchanting Cursor:
+    weave peek into char
+    weave peek_at with offset as int into char
+    weave advance into char
+    weave match with expected as char into bool
+    weave match_str with expected as string into bool
+    weave skip_whitespace with f as weave with c as char into bool into void
+    weave span_from with start_pos as int into diagnostic.Span
+
+## std/parser.pengu
+rune TokenStream:
+    tokens as list of Token
+    pos as int
+
+enchanting TokenStream:
+    weave peek into Token
+    weave peek_at with offset as int into Token
+    weave advance into Token
+    weave expect with kind as string into maybe Token   # none + error recovery
+    weave recover_until with kinds as list of string into list of Token
+```
+
+**No** incluyas combinatorios genéricos (sin closures son incómodos). Primitivas que el usuario compone a mano con recursive descent.
+
+---
+
+## 🚀 4. Recomendaciones de binding single-header
+
+Para los dos módulos que he marcado como binding:
+
+### 4.1 `std.unicode` — `utf8.h` 🈁
+
+- Repo: https://github.com/sheredom/utf8.h
+- Licencia: MIT (compatible).
+- Tamaño: ~2000 LOC, single-header.
+- Features: decodificación UTF-8 (incluido codepoints > U+FFFF), codificación, validación, iteración, comparación, categorías parciales.
+- Lo que **no** cubre: normalización Unicode (NFC/NFD), case folding completo, word breaking. Para eso, `pengu-icu` como satélite.
+- **Enfoque:** `std/unicode.d.pengu` (declare) + `std/unicode.pengu` (wrapper puro) + `std/vendor/utf8.h` vendorizado + `build_runtime.py` añade `-I std/vendor/`.
+
+### 4.2 `std.regex` — `tiny-regex-c` 🔍
+
+- Repo: https://github.com/kokke/tiny-regex-c
+- Licencia: public domain (aún mejor).
+- Tamaño: ~200 LOC, single-header + 1 `.c`.
+- Features: `^ $ . * + ? [] [^] | ()` — sin backreferences, sin lookahead/lookbehind.
+- **Enfoque:** igual que unicode. `std/regex.d.pengu` + `std/regex.pengu` + `std/vendor/re.h` + `std/vendor/re.c`.
+- **Wrapper puro** expone: `weave match`, `weave is_match`, `weave find`, `weave replace_first`, `weave replace_all`. Esto es lo que un usuario necesita el 90 % de las veces.
+- Alternativa: `re.h` de Scott Vokes (más features, MIT, single-header). Si quieres lookahead, ve a este.
+
+---
+
+## 📊 5. Lista final propuesta
+
+### 🟢 Va al stdlib (13 módulos)
+
+| Prioridad | Módulo | C1 | C2 | Notas |
+|---|---|---|---|---|
+| **1** | `std.builder` | Puro | Fuerte | Ninguna dependencia. Rápido. |
+| **2** | `std.arena` | Puro | Fuerte | Sobre `std.memoria`. |
+| **3** | `std.diagnostic` | Puro | Fuerte | Diseño general (ver §3.1). |
+| **4** | `std.sourcemap` | Puro | Fuerte | Trivial. |
+| **5** | `std.json` | Puro | Fuerte | Nuevo, supersede JSON de `cipher`. |
+| **6** | `std.bitset` | Puro | Moderado | Trivial. |
+| **7** | `std.graph` | Puro | Moderado | Sin dominadores. |
+| **8** | `std.unicode` | Binding | Fuerte | `utf8.h`. |
+| **9** | `std.regex` | Binding | Fuerte | `tiny-regex-c`. |
+| **10** | `std.jsonrpc` | Puro | Moderado | Sobre `std.json`. |
+| **11** | `std.lexer` | Puro | Moderado | Primitivas (ver §3.4). |
+| **12** | `std.parser` | Puro | Moderado | Primitivas (ver §3.4). |
+| **13** | `std.cst` | Puro | Moderado | Genérico (ver §3.3). |
+
+### 🔴 Va a satélite o al compilador (no stdlib)
+
+| Módulo | Destino |
+|---|---|
+| `incremental` | Compilador o `pengu-incremental` satélite. |
+| Dominadores / SSA / dataflow | Compilador. |
+| Type inference / unification | Compilador. |
+| Codegen helpers | Compilador. |
+| PCRE2 binding | `pengu-pcre` satélite. |
+| YAML / TOML / XML | Futuras fases. |
+
+---
+
+## 📅 6. Orden de implementación sugerido
+
+Propongo **cuatro sub-fases** dentro de la Fase 1. Cada sub-fase termina en una versión publicable:
+
+### Fase 1a — Fundamentales (→ 2.9.0) ✅
+1. `std.builder` — puro, ~200 LOC.
+2. `std.arena` — puro, ~300 LOC.
+3. `std.sourcemap` — puro, ~150 LOC.
+4. `std.bitset` — puro, ~200 LOC.
+
+**Total:** ~850 LOC + tests. **Bloqueantes para el compilador.** No tienen dependencias.
+
+### Fase 1b — Diagnósticos y datos (→ 2.10.0) ✅
+5. `std.diagnostic` — puro, ~400 LOC.
+6. `std.json` — puro, ~800 LOC (parser + writer + query).
+7. `std.jsonrpc` — puro, ~300 LOC.
+
+**Total:** ~1500 LOC + tests. **Bloqueantes para el LSP.**
+
+### Fase 1c — Texto internacionalizado (→ 2.11.0) ✅
+8. `std.unicode` — binding a `utf8.h` (~200 LOC wrapper + binding).
+9. `std.regex` — binding a `tiny-regex-c` (~200 LOC wrapper + binding).
+
+**Total:** ~400 LOC wrapper + binding + tests. **No bloqueantes**, pero mejoran la ergonomía.
+
+### Fase 1d — Cliente HTTP (→ 2.12.0) ✅
+10. `std.petitio` — wrapper de alto nivel sobre libcurl (~1100 LOC wrapper +
+    ~600 LOC de puente C). `naett` se evaluó y se descartó: su API no tiene
+    timeout total, ni límite de redirects, ni cookies, ni proxy, ni multipart.
+    Smart linking por función (`-lpetitio -lcurl` solo al importar).
+
+**Total:** ~1700 LOC + tests. **Desbloquea `pengu add <url>` nativo y las tareas
+de red**, que era la petición más repetida de cualquier usuario de un lenguaje
+de scripting. Ver `docs/PETITIO.md`.
+
+### Fase 1e — Herramientas de lenguaje (→ 2.13.0)
+11. `std.graph` — puro, ~500 LOC.
+12. `std.lexer` — puro, ~300 LOC.
+13. `std.parser` — puro, ~400 LOC.
+14. `std.cst` — puro, ~400 LOC.
+
+**Total:** ~1600 LOC + tests. **Bloqueantes para el `pengu fmt` autohospedado.**
+
+---
+
+## 🤔 7. Tres decisiones que quiero que confirmes antes de que el agente empiece
+
+### 7.1 ¿`std.lexer` / `std.parser` como primitivas, o como "framework"?
+
+He propuesto **primitivas** (cursor, token stream, lookahead, error recovery), porque sin closures los combinatorios clásicos (Haskell, Rust) son incómodos y porque **cada lenguaje tiene su propia gramática** — un framework genérico sería un lastre.
+
+**Confirmación:** ¿de acuerdo? Si prefieres un enfoque más "framework", dímelo y diseño uno (probablemente peor, pero tu decisión).
+
+### 7.2 ¿`std.json` como módulo propio, o extender `std.cipher`?
+
+He propuesto **crear `std.json`** y deprecar el JSON de `cipher`. Alternativa: **extender `cipher`** con el parser completo, evitando un módulo nuevo.
+
+**Confirmación:** ¿`std.json` propio (más limpio) o `cipher` extendido (menos módulos)?
+
+### 7.3 ¿Priorizar `std.lexer` / `std.parser` / `std.cst` antes de `std.unicode` / `std.regex`?
+
+He propuesto dejar `unicode`/`regex` para después de `lexer`/`parser`/`cst`. Alternativa: **priorizar los bindings** porque son rápidos (solo wrapper) y desbloquean texto no-ASCII en lexer/parser.
+
+**Confirmación:** ¿prefieres el orden que propongo (puro primero, bindings después) o invertirlo?
+
+---
+
+## 🎯 8. Recomendación global
+
+**Sí a los 13 módulos** en el stdlib, con las notas de diseño de §3. **No a `incremental`** ni a los específicos del compilador. **Sí a los bindings single-header** para `unicode` y `regex`, con wrapper puro.
+
+**El orden de las cuatro sub-fases (1a → 1b → 1c → 1d)** es deliberado: lo que bloquea el compilador (1a) va primero; lo que bloquea el LSP (1b) después; la ergonomía (1c) puede esperar; las herramientas de lenguaje (1d) son las más grandes y se benefician de tener `builder`, `arena` y `diagnostic` ya disponibles.
+
+Confírmame §7.1, §7.2, §7.3 y arrancamos con la **Fase 1a** (builder + arena + sourcemap + bitset). Puedo redactar la instrucción completa para el agente, con la misma autonomía total que en las fases anteriores.
+
+¿Vamos? 🐧8

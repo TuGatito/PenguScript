@@ -40,6 +40,7 @@
     - 19.1.2 [Los cuatro módulos fundamentales](#1912-los-cuatro-módulos-fundamentales)
     - 19.1.3 [Los módulos de datos](#1913-los-módulos-de-datos-stddiagnostic-stdjson-stdjsonrpc)
     - 19.1.4 [Los módulos de texto: `std.lingua` y `std.regulus`](#1914-los-módulos-de-texto-stdlingua-y-stdregulus)
+    - 19.1.5 [El módulo HTTP: `std.petitio`](#1915-el-módulo-http-stdpetitio)
     - 19.2 [Bindings externos (repositorios satélite)](#192-external-bindings-satellite-repositories)
     - 19.3 [Ejemplos de la biblioteca estándar central](#193-core-standard-library-examples)
     - 19.4 [Recursos embebidos del proyecto (`arca`)](#194-embedded-project-assets-arca)
@@ -234,7 +235,7 @@ PenguScript define structs de contenedor limpios y compatibles con C en `pengu_r
 
 | Pengu | Tipo C del runtime | Diseño y definición del struct |
 |-------|----------------|----------------------------|
-| `string` | `PenguString` | `typedef struct { char *data; int len; } PenguString;` |
+| `string` | `PenguString` | `typedef struct { char *data; int len; int32_t is_owned; } PenguString;` |
 | `slice of T` | `PenguSlice` | `typedef struct { void *data; int len; size_t elem_size; } PenguSlice;` |
 | `list of T` | `PenguList` | `typedef struct { void *data; int len; int cap; size_t elem_size; } PenguList;` |
 | `map of K to V` | `PenguMap` | `typedef struct { PenguMapEntry *entries; int len; int cap; size_t key_size; size_t val_size; } PenguMap;` |
@@ -3710,7 +3711,7 @@ Métodos integrados admitidos dentro de los bloques `with` de colecciones:
 
 ## 19. Biblioteca estándar
 
-PenguScript incluye **38 módulos de biblioteca estándar** (`std.<module>`) que ofrecen abstracciones idiomáticas de alto
+PenguScript incluye **39 módulos de biblioteca estándar** (`std.<module>`) que ofrecen abstracciones idiomáticas de alto
 nivel para E/S, cadenas, concurrencia, serialización, matemáticas, pruebas y
 puentes de memoria.
 
@@ -3744,33 +3745,35 @@ test "stdlib version":
 `std/` exporte esa constante con una versión de release válida (opcionalmente
 con sufijo de prerelease semver). Como la biblioteca estándar va acoplada al
 compilador, la constante nombra la **release de stdlib con la que se distribuye**,
-no la última release que tocó ese archivo: todos los módulos de 2.11.0 declaran
-`"2.11.0"` (salvo `std.spark`, cuyo `SPARK_VERSION` conserva su propia revisión
+no la última release que tocó ese archivo: todos los módulos de 2.12.0 declaran
+`"2.12.0"` (salvo `std.spark`, cuyo `SPARK_VERSION` conserva su propia revisión
 de API `0.8.0-spark`, y `JSONRPC_PROTOCOL_VERSION`, que es la versión `"2.0"` del
 protocolo de cable). El uso de espacios de nombres ya mantiene cada módulo
 autocontenido (`std.<module>.<symbol>`), así que desacoplar la stdlib en paquetes
 versionados de forma independiente queda reservado para 2.0.
 
 Los cuatro módulos fundamentales de la serie 2.9, los tres módulos de datos de la
-serie 2.10 y los dos módulos de texto de 2.11 (`std.lingua`, `std.regulus`)
-siguen la misma regla: `std.builder` exporta `BUILDER_VERSION`, `std.arena`
+serie 2.10, los dos módulos de texto de 2.11 (`std.lingua`, `std.regulus`) y el
+módulo HTTP de 2.12 (`std.petitio`) siguen la misma regla: `std.builder` exporta `BUILDER_VERSION`, `std.arena`
 exporta `ARENA_VERSION`, `std.sourcemap` exporta `SOURCEMAP_VERSION`,
 `std.bitset` exporta `BITSET_VERSION`, `std.diagnostic` exporta
 `DIAGNOSTIC_VERSION`, `std.json` exporta `JSON_VERSION`, `std.jsonrpc` exporta
-`JSONRPC_VERSION`, `std.lingua` exporta `LINGUA_VERSION` y `std.regulus` exporta
-`REGULUS_VERSION`, todos `"2.11.0"`. Los módulos builder y arena también exportan
+`JSONRPC_VERSION`, `std.lingua` exporta `LINGUA_VERSION`, `std.regulus` exporta
+`REGULUS_VERSION` y `std.petitio` exporta `PETITIO_VERSION`, todos `"2.12.0"`. Los
+módulos builder y arena también exportan
 sus constantes de ajuste por defecto (`BUILDER_DEFAULT_CAPACITY`,
 `ARENA_DEFAULT_BLOCK_SIZE`, `ARENA_DEFAULT_ALIGNMENT`) para quien quiera reservar
 exactamente lo que el módulo reservaría.
 
-### 19.1 Módulos de PenguScript puro (38 módulos)
+### 19.1 Módulos de PenguScript puro (39 módulos)
 
 Todos los módulos puros se encuentran en el directorio `std/` y se importan como `import std.<module>`.
 
-Dos módulos son puentes generales a C (`std.ffi` y `std.web`) y otros dos son
-wrappers deliberados sobre las bibliotecas C de un solo archivo vendorizadas
-(`std.lingua` sobre `std_c/utf8.h`, `std.regulus` sobre `std_c/re.h`/`re.c`).
-Esos cuatro usan `include`, `declare`, `link` y `antiquus` como frontera
+Dos módulos son puentes generales a C (`std.ffi` y `std.web`) y otros tres son
+wrappers deliberados sobre bibliotecas C (`std.lingua` sobre el `std_c/utf8.h`
+vendorizado, `std.regulus` sobre `std_c/re.h`/`re.c`, y `std.petitio` sobre el
+`libcurl` del sistema a través del puente vendorizado `std_c/petitio.c`).
+Esos cinco usan `include`, `declare`, `link` y `antiquus` como frontera
 explícita; los otros 34 están escritos enteramente en PenguScript. Los bindings a
 bibliotecas de terceros son satélites instalados con `pengu add`, no forman
 parte de esta lista.
@@ -3816,6 +3819,7 @@ parte de esta lista.
 | `std.jsonrpc` | JSON-RPC 2.0: `JsonRpcId`, `JsonRpcMessage` (`Request`/`Notification`/`ResponseOk`/`ResponseError`), `JsonRpcError`, los cinco códigos estándar, constructores `request`/`notification`/`response_ok`/`response_error`, `encode_*`, `parse_message`, `parse_batch`, `take_messages`, `free_messages`, constructores de error, `JsonRpcParseError`/`JsonRpcErrorKind` y framing LSP (`encode_framed`, `decode_framed_bytes`, `decode_framed`, `FramedDecode`). Comparable a `jsonrpc-core` de Rust. |
 | `std.lingua` | Texto UTF-8 sobre codepoints: `Codepoint` (un `seal` sobre `u32`), `LinguaError` con offsets de byte, `decode`/`decode_prefix`, `encode`/`encode_one`, `is_valid`/`validate`, `codepoint_count`/`utf16_length`, `is_ascii`/`is_bmp`/`is_letter`/`is_digit`/`is_whitespace`/`is_punctuation`/`is_symbol`/`is_control`/`is_surrogate`, `to_u32`/`from_u32`/`to_utf16`, `codepoint_at`/`byte_offset_of`/`next_codepoint`/`prev_codepoint` y un `grapheme_count` aproximado. Wrapper sobre `std_c/utf8.h` (sheredom, dominio público). Ver `docs/LINGUA.md`. Comparable a `utf8proc` (Julia) y al módulo `utf8` de Lua. |
 | `std.regulus` | Expresiones regulares pequeñas y explícitas: `Regex.compile`, `pattern`, `is_match`, `match`, `match_at`, `matches`, `replace_first`, `replace_all`, `split`, `escape`, `Match` y `RegexError`, más `is_match`/`find_first` de un solo uso. Gramática completa: `. ^ $ * + ? [] \d \w \s`; **sin** grupos, alternancia, `{n,m}`, lookaround, backreferences ni clases Unicode. Wrapper sobre `std_c/re.h` + `re.c` (kokke/tiny-regex-c, dominio público). Ver `docs/REGULUS.md`. Comparable a `re` de Python para búsquedas básicas. |
+| `std.petitio` | Cliente HTTP de alto nivel con API tipo `requests`: `Request` (`new`, `header`, `remove_header`, `has_header`, `text_body`, `json_body`, `form_body`, `bytes_body`, `timeout`, `connect_timeout`, `no_redirects`, `max_redirects`, `insecure`, `auth_basic`, `auth_bearer`, `proxy`, `max_body_bytes`, `multipart_field`, `multipart_bytes`, `multipart_file`, `send`), `Response` (`status`, `headers`, `body`, `url`, `elapsed_sec`, `redirected`, `cookies`, `cleared_cookies`, `is_ok`/`is_redirect`/`is_client_error`/`is_server_error`, `text`, `json`, `header`, `has_header`, `raise_for_status`), `Session` (headers y cookies persistentes), `FormPart`, `HttpError`, `UrlParts`, helpers de un solo uso `get`/`head`/`delete`/`options`/`post`/`post_json`/`post_form`/`post_text`/`put_json`/`patch_json`, helpers de URL `url_encode`/`url_decode`/`build_query_string`/`with_query`/`parse_url`, movimientos explícitos `take_response`/`take_error` y `libcurl_version`. Wrapper sobre el `libcurl` del sistema mediante `std_c/petitio.c` (se evaluó y descartó naett: sin timeout total, sin control de redirects ni de cookies). Ver `docs/PETITIO.md`. Comparable a `requests` de Python. |
 
 ### 19.1.1 Elegir entre `std.loom` y `std.tally`
 
@@ -3860,7 +3864,7 @@ familia que pierda (ítem 6.5, `AUDIT_1.0_FASE6.md`).
 
 ### 19.1.2 Los cuatro módulos fundamentales
 
-La línea 2.11.0 conserva los tres módulos de datos y los cuatro módulos fundamentales de la serie 2.9; estos últimos añaden que el compilador autohospedado (y cualquier otra
+La línea 2.12.0 conserva los tres módulos de datos y los cuatro módulos fundamentales de la serie 2.9; estos últimos añaden que el compilador autohospedado (y cualquier otra
 herramienta que construya texto, árboles, posiciones o conjuntos densos)
 necesita primero. Son deliberadamente generales: `builder` sirve igual para CSV,
 HTML y logs que para codegen; `arena` sirve igual para el AST de un parser que
@@ -4186,6 +4190,76 @@ de los dos no contiene ninguno de los headers ni enlaza `libre.a`.
 `build_runtime.py` construye `build/lib/libre.a` a partir de `std_c/re.c` (no
 forma parte de `libpengu_runtime.a`). La matriz la verifica
 `tests/build/test_smart_linking.py`.
+
+### 19.1.5 El módulo HTTP: `std.petitio`
+
+`std.petitio` es el cliente de red de la biblioteca estándar: un wrapper
+síncrono que devuelve `result` sobre **libcurl**, con una API con la forma de
+`requests`. No es un binding satélite, porque un lenguaje que no puede pedir una
+URL no puede ejecutar `pengu add <url>` ni hablar con una API sin un repositorio
+de terceros; es un módulo de primera clase con la misma frontera explícita que
+`std.lingua` y `std.regulus` (`include`, `declare`, `link`, un puente C
+vendorizado).
+
+**Biblioteca base.** Se evaluó `naett` (single header, MIT) y se descartó: su API
+pública no tiene timeout total, ni límite o control de redirects, ni motor de
+cookies, ni interruptor de TLS, ni proxy, ni multipart, y pierde las cabeceras de
+respuesta duplicadas. Su backend de Linux es libcurl de todos modos. libcurl
+tiene la misma familia de licencia y expone todos los controles que documenta el
+wrapper; ver `docs/PETITIO.md` §1.
+
+**Errores.** Toda operación devuelve `result … to HttpError`. Las variantes son
+`ConnectionFailed`, `Timeout`, `TooManyRedirects`, `InvalidUrl`, `TlsError`,
+`ProtocolError`, `BodyTooLarge`, `OutOfMemory`, `Unsupported` y `HttpStatus` (de
+`raise_for_status`). Ningún fallo de red panickea; una entrada *de programa*
+malformada a un builder (una cabecera con CR/LF, un método con un espacio) sí,
+porque es un bug del llamador, no una condición.
+
+**Propiedad.** `Request`, `Response`, `Session` y `UrlParts` derivan `Nexus`, así
+que `banish` libera cada string, map y list que contienen. Un `result` posee su
+payload: o se toma prestado (`r.value` / `r.error`) y solo se libera el result, o
+se mueve con `take_response` / `take_error` y se liberan ambas mitades. Los
+getters de string (`text`, `header`, `message`) devuelven copias propias.
+
+```pengu
+import std.json
+import std.petitio
+import std.spark
+
+weave main into int:
+    var req as Request is calling Request.new with "POST", "https://api.example.com/items"
+    defer banish req
+    calling req.header with "Accept", "application/json"
+    calling req.timeout with 5.0
+    calling req.auth_bearer with "token"
+
+    var r as result of Response to HttpError is calling req.send
+    defer banish r
+    if not r.is_ok:
+        var failure as HttpError is calling petitio.take_error with (sigil of r)
+        var why as string is calling failure.message
+        calling spark.eprintln with why
+        banish why
+        banish failure
+        return 1
+    var resp as Response is calling petitio.take_response with (sigil of r)
+    defer banish resp
+    calling spark.println_int with resp.status          # 200
+    calling spark.println with resp.body
+    return 0
+```
+
+**Smart linking.** `std/petitio.d.pengu` emite `include "petitio.h"`,
+`link "petitio"` y `link "curl"`, y solo un programa que lo importa recibe
+`-lpetitio -lcurl`. `build_runtime.py` construye `build/lib/libpetitio.a` a
+partir de `std_c/petitio.c` (estricto `-std=c99 -Wall -Wextra -Werror`) cuando
+`curl/curl.h` está disponible, y lo omite con un mensaje accionable en caso
+contrario, así que una máquina sin las cabeceras de libcurl puede seguir
+compilando el resto de módulos. La misma matriz de
+`tests/build/test_smart_linking.py` lo cubre, incluido que las funciones del
+puente no referenciadas se recolectan como basura. Las descargas en streaming,
+las peticiones asíncronas y la expiración de cookies por fecha quedan
+deliberadamente fuera de alcance y se listan en `docs/PETITIO.md` §8.
 
 ### 19.2 Bindings externos (repositorios satélite)
 

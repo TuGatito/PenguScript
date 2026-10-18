@@ -49,7 +49,7 @@ import std.ward
 # ----------------------------------------------------------------------------
 
 ## Littera module version.
-const LITTERA_VERSION as string is "2.11.0"
+const LITTERA_VERSION as string is "2.12.0"
 
 # ----------------------------------------------------------------------------
 # Methods on `char`

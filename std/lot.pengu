@@ -74,7 +74,7 @@ import std.arithmancy
 # ----------------------------------------------------------------------------
 
 ## Standard library lot module version.
-const LOT_VERSION as string is "2.11.0"
+const LOT_VERSION as string is "2.12.0"
 
 ## Value used instead of 0.0 or 1.0 when a distribution needs an open
 ## `(0.0, 1.0)` uniform draw: `log(0)` is `-inf` and would produce `inf`.

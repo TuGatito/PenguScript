@@ -8,7 +8,7 @@
 
 ### `COVEN_VERSION`
 
-> const string` = 2.11.0`
+> const string` = 2.12.0`
 
 Revision of the `coven` API.
 Deliberately not the toolchain version: it moves only when a `coven`

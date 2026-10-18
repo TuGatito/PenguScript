@@ -10461,6 +10461,262 @@
       "deprecated": false,
       "documented": true,
       "kind": "const",
+      "module": "petitio",
+      "name": "PETITIO_BINARY_CONTENT_TYPE",
+      "signature": "**PETITIO_BINARY_CONTENT_TYPE** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "petitio",
+      "name": "PETITIO_DEFAULT_MAX_REDIRECTS",
+      "signature": "**PETITIO_DEFAULT_MAX_REDIRECTS** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "petitio",
+      "name": "PETITIO_DEFAULT_TIMEOUT_SEC",
+      "signature": "**PETITIO_DEFAULT_TIMEOUT_SEC** : f64"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "petitio",
+      "name": "PETITIO_DEFAULT_USER_AGENT",
+      "signature": "**PETITIO_DEFAULT_USER_AGENT** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "petitio",
+      "name": "PETITIO_FORM_CONTENT_TYPE",
+      "signature": "**PETITIO_FORM_CONTENT_TYPE** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "petitio",
+      "name": "PETITIO_JSON_CONTENT_TYPE",
+      "signature": "**PETITIO_JSON_CONTENT_TYPE** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "petitio",
+      "name": "PETITIO_VERSION",
+      "signature": "**PETITIO_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "petitio",
+      "name": "HttpError",
+      "signature": "**HttpError** : HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "petitio",
+      "name": "FormPart",
+      "signature": "**FormPart** : FormPart"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "petitio",
+      "name": "Request",
+      "signature": "**Request** : Request"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "petitio",
+      "name": "Response",
+      "signature": "**Response** : Response"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "petitio",
+      "name": "Session",
+      "signature": "**Session** : Session"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "petitio",
+      "name": "UrlParts",
+      "signature": "**UrlParts** : UrlParts"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "build_query_string",
+      "signature": "**build_query_string**(params: map of string to string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "default_user_agent",
+      "signature": "**default_user_agent**() -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "delete",
+      "signature": "**delete**(url: string) -> result of Response to HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "get",
+      "signature": "**get**(url: string) -> result of Response to HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "head",
+      "signature": "**head**(url: string) -> result of Response to HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "libcurl_version",
+      "signature": "**libcurl_version**() -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "options",
+      "signature": "**options**(url: string) -> result of Response to HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "parse_url",
+      "signature": "**parse_url**(url: string) -> result of UrlParts to string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "patch_json",
+      "signature": "**patch_json**(url: string, v: JsonValue) -> result of Response to HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "post",
+      "signature": "**post**(url: string) -> result of Response to HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "post_form",
+      "signature": "**post_form**(url: string, fields: map of string to string) -> result of Response to HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "post_json",
+      "signature": "**post_json**(url: string, v: JsonValue) -> result of Response to HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "post_text",
+      "signature": "**post_text**(url: string, body: string, content_type: string) -> result of Response to HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "put_json",
+      "signature": "**put_json**(url: string, v: JsonValue) -> result of Response to HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "take_error",
+      "signature": "**take_error**(r: ref to result of T to HttpError) -> HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "take_response",
+      "signature": "**take_response**(r: ref to result of Response to HttpError) -> Response"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "url_decode",
+      "signature": "**url_decode**(s: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "url_encode",
+      "signature": "**url_encode**(s: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "with_query",
+      "signature": "**with_query**(url: string, params: map of string to string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
       "module": "regulus",
       "name": "REGULUS_MAX_CHAR_CLASS_BYTES",
       "signature": "**REGULUS_MAX_CHAR_CLASS_BYTES** : int"

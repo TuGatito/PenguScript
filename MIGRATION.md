@@ -8,9 +8,37 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.11.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.12.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.11.0 → 2.12.0: HTTP and compiler fixes
+
+This release is additive. The new module is `std.petitio`, an HTTP client with a
+`requests`-shaped API over the system **libcurl**.
+
+* `import std.petitio` needs the libcurl development headers and library at
+  build time. `pengu build` skips `libpetitio.a` with a clear message when
+  `curl/curl.h` is absent, and a program that imports the module then fails at
+  link time (`cannot find -lcurl` or `-lpetitio`) instead of at compile time.
+  Release bundles and CI images must ship `build/lib/libpetitio.a` **and** have
+  libcurl available if any program imports the module.
+* A `result of Response to HttpError` owns its payload. Borrow with
+  `r.value`/`r.error` and release only the result, or move the payload with
+  `take_response`/`take_error` and release both halves — never both releases on
+  a borrowed payload. See `docs/PETITIO.md` §2.1.
+* Every `std/` module now reports `"2.12.0"`.
+* The following compiler fixes are visible in code that used to be rejected or
+  to miscompile. None changes an API:
+  * `judge` with statement-block clause bodies compiles (it emitted
+    `void _res_N;` before);
+  * a qualified call (`scrolls.contains`) resolves to that module's member even
+    when another imported module exports a generic with the same name;
+  * a concrete function is no longer routed through another module's generic
+    with the same name (`scrolls.compare` vs `memoria.compare`);
+  * private `_fields` are typed at code generation time, so iterating one works;
+  * `or else` / `or return` / `try` release the payload box of an rvalue operand
+    (a 16-byte leak per evaluation).
 
 ## 2.10.0 → 2.11.0: internationalised text and smart-linked C
 
