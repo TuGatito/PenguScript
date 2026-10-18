@@ -1,0 +1,51 @@
+## Netscape cookie files: save, load into a fresh session, read back (offline).
+import std.archivum
+import std.petitio
+import std.spark
+import std.scrolls
+
+weave eq_s with got as string, want as string, name as string into void:
+    if (calling scrolls.compare with got, want) != 0:
+        calling spark.println with "FAIL {name}: '{got}' != '{want}'"
+
+weave main into int:
+    var path as string is "/tmp/petitio_conformance_cookies.txt"
+    var session as Session is calling Session.new
+    calling session.set_cookie with "sid", "abc123"
+    calling session.set_cookie with "theme", "dark"
+    var saved as result of void to HttpError is calling session.save_cookies_to_file with path
+    if not saved.is_ok:
+        calling spark.println with "FAIL save"
+        banish saved
+        banish session
+        return 1
+    banish saved
+
+    var loaded_session as Session is calling Session.new
+    var loaded as result of int to HttpError is calling loaded_session.load_cookies_from_file with path
+    if not loaded.is_ok:
+        calling spark.println with "FAIL load"
+        banish loaded
+        banish loaded_session
+        banish session
+        return 2
+    if loaded.value != 2:
+        calling spark.println with "FAIL loaded count {loaded.value}"
+    banish loaded
+    if (calling loaded_session.cookie_count) != 2:
+        calling spark.println with "FAIL jar size"
+    var sid as string is calling loaded_session.cookie with "sid"
+    calling eq_s with sid, "abc123", "sid"
+    banish sid
+    var absent as string is calling loaded_session.cookie with "nope"
+    if (absent length) != 0:
+        calling spark.println with "FAIL absent cookie"
+    banish absent
+    banish loaded_session
+    banish session
+
+    var removed as bool is calling archivum.delete_file with path
+    if not removed:
+        calling spark.println with "FAIL cleanup"
+    calling spark.println with "OK petitio_cookie_file"
+    return 0

@@ -66,6 +66,19 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, b"x" * 4096)
         elif url.path == "/cookie":
             self._send(200, b"set", {"Set-Cookie": "sid=abc123; Path=/"})
+        elif url.path == "/expire":
+            self.send_response(200)
+            self.send_header("Set-Cookie", "gone=x; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
+            self.send_header("Set-Cookie", "stay=y; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+        elif url.path.startswith("/bytes/"):
+            try:
+                count = int(url.path.rsplit("/", 1)[1])
+            except ValueError:
+                count = 0
+            self._send(200, b"z" * count)
         elif url.path == "/echo-cookie":
             self._send(200, self.headers.get("Cookie", "").encode())
         else:
@@ -362,3 +375,383 @@ weave main into int:
     out = compile_and_run(program, timeout=300)
     assert "DONE" in out, out
     assert "FAIL" not in out, out
+
+
+# ---------------------------------------------------------------------------
+# Cookie expiry, streaming and fetch_many against the local server
+# ---------------------------------------------------------------------------
+
+def test_cookie_expiry_and_max_age_priority(compile_and_run, http_base):
+    program = f'''
+import std.petitio
+import std.spark
+
+weave main into int:
+    var r as result of Response to HttpError is calling petitio.get with "{http_base}/expire"
+    if not r.is_ok:
+        calling spark.println with "FAIL transport"
+        return 1
+    var resp as Response is calling petitio.take_response with (sigil of r)
+    calling spark.println with "count={{calling resp.cookies.len}}"
+    calling spark.println with "gone={{calling resp.cookies.contains with \"gone\"}}"
+    calling spark.println with "stay={{calling resp.cookies.contains with \"stay\"}}"
+    calling spark.println with "cleared={{resp.cleared_cookies.len}}"
+    banish resp
+    banish r
+    return 0
+'''
+    out = compile_and_run(program, timeout=300)
+    assert "FAIL" not in out, out
+    assert "count=1" in out, out
+    assert "gone=false" in out, out
+    assert "stay=true" in out, out
+    assert "cleared=1" in out, out
+
+
+def test_streaming_to_file_and_callback(compile_and_run, http_base, tmp_path):
+    target = tmp_path / "stream.bin"
+    program = f'''
+import std.archivum
+import std.petitio
+import std.spark
+
+rune Counter:
+    chunks as int
+    bytes as i64
+
+weave count_chunk with chunk as string, user as ref to void into bool:
+    var counter as ref to Counter is transmute user to ref to Counter
+    set counter->chunks is counter->chunks + 1
+    set counter->bytes is counter->bytes + (chunk length to i64)
+    return true
+
+weave main into int:
+    var file_req as Request is calling Request.new with "GET", "{http_base}/bytes/10000"
+    var file_result as result of Response to HttpError is calling file_req.send_to_file with "{target}"
+    if not file_result.is_ok:
+        calling spark.println with "FAIL file"
+        return 1
+    var file_resp as Response is calling petitio.take_response with (sigil of file_result)
+    calling spark.println with "written={{file_resp.bytes_written}}"
+    calling spark.println with "body_len={{file_resp.body length}}"
+    banish file_resp
+    banish file_result
+    banish file_req
+
+    var stream_req as Request is calling Request.new with "GET", "{http_base}/bytes/5000"
+    var counter as Counter is with chunks is 0, bytes is 0
+    var stream_result as result of Response to HttpError is calling stream_req.send_stream with count_chunk, (sigil of counter)
+    if not stream_result.is_ok:
+        calling spark.println with "FAIL stream"
+        return 2
+    var stream_resp as Response is calling petitio.take_response with (sigil of stream_result)
+    calling spark.println with "chunks={{counter.chunks}}"
+    calling spark.println with "callback_bytes={{counter.bytes}}"
+    calling spark.println with "stream_written={{stream_resp.bytes_written}}"
+    banish stream_resp
+    banish stream_result
+    banish stream_req
+    return 0
+'''
+    out = compile_and_run(program, timeout=300)
+    assert "FAIL" not in out, out
+    assert "written=10000" in out, out
+    assert "body_len=0" in out, out
+    assert target.read_bytes() == b"z" * 10000
+    assert "callback_bytes=5000" in out, out
+    assert "stream_written=5000" in out, out
+
+
+def test_fetch_many_order_and_errors(compile_and_run, http_base):
+    dead = _closed_port()
+    program = f'''
+import std.petitio
+import std.spark
+
+weave main into int:
+    var reqs as list of Request is list of Request
+    calling reqs.push with (calling Request.new with "GET", "{http_base}/get?i=0")
+    calling reqs.push with (calling Request.new with "GET", "http://127.0.0.1:{dead}/x")
+    calling reqs.push with (calling Request.new with "GET", "{http_base}/get?i=2")
+    var results as list of result of Response to HttpError is calling petitio.fetch_many with reqs
+    calling spark.println with "count={{results.len}}"
+    var i as int is 0
+    while i < results.len:
+        var r as result of Response to HttpError is results at i
+        if r.is_ok:
+            var resp as Response is calling petitio.take_response with (sigil of r)
+            calling spark.println with "{{i}}=ok {{resp.status}}"
+            banish resp
+        else:
+            var failure as HttpError is calling petitio.take_error with (sigil of r)
+            judge failure:
+                when ConnectionFailed with reason -> calling spark.println with "{{i}}=connection"
+                else -> calling spark.println with "{{i}}=other"
+            banish failure
+        banish r
+        set i is i + 1
+    banish results
+    banish reqs
+    return 0
+'''
+    out = compile_and_run(program, timeout=300)
+    assert "count=3" in out, out
+    assert "0=ok 200" in out, out
+    assert "1=connection" in out, out
+    assert "2=ok 200" in out, out
+
+
+# ---------------------------------------------------------------------------
+# Live tests: real services, opt-in with PETITIO_LIVE=1
+# ---------------------------------------------------------------------------
+#
+# They are skipped by default so the suite stays deterministic and offline.
+# Each program is retried up to three times: public test services occasionally
+# time out, and a flaky network is not a petitio bug.
+
+import os
+
+_LIVE = os.environ.get("PETITIO_LIVE") == "1"
+_live = pytest.mark.skipif(
+    not _LIVE, reason="set PETITIO_LIVE=1 to run the live HTTP tests")
+
+
+def _run_live(compile_and_run, source: str, attempts: int = 3) -> str:
+    last = None
+    for _ in range(attempts):
+        last = compile_and_run(source, timeout=300)
+        if "FAIL" not in last:
+            return last
+    return last or ""
+
+
+@_live
+def test_live_httpbin_behaviour(compile_and_run):
+    program = '''
+import std.json
+import std.petitio
+import std.spark
+
+weave main into int:
+    # A three-hop redirect is followed and reported.
+    var redirect as result of Response to HttpError is calling petitio.get with "https://httpbin.org/redirect/3"
+    if redirect.is_ok:
+        var resp as Response is calling petitio.take_response with (sigil of redirect)
+        calling spark.println with "redirect_status={resp.status}"
+        calling spark.println with "redirect_followed={resp.redirected}"
+        banish resp
+    else:
+        calling spark.println with "redirect=transport-error"
+    banish redirect
+
+    # no_redirects surfaces the 302 itself.
+    var raw_req as Request is calling Request.new with "GET", "https://httpbin.org/redirect/3"
+    calling raw_req.no_redirects
+    var raw as result of Response to HttpError is calling raw_req.send
+    if raw.is_ok:
+        var resp as Response is calling petitio.take_response with (sigil of raw)
+        calling spark.println with "raw_status={resp.status}"
+        calling spark.println with "raw_is_redirect={calling resp.is_redirect}"
+        banish resp
+    else:
+        calling spark.println with "raw=transport-error"
+    banish raw
+    banish raw_req
+
+    # A 418 keeps its status and classification.
+    var teapot as result of Response to HttpError is calling petitio.get with "https://httpbin.org/status/418"
+    if teapot.is_ok:
+        var resp as Response is calling petitio.take_response with (sigil of teapot)
+        calling spark.println with "teapot_status={resp.status}"
+        calling spark.println with "teapot_client_error={calling resp.is_client_error}"
+        banish resp
+    else:
+        calling spark.println with "teapot=transport-error"
+    banish teapot
+
+    # The server-set cookie is visible on the response. `cookies/set` answers a
+    # 302 that carries the Set-Cookie, so the redirect is not followed here: the
+    # final response of a followed chain does not repeat it.
+    var cookie_req as Request is calling Request.new with "GET", "https://httpbin.org/cookies/set?theme=dark"
+    calling cookie_req.no_redirects
+    var cookie as result of Response to HttpError is calling cookie_req.send
+    if cookie.is_ok:
+        var resp as Response is calling petitio.take_response with (sigil of cookie)
+        calling spark.println with "cookie_status={resp.status}"
+        if calling resp.cookies.contains with "theme":
+            var value as string is calling resp.cookies.get with "theme"
+            calling spark.println with "cookie_theme={value}"
+        banish resp
+    else:
+        calling spark.println with "cookie=transport-error"
+    banish cookie
+    banish cookie_req
+
+    # A real JSON API.
+    var api as result of Response to HttpError is calling petitio.get with "https://jsonplaceholder.typicode.com/posts/1"
+    if api.is_ok:
+        var resp as Response is calling petitio.take_response with (sigil of api)
+        var parsed as result of json.JsonValue to json.JsonError is calling resp.json
+        if parsed.is_ok:
+            var root as json.JsonValue is parsed.value
+            var id as maybe json.JsonValue is calling root.get with "id"
+            if id.is_present:
+                var idv as json.JsonValue is id.value
+                var as_int as maybe i64 is calling idv.as_int
+                if as_int.is_present:
+                    calling spark.println with "json_id={as_int.value}"
+                banish as_int
+                banish idv
+            banish id
+        banish parsed
+        banish resp
+    else:
+        calling spark.println with "json=transport-error"
+    banish api
+
+    # Digest authentication answers the 401 challenge.
+    var digest_req as Request is calling Request.new with "GET", "https://httpbin.org/digest-auth/auth/pengu/script/sha-256"
+    calling digest_req.auth_digest with "pengu", "script"
+    var digest as result of Response to HttpError is calling digest_req.send
+    if digest.is_ok:
+        var resp as Response is calling petitio.take_response with (sigil of digest)
+        calling spark.println with "digest_status={resp.status}"
+        banish resp
+    else:
+        calling spark.println with "digest=transport-error"
+    banish digest
+    banish digest_req
+
+    # A 1-second deadline aborts a 10-second delay.
+    var slow_req as Request is calling Request.new with "GET", "https://httpbin.org/delay/10"
+    calling slow_req.timeout with 1.0
+    var slow as result of Response to HttpError is calling slow_req.send
+    if slow.is_ok:
+        calling spark.println with "timeout=no"
+        banish slow
+    else:
+        var failure as HttpError is calling petitio.take_error with (sigil of slow)
+        judge failure:
+            when Timeout with seconds -> calling spark.println with "timeout=yes"
+            else -> calling spark.println with "timeout=other-error"
+        banish failure
+        banish slow
+    banish slow_req
+    return 0
+'''
+    out = _run_live(compile_and_run, program)
+    assert "redirect_status=200" in out, out
+    assert "redirect_followed=true" in out, out
+    assert "raw_status=302" in out, out
+    assert "raw_is_redirect=true" in out, out
+    assert "teapot_status=418" in out, out
+    assert "teapot_client_error=true" in out, out
+    assert "cookie_status=302" in out, out
+    assert "cookie_theme=dark" in out, out
+    assert "json_id=1" in out, out
+    assert "digest_status=200" in out, out
+    assert "timeout=yes" in out, out
+
+
+@_live
+def test_live_tls_http2_streaming_and_parallel(compile_and_run, tmp_path):
+    target = tmp_path / "live_stream.bin"
+    program = f'''
+import std.archivum
+import std.chronicle
+import std.petitio
+import std.spark
+
+weave main into int:
+    # HTTP/2 is negotiated with a server that speaks it.
+    var h2_req as Request is calling Request.new with "GET", "https://www.google.com/"
+    calling h2_req.http_version with HttpVersion.Http2
+    calling h2_req.timeout with 20.0
+    var h2 as result of Response to HttpError is calling h2_req.send
+    if h2.is_ok:
+        var resp as Response is calling petitio.take_response with (sigil of h2)
+        calling spark.println with "h2_status={{resp.status}}"
+        judge resp.http_version:
+            when Http2 -> calling spark.println with "h2_protocol=2"
+            else -> calling spark.println with "h2_protocol=other"
+        banish resp
+    else:
+        calling spark.println with "h2=transport-error"
+    banish h2
+    banish h2_req
+
+    # An expired certificate is a TLS error.
+    var expired as result of Response to HttpError is calling petitio.get with "https://expired.badssl.com/"
+    if expired.is_ok:
+        calling spark.println with "expired=accepted"
+        banish expired
+    else:
+        var failure as HttpError is calling petitio.take_error with (sigil of expired)
+        judge failure:
+            when TlsError with reason -> calling spark.println with "expired=tls-error"
+            else -> calling spark.println with "expired=other-error"
+        banish failure
+        banish expired
+
+    # The same self-signed endpoint works with verification disabled.
+    var insecure_req as Request is calling Request.new with "GET", "https://self-signed.badssl.com/"
+    calling insecure_req.insecure
+    var insecure as result of Response to HttpError is calling insecure_req.send
+    if insecure.is_ok:
+        var resp as Response is calling petitio.take_response with (sigil of insecure)
+        calling spark.println with "insecure_status={{resp.status}}"
+        banish resp
+    else:
+        calling spark.println with "insecure=transport-error"
+    banish insecure
+    banish insecure_req
+
+    # A binary body streams to disk byte for byte.
+    var file_req as Request is calling Request.new with "GET", "https://httpbin.org/stream-bytes/10240"
+    var file_result as result of Response to HttpError is calling file_req.send_to_file with "{target}"
+    if file_result.is_ok:
+        var resp as Response is calling petitio.take_response with (sigil of file_result)
+        calling spark.println with "stream_written={{resp.bytes_written}}"
+        banish resp
+    else:
+        calling spark.println with "stream=transport-error"
+    banish file_result
+    banish file_req
+    var size as maybe int is calling archivum.file_size with "{target}"
+    if size.is_present:
+        calling spark.println with "stream_file={{size.value}}"
+    banish size
+
+    # Three one-second transfers in parallel finish well under the serial sum.
+    var reqs as list of Request is list of Request
+    calling reqs.push with (calling Request.new with "GET", "https://httpbin.org/delay/1")
+    calling reqs.push with (calling Request.new with "GET", "https://httpbin.org/delay/1")
+    calling reqs.push with (calling Request.new with "GET", "https://httpbin.org/delay/1")
+    var watch as chronicle.Stopwatch is calling chronicle.new_stopwatch
+    var results as list of result of Response to HttpError is calling petitio.fetch_many with reqs
+    var elapsed as float is calling watch.elapsed_sec
+    var ok as int is 0
+    var i as int is 0
+    while i < results.len:
+        var r as result of Response to HttpError is results at i
+        if r.is_ok:
+            var resp as Response is calling petitio.take_response with (sigil of r)
+            set ok is ok + 1
+            banish resp
+        banish r
+        set i is i + 1
+    calling spark.println with "many_ok={{ok}}"
+    calling spark.println with "many_elapsed={{elapsed}}"
+    banish results
+    banish reqs
+    return 0
+'''
+    out = _run_live(compile_and_run, program)
+    assert "h2_status=200" in out, out
+    assert "h2_protocol=2" in out, out
+    assert "expired=tls-error" in out, out
+    assert "insecure_status=200" in out, out
+    assert "stream_written=10240" in out, out
+    assert "stream_file=10240" in out, out
+    assert "many_ok=3" in out, out
+    assert "many_elapsed=0." in out or "many_elapsed=1." in out, out

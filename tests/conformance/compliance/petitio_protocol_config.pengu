@@ -1,0 +1,104 @@
+## Protocol, authentication and streaming configuration (offline).
+##
+## No socket is opened: every check inspects a `Request` or an `HttpError` value.
+## The live half (HTTP/2 against Google, digest against httpbin, TLS against
+## badssl) runs in `tests/compat/test_petitio_vs_requests.py` with
+## `PETITIO_LIVE=1`, because public test services are not a CI dependency.
+import std.petitio
+import std.spark
+import std.scrolls
+
+weave eq_s with got as string, want as string, name as string into void:
+    if (calling scrolls.compare with got, want) != 0:
+        calling spark.println with "FAIL {name}: '{got}' != '{want}'"
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave eq_b with got as bool, want as bool, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave main into int:
+    var req as Request is calling Request.new with "GET", "https://example.com/"
+    defer banish req
+
+    # HTTP version: HTTP/1.1 by default; the builder selects the rest.
+    judge req.http_version:
+        when Http11 -> calling spark.println with "default=Http11"
+        else -> calling spark.println with "FAIL default version"
+    calling req.http_version with HttpVersion.Http2
+    judge req.http_version:
+        when Http2 -> calling spark.println with "selected=Http2"
+        else -> calling spark.println with "FAIL Http2"
+    calling req.http_version with HttpVersion.Http2PriorKnowledge
+    judge req.http_version:
+        when Http2PriorKnowledge -> calling spark.println with "selected=PriorKnowledge"
+        else -> calling spark.println with "FAIL prior knowledge"
+    calling req.http_version with HttpVersion.Http10
+    judge req.http_version:
+        when Http10 -> calling spark.println with "selected=Http10"
+        else -> calling spark.println with "FAIL Http10"
+
+    # Authentication: credentials and mode move together.
+    judge req.auth_mode:
+        when NoAuth -> calling spark.println with "auth=NoAuth"
+        else -> calling spark.println with "FAIL default auth"
+    calling req.auth_basic with "u", "p"
+    calling eq_s with req.basic_user, "u", "basic user"
+    judge req.auth_mode:
+        when BasicAuth -> calling spark.println with "auth=BasicAuth"
+        else -> calling spark.println with "FAIL basic mode"
+    calling req.auth_digest with "u", "p"
+    judge req.auth_mode:
+        when DigestAuth -> calling spark.println with "auth=DigestAuth"
+        else -> calling spark.println with "FAIL digest mode"
+    calling req.auth_any with "u", "p"
+    judge req.auth_mode:
+        when AnyAuth -> calling spark.println with "auth=AnyAuth"
+        else -> calling spark.println with "FAIL any mode"
+
+    # SOCKS proxies: socks5h by default (DNS on the proxy), explicit scheme kept.
+    calling req.socks_proxy with "127.0.0.1:1080", ""
+    calling eq_s with req.proxy, "socks5h://127.0.0.1:1080", "socks default"
+    calling req.socks_proxy with "socks5://127.0.0.1:1080", "u:p"
+    calling eq_s with req.proxy, "socks5://127.0.0.1:1080", "explicit scheme"
+    calling eq_s with req.proxy_credentials, "u:p", "proxy credentials"
+
+    # A hand-built response reports zero written bytes and HTTP/1.1.
+    var headers as map of string to string is map of string to string
+    var cookies as map of string to string is map of string to string
+    var cleared as list of string is list of string
+    var resp as Response is:
+        status is 200
+        headers is headers
+        body is ""
+        url is "https://example.com/"
+        elapsed_sec is 0.0
+        bytes_written is 0
+        http_version is HttpVersion.Http11
+        redirected is false
+        cookies is cookies
+        cleared_cookies is cleared
+    calling eq_i with (resp.bytes_written to int), 0, "empty response written"
+    judge resp.http_version:
+        when Http11 -> calling spark.println with "response=Http11"
+        else -> calling spark.println with "FAIL response version"
+    banish resp
+
+    # The two streaming-only error variants explain themselves.
+    var io_error as HttpError is with IoError is "cannot open output file: /nope"
+    var io_message as string is calling io_error.message
+    calling eq_s with io_message, "I/O error: cannot open output file: /nope", "io message"
+    banish io_message
+    banish io_error
+    var cancelled as HttpError is Cancelled
+    var cancelled_message as string is calling cancelled.message
+    calling eq_s with cancelled_message, "transfer cancelled by callback", "cancelled message"
+    banish cancelled_message
+    banish cancelled
+
+    calling eq_b with (calling req.has_header with "x-missing"), false, "no stray header"
+    calling spark.println with "OK petitio_protocol_config"
+    return 0
