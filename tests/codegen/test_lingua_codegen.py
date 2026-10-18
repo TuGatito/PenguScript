@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,8 @@ def test_bundle_compiles_cleanly_with_every_compiler(pengu_cli, tmp_path):
 
 
 def test_no_leaks_under_address_sanitizer(pengu_cli, tmp_path):
+    if sys.platform != "linux":
+        pytest.skip("ASan leak detection runs on the Linux CI job")
     cc = shutil.which("gcc") or shutil.which("clang")
     if not cc:
         pytest.skip("no C compiler available")
@@ -100,8 +103,7 @@ def test_no_leaks_under_address_sanitizer(pengu_cli, tmp_path):
          "-I", str(ROOT), "-I", str(ROOT / "build" / "include"),
          "-I", str(ROOT / "std_c"),
          "-L", str(ROOT / "build" / "lib"),
-         "-Wl,--start-group", "-lpengu_runtime", "-pthread", "-lm", "-ldl",
-         "-Wl,--end-group"],
+         "-lpengu_runtime", "-pthread", "-lm", "-ldl"],
         capture_output=True, text=True, timeout=600,
     )
     assert link.returncode == 0, f"ASan link failed:\n{link.stdout}\n{link.stderr}"
