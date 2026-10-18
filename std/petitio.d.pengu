@@ -133,6 +133,9 @@ declare petitio_request_set_max_body with request as ref to petitio_request, max
 # Basic authentication (RFC 7617). Empty user disables it.
 declare petitio_request_set_basic_auth with request as ref to petitio_request, user as string, password as string into void
 
+# Authentication scheme: 0 = none, 1 = Basic, 2 = Digest, 3 = any.
+declare petitio_request_set_auth_mode with request as ref to petitio_request, mode as int into void
+
 # HTTP proxy, e.g. "http://127.0.0.1:8080". Empty disables it.
 declare petitio_request_set_proxy with request as ref to petitio_request, proxy as string, credentials as string into void
 

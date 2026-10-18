@@ -170,6 +170,7 @@ struct petitio_request {
     int64_t max_body;
     char *username;
     char *password;
+    int auth_mode;
     char *proxy;
     char *proxy_credentials;
     petitio_part *parts;
@@ -347,6 +348,13 @@ void petitio_request_set_basic_auth(petitio_request *request, PenguString user,
     free(request->password);
     request->username = user_copy;
     request->password = password_copy;
+}
+
+void petitio_request_set_auth_mode(petitio_request *request, int mode)
+{
+    if (request == NULL)
+        return;
+    request->auth_mode = mode < 0 || mode > 3 ? 0 : mode;
 }
 
 void petitio_request_set_proxy(petitio_request *request, PenguString proxy,
@@ -690,7 +698,12 @@ static petitio_response *petitio_perform(petitio_request *request)
                              request->proxy_credentials);
     }
     if (request->username != NULL) {
-        curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
+        long scheme = CURLAUTH_BASIC;
+        if (request->auth_mode == 2)
+            scheme = CURLAUTH_DIGEST;
+        else if (request->auth_mode == 3)
+            scheme = CURLAUTH_ANY;
+        curl_easy_setopt(curl, CURLOPT_HTTPAUTH, scheme);
         curl_easy_setopt(curl, CURLOPT_USERNAME, request->username);
         curl_easy_setopt(curl, CURLOPT_PASSWORD,
                          request->password != NULL ? request->password : "");

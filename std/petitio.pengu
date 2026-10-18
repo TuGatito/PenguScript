@@ -242,6 +242,22 @@ omen HttpVersion:
     ## negotiate it when the library supports it.
     Http3
 
+## How a request authenticates with `basic_user` / `basic_password`.
+##
+## ## Memoria
+## A plain C enum: no heap, nothing to release.
+omen AuthMode:
+    ## No authentication (the default).
+    NoAuth
+    ## HTTP Basic (RFC 7617): the credentials travel on every request.
+    BasicAuth
+    ## HTTP Digest (RFC 7616): libcurl answers the server's `401` challenge and
+    ## retries with a hashed response. The password never crosses the wire.
+    DigestAuth
+    ## Negotiates: libcurl picks the strongest scheme the server offers
+    ## (Digest when available, Basic otherwise).
+    AnyAuth
+
 ## A configurable HTTP request.
 ##
 ## Build it with `Request.new`, mutate it with the builder methods, send it with
@@ -280,10 +296,13 @@ rune Request derive Nexus:
     ## Abort with `HttpError.BodyTooLarge` once the body exceeds this many
     ## bytes. `0` means unlimited.
     max_body_bytes as i64
-    ## Basic-auth user name; empty disables Basic authentication.
+    ## Authentication user name; empty disables authentication.
     basic_user as string
-    ## Basic-auth password (ignored when `basic_user` is empty).
+    ## Authentication password (ignored when `basic_user` is empty).
     basic_password as string
+    ## Authentication scheme. Set it with `auth_basic`, `auth_digest` or
+    ## `auth_any`; `NoAuth` (the default) sends no credentials.
+    auth_mode as AuthMode
     ## Bearer token; empty disables it. An explicit `Authorization` header wins.
     bearer_token as string
     ## Proxy URL, e.g. `"http://127.0.0.1:8080"`; empty disables the proxy.
@@ -672,6 +691,7 @@ enchanting Request:
             max_body_bytes is 0
             basic_user is ""
             basic_password is ""
+            auth_mode is AuthMode.NoAuth
             bearer_token is ""
             proxy is ""
             proxy_credentials is ""
@@ -793,11 +813,43 @@ enchanting Request:
         set self->http_version is version
 
     ## Sends HTTP Basic credentials (RFC 7617).
+    ##
+    ## ## Advertencia
+    ## Basic sends the password on every request; over plain HTTP that is
+    ## readable by anyone on the path. Use HTTPS.
     weave auth_basic with user as string, password as string into void:
         banish self->basic_user
         banish self->basic_password
         set self->basic_user is (calling _copy with user)
         set self->basic_password is (calling _copy with password)
+        set self->auth_mode is AuthMode.BasicAuth
+
+    ## Sends HTTP Digest credentials (RFC 7616).
+    ##
+    ## libcurl answers the server's `401` challenge and retries with a hashed
+    ## response, so the password never crosses the wire. The server must offer
+    ## Digest; if it does not, the request fails with the server's `401` status.
+    ##
+    ## ## Advertencia
+    ## Digest over plain HTTP still lets an attacker capture and replay the
+    ## exchange. Use HTTPS.
+    weave auth_digest with user as string, password as string into void:
+        banish self->basic_user
+        banish self->basic_password
+        set self->basic_user is (calling _copy with user)
+        set self->basic_password is (calling _copy with password)
+        set self->auth_mode is AuthMode.DigestAuth
+
+    ## Negotiates the authentication scheme with the server.
+    ##
+    ## libcurl uses the strongest scheme the server offers (Digest when
+    ## available, Basic otherwise).
+    weave auth_any with user as string, password as string into void:
+        banish self->basic_user
+        banish self->basic_password
+        set self->basic_user is (calling _copy with user)
+        set self->basic_password is (calling _copy with password)
+        set self->auth_mode is AuthMode.AnyAuth
 
     ## Sends `Authorization: Bearer <token>`.
     ##
@@ -805,6 +857,30 @@ enchanting Request:
     weave auth_bearer with token as string into void:
         banish self->bearer_token
         set self->bearer_token is (calling _copy with token)
+
+    ## Routes the request through a SOCKS5 proxy, resolving DNS **on the proxy**.
+    ##
+    ## Equivalent to `proxy("socks5h://" + url, credentials)`. The `h` matters:
+    ## `socks5h` sends the host name to the proxy instead of resolving it
+    ## locally, so the proxy (not your machine) sees the destination and no DNS
+    ## query leaks. A URL that already carries a scheme (`socks5://`,
+    ## `socks5h://`, `http://`) is used as given.
+    ##
+    ## ## Parámetros
+    ## - `url`: `"host:port"` (for example `"127.0.0.1:1080"`).
+    ## - `credentials`: `"user:password"`, or `""` for an open proxy.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling req.socks_proxy with "127.0.0.1:1080", ""
+    ## ```
+    weave socks_proxy with url as string, credentials as string into void:
+        if calling scrolls.contains with url, "://":
+            calling self.proxy with url, credentials
+            return
+        var full as string is "socks5h://{url}"
+        calling self.proxy with full, credentials
+        banish full
 
     ## Routes the request through `proxy` (`"http://host:port"`), optionally
     ## authenticated with `"user:password"`.
@@ -1339,6 +1415,14 @@ weave _http_version_from_code with code as int into HttpVersion:
         when 4 -> HttpVersion.Http3
         else -> HttpVersion.Http11
 
+## The C code for `AuthMode` (0 = none, 1 = Basic, 2 = Digest, 3 = any).
+weave _auth_mode_code with mode as AuthMode into int:
+    return judge mode:
+        when NoAuth -> 0
+        when BasicAuth -> 1
+        when DigestAuth -> 2
+        when AnyAuth -> 3
+
 ## Sends `request`, merging `overlay_headers` (session defaults, never
 ## overriding a request header) and `cookies` (as a `Cookie` header).
 weave _perform with request as ref to Request, overlay_headers as ref to map of string to string, cookies as ref to map of string to string into result of Response to HttpError:
@@ -1386,6 +1470,7 @@ weave _perform with request as ref to Request, overlay_headers as ref to map of 
     calling petitio_request_set_verify_tls with handle, (calling _flag with request->verify_tls)
     calling petitio_request_set_max_body with handle, request->max_body_bytes
     if (request->basic_user length) > 0:
+        calling petitio_request_set_auth_mode with handle, (calling _auth_mode_code with request->auth_mode)
         calling petitio_request_set_basic_auth with handle, request->basic_user, request->basic_password
     if (request->proxy length) > 0:
         calling petitio_request_set_proxy with handle, request->proxy, request->proxy_credentials
@@ -1893,6 +1978,30 @@ test "the response protocol code maps back to an HttpVersion":
     var v3 as HttpVersion is calling _http_version_from_code with 4
     if v3 != HttpVersion.Http3:
         calling spark.panic with "petitio test failed: HTTP/3 mapping"
+
+test "authentication modes are selected by their builders":
+    var req as Request is calling Request.new with "GET", "https://example.com/"
+    calling _expect_int with (calling _auth_mode_code with req.auth_mode), 0, "no auth by default"
+    calling req.auth_basic with "u", "p"
+    calling _expect_int with (calling _auth_mode_code with req.auth_mode), 1, "basic"
+    calling req.auth_digest with "u", "p"
+    calling _expect_int with (calling _auth_mode_code with req.auth_mode), 2, "digest"
+    calling req.auth_any with "u", "p"
+    calling _expect_int with (calling _auth_mode_code with req.auth_mode), 3, "any"
+    calling _expect_str with req.basic_user, "u", "user stored"
+    calling _expect_str with req.basic_password, "p", "password stored"
+    banish req
+
+test "socks_proxy prefixes socks5h and keeps an explicit scheme":
+    var req as Request is calling Request.new with "GET", "https://example.com/"
+    calling req.socks_proxy with "127.0.0.1:1080", ""
+    calling _expect_str with req.proxy, "socks5h://127.0.0.1:1080", "socks5h prefix"
+    calling req.socks_proxy with "socks5://127.0.0.1:1080", ""
+    calling _expect_str with req.proxy, "socks5://127.0.0.1:1080", "explicit scheme kept"
+    calling req.socks_proxy with "socks5h://127.0.0.1:1080", "u:p"
+    calling _expect_str with req.proxy, "socks5h://127.0.0.1:1080", "socks5h kept"
+    calling _expect_str with req.proxy_credentials, "u:p", "credentials kept"
+    banish req
 
 test "Session cookie jar operations":
     var session as Session is calling Session.new

@@ -127,6 +127,10 @@ void petitio_request_set_max_body(petitio_request *request, int64_t max_bytes);
 void petitio_request_set_basic_auth(petitio_request *request, PenguString user,
                                     PenguString password);
 
+/* Authentication scheme: 0 = no auth, 1 = Basic (RFC 7617), 2 = Digest
+ * (RFC 7616), 3 = negotiate any scheme the server offers. */
+void petitio_request_set_auth_mode(petitio_request *request, int mode);
+
 /* HTTP proxy, e.g. "http://127.0.0.1:8080". Empty disables it. */
 void petitio_request_set_proxy(petitio_request *request, PenguString proxy,
                                PenguString credentials);
