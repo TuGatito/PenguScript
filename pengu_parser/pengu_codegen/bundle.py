@@ -311,12 +311,42 @@ class BundleMixin:
             stack = []
             self._loop_release_stack = stack
         stack.append((getattr(node, "loop_label", None), release))
+        # Defer scopes opened inside the loop body must run when a `break` /
+        # `continue` leaves them.  The baseline is the scope depth *outside* the
+        # body, so the jump site can release exactly the scopes the jump leaves.
+        depth_stack = getattr(self, "_loop_defer_baseline", None)
+        if depth_stack is None:
+            depth_stack = []
+            self._loop_defer_baseline = depth_stack
+        depth_stack.append(len(getattr(self, "defer_stack", []) or []))
 
     def _pop_loop_scope(self) -> None:
         """Leaves the innermost loop body (see :meth:`_push_loop_scope`)."""
         stack = getattr(self, "_loop_release_stack", None)
         if stack:
             stack.pop()
+        depth_stack = getattr(self, "_loop_defer_baseline", None)
+        if depth_stack:
+            depth_stack.pop()
+
+    def _scope_exit_defers(self, baseline: int = 0, ind: str = "") -> List[str]:
+        """Cleanup lines for the defer scopes at or above ``baseline``.
+
+        Args:
+            baseline: first scope index to release. ``0`` means every active
+                block scope (the `return` case); a loop baseline releases only
+                the scopes opened inside that loop body.
+            ind: indentation to prefix to each line.
+
+        Returns:
+            The concatenated ``defer`` cleanups, innermost scope first.
+        """
+        lines: List[str] = []
+        stack = getattr(self, "defer_stack", None) or []
+        for scope in reversed(stack[baseline:]):
+            for deferred in reversed(scope):
+                lines.append(self._format_defer_cleanup(deferred, ind))
+        return lines
 
     def _loop_exit_releases(self) -> list:
         """Release statements for every loop a `return` leaves.

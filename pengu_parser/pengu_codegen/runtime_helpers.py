@@ -25,6 +25,7 @@ from ._base import (
     SliceType,
     Token,
     Tree,
+    TupleType,
     Type,
     type_has_derived_nexus,
 )
@@ -148,6 +149,19 @@ class RuntimeMixin:
                     f"{err_body}"
                     f"{ind}      free({box}->err_val); {box}->err_val = NULL; }} }}\n"
                     f"{ind}  }}")
+        if isinstance(u, TupleType):
+            # A tuple is a plain C struct of independent fields; its payload
+            # cleanup is the concatenation of each field's cleanup. Without this
+            # case a `result of (list of T, int)` leaked the list: `banish` on
+            # the result freed only the box.
+            tuple_c = CTypeMapper.to_c_type(u)
+            lines = []
+            for index, element in enumerate(u.elements):
+                field_ptr = f"(&(({tuple_c} *)({ptr_expr}))->v{index})"
+                inner = self._release_payload_stmts(element, field_ptr, ind, deep=deep)
+                if inner.strip():
+                    lines.append(inner)
+            return "\n".join(lines)
         if isinstance(u, RuneType):
             cleanup = self._element_cleanup_fn(u)
             if cleanup is not None:

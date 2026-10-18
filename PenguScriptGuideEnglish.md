@@ -743,6 +743,68 @@ weave reply with id as JsonRpcId, result as JsonValue into string:
 - Validate the `id` before responding: `null` and floats are invalid ids.
 
 
+### 4.19 Text processing: `std.lingua` and `std.regulus`
+
+`std.scrolls` works on **bytes**, which is right for ASCII, search/replace and
+byte-exact protocols. The moment text can contain non-ASCII codepoints, bytes are
+the wrong unit: `"ñ".length` is `2`, `"😀".length` is `4`, and iterating a
+string yields encoding bytes, not characters.
+
+**Rule 1 — operate on codepoints, not bytes, when the text may be non-ASCII.**
+Use `lingua.decode`/`encode` at the boundary and keep byte offsets only for
+positions, not for character decisions.
+
+**Rule 2 — validate external input before processing it.** `lingua.is_valid` is
+O(n) and allocates nothing; `validate` returns an error with the exact byte
+offset. A parser that assumes UTF-8 and discovers otherwise halfway through has
+already produced a partial result.
+
+```pengu
+import std.lingua
+import std.spark
+
+weave main into int:
+    var checked as result of void to LinguaError is calling lingua.validate with "año"
+    if not checked.is_ok:
+        calling spark.eprintln with "input is not UTF-8"
+        return 1
+    banish checked
+    var decoded as result of list of Codepoint to LinguaError is calling lingua.decode with "año"
+    if not decoded.is_ok:
+        return 1
+    var cps as list of Codepoint is decoded.value
+    calling spark.println_int with cps.len          # 3 codepoints, 4 bytes
+    banish decoded
+    return 0
+```
+
+**Rule 3 — compile a regex once and reuse it.** `Regex.compile` copies the
+pattern and owns one compiled block; compiling inside a loop repeats work and
+allocation for no reason. Release the result, not the borrowed `rx`.
+
+```pengu
+import std.regulus
+import std.spark
+
+weave main into int:
+    var compiled as result of Regex to RegexError is calling Regex.compile with "[0-9]+"
+    if not compiled.is_ok:
+        return 1
+    var rx as Regex is compiled.value
+    calling spark.println_bool with (calling rx.is_match with "abc123")
+    banish compiled
+    return 0
+```
+
+**Rule 4 — escape user input before it becomes a pattern.** `regulus.escape`
+quotes every metacharacter. Concatenating raw input into a pattern is how a
+validator becomes a denial of service or, worse, matches something else.
+
+**Rule 5 — use the smallest engine that fits.** `std.regulus` has a complete,
+documented grammar: `. ^ $ * + ? [] \d \w \s`. No groups, no alternation, no
+`{n,m}`, no lookaround, no backreferences. If the pattern needs any of those,
+install a PCRE satellite explicitly rather than encoding a parser in a regex.
+
 ---
 
 ## 5. Optionals, results and errors
@@ -3034,3 +3096,85 @@ banish obj
 `std.json` serializes `JsonValue`, not arbitrary PenguScript values. The
 conversion is the schema: it makes field order, renaming and omitted fields
 visible at the call site.
+
+### 14.36 Iterating `for ch in s` to process UTF-8 text
+
+```pengu-invalid
+# ❌ Anti-Pengunic: iterates encoding bytes; 'ch' is a one-byte string, so a
+#    multibyte character is split and every count is a byte count.
+for ch in text:
+    if ch == "ñ":
+        calling spark.println with "found"
+```
+
+```pengu
+# ✅ Pengunic: decode first, then decide on codepoints
+var decoded as result of list of Codepoint to LinguaError is calling lingua.decode with text
+if decoded.is_ok:
+    var cps as list of Codepoint is decoded.value
+    var i as int is 0
+    while i < cps.len:
+        if (cps at i) to u32 == 0xF1:
+            calling spark.println with "found"
+        set i is i + 1
+    banish decoded
+```
+
+`scrolls.char_at` and `for ch in s` are byte operations. They are correct for
+ASCII and for byte-exact protocols; use `lingua` when the unit is a character.
+
+### 14.37 Using a regex to parse JSON, HTML or XML
+
+```pengu-invalid
+# ❌ Anti-Pengunic: a regex cannot parse nested structures, quoted delimiters
+#    or escapes. This accepts some invalid documents and rejects valid ones.
+var compiled as result of Regex to RegexError is calling Regex.compile with r"\{[^}]*\}"
+```
+
+```pengu
+# ✅ Pengunic: use the parser that owns the grammar
+var parsed as result of JsonValue to json.JsonError is calling json.parse with text
+```
+
+Regexes match regular languages. JSON, HTML and XML are not regular. Use
+`std.json` for JSON and a real parser (or `std.ledger` for CSV) for the rest.
+
+### 14.38 Building a regex by concatenating raw strings
+
+```pengu-invalid
+# ❌ Anti-Pengunic: user text is interpreted as pattern syntax
+var compiled as result of Regex to RegexError is calling Regex.compile with user_input
+```
+
+```pengu
+# ✅ Pengunic: quote the literal, then compose deliberately
+var quoted as string is calling regulus.escape with user_input
+var pattern as string is "{quoted}$"
+var compiled as result of Regex to RegexError is calling Regex.compile with pattern
+banish pattern
+banish quoted
+```
+
+`regulus.escape` makes a literal a literal. If the input is meant to be a
+pattern, say so at the API boundary and document the grammar the user may use.
+
+### 14.39 Using `std.regulus` for complex validation (RFC 5322 e-mail, URLs)
+
+```pengu-invalid
+# ❌ Anti-Pengunic: "validate an e-mail with a regex" is a shape check,
+#    not delivery, and the full RFC grammar does not fit this engine.
+var compiled as result of Regex to RegexError is calling Regex.compile with "^[^@]+@[^@]+$"
+```
+
+```pengu
+# ✅ Pengunic: check the shape explicitly, then let the real system decide
+var at as int is calling scrolls.find with address, "@"
+if at <= 0 or at >= (address length) - 1:
+    return 1
+# ... send a confirmation mail; that is the only real validation ...
+```
+
+A regex can reject obvious typos. It cannot prove an address exists, and RFC 5322
+has comments, quoted local parts and domain literals that this engine cannot
+express. If the validation is genuinely complex, install a PCRE satellite and
+document the grammar; do not smuggle a parser into a tiny engine.

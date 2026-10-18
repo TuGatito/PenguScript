@@ -43,7 +43,7 @@ let tmp as string is calling archivum.temp_dir
 
 ### `ARCHIVUM_VERSION`
 
-> const string` = 2.1.0`
+> const string` = 2.11.0`
 
 Module version identifier for std.archivum.
 

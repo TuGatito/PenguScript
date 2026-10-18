@@ -1,0 +1,44 @@
+## Validation reports the exact byte offset of the first bad sequence.
+import std.spark
+import std.ward
+import std.lingua
+
+weave offset_of with s as string into int:
+    var r as result of void to LinguaError is calling lingua.validate with s
+    if r.is_ok:
+        banish r
+        return -1
+    var e as LinguaError is r.error
+    var code as int is judge e:
+        when InvalidByte -> 1
+        when TruncatedSequence -> 2
+        when OverlongEncoding -> 3
+        when SurrogateCodepoint -> 4
+        when CodepointOutOfRange -> 5
+        when IndexOutOfRange -> 6
+    banish r
+    return code
+
+weave main into int:
+    calling ward.assert_true with (calling lingua.is_valid with "")
+    calling ward.assert_true with (calling lingua.is_valid with "hola")
+    calling ward.assert_true with (calling lingua.is_valid with "ñ😀")
+    calling ward.assert_false with (calling lingua.is_valid with "\xFF")
+    calling ward.assert_false with (calling lingua.is_valid with "\x80")
+
+    var good as result of void to LinguaError is calling lingua.validate with "ñ"
+    calling ward.assert_true with good.is_ok
+    banish good
+
+    var bad as result of void to LinguaError is calling lingua.validate with "a\xFF"
+    calling ward.assert_false with bad.is_ok
+    banish bad
+
+    calling ward.assert_eq_int with (calling offset_of with "\xFF"), 1
+    calling ward.assert_eq_int with (calling offset_of with "\xC0\x80"), 3
+    calling ward.assert_eq_int with (calling offset_of with "\xED\xA0\x80"), 4
+    calling ward.assert_eq_int with (calling offset_of with "\xF4\x90\x80\x80"), 5
+    calling ward.assert_eq_int with (calling offset_of with "\xE2\x82"), 2
+
+    calling spark.println with "OK lingua_validate"
+    return 0

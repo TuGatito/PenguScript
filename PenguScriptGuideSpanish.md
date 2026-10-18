@@ -742,6 +742,70 @@ weave responder with id as JsonRpcId, result as JsonValue into string:
 - Valida el `id` antes de responder: `null` y los floats son ids inválidos.
 
 
+### 4.19 Procesamiento de texto: `std.lingua` y `std.regulus`
+
+`std.scrolls` trabaja sobre **bytes**, que es lo correcto para ASCII, búsqueda y
+reemplazo y protocolos byte-exactos. En el momento en que el texto puede contener
+codepoints no ASCII, el byte es la unidad equivocada: `"ñ".length` es `2`,
+`"😀".length` es `4`, e iterar un string devuelve bytes de codificación, no
+caracteres.
+
+**Regla 1 — opera sobre codepoints, no sobre bytes, cuando el texto pueda no ser
+ASCII.** Usa `lingua.decode`/`encode` en la frontera y conserva los offsets de
+byte solo para posiciones, no para decisiones sobre caracteres.
+
+**Regla 2 — valida la entrada externa antes de procesarla.** `lingua.is_valid` es
+O(n) y no aloca; `validate` devuelve un error con el offset de byte exacto. Un
+parser que asume UTF-8 y lo descubre a mitad ya ha producido un resultado parcial.
+
+```pengu
+import std.lingua
+import std.spark
+
+weave main into int:
+    var checked as result of void to LinguaError is calling lingua.validate with "año"
+    if not checked.is_ok:
+        calling spark.eprintln with "la entrada no es UTF-8"
+        return 1
+    banish checked
+    var decoded as result of list of Codepoint to LinguaError is calling lingua.decode with "año"
+    if not decoded.is_ok:
+        return 1
+    var cps as list of Codepoint is decoded.value
+    calling spark.println_int with cps.len          # 3 codepoints, 4 bytes
+    banish decoded
+    return 0
+```
+
+**Regla 3 — compila una regex una vez y reutilízala.** `Regex.compile` copia el
+patrón y posee un bloque compilado; compilar dentro de un bucle repite trabajo y
+reservas sin motivo. Libera el resultado, no el `rx` prestado.
+
+```pengu
+import std.regulus
+import std.spark
+
+weave main into int:
+    var compiled as result of Regex to RegexError is calling Regex.compile with "[0-9]+"
+    if not compiled.is_ok:
+        return 1
+    var rx as Regex is compiled.value
+    calling spark.println_bool with (calling rx.is_match with "abc123")
+    banish compiled
+    return 0
+```
+
+**Regla 4 — escapa la entrada de usuario antes de convertirla en patrón.**
+`regulus.escape` cita todos los metacaracteres. Concatenar entrada cruda en un
+patrón es cómo un validador se convierte en una denegación de servicio o, peor,
+en algo que valida otra cosa.
+
+**Regla 5 — usa el motor más pequeño que encaje.** `std.regulus` tiene una
+gramática completa y documentada: `. ^ $ * + ? [] \d \w \s`. Sin grupos, sin
+alternancia, sin `{n,m}`, sin lookaround, sin backreferences. Si el patrón
+necesita algo de eso, instala un satélite PCRE explícitamente en vez de meter un
+parser dentro de una regex.
+
 ---
 
 ## 5. Optionals, resultados y errores
@@ -3037,3 +3101,88 @@ banish obj
 `std.json` serializa `JsonValue`, no valores arbitrarios de PenguScript. La
 conversión es el schema: hace visibles el orden, el renombrado y los campos
 omitidos en el punto de llamada.
+
+### 14.36 Iterar `for ch in s` para procesar texto UTF-8
+
+```pengu-invalid
+# ❌ Anti-Pengunic: itera bytes de codificación; 'ch' es un string de un byte,
+#    así que un carácter multibyte se parte y cada cuenta es una cuenta de bytes.
+for ch in text:
+    if ch == "ñ":
+        calling spark.println with "encontrado"
+```
+
+```pengu
+# ✅ Pengunic: decodifica primero y decide sobre codepoints
+var decoded as result of list of Codepoint to LinguaError is calling lingua.decode with text
+if decoded.is_ok:
+    var cps as list of Codepoint is decoded.value
+    var i as int is 0
+    while i < cps.len:
+        if (cps at i) to u32 == 0xF1:
+            calling spark.println with "encontrado"
+        set i is i + 1
+    banish decoded
+```
+
+`scrolls.char_at` y `for ch in s` son operaciones de byte. Son correctas para
+ASCII y para protocolos byte-exactos; usa `lingua` cuando la unidad sea un
+carácter.
+
+### 14.37 Usar una regex para parsear JSON, HTML o XML
+
+```pengu-invalid
+# ❌ Anti-Pengunic: una regex no puede parsear estructuras anidadas, delimitadores
+#    entrecomillados ni escapes. Acepta documentos inválidos y rechaza válidos.
+var compiled as result of Regex to RegexError is calling Regex.compile with r"\{[^}]*\}"
+```
+
+```pengu
+# ✅ Pengunic: usa el parser dueño de la gramática
+var parsed as result of JsonValue to json.JsonError is calling json.parse with text
+```
+
+Las regexes casan lenguajes regulares. JSON, HTML y XML no lo son. Usa
+`std.json` para JSON y un parser real (o `std.ledger` para CSV) para el resto.
+
+### 14.38 Construir una regex concatenando strings crudos
+
+```pengu-invalid
+# ❌ Anti-Pengunic: el texto del usuario se interpreta como sintaxis de patrón
+var compiled as result of Regex to RegexError is calling Regex.compile with user_input
+```
+
+```pengu
+# ✅ Pengunic: cita el literal y compón de forma deliberada
+var quoted as string is calling regulus.escape with user_input
+var pattern as string is "{quoted}$"
+var compiled as result of Regex to RegexError is calling Regex.compile with pattern
+banish pattern
+banish quoted
+```
+
+`regulus.escape` hace que un literal sea un literal. Si la entrada debe ser un
+patrón, dilo en la frontera de la API y documenta la gramática que el usuario
+puede usar.
+
+### 14.39 Usar `std.regulus` para validación compleja (e-mail RFC 5322, URLs)
+
+```pengu-invalid
+# ❌ Anti-Pengunic: "validar un e-mail con una regex" es una comprobación de
+#    forma, no de entrega, y la gramática RFC completa no cabe en este motor.
+var compiled as result of Regex to RegexError is calling Regex.compile with "^[^@]+@[^@]+$"
+```
+
+```pengu
+# ✅ Pengunic: comprueba la forma explícitamente y deja decidir al sistema real
+var at as int is calling scrolls.find with address, "@"
+if at <= 0 or at >= (address length) - 1:
+    return 1
+# ... envía un correo de confirmación; esa es la única validación real ...
+```
+
+Una regex puede rechazar erratas obvias. No puede probar que una dirección existe,
+y RFC 5322 tiene comentarios, partes locales entrecomilladas y dominios literales
+que este motor no expresa. Si la validación es realmente compleja, instala un
+satélite PCRE y documenta la gramática; no escondas un parser dentro de un motor
+diminuto.

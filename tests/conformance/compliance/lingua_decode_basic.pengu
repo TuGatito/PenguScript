@@ -1,0 +1,27 @@
+## Decoding ASCII, multibyte BMP and astral text.
+import std.spark
+import std.ward
+import std.lingua
+
+weave check with s as string, expected_len as int, first_cp as u32 into void:
+    var r as result of list of Codepoint to LinguaError is calling lingua.decode with s
+    calling ward.assert_true with r.is_ok
+    var cps as list of Codepoint is r.value
+    calling ward.assert_eq_int with cps.len, expected_len
+    if expected_len > 0:
+        calling ward.assert_eq_int with ((cps at 0) to u32) to int, first_cp to int
+    banish r
+
+weave main into int:
+    calling check with "hola", 4, 0x68
+    calling check with "日本語", 3, 0x65E5
+    calling check with "😀", 1, 0x1F600
+    calling check with "ñ", 1, 0xF1
+    calling check with "", 0, 0
+
+    calling ward.assert_eq_int with (calling lingua.codepoint_count with "hola"), 4
+    calling ward.assert_eq_int with (calling lingua.codepoint_count with "日本語"), 3
+    calling ward.assert_eq_int with (calling lingua.codepoint_count with "ñ😀"), 2
+
+    calling spark.println with "OK lingua_decode_basic"
+    return 0

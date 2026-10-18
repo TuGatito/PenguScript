@@ -261,6 +261,93 @@ def build_pengu_runtime(cc, ar, rebuild=False):
     return target_lib
 
 
+def _std_c_sources():
+    """Returns the vendored C translation units under ``std_c/``.
+
+    Each ``std_c/<name>.c`` becomes ``lib<name>.a`` so a module that imports
+    the matching binding can ask for it with ``link "<name>"``. A program that
+    never imports that binding never receives the ``-l`` flag, which is the
+    smart-linking contract this directory exists for.
+    """
+    std_c_dir = ROOT_DIR / "std_c"
+    if not std_c_dir.is_dir():
+        return []
+    return sorted(p for p in std_c_dir.glob("*.c") if p.is_file())
+
+
+def build_std_c(cc, ar, dest_dir, rebuild=False, extra_flags=None):
+    """Compiles every ``std_c/*.c`` into ``<dest_dir>/lib/lib<name>.a``.
+
+    The archives are cached by mtime against the ``.c`` file and every header
+    in ``std_c/`` (a header-only dependency such as ``utf8.h`` can change the
+    generated code without touching the ``.c``). Compilation is strict:
+    ``-std=c99 -Wall -Wextra -Werror`` so a warning in the vendored code is a
+    build failure rather than noise in every consumer build.
+
+    Args:
+        cc: C compiler executable.
+        ar: Static archiver executable.
+        dest_dir: Build root; the archives land in ``dest_dir/lib``.
+        rebuild: Force a rebuild even when the archive is newer than its inputs.
+        extra_flags: Additional compiler flags (used by the wasm build).
+
+    Returns:
+        The list of created archive names (without the ``lib`` prefix/ext), or
+        an empty list when ``std_c/`` has no C sources.
+    """
+    sources = _std_c_sources()
+    if not sources:
+        print("[STD_C] no std_c/*.c sources found; skipping.")
+        return []
+
+    std_c_dir = ROOT_DIR / "std_c"
+    lib_dir = Path(dest_dir) / "lib"
+    obj_dir = Path(dest_dir) / "obj_std_c"
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    obj_dir.mkdir(parents=True, exist_ok=True)
+
+    headers = sorted(p for p in std_c_dir.glob("*.h") if p.is_file())
+    # Stage the headers where every include path already looks: build/include
+    # (portable release: runtime/include) and build/wasm/include. A generated
+    # bundle says `#include "utf8.h"` / `#include "re.h"`; without this copy a
+    # frozen release would have the archives but not the headers.
+    include_dir = Path(dest_dir) / "include"
+    include_dir.mkdir(parents=True, exist_ok=True)
+    for header in headers:
+        shutil.copy2(header, include_dir / header.name)
+    flags = [
+        "-O2",
+        "-std=c99",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-I" + str(std_c_dir),
+    ] + SECTION_FLAGS + list(extra_flags or [])
+
+    built = []
+    for source in sources:
+        name = source.stem
+        target_lib = lib_dir / f"lib{name}.a"
+        obj_path = obj_dir / f"{name}.o"
+
+        inputs = sources + headers
+        newest_input = max(p.stat().st_mtime for p in inputs)
+        if target_lib.exists() and not rebuild and target_lib.stat().st_mtime >= newest_input:
+            print(f"[STD_C] {target_lib.name} is up to date.")
+            built.append(name)
+            continue
+
+        print(f"[STD_C] Compiling {source.name} -> {target_lib.name}...")
+        run_cmd([cc] + flags + ["-c", str(source), "-o", str(obj_path)])
+        if target_lib.exists():
+            target_lib.unlink()
+        run_cmd([ar, "rcs", str(target_lib), str(obj_path)])
+        built.append(name)
+        print(f"[STD_C] Created {target_lib}")
+
+    return built
+
+
 def build_runtime_pch(cc, rebuild=False):
     """Generates ``build/include/pengu_runtime.h.gch`` for later builds.
 
@@ -333,6 +420,10 @@ def main():
     if args.headers_only:
         INCLUDE_DIR.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT_DIR / "pengu_runtime.h", INCLUDE_DIR / "pengu_runtime.h")
+        std_c_dir = ROOT_DIR / "std_c"
+        if std_c_dir.is_dir():
+            for header in std_c_dir.glob("*.h"):
+                shutil.copy2(header, INCLUDE_DIR / header.name)
         print("[RUNTIME] staged pengu_runtime.h only (--headers-only)")
         return
 
@@ -356,8 +447,11 @@ def main():
         # The wasm build deliberately does not touch build/lib: the host and wasm
         # archives coexist so a project can build for both targets in one tree.
         result = build_pengu_runtime_wasm(cc, ar, rebuild=args.rebuild)
+        std_c_wasm = build_std_c(cc, ar, WASM_DIR, rebuild=args.rebuild,
+                                 extra_flags=["-pthread"])
         print(f"=== Wasm runtime build finished. Built: "
-              f"{'RUNTIME-WASM' if result else '(none)'} ===")
+              f"{'RUNTIME-WASM' if result else '(none)'}"
+              f"{', STD_C-WASM' if std_c_wasm else ''} ===")
         return
 
     cc, ar = get_toolchain()
@@ -378,6 +472,10 @@ def main():
             built.append(label)
 
     _build("RUNTIME", build_pengu_runtime, cc, ar, rebuild=args.rebuild)
+    # The vendored single-file C libraries behind std.lingua/std.regulus.
+    # They are archived here (not compiled into the runtime) so their code is
+    # only linked by a program that imports the matching binding.
+    _build("STD_C", build_std_c, cc, ar, BUILD_DIR, rebuild=args.rebuild)
 
     # A shared PCH of pengu_runtime.h: 'pengu build'/'pengu run' reuse it through
     # -Ibuild/include instead of regenerating a throw-away one per build. It is

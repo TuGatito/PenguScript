@@ -14,6 +14,9 @@ prompt.md
 
 # Build & Release Directories
 build/
+# ...but tests/build/ is source, not a build artifact.
+!tests/build/
+!tests/build/**
 dist/
 pengucc_build/
 scratch/

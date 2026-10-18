@@ -1,0 +1,59 @@
+## Invalid patterns are values, not panics.
+import std.spark
+import std.builder
+import std.ward
+import std.regulus
+
+weave position_of with pattern as string into int:
+    var r as result of Regex to RegexError is calling Regex.compile with pattern
+    if r.is_ok:
+        banish r
+        return -1
+    var e as RegexError is r.error
+    var position as int is judge e:
+        when PatternTooLong -> -2
+        when OutOfMemory -> -3
+        when InvalidSyntax with position -> position
+    banish r
+    return position
+
+weave main into int:
+    calling ward.assert_eq_int with (calling position_of with "[a-z"), 0
+    calling ward.assert_eq_int with (calling position_of with "ab["), 2
+    calling ward.assert_eq_int with (calling position_of with "abc\\"), 3
+
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    while i < 300:
+        calling sb.append with "a"
+        set i is i + 1
+    var long_pattern as string is calling sb.to_string
+    defer banish long_pattern
+    calling ward.assert_eq_int with (calling position_of with long_pattern), -2
+
+    var valid as result of Regex to RegexError is calling Regex.compile with "abc"
+    calling ward.assert_true with valid.is_ok
+    var rx as Regex is valid.value
+    defer banish valid
+
+    var one as result of bool to RegexError is calling regulus.is_match with "[0-9]+", "abc123"
+    calling ward.assert_true with one.is_ok
+    calling ward.assert_true with one.value
+    banish one
+    var bad_one as result of bool to RegexError is calling regulus.is_match with "[", "abc"
+    calling ward.assert_false with bad_one.is_ok
+    banish bad_one
+
+    var found as result of maybe Match to RegexError is calling regulus.find_first with "[0-9]+", "abc123"
+    calling ward.assert_true with found.is_ok
+    calling ward.assert_true with (found.value is present)
+    calling ward.assert_eq_int with found.value.value.start, 3
+    banish found
+    var missing as result of maybe Match to RegexError is calling regulus.find_first with "[0-9]+", "abc"
+    calling ward.assert_true with missing.is_ok
+    calling ward.assert_false with (missing.value is present)
+    banish missing
+
+    calling spark.println with "OK regulus_errors"
+    return 0

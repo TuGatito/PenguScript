@@ -38,7 +38,7 @@ Aborts unless `cond` holds.
 
 ### `CIPHER_VERSION`
 
-> const string` = 2.1.0`
+> const string` = 2.11.0`
 
 Version constant for the std.cipher module.
 

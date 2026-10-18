@@ -82,7 +82,7 @@ import std.ward
 # ----------------------------------------------------------------------------
 
 ## Fractio module version.
-const FRACTIO_VERSION as string is "2.1.0"
+const FRACTIO_VERSION as string is "2.11.0"
 
 # ----------------------------------------------------------------------------
 # libm declarations (symbols are the real C99 ones; <math.h> is already

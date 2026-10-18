@@ -1,0 +1,47 @@
+## Byte-offset navigation across multibyte codepoints.
+import std.spark
+import std.ward
+import std.lingua
+
+weave main into int:
+    var at as result of (Codepoint, int) to LinguaError is calling lingua.codepoint_at with "año", 1
+    calling ward.assert_true with at.is_ok
+    let (cp, used) is at.value
+    calling ward.assert_eq_int with (cp to u32) to int, 0xF1
+    calling ward.assert_eq_int with used, 2
+    banish at
+
+    var out as result of int to LinguaError is calling lingua.byte_offset_of with "año", 2
+    calling ward.assert_true with out.is_ok
+    calling ward.assert_eq_int with out.value, 3
+    banish out
+
+    var zero as result of int to LinguaError is calling lingua.byte_offset_of with "año", 0
+    calling ward.assert_eq_int with zero.value, 0
+    banish zero
+
+    var missing as result of int to LinguaError is calling lingua.byte_offset_of with "año", 9
+    calling ward.assert_false with missing.is_ok
+    banish missing
+
+    var next as result of (Codepoint, int) to LinguaError is calling lingua.next_codepoint with "año", 0
+    let (next_cp, next_off) is next.value
+    calling ward.assert_eq_int with (next_cp to u32) to int, 0x61
+    calling ward.assert_eq_int with next_off, 1
+    banish next
+
+    var prev as result of (Codepoint, int) to LinguaError is calling lingua.prev_codepoint with "año", 3
+    let (prev_cp, prev_off) is prev.value
+    calling ward.assert_eq_int with (prev_cp to u32) to int, 0xF1
+    calling ward.assert_eq_int with prev_off, 1
+    banish prev
+
+    var bad_prev as result of (Codepoint, int) to LinguaError is calling lingua.prev_codepoint with "año", 2
+    calling ward.assert_false with bad_prev.is_ok
+    banish bad_prev
+    var bad_at as result of (Codepoint, int) to LinguaError is calling lingua.codepoint_at with "año", 4
+    calling ward.assert_false with bad_at.is_ok
+    banish bad_at
+
+    calling spark.println with "OK lingua_navigation"
+    return 0

@@ -1,0 +1,33 @@
+## decode_prefix stops after N codepoints and reports bytes consumed.
+import std.spark
+import std.ward
+import std.lingua
+
+weave main into int:
+    var r as result of (list of Codepoint, int) to LinguaError is calling lingua.decode_prefix with "añb", 2
+    calling ward.assert_true with r.is_ok
+    let (cps, used) is r.value
+    calling ward.assert_eq_int with cps.len, 2
+    calling ward.assert_eq_int with used, 3
+    banish r
+
+    var zero as result of (list of Codepoint, int) to LinguaError is calling lingua.decode_prefix with "abc", 0
+    calling ward.assert_true with zero.is_ok
+    let (none_cps, none_used) is zero.value
+    calling ward.assert_eq_int with none_cps.len, 0
+    calling ward.assert_eq_int with none_used, 0
+    banish zero
+
+    var all as result of (list of Codepoint, int) to LinguaError is calling lingua.decode_prefix with "😀x", 10
+    calling ward.assert_true with all.is_ok
+    let (all_cps, all_used) is all.value
+    calling ward.assert_eq_int with all_cps.len, 2
+    calling ward.assert_eq_int with all_used, 5
+    banish all
+
+    var bad as result of (list of Codepoint, int) to LinguaError is calling lingua.decode_prefix with "a\xFF", 5
+    calling ward.assert_false with bad.is_ok
+    banish bad
+
+    calling spark.println with "OK lingua_decode_prefix"
+    return 0

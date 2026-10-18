@@ -136,7 +136,7 @@ desbordamiento intermedio de `a*a + b*b`.
 
 ### `ARITHMANCY_VERSION`
 
-> const string` = 2.0.0`
+> const string` = 2.11.0`
 
 Arithmancy module version.
 

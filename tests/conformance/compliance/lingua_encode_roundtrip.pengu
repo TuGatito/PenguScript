@@ -1,0 +1,45 @@
+## encode(decode(s)) reproduces the original bytes for valid UTF-8.
+import std.spark
+import std.scrolls
+import std.builder
+import std.ward
+import std.lingua
+
+weave roundtrip with original as string into void:
+    var decoded as result of list of Codepoint to LinguaError is calling lingua.decode with original
+    calling ward.assert_true with decoded.is_ok
+    var cps as list of Codepoint is decoded.value
+    var encoded as result of string to LinguaError is calling lingua.encode with cps
+    calling ward.assert_true with encoded.is_ok
+    var text as string is encoded.value
+    calling ward.assert_eq_int with (calling scrolls.compare with text, original), 0
+    banish encoded
+    banish decoded
+
+weave main into int:
+    calling roundtrip with ""
+    calling roundtrip with "hola"
+    calling roundtrip with "ñ"
+    calling roundtrip with "日本語"
+    calling roundtrip with "😀"
+    calling roundtrip with "año 😀 日本語"
+
+    var empty as list of Codepoint is list of Codepoint
+    var empty_encoded as result of string to LinguaError is calling lingua.encode with empty
+    calling ward.assert_true with empty_encoded.is_ok
+    var empty_text as string is empty_encoded.value
+    calling ward.assert_eq_int with (calling scrolls.compare with empty_text, ""), 0
+    banish empty_encoded
+    banish empty
+
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var one as result of void to LinguaError is calling lingua.encode_one with (0x1F600 to Codepoint), (sigil of sb)
+    calling ward.assert_true with one.is_ok
+    banish one
+    var built as string is calling sb.finish
+    calling ward.assert_eq_int with (calling scrolls.compare with built, "😀"), 0
+    banish built
+
+    calling spark.println with "OK lingua_encode_roundtrip"
+    return 0

@@ -63,7 +63,7 @@ insignia functor_
 # --- Public constants ---------------------------------------------------
 
 ## The version of the functor module.
-const FUNCTOR_VERSION as string is "2.10.0"
+const FUNCTOR_VERSION as string is "2.11.0"
 
 # --- Types --------------------------------------------------------------
 
@@ -527,5 +527,5 @@ test "a Fn1 of void supports side effects":
     calling _expect_int with c.hits, 7, "fn1 void"
 
 # The version marker follows the toolchain release.
-test "functor version is 2.10.0":
-    calling _expect with FUNCTOR_VERSION == "2.10.0", "version"
+test "functor version is 2.11.0":
+    calling _expect with FUNCTOR_VERSION == "2.11.0", "version"

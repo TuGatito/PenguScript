@@ -7,6 +7,7 @@ This script automates:
 2. Clean static compilation of the C runtime and dependencies (build_runtime.py --rebuild).
 3. Assembling the release distribution directory (pengucc_build/).
    - std/ : All standard library PenguScript modules.
+   - std_c/ : Vendored single-file C libraries (utf8.h, re.h/re.c).
    - runtime/ : pengu_runtime.h and the static runtime library (libpengu_runtime.a).
 4. Packaging the PenguScript CLI & LSP server with PyInstaller into a standalone executable (pengu / pengu.exe).
 5. Automated smoke test: verifying CLI help, project initialization, and end-to-end compilation with the standalone binary.
@@ -323,6 +324,18 @@ def _assemble_portable(dist_dir: Path):
     shutil.copytree(STD_DIR, dst_std)
     print(f"  [STD] Copied standard library to {dst_std}")
 
+    # The vendored C engines are part of the shipped source: `std.lingua` and
+    # `std.regulus` document `utf8.h` / `re.h` as `std_c/` files, and the
+    # licenses live in those headers. The compiled archives and the staged
+    # headers travel with runtime/, below.
+    src_std_c = ROOT_DIR / "std_c"
+    if src_std_c.is_dir():
+        dst_std_c = dist_dir / "std_c"
+        if dst_std_c.exists():
+            shutil.rmtree(dst_std_c)
+        shutil.copytree(src_std_c, dst_std_c)
+        print(f"  [STD_C] Copied vendored C sources to {dst_std_c}")
+
     # VERSION -> <dist>/VERSION
     version_file = ROOT_DIR / "VERSION"
     if version_file.is_file():
@@ -386,6 +399,14 @@ def _assemble_fhs(dist_dir: Path):
     dst_std.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(STD_DIR, dst_std)
     print(f"  [STD] Copied standard library to {dst_std}")
+
+    src_std_c = ROOT_DIR / "std_c"
+    if src_std_c.is_dir():
+        dst_std_c = dist_dir / "share" / "pengu" / "std_c"
+        if dst_std_c.exists():
+            shutil.rmtree(dst_std_c)
+        shutil.copytree(src_std_c, dst_std_c)
+        print(f"  [STD_C] Copied vendored C sources to {dst_std_c}")
 
     # VERSION -> share/pengu/VERSION
     version_file = ROOT_DIR / "VERSION"
@@ -952,7 +973,8 @@ DESTDIR=/tmp/stage PREFIX=/usr ./install.sh   # package-manager staging
 {dist_dir.name}/
 ├── pengu{' .exe' if IS_WINDOWS else ''}
 ├── {vsix_name}
-├── std/                             # 26 pure-PenguScript modules
+├── std/                             # 38 standard-library modules
+├── std_c/                           # vendored utf8.h and tiny-regex-c (public domain)
 └── runtime/
     ├── pengu_runtime.h
     ├── pengu_wasm_shell.html        # HTML page for `--target wasm`

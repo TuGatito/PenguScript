@@ -1,0 +1,160 @@
+## std/lingua.d.pengu — raw declarations for `std_c/utf8.h`.
+##
+## This is the **internal** binding of `std/lingua.pengu`. Import the wrapper
+## (`import std.lingua`), not this declaration file: the wrapper adds the
+## UTF-8 error model, codepoint type and navigation helpers, and it is the
+## surface the rest of the standard library is written against.
+##
+## The declarations below are generated from `std_c/utf8.h` (sheredom/utf8.h,
+## public domain, single header) with:
+##
+## ```text
+## pengu bind std_c/utf8.h --output std/lingua.d.pengu \
+##     --include-paths std_c/ --system-includes --cpp-flags=-std=c99
+## ```
+##
+## `--cpp-flags=-std=c99` is required on GCC 16+: the default dialect exposes
+## C23 `nullptr_t` in `<stddef.h>`, which `pengu bind`'s bundled pycparser does
+## not understand. The only manual adjustment is the removal of the generated
+## `utf8_null as i64` constant: `utf8_null` is a pointer-shaped `NULL`, and
+## exposing it as an integer would invite passing it where a `ref to` is
+## required. Use `null` at the call site instead.
+##
+## The wrapper's length-aware bridge lives in `std/lingua.pengu` because a
+## `.d.pengu` file may only declare, never define (`E0025`). `include "utf8.h"`
+## is emitted exactly when `std.lingua` is imported, which is what makes the
+## header side of smart linking work.
+include "utf8.h"
+
+# -- Constants (#define) ------------------------------
+
+# ------------------------------------------------------------------
+# Types (structs, unions, enums, aliases)
+# ------------------------------------------------------------------
+
+alias utf8_int32_t as int
+
+alias utf8_int8_t as char
+
+declare utf8casecmp with src1 as ref to frozen utf8_int8_t, src2 as ref to frozen utf8_int8_t into int
+
+declare utf8cat with dst as ref to utf8_int8_t, src as ref to frozen utf8_int8_t into ref to utf8_int8_t
+
+declare utf8chr with src as ref to frozen utf8_int8_t, chr as utf8_int32_t into ref to utf8_int8_t
+
+# Return less than 0, 0, greater than 0 if src1 < src2,
+# src1 == src2, src1 > src2 respectively.
+declare utf8cmp with src1 as ref to frozen utf8_int8_t, src2 as ref to frozen utf8_int8_t into int
+
+declare utf8cpy with dst as ref to utf8_int8_t, src as ref to frozen utf8_int8_t into ref to utf8_int8_t
+
+declare utf8cspn with src as ref to frozen utf8_int8_t, reject as ref to frozen utf8_int8_t into size_t
+
+# Duplicate the utf8 string src by getting its size, malloc'ing a new buffer
+# copying over the data, and returning that. Or 0 if malloc failed.
+declare utf8dup with src as ref to frozen utf8_int8_t into ref to utf8_int8_t
+
+# Number of utf8 codepoints in the utf8 string str,
+# excluding the null terminating byte.
+declare utf8len with str as ref to frozen utf8_int8_t into size_t
+
+# Similar to utf8len, except that only at most n bytes of src are looked.
+declare utf8nlen with str as ref to frozen utf8_int8_t, n as size_t into size_t
+
+declare utf8ncasecmp with src1 as ref to frozen utf8_int8_t, src2 as ref to frozen utf8_int8_t, n as size_t into int
+
+declare utf8ncat with dst as ref to utf8_int8_t, src as ref to frozen utf8_int8_t, n as size_t into ref to utf8_int8_t
+
+declare utf8ncmp with src1 as ref to frozen utf8_int8_t, src2 as ref to frozen utf8_int8_t, n as size_t into int
+
+declare utf8ncpy with dst as ref to utf8_int8_t, src as ref to frozen utf8_int8_t, n as size_t into ref to utf8_int8_t
+
+# Similar to utf8dup, except that at most n bytes of src are copied. If src is
+# longer than n, only n bytes are copied and a null byte is added.
+#
+# Returns a new string if successful, 0 otherwise
+declare utf8ndup with src as ref to frozen utf8_int8_t, n as size_t into ref to utf8_int8_t
+
+declare utf8pbrk with str as ref to frozen utf8_int8_t, accept as ref to frozen utf8_int8_t into ref to utf8_int8_t
+
+declare utf8rchr with src as ref to frozen utf8_int8_t, chr as utf8_int32_t into ref to utf8_int8_t
+
+# Number of bytes in the utf8 string str,
+# including the null terminating byte.
+declare utf8size with str as ref to frozen utf8_int8_t into size_t
+
+declare utf8size_lazy with str as ref to frozen utf8_int8_t into size_t
+
+declare utf8nsize_lazy with str as ref to frozen utf8_int8_t, n as size_t into size_t
+
+declare utf8spn with src as ref to frozen utf8_int8_t, accept as ref to frozen utf8_int8_t into size_t
+
+declare utf8str with haystack as ref to frozen utf8_int8_t, needle as ref to frozen utf8_int8_t into ref to utf8_int8_t
+
+declare utf8casestr with haystack as ref to frozen utf8_int8_t, needle as ref to frozen utf8_int8_t into ref to utf8_int8_t
+
+declare utf8valid with str as ref to frozen utf8_int8_t into ref to utf8_int8_t
+
+declare utf8nvalid with str as ref to frozen utf8_int8_t, n as size_t into ref to utf8_int8_t
+
+# Given a null-terminated string, makes the string valid by replacing invalid
+# codepoints with a 1-byte replacement. Returns 0 on success.
+declare utf8makevalid with str as ref to utf8_int8_t, replacement as frozen utf8_int32_t into int
+
+declare utf8codepoint with str as ref to frozen utf8_int8_t, out_codepoint as ref to utf8_int32_t into ref to utf8_int8_t
+
+declare utf8codepointcalcsize with str as ref to frozen utf8_int8_t into size_t
+
+# Returns the size of the given codepoint in bytes.
+declare utf8codepointsize with chr as utf8_int32_t into size_t
+
+# Returns the number of terminal columns the given codepoint occupies when
+# printed with a fixed-width font: 0 for zero-width codepoints (the null
+# codepoint and combining marks), 2 for wide (double-width) codepoints, 1 for
+# ordinary codepoints, and -1 for non-printable control codepoints.
+declare utf8codepointvisualwidth with chr as utf8_int32_t into int
+
+declare utf8catcodepoint with str as ref to utf8_int8_t, chr as utf8_int32_t, n as size_t into ref to utf8_int8_t
+
+# Returns 1 if the given character is lowercase, or 0 if it is not.
+declare utf8islower with chr as utf8_int32_t into int
+
+# Returns 1 if the given character is uppercase, or 0 if it is not.
+declare utf8isupper with chr as utf8_int32_t into int
+
+# Transform the given string into all lowercase codepoints in place. This
+# function does not allocate memory. All currently supported case mappings
+# preserve the number of bytes in the encoded string.
+declare utf8lwr with str as ref to utf8_int8_t into void
+
+# Transform the given string into all uppercase codepoints in place. This
+# function does not allocate memory. All currently supported case mappings
+# preserve the number of bytes in the encoded string.
+declare utf8upr with str as ref to utf8_int8_t into void
+
+# Make a codepoint lower case if possible.
+declare utf8lwrcodepoint with cp as utf8_int32_t into utf8_int32_t
+
+# Make a codepoint upper case if possible.
+declare utf8uprcodepoint with cp as utf8_int32_t into utf8_int32_t
+
+declare utf8rcodepoint with str as ref to frozen utf8_int8_t, out_codepoint as ref to utf8_int32_t into ref to utf8_int8_t
+
+alias Callback3 as ref to weave with p0 as ref to utf8_int8_t, p1 as size_t into ref to utf8_int8_t
+
+# Duplicate the utf8 string src by getting its size, calling alloc_func_ptr to
+# copy over data to a new buffer, and returning that. Or 0 if alloc_func_ptr
+# returned null.
+declare utf8dup_ex with src as ref to frozen utf8_int8_t, alloc_func_ptr as Callback3, user_data as ref to utf8_int8_t into ref to utf8_int8_t
+
+alias Callback4 as ref to weave with p0 as ref to utf8_int8_t, p1 as size_t into ref to utf8_int8_t
+
+# Similar to utf8dup, except that at most n bytes of src are copied. If src is
+# longer than n, only n bytes are copied and a null byte is added.
+#
+# Returns a new string if successful, 0 otherwise.
+declare utf8ndup_ex with src as ref to frozen utf8_int8_t, n as size_t, alloc_func_ptr as Callback4, user_data as ref to utf8_int8_t into ref to utf8_int8_t
+
+declare utf8coll with src1 as ref to frozen utf8_int8_t, src2 as ref to frozen utf8_int8_t into int
+
+declare utf8fry with str as ref to frozen utf8_int8_t into ref to utf8_int8_t

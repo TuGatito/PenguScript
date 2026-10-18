@@ -754,6 +754,33 @@ def find_module_path(base_dir: str, dot_path: str, from_dir: Optional[str] = Non
     return None
 
 
+def companion_binding_path(module_path: str) -> Optional[str]:
+    """Returns the companion declaration file of a module, when it exists.
+
+    A wrapper module (``foo.pengu``) may carry its raw C declarations in a
+    sibling ``foo.d.pengu``. Only the wrapper is reachable through
+    ``import foo`` — ``find_module_path`` tries the non-declaration spelling
+    first — so the declaration file would never be compiled on its own. The
+    resolver adds it as an implicit dependency of the wrapper: the declarations
+    become visible to the wrapper and the bundle receives the
+    ``include``/``link`` lines exactly when the wrapper is imported. That keeps
+    the binding internal without a second public module name.
+
+    Args:
+        module_path: Resolved path of a module file.
+
+    Returns:
+        Absolute path of the sibling ``<stem>.d.pengu`` file, or None when the
+        module is itself a declaration file or no companion exists.
+    """
+    if not module_path.endswith(".pengu") or module_path.endswith(".d.pengu"):
+        return None
+    candidate = module_path[: -len(".pengu")] + ".d.pengu"
+    if os.path.isfile(candidate):
+        return os.path.abspath(candidate)
+    return None
+
+
 def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None,
                     lib_dir: str = "lib", src_dir: str = "src",
                     entry_source: Optional[str] = None) -> List[str]:
@@ -797,6 +824,15 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
             raise SemanticError(f"Module file not found: {file_path}", code="E0004")
         tree = parser.parse(code)
         deps: List[str] = []
+
+        # A wrapper's companion declarations must be checked *before* the
+        # wrapper body: `declare` lines register the C signatures the wrapper
+        # calls. Appending the companion to the wrapper's own dependency list
+        # (rather than to the importer's) keeps the topological order correct:
+        # declaration file, then wrapper, then importer.
+        own_companion = companion_binding_path(file_path)
+        if own_companion is not None:
+            deps.append(own_companion)
 
         def walk(node):
             if isinstance(node, Tree):

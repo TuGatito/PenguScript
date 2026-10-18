@@ -1,0 +1,34 @@
+## UTF-16 length and the surrogate-pair split.
+import std.spark
+import std.ward
+import std.lingua
+
+weave main into int:
+    calling ward.assert_eq_int with (calling lingua.utf16_length with ""), 0
+    calling ward.assert_eq_int with (calling lingua.utf16_length with "abc"), 3
+    calling ward.assert_eq_int with (calling lingua.utf16_length with "ñ"), 1
+    calling ward.assert_eq_int with (calling lingua.utf16_length with "😀"), 2
+    calling ward.assert_eq_int with (calling lingua.utf16_length with "😀ñ"), 3
+    calling ward.assert_eq_int with (calling lingua.utf16_length with "\xFF"), -1
+
+    let (high, low) is calling lingua.to_utf16 with (0x1F600 to Codepoint)
+    calling ward.assert_eq_int with (high to int), 0xD83D
+    calling ward.assert_eq_int with (low to int), 0xDE00
+
+    let (bmp_high, bmp_low) is calling lingua.to_utf16 with (0x00F1 to Codepoint)
+    calling ward.assert_eq_int with (bmp_high to int), 0xF1
+    calling ward.assert_eq_int with (bmp_low to int), 0
+
+    var from as result of Codepoint to LinguaError is calling lingua.from_u32 with 0x1F600
+    calling ward.assert_true with from.is_ok
+    calling ward.assert_eq_int with ((from.value) to u32) to int, 0x1F600
+    banish from
+    var bad as result of Codepoint to LinguaError is calling lingua.from_u32 with 0xD800
+    calling ward.assert_false with bad.is_ok
+    banish bad
+    var over as result of Codepoint to LinguaError is calling lingua.from_u32 with 0x110000
+    calling ward.assert_false with over.is_ok
+    banish over
+
+    calling spark.println with "OK lingua_utf16"
+    return 0

@@ -16,10 +16,12 @@ from ._base import (
     List,
     ListType,
     ManyType,
+    MaybeType,
     MapType,
     OmenType,
     Optional,
     RefType,
+    ResultType,
     RuneType,
     SealType,
     SemanticError,
@@ -252,6 +254,63 @@ class SymbolMixin:
                 break
 
         return curr_t
+    def _infer_local_ref_type(self, node: Any, depth: int = 0) -> Optional[Type]:
+        """Resolves a local variable or a ``result``/``maybe`` field payload.
+
+        ``TypeInferrer`` normally answers this, but a local bound from a
+        ``result`` field (``var failure as E is r.error``) can come back
+        untyped after a narrowing ``if``. That made
+        ``return calling err_of with failure`` fail with E0005 even though the
+        variable's declared type is in ``local_vars``. This fallback reads the
+        codegen's own, already-resolved local table; it only runs when the
+        inferrer returns None, so it can never override a real answer.
+        """
+        if depth > 8 or not isinstance(node, Tree):
+            return None
+        data = getattr(node, "data", "")
+        if data in ("paren_expr", "value_expr", "expr") and len(node.children) == 1:
+            return self._infer_local_ref_type(node.children[0], depth + 1)
+        if data in ("var_ref", "name") and node.children:
+            name = str(node.children[0])
+            found = self.local_vars.get(name)
+            if found is None:
+                found = self.local_vars.get(self._c_ident(name))
+            if isinstance(found, RefType):
+                return found.target
+            return found
+        if data == "field_access" and len(node.children) >= 2:
+            base = self._infer_local_ref_type(node.children[0], depth + 1)
+            if isinstance(base, RefType):
+                base = base.target
+            field_name = str(node.children[1])
+            if isinstance(base, ResultType):
+                if field_name in ("value", "ok"):
+                    return base.ok_type
+                if field_name in ("error", "err"):
+                    return base.err_type
+            if isinstance(base, MaybeType) and field_name == "value":
+                return base.element
+        if data == "struct_init" and node.children:
+            first = node.children[0]
+            if isinstance(first, Tree) and first.data == "field_init" and first.children:
+                key = str(first.children[0])
+                direct = self._lookup_type_fn(key)
+                if direct is not None:
+                    return direct
+                for omen_name, variants in self.omens.items():
+                    if key in variants:
+                        resolved = self._lookup_type_fn(omen_name)
+                        if resolved is not None:
+                            return resolved
+                        return OmenType(omen_name, variants,
+                                        variant_values=self.omen_values.get(omen_name, {}),
+                                        c_name=omen_name)
+                if key in self.runes:
+                    return RuneType(key, self.runes[key])
+                if key in self.echos:
+                    return EchoType(key, self.echos[key])
+        return None
+
     def _infer_node_type(self, node: Any, expected_type: Optional[Type] = None) -> Optional[Type]:
         """Infers semantic type for AST node using active local variable context."""
         if not self.symbols:
@@ -267,9 +326,12 @@ class SymbolMixin:
             for var_name, var_type in self.local_vars.items():
                 if var_type is not None:
                     inferrer.symbols.define(Symbol(name=var_name, type=var_type, kind="var", line=0, column=0, file_path="."))
-            return inferrer.infer(node, expected_type=expected_type)
+            inferred = inferrer.infer(node, expected_type=expected_type)
+            if inferred is None:
+                inferred = self._infer_local_ref_type(node)
+            return inferred
         except Exception:
-            return None
+            return self._infer_local_ref_type(node)
         finally:
             self.symbols.current_scope = saved_scope
             if len(self.symbols.all_scopes) > saved_all_scopes_len:
@@ -722,9 +784,14 @@ class SymbolMixin:
             return idx_code
         tmp = self.get_temp_name("_p_idx")
         if self.use_gnu_extensions:
+            # `int64_t` rather than `__auto_type`: the index is always an
+            # integer, and TinyCC (a supported development compiler) implements
+            # statement expressions but not `__auto_type`. The old spelling
+            # made every bounds-checked index fail under TCC and silently fall
+            # back to gcc.
             return (
-                f"(__extension__({{ __auto_type {tmp} = ({idx_code}); "
-                f"pengu_assert_bounds((int64_t){tmp}, (int64_t)({len_expr}), \"{loc_escaped}\"); {tmp}; }}))"
+                f"(__extension__({{ int64_t {tmp} = (int64_t)({idx_code}); "
+                f"pengu_assert_bounds({tmp}, (int64_t)({len_expr}), \"{loc_escaped}\"); {tmp}; }}))"
             )
         # Strict C99: hoist the declaration and the check, index through the
         # temp.  Indices are integers, so int64_t is a safe concrete type.

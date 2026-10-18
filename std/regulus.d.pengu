@@ -1,0 +1,66 @@
+## std/regulus.d.pengu — raw declarations for `std_c/re.h` + `std_c/re.c`.
+##
+## This is the **internal** binding of `std/regulus.pengu`. Import the wrapper
+## (`import std.regulus`), not this declaration file: the wrapper owns the
+## compiled `Regex` type, the `RegexError` model, matching/replacement/split
+## helpers and `escape`.
+##
+## The declarations below are generated from `std_c/re.h` (kokke/tiny-regex-c,
+## public domain) with:
+##
+## ```text
+## pengu bind std_c/re.h --output std/regulus.d.pengu \
+##     --include-paths std_c/ --system-includes
+## ```
+##
+## `link "re"` is emitted only when this module is part of the compilation —
+## that is the whole smart-linking contract. `build_runtime.py` archives
+## `std_c/re.c` into `build/lib/libre.a`; a program that never imports
+## `std.regulus` never receives `-lre`.
+##
+## The upstream library kept its compiled program in two `static` arrays, which
+## made two live patterns alias each other and made `re_compile` impossible to
+## pair with a matching free. The vendored copy adds
+## `re_compile_dynamic[_ex]` / `re_free` (one malloc block per pattern) and
+## reports an over-long pattern instead of silently truncating it. These
+## additions are documented in `docs/REGULUS.md`; the original three-function
+## API is unchanged.
+include "re.h"
+
+link "re"
+
+# -- Constants (#define) ------------------------------
+
+const RE_DOT_MATCHES_NEWLINE as i64 is 1
+const RE_COMPILE_OK as i64 is 0
+const RE_COMPILE_SYNTAX as i64 is 1
+const RE_COMPILE_TOO_LONG as i64 is 2
+const RE_COMPILE_OOM as i64 is 3
+
+# ------------------------------------------------------------------
+# Types (structs, unions, enums, aliases)
+# ------------------------------------------------------------------
+
+alias re_t as opaque
+
+# -- Companion-header typedefs (referenced by this binding) -
+
+alias regex_t as opaque
+
+# Compile regex string pattern to a regex_t-array.
+declare re_compile with pattern as ref to frozen char into re_t
+
+# Compile into an owned block that `re_free` releases.
+declare re_compile_dynamic with pattern as ref to frozen char into re_t
+
+# `re_compile_dynamic` with an out-parameter describing the failure class.
+declare re_compile_dynamic_ex with pattern as ref to frozen char, error as ref to int into re_t
+
+# Releases a pattern returned by `re_compile_dynamic[_ex]`.
+declare re_free with pattern as re_t into void
+
+# Find matches of the compiled pattern inside text.
+declare re_matchp with pattern as re_t, text as ref to frozen char, matchlength as ref to int into int
+
+# Find matches of the txt pattern inside text (will compile automatically first).
+declare re_match with pattern as ref to frozen char, text as ref to frozen char, matchlength as ref to int into int

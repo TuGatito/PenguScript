@@ -1212,6 +1212,19 @@ class PenguBuilder:
             if os.path.isdir(s) and s not in dirs:
                 dirs.append(s)
 
+        # 5. Vendored single-file C headers behind the stdlib bridges
+        #    (`std_c/utf8.h`, `std_c/re.h`). Always on the include path: the C
+        #    compiler reads nothing until an imported module emits the matching
+        #    `#include`, so a program that never touches these modules pays
+        #    nothing beyond one unused -I entry.
+        # First, not last: `std.lingua` says `#include "utf8.h"` and
+        # `std.regulus` says `#include "re.h"`. A project include/ directory that
+        # happens to hold a same-named header must not shadow the engine the
+        # standard library was compiled and tested against.
+        std_c_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "std_c")
+        if os.path.isdir(std_c_dir) and std_c_dir not in dirs:
+            dirs.insert(0, std_c_dir)
+
         return dirs
 
     def collect_lib_dirs_and_links(self) -> Tuple[List[str], List[str]]:

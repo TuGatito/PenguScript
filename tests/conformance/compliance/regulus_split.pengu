@@ -1,0 +1,49 @@
+## split at every match, including the empty-match shape.
+import std.spark
+import std.scrolls
+import std.ward
+import std.regulus
+
+weave same with a as string, b as string into void:
+    calling ward.assert_eq_int with (calling scrolls.compare with a, b), 0
+
+weave main into int:
+    var ws as result of Regex to RegexError is calling Regex.compile with "\\s+"
+    var rx as Regex is ws.value
+    defer banish ws
+
+    var parts as list of string is calling rx.split with "a b  c"
+    calling ward.assert_eq_int with parts.len, 3
+    calling same with (parts at 0), "a"
+    calling same with (parts at 1), "b"
+    calling same with (parts at 2), "c"
+    var i as int is 0
+    while i < parts.len:
+        banish (parts at i)
+        set i is i + 1
+    banish parts
+
+    var none as list of string is calling rx.split with "abc"
+    calling ward.assert_eq_int with none.len, 1
+    calling same with (none at 0), "abc"
+    banish (none at 0)
+    banish none
+
+    var commas as result of Regex to RegexError is calling Regex.compile with ","
+    var crx as Regex is commas.value
+    defer banish commas
+    var fields as list of string is calling crx.split with ",a,,b,"
+    calling ward.assert_eq_int with fields.len, 5
+    calling same with (fields at 0), ""
+    calling same with (fields at 1), "a"
+    calling same with (fields at 2), ""
+    calling same with (fields at 3), "b"
+    calling same with (fields at 4), ""
+    set i is 0
+    while i < fields.len:
+        banish (fields at i)
+        set i is i + 1
+    banish fields
+
+    calling spark.println with "OK regulus_split"
+    return 0

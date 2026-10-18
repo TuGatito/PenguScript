@@ -13,6 +13,8 @@ documents from earlier phases.
 | Document | What it covers | Regenerated? |
 |---|---|---|
 | [`PENGU_BUILD.md`](PENGU_BUILD.md) | Building the runtime and the external C dependencies; FHS vs portable layouts; the `pengu` project configuration surface | No — authored |
+| [`LINGUA.md`](LINGUA.md) | `std.lingua`: UTF-8 over codepoints, the error model with byte offsets, classification limits, grapheme approximation and smart linking | No — authored |
+| [`REGULUS.md`](REGULUS.md) | `std.regulus`: the complete supported grammar, explicit non-goals and workarounds, the documented `tiny-regex-c` extensions and smart linking | No — authored |
 | [`README_RELEASE.md`](README_RELEASE.md) | The standalone `pengucc_build/` distribution: layout, install, uninstall, bundled TinyCC and PCH | **Yes** — written by `make_release.py` (`generate_release_readme`) |
 | [`PERFORMANCE.md`](PERFORMANCE.md) | Performance methodology, measured numbers, cached-build behaviour, and the honestly-documented known leaks | No — authored |
 | [`FUZZING.md`](FUZZING.md) | Fuzzing harnesses, corpora and run budgets | No — authored |

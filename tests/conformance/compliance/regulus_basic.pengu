@@ -1,0 +1,56 @@
+## Compilation, search semantics and match ranges.
+import std.spark
+import std.scrolls
+import std.ward
+import std.regulus
+
+weave main into int:
+    var cr as result of Regex to RegexError is calling Regex.compile with "[0-9]+"
+    calling ward.assert_true with cr.is_ok
+    var rx as Regex is cr.value
+    defer banish cr
+
+    calling ward.assert_eq_int with (calling scrolls.compare with (calling rx.pattern), "[0-9]+"), 0
+    calling ward.assert_true with (calling rx.is_match with "abc123")
+    calling ward.assert_false with (calling rx.is_match with "abcdef")
+
+    var first as maybe Match is calling rx.match with "abc123def456"
+    calling ward.assert_true with (first is present)
+    var found as Match is first.value
+    calling ward.assert_eq_int with found.start, 3
+    calling ward.assert_eq_int with found.end, 6
+    banish first
+
+    var all as list of Match is calling rx.matches with "abc123def456"
+    calling ward.assert_eq_int with all.len, 2
+    var m0 as Match is all at 0
+    var m1 as Match is all at 1
+    calling ward.assert_eq_int with m0.start, 3
+    calling ward.assert_eq_int with m1.start, 9
+    banish all
+
+    var at as maybe Match is calling rx.match_at with "abc123def456", 6
+    calling ward.assert_true with (at is present)
+    calling ward.assert_eq_int with at.value.start, 9
+    banish at
+
+    var anchored as result of Regex to RegexError is calling Regex.compile with "^abc$"
+    calling ward.assert_true with anchored.is_ok
+    var exact as Regex is anchored.value
+    defer banish anchored
+    calling ward.assert_true with (calling exact.is_match with "abc")
+    calling ward.assert_false with (calling exact.is_match with "abcd")
+
+    var literal as result of Regex to RegexError is calling Regex.compile with "a.b"
+    var dot as Regex is literal.value
+    defer banish literal
+    calling ward.assert_true with (calling dot.is_match with "axb")
+    calling ward.assert_false with (calling dot.is_match with "ab")
+
+    var classes as result of Regex to RegexError is calling Regex.compile with "\\d\\w\\s"
+    var three as Regex is classes.value
+    defer banish classes
+    calling ward.assert_true with (calling three.is_match with "1a ")
+
+    calling spark.println with "OK regulus_basic"
+    return 0

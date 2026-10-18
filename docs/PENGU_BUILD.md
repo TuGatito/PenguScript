@@ -291,7 +291,9 @@ If `bundle.c` is newer than all `.pengu` source modules, asset files, and the pr
 
 ## 4. Compilación Automatizada del Runtime Estático (`build_runtime.py`)
 
-`build_runtime.py` compila **solo** el runtime de PenguScript (`pengu_parser/pengu_runtime.c` + `pengu_runtime.h`) y produce un único archivo, `build/lib/libpengu_runtime.a`. El runtime es **autocontenido**: no necesita nada más allá de libc, libm y pthreads / hilos Win32. No descarga ni compila bibliotecas externas — esas viven en repositorios satélite que se instalan por proyecto con `pengu add` (ver `docs/EXTERNAL_MODULES.md`).
+`build_runtime.py` compila el runtime de PenguScript (`pengu_parser/pengu_runtime.c` + `pengu_runtime.h`) en `build/lib/libpengu_runtime.a` y, además, cada `std_c/*.c` en su propio `build/lib/lib<name>.a` (hoy `std_c/re.c` → `libre.a`). El runtime es **autocontenido**: no necesita nada más allá de libc, libm y pthreads / hilos Win32. Las únicas bibliotecas C que se compilan aquí son las vendorizadas de `std_c/`, y son **smart-linked**: solo llegan a la línea de enlace de un programa que importe el módulo correspondiente. Las bibliotecas externas siguen viviendo en repositorios satélite que se instalan por proyecto con `pengu add` (ver `docs/EXTERNAL_MODULES.md`).
+
+`build_runtime.py` también copia `std_c/*.h` a `build/include/`, de donde el layout portable y el FHS ya los recogen (`runtime/include/` e `include/pengu/`). Así un release congelado conserva `utf8.h` y `re.h` aunque el checkout no esté al lado del ejecutable.
 
 La compilación es idempotente y rápida (**~1.4 s** con `--rebuild`): si `libpengu_runtime.a` ya existe y es más reciente que sus entradas, no se recompila.
 
@@ -311,12 +313,20 @@ python build_runtime.py --rebuild
 
 ```
 build/
-├── include/                 # Header del runtime
+├── include/                 # Headers disponibles para el bundle
 │   ├── pengu_runtime.h
-│   └── pengu_runtime.h.gch  # PCH compartido (gcc/clang, best effort)
-└── lib/                     # Biblioteca estática generada
-    └── libpengu_runtime.a   # Runtime de PenguScript
+│   ├── pengu_runtime.h.gch  # PCH compartido (gcc/clang, best effort)
+│   ├── utf8.h               # copiado de std_c/ (std.lingua)
+│   └── re.h                 # copiado de std_c/ (std.regulus)
+├── obj_std_c/               # Objetos intermedios de std_c/
+└── lib/                     # Bibliotecas estáticas generadas
+    ├── libpengu_runtime.a   # Runtime de PenguScript
+    └── libre.a              # std_c/re.c (tiny-regex-c)
 ```
+
+Una compilación que importe `std.regulus` recibe `-Lbuild/lib -lre`; una que no
+lo importe no recibe ni el flag ni la cabecera. El requisito se verifica en
+`tests/build/test_smart_linking.py`.
 
 El archivo lleva un objeto por subsistema (core y filum) compilado con `-ffunction-sections`, de modo que el enlazador solo incorpora lo que el programa referencia (ver `BENCHMARKS.md` §Binary size).
 

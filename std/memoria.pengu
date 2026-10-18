@@ -88,7 +88,7 @@ import std.ward
 # ----------------------------------------------------------------------------
 
 ## Memoria module version.
-const MEMORIA_VERSION as string is "2.0.0"
+const MEMORIA_VERSION as string is "2.11.0"
 
 # ----------------------------------------------------------------------------
 # Runtime declarations

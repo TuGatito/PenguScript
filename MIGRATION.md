@@ -8,9 +8,28 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.10.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.11.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.10.0 → 2.11.0: internationalised text and smart-linked C
+
+This release is additive. Existing imports and programs keep compiling.
+
+* **`std.lingua`** and **`std.regulus`** are new. A `result` owns its payload:
+  use `r.value` while `r` lives, then `banish r`; do not also banish the
+  extracted list/string. This is the LANGUAGE.md §13 rule, not a new one.
+* Nothing changes for programs that do not import the new modules: neither
+  `utf8.h` nor `re.h` is included and `libre.a` is not linked.
+* `build_runtime.py` now also produces `build/lib/libre.a`. A release bundle or
+  CI image that only copied `libpengu_runtime.a` must copy `libre.a` too, or
+  `import std.regulus` fails at link time with `cannot find -lre`.
+* Every `std/` module now reports `"2.11.0"`. Code that asserted an older
+  `<MODULE>_VERSION` (for example `BUILDER_VERSION == "2.10.0"`) should compare
+  against `VERSION`'s value or merely check that the constant is non-empty.
+* Two compiler fixes become visible where valid code used to be rejected or
+  miscompiled: block-scoped `defer` inside `if`/loop bodies, and `err_of` with a
+  local variable or a struct-literal payload. No API was removed or renamed.
 
 ## 2.9.0 → 2.10.0: diagnostics, JSON and JSON-RPC
 

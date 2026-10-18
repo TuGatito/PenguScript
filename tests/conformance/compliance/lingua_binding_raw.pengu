@@ -1,0 +1,26 @@
+## The raw utf8.h declarations behind std.lingua are callable.
+##
+## This case proves the generated binding is real: it calls the C functions with
+## their original names, not the wrapper helpers. It also proves the header is
+## emitted exactly for programs that import std.lingua.
+import std.spark
+import std.ffi
+import std.ward
+import std.lingua
+
+weave main into int:
+    var hola as ref to frozen char is calling ffi.cstr_from_string with "hola"
+    var hola_len as int is (calling utf8len with hola) to int
+    calling ward.assert_eq_int with hola_len, 4
+
+    var emoji as ref to frozen char is calling ffi.cstr_from_string with "😀"
+    var emoji_len as int is (calling utf8len with emoji) to int
+    calling ward.assert_eq_int with emoji_len, 1
+    var emoji_bytes as int is (calling utf8size with emoji) to int
+    calling ward.assert_eq_int with emoji_bytes, 5
+
+    var cp_bytes as int is (calling utf8codepointsize with 0x1F600) to int
+    calling ward.assert_eq_int with cp_bytes, 4
+
+    calling spark.println with "OK lingua_binding_raw"
+    return 0

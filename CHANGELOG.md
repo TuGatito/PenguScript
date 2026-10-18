@@ -2,6 +2,96 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.11.0] — 2026-10-18 — internationalised text and smart-linked C
+
+Closes Phase 1c: `std.lingua` and `std.regulus` wrap the two vendored
+single-file C libraries in `std_c/` (`utf8.h`, `re.h`/`re.c`) behind Pengunic
+APIs. The C is smart-linked: a program that imports neither module contains
+neither header and links no `libre.a`.
+
+```pengu
+import std.lingua
+import std.spark
+
+var decoded as result of list of Codepoint to LinguaError is calling lingua.decode with "año 😀"
+if decoded.is_ok:
+    var cps as list of Codepoint is decoded.value
+    calling spark.println_int with cps.len          # 5
+    banish decoded
+```
+
+### Added
+
+- **`std.lingua`** — UTF-8 text over codepoints: `Codepoint` (a `seal` over
+  `u32`), `LinguaError` with exact byte offsets, `decode`/`decode_prefix`,
+  `encode`/`encode_one`, `is_valid`/`validate`, `codepoint_count`/
+  `utf16_length`, classification (`is_ascii`, `is_bmp`, `is_letter`, `is_digit`,
+  `is_whitespace`, `is_punctuation`, `is_symbol`, `is_control`,
+  `is_surrogate`), `to_u32`/`from_u32`/`to_utf16`, navigation (`codepoint_at`,
+  `byte_offset_of`, `next_codepoint`, `prev_codepoint`) and an approximate
+  `grapheme_count`. Wrapper over sheredom's public-domain `utf8.h`.
+  See `docs/LINGUA.md`.
+- **`std.regulus`** — small, explicit regular expressions: `Regex.compile`,
+  `pattern`, `is_match`, `match`, `match_at`, `matches`, `replace_first`,
+  `replace_all`, `split`, `escape`, `Match`, `RegexError`, and one-shot
+  `is_match`/`find_first`. Complete grammar: `. ^ $ * + ? [] \d \w \s`.
+  No groups, alternation, `{n,m}`, lookaround, backreferences or Unicode
+  classes — documented, not hidden. Wrapper over kokke's public-domain
+  `tiny-regex-c`. See `docs/REGULUS.md`.
+- **Smart linking for `std_c/`** — `std/lingua.d.pengu` emits `include
+  "utf8.h"`; `std/regulus.d.pengu` emits `include "re.h"` and `link "re"`.
+  The build manager processes those directives only for imported modules, and
+  `build_runtime.py` archives `std_c/re.c` into `build/lib/libre.a`.
+  `tests/build/test_smart_linking.py` checks the four combinations against
+  `bundle.c`, the verbose link line and `nm`.
+- **A companion declaration file convention** — `foo.pengu` may carry its raw
+  declarations in a sibling `foo.d.pengu`; `resolve_imports` adds the sibling as
+  an implicit dependency so the binding stays internal and its
+  `include`/`link` lines reach the bundle exactly when the wrapper is imported.
+- **Documentation**: `docs/LINGUA.md`, `docs/REGULUS.md`; new `LANGUAGE.md`
+  §19.1.4 and its Spanish mirror; a text-processing section and four
+  anti-patterns (§14.36–§14.39) in the Pengunic guides; a `CHEATSHEET.md`
+  text-processing section; README module list and third-party credits.
+
+### Changed
+
+- `build_runtime.py` compiles `std_c/*.c` into `build/lib/lib*.a` (strict
+  `-std=c99 -Wall -Wextra -Werror`), for both the native and wasm targets.
+- `pengu_project.py` keeps the checkout's `std_c/` directory on the include
+  path; the compiler reads nothing from it unless a module emits `#include`.
+- Every `std/` module reports `"2.11.0"` (the stdlib release it ships with).
+  `std.spark` keeps its own `SPARK_VERSION` and `JSONRPC_PROTOCOL_VERSION` stays
+  `"2.0"` (the wire protocol).
+- The standard library is now **38 modules**: 34 written entirely in
+  PenguScript, two general C bridges (`ffi`, `web`) and two smart-linked wrappers
+  (`lingua`, `regulus`).
+
+### Fixed
+
+- **Block-scoped `defer`** — a `defer` inside an `if`/loop block now runs at
+  that block's exit instead of after the surrounding C scope had closed. The
+  old behaviour generated C that referenced an out-of-scope binding
+  (`'rx' undeclared`) and leaked on `break`/`continue`. `return` now releases
+  every active defer scope, innermost first.
+- **`banish` on a tuple payload** — `banish result` on a `result of (list, int)`
+  freed only the result box and leaked the list. Tuple payloads now recurse into
+  `v0`, `v1`, … for cleanup.
+- **`err_of` with a local or a struct literal** — `return calling err_of with
+  failure` and `err_of with (with Variant is …)` failed with E0005 because the
+  codegen's type inference returned `None` for those shapes. A local-variable /
+  `result`-field / struct-literal fallback now resolves them.
+- **TinyCC compatibility** — generated bounds checks used `__auto_type`, which
+  TCC does not implement, so every indexed access made `pengu run` fall back
+  from TCC to gcc. They now use `int64_t`.
+- **`tiny-regex-c` corrections** (vendored copy, documented in
+  `docs/REGULUS.md` §10): an over-long pattern is rejected instead of silently
+  truncated; a trailing `\` is invalid; an empty-capable pattern matches at
+  end-of-text (so `replace_all`/`split` agree with Python); and
+  `re_compile_dynamic[_ex]`/`re_free` make compiled patterns independent and
+  freeable.
+- **`std.regulus` convenience helpers** — `regulus.is_match`/`find_first` now
+  release the compiled `result` on both the success and error paths.
+
 ## [2.10.0] — 2026-10-17 — diagnostics, JSON and JSON-RPC
 
 Closes Phase 1b: `std.diagnostic`, `std.json` and `std.jsonrpc` ship complete,

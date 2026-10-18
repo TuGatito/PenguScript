@@ -28,7 +28,7 @@ import pengu_version  # noqa: E402
 #: ``0.8.0-spark``).
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 
-MODULES = sorted(STD.glob("*.pengu"))
+MODULES = sorted(p for p in STD.glob("*.pengu") if not p.name.endswith(".d.pengu"))
 MODULE_IDS = [p.stem for p in MODULES]
 
 
@@ -50,6 +50,8 @@ def test_the_module_list_is_not_empty_and_includes_the_new_modules():
     assert "diagnostic" in MODULE_IDS
     assert "json" in MODULE_IDS
     assert "jsonrpc" in MODULE_IDS
+    assert "lingua" in MODULE_IDS
+    assert "regulus" in MODULE_IDS
 
 
 @pytest.mark.parametrize("path", MODULES, ids=MODULE_IDS)
@@ -66,8 +68,8 @@ def test_every_module_exports_a_version_marker(path):
 
 
 def test_functor_and_loom_are_at_the_current_release():
-    assert _declared_version(STD / "functor.pengu") == "2.10.0"
-    assert _declared_version(STD / "loom.pengu") == "2.10.0"
+    assert _declared_version(STD / "functor.pengu") == "2.11.0"
+    assert _declared_version(STD / "loom.pengu") == "2.11.0"
 
 
 def test_the_version_file_and_the_fallback_agree():

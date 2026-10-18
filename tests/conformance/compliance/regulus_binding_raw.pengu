@@ -1,0 +1,24 @@
+## The raw re.h/re.c declarations behind std.regulus are callable.
+##
+## This case proves the generated binding and the archived C file are real: it
+## compiles, matches and frees with the original C API. It also proves that a
+## program importing only std.regulus links libre.a but not utf8.h.
+import std.spark
+import std.ffi
+import std.ward
+import std.regulus
+
+weave main into int:
+    var pattern as ref to frozen char is calling ffi.cstr_from_string with "[0-9]+"
+    var compiled as re_t is calling re_compile_dynamic with pattern
+    calling ward.assert_true with (compiled != null)
+
+    var text as ref to frozen char is calling ffi.cstr_from_string with "abc123def"
+    var length as int is 0
+    var index as int is calling re_matchp with compiled, text, (sigil of length)
+    calling ward.assert_eq_int with index, 3
+    calling ward.assert_eq_int with length, 3
+
+    calling re_free with compiled
+    calling spark.println with "OK regulus_binding_raw"
+    return 0

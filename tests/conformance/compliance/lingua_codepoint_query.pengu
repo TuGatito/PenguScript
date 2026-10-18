@@ -1,0 +1,35 @@
+## Codepoint classification predicates.
+import std.spark
+import std.ward
+import std.lingua
+
+weave cp with value as u32 into Codepoint:
+    return value to Codepoint
+
+weave main into int:
+    calling ward.assert_true with (calling lingua.is_ascii with (calling cp with 0x41))
+    calling ward.assert_false with (calling lingua.is_ascii with (calling cp with 0xF1))
+    calling ward.assert_true with (calling lingua.is_bmp with (calling cp with 0xFFFF))
+    calling ward.assert_false with (calling lingua.is_bmp with (calling cp with 0x10000))
+
+    calling ward.assert_true with (calling lingua.is_letter with (calling cp with 0x41))
+    calling ward.assert_true with (calling lingua.is_letter with (calling cp with 0xF1))
+    calling ward.assert_true with (calling lingua.is_letter with (calling cp with 0x65E5))
+    calling ward.assert_true with (calling lingua.is_letter with (calling cp with 0x0416))
+    calling ward.assert_false with (calling lingua.is_letter with (calling cp with 0x31))
+
+    calling ward.assert_true with (calling lingua.is_digit with (calling cp with 0x37))
+    calling ward.assert_true with (calling lingua.is_digit with (calling cp with 0x0661))
+    calling ward.assert_false with (calling lingua.is_digit with (calling cp with 0x41))
+
+    calling ward.assert_true with (calling lingua.is_whitespace with (calling cp with 0x20))
+    calling ward.assert_true with (calling lingua.is_whitespace with (calling cp with 0x3000))
+    calling ward.assert_false with (calling lingua.is_whitespace with (calling cp with 0x41))
+
+    calling ward.assert_true with (calling lingua.is_punctuation with (calling cp with 0x2E))
+    calling ward.assert_true with (calling lingua.is_symbol with (calling cp with 0x2192))
+    calling ward.assert_true with (calling lingua.is_control with (calling cp with 0x0A))
+    calling ward.assert_true with (calling lingua.is_surrogate with (calling cp with 0xD800))
+
+    calling spark.println with "OK lingua_codepoint_query"
+    return 0

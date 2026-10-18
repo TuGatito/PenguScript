@@ -1,0 +1,68 @@
+## Every decoding error is surfaced with its class and offset.
+import std.spark
+import std.ward
+import std.lingua
+
+weave kind_of with s as string into int:
+    var r as result of list of Codepoint to LinguaError is calling lingua.decode with s
+    if r.is_ok:
+        banish r
+        return -1
+    var e as LinguaError is r.error
+    var kind as int is judge e:
+        when InvalidByte -> 1
+        when TruncatedSequence -> 2
+        when OverlongEncoding -> 3
+        when SurrogateCodepoint -> 4
+        when CodepointOutOfRange -> 5
+        when IndexOutOfRange -> 6
+    banish r
+    return kind
+
+weave offset_of with s as string into int:
+    var r as result of list of Codepoint to LinguaError is calling lingua.decode with s
+    if r.is_ok:
+        banish r
+        return -1
+    var e as LinguaError is r.error
+    var offset as int is judge e:
+        when InvalidByte with offset -> offset
+        when TruncatedSequence with offset -> offset
+        when OverlongEncoding with offset -> offset
+        when SurrogateCodepoint with offset -> offset
+        when CodepointOutOfRange with offset -> offset
+        when IndexOutOfRange with index -> index
+    banish r
+    return offset
+
+weave main into int:
+    calling ward.assert_eq_int with (calling kind_of with "\xFF"), 1
+    calling ward.assert_eq_int with (calling kind_of with "\xE2\x82"), 2
+    calling ward.assert_eq_int with (calling kind_of with "\xC0\x80"), 3
+    calling ward.assert_eq_int with (calling kind_of with "\xED\xA0\x80"), 4
+    calling ward.assert_eq_int with (calling kind_of with "\xF4\x90\x80\x80"), 5
+    calling ward.assert_eq_int with (calling kind_of with "ok"), -1
+
+    calling ward.assert_eq_int with (calling offset_of with "a\xFF"), 1
+    calling ward.assert_eq_int with (calling offset_of with "\xC0\x80"), 0
+
+    var none as result of (Codepoint, int) to LinguaError is calling lingua.codepoint_at with "a", 5
+    if not none.is_ok:
+        var e as LinguaError is none.error
+        var index as int is judge e:
+            when IndexOutOfRange with index -> index
+            when InvalidByte -> -1
+            when TruncatedSequence -> -1
+            when OverlongEncoding -> -1
+            when SurrogateCodepoint -> -1
+            when CodepointOutOfRange -> -1
+        calling ward.assert_eq_int with index, 5
+    banish none
+
+    calling ward.assert_eq_int with (calling lingua.grapheme_count with "a\u0301"), 1
+    calling ward.assert_eq_int with (calling lingua.grapheme_count with "😀"), 1
+    calling ward.assert_eq_int with (calling lingua.grapheme_count with "ab"), 2
+    calling ward.assert_eq_int with (calling lingua.grapheme_count with "\xFF"), -1
+
+    calling spark.println with "OK lingua_errors"
+    return 0

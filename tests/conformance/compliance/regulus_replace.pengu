@@ -1,0 +1,43 @@
+## replace_first / replace_all, including the no-match copy.
+import std.spark
+import std.scrolls
+import std.ward
+import std.regulus
+
+weave same with a as string, b as string into void:
+    calling ward.assert_eq_int with (calling scrolls.compare with a, b), 0
+
+weave main into int:
+    var cr as result of Regex to RegexError is calling Regex.compile with "[0-9]+"
+    var rx as Regex is cr.value
+    defer banish cr
+
+    var one as string is calling rx.replace_first with "abc123def456", "N"
+    calling same with one, "abcNdef456"
+    banish one
+
+    var every as string is calling rx.replace_all with "abc123def456", "N"
+    calling same with every, "abcNdefN"
+    banish every
+
+    var untouched as string is calling rx.replace_all with "abcdef", "N"
+    calling same with untouched, "abcdef"
+    banish untouched
+
+    var word as result of Regex to RegexError is calling Regex.compile with "\\w+"
+    var wrx as Regex is word.value
+    defer banish word
+
+    var tags as string is calling wrx.replace_all with "a b c", "<$>"
+    calling same with tags, "<$> <$> <$>"
+    banish tags
+
+    var empty as result of Regex to RegexError is calling Regex.compile with ""
+    var erx as Regex is empty.value
+    defer banish empty
+    var bars as string is calling erx.replace_all with "ab", "-"
+    calling same with bars, "-a-b-"
+    banish bars
+
+    calling spark.println with "OK regulus_replace"
+    return 0

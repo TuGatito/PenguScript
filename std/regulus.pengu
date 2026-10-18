@@ -1,0 +1,571 @@
+## std/regulus.pengu — small, explicit regular expressions.
+##
+## `std.regulus` wraps `std_c/re.h` + `std_c/re.c` (kokke/tiny-regex-c, public
+## domain). It is deliberately **not** PCRE: the engine is a few hundred lines,
+## has no backtracking surprises, allocates one compiled block per pattern, and
+## keeps the whole feature set visible in the grammar below. That is the right
+## trade for configuration validation, log filtering, simple tokenizers and the
+## future `pengu bind` / `pengu doc` tooling. For lookaround, backreferences,
+## `\p{...}` or Unicode case folding, install a PCRE-based satellite.
+##
+## ## Supported syntax (the complete list)
+## | Syntax | Meaning |
+## |---|---|
+## | `.` | any byte (including `\n`; `RE_DOT_MATCHES_NEWLINE` is 1) |
+## | `^` | beginning of the text |
+## | `$` | end of the text |
+## | `*` | zero or more, greedy |
+## | `+` | one or more, greedy |
+## | `?` | zero or one |
+## | `[abc]` | one byte in the set |
+## | `[a-z]` | one byte in the range |
+## | `[^abc]` | one byte **not** in the set (upstream marks this experimental) |
+## | `\d` `\D` | digit / non-digit (`[0-9]`) |
+## | `\w` `\W` | word / non-word (`[a-zA-Z0-9_]`) |
+## | `\s` `\S` | whitespace / non-whitespace |
+## | `\x` | the literal byte `x` (escapes a metacharacter) |
+##
+## `(...)`, `|`, `{n,m}`, lookaround, backreferences, `(?:...)`, inline flags
+## and Unicode properties are **not** supported. Parentheses and `|` are
+## ordinary characters in this engine, not grouping operators. Matching is
+## byte-oriented and search-based: `is_match` asks "does the pattern occur
+## anywhere", exactly like Python's `re.search`, not `re.fullmatch`.
+##
+## ## Example
+## ```pengu
+## import std.regulus
+## import std.spark
+##
+## weave main into int:
+##     var cr as result of Regex to RegexError is calling Regex.compile with "[0-9]+"
+##     if not cr.is_ok:
+##         return 1
+##     var rx as Regex is cr.value
+##     defer banish rx
+##     if calling rx.is_match with "abc123":
+##         var m as maybe Match is calling rx.match with "abc123def456"
+##         if m is present:
+##             calling spark.println_int with m.value.start
+##             calling spark.println_int with m.value.end
+##     return 0
+## ```
+##
+## ## Ownership (read this once)
+## `Regex.compile` returns a `result`, and a `result` **owns its payload**.
+## `r.value` is a borrowed view of the compiled `Regex`: use it while `r` is
+## alive, then release the whole result with `banish r`. Do **not** also
+## `banish rx` — that double-frees the compiled block (LANGUAGE.md §13).
+##
+## ```pengu
+## var cr as result of Regex to RegexError is calling Regex.compile with "[0-9]+"
+## if not cr.is_ok:
+##     return 1
+## var rx as Regex is cr.value
+## # ... use rx ...
+## banish cr              # releases pattern, compiled block and result box
+## ```
+##
+## - `Regex.compile` copies the pattern and owns one compiled block; `banish`
+##   on the result releases both through the derived `Nexus`.
+## - `Match` is copied, not allocated.
+## - `matches` returns an owned list; `replace_*` return owned strings;
+##   `split` returns an owned list of owned strings. Those lists/strings are
+##   **not** inside a result, so release them directly with `banish`.
+##
+## ## Complexity
+## | Operation | Cost |
+## |---|---|
+## | `compile` | O(pattern length), one allocation |
+## | `is_match`, `match`, `match_at` | O(text length) search, one temporary copy |
+## | `matches` | O(text length × matches) worst case, one list |
+## | `replace_first`, `replace_all`, `split` | O(text length) + output |
+## | `escape` | O(literal length) |
+##
+## The temporary copy exists because `re_matchp` takes a NUL-terminated string
+## while a PenguScript `string` is a length-bound byte buffer. The copy is
+## bounded by `s.length`, so embedded NULs never cause an over-read; matching
+## itself stops at the first NUL, which is documented in `docs/REGULUS.md`.
+
+import std.builder
+import std.scrolls
+
+# ----------------------------------------------------------------------------
+# Module version
+# ----------------------------------------------------------------------------
+
+## Regulus module version.
+const REGULUS_VERSION as string is "2.11.0"
+
+## Longest accepted pattern, in bytes.
+##
+## `tiny-regex-c` compiles into a fixed 30-slot program; this conservative
+## bound rejects a pattern before the corner cases of that encoding can bite.
+## Longer patterns are reported as `RegexError.PatternTooLong`.
+const REGULUS_MAX_PATTERN as int is 255
+
+## Maximum number of compiled symbols in one pattern (upstream limit).
+const REGULUS_MAX_SYMBOLS as int is 30
+
+## Maximum number of bytes across all character classes in one pattern
+## (upstream limit).
+const REGULUS_MAX_CHAR_CLASS_BYTES as int is 40
+
+# ----------------------------------------------------------------------------
+# Types
+# ----------------------------------------------------------------------------
+
+## A compiled regular expression.
+##
+## ## Memoria
+## Owns `_pattern` and the compiled block behind `_compiled`. `banish regex`
+## releases both through the derived `Nexus`. A `Regex` is immutable after
+## compilation, so it can be shared by reference between functions.
+rune Regex derive Nexus:
+    ## The pattern text, as passed to `compile`.
+    _pattern as string
+    ## The compiled program. `re_compile_dynamic` allocated one block; the
+    ## `PenguString` header carries it to `Nexus` (the length stays 0 because no
+    ## byte-level operation reads it).
+    _compiled as string
+
+## A successful match, as a half-open byte range `[start, end)`.
+##
+## `start` and `end` are byte offsets, not codepoint indices. For ASCII patterns
+## and text the distinction does not matter; for multibyte text, feed them to
+## `std.lingua` when a codepoint range is needed.
+rune Match derive Par:
+    ## Byte offset of the first matched byte (inclusive).
+    start as int
+    ## Byte offset just past the last matched byte (exclusive).
+    end as int
+
+## Why compilation failed.
+omen RegexError:
+    ## The pattern exceeds `REGULUS_MAX_PATTERN` or the compiled program would
+    ## exceed `REGULUS_MAX_SYMBOLS` / `REGULUS_MAX_CHAR_CLASS_BYTES`.
+    PatternTooLong
+    ## The pattern is structurally invalid (for example an unterminated `[`).
+    InvalidSyntax with position as int
+    ## The allocator refused the compiled block.
+    OutOfMemory
+
+# ----------------------------------------------------------------------------
+# Internal C bridge
+# ----------------------------------------------------------------------------
+
+## Compiles `pattern` into an owned block.
+##
+## Returns a `PenguString` header whose `data` is the compiled program and whose
+## `is_owned` is 1 (so `banish` releases it). `err_out` receives 0 on success,
+## 1 for invalid syntax, 2 for an over-long pattern or 3 for OOM. A `string`
+## header is used instead of `ref to byte` because `derive Nexus` already knows
+## how to release an owned `string`.
+antiquus _regulus_compile with pattern as string, err_out as ref to int into string:
+    r"""
+PenguString out;
+out.data = (char *)"";
+out.len = 0;
+out.is_owned = 0;
+*err_out = 0;
+
+if (pattern.data == ((void*)0) || pattern.len < 0)
+{
+    *err_out = 1;
+    return out;
+}
+if (pattern.len > 255)
+{
+    *err_out = 2;
+    return out;
+}
+
+size_t n = (size_t)pattern.len;
+char *tmp = (char *)malloc(n + 1);
+if (tmp == ((void*)0))
+{
+    *err_out = 3;
+    return out;
+}
+if (n > 0)
+{
+    memcpy(tmp, pattern.data, n);
+}
+tmp[n] = 0;
+
+int code = 0;
+re_t compiled = re_compile_dynamic_ex(tmp, &code);
+free(tmp);
+if (compiled == 0)
+{
+    *err_out = code == 0 ? 1 : code;
+    return out;
+}
+
+out.data = (char *)compiled;
+out.len = 0;
+out.is_owned = 1;
+*err_out = 0;
+return out;
+"""
+
+## Returns the byte pointer of a compiled `Regex`.
+antiquus _regulus_compiled_ptr with compiled as string into ref to byte:
+    r"""
+return (uint8_t *)compiled.data;
+"""
+
+## Searches for a match at or after `start`.
+##
+## Returns the absolute byte offset of the match, or -1. `out_len` receives the
+## match length in bytes. The text is copied into a bounded, NUL-terminated
+## temporary because the engine's API is C-string based.
+antiquus _regulus_match with compiled as string, text as string, start as int, out_len as ref to int into int:
+    r"""
+*out_len = 0;
+if (compiled.data == ((void*)0) || compiled.is_owned == 0)
+{
+    return -1;
+}
+if (text.data == ((void*)0) || start < 0 || start > text.len)
+{
+    return -1;
+}
+
+size_t n = (size_t)(text.len - start);
+char *tmp = (char *)malloc(n + 1);
+if (tmp == ((void*)0))
+{
+    return -1;
+}
+if (n > 0)
+{
+    memcpy(tmp, text.data + start, n);
+}
+tmp[n] = 0;
+
+int match_len = 0;
+int index = re_matchp((re_t)compiled.data, tmp, &match_len);
+free(tmp);
+if (index < 0)
+{
+    return -1;
+}
+*out_len = match_len;
+return start + index;
+"""
+
+## Returns the byte offset of the first structural error in `pattern`, or 0.
+##
+## The engine does not report positions, so this small scan covers the two
+## malformed shapes it rejects (an unterminated `[` and a trailing `\`).
+antiquus _regulus_syntax_position with pattern as string into int:
+    r"""
+for (int i = 0; i < pattern.len; ++i)
+{
+    unsigned char c = (unsigned char)pattern.data[i];
+    if (c == '\\')
+    {
+        if (i + 1 >= pattern.len)
+        {
+            return i;
+        }
+        i += 1;
+    }
+    else if (c == '[')
+    {
+        int j = i + 1;
+        if (j < pattern.len && pattern.data[j] == '^')
+        {
+            j += 1;
+        }
+        while (j < pattern.len && pattern.data[j] != ']')
+        {
+            if (pattern.data[j] == '\\' && j + 1 < pattern.len)
+            {
+                j += 1;
+            }
+            j += 1;
+        }
+        if (j >= pattern.len)
+        {
+            return i;
+        }
+        i = j;
+    }
+}
+return 0;
+"""
+
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
+
+## Appends `s[start..end)` to `sb`, copying through an owned temporary.
+weave _append_range with sb as ref to builder.StringBuilder, s as string, start as int, end as int into void:
+    if end <= start:
+        return
+    var chunk as string is calling scrolls.substring with s, start, end
+    calling sb.append with chunk
+    banish chunk
+
+## `true` when `b` is a regular-expression metacharacter that `escape` must
+## quote: `. [ ] { } ( ) * + ? ^ $ | \ -`.
+weave _is_meta_byte with b as int into bool:
+    if b == 92 or b == 46 or b == 94 or b == 36:
+        return true
+    if b == 42 or b == 43 or b == 63:
+        return true
+    if b == 40 or b == 41 or b == 91 or b == 93:
+        return true
+    if b == 123 or b == 125 or b == 124 or b == 45:
+        return true
+    return false
+
+# ----------------------------------------------------------------------------
+# Compilation
+# ----------------------------------------------------------------------------
+
+enchanting Regex:
+    ## Compiles `pattern`.
+    ##
+    ## ## Parámetros
+    ## - `pattern`: the pattern text. Copied; the caller keeps ownership.
+    ##
+    ## ## Retorno
+    ## `ok Regex` (owned by the result; release the result with `banish`) or
+    ## `err RegexError`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var cr as result of Regex to RegexError is calling Regex.compile with "[a-z]+"
+    ## if cr.is_ok:
+    ##     var rx as Regex is cr.value
+    ##     # ... use rx ...
+    ##     banish cr
+    ## ```
+    weave ritual compile with pattern as string into result of Regex to RegexError:
+        var code as int is 0
+        var compiled as string is calling _regulus_compile with pattern, (sigil of code)
+        if code != 0:
+            banish compiled
+            if code == 2:
+                return calling err_of with (with PatternTooLong is 0)
+            if code == 3:
+                return calling err_of with (with OutOfMemory is 0)
+            var position as int is calling _regulus_syntax_position with pattern
+            return calling err_of with (with InvalidSyntax is with position is position)
+        var owned as string is calling scrolls.substring with pattern, 0, pattern length
+        var regex as Regex is with _pattern is owned, _compiled is compiled
+        return calling ok_of with regex
+
+    ## Returns the pattern text. Borrowed; do not `banish` it.
+    weave pattern into string:
+        return self->_pattern
+
+    ## `true` when the pattern occurs anywhere in `s`.
+    ##
+    ## ## Memoria
+    ## O(s.length), one bounded temporary copy, no result allocation.
+    weave is_match with s as string into bool:
+        var matched as int is 0
+        return (calling _regulus_match with self->_compiled, s, 0, (sigil of matched)) >= 0
+
+    ## Returns the first match, or `maybe none`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var m as maybe Match is calling rx.match with "abc123"
+    ## ```
+    weave match with s as string into maybe Match:
+        return calling self.match_at with s, 0
+
+    ## Returns the first match starting at or after `start`, or `maybe none`.
+    ##
+    ## `start < 0` or `start > s.length` returns `maybe none`.
+    weave match_at with s as string, start as int into maybe Match:
+        if start < 0 or start > (s length):
+            return maybe none
+        var length as int is 0
+        var index as int is calling _regulus_match with self->_compiled, s, start, (sigil of length)
+        if index < 0:
+            return maybe none
+        var found as Match is with start is index, end is index + length
+        return some found
+
+    ## Returns every non-overlapping match, in order.
+    ##
+    ## A zero-length match advances one byte so the loop always terminates;
+    ## `matches` on an empty pattern therefore yields one empty match per byte
+    ## plus one at the end, like Python's `re.finditer`.
+    ##
+    ## ## Memoria
+    ## Allocates one list; `banish` releases it.
+    weave matches with s as string into list of Match:
+        var out as list of Match is list of Match
+        var offset as int is 0
+        var n as int is s length
+        while offset <= n:
+            var length as int is 0
+            var index as int is calling _regulus_match with self->_compiled, s, offset, (sigil of length)
+            if index < 0:
+                break
+            var found as Match is with start is index, end is index + length
+            calling out.push with found
+            if length > 0:
+                set offset is index + length
+            else:
+                if index >= n:
+                    break
+                set offset is index + 1
+        return out
+
+    ## Replaces the first match with `replacement`.
+    ##
+    ## The replacement is literal text, not a backreference template: this
+    ## engine has no capture groups, so `$1` / `\1` would be copied verbatim.
+    ## Returns an owned copy of `s` when there is no match.
+    weave replace_first with s as string, replacement as string into string:
+        var length as int is 0
+        var index as int is calling _regulus_match with self->_compiled, s, 0, (sigil of length)
+        if index < 0:
+            return calling scrolls.substring with s, 0, s length
+        var sb as StringBuilder is calling StringBuilder.new
+        calling _append_range with (sigil of sb), s, 0, index
+        calling sb.append with replacement
+        calling _append_range with (sigil of sb), s, index + length, s length
+        var out as string is calling sb.finish
+        banish sb
+        return out
+
+    ## Replaces every non-overlapping match with `replacement`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling rx.replace_all with "abc123def456", "N"   # "abcNdefN"
+    ## ```
+    weave replace_all with s as string, replacement as string into string:
+        var sb as StringBuilder is calling StringBuilder.new
+        var last as int is 0
+        var offset as int is 0
+        var n as int is s length
+        while offset <= n:
+            var length as int is 0
+            var index as int is calling _regulus_match with self->_compiled, s, offset, (sigil of length)
+            if index < 0:
+                break
+            calling _append_range with (sigil of sb), s, last, index
+            calling sb.append with replacement
+            set last is index + length
+            if length > 0:
+                set offset is index + length
+            else:
+                if index >= n:
+                    break
+                set offset is index + 1
+        calling _append_range with (sigil of sb), s, last, n
+        var out as string is calling sb.finish
+        banish sb
+        return out
+
+    ## Splits `s` at every non-overlapping match.
+    ##
+    ## The separator is not included. A leading/trailing separator produces an
+    ## empty field, matching the usual split semantics; no match returns a
+    ## one-element list holding a copy of `s`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var parts as list of string is calling rx.split with "a b  c"
+    ## # ["a", "b", "c"] for pattern "\s+"
+    ## ```
+    weave split with s as string into list of string:
+        var out as list of string is list of string
+        var last as int is 0
+        var offset as int is 0
+        var n as int is s length
+        while offset <= n:
+            var length as int is 0
+            var index as int is calling _regulus_match with self->_compiled, s, offset, (sigil of length)
+            if index < 0:
+                break
+            calling out.push with (calling scrolls.substring with s, last, index)
+            set last is index + length
+            if length > 0:
+                set offset is index + length
+            else:
+                if index >= n:
+                    break
+                set offset is index + 1
+        calling out.push with (calling scrolls.substring with s, last, n)
+        return out
+
+# ----------------------------------------------------------------------------
+# Escape
+# ----------------------------------------------------------------------------
+
+## Escapes the metacharacters in `literal` so it matches itself.
+##
+## ## Parámetros
+## - `literal`: the text to quote. Borrowed.
+##
+## ## Retorno
+## An owned string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var quoted as string is calling regulus.escape with "a.b*c"   # "a\\.b\\*c"
+## ```
+weave escape with literal as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    var raw as ref to frozen byte is bytes of literal
+    var i as int is 0
+    var n as int is literal length
+    while i < n:
+        var b as int is (raw at i) to int
+        if calling _is_meta_byte with b:
+            calling sb.append_char with (92 to char)
+        calling sb.append_char with (b to char)
+        set i is i + 1
+    var out as string is calling sb.finish
+    banish sb
+    return out
+
+# ----------------------------------------------------------------------------
+# One-shot convenience
+# ----------------------------------------------------------------------------
+
+## Compiles `pattern` and reports whether it matches `s`.
+##
+## ## Retorno
+## `ok bool`, or `err RegexError` when the pattern is invalid. A `true` value
+## means the pattern occurs somewhere in `s` (search semantics).
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of bool to RegexError is calling regulus.is_match with "[0-9]+", "abc123"
+## ```
+weave is_match with pattern as string, s as string into result of bool to RegexError:
+    var compiled as result of Regex to RegexError is calling Regex.compile with pattern
+    if not compiled.is_ok:
+        var failure as RegexError is compiled.error
+        banish compiled
+        return calling err_of with failure
+    var regex as Regex is compiled.value
+    var matched as bool is calling regex.is_match with s
+    banish compiled
+    return calling ok_of with matched
+
+## Compiles `pattern` and returns its first match in `s`.
+##
+## ## Retorno
+## `ok (maybe Match)`, or `err RegexError` when the pattern is invalid.
+weave find_first with pattern as string, s as string into result of maybe Match to RegexError:
+    var compiled as result of Regex to RegexError is calling Regex.compile with pattern
+    if not compiled.is_ok:
+        var failure as RegexError is compiled.error
+        banish compiled
+        return calling err_of with failure
+    var regex as Regex is compiled.value
+    var found as maybe Match is calling regex.match with s
+    banish compiled
+    return calling ok_of with found

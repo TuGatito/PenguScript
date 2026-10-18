@@ -128,6 +128,29 @@ pengu bind include/raylib.h --output pengu/raylib.d.pengu --links raylib
 directly usable. Re-read it afterwards: `link "..."` may still need to be added
 by hand (one line per library the linker needs).
 
+### 2.1.1 Internal bindings: wrapper + companion declaration file
+
+A binding can be **internal**: the consumer imports a wrapper that adds types,
+ownership and a PenguScript-shaped API, while the raw C declarations stay in a
+sibling file. The convention is:
+
+```
+pengu/
+├── lingua.pengu       # public wrapper: import std.lingua
+└── lingua.d.pengu     # internal declarations: include, link, declare
+```
+
+`import std.lingua` resolves to the non-declaration spelling
+(`find_module_path` prefers `lingua.pengu`), so the binding file is never a
+public module. To make it reachable, `resolve_imports` adds a **companion
+declaration file** as an implicit dependency of the wrapper: the companion is
+checked first (registering its `declare`/`include`/`link` lines) and then the
+wrapper body. A `.d.pengu` file may only declare, never define (`E0025`), which
+is why the length-aware C bridge lives in the wrapper's `antiquus` functions.
+
+This is exactly how `std.lingua`/`std.regulus` are built; see
+[`LINGUA.md`](LINGUA.md) §10 and [`REGULUS.md`](REGULUS.md) §11.
+
 ### 2.2 The `build.py` script
 
 `build.py` runs when the binding is installed with `pengu add <url> --trust`

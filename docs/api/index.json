@@ -8013,6 +8013,230 @@
       "deprecated": false,
       "documented": true,
       "kind": "const",
+      "module": "lingua",
+      "name": "LINGUA_VERSION",
+      "signature": "**LINGUA_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "lingua",
+      "name": "LinguaError",
+      "signature": "**LinguaError** : LinguaError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "seal",
+      "module": "lingua",
+      "name": "Codepoint",
+      "signature": "**Codepoint** : Codepoint"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "byte_offset_of",
+      "signature": "**byte_offset_of**(s: string, codepoint_index: int) -> result of int to LinguaError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "codepoint_at",
+      "signature": "**codepoint_at**(s: string, byte_offset: int) -> result of (Codepoint, int) to LinguaError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "codepoint_count",
+      "signature": "**codepoint_count**(s: string) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "decode",
+      "signature": "**decode**(s: string) -> result of list of Codepoint to LinguaError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "decode_prefix",
+      "signature": "**decode_prefix**(s: string, max_codepoints: int) -> result of (list of Codepoint, int) to LinguaError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "encode",
+      "signature": "**encode**(cps: list of Codepoint) -> result of string to LinguaError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "encode_one",
+      "signature": "**encode_one**(cp: Codepoint, sb: ref to StringBuilder) -> result of void to LinguaError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "from_u32",
+      "signature": "**from_u32**(value: u32) -> result of Codepoint to LinguaError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "grapheme_count",
+      "signature": "**grapheme_count**(s: string) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "is_ascii",
+      "signature": "**is_ascii**(cp: Codepoint) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "is_bmp",
+      "signature": "**is_bmp**(cp: Codepoint) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "is_control",
+      "signature": "**is_control**(cp: Codepoint) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "is_digit",
+      "signature": "**is_digit**(cp: Codepoint) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "is_letter",
+      "signature": "**is_letter**(cp: Codepoint) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "is_punctuation",
+      "signature": "**is_punctuation**(cp: Codepoint) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "is_surrogate",
+      "signature": "**is_surrogate**(cp: Codepoint) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "is_symbol",
+      "signature": "**is_symbol**(cp: Codepoint) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "is_valid",
+      "signature": "**is_valid**(s: string) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "is_whitespace",
+      "signature": "**is_whitespace**(cp: Codepoint) -> bool"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "next_codepoint",
+      "signature": "**next_codepoint**(s: string, byte_offset: int) -> result of (Codepoint, int) to LinguaError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "prev_codepoint",
+      "signature": "**prev_codepoint**(s: string, byte_offset: int) -> result of (Codepoint, int) to LinguaError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "to_u32",
+      "signature": "**to_u32**(cp: Codepoint) -> u32"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "to_utf16",
+      "signature": "**to_utf16**(cp: Codepoint) -> (u16, u16)"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "utf16_length",
+      "signature": "**utf16_length**(s: string) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "lingua",
+      "name": "validate",
+      "signature": "**validate**(s: string) -> result of void to LinguaError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
       "module": "littera",
       "name": "LITTERA_VERSION",
       "signature": "**LITTERA_VERSION** : string"
@@ -10232,6 +10456,86 @@
       "module": "oracle",
       "name": "zip_maybe",
       "signature": "**zip_maybe**(left: maybe T, right: maybe U) -> maybe Pair"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "regulus",
+      "name": "REGULUS_MAX_CHAR_CLASS_BYTES",
+      "signature": "**REGULUS_MAX_CHAR_CLASS_BYTES** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "regulus",
+      "name": "REGULUS_MAX_PATTERN",
+      "signature": "**REGULUS_MAX_PATTERN** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "regulus",
+      "name": "REGULUS_MAX_SYMBOLS",
+      "signature": "**REGULUS_MAX_SYMBOLS** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "regulus",
+      "name": "REGULUS_VERSION",
+      "signature": "**REGULUS_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "regulus",
+      "name": "RegexError",
+      "signature": "**RegexError** : RegexError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "regulus",
+      "name": "Match",
+      "signature": "**Match** : Match"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "regulus",
+      "name": "Regex",
+      "signature": "**Regex** : Regex"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "regulus",
+      "name": "escape",
+      "signature": "**escape**(literal: string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "regulus",
+      "name": "find_first",
+      "signature": "**find_first**(pattern: string, s: string) -> result of maybe Match to RegexError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "regulus",
+      "name": "is_match",
+      "signature": "**is_match**(pattern: string, s: string) -> result of bool to RegexError"
     },
     {
       "deprecated": false,

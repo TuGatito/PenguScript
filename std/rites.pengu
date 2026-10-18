@@ -159,7 +159,7 @@ declare pengu_c_archivum_is_file with path as string into bool
 # ----------------------------------------------------------------------------
 
 ## Version constant for the std.rites module.
-const RITES_VERSION as string is "2.1.0"
+const RITES_VERSION as string is "2.11.0"
 
 # --- Module directives ------------------------------------------------------
 # The module's public weaves carry archetypal operating-system names

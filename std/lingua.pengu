@@ -1,0 +1,947 @@
+## std/lingua.pengu — UTF-8 text processing over codepoints.
+##
+## `string` in PenguScript is a sequence of **bytes** whose contents are
+## conventionally UTF-8. Every byte-oriented operation in `std.scrolls` is
+## therefore correct for ASCII and wrong for anything else: `s.length` counts
+## bytes, `char_at` returns one byte, and `reverse` reverses bytes. `std.lingua`
+## is the explicitly-internationalised layer: it decodes the byte sequence into
+## Unicode scalar values once, validates it with an exact error offset, and lets
+## the program work in codepoints.
+##
+## The heavy lifting is done by `std_c/utf8.h` (sheredom/utf8.h, public domain).
+## This module is a Pengunic wrapper: the C stays at the boundary, every failure
+## is a value (`result`), and no operation panics on malformed input.
+##
+## ## The three units, kept distinct
+## | Unit | What it is | API |
+## |---|---|---|
+## | byte | one `u8` of the UTF-8 encoding | `s.length`, `s.byte_at` |
+## | codepoint | one Unicode scalar value (0..0x10FFFF, no surrogates) | `decode`, `Codepoint` |
+## | grapheme | one user-perceived character (approximate here) | `grapheme_count` |
+##
+## `decode("\u{00F1}")` is one codepoint in two bytes; `decode("\u{1F600}")` is
+## one codepoint in four bytes. Iterating `for b in s` therefore visits encoding
+## bytes, not characters.
+##
+## ## Example
+## ```pengu
+## import std.lingua
+## import std.spark
+##
+## weave main into int:
+##     var r as result of list of Codepoint to LinguaError is calling lingua.decode with "hola \u{1F600}"
+##     if not r.is_ok:
+##         calling spark.eprintln with "input is not UTF-8"
+##         return 1
+##     var cps as list of Codepoint is r.value
+##     defer banish cps
+##     calling spark.println_int with (calling lingua.codepoint_count with "hola \u{1F600}")
+##     return 0
+## ```
+##
+## ## Ownership (read this once)
+## A `result` **owns its payload**. `r.value` is a borrowed view: use it while
+## `r` is alive and release the whole result once with `banish r`. Do **not**
+## also `banish` the extracted list/string — that is a double free
+## (LANGUAGE.md §13: `banish result` releases the payload and then the box).
+##
+## ```pengu
+## var r as result of list of Codepoint to LinguaError is calling lingua.decode with "ñ"
+## var cps as list of Codepoint is r.value
+## # ... use cps ...
+## banish r            # releases the list and the result box
+## ```
+##
+## - `decode` and `decode_prefix` allocate one list owned by the result.
+## - `encode` allocates one string owned by the result.
+## - `Codepoint` is a `seal` over `u32`: it is copied, never allocated.
+## - Every query (`is_valid`, `codepoint_count`, `is_letter`, …) allocates
+##   nothing.
+## - To keep a decoded value after its result, copy it before `banish r`; a
+##   `string` can be copied with `pengu_string_copy`, and a codepoint list can
+##   be rebuilt with `encode`/`decode` or copied element by element.
+##
+## ## Complexity
+## | Operation | Cost |
+## |---|---|
+## | `decode`, `decode_prefix` | O(n) scan + one list |
+## | `encode` | O(n) scan + one string |
+## | `is_valid`, `validate`, `codepoint_count`, `utf16_length` | O(n), no allocation |
+## | `codepoint_at`, `next_codepoint` | O(1) + validation of one sequence |
+## | `prev_codepoint`, `byte_offset_of` | O(offset), no allocation |
+## | `grapheme_count` | O(n), no allocation |
+##
+## ## Limits
+## Classification (`is_letter`, `is_digit`, …) and `grapheme_count` are
+## **approximate**: they cover ASCII, Latin-1, Greek, Cyrillic, Hebrew, Arabic,
+## Devanagari, Thai, Hiragana/Katakana, Hangul and CJK, plus the common
+## punctuation/symbol/emoji blocks. They are not the full Unicode Character
+## Database. Normalisation (NFC/NFD/NFKC/NFKD) and full case folding are out of
+## scope; use a satellite such as a future `pengu-icu` when those are required.
+## See `docs/LINGUA.md` for the exact ranges.
+
+import std.builder
+
+# ----------------------------------------------------------------------------
+# Module version
+# ----------------------------------------------------------------------------
+
+## Lingua module version.
+const LINGUA_VERSION as string is "2.11.0"
+
+# ----------------------------------------------------------------------------
+# Types
+# ----------------------------------------------------------------------------
+
+## A Unicode scalar value: `0..0x10FFFF`, excluding the surrogate range
+## `U+D800..U+DFFF`.
+##
+## The seal is deliberate: a byte, a codepoint and a UTF-16 unit are all
+## integers, and mixing them silently is the classic text-processing bug.
+## Construct one with `from_u32` (which validates) or with an explicit cast when
+## the value is a known-good constant.
+seal Codepoint as u32
+
+## Every way decoding UTF-8 can fail, with the byte offset of the failure.
+##
+## The offset points at the **first byte of the invalid sequence**, not at the
+## byte that happened to break a check. That makes a diagnostic point at the
+## character the user typed rather than at its tail.
+omen LinguaError:
+    ## A byte that cannot start a UTF-8 sequence, or a bad continuation byte.
+    InvalidByte with offset as int
+    ## The input ends in the middle of a multibyte sequence.
+    TruncatedSequence with offset as int
+    ## A sequence encodes a value that fits a shorter encoding.
+    OverlongEncoding with offset as int
+    ## A sequence encodes `U+D800..U+DFFF`, which is not a scalar value.
+    SurrogateCodepoint with offset as int
+    ## A sequence encodes a value above `U+10FFFF`.
+    CodepointOutOfRange with offset as int
+    ## A byte or codepoint index outside the input.
+    IndexOutOfRange with index as int
+
+# ----------------------------------------------------------------------------
+# Internal C bridge
+# ----------------------------------------------------------------------------
+
+## Maps a raw `_lingua_scan` code to the matching `LinguaError` variant.
+##
+## ## Parámetros
+## - `code`: 1 = invalid byte, 2 = truncated, 3 = overlong, 4 = surrogate,
+##   5 = out of range, 6 = index out of range.
+## - `offset`: byte offset (or index) to attach to the error.
+weave _lingua_error with code as int, offset as int into LinguaError:
+    if code == 1:
+        return with InvalidByte is with offset is offset
+    if code == 2:
+        return with TruncatedSequence is with offset is offset
+    if code == 3:
+        return with OverlongEncoding is with offset is offset
+    if code == 4:
+        return with SurrogateCodepoint is with offset is offset
+    if code == 5:
+        return with CodepointOutOfRange is with offset is offset
+    return with IndexOutOfRange is with index is offset
+
+## Decodes the sequence that starts at `offset`, with explicit bounds.
+##
+## Returns 0 on success and fills `cp_out` / `len_out`; returns the failure
+## class listed on `_lingua_error` otherwise. Never reads past `s.length` and
+## never calls `strlen`, so embedded NUL bytes are ordinary codepoints.
+antiquus _lingua_scan with s as string, offset as int, cp_out as ref to u32, len_out as ref to int into int:
+    r"""
+if (s.data == ((void*)0) || offset < 0 || offset >= s.len)
+{
+    return 6;
+}
+
+const unsigned char *data = (const unsigned char *)s.data;
+const unsigned char *p = data + (size_t)offset;
+const size_t remaining = (size_t)(s.len - offset);
+const unsigned char lead = p[0];
+int need;
+
+if (lead < 0x80u)
+{
+    *cp_out = (uint32_t)lead;
+    *len_out = 1;
+    return 0;
+}
+if ((lead & 0xe0u) == 0xc0u)
+{
+    need = 2;
+}
+else if ((lead & 0xf0u) == 0xe0u)
+{
+    need = 3;
+}
+else if ((lead & 0xf8u) == 0xf0u)
+{
+    need = 4;
+}
+else
+{
+    return 1;
+}
+
+/* 0xF5..0xF7 would encode values above U+10FFFF; 0xC0/0xC1 below U+80.
+   The first is rejected as an invalid lead, the second as overlong below. */
+if (lead > 0xf4u)
+{
+    return 1;
+}
+if (remaining < (size_t)need)
+{
+    return 2;
+}
+for (int k = 1; k < need; ++k)
+{
+    if ((p[k] & 0xc0u) != 0x80u)
+    {
+        return 1;
+    }
+}
+
+utf8_int32_t decoded = 0;
+(void)utf8codepoint((const utf8_int8_t *)p, &decoded);
+
+if ((need == 2 && decoded < 0x80) ||
+    (need == 3 && decoded < 0x800) ||
+    (need == 4 && decoded < 0x10000))
+{
+    return 3;
+}
+if (decoded >= 0xd800 && decoded <= 0xdfff)
+{
+    return 4;
+}
+if (decoded > 0x10ffff)
+{
+    return 5;
+}
+
+*cp_out = (uint32_t)decoded;
+*len_out = need;
+return 0;
+"""
+
+## Encodes one codepoint into `out` (which must have room for four bytes).
+##
+## Returns the number of bytes written (1..4), or 0 when `cp` is not a scalar
+## value (surrogate or above `U+10FFFF`).
+antiquus _lingua_encode with cp as u32, out as ref to byte into int:
+    r"""
+if (cp > 0x10ffffu || (cp >= 0xd800u && cp <= 0xdfffu))
+{
+    return 0;
+}
+utf8_int8_t *end = utf8catcodepoint((utf8_int8_t *)out, (utf8_int32_t)cp, 4);
+if (end == ((void*)0))
+{
+    return 0;
+}
+return (int)(end - (utf8_int8_t *)out);
+"""
+
+## Packs a codepoint and its encoded size into the tuple a `result` carries.
+##
+## A tuple is a product type, not a first-class literal, so storing one inside
+## `ok_of` needs this explicit constructor.
+weave _cp_pair with cp as Codepoint, used as int into (Codepoint, int):
+    return cp, used
+
+## Packs a decoded prefix and its byte length into the tuple a `result` carries.
+weave _prefix_pair with items as list of Codepoint, consumed as int into (list of Codepoint, int):
+    return items, consumed
+
+# ----------------------------------------------------------------------------
+# Decoding
+# ----------------------------------------------------------------------------
+
+## Decodes a UTF-8 string into its codepoints.
+##
+## ## Parámetros
+## - `s`: the bytes to decode. Borrowed; empty is valid.
+##
+## ## Retorno
+## `ok` with a list owned by the result (release the result with `banish`), or
+## `err` with the offset of the first invalid sequence.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of list of Codepoint to LinguaError is calling lingua.decode with "a\u{00F1}"
+## var cps as list of Codepoint is r.value
+## banish r
+## ```
+weave decode with s as string into result of list of Codepoint to LinguaError:
+    var out as list of Codepoint is list of Codepoint
+    var offset as int is 0
+    var n as int is s length
+    while offset < n:
+        var cp as u32 is 0
+        var used as int is 0
+        var code as int is calling _lingua_scan with s, offset, (sigil of cp), (sigil of used)
+        if code != 0:
+            banish out
+            return calling err_of with (calling _lingua_error with code, offset)
+        calling out.push with (cp to Codepoint)
+        set offset is offset + used
+    return calling ok_of with out
+
+## Decodes at most `max_codepoints` codepoints and reports how many bytes they
+## consumed.
+##
+## This is the streaming primitive: a lexer can consume a prefix without
+## decoding the rest of the file. `max_codepoints <= 0` returns `ok ([], 0)`.
+##
+## ## Parámetros
+## - `s`: the bytes to decode. Borrowed.
+## - `max_codepoints`: upper bound on the returned codepoints.
+##
+## ## Retorno
+## `ok (list, bytes_consumed)` or `err` at the first invalid sequence.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of (list of Codepoint, int) to LinguaError is calling lingua.decode_prefix with "abc", 2
+## ```
+weave decode_prefix with s as string, max_codepoints as int into result of (list of Codepoint, int) to LinguaError:
+    var out as list of Codepoint is list of Codepoint
+    if max_codepoints <= 0:
+        return calling ok_of with (calling _prefix_pair with out, 0)
+    var offset as int is 0
+    var n as int is s length
+    var taken as int is 0
+    while offset < n and taken < max_codepoints:
+        var cp as u32 is 0
+        var used as int is 0
+        var code as int is calling _lingua_scan with s, offset, (sigil of cp), (sigil of used)
+        if code != 0:
+            banish out
+            return calling err_of with (calling _lingua_error with code, offset)
+        calling out.push with (cp to Codepoint)
+        set offset is offset + used
+        set taken is taken + 1
+    return calling ok_of with (calling _prefix_pair with out, offset)
+
+
+## Encodes a codepoint list as UTF-8.
+##
+## ## Parámetros
+## - `cps`: the codepoints. Borrowed; the list is not consumed.
+##
+## ## Retorno
+## `ok` with a string owned by the result (release the result with `banish`),
+## or `err` pointing at the index of the first non-scalar value.
+##
+## ## Ejemplo
+## ```pengu
+## var cps as list of Codepoint is list of Codepoint
+## calling cps.push with (0x1F600 to Codepoint)
+## var r as result of string to LinguaError is calling lingua.encode with cps
+## ```
+weave encode with cps as list of Codepoint into result of string to LinguaError:
+    var sb as StringBuilder is calling StringBuilder.new
+    var i as int is 0
+    var buf as array of byte with size 4 is [0, 0, 0, 0]
+    while i < cps.len:
+        var value as u32 is (cps at i) to u32
+        var written as int is calling _lingua_encode with value, (sigil of (buf at 0))
+        if written <= 0:
+            banish sb
+            return calling err_of with (with CodepointOutOfRange is with offset is i)
+        calling sb.append_slice with (sigil of (buf at 0)), written
+        set i is i + 1
+    var encoded as string is calling sb.finish
+    banish sb
+    return calling ok_of with encoded
+
+## Encodes one codepoint and appends it to `sb`.
+##
+## ## Parámetros
+## - `cp`: the codepoint to write.
+## - `sb`: destination builder. Borrowed; it must outlive the call.
+##
+## ## Retorno
+## `ok 0`, or `err CodepointOutOfRange` when `cp` is not a scalar value.
+##
+## ## Ejemplo
+## ```pengu
+## var sb as StringBuilder is calling StringBuilder.new
+## defer banish sb
+## var r as result of void to LinguaError is calling lingua.encode_one with (0x00F1 to Codepoint), (sigil of sb)
+## ```
+weave encode_one with cp as Codepoint, sb as ref to builder.StringBuilder into result of void to LinguaError:
+    var buf as array of byte with size 4 is [0, 0, 0, 0]
+    var written as int is calling _lingua_encode with (cp to u32), (sigil of (buf at 0))
+    if written <= 0:
+        return calling err_of with (with CodepointOutOfRange is with offset is 0)
+    calling sb.append_slice with (sigil of (buf at 0)), written
+    return calling ok_of with 0
+
+# ----------------------------------------------------------------------------
+# Validation
+# ----------------------------------------------------------------------------
+
+## `true` when `s` is valid UTF-8. No allocation.
+##
+## ## Parámetros
+## - `s`: the bytes to validate. Borrowed.
+##
+## ## Retorno
+## `true` for empty input and for every well-formed sequence.
+##
+## ## Ejemplo
+## ```pengu
+## calling lingua.is_valid with "hola"       # true
+## calling lingua.is_valid with "\u{00FF}"   # true
+## ```
+weave is_valid with s as string into bool:
+    var offset as int is 0
+    var n as int is s length
+    while offset < n:
+        var cp as u32 is 0
+        var used as int is 0
+        var code as int is calling _lingua_scan with s, offset, (sigil of cp), (sigil of used)
+        if code != 0:
+            return false
+        set offset is offset + used
+    return true
+
+## Validates without allocating and returns the first failure.
+##
+## ## Parámetros
+## - `s`: the bytes to validate. Borrowed.
+##
+## ## Retorno
+## `ok 0`, or `err` with the exact byte offset.
+##
+## ## Memoria
+## O(n) time, O(1) memory.
+weave validate with s as string into result of void to LinguaError:
+    var offset as int is 0
+    var n as int is s length
+    while offset < n:
+        var cp as u32 is 0
+        var used as int is 0
+        var code as int is calling _lingua_scan with s, offset, (sigil of cp), (sigil of used)
+        if code != 0:
+            return calling err_of with (calling _lingua_error with code, offset)
+        set offset is offset + used
+    return calling ok_of with 0
+
+## Number of Unicode scalar values in `s`.
+##
+## ## Retorno
+## The codepoint count for valid input, or `-1` for invalid input. The explicit
+## sentinel keeps the fast path allocation-free; use `validate` when the reason
+## matters.
+##
+## ## Memoria
+## O(n) time, O(1) memory.
+weave codepoint_count with s as string into int:
+    var offset as int is 0
+    var n as int is s length
+    var count as int is 0
+    while offset < n:
+        var cp as u32 is 0
+        var used as int is 0
+        var code as int is calling _lingua_scan with s, offset, (sigil of cp), (sigil of used)
+        if code != 0:
+            return -1
+        set offset is offset + used
+        set count is count + 1
+    return count
+
+## Number of UTF-16 code units needed to represent `s`.
+##
+## A codepoint above `U+FFFF` becomes a surrogate pair (two units). This is the
+## number JavaScript, Java and Win32 `wcslen` see.
+##
+## ## Retorno
+## The UTF-16 length for valid input, or `-1` for invalid input.
+##
+## ## Ejemplo
+## ```pengu
+## calling lingua.utf16_length with "\u{00F1}"   # 1
+## calling lingua.utf16_length with "\u{1F600}"  # 2
+## ```
+weave utf16_length with s as string into int:
+    var offset as int is 0
+    var n as int is s length
+    var units as int is 0
+    while offset < n:
+        var cp as u32 is 0
+        var used as int is 0
+        var code as int is calling _lingua_scan with s, offset, (sigil of cp), (sigil of used)
+        if code != 0:
+            return -1
+        if cp > 0xFFFF:
+            set units is units + 2
+        else:
+            set units is units + 1
+        set offset is offset + used
+    return units
+
+# ----------------------------------------------------------------------------
+# Codepoint queries
+# ----------------------------------------------------------------------------
+
+## `true` for `U+0000..U+007F`.
+weave is_ascii with cp as Codepoint into bool:
+    return (cp to u32) <= 0x7F
+
+## `true` for `U+0000..U+FFFF` (the Basic Multilingual Plane).
+weave is_bmp with cp as Codepoint into bool:
+    return (cp to u32) <= 0xFFFF
+
+## `true` for a surrogate code unit (`U+D800..U+DFFF`).
+##
+## Surrogates are not scalar values: `from_u32`, `encode` and `encode_one`
+## reject them. The predicate exists so a decoder can classify raw UTF-16 input.
+weave is_surrogate with cp as Codepoint into bool:
+    var value as u32 is cp to u32
+    return value >= 0xD800 and value <= 0xDFFF
+
+## `true` for an ISO control codepoint (`U+0000..U+001F`, `U+007F..U+009F`).
+##
+## Tabs and newlines are controls; use `is_whitespace` for the text-oriented
+## predicate.
+weave is_control with cp as Codepoint into bool:
+    var value as u32 is cp to u32
+    return value <= 0x1F or (value >= 0x7F and value <= 0x9F)
+
+## `true` for a Unicode whitespace codepoint.
+##
+## Covers the Unicode `White_Space` property: ASCII space, tab/newline family,
+## `U+0085`, `U+00A0`, `U+1680`, `U+2000..U+200A`, `U+2028`, `U+2029`,
+## `U+202F`, `U+205F` and `U+3000`.
+weave is_whitespace with cp as Codepoint into bool:
+    var c as u32 is cp to u32
+    if c == 0x20 or (c >= 0x09 and c <= 0x0D):
+        return true
+    if c == 0x85 or c == 0xA0 or c == 0x1680:
+        return true
+    if c >= 0x2000 and c <= 0x200A:
+        return true
+    return c == 0x2028 or c == 0x2029 or c == 0x202F or c == 0x205F or c == 0x3000
+
+## `true` for a decimal digit (`Nd` in Unicode, approximately).
+##
+## Covers ASCII and the common decimal blocks (Arabic-Indic, Devanagari,
+## Bengali, Thai, fullwidth, mathematical digits). It is checked by range, so a
+## newly assigned digit block is not recognised until this table grows.
+weave is_digit with cp as Codepoint into bool:
+    var c as u32 is cp to u32
+    if c >= 0x30 and c <= 0x39:
+        return true
+    if c >= 0x0660 and c <= 0x0669:
+        return true
+    if c >= 0x06F0 and c <= 0x06F9:
+        return true
+    if c >= 0x07C0 and c <= 0x07C9:
+        return true
+    if c >= 0x0966 and c <= 0x096F:
+        return true
+    if c >= 0x09E6 and c <= 0x09EF:
+        return true
+    if c >= 0x0A66 and c <= 0x0A6F:
+        return true
+    if c >= 0x0AE6 and c <= 0x0AEF:
+        return true
+    if c >= 0x0B66 and c <= 0x0B6F:
+        return true
+    if c >= 0x0BE6 and c <= 0x0BEF:
+        return true
+    if c >= 0x0C66 and c <= 0x0C6F:
+        return true
+    if c >= 0x0CE6 and c <= 0x0CEF:
+        return true
+    if c >= 0x0D66 and c <= 0x0D6F:
+        return true
+    if c >= 0x0E50 and c <= 0x0E59:
+        return true
+    if c >= 0x0ED0 and c <= 0x0ED9:
+        return true
+    if c >= 0x0F20 and c <= 0x0F29:
+        return true
+    if c >= 0x1040 and c <= 0x1049:
+        return true
+    if c >= 0x17E0 and c <= 0x17E9:
+        return true
+    if c >= 0x1810 and c <= 0x1819:
+        return true
+    if c >= 0xFF10 and c <= 0xFF19:
+        return true
+    return c >= 0x1D7CE and c <= 0x1D7FF
+
+## `true` for a letter (approximate Unicode `L*`).
+##
+## The predicate covers the scripts the standard library is expected to handle
+## in practice: ASCII, Latin-1/Extended, Greek, Cyrillic, Armenian, Hebrew,
+## Arabic, Devanagari, Thai/Lao, Georgian, Hiragana, Katakana, Bopomofo,
+## Hangul, CJK and the compatibility/fullwidth letter blocks. Marks and
+## punctuation inside those blocks are excluded where they are well known.
+weave is_letter with cp as Codepoint into bool:
+    var c as u32 is cp to u32
+    if (c >= 0x41 and c <= 0x5A) or (c >= 0x61 and c <= 0x7A):
+        return true
+    if c >= 0xC0 and c <= 0xFF:
+        return c != 0xD7 and c != 0xF7
+    if c >= 0x100 and c <= 0x2AF:
+        return true
+    if c >= 0x370 and c <= 0x3FF:
+        return c != 0x37E and c != 0x387 and c != 0x3A2
+    if c >= 0x400 and c <= 0x52F:
+        return true
+    if c >= 0x531 and c <= 0x58F:
+        return c != 0x589 and c != 0x58A and not (c >= 0x55A and c <= 0x55F)
+    if c >= 0x5D0 and c <= 0x5EA:
+        return true
+    if c >= 0x5F0 and c <= 0x5F2:
+        return true
+    if c >= 0x620 and c <= 0x64A:
+        return true
+    if c >= 0x66E and c <= 0x6D3:
+        return c != 0x6D4
+    if c >= 0x6D5 and c <= 0x6FF:
+        return c == 0x6D5 or (c >= 0x6E5 and c <= 0x6E6) or (c >= 0x6EE and c <= 0x6EF) or (c >= 0x6FA and c <= 0x6FC) or c == 0x6FF
+    if c >= 0x900 and c <= 0x97F:
+        return (c >= 0x904 and c <= 0x939) or (c >= 0x958 and c <= 0x961) or (c >= 0x972 and c <= 0x97F)
+    if c >= 0xE00 and c <= 0xE7F:
+        return (c >= 0xE01 and c <= 0xE30) or (c >= 0xE40 and c <= 0xE46) or (c >= 0xE81 and c <= 0xEB0) or (c >= 0xEC0 and c <= 0xEC6)
+    if c >= 0x10A0 and c <= 0x10FF:
+        return true
+    if c >= 0x1100 and c <= 0x11FF:
+        return true
+    if c >= 0x1E00 and c <= 0x1FFF:
+        return true
+    if c >= 0x2C60 and c <= 0x2C7F:
+        return true
+    if c >= 0x2D00 and c <= 0x2D2F:
+        return true
+    if c >= 0x3041 and c <= 0x3096:
+        return true
+    if c >= 0x309D and c <= 0x309F:
+        return true
+    if c >= 0x30A1 and c <= 0x30FA:
+        return true
+    if c >= 0x30FC and c <= 0x30FF:
+        return true
+    if c >= 0x3105 and c <= 0x312F:
+        return true
+    if c >= 0x3131 and c <= 0x318E:
+        return true
+    if c >= 0x4E00 and c <= 0x9FFF:
+        return true
+    if c >= 0xA000 and c <= 0xA48F:
+        return true
+    if c >= 0xAC00 and c <= 0xD7A3:
+        return true
+    if c >= 0xF900 and c <= 0xFAFF:
+        return true
+    if c >= 0xFB00 and c <= 0xFB4F:
+        return true
+    if (c >= 0xFF21 and c <= 0xFF3A) or (c >= 0xFF41 and c <= 0xFF5A):
+        return true
+    return c >= 0x20000 and c <= 0x2FA1F
+
+## `true` for punctuation (approximate Unicode `P*`).
+##
+## Covers ASCII punctuation, general punctuation, CJK punctuation and the
+## fullwidth forms.
+weave is_punctuation with cp as Codepoint into bool:
+    var c as u32 is cp to u32
+    if (c >= 0x21 and c <= 0x2F) or (c >= 0x3A and c <= 0x40):
+        return true
+    if (c >= 0x5B and c <= 0x60) or (c >= 0x7B and c <= 0x7E):
+        return true
+    if c == 0xA1 or c == 0xA7 or c == 0xAB or c == 0xB6 or c == 0xB7 or c == 0xBB or c == 0xBF:
+        return true
+    if c >= 0x2010 and c <= 0x2027:
+        return true
+    if c >= 0x2030 and c <= 0x205E:
+        return true
+    if c >= 0x3001 and c <= 0x3003:
+        return true
+    if c >= 0x3008 and c <= 0x3011:
+        return true
+    if c >= 0x3014 and c <= 0x301F:
+        return true
+    if c == 0x30FB:
+        return true
+    if c >= 0xFF01 and c <= 0xFF0F:
+        return true
+    if c >= 0xFF1A and c <= 0xFF20:
+        return true
+    if c >= 0xFF3B and c <= 0xFF40:
+        return true
+    return c >= 0xFF5B and c <= 0xFF65
+
+## `true` for a symbol (approximate Unicode `S*`).
+##
+## Covers ASCII math/currency, currency symbols, arrows, mathematical
+## operators, technical symbols, dingbats and the emoji blocks.
+weave is_symbol with cp as Codepoint into bool:
+    var c as u32 is cp to u32
+    if c == 0x24 or c == 0x2B or c == 0x3C or c == 0x3D or c == 0x3E or c == 0x5E or c == 0x60 or c == 0x7C or c == 0x7E:
+        return true
+    if c >= 0x20A0 and c <= 0x20CF:
+        return true
+    if c >= 0x2100 and c <= 0x214F:
+        return true
+    if c >= 0x2190 and c <= 0x21FF:
+        return true
+    if c >= 0x2200 and c <= 0x22FF:
+        return true
+    if c >= 0x2300 and c <= 0x23FF:
+        return true
+    if c >= 0x2500 and c <= 0x27BF:
+        return true
+    if c >= 0x1F000 and c <= 0x1FAFF:
+        return true
+    return c >= 0x1F900 and c <= 0x1F9FF
+
+# ----------------------------------------------------------------------------
+# Conversion
+# ----------------------------------------------------------------------------
+
+## Returns the numeric value of a codepoint.
+##
+## ## Ejemplo
+## ```pengu
+## calling lingua.to_u32 with (0x1F600 to Codepoint)   # 128512
+## ```
+weave to_u32 with cp as Codepoint into u32:
+    return cp to u32
+
+## Validates a numeric value and converts it to `Codepoint`.
+##
+## ## Retorno
+## `ok Codepoint`, or `err SurrogateCodepoint` / `err CodepointOutOfRange`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of Codepoint to LinguaError is calling lingua.from_u32 with 0x1F600
+## ```
+weave from_u32 with value as u32 into result of Codepoint to LinguaError:
+    if value >= 0xD800 and value <= 0xDFFF:
+        return calling err_of with (with SurrogateCodepoint is with offset is 0)
+    if value > 0x10FFFF:
+        return calling err_of with (with CodepointOutOfRange is with offset is 0)
+    return calling ok_of with (value to Codepoint)
+
+## Splits a codepoint into its UTF-16 representation.
+##
+## ## Retorno
+## `(unit, 0)` for a BMP codepoint, or `(high, low)` surrogate pair above
+## `U+FFFF`. A surrogate input (which is not a scalar value) is returned
+## unchanged as `(unit, 0)` so the caller can inspect raw UTF-16 data.
+##
+## ## Ejemplo
+## ```pengu
+## let (high, low) is calling lingua.to_utf16 with (0x1F600 to Codepoint)
+## ```
+weave to_utf16 with cp as Codepoint into (u16, u16):
+    var value as u32 is cp to u32
+    if value <= 0xFFFF:
+        return (value to u16), 0
+    var rest as u32 is value - 0x10000
+    var high as u16 is ((0xD800 + (rest >> 10)) to u16)
+    var low as u16 is ((0xDC00 + (rest & 0x3FF)) to u16)
+    return high, low
+
+# ----------------------------------------------------------------------------
+# Navigation
+# ----------------------------------------------------------------------------
+
+## Decodes the codepoint that starts at `byte_offset`.
+##
+## ## Parámetros
+## - `s`: the bytes. Borrowed.
+## - `byte_offset`: 0-indexed byte offset; must point at a sequence start.
+##
+## ## Retorno
+## `ok (Codepoint, bytes_consumed)` or `err` (invalid sequence, or offset
+## outside the input).
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of (Codepoint, int) to LinguaError is calling lingua.codepoint_at with "a\u{00F1}", 1
+## ```
+weave codepoint_at with s as string, byte_offset as int into result of (Codepoint, int) to LinguaError:
+    if byte_offset < 0 or byte_offset >= (s length):
+        return calling err_of with (with IndexOutOfRange is with index is byte_offset)
+    var cp as u32 is 0
+    var used as int is 0
+    var code as int is calling _lingua_scan with s, byte_offset, (sigil of cp), (sigil of used)
+    if code != 0:
+        return calling err_of with (calling _lingua_error with code, byte_offset)
+    return calling ok_of with (calling _cp_pair with (cp to Codepoint), used)
+
+## Returns the byte offset of the N-th codepoint (0-indexed).
+##
+## ## Retorno
+## `ok offset` or `err IndexOutOfRange` when `codepoint_index` is negative or
+## past the last codepoint. The offset of codepoint 0 is always 0.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of int to LinguaError is calling lingua.byte_offset_of with "\u{00F1}a", 1
+## # ok 2
+## ```
+weave byte_offset_of with s as string, codepoint_index as int into result of int to LinguaError:
+    if codepoint_index < 0:
+        return calling err_of with (with IndexOutOfRange is with index is codepoint_index)
+    if codepoint_index == 0:
+        return calling ok_of with 0
+    var offset as int is 0
+    var seen as int is 0
+    var n as int is s length
+    while offset < n:
+        var cp as u32 is 0
+        var used as int is 0
+        var code as int is calling _lingua_scan with s, offset, (sigil of cp), (sigil of used)
+        if code != 0:
+            return calling err_of with (calling _lingua_error with code, offset)
+        set offset is offset + used
+        set seen is seen + 1
+        if seen == codepoint_index:
+            return calling ok_of with offset
+    return calling err_of with (with IndexOutOfRange is with index is codepoint_index)
+
+## Decodes the codepoint at `byte_offset` and reports the offset just after it.
+##
+## This is the forward iterator: start at 0 and feed the returned offset back
+## until it equals `s.length`.
+##
+## ## Retorno
+## `ok (Codepoint, next_offset)` or `err`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of (Codepoint, int) to LinguaError is calling lingua.next_codepoint with "ab", 0
+## # ok (a, 1)
+## ```
+weave next_codepoint with s as string, byte_offset as int into result of (Codepoint, int) to LinguaError:
+    if byte_offset < 0 or byte_offset >= (s length):
+        return calling err_of with (with IndexOutOfRange is with index is byte_offset)
+    var cp as u32 is 0
+    var used as int is 0
+    var code as int is calling _lingua_scan with s, byte_offset, (sigil of cp), (sigil of used)
+    if code != 0:
+        return calling err_of with (calling _lingua_error with code, byte_offset)
+    return calling ok_of with (calling _cp_pair with (cp to Codepoint), byte_offset + used)
+
+## Decodes the codepoint that ends just before `byte_offset`.
+##
+## ## Retorno
+## `ok (Codepoint, start_offset)` or `err IndexOutOfRange` when `byte_offset`
+## is 0 or does not fall on a codepoint boundary.
+##
+## ## Memoria
+## O(byte_offset), no allocation.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of (Codepoint, int) to LinguaError is calling lingua.prev_codepoint with "ab", 2
+## # ok (b, 1)
+## ```
+weave prev_codepoint with s as string, byte_offset as int into result of (Codepoint, int) to LinguaError:
+    if byte_offset <= 0 or byte_offset > (s length):
+        return calling err_of with (with IndexOutOfRange is with index is byte_offset)
+    var offset as int is 0
+    var last_start as int is 0
+    var last_cp as u32 is 0
+    while offset < byte_offset:
+        var cp as u32 is 0
+        var used as int is 0
+        var code as int is calling _lingua_scan with s, offset, (sigil of cp), (sigil of used)
+        if code != 0:
+            return calling err_of with (calling _lingua_error with code, offset)
+        if offset + used > byte_offset:
+            return calling err_of with (with IndexOutOfRange is with index is byte_offset)
+        set last_start is offset
+        set last_cp is cp
+        set offset is offset + used
+    if offset != byte_offset:
+        return calling err_of with (with IndexOutOfRange is with index is byte_offset)
+    return calling ok_of with (calling _cp_pair with (last_cp to Codepoint), last_start)
+
+# ----------------------------------------------------------------------------
+# Graphemes (approximate)
+# ----------------------------------------------------------------------------
+
+## True when `c` extends the preceding grapheme cluster.
+##
+## The approximation follows UAX #29 for the common cases: combining marks,
+## zero-width joiners, variation selectors and emoji skin-tone modifiers extend
+## the previous base. Regional-indicator pairs (flags) are not merged, so a flag
+## counts as two graphemes.
+weave _grapheme_extends with c as u32 into bool:
+    if c == 0x200D:
+        return true
+    if c >= 0xFE00 and c <= 0xFE0F:
+        return true
+    if c >= 0xE0100 and c <= 0xE01EF:
+        return true
+    if c >= 0x1F3FB and c <= 0x1F3FF:
+        return true
+    if c >= 0x0300 and c <= 0x036F:
+        return true
+    if c >= 0x0483 and c <= 0x0489:
+        return true
+    if c >= 0x0591 and c <= 0x05BD:
+        return true
+    if c >= 0x0610 and c <= 0x061A:
+        return true
+    if c >= 0x064B and c <= 0x065F:
+        return true
+    if c == 0x0670:
+        return true
+    if c >= 0x06D6 and c <= 0x06DC:
+        return true
+    if c >= 0x0900 and c <= 0x0903:
+        return true
+    if c >= 0x093A and c <= 0x094F:
+        return true
+    if c == 0x0E31:
+        return true
+    if c >= 0x0E34 and c <= 0x0E3A:
+        return true
+    if c >= 0x0E47 and c <= 0x0E4E:
+        return true
+    if c >= 0x1AB0 and c <= 0x1AFF:
+        return true
+    if c >= 0x1DC0 and c <= 0x1DFF:
+        return true
+    return c >= 0x20D0 and c <= 0x20FF or (c >= 0xFE20 and c <= 0xFE2F)
+
+## Counts approximate grapheme clusters.
+##
+## ## Retorno
+## The grapheme count for valid input, or `-1` for invalid input.
+##
+## ## Memoria
+## O(n) time, O(1) memory.
+##
+## ## Ejemplo
+## ```pengu
+## calling lingua.grapheme_count with "a\u{0301}"   # 1 (a + combining acute)
+## calling lingua.grapheme_count with "\u{1F600}"   # 1
+## ```
+weave grapheme_count with s as string into int:
+    var offset as int is 0
+    var n as int is s length
+    var count as int is 0
+    while offset < n:
+        var cp as u32 is 0
+        var used as int is 0
+        var code as int is calling _lingua_scan with s, offset, (sigil of cp), (sigil of used)
+        if code != 0:
+            return -1
+        if not (calling _grapheme_extends with cp):
+            set count is count + 1
+        set offset is offset + used
+    return count

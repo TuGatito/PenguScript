@@ -83,7 +83,7 @@
 # ============================================================================
 
 # Module version
-const FFI_VERSION as string is "2.0.0"
+const FFI_VERSION as string is "2.11.0"
 
 # Target platform architecture size constants (bytes)
 const SIZEOF_POINTER as int is 8

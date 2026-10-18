@@ -80,7 +80,7 @@ def test_std_web_follows_the_version_constant_convention():
     assert re.search(r'^\s*const WEB_VERSION as string is "', text, re.M)
 
     missing = []
-    for module in sorted(STD_DIR.glob("*.pengu")):
+    for module in sorted(p for p in STD_DIR.glob("*.pengu") if not p.name.endswith(".d.pengu")):
         expected = f"{module.stem.upper()}_VERSION"
         if not re.search(rf"^\s*const {expected} as string is ", module.read_text(encoding="utf-8"),
                          re.M):

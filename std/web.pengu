@@ -43,7 +43,7 @@ import std.spark
 
 ## Version constant for std.web (the toolchain version it ships with, per the
 ## stdlib versioning policy in LANGUAGE.md §19.0).
-const WEB_VERSION as string is "2.1.1"
+const WEB_VERSION as string is "2.11.0"
 
 # ============================================================================
 # WebAssembly build

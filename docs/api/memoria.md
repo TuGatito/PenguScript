@@ -8,7 +8,7 @@
 
 ### `MEMORIA_VERSION`
 
-> const string` = 2.0.0`
+> const string` = 2.11.0`
 
 Memoria module version.
 

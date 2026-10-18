@@ -106,7 +106,7 @@ import std.atlas
 # --- Public constants ---------------------------------------------------
 
 ## Version of the `tally` module.
-const TALLY_VERSION as string is "2.2.0"
+const TALLY_VERSION as string is "2.11.0"
 
 # --- Enchantings --------------------------------------------------------
 

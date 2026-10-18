@@ -36,9 +36,10 @@
 17. [Pruebas unitarias (`test`)](#17-unit-tests-test)
 18. [Construcción estilo bloque (expresiones `with:`)](#18-block-style-construction-with-expressions)
 19. [Biblioteca estándar](#19-standard-library)
-    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-36-modules)
+    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-38-modules)
     - 19.1.2 [Los cuatro módulos fundamentales](#1912-los-cuatro-módulos-fundamentales)
     - 19.1.3 [Los módulos de datos](#1913-los-módulos-de-datos-stddiagnostic-stdjson-stdjsonrpc)
+    - 19.1.4 [Los módulos de texto: `std.lingua` y `std.regulus`](#1914-los-módulos-de-texto-stdlingua-y-stdregulus)
     - 19.2 [Bindings externos (repositorios satélite)](#192-external-bindings-satellite-repositories)
     - 19.3 [Ejemplos de la biblioteca estándar central](#193-core-standard-library-examples)
     - 19.4 [Recursos embebidos del proyecto (`arca`)](#194-embedded-project-assets-arca)
@@ -3709,8 +3710,7 @@ Métodos integrados admitidos dentro de los bloques `with` de colecciones:
 
 ## 19. Biblioteca estándar
 
-PenguScript incluye una biblioteca estándar completa de **29 módulos de
-PenguScript puro** (`std.<module>`) que ofrecen abstracciones idiomáticas de alto
+PenguScript incluye **38 módulos de biblioteca estándar** (`std.<module>`) que ofrecen abstracciones idiomáticas de alto
 nivel para E/S, cadenas, concurrencia, serialización, matemáticas, pruebas y
 puentes de memoria.
 
@@ -3742,25 +3742,38 @@ test "stdlib version":
 
 `tests/stdlib/test_std_versioning.py` exige que cada módulo escrito a mano de
 `std/` exporte esa constante con una versión de release válida (opcionalmente
-con sufijo de prerelease semver), y que `std.functor` y `std.loom` estén en 2.10.0. El uso de espacios de
-nombres ya mantiene cada módulo autocontenido (`std.<module>.<symbol>`), así que
-desacoplar la stdlib en paquetes versionados de forma independiente queda reservado
-para 2.0.
+con sufijo de prerelease semver). Como la biblioteca estándar va acoplada al
+compilador, la constante nombra la **release de stdlib con la que se distribuye**,
+no la última release que tocó ese archivo: todos los módulos de 2.11.0 declaran
+`"2.11.0"` (salvo `std.spark`, cuyo `SPARK_VERSION` conserva su propia revisión
+de API `0.8.0-spark`, y `JSONRPC_PROTOCOL_VERSION`, que es la versión `"2.0"` del
+protocolo de cable). El uso de espacios de nombres ya mantiene cada módulo
+autocontenido (`std.<module>.<symbol>`), así que desacoplar la stdlib en paquetes
+versionados de forma independiente queda reservado para 2.0.
 
-Los cuatro módulos fundamentales de la serie 2.9 siguen la misma regla: `std.builder`
-exporta `BUILDER_VERSION`, `std.arena` exporta `ARENA_VERSION`, `std.sourcemap`
-exporta `SOURCEMAP_VERSION` y `std.bitset` exporta `BITSET_VERSION`, las cuatro
-con `"2.10.0"` en esta versión. Los tres módulos de datos de 2.10.0 siguen la
-misma regla: `std.diagnostic` exporta `DIAGNOSTIC_VERSION`, `std.json` exporta
-`JSON_VERSION` y `std.jsonrpc` exporta `JSONRPC_VERSION`, todos `"2.10.0"`, más
-`JSONRPC_PROTOCOL_VERSION` (`"2.0"`). Los módulos builder y arena también
-exportan sus constantes de ajuste por defecto (`BUILDER_DEFAULT_CAPACITY`,
-`ARENA_DEFAULT_BLOCK_SIZE`, `ARENA_DEFAULT_ALIGNMENT`) para quien quiera
-reservar exactamente lo que el módulo reservaría.
+Los cuatro módulos fundamentales de la serie 2.9, los tres módulos de datos de la
+serie 2.10 y los dos módulos de texto de 2.11 (`std.lingua`, `std.regulus`)
+siguen la misma regla: `std.builder` exporta `BUILDER_VERSION`, `std.arena`
+exporta `ARENA_VERSION`, `std.sourcemap` exporta `SOURCEMAP_VERSION`,
+`std.bitset` exporta `BITSET_VERSION`, `std.diagnostic` exporta
+`DIAGNOSTIC_VERSION`, `std.json` exporta `JSON_VERSION`, `std.jsonrpc` exporta
+`JSONRPC_VERSION`, `std.lingua` exporta `LINGUA_VERSION` y `std.regulus` exporta
+`REGULUS_VERSION`, todos `"2.11.0"`. Los módulos builder y arena también exportan
+sus constantes de ajuste por defecto (`BUILDER_DEFAULT_CAPACITY`,
+`ARENA_DEFAULT_BLOCK_SIZE`, `ARENA_DEFAULT_ALIGNMENT`) para quien quiera reservar
+exactamente lo que el módulo reservaría.
 
-### 19.1 Módulos de PenguScript puro (36 módulos)
+### 19.1 Módulos de PenguScript puro (38 módulos)
 
 Todos los módulos puros se encuentran en el directorio `std/` y se importan como `import std.<module>`.
+
+Dos módulos son puentes generales a C (`std.ffi` y `std.web`) y otros dos son
+wrappers deliberados sobre las bibliotecas C de un solo archivo vendorizadas
+(`std.lingua` sobre `std_c/utf8.h`, `std.regulus` sobre `std_c/re.h`/`re.c`).
+Esos cuatro usan `include`, `declare`, `link` y `antiquus` como frontera
+explícita; los otros 34 están escritos enteramente en PenguScript. Los bindings a
+bibliotecas de terceros son satélites instalados con `pengu add`, no forman
+parte de esta lista.
 
 | Módulo | Propósito y capacidades principales |
 |---|---|
@@ -3801,6 +3814,8 @@ Todos los módulos puros se encuentran en el directorio `std/` y se importan com
 | `std.diagnostic` | Diagnósticos generales con spans: `Span`, `Severity`, `Label`, `Diagnostic` y `DiagnosticBag` (`new`, `add`, `extend`, `error`/`warning`/`info`/`hint`, `len`, contadores, `errors_only`, `warnings_and_errors`, `clear`, `add_source`, `source_of`), `RenderOptions` (`default_render_options`), render estilo Rust (`render`, `render_plain`, `render_colored`) con ANSI, `NO_COLOR` y detección de TTY, `span_from_positions`, `span_point`, `span_merge` y `render_json` compatible con LSP Diagnostic (posiciones 0-indexadas, severidad 1–4, `relatedInformation`). Comparable a `rustc_diagnostic` y `codespan-reporting`. |
 | `std.json` | JSON estricto RFC 8259: `parse`, `parse_with`, `parse_bytes`, `parse_in_arena`, `validate`, `validate_bytes`; `JsonValue` como `omen` algebraico (`Null`, `Bool`, `Int(i64)`, `Float(f64)`, `Str`, `Arr`, `Obj`) que preserva el orden; accesores `as_*`, `at`/`first`/`last`/`get`/`keys`/`values`/`entries`, `array_len`/`object_len`/`has_key`/`type_name`; JSON Pointer (RFC 6901) con `pointer`; `find_key`; `equals`/`equals_numeric`; `clone` profundo; mutación `push_json`/`pop_json`/`set_at`/`put_json`/`set_key`/`remove_key`/`merge`; `stringify`, `stringify_with`, `stringify_pretty`, `write_to_builder`, `try_stringify` con floats de ida y vuelta; `ParseOptions` y `SerializeOptions`; `deep_merge`; `validate_schema`; `JsonError` con kind/línea/columna/offset. Cubre todo lo de `json` de Python y añade pointer, búsqueda, validación, arena y schema. |
 | `std.jsonrpc` | JSON-RPC 2.0: `JsonRpcId`, `JsonRpcMessage` (`Request`/`Notification`/`ResponseOk`/`ResponseError`), `JsonRpcError`, los cinco códigos estándar, constructores `request`/`notification`/`response_ok`/`response_error`, `encode_*`, `parse_message`, `parse_batch`, `take_messages`, `free_messages`, constructores de error, `JsonRpcParseError`/`JsonRpcErrorKind` y framing LSP (`encode_framed`, `decode_framed_bytes`, `decode_framed`, `FramedDecode`). Comparable a `jsonrpc-core` de Rust. |
+| `std.lingua` | Texto UTF-8 sobre codepoints: `Codepoint` (un `seal` sobre `u32`), `LinguaError` con offsets de byte, `decode`/`decode_prefix`, `encode`/`encode_one`, `is_valid`/`validate`, `codepoint_count`/`utf16_length`, `is_ascii`/`is_bmp`/`is_letter`/`is_digit`/`is_whitespace`/`is_punctuation`/`is_symbol`/`is_control`/`is_surrogate`, `to_u32`/`from_u32`/`to_utf16`, `codepoint_at`/`byte_offset_of`/`next_codepoint`/`prev_codepoint` y un `grapheme_count` aproximado. Wrapper sobre `std_c/utf8.h` (sheredom, dominio público). Ver `docs/LINGUA.md`. Comparable a `utf8proc` (Julia) y al módulo `utf8` de Lua. |
+| `std.regulus` | Expresiones regulares pequeñas y explícitas: `Regex.compile`, `pattern`, `is_match`, `match`, `match_at`, `matches`, `replace_first`, `replace_all`, `split`, `escape`, `Match` y `RegexError`, más `is_match`/`find_first` de un solo uso. Gramática completa: `. ^ $ * + ? [] \d \w \s`; **sin** grupos, alternancia, `{n,m}`, lookaround, backreferences ni clases Unicode. Wrapper sobre `std_c/re.h` + `re.c` (kokke/tiny-regex-c, dominio público). Ver `docs/REGULUS.md`. Comparable a `re` de Python para búsquedas básicas. |
 
 ### 19.1.1 Elegir entre `std.loom` y `std.tally`
 
@@ -3845,7 +3860,7 @@ familia que pierda (ítem 6.5, `AUDIT_1.0_FASE6.md`).
 
 ### 19.1.2 Los cuatro módulos fundamentales
 
-2.10.0 incluye los tres módulos de datos y conserva los cuatro módulos fundamentales de la serie 2.9; estos últimos añaden que el compilador autohospedado (y cualquier otra
+La línea 2.11.0 conserva los tres módulos de datos y los cuatro módulos fundamentales de la serie 2.9; estos últimos añaden que el compilador autohospedado (y cualquier otra
 herramienta que construya texto, árboles, posiciones o conjuntos densos)
 necesita primero. Son deliberadamente generales: `builder` sirve igual para CSV,
 HTML y logs que para codegen; `arena` sirve igual para el AST de un parser que
@@ -3975,7 +3990,7 @@ Usa `map of int to int` para un conjunto disperso: un bitset reserva
 
 ### 19.1.3 Los módulos de datos: `std.diagnostic`, `std.json`, `std.jsonrpc`
 
-Los tres módulos de datos de 2.10.0 son las piezas que necesita una herramienta
+Los tres módulos de datos son las piezas que necesita una herramienta
 para hablar un protocolo moderno: un modelo de diagnósticos para salida humana y
 de máquina, un DOM JSON para el payload y JSON-RPC 2.0 (con framing LSP) para el
 transporte. Son independientes salvo que `std.diagnostic` usa `std.json` para
@@ -3988,8 +4003,8 @@ import std.json
 import std.spark
 
 weave main into int:
-    var parsed as result of JsonValue to json.JsonError is calling json.parse with
-        r"""{"name":"pengu","tags":[1,2]}"""
+    var source as string is r"""{"name":"pengu","tags":[1,2]}"""
+    var parsed as result of JsonValue to json.JsonError is calling json.parse with source
     var root as JsonValue is parsed or:
         calling spark.println with "línea {error.line}, col {error.col}: {error.message}"
         return 1
@@ -4002,7 +4017,7 @@ weave main into int:
     defer banish owned
     calling spark.println with owned                 # pengu
 
-    var second as JsonValue is calling root.pointer with "/tags/1" or:
+    var second as JsonValue is (calling root.pointer with "/tags/1") or:
         calling JsonValue.null_value
     defer banish second
     var n as maybe i64 is calling second.as_int
@@ -4101,6 +4116,76 @@ weave main into int:
 - Los códigos estándar son constantes (`PARSE_ERROR`, `INVALID_REQUEST`,
   `METHOD_NOT_FOUND`, `INVALID_PARAMS`, `INTERNAL_ERROR`); `error_server` cubre
   el rango `-32000..-32099`.
+
+### 19.1.4 Los módulos de texto: `std.lingua` y `std.regulus`
+
+Estos dos módulos cierran el hueco de "texto, pero no ASCII". Son **wrappers
+finos** sobre C vendorizado, no reimplementaciones: `std.lingua` posee la
+decodificación UTF-8 y `std.regulus` posee el motor de regex. Ambos devuelven
+valores `result` en toda operación falible y mantienen su C fuera del bundle
+salvo que se importen.
+
+#### `std.lingua`: codepoints con offset de error
+
+```pengu
+import std.lingua
+import std.spark
+
+weave main into int:
+    var decoded as result of list of Codepoint to LinguaError is calling lingua.decode with "año 😀"
+    if not decoded.is_ok:
+        return 1
+    var cps as list of Codepoint is decoded.value
+    calling spark.println_int with cps.len                         # 5
+    calling spark.println_int with (calling lingua.utf16_length with "😀")   # 2
+    calling spark.println_bool with (calling lingua.is_valid with "hola")    # true
+    banish decoded
+    return 0
+```
+
+`decode` devuelve `err` con el offset de byte de la primera secuencia inválida:
+`InvalidByte`, `TruncatedSequence`, `OverlongEncoding`, `SurrogateCodepoint`,
+`CodepointOutOfRange` o `IndexOutOfRange`. `is_valid`, `validate`,
+`codepoint_count` y `utf16_length` son O(n) y no alocan (los contadores devuelven
+`-1` para entrada inválida). La clasificación es aproximada — consulta
+[`docs/LINGUA.md`](docs/LINGUA.md) para los rangos exactos y lo que queda fuera
+(normalización, case folding completo, grafemas UAX #29).
+
+#### `std.regulus`: una gramática pequeña y completa
+
+```pengu
+import std.regulus
+import std.spark
+
+weave main into int:
+    var compiled as result of Regex to RegexError is calling Regex.compile with "[0-9]+"
+    if not compiled.is_ok:
+        return 1
+    var rx as Regex is compiled.value
+    calling spark.println_bool with (calling rx.is_match with "abc123")    # true
+    var replaced as string is calling rx.replace_all with "a1b22", "N"     # "aNbN"
+    banish replaced
+    banish compiled
+    return 0
+```
+
+La sintaxis soportada es exactamente `. ^ $ * + ? [abc] [a-z] [^abc] \d \D \w
+\W \s \S` y `\x`. **No** hay grupos de captura, alternancia, `{n,m}`,
+lookaround, backreferences, flags inline ni propiedades Unicode; `(...)` y `|`
+son bytes literales. Límites: patrón de 255 bytes, 30 símbolos compilados y 40
+bytes de clases de caracteres. Usa `regulus.escape` antes de incrustar texto de
+usuario en un patrón. Para algo más allá de esa gramática, instala un satélite
+PCRE. Ver [`docs/REGULUS.md`](docs/REGULUS.md).
+
+#### Smart linking
+
+`std/lingua.d.pengu` emite `include "utf8.h"`; `std/regulus.d.pengu` emite
+`include "re.h"` y `link "re"`. El build manager procesa esas directivas solo
+para los módulos realmente importados, así que un programa que no usa ninguno
+de los dos no contiene ninguno de los headers ni enlaza `libre.a`.
+`build_runtime.py` construye `build/lib/libre.a` a partir de `std_c/re.c` (no
+forma parte de `libpengu_runtime.a`). La matriz la verifica
+`tests/build/test_smart_linking.py`.
 
 ### 19.2 Bindings externos (repositorios satélite)
 

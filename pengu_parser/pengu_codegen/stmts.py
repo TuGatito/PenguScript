@@ -74,8 +74,29 @@ class StmtMixin:
             The C for the releases plus the ``goto``.
         """
         releases = self._loop_jump_releases(label)
-        lines = [f"{ind}{release}" for release in releases]
+        # A jump out of nested blocks also leaves their defer scopes. The loop
+        # baseline marks the depth outside the target loop body, so only scopes
+        # opened inside that body are released here.
+        baseline = 0
+        loop_stack = getattr(self, "_loop_release_stack", None) or []
+        depth_stack = getattr(self, "_loop_defer_baseline", None) or []
+        for index in range(len(loop_stack) - 1, -1, -1):
+            if loop_stack[index][0] == label:
+                if index < len(depth_stack):
+                    baseline = depth_stack[index]
+                break
+        deferred = self._scope_exit_defers(baseline, ind)
+        lines = list(deferred)
+        lines.extend(f"{ind}{release}" for release in releases)
         lines.append(f"{ind}goto {self._c_loop_label(label, kind)};")
+        return "\n".join(lines)
+
+    def _translate_plain_jump(self, kind: str, ind: str) -> str:
+        """Emits an unlabeled ``break``/``continue`` plus the defers it leaves."""
+        depth_stack = getattr(self, "_loop_defer_baseline", None) or []
+        baseline = depth_stack[-1] if depth_stack else 0
+        lines = self._scope_exit_defers(baseline, ind)
+        lines.append(f"{ind}{kind};")
         return "\n".join(lines)
 
     def _translate_block(self, stmts: List[Tree]) -> str:
@@ -136,14 +157,19 @@ class StmtMixin:
             return f"{ind}{d}"
         return f"{ind}{d};"
     def _get_return_cleanup_lines(self, is_err_ret: bool = False, ind: str = "") -> List[str]:
+        # A `return` leaves every active block, not just the innermost one: emit
+        # the `defer` scopes from the inside out. Before block-scoped defers
+        # existed there was exactly one scope, so this is backwards compatible.
         cleanup_lines = []
         if is_err_ret and self.errdefer_stack:
-            for d in reversed(self.errdefer_stack[-1]):
-                cleanup_lines.append(self._format_defer_cleanup(d, ind))
+            for scope in reversed(self.errdefer_stack):
+                for d in reversed(scope):
+                    cleanup_lines.append(self._format_defer_cleanup(d, ind))
 
         if self.defer_stack:
-            for d in reversed(self.defer_stack[-1]):
-                cleanup_lines.append(self._format_defer_cleanup(d, ind))
+            for scope in reversed(self.defer_stack):
+                for d in reversed(scope):
+                    cleanup_lines.append(self._format_defer_cleanup(d, ind))
 
         return cleanup_lines
     def _translate_stmt(self, node: Tree) -> str:
@@ -840,7 +866,7 @@ class StmtMixin:
             if val is False and else_node is not None:
                 if else_node.data == "when_else_plain":
                     stmt_nodes = [c for c in else_node.children if isinstance(c, Tree)]
-                    return self._translate_block(stmt_nodes)
+                    return self._translate_scoped_block(stmt_nodes)
                 if else_node.data == "when_else_when":
                     parts = [self._translate_stmt(c) for c in else_node.children if isinstance(c, Tree)]
                     return "\n".join(p for p in parts if p)
@@ -1020,13 +1046,13 @@ class StmtMixin:
             label = self._loop_label_target(node)
             if label:
                 return self._translate_labeled_jump(node, label, "break", ind)
-            return f"{ind}break;"
+            return self._translate_plain_jump("break", ind)
 
         elif rule == "continue_stmt":
             label = self._loop_label_target(node)
             if label:
                 return self._translate_labeled_jump(node, label, "continue", ind)
-            return f"{ind}continue;"
+            return self._translate_plain_jump("continue", ind)
 
         elif rule == "expr_stmt":
             strict_block = None
@@ -1046,6 +1072,34 @@ class StmtMixin:
             return f"{ind}{expr_code};"
 
         return ""
+    def _translate_scoped_block(self, stmts: List[Tree]) -> str:
+        """Translates a nested block and runs its ``defer``s at block exit.
+
+        ``defer`` runs at *scope* exit (LANGUAGE.md §13), and an inner block is a
+        scope. Collecting every defer in the function-wide list made the cleanup
+        run after the C block had closed, so a binding declared inside the block
+        was out of scope at the cleanup site (``'rx' undeclared``). Each nested
+        block now owns a defer scope: normal fall-through releases it here,
+        ``return`` releases every active scope, and ``break``/``continue``
+        release the scopes opened inside the loop body they leave.
+        """
+        self.defer_stack.append([])
+        self.errdefer_stack.append([])
+        try:
+            body = self._translate_block(stmts)
+            defers = self.defer_stack[-1]
+        finally:
+            self.defer_stack.pop()
+            self.errdefer_stack.pop()
+
+        if not defers or self._stmts_end_with_jump(stmts):
+            return body
+        ind = self.indent()
+        lines = [body, f"{ind}/* Deferred cleanup (scope exit) */"]
+        for deferred in reversed(defers):
+            lines.append(self._format_defer_cleanup(deferred, ind))
+        return "\n".join(lines)
+
     def _translate_nested_block(self, node: Tree) -> str:
         """Translates a block node."""
         if not isinstance(node, Tree):
@@ -1053,7 +1107,7 @@ class StmtMixin:
         if node.data == "block":
             if len(node.children) == 1 and isinstance(node.children[0], Tree) and node.children[0].data == "simple_stmt":
                 return self._translate_stmt(node.children[0])
-            return self._translate_block(node.children)
+            return self._translate_scoped_block(node.children)
         return self._translate_stmt(node)
     def _translate_else_block(self, node: Tree) -> str:
         """Translates an else block or else if statement."""
@@ -1062,7 +1116,7 @@ class StmtMixin:
                 return self._translate_stmt(node.children[0])
             saved_locals = dict(self.local_vars)
             try:
-                return self._translate_block(node.children)
+                return self._translate_scoped_block(node.children)
             finally:
                 self.local_vars = saved_locals
         elif isinstance(node, Tree) and node.data == "if_stmt":

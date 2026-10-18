@@ -2680,7 +2680,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 
 `std/spark.pengu` defines `SPARK_VERSION` and `STD_VERSION` constants; `spark.spark_version` returns the version string.
 
-### 15.2 Core module catalog (36 modules)
+### 15.2 Core module catalog (38 modules)
 
 | Module | Import | Implementation | Purpose & key functions |
 | ------ | ------ | -------------- | ----------------------- |
@@ -2703,6 +2703,8 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **diagnostic** | `import std.diagnostic` | Pure PenguScript | `Span`, `Severity`, `Label`, `Diagnostic`, `DiagnosticBag`; Rust-style `render`/`render_plain`/`render_colored`; `render_json` for LSP; `span_from_positions`, `span_point`, `span_merge`. |
 | **json** | `import std.json` | Pure PenguScript | Strict RFC 8259: `parse`/`parse_with`/`parse_bytes`/`parse_in_arena`/`validate`; `JsonValue` DOM with `get`/`at`/`pointer`/`find_key`/`equals`/`clone`/mutators; `stringify`/`stringify_pretty`/`try_stringify`; `ParseOptions`/`SerializeOptions`; `deep_merge`; `validate_schema`. |
 | **jsonrpc** | `import std.jsonrpc` | Pure PenguScript | JSON-RPC 2.0: request/notification/response/error, batch, standard error codes, `encode_*`, `parse_message`/`parse_batch`, and LSP `Content-Length` framing (`encode_framed`, `decode_framed_bytes`). |
+| **lingua** | `import std.lingua` | C header (`std_c/utf8.h`) + Pengu wrapper | UTF-8 over codepoints: `Codepoint` (`seal` over `u32`), `LinguaError` with byte offsets, `decode`/`decode_prefix`, `encode`/`encode_one`, `is_valid`/`validate`, `codepoint_count`/`utf16_length`, classification (`is_letter`, `is_digit`, `is_whitespace`, `is_punctuation`, `is_symbol`, `is_control`), `from_u32`/`to_utf16`, navigation (`codepoint_at`, `byte_offset_of`, `next_codepoint`, `prev_codepoint`) and `grapheme_count`. Smart-linked: `utf8.h` only when imported. See `docs/LINGUA.md`. |
+| **regulus** | `import std.regulus` | C (`std_c/re.h` + `re.c`) + Pengu wrapper | Small regex: `Regex.compile`, `pattern`, `is_match`, `match`, `match_at`, `matches`, `replace_first`, `replace_all`, `split`, `escape`, `Match`, `RegexError`; one-shot `regulus.is_match`/`find_first`. Grammar: `. ^ $ * + ? [] \d \w \s`; no groups/alternation/`{n,m}`/lookaround. Smart-linked: `-lre` only when imported. See `docs/REGULUS.md`. |
 | **filum** | `import std.filum` | C primitives | Concurrency: `mutex`/`lock`/`unlock`/`try_lock`, `wait_group` (`add`, `done`, `wait`), `once`, channels, thread spawn, condition variables, atomics (opaque-handle value types). |
 | **fractio** | `import std.fractio` | Pure PenguScript + `libm` | Float-only methods: a shard `where T: Real:` for IEEE 754 classification (`is_nan`, `is_finite`, `is_infinite`, `is_positive_infinity`, `is_negative_infinity`), `approx_eq`, `lerp`, `reciprocal`, `copysign`, `degrees`, `radians`; plus concrete `float`/`f64` blocks for the `libm` transcendentals `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `pow`, `hypot`. Monomorphized to `f64_sqrt`, `float_is_nan`. |
 | **integrum** | `import std.integrum` | Pure PenguScript | Integer-only methods over every signed/unsigned primitive via one `enchanting shard T where T: Integrum:`. Predicates `is_even`, `is_odd`, `is_power_of_two`, `is_multiple_of`, `is_prime`; bits `bit_count`, `bit_length`, `leading_zeros`, `trailing_zeros`, `next_power_of_two`, `prev_power_of_two`; Euclidean division `div_rem` (→ `(T, T)`), `div_floor`, `mod_floor`; number theory `gcd`, `lcm`, `next_prime`, `prev_prime`, `factorial`; representations `to_hex`, `to_bin`, `to_oct` (**allocate — `banish`**). Delegates `abs` to `std.numerus`. |
@@ -3162,6 +3164,44 @@ weave main into int:
         calling spark.println with "found beta"
     return 0
 ```
+
+### 19.9 Text processing: `std.lingua` and `std.regulus`
+
+```pengu
+import std.spark
+import std.lingua
+import std.regulus
+
+weave main into int:
+    # Codepoints, not bytes
+    var decoded as result of list of Codepoint to LinguaError is calling lingua.decode with "año 😀"
+    if decoded.is_ok:
+        var cps as list of Codepoint is decoded.value
+        calling spark.println_int with cps.len            # 5
+        banish decoded
+
+    calling spark.println_bool with (calling lingua.is_valid with "hola")       # true
+    calling spark.println_int with (calling lingua.utf16_length with "😀")     # 2
+
+    # Compile once, match many times
+    var compiled as result of Regex to RegexError is calling Regex.compile with "[0-9]+"
+    if compiled.is_ok:
+        var rx as Regex is compiled.value
+        calling spark.println_bool with (calling rx.is_match with "abc123")    # true
+        var replaced as string is calling rx.replace_all with "a1b22", "N"     # "aNbN"
+        calling spark.println with replaced
+        banish replaced
+        banish compiled
+
+    # Escape user input before it becomes a pattern
+    var quoted as string is calling regulus.escape with "a.b*c"
+    calling spark.println with quoted                       # a\.b\*c
+    banish quoted
+    return 0
+```
+
+> A `result` owns its payload: use `r.value` while `r` lives, then `banish r`.
+> Do not also banish the extracted list/string. `Regex` follows the same rule.
 
 ---
 
