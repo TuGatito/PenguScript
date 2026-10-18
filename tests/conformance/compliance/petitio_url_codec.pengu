@@ -1,0 +1,84 @@
+## `std.petitio` URL codec: percent-coding, query strings, `with_query`.
+##
+## Pure and offline: no socket is opened. The network half of petitio lives in
+## `tests/compat/test_petitio_vs_requests.py`, which runs a local HTTP server.
+import std.petitio
+import std.spark
+import std.scrolls
+
+weave eq_s with got as string, want as string, name as string into void:
+    if (calling scrolls.compare with got, want) != 0:
+        calling spark.println with "FAIL {name}: '{got}' != '{want}'"
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave main into int:
+    # RFC 3986 unreserved bytes survive; everything else becomes %XX.
+    var plain as string is calling petitio.url_encode with "abc-._~123"
+    calling eq_s with plain, "abc-._~123", "unreserved"
+    banish plain
+
+    var spaced as string is calling petitio.url_encode with "a b&c"
+    calling eq_s with spaced, "a%20b%26c", "space and ampersand"
+
+    # Non-ASCII is encoded byte by byte in upper-case hex.
+    var utf8 as string is calling petitio.url_encode with "ñ"
+    calling eq_s with utf8, "%C3%B1", "utf-8 bytes"
+    banish utf8
+
+    var reserved as string is calling petitio.url_encode with "a/b?c=d#e"
+    calling eq_s with reserved, "a%2Fb%3Fc%3Dd%23e", "reserved bytes"
+    banish reserved
+
+    # Decoding is the inverse for everything url_encode produces, and it never
+    # decodes '+' (that is form-urlencoded behaviour, not URL behaviour).
+    var round as string is calling petitio.url_decode with spaced
+    calling eq_s with round, "a b&c", "round trip"
+    banish round
+    banish spaced
+
+    var plus as string is calling petitio.url_decode with "a+b"
+    calling eq_s with plus, "a+b", "plus stays"
+    banish plus
+
+    var lower as string is calling petitio.url_decode with "%c3%b1"
+    calling eq_s with lower, "ñ", "lower-case hex"
+    banish lower
+
+    var broken as string is calling petitio.url_decode with "%ZZ%2"
+    calling eq_s with broken, "%ZZ%2", "malformed escapes preserved"
+    banish broken
+
+    # Query strings: both sides encoded, keys sorted byte-wise, no leading '?'.
+    var params as map of string to string is map of string to string
+    calling params.put with "b", "2"
+    calling params.put with "a", "1 2"
+    calling params.put with "c", "x&y"
+    var query as string is calling petitio.build_query_string with params
+    calling eq_s with query, "a=1%202&b=2&c=x%26y", "sorted encoded query"
+    banish query
+
+    var empty as map of string to string is map of string to string
+    var no_query as string is calling petitio.build_query_string with empty
+    calling eq_i with (no_query length), 0, "empty query"
+    banish no_query
+    banish empty
+
+    # with_query adds the right separator.
+    var q1 as string is calling petitio.with_query with "https://example.com/path", params
+    calling eq_s with q1, "https://example.com/path?a=1%202&b=2&c=x%26y", "with_query adds ?"
+    banish q1
+
+    var q2 as string is calling petitio.with_query with "https://example.com/path?x=1", params
+    calling eq_s with q2, "https://example.com/path?x=1&a=1%202&b=2&c=x%26y", "with_query adds &"
+    banish q2
+
+    var q3 as string is calling petitio.with_query with "https://example.com/path", empty
+    calling eq_s with q3, "https://example.com/path", "with_query no params"
+    banish q3
+
+    banish params
+    calling spark.println with "OK petitio_url_codec"
+    return 0

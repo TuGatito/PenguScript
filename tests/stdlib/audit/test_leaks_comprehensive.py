@@ -190,3 +190,159 @@ weave main into int:
 """)
     assert "FAIL" not in out, out
     assert "DONE" in out, out
+
+
+def test_leaks_or_else_rvalue_boxes(compile_and_run):
+    """`or else` over an rvalue must release the box it borrowed the value from.
+
+    Codegen copies the payload out of a `maybe`/`result` box and, for a box the
+    expression itself created (`calling make() or else …`, `some x or else …`),
+    used to keep that box allocated: 16 bytes per evaluation, forever. The
+    lvalue case is different by design — the variable owns its box and the
+    program banishes it.
+    """
+    out = compile_and_run(_PRE + """
+weave make into maybe string:
+    return some "payload"
+
+weave main into int:
+    # rvalue: the expression owns the box.
+    var i as int is 0
+    while i < 500:
+        var s as string is (calling make) or else "fallback"
+        if (s length) != 7:
+            calling spark.println with "FAIL rvalue or else"
+        banish s
+        set i is i + 1
+
+    # lvalue: the variable owns the box, the value is a borrowed copy.
+    var held as maybe string is calling make
+    var value as string is (held or else "fallback")
+    banish value
+    banish held
+
+    # `some` is an rvalue too.
+    var direct as string is (some "boxed") or else "fallback"
+    banish direct
+
+    calling spark.println with "DONE"
+    return 0
+""")
+    assert "FAIL" not in out, out
+    assert "DONE" in out, out
+
+
+def test_leaks_petitio_offline(compile_and_run):
+    """The network-free half of `std.petitio`: every string/map/response freed.
+
+    The live-socket path is exercised (also under LeakSanitizer) by
+    ``tests/compat/test_petitio_vs_requests.py``; this program covers the
+    ownership rules the wrapper documents: `Request`/`Response`/`Session` own
+    their fields, `take_*` moves a payload out of a result, and every string
+    getter returns an owned copy.
+    """
+    out = compile_and_run("""
+import std.json
+import std.petitio
+import std.spark
+import std.scrolls
+
+weave make_response into Response:
+    var headers as map of string to string is map of string to string
+    calling headers.put with "content-type", "application/json"
+    var cookies as map of string to string is map of string to string
+    calling cookies.put with "sid", "abc"
+    var cleared as list of string is list of string
+    var response as Response is:
+        status is 200
+        headers is headers
+        body is r\"\"\"{"a":1}\"\"\"
+        url is "https://example.com/"
+        elapsed_sec is 0.1
+        redirected is false
+        cookies is cookies
+        cleared_cookies is cleared
+    return response
+
+weave main into int:
+    # URL helpers: owned strings, released by the caller.
+    var encoded as string is calling petitio.url_encode with "a b/c"
+    banish encoded
+    var decoded as string is calling petitio.url_decode with "a%20b%2Fc"
+    banish decoded
+    var params as map of string to string is map of string to string
+    calling params.put with "b", "2"
+    calling params.put with "a", "1"
+    var query as string is calling petitio.build_query_string with params
+    banish query
+    var with_q as string is calling petitio.with_query with "https://h/p", params
+    banish with_q
+    banish params
+
+    # parse_url: the result owns the parts.
+    var parsed as result of UrlParts to string is calling petitio.parse_url with "https://h:1/a?b=2#c"
+    if parsed.is_ok:
+        var parts as UrlParts is parsed.value
+        # `parts.host` is borrowed from the result: do not banish it separately.
+        if (parts.host length) == 0:
+            calling spark.println with "FAIL parsed host"
+    banish parsed
+
+    # Request: headers are stored lower-case and owned; parts too.
+    var req as Request is calling Request.new with "POST", "https://example.com/x"
+    calling req.header with "X-Test", "1"
+    calling req.header with "x-test", "2"
+    calling req.multipart_field with "f", "v"
+    calling req.auth_basic with "u", "p"
+    calling req.auth_bearer with "t"
+    calling req.proxy with "http://127.0.0.1:1", "a:b"
+    var payload as result of json.JsonValue to json.JsonError is calling json.parse with r\"\"\"{"n":1}\"\"\"
+    if payload.is_ok:
+        var obj as json.JsonValue is payload.value
+        calling req.json_body with obj
+    banish payload
+    banish req
+
+    # Response: getters copy, body stays owned by the response.
+    var resp as Response is calling make_response
+    var text as string is calling resp.text
+    banish text
+    var found as string is calling resp.header with "Content-Type"
+    banish found
+    var missing as string is calling resp.header with "missing"
+    banish missing
+    var as_json as result of json.JsonValue to json.JsonError is calling resp.json
+    banish as_json
+    banish resp
+
+    # take_* moves out of a result; both halves are released independently.
+    var ok_box as result of Response to HttpError is calling ok_of with (calling make_response)
+    var moved as Response is calling petitio.take_response with (sigil of ok_box)
+    banish moved
+    banish ok_box
+
+    var err_box as result of Response to HttpError is calling err_of with (with TlsError is "bad")
+    var moved_err as HttpError is calling petitio.take_error with (sigil of err_box)
+    var message as string is calling moved_err.message
+    banish message
+    banish moved_err
+    banish err_box
+
+    # HttpError owns its payload; `derive Nexus` releases it.
+    var direct as HttpError is with ConnectionFailed is "refused"
+    var direct_message as string is calling direct.message
+    banish direct_message
+    banish direct
+
+    # Session owns both maps.
+    var session as Session is calling Session.new
+    calling session.set_header with "Accept", "application/json"
+    calling session.set_cookie with "sid", "abc"
+    calling session.remove_cookie with "sid"
+    banish session
+
+    calling spark.println with "DONE"
+    return 0
+""")
+    assert "FAIL" not in out, out
+    assert "DONE" in out, out

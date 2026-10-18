@@ -1,0 +1,101 @@
+## `std.petitio.parse_url`: scheme, user info, host, port, path, query, fragment.
+import std.petitio
+import std.spark
+import std.scrolls
+
+weave eq_s with got as string, want as string, name as string into void:
+    if (calling scrolls.compare with got, want) != 0:
+        calling spark.println with "FAIL {name}: '{got}' != '{want}'"
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave main into int:
+    var full as result of UrlParts to string is calling petitio.parse_url with "https://user:pw@example.com:8443/a/b?q=1&r=2#top"
+    if not full.is_ok:
+        calling spark.println with "FAIL full: parse failed"
+        banish full
+        return 1
+    var parts as UrlParts is full.value
+    calling eq_s with parts.scheme, "https", "scheme"
+    calling eq_s with parts.userinfo, "user:pw", "userinfo"
+    calling eq_s with parts.host, "example.com", "host"
+    calling eq_i with parts.port, 8443, "port"
+    calling eq_s with parts.path, "/a/b", "path"
+    calling eq_s with parts.query, "q=1&r=2", "query"
+    calling eq_s with parts.fragment, "top", "fragment"
+    banish full
+
+    # No path -> "/", no port -> 0, no user info, no query, no fragment.
+    var bare as result of UrlParts to string is calling petitio.parse_url with "http://example.com"
+    if not bare.is_ok:
+        calling spark.println with "FAIL bare: parse failed"
+        banish bare
+        return 1
+    var b as UrlParts is bare.value
+    calling eq_s with b.scheme, "http", "bare scheme"
+    calling eq_s with b.userinfo, "", "bare userinfo"
+    calling eq_s with b.host, "example.com", "bare host"
+    calling eq_i with b.port, 0, "bare port"
+    calling eq_s with b.path, "/", "bare path"
+    calling eq_s with b.query, "", "bare query"
+    calling eq_s with b.fragment, "", "bare fragment"
+    banish bare
+
+    # IPv6 literals keep their brackets out of `host` and accept a port.
+    var v6 as result of UrlParts to string is calling petitio.parse_url with "http://[::1]:8080/x"
+    if not v6.is_ok:
+        calling spark.println with "FAIL v6: parse failed"
+        banish v6
+        return 1
+    var s6 as UrlParts is v6.value
+    calling eq_s with s6.host, "[::1]", "ipv6 host"
+    calling eq_i with s6.port, 8080, "ipv6 port"
+    calling eq_s with s6.path, "/x", "ipv6 path"
+    banish v6
+
+    # A query without a path.
+    var qonly as result of UrlParts to string is calling petitio.parse_url with "http://h?x=1"
+    if qonly.is_ok:
+        var qp as UrlParts is qonly.value
+        calling eq_s with qp.path, "/", "query-only path"
+        calling eq_s with qp.query, "x=1", "query-only query"
+    else:
+        calling spark.println with "FAIL query-only: parse failed"
+    banish qonly
+
+    # Structural failures return an error message and never panic.
+    var bad1 as result of UrlParts to string is calling petitio.parse_url with ""
+    if bad1.is_ok:
+        calling spark.println with "FAIL empty url accepted"
+    banish bad1
+
+    var bad2 as result of UrlParts to string is calling petitio.parse_url with "nope"
+    if bad2.is_ok:
+        calling spark.println with "FAIL missing scheme accepted"
+    banish bad2
+
+    var bad3 as result of UrlParts to string is calling petitio.parse_url with "http://"
+    if bad3.is_ok:
+        calling spark.println with "FAIL missing host accepted"
+    banish bad3
+
+    var bad4 as result of UrlParts to string is calling petitio.parse_url with "http://host:abc/x"
+    if bad4.is_ok:
+        calling spark.println with "FAIL non-numeric port accepted"
+    banish bad4
+
+    var bad5 as result of UrlParts to string is calling petitio.parse_url with "http://host:99999/x"
+    if bad5.is_ok:
+        calling spark.println with "FAIL out-of-range port accepted"
+    banish bad5
+
+    var bad6 as result of UrlParts to string is calling petitio.parse_url with "http://[::1/x"
+    if bad6.is_ok:
+        calling spark.println with "FAIL unterminated IPv6 accepted"
+    banish bad6
+
+    calling spark.println with "OK petitio_parse_url"
+    return 0
+

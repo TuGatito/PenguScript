@@ -1,0 +1,170 @@
+## `std.petitio` response queries, error messages and the explicit take helpers.
+##
+## Offline: the `Response` values are built by hand, the results by `ok_of`/`err_of`.
+import std.json
+import std.petitio
+import std.spark
+import std.scrolls
+
+weave eq_s with got as string, want as string, name as string into void:
+    if (calling scrolls.compare with got, want) != 0:
+        calling spark.println with "FAIL {name}: '{got}' != '{want}'"
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave eq_b with got as bool, want as bool, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave check_message with e as ref to HttpError, want as string, name as string into void:
+    var msg as string is calling e.message
+    calling eq_s with msg, want, name
+    banish msg
+
+weave make_response with status as int, body as string, extra_header as string into Response:
+    var headers as map of string to string is map of string to string
+    calling headers.put with "content-type", "application/json"
+    if (extra_header length) > 0:
+        calling headers.put with "x-flag", extra_header
+    var cookies as map of string to string is map of string to string
+    calling cookies.put with "sid", "abc"
+    var cleared as list of string is list of string
+    var response as Response is:
+        status is status
+        headers is headers
+        body is body
+        url is "https://example.com/x"
+        elapsed_sec is 0.25
+        redirected is false
+        cookies is cookies
+        cleared_cookies is cleared
+    return response
+
+weave main into int:
+    var ok_resp as Response is calling make_response with 200, r"""{"a":1}""", "yes"
+    defer banish ok_resp
+    calling eq_b with (calling ok_resp.is_ok), true, "200 is_ok"
+    calling eq_b with (calling ok_resp.is_redirect), false, "200 not redirect"
+    calling eq_b with (calling ok_resp.is_client_error), false, "200 not client error"
+    calling eq_b with (calling ok_resp.is_server_error), false, "200 not server error"
+
+    # Header lookup is case-insensitive and returns an owned copy.
+    var ctype as string is calling ok_resp.header with "Content-Type"
+    calling eq_s with ctype, "application/json", "header CI"
+    banish ctype
+    var missing as string is calling ok_resp.header with "nope"
+    calling eq_i with (missing length), 0, "absent header is empty"
+    banish missing
+    calling eq_b with (calling ok_resp.has_header with "X-FLAG"), true, "has_header CI"
+    calling eq_b with (calling ok_resp.has_header with "nope"), false, "has_header absent"
+
+    # text is an owned copy; body stays intact.
+    var text as string is calling ok_resp.text
+    calling eq_s with text, r"""{"a":1}""", "text copy"
+    banish text
+    calling eq_s with ok_resp.body, r"""{"a":1}""", "body untouched"
+
+    # json parses the body.
+    var parsed as result of json.JsonValue to json.JsonError is calling ok_resp.json
+    if not parsed.is_ok:
+        calling spark.println with "FAIL response json"
+    else:
+        var value as json.JsonValue is parsed.value
+        calling eq_i with (calling value.object_len), 1, "json object"
+    banish parsed
+
+    # raise_for_status on 2xx is ok.
+    var raised_ok as result of void to HttpError is calling ok_resp.raise_for_status
+    calling eq_b with raised_ok.is_ok, true, "raise_for_status 200"
+    banish raised_ok
+
+    # 3xx / 4xx / 5xx classification and raise_for_status.
+    var redir as Response is calling make_response with 302, "", ""
+    defer banish redir
+    calling eq_b with (calling redir.is_redirect), true, "302 is_redirect"
+    calling eq_b with (calling redir.is_ok), false, "302 not ok"
+
+    var client as Response is calling make_response with 404, "nope", ""
+    defer banish client
+    calling eq_b with (calling client.is_client_error), true, "404 client error"
+    var raised_404 as result of void to HttpError is calling client.raise_for_status
+    calling eq_b with raised_404.is_ok, false, "raise_for_status 404"
+    if not raised_404.is_ok:
+        var e404 as HttpError is calling petitio.take_error with (sigil of raised_404)
+        judge e404:
+            when HttpStatus with status ->
+                calling eq_i with status, 404, "HttpStatus 404"
+                calling check_message with (sigil of e404), "HTTP status 404", "message 404"
+            else ->
+                calling spark.println with "FAIL wrong 404 error"
+        banish e404
+    banish raised_404
+
+    var server as Response is calling make_response with 500, "boom", ""
+    defer banish server
+    calling eq_b with (calling server.is_server_error), true, "500 server error"
+
+    # Every HttpError variant has a message and can be released.
+    var e1 as HttpError is with ConnectionFailed is "refused"
+    calling check_message with (sigil of e1), "connection failed: refused", "message connection"
+    banish e1
+
+    var e2 as HttpError is with Timeout is 1.5
+    var msg2 as string is calling e2.message
+    if not (calling scrolls.starts_with with msg2, "request timed out"):
+        calling spark.println with "FAIL message timeout"
+    banish msg2
+    banish e2
+
+    var e3 as HttpError is with TooManyRedirects is 7
+    calling check_message with (sigil of e3), "too many redirects (limit 7)", "message redirects"
+    banish e3
+
+    var e4 as HttpError is with InvalidUrl is "ftp://x"
+    calling check_message with (sigil of e4), "invalid URL: ftp://x", "message url"
+    banish e4
+
+    var e5 as HttpError is with TlsError is "bad cert"
+    calling check_message with (sigil of e5), "TLS error: bad cert", "message tls"
+    banish e5
+
+    var e6 as HttpError is with ProtocolError is "bad reply"
+    calling check_message with (sigil of e6), "protocol error: bad reply", "message protocol"
+    banish e6
+
+    var e7 as HttpError is with BodyTooLarge is 10
+    calling check_message with (sigil of e7), "response body exceeds 10 bytes", "message cap"
+    banish e7
+
+    var e8 as HttpError is with OutOfMemory is 0
+    calling check_message with (sigil of e8), "out of memory", "message oom"
+    banish e8
+
+    var e9 as HttpError is with Unsupported is "gopher"
+    calling check_message with (sigil of e9), "unsupported URL: gopher", "message unsupported"
+    banish e9
+
+    # take_response moves the payload out and leaves the result safe to banish.
+    var ok_box as result of Response to HttpError is calling ok_of with (calling make_response with 201, "made", "")
+    var taken as Response is calling petitio.take_response with (sigil of ok_box)
+    calling eq_i with taken.status, 201, "take_response status"
+    calling eq_s with taken.body, "made", "take_response body"
+    banish ok_box
+    banish taken
+
+    # take_error moves the error out, including its owned message.
+    var err_box as result of Response to HttpError is calling err_of with (with ConnectionFailed is "gone")
+    calling eq_b with err_box.is_ok, false, "err box"
+    var taken_err as HttpError is calling petitio.take_error with (sigil of err_box)
+    judge taken_err:
+        when ConnectionFailed with reason ->
+            calling eq_s with reason, "gone", "take_error reason"
+        else ->
+            calling spark.println with "FAIL take_error variant"
+    banish taken_err
+    banish err_box
+
+    calling spark.println with "OK petitio_response_queries"
+    return 0

@@ -1,0 +1,183 @@
+## std/petitio.d.pengu — raw declarations for the libcurl transport in
+## `std_c/petitio.h` + `std_c/petitio.c`.
+##
+## This is the **internal** binding of `std/petitio.pengu`. Import the wrapper
+## (`import std.petitio`), not this declaration file: the wrapper owns the
+## `Request`, `Response`, `Session` and `HttpError` types, the URL helpers and
+## every ownership rule.
+##
+## ## Generation
+##
+## The skeleton is generated from the C header with
+##
+## ```text
+## pengu bind std_c/petitio.h --output std/petitio.d.pengu \
+##     --cpp-flags="-DPETITIO_BIND=1" --links petitio curl
+## ```
+##
+## and then hand-tuned. The hand tuning is three mechanical replacements and one
+## removal, all of them documented in `docs/PETITIO.md` §"Regenerating the
+## binding":
+##
+## 1. `PenguString` → `string` (the language's own spelling for the runtime
+##    type; the generated `rune PenguString` is dropped because the runtime
+##    already defines it);
+## 2. `int64_t` → `i64` and `double` → `f64` (idiomatic spellings of the same C
+##    types);
+## 3. the generated `omen petitio_error` becomes `const` declarations, because
+##    the real enum already lives in `petitio.h` and the bundle includes it;
+## 4. prose comments are expanded into the `##` documentation the rest of the
+##    standard library uses.
+##
+## ## Smart linking
+##
+## `link "petitio"` and `link "curl"` are emitted only when this module is part
+## of the compilation. `build_runtime.py` archives `std_c/petitio.c` into
+## `build/lib/libpetitio.a`; a program that never imports `std.petitio` never
+## receives `-lpetitio` or `-lcurl`. `tests/build/test_smart_linking.py` asserts
+## that with the generated `bundle.c`, the `--verbose` link line and `nm`.
+##
+## ## Why libcurl
+##
+## See the long comment at the top of `std_c/petitio.h`. In short: `naett`
+## (single-header, MIT) was evaluated and rejected because its public API cannot
+## express total timeouts, redirect limits, cookie control, TLS toggling or
+## multipart — and its Linux backend is libcurl anyway.
+include "petitio.h"
+
+link "petitio"
+link "curl"
+
+# ------------------------------------------------------------------
+# Error codes (mirror of `enum petitio_error`)
+# ------------------------------------------------------------------
+
+## The request completed (or would have completed) without a transport error.
+const PETITIO_OK as int is 0
+
+## DNS failure, refused/reset connection or a transfer interrupted mid-flight.
+const PETITIO_CONNECTION_FAILED as int is 1
+
+## The total or connect deadline expired.
+const PETITIO_TIMEOUT as int is 2
+
+## The redirect limit was reached before a final response arrived.
+const PETITIO_TOO_MANY_REDIRECTS as int is 3
+
+## libcurl rejected the URL before any connection was attempted.
+const PETITIO_INVALID_URL as int is 4
+
+## TLS negotiation, certificate or hostname verification failed.
+const PETITIO_TLS_ERROR as int is 5
+
+## A malformed response, an unsupported protocol or a callback abort.
+const PETITIO_PROTOCOL_ERROR as int is 6
+
+## The body exceeded the request's `max_body_bytes` cap.
+const PETITIO_BODY_TOO_LARGE as int is 7
+
+## An allocation failed.
+const PETITIO_OUT_OF_MEMORY as int is 8
+
+## The URL names a protocol other than HTTP or HTTPS.
+const PETITIO_UNSUPPORTED as int is 9
+
+# ------------------------------------------------------------------
+# Types (structs, unions, enums, aliases)
+# ------------------------------------------------------------------
+
+## An owned request builder. Create it with `petitio_request_new`, configure it,
+## call `petitio_request_perform` once (or more) and release it with
+## `petitio_request_free`.
+alias petitio_request as opaque
+
+## An owned response. Release it with `petitio_response_free` after copying out
+## the fields you need: every getter below copies into an owned `string`.
+alias petitio_response as opaque
+
+# ------------------------------------------------------------------
+# Request builder
+# ------------------------------------------------------------------
+
+# Creates a request for `url`. Returns NULL only when the allocator fails.
+declare petitio_request_new with url as string into ref to petitio_request
+
+# Releases the request and everything it copied. Call once.
+declare petitio_request_free with request as ref to petitio_request into void
+
+# Sets the HTTP method ("GET", "POST", …). Defaults to "GET".
+declare petitio_request_set_method with request as ref to petitio_request, method as string into void
+
+# Adds one request header. The wrapper rejects a name containing ':' or CR/LF
+# and a value containing CR/LF before this call; C only joins "name: value".
+declare petitio_request_add_header with request as ref to petitio_request, name as string, value as string into void
+
+# Sets the request body (copied; may contain NUL bytes).
+declare petitio_request_set_body with request as ref to petitio_request, body as string into void
+
+# Total and connect deadlines in milliseconds; 0 disables that deadline.
+declare petitio_request_set_timeout with request as ref to petitio_request, timeout_ms as i64, connect_timeout_ms as i64 into void
+
+# Redirect policy. `max_redirects` is only meaningful when `follow` is non-zero.
+declare petitio_request_set_redirects with request as ref to petitio_request, follow as int, max_redirects as i64 into void
+
+# 0 disables peer/host verification (documented as insecure).
+declare petitio_request_set_verify_tls with request as ref to petitio_request, verify as int into void
+
+# Aborts the transfer once the body exceeds `max_bytes` (0 = unlimited).
+declare petitio_request_set_max_body with request as ref to petitio_request, max_bytes as i64 into void
+
+# Basic authentication (RFC 7617). Empty user disables it.
+declare petitio_request_set_basic_auth with request as ref to petitio_request, user as string, password as string into void
+
+# HTTP proxy, e.g. "http://127.0.0.1:8080". Empty disables it.
+declare petitio_request_set_proxy with request as ref to petitio_request, proxy as string, credentials as string into void
+
+# Adds one multipart/form-data part held in memory. `filename` and
+# `content_type` may be empty. Returns 1 on success, 0 on allocation failure.
+declare petitio_request_add_form_field with request as ref to petitio_request, name as string, value as string, filename as string, content_type as string into int
+
+# Performs the request. Returns NULL only when the response object itself cannot
+# be allocated (reported by the wrapper as `HttpError.OutOfMemory`).
+declare petitio_request_perform with request as ref to petitio_request into ref to petitio_response
+
+# ------------------------------------------------------------------
+# Response accessors
+# ------------------------------------------------------------------
+
+# One of the PETITIO_* codes above.
+declare petitio_response_error with response as ref to frozen petitio_response into int
+
+# Human-readable transport error, or "" when the request completed. Owned.
+declare petitio_response_error_message with response as ref to frozen petitio_response into string
+
+# HTTP status code, or 0 when no response line was received.
+declare petitio_response_status with response as ref to frozen petitio_response into int
+
+# Response body bytes (decoded when the server compressed it). Owned.
+declare petitio_response_body with response as ref to frozen petitio_response into string
+
+# Effective URL after redirects. Owned.
+declare petitio_response_url with response as ref to frozen petitio_response into string
+
+# Wall-clock duration of the transfer, in seconds.
+declare petitio_response_elapsed with response as ref to frozen petitio_response into f64
+
+# Number of redirects followed.
+declare petitio_response_redirect_count with response as ref to frozen petitio_response into int
+
+# Final-response header count. Duplicates are preserved in receipt order and
+# names are lower-case.
+declare petitio_response_header_count with response as ref to frozen petitio_response into int
+
+# Name of header `index`, lower-case. Owned.
+declare petitio_response_header_name with response as ref to frozen petitio_response, index as int into string
+
+# Value of header `index`, trimmed. Owned.
+declare petitio_response_header_value with response as ref to frozen petitio_response, index as int into string
+
+# Releases the response and its body/header block. Call once.
+declare petitio_response_free with response as ref to petitio_response into void
+
+# libcurl runtime version, for diagnostics ("libcurl/8.22.0"). Owned.
+declare petitio_version into string

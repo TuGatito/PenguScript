@@ -1,0 +1,1592 @@
+## std/petitio.pengu — a high-level HTTP client with a `requests`-shaped API.
+##
+## `std.petitio` (Latin *petitio*, "a request") is PenguScript's HTTP client.
+## It is a synchronous, explicit, `result`-returning wrapper over **libcurl**:
+## GET/POST/PUT/DELETE/HEAD/PATCH/OPTIONS, custom headers, JSON and
+## form-urlencoded bodies, multipart/form-data, query strings, URL parsing,
+## total and connect timeouts, redirect control, TLS verification, Basic and
+## Bearer authentication, proxies, per-response body caps, sessions with
+## cookies, and a `Response` that can parse JSON.
+##
+## ## Why libcurl and not naett
+##
+## `naett` (single header, MIT) was evaluated first. Its public API cannot
+## express what this module promises: `naettTimeout` is a *connect* timeout only,
+## redirects are hard-wired on with no limit, there is no cookie control, no TLS
+## toggle, no proxy, no multipart, and duplicate response headers (every
+## `Set-Cookie` after the first) are lost. Its Linux backend is libcurl anyway, so
+## it never removed the dependency — and the vendored copy did not compile under
+## this repository's `-std=c99 -Wall -Wextra -Werror` gate. libcurl (`curl`
+## licence, MIT-like) is preinstalled on Linux, macOS and every CI image used
+## here, and exposes every knob documented below. See `docs/PETITIO.md`
+## §"Why libcurl" for the full comparison.
+##
+## ## Quick start
+## ```pengu
+## import std.petitio
+## import std.spark
+##
+## weave main into int:
+##     var r as result of Response to HttpError is calling petitio.get with "https://httpbin.org/get"
+##     defer banish r                       # the result owns the payload
+##     if not r.is_ok:
+##         var failure as HttpError is calling petitio.take_error with (sigil of r)
+##         var why as string is calling failure.message
+##         calling spark.println with why
+##         banish why
+##         banish failure
+##         return 1
+##     var resp as Response is calling petitio.take_response with (sigil of r)
+##     defer banish resp
+##     var body as string is calling resp.text
+##     calling spark.println with body
+##     banish body
+##     calling spark.println_int with resp.status
+##     return 0
+## ```
+##
+## ## Ownership (read this once)
+## - `Request` owns its URL, headers, body, auth strings and multipart parts.
+##   `banish req` releases all of them (`Request derive Nexus`).
+## - `Response` owns its body, URL, headers and cookies. `banish resp` releases
+##   all of them, including every string inside the two maps.
+## - `Session` owns its default headers and cookies. `banish session` releases
+##   them.
+## - A `result of Response to HttpError` owns its payload: `banish r` releases
+##   the `Response` (or the `HttpError`) the box points at. `r.value` and
+##   `r.error` hand out a **copy**, so releasing both the copy *and* the result
+##   frees the same buffers twice. Either borrow through `r.value` / `r.error`
+##   and release only the result (`defer banish r`), or move the payload out
+##   with `take_response` / `take_error` and then release both independently.
+##   Never `banish` a payload you obtained with `r.value` / `r.error`.
+## - Every string getter (`Response.text`, `Response.header`, `HttpError.message`)
+##   returns an **owned** copy. `banish` it when done. `Response.header` returns
+##   `""` for an absent header; use `Response.has_header` when an empty header
+##   value must be told apart from a missing one (a `maybe string` would wrap an
+##   owned payload in a box the compiler cannot move out safely).
+##
+## ## Errors
+## Every network operation returns `result ... to HttpError`; none of them
+## panic on a transport failure. Malformed *program input* to a builder
+## (`Request.new` with a method containing a space, `Request.header` with CR/LF
+## or ':' in the name, `Request.set_cookie` with ';' in the value) is a bug in
+## the caller and panics with a message naming the offending value — validate
+## untrusted data before you build the request (§14.36 of the Pengunic guide).
+## `multipart_file` is the exception: it reports `false` instead of panicking
+## because a missing file is a runtime condition, not a bug.
+##
+## ## Feature matrix
+## | Feature | Supported |
+## |---|---|
+## | GET / POST / PUT / DELETE / HEAD / PATCH / OPTIONS, custom methods | ✅ |
+## | Request headers (case-insensitive, lower-cased in the maps) | ✅ |
+## | JSON body (`json_body`) | ✅ |
+## | form-urlencoded body (`form_body`) | ✅ |
+## | multipart/form-data, in memory and from a file | ✅ |
+## | Query strings (`build_query_string`, `with_query`) | ✅ |
+## | URL parsing (`parse_url`) and percent-coding (`url_encode`/`url_decode`) | ✅ |
+## | Total and connect timeouts | ✅ |
+## | Redirect following with a limit, or none | ✅ |
+## | TLS verification toggle (`insecure`) | ✅ |
+## | Basic and Bearer authentication | ✅ |
+## | Proxy (`proxy`) | ✅ |
+## | Cookies (`Session`) | ✅ name/value, `Max-Age=0` deletion |
+## | Response body cap (`max_body_bytes`) | ✅ |
+## | Streaming downloads, connection pooling, HTTP/2 tuning, async | ❌ out of scope |
+##
+## ## Complexity
+## | Operation | Cost |
+## |---|---|
+## | `Request.send` / `Session.request` | network-bound; body + headers copied once |
+## | `url_encode` / `url_decode` | O(n) |
+## | `build_query_string` | O(n log n) for n parameters (keys are sorted) |
+## | `parse_url` | O(n) |
+## | `Response.json` | O(body size) |
+##
+## ## Versioning
+## `PETITIO_VERSION` follows the stdlib versioning policy (LANGUAGE.md §19.0):
+## the stdlib release that ships this module.
+
+import std.archivum
+import std.builder
+import std.compass
+import std.ffi
+import std.json
+import std.scrolls
+import std.spark
+
+# ----------------------------------------------------------------------------
+# Module version and tuning
+# ----------------------------------------------------------------------------
+
+## Petitio module version (the stdlib release that ships it).
+const PETITIO_VERSION as string is "2.12.0"
+
+## Redirect limit used by `Request.new` and by the one-shot helpers, matching
+## Python's `requests`.
+const PETITIO_DEFAULT_MAX_REDIRECTS as int is 30
+
+## Default total timeout in seconds. `0.0` means "no deadline", like `requests`.
+const PETITIO_DEFAULT_TIMEOUT_SEC as f64 is 0.0
+
+## `User-Agent` sent when the request does not set one.
+const PETITIO_DEFAULT_USER_AGENT as string is "petitio/2.12.0"
+
+## Content type `json_body` installs when the request has not set one.
+const PETITIO_JSON_CONTENT_TYPE as string is "application/json"
+
+## Content type `form_body` installs when the request has not set one.
+const PETITIO_FORM_CONTENT_TYPE as string is "application/x-www-form-urlencoded"
+
+## Content type `multipart_file` installs when the part has none.
+const PETITIO_BINARY_CONTENT_TYPE as string is "application/octet-stream"
+
+# ----------------------------------------------------------------------------
+# Error model
+# ----------------------------------------------------------------------------
+
+## Why an HTTP operation failed.
+##
+## ## Memoria
+## Variants that carry a `string` own it (`HttpError derive Nexus`): extract the
+## error from a result and `banish` it to release the message.
+omen HttpError derive Nexus:
+    ## DNS failure, a refused/reset connection, or a transfer interrupted
+    ## mid-flight.
+    ConnectionFailed with reason as string
+    ## The total or connect deadline expired. `seconds` is the configured
+    ## timeout, or the connect timeout when only that one was set.
+    Timeout with seconds as f64
+    ## The redirect limit was reached before a final response arrived.
+    TooManyRedirects with count as int
+    ## libcurl rejected the URL before any connection was attempted.
+    InvalidUrl with url as string
+    ## TLS negotiation, certificate or hostname verification failed.
+    TlsError with reason as string
+    ## A malformed response, a callback abort, or an option libcurl rejected.
+    ProtocolError with reason as string
+    ## The body exceeded the request's `max_body_bytes` cap.
+    BodyTooLarge with max_bytes as i64
+    ## An allocation failed.
+    OutOfMemory
+    ## The URL names a protocol other than HTTP or HTTPS.
+    Unsupported with reason as string
+    ## `raise_for_status` saw a 4xx/5xx response. The response is still
+    ## available; this variant carries only the status code.
+    HttpStatus with status as int
+
+enchanting HttpError:
+    ## A human-readable description of the failure.
+    ##
+    ## ## Retorno
+    ## An owned string with the variant and its payload, e.g.
+    ## `"connection failed: Could not connect to server"`. `banish` it.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var e as HttpError is r.error
+    ## calling spark.println with (calling e.message)
+    ## banish e
+    ## ```
+    weave message into string:
+        return judge (essence of self):
+            when ConnectionFailed with reason -> "connection failed: {reason}"
+            when Timeout with seconds -> "request timed out after {seconds}s"
+            when TooManyRedirects with count -> "too many redirects (limit {count})"
+            when InvalidUrl with url -> "invalid URL: {url}"
+            when TlsError with reason -> "TLS error: {reason}"
+            when ProtocolError with reason -> "protocol error: {reason}"
+            when BodyTooLarge with max_bytes -> "response body exceeds {max_bytes} bytes"
+            when OutOfMemory -> "out of memory"
+            when Unsupported with reason -> "unsupported URL: {reason}"
+            when HttpStatus with status -> "HTTP status {status}"
+
+# ----------------------------------------------------------------------------
+# Types
+# ----------------------------------------------------------------------------
+
+## One part of a `multipart/form-data` body.
+##
+## ## Memoria
+## Owns all four strings; `banish part` releases them. A `Request` owns its
+## parts, so `banish req` releases them through the derived `Nexus`.
+rune FormPart derive Nexus:
+    ## The form field name.
+    name as string
+    ## The part contents, byte-exact (a file's bytes or a text value).
+    value as string
+    ## The `filename` parameter, or `""` for a plain field.
+    filename as string
+    ## The part `Content-Type`, or `""` to let libcurl omit it.
+    content_type as string
+
+## A configurable HTTP request.
+##
+## Build it with `Request.new`, mutate it with the builder methods, send it with
+## `send`, then release it with `banish req`.
+##
+## ## Memoria
+## `Request derive Nexus` releases `url`, `body`, `method`, every header key and
+## value, the auth/proxy strings and every `FormPart` in `parts`.
+rune Request derive Nexus:
+    ## The HTTP method, upper-case (`"GET"`, `"POST"`, …). Custom verbs are
+    ## allowed as long as they are RFC 7230 tokens.
+    method as string
+    ## The absolute URL, including `http://` or `https://`.
+    url as string
+    ## Request headers. Keys are stored lower-case; use `header` to set them.
+    headers as map of string to string
+    ## The request body. Empty unless `text_body`, `json_body`, `form_body` or
+    ## `bytes_body` set it.
+    body as string
+    ## `true` when `body` is meant to be sent (an empty body is still a body).
+    has_body as bool
+    ## Total deadline in seconds; `0.0` disables it.
+    timeout_sec as f64
+    ## Connect deadline in seconds; `0.0` disables it (the total deadline still
+    ## applies).
+    connect_timeout_sec as f64
+    ## Follow 3xx responses when `true`.
+    follow_redirects as bool
+    ## Maximum number of redirects to follow.
+    max_redirects as int
+    ## Verify the peer certificate and hostname when `true`. Disable only for
+    ## testing against a self-signed endpoint.
+    verify_tls as bool
+    ## Abort with `HttpError.BodyTooLarge` once the body exceeds this many
+    ## bytes. `0` means unlimited.
+    max_body_bytes as i64
+    ## Basic-auth user name; empty disables Basic authentication.
+    basic_user as string
+    ## Basic-auth password (ignored when `basic_user` is empty).
+    basic_password as string
+    ## Bearer token; empty disables it. An explicit `Authorization` header wins.
+    bearer_token as string
+    ## Proxy URL, e.g. `"http://127.0.0.1:8080"`; empty disables the proxy.
+    proxy as string
+    ## Proxy credentials as `"user:password"`, or empty.
+    proxy_credentials as string
+    ## `multipart/form-data` parts. When non-empty they replace `body`.
+    parts as list of FormPart
+
+## An HTTP response, as received (after redirects).
+##
+## ## Memoria
+## `Response derive Nexus` releases `body`, `url`, every header key/value and
+## every cookie key/value, plus the private list of cleared cookie names.
+rune Response derive Nexus:
+    ## The final HTTP status code (after redirects). `0` when no response line
+    ## was received.
+    status as int
+    ## Final-response headers. Keys are lower-case; duplicate names keep the
+    ## last value (use `cookies` for every `Set-Cookie`).
+    headers as map of string to string
+    ## The response body, byte-exact. Compressed responses are decoded by
+    ## libcurl, so this is the plain payload.
+    body as string
+    ## The effective URL, after any redirects.
+    url as string
+    ## Wall-clock duration of the transfer, in seconds.
+    elapsed_sec as f64
+    ## `true` when at least one redirect was followed.
+    redirected as bool
+    ## Cookies the server set, name → value, ignoring those it cleared.
+    cookies as map of string to string
+    ## Cookie names the server cleared with `Max-Age=0`. `Session` consumes the
+    ## list to forget stale cookies; it is public so a hand-built `Response`
+    ## (tests, fixtures) can set it.
+    cleared_cookies as list of string
+
+## A set of default headers and cookies applied to many requests, with cookie
+## persistence.
+##
+## ## Memoria
+## `Session derive Nexus` releases both maps and every string inside them.
+rune Session derive Nexus:
+    ## Headers applied to every request that does not set the same name.
+    _default_headers as map of string to string
+    ## Cookies applied to every request and updated from every response.
+    _cookies as map of string to string
+
+## The pieces of an absolute URL.
+##
+## ## Memoria
+## Owns every field; `banish parts` releases them.
+rune UrlParts derive Nexus:
+    ## The scheme, as written (`"http"` or `"https"`).
+    scheme as string
+    ## `user:password`, or `""` when the URL carries no user info.
+    userinfo as string
+    ## The host, without brackets for an IPv6 literal.
+    host as string
+    ## The explicit port, or `0` when the URL omits it.
+    port as int
+    ## The path, `"/"` when the URL has none.
+    path as string
+    ## The query string without `?`, or `""`.
+    query as string
+    ## The fragment without `#`, or `""`.
+    fragment as string
+
+# ----------------------------------------------------------------------------
+# Explicit moves out of a result
+# ----------------------------------------------------------------------------
+#
+# A `result` owns its payload: `banish r` releases the `Response` (or the
+# `HttpError`) the box points at.  `r.value` and `r.error` hand out a *copy* of
+# that payload, so banishing both the copy and the result frees the same
+# buffers twice.  These two helpers move the payload out and clear the box, the
+# same explicit-move contract `std.json` exposes as `take_value`/`take_string`.
+
+## Moves the successful `Response` out of `r`, leaving `r` safe to `banish`.
+##
+## ## Parámetros
+## - `r`: a result. The box is consumed; `r.is_ok` becomes `false`.
+##
+## ## Retorno
+## The owned `Response` (release it with `banish`). When `r` is an error, an
+## empty `Response` is returned (status `0`, empty maps) and the error stays in
+## the box for `banish r` to release.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of Response to HttpError is calling petitio.get with url
+## if not r.is_ok:
+##     var e as HttpError is calling petitio.take_error with (sigil of r)
+##     calling spark.println with (calling e.message)
+##     banish e
+##     banish r
+##     return 1
+## var resp as Response is calling petitio.take_response with (sigil of r)
+## defer banish r
+## defer banish resp
+## ```
+weave take_response with r as ref to result of Response to HttpError into Response:
+    return calling _take_response with r
+
+antiquus _take_response with r as ref to result of Response to HttpError into Response:
+    r"""
+if (r && r->is_ok && r->ok_val)
+{
+    Response out = *(Response *)r->ok_val;
+    free(r->ok_val);
+    r->ok_val = NULL;
+    r->is_ok = false;
+    return out;
+}
+Response empty;
+memset(&empty, 0, sizeof empty);
+return empty;
+"""
+
+## Moves the `HttpError` out of `r`, leaving `r` safe to `banish`.
+##
+## ## Parámetros
+## - `r`: a result. The box is consumed; `r` no longer carries the error.
+##
+## ## Retorno
+## The owned `HttpError` (release it with `banish`). When `r` is `ok`, a
+## placeholder error is returned whose `message` is meaningless; only call this
+## after checking `r.is_ok`.
+weave take_error shard T with r as ref to result of T to HttpError into HttpError:
+    return calling _take_error with r
+
+## The C half of `take_error` (see `_take_response` for the ownership why).
+antiquus _take_error shard T with r as ref to result of T to HttpError into HttpError:
+    r"""
+if (r && !r->is_ok && r->err_val)
+{
+    HttpError out = *(HttpError *)r->err_val;
+    free(r->err_val);
+    r->err_val = NULL;
+    return out;
+}
+/* No error to move.  The placeholder is tag 0 with an empty, non-owning reason
+ * so that calling `message` on it cannot format a NULL pointer. */
+HttpError empty;
+memset(&empty, 0, sizeof empty);
+empty.data.ConnectionFailed.reason = pengu_string_from_cstr("");
+return empty;
+"""
+
+# ----------------------------------------------------------------------------
+# Byte-level helpers
+# ----------------------------------------------------------------------------
+
+## An owned copy of `s` (one allocation). The caller `banish`es it.
+weave _copy with s as string into string:
+    return calling scrolls.substring with s, 0, (s length)
+
+## The ASCII lower-case byte of `b`; every other byte is returned unchanged.
+weave _lower_byte with b as int into int:
+    if b >= 65 and b <= 90:
+        return b + 32
+    return b
+
+## `true` when `b` is an RFC 7230 token byte (`tchar`).
+weave _is_token_byte with b as int into bool:
+    if b >= 48 and b <= 57:
+        return true
+    if b >= 65 and b <= 90:
+        return true
+    if b >= 97 and b <= 122:
+        return true
+    if b == 33 or b == 35 or b == 36 or b == 37 or b == 38 or b == 39:
+        return true
+    if b == 42 or b == 43 or b == 45 or b == 46:
+        return true
+    if b == 94 or b == 95 or b == 96 or b == 124 or b == 126:
+        return true
+    return false
+
+## `true` when `s` is a non-empty RFC 7230 token (used for methods, header
+## names and cookie names).
+weave _is_token with s as string into bool:
+    var n as int is s length
+    if n == 0:
+        return false
+    var raw as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < n:
+        if not calling _is_token_byte with ((raw at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## `true` when `s` contains CR or LF (header/cookie injection).
+weave _has_line_break with s as string into bool:
+    var raw as ref to frozen byte is bytes of s
+    var i as int is 0
+    var n as int is s length
+    while i < n:
+        var b as int is (raw at i) to int
+        if b == 10 or b == 13:
+            return true
+        set i is i + 1
+    return false
+
+## `true` when `b` may appear unescaped in a percent-encoded string
+## (RFC 3986 `unreserved`: `A-Z a-z 0-9 - . _ ~`).
+weave _is_unreserved with b as int into bool:
+    if b >= 48 and b <= 57:
+        return true
+    if b >= 65 and b <= 90:
+        return true
+    if b >= 97 and b <= 122:
+        return true
+    return b == 45 or b == 46 or b == 95 or b == 126
+
+## The value of one upper-case hex digit.
+weave _hex_digit with nibble as int into char:
+    if nibble < 10:
+        return ((48 + nibble) to char)
+    return ((55 + nibble) to char)
+
+## The numeric value of a hex digit, or -1 when `b` is not one.
+weave _hex_value with b as int into int:
+    if b >= 48 and b <= 57:
+        return b - 48
+    if b >= 65 and b <= 70:
+        return b - 55
+    if b >= 97 and b <= 102:
+        return b - 87
+    return -1
+
+## Converts a non-negative seconds value to whole milliseconds.
+weave _seconds_to_ms with seconds as f64 into i64:
+    if seconds <= 0.0:
+        return 0
+    return ((seconds * 1000.0) + 0.5) to i64
+
+## `1` for `true`, `0` for `false`.
+weave _flag with value as bool into int:
+    if value:
+        return 1
+    return 0
+
+# ----------------------------------------------------------------------------
+# Owned map helpers
+# ----------------------------------------------------------------------------
+
+## Inserts `key` → `value` into `m`, taking ownership of both.
+##
+## ## Memoria
+## The map copies the `PenguString` headers and adopts the buffers. When the key
+## already exists, the old value and the old key buffer are released and the new
+## pair is inserted at a fresh slot: overwriting in place would drop the old
+## value's buffer (`pengu_map_put` never frees it) and passing a map-owned key
+## back to `put` is unsafe across a rehash.
+weave _put_owned with m as ref to map of string to string, key as string, value as string into void:
+    for existing in essence of m:
+        if (calling scrolls.compare with existing, key) == 0:
+            var old_value as string is calling m.get with existing
+            var old_key as string is existing
+            calling m.remove with existing
+            banish old_value
+            banish old_key
+            break
+    calling m.put with key, value
+
+## Removes `key` from `m` and releases the stored key and value.
+##
+## ## Retorno
+## `true` when the key was present.
+weave _remove_owned with m as ref to map of string to string, key as string into bool:
+    for existing in essence of m:
+        if (calling scrolls.compare with existing, key) == 0:
+            var old_value as string is calling m.get with existing
+            var old_key as string is existing
+            calling m.remove with existing
+            banish old_value
+            banish old_key
+            return true
+    return false
+
+## `true` when `m` has `key` (exact byte match; header keys are lower-case).
+weave _has_key with m as ref to map of string to string, key as string into bool:
+    return calling m.contains with key
+
+## Validates `name`/`value` and stores them in `m` under a lower-case key.
+##
+## ## Panics
+## When `name` is not an RFC 7230 token, or `name`/`value` contains CR or LF.
+## A header that could inject a second header line is a bug in the caller, never
+## a network condition.
+weave _set_header with m as ref to map of string to string, name as string, value as string into void:
+    if not calling _is_token with name:
+        calling spark.panic with "petitio: invalid header name '{name}': expected an RFC 7230 token"
+    if calling _has_line_break with value:
+        calling spark.panic with "petitio: header '{name}' value contains CR or LF (header injection)"
+    var key as string is calling scrolls.lower with name
+    var stored as string is calling _copy with value
+    calling _put_owned with m, key, stored
+
+# ----------------------------------------------------------------------------
+# Request construction
+# ----------------------------------------------------------------------------
+
+enchanting Request:
+    ## Creates a request with every default filled in.
+    ##
+    ## ## Parámetros
+    ## - `method`: the HTTP method. Token-validated and upper-cased.
+    ## - `url`: the absolute URL. Copied; the caller keeps its string.
+    ##
+    ## ## Retorno
+    ## A fresh `Request`: follows up to `PETITIO_DEFAULT_MAX_REDIRECTS`
+    ## redirects, verifies TLS, has no timeout and no body.
+    ##
+    ## ## Panics
+    ## When `method` is not an RFC 7230 token.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var req as Request is calling Request.new with "POST", "https://api.example.com/items"
+    ## defer banish req
+    ## calling req.header with "Accept", "application/json"
+    ## ```
+    weave ritual new with method as string, url as string into Request:
+        if not calling _is_token with method:
+            calling spark.panic with "petitio: invalid HTTP method '{method}'"
+        var headers as map of string to string is map of string to string
+        var parts as list of FormPart is list of FormPart
+        var request as Request is:
+            method is (calling scrolls.upper with method)
+            url is (calling _copy with url)
+            headers is headers
+            body is ""
+            has_body is false
+            timeout_sec is PETITIO_DEFAULT_TIMEOUT_SEC
+            connect_timeout_sec is 0.0
+            follow_redirects is true
+            max_redirects is PETITIO_DEFAULT_MAX_REDIRECTS
+            verify_tls is true
+            max_body_bytes is 0
+            basic_user is ""
+            basic_password is ""
+            bearer_token is ""
+            proxy is ""
+            proxy_credentials is ""
+            parts is parts
+        return request
+
+    ## Sets a request header, replacing any previous value for that name.
+    ##
+    ## Header names are case-insensitive: `Content-Type` and `content-type` are
+    ## the same header, stored under the lower-case spelling.
+    ##
+    ## ## Panics
+    ## When the name is not an RFC 7230 token, or either part contains CR/LF.
+    weave header with name as string, value as string into void:
+        calling _set_header with (sigil of self->headers), name, value
+
+    ## Removes a request header. Returns `true` when it was present.
+    weave remove_header with name as string into bool:
+        var key as string is calling scrolls.lower with name
+        var removed as bool is calling _remove_owned with (sigil of self->headers), key
+        banish key
+        return removed
+
+    ## `true` when the request sets `name` (case-insensitive).
+    weave has_header with name as string into bool:
+        var key as string is calling scrolls.lower with name
+        var present as bool is calling _has_key with (sigil of self->headers), key
+        banish key
+        return present
+
+    ## Sets a plain text body.
+    ##
+    ## The body is sent as-is; no `Content-Type` is added. Use `json_body` or
+    ## `form_body` when the payload needs one.
+    weave text_body with s as string into void:
+        var old as string is self->body
+        banish old
+        set self->body is (calling _copy with s)
+        set self->has_body is true
+
+    ## Serializes `v` as JSON and installs it as the body plus
+    ## `Content-Type: application/json`.
+    ##
+    ## The content type is always set, so call `header` **after** this method to
+    ## use a vendor media type (`application/vnd.api+json`, …).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var obj as JsonValue is calling JsonValue.object
+    ## calling obj.put_string with "name", "pengu"
+    ## calling req.json_body with obj
+    ## banish obj
+    ## ```
+    weave json_body with v as json.JsonValue into void:
+        var text as string is calling json.stringify with v
+        calling self.text_body with text
+        banish text
+        calling self.header with "Content-Type", PETITIO_JSON_CONTENT_TYPE
+
+    ## Encodes `fields` as `application/x-www-form-urlencoded` and installs the
+    ## result as the body plus the matching `Content-Type`.
+    ##
+    ## Like `json_body`, the content type is always set; call `header` afterwards
+    ## to override it.
+    weave form_body with fields as map of string to string into void:
+        var encoded as string is calling build_query_string with fields
+        calling self.text_body with encoded
+        banish encoded
+        calling self.header with "Content-Type", PETITIO_FORM_CONTENT_TYPE
+
+    ## Sets a byte-exact body (binary data is allowed).
+    weave bytes_body with data as string into void:
+        calling self.text_body with data
+
+    ## Sets the total deadline, in seconds. `0.0` disables it.
+    weave timeout with seconds as f64 into void:
+        set self->timeout_sec is seconds
+        if seconds < 0.0:
+            set self->timeout_sec is 0.0
+
+    ## Sets the connect deadline, in seconds. `0.0` disables it.
+    weave connect_timeout with seconds as f64 into void:
+        set self->connect_timeout_sec is seconds
+        if seconds < 0.0:
+            set self->connect_timeout_sec is 0.0
+
+    ## Stops at the first 3xx response instead of following it.
+    weave no_redirects into void:
+        set self->follow_redirects is false
+
+    ## Follows redirects, up to `count`. `count` must be positive.
+    weave max_redirects with count as int into void:
+        if count <= 0:
+            calling spark.panic with "petitio: max_redirects expects a positive count"
+        set self->follow_redirects is true
+        set self->max_redirects is count
+
+    ## Disables TLS certificate and hostname verification.
+    ##
+    ## ## Advertencia
+    ## This makes the connection trivially interceptable. Use it only against a
+    ## test endpoint you control.
+    weave insecure into void:
+        set self->verify_tls is false
+
+    ## Sends HTTP Basic credentials (RFC 7617).
+    weave auth_basic with user as string, password as string into void:
+        banish self->basic_user
+        banish self->basic_password
+        set self->basic_user is (calling _copy with user)
+        set self->basic_password is (calling _copy with password)
+
+    ## Sends `Authorization: Bearer <token>`.
+    ##
+    ## An `Authorization` header set explicitly with `header` wins.
+    weave auth_bearer with token as string into void:
+        banish self->bearer_token
+        set self->bearer_token is (calling _copy with token)
+
+    ## Routes the request through `proxy` (`"http://host:port"`), optionally
+    ## authenticated with `"user:password"`.
+    weave proxy with proxy as string, credentials as string into void:
+        banish self->proxy
+        banish self->proxy_credentials
+        set self->proxy is (calling _copy with proxy)
+        set self->proxy_credentials is (calling _copy with credentials)
+
+    ## Caps the response body. Exceeding it fails with
+    ## `HttpError.BodyTooLarge` and the transfer is aborted.
+    weave max_body_bytes with limit as i64 into void:
+        if limit < 0:
+            set self->max_body_bytes is 0
+        else:
+            set self->max_body_bytes is limit
+
+    ## Adds a `multipart/form-data` text field.
+    weave multipart_field with name as string, value as string into void:
+        calling self.multipart_bytes with name, value, "", ""
+
+    ## Adds a `multipart/form-data` part with explicit file name and type.
+    ##
+    ## ## Parámetros
+    ## - `name`: the form field name.
+    ## - `data`: the part bytes (copied; binary is allowed).
+    ## - `filename`: the `filename` parameter, or `""` for none.
+    ## - `content_type`: the part type, or `""` to let libcurl omit it.
+    weave multipart_bytes with name as string, data as string, filename as string, content_type as string into void:
+        if not calling _is_token with name:
+            calling spark.panic with "petitio: invalid multipart field name '{name}'"
+        var part as FormPart is:
+            name is (calling _copy with name)
+            value is (calling _copy with data)
+            filename is (calling _copy with filename)
+            content_type is (calling _copy with content_type)
+        calling self->parts.push with part
+
+    ## Adds a file as a `multipart/form-data` part, read into memory now.
+    ##
+    ## ## Retorno
+    ## `true` when the file was read and the part added; `false` when `path`
+    ## could not be read (a runtime condition, so it does not panic).
+    ##
+    ## ## Memoria
+    ## The file contents are copied into the request; the file handle is closed
+    ## by `std.archivum` before this returns.
+    weave multipart_file with name as string, path as string into bool:
+        var content as maybe string is calling archivum.read_bytes with path
+        if not content.is_present:
+            banish content
+            return false
+        var data as string is content.value
+        var filename as string is calling compass.basename with path
+        calling self.multipart_bytes with name, data, filename, PETITIO_BINARY_CONTENT_TYPE
+        banish filename
+        banish data
+        banish content
+        return true
+
+    ## Sends the request and waits for the response.
+    ##
+    ## ## Retorno
+    ## `ok Response` (owned; `banish` it) or `err HttpError`. The request stays
+    ## usable and can be sent again.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var r as result of Response to HttpError is calling req.send
+    ## defer banish r
+    ## if not r.is_ok:
+    ##     return 1
+    ## var resp as Response is r.value          # borrowed copy: do not banish
+    ## calling spark.println_int with resp.status
+    ## ```
+    weave send into result of Response to HttpError:
+        var no_defaults as map of string to string is map of string to string
+        var no_cookies as map of string to string is map of string to string
+        var outcome as result of Response to HttpError is calling _perform with self, (sigil of no_defaults), (sigil of no_cookies)
+        banish no_defaults
+        banish no_cookies
+        return outcome
+
+# ----------------------------------------------------------------------------
+# Response queries
+# ----------------------------------------------------------------------------
+
+enchanting Response:
+    ## `true` for a 2xx status.
+    weave is_ok into bool:
+        return self->status >= 200 and self->status < 300
+
+    ## `true` for a 3xx status (only observable with `no_redirects`).
+    weave is_redirect into bool:
+        return self->status >= 300 and self->status < 400
+
+    ## `true` for a 4xx status.
+    weave is_client_error into bool:
+        return self->status >= 400 and self->status < 500
+
+    ## `true` for a 5xx status.
+    weave is_server_error into bool:
+        return self->status >= 500 and self->status < 600
+
+    ## An owned copy of the body.
+    ##
+    ## ## Memoria
+    ## One allocation; `banish` it. `Response.body` is the same bytes without a
+    ## copy.
+    weave text into string:
+        return calling _copy with self->body
+
+    ## Parses the body as JSON.
+    ##
+    ## ## Retorno
+    ## `ok JsonValue` (owned) or the parser's `JsonError`.
+    weave json into result of json.JsonValue to json.JsonError:
+        return calling json.parse with self->body
+
+    ## One response header as an owned copy, or `""` when absent.
+    ##
+    ## ## Parámetros
+    ## - `name`: the header name, compared case-insensitively.
+    ##
+    ## ## Retorno
+    ## An owned string (an empty, non-owning `""` when the header is absent).
+    ## Release it with `banish`; the empty case is a safe no-op.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var ctype as string is calling resp.header with "content-type"
+    ## defer banish ctype
+    ## if (calling resp.has_header with "content-type") and (ctype length) == 0:
+    ##     calling spark.println with "the server sent an empty content-type"
+    ## ```
+    weave header with name as string into string:
+        var key as string is calling scrolls.lower with name
+        if not (calling self->headers.contains with key):
+            banish key
+            return ""
+        var value as string is calling self->headers.get with key
+        banish key
+        return calling _copy with value
+
+    ## `true` when the response carries header `name` (case-insensitive).
+    weave has_header with name as string into bool:
+        var key as string is calling scrolls.lower with name
+        var present as bool is calling self->headers.contains with key
+        banish key
+        return present
+
+    ## Fails with `HttpError.HttpStatus` when the status is 4xx or 5xx.
+    ##
+    ## ## Retorno
+    ## `ok 0`, or `err HttpStatus`.
+    weave raise_for_status into result of void to HttpError:
+        if self->status >= 400:
+            return calling err_of with (with HttpStatus is self->status)
+        return calling ok_of with 0
+
+# ----------------------------------------------------------------------------
+# URL helpers
+# ----------------------------------------------------------------------------
+
+## Percent-encodes `s` for use in a URL path or query value.
+##
+## Every byte outside RFC 3986's `unreserved` set (`A-Z a-z 0-9 - . _ ~`) becomes
+## `%XX` with upper-case hex digits. Space becomes `%20`, never `+`, so the
+## result round-trips through `url_decode`.
+##
+## ## Memoria
+## Returns an owned string; `banish` it.
+##
+## ## Ejemplo
+## ```pengu
+## var q as string is calling petitio.url_encode with "a b&c"
+## defer banish q                     # "a%20b%26c"
+## ```
+weave url_encode with s as string into string:
+    var raw as ref to frozen byte is bytes of s
+    var n as int is s length
+    var sb as StringBuilder is calling StringBuilder.new
+    var i as int is 0
+    while i < n:
+        var b as int is (raw at i) to int
+        if calling _is_unreserved with b:
+            calling sb.append_char with (b to char)
+        else:
+            calling sb.append_char with (37 to char)
+            calling sb.append_char with (calling _hex_digit with (b / 16))
+            calling sb.append_char with (calling _hex_digit with (b % 16))
+        set i is i + 1
+    var out as string is calling sb.finish
+    banish sb
+    return out
+
+## Decodes every `%XX` sequence in `s`.
+##
+## `+` is left as `+` (it is only a space in `application/x-www-form-urlencoded`,
+## not in a URL). A malformed or truncated escape is copied verbatim, so decoding
+## never fails and never loses bytes.
+##
+## ## Memoria
+## Returns an owned string; `banish` it.
+##
+## ## Ejemplo
+## ```pengu
+## var t as string is calling petitio.url_decode with "a%20b%26c"   # "a b&c"
+## defer banish t
+## ```
+weave url_decode with s as string into string:
+    var raw as ref to frozen byte is bytes of s
+    var n as int is s length
+    var sb as StringBuilder is calling StringBuilder.new
+    var i as int is 0
+    while i < n:
+        var b as int is (raw at i) to int
+        if b == 37 and i + 2 < n:
+            var hi as int is calling _hex_value with ((raw at (i + 1)) to int)
+            var lo as int is calling _hex_value with ((raw at (i + 2)) to int)
+            if hi >= 0 and lo >= 0:
+                calling sb.append_char with (((hi * 16) + lo) to char)
+                set i is i + 3
+            else:
+                calling sb.append_char with (b to char)
+                set i is i + 1
+        else:
+            calling sb.append_char with (b to char)
+            set i is i + 1
+    var out as string is calling sb.finish
+    banish sb
+    return out
+
+## Builds `key=value&...` with both sides percent-encoded.
+##
+## Keys are sorted byte-wise first, so the same map always yields the same
+## query string — the property cache keys and request signatures need. The
+## leading `?` is **not** included.
+##
+## ## Memoria
+## Returns an owned string; `banish` it.
+##
+## ## Ejemplo
+## ```pengu
+## var params as map of string to string is map of string to string
+## calling params.put with "q", "pengu script"
+## var qs as string is calling petitio.build_query_string with params
+## defer banish qs                    # "q=pengu%20script"
+## banish params
+## ```
+weave build_query_string with params as map of string to string into string:
+    var keys as list of string is list of string
+    for k in params:
+        calling keys.push with k
+    var i as int is 0
+    var n as int is keys.len
+    while i < n:
+        var j as int is i + 1
+        while j < n:
+            if (calling scrolls.compare with (keys at i), (keys at j)) > 0:
+                var tmp as string is keys at i
+                set keys at i is (keys at j)
+                set keys at j is tmp
+            set j is j + 1
+        set i is i + 1
+    var sb as StringBuilder is calling StringBuilder.new
+    set i is 0
+    while i < n:
+        var key as string is keys at i
+        if i > 0:
+            calling sb.append_char with '&'
+        var encoded_key as string is calling url_encode with key
+        calling sb.append with encoded_key
+        banish encoded_key
+        calling sb.append_char with '='
+        var value as string is calling params.get with key
+        var encoded_value as string is calling url_encode with value
+        calling sb.append with encoded_value
+        banish encoded_value
+        set i is i + 1
+    var out as string is calling sb.finish
+    banish sb
+    banish keys
+    return out
+
+## Appends `params` to `url`, using `?` or `&` as needed.
+##
+## ## Memoria
+## Returns an owned string; `banish` it.
+weave with_query with url as string, params as map of string to string into string:
+    if params.len == 0:
+        return calling _copy with url
+    var query as string is calling build_query_string with params
+    var sb as StringBuilder is calling StringBuilder.new
+    calling sb.append with url
+    if (calling scrolls.contains with url, "?"):
+        calling sb.append_char with '&'
+    else:
+        calling sb.append_char with '?'
+    calling sb.append with query
+    var out as string is calling sb.finish
+    banish sb
+    banish query
+    return out
+
+## Splits an absolute `http`/`https` URL into its parts.
+##
+## ## Parámetros
+## - `url`: an absolute URL. IPv6 hosts may be bracketed (`[::1]:8080`).
+##
+## ## Retorno
+## `ok UrlParts` (owned; `banish` it) or `err message` describing the first
+## structural problem (a borrowed literal, so nothing to release).
+##
+## ## Detalles
+## The default port is **not** filled in: `port` is `0` when the URL omits it.
+## The query is returned without `?` and the fragment without `#`. The path is
+## `"/"` when the URL has none.
+##
+## ## Ejemplo
+## ```pengu
+## var parsed as result of UrlParts to string is calling petitio.parse_url with "https://example.com:8443/a?b=1#c"
+## defer banish parsed                       # owns the UrlParts payload
+## if not parsed.is_ok:
+##     return 1
+## var parts as UrlParts is parsed.value     # borrowed copy: do not banish
+## calling spark.println with parts.host      # example.com
+## calling spark.println_int with parts.port  # 8443
+## ```
+weave parse_url with url as string into result of UrlParts to string:
+    var n as int is url length
+    if n == 0:
+        return calling err_of with "empty URL"
+    var raw as ref to frozen byte is bytes of url
+
+    # scheme "://"
+    var scheme_end as int is 0
+    while scheme_end < n and (raw at scheme_end) != 58:
+        set scheme_end is scheme_end + 1
+    if scheme_end == 0 or scheme_end + 2 >= n:
+        return calling err_of with "missing '://' after the scheme"
+    if (raw at (scheme_end + 1)) != 47 or (raw at (scheme_end + 2)) != 47:
+        return calling err_of with "missing '://' after the scheme"
+
+    var authority_start as int is scheme_end + 3
+    var authority_end as int is authority_start
+    while authority_end < n and (raw at authority_end) != 47 and (raw at authority_end) != 63 and (raw at authority_end) != 35:
+        set authority_end is authority_end + 1
+
+    # userinfo: everything before the last '@'
+    var at_pos as int is -1
+    var scan as int is authority_start
+    while scan < authority_end:
+        if (raw at scan) == 64:
+            set at_pos is scan
+        set scan is scan + 1
+    var host_start as int is authority_start
+    if at_pos >= 0:
+        set host_start is at_pos + 1
+
+    # host and optional port
+    var host_end as int is authority_end
+    var port as int is 0
+    var port_start as int is -1
+    if host_start < authority_end and (raw at host_start) == 91:
+        var close as int is host_start
+        while close < authority_end and (raw at close) != 93:
+            set close is close + 1
+        if close >= authority_end:
+            return calling err_of with "unterminated IPv6 literal"
+        set host_end is close + 1
+        if host_end < authority_end and (raw at host_end) == 58:
+            set port_start is host_end + 1
+    else:
+        var colon as int is -1
+        set scan is host_start
+        while scan < authority_end:
+            if (raw at scan) == 58:
+                set colon is scan
+            set scan is scan + 1
+        if colon >= 0:
+            set host_end is colon
+            set port_start is colon + 1
+    if port_start >= 0:
+        if port_start >= authority_end:
+            return calling err_of with "empty port"
+        set scan is port_start
+        while scan < authority_end:
+            var digit as int is (raw at scan) to int
+            if digit < 48 or digit > 57:
+                return calling err_of with "port is not a decimal number"
+            set port is (port * 10) + (digit - 48)
+            if port > 65535:
+                return calling err_of with "port is out of range"
+            set scan is scan + 1
+    if host_end <= host_start:
+        return calling err_of with "missing host"
+
+    # path, query, fragment
+    var path_start as int is authority_end
+    var path_end as int is authority_end
+    while path_end < n and (raw at path_end) != 63 and (raw at path_end) != 35:
+        set path_end is path_end + 1
+    var query_start as int is -1
+    var query_end as int is -1
+    var fragment_start as int is -1
+    if path_end < n and (raw at path_end) == 63:
+        set query_start is path_end + 1
+        set query_end is query_start
+        while query_end < n and (raw at query_end) != 35:
+            set query_end is query_end + 1
+        set fragment_start is query_end
+    else:
+        set fragment_start is path_end
+
+    var scheme as string is calling scrolls.substring with url, 0, scheme_end
+    var userinfo as string is ""
+    if at_pos >= 0:
+        set userinfo is (calling scrolls.substring with url, authority_start, at_pos)
+    var host as string is calling scrolls.substring with url, host_start, host_end
+    var path as string is calling scrolls.substring with url, path_start, path_end
+    if (path length) == 0:
+        banish path
+        set path is "/"
+    var query as string is ""
+    if query_start >= 0:
+        set query is (calling scrolls.substring with url, query_start, query_end)
+    var fragment as string is ""
+    if fragment_start >= 0 and fragment_start < n:
+        var frag_begin as int is fragment_start
+        if frag_begin < n and (raw at frag_begin) == 35:
+            set frag_begin is frag_begin + 1
+        if frag_begin <= n:
+            set fragment is (calling scrolls.substring with url, frag_begin, n)
+    var parts as UrlParts is:
+        scheme is scheme
+        userinfo is userinfo
+        host is host
+        port is port
+        path is path
+        query is query
+        fragment is fragment
+    return calling ok_of with parts
+
+# ----------------------------------------------------------------------------
+# Transport: the one place that touches the C bridge
+# ----------------------------------------------------------------------------
+
+## Maps a `PETITIO_*` code to the matching `HttpError` variant.
+weave _error_from_code with code as int, reason as string, request as ref to Request into HttpError:
+    if code == 1:
+        return with ConnectionFailed is (calling _copy with reason)
+    if code == 2:
+        var configured as f64 is request->timeout_sec
+        if configured <= 0.0:
+            set configured is request->connect_timeout_sec
+        return with Timeout is configured
+    if code == 3:
+        return with TooManyRedirects is request->max_redirects
+    if code == 4:
+        return with InvalidUrl is (calling _copy with request->url)
+    if code == 5:
+        return with TlsError is (calling _copy with reason)
+    if code == 7:
+        return with BodyTooLarge is request->max_body_bytes
+    if code == 8:
+        return with OutOfMemory is 0
+    if code == 9:
+        return with Unsupported is (calling _copy with reason)
+    return with ProtocolError is (calling _copy with reason)
+
+## Copies the fields of a C response into an owned `Response`.
+weave _response_from_c with raw as ref to petitio_response, request as ref to Request into Response:
+    var headers as map of string to string is map of string to string
+    var cookies as map of string to string is map of string to string
+    var expired as list of string is list of string
+    var count as int is calling petitio_response_header_count with raw
+    var i as int is 0
+    while i < count:
+        var name as string is calling petitio_response_header_name with raw, i
+        var value as string is calling petitio_response_header_value with raw, i
+        if (calling scrolls.compare with name, "set-cookie") == 0:
+            var cookie_name as string is calling _cookie_name with value
+            var cookie_value as string is calling _cookie_value with value
+            if (cookie_name length) > 0:
+                if calling _cookie_cleared with value:
+                    calling expired.push with cookie_name
+                    banish cookie_value
+                else:
+                    calling _put_owned with (sigil of cookies), cookie_name, cookie_value
+            else:
+                banish cookie_name
+                banish cookie_value
+        calling _put_owned with (sigil of headers), name, value
+        set i is i + 1
+    var body as string is calling petitio_response_body with raw
+    var effective as string is calling petitio_response_url with raw
+    if (effective length) == 0:
+        banish effective
+        set effective is (calling _copy with request->url)
+    var status as int is calling petitio_response_status with raw
+    var redirects as int is calling petitio_response_redirect_count with raw
+    var elapsed as f64 is calling petitio_response_elapsed with raw
+    var response as Response is:
+        status is status
+        headers is headers
+        body is body
+        url is effective
+        elapsed_sec is elapsed
+        redirected is redirects > 0
+        cookies is cookies
+        cleared_cookies is expired
+    return response
+
+## Sends `request`, merging `overlay_headers` (session defaults, never
+## overriding a request header) and `cookies` (as a `Cookie` header).
+weave _perform with request as ref to Request, overlay_headers as ref to map of string to string, cookies as ref to map of string to string into result of Response to HttpError:
+    var handle as ref to petitio_request is calling petitio_request_new with request->url
+    if calling ffi.is_null with handle:
+        return calling err_of with (with OutOfMemory is 0)
+    defer calling petitio_request_free with handle
+
+    calling petitio_request_set_method with handle, request->method
+    for name in request->headers:
+        calling petitio_request_add_header with handle, name, (calling request->headers.get with name)
+    for name in essence of overlay_headers:
+        if not (calling request->headers.contains with name):
+            calling petitio_request_add_header with handle, name, (calling overlay_headers.get with name)
+
+    if not (calling request->headers.contains with "user-agent") and not (calling _has_key with overlay_headers, "user-agent"):
+        calling petitio_request_add_header with handle, "User-Agent", PETITIO_DEFAULT_USER_AGENT
+
+    if (request->bearer_token length) > 0 and not (calling request->headers.contains with "authorization") and not (calling _has_key with overlay_headers, "authorization"):
+        var authorization as string is "Bearer {request->bearer_token}"
+        calling petitio_request_add_header with handle, "Authorization", authorization
+        banish authorization
+
+    if (essence of cookies).len > 0 and not (calling request->headers.contains with "cookie"):
+        var sb as StringBuilder is calling StringBuilder.new
+        var first as bool is true
+        for name in essence of cookies:
+            if not first:
+                calling sb.append with "; "
+            set first is false
+            calling sb.append with name
+            calling sb.append_char with '='
+            calling sb.append with (calling cookies.get with name)
+        var cookie_header as string is calling sb.finish
+        banish sb
+        calling petitio_request_add_header with handle, "Cookie", cookie_header
+        banish cookie_header
+
+    if request->has_body:
+        calling petitio_request_set_body with handle, request->body
+
+    calling petitio_request_set_timeout with handle, (calling _seconds_to_ms with request->timeout_sec), (calling _seconds_to_ms with request->connect_timeout_sec)
+    calling petitio_request_set_redirects with handle, (calling _flag with request->follow_redirects), (request->max_redirects to i64)
+    calling petitio_request_set_verify_tls with handle, (calling _flag with request->verify_tls)
+    calling petitio_request_set_max_body with handle, request->max_body_bytes
+    if (request->basic_user length) > 0:
+        calling petitio_request_set_basic_auth with handle, request->basic_user, request->basic_password
+    if (request->proxy length) > 0:
+        calling petitio_request_set_proxy with handle, request->proxy, request->proxy_credentials
+    for part in request->parts:
+        calling petitio_request_add_form_field with handle, part.name, part.value, part.filename, part.content_type
+
+    var raw as ref to petitio_response is calling petitio_request_perform with handle
+    if calling ffi.is_null with raw:
+        return calling err_of with (with OutOfMemory is 0)
+    defer calling petitio_response_free with raw
+
+    var code as int is calling petitio_response_error with raw
+    if code != 0:
+        var reason as string is calling petitio_response_error_message with raw
+        var failure as HttpError is calling _error_from_code with code, reason, request
+        banish reason
+        return calling err_of with failure
+
+    var response as Response is calling _response_from_c with raw, request
+    return calling ok_of with response
+
+# ----------------------------------------------------------------------------
+# Cookies
+# ----------------------------------------------------------------------------
+
+## The name of the first `name=value` pair in a `Set-Cookie` value (owned).
+weave _cookie_name with value as string into string:
+    var raw as ref to frozen byte is bytes of value
+    var n as int is value length
+    var end as int is 0
+    while end < n and (raw at end) != 61 and (raw at end) != 59:
+        set end is end + 1
+    if end == 0:
+        return ""
+    return calling scrolls.substring with value, 0, end
+
+## The value of the first `name=value` pair in a `Set-Cookie` value (owned).
+weave _cookie_value with value as string into string:
+    var raw as ref to frozen byte is bytes of value
+    var n as int is value length
+    var equal as int is 0
+    while equal < n and (raw at equal) != 61 and (raw at equal) != 59:
+        set equal is equal + 1
+    if equal >= n or (raw at equal) != 61:
+        return ""
+    var start as int is equal + 1
+    var end as int is start
+    while end < n and (raw at end) != 59:
+        set end is end + 1
+    while start < end and ((raw at start) == 32 or (raw at start) == 9):
+        set start is start + 1
+    while end > start and ((raw at (end - 1)) == 32 or (raw at (end - 1)) == 9):
+        set end is end - 1
+    return calling scrolls.substring with value, start, end
+
+## `true` when a `Set-Cookie` value carries `Max-Age=0`, which clears the
+## cookie.
+##
+## Date-based expiry (`Expires=...`) is **not** evaluated: a session keeps the
+## cookie until the server clears it with `Max-Age=0`, `Session.remove_cookie`
+## is called, or the process ends. Documented in `docs/PETITIO.md` §"Cookies".
+##
+## The attribute is parsed as a number (`Max-Age=0`, `max-age=00`), not by
+## substring: `Max-Age=01` is a one-second cookie and must not clear anything.
+weave _cookie_cleared with value as string into bool:
+    var lower as string is calling scrolls.lower with value
+    var at as int is calling scrolls.find with lower, "max-age="
+    if at < 0:
+        banish lower
+        return false
+    var i as int is at + 8
+    var n as int is lower length
+    var raw as ref to frozen byte is bytes of lower
+    while i < n and ((raw at i) == 32 or (raw at i) == 9):
+        set i is i + 1
+    var negative as bool is false
+    if i < n and (raw at i) == 45:
+        set negative is true
+        set i is i + 1
+    var digits as int is 0
+    var magnitude as i64 is 0
+    while i < n:
+        var b as int is (raw at i) to int
+        if b < 48 or b > 57:
+            break
+        set magnitude is (magnitude * 10) + ((b - 48) to i64)
+        set digits is digits + 1
+        set i is i + 1
+    banish lower
+    if digits == 0:
+        return false
+    if negative:
+        return magnitude <= 0
+    return magnitude == 0
+
+# ----------------------------------------------------------------------------
+# Sessions
+# ----------------------------------------------------------------------------
+
+enchanting Session:
+    ## Creates an empty session: no default headers, no cookies.
+    weave ritual new into Session:
+        var headers as map of string to string is map of string to string
+        var cookies as map of string to string is map of string to string
+        return with _default_headers is headers, _cookies is cookies
+
+    ## Sets a default header. A request that sets the same name overrides it.
+    ##
+    ## ## Panics
+    ## When the name is not an RFC 7230 token, or either part contains CR/LF.
+    weave set_header with name as string, value as string into void:
+        calling _set_header with (sigil of self->_default_headers), name, value
+
+    ## Removes a default header. Returns `true` when it was present.
+    weave remove_header with name as string into bool:
+        var key as string is calling scrolls.lower with name
+        var removed as bool is calling _remove_owned with (sigil of self->_default_headers), key
+        banish key
+        return removed
+
+    ## `true` when the session sets `name` as a default header.
+    weave has_header with name as string into bool:
+        var key as string is calling scrolls.lower with name
+        var present as bool is calling _has_key with (sigil of self->_default_headers), key
+        banish key
+        return present
+
+    ## Stores a cookie that every subsequent request sends.
+    ##
+    ## ## Panics
+    ## When `name` is not an RFC 7230 token, or `name`/`value` contains ';' or a
+    ## line break (either would corrupt the `Cookie` header).
+    weave set_cookie with name as string, value as string into void:
+        if not calling _is_token with name:
+            calling spark.panic with "petitio: invalid cookie name '{name}'"
+        if (calling _has_line_break with value) or (calling scrolls.contains with value, ";"):
+            calling spark.panic with "petitio: cookie '{name}' value contains ';' or a line break"
+        var key as string is calling _copy with name
+        var stored as string is calling _copy with value
+        calling _put_owned with (sigil of self->_cookies), key, stored
+
+    ## Forgets one cookie. Returns `true` when it was present.
+    weave remove_cookie with name as string into bool:
+        return calling _remove_owned with (sigil of self->_cookies), name
+
+    ## Forgets every cookie.
+    weave clear_cookies into void:
+        while self->_cookies.len > 0:
+            var victim as string is ""
+            for name in self->_cookies:
+                set victim is (calling _copy with name)
+                break
+            if (victim length) == 0:
+                break
+            calling _remove_owned with (sigil of self->_cookies), victim
+            banish victim
+
+    ## The number of stored cookies.
+    weave cookie_count into int:
+        return self->_cookies.len
+
+    ## `true` when the session stores `name`.
+    weave has_cookie with name as string into bool:
+        return calling self->_cookies.contains with name
+
+    ## Sends `req` with the session's headers and cookies, and updates the
+    ## cookie jar from the response.
+    ##
+    ## ## Detalles
+    ## A header set on the request always wins over the session default (the
+    ## merge is name-by-name). An explicit `Cookie` header on the request
+    ## replaces the session's cookies for that call; the jar is still updated
+    ## from the response.
+    weave request with req as ref to Request into result of Response to HttpError:
+        var outcome as result of Response to HttpError is calling _perform with req, (sigil of self->_default_headers), (sigil of self->_cookies)
+        if not outcome.is_ok:
+            return outcome
+        var resp as Response is outcome.value
+        for name in resp.cookies:
+            var key as string is calling _copy with name
+            var value as string is calling _copy with (calling resp.cookies.get with name)
+            calling _put_owned with (sigil of self->_cookies), key, value
+        for name in resp.cleared_cookies:
+            calling _remove_owned with (sigil of self->_cookies), name
+        return outcome
+
+    ## `GET url` through the session.
+    weave get with url as string into result of Response to HttpError:
+        var req as Request is calling Request.new with "GET", url
+        defer banish req
+        return calling self.request with (sigil of req)
+
+    ## `POST url` with a JSON body, through the session.
+    weave post_json with url as string, v as json.JsonValue into result of Response to HttpError:
+        var req as Request is calling Request.new with "POST", url
+        defer banish req
+        calling req.json_body with v
+        return calling self.request with (sigil of req)
+
+    ## `POST url` with a form-urlencoded body, through the session.
+    weave post_form with url as string, fields as map of string to string into result of Response to HttpError:
+        var req as Request is calling Request.new with "POST", url
+        defer banish req
+        calling req.form_body with fields
+        return calling self.request with (sigil of req)
+
+# ----------------------------------------------------------------------------
+# One-shot helpers (the `requests.get` / `requests.post` shape)
+# ----------------------------------------------------------------------------
+
+## `GET url` with default settings.
+##
+## ## Memoria
+## Returns an owned `Response`; `banish` it. The request is created and released
+## inside the call.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of Response to HttpError is calling petitio.get with "https://example.com"
+## defer banish r
+## if not r.is_ok:
+##     return 1
+## var resp as Response is r.value          # borrowed copy: do not banish
+## calling spark.println_int with resp.status
+## ```
+weave get with url as string into result of Response to HttpError:
+    var request as Request is calling Request.new with "GET", url
+    defer banish request
+    return calling request.send
+
+## `HEAD url` with default settings.
+weave head with url as string into result of Response to HttpError:
+    var request as Request is calling Request.new with "HEAD", url
+    defer banish request
+    return calling request.send
+
+## `DELETE url` with default settings.
+weave delete with url as string into result of Response to HttpError:
+    var request as Request is calling Request.new with "DELETE", url
+    defer banish request
+    return calling request.send
+
+## `OPTIONS url` with default settings.
+weave options with url as string into result of Response to HttpError:
+    var request as Request is calling Request.new with "OPTIONS", url
+    defer banish request
+    return calling request.send
+
+## `POST url` with an empty body.
+weave post with url as string into result of Response to HttpError:
+    var request as Request is calling Request.new with "POST", url
+    defer banish request
+    return calling request.send
+
+## `POST url` with a JSON body.
+weave post_json with url as string, v as json.JsonValue into result of Response to HttpError:
+    var request as Request is calling Request.new with "POST", url
+    defer banish request
+    calling request.json_body with v
+    return calling request.send
+
+## `POST url` with a form-urlencoded body.
+weave post_form with url as string, fields as map of string to string into result of Response to HttpError:
+    var request as Request is calling Request.new with "POST", url
+    defer banish request
+    calling request.form_body with fields
+    return calling request.send
+
+## `PUT url` with a JSON body.
+weave put_json with url as string, v as json.JsonValue into result of Response to HttpError:
+    var request as Request is calling Request.new with "PUT", url
+    defer banish request
+    calling request.json_body with v
+    return calling request.send
+
+## `PATCH url` with a JSON body.
+weave patch_json with url as string, v as json.JsonValue into result of Response to HttpError:
+    var request as Request is calling Request.new with "PATCH", url
+    defer banish request
+    calling request.json_body with v
+    return calling request.send
+
+## `POST url` with a plain text body and an explicit content type.
+weave post_text with url as string, body as string, content_type as string into result of Response to HttpError:
+    var request as Request is calling Request.new with "POST", url
+    defer banish request
+    calling request.text_body with body
+    calling request.header with "Content-Type", content_type
+    return calling request.send
+
+## The `User-Agent` this module sends when a request does not set one.
+weave default_user_agent into string:
+    return PETITIO_DEFAULT_USER_AGENT
+
+## The libcurl runtime version this build links against (e.g. `"8.22.0"`).
+##
+## ## Retorno
+## An owned version string; `banish` it. Useful in bug reports and in a startup
+## banner that names the transport.
+##
+## ## Ejemplo
+## ```pengu
+## var version as string is calling petitio.libcurl_version
+## calling spark.println with version
+## banish version
+## ```
+weave libcurl_version into string:
+    return calling petitio_version

@@ -1,0 +1,110 @@
+## `std.petitio` request builders: defaults, headers, bodies, auth, limits.
+##
+## Offline: every check inspects a `Request` value, no socket is opened.
+import std.json
+import std.petitio
+import std.spark
+import std.scrolls
+
+weave eq_s with got as string, want as string, name as string into void:
+    if (calling scrolls.compare with got, want) != 0:
+        calling spark.println with "FAIL {name}: '{got}' != '{want}'"
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave eq_b with got as bool, want as bool, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave main into int:
+    # Defaults mirror `requests`.
+    var req as Request is calling Request.new with "get", "https://example.com/x"
+    defer banish req
+    calling eq_s with req.method, "GET", "method upper-cased"
+    calling eq_s with req.url, "https://example.com/x", "url copied"
+    calling eq_b with req.follow_redirects, true, "redirects on"
+    calling eq_i with req.max_redirects, 30, "redirect limit"
+    calling eq_b with req.verify_tls, true, "tls verified"
+    calling eq_b with req.has_body, false, "no body"
+    calling eq_i with (req.timeout_sec to int), 0, "no timeout"
+    calling eq_i with req.parts.len, 0, "no multipart parts"
+
+    # Header names are case-insensitive and stored lower-case.
+    calling req.header with "Content-Type", "text/plain"
+    calling req.header with "content-TYPE", "application/json"
+    calling eq_i with req.headers.len, 1, "case-insensitive replacement"
+    var ctype as string is calling req.headers.get with "content-type"
+    calling eq_s with ctype, "application/json", "latest value wins"
+    calling eq_b with (calling req.has_header with "CONTENT-TYPE"), true, "has_header is CI"
+    calling eq_b with (calling req.has_header with "x-missing"), false, "absent header"
+
+    var removed as bool is calling req.remove_header with "Content-Type"
+    calling eq_b with removed, true, "remove_header"
+    var again as bool is calling req.remove_header with "content-type"
+    calling eq_b with again, false, "remove_header twice"
+
+    # JSON body sets the matching Content-Type.
+    var parsed as result of json.JsonValue to json.JsonError is calling json.parse with r"""{"name":"pengu"}"""
+    if not parsed.is_ok:
+        calling spark.println with "FAIL json fixture"
+        banish parsed
+        return 1
+    var obj as json.JsonValue is parsed.value
+    calling req.json_body with obj
+    calling eq_b with req.has_body, true, "json body set"
+    calling eq_s with req.body, r"""{"name":"pengu"}""", "json serialized"
+    var json_type as string is calling req.headers.get with "content-type"
+    calling eq_s with json_type, "application/json", "json content type"
+    banish parsed
+
+    # A form body overrides it and installs the form content type.
+    var fields as map of string to string is map of string to string
+    calling fields.put with "a", "1 2"
+    calling fields.put with "b", "x&y"
+    calling req.form_body with fields
+    calling eq_s with req.body, "a=1%202&b=x%26y", "form encoding"
+    var form_type as string is calling req.headers.get with "content-type"
+    calling eq_s with form_type, "application/x-www-form-urlencoded", "form content type"
+    banish fields
+
+    # Multipart parts.
+    calling req.multipart_field with "field", "value"
+    calling req.multipart_bytes with "blob", "bytes", "blob.bin", "application/octet-stream"
+    calling eq_i with req.parts.len, 2, "two multipart parts"
+    var part as FormPart is req.parts at 1
+    calling eq_s with part.name, "blob", "part name"
+    calling eq_s with part.filename, "blob.bin", "part filename"
+    calling eq_s with part.content_type, "application/octet-stream", "part type"
+
+    # Auth, proxy and limits.
+    calling req.auth_basic with "user", "pass"
+    calling eq_s with req.basic_user, "user", "basic user"
+    calling eq_s with req.basic_password, "pass", "basic password"
+    calling req.auth_bearer with "tok"
+    calling eq_s with req.bearer_token, "tok", "bearer"
+    calling req.proxy with "http://127.0.0.1:8080", "u:p"
+    calling eq_s with req.proxy, "http://127.0.0.1:8080", "proxy"
+    calling eq_s with req.proxy_credentials, "u:p", "proxy credentials"
+    calling req.timeout with 2.5
+    calling eq_i with (req.timeout_sec * 10.0) to int, 25, "timeout"
+    calling req.connect_timeout with 0.5
+    calling eq_i with (req.connect_timeout_sec * 10.0) to int, 5, "connect timeout"
+    calling req.no_redirects
+    calling eq_b with req.follow_redirects, false, "no_redirects"
+    calling req.max_redirects with 3
+    calling eq_b with req.follow_redirects, true, "max_redirects re-enables"
+    calling eq_i with req.max_redirects, 3, "max_redirects value"
+    calling req.insecure
+    calling eq_b with req.verify_tls, false, "insecure"
+    calling req.max_body_bytes with 1024
+    calling eq_i with (req.max_body_bytes to int), 1024, "body cap"
+
+    # Constants.
+    calling eq_s with petitio.PETITIO_VERSION, "2.12.0", "version"
+    calling eq_s with petitio.PETITIO_DEFAULT_USER_AGENT, "petitio/2.12.0", "user agent"
+    calling eq_s with (calling petitio.default_user_agent), "petitio/2.12.0", "default_user_agent"
+
+    calling spark.println with "OK petitio_request_builders"
+    return 0
