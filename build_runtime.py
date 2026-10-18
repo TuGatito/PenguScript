@@ -275,6 +275,31 @@ def _std_c_sources():
     return sorted(p for p in std_c_dir.glob("*.c") if p.is_file())
 
 
+#: System headers a vendored ``std_c/<name>.c`` needs from the host.  When one
+#: is missing the translation unit is *skipped* with an actionable message
+#: instead of failing the whole runtime build: a machine without the libcurl
+#: development headers can still build every other module, and a program that
+#: imports the module then gets a clear ``-lpetitio`` link error.  Keeping the
+#: stdlib buildable without optional system libraries is what lets
+#: `pengu_project.py build` work out of the box.
+STD_C_REQUIRES = {
+    "petitio": ("curl/curl.h",),
+}
+
+
+def _header_available(cc, header):
+    """True when ``cc`` can preprocess ``#include <header>``."""
+    try:
+        res = subprocess.run(
+            [cc, "-E", "-x", "c", "-"],
+            input=f"#include <{header}>\n",
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return res.returncode == 0
+
+
 def build_std_c(cc, ar, dest_dir, rebuild=False, extra_flags=None):
     """Compiles every ``std_c/*.c`` into ``<dest_dir>/lib/lib<name>.a``.
 
@@ -283,6 +308,11 @@ def build_std_c(cc, ar, dest_dir, rebuild=False, extra_flags=None):
     generated code without touching the ``.c``). Compilation is strict:
     ``-std=c99 -Wall -Wextra -Werror`` so a warning in the vendored code is a
     build failure rather than noise in every consumer build.
+
+    A unit listed in :data:`STD_C_REQUIRES` whose system header is missing is
+    skipped (see that constant).  ``pengu_runtime.h`` is on the include path
+    because a bridge that takes or returns a ``string`` must see the real ABI
+    declaration, not a copy.
 
     Args:
         cc: C compiler executable.
@@ -322,6 +352,10 @@ def build_std_c(cc, ar, dest_dir, rebuild=False, extra_flags=None):
         "-Wextra",
         "-Werror",
         "-I" + str(std_c_dir),
+        # `std_c/petitio.c` includes `pengu_runtime.h` for PenguString: a
+        # bridge that speaks `string` needs the real ABI, not a copy.
+        "-I" + str(ROOT_DIR),
+        "-I" + str(include_dir),
     ] + SECTION_FLAGS + list(extra_flags or [])
 
     built = []
@@ -329,6 +363,14 @@ def build_std_c(cc, ar, dest_dir, rebuild=False, extra_flags=None):
         name = source.stem
         target_lib = lib_dir / f"lib{name}.a"
         obj_path = obj_dir / f"{name}.o"
+
+        missing = [h for h in STD_C_REQUIRES.get(name, ()) if not _header_available(cc, h)]
+        if missing:
+            print(f"[STD_C] Skipping {source.name}: "
+                  f"{', '.join(missing)} not found. "
+                  f"Install the matching development package to build the "
+                  f"`{name}` module.")
+            continue
 
         inputs = sources + headers
         newest_input = max(p.stat().st_mtime for p in inputs)

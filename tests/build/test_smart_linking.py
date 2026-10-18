@@ -6,7 +6,8 @@ is what pulls its C dependencies into *this* executable:
 * no import -> no ``#include``, no ``-l``, no C symbols;
 * ``std.lingua`` -> ``utf8.h`` only (header-only, no archive);
 * ``std.regulus`` -> ``re.h`` + ``-lre`` + ``re_*`` symbols;
-* both -> both.
+* ``std.petitio`` -> ``petitio.h`` + ``-lpetitio`` + ``-lcurl`` + ``petitio_*``;
+* several -> the union, and nothing else.
 
 The test builds four throwaway projects and inspects three independent pieces
 of evidence: the generated ``bundle.c``, the compiler/linker command line
@@ -37,6 +38,10 @@ def _have_runtime() -> bool:
 
 def _have_regex_archive() -> bool:
     return (ROOT / "build" / "lib" / "libre.a").is_file()
+
+
+def _have_petitio_archive() -> bool:
+    return (ROOT / "build" / "lib" / "libpetitio.a").is_file()
 
 
 pytestmark = pytest.mark.skipif(
@@ -84,6 +89,21 @@ weave main into int:
         calling spark.println_bool with (calling rx.is_match with "baa")
     return 0
 """,
+    # `url_encode` is offline: the program builds and links, it never opens a
+    # socket. That is all this test needs (it inspects the bundle and the link
+    # line, then `nm`).
+    "petitio": """import std.spark
+import std.petitio
+
+weave main into int:
+    var encoded as string is calling petitio.url_encode with "a b"
+    calling spark.println with encoded
+    banish encoded
+    var version as string is calling petitio.libcurl_version
+    calling spark.println with version
+    banish version
+    return 0
+""",
 }
 
 
@@ -117,15 +137,18 @@ def _symbols(exe: Path) -> str:
 
 
 @pytest.mark.parametrize(
-    "name, lingua, regulus",
+    "name, lingua, regulus, petitio",
     [
-        ("hello", False, False),
-        ("lingua", True, False),
-        ("regulus", False, True),
-        ("both", True, True),
+        ("hello", False, False, False),
+        ("lingua", True, False, False),
+        ("regulus", False, True, False),
+        ("both", True, True, False),
+        ("petitio", False, False, True),
     ],
 )
-def test_smart_linking_matrix(tmp_path, name, lingua, regulus):
+def test_smart_linking_matrix(tmp_path, name, lingua, regulus, petitio):
+    if petitio and not _have_petitio_archive():
+        pytest.skip("libpetitio.a not built (install libcurl headers and run build_runtime.py)")
     bundle, log, exe = _build(tmp_path, name)
 
     # 1. Headers are emitted exactly for the imported binding.
@@ -135,6 +158,9 @@ def test_smart_linking_matrix(tmp_path, name, lingua, regulus):
     assert ('#include "re.h"' in bundle) is regulus, (
         f"{name}: re.h include mismatch\n{bundle[:2000]}"
     )
+    assert ('#include "petitio.h"' in bundle) is petitio, (
+        f"{name}: petitio.h include mismatch\n{bundle[:2000]}"
+    )
 
     # 2. The archive reaches the link line exactly for std.regulus.
     link_lines = [line for line in log.splitlines() if "running C compiler" in line]
@@ -142,6 +168,12 @@ def test_smart_linking_matrix(tmp_path, name, lingua, regulus):
     link_line = link_lines[-1]
     assert ("-lre" in link_line) is regulus, (
         f"{name}: -lre mismatch\n{link_line}"
+    )
+    assert ("-lpetitio" in link_line) is petitio, (
+        f"{name}: -lpetitio mismatch\n{link_line}"
+    )
+    assert ("-lcurl" in link_line) is petitio, (
+        f"{name}: -lcurl mismatch (std.petitio must pull libcurl)\n{link_line}"
     )
 
     # 3. The symbols really are (or are not) in the produced executable.
@@ -153,11 +185,28 @@ def test_smart_linking_matrix(tmp_path, name, lingua, regulus):
         assert ("lingua_codepoint_count" in symbols) is lingua, (
             f"{name}: lingua_* symbols mismatch"
         )
+        # The program calls `libcurl_version`, so that bridge function (and
+        # the libcurl symbol it uses) must be present.  `-ffunction-sections`
+        # plus `--gc-sections` then drops every other petitio entry point,
+        # which is the second half of the smart-linking contract.
+        assert ("petitio_version" in symbols) is petitio, (
+            f"{name}: petitio_* symbols mismatch"
+        )
+        assert ("curl_version_info" in symbols) is petitio, (
+            f"{name}: libcurl symbols must follow std.petitio"
+        )
+        if petitio:
+            assert "petitio_request_new" not in symbols, (
+                "unreferenced petitio entry points must be garbage-collected"
+            )
 
 
 def test_the_raw_archives_are_small_and_separate():
-    """The whole point: the regex archive is one member, not part of the runtime."""
+    """The whole point: the vendored archives are satellites, not the runtime."""
     runtime = (ROOT / "build" / "lib" / "libpengu_runtime.a").stat().st_size
     regex = (ROOT / "build" / "lib" / "libre.a").stat().st_size
     assert regex < runtime, "libre.a should be a small satellite archive"
     assert regex > 0
+    if _have_petitio_archive():
+        petitio = (ROOT / "build" / "lib" / "libpetitio.a").stat().st_size
+        assert 0 < petitio < runtime, "libpetitio.a should be a small satellite archive"
