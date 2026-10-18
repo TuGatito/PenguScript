@@ -259,6 +259,7 @@ weave make_response into Response:
         body is r\"\"\"{"a":1}\"\"\"
         url is "https://example.com/"
         elapsed_sec is 0.1
+        bytes_written is 0
         http_version is HttpVersion.Http11
         redirected is false
         cookies is cookies

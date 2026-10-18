@@ -82,6 +82,12 @@ const PETITIO_OUT_OF_MEMORY as int is 8
 ## The URL names a protocol other than HTTP or HTTPS.
 const PETITIO_UNSUPPORTED as int is 9
 
+## Opening, writing or reading a local file for a streaming transfer failed.
+const PETITIO_IO_ERROR as int is 10
+
+## A `send_stream` callback returned false, aborting the transfer.
+const PETITIO_CANCELLED as int is 11
+
 # ------------------------------------------------------------------
 # Types (structs, unions, enums, aliases)
 # ------------------------------------------------------------------
@@ -147,6 +153,13 @@ declare petitio_request_add_form_field with request as ref to petitio_request, n
 # be allocated (reported by the wrapper as `HttpError.OutOfMemory`).
 declare petitio_request_perform with request as ref to petitio_request into ref to petitio_response
 
+# Performs the request and writes the body to `path` instead of buffering it.
+declare petitio_request_perform_to_file with request as ref to petitio_request, path as string into ref to petitio_response
+
+# Performs the request and forwards every body chunk to `callback`.
+# `chunk` is a borrowed view valid only during the call; returning false aborts.
+declare petitio_request_perform_stream with request as ref to petitio_request, callback as ref to weave with chunk as string, user as ref to void into bool, user as ref to void into ref to petitio_response
+
 # ------------------------------------------------------------------
 # Response accessors
 # ------------------------------------------------------------------
@@ -171,6 +184,9 @@ declare petitio_response_elapsed with response as ref to frozen petitio_response
 
 # Number of redirects followed.
 declare petitio_response_redirect_count with response as ref to frozen petitio_response into int
+
+# Bytes the transfer wrote (body length, or file/callback bytes).
+declare petitio_response_bytes_written with response as ref to frozen petitio_response into i64
 
 # Negotiated protocol: 0 = HTTP/1.0, 1 = HTTP/1.1, 2 = HTTP/2, 4 = HTTP/3.
 declare petitio_response_http_version with response as ref to frozen petitio_response into int

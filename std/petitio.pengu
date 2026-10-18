@@ -172,6 +172,10 @@ omen HttpError derive Nexus:
     OutOfMemory
     ## The URL names a protocol other than HTTP or HTTPS.
     Unsupported with reason as string
+    ## A local file could not be opened, written or read (streaming).
+    IoError with reason as string
+    ## A `send_stream` callback returned `false`, aborting the transfer.
+    Cancelled
     ## `raise_for_status` saw a 4xx/5xx response. The response is still
     ## available; this variant carries only the status code.
     HttpStatus with status as int
@@ -200,6 +204,8 @@ enchanting HttpError:
             when BodyTooLarge with max_bytes -> "response body exceeds {max_bytes} bytes"
             when OutOfMemory -> "out of memory"
             when Unsupported with reason -> "unsupported URL: {reason}"
+            when IoError with reason -> "I/O error: {reason}"
+            when Cancelled -> "transfer cancelled by callback"
             when HttpStatus with status -> "HTTP status {status}"
 
 # ----------------------------------------------------------------------------
@@ -331,6 +337,10 @@ rune Response derive Nexus:
     url as string
     ## Wall-clock duration of the transfer, in seconds.
     elapsed_sec as f64
+    ## Bytes the transfer wrote: the body length for an in-memory response, or
+    ## the bytes written to the file / handed to the callback when streaming
+    ## (`body` is empty in that case).
+    bytes_written as i64
     ## The protocol the server actually spoke (`Http10`, `Http11`, `Http2` or
     ## `Http3`), as reported by libcurl. Requesting `Http2` does not guarantee
     ## the response used it; check this field.
@@ -964,6 +974,103 @@ enchanting Request:
         banish no_cookies
         return outcome
 
+    ## Sends the request and writes the body to `path`, without buffering it.
+    ##
+    ## ## Parámetros
+    ## - `path`: destination file, overwritten when it exists. Its parent
+    ##   directory must exist.
+    ##
+    ## ## Retorno
+    ## `ok Response` with `body == ""` and `bytes_written` set, or
+    ## `err HttpError.IoError` when the file cannot be opened or written and
+    ## `err HttpError.BodyTooLarge` when `max_body_bytes` is exceeded.
+    ##
+    ## ## Memoria
+    ## The `Response` is owned; the `Request` stays reusable. The file is closed
+    ## before this returns.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var req as Request is calling Request.new with "GET", "https://example.com/big.bin"
+    ## calling req.max_body_bytes with 128 * 1024 * 1024
+    ## var r as result of Response to HttpError is calling req.send_to_file with "big.bin"
+    ## defer banish r
+    ## ```
+    weave send_to_file with path as string into result of Response to HttpError:
+        var no_defaults as map of string to string is map of string to string
+        var no_cookies as map of string to string is map of string to string
+        var handle as ref to petitio_request is calling _build_handle with self, (sigil of no_defaults), (sigil of no_cookies)
+        banish no_defaults
+        banish no_cookies
+        if calling ffi.is_null with handle:
+            return calling err_of with (with OutOfMemory is 0)
+        defer calling petitio_request_free with handle
+
+        var raw as ref to petitio_response is calling petitio_request_perform_to_file with handle, path
+        if calling ffi.is_null with raw:
+            return calling err_of with (with OutOfMemory is 0)
+        defer calling petitio_response_free with raw
+
+        var code as int is calling petitio_response_error with raw
+        if code != 0:
+            var reason as string is calling petitio_response_error_message with raw
+            var failure as HttpError is calling _error_from_code with code, reason, self
+            banish reason
+            return calling err_of with failure
+        var response as Response is calling _response_from_c with raw, self
+        return calling ok_of with response
+
+    ## Sends the request and hands every body chunk to `cb`.
+    ##
+    ## ## Parámetros
+    ## - `cb`: `weave chunk as string, user as ref to void into bool`. Return
+    ##   `true` to continue, `false` to abort (`err HttpError.Cancelled`).
+    ## - `user`: opaque context forwarded to `cb` (a `sigil of` a local is the
+    ##   usual choice).
+    ##
+    ## ## Advertencia
+    ## `chunk` is a **borrowed view** of libcurl's buffer. It is valid only
+    ## during the call: do not store it, do not `banish` it and do not let it
+    ## escape into a `defer`.
+    ##
+    ## ## Retorno
+    ## `ok Response` with `body == ""` and `bytes_written` set, `err Cancelled`
+    ## when `cb` returned `false`, or the usual transport errors.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## weave count with chunk as string, user as ref to void into bool:
+    ##     var total as ref to i64 is transmute user to ref to i64
+    ##     set essence of total is (essence of total) + (chunk length to i64)
+    ##     return true
+    ##
+    ## var total as i64 is 0
+    ## var r as result of Response to HttpError is calling req.send_stream with count, (sigil of total)
+    ## ```
+    weave send_stream with cb as ref to weave with chunk as string, user as ref to void into bool, user as ref to void into result of Response to HttpError:
+        var no_defaults as map of string to string is map of string to string
+        var no_cookies as map of string to string is map of string to string
+        var handle as ref to petitio_request is calling _build_handle with self, (sigil of no_defaults), (sigil of no_cookies)
+        banish no_defaults
+        banish no_cookies
+        if calling ffi.is_null with handle:
+            return calling err_of with (with OutOfMemory is 0)
+        defer calling petitio_request_free with handle
+
+        var raw as ref to petitio_response is calling petitio_request_perform_stream with handle, cb, user
+        if calling ffi.is_null with raw:
+            return calling err_of with (with OutOfMemory is 0)
+        defer calling petitio_response_free with raw
+
+        var code as int is calling petitio_response_error with raw
+        if code != 0:
+            var reason as string is calling petitio_response_error_message with raw
+            var failure as HttpError is calling _error_from_code with code, reason, self
+            banish reason
+            return calling err_of with failure
+        var response as Response is calling _response_from_c with raw, self
+        return calling ok_of with response
+
 # ----------------------------------------------------------------------------
 # Response queries
 # ----------------------------------------------------------------------------
@@ -1350,6 +1457,10 @@ weave _error_from_code with code as int, reason as string, request as ref to Req
         return with OutOfMemory is 0
     if code == 9:
         return with Unsupported is (calling _copy with reason)
+    if code == 10:
+        return with IoError is (calling _copy with reason)
+    if code == 11:
+        return Cancelled
     return with ProtocolError is (calling _copy with reason)
 
 ## Copies the fields of a C response into an owned `Response`.
@@ -1385,12 +1496,14 @@ weave _response_from_c with raw as ref to petitio_response, request as ref to Re
     var redirects as int is calling petitio_response_redirect_count with raw
     var elapsed as f64 is calling petitio_response_elapsed with raw
     var protocol as HttpVersion is calling _http_version_from_code with (calling petitio_response_http_version with raw)
+    var written as i64 is calling petitio_response_bytes_written with raw
     var response as Response is:
         status is status
         headers is headers
         body is body
         url is effective
         elapsed_sec is elapsed
+        bytes_written is written
         http_version is protocol
         redirected is redirects > 0
         cookies is cookies
@@ -1423,13 +1536,17 @@ weave _auth_mode_code with mode as AuthMode into int:
         when DigestAuth -> 2
         when AnyAuth -> 3
 
-## Sends `request`, merging `overlay_headers` (session defaults, never
-## overriding a request header) and `cookies` (as a `Cookie` header).
-weave _perform with request as ref to Request, overlay_headers as ref to map of string to string, cookies as ref to map of string to string into result of Response to HttpError:
+## An empty header map, for the helpers that take no overlay.
+weave _no_headers into map of string to string:
+    return map of string to string
+
+## Builds and configures the C request, merging `overlay_headers` (session
+## defaults, never overriding a request header) and `cookies` (one `Cookie`
+## header). Returns NULL only on allocation failure; the caller owns the handle.
+weave _build_handle with request as ref to Request, overlay_headers as ref to map of string to string, cookies as ref to map of string to string into ref to petitio_request:
     var handle as ref to petitio_request is calling petitio_request_new with request->url
     if calling ffi.is_null with handle:
-        return calling err_of with (with OutOfMemory is 0)
-    defer calling petitio_request_free with handle
+        return handle
 
     calling petitio_request_set_method with handle, request->method
     calling petitio_request_set_http_version with handle, (calling _http_version_code with request->http_version)
@@ -1476,6 +1593,15 @@ weave _perform with request as ref to Request, overlay_headers as ref to map of 
         calling petitio_request_set_proxy with handle, request->proxy, request->proxy_credentials
     for part in request->parts:
         calling petitio_request_add_form_field with handle, part.name, part.value, part.filename, part.content_type
+    return handle
+
+## Sends `request`, merging `overlay_headers` (session defaults, never
+## overriding a request header) and `cookies` (as a `Cookie` header).
+weave _perform with request as ref to Request, overlay_headers as ref to map of string to string, cookies as ref to map of string to string into result of Response to HttpError:
+    var handle as ref to petitio_request is calling _build_handle with request, overlay_headers, cookies
+    if calling ffi.is_null with handle:
+        return calling err_of with (with OutOfMemory is 0)
+    defer calling petitio_request_free with handle
 
     var raw as ref to petitio_response is calling petitio_request_perform with handle
     if calling ffi.is_null with raw:
@@ -2003,6 +2129,18 @@ test "socks_proxy prefixes socks5h and keeps an explicit scheme":
     calling _expect_str with req.proxy_credentials, "u:p", "credentials kept"
     banish req
 
+test "streaming error variants carry a message":
+    var io_error as HttpError is with IoError is "cannot open output file: /nope"
+    var io_message as string is calling io_error.message
+    calling _expect_str with io_message, "I/O error: cannot open output file: /nope", "io message"
+    banish io_message
+    banish io_error
+    var cancelled as HttpError is Cancelled
+    var cancelled_message as string is calling cancelled.message
+    calling _expect_str with cancelled_message, "transfer cancelled by callback", "cancelled message"
+    banish cancelled_message
+    banish cancelled
+
 test "Session cookie jar operations":
     var session as Session is calling Session.new
     calling session.set_cookie with "sid", "abc"
@@ -2043,6 +2181,7 @@ weave _empty_response into Response:
         body is ""
         url is ""
         elapsed_sec is 0.0
+        bytes_written is 0
         http_version is HttpVersion.Http11
         redirected is false
         cookies is cookies

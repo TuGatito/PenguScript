@@ -51,6 +51,7 @@ weave make_response with status as int into Response:
         body is r"""{"ok":true}"""
         url is "https://example.com/"
         elapsed_sec is 0.1
+        bytes_written is 0
         http_version is HttpVersion.Http11
         redirected is false
         cookies is cookies
@@ -205,11 +206,12 @@ def test_error_model_matches_the_c_bridge():
     # PETITIO_OK is the success code and has no error variant.
     expected = ["ConnectionFailed", "Timeout", "TooManyRedirects", "InvalidUrl",
                 "TlsError", "ProtocolError", "BodyTooLarge", "OutOfMemory",
-                "Unsupported"]
+                "Unsupported", "IoError", "Cancelled"]
     assert [n for n in c_names if n != "PETITIO_OK"] == [
         "PETITIO_CONNECTION_FAILED", "PETITIO_TIMEOUT", "PETITIO_TOO_MANY_REDIRECTS",
         "PETITIO_INVALID_URL", "PETITIO_TLS_ERROR", "PETITIO_PROTOCOL_ERROR",
         "PETITIO_BODY_TOO_LARGE", "PETITIO_OUT_OF_MEMORY", "PETITIO_UNSUPPORTED",
+        "PETITIO_IO_ERROR", "PETITIO_CANCELLED",
     ]
     assert wrapper[:len(expected)] == expected, wrapper
     assert len(wrapper) == len(expected) + 1 and wrapper[-1] == "HttpStatus"

@@ -55,6 +55,7 @@
  * then hand-tune the result (`PenguString` -> `string`, `int64_t` -> `i64`,
  * `double` -> `f64`) as documented in docs/PETITIO.md. The real build always
  * takes the branch below and sees the genuine runtime definition. */
+#include <stdbool.h>
 #include <stdint.h>
 typedef struct { char *data; int len; int32_t is_owned; } PenguString;
 #else
@@ -80,7 +81,9 @@ typedef enum petitio_error {
     PETITIO_PROTOCOL_ERROR = 6,
     PETITIO_BODY_TOO_LARGE = 7,
     PETITIO_OUT_OF_MEMORY = 8,
-    PETITIO_UNSUPPORTED = 9
+    PETITIO_UNSUPPORTED = 9,
+    PETITIO_IO_ERROR = 10,
+    PETITIO_CANCELLED = 11
 } petitio_error;
 
 typedef struct petitio_request petitio_request;
@@ -145,6 +148,25 @@ int petitio_request_add_form_field(petitio_request *request, PenguString name,
  * as PETITIO_OUT_OF_MEMORY on a response object with no body. */
 petitio_response *petitio_request_perform(petitio_request *request);
 
+/* Performs the request and writes the body to `path` instead of buffering it.
+ * `Response.body` stays empty and `bytes_written` reports the size. A failure to
+ * open or write the file is PETITIO_IO_ERROR; exceeding `max_body` aborts with
+ * PETITIO_BODY_TOO_LARGE. Returns NULL only on allocation failure. */
+petitio_response *petitio_request_perform_to_file(petitio_request *request,
+                                                  PenguString path);
+
+/* Receives one body chunk. `chunk` borrows libcurl's buffer: it is valid only
+ * for the duration of the call and must not be retained or released. Returning
+ * false aborts the transfer (PETITIO_CANCELLED). */
+typedef bool (*petitio_stream_fn)(PenguString chunk, void *user);
+
+/* Performs the request and hands every body chunk to `callback` instead of
+ * buffering it. `Response.body` stays empty. Returns NULL only on allocation
+ * failure. */
+petitio_response *petitio_request_perform_stream(petitio_request *request,
+                                                 petitio_stream_fn callback,
+                                                 void *user);
+
 /* --- Response ----------------------------------------------------------- */
 
 /* One of `petitio_error`. */
@@ -167,6 +189,10 @@ double petitio_response_elapsed(const petitio_response *response);
 
 /* Number of redirects followed. */
 int petitio_response_redirect_count(const petitio_response *response);
+
+/* Bytes the transfer wrote: the body length for an in-memory response, the
+ * bytes written to the file or callback for a streaming one. */
+int64_t petitio_response_bytes_written(const petitio_response *response);
 
 /* Negotiated protocol version: 0 = HTTP/1.0, 1 = HTTP/1.1, 2 = HTTP/2,
  * 4 = HTTP/3. */
