@@ -270,7 +270,10 @@ weave f into int:
     var p as Point is donum Point
     return p.x
 """)
-    assert "(Point){0}" in c, c
+    # The exact initializer is an implementation detail: older releases emitted
+    # the C shorthand `(Point){0}`, the container-aware default (2.8.0+) spells
+    # every field so a `list`/`map`/`slice` field gets a usable empty value.
+    assert "(Point){0}" in c or "(Point){.x = (int32_t){0}" in c, c
     # Nothing was generated to make 'Point' defaultable: no derive helper.
     assert "_pengu_donum" not in c, c
     assert "memset" not in c, c

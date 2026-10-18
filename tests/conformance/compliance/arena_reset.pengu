@@ -1,0 +1,22 @@
+## Reuse one arena across many temporary batches with reset.
+import std.spark
+import std.arena
+
+weave main into int:
+    var a as Arena is calling Arena.with_block_size with 128
+    defer calling a.free
+    defer banish a
+    var total as int is 0
+    var frame as int is 0
+    while frame < 20:
+        var i as int is 0
+        while i < 8:
+            var cell as ref to int is calling arena_alloc_one of int with (sigil of a)
+            set essence of cell is frame + i
+            set total is total + (essence of cell)
+            set i is i + 1
+        calling a.reset
+        set frame is frame + 1
+    calling spark.println with "total={total} blocks={(calling a.block_count)}"
+    calling spark.println with "OK arena_reset"
+    return 0

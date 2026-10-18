@@ -1,0 +1,41 @@
+## Build a small AST in an arena and release the whole tree at once.
+import std.spark
+import std.arena
+
+rune Expr:
+    kind as int
+    value as int
+    left as ref to Expr
+    right as ref to Expr
+
+weave make_lit with a as ref to Arena, value as int into ref to Expr:
+    var e as ref to Expr is calling arena_alloc_one of Expr with a
+    set e->kind is 1
+    set e->value is value
+    return e
+
+weave make_add with a as ref to Arena, left as ref to Expr, right as ref to Expr into ref to Expr:
+    var e as ref to Expr is calling arena_alloc_one of Expr with a
+    set e->kind is 2
+    set e->left is left
+    set e->right is right
+    return e
+
+weave eval with e as ref to Expr into int:
+    if e->kind == 1:
+        return e->value
+    return (calling eval with e->left) + (calling eval with e->right)
+
+weave main into int:
+    var a as Arena is calling Arena.new
+    defer calling a.free
+    defer banish a
+    var one as ref to Expr is calling make_lit with (sigil of a), 1
+    var two as ref to Expr is calling make_lit with (sigil of a), 2
+    var three as ref to Expr is calling make_lit with (sigil of a), 3
+    var sum1 as ref to Expr is calling make_add with (sigil of a), one, two
+    var sum2 as ref to Expr is calling make_add with (sigil of a), sum1, three
+    var result as int is calling eval with sum2
+    calling spark.println with "result={result}"
+    calling spark.println with "OK arena_ast"
+    return 0

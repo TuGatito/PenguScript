@@ -13,6 +13,7 @@ from ._base import (
     FrozenType,
     List,
     ListType,
+    ManyType,
     MapType,
     MaybeType,
     OmenType,
@@ -21,6 +22,7 @@ from ._base import (
     ResultType,
     RuneType,
     SealType,
+    SliceType,
     Token,
     Tree,
     Type,
@@ -171,6 +173,31 @@ class RuntimeMixin:
                 t = self._lookup_var_type(str(bare_target.children[0]))
             elif isinstance(bare_target, Token):
                 t = self._lookup_var_type(str(bare_target))
+            elif isinstance(bare_target, Tree) and bare_target.data == "at_expr":
+                # `banish xs at i` frees the *element*, and for a `list of ref
+                # to T` that element is the pointer itself.  Inference on the
+                # synthetic `pengu_list_at(...)` expression has no type, so
+                # resolve the chain from the container instead: without this the
+                # pointer branch below took the address of the list slot and
+                # freed it (invalid free).
+                t = self._resolve_at_chain_type(bare_target)
+            elif isinstance(bare_target, Tree) and bare_target.data in ("field_access", "arrow_access"):
+                # `banish a._blocks` releases the *field value*.  Inference has
+                # no type for a field access either, and the old fall-through
+                # took `&(a._blocks)` and passed it to `pengu_banish`, freeing a
+                # stack address.  Resolve the field type explicitly.
+                if bare_target.data == "arrow_access":
+                    if self.current_enchanted_type is not None:
+                        t_name = getattr(self.current_enchanted_type, "name", str(self.current_enchanted_type))
+                        t = self.runes.get(t_name, {}).get(str(bare_target.children[1]))
+                else:
+                    b_node = bare_target.children[0]
+                    b_name = str(b_node.children[0]) if isinstance(b_node, Tree) and b_node.data == "var_ref" else str(b_node)
+                    b_type = self._lookup_var_type(b_name)
+                    while isinstance(b_type, RefType):
+                        b_type = b_type.target
+                    if b_type is not None and hasattr(b_type, "name"):
+                        t = self.runes.get(b_type.name, {}).get(str(bare_target.children[1]))
 
         actual_t = t
         while isinstance(actual_t, (FrozenType, AliasType, SealType)):
@@ -242,6 +269,55 @@ class RuntimeMixin:
                 return (f"(__extension__(({{ {self._rune_cleanup_helper(pointee)}((void*)({ptr})); "
                         f"pengu_banish((void*)({ptr})); }})))")
         return f"pengu_banish((void*)({ptr}))"
+    def _resolve_at_chain_type(self, node: Tree) -> Optional[Type]:
+        """Element type of an ``at_expr`` chain, or ``None`` when unknown.
+
+        Banish needs the element type to choose between ``pengu_banish`` (a
+        pointer element), ``pengu_banish_string`` (a string element) and a rune
+        destructor.  ``_infer_node_type`` cannot infer the lowered
+        ``pengu_list_at`` expression, so walk the chain here.
+        """
+        from .ast_utils import flatten_at_chain
+
+        parts = flatten_at_chain(node)
+        if not parts:
+            return None
+        base_node = parts[0]
+        t: Optional[Type] = None
+        if isinstance(base_node, Tree) and base_node.data == "var_ref":
+            t = self._lookup_var_type(str(base_node.children[0]))
+        elif isinstance(base_node, Tree) and base_node.data in ("field_access", "arrow_access"):
+            if base_node.data == "arrow_access":
+                if self.current_enchanted_type is not None:
+                    t_name = getattr(self.current_enchanted_type, "name", str(self.current_enchanted_type))
+                    t = self.runes.get(t_name, {}).get(str(base_node.children[1]))
+            else:
+                b_node = base_node.children[0]
+                b_name = str(b_node.children[0]) if isinstance(b_node, Tree) and b_node.data == "var_ref" else str(b_node)
+                b_type = self._lookup_var_type(b_name)
+                while isinstance(b_type, RefType):
+                    b_type = b_type.target
+                if b_type is not None and hasattr(b_type, "name"):
+                    t = self.runes.get(b_type.name, {}).get(str(base_node.children[1]))
+        if t is None:
+            t = self._infer_node_type(base_node)
+        for _ in parts[1:]:
+            t = self._unwrap_container_alias(t)
+            if isinstance(t, RefType):
+                target = t.target
+                t = target if isinstance(target, (ListType, SliceType, ManyType, ArrayType)) else target
+            if isinstance(t, (ListType, SliceType, ManyType)):
+                t = t.element
+            elif isinstance(t, ArrayType):
+                t = t.element
+            elif isinstance(t, MapType):
+                t = t.value
+            elif isinstance(t, BaseType) and t.name == "string":
+                t = BaseType("string")
+            else:
+                return None
+        return t
+
     def _value_sizeof(self, t: Optional[Type]) -> str:
         """C ``sizeof`` expression for one value of ``t`` (arrays included).
 

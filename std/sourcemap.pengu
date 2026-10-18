@@ -1,0 +1,453 @@
+## std/sourcemap.pengu — byte offsets ↔ `(line, column)` for source text.
+##
+## A `SourceMap` indexes the line starts of one immutable source string and
+## answers the two questions every tool that reports positions asks: *what
+## `(line, column)` is this byte offset?* and *what byte offset is this
+## `(line, column)`?* Construction is O(n), `position_at` is O(log n) and
+## `offset_of` is O(1).
+##
+## ## Conventions
+## - Lines and columns are **1-indexed**, like every editor and compiler
+##   diagnostic.
+## - A column is a **byte** offset within the line, not a codepoint index.
+##   `"ñ"` is one line of two bytes, so column 2 is its second byte. This is the
+##   right choice for a compiler or a diff tool: it makes `offset = start + col
+##   - 1` exact, including for invalid UTF-8, and it never makes a span point at
+##   half a character because of a width table.
+## - `\n` starts a new line. In a `\r\n` pair the `\r` is part of the line's
+##   bytes (so offsets stay exact) but is **not** included in `line_text`.
+## - A source string may be empty; it still has one (empty) line.
+##
+## ## Ownership
+## `from_source` **copies** the source into the map. The map is independent of
+## the string it was built from; that string may be released immediately.
+## `line_text` and `substring` return **owned** strings that the caller must
+## `banish`. `source` returns the map's own copy **borrowed**: do not banish it.
+## `banish sourcemap` releases both the source copy and the line-start list.
+##
+## ## Example
+## ```pengu
+## import std.sourcemap
+## import std.spark
+##
+## weave main into int:
+##     var map as SourceMap is calling SourceMap.from_source with "hola\nmundo\n"
+##     defer banish map
+##     var p as Position is calling map.position_at with 6
+##     calling spark.println with "line {p.line}, col {p.col}"   # line 2, col 1
+##     var off as int is calling map.offset_of with 2, 3
+##     calling spark.println with "{off}"                        # 8
+##     var line as string is calling map.line_text with 2
+##     defer banish line
+##     calling spark.println with line                          # mundo
+##     return 0
+## ```
+##
+## ## Complexity
+## | Operation | Cost |
+## |---|---|
+## | `from_source` | O(n) bytes and O(number of lines) |
+## | `position_at` | O(log lines) |
+## | `offset_of`, `line_count`, `source_len` | O(1) |
+## | `line_text`, `line_span`, `is_valid_position` | O(line length) |
+## | `span_at`, `is_valid_offset`, `clamp_offset` | O(log lines) / O(1) |
+
+import std.spark
+
+# ----------------------------------------------------------------------------
+# Module version
+# ----------------------------------------------------------------------------
+
+## SourceMap module version.
+const SOURCEMAP_VERSION as string is "2.9.0"
+
+## The line terminator recognised by `from_source`.
+const SOURCEMAP_NEWLINE as int is 10
+
+## The carriage-return byte stripped from `line_text` in CRLF files.
+const SOURCEMAP_CARRIAGE_RETURN as int is 13
+
+# ----------------------------------------------------------------------------
+# Value types
+# ----------------------------------------------------------------------------
+
+## A 1-indexed source position.
+##
+## ## Memoria
+## Value type: no heap fields, nothing to release.
+rune Position derive Par:
+    line as int
+    col as int
+
+## A half-open source range from `start` to `end`.
+##
+## The end position is exclusive, matching how spans are rendered (`start..end`)
+## and how a caret is placed under the first byte of a token.
+##
+## ## Memoria
+## Value type: no heap fields, nothing to release.
+rune Span derive Par:
+    start as Position
+    end as Position
+
+## An immutable source string plus the byte offset where every line starts.
+##
+## `_line_starts[0]` is always `0`; `_line_starts[i]` is the offset of the first
+## byte of line `i + 1`. Line `i + 1` ends at `_line_starts[i + 1] - 1` (the
+## `\n`) or at the end of the source for the last line.
+##
+## ## Memoria
+## Owns `_source` (a private copy) and `_line_starts`. `banish map` releases
+## both through `derive Nexus`.
+rune SourceMap derive Nexus:
+    _source as string
+    _line_starts as list of int
+
+# ----------------------------------------------------------------------------
+# Private C bridges
+# ----------------------------------------------------------------------------
+
+## Returns a fresh owned copy of `s`.
+##
+## ## Motivo
+## `from_source` must own its source independently of the caller's string.
+##
+## ## Memoria
+## Allocates one buffer; the caller releases it with `banish` (the map does it
+## through `Nexus`).
+antiquus _sourcemap_copy with s as string into string:
+    r"""
+return pengu_string_copy(s);
+"""
+
+## Returns an owned copy of the byte range `[start, end)` of `s`.
+##
+## ## Motivo
+## `line_text` slices a line and `SourceMap` must return an owned string even
+## when the range is empty. The runtime substring helper already does exactly
+## this; the wrapper keeps the ownership contract in one place.
+##
+## ## Memoria
+## Allocates one owned buffer; the caller releases it with `banish`.
+antiquus _sourcemap_substring with s as string, start as int, end as int into string:
+    r"""
+return pengu_string_substring(s, start, end);
+"""
+
+# ----------------------------------------------------------------------------
+# Construction
+# ----------------------------------------------------------------------------
+
+enchanting SourceMap:
+    ## Builds a map for `src`, copying the string and indexing every line start.
+    ##
+    ## ## Parámetros
+    ## - `src`: the source text. Borrowed; the map takes its own copy.
+    ##
+    ## ## Retorno
+    ## A ready-to-query `SourceMap`, even for an empty source (which has one
+    ## empty line).
+    ##
+    ## ## Memoria
+    ## Allocates one copy of `src` and a `list of int` with one entry per line.
+    ## Release the map with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var map as SourceMap is calling SourceMap.from_source with "a\nb\n"
+    ## defer banish map
+    ## ```
+    weave ritual from_source with src as string into SourceMap:
+        var owned_source as string is calling _sourcemap_copy with src
+        var starts as list of int is list of int
+        calling starts.push with 0
+        var n as int is src length
+        var raw as ref to frozen byte is bytes of src
+        var i as int is 0
+        while i < n:
+            if ((raw at i) to int) == SOURCEMAP_NEWLINE:
+                calling starts.push with (i + 1)
+            set i is i + 1
+        return with _source is owned_source, _line_starts is starts
+
+    # ------------------------------------------------------------------------
+    # Queries
+    # ------------------------------------------------------------------------
+
+    ## Returns the map's source copy, borrowed.
+    ##
+    ## ## Retorno
+    ## The exact bytes passed to `from_source`. **Do not banish it**; the map
+    ## owns it and releases it when the map is banished.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation, no ownership transfer.
+    weave source into string:
+        return self->_source
+
+    ## Returns the number of lines (at least one, even for empty input).
+    ##
+    ## ## Retorno
+    ## `_line_starts.len`.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave line_count into int:
+        return self->_line_starts.len
+
+    ## Returns the length of the source in bytes.
+    ##
+    ## ## Retorno
+    ## A non-negative `int`.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave source_len into int:
+        var sv as string is self->_source
+        return sv length
+
+    # ------------------------------------------------------------------------
+    # Position ↔ offset
+    # ------------------------------------------------------------------------
+
+    ## Maps a byte offset to its 1-indexed `(line, column)`.
+    ##
+    ## Offsets outside `[0, source_len]` are **clamped** (negative to `0`,
+    ## too-large to `source_len`), so a diagnostic built from a recovered token
+    ## never panics. `position_at(source_len)` is the position just after the
+    ## last byte (line `line_count`, column `line_len + 1` for a source that
+    ## does not end in a newline; line `line_count`, column 1 when it does).
+    ##
+    ## ## Parámetros
+    ## - `offset`: a byte offset; clamped as described.
+    ##
+    ## ## Retorno
+    ## A `Position` with `line >= 1` and `col >= 1`.
+    ##
+    ## ## Memoria
+    ## O(log lines), no allocation.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var p as Position is calling map.position_at with 0
+    ## # p.line == 1, p.col == 1
+    ## ```
+    weave position_at with offset as int into Position:
+        var off as int is offset
+        var n as int is (calling self.source_len)
+        if off < 0:
+            set off is 0
+        if off > n:
+            set off is n
+        var lo as int is 0
+        var hi as int is self->_line_starts.len - 1
+        while lo < hi:
+            var mid as int is (lo + hi + 1) / 2
+            if (self->_line_starts at mid) <= off:
+                set lo is mid
+            else:
+                set hi is mid - 1
+        var start as int is self->_line_starts at lo
+        return with line is (lo + 1), col is (off - start + 1)
+
+    ## Maps a 1-indexed `(line, column)` to its byte offset.
+    ##
+    ## Panics when `line` is outside `[1, line_count]`, when `col < 1`, or when
+    ## the column falls past the end of that line. A column one past the last
+    ## byte of a line is valid: for a line ending in `\n` it addresses the
+    ## newline byte, and for the last line it addresses `source_len`.
+    ##
+    ## ## Parámetros
+    ## - `line`: 1-indexed line number.
+    ## - `col`: 1-indexed byte column.
+    ##
+    ## ## Retorno
+    ## A byte offset in `[0, source_len]`.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation. Panics are fatal (`pengu_panic`).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var off as int is calling map.offset_of with 1, 1
+    ## # off == 0
+    ## ```
+    weave offset_of with line as int, col as int into int:
+        if line < 1 or line > self->_line_starts.len:
+            calling spark.panic with "SourceMap.offset_of: line out of range"
+        if col < 1:
+            calling spark.panic with "SourceMap.offset_of: column must be >= 1"
+        var start as int is self->_line_starts at (line - 1)
+        var off as int is start + col - 1
+        if line < self->_line_starts.len:
+            var next_start as int is self->_line_starts at line
+            if off >= next_start:
+                calling spark.panic with "SourceMap.offset_of: column past end of line"
+        else:
+            if off > (calling self.source_len):
+                calling spark.panic with "SourceMap.offset_of: column past end of source"
+        return off
+
+    ## Returns the text of `line` (1-indexed) as an owned string.
+    ##
+    ## The trailing `\n` is excluded; a trailing `\r` from a CRLF pair is also
+    ## excluded. Offsets still count the `\r` and the `\n`, so column arithmetic
+    ## on the source stays exact.
+    ##
+    ## ## Parámetros
+    ## - `line`: 1-indexed line number.
+    ##
+    ## ## Retorno
+    ## A new **owned** string. Release it with `banish`.
+    ##
+    ## ## Memoria
+    ## Allocates one buffer of the line length. Panics when `line` is out of
+    ## range.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var text as string is calling map.line_text with 1
+    ## defer banish text
+    ## ```
+    weave line_text with line as int into string:
+        if line < 1 or line > self->_line_starts.len:
+            calling spark.panic with "SourceMap.line_text: line out of range"
+        var start as int is self->_line_starts at (line - 1)
+        var end as int is calling self._line_end_offset with line
+        return calling _sourcemap_substring with self->_source, start, end
+
+    ## Returns the span covering all of `line` (without its terminator).
+    ##
+    ## For `"abc\n"`, `line_span(1)` is `(1, 1)..(1, 4)`. The end column is one
+    ## past the last text byte, which is the conventional caret position after
+    ## the line.
+    ##
+    ## ## Parámetros
+    ## - `line`: 1-indexed line number.
+    ##
+    ## ## Retorno
+    ## A `Span` from `(line, 1)` to `(line, line_len + 1)`.
+    ##
+    ## ## Memoria
+    ## Allocates a temporary string to measure the line, releases it, and
+    ## returns a value type. Panics when `line` is out of range.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var span as Span is calling map.line_span with 2
+    ## ```
+    weave line_span with line as int into Span:
+        var text as string is calling self.line_text with line
+        var n as int is text length
+        banish text
+        return with start is (with line is line, col is 1), end is (with line is line, col is (n + 1))
+
+    # ------------------------------------------------------------------------
+    # Span helpers
+    # ------------------------------------------------------------------------
+
+    ## Builds a `Span` from two byte offsets.
+    ##
+    ## Offsets are clamped to `[0, source_len]`; `end_offset < start_offset`
+    ## panics because a half-open span cannot run backwards. `start == end` is
+    ## valid and denotes an empty span (a cursor).
+    ##
+    ## ## Parámetros
+    ## - `start_offset`: inclusive byte offset.
+    ## - `end_offset`: exclusive byte offset.
+    ##
+    ## ## Retorno
+    ## A `Span` with both positions resolved.
+    ##
+    ## ## Memoria
+    ## O(log lines), no allocation. Panics on a backwards span.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var span as Span is calling map.span_at with 0, 4
+    ## ```
+    weave span_at with start_offset as int, end_offset as int into Span:
+        if end_offset < start_offset:
+            calling spark.panic with "SourceMap.span_at: end before start"
+        var start as Position is calling self.position_at with start_offset
+        var end as Position is calling self.position_at with end_offset
+        return with start is start, end is end
+
+    ## Returns the two positions of `span` as a tuple.
+    ##
+    ## This is a convenience for callers that pattern-match on `(start, end)`
+    ## instead of reading `span.start`/`span.end`.
+    ##
+    ## ## Parámetros
+    ## - `span`: the span to unpack.
+    ##
+    ## ## Retorno
+    ## `(span.start, span.end)`.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave span_to_positions with span as Span into (Position, Position):
+        return span.start, span.end
+
+    # ------------------------------------------------------------------------
+    # Validation utilities
+    # ------------------------------------------------------------------------
+
+    ## True when `offset` is in the valid half-open range `[0, source_len]`.
+    ##
+    ## The end offset is valid because it denotes "just past the last byte".
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave is_valid_offset with offset as int into bool:
+        return offset >= 0 and offset <= (calling self.source_len)
+
+    ## True when `pos` addresses a real position of this source.
+    ##
+    ## Valid columns are `1..line_len + 1`; the extra column is the position
+    ## just past the last byte of the line.
+    ##
+    ## ## Memoria
+    ## O(line length), no allocation.
+    weave is_valid_position with pos as Position into bool:
+        if pos.line < 1 or pos.line > self->_line_starts.len:
+            return false
+        if pos.col < 1:
+            return false
+        var start as int is self->_line_starts at (pos.line - 1)
+        var end as int is calling self._line_end_offset with pos.line
+        return pos.col <= (end - start + 1)
+
+    ## Clamps `offset` into `[0, source_len]`.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave clamp_offset with offset as int into int:
+        if offset < 0:
+            return 0
+        if offset > (calling self.source_len):
+            return (calling self.source_len)
+        return offset
+
+    # ------------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------------
+
+    ## Byte offset just past the text of `line`, excluding `\n` and a CRLF `\r`.
+    ##
+    ## ## Motivo
+    ## `line_text`, `line_span` and `is_valid_position` must agree on what "the
+    ## line" means; one private helper is the single source of truth.
+    ##
+    ## ## Memoria
+    ## O(1) reads; allocates nothing.
+    weave _line_end_offset with line as int into int:
+        var start as int is self->_line_starts at (line - 1)
+        var end as int is (calling self.source_len)
+        if line < self->_line_starts.len:
+            set end is (self->_line_starts at line) - 1
+        if end > start:
+            var raw as ref to frozen byte is bytes of self->_source
+            if ((raw at (end - 1)) to int) == SOURCEMAP_CARRIAGE_RETURN:
+                set end is end - 1
+        return end

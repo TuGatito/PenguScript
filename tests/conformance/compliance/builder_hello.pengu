@@ -1,0 +1,19 @@
+## Build a small welcome message with `std.builder`.
+import std.spark
+import std.builder
+
+weave main into int:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "Welcome, "
+    calling sb.append with "Ada"
+    calling sb.append with "!"
+    calling sb.append_spaces with 1
+    calling sb.append with "You have "
+    calling sb.append_int with 3
+    calling sb.append with " new messages."
+    var message as string is calling sb.to_string
+    defer banish message
+    calling spark.println with message
+    calling spark.println with "OK builder_hello"
+    return 0

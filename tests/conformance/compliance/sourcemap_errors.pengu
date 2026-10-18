@@ -1,0 +1,27 @@
+## Render a diagnostic with a source span, like a compiler would.
+import std.spark
+import std.sourcemap
+
+weave main into int:
+    var source as string is "let x as int is 1\nlet y as string is x\n"
+    var sm as SourceMap is calling SourceMap.from_source with source
+    defer banish sm
+    var start as int is 22
+    var end as int is 23
+    var span as Span is calling sm.span_at with start, end
+    var line as string is calling sm.line_text with (span.start.line)
+    defer banish line
+    calling spark.println with "error: type mismatch"
+    calling spark.println with "  --> line {span.start.line}, column {span.start.col}"
+    calling spark.println with "   |"
+    var prefix as string is "   | "
+    calling spark.println with prefix
+    var caret_line as string is "   | "
+    var i as int is 1
+    while i < span.start.col:
+        set caret_line is "{caret_line} "
+        set i is i + 1
+    set caret_line is "{caret_line}^"
+    calling spark.println with caret_line
+    calling spark.println with "OK sourcemap_errors"
+    return 0

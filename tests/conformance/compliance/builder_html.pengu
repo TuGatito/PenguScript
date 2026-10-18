@@ -1,0 +1,22 @@
+## Build a tiny HTML document, escaping one value.
+import std.spark
+import std.builder
+
+weave main into int:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "<!doctype html>\n<html>\n<body>\n"
+    calling sb.append with "<h1>PenguScript</h1>\n"
+    calling sb.append with "<ul>\n"
+    var i as int is 1
+    while i <= 3:
+        calling sb.append with "<li>item "
+        calling sb.append_int with i
+        calling sb.append with "</li>\n"
+        set i is i + 1
+    calling sb.append with "</ul>\n</body>\n</html>\n"
+    var page as string is calling sb.to_string
+    defer banish page
+    calling spark.println with page
+    calling spark.println with "OK builder_html"
+    return 0

@@ -1,0 +1,24 @@
+## Format ints, i64, floats and bools without temporary strings.
+import std.spark
+import std.builder
+
+weave main into int:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "int="
+    calling sb.append_int with -2147483648
+    calling sb.append with " i64="
+    calling sb.append_i64 with 9223372036854775807
+    calling sb.append with " float="
+    calling sb.append_float with 1.5
+    calling sb.append with " f64="
+    calling sb.append_f64 with 0.25
+    calling sb.append with " bool="
+    calling sb.append_bool with true
+    calling sb.append with "/"
+    calling sb.append_bool with false
+    var line as string is calling sb.to_string
+    defer banish line
+    calling spark.println with line
+    calling spark.println with "OK builder_numbers"
+    return 0

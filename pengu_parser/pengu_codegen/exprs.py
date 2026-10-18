@@ -2259,9 +2259,20 @@ class ExprMixin:
                         t_name = getattr(self.current_enchanted_type, "name", str(self.current_enchanted_type))
                         var_t = self.runes.get(t_name, {}).get(t_field)
                 elif t_node.data == "field_access":
-                    t_base = str(t_node.children[0])
+                    # `t_node.children[0]` is a `var_ref` *tree*, not a token:
+                    # `str(tree)` is the whole Lark node ("Tree('var_ref', ...)"),
+                    # so the old spelling never found the local and fell through
+                    # to `ref to T` indexing (`a._blocks[0]`, invalid C for a
+                    # `PenguList`). Unwrap the single name token.
+                    base_node = t_node.children[0]
+                    if isinstance(base_node, Tree) and base_node.data == "var_ref":
+                        t_base = str(base_node.children[0])
+                    else:
+                        t_base = str(base_node)
                     t_field = str(t_node.children[1])
                     b_type = self._lookup_var_type(t_base)
+                    while isinstance(b_type, RefType):
+                        b_type = b_type.target
                     if b_type and hasattr(b_type, "name"):
                         var_t = self.runes.get(b_type.name, {}).get(t_field)
             if var_t is None:

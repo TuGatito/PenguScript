@@ -1,0 +1,31 @@
+## A deliberately simple Bloom filter built on a BitSet.
+import std.spark
+import std.bitset
+
+weave hash1 with s as string into int:
+    var h as int is 0
+    var i as int is 0
+    while i < (s length):
+        set h is (h * 31 + ((((bytes of s) at i)) to int)) % 128
+        set i is i + 1
+    return h
+
+weave main into int:
+    var bits as BitSet is calling BitSet.new with 128
+    defer banish bits
+    var values as array of string with size 4 is ["alpha", "beta", "gamma", "delta"]
+    var i as int is 0
+    while i < 4:
+        var h as int is calling hash1 with (values at i)
+        calling bits.set with h
+        set i is i + 1
+    var hits as int is 0
+    set i is 0
+    while i < 4:
+        var h as int is calling hash1 with (values at i)
+        if calling bits.get with h:
+            set hits is hits + 1
+        set i is i + 1
+    calling spark.println with "hits={hits}"
+    calling spark.println with "OK bitset_bloom"
+    return 0

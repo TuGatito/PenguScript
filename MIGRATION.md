@@ -8,9 +8,25 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.8.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.9.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.7.0 → 2.9.0: the four fundamental modules
+
+This release is **purely additive** for the language and the existing stdlib.
+After moving a project:
+
+* existing `import`s and programs need no changes;
+* import `std.builder`, `std.arena`, `std.sourcemap` and/or `std.bitset` when
+  you want the new tools (see `LANGUAGE.md` §19.1.2);
+* remember the arena lifecycle: `defer banish arena` releases the bookkeeping,
+  `defer calling arena.free` releases the blocks. The examples show both;
+* `(n to usize)` and `(n to size_t)` now work (they used to report `E0004`), so
+  code that worked around the missing cast with an annotated local can be
+  simplified but does not have to be.
+
+No API was removed or renamed.
 
 ## 2.7.0 → 2.8.0: thick functions and context pipelines (additive)
 

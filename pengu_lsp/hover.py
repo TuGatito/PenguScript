@@ -12,6 +12,7 @@ from lsprotocol.types import (
 from pengu_parser.pengu_symbols import SymbolTable, Symbol, Scope
 from pengu_parser.pengu_types import (
     Type, RuneType, EchoType, OmenType, FnType, AliasType,
+    FrozenType, RefType, SealType,
     estimate_size,
 )
 from .judge_over import judge_over_hover
@@ -271,6 +272,87 @@ def format_symbol_hover(
     return "\n\n".join(doc_lines)
 
 
+def _method_hover(text: str, position: Position, symbols: SymbolTable, word: str) -> Optional[Hover]:
+    """Hover for the method name after a ``.`` or ``->``.
+
+    Method names are not ordinary symbols in the document scope: they live in
+    ``symbols.methods`` keyed by ``(receiver type, method)``.  Resolve the
+    receiver the same way dot completion does and render the signature with the
+    ordinary function formatter.
+    """
+    lines = text.splitlines()
+    if position.line < 0 or position.line >= len(lines):
+        return None
+    line = lines[position.line]
+    col = position.character
+    if col < 0 or col > len(line):
+        return None
+    # Walk back to the start of the identifier under the cursor, then require a
+    # '.' / '->' immediately before it.  The cursor may be on the first
+    # character (left == col), which is exactly where a click on a method name
+    # usually lands.
+    if col >= len(line) or not (line[col].isalnum() or line[col] == "_"):
+        return None
+    left = col
+    while left > 0 and (line[left - 1].isalnum() or line[left - 1] == "_"):
+        left -= 1
+    prefix = line[:left].rstrip()
+    if prefix.endswith("->"):
+        recv_end = len(prefix) - 2
+    elif prefix.endswith("."):
+        recv_end = len(prefix) - 1
+    else:
+        return None
+    recv_start = recv_end
+    while recv_start > 0 and (line[recv_start - 1].isalnum() or line[recv_start - 1] == "_"):
+        recv_start -= 1
+    receiver = line[recv_start:recv_end]
+    if not receiver:
+        return None
+
+    sym = None
+    if hasattr(symbols, "lookup_at"):
+        sym = symbols.lookup_at(receiver, position.line)
+    if sym is None:
+        sym = symbols.lookup(receiver)
+    if sym is None and receiver in getattr(symbols, "runes", {}):
+        sym = Symbol(name=receiver, type=symbols.runes[receiver], kind="rune")
+
+    type_name = None
+    if sym is not None and sym.type is not None:
+        t = sym.type
+        while isinstance(t, (AliasType, FrozenType, RefType, SealType)):
+            nxt = getattr(t, "target", None) or getattr(t, "underlying", None)
+            if nxt is None:
+                break
+            t = nxt
+        if isinstance(t, RuneType):
+            type_name = t.get_base_name()
+    if type_name is None and receiver in getattr(symbols, "runes", {}):
+        type_name = receiver
+    if type_name is None:
+        return None
+
+    method_t = None
+    methods = getattr(symbols, "methods", {})
+    for key in (type_name, type_name.split("_")[0]):
+        method_t = methods.get((key, word))
+        if method_t is not None:
+            type_name = key
+            break
+    if method_t is None:
+        return None
+
+    method_sym = Symbol(name=word, type=method_t, kind="weave")
+    body = format_symbol_hover(method_sym, getattr(symbols, "runes", {}))
+    return Hover(
+        contents=MarkupContent(
+            kind=MarkupKind.Markdown,
+            value=f"**Method on `{type_name}`**\n\n{body}",
+        )
+    )
+
+
 def get_hover(
     uri: str,
     position: Position,
@@ -318,6 +400,10 @@ def get_hover(
 
     if not symbols:
         return None
+
+    method_info = _method_hover(text, position, symbols, word)
+    if method_info is not None:
+        return method_info
 
     # `judge <rune> over <field>:` — a `with` binding or the discriminant field
     # has no ordinary symbol (the binding is scoped to its clause), so it is

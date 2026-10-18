@@ -1354,6 +1354,85 @@ defer banish doc                           # invoca _pengu_cleanup_Doc
 
 Un `slice of T` es **siempre** una ventana. Nunca libera. El docstring del módulo debe decirlo explícitamente cuando devuelve slices. Devolver un `slice of` de un array de pila se rechaza (`E0051`) porque el slice quedaría colgando al retornar el weave.
 
+### 8.8 Elegir una estrategia de asignación
+
+Cuatro herramientas cubren casi toda asignación en PenguScript. Elige por
+**tiempo de vida**, no por tipo:
+
+| Herramienta | Tiempo de vida | Úsala para | **No** la uses para |
+|---|---|---|---|
+| `memoria.alloc` / `alloc_array` | un valor, lo liberas tú | un objeto suelto, un búfer longevo, un rune que sobrevive a la llamada | un árbol de muchos objetos liberados juntos |
+| `std.arena` | un lote, se libera junto | ASTs, árboles de parseo, grafos temporales, scratch por frame | un solo objeto (usa `memoria.alloc`), u objetos con vidas distintas |
+| `std.builder` | un texto, construido por partes | CSV, HTML, logs, codegen, cualquier bucle que añade texto | dos o tres trozos fijos (la interpolación es más clara y asigna una vez) |
+| `std.bitset` | un universo denso de enteros | flags de visitado, cribas, filtros Bloom, mapas de ocupación | un conjunto disperso (usa `map of int to int`) |
+
+#### Texto: interpolación vs `StringBuilder`
+
+```pengu
+import std.builder
+
+weave main into int:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "row: "
+    calling sb.append_int with 7
+    var row as string is calling sb.to_string
+    defer banish row
+    return 0
+```
+
+`"{a}{b}{c}"` es una sola asignación y es la forma correcta para un número fijo
+de trozos. Un builder es para un bucle cuyo número de trozos no se conoce: `n`
+appends cuestan `O(bytes totales)`, mientras que `out = "{out}{piece}"` en un
+bucle cuesta `O(n²)`.
+
+#### Árboles: `Arena` vs una asignación por nodo
+
+```pengu
+import std.arena
+
+rune Node:
+    value as int
+
+weave main into int:
+    var a as Arena is calling Arena.new
+    defer banish a
+    defer calling a.free
+    var n as ref to Node is calling arena_alloc_one of Node with (sigil of a)
+    set n->value is 1
+    return 0
+```
+
+Un solo `free` libera todos los nodos. Recuerda que `reset`/`free` no ejecutan
+destructores: si un nodo posee un `string`, libera ese string antes o mantén el
+contenido del arena como POD.
+
+#### Conjuntos densos: `BitSet`
+
+```pengu
+import std.bitset
+
+weave main into int:
+    var seen as BitSet is calling BitSet.new with 1024
+    defer banish seen
+    calling seen.set with 42
+    return 0
+```
+
+`BitSet` es O(1) por bit y ocupa `bit_len / 8` bytes en total. Para un puñado de
+valores en un universo enorme, `map of int to int` es más pequeño y más rápido.
+
+#### Anti-patrones
+
+- **Builder para dos strings.** `"{a}{b}"` asigna una vez y es más corto.
+- **Arena para un objeto.** Usa `memoria.alloc` + `banish`; un arena añade
+  bloques y un ciclo de vida sin beneficio.
+- **BitSet para un conjunto disperso.** Un bitset de un millón de bits para diez
+  valores son 125 KiB casi todo ceros; un mapa son diez entradas.
+- **Conservar una vista prestada tras una mutación.** `bytes_view`, `to_bytes` y
+  los punteros de `arena.alloc` quedan invalidados por crecimiento, `reset`,
+  `free` o `banish`.
+
 ---
 
 ## 9. Interoperabilidad con C

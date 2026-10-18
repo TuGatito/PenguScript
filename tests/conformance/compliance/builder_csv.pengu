@@ -1,0 +1,26 @@
+## Build a CSV row with quoting and numeric columns.
+import std.spark
+import std.builder
+
+weave add_field with sb as ref to StringBuilder, value as string into void:
+    calling sb.append_char with '"'
+    calling sb.append with value
+    calling sb.append_char with '"'
+
+weave main into int:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "name,age,city\n"
+    calling add_field with (sigil of sb), "Ada"
+    calling sb.append with ",36,"
+    calling add_field with (sigil of sb), "London"
+    calling sb.append_char with '\n'
+    calling add_field with (sigil of sb), "Grace"
+    calling sb.append with ",85,"
+    calling add_field with (sigil of sb), "New York"
+    calling sb.append_char with '\n'
+    var csv as string is calling sb.finish
+    defer banish csv
+    calling spark.println with csv
+    calling spark.println with "OK builder_csv"
+    return 0

@@ -2183,6 +2183,123 @@ let total_bytes is calling memoria.bytes_for of int with 32   # 128
 - `free`, `sizeof` and `address_of` are **not** in `memoria`: use `banish`, `size of T` and `sigil of x`.
 - `defer banish x` is function-scoped in the current implementation: do not declare `x` inside a loop/`if` body and defer it there (the generated C references an out-of-scope name). Banish it explicitly inside the block instead.
 
+### 12.5 Allocation & building
+
+Four std modules cover the common shape of "many bytes / many objects / dense
+integers". Pick by lifetime and density, not by type.
+
+#### `StringBuilder` — text built in a loop
+
+```pengu
+import std.builder
+
+var sb as StringBuilder is calling StringBuilder.new          # 64-byte reserve
+defer banish sb
+
+calling sb.append with "name,age\n"
+calling sb.append with "Ada,"
+calling sb.append_int with 36
+calling sb.append_char with '\n'
+
+var out as string is calling sb.finish      # O(1): transfers the buffer
+defer banish out                            # sb is empty afterwards
+
+var snapshot as string is calling sb.to_string   # copy; builder stays usable
+defer banish snapshot
+```
+
+- `finish` = ownership transfer, no copy, builder becomes empty.
+- `to_string` = copy, builder keeps its capacity.
+- `append` is amortised O(1); `append_int`/`append_float` format directly into
+  the buffer. `insert_at`, `truncate`, `reverse` are O(bytes moved).
+- `bytes_view` is a **borrow**: do not `banish` it and do not keep it across a
+  mutating call.
+
+#### `Arena` — many objects, one lifetime
+
+```pengu
+import std.arena
+
+rune Node:
+    value as int
+    next as ref to Node
+
+var a as Arena is calling Arena.new
+defer banish a
+defer calling a.free               # blocks are not released by banish alone
+
+var head as ref to Node is calling arena_alloc_one of Node with (sigil of a)
+set head->value is 1
+set head->next is calling arena_alloc_one of Node with (sigil of a)
+set head->next->value is 2
+
+var raw as ref to byte is calling a.alloc_str with "temporary"
+var cstr as ref to frozen char is calling a.alloc_cstr with "temporary"
+
+calling a.reset                     # frees all but the first block; reusable
+```
+
+- `reset` keeps the first block and makes the arena reusable; `free` releases
+  every block (and leaves the arena reusable too).
+- `reset`/`free` release **memory only**: no destructors, no `string`/`list`
+  payload release.
+- `alloc_aligned(size, 4096)` aligns the absolute address, even though the block
+  came from `malloc`.
+- `arena_alloc of T with a, n` / `arena_alloc_one of T with a` return zeroed,
+  typed memory.
+
+#### `BitSet` — a dense set of integers
+
+```pengu
+import std.bitset
+
+var seen as BitSet is calling BitSet.new with 256    # 32 bytes
+defer banish seen
+
+calling seen.set with 3
+calling seen.set with 7
+calling seen.clear with 3
+calling seen.toggle with 7
+calling seen.set_to with 9, true
+
+var n as int is calling seen.count_ones
+var first as maybe int is calling seen.find_first_set
+banish first
+
+var a as BitSet is calling BitSet.filled with 256
+var b as BitSet is calling seen.and_with with (sigil of a)   # new bitset
+defer banish a
+defer banish b
+
+var bytes as slice of byte is calling seen.to_bytes          # borrow, do not banish
+```
+
+- `bit_len` is fixed; bit indices outside `[0, bit_len)` panic.
+- Binary operations require equal `bit_len`; `equals` returns `false` instead.
+- Padding bits of the last byte are always zero, so `count_ones` is exact.
+- `iter_set` returns an owned `list of int`; `to_bytes` is a non-owning view.
+- Sparse set? use `map of int to int`.
+
+#### `SourceMap` — offsets, lines and columns
+
+```pengu
+import std.sourcemap
+
+var sm as SourceMap is calling SourceMap.from_source with "a\nb\n"
+defer banish sm
+
+var p as Position is calling sm.position_at with 2      # line 2, col 1
+var off as int is calling sm.offset_of with 2, 1        # 2
+var line as string is calling sm.line_text with 2       # "b"
+defer banish line
+
+var span as Span is calling sm.span_at with 0, 3         # (1,1)..(2,1)
+```
+
+- 1-indexed lines and columns; columns count **bytes**, not codepoints.
+- `position_at` clamps out-of-range offsets; `offset_of` panics.
+- `line_text` strips `\n` and a CRLF `\r`; offsets still count both.
+
 ---
 
 ## 13. Modules, Imports & Project Layout

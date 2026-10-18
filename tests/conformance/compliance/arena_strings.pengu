@@ -1,0 +1,24 @@
+## Store several strings in an arena and read them back.
+import std.spark
+import std.arena
+
+weave main into int:
+    var a as Arena is calling Arena.with_block_size with 64
+    defer calling a.free
+    defer banish a
+    var words as array of string with size 4 is ["alpha", "beta", "gamma", "delta"]
+    var i as int is 0
+    while i < 4:
+        var p as ref to byte is calling a.alloc_str with (words at i)
+        calling spark.println with "{(p at 0) to int} {(words at i) length}"
+        set i is i + 1
+    var c as ref to frozen char is calling a.alloc_cstr with "nul-terminated"
+    var cp as ref to byte is calling as_bytes with c
+    calling spark.println with "{(cp at 0) to int}"
+    calling spark.println with "OK arena_strings"
+    return 0
+
+antiquus as_bytes with p as ref to frozen char into ref to byte:
+    r"""
+return (uint8_t *)p;
+"""

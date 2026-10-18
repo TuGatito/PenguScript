@@ -2,6 +2,105 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.9.0] — 2026-10-17 — the four fundamental modules
+
+Closes Phase 1a: `std.builder`, `std.arena`, `std.sourcemap` and `std.bitset`
+ship complete, documented and tested. They are the base the self-hosted compiler
+will stand on (codegen, AST, spans, data-flow sets), designed as general tools
+rather than compiler internals.
+
+```pengu
+var sb as StringBuilder is calling StringBuilder.new
+calling sb.append with "total: "
+calling sb.append_int with 42
+var out as string is calling sb.finish       # O(1), transfers the buffer
+```
+
+### Added
+
+- **`std.builder`**: `StringBuilder` with `new` / `with_capacity` /
+  `from_string`; amortised-O(1) `append`, `append_char`, `append_int`,
+  `append_i64`, `append_float`, `append_f64`, `append_bool`, `append_bytes`,
+  `append_slice`, `append_repeat`, `append_spaces`; `insert_at`, `set_char_at`,
+  `truncate`, `reverse`; `len`, `capacity`, `is_empty`, `char_at`, `byte_at`,
+  `bytes_view`, `substring`; `reserve`, `shrink_to_fit`, `clear`, `reset`;
+  `finish` (ownership transfer, no copy) and `to_string` (copy, builder stays
+  usable). Numeric appends format directly into the buffer (no temporary
+  string). `banish builder` releases the buffer through `derive Nexus`.
+  Comparable to `java.lang.StringBuilder` and `zig.ArrayList(u8)`.
+  See `LANGUAGE.md` §19.1.2.
+
+- **`std.arena`**: bump allocator with `Arena.new`, `Arena.with_block_size`,
+  `alloc`, `alloc_aligned`, `alloc_str`, `alloc_cstr`, `total_allocated`,
+  `block_count`, `block_size`, reusable `reset` and destructive `free`;
+  oversize blocks, absolute-address alignment and the generic helpers
+  `arena_alloc of T` / `arena_alloc_one of T`. Comparable to
+  `zig.heap.ArenaAllocator` and `bumpalo`. `banish arena` releases the
+  bookkeeping lists; `free` releases the blocks (documented, and the examples
+  use `defer calling a.free`). See `LANGUAGE.md` §19.1.2.
+
+- **`std.sourcemap`**: `SourceMap.from_source`, `source`, `line_count`,
+  `source_len`, `position_at` (O(log lines)), `offset_of` (O(1)), `line_text`
+  (CRLF-aware), `line_span`, `span_at`, `span_to_positions`,
+  `is_valid_offset`, `is_valid_position`, `clamp_offset`, plus the `Position`
+  and `Span` runes. Columns are byte offsets; lines and columns are
+  1-indexed. Comparable to `rustc_span::SourceMap`. See `LANGUAGE.md` §19.1.2.
+
+- **`std.bitset`**: fixed-length dense bit set with `new`, `filled`,
+  `from_bytes`; `set`, `clear`, `toggle`, `set_to`, `get`; `set_all`,
+  `clear_all`, `toggle_all`; `count_ones` (branch-free SWAR), `count_zeros`,
+  `is_empty`, `is_full`, `any`, `all`; `and_with`, `or_with`, `xor_with`,
+  `and_not_with`, `not`, the matching `*_in_place` forms, `find_first_set`,
+  `find_first_clear`, `find_next_set`, `find_next_clear`, `equals`, `copy`,
+  `iter_set` and a non-owning `to_bytes`. Padding bits stay zero. Comparable
+  to `java.util.BitSet` and `zig.DynamicBitSet`. See `LANGUAGE.md` §19.1.2.
+
+- **Allocation strategy guide** in `PenguScriptGuideEnglish.md` §8.8 and
+  `PenguScriptGuideSpanish.md` §8.8: when to use `memoria`, `arena`, `builder`
+  or `bitset`, and the four anti-patterns.
+
+- **Conformance corpus** (`tests/conformance/compliance/`): thirteen realistic
+  programs that pass `pengu check`, `pengu build` and `pengu run` (builder for
+  hello/CSV/HTML/numbers, arena for AST/strings/reset, sourcemap for
+  basic/errors/CRLF, bitset for a sieve/set algebra/Bloom filter).
+
+- **Documentation**: four rows in the `LANGUAGE.md` / `LANGUAGE_Spanish.md`
+  module table, a new §19.1.2 in both, the version constants in §19.0, and a
+  new "Allocation & building" section in `CHEATSHEET.md`.
+
+### Changed
+
+- The stdlib now ships **33 modules**, **31 of them pure PenguScript**; the two
+  remaining files are the C bridges `std.ffi` and `std.web`.
+- The version constants of the four new modules are `BUILDER_VERSION`,
+  `ARENA_VERSION`, `SOURCEMAP_VERSION` and `BITSET_VERSION`, all `"2.9.0"`.
+- `FUNCTOR_VERSION` and `LOOM_VERSION` move to `2.9.0`, keeping the
+  `tests/stdlib/test_std_versioning.py` contract that the two 2.8.0 modules
+  report the release they ship in.
+
+### Fixed
+
+- **`(n to usize)` / `(n to size_t)`** failed with `E0004 Undefined identifier`
+  because the cast resolver's primitive-name list omitted the pointer-sized
+  aliases. `var u as usize is n` worked, `(n to usize)` did not. The list now
+  includes `usize`, `isize`, `size_t`, `short`, `ushort`, `long` and `ulong`.
+- **Tuple-of-runes definitions were ordered before the runes they contain**
+  (`(Position, Position)` was emitted above `Position`), so GCC rejected the
+  incomplete field type. Rune and tuple definitions now follow a by-value
+  dependency order, which also keeps a tuple *field* of a rune after its tuple.
+- **`list of ref to T` indexing** resolved the receiver of `a._blocks` from
+  `str(Tree)` instead of the variable name, so it emitted
+  `a._blocks[0]` (invalid C) instead of `pengu_list_at`. Field access now
+  unwraps the `var_ref` child.
+- **`banish xs at i` and `banish a._blocks`** took the address of the list slot
+  and passed it to `pengu_banish`, freeing a stack address (`free(): invalid
+  size`). The element/field type is now resolved explicitly, so a pointer
+  element is freed, a string element uses `pengu_banish_string`, and a list
+  field uses `pengu_banish_list`.
+- **LSP hover on method names** returned nothing: method names live in
+  `symbols.methods`, not in the document scope. `get_hover` now resolves
+  `receiver.method` / `receiver->method` and renders the signature.
+
 ## [2.8.0] — 2026-10-17 — thick functions and context pipelines
 
 The first half of Phase 1 (base libraries for self-hosting): callbacks without

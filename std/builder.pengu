@@ -1,0 +1,1127 @@
+## std/builder.pengu — `StringBuilder`, an amortised-O(1) text accumulator.
+##
+## `StringBuilder` is the canonical way to assemble a string piece by piece
+## without the quadratic cost of `out = "{out}{piece}"`. It owns one contiguous
+## byte buffer, grows it with the usual 2x amortised strategy, and releases that
+## buffer when the builder is banished.
+##
+## ## Why not just interpolation?
+## `"{a}{b}{c}"` is perfect for a fixed number of pieces: it allocates exactly
+## once. A builder is for a *loop*, a recursive traversal or a generator whose
+## piece count is not known when the code is written. Appending `n` pieces to a
+## builder costs one `memcpy` over the final length; concatenating them with
+## interpolation costs O(n²) bytes copied.
+##
+## ## Ownership
+## The builder owns its buffer. `finish` **transfers** that buffer to the
+## returned `string` (no copy, O(1)); `to_string` **copies** it and leaves the
+## builder usable. The returned string of both methods is owned and must be
+## released with `banish` (or `defer banish`).
+##
+## ```pengu
+## import std.builder
+##
+## weave main into int:
+##     var sb as StringBuilder is calling StringBuilder.new
+##     defer banish sb
+##     calling sb.append with "Hola, "
+##     calling sb.append with "mundo"
+##     var s as string is calling sb.finish
+##     defer banish s
+##     calling spark.println with s       # Hola, mundo
+##     return 0
+## ```
+##
+## `banish sb` releases the internal buffer. After `finish` the builder is
+## empty, so banishing it is a safe no-op.
+##
+## ## Implementation note: the backing field is a `string`
+## The public shape of a builder is `{ pointer, len, cap }`, but the buffer is
+## stored as an owned `PenguString` rather than a bare `ref to byte`. That is
+## deliberate: `derive Nexus` on a rune frees `string`, `list` and `map` fields,
+## so `banish builder` releases the buffer without a custom destructor (which
+## the language does not provide). The `string`'s `len` is kept at `0`; `_len`
+## and `_cap` are the real state. The three small `antiquus` helpers below are
+## the only C in the module: they write bytes through the `PenguString` header
+## (`memcpy`, `memmove`, `snprintf`, `realloc`) and reset the header on
+## `finish`. No language-level operation on a `string` is mutable, so there is
+## no pure alternative that preserves O(1) append.
+##
+## ## Complexity
+## | Operation | Cost |
+## |---|---|
+## | `append`, `append_char`, `append_slice` | O(n) bytes copied, amortised O(1) growth |
+## | `append_int`, `append_i64`, `append_float`, `append_f64` | O(digits), no temporary string |
+## | `insert` | O(len - pos) bytes moved |
+## | `reverse` | O(len) |
+## | `finish` | O(1), no copy |
+## | `to_string`, `substring` | O(copied bytes) |
+## | `len`, `capacity`, `is_empty`, `char_at`, `byte_at` | O(1) |
+## | `bytes_view` | O(1), non-owning |
+
+import std.spark
+
+# ----------------------------------------------------------------------------
+# Module version
+# ----------------------------------------------------------------------------
+
+## Builder module version.
+const BUILDER_VERSION as string is "2.9.0"
+
+## Capacity of a builder created with `StringBuilder.new`.
+const BUILDER_DEFAULT_CAPACITY as int is 64
+
+# ----------------------------------------------------------------------------
+# Value type
+# ----------------------------------------------------------------------------
+
+## A growable byte buffer for assembling text.
+##
+## The fields are private: use `append`/`insert`/`finish` instead of touching
+## the buffer. `_data` owns the allocation, `_len` is the number of bytes in use
+## and `_cap` is the number of usable bytes (the allocation is `_cap + 1` so the
+## buffer is always NUL-terminated).
+##
+## ## Memoria
+## The builder owns `_data`. Release the whole builder with `banish` (or
+## `defer banish`); `finish` transfers the buffer away and resets the builder.
+rune StringBuilder derive Nexus:
+    _data as string
+    _len as int
+    _cap as int
+
+# ----------------------------------------------------------------------------
+# Private C bridges
+#
+# Every helper documents why it exists and what it owns. They are module-private
+# (`_` prefix), so they are not part of the published surface.
+# ----------------------------------------------------------------------------
+
+## Allocates a zeroed, owned buffer with `cap` usable bytes plus a NUL slot.
+##
+## ## Motivo
+## A `PenguString` header with `is_owned == 1` is what lets the derived
+## `Nexus` free the builder buffer. Constructing that header and allocating
+## `cap + 1` bytes needs C-level access to the struct.
+##
+## ## Memoria
+## Returns one owned allocation; the caller stores it in `StringBuilder._data`.
+## The buffer is NUL-terminated at index 0.
+antiquus _builder_alloc with cap as int into string:
+    r"""
+size_t usable = (cap > 0) ? (size_t)cap : (size_t)0;
+char *buf = (char *)pengu_memoria_alloc(usable + 1);
+buf[0] = '\0';
+PenguString s;
+s.data = buf;
+s.len = 0;
+s.is_owned = 1;
+return s;
+"""
+
+## Grows or shrinks the buffer to `new_cap` usable bytes, preserving contents.
+##
+## ## Motivo
+## `realloc` plus the `+1` NUL slot is a C contract; `memoria.resize_array`
+## works on a bare pointer, and reattaching that pointer to a `PenguString`
+## header would need another unsafe write.
+##
+## ## Memoria
+## Reallocates `_data`; the old pointer is invalid afterwards. New bytes are
+## zeroed by `pengu_memoria_resize`.
+antiquus _builder_resize with buf as ref to string, old_cap as int, new_cap as int into void:
+    r"""
+size_t old_n = ((old_cap > 0) ? (size_t)old_cap : (size_t)0) + 1;
+size_t new_n = ((new_cap > 0) ? (size_t)new_cap : (size_t)0) + 1;
+buf->data = (char *)pengu_memoria_resize(buf->data, old_n, new_n, 1);
+"""
+
+## Copies `n` bytes at `src` into `dst` starting at `off`, then NUL-terminates.
+##
+## ## Motivo
+## The builder writes into a `PenguString`'s storage; PenguScript strings are
+## immutable, so there is no pure write path.
+##
+## ## Memoria
+## Writes only; allocates nothing. `src` is borrowed.
+antiquus _builder_copy with dst as ref to string, off as int, src as ref to frozen byte, n as int into void:
+    r"""
+if (n <= 0 || !dst->data || !src) return;
+memcpy(dst->data + (size_t)off, src, (size_t)n);
+dst->data[(size_t)off + (size_t)n] = '\0';
+"""
+
+## Copies a `slice of byte` into `dst` at `off`, then NUL-terminates.
+##
+## ## Motivo
+## A slice is a `PenguSlice` fat pointer; `memcpy` over `.data`/`.len` is the
+## only way to append it without indexing byte by byte.
+##
+## ## Memoria
+## Writes only; the slice is borrowed and never freed.
+antiquus _builder_copy_slice with dst as ref to string, off as int, src as slice of byte into void:
+    r"""
+if (!dst->data || src.len <= 0 || !src.data) return;
+memcpy(dst->data + (size_t)off, src.data, (size_t)src.len);
+dst->data[(size_t)off + (size_t)src.len] = '\0';
+"""
+
+## Copies `src[0..n]` `times` times into `dst` at `off`, then NUL-terminates.
+##
+## ## Motivo
+## One C loop avoids `times` calls back into PenguScript and keeps the
+## operation linear in the copied bytes.
+##
+## ## Memoria
+## Writes only; allocates nothing.
+antiquus _builder_copy_repeat with dst as ref to string, off as int, src as ref to frozen byte, n as int, times as int into void:
+    r"""
+if (!dst->data || !src || n <= 0 || times <= 0) return;
+char *p = dst->data + (size_t)off;
+for (int i = 0; i < times; ++i) {
+    memcpy(p, src, (size_t)n);
+    p += n;
+}
+*p = '\0';
+"""
+
+## Inserts `n` bytes at `pos`, shifting the tail (including the NUL) right.
+##
+## ## Motivo
+## `memmove` with overlap and a single NUL fix-up is exactly what an insert is;
+## expressing it as a byte loop would be slower and no clearer.
+##
+## ## Memoria
+## Writes in place; the buffer must already have room for `n` more bytes.
+antiquus _builder_insert with dst as ref to string, pos as int, len as int, src as ref to frozen byte, n as int into void:
+    r"""
+if (!dst->data || !src || n <= 0) return;
+memmove(dst->data + (size_t)pos + (size_t)n, dst->data + (size_t)pos,
+        (size_t)(len - pos) + 1);
+memcpy(dst->data + (size_t)pos, src, (size_t)n);
+"""
+
+## Fills `n` bytes at `off` with `value`, then NUL-terminates.
+##
+## ## Motivo
+## `memset` is the fastest way to append spaces or zeroes; a PenguScript loop
+## would be O(n) interpreted byte writes.
+##
+## ## Memoria
+## Writes only; allocates nothing.
+antiquus _builder_fill with dst as ref to string, off as int, value as int, n as int into void:
+    r"""
+if (!dst->data || n <= 0) return;
+memset(dst->data + (size_t)off, value, (size_t)n);
+dst->data[(size_t)off + (size_t)n] = '\0';
+"""
+
+## Formats `value` as signed decimal into `dst` at `off` and returns the digits.
+##
+## ## Motivo
+## `snprintf("%lld")` gives the exact same representation as `to string`
+## without allocating a temporary `PenguString`.
+##
+## ## Memoria
+## Writes into the builder buffer; allocates nothing.
+antiquus _builder_format_i64 with dst as ref to string, off as int, value as i64 into int:
+    r"""
+if (!dst->data) return 0;
+int written = snprintf(dst->data + (size_t)off, 32, "%lld", (long long)value);
+if (written < 0) return 0;
+return written;
+"""
+
+## Formats `value` with `%g` into `dst` at `off` and returns the bytes written.
+##
+## ## Motivo
+## `%g` is the language-wide float rendering (`"{x}"`, `x to string` and
+## `print x` all use it), so a builder must produce the same text.
+##
+## ## Memoria
+## Writes into the builder buffer; allocates nothing.
+antiquus _builder_format_f64 with dst as ref to string, off as int, value as f64 into int:
+    r"""
+if (!dst->data) return 0;
+int written = snprintf(dst->data + (size_t)off, 64, "%g", (double)value);
+if (written < 0) return 0;
+return written;
+"""
+
+## Writes one `char` at `off` without touching the next byte.
+##
+## ## Motivo
+## A `char` is one byte; this keeps `append_char` and `set_char_at`
+## allocation-free and avoids routing through `chr` (which would allocate a
+## one-byte string). The caller is responsible for the NUL invariant, because
+## `set_char_at` must not clobber the byte that follows it.
+##
+## ## Memoria
+## Writes only; allocates nothing.
+antiquus _builder_store_char with dst as ref to string, off as int, c as char into void:
+    r"""
+if (!dst->data || off < 0) return;
+dst->data[(size_t)off] = c;
+"""
+
+## Writes a NUL at `off` (the builder's terminator invariant).
+##
+## ## Motivo
+## Keeping the terminator in one helper makes `append_char` and `truncate`
+## impossible to get subtly wrong.
+##
+## ## Memoria
+## Writes only; allocates nothing.
+antiquus _builder_terminate with dst as ref to string, off as int into void:
+    r"""
+if (!dst->data || off < 0) return;
+dst->data[(size_t)off] = '\0';
+"""
+
+## Returns the byte at `i` from a builder buffer of `len` bytes.
+##
+## ## Motivo
+## `byte_at` must not allocate; indexing a `string` yields a one-byte string,
+## not a `byte`. The explicit `len` is the builder's `_len` (the `string`
+## header intentionally keeps `len == 0`).
+##
+## ## Memoria
+## Reads only; returns a value.
+antiquus _builder_byte_at with dst as string, i as int, len as int into byte:
+    r"""
+if (!dst.data || i < 0 || i >= len) return 0;
+return (uint8_t)dst.data[i];
+"""
+
+## Returns the `char` at `i` from a builder buffer of `len` bytes.
+##
+## ## Motivo
+## Same as `_builder_byte_at`, but the public `char_at` returns `char`.
+##
+## ## Memoria
+## Reads only; returns a value.
+antiquus _builder_char_at with dst as string, i as int, len as int into char:
+    r"""
+if (!dst.data || i < 0 || i >= len) return '\0';
+return dst.data[i];
+"""
+
+## Reverses the first `len` bytes of `dst` in place.
+##
+## ## Motivo
+## A two-pointer swap loop is the canonical O(n) reverse; C keeps it branch-free
+## and avoids one PenguScript call per byte.
+##
+## ## Memoria
+## Writes in place; allocates nothing. The NUL at `data[len]` is preserved.
+antiquus _builder_reverse with dst as ref to string, len as int into void:
+    r"""
+if (!dst->data || len <= 1) return;
+int i = 0;
+int j = len - 1;
+while (i < j) {
+    char tmp = dst->data[i];
+    dst->data[i] = dst->data[j];
+    dst->data[j] = tmp;
+    ++i;
+    --j;
+}
+"""
+
+## Transfers the builder buffer into a new owned `PenguString` and empties it.
+##
+## ## Motivo
+## `finish` must hand over the exact allocation without copying. Only C can
+## move the `data` pointer between two `PenguString` headers atomically.
+##
+## ## Memoria
+## The returned string owns the buffer (`is_owned == 1`). The builder is left
+## with `data == NULL`, so a later `banish builder` is a safe no-op.
+antiquus _builder_take with buf as ref to string, len as int into string:
+    r"""
+PenguString out = *buf;
+out.len = len;
+if (out.data) {
+    out.data[(size_t)len] = '\0';
+} else {
+    /* A builder emptied by `reset` has no buffer; `finish` still promises an
+     * owned empty string, never a borrowed rodata view. */
+    out.data = (char *)pengu_memoria_alloc(1);
+    out.data[0] = '\0';
+    out.len = 0;
+    out.is_owned = 1;
+}
+buf->data = NULL;
+buf->len = 0;
+buf->is_owned = 0;
+return out;
+"""
+
+## Copies the first `len` bytes into a new owned `PenguString`.
+##
+## ## Motivo
+## `to_string` and `substring` need a fresh buffer with an explicit length;
+## `pengu_string_copy` would not let us bound the source to `len`.
+##
+## ## Memoria
+## Allocates one owned buffer; the caller releases the result with `banish`.
+antiquus _builder_copy_out with buf as string, len as int into string:
+    r"""
+size_t n = (len > 0) ? (size_t)len : (size_t)0;
+char *out_buf = (char *)pengu_memoria_alloc(n + 1);
+if (n > 0 && buf.data) memcpy(out_buf, buf.data, n);
+out_buf[n] = '\0';
+PenguString out;
+out.data = out_buf;
+out.len = (int)n;
+out.is_owned = 1;
+return out;
+"""
+
+## Copies the byte range `[start, end)` into a new owned `PenguString`.
+##
+## ## Motivo
+## `substring` needs a bounded copy; slicing a `PenguString` in PenguScript
+## would allocate through a runtime path that assumes the whole string.
+##
+## ## Memoria
+## Allocates one owned buffer; the caller releases the result with `banish`.
+antiquus _builder_copy_range with buf as string, start as int, end as int into string:
+    r"""
+size_t n = (end > start) ? (size_t)(end - start) : (size_t)0;
+char *out_buf = (char *)pengu_memoria_alloc(n + 1);
+if (n > 0 && buf.data) memcpy(out_buf, buf.data + (size_t)start, n);
+out_buf[n] = '\0';
+PenguString out;
+out.data = out_buf;
+out.len = (int)n;
+out.is_owned = 1;
+return out;
+"""
+
+## Returns a non-owning `slice of byte` view over the first `len` bytes.
+##
+## ## Motivo
+## `bytes_view` is a borrow; the slice must point at the builder buffer without
+## copying and without taking ownership.
+##
+## ## Memoria
+## Does not allocate. The view is invalidated by any operation that grows,
+## shrinks or releases the builder.
+antiquus _builder_view with buf as string, len as int into slice of byte:
+    r"""
+return pengu_slice_new(buf.data, 1, len);
+"""
+
+## Releases the builder buffer and clears its header.
+##
+## ## Motivo
+## `reset` frees and resets; `pengu_banish_string` already does that safely,
+## but exposing it through one helper keeps the field invariant in one place.
+##
+## ## Memoria
+## Frees the owned buffer; the builder keeps a null, non-owning header.
+antiquus _builder_release with buf as ref to string into void:
+    r"""
+pengu_banish_string(buf);
+"""
+
+# ----------------------------------------------------------------------------
+# Constructors
+# ----------------------------------------------------------------------------
+
+enchanting StringBuilder:
+    ## Creates an empty builder with `BUILDER_DEFAULT_CAPACITY` bytes reserved.
+    ##
+    ## ## Memoria
+    ## Allocates one buffer owned by the builder. Release the builder with
+    ## `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var sb as StringBuilder is calling StringBuilder.new
+    ## defer banish sb
+    ## ```
+    weave ritual new into StringBuilder:
+        var b as string is calling _builder_alloc with BUILDER_DEFAULT_CAPACITY
+        return with _data is b, _len is 0, _cap is BUILDER_DEFAULT_CAPACITY
+
+    ## Creates an empty builder with at least `cap` bytes reserved.
+    ##
+    ## ## Parámetros
+    ## - `cap`: usable bytes to reserve. `0` is valid and allocates only the NUL
+    ##   slot; the first `append` grows the buffer. A negative capacity panics.
+    ##
+    ## ## Memoria
+    ## Allocates one buffer owned by the builder. Release with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var sb as StringBuilder is calling StringBuilder.with_capacity with 1024
+    ## defer banish sb
+    ## ```
+    weave ritual with_capacity with cap as int into StringBuilder:
+        if cap < 0:
+            calling spark.panic with "StringBuilder.with_capacity: negative capacity"
+        var b as string is calling _builder_alloc with cap
+        return with _data is b, _len is 0, _cap is cap
+
+    ## Creates a builder initialised with a copy of `s`.
+    ##
+    ## ## Memoria
+    ## Allocates a buffer of exactly `s.length` bytes (plus the NUL slot). `s`
+    ## is borrowed and may be released immediately after the call.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var sb as StringBuilder is calling StringBuilder.from_string with "abc"
+    ## defer banish sb
+    ## ```
+    weave ritual from_string with s as string into StringBuilder:
+        var n as int is s length
+        var b as string is calling _builder_alloc with n
+        var out as StringBuilder with:
+            set ._data is b
+            set ._len is 0
+            set ._cap is n
+        calling out.append with s
+        return out
+
+    # ------------------------------------------------------------------------
+    # Append
+    # ------------------------------------------------------------------------
+
+    ## Appends a copy of `s` at the end of the builder.
+    ##
+    ## Appending the empty string is a no-op: it never reallocates and never
+    ## changes `len`.
+    ##
+    ## ## Parámetros
+    ## - `s`: the text to append. Borrowed; the builder copies its bytes.
+    ##
+    ## ## Retorno
+    ## Nothing; the builder grows in place.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer. `s` is never retained.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.append with "hola"
+    ## ```
+    weave append with s as string into void:
+        var n as int is s length
+        if n == 0:
+            return
+        calling self.reserve with n
+        var raw as ref to frozen byte is bytes of s
+        calling _builder_copy with (sigil of self->_data), self->_len, raw, n
+        set self->_len is self->_len + n
+
+    ## Appends one byte as a character.
+    ##
+    ## ## Parámetros
+    ## - `c`: the character to append.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer; does not allocate a temporary string.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.append_char with '!'
+    ## ```
+    weave append_char with c as char into void:
+        calling self.reserve with 1
+        calling _builder_store_char with (sigil of self->_data), self->_len, c
+        calling _builder_terminate with (sigil of self->_data), self->_len + 1
+        set self->_len is self->_len + 1
+
+    ## Appends the decimal representation of `n` (same text as `n to string`).
+    ##
+    ## ## Parámetros
+    ## - `n`: any `int`, including `INT_MIN` and `0`.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer. Unlike `append` of `n to string`, it
+    ## does **not** allocate a temporary string.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.append_int with -42       # appends "-42"
+    ## ```
+    weave append_int with n as int into void:
+        calling self.append_i64 with (n to i64)
+
+    ## Appends the decimal representation of the 64-bit integer `n`.
+    ##
+    ## ## Parámetros
+    ## - `n`: any `i64`, including `INT64_MIN` and `0`.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer; allocates no temporary string.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.append_i64 with 9223372036854775807
+    ## ```
+    weave append_i64 with n as i64 into void:
+        calling self.reserve with 32
+        var written as int is calling _builder_format_i64 with (sigil of self->_data), self->_len, n
+        set self->_len is self->_len + written
+
+    ## Appends a `float` using the language-wide `%g` format.
+    ##
+    ## `NaN` uses the platform `%g` spelling (`nan`, or `-nan` when the sign
+    ## bit is set, as it is for `0.0 / 0.0` on glibc), positive infinity renders
+    ## as `inf`, negative infinity as `-inf`, and `-0.0` as `-0` — exactly like
+    ## `"{x}"` and `x to string`, because both go through the same `%g`.
+    ##
+    ## ## Parámetros
+    ## - `f`: the value to format.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer; allocates no temporary string.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.append_float with 1.5      # appends "1.5"
+    ## ```
+    weave append_float with f as float into void:
+        calling self.reserve with 64
+        var written as int is calling _builder_format_f64 with (sigil of self->_data), self->_len, (f to f64)
+        set self->_len is self->_len + written
+
+    ## Appends a `f64` using the language-wide `%g` format.
+    ##
+    ## ## Parámetros
+    ## - `f`: the value to format.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer; allocates no temporary string.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.append_f64 with 3.141592653589793
+    ## ```
+    weave append_f64 with f as f64 into void:
+        calling self.reserve with 64
+        var written as int is calling _builder_format_f64 with (sigil of self->_data), self->_len, f
+        set self->_len is self->_len + written
+
+    ## Appends `"true"` or `"false"`.
+    ##
+    ## ## Parámetros
+    ## - `b`: the boolean to render.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer; the literals are borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.append_bool with true       # appends "true"
+    ## ```
+    weave append_bool with b as bool into void:
+        if b:
+            calling self.append with "true"
+        else:
+            calling self.append with "false"
+
+    ## Appends every byte of a byte slice.
+    ##
+    ## ## Parámetros
+    ## - `b`: a non-owning slice of bytes. It may be empty.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer. `b` is borrowed and never released.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.append_bytes with payload
+    ## ```
+    weave append_bytes with b as slice of byte into void:
+        var n as int is b.length
+        if n <= 0:
+            return
+        calling self.reserve with n
+        calling _builder_copy_slice with (sigil of self->_data), self->_len, b
+        set self->_len is self->_len + n
+
+    ## Appends `n` bytes from a raw pointer.
+    ##
+    ## ## Parámetros
+    ## - `b`: pointer to the first byte. May be `null` only when `n == 0`.
+    ## - `n`: number of bytes to copy. Negative or zero is a no-op.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer. The source is borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.append_slice with raw, 4
+    ## ```
+    weave append_slice with b as ref to frozen byte, n as int into void:
+        if n <= 0:
+            return
+        if b == null:
+            calling spark.panic with "StringBuilder.append_slice: null source"
+        calling self.reserve with n
+        calling _builder_copy with (sigil of self->_data), self->_len, b, n
+        set self->_len is self->_len + n
+
+    ## Appends `s` exactly `times` times.
+    ##
+    ## `times <= 0` or `s == ""` is a no-op, including `times > 0` with an empty
+    ## `s`. The operation reserves the final size once, so it is linear in the
+    ## bytes copied (never quadratic in `times`).
+    ##
+    ## ## Parámetros
+    ## - `s`: the unit to repeat. Borrowed.
+    ## - `times`: how many copies to append.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer once. Panics if the result would not
+    ## fit in an `int` (more than `INT_MAX` bytes).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.append_repeat with "-", 10   # appends "----------"
+    ## ```
+    weave append_repeat with s as string, times as int into void:
+        if times <= 0:
+            return
+        var n as int is s length
+        if n == 0:
+            return
+        if times > (2147483647 - self->_len) / n:
+            calling spark.panic with "StringBuilder.append_repeat: result too large"
+        var total as int is n * times
+        calling self.reserve with total
+        var raw as ref to frozen byte is bytes of s
+        calling _builder_copy_repeat with (sigil of self->_data), self->_len, raw, n, times
+        set self->_len is self->_len + total
+
+    ## Appends `n` ASCII spaces.
+    ##
+    ## ## Parámetros
+    ## - `n`: number of spaces. Negative or zero is a no-op.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.append_spaces with 4          # appends "    "
+    ## ```
+    weave append_spaces with n as int into void:
+        if n <= 0:
+            return
+        calling self.reserve with n
+        calling _builder_fill with (sigil of self->_data), self->_len, 32, n
+        set self->_len is self->_len + n
+
+    # ------------------------------------------------------------------------
+    # Insert / modify
+    # ------------------------------------------------------------------------
+
+    ## Inserts a copy of `s` at byte position `pos`.
+    ##
+    ## `pos == len` appends; `pos < 0` or `pos > len` panics.
+    ##
+    ## ## Parámetros
+    ## - `pos`: byte offset in `[0, len]`.
+    ## - `s`: text to insert. Empty `s` is a no-op.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer; `s` is borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.insert_at with 0, ">> "
+    ## ```
+    weave insert_at with pos as int, s as string into void:
+        if pos < 0 or pos > self->_len:
+            calling spark.panic with "StringBuilder.insert: position out of bounds"
+        var n as int is s length
+        if n == 0:
+            return
+        calling self.reserve with n
+        var raw as ref to frozen byte is bytes of s
+        calling _builder_insert with (sigil of self->_data), pos, self->_len, raw, n
+        set self->_len is self->_len + n
+
+    ## Alias of `insert_at`, for callers that spell the method `insert`.
+    ##
+    ## ## Parámetros
+    ## - `pos`: byte offset in `[0, len]`.
+    ## - `s`: text to insert. Empty `s` is a no-op.
+    ##
+    ## ## Retorno
+    ## Nothing. Panics when `pos` is out of range.
+    ##
+    ## ## Memoria
+    ## May reallocate the internal buffer; `s` is borrowed.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.insert with 0, ">> "
+    ## ```
+    weave insert with pos as int, s as string into void:
+        calling self.insert_at with pos, s
+
+    ## Overwrites the byte at `pos` with `c`.
+    ##
+    ## ## Parámetros
+    ## - `pos`: byte offset in `[0, len)`.
+    ## - `c`: the replacement byte.
+    ##
+    ## ## Retorno
+    ## Nothing. Panics when `pos` is outside the current length.
+    ##
+    ## ## Memoria
+    ## Writes in place; never reallocates.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.set_char_at with 0, 'H'
+    ## ```
+    weave set_char_at with pos as int, c as char into void:
+        if pos < 0 or pos >= self->_len:
+            calling spark.panic with "StringBuilder.set_char_at: index out of bounds"
+        calling _builder_store_char with (sigil of self->_data), pos, c
+
+    ## Shortens the builder to `new_len` bytes.
+    ##
+    ## `new_len >= len` is a no-op (tolerance is deliberate: callers that clamp
+    ## their own index should not need a second check). `new_len < 0` panics.
+    ##
+    ## ## Parámetros
+    ## - `new_len`: the new length in bytes.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## Never reallocates; capacity is preserved.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.truncate with 5
+    ## ```
+    weave truncate with new_len as int into void:
+        if new_len < 0:
+            calling spark.panic with "StringBuilder.truncate: negative length"
+        if new_len >= self->_len:
+            return
+        set self->_len is new_len
+        calling _builder_terminate with (sigil of self->_data), new_len
+
+    ## Reverses the bytes of the builder in place.
+    ##
+    ## Byte-oriented, not grapheme-oriented: `"ñ"` (two UTF-8 bytes) reverses to
+    ## two invalid bytes. That is the same contract as `mem.reverse` and it is
+    ## what a lexer, a CSV writer or a byte-protocol encoder needs.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## Writes in place; never reallocates.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.reverse       # "abc" -> "cba"
+    ## ```
+    weave reverse into void:
+        calling _builder_reverse with (sigil of self->_data), self->_len
+
+    # ------------------------------------------------------------------------
+    # Queries
+    # ------------------------------------------------------------------------
+
+    ## Returns the number of bytes currently in the builder.
+    ##
+    ## ## Retorno
+    ## A non-negative `int` in `[0, capacity]`.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave len into int:
+        return self->_len
+
+    ## Returns the number of bytes the buffer can hold without growing.
+    ##
+    ## `capacity >= len` always holds. A fresh builder has
+    ## `BUILDER_DEFAULT_CAPACITY`; after `finish` or `reset` it is `0`.
+    ##
+    ## ## Retorno
+    ## A non-negative `int`.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave capacity into int:
+        return self->_cap
+
+    ## True when the builder holds no bytes.
+    ##
+    ## ## Retorno
+    ## `len == 0`.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave is_empty into bool:
+        return self->_len == 0
+
+    ## Returns the byte at `i` as a `char`.
+    ##
+    ## ## Parámetros
+    ## - `i`: byte offset in `[0, len)`.
+    ##
+    ## ## Retorno
+    ## The byte as a `char`. Panics when `i` is out of range.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave char_at with i as int into char:
+        if i < 0 or i >= self->_len:
+            calling spark.panic with "StringBuilder.char_at: index out of bounds"
+        return calling _builder_char_at with self->_data, i, self->_len
+
+    ## Returns the byte at `i`.
+    ##
+    ## ## Parámetros
+    ## - `i`: byte offset in `[0, len)`.
+    ##
+    ## ## Retorno
+    ## The `byte`. Panics when `i` is out of range.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave byte_at with i as int into byte:
+        if i < 0 or i >= self->_len:
+            calling spark.panic with "StringBuilder.byte_at: index out of bounds"
+        return calling _builder_byte_at with self->_data, i, self->_len
+
+    ## Returns a non-owning byte view over the current contents.
+    ##
+    ## ## Retorno
+    ## A `slice of byte` that aliases the builder buffer. **Do not `banish` it**
+    ## and do not keep it across a mutating call: `append`, `insert`,
+    ## `shrink_to_fit`, `reset` and `finish` invalidate the view.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation, no ownership transfer.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## vary view as slice of byte is calling sb.bytes_view
+    ## ```
+    weave bytes_view into slice of byte:
+        return calling _builder_view with self->_data, self->_len
+
+    ## Returns a new owned copy of the bytes in `[start, end)`.
+    ##
+    ## `start < 0` panics; `end > len` is clamped to `len`; `start > end`
+    ## panics. `start == end` returns an owned empty string.
+    ##
+    ## ## Parámetros
+    ## - `start`: inclusive byte offset.
+    ## - `end`: exclusive byte offset.
+    ##
+    ## ## Retorno
+    ## A new **owned** string; release it with `banish`.
+    ##
+    ## ## Memoria
+    ## Allocates one buffer; the builder is untouched.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var head as string is calling sb.substring with 0, 5
+    ## defer banish head
+    ## ```
+    weave substring with start as int, end as int into string:
+        if start < 0:
+            calling spark.panic with "StringBuilder.substring: negative start"
+        var stop as int is end
+        if stop > self->_len:
+            set stop is self->_len
+        if start > stop:
+            calling spark.panic with "StringBuilder.substring: start > end"
+        if start == stop:
+            return calling _builder_copy_out with "", 0
+        return calling _builder_copy_range with self->_data, start, stop
+
+    # ------------------------------------------------------------------------
+    # Buffer management
+    # ------------------------------------------------------------------------
+
+    ## Ensures capacity for at least `additional` more bytes.
+    ##
+    ## Growth doubles the current capacity (or jumps to the exact need when
+    ## that is larger), which gives amortised O(1) appends.
+    ##
+    ## ## Parámetros
+    ## - `additional`: bytes to reserve beyond `len`. `<= 0` is a no-op.
+    ##
+    ## ## Retorno
+    ## Nothing. `capacity` is at least `len + additional` afterwards.
+    ##
+    ## ## Memoria
+    ## May reallocate the buffer; the old pointer is invalid.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.reserve with 1024
+    ## ```
+    weave reserve with additional as int into void:
+        if additional <= 0:
+            return
+        if additional > 2147483647 - self->_len:
+            calling spark.panic with "StringBuilder.reserve: capacity overflow"
+        var need as int is self->_len + additional
+        if need <= self->_cap:
+            return
+        var next_cap as int is self->_cap
+        if next_cap <= 1073741823:
+            set next_cap is next_cap * 2
+        if next_cap < need:
+            set next_cap is need
+        calling _builder_resize with (sigil of self->_data), self->_cap, next_cap
+        set self->_cap is next_cap
+
+    ## Shrinks the buffer to exactly `len` bytes.
+    ##
+    ## After this call `capacity == len` (or both are `0` for an empty
+    ## builder). Useful before handing a long-lived builder to `to_string`.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## May reallocate (usually to a smaller block).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.shrink_to_fit
+    ## ```
+    weave shrink_to_fit into void:
+        if self->_cap == self->_len:
+            return
+        calling _builder_resize with (sigil of self->_data), self->_cap, self->_len
+        set self->_cap is self->_len
+
+    ## Empties the builder but keeps its buffer and capacity.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## Never reallocates and never releases; the buffer is reused.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.clear
+    ## ```
+    weave clear into void:
+        set self->_len is 0
+        calling _builder_terminate with (sigil of self->_data), 0
+
+    ## Empties the builder and releases its buffer.
+    ##
+    ## After `reset` the builder is usable again (`len == 0`, `cap == 0`); the
+    ## next `append` allocates a fresh buffer.
+    ##
+    ## ## Retorno
+    ## Nothing.
+    ##
+    ## ## Memoria
+    ## Frees the internal buffer. `StringBuilder` itself is a stack value, so it
+    ## does not need a second release; `banish builder` afterwards is a no-op.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling sb.reset
+    ## ```
+    weave reset into void:
+        calling _builder_release with (sigil of self->_data)
+        set self->_len is 0
+        set self->_cap is 0
+
+    # ------------------------------------------------------------------------
+    # Finish
+    # ------------------------------------------------------------------------
+
+    ## Transfers the internal buffer to a new owned string and empties the
+    ## builder.
+    ##
+    ## This is the fast path: no bytes are copied. After `finish` the builder
+    ## has `len == 0`, `cap == 0` and no buffer, so it is safe to `banish` it
+    ## and safe to reuse it (the next append allocates).
+    ##
+    ## ## Retorno
+    ## A new **owned** string (`is_owned == 1`). Release it with `banish`.
+    ##
+    ## ## Memoria
+    ## Transfers ownership of the buffer. The caller now owns it.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var s as string is calling sb.finish
+    ## defer banish s
+    ## ```
+    weave finish into string:
+        var out as string is calling _builder_take with (sigil of self->_data), self->_len
+        set self->_len is 0
+        set self->_cap is 0
+        return out
+
+    ## Returns a new owned copy of the contents, leaving the builder usable.
+    ##
+    ## Prefer this over `finish` when the builder has to keep accumulating. It
+    ## costs one copy; `finish` costs none.
+    ##
+    ## ## Retorno
+    ## A new **owned** string. Release it with `banish`.
+    ##
+    ## ## Memoria
+    ## Allocates one buffer; the builder and its capacity are untouched.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var snapshot as string is calling sb.to_string
+    ## defer banish snapshot
+    ## ```
+    weave to_string into string:
+        return calling _builder_copy_out with self->_data, self->_len

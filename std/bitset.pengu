@@ -1,0 +1,860 @@
+## std/bitset.pengu — a fixed-length dense bit set.
+##
+## A `BitSet` stores `bit_len` bits in `ceil(bit_len / 8)` bytes and offers
+## constant-time single-bit access, word-at-a-time bulk operations and the set
+## algebra (`and`, `or`, `xor`, `and_not`, `not`) that a dense integer set needs.
+## It is the right tool for membership over a bounded universe: visited flags in
+## a graph, seen-bytes tables, occupancy maps, sieve composites, Bloom filters.
+##
+## For a **sparse** set (a handful of values out of a huge universe) use
+## `map of int to int`: allocating `bit_len / 8` bytes would be wasteful.
+##
+## ## Invariants
+## - `bit_len` is fixed at construction; every operation respects it.
+## - Bits `bit_len .. byte_len * 8 - 1` (the padding of the last byte) are
+##   **always zero**. Constructors, `not`, `not_in_place` and every binary
+##   operation re-apply the mask, so `count_ones` never counts padding.
+## - `_data` is owned by the bitset and released by `banish` (`derive Nexus`).
+##
+## ## Example: Sieve of Eratosthenes
+## ```pengu
+## import std.bitset
+## import std.spark
+##
+## weave main into int:
+##     var n as int is 50
+##     var composite as BitSet is calling BitSet.new with (n + 1)
+##     defer banish composite
+##     var p as int is 2
+##     while p * p <= n:
+##         if not (calling composite.get with p):
+##             var m as int is p * p
+##             while m <= n:
+##                 calling composite.set with m
+##                 set m is m + p
+##         set p is p + 1
+##     var i as int is 2
+##     while i <= n:
+##         if not (calling composite.get with i):
+##             calling spark.println with "{i}"
+##         set i is i + 1
+##     return 0
+## ```
+##
+## ## Complexity
+## | Operation | Cost |
+## |---|---|
+## | `get`, `set`, `clear`, `toggle`, `set_to` | O(1) |
+## | `count_ones`, `count_zeros`, `equals`, `copy`, `and/or/xor/and_not`, `not` | O(bit_len / 8) |
+## | `set_all`, `clear_all`, `toggle_all` | O(bit_len / 8) |
+## | `find_first_*`, `find_next_*` | O(bit_len) worst case, O(1) in the common case |
+## | `iter_set` | O(bit_len) plus the result list |
+## | `to_bytes` | O(1), non-owning |
+
+import std.spark
+
+# ----------------------------------------------------------------------------
+# Module version
+# ----------------------------------------------------------------------------
+
+## BitSet module version.
+const BITSET_VERSION as string is "2.9.0"
+
+# ----------------------------------------------------------------------------
+# Value type
+# ----------------------------------------------------------------------------
+
+## A dense bit vector of fixed length `bit_len`.
+##
+## Fields are private: use the methods, which enforce the bounds and the
+## padding-zero invariant.
+##
+## ## Memoria
+## `_data` is an owned byte buffer of `_byte_len` bytes. `banish bitset`
+## releases it through `derive Nexus`.
+rune BitSet derive Nexus:
+    _data as string
+    _bit_len as int
+    _byte_len as int
+
+# ----------------------------------------------------------------------------
+# Private C bridges
+# ----------------------------------------------------------------------------
+
+## Allocates a zeroed byte buffer of `n` bytes and returns it as an owned string.
+##
+## ## Motivo
+## The bitset buffer must be owned by a `PenguString` header so `derive Nexus`
+## frees it with `banish`. A zero-length buffer still owns one byte, which keeps
+## `banish` and `to_bytes` valid for an empty bitset.
+##
+## ## Memoria
+## Returns one owned allocation (at least one byte); the caller releases it with
+## `banish` (the bitset does it through `Nexus`).
+antiquus _bitset_alloc with n as int into string:
+    r"""
+size_t bytes = (n > 0) ? (size_t)n : (size_t)0;
+char *buf = (char *)pengu_memoria_alloc(bytes + 1);
+PenguString s;
+s.data = buf;
+s.len = (int)bytes;
+s.is_owned = 1;
+return s;
+"""
+
+## Returns a writable byte pointer to the bitset storage.
+##
+## ## Motivo
+## `PenguString` bytes are immutable in PenguScript; the bit operations need a
+## writable view of the same allocation.
+##
+## ## Memoria
+## Borrows the buffer; no allocation and no ownership transfer.
+antiquus _bitset_ptr with data as ref to string into ref to byte:
+    r"""
+return (uint8_t *)data->data;
+"""
+
+## Returns a non-owning `slice of byte` view of `n` bytes.
+##
+## ## Motivo
+## `to_bytes` must expose the storage as a slice without copying and without
+## handing over the buffer.
+##
+## ## Memoria
+## No allocation; the slice aliases the bitset buffer and is invalidated by
+## `banish`.
+antiquus _bitset_slice with data as string, n as int into slice of byte:
+    r"""
+return pengu_slice_new(data.data, 1, n);
+"""
+
+## Copies `n` bytes from `src` into the bitset storage.
+##
+## ## Motivo
+## `from_bytes` must copy a `PenguSlice` whose element type is `byte`; the
+## `memcpy` is the whole operation.
+##
+## ## Memoria
+## Writes only; the source slice is borrowed.
+antiquus _bitset_copy_from with data as ref to string, src as slice of byte, n as int into void:
+    r"""
+if (n <= 0 || !data->data || !src.data) return;
+memcpy(data->data, src.data, (size_t)n);
+"""
+
+# ----------------------------------------------------------------------------
+# Constructors
+# ----------------------------------------------------------------------------
+
+enchanting BitSet:
+    ## Creates a bitset of `bit_len` bits, all zero.
+    ##
+    ## `bit_len == 0` is valid: `byte_len == 0`, `count_ones == 0` and every
+    ## indexed operation panics (there is no valid index).
+    ##
+    ## ## Parámetros
+    ## - `bit_len`: number of bits; must be `>= 0`.
+    ##
+    ## ## Retorno
+    ## A `BitSet` with `_byte_len == ceil(bit_len / 8)`.
+    ##
+    ## ## Memoria
+    ## Allocates one buffer owned by the bitset. Release the bitset with
+    ## `banish`. Panics on a negative length.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var bs as BitSet is calling BitSet.new with 64
+    ## defer banish bs
+    ## ```
+    weave ritual new with bit_len as int into BitSet:
+        if bit_len < 0:
+            calling spark.panic with "BitSet.new: negative bit length"
+        var nbytes as int is (bit_len + 7) / 8
+        var data as string is calling _bitset_alloc with nbytes
+        return with _data is data, _bit_len is bit_len, _byte_len is nbytes
+
+    ## Creates a bitset of `bit_len` bits with every useful bit set to one.
+    ##
+    ## The padding bits of the last byte stay zero, so `count_ones == bit_len`.
+    ##
+    ## ## Parámetros
+    ## - `bit_len`: number of bits; must be `>= 0`.
+    ##
+    ## ## Retorno
+    ## A `BitSet` full of ones.
+    ##
+    ## ## Memoria
+    ## Allocates one buffer owned by the bitset; release with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var bs as BitSet is calling BitSet.filled with 9
+    ## # count_ones == 9, the last byte's padding is 0
+    ## ```
+    weave ritual filled with bit_len as int into BitSet:
+        var out as BitSet is calling BitSet.new with bit_len
+        calling out.set_all
+        return out
+
+    ## Creates a bitset from `data`, copying `ceil(bit_len / 8)` bytes.
+    ##
+    ## `data` must contain at least `ceil(bit_len / 8)` bytes; extra trailing
+    ## bytes are ignored. Padding bits in the last copied byte are masked to
+    ## zero, so the padding-zero invariant holds even for a caller-supplied
+    ## buffer with garbage in the unused high bits.
+    ##
+    ## ## Parámetros
+    ## - `data`: a non-owning byte slice; borrowed.
+    ## - `bit_len`: number of useful bits; must be `>= 0`.
+    ##
+    ## ## Retorno
+    ## A new `BitSet` that owns its own copy.
+    ##
+    ## ## Memoria
+    ## Allocates one buffer owned by the bitset; release with `banish`. `data`
+    ## is borrowed and never freed. Panics when the slice is too short.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var raw as array of byte with size 2 is [255, 1]
+    ## var view as slice of byte is raw at 0 to 2
+    ## var bs as BitSet is calling BitSet.from_bytes with view, 9
+    ## defer banish bs
+    ## ```
+    weave ritual from_bytes with data as slice of byte, bit_len as int into BitSet:
+        if bit_len < 0:
+            calling spark.panic with "BitSet.from_bytes: negative bit length"
+        var nbytes as int is (bit_len + 7) / 8
+        if data.length < nbytes:
+            calling spark.panic with "BitSet.from_bytes: slice is shorter than the bitset"
+        var out as BitSet is calling BitSet.new with bit_len
+        calling _bitset_copy_from with (sigil of out._data), data, nbytes
+        calling out._mask_padding
+        return out
+
+    # ------------------------------------------------------------------------
+    # Single-bit operations
+    # ------------------------------------------------------------------------
+
+    ## Sets bit `i` to one.
+    ##
+    ## ## Parámetros
+    ## - `i`: bit index in `[0, bit_len)`.
+    ##
+    ## ## Retorno
+    ## Nothing. Panics when `i` is out of range.
+    ##
+    ## ## Memoria
+    ## Writes in place; O(1), no allocation.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling bs.set with 3
+    ## ```
+    weave set with i as int into void:
+        calling self._check_index with i
+        calling self._write_bit with i, true
+
+    ## Clears bit `i` to zero.
+    ##
+    ## ## Parámetros
+    ## - `i`: bit index in `[0, bit_len)`.
+    ##
+    ## ## Retorno
+    ## Nothing. Panics when `i` is out of range.
+    ##
+    ## ## Memoria
+    ## Writes in place; O(1), no allocation.
+    weave clear with i as int into void:
+        calling self._check_index with i
+        calling self._write_bit with i, false
+
+    ## Flips bit `i`.
+    ##
+    ## ## Parámetros
+    ## - `i`: bit index in `[0, bit_len)`.
+    ##
+    ## ## Retorno
+    ## Nothing. Panics when `i` is out of range.
+    ##
+    ## ## Memoria
+    ## Writes in place; O(1), no allocation.
+    weave toggle with i as int into void:
+        calling self._check_index with i
+        var p as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var byte_i as int is i / 8
+        var cur as int is ((p at (byte_i)) to int)
+        var mask as int is 1 << (i % 8)
+        if (cur & mask) != 0:
+            set p at (byte_i) is ((cur & (~mask)) to byte)
+        else:
+            set p at (byte_i) is ((cur | mask) to byte)
+
+    ## Sets bit `i` to `v` (`true` = one, `false` = zero).
+    ##
+    ## ## Parámetros
+    ## - `i`: bit index in `[0, bit_len)`.
+    ## - `v`: the value to write.
+    ##
+    ## ## Retorno
+    ## Nothing. Panics when `i` is out of range.
+    ##
+    ## ## Memoria
+    ## Writes in place; O(1), no allocation.
+    weave set_to with i as int, v as bool into void:
+        calling self._check_index with i
+        calling self._write_bit with i, v
+
+    ## Returns bit `i`.
+    ##
+    ## ## Parámetros
+    ## - `i`: bit index in `[0, bit_len)`.
+    ##
+    ## ## Retorno
+    ## `true` when the bit is one.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation. Panics when `i` is out of range.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## if calling bs.get with 3:
+    ##     calling spark.println with "set"
+    ## ```
+    weave get with i as int into bool:
+        calling self._check_index with i
+        var p as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var cur as int is ((p at (i / 8)) to int)
+        return (cur & (1 << (i % 8))) != 0
+
+    # ------------------------------------------------------------------------
+    # Bulk operations
+    # ------------------------------------------------------------------------
+
+    ## Sets every useful bit to one; padding stays zero.
+    ##
+    ## ## Memoria
+    ## O(byte_len), no allocation.
+    weave set_all into void:
+        var p as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set p at (i) is 255
+            set i is i + 1
+        calling self._mask_padding
+
+    ## Clears every bit.
+    ##
+    ## ## Memoria
+    ## O(byte_len), no allocation.
+    weave clear_all into void:
+        var p as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set p at (i) is 0
+            set i is i + 1
+
+    ## Flips every useful bit; padding stays zero.
+    ##
+    ## ## Memoria
+    ## O(byte_len), no allocation.
+    weave toggle_all into void:
+        var p as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var i as int is 0
+        while i < self->_byte_len:
+            var cur as int is ((p at (i)) to int)
+            set p at (i) is ((cur ^ 255) to byte)
+            set i is i + 1
+        calling self._mask_padding
+
+    # ------------------------------------------------------------------------
+    # Queries
+    # ------------------------------------------------------------------------
+
+    ## Returns the fixed number of bits.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave bit_len into int:
+        return self->_bit_len
+
+    ## Returns the number of one bits.
+    ##
+    ## ## Memoria
+    ## O(byte_len), no allocation. Uses branch-free SWAR popcount per byte, so
+    ## it is also O(1) in space and never touches the padding bits (they are
+    ## already zero by invariant).
+    weave count_ones into int:
+        var p as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var total as int is 0
+        var i as int is 0
+        while i < self->_byte_len:
+            var v as int is ((p at (i)) to int)
+            set v is v - ((v >> 1) & 85)
+            set v is (v & 51) + ((v >> 2) & 51)
+            set v is (v + (v >> 4)) & 15
+            set total is total + v
+            set i is i + 1
+        return total
+
+    ## Returns the number of zero bits (`bit_len - count_ones`).
+    ##
+    ## ## Memoria
+    ## O(byte_len), no allocation.
+    weave count_zeros into int:
+        return self->_bit_len - (calling self.count_ones)
+
+    ## True when no bit is set.
+    ##
+    ## ## Memoria
+    ## O(byte_len), no allocation.
+    weave is_empty into bool:
+        return (calling self.count_ones) == 0
+
+    ## True when every useful bit is set (`count_ones == bit_len`).
+    ##
+    ## For `bit_len == 0` this is `true` (vacuously full).
+    ##
+    ## ## Memoria
+    ## O(byte_len), no allocation.
+    weave is_full into bool:
+        return (calling self.count_ones) == self->_bit_len
+
+    ## True when at least one bit is set. Alias of `not is_empty`.
+    ##
+    ## ## Memoria
+    ## O(byte_len), no allocation.
+    weave any into bool:
+        return (calling self.count_ones) != 0
+
+    ## True when every useful bit is set. Alias of `is_full`.
+    ##
+    ## ## Memoria
+    ## O(byte_len), no allocation.
+    weave all into bool:
+        return (calling self.count_ones) == self->_bit_len
+
+    # ------------------------------------------------------------------------
+    # Binary operations (new bitset)
+    # ------------------------------------------------------------------------
+
+    ## Returns `self AND other` as a new bitset.
+    ##
+    ## ## Parámetros
+    ## - `other`: a bitset of exactly the same `bit_len`. Mismatched lengths
+    ##   panic.
+    ##
+    ## ## Memoria
+    ## Allocates one new bitset; release it with `banish`.
+    weave and_with with other as ref to BitSet into BitSet:
+        calling self._check_same_len with other
+        var out as BitSet is calling BitSet.new with self->_bit_len
+        var a as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var b as ref to byte is calling _bitset_ptr with (sigil of other->_data)
+        var o as ref to byte is calling _bitset_ptr with (sigil of out._data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set o at (i) is (((a at i) to int) & ((b at i) to int)) to byte
+            set i is i + 1
+        calling out._mask_padding
+        return out
+
+    ## Returns `self OR other` as a new bitset.
+    ##
+    ## ## Parámetros
+    ## - `other`: a bitset of exactly the same `bit_len`.
+    ##
+    ## ## Memoria
+    ## Allocates one new bitset; release it with `banish`.
+    weave or_with with other as ref to BitSet into BitSet:
+        calling self._check_same_len with other
+        var out as BitSet is calling BitSet.new with self->_bit_len
+        var a as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var b as ref to byte is calling _bitset_ptr with (sigil of other->_data)
+        var o as ref to byte is calling _bitset_ptr with (sigil of out._data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set o at (i) is (((a at i) to int) | ((b at i) to int)) to byte
+            set i is i + 1
+        calling out._mask_padding
+        return out
+
+    ## Returns `self XOR other` as a new bitset.
+    ##
+    ## ## Parámetros
+    ## - `other`: a bitset of exactly the same `bit_len`.
+    ##
+    ## ## Memoria
+    ## Allocates one new bitset; release it with `banish`.
+    weave xor_with with other as ref to BitSet into BitSet:
+        calling self._check_same_len with other
+        var out as BitSet is calling BitSet.new with self->_bit_len
+        var a as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var b as ref to byte is calling _bitset_ptr with (sigil of other->_data)
+        var o as ref to byte is calling _bitset_ptr with (sigil of out._data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set o at (i) is (((a at i) to int) ^ ((b at i) to int)) to byte
+            set i is i + 1
+        calling out._mask_padding
+        return out
+
+    ## Returns `self AND NOT other` as a new bitset.
+    ##
+    ## ## Parámetros
+    ## - `other`: a bitset of exactly the same `bit_len`.
+    ##
+    ## ## Memoria
+    ## Allocates one new bitset; release it with `banish`.
+    weave and_not_with with other as ref to BitSet into BitSet:
+        calling self._check_same_len with other
+        var out as BitSet is calling BitSet.new with self->_bit_len
+        var a as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var b as ref to byte is calling _bitset_ptr with (sigil of other->_data)
+        var o as ref to byte is calling _bitset_ptr with (sigil of out._data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set o at (i) is (((a at i) to int) & ((~((b at i) to int)) & 255)) to byte
+            set i is i + 1
+        calling out._mask_padding
+        return out
+
+    ## Returns the complement of `self` as a new bitset.
+    ##
+    ## Only the useful bits are inverted; the padding of the last byte is zero in
+    ## the result, so `count_ones` is exact.
+    ##
+    ## ## Memoria
+    ## Allocates one new bitset; release it with `banish`.
+    weave not into BitSet:
+        var out as BitSet is calling BitSet.new with self->_bit_len
+        var a as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var o as ref to byte is calling _bitset_ptr with (sigil of out._data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set o at (i) is ((~((a at i) to int)) & 255) to byte
+            set i is i + 1
+        calling out._mask_padding
+        return out
+
+    # ------------------------------------------------------------------------
+    # In-place operations
+    # ------------------------------------------------------------------------
+
+    ## `self = self AND other`, in place.
+    ##
+    ## ## Parámetros
+    ## - `other`: a bitset of exactly the same `bit_len`.
+    ##
+    ## ## Memoria
+    ## Writes in place; no allocation.
+    weave and_in_place with other as ref to BitSet into void:
+        calling self._check_same_len with other
+        var a as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var b as ref to byte is calling _bitset_ptr with (sigil of other->_data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set a at (i) is (((a at i) to int) & ((b at i) to int)) to byte
+            set i is i + 1
+        calling self._mask_padding
+
+    ## `self = self OR other`, in place.
+    ##
+    ## ## Parámetros
+    ## - `other`: a bitset of exactly the same `bit_len`.
+    ##
+    ## ## Memoria
+    ## Writes in place; no allocation.
+    weave or_in_place with other as ref to BitSet into void:
+        calling self._check_same_len with other
+        var a as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var b as ref to byte is calling _bitset_ptr with (sigil of other->_data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set a at (i) is (((a at i) to int) | ((b at i) to int)) to byte
+            set i is i + 1
+        calling self._mask_padding
+
+    ## `self = self XOR other`, in place.
+    ##
+    ## ## Parámetros
+    ## - `other`: a bitset of exactly the same `bit_len`.
+    ##
+    ## ## Memoria
+    ## Writes in place; no allocation.
+    weave xor_in_place with other as ref to BitSet into void:
+        calling self._check_same_len with other
+        var a as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var b as ref to byte is calling _bitset_ptr with (sigil of other->_data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set a at (i) is (((a at i) to int) ^ ((b at i) to int)) to byte
+            set i is i + 1
+        calling self._mask_padding
+
+    ## `self = self AND NOT other`, in place.
+    ##
+    ## ## Parámetros
+    ## - `other`: a bitset of exactly the same `bit_len`.
+    ##
+    ## ## Memoria
+    ## Writes in place; no allocation.
+    weave and_not_in_place with other as ref to BitSet into void:
+        calling self._check_same_len with other
+        var a as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var b as ref to byte is calling _bitset_ptr with (sigil of other->_data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set a at (i) is (((a at i) to int) & ((~((b at i) to int)) & 255)) to byte
+            set i is i + 1
+        calling self._mask_padding
+
+    ## Inverts every useful bit in place; padding stays zero.
+    ##
+    ## ## Memoria
+    ## Writes in place; no allocation.
+    weave not_in_place into void:
+        var a as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set a at (i) is ((~((a at i) to int)) & 255) to byte
+            set i is i + 1
+        calling self._mask_padding
+
+    # ------------------------------------------------------------------------
+    # Search
+    # ------------------------------------------------------------------------
+
+    ## Returns the index of the first one bit, or `none`.
+    ##
+    ## ## Retorno
+    ## `some i` with the smallest set index, or `none` when empty.
+    ##
+    ## ## Memoria
+    ## O(bit_len) worst case, no allocation.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var first as maybe int is calling bs.find_first_set
+    ## ```
+    weave find_first_set into maybe int:
+        var p as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var i as int is 0
+        while i < self->_byte_len:
+            var v as int is ((p at (i)) to int)
+            if v != 0:
+                var bit as int is 0
+                while bit < 8:
+                    if (v & (1 << bit)) != 0:
+                        return some (i * 8 + bit)
+                    set bit is bit + 1
+            set i is i + 1
+        return maybe none
+
+    ## Returns the index of the first zero bit, or `none` when full.
+    ##
+    ## Padding bits are never considered: a bitset with `bit_len == 9` and all
+    ## nine useful bits set returns `none`, not index 9.
+    ##
+    ## ## Memoria
+    ## O(bit_len) worst case, no allocation.
+    weave find_first_clear into maybe int:
+        var p as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var i as int is 0
+        while i < self->_byte_len:
+            var v as int is ((p at (i)) to int)
+            var limit as int is 8
+            if i == self->_byte_len - 1:
+                var rem as int is self->_bit_len % 8
+                if rem != 0:
+                    set limit is rem
+            if v != 255:
+                var bit as int is 0
+                while bit < limit:
+                    if (v & (1 << bit)) == 0:
+                        return some (i * 8 + bit)
+                    set bit is bit + 1
+            set i is i + 1
+        return maybe none
+
+    ## Returns the first set bit with index `>= from`, or `none`.
+    ##
+    ## ## Parámetros
+    ## - `from`: starting index. `from >= bit_len` returns `none`; negative
+    ##   values panic.
+    ##
+    ## ## Memoria
+    ## O(bit_len) worst case, no allocation.
+    weave find_next_set with from as int into maybe int:
+        if from < 0:
+            calling spark.panic with "BitSet.find_next_set: negative index"
+        if from >= self->_bit_len:
+            return maybe none
+        var i as int is from
+        while i < self->_bit_len:
+            if (calling self.get with i):
+                return some i
+            set i is i + 1
+        return maybe none
+
+    ## Returns the first clear bit with index `>= from`, or `none`.
+    ##
+    ## ## Parámetros
+    ## - `from`: starting index. `from >= bit_len` returns `none`; negative
+    ##   values panic.
+    ##
+    ## ## Memoria
+    ## O(bit_len) worst case, no allocation.
+    weave find_next_clear with from as int into maybe int:
+        if from < 0:
+            calling spark.panic with "BitSet.find_next_clear: negative index"
+        if from >= self->_bit_len:
+            return maybe none
+        var i as int is from
+        while i < self->_bit_len:
+            if not (calling self.get with i):
+                return some i
+            set i is i + 1
+        return maybe none
+
+    # ------------------------------------------------------------------------
+    # Comparison and copy
+    # ------------------------------------------------------------------------
+
+    ## Compares two bitsets byte for byte.
+    ##
+    ## Bitsets of different `bit_len` are never equal (this does **not** panic;
+    ## it is a value comparison, unlike the binary operators).
+    ##
+    ## ## Memoria
+    ## O(byte_len), no allocation.
+    weave equals with other as ref to BitSet into bool:
+        if self->_bit_len != other->_bit_len:
+            return false
+        var a as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var b as ref to byte is calling _bitset_ptr with (sigil of other->_data)
+        var i as int is 0
+        while i < self->_byte_len:
+            if (a at i) != (b at i):
+                return false
+            set i is i + 1
+        return true
+
+    ## Returns an independent copy.
+    ##
+    ## ## Memoria
+    ## Allocates one new bitset; release it with `banish`.
+    weave copy into BitSet:
+        var out as BitSet is calling BitSet.new with self->_bit_len
+        var a as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var o as ref to byte is calling _bitset_ptr with (sigil of out._data)
+        var i as int is 0
+        while i < self->_byte_len:
+            set o at (i) is (a at i)
+            set i is i + 1
+        return out
+
+    # ------------------------------------------------------------------------
+    # Conversion
+    # ------------------------------------------------------------------------
+
+    ## Returns a new `list of int` with every set index in ascending order.
+    ##
+    ## ## Memoria
+    ## Allocates the list (and its buffer); release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var set_bits as list of int is calling bs.iter_set
+    ## defer banish set_bits
+    ## ```
+    weave iter_set into list of int:
+        var out as list of int is list of int
+        var p as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var i as int is 0
+        while i < self->_byte_len:
+            var v as int is ((p at (i)) to int)
+            if v != 0:
+                var bit as int is 0
+                while bit < 8:
+                    if (v & (1 << bit)) != 0:
+                        calling out.push with (i * 8 + bit)
+                    set bit is bit + 1
+            set i is i + 1
+        return out
+
+    ## Returns a non-owning byte view of the internal buffer.
+    ##
+    ## The view has `byte_len` bytes. **Do not `banish` it**, and do not keep it
+    ## after `banish bitset` or any in-place operation: it aliases the bitset
+    ## storage.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation, no ownership transfer.
+    weave to_bytes into slice of byte:
+        return calling _bitset_slice with self->_data, self->_byte_len
+
+    # ------------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------------
+
+    ## Panics when `i` is outside `[0, bit_len)`.
+    ##
+    ## ## Motivo
+    ## One bounds check shared by every single-bit method keeps the diagnostic
+    ## identical everywhere.
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave _check_index with i as int into void:
+        if i < 0 or i >= self->_bit_len:
+            calling spark.panic with "BitSet: bit index out of bounds"
+
+    ## Panics when `other` has a different `bit_len`.
+    ##
+    ## ## Motivo
+    ## Set algebra between differently sized universes is a caller bug, not a
+    ## value result (use `equals` for the non-panicking comparison).
+    ##
+    ## ## Memoria
+    ## O(1), no allocation.
+    weave _check_same_len with other as ref to BitSet into void:
+        if self->_bit_len != other->_bit_len:
+            calling spark.panic with "BitSet: bit lengths differ"
+
+    ## Writes one bit without the bounds check.
+    ##
+    ## ## Motivo
+    ## `set`, `clear` and `set_to` share the read-modify-write sequence.
+    ##
+    ## ## Memoria
+    ## Writes in place; O(1), no allocation.
+    weave _write_bit with i as int, v as bool into void:
+        var p as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var byte_i as int is i / 8
+        var cur as int is ((p at (byte_i)) to int)
+        var mask as int is 1 << (i % 8)
+        if v:
+            set p at (byte_i) is ((cur | mask) to byte)
+        else:
+            set p at (byte_i) is ((cur & (~mask)) to byte)
+
+    ## Zeroes the padding bits of the last byte.
+    ##
+    ## ## Motivo
+    ## `count_ones`, `equals` and `to_bytes` rely on the padding-zero invariant;
+    ## every constructor and bulk operation funnels through this helper.
+    ##
+    ## ## Memoria
+    ## Writes one byte at most; O(1), no allocation.
+    weave _mask_padding into void:
+        var rem as int is self->_bit_len % 8
+        if rem == 0 or self->_byte_len == 0:
+            return
+        var mask as int is (1 << rem) - 1
+        var p as ref to byte is calling _bitset_ptr with (sigil of self->_data)
+        var last as int is self->_byte_len - 1
+        var cur as int is ((p at (last)) to int)
+        set p at (last) is ((cur & mask) to byte)

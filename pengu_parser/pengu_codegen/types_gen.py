@@ -86,6 +86,7 @@ class TypesMixin:
             " * ------------------------------------------------------------------------- */",
         ] + decls + [""]
         return "\n".join(lines)
+
     def generate_type_definitions(self) -> str:
         """Generates full struct, union, enum, and typedef definitions."""
         blocks = []
@@ -275,6 +276,12 @@ class TypesMixin:
             name = t.c_name()
             if name in self.runes:
                 deps.add(name)
+            # A tuple embeds its elements by value too: `(Position, Position)`
+            # needs `Position` complete before the product struct, exactly like
+            # a rune field does.  Returning here used to leave the tuple first
+            # in `rune_order` and produced an incomplete field type.
+            for element in t.elements:
+                self._rune_value_deps(element, deps)
             return
         if isinstance(t, FrozenType):
             self._rune_value_deps(t.target, deps)

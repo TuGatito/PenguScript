@@ -36,7 +36,8 @@
 17. [Pruebas unitarias (`test`)](#17-unit-tests-test)
 18. [Construcción estilo bloque (expresiones `with:`)](#18-block-style-construction-with-expressions)
 19. [Biblioteca estándar](#19-standard-library)
-    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-29-modules)
+    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-33-modules)
+    - 19.1.2 [Los cuatro módulos fundamentales](#1912-los-cuatro-módulos-fundamentales)
     - 19.2 [Bindings externos (repositorios satélite)](#192-external-bindings-satellite-repositories)
     - 19.3 [Ejemplos de la biblioteca estándar central](#193-core-standard-library-examples)
     - 19.4 [Recursos embebidos del proyecto (`arca`)](#194-embedded-project-assets-arca)
@@ -3740,12 +3741,20 @@ test "stdlib version":
 
 `tests/stdlib/test_std_versioning.py` exige que cada módulo escrito a mano de
 `std/` exporte esa constante con una versión de release válida (opcionalmente
-con sufijo de prerelease semver), y que `std.functor` y `std.loom` estén en 2.8.0. El uso de espacios de
+con sufijo de prerelease semver), y que `std.functor` y `std.loom` estén en 2.9.0. El uso de espacios de
 nombres ya mantiene cada módulo autocontenido (`std.<module>.<symbol>`), así que
 desacoplar la stdlib en paquetes versionados de forma independiente queda reservado
 para 2.0.
 
-### 19.1 Módulos de PenguScript puro (29 módulos)
+Los cuatro módulos fundamentales de 2.9.0 siguen la misma regla: `std.builder`
+exporta `BUILDER_VERSION`, `std.arena` exporta `ARENA_VERSION`, `std.sourcemap`
+exporta `SOURCEMAP_VERSION` y `std.bitset` exporta `BITSET_VERSION`, las cuatro
+con `"2.9.0"` en esta versión. También exportan sus constantes de ajuste por
+defecto (`BUILDER_DEFAULT_CAPACITY`, `ARENA_DEFAULT_BLOCK_SIZE`,
+`ARENA_DEFAULT_ALIGNMENT`) para quien quiera reservar exactamente lo que el
+módulo reservaría.
+
+### 19.1 Módulos de PenguScript puro (33 módulos)
 
 Todos los módulos puros se encuentran en el directorio `std/` y se importan como `import std.<module>`.
 
@@ -3777,8 +3786,13 @@ Todos los módulos puros se encuentran en el directorio `std/` y se importan com
 | `std.memoria` | Gestión manual de memoria del heap mediante funciones de módulo `shard T`: `alloc`, `alloc_array`, `try_alloc`, `try_alloc_array`, `resize_array` (con `old_n` explícito), `try_resize_array`, `copy` (semántica `memmove` — segura con solapamiento), `fill`, `zero`, `swap`, `compare` (devuelve `-1`/`0`/`1` como `memcmp`), `bytes_for`. Zeroed por defecto; en OOM aborta salvo que se use la variante `try_*`. Compone con `banish`/`defer banish`/`errdefer banish`/`derive Nexus`. `free`, `sizeof` y `address_of` están deliberadamente ausentes: esos son `banish`, `size of` y `sigil of` en el propio lenguaje. Quien necesite un bloque sin inicializar usa `antiquus`. |
 | `std.invoke` | Análisis de argumentos de interfaz de línea de comandos (CLI): sintaxis POSIX y GNU (`--flag`, `--key=value`, `-k=value`), negación de flags booleanos (`--no-flag`), subcomandos (`rune Subcommand`), opciones tipadas (int, float, bool, string, multi), opciones multi repetibles (`rune MultiOption`), sugerencias de erratas por Levenshtein, cadenas de ayuda y uso formateadas (`usage_string`, `full_help`), informes de error y variantes robustas de análisis (`parse`, `parse_no_exit`, `parse_or_exit`, `parse_or_usage`, accesores de `ParseResult` `get`, `get_or`, `get_int`, `get_int_or`, `get_float`, `get_float_or`, `get_bool`, `get_bool_or`, `get_all`, `to_map_values`, `to_map_flags`). |
 | `std.ffi` | Puente de interfaz de funciones externas de C de bajo nivel: utilidades de punteros nulos (`null_void`, `null_char`, `null_byte`, `is_null`, `is_valid`, `ptr_eq`), constantes e inspección de arquitectura (`SIZEOF_POINTER`, `SIZEOF_INT`, `SIZEOF_FLOAT`, `pointer_size`, `size_of shard T`, `alignment_of shard T`), conversiones de cadenas C terminadas en nulo (`string_from_cstr`, `cstr_from_string`, `string_from_cstr_n`, `string_from_bytes`, `bytes_from_string`), vistas de memoria (`slice_from_ptr`), colecciones genéricas a partir de búferes de C (`list_from_ptr shard T`, `map_from_entries shard K, V`), copia/escritura de memoria en bruto (`memcpy_raw`, `memset_raw`) y 10 patrones canónicos de interoperabilidad con C. |
+| `std.web` | Puente WebAssembly / Emscripten, compilado y eliminado por completo en objetivos nativos. Elige la rama con la variable de compilación `when wasm:`, así que en una compilación nativa cada punto de entrada existe (stubs seguros) y en wasm se emiten las llamadas Web. Consola (`console_log`, `console_warn`, `console_error`, `console_trace` — consola de JavaScript, o stderr en nativo), un bucle principal real (`set_main_loop` con fps opcional y `simulate_infinite_loop`, `cancel_main_loop`, `pause_main_loop`, `resume_main_loop`), tiempo monotónico de alta resolución (`now_ms`), evaluación de JavaScript (`eval_js`), llamadas diferidas (`set_timeout`, `clear_timeout`) y la constante `IS_WASM`. `emscripten_sleep` no está aquí a propósito: necesita `-sASYNCIFY`, y todo este módulo funciona con un build `emcc` normal. Ver `docs/WASM.md`. |
 | `std.ledger` | Datos tabulares, análisis y serialización de CSV/TSV y operaciones con matrices: análisis (`parse_csv`, `parse_tsv`, `parse_line`, `detect_delimiter`, `parse_csv_strict`, `parse_csv_nocomments`, `parse_csv_skip`, `parse_line_strict`, `parse_csv_normalized`), abstracción de tabla `rune CsvTable` (`from_csv`, `from_rows`, `row_count`, `column_count`, `has_column`, `column_index`, `get`, `get_or`, `column`, `row_as_map`, `to_csv`), enchantments de matrices (`list of list of string`: `row_count`, `column_count`, `is_rectangular`, `column`, `transpose`), conversiones a mapas clave-valor (`parse_csv_as_pairs`, `parse_csv_key_value`, `write_key_value_map`), escape (`escape_field`, `escape_field_rfc4180`, `escape_field_backslash`), formateadores (`to_csv_string`, `to_tsv_string`, `to_csv_string_no_trailing_newline`, `to_csv_string_crlf`) y operaciones de archivos (`read_csv`, `read_tsv`, `write_csv`, `write_tsv`, `write_csv_safe`). |
 | `std.arithmancy` | Matemáticas avanzadas y álgebra lineal para juegos. **Dos partes:** (a) las funciones escalares (`abs_i`, `abs_f`, `min_i`, `max_i`, `min_f`, `max_f`, `clamp_i`, `clamp_f`, `sqrt_f`, `pow_f`, `sin_f`, `cos_f`, `tan_f`, `asin_f`, `acos_f`, `atan_f`, `atan2_f`, `deg_to_rad`, `rad_to_deg`, `lerp_f`, `smoothstep_f`, `is_prime`, `gcd`, `lcm`, `is_power_of_two`) son ahora **wrappers finos** sobre los módulos de métodos primitivos (`std.numerus`, `std.integrum`, `std.fractio`) — el algoritmo vive en el módulo dueño del bound; (b) los tipos vector/matriz/cuaternión (`Vec2`, `Vec3`, `Vec4`, `Mat4`, `Quat`) y las constantes (`PI`, `TAU`, `E`, `EPSILON`, `HALF_PI`, `SQRT2`, …), que no tienen equivalente en otro sitio y siguen siendo la fuente de verdad. Cuatro redondeos (`floor`/`ceil`/`round`/`trunc`), `approx_eq`, `fmod` y `next_power_of_two` se quedan locales a propósito: difieren de los métodos en dominio o en semántica de borde. |
+| `std.builder` | `StringBuilder`, un acumulador de texto con append amortizado O(1): `new`, `with_capacity`, `from_string`; `append`, `append_char`, `append_int`, `append_i64`, `append_float`, `append_f64`, `append_bool`, `append_bytes`, `append_slice`, `append_repeat`, `append_spaces`; `insert_at` / `insert`, `set_char_at`, `truncate`, `reverse`; `len`, `capacity`, `is_empty`, `char_at`, `byte_at`, `bytes_view`, `substring`; `reserve`, `shrink_to_fit`, `clear`, `reset`; `finish` (transfiere posesión, O(1)) y `to_string` (copia). Comparable a `java.lang.StringBuilder` y `zig.ArrayList(u8)`. |
+| `std.arena` | Allocator bump para grafos temporales de objetos: `Arena.new`, `Arena.with_block_size`, `alloc`, `alloc_aligned`, `alloc_str`, `alloc_cstr`, `total_allocated`, `block_count`, `block_size`, `reset` (conserva el primer bloque y reutiliza el arena) y `free` (libera todos los bloques). Soporta bloques oversized y alineación por dirección absoluta; `arena_alloc of T` / `arena_alloc_one of T` devuelven memoria tipada y puesta a cero. Comparable a `zig.heap.ArenaAllocator` y `bumpalo`. |
+| `std.sourcemap` | Traducción bidireccional entre offset de byte y `(línea, columna)` 1-indexed: `SourceMap.from_source`, `source`, `line_count`, `source_len`, `position_at` (O(log líneas)), `offset_of` (O(1)), `line_text` (consciente de CRLF), `line_span`, `span_at`, `span_to_positions`, `is_valid_offset`, `is_valid_position`, `clamp_offset`, más los runes `Position` y `Span`. Comparable a `rustc_span::SourceMap`. |
+| `std.bitset` | Conjunto denso de bits de longitud fija: `new`, `filled`, `from_bytes`; `set`, `clear`, `toggle`, `set_to`, `get`; `set_all`, `clear_all`, `toggle_all`; `count_ones`, `count_zeros`, `is_empty`, `is_full`, `any`, `all`; `and_with`, `or_with`, `xor_with`, `and_not_with`, `not`, las formas `*_in_place`, `find_first_set`, `find_first_clear`, `find_next_set`, `find_next_clear`, `equals`, `copy`, `iter_set` y `to_bytes` sin posesión. Comparable a `java.util.BitSet` y `zig.DynamicBitSet`. |
 
 ### 19.1.1 Elegir entre `std.loom` y `std.tally`
 
@@ -3820,6 +3834,136 @@ El estado de deprecación de los alias heredados de ambos módulos está catalog
 [`docs/DEPRECATIONS.md`](docs/DEPRECATIONS.md); unificar las dos familias queda
 diferido a 1.1 porque cualquiera de las dos direcciones rompe a los llamadores de la
 familia que pierda (ítem 6.5, `AUDIT_1.0_FASE6.md`).
+
+### 19.1.2 Los cuatro módulos fundamentales
+
+2.9.0 añade los cuatro módulos que el compilador autohospedado (y cualquier otra
+herramienta que construya texto, árboles, posiciones o conjuntos densos)
+necesita primero. Son deliberadamente generales: `builder` sirve igual para CSV,
+HTML y logs que para codegen; `arena` sirve igual para el AST de un parser que
+para el grafo temporal de un renderer; `sourcemap` sirve igual para un linter que
+para un compilador; `bitset` sirve igual para un filtro Bloom o un mapa de
+ocupación que para un conjunto de data-flow.
+
+| Módulo | Úsalo cuando | Coste típico |
+|---|---|---|
+| `std.builder` | añades texto en un bucle o en un recorrido recursivo | un `memcpy` por append, crecimiento 2x amortizado |
+| `std.arena` | muchos objetos comparten un ciclo de vida y se liberan juntos | O(1) por asignación |
+| `std.sourcemap` | tienes un offset de byte y necesitas línea/columna (o al revés) | consulta O(log líneas), construcción O(n) |
+| `std.bitset` | el universo es un rango denso de enteros y importa la pertenencia | O(1) por bit, O(n/8) en bloque |
+
+#### `std.builder`
+
+`StringBuilder` posee un único buffer contiguo. `finish` entrega ese buffer a un
+`string` nuevo sin copiar; `to_string` copia y deja el builder utilizable.
+
+```pengu
+import std.builder
+import std.spark
+
+weave main into int:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "total: "
+    calling sb.append_int with 42
+    var out as string is calling sb.finish
+    defer banish out
+    calling spark.println with out
+    return 0
+```
+
+`append` es O(1) amortizado; `append_int`/`append_float` formatean directamente
+en el builder (sin string temporal). `insert_at`, `truncate` y `reverse` son O(n)
+en los bytes que mueven.
+
+#### `std.arena`
+
+`Arena` reparte trozos de bloques grandes y nunca libera un objeto individual.
+`reset` conserva el primer bloque y deja el arena reutilizable; `free` libera
+todos los bloques. `reset`/`free` liberan **solo memoria**: no ejecutan
+destructores ni liberan buffers de `string`/`list` guardados dentro del arena.
+
+```pengu
+import std.arena
+import std.spark
+
+rune Node:
+    value as int
+    next as ref to Node
+
+weave main into int:
+    var a as Arena is calling Arena.new
+    defer banish a
+    defer calling a.free
+    var head as ref to Node is calling arena_alloc_one of Node with (sigil of a)
+    set head->value is 7
+    set head->next is calling arena_alloc_one of Node with (sigil of a)
+    set head->next->value is 8
+    calling spark.println with "{(head->value) + (head->next->value)}"
+    return 0
+```
+
+`alloc_aligned` alinea la **dirección absoluta**, así que funcionan buffers
+alineados a página y a SIMD aunque el bloque subyacente venga de `malloc`.
+`alloc(size)` usa `ARENA_DEFAULT_ALIGNMENT` (16 bytes). Una asignación puede ser
+mayor que el bloque normal; recibe su propio bloque oversized.
+
+> [!IMPORTANT]
+> `banish arena` libera las dos listas de contabilidad, no los bloques. Libera los
+> bloques con `free` primero (`defer calling a.free`), luego `banish a`.
+
+#### `std.sourcemap`
+
+`SourceMap` indexa los inicios de línea una vez y responde en ambas direcciones.
+Las líneas y columnas son 1-indexed; una columna es un offset de **byte** (no un
+índice de codepoint), así que `offset = inicio_de_línea + columna - 1` es exacto
+incluso con UTF-8 inválido. En un fichero CRLF el `
+` cuenta para los offsets
+pero se excluye de `line_text`.
+
+```pengu
+import std.sourcemap
+import std.spark
+
+weave main into int:
+    var sm as SourceMap is calling SourceMap.from_source with "a\nb"
+    defer banish sm
+    var p as Position is calling sm.position_at with 2
+    var line as string is calling sm.line_text with 2
+    defer banish line
+    calling spark.println with "line {p.line}, col {p.col}: {line}"
+    return 0
+```
+
+`position_at` recorta offsets fuera de rango; `offset_of` panickea con una línea
+o columna inválida. `line_text` y `substring` devuelven strings con posesión
+(libéralos); `source` devuelve un préstamo.
+
+#### `std.bitset`
+
+`BitSet` tiene un `bit_len` fijo y mantiene a cero los bits de padding del último
+byte, así que `count_ones` es exacto. Las operaciones binarias exigen longitudes
+iguales; `equals` devuelve `false` con longitudes distintas en vez de panickear.
+
+```pengu
+import std.bitset
+import std.spark
+
+weave main into int:
+    var seen as BitSet is calling BitSet.new with 64
+    defer banish seen
+    calling seen.set with 3
+    calling seen.set with 7
+    var count as int is calling seen.count_ones
+    var first as maybe int is calling seen.find_first_set
+    calling spark.println with "count={count} first={first}"
+    banish first
+    return 0
+```
+
+Usa `map of int to int` para un conjunto disperso: un bitset reserva
+`bit_len / 8` bytes tanto si guarda dos elementos como dos millones.
+
 
 ### 19.2 Bindings externos (repositorios satélite)
 

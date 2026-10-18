@@ -1352,6 +1352,83 @@ defer banish doc                           # invokes _pengu_cleanup_Doc
 
 A `slice of T` is **always** a window. It never frees. The module docstring must say so explicitly when it returns slices. Returning a `slice of` a stack array is itself rejected (`E0051`) because the slice would dangle once the weave returns.
 
+### 8.8 Choosing an allocation strategy
+
+Four tools cover almost every allocation in PenguScript. Pick by **lifetime**, not
+by type:
+
+| Tool | Lifetime | Use it for | Do **not** use it for |
+|---|---|---|---|
+| `memoria.alloc` / `alloc_array` | one value, released by you | a single object, a long-lived buffer, a struct that outlives the call | a tree of many objects released together |
+| `std.arena` | one batch, released together | ASTs, parse trees, temporary graphs, per-frame scratch | one object (that is `memoria.alloc`), or objects with different lifetimes |
+| `std.builder` | one text value, built incrementally | CSV, HTML, logs, codegen, any loop that appends | two or three fixed pieces (interpolation is clearer and allocates once) |
+| `std.bitset` | a dense universe of integers | visited flags, sieves, Bloom filters, occupancy maps | a sparse set (use `map of int to int`) |
+
+#### Text: interpolation vs `StringBuilder`
+
+```pengu
+import std.builder
+
+weave main into int:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "row: "
+    calling sb.append_int with 7
+    var row as string is calling sb.to_string
+    defer banish row
+    return 0
+```
+
+`"{a}{b}{c}"` is one allocation and is the right spelling for a fixed number of
+pieces. A builder is for a loop whose piece count is unknown: `n` appends cost
+`O(total bytes)`, while `out = "{out}{piece}"` in a loop costs `O(n²)`.
+
+#### Trees: `Arena` vs one allocation per node
+
+```pengu
+import std.arena
+
+rune Node:
+    value as int
+
+weave main into int:
+    var a as Arena is calling Arena.new
+    defer banish a
+    defer calling a.free
+    var n as ref to Node is calling arena_alloc_one of Node with (sigil of a)
+    set n->value is 1
+    return 0
+```
+
+One `free` releases every node. Remember that `reset`/`free` do not run
+destructors: if a node owns a `string`, release that string first or keep the
+arena contents POD.
+
+#### Dense sets: `BitSet`
+
+```pengu
+import std.bitset
+
+weave main into int:
+    var seen as BitSet is calling BitSet.new with 1024
+    defer banish seen
+    calling seen.set with 42
+    return 0
+```
+
+`BitSet` is O(1) per bit and `bit_len / 8` bytes total. For a handful of values in
+a huge universe, `map of int to int` is smaller and faster.
+
+#### Anti-patterns
+
+- **Builder for two strings.** `"{a}{b}"` allocates once and is shorter.
+- **Arena for one object.** Use `memoria.alloc` + `banish`; an arena adds blocks
+  and a lifecycle for no benefit.
+- **BitSet for a sparse set.** A million-bit bitset for ten values is 125 KiB of
+  mostly zeros; a map is ten entries.
+- **Keeping a borrowed view across a mutation.** `bytes_view`, `to_bytes` and
+  `arena.alloc` pointers are invalidated by growth, `reset`, `free` or `banish`.
+
 ---
 
 ## 9. C interoperability

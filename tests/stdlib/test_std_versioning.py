@@ -63,8 +63,8 @@ def test_every_module_exports_a_version_marker(path):
 
 
 def test_functor_and_loom_are_at_the_current_release():
-    assert _declared_version(STD / "functor.pengu") == "2.8.0"
-    assert _declared_version(STD / "loom.pengu") == "2.8.0"
+    assert _declared_version(STD / "functor.pengu") == "2.9.0"
+    assert _declared_version(STD / "loom.pengu") == "2.9.0"
 
 
 def test_the_version_file_and_the_fallback_agree():

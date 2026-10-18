@@ -1,0 +1,25 @@
+## Sieve of Eratosthenes with a BitSet of composites.
+import std.spark
+import std.bitset
+
+weave main into int:
+    var n as int is 100
+    var composite as BitSet is calling BitSet.new with (n + 1)
+    defer banish composite
+    var p as int is 2
+    while p * p <= n:
+        if not (calling composite.get with p):
+            var m as int is p * p
+            while m <= n:
+                calling composite.set with m
+                set m is m + p
+        set p is p + 1
+    var count as int is 0
+    var i as int is 2
+    while i <= n:
+        if not (calling composite.get with i):
+            set count is count + 1
+        set i is i + 1
+    calling spark.println with "primes={count}"
+    calling spark.println with "OK bitset_sieve"
+    return 0

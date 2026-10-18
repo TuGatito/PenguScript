@@ -2552,7 +2552,7 @@ class TypeInferrer:
                     cast_target = ast_to_type(right_node, self.symbols.lookup_type)
                 elif right_node.data == "var_ref":
                     name = str(right_node.children[0])
-                    if name in ("int", "i32", "i64", "f32", "f64", "float", "double", "bool", "string", "char", "byte", "u8", "u16", "u32", "u64") or (self.symbols and (name in self.symbols.runes or self.symbols.lookup_type(name))):
+                    if name in ("int", "i32", "i64", "f32", "f64", "float", "double", "bool", "string", "char", "byte", "u8", "u16", "u32", "u64", "usize", "isize", "size_t", "short", "ushort", "long", "ulong") or (self.symbols and (name in self.symbols.runes or self.symbols.lookup_type(name))):
                         is_type_cast = True
                         cast_target = ast_to_type(right_node, self.symbols.lookup_type)
 

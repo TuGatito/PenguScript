@@ -1,0 +1,30 @@
+## Intersection, union and difference over two dense sets.
+import std.spark
+import std.bitset
+
+weave main into int:
+    var a as BitSet is calling BitSet.new with 32
+    defer banish a
+    var b as BitSet is calling BitSet.new with 32
+    defer banish b
+    calling a.set with 1
+    calling a.set with 2
+    calling a.set with 5
+    calling a.set with 9
+    calling b.set with 2
+    calling b.set with 9
+    calling b.set with 11
+    var inter as BitSet is calling a.and_with with (sigil of b)
+    defer banish inter
+    var union_set as BitSet is calling a.or_with with (sigil of b)
+    defer banish union_set
+    var diff as BitSet is calling a.and_not_with with (sigil of b)
+    defer banish diff
+    calling spark.println with "inter={(calling inter.count_ones)}"
+    calling spark.println with "union={(calling union_set.count_ones)}"
+    calling spark.println with "diff={(calling diff.count_ones)}"
+    var indexes as list of int is calling inter.iter_set
+    defer banish indexes
+    calling spark.println with "first={(indexes at 0)}"
+    calling spark.println with "OK bitset_set_ops"
+    return 0

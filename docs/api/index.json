@@ -725,6 +725,54 @@
       "deprecated": false,
       "documented": true,
       "kind": "const",
+      "module": "arena",
+      "name": "ARENA_DEFAULT_ALIGNMENT",
+      "signature": "**ARENA_DEFAULT_ALIGNMENT** : usize"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "arena",
+      "name": "ARENA_DEFAULT_BLOCK_SIZE",
+      "signature": "**ARENA_DEFAULT_BLOCK_SIZE** : usize"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "arena",
+      "name": "ARENA_VERSION",
+      "signature": "**ARENA_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "arena",
+      "name": "Arena",
+      "signature": "**Arena** : Arena"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "arena",
+      "name": "arena_alloc",
+      "signature": "**arena_alloc**(a: ref to Arena, n: int) -> ref to T"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "arena",
+      "name": "arena_alloc_one",
+      "signature": "**arena_alloc_one**(a: ref to Arena) -> ref to T"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
       "module": "arithmancy",
       "name": "ARITHMANCY_VERSION",
       "signature": "**ARITHMANCY_VERSION** : string"
@@ -2760,6 +2808,46 @@
       "module": "atlas",
       "name": "values_ss",
       "signature": "**atlas_values_ss**(m: map of string to string) -> list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "bitset",
+      "name": "BITSET_VERSION",
+      "signature": "**BITSET_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "bitset",
+      "name": "BitSet",
+      "signature": "**BitSet** : BitSet"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "builder",
+      "name": "BUILDER_DEFAULT_CAPACITY",
+      "signature": "**BUILDER_DEFAULT_CAPACITY** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "builder",
+      "name": "BUILDER_VERSION",
+      "signature": "**BUILDER_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "builder",
+      "name": "StringBuilder",
+      "signature": "**StringBuilder** : StringBuilder"
     },
     {
       "deprecated": false,
@@ -10496,6 +10584,54 @@
       "module": "scrolls",
       "name": "zfill",
       "signature": "**pengu_zfill**(s: string, width: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "sourcemap",
+      "name": "SOURCEMAP_CARRIAGE_RETURN",
+      "signature": "**SOURCEMAP_CARRIAGE_RETURN** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "sourcemap",
+      "name": "SOURCEMAP_NEWLINE",
+      "signature": "**SOURCEMAP_NEWLINE** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "sourcemap",
+      "name": "SOURCEMAP_VERSION",
+      "signature": "**SOURCEMAP_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "sourcemap",
+      "name": "Position",
+      "signature": "**Position** : Position"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "sourcemap",
+      "name": "SourceMap",
+      "signature": "**SourceMap** : SourceMap"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "sourcemap",
+      "name": "Span",
+      "signature": "**Span** : Span"
     },
     {
       "deprecated": false,

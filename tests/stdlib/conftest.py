@@ -84,3 +84,29 @@ def compile_and_run(tmp_path, has_cc):
         )
 
     return _run
+
+
+@pytest.fixture
+def run_pengu(tmp_path, has_cc):
+    """Runs a PenguScript source and returns the raw ``CompletedProcess``.
+
+    ``compile_and_run`` asserts a zero exit status because most stdlib tests are
+    happy paths.  Panic-path tests need the opposite: this fixture keeps the
+    process result so a test can assert a non-zero status and the diagnostic.
+    """
+    if not has_cc:
+        pytest.skip("no C compiler available")
+    if not _have_runtime():
+        pytest.skip("libpengu_runtime.a not built (run build_runtime.py)")
+
+    def _run(source: str, timeout: int = 120) -> subprocess.CompletedProcess:
+        script = tmp_path / "panic.pengu"
+        script.write_text(source, encoding="utf-8")
+        return subprocess.run(
+            [sys.executable, str(ROOT / "pengu_project.py"), "run",
+             "--ephemeral", str(script)],
+            capture_output=True, text=True, timeout=timeout,
+            cwd=str(tmp_path), env={**os.environ, "PYTHONPATH": str(ROOT)},
+        )
+
+    return _run
