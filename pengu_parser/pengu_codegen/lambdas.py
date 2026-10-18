@@ -69,7 +69,7 @@ class LambdaMixin:
         # scope must be pushed/popped: defining them in the *current* scope (the
         # global one during code generation) leaked lambda parameter names into
         # every later lookup.
-        inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+        inferrer = self._make_inferrer()
         inferrer.symbols.push_scope(kind="lambda")
         try:
             for pn, pt in zip(pnames, ptypes):

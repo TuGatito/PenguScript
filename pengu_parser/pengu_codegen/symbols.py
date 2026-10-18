@@ -311,6 +311,23 @@ class SymbolMixin:
                     return EchoType(key, self.echos[key])
         return None
 
+    def _make_inferrer(self) -> "TypeInferrer":
+        """A ``TypeInferrer`` bound to the module currently being generated.
+
+        The inferrer decides whether a private ``_field`` is reachable by
+        comparing the *declaring* module with ``self.filename`` (see
+        ``TypeInferrer._is_owner_module``).  A fresh inferrer without a filename
+        has no module identity, so it rejected every ``_field`` access: the
+        checker accepted ``b._items`` and codegen then mis-typed the node as
+        ``None`` ("Cannot iterate over non-collection type 'None'").  Passing
+        ``current_source_file`` keeps the two passes in agreement.
+        """
+        return TypeInferrer(
+            self.symbols,
+            compile_env=self.compile_env,
+            filename=self.current_source_file or "main.pengu",
+        )
+
     def _infer_node_type(self, node: Any, expected_type: Optional[Type] = None) -> Optional[Type]:
         """Infers semantic type for AST node using active local variable context."""
         if not self.symbols:
@@ -318,7 +335,7 @@ class SymbolMixin:
         saved_scope = self.symbols.current_scope
         saved_all_scopes_len = len(self.symbols.all_scopes)
         try:
-            inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+            inferrer = self._make_inferrer()
             if self.current_enchanted_type is not None:
                 inferrer.symbols.push_scope(kind="enchanting", enchanting_type=self.current_enchanted_type)
             else:

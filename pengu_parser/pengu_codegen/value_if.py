@@ -370,7 +370,7 @@ class ValueIfMixin:
                 return self._is_string_expr(n.children[1]) or self._is_string_expr(n.children[2])
 
             try:
-                inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+                inferrer = self._make_inferrer()
                 for lv_k, lv_v in self.local_vars.items():
                     inferrer.symbols.define(Symbol(name=lv_k, type=lv_v, kind="var"))
                 if self.current_enchanted_type is not None:

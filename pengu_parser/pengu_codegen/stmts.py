@@ -262,7 +262,7 @@ class StmtMixin:
                     sync_array_sizes(t, sym.type)
                 if isinstance(t, ArrayType) and expr_node is not None:
                     try:
-                        inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+                        inferrer = self._make_inferrer()
                         for lv_name, lv_t in self.local_vars.items():
                             inferrer.symbols.define(Symbol(name=lv_name, type=lv_t, kind="var"))
                         inf_t = inferrer.infer(expr_node)
@@ -275,7 +275,7 @@ class StmtMixin:
                     t = sym.type
                 if t is None and expr_node is not None:
                     try:
-                        inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+                        inferrer = self._make_inferrer()
                         for lv_name, lv_t in self.local_vars.items():
                             inferrer.symbols.define(Symbol(name=lv_name, type=lv_t, kind="var"))
                         t = inferrer.infer(expr_node)
@@ -333,7 +333,7 @@ class StmtMixin:
                     t = sym.type
                 if t is None and expr_node is not None:
                     try:
-                        inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+                        inferrer = self._make_inferrer()
                         for lv_name, lv_t in self.local_vars.items():
                             inferrer.symbols.define(Symbol(name=lv_name, type=lv_t, kind="var"))
                         t = inferrer.infer(expr_node)
@@ -415,7 +415,7 @@ class StmtMixin:
                         sync_array_sizes(t, sym.type)
                     if isinstance(t, ArrayType) and expr_node is not None:
                         try:
-                            inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+                            inferrer = self._make_inferrer()
                             for lv_name, lv_t in self.local_vars.items():
                                 inferrer.symbols.define(Symbol(name=lv_name, type=lv_t, kind="var"))
                             inf_t = inferrer.infer(expr_node)
@@ -428,7 +428,7 @@ class StmtMixin:
                         t = sym.type
                     if t is None and expr_node is not None:
                         try:
-                            inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+                            inferrer = self._make_inferrer()
                             for lv_name, lv_t in self.local_vars.items():
                                 inferrer.symbols.define(Symbol(name=lv_name, type=lv_t, kind="var"))
                             t = inferrer.infer(expr_node)

@@ -489,7 +489,7 @@ class ExprMixin:
             arg_types = []
             inferrer = None
             try:
-                inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+                inferrer = self._make_inferrer()
                 for lv_k, lv_v in self.local_vars.items():
                     inferrer.symbols.define(Symbol(name=lv_k, type=lv_v, kind="var"))
                 arg_types = [inferrer.infer(n) for n in arg_nodes]
@@ -1151,6 +1151,47 @@ class ExprMixin:
                         mod_prefix = getattr(obj_sym, "c_name", None) or obj_name
                         prefixed = f"{mod_prefix}_{m_name}"
                         alias_prefixed = f"{obj_name}_{m_name}"
+                        # A qualified call names *that* module's member, so ask
+                        # the module's own scope first.  Without this, a concrete
+                        # `scrolls.contains` was resolved through the generic
+                        # monomorphization fallback once another imported module
+                        # exported a `contains` (std.tally), and the call emitted
+                        # tally's `contains_string(list, string)` with a string
+                        # argument.  Generic members (type_params) still go
+                        # through monomorphization below.
+                        mod_member = (obj_sym.module_scope.lookup(m_name)
+                                      if getattr(obj_sym, "module_scope", None) else None)
+                        member_fn_t = getattr(mod_member, "type", None)
+                        member_is_generic = bool(getattr(member_fn_t, "type_params", None))
+                        if (mod_member is not None
+                                and getattr(mod_member, "kind", "") == "weave"
+                                and not member_is_generic
+                                and not explicit_type_args):
+                            # The member's `c_name` is recorded *unprefixed* by
+                            # the checker (imports are renamed at bundle time),
+                            # so try the module-qualified spelling first and fall
+                            # back to the member's own C name only when the
+                            # module prefix is not registered (a module with an
+                            # `insignia` prefix, e.g. `scrolls.contains` ->
+                            # `pengu_contains`).  Looking the bare name up first
+                            # made `trial.assert_eq_int` call itself.
+                            c_fn_name = None
+                            for candidate_name in (prefixed, alias_prefixed,
+                                                   mod_member.get_c_name()):
+                                if candidate_name and candidate_name in self.fn_info:
+                                    c_fn_name = candidate_name
+                                    break
+                            if c_fn_name is None:
+                                c_fn_name = mod_member.get_c_name()
+                            fn_entry = (self.fn_info.get(c_fn_name)
+                                        or self.fn_info.get(prefixed)
+                                        or self.fn_info.get(alias_prefixed)
+                                        or self.fn_info.get(m_name))
+                            if fn_entry and fn_entry.get("c_name"):
+                                c_fn_name = fn_entry["c_name"]
+                            if fn_entry and fn_entry.get("params"):
+                                args = self._build_call_args(fn_entry["params"], raw_arg_nodes)
+                            return f"{c_fn_name}({', '.join(args)})"
                         if explicit_type_args:
                             m_suf = "_".join(t.get_mangled_name() for t in explicit_type_args)
                             for cand in (f"{prefixed}_{m_suf}", f"{alias_prefixed}_{m_suf}", f"{m_name}_{m_suf}"):
@@ -1646,7 +1687,7 @@ class ExprMixin:
                         arg_expr = args_node.children[0] if args_node and args_node.children else None
                         if isinstance(arg_expr, Tree) and arg_expr.data in ("pos_arg", "named_arg"):
                             arg_expr = arg_expr.children[-1]
-                        inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+                        inferrer = self._make_inferrer()
                         for lv_k, lv_v in self.local_vars.items():
                             inferrer.symbols.define(Symbol(name=lv_k, type=lv_v, kind="var"))
                         arg_t = None
@@ -1749,7 +1790,7 @@ class ExprMixin:
                         if len(matches) == 1:
                             target_str = matches[0]
                         elif len(matches) > 1:
-                            inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+                            inferrer = self._make_inferrer()
                             for lv_k, lv_v in self.local_vars.items():
                                 inferrer.symbols.define(Symbol(name=lv_k, type=lv_v, kind="var"))
                             arg_types = []
@@ -1964,7 +2005,7 @@ class ExprMixin:
 
             iter_c = self._translate_expr(iter_node)
 
-            inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+            inferrer = self._make_inferrer()
             for lv_k, lv_v in self.local_vars.items():
                 inferrer.symbols.define(Symbol(name=lv_k, type=lv_v, kind="var"))
 
@@ -2759,7 +2800,18 @@ class ExprMixin:
             matched_expr = self._translate_expr(matched_node)
 
             res_type = expected_type or self._infer_node_type(node)
-            res_c_type = CTypeMapper.to_c_type(res_type) if (res_type and not isinstance(res_type, AnyType)) else "__auto_type"
+            # A `judge` whose clauses are statement blocks has no value: every
+            # branch ends in a `void` expression.  Emitting the usual
+            # `void _res_N;` result temporary and assigning to it is invalid C
+            # ("variable declared void"), so a void judge is emitted as a plain
+            # structured `if` chain in statement position.  This mirrors
+            # `_emit_judge_over`, which already distinguishes `is_void`.
+            if res_type is None or isinstance(res_type, AnyType) or res_type == VOID_TYPE:
+                is_void = True
+                res_type = None
+            else:
+                is_void = False
+            res_c_type = CTypeMapper.to_c_type(res_type) if res_type is not None else "void"
 
             clauses = []
             has_guards = False
@@ -2897,7 +2949,11 @@ class ExprMixin:
                         else_val = self._translate_expr(c.children[0], expected_type=res_type)
 
             if else_val is None:
-                if res_type and res_type.is_numeric():
+                if is_void:
+                    # No value to fall back to: a void judge that reaches the end
+                    # simply falls through.
+                    else_val = "((void)0)"
+                elif res_type and res_type.is_numeric():
                     else_val = "0"
                 elif res_type and res_type.is_string():
                     else_val = 'pengu_string_from_cstr("")'
@@ -2914,15 +2970,17 @@ class ExprMixin:
             is_algebraic_omen = isinstance(matched_type, OmenType) and matched_type.is_algebraic
             is_enum_or_int = not is_string_omen and (matched_type is None or matched_type.is_int() or (isinstance(matched_type, OmenType) and not matched_type.is_algebraic))
 
-            if has_guards or has_payloads:
+            if has_guards or has_payloads or is_void:
                 t_val = self.get_temp_name("_val")
-                t_res = self.get_temp_name("_res")
+                t_res = None if is_void else self.get_temp_name("_res")
                 lbl_end = self.get_temp_name("_judge_end")
                 decl_val = (CTypeMapper.to_c_decl(matched_type, t_val)
                             if (matched_type and not isinstance(matched_type, AnyType))
                             else f"__typeof__(({matched_expr})) {t_val}")
-                decl_res = CTypeMapper.to_c_decl(res_type, t_res) if (res_type and not isinstance(res_type, AnyType)) else f"__typeof__(({else_val})) {t_res}"
-                lines = [f"{decl_val} = ({matched_expr});", f"{decl_res};"]
+                lines = [f"{decl_val} = ({matched_expr});"]
+                if not is_void:
+                    decl_res = CTypeMapper.to_c_decl(res_type, t_res) if (res_type and not isinstance(res_type, AnyType)) else f"__typeof__(({else_val})) {t_res}"
+                    lines.append(f"{decl_res};")
                 for cl in clauses:
                     pat = cl["pat"]
                     simple_pat = cl["simple_pat"]
@@ -2945,19 +3003,28 @@ class ExprMixin:
                             c_t = CTypeMapper.to_c_type(pt) if (pt and not isinstance(pt, AnyType)) else "__auto_type"
                             field_access = f"{t_val}.data.{self._c_ident(simple_pat)}.{self._c_ident(pf)}"
                             clause_code.append(f"{c_t} {self._c_ident(pf)} = {field_access};")
-                    if guard:
-                        clause_code.append(f"if ({unwrap_condition(guard)}) {{ {t_res} = ({val}); goto {lbl_end}; }}")
+                    if is_void:
+                        # Statement verdict: run the branch value as a statement.
+                        done = f"{val}; goto {lbl_end};"
                     else:
-                        clause_code.append(f"{t_res} = ({val}); goto {lbl_end};")
+                        done = f"{t_res} = ({val}); goto {lbl_end};"
+                    if guard:
+                        clause_code.append(f"if ({unwrap_condition(guard)}) {{ {done} }}")
+                    else:
+                        clause_code.append(done)
                     body_str = " ".join(clause_code)
                     lines.append(f"if ({unwrap_condition(cond)}) {{ {body_str} }}")
-                lines.append(f"{t_res} = ({else_val});")
+                if not is_void:
+                    lines.append(f"{t_res} = ({else_val});")
                 lines.append(f"{lbl_end}:;")
-                lines.append(f"{t_res};")
+                if is_void:
+                    lines.append("(void)0;")
+                else:
+                    lines.append(f"{t_res};")
                 if not self.use_gnu_extensions:
                     for ln in lines[:-1]:
                         self._hoist(ln)
-                    return t_res
+                    return "((void)0)" if is_void else t_res
                 return f"(__extension__({{ {' '.join(lines)} }}))"
 
             def _is_c_switchable(p: str) -> bool:
@@ -3095,7 +3162,7 @@ class ExprMixin:
             map_t = expected_type if (expected_type is not None and isinstance(expected_type, MapType)) else None
             if map_t is None:
                 try:
-                    inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+                    inferrer = self._make_inferrer()
                     for lv_k, lv_v in self.local_vars.items():
                         inferrer.symbols.define(Symbol(name=lv_k, type=lv_v, kind="var"))
                     inferred = inferrer.infer(node)
@@ -3205,7 +3272,7 @@ class ExprMixin:
                     map_t = expected_type if (expected_type is not None and isinstance(expected_type, MapType)) else None
                     if map_t is None:
                         try:
-                            inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+                            inferrer = self._make_inferrer()
                             for lv_k, lv_v in self.local_vars.items():
                                 inferrer.symbols.define(Symbol(name=lv_k, type=lv_v, kind="var"))
                             inferred = inferrer.infer(node)

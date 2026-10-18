@@ -3162,8 +3162,16 @@ class TypeInferrer:
                 min_params = total_params - fn_type.default_count
 
             # Generic function / method specialization
-            if fn_name and ((fn_name in self.symbols.generic_functions) or (fn_type and fn_type.type_params)):
-                type_params = self.symbols.generic_functions[fn_name][0] if (fn_name in self.symbols.generic_functions) else fn_type.type_params
+            # Genericity is a property of the *resolved* signature, not of the
+            # bare name.  A concrete `compare(a: string, b: string)` used to be
+            # routed through the generic `compare shard T` of another imported
+            # module (std.memoria) merely because both were named `compare`,
+            # which rejected a perfectly typed call with "could not infer type
+            # parameter(s) T".
+            fn_is_generic = bool(fn_type is not None
+                                 and getattr(fn_type, "type_params", None))
+            if fn_name and fn_is_generic:
+                type_params = list(fn_type.type_params)
                 subst_map: Dict[str, Type] = {}
                 if explicit_type_args:
                     for tp, ta in zip(type_params, explicit_type_args):

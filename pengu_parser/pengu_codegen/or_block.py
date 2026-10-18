@@ -32,6 +32,55 @@ from .ctype import (
 class OrBlockMixin:
     """`or:`, `or else`, `or return` and the result constructors."""
 
+    #: AST node kinds that denote an lvalue.  An unwrap whose operand is one of
+    #: these *borrows* the payload box from the program (a local variable, a
+    #: field, an element): the box must survive the unwrap so the owner can
+    #: `banish` it.  Anything else is an rvalue whose box this expression owns,
+    #: and the box allocation must be released after the payload is copied out.
+    _BORROWED_BOX_KINDS = (
+        "var_ref", "field_access", "arrow_access", "self_ref", "self_arrow",
+        "at_expr", "array_at_expr", "slice_at_expr", "essence_of",
+    )
+
+    @classmethod
+    def _unwrap_borrows_box(cls, node: Any) -> bool:
+        """True when the unwrap operand is an lvalue that owns its own box."""
+        t = node
+        while (isinstance(t, Tree)
+               and t.data in ("paren_expr", "value_expr", "expr")
+               and len(t.children) == 1):
+            t = t.children[0]
+        return isinstance(t, Tree) and t.data in cls._BORROWED_BOX_KINDS
+
+    def _unwrap_ok_box_release(self, owns_box: bool, tmp: str,
+                               is_maybe: bool, ind: str = "") -> str:
+        """Statements releasing the *box* of a moved-out success payload.
+
+        Only the box allocation is freed: the payload was copied out of the box
+        by the unwrap, and whatever heap it references now belongs to that copy.
+        Released for rvalue operands only (see `_unwrap_borrows_box`).
+        """
+        if not owns_box:
+            return ""
+        if is_maybe:
+            return (f"{ind}free({tmp}.value); {tmp}.value = NULL; "
+                    f"{tmp}.is_present = false;\n")
+        return f"{ind}free({tmp}.ok_val); {tmp}.ok_val = NULL;\n"
+
+    def _unwrap_fail_box_release(self, owns_box: bool, tmp: str,
+                                 left_t: Any, ind: str = "") -> str:
+        """Statements releasing a *discarded* error payload and its box.
+
+        Used by `or else` when the operand is an rvalue: the fallback is
+        returned, so the error the expression carried is unreachable and must be
+        released here (Nexus-aware for the payload), or it leaks.
+        """
+        if not owns_box or not isinstance(left_t, ResultType):
+            return ""
+        cleanup = self._release_payload_stmts(left_t.err_type, f"{tmp}.err_val", ind)
+        body = f"{cleanup}\n" if cleanup.strip() else ""
+        return body + f"{ind}free({tmp}.err_val); {tmp}.err_val = NULL;\n"
+
     def _translate_or_block(
         self,
         left_op: Any,
@@ -211,18 +260,52 @@ class OrBlockMixin:
         if rule == "or_else":
             right_node = node.children[1]
             right_c = self._translate_expr(right_node)
-            if isinstance(left_t, MaybeType):
+            is_maybe = isinstance(left_t, MaybeType)
+            if is_maybe:
                 is_ok = f"pengu_maybe_is_present(&{tmp})"
                 ok_read = f"(*(({ok_c}*){tmp}.value))"
             else:
                 is_ok = f"pengu_result_is_ok(&{tmp})"
                 ok_read = f"(*(({ok_c}*){tmp}.ok_val))"
+            # The engine hands out a box per `maybe`/`result`; when the operand
+            # is an rvalue (a call, `some x`, another unwrap) that box has no
+            # owner after the unwrap, so it must be released here.  A bare
+            # ternary could not do it: the value has to be read before the box
+            # is freed, and the discarded error payload has to be released too.
+            owns_box = not self._unwrap_borrows_box(left_node)
+            ok_free = self._unwrap_ok_box_release(owns_box, tmp, is_maybe)
+            fail_free = self._unwrap_fail_box_release(owns_box, tmp, left_t)
+            out_tmp = self.get_temp_name("_unwrap_val")
+            ok_free_flat = ok_free.strip().replace("\n", " ")
+            fail_free_flat = fail_free.strip().replace("\n", " ")
+            if ok_c == "void":
+                # `result of void to E` carries no payload to copy out; the
+                # branches run for their side effects and the expression stays
+                # void (a `void` temporary would be invalid C).
+                if not self.use_gnu_extensions:
+                    self._hoist(f"{container_c} {tmp} = {left_c};")
+                    self._hoist(f"if ({is_ok}) {{ {ok_free_flat} }} "
+                                f"else {{ {right_c}; {fail_free_flat} }}")
+                    return "((void)0)"
+                return (
+                    f"(__extension__(({{ {container_c} {tmp} = {left_c}; "
+                    f"if ({is_ok}) {{ {ok_free_flat} }} "
+                    f"else {{ {right_c}; {fail_free_flat} }} (void)0; }})))"
+                )
             if not self.use_gnu_extensions:
                 self._hoist(f"{container_c} {tmp} = {left_c};")
-                return f"(({is_ok}) ? ({ok_read}) : (({ok_c})({right_c})))"
+                self._hoist(f"{ok_c} {out_tmp};")
+                self._hoist(
+                    f"if ({is_ok}) {{ {out_tmp} = {ok_read}; {ok_free_flat} }} "
+                    f"else {{ {out_tmp} = ({ok_c})({right_c}); {fail_free_flat} }}"
+                )
+                return out_tmp
             return (
                 f"(__extension__(({{ {container_c} {tmp} = {left_c}; "
-                f"({is_ok}) ? ({ok_read}) : (({ok_c})({right_c})); }})))"
+                f"{ok_c} {out_tmp}; "
+                f"if ({is_ok}) {{ {out_tmp} = {ok_read}; {ok_free_flat} }} "
+                f"else {{ {out_tmp} = ({ok_c})({right_c}); {fail_free_flat} }} "
+                f"{out_tmp}; }})))"
             )
 
         if isinstance(left_t, ResultType):
@@ -237,6 +320,27 @@ class OrBlockMixin:
             right_c = self._translate_expr(right_node,
                                            expected_type=self.current_return_type)
             is_err_ret = is_failure_return_expr(right_node)
+            if ok_c == "void":
+                owns_box = not self._unwrap_borrows_box(left_node)
+                ok_free = self._unwrap_ok_box_release(owns_box, tmp, is_maybe)
+                fail_free = self._unwrap_fail_box_release(owns_box, tmp, left_t)
+                ok_free_flat = ok_free.strip().replace("\n", " ")
+                fail_free_flat = fail_free.strip().replace("\n", " ")
+                cleanup = " ".join(self._get_return_cleanup_lines(is_err_ret=is_err_ret))
+                cleanup_code = (" " + cleanup) if cleanup else ""
+                if not self.use_gnu_extensions:
+                    self._hoist(f"{container_c} {tmp} = {left_c};")
+                    self._hoist(f"if ({is_fail}) {{ {fail_free_flat}{cleanup_code}"
+                                f" pengu_frame_pop(); return ({right_c}); }}")
+                    if ok_free:
+                        self._hoist(ok_free.strip())
+                    return "((void)0)"
+                return (
+                    f"(__extension__(({{ {container_c} {tmp} = {left_c}; "
+                    f"if ({is_fail}) {{ {fail_free_flat}{cleanup_code}"
+                    f" pengu_frame_pop(); return ({right_c}); }} "
+                    f"{ok_free} (void)0; }})))"
+                )
             cleanup_stmts = self._get_return_cleanup_lines(is_err_ret=is_err_ret)
             if cleanup_stmts:
                 cleanup_code = " " + " ".join(cleanup_stmts)
@@ -246,21 +350,49 @@ class OrBlockMixin:
                     if self.current_return_type is not None and self.current_return_type != VOID_TYPE and getattr(self.current_return_type, "name", "") != "void"
                     else f"__typeof__(({right_c})) {tmp_ret} = ({right_c});"
                 )
+                owns_box = not self._unwrap_borrows_box(left_node)
+                ok_free = self._unwrap_ok_box_release(owns_box, tmp, is_maybe)
+                fail_free = self._unwrap_fail_box_release(owns_box, tmp, left_t)
+                ok_free_flat = ok_free.strip().replace("\n", " ")
+                fail_free_flat = fail_free.strip().replace("\n", " ")
+                out_tmp = self.get_temp_name("_unwrap_val")
                 if not self.use_gnu_extensions:
                     self._hoist(f"{container_c} {tmp} = {left_c};")
-                    self._hoist(f"if ({is_fail}) {{ {ret_decl}{cleanup_code} pengu_frame_pop(); return {tmp_ret}; }}")
-                    return ok_read
+                    self._hoist(f"{ok_c} {out_tmp};")
+                    self._hoist(f"if ({is_fail}) {{ {ret_decl}{cleanup_code} {fail_free_flat}"
+                                f" pengu_frame_pop(); return {tmp_ret}; }}")
+                    self._hoist(f"{out_tmp} = {ok_read};")
+                    if ok_free:
+                        self._hoist(ok_free.strip())
+                    return out_tmp
                 return (
                     f"(__extension__(({{ {container_c} {tmp} = {left_c}; "
-                    f"if ({is_fail}) {{ {ret_decl}{cleanup_code} pengu_frame_pop(); return {tmp_ret}; }} {ok_read}; }})))"
+                    f"{ok_c} {out_tmp}; "
+                    f"if ({is_fail}) {{ {ret_decl}{cleanup_code} {fail_free_flat}"
+                    f" pengu_frame_pop(); return {tmp_ret}; }} "
+                    f"{out_tmp} = {ok_read}; {ok_free} {out_tmp}; }})))"
                 )
+            owns_box = not self._unwrap_borrows_box(left_node)
+            ok_free = self._unwrap_ok_box_release(owns_box, tmp, is_maybe)
+            fail_free = self._unwrap_fail_box_release(owns_box, tmp, left_t)
+            ok_free_flat = ok_free.strip().replace("\n", " ")
+            fail_free_flat = fail_free.strip().replace("\n", " ")
+            out_tmp = self.get_temp_name("_unwrap_val")
             if not self.use_gnu_extensions:
                 self._hoist(f"{container_c} {tmp} = {left_c};")
-                self._hoist(f"if ({is_fail}) {{ pengu_frame_pop(); return ({right_c}); }}")
-                return ok_read
+                self._hoist(f"{ok_c} {out_tmp};")
+                self._hoist(f"if ({is_fail}) {{ {fail_free_flat}"
+                            f" pengu_frame_pop(); return ({right_c}); }}")
+                self._hoist(f"{out_tmp} = {ok_read};")
+                if ok_free:
+                    self._hoist(ok_free.strip())
+                return out_tmp
             return (
                 f"(__extension__(({{ {container_c} {tmp} = {left_c}; "
-                f"if ({is_fail}) {{ pengu_frame_pop(); return ({right_c}); }} {ok_read}; }})))"
+                f"{ok_c} {out_tmp}; "
+                f"if ({is_fail}) {{ {fail_free_flat}"
+                f" pengu_frame_pop(); return ({right_c}); }} "
+                f"{out_tmp} = {ok_read}; {ok_free} {out_tmp}; }})))"
             )
 
         # rule == "try_expr": on failure propagate to the enclosing function.
@@ -295,13 +427,39 @@ class OrBlockMixin:
             cleanup_stmts = self._get_return_cleanup_lines(is_err_ret=True)
             cleanup_code = (" " + " ".join(cleanup_stmts)) if cleanup_stmts else ""
             fail_stmt = f"{{ {cleanup_code} pengu_frame_pop(); return pengu_maybe_none(); }}"
+        # On success the payload is copied out of the box.  An rvalue box is
+        # owned by this expression and must be released; an lvalue box stays
+        # with the program.  On failure the whole box is moved into the return
+        # (`return tmp`), which is the propagation contract.
+        owns_box = not self._unwrap_borrows_box(left_node)
+        ok_free = self._unwrap_ok_box_release(owns_box, tmp, isinstance(left_t, MaybeType))
+        if ok_c == "void":
+            # `try` over `result of void to E` is the "validate and propagate"
+            # idiom: only the failure path matters.
+            if not self.use_gnu_extensions:
+                self._hoist(f"{container_c} {tmp} = {left_c};")
+                self._hoist(f"if ({is_fail}) {fail_stmt}")
+                if ok_free:
+                    self._hoist(ok_free.strip())
+                return "((void)0)"
+            return (
+                f"(__extension__(({{ {container_c} {tmp} = {left_c}; "
+                f"if ({is_fail}) {fail_stmt} {ok_free} (void)0; }})))"
+            )
+        out_tmp = self.get_temp_name("_unwrap_val")
         if not self.use_gnu_extensions:
             self._hoist(f"{container_c} {tmp} = {left_c};")
+            self._hoist(f"{ok_c} {out_tmp};")
             self._hoist(f"if ({is_fail}) {fail_stmt}")
-            return ok_read
+            self._hoist(f"{out_tmp} = {ok_read};")
+            if ok_free:
+                self._hoist(ok_free.strip())
+            return out_tmp
         return (
             f"(__extension__(({{ {container_c} {tmp} = {left_c}; "
-            f"if ({is_fail}) {fail_stmt} {ok_read}; }})))"
+            f"{ok_c} {out_tmp}; "
+            f"if ({is_fail}) {fail_stmt} "
+            f"{out_tmp} = {ok_read}; {ok_free} {out_tmp}; }})))"
         )
     def _result_ctor_name(self, target_node: Any) -> Optional[str]:
         """Returns ``'ok_of'``/``'err_of'`` when a call target is a result ctor.

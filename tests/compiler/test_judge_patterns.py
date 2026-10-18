@@ -474,3 +474,70 @@ weave patterns with e as ref to Expr, h as Holder into int:
         when Binary -> 3
         else -> 0
 """)
+
+
+# ---------------------------------------------------------------------------
+# Statement-block clause bodies
+# ---------------------------------------------------------------------------
+
+def test_block_bodies_are_statement_judges(compile_and_run):
+    """`when ... with x ->` followed by a block is a statement, not a value.
+
+    Codegen used to declare a `void _res_N;` temporary for such a judge and then
+    assign a void statement-expression to it, so *every* judge with block bodies
+    failed to compile ("variable declared void"). Value-position judges keep the
+    temporary; statement-position ones emit a plain `if` chain.
+    """
+    out = compile_and_run("""
+import std.spark
+
+omen Status:
+    Ok with value as int
+    Err with code as int
+
+omen Color:
+    Red
+    Green
+
+weave main into int:
+    var s as Status is with Ok is 41
+    judge s:
+        when Status.Ok with value ->
+            calling spark.println_int with value
+        when Status.Err with code ->
+            calling spark.println_int with code
+
+    var c as Color is Red
+    judge c:
+        when Red ->
+            calling spark.println with "red"
+        when Green ->
+            calling spark.println with "green"
+
+    var x as int is 2
+    judge x:
+        when 1 ->
+            calling spark.println with "one"
+        when 2 ->
+            calling spark.println with "two"
+        else ->
+            calling spark.println with "other"
+
+    var y as string is "b"
+    judge y:
+        when "a" ->
+            calling spark.println with "A"
+        when "b" ->
+            calling spark.println with "B"
+        else ->
+            calling spark.println with "?"
+
+    # A value-position judge still produces its value.
+    var picked as int is judge x:
+        when 1 -> 10
+        when 2 -> 20
+        else -> 0
+    calling spark.println_int with picked
+    return 0
+""")
+    assert [line for line in out.splitlines() if line] == ["41", "red", "two", "B", "20"], out

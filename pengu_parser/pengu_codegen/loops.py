@@ -200,7 +200,7 @@ class LoopMixin:
         c_elem_name = self._c_ident(elem_name) if want_elem else None
         iter_idx = c_index_name if want_index else self.get_temp_name("_idx")
 
-        inferrer = TypeInferrer(self.symbols, compile_env=self.compile_env)
+        inferrer = self._make_inferrer()
         for lv_k, lv_v in self.local_vars.items():
             inferrer.symbols.define(Symbol(name=lv_k, type=lv_v, kind="var"))
 
@@ -481,7 +481,8 @@ class LoopMixin:
                 )
         else:
             raise SemanticError(
-                f"Cannot iterate over non-collection type '{col_t}' at codegen time",
+                f"Cannot iterate over non-collection type '{col_t}' at codegen time "
+                f"(over '{col_expr}')",
                 code="E0005",
                 help="The checker should have caught this; if you see this error, it is a compiler bug.",
             )
