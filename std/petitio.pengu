@@ -221,6 +221,27 @@ rune FormPart derive Nexus:
     ## The part `Content-Type`, or `""` to let libcurl omit it.
     content_type as string
 
+## The HTTP protocol version requested from the server.
+##
+## ## Memoria
+## A plain C enum: no heap, nothing to release.
+omen HttpVersion:
+    ## HTTP/1.0, explicitly. Rarely what you want; HTTP/1.1 is the default.
+    Http10
+    ## HTTP/1.1 explicitly. The default, and what every server understands.
+    Http11
+    ## Negotiates HTTP/2 over ALPN and falls back to HTTP/1.1 when the server
+    ## does not offer it. Requires libcurl built with HTTP/2 support (7.47+).
+    Http2
+    ## Forces HTTP/2 without negotiation ("prior knowledge"). Fails with a
+    ## protocol error when the server only speaks HTTP/1.1.
+    Http2PriorKnowledge
+    ## HTTP/3. **Reported only** (`Response.http_version`): requesting it from a
+    ## `Request` panics, because a reliable HTTP/3 client needs a libcurl built
+    ## with QUIC support, which is not a portable assumption. A server may still
+    ## negotiate it when the library supports it.
+    Http3
+
 ## A configurable HTTP request.
 ##
 ## Build it with `Request.new`, mutate it with the builder methods, send it with
@@ -254,6 +275,8 @@ rune Request derive Nexus:
     ## Verify the peer certificate and hostname when `true`. Disable only for
     ## testing against a self-signed endpoint.
     verify_tls as bool
+    ## Protocol version to request. Set it with the `http_version` builder.
+    http_version as HttpVersion
     ## Abort with `HttpError.BodyTooLarge` once the body exceeds this many
     ## bytes. `0` means unlimited.
     max_body_bytes as i64
@@ -289,6 +312,10 @@ rune Response derive Nexus:
     url as string
     ## Wall-clock duration of the transfer, in seconds.
     elapsed_sec as f64
+    ## The protocol the server actually spoke (`Http10`, `Http11`, `Http2` or
+    ## `Http3`), as reported by libcurl. Requesting `Http2` does not guarantee
+    ## the response used it; check this field.
+    http_version as HttpVersion
     ## `true` when at least one redirect was followed.
     redirected as bool
     ## Cookies the server set, name → value, ignoring those it cleared.
@@ -641,6 +668,7 @@ enchanting Request:
             follow_redirects is true
             max_redirects is PETITIO_DEFAULT_MAX_REDIRECTS
             verify_tls is true
+            http_version is HttpVersion.Http11
             max_body_bytes is 0
             basic_user is ""
             basic_password is ""
@@ -748,6 +776,21 @@ enchanting Request:
     ## test endpoint you control.
     weave insecure into void:
         set self->verify_tls is false
+
+    ## Requests a specific HTTP protocol version.
+    ##
+    ## ## Parámetros
+    ## - `version`: `Http11` (default), `Http2` (ALPN negotiation, falls back to
+    ##   HTTP/1.1) or `Http2PriorKnowledge` (force HTTP/2, no fallback).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling req.http_version with HttpVersion.Http2
+    ## ```
+    weave http_version with version as HttpVersion into void:
+        if version == HttpVersion.Http3:
+            calling spark.panic with "petitio: HTTP/3 cannot be requested; libcurl may still negotiate it (check Response.http_version)"
+        set self->http_version is version
 
     ## Sends HTTP Basic credentials (RFC 7617).
     weave auth_basic with user as string, password as string into void:
@@ -1265,16 +1308,36 @@ weave _response_from_c with raw as ref to petitio_response, request as ref to Re
     var status as int is calling petitio_response_status with raw
     var redirects as int is calling petitio_response_redirect_count with raw
     var elapsed as f64 is calling petitio_response_elapsed with raw
+    var protocol as HttpVersion is calling _http_version_from_code with (calling petitio_response_http_version with raw)
     var response as Response is:
         status is status
         headers is headers
         body is body
         url is effective
         elapsed_sec is elapsed
+        http_version is protocol
         redirected is redirects > 0
         cookies is cookies
         cleared_cookies is expired
     return response
+
+## The C request code for `HttpVersion` (0 = 1.1, 1 = ALPN, 2 = prior
+## knowledge, 3 = 1.0). `Http3` has no request code; the builder rejects it.
+weave _http_version_code with version as HttpVersion into int:
+    return judge version:
+        when Http10 -> 3
+        when Http11 -> 0
+        when Http2 -> 1
+        when Http2PriorKnowledge -> 2
+        when Http3 -> 0
+
+## The `HttpVersion` for the C response code (0 = 1.0, 2 = 2, 4 = 3, rest = 1.1).
+weave _http_version_from_code with code as int into HttpVersion:
+    return judge code:
+        when 0 -> HttpVersion.Http10
+        when 2 -> HttpVersion.Http2
+        when 4 -> HttpVersion.Http3
+        else -> HttpVersion.Http11
 
 ## Sends `request`, merging `overlay_headers` (session defaults, never
 ## overriding a request header) and `cookies` (as a `Cookie` header).
@@ -1285,6 +1348,7 @@ weave _perform with request as ref to Request, overlay_headers as ref to map of 
     defer calling petitio_request_free with handle
 
     calling petitio_request_set_method with handle, request->method
+    calling petitio_request_set_http_version with handle, (calling _http_version_code with request->http_version)
     for name in request->headers:
         calling petitio_request_add_header with handle, name, (calling request->headers.get with name)
     for name in essence of overlay_headers:
@@ -1808,6 +1872,28 @@ test "Request defaults and header replacement":
     calling _expect with (calling req.has_header with "CONTENT-TYPE"), "has_header is CI"
     banish req
 
+test "http_version defaults to HTTP/1.1 and is settable":
+    var req as Request is calling Request.new with "GET", "https://example.com/"
+    calling _expect_int with (calling _http_version_code with req.http_version), 0, "default version"
+    calling req.http_version with HttpVersion.Http2
+    calling _expect_int with (calling _http_version_code with req.http_version), 1, "ALPN code"
+    calling req.http_version with HttpVersion.Http2PriorKnowledge
+    calling _expect_int with (calling _http_version_code with req.http_version), 2, "prior-knowledge code"
+    calling req.http_version with HttpVersion.Http10
+    calling _expect_int with (calling _http_version_code with req.http_version), 3, "HTTP/1.0 code"
+    banish req
+
+test "the response protocol code maps back to an HttpVersion":
+    var v10 as HttpVersion is calling _http_version_from_code with 0
+    calling _expect_int with (calling _http_version_code with v10), 3, "1.0 round trip"
+    var v11 as HttpVersion is calling _http_version_from_code with 1
+    calling _expect_int with (calling _http_version_code with v11), 0, "1.1 round trip"
+    var v2 as HttpVersion is calling _http_version_from_code with 2
+    calling _expect_int with (calling _http_version_code with v2), 1, "2 round trip"
+    var v3 as HttpVersion is calling _http_version_from_code with 4
+    if v3 != HttpVersion.Http3:
+        calling spark.panic with "petitio test failed: HTTP/3 mapping"
+
 test "Session cookie jar operations":
     var session as Session is calling Session.new
     calling session.set_cookie with "sid", "abc"
@@ -1848,6 +1934,7 @@ weave _empty_response into Response:
         body is ""
         url is ""
         elapsed_sec is 0.0
+        http_version is HttpVersion.Http11
         redirected is false
         cookies is cookies
         cleared_cookies is cleared

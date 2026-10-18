@@ -37,6 +37,7 @@ weave make_response with status as int, body as string, extra_header as string i
         body is body
         url is "https://example.com/x"
         elapsed_sec is 0.25
+        http_version is HttpVersion.Http11
         redirected is false
         cookies is cookies
         cleared_cookies is cleared

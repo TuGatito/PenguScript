@@ -121,6 +121,9 @@ declare petitio_request_set_timeout with request as ref to petitio_request, time
 # Redirect policy. `max_redirects` is only meaningful when `follow` is non-zero.
 declare petitio_request_set_redirects with request as ref to petitio_request, follow as int, max_redirects as i64 into void
 
+# Protocol version: 0 = HTTP/1.1, 1 = HTTP/2 over ALPN, 2 = HTTP/2 prior knowledge.
+declare petitio_request_set_http_version with request as ref to petitio_request, version as int into void
+
 # 0 disables peer/host verification (documented as insecure).
 declare petitio_request_set_verify_tls with request as ref to petitio_request, verify as int into void
 
@@ -165,6 +168,9 @@ declare petitio_response_elapsed with response as ref to frozen petitio_response
 
 # Number of redirects followed.
 declare petitio_response_redirect_count with response as ref to frozen petitio_response into int
+
+# Negotiated protocol: 0 = HTTP/1.0, 1 = HTTP/1.1, 2 = HTTP/2, 4 = HTTP/3.
+declare petitio_response_http_version with response as ref to frozen petitio_response into int
 
 # Final-response header count. Duplicates are preserved in receipt order and
 # names are lower-case.

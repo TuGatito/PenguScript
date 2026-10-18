@@ -109,6 +109,10 @@ void petitio_request_set_body(petitio_request *request, PenguString body);
 void petitio_request_set_timeout(petitio_request *request, int64_t timeout_ms,
                                  int64_t connect_timeout_ms);
 
+/* Protocol version: 0 = HTTP/1.1 (default), 1 = HTTP/2 over ALPN,
+ * 2 = HTTP/2 prior knowledge (no fallback). */
+void petitio_request_set_http_version(petitio_request *request, int version);
+
 /* Redirect policy. `max_redirects` is only meaningful when `follow` is non-zero. */
 void petitio_request_set_redirects(petitio_request *request, int follow,
                                    int64_t max_redirects);
@@ -159,6 +163,10 @@ double petitio_response_elapsed(const petitio_response *response);
 
 /* Number of redirects followed. */
 int petitio_response_redirect_count(const petitio_response *response);
+
+/* Negotiated protocol version: 0 = HTTP/1.0, 1 = HTTP/1.1, 2 = HTTP/2,
+ * 4 = HTTP/3. */
+int petitio_response_http_version(const petitio_response *response);
 
 /* Final-response header count. Duplicates are preserved in receipt order and
  * names are lower-case. */

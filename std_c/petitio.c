@@ -166,6 +166,7 @@ struct petitio_request {
     int follow_redirects;
     int64_t max_redirects;
     int verify_tls;
+    int http_version;
     int64_t max_body;
     char *username;
     char *password;
@@ -321,6 +322,13 @@ void petitio_request_set_max_body(petitio_request *request, int64_t max_bytes)
     request->max_body = max_bytes < 0 ? 0 : max_bytes;
 }
 
+void petitio_request_set_http_version(petitio_request *request, int version)
+{
+    if (request == NULL)
+        return;
+    request->http_version = version < 0 || version > 3 ? 0 : version;
+}
+
 void petitio_request_set_basic_auth(petitio_request *request, PenguString user,
                                     PenguString password)
 {
@@ -423,6 +431,7 @@ struct petitio_response {
     int url_len;
     double elapsed;
     int redirects;
+    int http_version;
     int64_t max_body;
     int body_too_large;
     petitio_header *headers;
@@ -609,6 +618,7 @@ static petitio_response *petitio_perform(petitio_request *request)
     long status = 0;
     double elapsed = 0.0;
     long redirects = 0;
+    long http_version = 0;
     char *effective_url = NULL;
     int i;
 
@@ -657,6 +667,16 @@ static petitio_response *petitio_perform(petitio_request *request)
         curl_easy_setopt(curl, CURLOPT_MAXREDIRS, (long)request->max_redirects);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, request->verify_tls ? 1L : 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, request->verify_tls ? 2L : 0L);
+    if (request->http_version == 1) {
+        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_0);
+    } else if (request->http_version == 2) {
+        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION,
+                         CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+    } else if (request->http_version == 3) {
+        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_0);
+    } else {
+        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    }
     if (request->timeout_ms > 0)
         curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, (long)request->timeout_ms);
     if (request->connect_timeout_ms > 0)
@@ -728,6 +748,7 @@ static petitio_response *petitio_perform(petitio_request *request)
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &elapsed);
     curl_easy_getinfo(curl, CURLINFO_REDIRECT_COUNT, &redirects);
+    curl_easy_getinfo(curl, CURLINFO_HTTP_VERSION, &http_version);
     if (curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective_url) == CURLE_OK
         && effective_url != NULL) {
         response->url_len = (int)strlen(effective_url);
@@ -738,6 +759,19 @@ static petitio_response *petitio_perform(petitio_request *request)
     response->status = (int)status;
     response->elapsed = elapsed;
     response->redirects = (int)redirects;
+    if (http_version == CURL_HTTP_VERSION_1_0) {
+        response->http_version = 0;   /* Http10 */
+    } else if (http_version == CURL_HTTP_VERSION_2_0
+               || http_version == CURL_HTTP_VERSION_2TLS) {
+        response->http_version = 2;   /* Http2 */
+#ifdef CURL_HTTP_VERSION_3
+    } else if (http_version == CURL_HTTP_VERSION_3
+               || http_version == CURL_HTTP_VERSION_3ONLY) {
+        response->http_version = 4;   /* Http3, reported only */
+#endif
+    } else {
+        response->http_version = 1;   /* Http11 */
+    }
 
     if (code != CURLE_OK) {
         const char *message = request->error_buffer[0] != '\0'
@@ -812,6 +846,11 @@ double petitio_response_elapsed(const petitio_response *response)
 int petitio_response_redirect_count(const petitio_response *response)
 {
     return response == NULL ? 0 : response->redirects;
+}
+
+int petitio_response_http_version(const petitio_response *response)
+{
+    return response == NULL ? 1 : response->http_version;
 }
 
 int petitio_response_header_count(const petitio_response *response)
