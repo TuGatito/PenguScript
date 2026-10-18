@@ -5253,6 +5253,238 @@
       "deprecated": false,
       "documented": true,
       "kind": "const",
+      "module": "diagnostic",
+      "name": "DIAGNOSTIC_ANSI_ERROR",
+      "signature": "**DIAGNOSTIC_ANSI_ERROR** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "diagnostic",
+      "name": "DIAGNOSTIC_ANSI_HINT",
+      "signature": "**DIAGNOSTIC_ANSI_HINT** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "diagnostic",
+      "name": "DIAGNOSTIC_ANSI_INFO",
+      "signature": "**DIAGNOSTIC_ANSI_INFO** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "diagnostic",
+      "name": "DIAGNOSTIC_ANSI_RESET",
+      "signature": "**DIAGNOSTIC_ANSI_RESET** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "diagnostic",
+      "name": "DIAGNOSTIC_ANSI_WARNING",
+      "signature": "**DIAGNOSTIC_ANSI_WARNING** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "diagnostic",
+      "name": "DIAGNOSTIC_SEVERITY_ERROR",
+      "signature": "**DIAGNOSTIC_SEVERITY_ERROR** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "diagnostic",
+      "name": "DIAGNOSTIC_SEVERITY_HINT",
+      "signature": "**DIAGNOSTIC_SEVERITY_HINT** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "diagnostic",
+      "name": "DIAGNOSTIC_SEVERITY_INFO",
+      "signature": "**DIAGNOSTIC_SEVERITY_INFO** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "diagnostic",
+      "name": "DIAGNOSTIC_SEVERITY_WARNING",
+      "signature": "**DIAGNOSTIC_SEVERITY_WARNING** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "diagnostic",
+      "name": "DIAGNOSTIC_VERSION",
+      "signature": "**DIAGNOSTIC_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "diagnostic",
+      "name": "Severity",
+      "signature": "**Severity** : Severity"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "diagnostic",
+      "name": "Diagnostic",
+      "signature": "**Diagnostic** : Diagnostic"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "diagnostic",
+      "name": "DiagnosticBag",
+      "signature": "**DiagnosticBag** : DiagnosticBag"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "diagnostic",
+      "name": "Label",
+      "signature": "**Label** : Label"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "diagnostic",
+      "name": "RenderOptions",
+      "signature": "**RenderOptions** : RenderOptions"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "diagnostic",
+      "name": "Span",
+      "signature": "**Span** : Span"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "default_render_options",
+      "signature": "**default_render_options**() -> RenderOptions"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "diagnostic",
+      "signature": "**diagnostic**(severity: Severity, code: string, message: string, labels_list: list of Label, help: maybe string, note: maybe string, related: list of Diagnostic) -> Diagnostic"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "free_diagnostics",
+      "signature": "**free_diagnostics**(items: list of Diagnostic) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "label",
+      "signature": "**label**(span: Span, message: string, primary: bool) -> Label"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "labels",
+      "signature": "**labels**(one: Label) -> list of Label"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "no_labels",
+      "signature": "**no_labels**() -> list of Label"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "no_related",
+      "signature": "**no_related**() -> list of Diagnostic"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "severity_color",
+      "signature": "**severity_color**(sev: Severity) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "severity_name",
+      "signature": "**severity_name**(sev: Severity) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "severity_number",
+      "signature": "**severity_number**(sev: Severity) -> int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "span_from_positions",
+      "signature": "**span_from_positions**(file: string, sl: int, sc: int, el: int, ec: int, sb: int, eb: int) -> Span"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "span_merge",
+      "signature": "**span_merge**(a: Span, b: Span) -> Span"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "diagnostic",
+      "name": "span_point",
+      "signature": "**span_point**(file: string, line: int, col: int, byte_offset: int) -> Span"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
       "module": "ffi",
       "name": "FFI_VERSION",
       "signature": "**FFI_VERSION** : string"
@@ -6864,6 +7096,686 @@
       "module": "invoke",
       "name": "new_parser",
       "signature": "**new_parser**(name: string, description: string) -> Parser"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "json",
+      "name": "JSON_BACKSLASH",
+      "signature": "**JSON_BACKSLASH** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "json",
+      "name": "JSON_CARRIAGE_RETURN",
+      "signature": "**JSON_CARRIAGE_RETURN** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "json",
+      "name": "JSON_MAX_DEPTH",
+      "signature": "**JSON_MAX_DEPTH** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "json",
+      "name": "JSON_NEWLINE",
+      "signature": "**JSON_NEWLINE** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "json",
+      "name": "JSON_QUOTE",
+      "signature": "**JSON_QUOTE** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "json",
+      "name": "JSON_SLASH",
+      "signature": "**JSON_SLASH** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "json",
+      "name": "JSON_VERSION",
+      "signature": "**JSON_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "json",
+      "name": "JsonErrorKind",
+      "signature": "**JsonErrorKind** : JsonErrorKind"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "json",
+      "name": "JsonValue",
+      "signature": "**JsonValue** : JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "json",
+      "name": "JsonEntry",
+      "signature": "**JsonEntry** : JsonEntry"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "json",
+      "name": "JsonError",
+      "signature": "**JsonError** : JsonError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "json",
+      "name": "ParseOptions",
+      "signature": "**ParseOptions** : ParseOptions"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "json",
+      "name": "Parser",
+      "signature": "**Parser** : Parser"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "json",
+      "name": "SerializeOptions",
+      "signature": "**SerializeOptions** : SerializeOptions"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "at_or_null",
+      "signature": "**at_or_null**(v: JsonValue, i: int) -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "bool_val",
+      "signature": "**bool_val**(b: bool) -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "deep_merge",
+      "signature": "**deep_merge**(base: JsonValue, overlay: JsonValue) -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "default_parse_options",
+      "signature": "**default_parse_options**() -> ParseOptions"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "default_serialize_options",
+      "signature": "**default_serialize_options**() -> SerializeOptions"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "discard_result_box",
+      "signature": "**discard_result_box**(r: ref to result of JsonValue to JsonError) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "empty_array",
+      "signature": "**empty_array**() -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "empty_object",
+      "signature": "**empty_object**() -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "float_val",
+      "signature": "**float_val**(f: f64) -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "free_entries",
+      "signature": "**free_entries**(entries: list of JsonEntry) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "free_strings",
+      "signature": "**free_strings**(items: list of string) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "free_values",
+      "signature": "**free_values**(items: list of JsonValue) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "get_or_null",
+      "signature": "**get_or_null**(v: JsonValue, key: string) -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "i64_max",
+      "signature": "**i64_max**() -> i64"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "i64_min",
+      "signature": "**i64_min**() -> i64"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "int_val",
+      "signature": "**int_val**(i: i64) -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "null_value",
+      "signature": "**null_value**() -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "parse",
+      "signature": "**parse**(s: string) -> result of JsonValue to JsonError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "parse_bytes",
+      "signature": "**parse_bytes**(s: slice of byte) -> result of JsonValue to JsonError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "parse_in_arena",
+      "signature": "**parse_in_arena**(s: string, arena: ref to Arena) -> result of JsonValue to JsonError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "parse_with",
+      "signature": "**parse_with**(s: string, opts: ParseOptions) -> result of JsonValue to JsonError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "string_val",
+      "signature": "**string_val**(s: string) -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "stringify",
+      "signature": "**stringify**(v: JsonValue) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "stringify_pretty",
+      "signature": "**stringify_pretty**(v: JsonValue, indent: int) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "stringify_with",
+      "signature": "**stringify_with**(v: JsonValue, opts: SerializeOptions) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "take_string",
+      "signature": "**take_string**(m: ref to maybe string) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "take_value",
+      "signature": "**take_value**(m: ref to maybe JsonValue) -> JsonValue"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "try_stringify",
+      "signature": "**try_stringify**(v: JsonValue, opts: SerializeOptions) -> result of string to JsonError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "validate",
+      "signature": "**validate**(s: string) -> result of void to JsonError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "validate_bytes",
+      "signature": "**validate_bytes**(s: slice of byte) -> result of void to JsonError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "validate_schema",
+      "signature": "**validate_schema**(v: JsonValue, schema: JsonValue) -> list of string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "json",
+      "name": "write_to_builder",
+      "signature": "**write_to_builder**(v: JsonValue, opts: SerializeOptions, sb: ref to StringBuilder) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "jsonrpc",
+      "name": "INTERNAL_ERROR",
+      "signature": "**INTERNAL_ERROR** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "jsonrpc",
+      "name": "INVALID_PARAMS",
+      "signature": "**INVALID_PARAMS** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "jsonrpc",
+      "name": "INVALID_REQUEST",
+      "signature": "**INVALID_REQUEST** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "jsonrpc",
+      "name": "JSONRPC_PROTOCOL_VERSION",
+      "signature": "**JSONRPC_PROTOCOL_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "jsonrpc",
+      "name": "JSONRPC_VERSION",
+      "signature": "**JSONRPC_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "jsonrpc",
+      "name": "METHOD_NOT_FOUND",
+      "signature": "**METHOD_NOT_FOUND** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "jsonrpc",
+      "name": "PARSE_ERROR",
+      "signature": "**PARSE_ERROR** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "jsonrpc",
+      "name": "JsonRpcErrorKind",
+      "signature": "**JsonRpcErrorKind** : JsonRpcErrorKind"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "jsonrpc",
+      "name": "JsonRpcId",
+      "signature": "**JsonRpcId** : JsonRpcId"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "jsonrpc",
+      "name": "JsonRpcMessage",
+      "signature": "**JsonRpcMessage** : JsonRpcMessage"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "jsonrpc",
+      "name": "FramedDecode",
+      "signature": "**FramedDecode** : FramedDecode"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "jsonrpc",
+      "name": "JsonRpcBatchItem",
+      "signature": "**JsonRpcBatchItem** : JsonRpcBatchItem"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "jsonrpc",
+      "name": "JsonRpcError",
+      "signature": "**JsonRpcError** : JsonRpcError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "jsonrpc",
+      "name": "JsonRpcParseError",
+      "signature": "**JsonRpcParseError** : JsonRpcParseError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "decode_framed",
+      "signature": "**decode_framed**(data: string) -> result of FramedDecode to JsonRpcParseError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "decode_framed_bytes",
+      "signature": "**decode_framed_bytes**(data: string) -> result of FramedDecode to JsonRpcParseError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "encode_framed",
+      "signature": "**encode_framed**(msg: JsonRpcMessage) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "encode_message",
+      "signature": "**encode_message**(msg: JsonRpcMessage) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "encode_notification",
+      "signature": "**encode_notification**(method: string, params: maybe JsonValue) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "encode_request",
+      "signature": "**encode_request**(id: JsonRpcId, method: string, params: maybe JsonValue) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "encode_response_error",
+      "signature": "**encode_response_error**(id: JsonRpcId, err: JsonRpcError) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "encode_response_ok",
+      "signature": "**encode_response_ok**(id: JsonRpcId, result: JsonValue) -> string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "error_internal",
+      "signature": "**error_internal**(detail: string) -> JsonRpcError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "error_invalid_params",
+      "signature": "**error_invalid_params**(detail: string) -> JsonRpcError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "error_invalid_request",
+      "signature": "**error_invalid_request**() -> JsonRpcError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "error_method_not_found",
+      "signature": "**error_method_not_found**(method: string) -> JsonRpcError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "error_parse",
+      "signature": "**error_parse**() -> JsonRpcError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "error_server",
+      "signature": "**error_server**(code: int, message: string, data: maybe JsonValue) -> JsonRpcError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "free_batch_items",
+      "signature": "**free_batch_items**(items: list of JsonRpcBatchItem) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "free_messages",
+      "signature": "**free_messages**(msgs: list of JsonRpcMessage) -> void"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "notification",
+      "signature": "**notification**(method: string, params: maybe JsonValue) -> JsonRpcMessage"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "parse_batch",
+      "signature": "**parse_batch**(s: string) -> result of list of JsonRpcMessage to JsonRpcParseError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "parse_batch_items",
+      "signature": "**parse_batch_items**(s: string) -> result of list of JsonRpcBatchItem to JsonRpcParseError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "parse_message",
+      "signature": "**parse_message**(s: string) -> result of JsonRpcMessage to JsonRpcParseError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "request",
+      "signature": "**request**(id: JsonRpcId, method: string, params: maybe JsonValue) -> JsonRpcMessage"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "response_error",
+      "signature": "**response_error**(id: JsonRpcId, err: JsonRpcError) -> JsonRpcMessage"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "response_ok",
+      "signature": "**response_ok**(id: JsonRpcId, result: JsonValue) -> JsonRpcMessage"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "take_batch_items",
+      "signature": "**take_batch_items**(r: ref to result of list of JsonRpcBatchItem to JsonRpcParseError) -> list of JsonRpcBatchItem"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "jsonrpc",
+      "name": "take_messages",
+      "signature": "**take_messages**(r: ref to result of list of JsonRpcMessage to JsonRpcParseError) -> list of JsonRpcMessage"
     },
     {
       "deprecated": false,

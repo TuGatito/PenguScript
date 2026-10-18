@@ -2680,7 +2680,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 
 `std/spark.pengu` defines `SPARK_VERSION` and `STD_VERSION` constants; `spark.spark_version` returns the version string.
 
-### 15.2 Core module catalog (26 modules)
+### 15.2 Core module catalog (36 modules)
 
 | Module | Import | Implementation | Purpose & key functions |
 | ------ | ------ | -------------- | ----------------------- |
@@ -2699,6 +2699,10 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **invoke** | `import std.invoke` | Pure PenguScript | CLI argument parsing: `new_parser`, `add_positional`, `add_option`, `add_flag`, `print_help`, `parse`, `get`, `get_or`, `is_set`, `is_ok`, `is_err`. |
 | **ledger** | `import std.ledger` | Pure PenguScript | CSV/TSV: `escape_field`, `parse_line`, `parse_csv`, `to_csv_string`, `detect_delimiter`, TSV variants, and file helpers `read_csv`/`write_csv`/`read_tsv`/`write_tsv`. |
 | **cipher** | `import std.cipher` | Pure PenguScript | JSON + Base64: `parse_json`, `stringify_json`, `pretty_json`, `encode_base64`, `decode_base64`, `is_base64`, value-level `parse_value`/`stringify_value`, file helpers. |
+
+| **diagnostic** | `import std.diagnostic` | Pure PenguScript | `Span`, `Severity`, `Label`, `Diagnostic`, `DiagnosticBag`; Rust-style `render`/`render_plain`/`render_colored`; `render_json` for LSP; `span_from_positions`, `span_point`, `span_merge`. |
+| **json** | `import std.json` | Pure PenguScript | Strict RFC 8259: `parse`/`parse_with`/`parse_bytes`/`parse_in_arena`/`validate`; `JsonValue` DOM with `get`/`at`/`pointer`/`find_key`/`equals`/`clone`/mutators; `stringify`/`stringify_pretty`/`try_stringify`; `ParseOptions`/`SerializeOptions`; `deep_merge`; `validate_schema`. |
+| **jsonrpc** | `import std.jsonrpc` | Pure PenguScript | JSON-RPC 2.0: request/notification/response/error, batch, standard error codes, `encode_*`, `parse_message`/`parse_batch`, and LSP `Content-Length` framing (`encode_framed`, `decode_framed_bytes`). |
 | **filum** | `import std.filum` | C primitives | Concurrency: `mutex`/`lock`/`unlock`/`try_lock`, `wait_group` (`add`, `done`, `wait`), `once`, channels, thread spawn, condition variables, atomics (opaque-handle value types). |
 | **fractio** | `import std.fractio` | Pure PenguScript + `libm` | Float-only methods: a shard `where T: Real:` for IEEE 754 classification (`is_nan`, `is_finite`, `is_infinite`, `is_positive_infinity`, `is_negative_infinity`), `approx_eq`, `lerp`, `reciprocal`, `copysign`, `degrees`, `radians`; plus concrete `float`/`f64` blocks for the `libm` transcendentals `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `pow`, `hypot`. Monomorphized to `f64_sqrt`, `float_is_nan`. |
 | **integrum** | `import std.integrum` | Pure PenguScript | Integer-only methods over every signed/unsigned primitive via one `enchanting shard T where T: Integrum:`. Predicates `is_even`, `is_odd`, `is_power_of_two`, `is_multiple_of`, `is_prime`; bits `bit_count`, `bit_length`, `leading_zeros`, `trailing_zeros`, `next_power_of_two`, `prev_power_of_two`; Euclidean division `div_rem` (→ `(T, T)`), `div_floor`, `mod_floor`; number theory `gcd`, `lcm`, `next_prime`, `prev_prime`, `factorial`; representations `to_hex`, `to_bin`, `to_oct` (**allocate — `banish`**). Delegates `abs` to `std.numerus`. |
@@ -2711,6 +2715,49 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **trial** | `import std.trial` | Pure PenguScript | Unit-test framework: re-exports `ward` assertions, plus suites (`new_suite`), `test_case`/`test`, lifecycle hooks and colored reporting (`summary`). |
 | **whisper** | `import std.whisper` | C primitives + Pengu | Structured logging: `set_level`, `get_level`, `get_level_name`, level constants `LOG_TRACE`…`LOG_FATAL`, and level loggers `trace`, `debug`, `info`, `warn`, `error`, `fatal`. |
 | **ffi** | `import std.ffi` | C runtime bridges | Foreign function interface bridges: `cstr_from_string`, `cstr_free`, `string_from_cstr`, `bytes_from_string`, non-owning slice views (`slice_from_ptr`, `slice_of_*_from_ptr`), and list copies from pointers. |
+
+### 15.2.1 JSON & diagnostics
+
+```pengu
+import std.json
+import std.diagnostic as diag
+import std.spark
+
+weave main into int:
+    var r as result of JsonValue to json.JsonError is calling json.parse with r"""{"a":[1,2]}"""
+    var root as JsonValue is r or:
+        calling spark.println with "{error.line}:{error.col} {error.message}"
+        return 1
+    defer banish root
+
+    var at as JsonValue is calling json.get_or_null with root, "a"
+    defer banish at
+    var second as JsonValue is calling at.at_or_null with 1
+    defer banish second
+    var n as maybe i64 is calling second.as_int
+    calling spark.println with "{(n or else 0)}"       # 2
+
+    var text as string is calling json.stringify_pretty with root, 2
+    defer banish text
+    calling spark.print with text
+
+    var bag as DiagnosticBag is calling DiagnosticBag.new
+    defer banish bag
+    calling bag.add_source with "a.pengu", "let x is 1\n"
+    var span as Span is calling diag.span_from_positions with "a.pengu", 1, 5, 1, 6, 4, 5
+    calling bag.error with "unused binding", span
+    var rendered as string is calling bag.render_colored
+    defer banish rendered
+    calling spark.print with rendered
+    return 0
+```
+
+- `json.parse` returns `result of JsonValue to JsonError`; use `or:`/`or else`.
+- `get`/`pointer`/`at` return owned copies; `banish` them.
+- `stringify` is compact; `stringify_pretty(v, n)`; `try_stringify` avoids the
+  NaN panic.
+- `DiagnosticBag.error/warning/info/hint` add a one-label diagnostic;
+  `render_json` is the LSP form.
 
 ### 15.3 External bindings (satellite repositories)
 

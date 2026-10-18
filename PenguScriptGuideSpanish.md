@@ -657,6 +657,91 @@ let x is do:
     a * 2                     # valor del bloque
 ```
 
+### 4.16 Parsear con `std.json`
+
+`std.json` es un parser estricto y un DOM con posesión explícita. El patrón es
+**parsear una vez, consultar con los accesores tipados, liberar las copias**:
+
+```pengu
+import std.json
+import std.spark
+
+weave cargar with path as string into maybe JsonValue:
+    var texto as maybe string is calling archivum.read_file with path
+    if t as string is texto:
+        var parsed as result of JsonValue to json.JsonError is calling json.parse with t
+        if p as JsonValue is parsed:
+            return some p
+        banish parsed
+    banish texto
+    return maybe none
+```
+
+- `parse` devuelve `result of JsonValue to JsonError`. Usa `or:` o comprueba
+  `is_ok` y haz `banish` del result (libera el árbol).
+- `get`, `at`, `first`, `last`, `pointer` y `find_key` devuelven **copias
+  poseídas**; hay que hacer `banish`. `as_string` devuelve una copia dentro de
+  un maybe: `json.take_string with (sigil of opt)` la mueve y libera la caja.
+- Prefiere `json.get_or_null` cuando quieras un valor plano sin `maybe`.
+- `validate` comprueba sin construir DOM; `validate_schema` devuelve una lista
+  de errores legibles.
+- `parse_in_arena` es el modo de un solo uso: `banish arena` libera todo.
+
+**Anti-patrón:** recorrer el DOM con `if kind == ...` y construir strings a
+mano. Usa `as_*`, `pointer` y `stringify`.
+
+### 4.17 Reportar diagnósticos
+
+Construye diagnósticos estructurados; no concatenes strings de error a mano:
+
+```pengu
+import std.diagnostic as diag
+
+weave reportar with name as string, span as Span into void:
+    calling bag.error with "binding sin usar '{name}'", span
+
+weave main into int:
+    var bag as DiagnosticBag is calling DiagnosticBag.new
+    defer banish bag
+    calling bag.add_source with "src/main.pengu", source_text
+    if calling bag.has_errors:
+        var human as string is calling bag.render_colored
+        defer banish human
+        calling spark.print with human
+        return 1
+    return 0
+```
+
+- `render_colored` para terminal (respeta `NO_COLOR` y la detección de TTY);
+  `render_json` para CI y el LSP (array de `Diagnostic` LSP con posiciones
+  0-indexadas).
+- Registra la fuente con `add_source` para tener contexto; sin ella se imprime
+  `fichero:línea:columna` y los mensajes.
+- `errors_only` / `warnings_and_errors` devuelven copias profundas; se liberan
+  con `free_diagnostics`.
+
+### 4.18 JSON-RPC con `std.jsonrpc`
+
+Para un LSP o cualquier flujo con framing `Content-Length`:
+
+```pengu
+import std.jsonrpc as rpc
+
+weave responder with id as JsonRpcId, result as JsonValue into string:
+    var msg as JsonRpcMessage is calling rpc.response_ok with id, result
+    defer banish msg
+    return calling rpc.encode_framed with msg
+```
+
+- Usa `encode_framed`/`decode_framed_bytes` para LSP; `encode_message` y
+  `parse_message` para HTTP o un harness de pruebas.
+- `decode_framed_bytes` devuelve `consumed == 0` cuando faltan bytes; sigue
+  leyendo y reintenta con el buffer ampliado.
+- Un batch se decodifica con `parse_batch`; se libera con `take_messages` +
+  `free_messages`.
+- Valida el `id` antes de responder: `null` y los floats son ids inválidos.
+
+
 ---
 
 ## 5. Optionals, resultados y errores
@@ -2900,3 +2985,55 @@ rune Node cyclus:
     value as int
     next as maybe ref to Node
 ```
+
+### 14.33 Manejar `JsonValue` con `if kind == ...` en vez de `as_*`
+
+```pengu
+# ❌ Anti-Pengunic: se inspecciona la variante a mano y cada fallo es un panic
+if calling value.type_name == "string":
+    var s as string is value.raw_string
+else:
+    calling panic with "no es un string"
+
+# ✅ Pengunic: un maybe explícito, sin panic oculto
+var s as maybe string is calling value.as_string
+if text as string is s:
+    calling usar with text
+banish s
+```
+
+`as_bool`, `as_int`, `as_float`, `as_number`, `as_string`, `as_array` y
+`as_object` son los accesores tipados que no hacen panic. Usa `type_name` solo
+para diagnósticos, no para despachar.
+
+### 14.34 Construir diagnósticos a mano en vez de `DiagnosticBag`
+
+```pengu
+# ❌ Anti-Pengunic: un string que ninguna herramienta puede consumir
+calling spark.println with "error: algo malo en la línea 4"
+
+# ✅ Pengunic: un diagnóstico estructurado, para humano o para el LSP
+calling bag.error with "algo malo", span
+var text as string is calling bag.render_colored
+```
+
+La forma estructurada lleva el span, la severidad y el código;
+`render_colored` y `render_json` son dos vistas de los mismos datos.
+
+### 14.35 Serializar un tipo de usuario sin conversión explícita
+
+```pengu
+# ❌ No hay reflexión implícita: esto no compila, y añadirla ocultaría
+#    asignaciones y el orden de los campos.
+var text as string is calling json.stringify with user
+
+# ✅ Convierte explícitamente a JsonValue y luego serializa
+var obj as JsonValue is calling JsonValue.empty_object
+calling obj.put_json with "name", (calling JsonValue.string_val with user.name)
+var text as string is calling json.stringify with obj
+banish obj
+```
+
+`std.json` serializa `JsonValue`, no valores arbitrarios de PenguScript. La
+conversión es el schema: hace visibles el orden, el renombrado y los campos
+omitidos en el punto de llamada.

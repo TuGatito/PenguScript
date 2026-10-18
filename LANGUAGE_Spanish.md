@@ -36,8 +36,9 @@
 17. [Pruebas unitarias (`test`)](#17-unit-tests-test)
 18. [Construcción estilo bloque (expresiones `with:`)](#18-block-style-construction-with-expressions)
 19. [Biblioteca estándar](#19-standard-library)
-    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-33-modules)
+    - 19.1 [Módulos de PenguScript puro](#191-pure-penguscript-modules-36-modules)
     - 19.1.2 [Los cuatro módulos fundamentales](#1912-los-cuatro-módulos-fundamentales)
+    - 19.1.3 [Los módulos de datos](#1913-los-módulos-de-datos-stddiagnostic-stdjson-stdjsonrpc)
     - 19.2 [Bindings externos (repositorios satélite)](#192-external-bindings-satellite-repositories)
     - 19.3 [Ejemplos de la biblioteca estándar central](#193-core-standard-library-examples)
     - 19.4 [Recursos embebidos del proyecto (`arca`)](#194-embedded-project-assets-arca)
@@ -3741,20 +3742,23 @@ test "stdlib version":
 
 `tests/stdlib/test_std_versioning.py` exige que cada módulo escrito a mano de
 `std/` exporte esa constante con una versión de release válida (opcionalmente
-con sufijo de prerelease semver), y que `std.functor` y `std.loom` estén en 2.9.0. El uso de espacios de
+con sufijo de prerelease semver), y que `std.functor` y `std.loom` estén en 2.10.0. El uso de espacios de
 nombres ya mantiene cada módulo autocontenido (`std.<module>.<symbol>`), así que
 desacoplar la stdlib en paquetes versionados de forma independiente queda reservado
 para 2.0.
 
-Los cuatro módulos fundamentales de 2.9.0 siguen la misma regla: `std.builder`
+Los cuatro módulos fundamentales de la serie 2.9 siguen la misma regla: `std.builder`
 exporta `BUILDER_VERSION`, `std.arena` exporta `ARENA_VERSION`, `std.sourcemap`
 exporta `SOURCEMAP_VERSION` y `std.bitset` exporta `BITSET_VERSION`, las cuatro
-con `"2.9.0"` en esta versión. También exportan sus constantes de ajuste por
-defecto (`BUILDER_DEFAULT_CAPACITY`, `ARENA_DEFAULT_BLOCK_SIZE`,
-`ARENA_DEFAULT_ALIGNMENT`) para quien quiera reservar exactamente lo que el
-módulo reservaría.
+con `"2.10.0"` en esta versión. Los tres módulos de datos de 2.10.0 siguen la
+misma regla: `std.diagnostic` exporta `DIAGNOSTIC_VERSION`, `std.json` exporta
+`JSON_VERSION` y `std.jsonrpc` exporta `JSONRPC_VERSION`, todos `"2.10.0"`, más
+`JSONRPC_PROTOCOL_VERSION` (`"2.0"`). Los módulos builder y arena también
+exportan sus constantes de ajuste por defecto (`BUILDER_DEFAULT_CAPACITY`,
+`ARENA_DEFAULT_BLOCK_SIZE`, `ARENA_DEFAULT_ALIGNMENT`) para quien quiera
+reservar exactamente lo que el módulo reservaría.
 
-### 19.1 Módulos de PenguScript puro (33 módulos)
+### 19.1 Módulos de PenguScript puro (36 módulos)
 
 Todos los módulos puros se encuentran en el directorio `std/` y se importan como `import std.<module>`.
 
@@ -3793,6 +3797,10 @@ Todos los módulos puros se encuentran en el directorio `std/` y se importan com
 | `std.arena` | Allocator bump para grafos temporales de objetos: `Arena.new`, `Arena.with_block_size`, `alloc`, `alloc_aligned`, `alloc_str`, `alloc_cstr`, `total_allocated`, `block_count`, `block_size`, `reset` (conserva el primer bloque y reutiliza el arena) y `free` (libera todos los bloques). Soporta bloques oversized y alineación por dirección absoluta; `arena_alloc of T` / `arena_alloc_one of T` devuelven memoria tipada y puesta a cero. Comparable a `zig.heap.ArenaAllocator` y `bumpalo`. |
 | `std.sourcemap` | Traducción bidireccional entre offset de byte y `(línea, columna)` 1-indexed: `SourceMap.from_source`, `source`, `line_count`, `source_len`, `position_at` (O(log líneas)), `offset_of` (O(1)), `line_text` (consciente de CRLF), `line_span`, `span_at`, `span_to_positions`, `is_valid_offset`, `is_valid_position`, `clamp_offset`, más los runes `Position` y `Span`. Comparable a `rustc_span::SourceMap`. |
 | `std.bitset` | Conjunto denso de bits de longitud fija: `new`, `filled`, `from_bytes`; `set`, `clear`, `toggle`, `set_to`, `get`; `set_all`, `clear_all`, `toggle_all`; `count_ones`, `count_zeros`, `is_empty`, `is_full`, `any`, `all`; `and_with`, `or_with`, `xor_with`, `and_not_with`, `not`, las formas `*_in_place`, `find_first_set`, `find_first_clear`, `find_next_set`, `find_next_clear`, `equals`, `copy`, `iter_set` y `to_bytes` sin posesión. Comparable a `java.util.BitSet` y `zig.DynamicBitSet`. |
+
+| `std.diagnostic` | Diagnósticos generales con spans: `Span`, `Severity`, `Label`, `Diagnostic` y `DiagnosticBag` (`new`, `add`, `extend`, `error`/`warning`/`info`/`hint`, `len`, contadores, `errors_only`, `warnings_and_errors`, `clear`, `add_source`, `source_of`), `RenderOptions` (`default_render_options`), render estilo Rust (`render`, `render_plain`, `render_colored`) con ANSI, `NO_COLOR` y detección de TTY, `span_from_positions`, `span_point`, `span_merge` y `render_json` compatible con LSP Diagnostic (posiciones 0-indexadas, severidad 1–4, `relatedInformation`). Comparable a `rustc_diagnostic` y `codespan-reporting`. |
+| `std.json` | JSON estricto RFC 8259: `parse`, `parse_with`, `parse_bytes`, `parse_in_arena`, `validate`, `validate_bytes`; `JsonValue` como `omen` algebraico (`Null`, `Bool`, `Int(i64)`, `Float(f64)`, `Str`, `Arr`, `Obj`) que preserva el orden; accesores `as_*`, `at`/`first`/`last`/`get`/`keys`/`values`/`entries`, `array_len`/`object_len`/`has_key`/`type_name`; JSON Pointer (RFC 6901) con `pointer`; `find_key`; `equals`/`equals_numeric`; `clone` profundo; mutación `push_json`/`pop_json`/`set_at`/`put_json`/`set_key`/`remove_key`/`merge`; `stringify`, `stringify_with`, `stringify_pretty`, `write_to_builder`, `try_stringify` con floats de ida y vuelta; `ParseOptions` y `SerializeOptions`; `deep_merge`; `validate_schema`; `JsonError` con kind/línea/columna/offset. Cubre todo lo de `json` de Python y añade pointer, búsqueda, validación, arena y schema. |
+| `std.jsonrpc` | JSON-RPC 2.0: `JsonRpcId`, `JsonRpcMessage` (`Request`/`Notification`/`ResponseOk`/`ResponseError`), `JsonRpcError`, los cinco códigos estándar, constructores `request`/`notification`/`response_ok`/`response_error`, `encode_*`, `parse_message`, `parse_batch`, `take_messages`, `free_messages`, constructores de error, `JsonRpcParseError`/`JsonRpcErrorKind` y framing LSP (`encode_framed`, `decode_framed_bytes`, `decode_framed`, `FramedDecode`). Comparable a `jsonrpc-core` de Rust. |
 
 ### 19.1.1 Elegir entre `std.loom` y `std.tally`
 
@@ -3837,7 +3845,7 @@ familia que pierda (ítem 6.5, `AUDIT_1.0_FASE6.md`).
 
 ### 19.1.2 Los cuatro módulos fundamentales
 
-2.9.0 añade los cuatro módulos que el compilador autohospedado (y cualquier otra
+2.10.0 incluye los tres módulos de datos y conserva los cuatro módulos fundamentales de la serie 2.9; estos últimos añaden que el compilador autohospedado (y cualquier otra
 herramienta que construya texto, árboles, posiciones o conjuntos densos)
 necesita primero. Son deliberadamente generales: `builder` sirve igual para CSV,
 HTML y logs que para codegen; `arena` sirve igual para el AST de un parser que
@@ -3964,6 +3972,135 @@ weave main into int:
 Usa `map of int to int` para un conjunto disperso: un bitset reserva
 `bit_len / 8` bytes tanto si guarda dos elementos como dos millones.
 
+
+### 19.1.3 Los módulos de datos: `std.diagnostic`, `std.json`, `std.jsonrpc`
+
+Los tres módulos de datos de 2.10.0 son las piezas que necesita una herramienta
+para hablar un protocolo moderno: un modelo de diagnósticos para salida humana y
+de máquina, un DOM JSON para el payload y JSON-RPC 2.0 (con framing LSP) para el
+transporte. Son independientes salvo que `std.diagnostic` usa `std.json` para
+`render_json`; `std.json` nunca importa `std.diagnostic`.
+
+#### `std.json`: parsear, consultar, serializar
+
+```pengu
+import std.json
+import std.spark
+
+weave main into int:
+    var parsed as result of JsonValue to json.JsonError is calling json.parse with
+        r"""{"name":"pengu","tags":[1,2]}"""
+    var root as JsonValue is parsed or:
+        calling spark.println with "línea {error.line}, col {error.col}: {error.message}"
+        return 1
+    defer banish root
+
+    var name as JsonValue is calling json.get_or_null with root, "name"
+    defer banish name
+    var sv as maybe string is calling name.as_string
+    var owned as string is calling json.take_string with (sigil of sv)
+    defer banish owned
+    calling spark.println with owned                 # pengu
+
+    var second as JsonValue is calling root.pointer with "/tags/1" or:
+        calling JsonValue.null_value
+    defer banish second
+    var n as maybe i64 is calling second.as_int
+    calling spark.println with "{(n or else 0)}"     # 2
+    return 0
+```
+
+Puntos clave:
+
+- **Estricto por defecto** (RFC 8259); `ParseOptions` permite comentarios, comas
+  finales, `NaN`/`Infinity`, `strict=false` y otra profundidad.
+- **Errores con posición**: `kind`, `message`, `line`/`col` 1-indexados y
+  `offset` de byte 0-indexado.
+- **Enteros `i64`**; fuera de rango es `IntegerOverflow` (no hay bigints).
+- **Los objetos preservan el orden**; una clave duplicada conserva la primera
+  posición y el último valor.
+- **Toda consulta devuelve una copia poseída**: `at`, `get`, `first`, `last`,
+  `pointer`, `find_key` y `clone`; hay que hacer `banish`. `as_array`,
+  `as_object`, `values` y `entries` se liberan con `free_values`/`free_entries`;
+  `keys` con `free_strings`.
+- **`parse_in_arena`** deja el árbol en el arena: `banish arena` lo libera todo
+  y hacer `banish` del valor es un no-op seguro (las listas son inmutables).
+- **Los floats hacen ida y vuelta**: se emite la representación decimal más
+  corta que `strtod` devuelve a los mismos bits, con el formato de Python
+  (`1.0`, `10000000000.0`, `1e+20`, `1e-05`).
+- **`try_stringify`** devuelve error en vez de panic con floats no finitos;
+  `stringify` hace panic salvo `allow_nan`.
+
+#### `std.diagnostic`: spans, etiquetas y salida
+
+```pengu
+import std.diagnostic as diag
+import std.spark
+
+weave main into int:
+    var bag as DiagnosticBag is calling DiagnosticBag.new
+    defer banish bag
+    calling bag.add_source with "src/main.pengu", "var x as int is \"hello\"\n"
+    var span as Span is calling diag.span_from_positions with "src/main.pengu", 1, 18, 1, 25, 17, 24
+    var label as Label is calling diag.label with span, "se esperaba 'int' aquí", true
+    calling bag.add with (calling diag.diagnostic with diag.Severity.Error, "E0005",
+        "se esperaba 'int', se encontró 'string'", (calling diag.labels with label),
+        (some "usa '(s to int)'"), (maybe none), (calling diag.no_related))
+    var human as string is calling bag.render_colored
+    defer banish human
+    calling spark.print with human
+    var json_text as string is calling bag.render_json
+    defer banish json_text
+    return 0
+```
+
+- El render es un bloque estilo rustc con gutter, contexto, marcas `^^^^`/`----`,
+  `note:`, `help:` y `related:`.
+- Un diagnóstico sin etiquetas (o sin primaria) imprime solo su cabecera o sus
+  líneas de posición; nunca hace panic.
+- Si el fichero del span no tiene fuente registrada, se imprime
+  `fichero:línea:columna` y los mensajes, sin contexto.
+- `render_json` emite un `Diagnostic` LSP por diagnóstico: `range`
+  0-indexado, `severity` numérica, `code` opcional, `source: "pengu"`,
+  `message` y `relatedInformation`.
+- Los tabs se expanden con `tab_width`; un codepoint UTF-8 multibyte cuenta como
+  una columna visual, así que los caret se alinean bajo `ñ` o un emoji aunque
+  las columnas del `Span` sean bytes.
+
+#### `std.jsonrpc`: JSON-RPC 2.0 y framing LSP
+
+```pengu
+import std.json
+import std.jsonrpc as rpc
+import std.spark
+
+weave main into int:
+    var id as JsonRpcId is with Number is 1
+    var params as JsonValue is calling json.empty_array
+    calling params.push_json with (calling JsonValue.int_val with 42)
+    var msg as JsonRpcMessage is calling rpc.request with id, "echo", (some params)
+    defer banish msg
+    var frame as string is calling rpc.encode_framed with msg
+    defer banish frame
+    calling spark.print with frame
+    # Content-Length: 43\r\n\r\n{"jsonrpc":"2.0","id":1,"method":"echo","params":[42]}
+    return 0
+```
+
+- Los mensajes son `Request`, `Notification`, `ResponseOk` o `ResponseError`.
+  En el wire el miembro es `error`, pero el campo PenguScript se llama `err`
+  porque `error` es el nombre reservado del bloque `or:`.
+- `parse_message` valida `jsonrpc: "2.0"`, el tipo de id (entero o string;
+  `null` y floats se rechazan), `params` array/objeto y la exclusión mutua de
+  `result`/`error`.
+- `parse_batch` devuelve el primer elemento inválido como error y libera los
+  mensajes ya decodificados; `take_messages` mueve la lista fuera del result para
+  poder liberarla con `free_messages`.
+- `decode_framed_bytes` devuelve un `FramedDecode`: `consumed == 0` sin mensaje
+  significa "faltan bytes"; un `consumed` positivo es el tamaño exacto del frame.
+- Los códigos estándar son constantes (`PARSE_ERROR`, `INVALID_REQUEST`,
+  `METHOD_NOT_FOUND`, `INVALID_PARAMS`, `INTERNAL_ERROR`); `error_server` cubre
+  el rango `-32000..-32099`.
 
 ### 19.2 Bindings externos (repositorios satélite)
 

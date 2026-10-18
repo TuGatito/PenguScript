@@ -2,6 +2,107 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.10.0] — 2026-10-17 — diagnostics, JSON and JSON-RPC
+
+Closes Phase 1b: `std.diagnostic`, `std.json` and `std.jsonrpc` ship complete,
+documented, tested and leak-free. Together they unblock the self-hosted LSP:
+structured diagnostics for compiler errors, a strict JSON DOM for the wire
+payload, and JSON-RPC 2.0 with `Content-Length` framing for stdio/sockets.
+
+```pengu
+import std.json
+
+var parsed as result of JsonValue to json.JsonError is calling json.parse with
+    r"""{"name":"pengu","tags":[1,2]}"""
+var root as JsonValue is parsed or:
+    return 1
+defer banish root
+
+var second as JsonValue is calling root.pointer with "/tags/1" or:
+    return 1
+defer banish second
+```
+
+### Added
+
+- **`std.diagnostic`** — `Span`, `Severity`, `Label`, `Diagnostic` and
+  `DiagnosticBag`, Rust-style `render`/`render_plain`/`render_colored` with
+  context lines, multi-label and multi-file output, ANSI colour, `NO_COLOR` and
+  TTY detection, `span_from_positions`/`span_point`/`span_merge`, deep-copy
+  filters, source registration, and `render_json` producing an LSP-compatible
+  `Diagnostic[]` (0-indexed positions, numeric severity, `relatedInformation`).
+  Comparable to `rustc_diagnostic` and `codespan-reporting`.
+- **`std.json`** — strict RFC 8259 parse (`parse`, `parse_with`, `parse_bytes`,
+  `parse_in_arena`, `validate`, `validate_bytes`), an algebraic `JsonValue` DOM
+  that preserves insertion order with `i64` integers and `f64` floats, typed
+  `as_*` accessors, `at`/`first`/`last`/`get`/`keys`/`values`/`entries`, JSON
+  Pointer (RFC 6901), recursive `find_key`, strict and numeric equality, deep
+  `clone`, in-place mutation, `merge`/`deep_merge`, a practical
+  `validate_schema`, shortest-round-trip floats formatted like Python,
+  `stringify`/`stringify_with`/`stringify_pretty`/`write_to_builder`/
+  `try_stringify`, and byte-exact `JsonError` positions. It covers everything
+  Python's `json` does and adds pointer, search, validation, arena mode and
+  schema checks.
+- **`std.jsonrpc`** — JSON-RPC 2.0 request/notification/response/error messages,
+  the five standard error codes, batch decoding, `take_messages`/
+  `free_messages`, and LSP framing (`encode_framed`, `decode_framed_bytes`,
+  `decode_framed`, `FramedDecode` with incomplete-frame semantics).
+- Documentation: `LANGUAGE.md` §19.1 (module catalog and §19.1.3 examples) and
+  the Spanish mirror, `PenguScriptGuideEnglish.md` §4.16–4.18 and §14.33–14.35
+  (and the Spanish mirror), a `CHEATSHEET.md` "JSON & diagnostics" section, and
+  the README module catalog.
+- Tests: a 20-program conformance corpus, `tests/stdlib/test_{json,diagnostic,
+  jsonrpc}.py`, `tests/codegen/test_json_codegen.py` (gcc/clang `-Werror`,
+  recursive `Nexus`, adversarial inputs), a 1000-document
+  `tests/compat/test_json_vs_python.py` oracle against CPython, and compiler
+  regressions in `tests/compiler/test_std_data_codegen.py`.
+
+### Changed
+
+- The standard library now ships **36 modules** (34 pure plus `std.ffi` and
+  `std.web`).
+- `FUNCTOR_VERSION`, `LOOM_VERSION`, `ARENA_VERSION`, `BITSET_VERSION`,
+  `BUILDER_VERSION` and `SOURCEMAP_VERSION` move to `2.10.0`.
+
+### Fixed
+
+- **Recursive by-value type ordering.** Runes and algebraic omens are now emitted
+  in one topological order where a `list`/`map`/`ref`/`maybe`/`result` is *not*
+  a dependency edge. A recursive `JsonValue`/`JsonEntry` pair (a rune that
+  embeds the omen by value while the omen holds `list of` that rune) used to
+  reference an incomplete struct.
+- **`derive Nexus` is deep for containers.** A derived destructor now releases
+  every element of a `list`, every key/value of a `map`, and every payload of a
+  `maybe`/`result` before the container's own buffer. `banish json` releases the
+  whole tree; a plain `banish list` remains shallow.
+- **`derive Par` understands containers and algebraic omens.** Lists, maps,
+  maybe and result compare element-wise (with generated helpers), and a rune
+  field that is an algebraic omen uses its eq helper instead of `memcmp` (which
+  read padding and pointer values).
+- **Plain omens implement the derivable concepts.** A C enum field now counts
+  as `Par`, `Ordo`, `Vinculum`, `Imago` and `Nexus`, so `derive Nexus` on a rune
+  with an omen discriminant is accepted.
+- **Multi-field algebraic variant construction.** `with Variant is with field is
+  value, ...` now emits a single braced union initializer instead of a
+  double-braced one that initialised only the first field; single-field variants
+  get the braces GCC wants under `-Werror`.
+- **`.field` in a `with:` block resolves against the with-target.** A local with
+  the same name as the field no longer changes the copied type (this produced a
+  wrong `sizeof` in generic `Pair` construction). Function generation also saves
+  and restores its local/with/scope state so a lazily instantiated generic body
+  cannot see its caller's context.
+- **A user method named `clone` no longer collides with derived `Imago`.** The
+  internal helper is now `_pengu_imago_<Rune>`.
+- **Indented `judge` clause bodies are value blocks.** `var x as int is judge
+  ...:` with a statement block and a final expression now type-checks and
+  codegens.
+- **Arena-backed lists are non-owning.** A list header with `cap < 0` treats its
+  data pointer as borrowed: `banish` is a no-op and `push` refuses to grow it.
+  `std.json`'s `parse_in_arena` uses this so `banish arena` frees everything and
+  banishing the value is safe.
+- `std.diagnostic` no longer imports `std.sourcemap`, whose `Span` rune collided
+  with `std.diagnostic`'s `Span`; the two line helpers are internal C bridges.
+
 ## [2.9.0] — 2026-10-17 — the four fundamental modules
 
 Closes Phase 1a: `std.builder`, `std.arena`, `std.sourcemap` and `std.bitset`

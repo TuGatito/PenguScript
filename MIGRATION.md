@@ -8,9 +8,25 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.9.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.10.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.9.0 → 2.10.0: diagnostics, JSON and JSON-RPC
+
+This release is purely additive. Import `std.json`, `std.diagnostic` and/or
+`std.jsonrpc` when you need them. Two ownership rules are worth reading before
+you do:
+
+* every query that returns a `JsonValue` (`get`, `at`, `pointer`, ...) returns a
+  deep copy you must `banish`; a `list of JsonValue` is released with
+  `free_values` (and `free_strings`/`free_entries` for the other containers);
+* `parse_in_arena` returns an arena-backed tree: `banish arena` releases it and
+  banishing the value is a safe no-op.
+
+No API was removed or renamed. The compiler fixes for recursive `Nexus`,
+container-aware `Par`, multi-field variant construction and with-target field
+resolution are visible only where they used to reject or miscompile valid code.
 
 ## 2.7.0 → 2.9.0: the four fundamental modules
 

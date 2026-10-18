@@ -8,7 +8,7 @@
 
 ### `ARENA_VERSION`
 
-> const string` = 2.9.0`
+> const string` = 2.10.0`
 
 Arena module version.
 
