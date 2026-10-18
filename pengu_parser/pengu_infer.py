@@ -1763,6 +1763,35 @@ class TypeInferrer:
 
             # Exact field set matching for rune inference without 'as'
             init_keys = set(field_inits.keys())
+
+            # Variant-selected algebraic-omen construction without an explicit
+            # annotation: `with Int is 1` names the variant, not a rune field.
+            # Before this, an argument-position construction fell through with
+            # no type and codegen emitted the invalid `{.Int = 1}`.
+            if init_keys:
+                omen_candidates: List[OmenType] = []
+                for o_type in self.symbols.omens.values():
+                    if not isinstance(o_type, OmenType) or not o_type.is_algebraic:
+                        continue
+                    variants = o_type.variants
+                    if not variants and self.symbols:
+                        sym_t = self.symbols.lookup_type(o_type.name)
+                        if isinstance(sym_t, OmenType) and sym_t.variants:
+                            variants = sym_t.variants
+                    if variants and all(k in variants for k in init_keys):
+                        omen_candidates.append(o_type)
+                if len(omen_candidates) == 1:
+                    return omen_candidates[0]
+                if len(omen_candidates) > 1:
+                    names = ", ".join(sorted({o.name for o in omen_candidates}))
+                    raise self._make_error(
+                        SemanticError,
+                        f"Ambiguous algebraic-omen initializer: {names}",
+                        node,
+                        code="E0054",
+                        help="Disambiguate by specifying the omen type explicitly with 'as OmenName'.",
+                        note="More than one algebraic omen declares a variant with that name."
+                    )
             matching: List[RuneType] = [
                 r_type for r_type in self.symbols.runes.values()
                 if set(r_type.fields.keys()) == init_keys

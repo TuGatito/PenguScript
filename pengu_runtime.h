@@ -1781,6 +1781,11 @@ extern "C"
   {
     if (!list || !item)
       return;
+    /* Negative capacity marks a non-owning (arena-backed) list header: its
+     * `data` points into an arena block, so growing it with realloc would hand
+     * a block interior to free(). Immutable by contract. */
+    if (list->cap < 0)
+      return;
     if (list->len >= list->cap)
     {
       if (list->cap > INT_MAX / 2)
@@ -1910,7 +1915,12 @@ extern "C"
   {
     if (list && list->data)
     {
-      free(list->data);
+      /* `cap < 0` marks a non-owning list (std.json's `parse_in_arena` builds
+       * one over an arena block): the bytes belong to the arena, not to
+       * malloc, so banishing the value must be a safe no-op. Accessors only
+       * need `data`, `len` and `elem_size`, all of which stay valid. */
+      if (list->cap >= 0)
+        free(list->data);
       list->data = NULL;
       list->len = 0;
       list->cap = 0;

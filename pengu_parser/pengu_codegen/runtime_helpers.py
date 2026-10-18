@@ -35,12 +35,19 @@ from .ctype import (
 class RuntimeMixin:
     """Release helpers (`banish`, payload release) and iteration values."""
 
-    def _release_payload_stmts(self, t: Optional[Type], ptr_expr: str, ind: str = "") -> str:
+    def _release_payload_stmts(self, t: Optional[Type], ptr_expr: str, ind: str = "",
+                               deep: bool = False) -> str:
         """C statements releasing the *contents* of a value held at ``ptr_expr``.
 
         ``ptr_expr`` is a ``void*`` (the payload of a maybe/result box, a
         container element, …).  Returns an empty string for types that own
         nothing; never frees ``ptr_expr`` itself.
+
+        ``deep`` is what a *derived Nexus* asks for: it recurses into the
+        elements of a list/map so `banish json` releases the whole tree.  The
+        default is shallow, the historical `banish` contract: a plain
+        `banish list`/`banish maybe list` frees only the container, exactly as
+        documented, because the caller may already have released the elements.
         """
         if t is None:
             return ""
@@ -52,14 +59,62 @@ class RuntimeMixin:
             u = nxt
         if isinstance(u, BaseType) and u.name == "string":
             return f"{ind}pengu_banish_string((PenguString *)({ptr_expr}));"
-        if isinstance(u, ListType):
+        if isinstance(u, ListType) and not deep:
+            # Shallow by default: the historical `banish list` contract.
             return f"{ind}pengu_banish_list((PenguList *)({ptr_expr}));"
-        if isinstance(u, MapType):
+        if isinstance(u, ListType):
+            # A derived destructor is the one place where recursing is the
+            # whole point: `banish json` must release the nested
+            # strings/lists/runes of the tree, not just the outermost array.
+            # Emit an element loop only when the element type actually owns
+            # something, so a `list of int` stays a single free.
+            elem_c = CTypeMapper.to_c_type(u.element)
+            idx = self.get_temp_name("_li")
+            lst = self.get_temp_name("_ll")
+            inner = self._release_payload_stmts(
+                u.element,
+                f"((char *)({lst})->data + ((size_t){idx} * sizeof({elem_c})))",
+                ind + "    ", deep=True)
+            if not inner.strip():
+                return f"{ind}pengu_banish_list((PenguList *)({ptr_expr}));"
+            return (f"{ind}{{ PenguList *{lst} = (PenguList *)({ptr_expr});\n"
+                    f"{ind}  for (int {idx} = 0; {idx} < {lst}->len; ++{idx}) {{\n"
+                    f"{inner}\n"
+                    f"{ind}  }}\n"
+                    f"{ind}  pengu_banish_list({lst}); }}")
+        if isinstance(u, MapType) and not deep:
             return f"{ind}pengu_banish_map((PenguMap *)({ptr_expr}));"
+        if isinstance(u, MapType):
+            # Same contract as a list: a derived destructor releases every key
+            # and value payload the map references, then the map's own table.
+            idx = self.get_temp_name("_mi")
+            mp = self.get_temp_name("_mm")
+            entry = self.get_temp_name("_me")
+            key_inner = self._release_payload_stmts(
+                u.key, f"{entry}->key", ind + "    ", deep=True)
+            val_inner = self._release_payload_stmts(
+                u.value, f"{entry}->val", ind + "    ", deep=True)
+            if not key_inner.strip() and not val_inner.strip():
+                return f"{ind}pengu_banish_map((PenguMap *)({ptr_expr}));"
+            body = []
+            if key_inner.strip():
+                body.append(key_inner)
+            if val_inner.strip():
+                body.append(val_inner)
+            inner = "\n".join(body)
+            return (f"{ind}{{ PenguMap *{mp} = (PenguMap *)({ptr_expr});\n"
+                    f"{ind}  for (int {idx} = 0; {idx} < {mp}->cap; ++{idx}) {{\n"
+                    f"{ind}    PenguMapEntry *{entry} = &{mp}->entries[{idx}];\n"
+                    f"{ind}    if (!{entry}->occupied) continue;\n"
+                    f"{inner}\n"
+                    f"{ind}  }}\n"
+                    f"{ind}  pengu_banish_map({mp}); }}")
         if isinstance(u, ArrayType) and u.size is not None:
             idx = self.get_temp_name("_ri")
             inner = self._release_payload_stmts(
-                u.element, f"((char *)({ptr_expr})) + ({idx} * sizeof({CTypeMapper.to_c_type(u.element)}))", ind + "  ")
+                u.element,
+                f"((char *)({ptr_expr})) + ({idx} * sizeof({CTypeMapper.to_c_type(u.element)}))",
+                ind + "  ", deep=deep)
             if not inner.strip():
                 return ""
             return (f"{ind}for (size_t {idx} = 0; {idx} < {u.size}; ++{idx}) {{\n"
@@ -69,7 +124,7 @@ class RuntimeMixin:
             # old code built the inner statements from '{ptr_expr}_m->value',
             # which produced invalid C ('x.value_m->value') whenever ptr_expr
             box = self.get_temp_name("_mb")
-            inner = self._release_payload_stmts(u.element, f"{box}->value", ind + "  ")
+            inner = self._release_payload_stmts(u.element, f"{box}->value", ind + "  ", deep=deep)
             body = f"{inner}\n" if inner.strip() else ""
             return (f"{ind}{{ PenguMaybe *{box} = (PenguMaybe *)({ptr_expr});\n"
                     f"{ind}  if ({box}->is_present && {box}->value) {{\n"
@@ -79,8 +134,8 @@ class RuntimeMixin:
         if isinstance(u, ResultType):
             # Only the active side (ok_val xor err_val) owns a payload box.
             box = self.get_temp_name("_rb")
-            ok_inner = self._release_payload_stmts(u.ok_type, f"{box}->ok_val", ind + "    ")
-            err_inner = self._release_payload_stmts(u.err_type, f"{box}->err_val", ind + "    ")
+            ok_inner = self._release_payload_stmts(u.ok_type, f"{box}->ok_val", ind + "    ", deep=deep)
+            err_inner = self._release_payload_stmts(u.err_type, f"{box}->err_val", ind + "    ", deep=deep)
             ok_body = f"{ok_inner}\n" if ok_inner.strip() else ""
             err_body = f"{err_inner}\n" if err_inner.strip() else ""
             return (f"{ind}{{ PenguResult *{box} = (PenguResult *)({ptr_expr});\n"

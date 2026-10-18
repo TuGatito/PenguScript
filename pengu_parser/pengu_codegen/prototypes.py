@@ -305,6 +305,25 @@ class ProtoMixin:
 
             lines.append(f"{inline_pfx}{noreturn_pfx}{decl} {{")
             self.indent_level += 1
+            # A generic instantiation may be generated *while* an enclosing
+            # function body is being translated (first call site wins).  The
+            # generator keeps function-scoped state on `self`, so save it and
+            # restore it at the end: without this, the instantiated body saw
+            # the enclosing function's `local_vars` and resolved, for example,
+            # `.first` to an unrelated local rune named `first`. That produced
+            # a wrong `sizeof` in `memcpy` and the oracle bundle warned under
+            # -Wstringop-overflow.
+            saved_gen_state = (
+                dict(self.local_vars),
+                self.current_function,
+                self.current_return_type,
+                self.current_enchanted_type,
+                dict(getattr(self, "current_subst_map", {}) or {}),
+                getattr(self, "current_self_is_value", False),
+                list(getattr(self, "with_stack", []) or []),
+                list(getattr(self, "with_type_stack", []) or []),
+                getattr(self, "_void_locals", set()),
+            )
             push_path = self._display_path(w.get("filepath")) or ""
             push_line = w.get("line") or 0
             lines.append(f'{self.indent()}pengu_frame_push("{fn_actual_name}", "{push_path}", {push_line});')
@@ -313,6 +332,11 @@ class ProtoMixin:
             self.current_enchanted_type = w.get("enchanted_type")
             self.current_subst_map = w.get("subst_map", {})
             self.local_vars = {}
+            # A generic instantiation may be emitted from inside an enclosing
+            # `with:` block; the new function starts with no with-context, or
+            # its `.field` targets would resolve against the caller's target.
+            self.with_stack = []
+            self.with_type_stack = []
             # Value-vs-reference receiver comes from the collected declaration
             # (see `_collect_weave`), never from the type alone: `enchanting int:`
             # is a value, `bind int with Ordered:` is a pointer.
@@ -377,6 +401,9 @@ class ProtoMixin:
             self.indent_level -= 1
             lines.append("}")
             lines.append("")
-            self._void_locals = set()
+            (self.local_vars, self.current_function, self.current_return_type,
+             self.current_enchanted_type, self.current_subst_map,
+             self.current_self_is_value, self.with_stack,
+             self.with_type_stack, self._void_locals) = saved_gen_state
 
         return "\n".join(lines)

@@ -900,19 +900,26 @@ def get_completions(
                         )
                     return CompletionList(is_incomplete=False, items=field_items)
 
-                # OmenType: suggest variants
+                # OmenType: methods from an `enchanting` block. A variant is a
+                # *constructor* of an algebraic omen, not a member of an
+                # instance, so `root.` on a `JsonValue` used to offer `Int`,
+                # `Str`, ... and no methods at all. Variants remain useful on a
+                # plain (non-algebraic) enum value, where they are values.
                 elif isinstance(actual_type, OmenType):
-                    for v_name, v_fields in actual_type.variants.items():
-                        v_detail = f"variant with {', '.join(f'{fn} as {ft}' for fn, ft in v_fields.items())}" if v_fields else "variant"
-                        field_items.append(
-                            CompletionItem(
-                                label=v_name,
-                                kind=CompletionItemKind.EnumMember,
-                                detail=v_detail,
-                                insert_text=v_name,
+                    by_label = {item.label: item for item in _method_items_for_type(symbols, actual_type)}
+                    if not actual_type.is_algebraic:
+                        for v_name, v_fields in actual_type.variants.items():
+                            v_detail = f"variant with {', '.join(f'{fn} as {ft}' for fn, ft in v_fields.items())}" if v_fields else "variant"
+                            by_label.setdefault(
+                                v_name,
+                                CompletionItem(
+                                    label=v_name,
+                                    kind=CompletionItemKind.EnumMember,
+                                    detail=v_detail,
+                                    insert_text=v_name,
+                                ),
                             )
-                        )
-                    return CompletionList(is_incomplete=False, items=field_items)
+                    return CompletionList(is_incomplete=False, items=list(by_label.values()))
 
                 # Everything else — primitives, containers, aliases, and runes
                 # whose methods come from an imported `enchanting` block. Without

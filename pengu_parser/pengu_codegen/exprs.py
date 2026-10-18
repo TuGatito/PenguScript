@@ -2554,7 +2554,23 @@ class ExprMixin:
                             tag = self._get_omen_variant_c_name(omen_cname, v_raw)
                             union_field = self._c_ident(v_raw)
                             if v_fields and v_val is not None:
-                                return f"({omen_cname}){{ .tag = {tag}, .data.{union_field} = {v_val} }}"
+                                # A nested struct initializer already carries its
+                                # braces (`.data.R = {.id = ...}`); wrapping it
+                                # again produced `{{ ... }}`, which initialises
+                                # only the first payload field and made every
+                                # multi-field variant construction invalid C.
+                                # A struct-valued payload supplied as a plain
+                                # expression does need braces to stay
+                                # -Wmissing-braces clean; a scalar does not.
+                                # Every variant payload is a struct in C, so a
+                                # scalar/expression value needs braces
+                                # (`{ i }`); a nested initializer already has
+                                # them and must not be wrapped twice.
+                                if v_val.lstrip().startswith("{"):
+                                    return (f"({omen_cname}){{ .tag = {tag}, "
+                                            f".data.{union_field} = {v_val} }}")
+                                return (f"({omen_cname}){{ .tag = {tag}, "
+                                        f".data.{union_field} = {{ {v_val} }} }}")
                             return f"({omen_cname}){{ .tag = {tag} }}"
 
                         # Bare-payload form: `with code is 404` — resolve each

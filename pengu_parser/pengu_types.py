@@ -2196,11 +2196,12 @@ def type_implements_builtin_concept(t: Type, concept_name: str) -> bool:
     if isinstance(t, BaseType):
         return concept_name in PRIMITIVE_IMPLS.get(t.name, set())
     if isinstance(t, OmenType) and not t.is_algebraic and not t.is_string_valued:
-        # A plain omen is a C integer enum, so identity is `==` on the tag:
-        # `derive Par` on a rune with a plain-omen discriminant is sound and
-        # would otherwise be rejected because no `bind OmenType with Par:` can
-        # name every enum.  Algebraic/string omens still need an explicit bind.
-        return concept_name == "Par"
+        # A plain omen is a C integer enum: identity is `==` on the tag, a copy
+        # is a scalar copy, and there is nothing to release.  All five
+        # derivable concepts are sound and would otherwise need a `bind` that
+        # cannot name every enum.  Algebraic/string omens still need an
+        # explicit bind (their payloads are heap-owning).
+        return concept_name in ("Par", "Ordo", "Vinculum", "Imago", "Nexus")
     if isinstance(t, ArrayType):
         # A fixed array borrows its element's capabilities: 'array of string'
         # is an Imago/Nexus field, 'array of int' too.

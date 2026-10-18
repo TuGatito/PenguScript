@@ -699,12 +699,16 @@ class StmtMixin:
 
             inner_target = target_node.children[0] if (isinstance(target_node, Tree) and target_node.data == "set_target" and target_node.children) else target_node
             target_type = self._infer_node_type(inner_target)
+            if isinstance(inner_target, Tree) and inner_target.data == "with_target":
+                # '.field' inside a 'with:' / 'with x:' block: the with-context
+                # is authoritative. The inferrer has no with-context of its own
+                # and, if an unrelated local happens to share the field's name,
+                # it can return that local's type instead. That produced a
+                # `memcpy(..., sizeof(Label))` for `Pair.first` whenever a local
+                # named `first` was in scope somewhere in the bundle.
+                target_type = self._lookup_with_field_type(inner_target)
             if target_type is None:
-                if isinstance(inner_target, Tree) and inner_target.data == "with_target":
-                    # '.field' inside a 'with:' / 'with x:' block: the inferrer has no
-                    # with-context, so resolve the field type from the codegen's stack.
-                    target_type = self._lookup_with_field_type(inner_target)
-                elif isinstance(inner_target, Tree) and inner_target.data == "normal_target":
+                if isinstance(inner_target, Tree) and inner_target.data == "normal_target":
                     obj_name = str(inner_target.children[0])
                     target_type = self._lookup_var_type(obj_name)
                 elif isinstance(inner_target, Token):

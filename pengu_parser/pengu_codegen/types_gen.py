@@ -119,87 +119,88 @@ class TypesMixin:
         if seal_lines:
             blocks.append("\n".join(seal_lines))
 
-        # 2. Runes (Structs)
+        # 2. Runes, echos and algebraic omens (dependency order)
         #
-        # A by-value field requires the field's struct to be complete, so the
-        # definitions are emitted in dependency order.  This matters for tuple
-        # product structs (embedded by value in rune fields, and in other
-        # tuples) and for a rune that stores a monomorphized generic rune by
-        # value: `Fn1_int_int` is registered during code generation, *after*
-        # the module's own runes, but must be defined before them.  The
-        # original registration order is the deterministic tie-breaker.
-        rune_order = [n for n in self.runes if n.startswith("_pengu_tup_")]
-        rune_order += [n for n in self.runes if not n.startswith("_pengu_tup_")]
-        rune_order = self._order_runes_by_value(rune_order)
-        for name in rune_order:
-            fields = self.runes[name]
-            if name in self.declaration_types:
-                continue
-            r_attrs = self.rune_attributes.get(name, {})
-            is_msvc = self.target_compiler == "msvc"
-            c_struct_attrs = []
-            declspec_attr = ""
-            packed_prefix = ""
-            packed_suffix = ""
-            if "packed" in r_attrs:
-                if is_msvc:
-                    # MSVC has no __attribute__((packed)); use the pack pragma.
-                    packed_prefix = "#pragma pack(push, 1)\n"
-                    packed_suffix = "\n#pragma pack(pop)"
-                else:
-                    c_struct_attrs.append("packed")
-            if "align" in r_attrs and r_attrs["align"]:
-                if is_msvc:
-                    declspec_attr = f" __declspec(align({r_attrs['align'][0]}))"
-                else:
-                    c_struct_attrs.append(f"aligned({r_attrs['align'][0]})")
-            attr_str = f" __attribute__(({', '.join(c_struct_attrs)}))" if c_struct_attrs else ""
-            rune_lines = [f"{packed_prefix}struct{declspec_attr}{attr_str} {name} {{"]
-            f_attrs_map = self.rune_field_attributes.get(name, {})
-            for f_name, f_type in fields.items():
-                fa = f_attrs_map.get(f_name, {})
-                fa_prefix = ""
-                fa_parts = []
-                if "align" in fa and fa["align"]:
+        # A by-value field requires the field's type to be *complete*, so all
+        # three kinds of user-defined aggregate are emitted in one topological
+        # order.  The old split (all runes, then all omens) made a rune that
+        # stores an algebraic omen by value -- the shape of a recursive JSON
+        # node (`JsonEntry.value as JsonValue`) -- reference an incomplete
+        # struct, even though no infinitely-sized type exists.
+        #
+        # A `list of T`, `map of K to V`, `ref to T`, `maybe T` or `result of T
+        # to E` stores only a pointer/size header, so it is deliberately *not*
+        # an edge: that is exactly what lets `JsonValue` own
+        # `list of JsonEntry` while `JsonEntry` owns a `JsonValue` by value.
+        #
+        # Tuple product structs and monomorphised generics are registered
+        # during code generation, after the module's own runes, so they lead the
+        # candidate list; the registration order is the deterministic
+        # tie-breaker.
+        algebraic_omens = [
+            n for n, variants in self.omens.items()
+            if any(bool(fields) for fields in variants.values())
+        ]
+        type_order = [n for n in self.runes if n.startswith("_pengu_tup_")]
+        type_order += [n for n in self.runes if not n.startswith("_pengu_tup_")]
+        type_order += [n for n in self.echos if n not in self.runes]
+        type_order += algebraic_omens
+        type_order = [n for n in type_order if n not in self.declaration_types]
+        type_order = self._order_types_by_value(type_order)
+        for name in type_order:
+            if name in self.runes:
+                fields = self.runes[name]
+                r_attrs = self.rune_attributes.get(name, {})
+                is_msvc = self.target_compiler == "msvc"
+                c_struct_attrs = []
+                declspec_attr = ""
+                packed_prefix = ""
+                packed_suffix = ""
+                if "packed" in r_attrs:
                     if is_msvc:
-                        # MSVC's __declspec must precede the declared name.  The
-                        # GNU-style *trailing* position this used to emit
-                        # (`int32_t head __declspec(align(8));`) is not valid MSVC —
-                        # measured with `clang -fdeclspec -fms-extensions
-                        # -fsyntax-only`, the MSVC-syntax oracle the suite can run
-                        # on Linux (Phase 8 finding F8-N3).
-                        fa_prefix = f"__declspec(align({fa['align'][0]})) "
+                        # MSVC has no __attribute__((packed)); use the pack pragma.
+                        packed_prefix = "#pragma pack(push, 1)\n"
+                        packed_suffix = "\n#pragma pack(pop)"
                     else:
-                        fa_parts.append(f"aligned({fa['align'][0]})")
-                fa_str = (f" __attribute__(({', '.join(fa_parts)}))" if fa_parts else "")
-                member = self._declared_member(f_type, self._c_ident(f_name))
-                rune_lines.append(f"  {fa_prefix}{member}{fa_str};")
-            rune_lines.append("};" + packed_suffix)
-            blocks.append("\n".join(rune_lines))
-
-        # 3. Echos (Unions)
-        for name, fields in self.echos.items():
-            if name in self.declaration_types:
-                continue
-            echo_lines = [f"union {name} {{"]
-            for f_name, f_type in fields.items():
-                member = self._declared_member(f_type, self._c_ident(f_name))
-                echo_lines.append(f"  {member};")
-            echo_lines.append("};")
-            blocks.append("\n".join(echo_lines))
-
-        # 4. Omens
-        for name, variants in self.omens.items():
-            if name in self.declaration_types:
-                continue
-            is_algebraic = any(bool(fields) for fields in variants.values())
-            is_string_valued = bool(name in self.omen_values and any(isinstance(v, str) for v in self.omen_values[name].values()))
-            if not is_algebraic and not is_string_valued:
-                # Plain enums have no valid C forward declaration (`typedef enum
-                # X X;` is a GNU extension and redefining it is invalid): they
-                # are emitted complete in the forward-declarations block.
-                continue
-            if is_algebraic:
+                        c_struct_attrs.append("packed")
+                if "align" in r_attrs and r_attrs["align"]:
+                    if is_msvc:
+                        declspec_attr = f" __declspec(align({r_attrs['align'][0]}))"
+                    else:
+                        c_struct_attrs.append(f"aligned({r_attrs['align'][0]})")
+                attr_str = f" __attribute__(({', '.join(c_struct_attrs)}))" if c_struct_attrs else ""
+                rune_lines = [f"{packed_prefix}struct{declspec_attr}{attr_str} {name} {{"]
+                f_attrs_map = self.rune_field_attributes.get(name, {})
+                for f_name, f_type in fields.items():
+                    fa = f_attrs_map.get(f_name, {})
+                    fa_prefix = ""
+                    fa_parts = []
+                    if "align" in fa and fa["align"]:
+                        if is_msvc:
+                            # MSVC's __declspec must precede the declared name.  The
+                            # GNU-style *trailing* position this used to emit
+                            # (`int32_t head __declspec(align(8));`) is not valid MSVC —
+                            # measured with `clang -fdeclspec -fms-extensions
+                            # -fsyntax-only`, the MSVC-syntax oracle the suite can run
+                            # on Linux (Phase 8 finding F8-N3).
+                            fa_prefix = f"__declspec(align({fa['align'][0]})) "
+                        else:
+                            fa_parts.append(f"aligned({fa['align'][0]})")
+                    fa_str = (f" __attribute__(({', '.join(fa_parts)}))" if fa_parts else "")
+                    member = self._declared_member(f_type, self._c_ident(f_name))
+                    rune_lines.append(f"  {fa_prefix}{member}{fa_str};")
+                rune_lines.append("};" + packed_suffix)
+                blocks.append("\n".join(rune_lines))
+            elif name in self.echos:
+                fields = self.echos[name]
+                echo_lines = [f"union {name} {{"]
+                for f_name, f_type in fields.items():
+                    member = self._declared_member(f_type, self._c_ident(f_name))
+                    echo_lines.append(f"  {member};")
+                echo_lines.append("};")
+                blocks.append("\n".join(echo_lines))
+            else:
+                variants = self.omens[name]
                 enum_name = f"{name}_Tag"
                 omen_lines = [
                     f"typedef enum {enum_name} {{",
@@ -222,33 +223,33 @@ class TypesMixin:
                     "};",
                 ])
                 blocks.append("\n".join(omen_lines))
-            else:
-                is_string_valued = False
-                if name in self.omen_values:
-                    is_string_valued = any(isinstance(v, str) for v in self.omen_values[name].values())
-                if is_string_valued:
-                    def _c_esc(s: str) -> str:
-                        return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-                    omen_lines = [f"/* String-valued omen '{name}' */"]
-                    for v_name in variants:
-                        val = None
-                        if name in self.omen_values and v_name in self.omen_values[name]:
-                            val = self.omen_values[name][v_name]
-                        if isinstance(val, str):
-                            omen_lines.append(f'#define {name}_{v_name} pengu_string_from_cstr("{_c_esc(val)}")')
-                        else:
-                            omen_lines.append(f"/* {name}_{v_name}: no string value (payload variant) */")
-                    blocks.append("\n".join(omen_lines))
-                    continue
-                omen_lines = [f"typedef enum {name} {{"]
-                for v_name in variants:
-                    if name in self.omen_values and v_name in self.omen_values[name]:
-                        val = self.omen_values[name][v_name]
-                        omen_lines.append(f"  {name}_{v_name} = {val},")
-                    else:
-                        omen_lines.append(f"  {name}_{v_name},")
-                omen_lines.append(f"}} {name};")
-                blocks.append("\n".join(omen_lines))
+
+        # 3. String-valued omens (plain enums are complete in the forward
+        # declarations above, so they are not repeated here).
+        for name, variants in self.omens.items():
+            if name in self.declaration_types:
+                continue
+            is_algebraic = any(bool(fields) for fields in variants.values())
+            if is_algebraic:
+                continue
+            is_string_valued = bool(
+                name in self.omen_values
+                and any(isinstance(v, str) for v in self.omen_values[name].values())
+            )
+            if not is_string_valued:
+                continue
+            def _c_esc(s: str) -> str:
+                return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+            omen_lines = [f"/* String-valued omen '{name}' */"]
+            for v_name in variants:
+                val = None
+                if name in self.omen_values and v_name in self.omen_values[name]:
+                    val = self.omen_values[name][v_name]
+                if isinstance(val, str):
+                    omen_lines.append(f'#define {name}_{v_name} pengu_string_from_cstr("{_c_esc(val)}")')
+                else:
+                    omen_lines.append(f"/* {name}_{v_name}: no string value (payload variant) */")
+            blocks.append("\n".join(omen_lines))
 
         if not blocks:
             return ""
@@ -259,18 +260,25 @@ class TypesMixin:
             " * ------------------------------------------------------------------------- */",
         ]
         return "\n".join(header) + "\n" + "\n\n".join(blocks) + "\n"
-    def _rune_value_deps(self, t: Type, deps: set) -> None:
-        """Adds the rune structs that ``t`` needs *complete* when used by value.
+    def _value_deps(self, t: Type, deps: set) -> None:
+        """Adds the aggregates that ``t`` needs *complete* when used by value.
 
-        A pointer to a rune only needs the forward declaration, so `ref to T`
-        deliberately adds nothing; a by-value field (directly, through an
-        array/frozen/alias/seal wrapper, or as a tuple field) does need the full
-        definition first.
+        Only a by-value use creates a C dependency: ``ref to T`` is a pointer,
+        and ``list``/``map``/``slice``/``maybe``/``result`` all store a header
+        or a box pointer, so none of them needs the element type's definition.
+        Treating a ``list of T`` as a dependency made every recursive container
+        type look like a cycle and emitted the aggregate in the wrong order.
         """
         if isinstance(t, RuneType):
             name = getattr(t, "c_name", None) or t.name
             if name in self.runes:
                 deps.add(name)
+            return
+        if isinstance(t, OmenType):
+            if t.is_algebraic:
+                name = getattr(t, "c_name", None) or t.name
+                if name in self.omens:
+                    deps.add(name)
             return
         if isinstance(t, TupleType):
             name = t.c_name()
@@ -279,25 +287,26 @@ class TypesMixin:
             # A tuple embeds its elements by value too: `(Position, Position)`
             # needs `Position` complete before the product struct, exactly like
             # a rune field does.  Returning here used to leave the tuple first
-            # in `rune_order` and produced an incomplete field type.
+            # in `type_order` and produced an incomplete field type.
             for element in t.elements:
-                self._rune_value_deps(element, deps)
+                self._value_deps(element, deps)
             return
         if isinstance(t, FrozenType):
-            self._rune_value_deps(t.target, deps)
+            self._value_deps(t.target, deps)
         elif isinstance(t, AliasType):
-            self._rune_value_deps(t.target, deps)
+            self._value_deps(t.target, deps)
         elif isinstance(t, SealType):
-            self._rune_value_deps(t.underlying, deps)
+            self._value_deps(t.underlying, deps)
         elif isinstance(t, ArrayType):
-            self._rune_value_deps(t.element, deps)
+            self._value_deps(t.element, deps)
 
-    def _order_runes_by_value(self, names: list) -> list:
-        """Topologically orders rune definitions so every by-value field is complete.
+    def _order_types_by_value(self, names: list) -> list:
+        """Topologically orders rune, echo and algebraic-omen definitions.
 
-        Cycles are impossible for by-value fields (the checker rejects an
-        infinitely sized type), but a cycle through pointers is ignored here
-        because pointers only need the forward declaration.  A ``visit`` that
+        Every edge means "the target must be complete first" (a by-value
+        field).  Cycles through pointers or containers are not edges, so a
+        recursive ``JsonValue``/``JsonEntry`` pair orders cleanly; a genuine
+        by-value cycle is rejected earlier by the checker.  A ``visit`` that
         re-enters an in-progress name therefore just stops.
         """
         order: list = []
@@ -309,8 +318,16 @@ class TypesMixin:
                 return
             state[name] = 1
             deps: set = set()
-            for f_type in self.runes.get(name, {}).values():
-                self._rune_value_deps(f_type, deps)
+            if name in self.runes:
+                for f_type in self.runes[name].values():
+                    self._value_deps(f_type, deps)
+            elif name in self.echos:
+                for f_type in self.echos[name].values():
+                    self._value_deps(f_type, deps)
+            elif name in self.omens:
+                for v_fields in self.omens[name].values():
+                    for f_type in v_fields.values():
+                        self._value_deps(f_type, deps)
             for candidate in names:
                 if candidate != name and candidate in deps:
                     visit(candidate)

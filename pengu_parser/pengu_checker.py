@@ -3956,7 +3956,19 @@ class PenguChecker:
                         except Exception as e:
                             self._record_error(e)
 
-                    self._check_node(body_node)
+                    # A clause body may be an indented statement block
+                    # (`do_expr`).  It has to go through the *value* path so
+                    # its last expression gets a `_pengu_value_type`; checking
+                    # it as an ordinary statement made every such clause look
+                    # void and rejected `var y as int is judge ...:`.
+                    if isinstance(body_node, Tree) and body_node.data in (
+                        "do_expr", "if_stmt", "unless_stmt", "while_stmt",
+                        "for_range_stmt", "for_in_stmt", "with_init_expr",
+                        "or_block", "judge_expr", "judge_over_expr",
+                    ):
+                        self._check_value_exprs(body_node)
+                    else:
+                        self._check_node(body_node)
                 finally:
                     self.symbols.pop_scope()
 

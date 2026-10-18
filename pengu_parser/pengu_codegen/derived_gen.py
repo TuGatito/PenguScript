@@ -106,21 +106,25 @@ class DerivedGenMixin:
                 ]
                 for f_name, f_type in fields.items():
                     f_c = self._c_ident(f_name)
-                    unwrapped_f = f_type
-                    while isinstance(unwrapped_f, (AliasType, FrozenType, SealType)):
-                        unwrapped_f = getattr(unwrapped_f, "target", None) or getattr(unwrapped_f, "underlying", None)
-                    if isinstance(unwrapped_f, BaseType) and unwrapped_f.name == "string":
-                        lines.append(f"  if (!pengu_string_equal(a->{f_c}, b->{f_c})) return false;")
-                    elif isinstance(unwrapped_f, (BaseType, RefType, CVarArgsType)) or getattr(unwrapped_f, "is_numeric", lambda: False)() or getattr(unwrapped_f, "is_bool", lambda: False)():
-                        lines.append(f"  if (!(a->{f_c} == b->{f_c})) return false;")
-                    elif isinstance(unwrapped_f, RuneType):
-                        lines.append(f"  if (!{unwrapped_f.name}_eq(&(a->{f_c}), &(b->{f_c}))) return false;")
-                    elif isinstance(unwrapped_f, ArrayType) and unwrapped_f.size is not None:
-                        lines.append(f"  for (int _i = 0; _i < {unwrapped_f.size}; ++_i) {{")
-                        lines.append(f"    if (!(a->{f_c}[_i] == b->{f_c}[_i])) return false;")
+                    unwrapped_f = self._derived_unwrap(f_type)
+                    if isinstance(unwrapped_f, ArrayType) and unwrapped_f.size is not None:
+                        # Element-wise, using the same concept-driven rule: a
+                        # `memcmp` of an array of strings compares pointers, and
+                        # a struct `==` is invalid C for the whole array.
+                        idx = self.get_temp_name("_ai")
+                        elem_cond = self._derived_field_eq(
+                            f"a->{f_c}[{idx}]", f"b->{f_c}[{idx}]", unwrapped_f.element)
+                        lines.append(f"  for (int {idx} = 0; {idx} < {unwrapped_f.size}; ++{idx}) {{")
+                        lines.append(f"    if (!({elem_cond})) return false;")
                         lines.append("  }")
                     else:
-                        lines.append(f"  if (memcmp(&(a->{f_c}), &(b->{f_c}), sizeof(a->{f_c})) != 0) return false;")
+                        # Shared with the algebraic-omen path. In particular an
+                        # algebraic-omen field must be compared with its
+                        # generated eq helper, never `memcmp` (padding bytes are
+                        # unspecified, and nested strings/lists are pointers).
+                        cond = self._derived_field_eq(
+                            f"a->{f_c}", f"b->{f_c}", f_type)
+                        lines.append(f"  if (!({cond})) return false;")
                 lines.append("  return true;")
                 lines.append("}")
                 lines.append(f"static inline bool {c_rune}_Par(const {c_rune} *a, const {c_rune} *b) {{")
@@ -195,8 +199,13 @@ class DerivedGenMixin:
 
             # 4. Imago (Cloning) — only reachable through an explicit 'derive'.
             if "Imago" in derived:
-                clone_fn = f"{c_rune}_clone"
-                forward_decls.append(f"static inline void {c_rune}_clone(void *dst, const void *src);")
+                # Internal name: a user may legitimately write a method named
+                # `clone`, and the derived helper used to occupy the same C
+                # symbol (`Rune_clone`), which made the bundle fail to compile
+                # with "conflicting types". The public C entry point remains
+                # `_pengu_clone_<Rune>`.
+                clone_fn = f"_pengu_imago_{c_rune}"
+                forward_decls.append(f"static inline void {clone_fn}(void *dst, const void *src);")
                 forward_decls.append(f"static inline void _pengu_clone_{c_rune}(void *dst, const void *src);")
 
                 lines = [
@@ -215,7 +224,7 @@ class DerivedGenMixin:
                         lines.append(f"  {stmt}")
                 lines.append("}")
                 lines.append(f"static inline void _pengu_clone_{c_rune}(void *dst, const void *src) {{")
-                lines.append(f"  {c_rune}_clone(dst, src);")
+                lines.append(f"  {clone_fn}(dst, src);")
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
 
@@ -388,8 +397,8 @@ class DerivedGenMixin:
 
             # 4. Imago — explicit 'derive Imago' only.
             if "Imago" in derived:
-                body_fn = f"{c_o}_clone"
-                forward_decls.append(f"static inline void {c_o}_clone(void *dst, const void *src);")
+                body_fn = f"_pengu_imago_{c_o}"
+                forward_decls.append(f"static inline void {body_fn}(void *dst, const void *src);")
                 forward_decls.append(f"static inline void _pengu_clone_{c_o}(void *dst, const void *src);")
                 lines = [
                     f"static inline void {body_fn}(void *dst, const void *src) {{",
@@ -413,7 +422,7 @@ class DerivedGenMixin:
                     lines.append("  }")
                 lines.append("}")
                 lines.append(f"static inline void _pengu_clone_{c_o}(void *dst, const void *src) {{")
-                lines.append(f"  {c_o}_clone(dst, src);")
+                lines.append(f"  {body_fn}(dst, src);")
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
 
@@ -448,7 +457,9 @@ class DerivedGenMixin:
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
 
-        if not forward_decls and not impl_blocks:
+        helper_defs = list(getattr(self, "_pengu_eq_helper_defs", []) or [])
+
+        if not forward_decls and not impl_blocks and not helper_defs:
             return ""
 
         header = [
@@ -456,7 +467,7 @@ class DerivedGenMixin:
             " * Derived Concept Implementations (Par, Ordo, Vinculum, Imago, Nexus)",
             " * ------------------------------------------------------------------------- */",
         ]
-        return "\n".join(header) + "\n" + "\n".join(forward_decls) + "\n\n" + "\n\n".join(impl_blocks) + "\n"
+        return "\n".join(header) + "\n" + "\n".join(forward_decls) + "\n\n" + "\n\n".join(helper_defs + impl_blocks) + "\n"
     def _derived_field_eq(self, a_expr: str, b_expr: str, f_type: Type) -> str:
         """C condition that is true when the two field accesses compare equal."""
         u = self._derived_unwrap(f_type)
@@ -468,7 +479,147 @@ class DerivedGenMixin:
             return f"{self._derived_type_c_name(u)}_eq(&({a_expr}), &({b_expr}))"
         if isinstance(u, OmenType):
             return f"({a_expr} == {b_expr})"
+        if isinstance(u, ListType):
+            helper = self._ensure_list_eq_helper(u)
+            return f"{helper}(&({a_expr}), &({b_expr}))"
+        if isinstance(u, MapType):
+            helper = self._ensure_map_eq_helper(u)
+            return f"{helper}(&({a_expr}), &({b_expr}))"
+        if isinstance(u, MaybeType):
+            helper = self._ensure_maybe_eq_helper(u)
+            return f"{helper}(&({a_expr}), &({b_expr}))"
+        if isinstance(u, ResultType):
+            helper = self._ensure_result_eq_helper(u)
+            return f"{helper}(&({a_expr}), &({b_expr}))"
         return f"({a_expr} == {b_expr})"
+    def _eq_helper_key(self, t: Type) -> str:
+        """Stable ASCII key for a generated container-equality helper."""
+        try:
+            raw = t.get_mangled_name()
+        except Exception:
+            raw = str(t)
+        key = "".join(ch if ch.isalnum() else "_" for ch in raw)
+        return key or "anon"
+
+    def _ensure_list_eq_helper(self, u: ListType) -> str:
+        """Returns (and registers) the helper comparing two ``list of T`` values.
+
+        A derived ``Par`` on a rune/omen with a list field used to emit
+        ``a.items == b.items``, which is invalid C (``PenguList`` is a struct).
+        The helper compares lengths and then every element with the same
+        concept-driven comparison the surrounding type uses, so nested lists,
+        strings and runes all work.
+        """
+        store = getattr(self, "_pengu_list_eq_helpers", None)
+        if store is None:
+            store = {}
+            self._pengu_list_eq_helpers = store
+        key = "list_" + self._eq_helper_key(u.element)
+        if key in store:
+            return store[key]
+        fn = f"_pengu_eq_{key}"
+        store[key] = fn
+        elem_c = CTypeMapper.to_c_type(u.element)
+        cond = self._derived_field_eq("pa[i]", "pb[i]", u.element)
+        self._pengu_eq_helper_defs = getattr(self, "_pengu_eq_helper_defs", [])
+        self._pengu_eq_helper_defs.append(
+            f"static inline bool {fn}(const PenguList *a, const PenguList *b) {{\n"
+            f"  if (a->len != b->len) return false;\n"
+            f"  const {elem_c} *pa = (const {elem_c} *)a->data;\n"
+            f"  const {elem_c} *pb = (const {elem_c} *)b->data;\n"
+            f"  for (int i = 0; i < a->len; ++i) {{\n"
+            f"    if (!({cond})) return false;\n"
+            f"  }}\n"
+            f"  return true;\n"
+            f"}}")
+        return fn
+
+    def _ensure_maybe_eq_helper(self, u: MaybeType) -> str:
+        """Returns (and registers) the helper comparing two ``maybe T`` boxes."""
+        store = getattr(self, "_pengu_maybe_eq_helpers", None)
+        if store is None:
+            store = {}
+            self._pengu_maybe_eq_helpers = store
+        key = "maybe_" + self._eq_helper_key(u.element)
+        if key in store:
+            return store[key]
+        fn = f"_pengu_eq_{key}"
+        store[key] = fn
+        elem_c = CTypeMapper.to_c_type(u.element)
+        cond = self._derived_field_eq("(*pa)", "(*pb)", u.element)
+        self._pengu_eq_helper_defs = getattr(self, "_pengu_eq_helper_defs", [])
+        self._pengu_eq_helper_defs.append(
+            f"static inline bool {fn}(const PenguMaybe *a, const PenguMaybe *b) {{\n"
+            f"  if (a->is_present != b->is_present) return false;\n"
+            f"  if (!a->is_present) return true;\n"
+            f"  if (!a->value || !b->value) return a->value == b->value;\n"
+            f"  const {elem_c} *pa = (const {elem_c} *)a->value;\n"
+            f"  const {elem_c} *pb = (const {elem_c} *)b->value;\n"
+            f"  return ({cond});\n"
+            f"}}")
+        return fn
+
+    def _ensure_result_eq_helper(self, u: ResultType) -> str:
+        """Returns (and registers) the helper comparing two ``result`` boxes."""
+        store = getattr(self, "_pengu_result_eq_helpers", None)
+        if store is None:
+            store = {}
+            self._pengu_result_eq_helpers = store
+        key = "result_" + self._eq_helper_key(u.ok_type) + "_" + self._eq_helper_key(u.err_type)
+        if key in store:
+            return store[key]
+        fn = f"_pengu_eq_{key}"
+        store[key] = fn
+        ok_c = CTypeMapper.to_c_type(u.ok_type)
+        err_c = CTypeMapper.to_c_type(u.err_type)
+        ok_cond = self._derived_field_eq("(*pa)", "(*pb)", u.ok_type)
+        err_cond = self._derived_field_eq("(*ea)", "(*eb)", u.err_type)
+        self._pengu_eq_helper_defs = getattr(self, "_pengu_eq_helper_defs", [])
+        self._pengu_eq_helper_defs.append(
+            f"static inline bool {fn}(const PenguResult *a, const PenguResult *b) {{\n"
+            f"  if (a->is_ok != b->is_ok) return false;\n"
+            f"  if (a->is_ok) {{\n"
+            f"    if (!a->ok_val || !b->ok_val) return a->ok_val == b->ok_val;\n"
+            f"    const {ok_c} *pa = (const {ok_c} *)a->ok_val;\n"
+            f"    const {ok_c} *pb = (const {ok_c} *)b->ok_val;\n"
+            f"    return ({ok_cond});\n"
+            f"  }}\n"
+            f"  if (!a->err_val || !b->err_val) return a->err_val == b->err_val;\n"
+            f"  const {err_c} *ea = (const {err_c} *)a->err_val;\n"
+            f"  const {err_c} *eb = (const {err_c} *)b->err_val;\n"
+            f"  return ({err_cond});\n"
+            f"}}")
+        return fn
+
+    def _ensure_map_eq_helper(self, u: MapType) -> str:
+        """Returns (and registers) the helper comparing two ``map of K to V`` values."""
+        store = getattr(self, "_pengu_map_eq_helpers", None)
+        if store is None:
+            store = {}
+            self._pengu_map_eq_helpers = store
+        key = "map_" + self._eq_helper_key(u.key) + "_" + self._eq_helper_key(u.value)
+        if key in store:
+            return store[key]
+        fn = f"_pengu_eq_{key}"
+        store[key] = fn
+        val_c = CTypeMapper.to_c_type(u.value)
+        cond = self._derived_field_eq(
+            f"*(const {val_c} *)(ea->val)", f"*(const {val_c} *)(vb)", u.value)
+        self._pengu_eq_helper_defs = getattr(self, "_pengu_eq_helper_defs", [])
+        self._pengu_eq_helper_defs.append(
+            f"static inline bool {fn}(const PenguMap *a, const PenguMap *b) {{\n"
+            f"  if (a->len != b->len) return false;\n"
+            f"  for (int i = 0; i < a->cap; ++i) {{\n"
+            f"    const PenguMapEntry *ea = &a->entries[i];\n"
+            f"    if (!ea->occupied) continue;\n"
+            f"    void *vb = pengu_map_get(b, ea->key);\n"
+            f"    if (!vb) return false;\n"
+            f"    if (!({cond})) return false;\n"
+            f"  }}\n"
+            f"  return true;\n"
+            f"}}")
+        return fn
+
     def _derived_field_cmp(self, a_expr: str, b_expr: str, f_type: Type) -> str:
         """C int expression ordering the two field accesses."""
         u = self._derived_unwrap(f_type)
@@ -637,10 +788,12 @@ class DerivedGenMixin:
         u = self._derived_unwrap(f_type)
         if isinstance(u, BaseType) and u.name == "string":
             return f"pengu_banish_string(&({acc_expr}));"
-        if isinstance(u, ListType):
-            return f"pengu_banish_list(&({acc_expr}));"
-        if isinstance(u, MapType):
-            return f"pengu_banish_map(&({acc_expr}));"
+        if isinstance(u, (ListType, MapType)):
+            # A derived destructor is deep: it releases every element/key/value
+            # payload before the container's own buffer.  `_release_payload_stmts`
+            # owns that recursion (list of list, map of rune, ...) and emits a
+            # single `banish_list`/`banish_map` when the elements own nothing.
+            return self._release_payload_stmts(u, f"&({acc_expr})", deep=True)
         if isinstance(u, RuneType):
             if not self._type_owns_heap(u):
                 return None  # POD rune: nothing to release
@@ -648,7 +801,7 @@ class DerivedGenMixin:
         if isinstance(u, OmenType) and u.is_algebraic:
             return f"{self._rune_cleanup_helper(u)}(&({acc_expr}));"
         if isinstance(u, (MaybeType, ResultType)):
-            return self._release_payload_stmts(u, f"&({acc_expr})")
+            return self._release_payload_stmts(u, f"&({acc_expr})", deep=True)
         if isinstance(u, ArrayType) and u.size is not None:
             idx = self.get_temp_name("_ai")
             elem_stmt = self._derived_field_nexus(f"{acc_expr}[{idx}]", u.element)

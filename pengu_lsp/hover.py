@@ -328,6 +328,10 @@ def _method_hover(text: str, position: Position, symbols: SymbolTable, word: str
             t = nxt
         if isinstance(t, RuneType):
             type_name = t.get_base_name()
+        elif isinstance(t, OmenType):
+            # A method attached by `enchanting JsonValue:` is keyed by the omen
+            # name, exactly like a rune method is keyed by the rune name.
+            type_name = getattr(t, "name", None)
     if type_name is None and receiver in getattr(symbols, "runes", {}):
         type_name = receiver
     if type_name is None:
