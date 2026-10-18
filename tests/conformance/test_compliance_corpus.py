@@ -18,7 +18,7 @@ PROGRAMS = sorted(CORPUS.glob("*.pengu"))
 
 
 def test_the_corpus_is_not_empty() -> None:
-    assert len(PROGRAMS) == 13, [p.name for p in PROGRAMS]
+    assert len(PROGRAMS) == 33, [p.name for p in PROGRAMS]
 
 
 @pytest.mark.parametrize("program", PROGRAMS, ids=[p.stem for p in PROGRAMS])

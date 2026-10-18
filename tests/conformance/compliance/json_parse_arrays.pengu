@@ -1,0 +1,39 @@
+## Arrays: empty, nested, order and length.
+import std.spark
+import std.json
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave main into int:
+    var empty as result of JsonValue to json.JsonError is calling json.parse with "[]"
+    if empty.is_ok:
+        var v as JsonValue is empty.value
+        calling eq_i with (calling v.array_len), 0, "empty len"
+    banish empty
+    var nested as result of JsonValue to json.JsonError is calling json.parse with "[[1,2],[3,4],[], [true]]"
+    if not nested.is_ok:
+        calling spark.println with "FAIL nested parse: {nested.error.message}"
+        banish nested
+        return 1
+    var root as JsonValue is nested.value
+    calling eq_i with (calling root.array_len), 4, "outer len"
+    var inner as JsonValue is calling json.at_or_null with root, 1
+    calling eq_i with (calling inner.array_len), 2, "inner len"
+    var second as JsonValue is calling json.at_or_null with inner, 1
+    var si as maybe i64 is calling second.as_int
+    calling eq_i with ((si or else -1) to int), 4, "nested value"
+    banish si
+    banish second
+    banish inner
+    var arr as JsonValue is calling JsonValue.empty_array
+    calling arr.push_json with (calling JsonValue.int_val with 9)
+    var built as string is calling json.stringify with arr
+    if (built length) == 0:
+        calling spark.println with "FAIL stringify array"
+    banish built
+    banish arr
+    banish nested
+    calling spark.println with "OK json_parse_arrays"
+    return 0

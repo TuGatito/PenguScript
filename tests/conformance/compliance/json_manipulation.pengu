@@ -1,0 +1,68 @@
+## push/pop/set_at/put/remove_key/merge/deep_merge.
+import std.spark
+import std.json
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave eq_s with got as string, want as string, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: '{got}' != '{want}'"
+
+weave main into int:
+    var arr as JsonValue is calling JsonValue.empty_array
+    defer banish arr
+    calling arr.push_json with (calling JsonValue.int_val with 1)
+    calling arr.push_json with (calling JsonValue.int_val with 2)
+    var popped as maybe JsonValue is calling arr.pop_json
+    if popped.is_present:
+        var pv as JsonValue is calling json.take_value with (sigil of popped)
+        var pi as maybe i64 is calling pv.as_int
+        calling eq_i with ((pi or else 0) to int), 2, "pop"
+        banish pi
+        banish pv
+    calling arr.set_at with 0, (calling JsonValue.string_val with "x")
+    var as_text as string is calling json.stringify with arr
+    calling eq_s with as_text, r"""["x"]""", "set_at"
+    banish as_text
+    var obj as JsonValue is calling JsonValue.empty_object
+    defer banish obj
+    calling obj.put_json with "a", (calling JsonValue.int_val with 1)
+    calling obj.put_json with "b", (calling JsonValue.int_val with 2)
+    calling obj.set_key with "a", (calling JsonValue.int_val with 9)
+    var os as string is calling json.stringify with obj
+    calling eq_s with os, r"""{"a":9,"b":2}""", "set_key"
+    banish os
+    var removed as maybe JsonValue is calling obj.remove_key with "b"
+    if removed.is_present:
+        var rv as JsonValue is calling json.take_value with (sigil of removed)
+        var ri as maybe i64 is calling rv.as_int
+        calling eq_i with ((ri or else 0) to int), 2, "remove"
+        banish ri
+        banish rv
+    var os2 as string is calling json.stringify with obj
+    calling eq_s with os2, r"""{"a":9}""", "after remove"
+    banish os2
+    var other as JsonValue is calling JsonValue.empty_object
+    calling other.put_json with "a", (calling JsonValue.int_val with 100)
+    calling other.put_json with "c", (calling JsonValue.int_val with 3)
+    calling obj.merge with other
+    var ms as string is calling json.stringify with obj
+    calling eq_s with ms, r"""{"a":100,"c":3}""", "merge"
+    banish ms
+    banish other
+    var d1 as result of JsonValue to json.JsonError is calling json.parse with r"""{"a":{"x":1},"b":2}"""
+    var d2 as result of JsonValue to json.JsonError is calling json.parse with r"""{"a":{"y":3},"c":4}"""
+    if d1.is_ok and d2.is_ok:
+        var merged as JsonValue is calling json.deep_merge with d1.value, d2.value
+        var ds as string is calling json.stringify with merged
+        calling eq_s with ds, r"""{"a":{"x":1,"y":3},"b":2,"c":4}""", "deep merge"
+        banish ds
+        banish merged
+    else:
+        calling spark.println with "FAIL deep merge parse"
+    banish d1
+    banish d2
+    calling spark.println with "OK json_manipulation"
+    return 0

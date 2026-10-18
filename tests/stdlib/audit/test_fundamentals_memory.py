@@ -1,4 +1,4 @@
-"""Leak checks for the four 2.9.0 fundamental modules.
+"""Leak checks for the four 2.10.0 fundamental modules.
 
 Valgrind is not part of every developer box, so the test uses GCC's
 AddressSanitizer/LeakSanitizer: build the real bundle with ``pengu build``,

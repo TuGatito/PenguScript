@@ -1,0 +1,1251 @@
+## std/jsonrpc.pengu — JSON-RPC 2.0 messages, batches and LSP framing.
+##
+## A complete JSON-RPC 2.0 implementation: request / notification / response /
+## error messages, strict decoding with actionable error kinds, batch support,
+## the five standard error codes, and the `Content-Length` framing LSP uses over
+## stdio and sockets.
+##
+## ## Example: one request, framed
+## ```pengu
+## import std.json
+## import std.jsonrpc as rpc
+## import std.spark
+##
+## weave main into int:
+##     var id as JsonRpcId is with Number is 1
+##     var params as json.JsonValue is calling json.empty_array
+##     calling params.push_json with (calling json.JsonValue.int_val with 42)
+##     var msg as JsonRpcMessage is with Request is id, method is "foo", params is some params
+##     var wire as string is calling rpc.encode_framed with msg
+##     defer banish wire
+##     calling spark.print with wire
+##     banish msg
+##     return 0
+## ```
+##
+## Output:
+## ```text
+## Content-Length: 43
+##
+## {"jsonrpc":"2.0","id":1,"method":"foo","params":[42]}
+## ```
+##
+## ## Ownership
+## - Every `encode_*` function **borrows** its arguments and returns an owned
+##   string. The caller keeps ownership of `id`, `method`, `params` and
+##   `payload`; `params`/`data` are deep-copied into the wire object.
+## - `parse_message` and `parse_batch` return values that own every string and
+##   JSON value; `banish` releases them recursively.
+## - `free_messages` releases a batch list and all its elements.
+## - `FramedDecode` owns its optional message; `banish` releases it.
+##
+## ## Framing
+## `encode_framed` emits `Content-Length: <bytes>\r\n\r\n<body>` with the byte
+## length of the UTF-8 body (never a character count). `decode_framed_bytes`
+## parses one frame from a buffer and reports how many bytes it consumed:
+## `consumed == 0` means "incomplete frame, read more bytes". A streaming
+## `FramedReader` is deliberately not in this module: it would have to depend on
+## a concrete I/O source (`std.filum`, stdin, a socket), and the explicit
+## buffer API composes with all of them without hiding a blocking read.
+##
+## ## Complexity
+## | Operation | Cost |
+## |---|---|
+## | `encode_*` | O(size of the message) |
+## | `parse_message` | O(size of the message) |
+## | `parse_batch` | O(sum of the elements) |
+## | `encode_framed` | O(body bytes) |
+## | `decode_framed_bytes` | O(header + body bytes) |
+
+import std.builder
+import std.json
+import std.spark
+
+# ----------------------------------------------------------------------------
+# Version and protocol constants
+# ----------------------------------------------------------------------------
+
+## JSON-RPC module version.
+const JSONRPC_VERSION as string is "2.10.0"
+
+## The protocol version string carried in every message.
+const JSONRPC_PROTOCOL_VERSION as string is "2.0"
+
+## Code for a request body that is not valid JSON.
+const PARSE_ERROR as int is -32700
+
+## Code for a structurally invalid request object.
+const INVALID_REQUEST as int is -32600
+
+## Code for a method the server does not implement.
+const METHOD_NOT_FOUND as int is -32601
+
+## Code for parameters that do not match the method signature.
+const INVALID_PARAMS as int is -32602
+
+## Code for an unexpected server-side failure.
+const INTERNAL_ERROR as int is -32603
+
+# ----------------------------------------------------------------------------
+# Message model
+# ----------------------------------------------------------------------------
+
+## A JSON-RPC id: a number or a string.
+##
+## ## Memoria
+## `String` owns its text; `banish id` releases it.
+omen JsonRpcId derive Nexus, Par, Imago:
+    ## An integer id (`i64`; JSON-RPC numbers are integers here).
+    Number with value as i64
+    ## A string id.
+    String with value as string
+
+## The `error` object of a failed response.
+##
+## ## Memoria
+## Owns `message` and `data`; `banish err` releases both.
+rune JsonRpcError derive Nexus, Par, Imago:
+    ## A numeric error code. The five standard codes are constants above.
+    code as int
+    ## A short human-readable description.
+    message as string
+    ## Optional structured detail.
+    data as maybe json.JsonValue
+
+## One JSON-RPC 2.0 message.
+##
+## ## Variantes
+## - `Request`: an id, a method and optional params. A response is expected.
+## - `Notification`: a method and optional params; no id, no response.
+## - `ResponseOk`: an id and a result value.
+## - `ResponseError`: an id and an error object.
+##
+## ## Memoria
+## Owns every payload; `banish msg` releases the whole message.
+omen JsonRpcMessage derive Nexus, Par, Imago:
+    ## A call that expects a response.
+    Request with id as JsonRpcId, method as string, params as maybe json.JsonValue
+    ## A call that expects no response.
+    Notification with method as string, params as maybe json.JsonValue
+    ## A successful response.
+    ResponseOk with id as JsonRpcId, result as json.JsonValue
+    ## A failed response.
+    ## The wire member is named `error`; the field is `err` because `error`
+    ## is the reserved `or:` binding name in PenguScript.
+    ResponseError with id as JsonRpcId, err as JsonRpcError
+
+## Why a message could not be decoded.
+omen JsonRpcErrorKind:
+    ## The body is not valid JSON.
+    InvalidJson
+    ## The top-level value is not an object or an array.
+    NotAnObject
+    ## The `jsonrpc` member is missing.
+    MissingJsonrpcField
+    ## The `jsonrpc` member is present but not `"2.0"`.
+    WrongJsonrpcVersion
+    ## A request/notification has no `method` member.
+    MissingMethod
+    ## A response has no `id` member.
+    MissingId
+    ## The object has an invalid combination of members (for example both
+    ## `result` and `error`, or a malformed `error` object).
+    InvalidRequest
+    ## `id` is neither a string nor an integer.
+    InvalidId
+    ## `params` is neither an array nor an object.
+    InvalidParams
+    ## A notification names a method the receiver does not know.
+    UnknownMethodNotif
+    ## A batch array is empty.
+    EmptyBatch
+    ## The `Content-Length` framing is malformed.
+    FramingError
+
+## A decoding failure, with an optional underlying JSON error.
+##
+## ## Memoria
+## Owns `message` and `json_error`; `banish e` releases both.
+rune JsonRpcParseError derive Nexus, Par, Imago:
+    ## The structural error category.
+    kind as JsonRpcErrorKind
+    ## A human-readable explanation.
+    message as string
+    ## The underlying `std.json` error for `InvalidJson`, else `none`.
+    json_error as maybe json.JsonError
+
+## One element of a batch decoded by `parse_batch_items`.
+##
+## Exactly one of `message` and `error` is present. A JSON-RPC server uses this
+## form to answer every element of a mixed batch, as the specification requires.
+##
+## ## Memoria
+## Owns either payload; `banish item` releases it.
+rune JsonRpcBatchItem derive Nexus, Par:
+    ## The decoded message, when the element was valid.
+    message as maybe JsonRpcMessage
+    ## Why the element was rejected, when it was not.
+    error as maybe JsonRpcParseError
+
+## One decoded frame.
+##
+## `consumed == 0` and `message` absent means the buffer held only part of a
+## frame. `consumed > 0` is the number of bytes the caller must drop before
+## decoding the next frame.
+##
+## ## Memoria
+## Owns `message`; `banish frame` releases it.
+rune FramedDecode derive Nexus, Par:
+    ## The decoded message, or `none` for an incomplete frame.
+    message as maybe JsonRpcMessage
+    ## Number of bytes consumed from the input buffer.
+    consumed as int
+
+# ----------------------------------------------------------------------------
+# Message constructors
+#
+# Nested `with Variant is with field is ...` does not codegen correctly for a
+# payload variant with more than one field (the union member is flattened), so
+# the four constructors are small C bridges. They also make the ownership
+# contract explicit: they take the payloads by value and copy the struct bytes.
+# ----------------------------------------------------------------------------
+
+## Builds a request.
+##
+## ## Parámetros
+## - `id`: the request id. Its string payload (if any) transfers.
+## - `method`: the method name. Ownership transfers.
+## - `params`: optional params. Ownership transfers.
+##
+## ## Retorno
+## `JsonRpcMessage.Request`.
+weave request with id as JsonRpcId, method as string, params as maybe json.JsonValue into JsonRpcMessage:
+    return with Request is with id is id, method is method, params is params
+
+## Builds a notification.
+##
+## ## Parámetros
+## - `method`: the method name. Ownership transfers.
+## - `params`: optional params. Ownership transfers.
+##
+## ## Retorno
+## `JsonRpcMessage.Notification`.
+weave notification with method as string, params as maybe json.JsonValue into JsonRpcMessage:
+    return with Notification is with method is method, params is params
+
+## Builds a successful response.
+##
+## ## Parámetros
+## - `id`: the request id. Ownership transfers.
+## - `result`: the result value. Ownership transfers.
+##
+## ## Retorno
+## `JsonRpcMessage.ResponseOk`.
+weave response_ok with id as JsonRpcId, result as json.JsonValue into JsonRpcMessage:
+    return with ResponseOk is with id is id, result is result
+
+## Builds a failed response.
+##
+## ## Parámetros
+## - `id`: the request id. Ownership transfers.
+## - `err`: the error object. Ownership transfers.
+##
+## ## Retorno
+## `JsonRpcMessage.ResponseError`.
+weave response_error with id as JsonRpcId, err as JsonRpcError into JsonRpcMessage:
+    return with ResponseError is with id is id, err is err
+
+# ----------------------------------------------------------------------------
+# Standard errors
+# ----------------------------------------------------------------------------
+
+## Builds the standard `Parse error` object.
+##
+## ## Retorno
+## `{code: -32700, message: "Parse error", data: none}`.
+##
+## ## Memoria
+## Owns its message; release it with `banish`.
+weave error_parse into JsonRpcError:
+    return with code is PARSE_ERROR, message is "Parse error", data is maybe none
+
+## Builds the standard `Invalid Request` object.
+##
+## ## Retorno
+## `{code: -32600, message: "Invalid Request", data: none}`.
+weave error_invalid_request into JsonRpcError:
+    return with code is INVALID_REQUEST, message is "Invalid Request", data is maybe none
+
+## Builds a `Method not found` error naming the method.
+##
+## ## Parámetros
+## - `method`: the requested method. Borrowed; copied into the message.
+##
+## ## Retorno
+## `{code: -32601, message: "Method not found: <method>", data: none}`.
+weave error_method_not_found with method as string into JsonRpcError:
+    var msg as string is "Method not found: {method}"
+    return with code is METHOD_NOT_FOUND, message is msg, data is maybe none
+
+## Builds an `Invalid params` error with a detail string.
+##
+## ## Parámetros
+## - `detail`: what is wrong. Borrowed; copied.
+##
+## ## Retorno
+## `{code: -32602, message: "Invalid params: <detail>", data: none}`.
+weave error_invalid_params with detail as string into JsonRpcError:
+    var msg as string is "Invalid params: {detail}"
+    return with code is INVALID_PARAMS, message is msg, data is maybe none
+
+## Builds an `Internal error` with a detail string.
+##
+## ## Parámetros
+## - `detail`: what failed. Borrowed; copied.
+##
+## ## Retorno
+## `{code: -32603, message: "Internal error: <detail>", data: none}`.
+weave error_internal with detail as string into JsonRpcError:
+    var msg as string is "Internal error: {detail}"
+    return with code is INTERNAL_ERROR, message is msg, data is maybe none
+
+## Builds a server-defined error in the `-32000..-32099` range.
+##
+## ## Parámetros
+## - `code`: the application error code. Values outside the server range are
+##   accepted (the specification only *reserves* `-32000..-32099`).
+## - `message`: the description. Borrowed; copied.
+## - `data`: optional structured detail. **Ownership transfers.**
+##
+## ## Retorno
+## A `JsonRpcError` owning the message copy and `data`.
+weave error_server with code as int, message as string, data as maybe json.JsonValue into JsonRpcError:
+    var msg as string is "{message}"
+    return with code is code, message is msg, data is data
+
+# ----------------------------------------------------------------------------
+# Encoding helpers
+# ----------------------------------------------------------------------------
+
+## Converts an id to a JSON value.
+##
+## ## Parámetros
+## - `id`: the id. Borrowed.
+##
+## ## Retorno
+## An owned `JsonValue` (`Int` or `Str`).
+weave _id_value with id as JsonRpcId into json.JsonValue:
+    var out as json.JsonValue is calling JsonValue.null_value
+    var ignored as int is judge id:
+        when Number with value ->
+            set out is calling JsonValue.int_val with value
+            0
+        when String with value ->
+            var text_copy as string is "{value}"
+            set out is calling JsonValue.string_val with text_copy
+            0
+    return out
+
+## Serializes the `error` object of a failed response.
+##
+## ## Parámetros
+## - `err`: the error. Borrowed.
+##
+## ## Retorno
+## An owned `JsonValue` object.
+weave _error_value with err as JsonRpcError into json.JsonValue:
+    var o as json.JsonValue is calling JsonValue.empty_object
+    calling o.put_json with "code", (calling JsonValue.int_val with (err.code to i64))
+    var msg as string is "{err.message}"
+    calling o.put_json with "message", (calling JsonValue.string_val with msg)
+    if err.data.is_present:
+        var dv as json.JsonValue is err.data.value
+        var data_copy as json.JsonValue is calling dv.clone
+        calling o.put_json with "data", data_copy
+    return o
+
+## Adds the `jsonrpc` member to an object.
+##
+## ## Parámetros
+## - `o`: destination object. Mutated.
+weave _put_version with o as json.JsonValue into json.JsonValue:
+    var version as string is JSONRPC_PROTOCOL_VERSION
+    calling o.put_json with "jsonrpc", (calling JsonValue.string_val with version)
+    return o
+
+## Adds `params` when present, cloning the value.
+##
+## ## Parámetros
+## - `o`: destination object. Mutated.
+## - `params`: optional params. Borrowed.
+weave _put_params with o as json.JsonValue, params as maybe json.JsonValue into json.JsonValue:
+    if params.is_present:
+        var pv as json.JsonValue is params.value
+        var params_copy as json.JsonValue is calling pv.clone
+        calling o.put_json with "params", params_copy
+    return o
+
+## Encodes a request.
+##
+## ## Parámetros
+## - `id`: the request id. Borrowed.
+## - `method`: the method name. Borrowed.
+## - `params`: optional structured params. Borrowed; deep-copied into the body.
+##
+## ## Retorno
+## An owned compact JSON string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var text as string is calling jsonrpc.encode_request with id, "foo", (some params)
+## # {"jsonrpc":"2.0","id":1,"method":"foo","params":[...]}
+## ```
+weave encode_request with id as JsonRpcId, method as string, params as maybe json.JsonValue into string:
+    var o as json.JsonValue is calling JsonValue.empty_object
+    set o is calling _put_version with o
+    calling o.put_json with "id", (calling _id_value with id)
+    var m as string is "{method}"
+    calling o.put_json with "method", (calling JsonValue.string_val with m)
+    set o is calling _put_params with o, params
+    var text as string is calling json.stringify with o
+    banish o
+    return text
+
+## Encodes a notification (no id).
+##
+## ## Parámetros
+## - `method`: the method name. Borrowed.
+## - `params`: optional params. Borrowed; deep-copied.
+##
+## ## Retorno
+## An owned compact JSON string.
+##
+## ## Ejemplo
+## ```pengu
+## calling jsonrpc.encode_notification with "foo", (maybe none)
+## # {"jsonrpc":"2.0","method":"foo"}
+## ```
+weave encode_notification with method as string, params as maybe json.JsonValue into string:
+    var o as json.JsonValue is calling JsonValue.empty_object
+    set o is calling _put_version with o
+    var m as string is "{method}"
+    calling o.put_json with "method", (calling JsonValue.string_val with m)
+    set o is calling _put_params with o, params
+    var text as string is calling json.stringify with o
+    banish o
+    return text
+
+## Encodes a successful response.
+##
+## ## Parámetros
+## - `id`: the request id. Borrowed.
+## - `result`: the result value. Borrowed; deep-copied into the body.
+##
+## ## Retorno
+## An owned compact JSON string.
+weave encode_response_ok with id as JsonRpcId, result as json.JsonValue into string:
+    var o as json.JsonValue is calling JsonValue.empty_object
+    set o is calling _put_version with o
+    calling o.put_json with "id", (calling _id_value with id)
+    var result_copy as json.JsonValue is calling result.clone
+    calling o.put_json with "result", result_copy
+    var text as string is calling json.stringify with o
+    banish o
+    return text
+
+## Encodes a failed response.
+##
+## ## Parámetros
+## - `id`: the request id. Borrowed.
+## - `err`: the error object. Borrowed; deep-copied into the body.
+##
+## ## Retorno
+## An owned compact JSON string.
+weave encode_response_error with id as JsonRpcId, err as JsonRpcError into string:
+    var o as json.JsonValue is calling JsonValue.empty_object
+    set o is calling _put_version with o
+    calling o.put_json with "id", (calling _id_value with id)
+    calling o.put_json with "error", (calling _error_value with err)
+    var text as string is calling json.stringify with o
+    banish o
+    return text
+
+## Encodes any message.
+##
+## The field order is `jsonrpc`, `id`, `method`, `params` for calls and
+## `jsonrpc`, `id`, `result`/`error` for responses, matching `jsonrpc-core`.
+##
+## ## Parámetros
+## - `msg`: the message. Borrowed.
+##
+## ## Retorno
+## An owned compact JSON string.
+##
+## ## Ejemplo
+## ```pengu
+## var body as string is calling jsonrpc.encode_message with msg
+## ```
+weave encode_message with msg as JsonRpcMessage into string:
+    var text as string is ""
+    var ignored as int is judge msg:
+        when Request with id, method, params ->
+            set text is calling encode_request with id, method, params
+            0
+        when Notification with method, params ->
+            set text is calling encode_notification with method, params
+            0
+        when ResponseOk with id, result ->
+            set text is calling encode_response_ok with id, result
+            0
+        when ResponseError with id, err ->
+            set text is calling encode_response_error with id, err
+            0
+    return text
+
+# ----------------------------------------------------------------------------
+# Private C bridges
+# ----------------------------------------------------------------------------
+
+## Returns an owned substring.
+##
+## ## Motivo
+## Header parsing and body extraction need byte ranges without importing a full
+## text module.
+##
+## ## Memoria
+## Allocates one owned buffer; release it with `banish`.
+antiquus _rpc_substring with s as string, start as int, end as int into string:
+    r"""
+return pengu_string_substring(s, start, end);
+"""
+
+## Moves a decoded batch out of its result box.
+##
+## ## Motivo
+## The batch list owns its messages; `banish` on the result would free the list
+## buffer shallowly (leaking the messages), while `free_messages` frees it while
+## the box still points at it. This moves the list out and frees only the box.
+##
+## ## Memoria
+## Transfers the list to the caller and zeroes the box.
+antiquus _rpc_take_messages with r as ref to result of list of JsonRpcMessage to JsonRpcParseError into list of JsonRpcMessage:
+    r"""
+if (r && r->is_ok && r->ok_val) {
+    PenguList out = *(PenguList *)r->ok_val;
+    free(r->ok_val);
+    r->ok_val = NULL;
+    r->is_ok = false;
+    return out;
+}
+return pengu_list_new(sizeof(JsonRpcMessage), 0);
+"""
+
+## Moves a decoded batch-item list out of its result box.
+##
+## ## Motivo
+## Same ownership hole as `_rpc_take_messages`, for `parse_batch_items`.
+##
+## ## Memoria
+## Transfers the list and frees only the box.
+antiquus _rpc_take_batch_items with r as ref to result of list of JsonRpcBatchItem to JsonRpcParseError into list of JsonRpcBatchItem:
+    r"""
+if (r && r->is_ok && r->ok_val) {
+    PenguList out = *(PenguList *)r->ok_val;
+    free(r->ok_val);
+    r->ok_val = NULL;
+    r->is_ok = false;
+    return out;
+}
+return pengu_list_new(sizeof(JsonRpcBatchItem), 0);
+"""
+
+## Releases only the box of `result of JsonRpcId to string`.
+##
+## ## Motivo
+## `_id_from` moves the id out on success and copies the message out on
+## failure; the box must be freed without touching either.
+##
+## ## Memoria
+## Frees the box slot only.
+antiquus _rpc_drop_result_id with r as ref to result of JsonRpcId to string into void:
+    r"""
+if (r->ok_val) { free(r->ok_val); r->ok_val = NULL; }
+if (r->err_val) { free(r->err_val); r->err_val = NULL; }
+"""
+
+## Releases only the box of `result of JsonRpcMessage to JsonRpcParseError`.
+##
+## ## Motivo
+## Batch decoding moves each decoded message into the accumulator list; the box
+## must be freed without touching the moved message.
+##
+## ## Memoria
+## Frees the box slot only.
+antiquus _rpc_drop_result with r as ref to result of JsonRpcMessage to JsonRpcParseError into void:
+    r"""
+if (r->ok_val) { free(r->ok_val); r->ok_val = NULL; }
+if (r->err_val) { free(r->err_val); r->err_val = NULL; }
+"""
+
+# ----------------------------------------------------------------------------
+# Parse error helpers
+# ----------------------------------------------------------------------------
+
+## Deep-copies a `JsonError` so it survives the original result being banished.
+##
+## ## Parámetros
+## - `e`: the source error. Borrowed.
+##
+## ## Retorno
+## An owned `JsonError`.
+weave _copy_json_error with e as json.JsonError into json.JsonError:
+    var msg as string is "{e.message}"
+    return with kind is e.kind, message is msg, line is e.line, col is e.col, offset is e.offset
+
+## Builds a `JsonRpcParseError`.
+##
+## ## Parámetros
+## - `kind`: the structural category.
+## - `message`: the explanation. Ownership transfers.
+## - `json_error`: an optional underlying JSON error. Ownership transfers.
+##
+## ## Retorno
+## The error value.
+weave _parse_error with kind as JsonRpcErrorKind, message as string, json_error as maybe json.JsonError into JsonRpcParseError:
+    return with kind is kind, message is message, json_error is json_error
+
+## Converts a JSON value to a JSON-RPC id.
+##
+## ## Parámetros
+## - `v`: the candidate value. Borrowed.
+##
+## ## Retorno
+## `ok id` for a string or an integer, `err message` otherwise (`null` and
+## floats are invalid ids).
+weave _id_from with v as json.JsonValue into result of JsonRpcId to string:
+    if calling v.is_int:
+        var iv as maybe i64 is calling v.as_int
+        var n as i64 is (iv or else 0)
+        banish iv
+        return calling ok_of with (with Number is n)
+    if calling v.is_string:
+        var sv as maybe string is calling v.as_string
+        var s as string is calling json.take_string with (sigil of sv)
+        return calling ok_of with (with String is s)
+    return calling err_of with "id must be a string or an integer"
+
+## Decodes one already-parsed JSON value into a message.
+##
+## The value is **borrowed**: every string/value in the result is an owned copy.
+##
+## ## Parámetros
+## - `root`: the parsed candidate. Borrowed.
+##
+## ## Retorno
+## `ok message` or `err JsonRpcParseError`.
+weave _parse_message_value with root as json.JsonValue into result of JsonRpcMessage to JsonRpcParseError:
+    if not calling root.is_object:
+        var m as string is "a JSON-RPC message must be a JSON object"
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.NotAnObject, m, (maybe none))
+
+    if not calling root.has_key with "jsonrpc":
+        var m2 as string is "missing the \"jsonrpc\" member"
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.MissingJsonrpcField, m2, (maybe none))
+
+    var jv as json.JsonValue is calling json.get_or_null with root, "jsonrpc"
+    var js as maybe string is calling jv.as_string
+    var version as string is calling json.take_string with (sigil of js)
+    banish jv
+    if version != JSONRPC_PROTOCOL_VERSION:
+        var m3 as string is "expected \"jsonrpc\": \"2.0\", got \"{version}\""
+        banish version
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.WrongJsonrpcVersion, m3, (maybe none))
+    banish version
+
+    var has_id as bool is calling root.has_key with "id"
+    var has_method as bool is calling root.has_key with "method"
+    var has_result as bool is calling root.has_key with "result"
+    var has_error as bool is calling root.has_key with "error"
+
+    # Validate `id` before deciding what the message is: `id: null` and
+    # `id: 1.5` are invalid ids even when the rest of the object is not a
+    # response (`{"jsonrpc":"2.0","id":null}` must be InvalidId, not
+    # MissingMethod).
+    if has_id and not has_method:
+        var probe_idv as json.JsonValue is calling json.get_or_null with root, "id"
+        var probe as result of JsonRpcId to string is calling _id_from with probe_idv
+        banish probe_idv
+        if not probe.is_ok:
+            var why0 as string is probe.error
+            var m0 as string is "{why0}"
+            calling _rpc_drop_result_id with (sigil of probe)
+            banish why0
+            return calling err_of with (calling _parse_error with JsonRpcErrorKind.InvalidId, m0, (maybe none))
+        var discarded as JsonRpcId is probe.value
+        banish discarded
+        calling _rpc_drop_result_id with (sigil of probe)
+
+    if has_method:
+        var mv as json.JsonValue is calling json.get_or_null with root, "method"
+        if not calling mv.is_string:
+            banish mv
+            var m4 as string is "the \"method\" member must be a string"
+            return calling err_of with (calling _parse_error with JsonRpcErrorKind.MissingMethod, m4, (maybe none))
+        var ms as maybe string is calling mv.as_string
+        var method as string is calling json.take_string with (sigil of ms)
+        banish mv
+
+        var params as maybe json.JsonValue is maybe none
+        if calling root.has_key with "params":
+            var pv as json.JsonValue is calling json.get_or_null with root, "params"
+            if not calling pv.is_array and not calling pv.is_object:
+                banish pv
+                banish method
+                var m5 as string is "\"params\" must be an array or an object"
+                return calling err_of with (calling _parse_error with JsonRpcErrorKind.InvalidParams, m5, (maybe none))
+            set params is some pv
+
+        if has_id:
+            var idv as json.JsonValue is calling json.get_or_null with root, "id"
+            var idr as result of JsonRpcId to string is calling _id_from with idv
+            banish idv
+            if not idr.is_ok:
+                banish method
+                banish params
+                var why as string is idr.error
+                var m6 as string is "{why}"
+                calling _rpc_drop_result_id with (sigil of idr)
+                banish why
+                return calling err_of with (calling _parse_error with JsonRpcErrorKind.InvalidId, m6, (maybe none))
+            var id as JsonRpcId is idr.value
+            calling _rpc_drop_result_id with (sigil of idr)
+            var msg as JsonRpcMessage is calling request with id, method, params
+            return calling ok_of with msg
+        var note as JsonRpcMessage is calling notification with method, params
+        return calling ok_of with note
+
+    if has_result and has_error:
+        var m7 as string is "\"result\" and \"error\" are mutually exclusive"
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.InvalidRequest, m7, (maybe none))
+
+    if has_result or has_error:
+        if not has_id:
+            var m8 as string is "a response must carry an \"id\""
+            return calling err_of with (calling _parse_error with JsonRpcErrorKind.MissingId, m8, (maybe none))
+        var ridv as json.JsonValue is calling json.get_or_null with root, "id"
+        var ridr as result of JsonRpcId to string is calling _id_from with ridv
+        banish ridv
+        if not ridr.is_ok:
+            var why2 as string is ridr.error
+            var m9 as string is "{why2}"
+            calling _rpc_drop_result_id with (sigil of ridr)
+            banish why2
+            return calling err_of with (calling _parse_error with JsonRpcErrorKind.InvalidId, m9, (maybe none))
+        var rid as JsonRpcId is ridr.value
+        calling _rpc_drop_result_id with (sigil of ridr)
+        if has_result:
+            var result as json.JsonValue is calling json.get_or_null with root, "result"
+            var okmsg as JsonRpcMessage is calling response_ok with rid, result
+            return calling ok_of with okmsg
+
+        var ev as json.JsonValue is calling json.get_or_null with root, "error"
+        if not calling ev.is_object:
+            banish rid
+            banish ev
+            var m10 as string is "the \"error\" member must be an object"
+            return calling err_of with (calling _parse_error with JsonRpcErrorKind.InvalidRequest, m10, (maybe none))
+        var codev as json.JsonValue is calling json.get_or_null with ev, "code"
+        if not calling codev.is_int:
+            banish rid
+            banish codev
+            banish ev
+            var m11 as string is "error.code must be an integer"
+            return calling err_of with (calling _parse_error with JsonRpcErrorKind.InvalidRequest, m11, (maybe none))
+        var civ as maybe i64 is calling codev.as_int
+        var code as int is ((civ or else 0) to int)
+        banish civ
+        banish codev
+        var msgv as json.JsonValue is calling json.get_or_null with ev, "message"
+        if not calling msgv.is_string:
+            banish rid
+            banish msgv
+            banish ev
+            var m12 as string is "error.message must be a string"
+            return calling err_of with (calling _parse_error with JsonRpcErrorKind.InvalidRequest, m12, (maybe none))
+        var msv as maybe string is calling msgv.as_string
+        var emsg as string is calling json.take_string with (sigil of msv)
+        banish msgv
+        var edata as maybe json.JsonValue is maybe none
+        if calling ev.has_key with "data":
+            var dv as json.JsonValue is calling json.get_or_null with ev, "data"
+            set edata is some dv
+        banish ev
+        var rpc_err as JsonRpcError is with code is code, message is emsg, data is edata
+        var errmsg as JsonRpcMessage is calling response_error with rid, rpc_err
+        return calling ok_of with errmsg
+
+    var m13 as string is "the message has no \"method\", \"result\" or \"error\""
+    return calling err_of with (calling _parse_error with JsonRpcErrorKind.MissingMethod, m13, (maybe none))
+
+## Releases every message of a batch list, then the list itself.
+##
+## ## Parámetros
+## - `msgs`: an owned `list of JsonRpcMessage`.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Memoria
+## Banishes each message recursively, then the list buffer.
+weave free_messages with msgs as list of JsonRpcMessage into void:
+    var i as int is 0
+    while i < msgs.len:
+        banish msgs at i
+        set i is i + 1
+    banish msgs
+
+## Moves the decoded batch out of a successful result, freeing only the box.
+##
+## ## Parámetros
+## - `r`: the result. The box is consumed; do not use it afterwards.
+##
+## ## Retorno
+## An owned `list of JsonRpcMessage`; release it with `free_messages`.
+##
+## ## Ejemplo
+## ```pengu
+## if r.is_ok:
+##     var msgs as list of JsonRpcMessage is calling rpc.take_messages with (sigil of r)
+##     calling rpc.free_messages with msgs
+## ```
+weave take_messages with r as ref to result of list of JsonRpcMessage to JsonRpcParseError into list of JsonRpcMessage:
+    return calling _rpc_take_messages with r
+
+# ----------------------------------------------------------------------------
+# Message methods
+# ----------------------------------------------------------------------------
+
+enchanting JsonRpcMessage:
+    ## Strict structural equality, including id and payload.
+    ##
+    ## ## Parámetros
+    ## - `other`: the message to compare against. Borrowed.
+    ##
+    ## ## Retorno
+    ## `true` when variant, id, method and payload are equal.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var same as bool is calling parsed.equals with original
+    ## ```
+    weave equals with other as JsonRpcMessage into bool:
+        var me as JsonRpcMessage is essence of self
+        return me == other
+
+    ## The message variant name (`"request"`, `"notification"`,
+    ## `"response_ok"` or `"response_error"`).
+    weave kind_name into string:
+        return judge (essence of self):
+            when Request -> "request"
+            when Notification -> "notification"
+            when ResponseOk -> "response_ok"
+            when ResponseError -> "response_error"
+
+enchanting JsonRpcId:
+    ## Strict equality of two ids.
+    ##
+    ## ## Parámetros
+    ## - `other`: the id to compare against.
+    weave equals with other as JsonRpcId into bool:
+        var me as JsonRpcId is essence of self
+        return me == other
+
+enchanting JsonRpcError:
+    ## Strict equality of two error objects.
+    ##
+    ## ## Parámetros
+    ## - `other`: the error to compare against.
+    weave equals with other as JsonRpcError into bool:
+        var me as JsonRpcError is essence of self
+        return me == other
+
+## Releases every element of a `list of JsonRpcBatchItem`, then the list.
+##
+## ## Parámetros
+## - `items`: an owned batch-item list.
+##
+## ## Memoria
+## Releases each message/error, then the list buffer.
+weave free_batch_items with items as list of JsonRpcBatchItem into void:
+    var i as int is 0
+    while i < items.len:
+        banish items at i
+        set i is i + 1
+    banish items
+
+## Moves a decoded batch-item list out of a successful result.
+##
+## ## Parámetros
+## - `r`: the result. The box is consumed.
+##
+## ## Retorno
+## An owned list; release it with `free_batch_items`.
+weave take_batch_items with r as ref to result of list of JsonRpcBatchItem to JsonRpcParseError into list of JsonRpcBatchItem:
+    return calling _rpc_take_batch_items with r
+
+## Decodes a batch element by element, preserving per-element errors.
+##
+## Unlike `parse_batch` (which returns the first error), every element gets a
+## `JsonRpcBatchItem` with either a message or a parse error. This is the form a
+## JSON-RPC server needs to answer a mixed batch.
+##
+## ## Parámetros
+## - `s`: the JSON array. Borrowed.
+##
+## ## Retorno
+## `ok list of JsonRpcBatchItem` (release with `free_batch_items`) or an outer
+## `err JsonRpcParseError` when the whole array is invalid.
+weave parse_batch_items with s as string into result of list of JsonRpcBatchItem to JsonRpcParseError:
+    var pr as result of json.JsonValue to json.JsonError is calling json.parse with s
+    if not pr.is_ok:
+        var je as json.JsonError is calling _copy_json_error with pr.error
+        var msg as string is "the batch body is not valid JSON"
+        banish pr
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.InvalidJson, msg, (some je))
+    var root as json.JsonValue is pr.value
+    if not calling root.is_array:
+        var m as string is "a batch must be a JSON array"
+        banish pr
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.NotAnObject, m, (maybe none))
+    if calling root.array_len == 0:
+        var m2 as string is "a batch must not be empty"
+        banish pr
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.EmptyBatch, m2, (maybe none))
+
+    var out as list of JsonRpcBatchItem is list of JsonRpcBatchItem
+    var ignored as int is judge root:
+        when Arr with items ->
+            for item in items:
+                var one as result of JsonRpcMessage to JsonRpcParseError is calling _parse_message_value with item
+                var batch_item as JsonRpcBatchItem is calling _empty_batch_item
+                if one.is_ok:
+                    var msg as JsonRpcMessage is one.value
+                    set batch_item is calling _batch_item_ok with msg
+                    calling _rpc_drop_result with (sigil of one)
+                else:
+                    var err_copy as JsonRpcParseError is calling _copy_parse_error with one.error
+                    banish one
+                    set batch_item is calling _batch_item_err with err_copy
+                calling out.push with batch_item
+            0
+        else ->
+            0
+    banish pr
+    return calling ok_of with out
+
+## Builds an empty batch item (neither side present).
+weave _empty_batch_item into JsonRpcBatchItem:
+    var no_msg as maybe JsonRpcMessage is maybe none
+    var no_err as maybe JsonRpcParseError is maybe none
+    return with message is no_msg, error is no_err
+
+## Builds a successful batch item, taking ownership of `msg`.
+weave _batch_item_ok with msg as JsonRpcMessage into JsonRpcBatchItem:
+    var some_msg as maybe JsonRpcMessage is some msg
+    var no_err as maybe JsonRpcParseError is maybe none
+    return with message is some_msg, error is no_err
+
+## Builds a failed batch item, taking ownership of `err`.
+weave _batch_item_err with err as JsonRpcParseError into JsonRpcBatchItem:
+    var no_msg as maybe JsonRpcMessage is maybe none
+    var some_err as maybe JsonRpcParseError is some err
+    return with message is no_msg, error is some_err
+
+# ----------------------------------------------------------------------------
+# Public decoding
+# ----------------------------------------------------------------------------
+
+## Decodes one JSON-RPC message.
+##
+## ## Parámetros
+## - `s`: the JSON body. Borrowed.
+##
+## ## Retorno
+## `ok message` (owned) or `err JsonRpcParseError`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of JsonRpcMessage to rpc.JsonRpcParseError is calling rpc.parse_message with body
+## ```
+weave parse_message with s as string into result of JsonRpcMessage to JsonRpcParseError:
+    var pr as result of json.JsonValue to json.JsonError is calling json.parse with s
+    if not pr.is_ok:
+        var je as json.JsonError is calling _copy_json_error with pr.error
+        var msg as string is "the request body is not valid JSON"
+        banish pr
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.InvalidJson, msg, (some je))
+    var root as json.JsonValue is pr.value
+    var out as result of JsonRpcMessage to JsonRpcParseError is calling _parse_message_value with root
+    banish pr
+    return out
+
+## Decodes a JSON-RPC batch (a JSON array of messages).
+##
+## An empty array is `EmptyBatch`. The first invalid element aborts the batch
+## and is returned as the error; messages decoded before it are released.
+##
+## ## Parámetros
+## - `s`: the JSON array. Borrowed.
+##
+## ## Retorno
+## `ok list of JsonRpcMessage` (release it with `free_messages`) or
+## `err JsonRpcParseError`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of list of JsonRpcMessage to rpc.JsonRpcParseError is calling rpc.parse_batch with "[...]"
+## if r.is_ok:
+##     calling rpc.free_messages with r.value
+## banish r
+## ```
+weave parse_batch with s as string into result of list of JsonRpcMessage to JsonRpcParseError:
+    var pr as result of json.JsonValue to json.JsonError is calling json.parse with s
+    if not pr.is_ok:
+        var je as json.JsonError is calling _copy_json_error with pr.error
+        var msg as string is "the batch body is not valid JSON"
+        banish pr
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.InvalidJson, msg, (some je))
+    var root as json.JsonValue is pr.value
+    if not calling root.is_array:
+        var m as string is "a batch must be a JSON array"
+        banish pr
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.NotAnObject, m, (maybe none))
+    if calling root.array_len == 0:
+        var m2 as string is "a batch must not be empty"
+        banish pr
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.EmptyBatch, m2, (maybe none))
+
+    var out as list of JsonRpcMessage is list of JsonRpcMessage
+    var ignored as int is judge root:
+        when Arr with items ->
+            for item in items:
+                var one as result of JsonRpcMessage to JsonRpcParseError is calling _parse_message_value with item
+                if not one.is_ok:
+                    var one_err as JsonRpcParseError is one.error
+                    calling free_messages with out
+                    banish pr
+                    calling _rpc_drop_result with (sigil of one)
+                    return calling err_of with one_err
+                var msg as JsonRpcMessage is one.value
+                calling out.push with msg
+                calling _rpc_drop_result with (sigil of one)
+            0
+        else ->
+            0
+    banish pr
+    return calling ok_of with out
+
+# ----------------------------------------------------------------------------
+# LSP framing
+# ----------------------------------------------------------------------------
+
+## Encodes a message with the LSP `Content-Length` header.
+##
+## The length is the UTF-8 **byte** count of the JSON body, not a character
+## count. The frame is `Content-Length: N\r\n\r\n<body>`.
+##
+## ## Parámetros
+## - `msg`: the message. Borrowed.
+##
+## ## Retorno
+## An owned frame string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var wire as string is calling jsonrpc.encode_framed with notification
+## defer banish wire
+## ```
+weave encode_framed with msg as JsonRpcMessage into string:
+    var body as string is calling encode_message with msg
+    var n as int is body length
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "Content-Length: "
+    calling sb.append_int with n
+    calling sb.append with "\r\n\r\n"
+    calling sb.append with body
+    banish body
+    return calling sb.finish
+
+## Finds the `\r\n\r\n` that ends the header block.
+##
+## ## Parámetros
+## - `data`: the frame buffer. Borrowed.
+##
+## ## Retorno
+## The byte offset of the first `\r`, or `-1` when the terminator is absent.
+weave _find_header_end with data as string into int:
+    var n as int is data length
+    var raw as ref to frozen byte is bytes of data
+    var i as int is 0
+    while i + 3 < n:
+        if ((raw at i) to int) == 13 and ((raw at (i + 1)) to int) == 10 and ((raw at (i + 2)) to int) == 13 and ((raw at (i + 3)) to int) == 10:
+            return i
+        set i is i + 1
+    return -1
+
+## Lowercases one ASCII byte.
+##
+## ## Parámetros
+## - `b`: a byte value.
+##
+## ## Retorno
+## The lowercase byte for `A-Z`; the input otherwise.
+weave _lower_byte with b as int into int:
+    if b >= 65 and b <= 90:
+        return b + 32
+    return b
+
+## True when `line` starts with the ASCII prefix `prefix`, case-insensitively.
+##
+## ## Parámetros
+## - `line`: the header line. Borrowed.
+## - `prefix`: an ASCII prefix. Borrowed.
+weave _ci_starts_with with line as string, prefix as string into bool:
+    var pl as int is prefix length
+    if (line length) < pl:
+        return false
+    var lb as ref to frozen byte is bytes of line
+    var pb as ref to frozen byte is bytes of prefix
+    var i as int is 0
+    while i < pl:
+        var la as int is calling _lower_byte with ((lb at i) to int)
+        var pa as int is calling _lower_byte with ((pb at i) to int)
+        if la != pa:
+            return false
+        set i is i + 1
+    return true
+
+## Parses the `Content-Length` header of a header block.
+##
+## ## Parámetros
+## - `header`: the header block without its final blank line. Borrowed.
+##
+## ## Retorno
+## The declared byte length, `-1` when the header is absent, or `-2` when it is
+## malformed.
+weave _header_content_length with header as string into int:
+    var n as int is header length
+    var raw as ref to frozen byte is bytes of header
+    var i as int is 0
+    while i < n:
+        var line_start as int is i
+        var line_end as int is i
+        var scanning as bool is true
+        while scanning and line_end < n:
+            if ((raw at line_end) to int) == 13 and line_end + 1 < n and ((raw at (line_end + 1)) to int) == 10:
+                set scanning is false
+            else:
+                set line_end is line_end + 1
+        var line as string is calling _rpc_substring with header, line_start, line_end
+        if calling _ci_starts_with with line, "Content-Length":
+            var pos as int is 14
+            while pos < (line length) and ((raw at (line_start + pos)) to int) == 32:
+                set pos is pos + 1
+            if pos >= (line length) or ((raw at (line_start + pos)) to int) != 58:
+                banish line
+                return -2
+            set pos is pos + 1
+            while pos < (line length) and ((raw at (line_start + pos)) to int) == 32:
+                set pos is pos + 1
+            var value as int is 0
+            var digits as int is 0
+            while pos < (line length):
+                var b as int is (raw at (line_start + pos)) to int
+                if b < 48 or b > 57:
+                    banish line
+                    return -2
+                if value > (2147483647 - (b - 48)) / 10:
+                    banish line
+                    return -2
+                set value is value * 10 + (b - 48)
+                set digits is digits + 1
+                set pos is pos + 1
+            banish line
+            if digits == 0:
+                return -2
+            return value
+        banish line
+        set i is line_end + 2
+    return -1
+
+## Deep-copies a `JsonRpcParseError`.
+##
+## ## Parámetros
+## - `e`: the source error. Borrowed.
+##
+## ## Retorno
+## An owned `JsonRpcParseError`.
+weave _copy_parse_error with e as JsonRpcParseError into JsonRpcParseError:
+    var msg as string is "{e.message}"
+    var je as maybe json.JsonError is maybe none
+    if e.json_error.is_present:
+        var src as json.JsonError is e.json_error.value
+        var copied as json.JsonError is calling _copy_json_error with src
+        set je is some copied
+    return with kind is e.kind, message is msg, json_error is je
+
+## Decodes one LSP frame from a buffer.
+##
+## ## Parámetros
+## - `data`: the buffer. It may contain more than one frame. Borrowed.
+##
+## ## Retorno
+## `ok FramedDecode` where:
+## - `message` is `some m` and `consumed > 0` when a complete frame was read;
+## - `message` is `none` and `consumed == 0` when more bytes are needed;
+## - `err JsonRpcParseError` for a malformed header or an invalid body.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of FramedDecode to rpc.JsonRpcParseError is calling rpc.decode_framed_bytes with buffer
+## ```
+weave decode_framed_bytes with data as string into result of FramedDecode to JsonRpcParseError:
+    var hend as int is calling _find_header_end with data
+    if hend < 0:
+        var m as string is "missing the \\r\\n\\r\\n header terminator"
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.FramingError, m, (maybe none))
+    var header as string is calling _rpc_substring with data, 0, hend
+    var n as int is calling _header_content_length with header
+    banish header
+    if n < 0:
+        var m2 as string is "missing or malformed Content-Length header"
+        return calling err_of with (calling _parse_error with JsonRpcErrorKind.FramingError, m2, (maybe none))
+    var body_start as int is hend + 4
+    var total as int is body_start + n
+    if (data length) < total:
+        var no_msg as maybe JsonRpcMessage is maybe none
+        var frame as FramedDecode is with message is no_msg, consumed is 0
+        return calling ok_of with frame
+    var body as string is calling _rpc_substring with data, body_start, total
+    var pr as result of JsonRpcMessage to JsonRpcParseError is calling parse_message with body
+    banish body
+    if not pr.is_ok:
+        var pe as JsonRpcParseError is calling _copy_parse_error with pr.error
+        banish pr
+        return calling err_of with pe
+    var msg as JsonRpcMessage is pr.value
+    calling _rpc_drop_result with (sigil of pr)
+    var some_msg as maybe JsonRpcMessage is some msg
+    var okframe as FramedDecode is with message is some_msg, consumed is total
+    return calling ok_of with okframe
+
+## Alias of `decode_framed_bytes` for callers that read one frame per call.
+##
+## ## Parámetros
+## - `data`: the buffer. Borrowed.
+##
+## ## Retorno
+## `ok FramedDecode` or `err JsonRpcParseError`.
+weave decode_framed with data as string into result of FramedDecode to JsonRpcParseError:
+    return calling decode_framed_bytes with data

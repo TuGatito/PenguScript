@@ -1,0 +1,46 @@
+## `render_json` produces an LSP Diagnostic array that `std.json` can read.
+import std.spark
+import std.json
+import std.diagnostic as diag
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave main into int:
+    var bag as DiagnosticBag is calling DiagnosticBag.new
+    defer banish bag
+    calling bag.add_source with "lsp.pengu", "first\nsecond\n"
+    var span as Span is calling diag.span_from_positions with "lsp.pengu", 2, 1, 2, 7, 6, 12
+    var lb as Label is calling diag.label with span, "second line", true
+    calling bag.add with (calling diag.diagnostic with diag.Severity.Error, "E42", "bad thing", (calling diag.labels with lb), (some "fix"), (maybe none), (calling diag.no_related))
+    var payload as string is calling bag.render_json
+    defer banish payload
+    var pr as result of JsonValue to json.JsonError is calling json.parse with payload
+    if not pr.is_ok:
+        calling spark.println with "FAIL parse: {pr.error.message}"
+        banish pr
+        return 1
+    var arr as JsonValue is pr.value
+    calling eq_i with (calling arr.array_len), 1, "one diagnostic"
+    var first as maybe JsonValue is calling arr.at with 0
+    if not first.is_present:
+        calling spark.println with "FAIL missing diagnostic"
+        banish pr
+        return 1
+    var d as JsonValue is calling json.take_value with (sigil of first)
+    var sev_v as JsonValue is calling json.get_or_null with d, "severity"
+    var sev as maybe i64 is calling sev_v.as_int
+    calling eq_i with ((sev or else 0) to int), 1, "severity"
+    banish sev
+    banish sev_v
+    var code_v as JsonValue is calling json.get_or_null with d, "code"
+    var cs as maybe string is calling code_v.as_string
+    var code_len as int is ((cs or else "").length)
+    banish cs
+    banish code_v
+    calling eq_i with code_len, 3, "code length"
+    banish d
+    banish pr
+    calling spark.println with "OK diagnostic_json"
+    return 0

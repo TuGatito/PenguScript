@@ -47,6 +47,9 @@ def test_the_module_list_is_not_empty_and_includes_the_new_modules():
     assert len(MODULES) >= 29, MODULE_IDS
     assert "functor" in MODULE_IDS
     assert "loom" in MODULE_IDS
+    assert "diagnostic" in MODULE_IDS
+    assert "json" in MODULE_IDS
+    assert "jsonrpc" in MODULE_IDS
 
 
 @pytest.mark.parametrize("path", MODULES, ids=MODULE_IDS)
@@ -63,8 +66,8 @@ def test_every_module_exports_a_version_marker(path):
 
 
 def test_functor_and_loom_are_at_the_current_release():
-    assert _declared_version(STD / "functor.pengu") == "2.9.0"
-    assert _declared_version(STD / "loom.pengu") == "2.9.0"
+    assert _declared_version(STD / "functor.pengu") == "2.10.0"
+    assert _declared_version(STD / "loom.pengu") == "2.10.0"
 
 
 def test_the_version_file_and_the_fallback_agree():

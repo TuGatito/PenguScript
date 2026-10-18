@@ -1,0 +1,1227 @@
+## std/diagnostic.pengu — source spans, labels and Rust-style diagnostics.
+##
+## A general diagnostic system, not a compiler-only one: linters, validators,
+## migration tools and the self-hosted LSP all need the same primitives — a
+## position, a severity, an optional code, a message, and one or more marked
+## ranges. `std.diagnostic` provides them with a renderer modelled on
+## `rustc`/`codespan-reporting`, ANSI colour, and an LSP-compatible JSON form.
+##
+## ## Example
+## ```pengu
+## import std.diagnostic as diag
+## import std.spark
+##
+## weave main into int:
+##     var bag as DiagnosticBag is calling DiagnosticBag.new
+##     defer banish bag
+##     calling bag.add_source with "src/main.pengu", "var x as int is \"hello\"\n"
+##
+##     var span as Span is calling diag.span_from_positions with "src/main.pengu", 1, 18, 1, 25, 17, 24
+##     calling bag.add with (calling diag.diagnostic with diag.Severity.Error, "E0005", "expected 'int', found 'string'", (calling diag.labels with (calling diag.label with span, "expected 'int' here", true)), (some "use '(s to int)'"))
+##     var text as string is calling bag.render_colored
+##     defer banish text
+##     calling spark.print with text
+##     return 0
+## ```
+##
+## Output (colours omitted):
+## ```text
+## error[E0005]: expected 'int', found 'string'
+##   --> src/main.pengu:1:18
+##    |
+##  1 | var x as int is "hello"
+##    |                  ^^^^^^^ expected 'int' here
+##    |
+##    = help: use '(s to int)'
+## ```
+##
+## ## Ownership (read this once)
+## - A `Span` owns its `file` string. `span_from_positions` copies the path, so
+##   the caller keeps its own string; `banish span` releases the copy.
+## - `Label` owns its `Span` and its `message`. The `label` helper takes
+##   ownership of the span and copies the message.
+## - `Diagnostic` owns its `message`, `code`, `labels`, `help`, `note` and
+##   `related`. The `diagnostic` helper copies `code`/`message`, takes ownership
+##   of the label list and of the `related` list, and boxes `help`/`note`
+##   copies.
+## - `DiagnosticBag` owns every `Diagnostic` it holds plus the sources added
+##   with `add_source`. `banish bag` releases the whole bag recursively.
+## - `errors_only` / `warnings_and_errors` return **deep copies**; release the
+##   list with `free_diagnostics`.
+##
+## ## Sources and context
+## A `Span` stores only a path, never the file contents. Register the text with
+## `DiagnosticBag.add_source` to get source context in the render. Without it,
+## the renderer still prints the primary position and every label message, but
+## no source line — which is exactly what a tool that only has positions (a
+## log parser, a remote LSP client) can do.
+##
+## ## Complexity
+## | Operation | Cost |
+## |---|---|
+## | `add`, `extend`, `error`, ... | O(1) amortised |
+## | `len`, `is_empty`, counts | O(1) |
+## | `errors_only`, `warnings_and_errors` | O(number of copied diagnostics) |
+## | `render`, `render_json` | O(labels × context lines + output size) |
+## | `clear` | O(items + sources) |
+##
+## ## Multiple labels on one line
+## Each label gets its own marker row, in label order: `^^^^` for a primary
+## label and `----` for a secondary one. Overlapping carets are therefore
+## always readable, at the cost of one row per label. This is a deliberate
+## choice (the alternative — one merged row with `|` separators — hides which
+## message belongs to which range).
+
+import std.builder
+import std.json
+import std.rites
+import std.spark
+
+# ----------------------------------------------------------------------------
+# Module version
+# ----------------------------------------------------------------------------
+
+## Diagnostic module version.
+const DIAGNOSTIC_VERSION as string is "2.10.0"
+
+## LSP severity number for `Severity.Error`.
+const DIAGNOSTIC_SEVERITY_ERROR as int is 1
+
+## LSP severity number for `Severity.Warning`.
+const DIAGNOSTIC_SEVERITY_WARNING as int is 2
+
+## LSP severity number for `Severity.Info`.
+const DIAGNOSTIC_SEVERITY_INFO as int is 3
+
+## LSP severity number for `Severity.Hint`.
+const DIAGNOSTIC_SEVERITY_HINT as int is 4
+
+## ANSI reset sequence.
+const DIAGNOSTIC_ANSI_RESET as string is "\x1b[0m"
+
+## ANSI bold-red sequence (errors).
+const DIAGNOSTIC_ANSI_ERROR as string is "\x1b[1;31m"
+
+## ANSI bold-yellow sequence (warnings).
+const DIAGNOSTIC_ANSI_WARNING as string is "\x1b[1;33m"
+
+## ANSI bold-blue sequence (info).
+const DIAGNOSTIC_ANSI_INFO as string is "\x1b[1;34m"
+
+## ANSI bold-cyan sequence (hints).
+const DIAGNOSTIC_ANSI_HINT as string is "\x1b[1;36m"
+
+# ----------------------------------------------------------------------------
+# Types
+# ----------------------------------------------------------------------------
+
+## A range in a source file.
+##
+## Lines and columns are **1-indexed** and columns are byte columns (the same
+## convention as `std.sourcemap`), so `start_byte + start_col - 1` is exact.
+## `start_byte`/`end_byte` are absolute byte offsets; they are used for
+## ordering and for JSON consumers that index a buffer directly.
+##
+## ## Memoria
+## Owns `file`; `banish span` releases it.
+rune Span derive Nexus, Par, Imago:
+    ## Logical path of the file (`""` for a position without a file).
+    file as string
+    ## 1-indexed first line.
+    start_line as int
+    ## 1-indexed first byte column.
+    start_col as int
+    ## 1-indexed line of the first byte *after* the range.
+    end_line as int
+    ## 1-indexed byte column just after the range.
+    end_col as int
+    ## Absolute byte offset of the first byte.
+    start_byte as int
+    ## Absolute byte offset just after the range.
+    end_byte as int
+
+## Severity of a diagnostic.
+omen Severity:
+    ## A program error; the tool should fail.
+    Error
+    ## A suspicious construct; the program is still valid.
+    Warning
+    ## Informational output.
+    Info
+    ## An optional suggestion.
+    Hint
+
+## A secondary annotation inside a diagnostic.
+##
+## ## Memoria
+## Owns its `span` (and therefore the file path) and its `message`.
+rune Label derive Nexus, Par, Imago:
+    ## The marked range.
+    span as Span
+    ## The text printed next to the marker.
+    message as string
+    ## `true` renders `^^^^` (primary), `false` renders `----` (secondary).
+    primary as bool
+
+## A complete diagnostic.
+##
+## `labels` may be empty (a diagnostic without a position, such as "internal
+## error"), and a label list without a `primary` label is treated as
+## positionaless by the renderer.
+##
+## ## Memoria
+## Owns every field; `banish d` releases the labels, messages and related list.
+rune Diagnostic derive Nexus, Par, Imago:
+    ## The severity.
+    severity as Severity
+    ## A stable code such as `"E0005"` or `"my-lint-rule"`; `""` for no code.
+    code as string
+    ## The headline message (no trailing period required).
+    message as string
+    ## Positional annotations. At most one should be primary.
+    labels as list of Label
+    ## An optional `help:` suggestion.
+    help as maybe string
+    ## An optional `note:` explanation.
+    note as maybe string
+    ## "See also" diagnostics.
+    related as list of Diagnostic
+
+## Render options.
+rune RenderOptions derive Par:
+    ## Request ANSI colour (still subject to `NO_COLOR` and TTY detection).
+    color as bool
+    ## Lines of context around the marked lines (default `2`).
+    context_lines as int
+    ## Print `note:` lines (default `true`).
+    show_notes as bool
+    ## Print `help:` lines (default `true`).
+    show_help as bool
+    ## Print `related:` lines (default `true`).
+    show_related as bool
+    ## Width a tab advances to when computing visual columns (default `4`).
+    tab_width as int
+    ## Skip `NO_COLOR`/TTY detection and honour `color` exactly (default
+    ## `false`). Useful for tests and for capturing ANSI output to a file.
+    force_color as bool
+
+## A bag of diagnostics plus their counts and source texts.
+##
+## ## Memoria
+## Owns `items` and `_sources`. `banish bag` releases everything, including the
+## nested diagnostics and the copied source texts.
+rune DiagnosticBag derive Nexus:
+    ## The diagnostics in insertion order.
+    items as list of Diagnostic
+    ## Number of `Error` diagnostics (kept in sync by `add`).
+    error_count as int
+    ## Number of `Warning` diagnostics.
+    warning_count as int
+    ## Number of `Info` diagnostics.
+    info_count as int
+    ## Number of `Hint` diagnostics.
+    hint_count as int
+    ## Registered source texts, keyed by logical path.
+    _sources as map of string to string
+
+# ----------------------------------------------------------------------------
+# Private C bridges
+# ----------------------------------------------------------------------------
+
+## Reports whether stdout is a terminal.
+##
+## ## Motivo
+## The runtime already includes `<unistd.h>` / `<io.h>`, so the POSIX and
+## Windows spellings can live in one guarded function without a new link.
+##
+## ## Memoria
+## Reads only; no allocation.
+antiquus _diagnostic_is_tty into bool:
+    r"""
+#ifdef _WIN32
+return _isatty(_fileno(stdout)) != 0;
+#else
+return isatty(STDOUT_FILENO) != 0;
+#endif
+"""
+
+## Number of lines in a source text (at least one).
+##
+## ## Motivo
+## The renderer only needs line starts; keeping the line scanner here avoids a
+## dependency on `std.sourcemap` (which exports its own `Span`, a name that
+## would collide with this module's `Span` in a multi-module type table).
+##
+## ## Memoria
+## Reads only; allocates nothing.
+antiquus _diagnostic_line_count with s as string into int:
+    r"""
+if (!s.data) return 1;
+int lines = 1;
+for (int i = 0; i < s.len; i++) if (s.data[i] == '\n') lines++;
+return lines;
+"""
+
+## Returns an owned copy of a 1-indexed line, without its terminator.
+##
+## ## Motivo
+## Same as `_diagnostic_line_count`: one small bridge instead of importing a
+## module whose `Span` has the same name as ours.
+##
+## ## Memoria
+## Returns an owned string; release it with `banish`.
+antiquus _diagnostic_line_text with s as string, line as int into string:
+    r"""
+if (line < 1 || !s.data) return pengu_string_from_cstr("");
+int current = 1;
+int start = 0;
+while (current < line && start < s.len) {
+    if (s.data[start] == '\n') current++;
+    start++;
+}
+if (current < line) return pengu_string_from_cstr("");
+int end = start;
+while (end < s.len && s.data[end] != '\n') end++;
+if (end > start && s.data[end - 1] == '\r') end--;
+return pengu_string_substring(s, start, end);
+"""
+
+## Compares two strings byte-wise.
+##
+## ## Motivo
+## General string `==` through two nested field accesses (`a.span.file ==
+## b.span.file`) reaches C without the runtime helper; routing it through C
+## keeps the comparison explicit and always correct.
+##
+## ## Memoria
+## Reads only; allocates nothing.
+antiquus _diagnostic_streq with a as string, b as string into bool:
+    r"""
+return pengu_string_equal(a, b) ? true : false;
+"""
+
+## Deep-copies a diagnostic with the derived `Imago` callback.
+##
+## ## Motivo
+## `errors_only` and `warnings_and_errors` must return independent values; the
+## derived helper is a C symbol.
+##
+## ## Memoria
+## Returns a fully independent diagnostic; release it with `banish`.
+antiquus _diagnostic_clone with d as Diagnostic into Diagnostic:
+    r"""
+Diagnostic out;
+memset(&out, 0, sizeof out);
+_pengu_clone_Diagnostic(&out, &d);
+return out;
+"""
+
+# ----------------------------------------------------------------------------
+# Basic constructors and helpers
+# ----------------------------------------------------------------------------
+
+## The strict default render options.
+##
+## ## Retorno
+## `{color: true, context_lines: 2, show_notes: true, show_help: true,
+## show_related: true, tab_width: 4, force_color: false}`.
+##
+## ## Ejemplo
+## ```pengu
+## var opts as RenderOptions is calling diagnostic.default_render_options
+## ```
+weave default_render_options into RenderOptions:
+    return with color is true, context_lines is 2, show_notes is true, show_help is true, show_related is true, tab_width is 4, force_color is false
+
+## Builds a span from explicit positions.
+##
+## ## Parámetros
+## - `file`: logical path. **Copied**; the caller keeps its string.
+## - `sl`, `sc`: start line and byte column (1-indexed).
+## - `el`, `ec`: end line and byte column (1-indexed).
+## - `sb`, `eb`: absolute start/end byte offsets.
+##
+## ## Retorno
+## A `Span` owning a copy of `file`.
+##
+## ## Efectos
+## Panics when `(sl, sc, sb) > (el, ec, eb)`: a reversed span is a bug in the
+## caller, not something to silently swap.
+##
+## ## Ejemplo
+## ```pengu
+## var s as Span is calling diagnostic.span_from_positions with "a.pengu", 3, 5, 3, 9, 21, 25
+## ```
+weave span_from_positions with file as string, sl as int, sc as int, el as int, ec as int, sb as int, eb as int into Span:
+    if sl < 1 or sc < 1 or el < 1 or ec < 1:
+        calling spark.panic with "span_from_positions: lines and columns are 1-indexed"
+    if sb < 0 or eb < 0:
+        calling spark.panic with "span_from_positions: byte offsets must be non-negative"
+    if sl > el or (sl == el and sc > ec) or sb > eb:
+        calling spark.panic with "span_from_positions: start position is after end position"
+    var path as string is "{file}"
+    return with file is path, start_line is sl, start_col is sc, end_line is el, end_col is ec, start_byte is sb, end_byte is eb
+
+## Builds a zero-width span at one position.
+##
+## ## Parámetros
+## - `file`: logical path. Copied.
+## - `line`, `col`: 1-indexed position.
+## - `byte_offset`: absolute byte offset.
+##
+## ## Retorno
+## A `Span` whose start and end are the same point.
+weave span_point with file as string, line as int, col as int, byte_offset as int into Span:
+    return calling span_from_positions with file, line, col, line, col, byte_offset, byte_offset
+
+## Merges two spans into one covering both.
+##
+## The result keeps `a`'s file path. Merging spans from different files is
+## allowed (the caller may use it to build a "from here to there" hint), but the
+## renderer will group them by the result's single path; document that at the
+## call site when it matters.
+##
+## ## Parámetros
+## - `a`, `b`: spans. Borrowed; the result owns a fresh copy of `a.file`.
+##
+## ## Retorno
+## A `Span` from the earlier start to the later end.
+##
+## ## Ejemplo
+## ```pengu
+## var both as Span is calling diagnostic.span_merge with first, second
+## ```
+weave span_merge with a as Span, b as Span into Span:
+    var sl as int is a.start_line
+    var sc as int is a.start_col
+    var sb as int is a.start_byte
+    var el as int is a.end_line
+    var ec as int is a.end_col
+    var eb as int is a.end_byte
+    if b.start_line < sl or (b.start_line == sl and b.start_col < sc) or b.start_byte < sb:
+        set sl is b.start_line
+        set sc is b.start_col
+        set sb is b.start_byte
+    if b.end_line > el or (b.end_line == el and b.end_col > ec) or b.end_byte > eb:
+        set el is b.end_line
+        set ec is b.end_col
+        set eb is b.end_byte
+    return calling span_from_positions with a.file, sl, sc, el, ec, sb, eb
+
+## Builds a label, taking ownership of `span` and copying `message`.
+##
+## ## Parámetros
+## - `span`: the range. **Ownership transfers**; do not banish it afterwards.
+## - `message`: the marker text. Copied.
+## - `primary`: `true` for `^^^^`, `false` for `----`.
+##
+## ## Retorno
+## A `Label` owning the span and a copy of the message.
+weave label with span as Span, message as string, primary as bool into Label:
+    var text as string is "{message}"
+    return with span is span, message is text, primary is primary
+
+## Builds a label list from one label.
+##
+## ## Parámetros
+## - `one`: the label. Ownership transfers.
+##
+## ## Retorno
+## A one-element `list of Label`.
+weave labels with one as Label into list of Label:
+    var out as list of Label is list of Label
+    calling out.push with one
+    return out
+
+## Builds an empty label list.
+##
+## ## Retorno
+## A `list of Label` with no elements.
+weave no_labels into list of Label:
+    return list of Label
+
+## Builds an empty related list.
+##
+## ## Retorno
+## An empty `list of Diagnostic`.
+weave no_related into list of Diagnostic:
+    return list of Diagnostic
+
+## Builds a diagnostic.
+##
+## ## Parámetros
+## - `severity`: the severity.
+## - `code`: a stable code; `""` for none. Copied.
+## - `message`: the headline. Copied.
+## - `labels`: positional annotations. **Ownership transfers.**
+## - `help`: an optional suggestion. Ownership of the `maybe string` transfers.
+## - `note`: an optional explanation. Ownership transfers.
+## - `related`: see-also diagnostics. Ownership transfers.
+##
+## ## Retorno
+## A `Diagnostic` owning all of the above.
+##
+## ## Ejemplo
+## ```pengu
+## var d as Diagnostic is calling diagnostic.diagnostic with diagnostic.Severity.Warning, "lint/no-shadow", "shadows an outer binding", (calling diagnostic.labels with (calling diagnostic.label with s, "shadowed here", true)), (maybe none), (maybe none), (calling diagnostic.no_related)
+## ```
+weave diagnostic with severity as Severity, code as string, message as string, labels_list as list of Label, help as maybe string, note as maybe string, related as list of Diagnostic into Diagnostic:
+    var code_copy as string is "{code}"
+    var msg_copy as string is "{message}"
+    return with severity is severity, code is code_copy, message is msg_copy, labels is labels_list, help is help, note is note, related is related
+
+## Releases every diagnostic of a list, then the list itself.
+##
+## ## Parámetros
+## - `items`: an owned `list of Diagnostic` (typically from `errors_only`).
+##
+## ## Retorno
+## Nothing.
+##
+## ## Memoria
+## Releases each diagnostic recursively, then the list buffer.
+weave free_diagnostics with items as list of Diagnostic into void:
+    var i as int is 0
+    while i < items.len:
+        banish items at i
+        set i is i + 1
+    banish items
+
+## Returns the LSP numeric severity (1 error, 2 warning, 3 info, 4 hint).
+##
+## ## Parámetros
+## - `sev`: a severity.
+##
+## ## Retorno
+## `1..4`.
+weave severity_number with sev as Severity into int:
+    if sev == Severity.Error:
+        return DIAGNOSTIC_SEVERITY_ERROR
+    if sev == Severity.Warning:
+        return DIAGNOSTIC_SEVERITY_WARNING
+    if sev == Severity.Info:
+        return DIAGNOSTIC_SEVERITY_INFO
+    return DIAGNOSTIC_SEVERITY_HINT
+
+## Returns the lowercase severity name.
+##
+## ## Parámetros
+## - `sev`: a severity.
+##
+## ## Retorno
+## `"error"`, `"warning"`, `"info"` or `"hint"`.
+weave severity_name with sev as Severity into string:
+    if sev == Severity.Error:
+        return "error"
+    if sev == Severity.Warning:
+        return "warning"
+    if sev == Severity.Info:
+        return "info"
+    return "hint"
+
+## Returns the ANSI prefix for a severity.
+##
+## ## Parámetros
+## - `sev`: a severity.
+##
+## ## Retorno
+## One of the `DIAGNOSTIC_ANSI_*` constants.
+weave severity_color with sev as Severity into string:
+    if sev == Severity.Error:
+        return DIAGNOSTIC_ANSI_ERROR
+    if sev == Severity.Warning:
+        return DIAGNOSTIC_ANSI_WARNING
+    if sev == Severity.Info:
+        return DIAGNOSTIC_ANSI_INFO
+    return DIAGNOSTIC_ANSI_HINT
+
+enchanting DiagnosticBag:
+    ## Constructs an empty bag.
+    ##
+    ## ## Retorno
+    ## A bag with no diagnostics, zero counters and no sources.
+    ##
+    ## ## Memoria
+    ## O(1); release it with `banish`.
+    weave ritual new into DiagnosticBag:
+        return with items is list of Diagnostic, error_count is 0, warning_count is 0, info_count is 0, hint_count is 0, _sources is map of string to string
+
+    ## Adds a diagnostic, taking ownership of it.
+    ##
+    ## ## Parámetros
+    ## - `d`: the diagnostic. Ownership transfers to the bag.
+    ##
+    ## ## Efectos
+    ## Increments the matching severity counter.
+    weave add with d as Diagnostic into void:
+        calling self->items.push with d
+        if d.severity == Severity.Error:
+            set self->error_count is self->error_count + 1
+        else if d.severity == Severity.Warning:
+            set self->warning_count is self->warning_count + 1
+        else if d.severity == Severity.Info:
+            set self->info_count is self->info_count + 1
+        else:
+            set self->hint_count is self->hint_count + 1
+
+    ## Adds every diagnostic of a list, taking ownership of the elements.
+    ##
+    ## The source list buffer is left empty but still allocated: `banish` it
+    ## after the call (the elements now belong to the bag).
+    ##
+    ## ## Parámetros
+    ## - `ds`: diagnostics. Element ownership transfers.
+    weave extend with ds as list of Diagnostic into void:
+        for d in ds:
+            calling self.add with d
+        calling ds.clear
+
+    ## Adds an `Error` diagnostic with one primary label.
+    ##
+    ## ## Parámetros
+    ## - `message`: the headline. Copied.
+    ## - `span`: the position. Ownership transfers to the label.
+    weave error with message as string, span as Span into void:
+        var lb as Label is calling label with span, "", true
+        var d as Diagnostic is calling diagnostic with Severity.Error, "", message, (calling labels with lb), (maybe none), (maybe none), (calling no_related)
+        calling self.add with d
+
+    ## Adds a `Warning` diagnostic with one primary label.
+    ##
+    ## ## Parámetros
+    ## - `message`: the headline. Copied.
+    ## - `span`: the position. Ownership transfers.
+    weave warning with message as string, span as Span into void:
+        var lb as Label is calling label with span, "", true
+        var d as Diagnostic is calling diagnostic with Severity.Warning, "", message, (calling labels with lb), (maybe none), (maybe none), (calling no_related)
+        calling self.add with d
+
+    ## Adds an `Info` diagnostic with one primary label.
+    ##
+    ## ## Parámetros
+    ## - `message`: the headline. Copied.
+    ## - `span`: the position. Ownership transfers.
+    weave info with message as string, span as Span into void:
+        var lb as Label is calling label with span, "", true
+        var d as Diagnostic is calling diagnostic with Severity.Info, "", message, (calling labels with lb), (maybe none), (maybe none), (calling no_related)
+        calling self.add with d
+
+    ## Adds a `Hint` diagnostic with one primary label.
+    ##
+    ## ## Parámetros
+    ## - `message`: the headline. Copied.
+    ## - `span`: the position. Ownership transfers.
+    weave hint with message as string, span as Span into void:
+        var lb as Label is calling label with span, "", true
+        var d as Diagnostic is calling diagnostic with Severity.Hint, "", message, (calling labels with lb), (maybe none), (maybe none), (calling no_related)
+        calling self.add with d
+
+    ## Registers the source text of `file`, copying both strings.
+    ##
+    ## Re-registering the same path replaces the previous text.
+    ##
+    ## ## Parámetros
+    ## - `file`: logical path. Borrowed; copied.
+    ## - `text`: file contents. Borrowed; copied.
+    weave add_source with file as string, text as string into void:
+        var k as string is "{file}"
+        var v as string is "{text}"
+        calling self->_sources.put with k, v
+
+    ## Adds the contents of `path` after the caller has read them.
+    ##
+    ## This is a convenience alias of `add_source`; the module never touches the
+    ## filesystem itself, so a remote LSP client can register in-memory buffers.
+    ##
+    ## ## Parámetros
+    ## - `file`: logical path used by spans. Copied.
+    ## - `text`: source text. Copied.
+    weave source with file as string, text as string into void:
+        calling self.add_source with file, text
+
+    ## Number of diagnostics.
+    weave len into int:
+        return self->items.len
+
+    ## True when the bag has no diagnostics.
+    weave is_empty into bool:
+        return self->items.len == 0
+
+    ## True when at least one diagnostic is an `Error`.
+    weave has_errors into bool:
+        return self->error_count > 0
+
+    ## True when at least one diagnostic is a `Warning`.
+    weave has_warnings into bool:
+        return self->warning_count > 0
+
+    ## Counts the diagnostics of one severity.
+    ##
+    ## ## Parámetros
+    ## - `sev`: the severity to count.
+    ##
+    ## ## Retorno
+    ## The matching stored counter.
+    weave count_by_severity with sev as Severity into int:
+        if sev == Severity.Error:
+            return self->error_count
+        if sev == Severity.Warning:
+            return self->warning_count
+        if sev == Severity.Info:
+            return self->info_count
+        return self->hint_count
+
+    ## Deep copies of every `Error` diagnostic, in insertion order.
+    ##
+    ## ## Retorno
+    ## An owned `list of Diagnostic`; release it with `free_diagnostics`.
+    weave errors_only into list of Diagnostic:
+        var out as list of Diagnostic is list of Diagnostic
+        for d in self->items:
+            if d.severity == Severity.Error:
+                calling out.push with (calling _diagnostic_clone with d)
+        return out
+
+    ## Deep copies of every `Warning` and `Error`, in insertion order.
+    ##
+    ## ## Retorno
+    ## An owned `list of Diagnostic`; release it with `free_diagnostics`.
+    weave warnings_and_errors into list of Diagnostic:
+        var out as list of Diagnostic is list of Diagnostic
+        for d in self->items:
+            if d.severity == Severity.Error or d.severity == Severity.Warning:
+                calling out.push with (calling _diagnostic_clone with d)
+        return out
+
+    ## Removes every diagnostic and every registered source.
+    ##
+    ## ## Memoria
+    ## Releases the nested diagnostics and the source copies; the bag remains
+    ## usable.
+    weave clear into void:
+        var i as int is 0
+        while i < self->items.len:
+            banish self->items at i
+            set i is i + 1
+        calling self->items.clear
+        var smap as map of string to string is self->_sources
+        for k in smap:
+            var v as string is smap at k
+            banish k
+            banish v
+        calling self->_sources.clear
+        set self->error_count is 0
+        set self->warning_count is 0
+        set self->info_count is 0
+        set self->hint_count is 0
+
+    ## True when `file` has a registered source.
+    ##
+    ## ## Parámetros
+    ## - `file`: logical path. Borrowed.
+    weave has_source with file as string into bool:
+        var smap as map of string to string is self->_sources
+        return calling smap.contains with file
+
+    ## The registered source text as an owned copy.
+    ##
+    ## ## Parámetros
+    ## - `file`: logical path. Borrowed.
+    ##
+    ## ## Retorno
+    ## `some text` (an owned copy; release it with `banish`) or `none`.
+    weave source_of with file as string into maybe string:
+        var smap as map of string to string is self->_sources
+        if calling smap.contains with file:
+            var borrowed as string is smap at file
+            var text_copy as string is "{borrowed}"
+            return some text_copy
+        return maybe none
+
+# ----------------------------------------------------------------------------
+# Render helpers
+# ----------------------------------------------------------------------------
+
+## Number of decimal digits in a non-negative integer.
+##
+## ## Parámetros
+## - `n`: a value `>= 0`.
+##
+## ## Retorno
+## At least `1`.
+weave _digits with n as int into int:
+    var v as int is n
+    if v < 0:
+        set v is -v
+    var d as int is 1
+    while v >= 10:
+        set v is v / 10
+        set d is d + 1
+    return d
+
+## Visual column of a byte column inside one line.
+##
+## Tabs advance to the next multiple of `tab_width`; a multibyte UTF-8
+## codepoint counts as one column (its continuation bytes count as zero). This
+## is what makes a caret line up under `ñ` or an emoji even though `Span`
+## columns are byte offsets.
+##
+## ## Parámetros
+## - `line`: the line text (no trailing `\n`).
+## - `byte_col`: number of bytes before the target column.
+## - `tab_width`: tab stop width.
+##
+## ## Retorno
+## A non-negative visual column.
+weave _visual_col with line as string, byte_col as int, tab_width as int into int:
+    var n as int is line length
+    var limit as int is byte_col
+    if limit < 0:
+        set limit is 0
+    if limit > n:
+        set limit is n
+    var raw as ref to frozen byte is bytes of line
+    var i as int is 0
+    var col as int is 0
+    while i < limit:
+        var b as int is (raw at i) to int
+        if b == 9:
+            set col is col + (tab_width - (col % tab_width))
+        else if (b & 192) == 128:
+            # UTF-8 continuation byte: the codepoint was already counted at
+            # its lead byte.
+            set col is col
+        else:
+            set col is col + 1
+        set i is i + 1
+    return col
+
+## Visual width of a byte range inside one line.
+##
+## ## Parámetros
+## - `line`: the line text.
+## - `start_byte`: first byte offset in the line.
+## - `end_byte`: one past the last byte offset in the line.
+## - `tab_width`: tab stop width.
+##
+## ## Retorno
+## At least `1`, so a zero-width point still gets one caret.
+weave _visual_width with line as string, start_byte as int, end_byte as int, tab_width as int into int:
+    var a as int is calling _visual_col with line, start_byte, tab_width
+    var b as int is calling _visual_col with line, end_byte, tab_width
+    if b <= a:
+        return 1
+    return b - a
+
+## True when a `list of string` contains `needle`.
+##
+## ## Parámetros
+## - `xs`: strings to scan. Borrowed.
+## - `needle`: the value to find. Borrowed.
+weave _has_string with xs as list of string, needle as string into bool:
+    for x in xs:
+        if x == needle:
+            return true
+    return false
+
+## Appends an empty-gutter separator row (`   |`).
+##
+## ## Parámetros
+## - `sb`: destination builder. Mutated.
+## - `gutter`: width of the line-number column.
+weave _gutter_row with sb as ref to StringBuilder, gutter as int into void:
+    calling sb.append_spaces with gutter
+    calling sb.append with " |"
+    calling sb.append_char with (10 to char)
+
+## Appends one labelled marker row for a span.
+##
+## ## Parámetros
+## - `sb`: destination builder. Mutated.
+## - `gutter`: width of the line-number column.
+## - `line_text`: the source line. Borrowed.
+## - `label`: the annotation. Borrowed.
+## - `end_col`: exclusive end byte column in the line (1-indexed).
+## - `opts`: render options.
+weave _marker_row with sb as ref to StringBuilder, gutter as int, line_text as string, label as Label, end_col as int, opts as RenderOptions into void:
+    calling sb.append_spaces with gutter
+    calling sb.append with " | "
+    var pad as int is calling _visual_col with line_text, (label.span.start_col - 1), opts.tab_width
+    calling sb.append_spaces with pad
+    var width as int is calling _visual_width with line_text, (label.span.start_col - 1), (end_col - 1), opts.tab_width
+    var mark as string is "-"
+    if label.primary:
+        set mark is "^"
+    calling sb.append_repeat with mark, width
+    if (label.message length) > 0:
+        calling sb.append with " "
+        calling sb.append with label.message
+    calling sb.append_char with (10 to char)
+
+## Renders one file group of a diagnostic.
+##
+## ## Parámetros
+## - `bag`: the bag (for registered sources). Borrowed.
+## - `group`: labels sharing one file. Borrowed.
+## - `opts`: render options.
+## - `color`: effective colour flag (only used by the caller's header).
+## - `sb`: destination builder. Mutated.
+weave _render_group with bag as ref to DiagnosticBag, group as list of Label, opts as RenderOptions, color as bool, sb as ref to StringBuilder into void:
+    if group.len == 0:
+        return
+    var head_label as Label is group at 0
+    var file as string is head_label.span.file
+    calling sb.append with "  --> "
+    if (file length) == 0:
+        calling sb.append with "<unknown>"
+    else:
+        calling sb.append with file
+    calling sb.append_char with ':'
+    calling sb.append_int with head_label.span.start_line
+    calling sb.append_char with ':'
+    calling sb.append_int with head_label.span.start_col
+    calling sb.append_char with (10 to char)
+
+    var smap as map of string to string is bag->_sources
+    if not calling smap.contains with file:
+        # No source text: print the labels as plain positions. This is the
+        # documented behaviour for remote/position-only diagnostics.
+        for lb in group:
+            if (lb.message length) > 0:
+                calling sb.append with "   = "
+                calling sb.append_int with lb.span.start_line
+                calling sb.append_char with ':'
+                calling sb.append_int with lb.span.start_col
+                calling sb.append with ": "
+                calling sb.append with lb.message
+                calling sb.append_char with (10 to char)
+        return
+
+    var source as string is smap at file
+    var line_count as int is calling _diagnostic_line_count with source
+    var min_line as int is head_label.span.start_line
+    var max_line as int is head_label.span.end_line
+    for lb in group:
+        if lb.span.start_line < min_line:
+            set min_line is lb.span.start_line
+        if lb.span.end_line > max_line:
+            set max_line is lb.span.end_line
+    var from_line as int is min_line - opts.context_lines
+    if from_line < 1:
+        set from_line is 1
+    var to_line as int is max_line + opts.context_lines
+    if to_line > line_count:
+        set to_line is line_count
+    # A trailing newline makes the line scanner report one empty last line; showing
+    # it as context is noise, so trim empty lines *after* the last labelled
+    # line. (Empty lines between labels are kept.)
+    var trimming as bool is true
+    while trimming and to_line > max_line:
+        var tail as string is calling _diagnostic_line_text with source, to_line
+        if (tail length) == 0:
+            set to_line is to_line - 1
+        else:
+            set trimming is false
+        banish tail
+
+    var gutter as int is calling _digits with max_line
+    calling _gutter_row with sb, gutter
+    var line as int is from_line
+    while line <= to_line:
+        var text as string is calling _diagnostic_line_text with source, line
+        var padlen as int is gutter - (calling _digits with line)
+        calling sb.append_spaces with padlen
+        calling sb.append_int with line
+        calling sb.append with " | "
+        calling sb.append with text
+        calling sb.append_char with (10 to char)
+        for lb in group:
+            if lb.span.start_line == line:
+                var end_col as int is lb.span.end_col
+                if lb.span.end_line != line:
+                    set end_col is (text length) + 1
+                calling _marker_row with sb, gutter, text, lb, end_col, opts
+        banish text
+        set line is line + 1
+    calling _gutter_row with sb, gutter
+
+## Renders one diagnostic (header, groups, notes, related).
+##
+## ## Parámetros
+## - `bag`: the bag (for sources). Borrowed.
+## - `d`: the diagnostic. Borrowed.
+## - `opts`: render options.
+## - `color`: effective colour flag.
+## - `sb`: destination builder. Mutated.
+weave _render_one with bag as ref to DiagnosticBag, d as Diagnostic, opts as RenderOptions, color as bool, sb as ref to StringBuilder into void:
+    var sev_name as string is calling severity_name with d.severity
+    if color:
+        calling sb.append with (calling severity_color with d.severity)
+    calling sb.append with sev_name
+    if color:
+        calling sb.append with DIAGNOSTIC_ANSI_RESET
+    if (d.code length) > 0:
+        calling sb.append with "["
+        calling sb.append with d.code
+        calling sb.append with "]"
+    calling sb.append with ": "
+    calling sb.append with d.message
+    calling sb.append_char with (10 to char)
+
+    var has_primary as bool is false
+    for lb in d.labels:
+        if lb.primary:
+            set has_primary is true
+    if not has_primary:
+        for lb in d.labels:
+            calling sb.append with "   = "
+            calling sb.append_int with lb.span.start_line
+            calling sb.append_char with ':'
+            calling sb.append_int with lb.span.start_col
+            if (lb.message length) > 0:
+                calling sb.append with ": "
+                calling sb.append with lb.message
+            calling sb.append_char with (10 to char)
+    else:
+        var seen as list of string is list of string
+        for probe in d.labels:
+            if not calling _has_string with seen, probe.span.file:
+                var group as list of Label is list of Label
+                for other in d.labels:
+                    if calling _diagnostic_streq with other.span.file, probe.span.file:
+                        calling group.push with other
+                calling _render_group with bag, group, opts, color, sb
+                calling seen.push with probe.span.file
+                banish group
+        banish seen
+
+    if opts.show_notes and d.note.is_present:
+        calling sb.append with "   = note: "
+        calling sb.append with d.note.value
+        calling sb.append_char with (10 to char)
+    if opts.show_help and d.help.is_present:
+        calling sb.append with "   = help: "
+        calling sb.append with d.help.value
+        calling sb.append_char with (10 to char)
+    if opts.show_related:
+        for r in d.related:
+            calling sb.append with "   = related: "
+            calling sb.append with r.message
+            if r.labels.len > 0:
+                let rl is r.labels at 0
+                calling sb.append with " ("
+                calling sb.append with rl.span.file
+                calling sb.append_char with ':'
+                calling sb.append_int with rl.span.start_line
+                calling sb.append_char with ':'
+                calling sb.append_int with rl.span.start_col
+                calling sb.append with ")"
+            calling sb.append_char with (10 to char)
+
+    ## Returns the main span of a diagnostic (first primary label), or a zero
+## span when it has no positional label.
+##
+## ## Parámetros
+## - `d`: the diagnostic. Borrowed.
+##
+## ## Retorno
+## The primary `Span`, possibly `{file:"", line:1, col:1, ...}`.
+weave _main_span with d as Diagnostic into Span:
+    for lb in d.labels:
+        if lb.primary:
+            return lb.span
+    if d.labels.len > 0:
+        return (d.labels at 0).span
+    return calling span_point with "", 1, 1, 0
+
+## True when colour should be used for `requested`.
+##
+## ## Parámetros
+## - `requested`: the caller's colour preference.
+##
+## ## Retorno
+## `false` when `requested` is false, when `NO_COLOR` is set, or when stdout is
+## not a TTY; `true` otherwise.
+weave _color_enabled with requested as bool into bool:
+    if not requested:
+        return false
+    var nc as maybe string is calling rites.getenv with "NO_COLOR"
+    var has_nc as bool is nc.is_present
+    banish nc
+    if has_nc:
+        return false
+    return calling _diagnostic_is_tty
+
+enchanting DiagnosticBag:
+    ## Renders every diagnostic with explicit options.
+    ##
+    ## ## Parámetros
+    ## - `opts`: render options.
+    ##
+    ## ## Retorno
+    ## An owned string (each diagnostic is separated by a blank line). Release
+    ## it with `banish`.
+    ##
+    ## ## Efectos
+    ## Colour is used only when `opts.color` is true **and** `opts.force_color`
+    ## is true, or when `opts.color` is true and stdout is a TTY with
+    ## `NO_COLOR` unset.
+    weave render with opts as RenderOptions into string:
+        var eff as bool is false
+        if opts.force_color:
+            set eff is opts.color
+        else:
+            set eff is calling _color_enabled with opts.color
+        var sb as StringBuilder is calling StringBuilder.new
+        defer banish sb
+        for d in self->items:
+            calling _render_one with self, d, opts, eff, sigil of sb
+            calling sb.append_char with (10 to char)
+        return calling sb.finish
+
+    ## Renders every diagnostic without colour.
+    ##
+    ## ## Retorno
+    ## An owned string; release it with `banish`.
+    weave render_plain into string:
+        var opts as RenderOptions is calling default_render_options
+        set opts.color is false
+        set opts.force_color is false
+        return calling self.render with opts
+
+    ## Renders every diagnostic with ANSI colour, honouring `NO_COLOR` and TTY
+    ## detection.
+    ##
+    ## ## Retorno
+    ## An owned string; release it with `banish`.
+    weave render_colored into string:
+        var opts as RenderOptions is calling default_render_options
+        set opts.color is true
+        set opts.force_color is false
+        return calling self.render with opts
+
+# ----------------------------------------------------------------------------
+# LSP-compatible JSON
+# ----------------------------------------------------------------------------
+
+## Builds an LSP `Position` object from a 1-indexed `(line, col)`.
+##
+## LSP positions are 0-indexed. `character` is a byte column, matching
+## `Span.start_col`/`end_col`; clients that need UTF-16 code units can convert
+## with the source text.
+##
+## ## Parámetros
+## - `line`: 1-indexed line.
+## - `col`: 1-indexed byte column.
+##
+## ## Retorno
+## An owned `JsonValue` object; the caller releases the containing tree.
+weave _lsp_position with line as int, col as int into JsonValue:
+    var o as JsonValue is calling JsonValue.empty_object
+    var l as int is line - 1
+    var c as int is col - 1
+    if l < 0:
+        set l is 0
+    if c < 0:
+        set c is 0
+    calling o.put_json with "line", (calling JsonValue.int_val with (l to i64))
+    calling o.put_json with "character", (calling JsonValue.int_val with (c to i64))
+    return o
+
+## Builds an LSP `Range` object from a span.
+##
+## ## Parámetros
+## - `span`: the source span. Borrowed.
+##
+## ## Retorno
+## An owned `JsonValue` object.
+weave _lsp_range with span as Span into JsonValue:
+    var o as JsonValue is calling JsonValue.empty_object
+    calling o.put_json with "start", (calling _lsp_position with span.start_line, span.start_col)
+    calling o.put_json with "end", (calling _lsp_position with span.end_line, span.end_col)
+    return o
+
+## Builds an LSP `Location` object.
+##
+## ## Parámetros
+## - `file`: logical path. Borrowed.
+## - `span`: the range inside `file`. Borrowed.
+##
+## ## Retorno
+## An owned `JsonValue` object.
+weave _lsp_location with file as string, span as Span into JsonValue:
+    var o as JsonValue is calling JsonValue.empty_object
+    var uri as string is "file://{file}"
+    calling o.put_json with "uri", (calling JsonValue.string_val with uri)
+    calling o.put_json with "range", (calling _lsp_range with span)
+    return o
+
+## Builds one LSP `Diagnostic` object.
+##
+## ## Parámetros
+## - `d`: the diagnostic. Borrowed.
+##
+## ## Retorno
+## An owned `JsonValue` object.
+weave _lsp_diagnostic with d as Diagnostic into JsonValue:
+    var o as JsonValue is calling JsonValue.empty_object
+    var main_span as Span is calling _main_span with d
+    calling o.put_json with "range", (calling _lsp_range with main_span)
+    calling o.put_json with "severity", (calling JsonValue.int_val with ((calling severity_number with d.severity) to i64))
+    if (d.code length) > 0:
+        var code_copy as string is "{d.code}"
+        calling o.put_json with "code", (calling JsonValue.string_val with code_copy)
+    var source_copy as string is "pengu"
+    calling o.put_json with "source", (calling JsonValue.string_val with source_copy)
+    var msg_copy as string is "{d.message}"
+    calling o.put_json with "message", (calling JsonValue.string_val with msg_copy)
+
+    var related as JsonValue is calling JsonValue.empty_array
+    var main_seen as bool is false
+    for lb in d.labels:
+        var is_main as bool is false
+        if lb.primary and not main_seen:
+            set is_main is true
+            set main_seen is true
+        if not is_main:
+            var ri as JsonValue is calling JsonValue.empty_object
+            calling ri.put_json with "location", (calling _lsp_location with lb.span.file, lb.span)
+            var lmsg as string is "{lb.message}"
+            calling ri.put_json with "message", (calling JsonValue.string_val with lmsg)
+            calling related.push_json with ri
+    for r in d.related:
+        var ri2 as JsonValue is calling JsonValue.empty_object
+        var rmain as Span is calling _main_span with r
+        calling ri2.put_json with "location", (calling _lsp_location with rmain.file, rmain)
+        var rmsg as string is "{r.message}"
+        calling ri2.put_json with "message", (calling JsonValue.string_val with rmsg)
+        calling related.push_json with ri2
+    if calling related.array_len > 0:
+        calling o.put_json with "relatedInformation", related
+    else:
+        banish related
+    return o
+
+enchanting DiagnosticBag:
+    ## Renders every diagnostic as a JSON array of LSP `Diagnostic` objects.
+    ##
+    ## Each object has `range`, `severity`, an optional `code`, `source:
+    ## "pengu"`, `message`, and `relatedInformation` when there are secondary
+    ## labels or `related` diagnostics. Positions are 0-indexed. An empty bag
+    ## renders as `[]`.
+    ##
+    ## ## Retorno
+    ## An owned JSON string; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var payload as string is calling bag.render_json
+    ## defer banish payload
+    ## ```
+    weave render_json into string:
+        var arr as JsonValue is calling JsonValue.empty_array
+        for d in self->items:
+            calling arr.push_json with (calling _lsp_diagnostic with d)
+        var text as string is calling json.stringify with arr
+        banish arr
+        return text

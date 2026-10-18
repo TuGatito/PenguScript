@@ -1,0 +1,72 @@
+## stringify -> parse -> stringify is stable, and floats match Python.
+import std.spark
+import std.json
+
+weave eq_s with got as string, want as string, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: '{got}' != '{want}'"
+
+weave eq_b with got as bool, name as string into void:
+    if not got:
+        calling spark.println with "FAIL {name}"
+
+weave main into int:
+    var r as result of JsonValue to json.JsonError is calling json.parse with r"""{"a":1,"b":[true,null,"x"],"c":{"d":1.5}}"""
+    if not r.is_ok:
+        calling spark.println with "FAIL parse: {r.error.message}"
+        banish r
+        return 1
+    var root as JsonValue is r.value
+    var first as string is calling json.stringify with root
+    var again as result of JsonValue to json.JsonError is calling json.parse with first
+    if not again.is_ok:
+        calling spark.println with "FAIL reparse"
+    else:
+        var second as JsonValue is again.value
+        var second_text as string is calling json.stringify with second
+        calling eq_s with second_text, first, "stable roundtrip"
+        calling eq_b with (calling root.equals with second), "structural equality"
+        banish second_text
+    banish again
+    var f1 as JsonValue is calling JsonValue.float_val with 1.0
+    var s1 as string is calling json.stringify with f1
+    calling eq_s with s1, "1.0", "integral float"
+    banish s1
+    banish f1
+    var f2 as JsonValue is calling JsonValue.float_val with 1e10
+    var s2 as string is calling json.stringify with f2
+    calling eq_s with s2, "10000000000.0", "large float"
+    banish s2
+    banish f2
+    var f3 as JsonValue is calling JsonValue.float_val with 0.1
+    var s3 as string is calling json.stringify with f3
+    calling eq_s with s3, "0.1", "tenth"
+    banish s3
+    banish f3
+    var str as JsonValue is calling JsonValue.string_val with "a\nb\"c\\d"
+    var s4 as string is calling json.stringify with str
+    calling eq_s with s4, "\"a\\nb\\\"c\\\\d\"", "escapes"
+    banish s4
+    banish str
+    var arr as JsonValue is calling JsonValue.empty_array
+    var s5 as string is calling json.stringify with arr
+    calling eq_s with s5, "[]", "empty array"
+    banish s5
+    banish arr
+    var obj as JsonValue is calling JsonValue.empty_object
+    var s6 as string is calling json.stringify with obj
+    calling eq_s with s6, r"{}", "empty object"
+    banish s6
+    banish obj
+    var opt as json.SerializeOptions is calling json.default_serialize_options
+    set opt.trailing_newline is true
+    var s7 as string is calling json.stringify_with with root, opt
+    if (s7 length) == 0:
+        calling spark.println with "FAIL trailing newline empty"
+    if ((s7 at ((s7 length) - 1)) != "\n"):
+        calling spark.println with "FAIL trailing newline"
+    banish s7
+    banish first
+    banish r
+    calling spark.println with "OK json_stringify_roundtrip"
+    return 0

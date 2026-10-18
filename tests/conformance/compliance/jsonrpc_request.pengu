@@ -1,0 +1,29 @@
+## Encode/decode a request.
+import std.spark
+import std.json
+import std.jsonrpc as rpc
+
+weave eq_b with got as bool, name as string into void:
+    if not got:
+        calling spark.println with "FAIL {name}"
+
+weave main into int:
+    var id as JsonRpcId is with Number is 1
+    var params as JsonValue is calling json.empty_array
+    calling params.push_json with (calling JsonValue.int_val with 42)
+    var msg as JsonRpcMessage is calling rpc.request with id, "foo", (some params)
+    defer banish msg
+    var text as string is calling rpc.encode_message with msg
+    defer banish text
+    calling eq_b with (text == r"""{"jsonrpc":"2.0","id":1,"method":"foo","params":[42]}"""), "encoding"
+    var parsed as result of JsonRpcMessage to rpc.JsonRpcParseError is calling rpc.parse_message with text
+    if not parsed.is_ok:
+        calling spark.println with "FAIL parse: {parsed.error.message}"
+        banish parsed
+        return 1
+    var back as JsonRpcMessage is parsed.value
+    var same as bool is calling back.equals with msg
+    calling eq_b with same, "roundtrip"
+    banish parsed
+    calling spark.println with "OK jsonrpc_request"
+    return 0

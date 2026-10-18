@@ -59,7 +59,7 @@ import std.spark
 # ----------------------------------------------------------------------------
 
 ## SourceMap module version.
-const SOURCEMAP_VERSION as string is "2.9.0"
+const SOURCEMAP_VERSION as string is "2.10.0"
 
 ## The line terminator recognised by `from_source`.
 const SOURCEMAP_NEWLINE as int is 10

@@ -1,0 +1,3636 @@
+## std/json.pengu — strict JSON (RFC 8259): parser, serializer, DOM and JSON Pointer.
+##
+## `std.json` is the complete JSON implementation for PenguScript: a strict
+## recursive-descent parser with byte-exact error positions, a serializer whose
+## float output round-trips, a DOM (`JsonValue`) that preserves object insertion
+## order, JSON Pointer (RFC 6901), recursive key search, deep merge, validation
+## without building a DOM, an arena mode for one-shot payloads, and a practical
+## JSON Schema subset.
+##
+## It covers everything Python's `json` module does, and adds:
+## JSON Pointer, `find_key`, `validate` (no DOM), `deep_merge`, `parse_in_arena`
+## and `validate_schema`. The only deliberate difference is ownership: every
+## value is explicitly owned, and every query that hands out a subtree returns a
+## deep copy the caller can `banish`. There is no hidden GC.
+##
+## ## Example: parse, query, free
+## ```pengu
+## import std.json
+## import std.spark
+##
+## weave main into int:
+##     var parsed as result of JsonValue to JsonError is calling json.parse with "{\"name\":\"pengu\",\"tags\":[1,2]}"
+##     var root as JsonValue is parsed or:
+##         calling spark.panic with error.message
+##         return 1
+##     defer banish root
+##
+##     var name as maybe JsonValue is calling root.get with "name"
+##     var n as JsonValue is name or:
+##         return 1
+##     defer banish n
+##     var text as string is (calling n.as_string) or else ""
+##     calling spark.println with text                       # pengu
+##
+##     var second as JsonValue is (calling root.pointer with "/tags/1") or:
+##         return 1
+##     defer banish second
+##     calling spark.println with "{(calling second.as_int) or else 0}"   # 2
+##     return 0
+## ```
+##
+## ## Ownership (read this once)
+## - `parse` and `parse_in_arena` return a `JsonValue` that owns every string,
+##   list and entry below it. `banish root` releases the whole tree (derived
+##   `Nexus` recurses through `list of JsonValue` and `list of JsonEntry`).
+## - A query that returns a `JsonValue` (`at`, `get`, `first`, `last`,
+##   `pointer`, `find_key`, `clone`) returns a **deep copy**. It is independent
+##   of the source value and must be banished.
+## - `as_string` returns an owned copy; `as_array`, `as_object`, `values` and
+##   `entries` return owned deep copies. Release a `list of JsonValue` with
+##   `free_values`, a `list of JsonEntry` with `free_entries`, and a
+##   `list of string` with `free_strings` (their `banish` only frees the list
+##   buffer, exactly like every other PenguScript list).
+## - The `maybe` wrapper around those results is released by `banish`; use the
+##   `or:` / `or else` forms to move the payload out and free the box in one
+##   step.
+## - `parse_in_arena` returns a value whose strings and list buffers live in the
+##   arena. `banish arena` releases everything at once, and banishing the
+##   returned value is a safe no-op. Do not mutate an arena-backed value: its
+##   lists are immutable (`cap < 0` marks them).
+## - `stringify` returns an owned string.
+##
+## ## Complexity
+## | Operation | Cost |
+## |---|---|
+## | `parse`, `validate` | O(n) time, O(depth) stack |
+## | `stringify` | O(size of the value) |
+## | `pointer` | O(path tokens × object size) |
+## | `find_key` | O(size of the tree) |
+## | `deep_merge` | O(size of both trees) |
+## | `clone` | O(size of the subtree) |
+## | `array_len`, `object_len`, `is_*` | O(1) |
+## | `has_key`, `get`, `at` | O(object/array size) |
+##
+## ## Errors
+## Every parser diagnostic carries `kind`, `message`, a 1-indexed `line` and
+## `col`, and the absolute `offset` in bytes. `JsonError.format` renders the
+## canonical `line:col: message` form.
+##
+## ## Divergences from Python `json`
+## - Integers are `i64`. A literal outside the `i64` range is `IntegerOverflow`,
+##   not a big integer (PenguScript is zero-cost and has no bigints).
+## - `parse` rejects `NaN`/`Infinity`, comments and trailing commas by default;
+##   `ParseOptions` opts in. Python always rejects NaN output unless
+##   `allow_nan=True`; so does this module.
+## - Duplicate object keys: the last value wins, at the position of the first
+##   occurrence (Python keeps the first insertion position too).
+## - Floats are printed with the shortest round-tripping representation, then
+##   formatted like Python (`1.0`, `10000000000.0`, `1e+20`, `1e-05`).
+##
+## ## Runtime note
+## List headers with `cap < 0` are non-owning views over arena memory. The
+## runtime treats their `data` pointer as borrowed, so `banish` is a no-op and
+## `push` refuses to grow them. `std.json` is the only producer today.
+
+import std.arena
+import std.builder
+import std.spark
+
+# ----------------------------------------------------------------------------
+# Module version
+# ----------------------------------------------------------------------------
+
+## JSON module version.
+const JSON_VERSION as string is "2.10.0"
+
+## Default maximum nesting depth accepted by `parse` (matches CPython's default
+## recursion limit).
+const JSON_MAX_DEPTH as int is 1000
+
+## The byte value of `\n`, used by the line/column tracker.
+const JSON_NEWLINE as int is 10
+
+## The byte value of `\r`.
+const JSON_CARRIAGE_RETURN as int is 13
+
+## The byte value of `"`.
+const JSON_QUOTE as int is 34
+
+## The byte value of `\`.
+const JSON_BACKSLASH as int is 92
+
+## The byte value of `/`.
+const JSON_SLASH as int is 47
+
+# ----------------------------------------------------------------------------
+# Error model
+# ----------------------------------------------------------------------------
+
+## What went wrong while parsing or validating JSON.
+omen JsonErrorKind:
+    ## The input ended before a complete value was read.
+    UnexpectedEof
+    ## A byte cannot start the construct the parser expected.
+    UnexpectedChar
+    ## A number is malformed (`01`, `1.`, `1e`, ...) or out of range.
+    InvalidNumber
+    ## A string is unterminated or contains a raw control byte.
+    InvalidString
+    ## A `\` escape is not one of the ten RFC 8259 escapes.
+    InvalidEscape
+    ## A `\uXXXX` escape is malformed, a surrogate is unpaired, or the
+    ## codepoint is above `U+10FFFF`.
+    InvalidUnicode
+    ## A bare literal (`null`, `true`, `false`) was misspelled.
+    InvalidLiteral
+    ## A complete value is followed by non-whitespace bytes.
+    TrailingCharacters
+    ## Nesting exceeded `ParseOptions.max_depth`.
+    DepthExceeded
+    ## An integer literal does not fit in `i64`.
+    IntegerOverflow
+    ## The source is not valid UTF-8.
+    InvalidUtf8
+
+## A parser or validation failure.
+##
+## ## Memoria
+## Owns `message`; `banish err` releases it (derived `Nexus`).
+rune JsonError derive Nexus, Par:
+    ## The failure category.
+    kind as JsonErrorKind
+    ## A human-readable explanation, without the position prefix.
+    message as string
+    ## 1-indexed line of the failure.
+    line as int
+    ## 1-indexed byte column of the failure.
+    col as int
+    ## 0-indexed absolute byte offset of the failure.
+    offset as int
+
+# ----------------------------------------------------------------------------
+# DOM
+# ----------------------------------------------------------------------------
+
+## A JSON value.
+##
+## The model is algebraic because each variant carries a different payload. It
+## preserves object insertion order (`list of JsonEntry`, not a `map`), so
+## `stringify` reproduces the document's member order unless `sort_keys` asks
+## for alphabetical order.
+##
+## ## Variantes
+## - `Null`: the literal `null`.
+## - `Bool`: `true` or `false`.
+## - `Int`: an integral number that fits `i64`.
+## - `Float`: a number with a fraction or exponent, as `f64`.
+## - `Str`: an unescaped UTF-8 string.
+## - `Arr`: an array, in document order.
+## - `Obj`: an object, in insertion order.
+##
+## ## Memoria
+## A `JsonValue` owns every string and list below it. `banish v` releases the
+## whole tree because the derived `Nexus` recurses through the two lists.
+omen JsonValue derive Nexus, Par, Imago:
+    ## The JSON `null`.
+    Null
+    ## A boolean.
+    Bool with value as bool
+    ## An integer (`i64`).
+    Int with value as i64
+    ## An IEEE-754 double.
+    Float with value as f64
+    ## A string.
+    Str with value as string
+    ## An array.
+    Arr with items as list of JsonValue
+    ## An object.
+    Obj with entries as list of JsonEntry
+
+## One member of a JSON object, in insertion order.
+##
+## ## Memoria
+## Owns `key` and `value`; `banish entry` releases both.
+rune JsonEntry derive Nexus, Par, Imago:
+    ## The member name, unescaped and decoded.
+    key as string
+    ## The member value.
+    value as JsonValue
+
+# ----------------------------------------------------------------------------
+# Parse and serialize options
+# ----------------------------------------------------------------------------
+
+## Knobs for `parse_with`, `validate` and `parse_in_arena`.
+rune ParseOptions derive Par:
+    ## Accept `NaN`, `Infinity` and `-Infinity` (default `false`).
+    allow_non_standard as bool
+    ## Maximum nesting depth (default `1000`).
+    max_depth as int
+    ## Accept `//` and `/* */` comments (default `false`).
+    allow_comments as bool
+    ## Accept a trailing comma before `]` or `}` (default `false`).
+    allow_trailing_commas as bool
+    ## Reject raw control bytes inside strings when `true` (default `true`).
+    ## When `false`, bytes below `0x20` are accepted verbatim, like Python's
+    ## `strict=False`.
+    strict as bool
+
+## The strict RFC 8259 defaults.
+##
+## ## Retorno
+## `{allow_non_standard: false, max_depth: 1000, allow_comments: false,
+## allow_trailing_commas: false, strict: true}`.
+##
+## ## Ejemplo
+## ```pengu
+## var opts as json.ParseOptions is calling json.default_parse_options
+## ```
+weave default_parse_options into ParseOptions:
+    return with allow_non_standard is false, max_depth is JSON_MAX_DEPTH, allow_comments is false, allow_trailing_commas is false, strict is true
+
+## Knobs for `stringify_with` and `write_to_builder`.
+rune SerializeOptions derive Par:
+    ## Spaces per nesting level; `0` (default) emits compact JSON.
+    indent as int
+    ## Sort object keys with a byte-wise comparison (default `false`).
+    sort_keys as bool
+    ## Escape every non-ASCII codepoint as `\uXXXX` (default `false`).
+    ensure_ascii as bool
+    ## Escape `/` as `\/` (default `false`).
+    escape_slash as bool
+    ## Emit `NaN`/`Infinity`/`-Infinity` instead of panicking (default `false`).
+    allow_nan as bool
+    ## With `indent == 0`, use `,`/`:` (default `true`) instead of `, `/`: `.
+    compact_separators as bool
+    ## Append a final `\n` (default `false`).
+    trailing_newline as bool
+
+## The default serializer settings: compact, insertion order, UTF-8 direct.
+##
+## ## Retorno
+## `{indent: 0, sort_keys: false, ensure_ascii: false, escape_slash: false,
+## allow_nan: false, compact_separators: true, trailing_newline: false}`.
+##
+## ## Ejemplo
+## ```pengu
+## var opts as json.SerializeOptions is calling json.default_serialize_options
+## ```
+weave default_serialize_options into SerializeOptions:
+    return with indent is 0, sort_keys is false, ensure_ascii is false, escape_slash is false, allow_nan is false, compact_separators is true, trailing_newline is false
+
+# ----------------------------------------------------------------------------
+# Private C bridges
+#
+# Every helper states why it exists and what it owns. They are module-private.
+# ----------------------------------------------------------------------------
+
+## Returns `-1` when `s` is valid UTF-8, else the byte offset of the first
+## offending sequence.
+##
+## ## Motivo
+## The parser validates the whole source once, up front, so `parse_string` can
+## copy multibyte sequences byte by byte without re-decoding them.
+##
+## ## Memoria
+## Reads only; allocates nothing.
+antiquus _json_valid_utf8 with s as string into int:
+    r"""
+const unsigned char *p = (const unsigned char *)(s.data ? s.data : "");
+int i = 0;
+while (i < s.len) {
+    unsigned c = p[i];
+    if (c < 0x80u) { i++; continue; }
+    int len; unsigned cp;
+    if ((c & 0xE0u) == 0xC0u) { len = 2; cp = c & 0x1Fu; }
+    else if ((c & 0xF0u) == 0xE0u) { len = 3; cp = c & 0x0Fu; }
+    else if ((c & 0xF8u) == 0xF0u) { len = 4; cp = c & 0x07u; }
+    else { return i; }
+    if (i + len > s.len) { return i; }
+    for (int k = 1; k < len; k++) {
+        unsigned cc = p[i + k];
+        if ((cc & 0xC0u) != 0x80u) { return i + k; }
+        cp = (cp << 6) | (cc & 0x3Fu);
+    }
+    if (len == 2 && cp < 0x80u) { return i; }
+    if (len == 3 && cp < 0x800u) { return i; }
+    if (len == 4 && cp < 0x10000u) { return i; }
+    if (cp > 0x10FFFFu) { return i; }
+    if (cp >= 0xD800u && cp <= 0xDFFFu) { return i; }
+    i += len;
+}
+return -1;
+"""
+
+## Parses the exact byte range `[start, end)` of `s` as a base-10 `i64`.
+##
+## ## Motivo
+## `strtoll` detects `ERANGE` for both ends of the `i64` range, which the
+## parser cannot do with an accumulator without special-casing `i64` min.
+##
+## ## Memoria
+## Writes `out`; allocates nothing.
+antiquus _json_strtoll with s as string, start as int, end as int, out as ref to i64 into bool:
+    r"""
+if (start < 0 || end < start || end > s.len) return false;
+char *endp = NULL;
+errno = 0;
+long long v = strtoll(s.data + start, &endp, 10);
+if (errno == ERANGE || endp != s.data + end) return false;
+*out = (int64_t)v;
+return true;
+"""
+
+## Parses the exact byte range `[start, end)` of `s` as an `f64`.
+##
+## ## Motivo
+## `strtod` is the correctly-rounded decimal-to-binary conversion; the result
+## must round-trip through `stringify`.
+##
+## ## Memoria
+## Writes `out`; allocates nothing.
+antiquus _json_strtod with s as string, start as int, end as int, out as ref to f64 into bool:
+    r"""
+if (start < 0 || end < start || end > s.len) return false;
+char *endp = NULL;
+errno = 0;
+double v = strtod(s.data + start, &endp);
+if (endp != s.data + end) return false;
+if (errno == ERANGE && (v == 0.0 || v == HUGE_VAL || v == -HUGE_VAL)) return false;
+*out = (double)v;
+return true;
+"""
+
+## Formats an `f64` with the shortest representation that round-trips, in the
+## same style as Python's `repr`: fixed notation for decimal exponents in
+## `[-4, 16)`, scientific otherwise, always with a decimal part for integral
+## values (`1.0`, `10000000000.0`).
+##
+## ## Motivo
+## `snprintf("%g")` truncates to six significant digits, and `%.17g` is not the
+## shortest form. The loop over precisions finds the minimal `p` for which
+## `strtod` returns the original bit pattern, then rewrites it in the Python
+## layout.
+##
+## ## Memoria
+## Returns an owned string; release it with `banish`.
+antiquus _json_format_f64 with f as f64 into string:
+    r"""
+char buf[64];
+if (isnan(f)) return pengu_string_new("NaN");
+if (isinf(f)) return f < 0 ? pengu_string_new("-Infinity") : pengu_string_new("Infinity");
+if (f == 0.0) {
+    return signbit(f) ? pengu_string_new("-0.0") : pengu_string_new("0.0");
+}
+int p;
+for (p = 1; p <= 17; p++) {
+    snprintf(buf, sizeof buf, "%.*g", p, f);
+    if (strtod(buf, NULL) == f) break;
+}
+if (p > 17) p = 17;
+snprintf(buf, sizeof buf, "%.*e", p - 1, f);
+const char *q = buf;
+char sign = 0;
+if (*q == '-') { sign = '-'; q++; }
+char digits[32];
+int nd = 0;
+while (*q && *q != 'e' && *q != 'E') {
+    if (*q >= '0' && *q <= '9' && nd < 31) digits[nd++] = *q;
+    q++;
+}
+if (*q == 'e' || *q == 'E') q++;
+int exp10 = atoi(q);
+while (nd > 1 && digits[nd - 1] == '0') nd--;
+
+char out[96];
+int k = 0;
+if (sign) out[k++] = '-';
+if (exp10 >= -4 && exp10 < 16) {
+    if (exp10 >= 0) {
+        int int_digits = exp10 + 1;
+        if (nd <= int_digits) {
+            for (int i = 0; i < nd; i++) out[k++] = digits[i];
+            for (int i = nd; i < int_digits; i++) out[k++] = '0';
+            out[k++] = '.';
+            out[k++] = '0';
+        } else {
+            for (int i = 0; i < int_digits; i++) out[k++] = digits[i];
+            out[k++] = '.';
+            for (int i = int_digits; i < nd; i++) out[k++] = digits[i];
+        }
+    } else {
+        out[k++] = '0';
+        out[k++] = '.';
+        for (int i = 0; i < -exp10 - 1; i++) out[k++] = '0';
+        for (int i = 0; i < nd; i++) out[k++] = digits[i];
+    }
+} else {
+    out[k++] = digits[0];
+    if (nd > 1) {
+        out[k++] = '.';
+        for (int i = 1; i < nd; i++) out[k++] = digits[i];
+    }
+    out[k++] = 'e';
+    if (exp10 < 0) { out[k++] = '-'; exp10 = -exp10; }
+    else out[k++] = '+';
+    char ebuf[16];
+    snprintf(ebuf, sizeof ebuf, "%02d", exp10);
+    for (const char *e = ebuf; *e; e++) out[k++] = *e;
+}
+out[k] = '\0';
+return pengu_string_new(out);
+"""
+
+## Deep-copies a `JsonValue` with the derived `Imago` callback.
+##
+## ## Motivo
+## A `derive Imago` helper is a C symbol; the public `clone` method needs to
+## call it without exposing the helper name.
+##
+## ## Memoria
+## Returns a fully independent tree; release it with `banish`.
+antiquus _json_clone_value with v as JsonValue into JsonValue:
+    r"""
+JsonValue out;
+memset(&out, 0, sizeof out);
+_pengu_clone_JsonValue(&out, &v);
+return out;
+"""
+
+## Releases a `JsonValue` in place and zeroes it.
+##
+## ## Motivo
+## `free` must work even when the caller has a `ref to JsonValue` (a method's
+## `self`), where `banish` would release the pointer, not the payload.
+##
+## ## Memoria
+## Frees every owned buffer; the value becomes `Null`.
+antiquus _json_free_raw with v as ref to JsonValue into void:
+    r"""
+if (!v) return;
+_pengu_cleanup_JsonValue(v);
+memset(v, 0, sizeof *v);
+"""
+
+## Copies a byte slice into a fresh owned string.
+##
+## ## Motivo
+## `parse_bytes` / `validate_bytes` accept a `slice of byte`; the parser works
+## on `string`, so one copy normalizes the representation.
+##
+## ## Memoria
+## Allocates one owned buffer; release it with `banish`.
+antiquus _json_bytes_to_string with s as slice of byte into string:
+    r"""
+int n = s.len;
+char *buf = (char *)pengu_memoria_alloc((size_t)n + 1);
+if (!buf) return pengu_string_from_cstr("");
+if (n > 0 && s.data) memcpy(buf, s.data, (size_t)n);
+buf[n] = '\0';
+PenguString out;
+out.data = buf;
+out.len = n;
+out.is_owned = 1;
+return out;
+"""
+
+## Inserts or replaces `key -> value` in an object entry list, taking ownership
+## of both.
+##
+## ## Motivo
+## A weave parameter is an immutable binding, so the pure version could not
+## `set entries at i` and could not update the header when `push` reallocates.
+## The bridge mutates the caller's real `PenguList` header through a `ref`.
+##
+## ## Memoria
+## On duplicate, frees the replaced value and the new key; on insert, the list
+## takes ownership of both.
+antiquus _json_obj_put with entries as ref to list of JsonEntry, key as string, value as JsonValue into void:
+    r"""
+PenguList *l = entries;
+JsonEntry *es = (JsonEntry *)l->data;
+for (int i = 0; i < l->len; i++) {
+    if (pengu_string_equal(es[i].key, key)) {
+        _pengu_cleanup_JsonValue(&es[i].value);
+        es[i].value = value;
+        pengu_banish_string(&key);
+        return;
+    }
+}
+JsonEntry e;
+e.key = key;
+e.value = value;
+pengu_list_push(l, &e);
+"""
+
+## Releases only the box of a `result of JsonValue to JsonError`.
+##
+## ## Motivo
+## `parse_in_arena` moves the value out of a successful result; the box must be
+## freed without touching the payload, which now belongs to the caller.
+##
+## ## Memoria
+## Frees the payload slot, not the payload.
+antiquus _json_drop_result_box with r as ref to result of JsonValue to JsonError into void:
+    r"""
+if (r->ok_val) { free(r->ok_val); r->ok_val = NULL; }
+if (r->err_val) { free(r->err_val); r->err_val = NULL; }
+"""
+
+## Moves the payload out of a `maybe JsonValue` and frees only the box.
+##
+## ## Motivo
+## A caller that wants to own the payload without a copy needs to consume the
+## box; `banish` on the box would release the payload too.
+##
+## ## Memoria
+## Transfers the payload to the caller and zeroes the box.
+antiquus _json_take_value with m as ref to maybe JsonValue into JsonValue:
+    r"""
+if (m && m->is_present && m->value) {
+    JsonValue out = *(JsonValue *)m->value;
+    free(m->value);
+    m->value = NULL;
+    m->is_present = false;
+    return out;
+}
+JsonValue empty;
+memset(&empty, 0, sizeof empty);
+return empty;
+"""
+
+## Moves the payload out of a `maybe string` and frees only the box.
+##
+## ## Motivo
+## Same contract as `_json_take_value`, for the string accessors.
+##
+## ## Memoria
+## Transfers the string to the caller and zeroes the box.
+antiquus _json_take_string with m as ref to maybe string into string:
+    r"""
+if (m && m->is_present && m->value) {
+    PenguString out = *(PenguString *)m->value;
+    free(m->value);
+    m->value = NULL;
+    m->is_present = false;
+    return out;
+}
+return pengu_string_from_cstr("");
+"""
+
+## Releases the box of a `maybe list of JsonValue` without its payload.
+##
+## ## Motivo
+## `as_array` hands out an owned list; after `free_values` has released it the
+## box must be freed without freeing the moved list again.
+##
+## ## Memoria
+## Frees the box allocation only.
+antiquus _json_drop_maybe_values with m as ref to maybe list of JsonValue into void:
+    r"""
+if (m && m->value) { free(m->value); m->value = NULL; }
+if (m) m->is_present = false;
+"""
+
+## Releases the box of a `maybe list of JsonEntry` without its payload.
+##
+## ## Motivo
+## Same contract as `_json_drop_maybe_values`, for `as_object`.
+##
+## ## Memoria
+## Frees the box allocation only.
+antiquus _json_drop_maybe_entries with m as ref to maybe list of JsonEntry into void:
+    r"""
+if (m && m->value) { free(m->value); m->value = NULL; }
+if (m) m->is_present = false;
+"""
+
+## Returns an owned copy of the byte range `[start, end)` of `s`.
+##
+## ## Motivo
+## JSON Pointer tokenisation needs a substring without importing a full text
+## module; the runtime helper already implements the exact ownership contract.
+##
+## ## Memoria
+## Allocates one owned buffer; release it with `banish`.
+antiquus _json_substring with s as string, start as int, end as int into string:
+    r"""
+return pengu_string_substring(s, start, end);
+"""
+
+## Reports whether `f` is finite.
+##
+## ## Motivo
+## `stringify` must reject `NaN`/`Infinity` unless `allow_nan` is set, and
+## `f != f` only detects NaN.
+##
+## ## Memoria
+## Reads only; allocates nothing.
+antiquus _json_is_finite with f as f64 into bool:
+    r"""
+return isfinite(f) ? true : false;
+"""
+
+## Releases the *box* of a `maybe JsonValue` without releasing its payload.
+##
+## ## Motivo
+## The `or:` form frees the box for you, but an `or:` block that does not
+## mention `error` emits an unused variable in C. This helper lets internal
+## code move the payload out and free only the box, keeping the generated C
+## clean under `-Werror`.
+##
+## ## Memoria
+## Frees the box allocation; the value it pointed at is left untouched.
+antiquus _json_drop_maybe with m as ref to maybe JsonValue into void:
+    r"""
+if (m && m->value) { free(m->value); m->value = NULL; }
+if (m) m->is_present = false;
+"""
+
+## Compares two strings byte-wise.
+##
+## ## Motivo
+## `sort_keys` only needs the ordering; routing it through one C helper keeps
+## the contract identical to `pengu_string_compare` used by derived `Ordo`.
+##
+## ## Memoria
+## Reads only; allocates nothing.
+antiquus _json_str_cmp with a as string, b as string into int:
+    r"""
+return pengu_string_compare(a, b);
+"""
+
+## Pushes `item` onto the array payload of `v`.
+##
+## ## Motivo
+## A method on an algebraic omen cannot mutate `self`'s active union member
+## through the language (the `judge` binding is a copy), so the few in-place
+## mutators go through a two-line C bridge. The PenguScript wrapper checks the
+## tag and panics with a useful message first.
+##
+## ## Memoria
+## The list owns the copied element; `item`'s buffers are not duplicated, so
+## ownership of the payload transfers to the array.
+antiquus _json_push_arr with v as ref to JsonValue, item as JsonValue into void:
+    r"""
+if (v && v->tag == JsonValue_Arr) {
+    pengu_list_push(&v->data.Arr.items, &item);
+}
+"""
+
+## Moves the last array element into `out` and shrinks the array.
+##
+## ## Motivo
+## `pop` transfers ownership without copying; doing it from PenguScript would
+## require reading an element after decrementing the length.
+##
+## ## Memoria
+## `out` receives the element bytes; the array no longer references them.
+antiquus _json_pop_arr with v as ref to JsonValue, out as ref to JsonValue into bool:
+    r"""
+if (!v || v->tag != JsonValue_Arr || v->data.Arr.items.len <= 0) return false;
+PenguList *l = &v->data.Arr.items;
+l->len--;
+*out = ((JsonValue *)l->data)[l->len];
+return true;
+"""
+
+## Replaces array element `idx`, releasing the old payload.
+##
+## ## Motivo
+## Replacing an element must release the subtree it held; that is the derived
+## destructor, which is only reachable from C.
+##
+## ## Memoria
+## Frees the old element, stores `item` (ownership transfers).
+antiquus _json_set_at_arr with v as ref to JsonValue, idx as int, item as JsonValue into bool:
+    r"""
+if (!v || v->tag != JsonValue_Arr) return false;
+PenguList *l = &v->data.Arr.items;
+if (idx < 0 || idx >= l->len) return false;
+JsonValue *slot = &((JsonValue *)l->data)[idx];
+_pengu_cleanup_JsonValue(slot);
+*slot = item;
+return true;
+"""
+
+## Inserts or replaces `key -> item` in an object, copying the key.
+##
+## ## Motivo
+## The object stores owned keys, and replacing an existing value must release
+## the old subtree.
+##
+## ## Memoria
+## Copies `key`; takes ownership of `item`; frees a replaced value.
+antiquus _json_set_key_obj with v as ref to JsonValue, key as string, item as JsonValue into void:
+    r"""
+if (!v || v->tag != JsonValue_Obj) return;
+PenguList *l = &v->data.Obj.entries;
+JsonEntry *es = (JsonEntry *)l->data;
+for (int i = 0; i < l->len; i++) {
+    if (pengu_string_equal(es[i].key, key)) {
+        _pengu_cleanup_JsonValue(&es[i].value);
+        es[i].value = item;
+        return;
+    }
+}
+JsonEntry e;
+e.key = pengu_string_copy(key);
+e.value = item;
+pengu_list_push(l, &e);
+"""
+
+## Removes `key` from an object, moving its value into `out`.
+##
+## ## Motivo
+## Removal must free the object's key and shift the remaining entries.
+##
+## ## Memoria
+## Frees the stored key; `out` receives the value; the entry is removed.
+antiquus _json_remove_key_obj with v as ref to JsonValue, key as string, out as ref to JsonValue into bool:
+    r"""
+if (!v || v->tag != JsonValue_Obj) return false;
+PenguList *l = &v->data.Obj.entries;
+JsonEntry *es = (JsonEntry *)l->data;
+for (int i = 0; i < l->len; i++) {
+    if (pengu_string_equal(es[i].key, key)) {
+        *out = es[i].value;
+        pengu_banish_string(&es[i].key);
+        if (i + 1 < l->len) {
+            memmove(&es[i], &es[i + 1], (size_t)(l->len - i - 1) * sizeof(JsonEntry));
+        }
+        l->len--;
+        return true;
+    }
+}
+return false;
+"""
+
+## Returns a non-owning `string` view over `[p, p + n)` in arena memory.
+##
+## ## Motivo
+## `parse_in_arena` must not allocate string bytes on the heap; a header with
+## `is_owned == 0` makes `banish` a no-op.
+##
+## ## Memoria
+## Borrows the arena block. Valid until the arena is reset or freed.
+antiquus _json_arena_string with p as ref to byte, n as int into string:
+    r"""
+PenguString s;
+s.data = (char *)p;
+s.len = n;
+s.is_owned = 0;
+return s;
+"""
+
+## Builds a non-owning `list of JsonValue` header over arena memory.
+##
+## ## Motivo
+## The arena owns the element buffer. `cap = -1` marks the header as
+## non-owning: `banish` does not `free` an arena pointer and `push` refuses to
+## grow it.
+##
+## ## Memoria
+## Borrows the arena block; valid until the arena is reset or freed.
+antiquus _json_arena_list with p as ref to JsonValue, n as int into list of JsonValue:
+    r"""
+PenguList l;
+l.data = p;
+l.len = n;
+l.cap = -1;
+l.elem_size = sizeof(JsonValue);
+return l;
+"""
+
+## Builds a non-owning `list of JsonEntry` header over arena memory.
+##
+## ## Motivo
+## Same contract as `_json_arena_list`, for object entries.
+##
+## ## Memoria
+## Borrows the arena block; valid until the arena is reset or freed.
+antiquus _json_arena_entries with p as ref to JsonEntry, n as int into list of JsonEntry:
+    r"""
+PenguList l;
+l.data = p;
+l.len = n;
+l.cap = -1;
+l.elem_size = sizeof(JsonEntry);
+return l;
+"""
+
+# ----------------------------------------------------------------------------
+# Small pure helpers
+# ----------------------------------------------------------------------------
+
+## Returns the `i64` value `9223372036854775807`.
+##
+## ## Retorno
+## `i64` max, useful when clamping.
+weave i64_max into i64:
+    return 9223372036854775807
+
+## Returns the `i64` value `-9223372036854775808`.
+##
+## ## Retorno
+## `i64` min. Written as `(-max) - 1` because the positive literal does not fit.
+weave i64_min into i64:
+    return (0 - 9223372036854775807) - 1
+
+## Appends one Unicode codepoint to a builder as UTF-8.
+##
+## ## Parámetros
+## - `sb`: destination builder. Mutated.
+## - `cp`: a scalar value in `[0, 0x10FFFF]`, excluding the surrogate range.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Memoria
+## Appends into the builder's buffer; no temporary string is allocated.
+##
+## ## Ejemplo
+## ```pengu
+## calling json._append_codepoint with (sigil of sb), 0x1F600
+## ```
+weave _append_codepoint with sb as ref to StringBuilder, cp as int into void:
+    var buf as array of byte with size 4 is [0, 0, 0, 0]
+    if cp < 128:
+        set buf at 0 is (cp to byte)
+        calling sb->append_bytes with (buf at 0 to 1)
+        return
+    if cp < 2048:
+        set buf at 0 is (192 + (cp >> 6)) to byte
+        set buf at 1 is (128 + (cp & 63)) to byte
+        calling sb->append_bytes with (buf at 0 to 2)
+        return
+    if cp < 65536:
+        set buf at 0 is (224 + (cp >> 12)) to byte
+        set buf at 1 is (128 + ((cp >> 6) & 63)) to byte
+        set buf at 2 is (128 + (cp & 63)) to byte
+        calling sb->append_bytes with (buf at 0 to 3)
+        return
+    set buf at 0 is (240 + (cp >> 18)) to byte
+    set buf at 1 is (128 + ((cp >> 12) & 63)) to byte
+    set buf at 2 is (128 + ((cp >> 6) & 63)) to byte
+    set buf at 3 is (128 + (cp & 63)) to byte
+    calling sb->append_bytes with (buf at 0 to 4)
+
+## Returns the value of one hexadecimal digit byte, or `-1`.
+##
+## ## Parámetros
+## - `b`: an ASCII byte value.
+##
+## ## Retorno
+## `0..15` for `0-9`, `a-f`, `A-F`; `-1` otherwise.
+weave _hex_val with b as int into int:
+    if b >= 48 and b <= 57:
+        return b - 48
+    if b >= 97 and b <= 102:
+        return b - 87
+    if b >= 65 and b <= 70:
+        return b - 55
+    return -1
+
+## Returns the byte value of a lowercase hex digit.
+##
+## ## Parámetros
+## - `v`: `0..15`.
+##
+## ## Retorno
+## The ASCII byte for `0123456789abcdef`; `48` for an out-of-range value.
+weave _hex_byte with v as int into byte:
+    if v < 10:
+        return (48 + v) to byte
+    return (87 + v) to byte
+
+## Appends a `\uXXXX` escape for the low 16 bits of `cp`.
+##
+## ## Parámetros
+## - `sb`: destination builder. Mutated.
+## - `cp`: a UTF-16 code unit.
+##
+## ## Retorno
+## Nothing.
+weave _append_u4 with sb as ref to StringBuilder, cp as int into void:
+    calling sb->append with "\\u"
+    var h0 as int is calling _hex_byte with ((cp >> 12) & 15)
+    var h1 as int is calling _hex_byte with ((cp >> 8) & 15)
+    var h2 as int is calling _hex_byte with ((cp >> 4) & 15)
+    var h3 as int is calling _hex_byte with (cp & 15)
+    calling sb->append_char with (h0 to char)
+    calling sb->append_char with (h1 to char)
+    calling sb->append_char with (h2 to char)
+    calling sb->append_char with (h3 to char)
+
+## Frees every element of a `list of JsonValue`, then the list itself.
+##
+## ## Parámetros
+## - `items`: an owned list (for example the result of `as_array`, `values`,
+##   `find_key` or `parse_in_arena` is **not** owned; do not free that one).
+##
+## ## Retorno
+## Nothing.
+##
+## ## Memoria
+## Banishes each value recursively, then the list buffer.
+##
+## ## Ejemplo
+## ```pengu
+## var items as list of JsonValue is (calling root.as_array) or else json.empty_values
+## calling json.free_values with items
+## ```
+weave free_values with items as list of JsonValue into void:
+    var i as int is 0
+    while i < items.len:
+        var v as JsonValue is items at i
+        banish v
+        set i is i + 1
+    banish items
+
+## Frees every entry of a `list of JsonEntry`, then the list itself.
+##
+## ## Parámetros
+## - `entries`: an owned list, such as the result of `as_object` or `entries`.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Memoria
+## Banishes each entry (its key and value), then the list buffer.
+weave free_entries with entries as list of JsonEntry into void:
+    var i as int is 0
+    while i < entries.len:
+        var e as JsonEntry is entries at i
+        banish e
+        set i is i + 1
+    banish entries
+
+## Frees every string of a `list of string`, then the list itself.
+##
+## ## Parámetros
+## - `items`: an owned list of strings, such as the result of `keys`.
+##
+## ## Retorno
+## Nothing.
+##
+## ## Memoria
+## Banishes each string copy, then the list buffer.
+weave free_strings with items as list of string into void:
+    var i as int is 0
+    while i < items.len:
+        var s as string is items at i
+        banish s
+        set i is i + 1
+    banish items
+
+## Moves the value out of a `maybe JsonValue`, freeing only the box.
+##
+## ## Parámetros
+## - `m`: the optional. The box is consumed; do not use it afterwards.
+##
+## ## Retorno
+## The payload (owned; release it with `banish`), or `JsonValue.Null` when the
+## optional was absent.
+##
+## ## Ejemplo
+## ```pengu
+## var opt as maybe JsonValue is calling root.get with "key"
+## var value as JsonValue is calling json.take_value with (sigil of opt)
+## defer banish value
+## ```
+weave take_value with m as ref to maybe JsonValue into JsonValue:
+    return calling _json_take_value with m
+
+## Moves the string out of a `maybe string`, freeing only the box.
+##
+## ## Parámetros
+## - `m`: the optional. The box is consumed; do not use it afterwards.
+##
+## ## Retorno
+## The string (owned; release it with `banish`), or `""` when absent.
+weave take_string with m as ref to maybe string into string:
+    return calling _json_take_string with m
+
+## Member `key` as an owned deep copy, or `JsonValue.Null` when absent.
+##
+## This is the box-free variant of `get`, for code that wants a plain value
+## without a `maybe` wrapper.
+##
+## ## Parámetros
+## - `v`: an object (other kinds return `Null`). Borrowed.
+## - `key`: the member name. Borrowed.
+##
+## ## Retorno
+## An owned `JsonValue`; release it with `banish`.
+weave get_or_null with v as JsonValue, key as string into JsonValue:
+    var out as JsonValue is calling JsonValue.null_value
+    var ignored as int is judge v:
+        when Obj with entries ->
+            for e in entries:
+                if e.key == key:
+                    set out is calling _json_clone_value with e.value
+            0
+        else ->
+            0
+    return out
+
+## Element `i` as an owned deep copy, or `JsonValue.Null` when out of range.
+##
+## ## Parámetros
+## - `v`: an array (other kinds return `Null`). Borrowed.
+## - `i`: the 0-based index.
+##
+## ## Retorno
+## An owned `JsonValue`; release it with `banish`.
+weave at_or_null with v as JsonValue, i as int into JsonValue:
+    var out as JsonValue is calling JsonValue.null_value
+    var ignored as int is judge v:
+        when Arr with items ->
+            if i >= 0 and i < items.len:
+                set out is calling _json_clone_value with (items at i)
+            0
+        else ->
+            0
+    return out
+
+# ----------------------------------------------------------------------------
+# Constructors
+#
+# `ritual`s of the `JsonValue` omen. `JsonValue.null_value` and friends are the
+# canonical spelling; the module-level aliases below are handy inside this
+# module and for callers that already imported `json as j`.
+# ----------------------------------------------------------------------------
+
+enchanting JsonValue:
+    ## Constructs the JSON `null`.
+    ##
+    ## ## Retorno
+    ## `JsonValue.Null`.
+    weave ritual null_value into JsonValue:
+        return with Null is 0
+
+    ## Constructs a boolean value.
+    ##
+    ## ## Parámetros
+    ## - `b`: the boolean. Copied.
+    ##
+    ## ## Retorno
+    ## `JsonValue.Bool`.
+    weave ritual bool_val with b as bool into JsonValue:
+        return with Bool is b
+
+    ## Constructs an integer value.
+    ##
+    ## ## Parámetros
+    ## - `i`: an `i64`. Copied.
+    ##
+    ## ## Retorno
+    ## `JsonValue.Int`.
+    weave ritual int_val with i as i64 into JsonValue:
+        return with Int is i
+
+    ## Constructs a floating-point value.
+    ##
+    ## ## Parámetros
+    ## - `f`: an `f64`. Copied.
+    ##
+    ## ## Retorno
+    ## `JsonValue.Float`.
+    weave ritual float_val with f as f64 into JsonValue:
+        return with Float is f
+
+    ## Constructs a string value, taking ownership of `s`.
+    ##
+    ## ## Parámetros
+    ## - `s`: the text. The returned value owns the buffer; do not banish `s`
+    ##   after the call.
+    ##
+    ## ## Retorno
+    ## `JsonValue.Str`.
+    weave ritual string_val with s as string into JsonValue:
+        return with Str is s
+
+    ## Constructs an empty array.
+    ##
+    ## ## Retorno
+    ## `JsonValue.Arr` with a fresh empty list.
+    weave ritual empty_array into JsonValue:
+        return with Arr is list of JsonValue
+
+    ## Constructs an empty object.
+    ##
+    ## ## Retorno
+    ## `JsonValue.Obj` with a fresh empty entry list.
+    weave ritual empty_object into JsonValue:
+        return with Obj is list of JsonEntry
+
+# ----------------------------------------------------------------------------
+# Module-level constructor aliases
+# ----------------------------------------------------------------------------
+
+## Constructs `JsonValue.Null`.
+##
+## ## Retorno
+## The JSON `null`.
+weave null_value into JsonValue:
+    return calling JsonValue.null_value
+
+## Constructs a boolean value.
+##
+## ## Parámetros
+## - `b`: the boolean.
+##
+## ## Retorno
+## `JsonValue.Bool`.
+weave bool_val with b as bool into JsonValue:
+    return calling JsonValue.bool_val with b
+
+## Constructs an integer value.
+##
+## ## Parámetros
+## - `i`: an `i64`.
+##
+## ## Retorno
+## `JsonValue.Int`.
+weave int_val with i as i64 into JsonValue:
+    return calling JsonValue.int_val with i
+
+## Constructs a floating-point value.
+##
+## ## Parámetros
+## - `f`: an `f64`.
+##
+## ## Retorno
+## `JsonValue.Float`.
+weave float_val with f as f64 into JsonValue:
+    return calling JsonValue.float_val with f
+
+## Constructs a string value, taking ownership of `s`.
+##
+## ## Parámetros
+## - `s`: the text; ownership transfers to the returned value.
+##
+## ## Retorno
+## `JsonValue.Str`.
+weave string_val with s as string into JsonValue:
+    return calling JsonValue.string_val with s
+
+## Constructs an empty array.
+##
+## ## Retorno
+## `JsonValue.Arr`.
+weave empty_array into JsonValue:
+    return calling JsonValue.empty_array
+
+## Constructs an empty object.
+##
+## ## Retorno
+## `JsonValue.Obj`.
+weave empty_object into JsonValue:
+    return calling JsonValue.empty_object
+
+# ----------------------------------------------------------------------------
+# Deep-copy helpers
+# ----------------------------------------------------------------------------
+
+## Deep-copies a list of JSON values.
+##
+## ## Parámetros
+## - `items`: the list to copy. Borrowed.
+##
+## ## Retorno
+## A new list whose elements are independent deep copies. Release it with
+## `free_values`.
+##
+## ## Complejidad
+## O(total size of the elements).
+weave _clone_values with items as list of JsonValue into list of JsonValue:
+    var out as list of JsonValue is list of JsonValue with capacity items.len
+    for item in items:
+        calling out.push with (calling _json_clone_value with item)
+    return out
+
+## Deep-copies a list of object entries.
+##
+## ## Parámetros
+## - `entries`: the entry list to copy. Borrowed.
+##
+## ## Retorno
+## A new list whose entries are independent deep copies. Release it with
+## `free_entries`.
+weave _clone_entries with entries as list of JsonEntry into list of JsonEntry:
+    var out as list of JsonEntry is list of JsonEntry with capacity entries.len
+    for e in entries:
+        var value_copy as JsonValue is calling _json_clone_value with e.value
+        var key_copy as string is "{e.key}"
+        calling out.push with (with key is key_copy, value is value_copy)
+    return out
+
+# ----------------------------------------------------------------------------
+# Comparison helpers
+# ----------------------------------------------------------------------------
+
+## Compares two JSON values with strict type identity.
+##
+## ## Parámetros
+## - `a`, `b`: values to compare. Borrowed.
+##
+## ## Retorno
+## `true` when both have the same variant and equal payload; `Int(1)` and
+## `Float(1.0)` are **not** equal.
+##
+## ## Complejidad
+## O(size of the values).
+weave _strict_eq with a as JsonValue, b as JsonValue into bool:
+    return a == b
+
+# ----------------------------------------------------------------------------
+# JsonValue: predicates and typed access
+# ----------------------------------------------------------------------------
+
+enchanting JsonValue:
+    ## True when the value is `null`.
+    weave is_null into bool:
+        return judge (essence of self):
+            when Null -> true
+            else -> false
+
+    ## True when the value is a boolean.
+    weave is_bool into bool:
+        return judge (essence of self):
+            when Bool -> true
+            else -> false
+
+    ## True when the value is an integer.
+    weave is_int into bool:
+        return judge (essence of self):
+            when Int -> true
+            else -> false
+
+    ## True when the value is a float.
+    weave is_float into bool:
+        return judge (essence of self):
+            when Float -> true
+            else -> false
+
+    ## True when the value is an integer or a float.
+    weave is_number into bool:
+        return judge (essence of self):
+            when Int -> true
+            when Float -> true
+            else -> false
+
+    ## True when the value is a string.
+    weave is_string into bool:
+        return judge (essence of self):
+            when Str -> true
+            else -> false
+
+    ## True when the value is an array.
+    weave is_array into bool:
+        return judge (essence of self):
+            when Arr -> true
+            else -> false
+
+    ## True when the value is an object.
+    weave is_object into bool:
+        return judge (essence of self):
+            when Obj -> true
+            else -> false
+
+    ## The lowercase JSON type name.
+    ##
+    ## ## Retorno
+    ## `"null"`, `"bool"`, `"int"`, `"float"`, `"string"`, `"array"` or
+    ## `"object"`.
+    weave type_name into string:
+        return judge (essence of self):
+            when Null -> "null"
+            when Bool -> "bool"
+            when Int -> "int"
+            when Float -> "float"
+            when Str -> "string"
+            when Arr -> "array"
+            when Obj -> "object"
+
+    ## The boolean payload, when the value is a boolean.
+    ##
+    ## ## Retorno
+    ## `some b` or `none`. The box is a plain value; release it with `banish`.
+    weave as_bool into maybe bool:
+        var out as maybe bool is maybe none
+        var ignored as int is judge (essence of self):
+            when Bool with value ->
+                set out is some value
+                0
+            else ->
+                0
+        return out
+
+    ## The integer payload, when the value is an integer.
+    ##
+    ## ## Retorno
+    ## `some i` or `none`.
+    weave as_int into maybe i64:
+        var out as maybe i64 is maybe none
+        var ignored as int is judge (essence of self):
+            when Int with value ->
+                set out is some value
+                0
+            else ->
+                0
+        return out
+
+    ## The float payload, when the value is a float.
+    ##
+    ## ## Retorno
+    ## `some f` or `none`. An `Int` is **not** converted; use `as_number`.
+    weave as_float into maybe f64:
+        var out as maybe f64 is maybe none
+        var ignored as int is judge (essence of self):
+            when Float with value ->
+                set out is some value
+                0
+            else ->
+                0
+        return out
+
+    ## The value as an `f64`, converting integers.
+    ##
+    ## ## Retorno
+    ## `some f` for an `Int` or a `Float`, `none` otherwise.
+    weave as_number into maybe f64:
+        var out as maybe f64 is maybe none
+        var ignored as int is judge (essence of self):
+            when Int with value ->
+                set out is some (value to f64)
+                0
+            when Float with value ->
+                set out is some value
+                0
+            else ->
+                0
+        return out
+
+    ## An owned copy of the string payload.
+    ##
+    ## ## Retorno
+    ## `some s` (owned copy; release it with `banish`) or `none`.
+    weave as_string into maybe string:
+        var out as maybe string is maybe none
+        var ignored as int is judge (essence of self):
+            when Str with value ->
+                var text_copy as string is "{value}"
+                set out is some text_copy
+                0
+            else ->
+                0
+        return out
+
+    ## An owned deep copy of the array payload.
+    ##
+    ## ## Retorno
+    ## `some items` (deep copy; release it with `free_values`) or `none`.
+    weave as_array into maybe list of JsonValue:
+        var out as maybe list of JsonValue is maybe none
+        var ignored as int is judge (essence of self):
+            when Arr with items ->
+                set out is some (calling _clone_values with items)
+                0
+            else ->
+                0
+        return out
+
+    ## An owned deep copy of the object payload.
+    ##
+    ## ## Retorno
+    ## `some entries` (deep copy; release it with `free_entries`) or `none`.
+    weave as_object into maybe list of JsonEntry:
+        var out as maybe list of JsonEntry is maybe none
+        var ignored as int is judge (essence of self):
+            when Obj with entries ->
+                set out is some (calling _clone_entries with entries)
+                0
+            else ->
+                0
+        return out
+
+    # ------------------------------------------------------------------------
+    # Array access
+    # ------------------------------------------------------------------------
+
+    ## Number of elements in an array.
+    ##
+    ## ## Retorno
+    ## The element count, or `0` when the value is not an array.
+    weave array_len into int:
+        return judge (essence of self):
+            when Arr with items -> items.len
+            else -> 0
+
+    ## Element at `i`, as an owned deep copy.
+    ##
+    ## ## Parámetros
+    ## - `i`: 0-based index.
+    ##
+    ## ## Retorno
+    ## `some value` (owned; release it with `banish`) or `none` when the value
+    ## is not an array or `i` is out of range.
+    weave at with i as int into maybe JsonValue:
+        var out as maybe JsonValue is maybe none
+        var ignored as int is judge (essence of self):
+            when Arr with items ->
+                if i >= 0 and i < items.len:
+                    set out is some (calling _json_clone_value with (items at i))
+                0
+            else ->
+                0
+        return out
+
+    ## First element, as an owned deep copy.
+    ##
+    ## ## Retorno
+    ## `some value` or `none` for an empty/non-array value.
+    weave first into maybe JsonValue:
+        return calling self.at with 0
+
+    ## Last element, as an owned deep copy.
+    ##
+    ## ## Retorno
+    ## `some value` or `none` for an empty/non-array value.
+    weave last into maybe JsonValue:
+        var n as int is calling self.array_len
+        if n == 0:
+            return maybe none
+        return calling self.at with (n - 1)
+
+    # ------------------------------------------------------------------------
+    # Object access
+    # ------------------------------------------------------------------------
+
+    ## Number of members in an object.
+    ##
+    ## ## Retorno
+    ## The member count, or `0` when the value is not an object.
+    weave object_len into int:
+        return judge (essence of self):
+            when Obj with entries -> entries.len
+            else -> 0
+
+    ## True when `key` is a member of the object.
+    ##
+    ## ## Parámetros
+    ## - `key`: the member name. Borrowed.
+    weave has_key with key as string into bool:
+        var found as bool is false
+        var ignored as int is judge (essence of self):
+            when Obj with entries ->
+                for e in entries:
+                    if e.key == key:
+                        set found is true
+                0
+            else ->
+                0
+        return found
+
+    ## Member `key`, as an owned deep copy.
+    ##
+    ## ## Retorno
+    ## `some value` (owned; release it with `banish`) or `none`.
+    weave get with key as string into maybe JsonValue:
+        var out as maybe JsonValue is maybe none
+        var ignored as int is judge (essence of self):
+            when Obj with entries ->
+                for e in entries:
+                    if e.key == key:
+                        set out is some (calling _json_clone_value with e.value)
+                0
+            else ->
+                0
+        return out
+
+    ## An owned copy of every key, in insertion order.
+    ##
+    ## ## Retorno
+    ## A `list of string` (release it with `free_strings`); empty for a
+    ## non-object.
+    weave keys into list of string:
+        var out as list of string is list of string
+        var ignored as int is judge (essence of self):
+            when Obj with entries ->
+                for e in entries:
+                    calling out.push with "{e.key}"
+                0
+            else ->
+                0
+        return out
+
+    ## An owned deep copy of every value, in insertion order.
+    ##
+    ## ## Retorno
+    ## A `list of JsonValue` (release it with `free_values`); empty for a
+    ## non-object.
+    weave values into list of JsonValue:
+        var out as list of JsonValue is list of JsonValue
+        var ignored as int is judge (essence of self):
+            when Obj with entries ->
+                for e in entries:
+                    calling out.push with (calling _json_clone_value with e.value)
+                0
+            else ->
+                0
+        return out
+
+    ## An owned deep copy of every entry, in insertion order.
+    ##
+    ## ## Retorno
+    ## A `list of JsonEntry` (release it with `free_entries`); empty for a
+    ## non-object.
+    weave entries into list of JsonEntry:
+        var out as list of JsonEntry is list of JsonEntry
+        var ignored as int is judge (essence of self):
+            when Obj with entries ->
+                for e in entries:
+                    var key_copy as string is "{e.key}"
+                    var val_copy as JsonValue is calling _json_clone_value with e.value
+                    calling out.push with (with key is key_copy, value is val_copy)
+                0
+            else ->
+                0
+        return out
+
+    # ------------------------------------------------------------------------
+    # JSON Pointer (RFC 6901)
+    # ------------------------------------------------------------------------
+
+    ## Resolves a JSON Pointer against the value.
+    ##
+    ## A pointer is a sequence of `/`-prefixed tokens. `""` addresses the
+    ## value itself, `"/"` addresses the member with the empty key, `"~1"`
+    ## decodes to `/` and `"~0"` to `~`. Array tokens must be canonical decimal
+    ## indices (`0`, `7`; `01` is invalid).
+    ##
+    ## ## Parámetros
+    ## - `path`: the pointer. Borrowed.
+    ##
+    ## ## Retorno
+    ## `some value` (an owned deep copy; release it with `banish`) or `none`
+    ## when a token is missing, an index is invalid/out of range, or the path
+    ## does not start with `/`.
+    ##
+    ## ## Complejidad
+    ## O(number of tokens × size of the current container).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var v as JsonValue is (calling root.pointer with "/a/b/0") or:
+    ##     return 1
+    ## defer banish v
+    ## ```
+    weave pointer with path as string into maybe JsonValue:
+        var out as maybe JsonValue is maybe none
+        if path == "":
+            set out is some (calling self.clone)
+            return out
+        var n as int is path length
+        var raw as ref to frozen byte is bytes of path
+        if n == 0 or ((raw at 0) to int) != JSON_SLASH:
+            return out
+        var current as JsonValue is calling self.clone
+        var pos as int is 1
+        var more as bool is true
+        while more:
+            var start as int is pos
+            while pos < n and ((raw at pos) to int) != JSON_SLASH:
+                set pos is pos + 1
+            var token as string is calling _json_substring with path, start, pos
+            var token_out as string is calling _unescape_pointer with token
+            banish token
+            var step as maybe JsonValue is maybe none
+            if calling current.is_object:
+                set step is calling current.get with token_out
+            else if calling current.is_array:
+                var idx as int is calling _index_token with token_out
+                if idx >= 0:
+                    set step is calling current.at with idx
+            banish token_out
+            if not step.is_present:
+                calling _json_drop_maybe with (sigil of step)
+                banish current
+                return out
+            var next as JsonValue is step.value
+            calling _json_drop_maybe with (sigil of step)
+            banish current
+            set current is next
+            if pos < n:
+                set pos is pos + 1
+            else:
+                set more is false
+        banish out
+        return some current
+
+    # ------------------------------------------------------------------------
+    # Search, comparison, copy, free
+    # ------------------------------------------------------------------------
+
+    ## Every value of a member named `key`, anywhere in the tree.
+    ##
+    ## The search is depth-first in document order, and it descends into both
+    ## arrays and objects. The result contains owned deep copies.
+    ##
+    ## ## Parámetros
+    ## - `key`: the member name to look for. Borrowed.
+    ##
+    ## ## Retorno
+    ## A `list of JsonValue`; empty when nothing matches. Release it with
+    ## `free_values`.
+    weave find_key with key as string into list of JsonValue:
+        var out as list of JsonValue is list of JsonValue
+        var root as JsonValue is essence of self
+        set out is calling _find_key_into with root, key, out
+        return out
+
+    ## Strict structural equality.
+    ##
+    ## ## Parámetros
+    ## - `other`: the value to compare against.
+    ##
+    ## ## Retorno
+    ## `true` when both values have the same variant and equal payload.
+    ## `Int(1)` and `Float(1.0)` are not equal; use `equals_numeric` for that.
+    weave equals with other as JsonValue into bool:
+        var me as JsonValue is essence of self
+        return me == other
+
+    ## Numeric-aware equality: `Int(1)` equals `Float(1.0)`.
+    ##
+    ## Arrays and objects compare structurally with the same numeric rule at the
+    ## top level of each element/member.
+    ##
+    ## ## Parámetros
+    ## - `other`: the value to compare against.
+    ##
+    ## ## Retorno
+    ## `true` when both are numbers with the same IEEE-754 value, or both are
+    ## the same non-numeric variant with equal payload, or arrays/objects whose
+    ## elements are numerically equal.
+    weave equals_numeric with other as JsonValue into bool:
+        var me as JsonValue is essence of self
+        return calling _numeric_eq with me, other
+
+    ## A deep, independent copy of the value.
+    ##
+    ## ## Retorno
+    ## A new tree with its own strings and lists. Release it with `banish`.
+    weave clone into JsonValue:
+        var me as JsonValue is essence of self
+        return calling _json_clone_value with me
+
+    ## Releases the value and resets it to `null`.
+    ##
+    ## `free` is the method form of `banish`: it works on a `ref to JsonValue`
+    ## (a method receiver) and is idempotent.
+    ##
+    ## ## Memoria
+    ## Frees every owned buffer below the value.
+    weave free into void:
+        calling _json_free_raw with self
+
+    # ------------------------------------------------------------------------
+    # In-place mutation
+    # ------------------------------------------------------------------------
+
+    ## Appends `v` to an array, taking ownership of it.
+    ##
+    ## ## Parámetros
+    ## - `v`: the element. Its ownership transfers to the array.
+    ##
+    ## ## Efectos
+    ## Panics when the receiver is not an array.
+    weave push_json with v as JsonValue into void:
+        if not calling self.is_array:
+            calling spark.panic with "JsonValue.push_json: value is not an array"
+        calling _json_push_arr with self, v
+
+    ## Removes and returns the last array element.
+    ##
+    ## ## Retorno
+    ## `some value` (owned) or `none` for an empty/non-array value.
+    ##
+    ## ## Efectos
+    ## Panics when the receiver is not an array.
+    weave pop_json into maybe JsonValue:
+        if not calling self.is_array:
+            calling spark.panic with "JsonValue.pop_json: value is not an array"
+        var out as maybe JsonValue is maybe none
+        var slot as JsonValue is calling JsonValue.null_value
+        if calling _json_pop_arr with self, sigil of slot:
+            set out is some slot
+        return out
+
+    ## Replaces array element `i`, releasing the old subtree.
+    ##
+    ## ## Parámetros
+    ## - `i`: 0-based index.
+    ## - `v`: the new element; its ownership transfers to the array.
+    ##
+    ## ## Efectos
+    ## Panics when the receiver is not an array or `i` is out of range.
+    weave set_at with i as int, v as JsonValue into void:
+        if not calling self.is_array:
+            calling spark.panic with "JsonValue.set_at: value is not an array"
+        if not calling _json_set_at_arr with self, i, v:
+            calling spark.panic with "JsonValue.set_at: index out of range"
+
+    ## Inserts or replaces `key`, taking ownership of `v`.
+    ##
+    ## The key is copied; replacing an existing member releases its old value.
+    ##
+    ## ## Parámetros
+    ## - `key`: the member name. Borrowed.
+    ## - `v`: the new value; its ownership transfers to the object.
+    ##
+    ## ## Efectos
+    ## Panics when the receiver is not an object.
+    weave put_json with key as string, v as JsonValue into void:
+        if not calling self.is_object:
+            calling spark.panic with "JsonValue.put_json: value is not an object"
+        calling _json_set_key_obj with self, key, v
+
+    ## Removes `key` and returns its value.
+    ##
+    ## ## Parámetros
+    ## - `key`: the member name. Borrowed.
+    ##
+    ## ## Retorno
+    ## `some value` (owned) or `none` when the key is absent.
+    ##
+    ## ## Efectos
+    ## Panics when the receiver is not an object.
+    weave remove_key with key as string into maybe JsonValue:
+        if not calling self.is_object:
+            calling spark.panic with "JsonValue.remove_key: value is not an object"
+        var out as maybe JsonValue is maybe none
+        var slot as JsonValue is calling JsonValue.null_value
+        if calling _json_remove_key_obj with self, key, sigil of slot:
+            set out is some slot
+        return out
+
+    ## Inserts or replaces `key`; the explicit-name form of `put_json`.
+    ##
+    ## ## Parámetros
+    ## - `key`: the member name. Borrowed.
+    ## - `v`: the new value; its ownership transfers to the object.
+    weave set_key with key as string, v as JsonValue into void:
+        calling self.put_json with key, v
+
+    ## Shallow merge: every member of `other` is put into the receiver.
+    ##
+    ## ## Parámetros
+    ## - `other`: a JSON object. Borrowed; its values are deep-copied.
+    ##
+    ## ## Efectos
+    ## Panics when either value is not an object.
+    weave merge with other as JsonValue into void:
+        if not calling self.is_object:
+            calling spark.panic with "JsonValue.merge: receiver is not an object"
+        if not calling other.is_object:
+            calling spark.panic with "JsonValue.merge: argument is not an object"
+        var ignored as int is judge other:
+            when Obj with entries ->
+                for e in entries:
+                    calling self.put_json with e.key, (calling _json_clone_value with e.value)
+                0
+            else ->
+                0
+
+# ----------------------------------------------------------------------------
+# Pointer, numeric-equality and search helpers
+# ----------------------------------------------------------------------------
+
+## Decodes one RFC 6901 reference token (`~1` -> `/`, `~0` -> `~`).
+##
+## ## Parámetros
+## - `token`: the raw token (no `/`). Borrowed.
+##
+## ## Retorno
+## An owned decoded string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var t as string is calling json._unescape_pointer with "a~1b"   # "a/b"
+## ```
+weave _unescape_pointer with token as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    var raw as ref to frozen byte is bytes of token
+    var n as int is token length
+    var i as int is 0
+    while i < n:
+        var b as int is (raw at i) to int
+        if b == 126:
+            if i + 1 < n and ((raw at (i + 1)) to int) == 48:
+                calling sb.append with "~"
+                set i is i + 2
+            else if i + 1 < n and ((raw at (i + 1)) to int) == 49:
+                calling sb.append with "/"
+                set i is i + 2
+            else:
+                calling sb.append_char with '~'
+                set i is i + 1
+        else:
+            calling sb.append_char with (b to char)
+            set i is i + 1
+    return calling sb.finish
+
+## Parses a JSON Pointer array token as a canonical non-negative index.
+##
+## ## Parámetros
+## - `token`: a decoded pointer token. Borrowed.
+##
+## ## Retorno
+## The index, or `-1` when the token is empty, has a leading zero (`01`), is
+## not all digits, or does not fit an `int`.
+##
+## ## Ejemplo
+## ```pengu
+## calling json._index_token with "12"   # 12
+## calling json._index_token with "01"   # -1
+## ```
+weave _index_token with token as string into int:
+    var n as int is token length
+    if n == 0:
+        return -1
+    var raw as ref to frozen byte is bytes of token
+    var lead_byte as int is (raw at 0) to int
+    if lead_byte == 48 and n > 1:
+        return -1
+    var value as int is 0
+    var i as int is 0
+    while i < n:
+        var b as int is (raw at i) to int
+        if b < 48 or b > 57:
+            return -1
+        var digit as int is b - 48
+        if value > (2147483647 - digit) / 10:
+            return -1
+        set value is value * 10 + digit
+        set i is i + 1
+    return value
+
+## Numeric-aware structural equality.
+##
+## ## Parámetros
+## - `a`, `b`: values to compare. Borrowed.
+##
+## ## Retorno
+## `true` when the values match, treating `Int(n)` and `Float(n)` as equal.
+weave _numeric_eq with a as JsonValue, b as JsonValue into bool:
+    var result as bool is false
+    var ignored as int is judge a:
+        when Int with value ->
+            let av is value
+            var inner as int is judge b:
+                when Int with value ->
+                    if av == value:
+                        set result is true
+                    0
+                when Float with value ->
+                    if (av to f64) == value:
+                        set result is true
+                    0
+                else ->
+                    0
+            inner
+        when Float with value ->
+            let avf is value
+            var inner2 as int is judge b:
+                when Int with value ->
+                    if avf == (value to f64):
+                        set result is true
+                    0
+                when Float with value ->
+                    if avf == value:
+                        set result is true
+                    0
+                else ->
+                    0
+            inner2
+        when Arr with items ->
+            let ai is items
+            var inner3 as int is judge b:
+                when Arr with items ->
+                    if ai.len == items.len:
+                        var same as bool is true
+                        var i as int is 0
+                        while i < ai.len and same:
+                            if not calling _numeric_eq with (ai at i), (items at i):
+                                set same is false
+                            set i is i + 1
+                        if same:
+                            set result is true
+                    0
+                else ->
+                    0
+            inner3
+        when Obj with entries ->
+            let ae is entries
+            var inner4 as int is judge b:
+                when Obj with entries ->
+                    if ae.len == entries.len:
+                        var same2 as bool is true
+                        for e in ae:
+                            var bval as JsonValue is calling JsonValue.null_value
+                            var have as bool is false
+                            for f in entries:
+                                if f.key == e.key:
+                                    set bval is calling _json_clone_value with f.value
+                                    set have is true
+                            if not have:
+                                set same2 is false
+                            else:
+                                if not calling _numeric_eq with e.value, bval:
+                                    set same2 is false
+                            banish bval
+                        if same2:
+                            set result is true
+                    0
+                else ->
+                    0
+            inner4
+        else ->
+            if a == b:
+                set result is true
+            0
+    return result
+
+## Recursive worker for `JsonValue.find_key`.
+##
+## ## Parámetros
+## - `v`: the subtree to scan. Borrowed.
+## - `key`: the member name to look for. Borrowed.
+## - `out`: accumulator. Appends owned deep copies.
+weave _find_key_into with v as JsonValue, key as string, out as list of JsonValue into list of JsonValue:
+    var acc as list of JsonValue is out
+    var ignored as int is judge v:
+        when Obj with entries ->
+            for e in entries:
+                if e.key == key:
+                    calling acc.push with (calling _json_clone_value with e.value)
+                set acc is calling _find_key_into with e.value, key, acc
+            0
+        when Arr with items ->
+            for item in items:
+                set acc is calling _find_key_into with item, key, acc
+            0
+        else ->
+            0
+    return acc
+
+# ----------------------------------------------------------------------------
+# Parser
+# ----------------------------------------------------------------------------
+
+## The recursive-descent JSON parser state.
+##
+## One `Parser` parses one document. It owns `err_message` only after a failure;
+## `src` is **borrowed** (the caller keeps the source alive for the duration of
+## the parse). The parser is not derived `Nexus`: it never owns the source.
+rune Parser:
+    ## Source text. Borrowed.
+    src as string
+    ## Current byte offset.
+    pos as int
+    ## Current 1-indexed line.
+    line as int
+    ## Current 1-indexed byte column.
+    col as int
+    ## Current nesting depth.
+    depth as int
+    ## Parse options.
+    opts as ParseOptions
+    ## When `false`, `validate` mode: values are checked but no DOM is built.
+    build as bool
+    ## Set as soon as the first error is recorded.
+    failed as bool
+    ## Error category.
+    err_kind as JsonErrorKind
+    ## Owned error message once `failed` is true.
+    err_message as string
+    ## Error line.
+    err_line as int
+    ## Error column.
+    err_col as int
+    ## Error byte offset.
+    err_offset as int
+
+## Computes the 1-indexed `(line, col)` of a byte offset.
+##
+## ## Parámetros
+## - `s`: the source. Borrowed.
+## - `offset`: a byte offset (clamped to the string).
+## - `line`: output, 1-indexed.
+## - `col`: output, 1-indexed byte column.
+weave _line_col_at with s as string, offset as int, line as ref to int, col as ref to int into void:
+    var n as int is s length
+    var off as int is offset
+    if off < 0:
+        set off is 0
+    if off > n:
+        set off is n
+    var raw as ref to frozen byte is bytes of s
+    var l as int is 1
+    var c as int is 1
+    var i as int is 0
+    while i < off:
+        if ((raw at i) to int) == JSON_NEWLINE:
+            set l is l + 1
+            set c is 1
+        else:
+            set c is c + 1
+        set i is i + 1
+    set essence of line is l
+    set essence of col is c
+
+enchanting Parser:
+    ## Returns the byte at `pos + off`, or `-1` past the end.
+    weave peek_at with off as int into int:
+        var n as int is self->src length
+        var at as int is self->pos + off
+        if at < 0 or at >= n:
+            return -1
+        var raw as ref to frozen byte is bytes of self->src
+        return (raw at at) to int
+
+    ## Returns the current byte, or `-1` at end of input.
+    weave peek into int:
+        return calling self.peek_at with 0
+
+    ## Consumes one byte, updating the line/column counters.
+    ##
+    ## ## Retorno
+    ## The byte consumed, or `-1` at end of input.
+    weave advance into int:
+        var b as int is calling self.peek
+        if b < 0:
+            return -1
+        set self->pos is self->pos + 1
+        if b == JSON_NEWLINE:
+            set self->line is self->line + 1
+            set self->col is 1
+        else:
+            set self->col is self->col + 1
+        return b
+
+    ## Records the first error and releases a later competing message.
+    ##
+    ## ## Parámetros
+    ## - `kind`: the category.
+    ## - `message`: an owned message; ownership transfers to the parser.
+    weave fail with kind as JsonErrorKind, message as string into void:
+        if self->failed:
+            banish message
+            return
+        set self->failed is true
+        set self->err_kind is kind
+        set self->err_message is message
+        set self->err_line is self->line
+        set self->err_col is self->col
+        set self->err_offset is self->pos
+
+    ## Moves the recorded error out of the parser.
+    ##
+    ## ## Retorno
+    ## A `JsonError` that owns the parser's message.
+    weave take_error into JsonError:
+        var e as JsonError is with kind is self->err_kind, message is self->err_message, line is self->err_line, col is self->err_col, offset is self->err_offset
+        set self->err_message is ""
+        return e
+
+    ## True when the remaining input begins with `word`.
+    ##
+    ## ## Parámetros
+    ## - `word`: an ASCII literal (`null`, `true`, `false`, `NaN`, ...).
+    weave starts_with_word with word as string into bool:
+        var wl as int is word length
+        var n as int is self->src length
+        if self->pos + wl > n:
+            return false
+        var src_bytes as ref to frozen byte is bytes of self->src
+        var word_bytes as ref to frozen byte is bytes of word
+        var i as int is 0
+        while i < wl:
+            if ((src_bytes at (self->pos + i)) to int) != ((word_bytes at i) to int):
+                return false
+            set i is i + 1
+        return true
+
+    ## Consumes `word` after `starts_with_word` returned true.
+    weave consume_word with word as string into void:
+        var wl as int is word length
+        var i as int is 0
+        while i < wl:
+            calling self.advance
+            set i is i + 1
+
+    ## Skips RFC 8259 whitespace and, when enabled, comments.
+    weave skip_whitespace into void:
+        var again as bool is true
+        while again:
+            set again is false
+            var scanning as bool is true
+            while scanning:
+                var b as int is calling self.peek
+                if b == 32 or b == 9 or b == 10 or b == 13:
+                    calling self.advance
+                else:
+                    set scanning is false
+            if self->failed:
+                return
+            if self->opts.allow_comments and ((calling self.peek) == JSON_SLASH):
+                var nxt as int is calling self.peek_at with 1
+                if nxt == JSON_SLASH:
+                    calling self.advance
+                    calling self.advance
+                    while (calling self.peek) >= 0 and (calling self.peek) != JSON_NEWLINE:
+                        calling self.advance
+                    set again is true
+                else if nxt == 42:
+                    calling self.advance
+                    calling self.advance
+                    var closed as bool is false
+                    while (calling self.peek) >= 0:
+                        if (calling self.peek) == 42 and ((calling self.peek_at with 1) == JSON_SLASH):
+                            calling self.advance
+                            calling self.advance
+                            set closed is true
+                            break
+                        calling self.advance
+                    if not closed:
+                        set self->pos is self->src length
+                        calling self.fail with JsonErrorKind.UnexpectedEof, "unterminated block comment"
+                        return
+                    set again is true
+
+    ## Parses the whole document: one value plus optional trailing whitespace.
+    ##
+    ## ## Retorno
+    ## The parsed value, or `JsonValue.Null` (with `failed` set) on error.
+    weave parse_document into JsonValue:
+        calling self.skip_whitespace
+        if self->failed:
+            return calling JsonValue.null_value
+        if (calling self.peek) < 0:
+            calling self.fail with JsonErrorKind.UnexpectedEof, "expected a JSON value, found end of input"
+            return calling JsonValue.null_value
+        var v as JsonValue is calling self.parse_value
+        if self->failed:
+            return v
+        calling self.skip_whitespace
+        if self->failed:
+            banish v
+            return calling JsonValue.null_value
+        if (calling self.peek) >= 0:
+            calling self.fail with JsonErrorKind.TrailingCharacters, "trailing characters after the JSON value"
+            banish v
+            return calling JsonValue.null_value
+        return v
+
+    ## Parses one value.
+    ##
+    ## ## Retorno
+    ## The value, or `JsonValue.Null` with `failed` set.
+    weave parse_value into JsonValue:
+        calling self.skip_whitespace
+        if self->failed:
+            return calling JsonValue.null_value
+        var b as int is calling self.peek
+        if b < 0:
+            calling self.fail with JsonErrorKind.UnexpectedEof, "expected a JSON value, found end of input"
+            return calling JsonValue.null_value
+        if b == 123:
+            return calling self.parse_object
+        if b == 91:
+            return calling self.parse_array
+        if b == JSON_QUOTE:
+            return calling self.parse_string
+        if b == 116:
+            return calling self.parse_literal with "true", (calling JsonValue.bool_val with true)
+        if b == 102:
+            return calling self.parse_literal with "false", (calling JsonValue.bool_val with false)
+        if b == 110:
+            return calling self.parse_literal with "null", (calling JsonValue.null_value)
+        if self->opts.allow_non_standard and b == 78:
+            if calling self.starts_with_word with "NaN":
+                calling self.consume_word with "NaN"
+                var nan as f64 is 0.0 / 0.0
+                return calling JsonValue.float_val with nan
+            calling self.fail with JsonErrorKind.InvalidLiteral, "expected 'NaN'"
+            return calling JsonValue.null_value
+        if self->opts.allow_non_standard and b == 73:
+            if calling self.starts_with_word with "Infinity":
+                calling self.consume_word with "Infinity"
+                var inf as f64 is 1.0 / 0.0
+                return calling JsonValue.float_val with inf
+            calling self.fail with JsonErrorKind.InvalidLiteral, "expected 'Infinity'"
+            return calling JsonValue.null_value
+        if b == 45:
+            if self->opts.allow_non_standard and ((calling self.peek_at with 1) == 73):
+                calling self.advance
+                if calling self.starts_with_word with "Infinity":
+                    calling self.consume_word with "Infinity"
+                    var ninf as f64 is (0.0 - 1.0) / 0.0
+                    return calling JsonValue.float_val with ninf
+                calling self.fail with JsonErrorKind.InvalidLiteral, "expected '-Infinity'"
+                return calling JsonValue.null_value
+            return calling self.parse_number
+        if b >= 48 and b <= 57:
+            return calling self.parse_number
+        if b >= 32 and b <= 126:
+            var ch as string is chr b
+            var msg as string is "unexpected character '{ch}'"
+            banish ch
+            calling self.fail with JsonErrorKind.UnexpectedChar, msg
+            return calling JsonValue.null_value
+        calling self.fail with JsonErrorKind.UnexpectedChar, "unexpected non-printable byte"
+        return calling JsonValue.null_value
+
+    ## Parses `word` and returns `v`, or records `InvalidLiteral`.
+    weave parse_literal with word as string, v as JsonValue into JsonValue:
+        if not calling self.starts_with_word with word:
+            var msg as string is "expected literal '{word}'"
+            calling self.fail with JsonErrorKind.InvalidLiteral, msg
+            banish v
+            return calling JsonValue.null_value
+        calling self.consume_word with word
+        return v
+
+    ## Parses an RFC 8259 number.
+    ##
+    ## Integers that do not fit `i64` are `IntegerOverflow`; numbers with a
+    ## fraction or exponent are `Float`.
+    weave parse_number into JsonValue:
+        var start as int is self->pos
+        var b as int is calling self.peek
+        if b == 45:
+            calling self.advance
+            set b is calling self.peek
+        if b < 48 or b > 57:
+            calling self.fail with JsonErrorKind.InvalidNumber, "expected a digit after '-'"
+            return calling JsonValue.null_value
+        if b == 48:
+            calling self.advance
+            set b is calling self.peek
+            if b >= 48 and b <= 57:
+                calling self.fail with JsonErrorKind.InvalidNumber, "leading zeros are not allowed"
+                return calling JsonValue.null_value
+        else:
+            var scanning as bool is true
+            while scanning:
+                set b is calling self.peek
+                if b >= 48 and b <= 57:
+                    calling self.advance
+                else:
+                    set scanning is false
+        var is_float as bool is false
+        set b is calling self.peek
+        if b == 46:
+            set is_float is true
+            calling self.advance
+            set b is calling self.peek
+            if b < 48 or b > 57:
+                calling self.fail with JsonErrorKind.InvalidNumber, "expected a digit after '.'"
+                return calling JsonValue.null_value
+            var frac as bool is true
+            while frac:
+                set b is calling self.peek
+                if b >= 48 and b <= 57:
+                    calling self.advance
+                else:
+                    set frac is false
+        set b is calling self.peek
+        if b == 101 or b == 69:
+            set is_float is true
+            calling self.advance
+            set b is calling self.peek
+            if b == 43 or b == 45:
+                calling self.advance
+            set b is calling self.peek
+            if b < 48 or b > 57:
+                calling self.fail with JsonErrorKind.InvalidNumber, "expected a digit in the exponent"
+                return calling JsonValue.null_value
+            var exp_scan as bool is true
+            while exp_scan:
+                set b is calling self.peek
+                if b >= 48 and b <= 57:
+                    calling self.advance
+                else:
+                    set exp_scan is false
+        var end as int is self->pos
+        if is_float:
+            var fv as f64 is 0.0
+            if not calling _json_strtod with self->src, start, end, sigil of fv:
+                calling self.fail with JsonErrorKind.InvalidNumber, "floating-point number is out of range"
+                return calling JsonValue.null_value
+            return calling JsonValue.float_val with fv
+        var iv as i64 is 0
+        if not calling _json_strtoll with self->src, start, end, sigil of iv:
+            calling self.fail with JsonErrorKind.IntegerOverflow, "integer literal does not fit in i64"
+            return calling JsonValue.null_value
+        return calling JsonValue.int_val with iv
+
+    ## Parses a quoted string with RFC 8259 escapes.
+    ##
+    ## ## Retorno
+    ## `JsonValue.Str`, or `JsonValue.Null` with `failed` set.
+    weave parse_string into JsonValue:
+        calling self.advance
+        var sb as StringBuilder is calling StringBuilder.new
+        defer banish sb
+        var done as bool is false
+        while not done:
+            var b as int is calling self.peek
+            if b < 0:
+                calling self.fail with JsonErrorKind.UnexpectedEof, "unterminated string"
+                return calling JsonValue.null_value
+            if b == JSON_QUOTE:
+                calling self.advance
+                set done is true
+            else if b == JSON_BACKSLASH:
+                calling self.advance
+                var e as int is calling self.advance
+                if e < 0:
+                    calling self.fail with JsonErrorKind.UnexpectedEof, "unterminated escape sequence"
+                    return calling JsonValue.null_value
+                if e == JSON_QUOTE:
+                    calling sb.append_char with '"'
+                else if e == JSON_BACKSLASH:
+                    calling sb.append_char with '\\'
+                else if e == JSON_SLASH:
+                    calling sb.append_char with '/'
+                else if e == 98:
+                    calling sb.append_char with (8 to char)
+                else if e == 102:
+                    calling sb.append_char with (12 to char)
+                else if e == 110:
+                    calling sb.append_char with (10 to char)
+                else if e == 114:
+                    calling sb.append_char with (13 to char)
+                else if e == 116:
+                    calling sb.append_char with (9 to char)
+                else if e == 117:
+                    var cp as int is calling self.parse_unicode_escape
+                    if self->failed:
+                        return calling JsonValue.null_value
+                    if self->build:
+                        calling _append_codepoint with sigil of sb, cp
+                else:
+                    var msg as string is "invalid escape '\\{e}'"
+                    calling self.fail with JsonErrorKind.InvalidEscape, msg
+                    return calling JsonValue.null_value
+            else:
+                if b < 32:
+                    if self->opts.strict:
+                        calling self.fail with JsonErrorKind.InvalidString, "unescaped control character in string"
+                        return calling JsonValue.null_value
+                calling self.advance
+                if self->build:
+                    calling sb.append_char with (b to char)
+        if not self->build:
+            return calling JsonValue.null_value
+        var text as string is calling sb.finish
+        return calling JsonValue.string_val with text
+
+    ## Parses the four hex digits of a `\u` escape, combining surrogate pairs.
+    ##
+    ## The leading `\u` must already be consumed.
+    ##
+    ## ## Retorno
+    ## The Unicode scalar value, or `-1` with `failed` set.
+    weave parse_unicode_escape into int:
+        var high as int is calling self.parse_hex4
+        if self->failed:
+            return -1
+        if high >= 55296 and high <= 56319:
+            if (calling self.peek) != JSON_BACKSLASH or (calling self.peek_at with 1) != 117:
+                calling self.fail with JsonErrorKind.InvalidUnicode, "unpaired high surrogate"
+                return -1
+            calling self.advance
+            calling self.advance
+            var low as int is calling self.parse_hex4
+            if self->failed:
+                return -1
+            if low < 56320 or low > 57343:
+                calling self.fail with JsonErrorKind.InvalidUnicode, "high surrogate not followed by a low surrogate"
+                return -1
+            return 65536 + ((high - 55296) << 10) + (low - 56320)
+        if high >= 56320 and high <= 57343:
+            calling self.fail with JsonErrorKind.InvalidUnicode, "unpaired low surrogate"
+            return -1
+        return high
+
+    ## Parses exactly four hexadecimal digits.
+    ##
+    ## ## Retorno
+    ## `0..65535`, or `-1` with `failed` set.
+    weave parse_hex4 into int:
+        var value as int is 0
+        var i as int is 0
+        while i < 4:
+            var b as int is calling self.advance
+            if b < 0:
+                calling self.fail with JsonErrorKind.UnexpectedEof, "truncated Unicode escape"
+                return -1
+            var h as int is calling _hex_val with b
+            if h < 0:
+                calling self.fail with JsonErrorKind.InvalidUnicode, "invalid hexadecimal digit in Unicode escape"
+                return -1
+            set value is value * 16 + h
+            set i is i + 1
+        return value
+
+    ## Parses an array.
+    ##
+    ## ## Retorno
+    ## `JsonValue.Arr`, or `JsonValue.Null` with `failed` set.
+    weave parse_array into JsonValue:
+        var items as list of JsonValue is list of JsonValue
+        calling self.advance
+        set self->depth is self->depth + 1
+        if self->depth > self->opts.max_depth:
+            set self->depth is self->depth - 1
+            calling self.fail with JsonErrorKind.DepthExceeded, "maximum nesting depth exceeded"
+            return calling JsonValue.null_value
+        calling self.skip_whitespace
+        if self->failed:
+            set self->depth is self->depth - 1
+            return calling JsonValue.null_value
+        if (calling self.peek) == 93:
+            calling self.advance
+            set self->depth is self->depth - 1
+            return with Arr is items
+        var more as bool is true
+        while more:
+            var item as JsonValue is calling self.parse_value
+            if self->failed:
+                calling free_values with items
+                set self->depth is self->depth - 1
+                return calling JsonValue.null_value
+            if self->build:
+                calling items.push with item
+            else:
+                banish item
+            calling self.skip_whitespace
+            if self->failed:
+                calling free_values with items
+                set self->depth is self->depth - 1
+                return calling JsonValue.null_value
+            var b as int is calling self.peek
+            if b == 44:
+                calling self.advance
+                calling self.skip_whitespace
+                if self->failed:
+                    calling free_values with items
+                    set self->depth is self->depth - 1
+                    return calling JsonValue.null_value
+                if (calling self.peek) == 93:
+                    if self->opts.allow_trailing_commas:
+                        calling self.advance
+                        set more is false
+                    else:
+                        calling self.fail with JsonErrorKind.UnexpectedChar, "trailing comma is not allowed"
+                        calling free_values with items
+                        set self->depth is self->depth - 1
+                        return calling JsonValue.null_value
+            else if b == 93:
+                calling self.advance
+                set more is false
+            else:
+                calling self.fail with JsonErrorKind.UnexpectedChar, "expected ',' or ']' in array"
+                calling free_values with items
+                set self->depth is self->depth - 1
+                return calling JsonValue.null_value
+        set self->depth is self->depth - 1
+        return with Arr is items
+
+    ## Parses an object.
+    ##
+    ## ## Retorno
+    ## `JsonValue.Obj`, or `JsonValue.Null` with `failed` set.
+    weave parse_object into JsonValue:
+        var entries as list of JsonEntry is list of JsonEntry
+        calling self.advance
+        set self->depth is self->depth + 1
+        if self->depth > self->opts.max_depth:
+            set self->depth is self->depth - 1
+            calling self.fail with JsonErrorKind.DepthExceeded, "maximum nesting depth exceeded"
+            return calling JsonValue.null_value
+        calling self.skip_whitespace
+        if self->failed:
+            set self->depth is self->depth - 1
+            return calling JsonValue.null_value
+        if (calling self.peek) == 125:
+            calling self.advance
+            set self->depth is self->depth - 1
+            return with Obj is entries
+        var more as bool is true
+        while more:
+            if (calling self.peek) != JSON_QUOTE:
+                calling self.fail with JsonErrorKind.UnexpectedChar, "expected a quoted object key"
+                calling free_entries with entries
+                set self->depth is self->depth - 1
+                return calling JsonValue.null_value
+            var keyv as JsonValue is calling self.parse_string
+            if self->failed:
+                calling free_entries with entries
+                set self->depth is self->depth - 1
+                return calling JsonValue.null_value
+            var key as string is ""
+            var key_extract as int is judge keyv:
+                when Str with value ->
+                    set key is value
+                    0
+                else ->
+                    0
+            calling self.skip_whitespace
+            if self->failed:
+                banish key
+                calling free_entries with entries
+                set self->depth is self->depth - 1
+                return calling JsonValue.null_value
+            if (calling self.peek) != 58:
+                banish key
+                calling self.fail with JsonErrorKind.UnexpectedChar, "expected ':' after object key"
+                calling free_entries with entries
+                set self->depth is self->depth - 1
+                return calling JsonValue.null_value
+            calling self.advance
+            var value as JsonValue is calling self.parse_value
+            if self->failed:
+                banish key
+                calling free_entries with entries
+                set self->depth is self->depth - 1
+                return calling JsonValue.null_value
+            if self->build:
+                calling _json_obj_put with (sigil of entries), key, value
+            else:
+                banish key
+                banish value
+            calling self.skip_whitespace
+            if self->failed:
+                calling free_entries with entries
+                set self->depth is self->depth - 1
+                return calling JsonValue.null_value
+            var b as int is calling self.peek
+            if b == 44:
+                calling self.advance
+                calling self.skip_whitespace
+                if self->failed:
+                    calling free_entries with entries
+                    set self->depth is self->depth - 1
+                    return calling JsonValue.null_value
+                if (calling self.peek) == 125:
+                    if self->opts.allow_trailing_commas:
+                        calling self.advance
+                        set more is false
+                    else:
+                        calling self.fail with JsonErrorKind.UnexpectedChar, "trailing comma is not allowed"
+                        calling free_entries with entries
+                        set self->depth is self->depth - 1
+                        return calling JsonValue.null_value
+            else if b == 125:
+                calling self.advance
+                set more is false
+            else:
+                calling self.fail with JsonErrorKind.UnexpectedChar, "expected ',' or '}' in object"
+                calling free_entries with entries
+                set self->depth is self->depth - 1
+                return calling JsonValue.null_value
+        set self->depth is self->depth - 1
+        return with Obj is entries
+
+# ----------------------------------------------------------------------------
+# Public parsing entry points
+# ----------------------------------------------------------------------------
+
+## Parses `s` with the strict RFC 8259 defaults.
+##
+## ## Parámetros
+## - `s`: the JSON text. Borrowed; the returned DOM owns its own buffers.
+##
+## ## Retorno
+## `ok value`, or `err JsonError` with line, column and byte offset.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of JsonValue to JsonError is calling json.parse with "[1,2]"
+## ```
+weave parse with s as string into result of JsonValue to JsonError:
+    return calling parse_with with s, (calling default_parse_options)
+
+## Parses `s` with explicit options.
+##
+## ## Parámetros
+## - `s`: the JSON text. Borrowed.
+## - `opts`: parser knobs.
+##
+## ## Retorno
+## `ok value`, or `err JsonError`.
+##
+## ## Ejemplo
+## ```pengu
+## var o as json.ParseOptions is calling json.default_parse_options
+## var r as result of JsonValue to json.JsonError is calling json.parse_with with "// x\n{}", o
+## ```
+weave parse_with with s as string, opts as ParseOptions into result of JsonValue to JsonError:
+    var bad as int is calling _json_valid_utf8 with s
+    if bad >= 0:
+        var eline as int is 1
+        var ecol as int is 1
+        calling _line_col_at with s, bad, sigil of eline, sigil of ecol
+        var emsg as string is "invalid UTF-8 at byte {bad}"
+        var utf_err as JsonError is with kind is JsonErrorKind.InvalidUtf8, message is emsg, line is eline, col is ecol, offset is bad
+        return calling err_of with utf_err
+    var p as Parser is with src is s, pos is 0, line is 1, col is 1, depth is 0, opts is opts, build is true, failed is false, err_kind is JsonErrorKind.UnexpectedEof, err_message is "", err_line is 1, err_col is 1, err_offset is 0
+    var v as JsonValue is calling p.parse_document
+    if p.failed:
+        var e as JsonError is calling p.take_error
+        banish v
+        return calling err_of with e
+    return calling ok_of with v
+
+## Parses a byte slice as JSON.
+##
+## ## Parámetros
+## - `s`: the bytes. Borrowed; the parser takes one private copy internally.
+##
+## ## Retorno
+## `ok value`, or `err JsonError`.
+weave parse_bytes with s as slice of byte into result of JsonValue to JsonError:
+    var owned as string is calling _json_bytes_to_string with s
+    var r as result of JsonValue to JsonError is calling parse_with with owned, (calling default_parse_options)
+    banish owned
+    return r
+
+## Checks that `s` is one valid JSON document, without building a DOM.
+##
+## Memory use is O(depth), independent of the document size.
+##
+## ## Parámetros
+## - `s`: the JSON text. Borrowed.
+##
+## ## Retorno
+## `ok 0`, or `err JsonError`.
+##
+## ## Ejemplo
+## ```pengu
+## var ok as bool is calling json.validate with "{\"a\":1}" is_ok
+## ```
+weave validate with s as string into result of void to JsonError:
+    var bad as int is calling _json_valid_utf8 with s
+    if bad >= 0:
+        var eline as int is 1
+        var ecol as int is 1
+        calling _line_col_at with s, bad, sigil of eline, sigil of ecol
+        var emsg as string is "invalid UTF-8 at byte {bad}"
+        var utf_err as JsonError is with kind is JsonErrorKind.InvalidUtf8, message is emsg, line is eline, col is ecol, offset is bad
+        return calling err_of with utf_err
+    var p as Parser is with src is s, pos is 0, line is 1, col is 1, depth is 0, opts is (calling default_parse_options), build is false, failed is false, err_kind is JsonErrorKind.UnexpectedEof, err_message is "", err_line is 1, err_col is 1, err_offset is 0
+    var v as JsonValue is calling p.parse_document
+    if p.failed:
+        var e as JsonError is calling p.take_error
+        return calling err_of with e
+    banish v
+    return calling ok_of with 0
+
+## Checks that a byte slice is one valid JSON document.
+##
+## ## Parámetros
+## - `s`: the bytes. Borrowed.
+##
+## ## Retorno
+## `ok 0`, or `err JsonError`.
+weave validate_bytes with s as slice of byte into result of void to JsonError:
+    var owned as string is calling _json_bytes_to_string with s
+    var r as result of void to JsonError is calling validate with owned
+    banish owned
+    return r
+
+# ----------------------------------------------------------------------------
+# Arena mode
+# ----------------------------------------------------------------------------
+
+## Releases the box of a `result of JsonValue to JsonError` without its value.
+##
+## ## Parámetros
+## - `r`: the result. The box is consumed; the payload must already have been
+##   moved out or released.
+##
+## ## Memoria
+## Frees the box slot only.
+##
+## ## Ejemplo
+## ```pengu
+## var v as JsonValue is r.value
+## calling json.discard_result_box with (sigil of r)
+## ```
+weave discard_result_box with r as ref to result of JsonValue to JsonError into void:
+    calling _json_drop_result_box with r
+
+## Copies a heap DOM into arena memory.
+##
+## Strings become non-owning views over arena blocks and list headers are
+## marked `cap < 0` (non-owning). The result is therefore released by
+## `banish arena`, while banishing any value inside it is a safe no-op.
+##
+## ## Parámetros
+## - `v`: the heap value to copy. Borrowed; it is not modified.
+## - `a`: destination arena. Mutated.
+##
+## ## Retorno
+## The arena-backed equivalent of `v`.
+##
+## ## Memoria
+## Allocates every string byte, list element and entry in `a`.
+weave _json_to_arena with v as JsonValue, a as ref to arena.Arena into JsonValue:
+    var out as JsonValue is calling JsonValue.null_value
+    var ignored as int is judge v:
+        when Null ->
+            0
+        when Bool with value ->
+            set out is calling JsonValue.bool_val with value
+            0
+        when Int with value ->
+            set out is calling JsonValue.int_val with value
+            0
+        when Float with value ->
+            set out is calling JsonValue.float_val with value
+            0
+        when Str with value ->
+            var n as int is value length
+            var p as ref to byte is calling a.alloc_str with value
+            var sview as string is calling _json_arena_string with p, n
+            set out is calling JsonValue.string_val with sview
+            0
+        when Arr with items ->
+            var count as int is items.len
+            var dst as ref to JsonValue is calling arena.arena_alloc of JsonValue with a, count
+            var i as int is 0
+            while i < count:
+                let src is items at i
+                set dst at i is calling _json_to_arena with src, a
+                set i is i + 1
+            var lst as list of JsonValue is calling _json_arena_list with dst, count
+            set out is with Arr is lst
+            0
+        when Obj with entries ->
+            var ecount as int is entries.len
+            var edst as ref to JsonEntry is calling arena.arena_alloc of JsonEntry with a, ecount
+            var j as int is 0
+            while j < ecount:
+                let e is entries at j
+                var kn as int is e.key length
+                var kp as ref to byte is calling a.alloc_str with e.key
+                var kview as string is calling _json_arena_string with kp, kn
+                var av as JsonValue is calling _json_to_arena with e.value, a
+                set edst at j is with key is kview, value is av
+                set j is j + 1
+            var elst as list of JsonEntry is calling _json_arena_entries with edst, ecount
+            set out is with Obj is elst
+            0
+    return out
+
+## Parses `s` into an arena-backed DOM.
+##
+## Every string byte, array element and object entry lives in `arena`. A single
+## `banish arena` (or `calling arena.free`) releases the whole document, and
+## banishing the returned value is a safe no-op. The implementation parses into
+## a temporary heap DOM and copies it into the arena, so the transient cost is
+## O(size); the retained cost is entirely in the arena.
+##
+## ## Parámetros
+## - `s`: the JSON text. Borrowed.
+## - `arena`: destination arena. Mutated.
+##
+## ## Retorno
+## `ok value` (arena-backed), or `err JsonError`.
+##
+## ## Ejemplo
+## ```pengu
+## var a as Arena is calling Arena.new
+## defer calling a.free
+## var v as JsonValue is (calling json.parse_in_arena with payload, sigil of a) or:
+##     return 1
+## banish v          # safe no-op; the arena owns the memory
+## ```
+weave parse_in_arena with s as string, arena as ref to arena.Arena into result of JsonValue to JsonError:
+    var r as result of JsonValue to JsonError is calling parse with s
+    if not r.is_ok:
+        return r
+    var heap as JsonValue is r.value
+    var arena_value as JsonValue is calling _json_to_arena with heap, arena
+    banish heap
+    calling _json_drop_result_box with (sigil of r)
+    return calling ok_of with arena_value
+
+# ----------------------------------------------------------------------------
+# Serializer
+# ----------------------------------------------------------------------------
+
+## Returns the UTF-8 length of the codepoint starting at byte `i`.
+##
+## ## Parámetros
+## - `s`: a valid UTF-8 string (the parser guarantees this for its own output).
+## - `i`: the offset of a lead byte.
+##
+## ## Retorno
+## `1..4`; `1` for a stray continuation/invalid byte (treated as U+FFFD).
+weave _utf8_len with s as string, i as int into int:
+    var raw as ref to frozen byte is bytes of s
+    var b as int is (raw at i) to int
+    if b < 128:
+        return 1
+    if (b & 224) == 192:
+        return 2
+    if (b & 240) == 224:
+        return 3
+    if (b & 248) == 240:
+        return 4
+    return 1
+
+## Decodes one UTF-8 codepoint at byte `i`.
+##
+## ## Parámetros
+## - `s`: the text. Borrowed.
+## - `i`: offset of the lead byte.
+##
+## ## Retorno
+## The scalar value, or `65533` (U+FFFD) for a malformed sequence.
+weave _utf8_cp with s as string, i as int into int:
+    var n as int is s length
+    var raw as ref to frozen byte is bytes of s
+    var b as int is (raw at i) to int
+    var len as int is calling _utf8_len with s, i
+    if len == 1:
+        if b < 128:
+            return b
+        return 65533
+    if i + len > n:
+        return 65533
+    var cp as int is 0
+    if len == 2:
+        set cp is b & 31
+    else if len == 3:
+        set cp is b & 15
+    else:
+        set cp is b & 7
+    var k as int is 1
+    while k < len:
+        var cc as int is (raw at (i + k)) to int
+        if (cc & 192) != 128:
+            return 65533
+        set cp is (cp << 6) | (cc & 63)
+        set k is k + 1
+    return cp
+
+## Writes a JSON string literal, including its surrounding quotes.
+##
+## ## Parámetros
+## - `s`: the decoded text. Borrowed.
+## - `opts`: serializer options.
+## - `sb`: destination builder. Mutated.
+##
+## ## Memoria
+## Appends only; no temporary string is allocated.
+weave _write_string with s as string, opts as SerializeOptions, sb as ref to StringBuilder into void:
+    calling sb.append_char with '"'
+    var n as int is s length
+    var raw as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < n:
+        var b as int is (raw at i) to int
+        if b == 34:
+            calling sb.append with "\\\""
+            set i is i + 1
+        else if b == 92:
+            calling sb.append with "\\\\"
+            set i is i + 1
+        else if b == 47 and opts.escape_slash:
+            calling sb.append with "\\/"
+            set i is i + 1
+        else if b == 8:
+            calling sb.append with "\\b"
+            set i is i + 1
+        else if b == 12:
+            calling sb.append with "\\f"
+            set i is i + 1
+        else if b == 10:
+            calling sb.append with "\\n"
+            set i is i + 1
+        else if b == 13:
+            calling sb.append with "\\r"
+            set i is i + 1
+        else if b == 9:
+            calling sb.append with "\\t"
+            set i is i + 1
+        else if b < 32:
+            calling _append_u4 with sb, b
+            set i is i + 1
+        else if b < 128:
+            calling sb.append_char with (b to char)
+            set i is i + 1
+        else:
+            if not opts.ensure_ascii:
+                calling sb.append_char with (b to char)
+                set i is i + 1
+            else:
+                var cp as int is calling _utf8_cp with s, i
+                var step as int is calling _utf8_len with s, i
+                if cp > 65535:
+                    var high as int is 55296 + ((cp - 65536) >> 10)
+                    var low as int is 56320 + ((cp - 65536) & 1023)
+                    calling _append_u4 with sb, high
+                    calling _append_u4 with sb, low
+                else:
+                    calling _append_u4 with sb, cp
+                set i is i + step
+    calling sb.append_char with '"'
+
+## Writes one float, rejecting non-finite values unless `allow_nan`.
+##
+## ## Parámetros
+## - `f`: the value.
+## - `opts`: serializer options.
+## - `sb`: destination builder. Mutated.
+weave _write_float with f as f64, opts as SerializeOptions, sb as ref to StringBuilder into void:
+    if not calling _json_is_finite with f:
+        if not opts.allow_nan:
+            calling spark.panic with "json.stringify: non-finite float (set allow_nan to emit it)"
+        if f != f:
+            calling sb.append with "NaN"
+        else if f > 0.0:
+            calling sb.append with "Infinity"
+        else:
+            calling sb.append with "-Infinity"
+        return
+    var text as string is calling _json_format_f64 with f
+    calling sb.append with text
+    banish text
+
+## Writes `indent * depth` spaces, preceded by a newline.
+##
+## ## Parámetros
+## - `sb`: destination builder. Mutated.
+## - `depth`: nesting level (`0` is the top level).
+## - `opts`: serializer options.
+weave _write_newline_indent with sb as ref to StringBuilder, depth as int, opts as SerializeOptions into void:
+    calling sb.append_char with (10 to char)
+    calling sb.append_spaces with (opts.indent * depth)
+
+## Appends the currently active pair separator.
+##
+## ## Parámetros
+## - `sb`: destination builder. Mutated.
+## - `opts`: serializer options.
+weave _write_comma with sb as ref to StringBuilder, opts as SerializeOptions into void:
+    calling sb.append_char with ','
+    if opts.indent == 0 and not opts.compact_separators:
+        calling sb.append_char with ' '
+
+## Appends the currently active key/value separator.
+##
+## ## Parámetros
+## - `sb`: destination builder. Mutated.
+## - `opts`: serializer options.
+weave _write_colon with sb as ref to StringBuilder, opts as SerializeOptions into void:
+    calling sb.append_char with ':'
+    if opts.indent > 0 or not opts.compact_separators:
+        calling sb.append_char with ' '
+
+## Sorts a shallow copy of an object's entries by key.
+##
+## The copy aliases the entries' payloads; only the returned list buffer is
+## owned. Release it with `banish sorted` (never `free_entries`).
+##
+## ## Parámetros
+## - `entries`: the entry list. Borrowed.
+##
+## ## Retorno
+## A new `list of JsonEntry` in byte-wise key order.
+weave _sorted_entries with entries as list of JsonEntry into list of JsonEntry:
+    var out as list of JsonEntry is list of JsonEntry with capacity entries.len
+    for e in entries:
+        calling out.push with e
+    var i as int is 1
+    while i < out.len:
+        var key as JsonEntry is out at i
+        var j as int is i - 1
+        var moving as bool is true
+        while j >= 0 and moving:
+            var prev as JsonEntry is out at j
+            if (calling _json_str_cmp with prev.key, key.key) > 0:
+                set out at (j + 1) is prev
+                set j is j - 1
+            else:
+                set moving is false
+        set out at (j + 1) is key
+        set i is i + 1
+    return out
+
+## Writes `v` into `sb` using `opts`.
+##
+## This is the primitive every other serializer entry point uses.
+##
+## ## Parámetros
+## - `v`: the value. Borrowed.
+## - `opts`: serializer options.
+## - `sb`: destination builder. Mutated.
+##
+## ## Efectos
+## Panics on a non-finite float unless `opts.allow_nan` is set.
+weave _write_value with v as JsonValue, opts as SerializeOptions, sb as ref to builder.StringBuilder, depth as int into void:
+    var ignored as int is judge v:
+        when Null ->
+            calling sb.append with "null"
+            0
+        when Bool with value ->
+            if value:
+                calling sb.append with "true"
+            else:
+                calling sb.append with "false"
+            0
+        when Int with value ->
+            calling sb.append_i64 with value
+            0
+        when Float with value ->
+            calling _write_float with value, opts, sb
+            0
+        when Str with value ->
+            calling _write_string with value, opts, sb
+            0
+        when Arr with items ->
+            if items.len == 0:
+                calling sb.append with "[]"
+            else:
+                calling sb.append_char with '['
+                var idx as int is 0
+                while idx < items.len:
+                    if idx > 0:
+                        calling _write_comma with sb, opts
+                    if opts.indent > 0:
+                        calling _write_newline_indent with sb, depth + 1, opts
+                    let item is items at idx
+                    calling _write_value with item, opts, sb, depth + 1
+                    set idx is idx + 1
+                if opts.indent > 0:
+                    calling _write_newline_indent with sb, depth, opts
+                calling sb.append_char with ']'
+            0
+        when Obj with entries ->
+            if entries.len == 0:
+                calling sb.append with r"{}"
+            else:
+                var source as list of JsonEntry is entries
+                var sorted as list of JsonEntry is list of JsonEntry
+                if opts.sort_keys:
+                    set sorted is calling _sorted_entries with entries
+                    set source is sorted
+                calling sb.append_char with '{'
+                var k as int is 0
+                while k < source.len:
+                    if k > 0:
+                        calling _write_comma with sb, opts
+                    if opts.indent > 0:
+                        calling _write_newline_indent with sb, depth + 1, opts
+                    let e is source at k
+                    calling _write_string with e.key, opts, sb
+                    calling _write_colon with sb, opts
+                    calling _write_value with e.value, opts, sb, depth + 1
+                    set k is k + 1
+                if opts.indent > 0:
+                    calling _write_newline_indent with sb, depth, opts
+                calling sb.append_char with '}'
+                # `sorted` is either the sorted copy or the empty list created
+                # above; both own a buffer, so release it unconditionally.
+                banish sorted
+            0
+
+## Writes `v` into `sb` using `opts`.
+##
+## This is the primitive every other serializer entry point uses. A `builder`
+## accumulates the output, so serializing a large tree is O(size) rather than
+## O(size²).
+##
+## ## Parámetros
+## - `v`: the value. Borrowed.
+## - `opts`: serializer options.
+## - `sb`: destination builder. Mutated.
+##
+## ## Efectos
+## Panics on a non-finite float unless `opts.allow_nan` is set.
+##
+## ## Ejemplo
+## ```pengu
+## var sb as StringBuilder is calling StringBuilder.new
+## calling json.write_to_builder with v, (calling json.default_serialize_options), (sigil of sb)
+## var s as string is calling sb.finish
+## ```
+weave write_to_builder with v as JsonValue, opts as SerializeOptions, sb as ref to builder.StringBuilder into void:
+    calling _write_value with v, opts, sb, 0
+
+## Serializes `v` with explicit options.
+##
+## ## Parámetros
+## - `v`: the value. Borrowed.
+## - `opts`: serializer options.
+##
+## ## Retorno
+## An owned JSON string; release it with `banish`.
+##
+## ## Efectos
+## Panics on a non-finite float unless `opts.allow_nan` is set.
+##
+## ## Ejemplo
+## ```pengu
+## var o as json.SerializeOptions is calling json.default_serialize_options
+## var s as string is calling json.stringify_with with v, o
+## ```
+weave stringify_with with v as JsonValue, opts as SerializeOptions into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling write_to_builder with v, opts, sigil of sb
+    if opts.trailing_newline:
+        calling sb.append_char with (10 to char)
+    return calling sb.finish
+
+## Serializes `v` as compact JSON with the default options.
+##
+## ## Parámetros
+## - `v`: the value. Borrowed.
+##
+## ## Retorno
+## An owned JSON string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as string is calling json.stringify with v    # {"a":1,"b":[2,3]}
+## ```
+weave stringify with v as JsonValue into string:
+    return calling stringify_with with v, (calling default_serialize_options)
+
+## Serializes `v` with `indent` spaces per nesting level.
+##
+## ## Parámetros
+## - `v`: the value. Borrowed.
+## - `indent`: spaces per level (`0` is compact).
+##
+## ## Retorno
+## An owned pretty JSON string; release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var s as string is calling json.stringify_pretty with v, 2
+## ```
+weave stringify_pretty with v as JsonValue, indent as int into string:
+    var opts as SerializeOptions is calling default_serialize_options
+    set opts.indent is indent
+    set opts.compact_separators is false
+    return calling stringify_with with v, opts
+
+## True when the tree contains a `NaN` or an infinity.
+##
+## ## Parámetros
+## - `v`: the value to scan. Borrowed.
+##
+## ## Retorno
+## `true` when any float is non-finite.
+weave _has_non_finite with v as JsonValue into bool:
+    var found as bool is false
+    var ignored as int is judge v:
+        when Float with value ->
+            if not calling _json_is_finite with value:
+                set found is true
+            0
+        when Arr with items ->
+            for item in items:
+                if calling _has_non_finite with item:
+                    set found is true
+            0
+        when Obj with entries ->
+            for e in entries:
+                if calling _has_non_finite with e.value:
+                    set found is true
+            0
+        else ->
+            0
+    return found
+
+## Serializes `v`, returning an error instead of panicking on a non-finite float.
+##
+## ## Parámetros
+## - `v`: the value. Borrowed.
+## - `opts`: serializer options. `allow_nan` still opts in to emitting them.
+##
+## ## Retorno
+## `ok string` (owned) or `err JsonError` with `InvalidNumber`.
+weave try_stringify with v as JsonValue, opts as SerializeOptions into result of string to JsonError:
+    if not opts.allow_nan and calling _has_non_finite with v:
+        var msg as string is "non-finite float cannot be serialized as JSON"
+        var e as JsonError is with kind is JsonErrorKind.InvalidNumber, message is msg, line is 0, col is 0, offset is 0
+        return calling err_of with e
+    var text as string is calling stringify_with with v, opts
+    return calling ok_of with text
+
+# ----------------------------------------------------------------------------
+# Deep merge
+# ----------------------------------------------------------------------------
+
+## Recursively merges `overlay` into `base`, returning a new value.
+##
+## Object members merge recursively when both sides are objects; otherwise the
+## overlay value wins. The inputs are never modified.
+##
+## ## Parámetros
+## - `base`: the starting value. Borrowed.
+## - `overlay`: the value applied on top. Borrowed.
+##
+## ## Retorno
+## A new tree. Release it with `banish`.
+##
+## ## Ejemplo
+## ```pengu
+## var merged as JsonValue is calling json.deep_merge with defaults, user_config
+## defer banish merged
+## ```
+weave deep_merge with base as JsonValue, overlay as JsonValue into JsonValue:
+    var out as JsonValue is calling base.clone
+    if not calling base.is_object or not calling overlay.is_object:
+        banish out
+        return calling overlay.clone
+    var ignored as int is judge overlay:
+        when Obj with entries ->
+            for e in entries:
+                var existing as maybe JsonValue is calling out.get with e.key
+                if existing.is_present:
+                    var oldv as JsonValue is existing.value
+                    calling _json_drop_maybe with (sigil of existing)
+                    let ev is e.value
+                    if calling oldv.is_object and calling ev.is_object:
+                        var merged as JsonValue is calling deep_merge with oldv, ev
+                        calling out.put_json with e.key, merged
+                    else:
+                        calling out.put_json with e.key, (calling _json_clone_value with ev)
+                    banish oldv
+                else:
+                    calling _json_drop_maybe with (sigil of existing)
+                    calling out.put_json with e.key, (calling _json_clone_value with e.value)
+            0
+        else ->
+            0
+    return out
+
+# ----------------------------------------------------------------------------
+# JSON Schema subset
+# ----------------------------------------------------------------------------
+
+## True when `v` matches one JSON Schema `type` name.
+##
+## ## Parámetros
+## - `v`: the value. Borrowed.
+## - `name`: `null`, `boolean`, `object`, `array`, `string`, `number` or
+##   `integer`.
+##
+## ## Retorno
+## `true` for a match; `false` for a mismatch or an unknown name.
+weave _schema_type_matches with v as JsonValue, name as string into bool:
+    if name == "null":
+        return calling v.is_null
+    if name == "boolean":
+        return calling v.is_bool
+    if name == "object":
+        return calling v.is_object
+    if name == "array":
+        return calling v.is_array
+    if name == "string":
+        return calling v.is_string
+    if name == "number":
+        return calling v.is_number
+    if name == "integer":
+        return calling v.is_int
+    return false
+
+## Pushes one schema error, formatting the path and detail.
+##
+## ## Parámetros
+## - `out`: accumulator. Mutated.
+## - `path`: JSON-path-style location.
+## - `detail`: the problem.
+##
+## ## Retorno
+## The same accumulator, with one owned string appended.
+weave _schema_push with out as list of string, path as string, detail as string into list of string:
+    var acc as list of string is out
+    var msg as string is "{path}: {detail}"
+    calling acc.push with msg
+    return acc
+
+## Validates one value against one schema node, appending errors.
+##
+## ## Parámetros
+## - `v`: the value. Borrowed.
+## - `schema`: the schema node. Borrowed.
+## - `path`: JSON-path-style location used in messages.
+## - `out`: accumulator.
+##
+## ## Retorno
+## The accumulator, with zero or more owned messages appended.
+weave _schema_check with v as JsonValue, schema as JsonValue, path as string, out as list of string into list of string:
+    var acc as list of string is out
+    if not calling schema.is_object:
+        return acc
+
+    # type
+    var ok as bool is false
+    var tv as maybe JsonValue is calling schema.get with "type"
+    if tv.is_present:
+        var typev as JsonValue is tv.value
+        if calling typev.is_string:
+            var tn as maybe string is calling typev.as_string
+            if tn.is_present:
+                set ok is calling _schema_type_matches with v, tn.value
+            banish tn
+        else if calling typev.is_array:
+            var items as maybe list of JsonValue is calling typev.as_array
+            if items.is_present:
+                for t in items.value:
+                    if calling t.is_string:
+                        var tn2 as maybe string is calling t.as_string
+                        if tn2.is_present and calling _schema_type_matches with v, tn2.value:
+                            set ok is true
+                        banish tn2
+                calling free_values with items.value
+            calling _json_drop_maybe_values with (sigil of items)
+        banish typev
+    calling _json_drop_maybe with (sigil of tv)
+    if tv.is_present and not ok:
+        set acc is calling _schema_push with acc, path, "type mismatch"
+
+    # const
+    var cv as maybe JsonValue is calling schema.get with "const"
+    if cv.is_present:
+        var cval as JsonValue is cv.value
+        if not calling v.equals with cval:
+            set acc is calling _schema_push with acc, path, "must equal the const value"
+        banish cval
+    calling _json_drop_maybe with (sigil of cv)
+
+    # enum
+    var ev as maybe JsonValue is calling schema.get with "enum"
+    if ev.is_present:
+        var evalue as JsonValue is ev.value
+        if calling evalue.is_array:
+            var members as maybe list of JsonValue is calling evalue.as_array
+            var match as bool is false
+            if members.is_present:
+                for m in members.value:
+                    if calling v.equals with m:
+                        set match is true
+                calling free_values with members.value
+            calling _json_drop_maybe_values with (sigil of members)
+            if not match:
+                set acc is calling _schema_push with acc, path, "value is not in the enum"
+        banish evalue
+    calling _json_drop_maybe with (sigil of ev)
+
+    # numeric bounds
+    var minv as maybe JsonValue is calling schema.get with "minimum"
+    if minv.is_present:
+        var mv as JsonValue is minv.value
+        var mnum as maybe f64 is calling mv.as_number
+        var vnum as maybe f64 is calling v.as_number
+        if mnum.is_present and vnum.is_present and vnum.value < mnum.value:
+            set acc is calling _schema_push with acc, path, "number is below the minimum"
+        banish mnum
+        banish vnum
+        banish mv
+    calling _json_drop_maybe with (sigil of minv)
+    var maxv as maybe JsonValue is calling schema.get with "maximum"
+    if maxv.is_present:
+        var xv as JsonValue is maxv.value
+        var xnum as maybe f64 is calling xv.as_number
+        var ynum as maybe f64 is calling v.as_number
+        if xnum.is_present and ynum.is_present and ynum.value > xnum.value:
+            set acc is calling _schema_push with acc, path, "number is above the maximum"
+        banish xnum
+        banish ynum
+        banish xv
+    calling _json_drop_maybe with (sigil of maxv)
+
+    # string length (bytes) and array size
+    var slv as maybe JsonValue is calling schema.get with "minLength"
+    if slv.is_present and calling v.is_string:
+        var lv as JsonValue is slv.value
+        var lnum as maybe i64 is calling lv.as_int
+        var sv as maybe string is calling v.as_string
+        if lnum.is_present and sv.is_present and (sv.value length) < (lnum.value to int):
+            set acc is calling _schema_push with acc, path, "string is shorter than minLength"
+        banish lnum
+        banish sv
+        banish lv
+    calling _json_drop_maybe with (sigil of slv)
+    var xlv as maybe JsonValue is calling schema.get with "maxLength"
+    if xlv.is_present and calling v.is_string:
+        var lv2 as JsonValue is xlv.value
+        var lnum2 as maybe i64 is calling lv2.as_int
+        var sv2 as maybe string is calling v.as_string
+        if lnum2.is_present and sv2.is_present and (sv2.value length) > (lnum2.value to int):
+            set acc is calling _schema_push with acc, path, "string is longer than maxLength"
+        banish lnum2
+        banish sv2
+        banish lv2
+    calling _json_drop_maybe with (sigil of xlv)
+
+    var miniv as maybe JsonValue is calling schema.get with "minItems"
+    if miniv.is_present and calling v.is_array:
+        var iv as JsonValue is miniv.value
+        var inum as maybe i64 is calling iv.as_int
+        if inum.is_present and calling v.array_len < (inum.value to int):
+            set acc is calling _schema_push with acc, path, "array is shorter than minItems"
+        banish inum
+        banish iv
+    calling _json_drop_maybe with (sigil of miniv)
+    var maxiv as maybe JsonValue is calling schema.get with "maxItems"
+    if maxiv.is_present and calling v.is_array:
+        var iv2 as JsonValue is maxiv.value
+        var inum2 as maybe i64 is calling iv2.as_int
+        if inum2.is_present and calling v.array_len > (inum2.value to int):
+            set acc is calling _schema_push with acc, path, "array is longer than maxItems"
+        banish inum2
+        banish iv2
+    calling _json_drop_maybe with (sigil of maxiv)
+
+    # required + properties + additionalProperties
+    var props as maybe JsonValue is calling schema.get with "properties"
+    var has_props as bool is props.is_present
+    if has_props:
+        var propv as JsonValue is props.value
+        if calling propv.is_object and calling v.is_object:
+            var preg as maybe JsonValue is calling schema.get with "required"
+            if preg.is_present:
+                var reqv as JsonValue is preg.value
+                if calling reqv.is_array:
+                    var reqs as maybe list of JsonValue is calling reqv.as_array
+                    if reqs.is_present:
+                        for r in reqs.value:
+                            var rname as maybe string is calling r.as_string
+                            if rname.is_present and not calling v.has_key with rname.value:
+                                var detail as string is "missing required property '{rname.value}'"
+                                set acc is calling _schema_push with acc, path, detail
+                                banish detail
+                            banish rname
+                        calling free_values with reqs.value
+                    calling _json_drop_maybe_values with (sigil of reqs)
+                banish reqv
+            calling _json_drop_maybe with (sigil of preg)
+            var pents as maybe list of JsonEntry is calling propv.as_object
+            if pents.is_present:
+                for pe in pents.value:
+                    var sub as maybe JsonValue is calling v.get with pe.key
+                    if sub.is_present:
+                        var subv as JsonValue is sub.value
+                        var child_path as string is "{path}.{pe.key}"
+                        set acc is calling _schema_check with subv, pe.value, child_path, acc
+                        banish child_path
+                        banish subv
+                    calling _json_drop_maybe with (sigil of sub)
+                calling free_entries with pents.value
+            calling _json_drop_maybe_entries with (sigil of pents)
+            var addv as maybe JsonValue is calling schema.get with "additionalProperties"
+            if addv.is_present:
+                var ap as JsonValue is addv.value
+                if calling ap.is_bool:
+                    var allow as maybe bool is calling ap.as_bool
+                    if allow.is_present and not allow.value:
+                        var names as list of string is calling propv.keys
+                        var entries as maybe list of JsonEntry is calling v.as_object
+                        if entries.is_present:
+                            for ve in entries.value:
+                                var known as bool is false
+                                for kn in names:
+                                    if kn == ve.key:
+                                        set known is true
+                                if not known:
+                                    var detail2 as string is "unexpected property '{ve.key}'"
+                                    set acc is calling _schema_push with acc, path, detail2
+                                    banish detail2
+                            calling free_entries with entries.value
+                        calling _json_drop_maybe_entries with (sigil of entries)
+                        calling free_strings with names
+                    banish allow
+                banish ap
+            calling _json_drop_maybe with (sigil of addv)
+        banish propv
+    calling _json_drop_maybe with (sigil of props)
+
+    # items
+    var itemsv as maybe JsonValue is calling schema.get with "items"
+    if itemsv.is_present and calling v.is_array:
+        var item_schema as JsonValue is itemsv.value
+        var elems as maybe list of JsonValue is calling v.as_array
+        if elems.is_present:
+            var idx as int is 0
+            for el in elems.value:
+                var child2 as string is "{path}[{idx}]"
+                if calling item_schema.is_array:
+                    var tuple as maybe list of JsonValue is calling item_schema.as_array
+                    if tuple.is_present and idx < tuple.value.len:
+                        set acc is calling _schema_check with el, (tuple.value at idx), child2, acc
+                    calling _json_drop_maybe_values with (sigil of tuple)
+                else:
+                    set acc is calling _schema_check with el, item_schema, child2, acc
+                banish child2
+                set idx is idx + 1
+            calling free_values with elems.value
+        calling _json_drop_maybe_values with (sigil of elems)
+        banish item_schema
+    calling _json_drop_maybe with (sigil of itemsv)
+
+    # allOf / anyOf / oneOf
+    set acc is calling _schema_combinator with v, schema, "allOf", path, acc
+    set acc is calling _schema_combinator with v, schema, "anyOf", path, acc
+    set acc is calling _schema_combinator with v, schema, "oneOf", path, acc
+    return acc
+
+## Applies one `allOf`/`anyOf`/`oneOf` combinator, if present.
+##
+## ## Parámetros
+## - `v`, `schema`, `keyword`, `path`: the value, schema node, keyword and path.
+## - `out`: accumulator.
+##
+## ## Retorno
+## The accumulator, with one message when the combinator fails.
+weave _schema_combinator with v as JsonValue, schema as JsonValue, keyword as string, path as string, out as list of string into list of string:
+    var acc as list of string is out
+    var kv as maybe JsonValue is calling schema.get with keyword
+    if not kv.is_present:
+        calling _json_drop_maybe with (sigil of kv)
+        return acc
+    var branchv as JsonValue is kv.value
+    calling _json_drop_maybe with (sigil of kv)
+    if not calling branchv.is_array:
+        banish branchv
+        return acc
+    var branches as maybe list of JsonValue is calling branchv.as_array
+    banish branchv
+    if not branches.is_present:
+        calling _json_drop_maybe_values with (sigil of branches)
+        return acc
+    var matched as int is 0
+    for b in branches.value:
+        var tmp as list of string is list of string
+        set tmp is calling _schema_check with v, b, path, tmp
+        if tmp.len == 0:
+            set matched is matched + 1
+        calling free_strings with tmp
+    var branch_count as int is branches.value.len
+    calling free_values with branches.value
+    calling _json_drop_maybe_values with (sigil of branches)
+    if keyword == "allOf":
+        if matched != branch_count:
+            set acc is calling _schema_push with acc, path, "allOf branch failed"
+    else if keyword == "anyOf":
+        if matched == 0:
+            set acc is calling _schema_push with acc, path, "no anyOf branch matched"
+    else:
+        if matched != 1:
+            set acc is calling _schema_push with acc, path, "oneOf requires exactly one matching branch"
+    return acc
+
+## Validates `v` against a JSON Schema (a practical subset).
+##
+## Supported keywords: `type`, `const`, `enum`, `minimum`, `maximum`,
+## `minLength`, `maxLength`, `minItems`, `maxItems`, `required`, `properties`,
+## `additionalProperties` (boolean `false`), `items` (schema or tuple array),
+## `allOf`, `anyOf`, `oneOf`.
+##
+## ## Parámetros
+## - `v`: the value to validate. Borrowed.
+## - `schema`: the schema document. Borrowed.
+##
+## ## Retorno
+## A `list of string` of human-readable errors (`"$..."` paths); empty when the
+## value is valid. Release it with `free_strings`.
+##
+## ## Ejemplo
+## ```pengu
+## var schema as JsonValue is (calling json.parse with r"""{"type":"object","required":["name"]}""") or:
+##     return 1
+## var errs as list of string is calling json.validate_schema with v, schema
+## if errs.len > 0:
+##     calling spark.println with (errs at 0)
+## calling json.free_strings with errs
+## ```
+weave validate_schema with v as JsonValue, schema as JsonValue into list of string:
+    var out as list of string is list of string
+    return calling _schema_check with v, schema, "$", out

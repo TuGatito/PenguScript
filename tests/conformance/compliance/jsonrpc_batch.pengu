@@ -1,0 +1,36 @@
+## Batch arrays, including an empty one.
+import std.spark
+import std.json
+import std.jsonrpc as rpc
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave main into int:
+    var text as string is r"""[{"jsonrpc":"2.0","method":"a"},{"jsonrpc":"2.0","id":2,"result":3}]"""
+    var r as result of list of JsonRpcMessage to rpc.JsonRpcParseError is calling rpc.parse_batch with text
+    if not r.is_ok:
+        calling spark.println with "FAIL batch: {r.error.message}"
+        banish r
+        return 1
+    var msgs as list of JsonRpcMessage is calling rpc.take_messages with (sigil of r)
+    calling eq_i with msgs.len, 2, "batch length"
+    let e0 is msgs at 0
+    var s0 as string is calling rpc.encode_message with e0
+    if s0 != r"""{"jsonrpc":"2.0","method":"a"}""":
+        calling spark.println with "FAIL batch element 0"
+    banish s0
+    calling rpc.free_messages with msgs
+    var empty as result of list of JsonRpcMessage to rpc.JsonRpcParseError is calling rpc.parse_batch with "[]"
+    if empty.is_ok:
+        calling spark.println with "FAIL empty batch accepted"
+    else:
+        calling eq_i with empty.error.kind to int, rpc.JsonRpcErrorKind.EmptyBatch to int, "empty batch kind"
+    banish empty
+    var bad as result of list of JsonRpcMessage to rpc.JsonRpcParseError is calling rpc.parse_batch with r"""[{},{"jsonrpc":"2.0","method":"x"}]"""
+    if bad.is_ok:
+        calling spark.println with "FAIL bad batch accepted"
+    banish bad
+    calling spark.println with "OK jsonrpc_batch"
+    return 0

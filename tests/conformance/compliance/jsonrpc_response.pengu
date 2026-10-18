@@ -1,0 +1,34 @@
+## Successful responses and id types.
+import std.spark
+import std.json
+import std.jsonrpc as rpc
+
+weave eq_b with got as bool, name as string into void:
+    if not got:
+        calling spark.println with "FAIL {name}"
+
+weave main into int:
+    var id as JsonRpcId is with String is "req-7"
+    var result as JsonValue is calling json.empty_object
+    calling result.put_json with "ok", (calling JsonValue.bool_val with true)
+    var msg as JsonRpcMessage is calling rpc.response_ok with id, result
+    defer banish msg
+    var text as string is calling rpc.encode_message with msg
+    defer banish text
+    calling eq_b with (text == r"""{"jsonrpc":"2.0","id":"req-7","result":{"ok":true}}"""), "response encoding"
+    var r as result of JsonRpcMessage to rpc.JsonRpcParseError is calling rpc.parse_message with text
+    if r.is_ok:
+        var back as JsonRpcMessage is r.value
+        calling eq_b with (calling back.equals with msg), "roundtrip"
+    else:
+        calling spark.println with "FAIL parse: {r.error.message}"
+    banish r
+    var numeric as result of JsonRpcMessage to rpc.JsonRpcParseError is calling rpc.parse_message with r"""{"jsonrpc":"2.0","id":42,"result":null}"""
+    if numeric.is_ok:
+        var nm as JsonRpcMessage is numeric.value
+        var enc as string is calling rpc.encode_message with nm
+        calling eq_b with (enc == r"""{"jsonrpc":"2.0","id":42,"result":null}"""), "numeric id"
+        banish enc
+    banish numeric
+    calling spark.println with "OK jsonrpc_response"
+    return 0

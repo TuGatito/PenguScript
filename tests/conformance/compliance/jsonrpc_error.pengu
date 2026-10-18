@@ -1,0 +1,62 @@
+## Error objects and the standard codes.
+import std.spark
+import std.json
+import std.jsonrpc as rpc
+
+weave eq_b with got as bool, name as string into void:
+    if not got:
+        calling spark.println with "FAIL {name}"
+    if not got:
+        calling spark.println with "FAIL {name}"
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+
+weave has_text with s as string, needle as string into bool:
+    var n as int is s length
+    var m as int is needle length
+    if m == 0:
+        return true
+    if m > n:
+        return false
+    var hb as ref to frozen byte is bytes of s
+    var nb as ref to frozen byte is bytes of needle
+    var i as int is 0
+    while i + m <= n:
+        var same as bool is true
+        var k as int is 0
+        while k < m and same:
+            if ((hb at (i + k)) to int) != ((nb at k) to int):
+                set same is false
+            set k is k + 1
+        if same:
+            return true
+        set i is i + 1
+    return false
+
+weave main into int:
+    var id as JsonRpcId is with Number is 9
+    var err as JsonRpcError is calling rpc.error_method_not_found with "missing"
+    var msg as JsonRpcMessage is calling rpc.response_error with id, err
+    defer banish msg
+    var text as string is calling rpc.encode_message with msg
+    defer banish text
+    calling eq_b with (calling has_text with text, "\"code\":-32601"), "code on wire"
+    calling eq_b with (calling has_text with text, "\"error\""), "error member"
+    var r as result of JsonRpcMessage to rpc.JsonRpcParseError is calling rpc.parse_message with text
+    if r.is_ok:
+        var back as JsonRpcMessage is r.value
+        calling eq_b with (calling back.equals with msg), "roundtrip"
+    else:
+        calling spark.println with "FAIL parse"
+    banish r
+    var both as result of JsonRpcMessage to rpc.JsonRpcParseError is calling rpc.parse_message with r"""{"jsonrpc":"2.0","id":1,"result":1,"error":{"code":1,"message":"x"}}"""
+    if both.is_ok:
+        calling spark.println with "FAIL both result and error accepted"
+    else:
+        calling eq_i with both.error.kind to int, rpc.JsonRpcErrorKind.InvalidRequest to int, "both rejected"
+    banish both
+    calling spark.println with "OK jsonrpc_error"
+    return 0

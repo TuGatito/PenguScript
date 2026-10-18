@@ -1,0 +1,24 @@
+## Notifications carry no id and expect no response.
+import std.spark
+import std.json
+import std.jsonrpc as rpc
+
+weave eq_b with got as bool, name as string into void:
+    if not got:
+        calling spark.println with "FAIL {name}"
+
+weave main into int:
+    var msg as JsonRpcMessage is calling rpc.notification with "notify", (maybe none)
+    defer banish msg
+    var text as string is calling rpc.encode_message with msg
+    defer banish text
+    calling eq_b with (text == r"""{"jsonrpc":"2.0","method":"notify"}"""), "notification encoding"
+    var r as result of JsonRpcMessage to rpc.JsonRpcParseError is calling rpc.parse_message with text
+    if r.is_ok:
+        var back as JsonRpcMessage is r.value
+        calling eq_b with (calling back.equals with msg), "roundtrip"
+    else:
+        calling spark.println with "FAIL parse"
+    banish r
+    calling spark.println with "OK jsonrpc_notification"
+    return 0

@@ -1,0 +1,56 @@
+## RFC 6901: empty pointer, "/", escapes, array indices.
+import std.spark
+import std.json
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave main into int:
+    var r as result of JsonValue to json.JsonError is calling json.parse with r"""{"a/b":1,"":2,"foo":{"bar":[10,20]}}"""
+    if not r.is_ok:
+        calling spark.println with "FAIL parse"
+        banish r
+        return 1
+    var root as JsonValue is r.value
+    var self_opt as maybe JsonValue is calling root.pointer with ""
+    if not self_opt.is_present:
+        calling spark.println with "FAIL empty pointer"
+    else:
+        var self_v as JsonValue is calling json.take_value with (sigil of self_opt)
+        calling eq_i with (calling self_v.object_len), 3, "empty pointer object"
+        banish self_v
+    var slash as JsonValue is calling json.get_or_null with root, ""
+    var si as maybe i64 is calling slash.as_int
+    calling eq_i with ((si or else 0) to int), 2, "empty key"
+    banish si
+    banish slash
+    var esc_opt as maybe JsonValue is calling root.pointer with "/a~1b"
+    if esc_opt.is_present:
+        var ev as JsonValue is calling json.take_value with (sigil of esc_opt)
+        var ei as maybe i64 is calling ev.as_int
+        calling eq_i with ((ei or else 0) to int), 1, "escape token"
+        banish ei
+        banish ev
+    else:
+        calling spark.println with "FAIL escape pointer"
+    var nested_opt as maybe JsonValue is calling root.pointer with "/foo/bar/1"
+    if nested_opt.is_present:
+        var nv as JsonValue is calling json.take_value with (sigil of nested_opt)
+        var ni as maybe i64 is calling nv.as_int
+        calling eq_i with ((ni or else 0) to int), 20, "array token"
+        banish ni
+        banish nv
+    else:
+        calling spark.println with "FAIL nested pointer"
+    var bad as maybe JsonValue is calling root.pointer with "/foo/bar/01"
+    if bad.is_present:
+        calling spark.println with "FAIL leading zero rejected"
+    var missing as maybe JsonValue is calling root.pointer with "/nope"
+    if missing.is_present:
+        calling spark.println with "FAIL missing rejected"
+    banish missing
+    banish bad
+    banish r
+    calling spark.println with "OK json_pointer"
+    return 0

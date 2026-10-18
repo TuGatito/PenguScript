@@ -1,0 +1,38 @@
+## validate and validate_schema.
+import std.spark
+import std.json
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave main into int:
+    var ok as result of void to json.JsonError is calling json.validate with r"""[1,{"x":true}]"""
+    if not ok.is_ok:
+        calling spark.println with "FAIL validate"
+    banish ok
+    var bad as result of void to json.JsonError is calling json.validate with "[1,]"
+    if bad.is_ok:
+        calling spark.println with "FAIL invalid accepted"
+    banish bad
+    var schema_r as result of JsonValue to json.JsonError is calling json.parse with r"""{"type":"object","required":["name","age"],"properties":{"name":{"type":"string"},"age":{"type":"integer","minimum":0}},"additionalProperties":false}"""
+    var value_r as result of JsonValue to json.JsonError is calling json.parse with r"""{"name":"pengu","age":3}"""
+    if schema_r.is_ok and value_r.is_ok:
+        var errors as list of string is calling json.validate_schema with value_r.value, schema_r.value
+        calling eq_i with errors.len, 0, "valid schema"
+        calling json.free_strings with errors
+    else:
+        calling spark.println with "FAIL schema parse"
+    banish schema_r
+    banish value_r
+    var bad_r as result of JsonValue to json.JsonError is calling json.parse with r"""{"age":"x","extra":1}"""
+    var schema2 as result of JsonValue to json.JsonError is calling json.parse with r"""{"type":"object","required":["name"],"properties":{"name":{"type":"string"},"age":{"type":"integer"}},"additionalProperties":false}"""
+    if bad_r.is_ok and schema2.is_ok:
+        var errors2 as list of string is calling json.validate_schema with bad_r.value, schema2.value
+        if errors2.len < 2:
+            calling spark.println with "FAIL expected at least 2 schema errors, got {errors2.len}"
+        calling json.free_strings with errors2
+    banish bad_r
+    banish schema2
+    calling spark.println with "OK json_validate_schema"
+    return 0

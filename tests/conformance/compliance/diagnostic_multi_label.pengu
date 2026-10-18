@@ -1,0 +1,48 @@
+## Two labels on the same line get one marker row each.
+import std.spark
+import std.diagnostic as diag
+
+weave eq_b with got as bool, name as string into void:
+    if not got:
+        calling spark.println with "FAIL {name}"
+
+
+weave has_text with s as string, needle as string into bool:
+    var n as int is s length
+    var m as int is needle length
+    if m == 0:
+        return true
+    if m > n:
+        return false
+    var hb as ref to frozen byte is bytes of s
+    var nb as ref to frozen byte is bytes of needle
+    var i as int is 0
+    while i + m <= n:
+        var same as bool is true
+        var k as int is 0
+        while k < m and same:
+            if ((hb at (i + k)) to int) != ((nb at k) to int):
+                set same is false
+            set k is k + 1
+        if same:
+            return true
+        set i is i + 1
+    return false
+
+weave main into int:
+    var bag as DiagnosticBag is calling DiagnosticBag.new
+    defer banish bag
+    calling bag.add_source with "m.pengu", "let total is a + b\n"
+    var s1 as Span is calling diag.span_from_positions with "m.pengu", 1, 14, 1, 15, 13, 14
+    var s2 as Span is calling diag.span_from_positions with "m.pengu", 1, 18, 1, 19, 17, 18
+    var ls as list of Label is list of Label
+    calling ls.push with (calling diag.label with s1, "left operand", true)
+    calling ls.push with (calling diag.label with s2, "right operand", false)
+    calling bag.add with (calling diag.diagnostic with diag.Severity.Warning, "W01", "operands have different units", ls, (maybe none), (maybe none), (calling diag.no_related))
+    var text as string is calling bag.render_plain
+    defer banish text
+    calling eq_b with (calling has_text with text, "^ left operand"), "primary marker"
+    calling eq_b with (calling has_text with text, "- right operand"), "secondary marker"
+    calling eq_b with (bag.warning_count == 1), "warning count"
+    calling spark.println with "OK diagnostic_multi_label"
+    return 0

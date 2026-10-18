@@ -1,0 +1,52 @@
+## Every parser error is a `result` error with a position.
+import std.spark
+import std.json
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave fails with text as string, kind as json.JsonErrorKind, name as string into void:
+    var r as result of JsonValue to json.JsonError is calling json.parse with text
+    if r.is_ok:
+        calling spark.println with "FAIL {name}: expected an error"
+    else:
+        if r.error.kind != kind:
+            calling spark.println with "FAIL {name}: wrong kind"
+        if r.error.line < 1 or r.error.col < 1:
+            calling spark.println with "FAIL {name}: bad position"
+    banish r
+
+weave main into int:
+    calling fails with "", json.JsonErrorKind.UnexpectedEof, "empty"
+    calling fails with "01", json.JsonErrorKind.InvalidNumber, "leading zero"
+    calling fails with "1.", json.JsonErrorKind.InvalidNumber, "trailing dot"
+    calling fails with ".5", json.JsonErrorKind.UnexpectedChar, "leading dot"
+    calling fails with "9223372036854775808", json.JsonErrorKind.IntegerOverflow, "overflow"
+    calling fails with "-9223372036854775809", json.JsonErrorKind.IntegerOverflow, "underflow"
+    calling fails with "\"\\uD83D\"", json.JsonErrorKind.InvalidUnicode, "unpaired surrogate"
+    calling fails with "\"\\x41\"", json.JsonErrorKind.InvalidEscape, "bad escape"
+    calling fails with "\"a\u0001b\"", json.JsonErrorKind.InvalidString, "control"
+    calling fails with r"""["a":1]""", json.JsonErrorKind.UnexpectedChar, "bad array"
+    calling fails with r"""{"a" 1}""", json.JsonErrorKind.UnexpectedChar, "missing colon"
+    calling fails with r"""{"a":1} extra""", json.JsonErrorKind.TrailingCharacters, "trailing"
+    calling fails with "NaN", json.JsonErrorKind.UnexpectedChar, "NaN strict"
+    calling fails with "[1,2,]", json.JsonErrorKind.UnexpectedChar, "trailing comma"
+    # build a 1001-deep array without a literal
+    var i as int is 0
+    var sb as StringBuilder is calling StringBuilder.new
+    while i < 1001:
+        calling sb.append_char with '['
+        set i is i + 1
+    var s as string is calling sb.finish
+    var r as result of JsonValue to json.JsonError is calling json.parse with s
+    if r.is_ok:
+        calling spark.println with "FAIL depth: expected an error"
+    else:
+        if r.error.kind != json.JsonErrorKind.DepthExceeded:
+            calling spark.println with "FAIL depth: wrong kind"
+    banish r
+    banish s
+    banish sb
+    calling spark.println with "OK json_parse_errors"
+    return 0

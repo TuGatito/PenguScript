@@ -1,0 +1,75 @@
+## Content-Length framing over a buffer.
+import std.spark
+import std.json
+import std.jsonrpc as rpc
+
+weave eq_b with got as bool, name as string into void:
+    if not got:
+        calling spark.println with "FAIL {name}"
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+
+weave has_text with s as string, needle as string into bool:
+    var n as int is s length
+    var m as int is needle length
+    if m == 0:
+        return true
+    if m > n:
+        return false
+    var hb as ref to frozen byte is bytes of s
+    var nb as ref to frozen byte is bytes of needle
+    var i as int is 0
+    while i + m <= n:
+        var same as bool is true
+        var k as int is 0
+        while k < m and same:
+            if ((hb at (i + k)) to int) != ((nb at k) to int):
+                set same is false
+            set k is k + 1
+        if same:
+            return true
+        set i is i + 1
+    return false
+
+weave main into int:
+    var id as JsonRpcId is with Number is 5
+    var params as JsonValue is calling json.empty_array
+    calling params.push_json with (calling JsonValue.string_val with "ñ")
+    var msg as JsonRpcMessage is calling rpc.request with id, "echo", (some params)
+    var wire as string is calling rpc.encode_framed with msg
+    defer banish wire
+    calling eq_b with (calling has_text with wire, "Content-Length: "), "header"
+    var r as result of rpc.FramedDecode to rpc.JsonRpcParseError is calling rpc.decode_framed_bytes with wire
+    if not r.is_ok:
+        calling spark.println with "FAIL decode: {r.error.message}"
+        banish r
+        banish msg
+        return 1
+    var frame as rpc.FramedDecode is r.value
+    calling eq_i with frame.consumed, wire length, "consumed"
+    if frame.message.is_present:
+        var back as JsonRpcMessage is frame.message.value
+        calling eq_b with (calling back.equals with msg), "roundtrip"
+    else:
+        calling spark.println with "FAIL no message"
+    banish r
+    var partial as result of rpc.FramedDecode to rpc.JsonRpcParseError is calling rpc.decode_framed_bytes with "Content-Length: 100\r\n\r\nnull"
+    if partial.is_ok:
+        var pf as rpc.FramedDecode is partial.value
+        calling eq_i with pf.consumed, 0, "partial consumed"
+        calling eq_b with (not pf.message.is_present), "partial no message"
+    else:
+        calling spark.println with "FAIL partial"
+    banish partial
+    var bad as result of rpc.FramedDecode to rpc.JsonRpcParseError is calling rpc.decode_framed_bytes with "Bad: 1\r\n\r\nnull"
+    if bad.is_ok:
+        calling spark.println with "FAIL bad header accepted"
+    else:
+        calling eq_i with bad.error.kind to int, rpc.JsonRpcErrorKind.FramingError to int, "framing kind"
+    banish bad
+    banish msg
+    calling spark.println with "OK jsonrpc_framed"
+    return 0

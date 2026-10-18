@@ -1,0 +1,50 @@
+## Parse every primitive and check its variant.
+import std.spark
+import std.json
+
+weave eq_b with got as bool, name as string into void:
+    if not got:
+        calling spark.println with "FAIL {name}"
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave check with text as string, expected as string into void:
+    var r as result of JsonValue to json.JsonError is calling json.parse with text
+    if not r.is_ok:
+        calling spark.println with "FAIL parse {text}: {r.error.message}"
+        banish r
+        return
+    var v as JsonValue is r.value
+    calling eq_b with (calling v.type_name == expected), expected
+    banish r
+
+weave main into int:
+    calling check with "null", "null"
+    calling check with "true", "bool"
+    calling check with "42", "int"
+    calling check with "-7", "int"
+    calling check with "3.14", "float"
+    calling check with "1e10", "float"
+    calling check with "1.0", "float"
+    calling check with "\"hello\"", "string"
+    var r as result of JsonValue to json.JsonError is calling json.parse with "\"a\\nb\\u0041\\uD83D\\uDE00\""
+    if r.is_ok:
+        var v as JsonValue is r.value
+        var s as maybe string is calling v.as_string
+        var text as string is calling json.take_string with (sigil of s)
+        calling eq_i with (text length), 8, "decoded length"
+        banish text
+    else:
+        calling spark.println with "FAIL escape parse"
+    banish r
+    var big as result of JsonValue to json.JsonError is calling json.parse with "9223372036854775807"
+    if big.is_ok:
+        var bv as JsonValue is big.value
+        var bi as maybe i64 is calling bv.as_int
+        calling eq_b with ((bi or else 0) == 9223372036854775807), "i64 max"
+        banish bi
+    banish big
+    calling spark.println with "OK json_parse_primitives"
+    return 0

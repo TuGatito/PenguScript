@@ -1,0 +1,38 @@
+## Objects: insertion order, duplicates (last wins), has_key.
+import std.spark
+import std.json
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave main into int:
+    var r as result of JsonValue to json.JsonError is calling json.parse with r"""{"b":1,"a":2,"b":3}"""
+    if not r.is_ok:
+        calling spark.println with "FAIL parse: {r.error.message}"
+        banish r
+        return 1
+    var root as JsonValue is r.value
+    calling eq_i with (calling root.object_len), 2, "duplicate collapsed"
+    if not calling root.has_key with "b":
+        calling spark.println with "FAIL has b"
+    if not calling root.has_key with "a":
+        calling spark.println with "FAIL has a"
+    var bs as JsonValue is calling json.get_or_null with root, "b"
+    var bi as maybe i64 is calling bs.as_int
+    calling eq_i with ((bi or else 0) to int), 3, "last duplicate wins"
+    banish bi
+    banish bs
+    var keys as list of string is calling root.keys
+    calling eq_i with (keys.len), 2, "keys len"
+    if (keys at 0) != "b":
+        calling spark.println with "FAIL insertion order"
+    calling json.free_strings with keys
+    var empty as result of JsonValue to json.JsonError is calling json.parse with r"{}"
+    if empty.is_ok:
+        var ev as JsonValue is empty.value
+        calling eq_i with (calling ev.object_len), 0, "empty object"
+    banish empty
+    banish r
+    calling spark.println with "OK json_parse_objects"
+    return 0

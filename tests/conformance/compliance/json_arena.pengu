@@ -1,0 +1,37 @@
+## parse_in_arena: one `banish arena` releases the whole document.
+import std.spark
+import std.json
+import std.arena
+
+weave eq_i with got as int, want as int, name as string into void:
+    if got != want:
+        calling spark.println with "FAIL {name}: {got} != {want}"
+
+weave main into int:
+    var a as Arena is calling Arena.new
+    defer calling a.free
+    defer banish a
+    var r as result of JsonValue to json.JsonError is calling json.parse_in_arena with r"""{"a":[1,2],"b":"hola"}""", (sigil of a)
+    if not r.is_ok:
+        calling spark.println with "FAIL parse: {r.error.message}"
+        banish r
+        return 1
+    var root as JsonValue is r.value
+    var p as maybe JsonValue is calling root.pointer with "/a/1"
+    if not p.is_present:
+        calling spark.println with "FAIL pointer"
+    else:
+        var pv as JsonValue is calling json.take_value with (sigil of p)
+        var pi as maybe i64 is calling pv.as_int
+        calling eq_i with ((pi or else 0) to int), 2, "arena value"
+        banish pi
+        banish pv
+    var s as string is calling json.stringify with root
+    var expected as string is r"""{"a":[1,2],"b":"hola"}"""
+    if s != expected:
+        calling spark.println with "FAIL stringify: {s}"
+    banish s
+    banish root
+    calling json.discard_result_box with (sigil of r)
+    calling spark.println with "OK json_arena"
+    return 0
