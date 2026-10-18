@@ -179,5 +179,9 @@ declare petitio_response_header_value with response as ref to frozen petitio_res
 # Releases the response and its body/header block. Call once.
 declare petitio_response_free with response as ref to petitio_response into void
 
+# Parses an HTTP date into a Unix timestamp with libcurl's own parser, or -1
+# when the text is not a valid HTTP date.
+declare petitio_parse_http_date with text as string into i64
+
 # libcurl runtime version, for diagnostics ("libcurl/8.22.0"). Owned.
 declare petitio_version into string

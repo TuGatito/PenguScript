@@ -849,6 +849,22 @@ void petitio_response_free(petitio_response *response)
     free(response);
 }
 
+int64_t petitio_parse_http_date(PenguString text)
+{
+    char *copy;
+    time_t when;
+    if (text.data == NULL || text.len <= 0)
+        return -1;
+    copy = petitio_dup_pengu(text);
+    if (copy == NULL)
+        return -1;
+    /* curl_getdate accepts every date format RFC 7231 allows (IMF-fixdate,
+     * obsolete RFC 850 and asctime) and returns -1 when it cannot parse. */
+    when = curl_getdate(copy, NULL);
+    free(copy);
+    return (int64_t)when;
+}
+
 PenguString petitio_version(void)
 {
     curl_version_info_data *info = curl_version_info(CURLVERSION_NOW);

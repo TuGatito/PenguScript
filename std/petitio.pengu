@@ -109,6 +109,7 @@
 
 import std.archivum
 import std.builder
+import std.chronicle
 import std.compass
 import std.ffi
 import std.json
@@ -453,17 +454,50 @@ weave _is_token with s as string into bool:
         set i is i + 1
     return true
 
-## `true` when `s` contains CR or LF (header/cookie injection).
-weave _has_line_break with s as string into bool:
+## `true` when `s` contains a byte that would corrupt a header or cookie line:
+## CR, LF or NUL.
+##
+## CR/LF would inject a second line; NUL truncates the value when the C bridge
+## copies it into libcurl's NUL-terminated header list, silently changing the
+## request. Both are rejected before they reach the wire.
+weave _has_control_byte with s as string into bool:
     var raw as ref to frozen byte is bytes of s
     var i as int is 0
     var n as int is s length
     while i < n:
         var b as int is (raw at i) to int
-        if b == 10 or b == 13:
+        if b == 10 or b == 13 or b == 0:
             return true
         set i is i + 1
     return false
+
+## The byte offset of the first case-insensitive occurrence of `needle` in
+## `haystack`, or `-1`.
+##
+## Used for `Set-Cookie` attribute names, which are case-insensitive while the
+## *values* (dates, paths) must keep their original case for `curl_getdate`.
+weave _find_ci with haystack as string, needle as string into int:
+    var hn as int is haystack length
+    var nn as int is needle length
+    if nn == 0:
+        return 0
+    if nn > hn:
+        return -1
+    var hay as ref to frozen byte is bytes of haystack
+    var pin as ref to frozen byte is bytes of needle
+    var i as int is 0
+    while i + nn <= hn:
+        var j as int is 0
+        var same as bool is true
+        while j < nn:
+            if (calling _lower_byte with ((hay at (i + j)) to int)) != (calling _lower_byte with ((pin at j) to int)):
+                set same is false
+                break
+            set j is j + 1
+        if same:
+            return i
+        set i is i + 1
+    return -1
 
 ## `true` when `b` may appear unescaped in a percent-encoded string
 ## (RFC 3986 `unreserved`: `A-Z a-z 0-9 - . _ ~`).
@@ -516,6 +550,12 @@ weave _flag with value as bool into int:
 ## pair is inserted at a fresh slot: overwriting in place would drop the old
 ## value's buffer (`pengu_map_put` never frees it) and passing a map-owned key
 ## back to `put` is unsafe across a rehash.
+##
+## ## Invariante de iteración
+## `m.remove` only tomb-stones the slot (it never grows or rehashes the table),
+## and the `put` that can rehash runs **after** the loop has exited, so mutating
+## the map from inside the `for` cannot invalidate the iterator. The loop breaks
+## immediately after the match for the same reason.
 weave _put_owned with m as ref to map of string to string, key as string, value as string into void:
     for existing in essence of m:
         if (calling scrolls.compare with existing, key) == 0:
@@ -555,8 +595,8 @@ weave _has_key with m as ref to map of string to string, key as string into bool
 weave _set_header with m as ref to map of string to string, name as string, value as string into void:
     if not calling _is_token with name:
         calling spark.panic with "petitio: invalid header name '{name}': expected an RFC 7230 token"
-    if calling _has_line_break with value:
-        calling spark.panic with "petitio: header '{name}' value contains CR or LF (header injection)"
+    if calling _has_control_byte with value:
+        calling spark.panic with "petitio: header '{name}' value contains CR, LF or NUL (header injection)"
     var key as string is calling scrolls.lower with name
     var stored as string is calling _copy with value
     calling _put_owned with m, key, stored
@@ -1337,21 +1377,23 @@ weave _cookie_value with value as string into string:
         set end is end - 1
     return calling scrolls.substring with value, start, end
 
-## `true` when a `Set-Cookie` value carries `Max-Age=0`, which clears the
-## cookie.
+## `true` when a `Set-Cookie` value clears the cookie.
 ##
-## Date-based expiry (`Expires=...`) is **not** evaluated: a session keeps the
-## cookie until the server clears it with `Max-Age=0`, `Session.remove_cookie`
-## is called, or the process ends. Documented in `docs/PETITIO.md` §"Cookies".
+## A cookie is cleared when `Max-Age` is zero **or negative** (RFC 6265 §5.2.2
+## makes every non-positive delta expire immediately) or, when there is no
+## `Max-Age`, when its `Expires` date is in the past (see
+## `_cookie_expired_by_date`). `Max-Age` wins over `Expires` (§5.3): a one-hour
+## `Max-Age` keeps the cookie even if `Expires` points at 1970.
 ##
-## The attribute is parsed as a number (`Max-Age=0`, `max-age=00`), not by
+## The attribute is parsed as a number (`Max-Age=0`, `max-age=-1`), not by
 ## substring: `Max-Age=01` is a one-second cookie and must not clear anything.
 weave _cookie_cleared with value as string into bool:
     var lower as string is calling scrolls.lower with value
     var at as int is calling scrolls.find with lower, "max-age="
     if at < 0:
         banish lower
-        return false
+        # No Max-Age: `Expires` decides (RFC 6265 §5.3 gives Max-Age priority).
+        return calling _cookie_expired_by_date with value
     var i as int is at + 8
     var n as int is lower length
     var raw as ref to frozen byte is bytes of lower
@@ -1372,10 +1414,42 @@ weave _cookie_cleared with value as string into bool:
         set i is i + 1
     banish lower
     if digits == 0:
-        return false
+        return calling _cookie_expired_by_date with value
+    # Any non-positive Max-Age expires now. `magnitude` is the absolute value,
+    # so the sign is the only thing that matters: `-1` must clear as well.
     if negative:
-        return magnitude <= 0
+        return true
     return magnitude == 0
+
+## `true` when the `Expires` attribute of a `Set-Cookie` value is in the past.
+##
+## The date is parsed by libcurl (`curl_getdate`), which accepts every format
+## RFC 7231 allows. A missing or unparseable `Expires` does not expire anything:
+## only an explicit date at or before "now" clears the cookie.
+##
+## ## Memoria
+## Allocates one lowercase copy and one date substring, both released here.
+weave _cookie_expired_by_date with value as string into bool:
+    # The attribute *name* is case-insensitive, but the date value must keep
+    # its original case: curl_getdate rejects lower-case day and month names.
+    var at as int is calling _find_ci with value, "expires="
+    if at < 0:
+        return false
+    var i as int is at + 8
+    var n as int is value length
+    var raw as ref to frozen byte is bytes of value
+    while i < n and ((raw at i) == 32 or (raw at i) == 9):
+        set i is i + 1
+    var end as int is i
+    while end < n and (raw at end) != 59:
+        set end is end + 1
+    var date as string is calling scrolls.substring with value, i, end
+    var stamp as i64 is calling petitio_parse_http_date with date
+    banish date
+    if stamp < 0:
+        return false
+    var now as i64 is (calling chronicle.time) to i64
+    return stamp <= now
 
 # ----------------------------------------------------------------------------
 # Sessions
@@ -1417,8 +1491,8 @@ enchanting Session:
     weave set_cookie with name as string, value as string into void:
         if not calling _is_token with name:
             calling spark.panic with "petitio: invalid cookie name '{name}'"
-        if (calling _has_line_break with value) or (calling scrolls.contains with value, ";"):
-            calling spark.panic with "petitio: cookie '{name}' value contains ';' or a line break"
+        if (calling _has_control_byte with value) or (calling scrolls.contains with value, ";"):
+            calling spark.panic with "petitio: cookie '{name}' value contains ';', CR, LF or NUL"
         var key as string is calling _copy with name
         var stored as string is calling _copy with value
         calling _put_owned with (sigil of self->_cookies), key, stored
@@ -1428,16 +1502,25 @@ enchanting Session:
         return calling _remove_owned with (sigil of self->_cookies), name
 
     ## Forgets every cookie.
+    ##
+    ## ## Detalles
+    ## The loop removes one cookie per iteration and verifies that the map
+    ## actually shrank. If `_remove_owned` ever failed (a corrupt map, an OOM in
+    ## a key copy), an unguarded `while` would spin forever; the loop breaks
+    ## instead and leaves the remaining entries in place.
     weave clear_cookies into void:
         while self->_cookies.len > 0:
+            var before as int is self->_cookies.len
             var victim as string is ""
             for name in self->_cookies:
                 set victim is (calling _copy with name)
                 break
             if (victim length) == 0:
                 break
-            calling _remove_owned with (sigil of self->_cookies), victim
+            var removed as bool is calling _remove_owned with (sigil of self->_cookies), victim
             banish victim
+            if not removed or self->_cookies.len >= before:
+                break
 
     ## The number of stored cookies.
     weave cookie_count into int:
@@ -1590,3 +1673,182 @@ weave default_user_agent into string:
 ## ```
 weave libcurl_version into string:
     return calling petitio_version
+
+# ----------------------------------------------------------------------------
+# Tests (run with `pengu test --entry std/petitio.pengu`)
+# ----------------------------------------------------------------------------
+#
+# These live inside the module because they exercise private helpers
+# (`_cookie_cleared`, `_cookie_name`, `_is_token`, …) that are deliberately not
+# exported. The public, network-free behaviour is covered by
+# `tests/stdlib/test_petitio.py` and the conformance corpus; the live half lives
+# in `tests/compat/test_petitio_vs_requests.py`.
+
+## Panics with `label` when `cond` is false.
+weave _expect with cond as bool, label as string into void:
+    if not cond:
+        calling spark.panic with "petitio test failed: {label}"
+
+## Panics with `label` when `actual != expected`.
+weave _expect_int with actual as int, expected as int, label as string into void:
+    if actual != expected:
+        calling spark.panic with "petitio test failed: {label}: {actual} != {expected}"
+
+## Panics with `label` when the two strings differ.
+weave _expect_str with actual as string, expected as string, label as string into void:
+    if (calling scrolls.compare with actual, expected) != 0:
+        calling spark.panic with "petitio test failed: {label}: '{actual}' != '{expected}'"
+
+test "Max-Age zero and negative clear the cookie":
+    calling _expect with (calling _cookie_cleared with "sid=x; Max-Age=0"), "Max-Age=0"
+    calling _expect with (calling _cookie_cleared with "sid=x; Max-Age=-1"), "Max-Age=-1"
+    calling _expect with (calling _cookie_cleared with "sid=x; Max-Age=-0"), "Max-Age=-0"
+    calling _expect with (calling _cookie_cleared with "sid=x; max-age=-999"), "negative lower-case"
+
+test "a positive Max-Age keeps the cookie":
+    calling _expect with not (calling _cookie_cleared with "sid=x; Max-Age=1"), "Max-Age=1"
+    calling _expect with not (calling _cookie_cleared with "sid=x; Max-Age=01"), "Max-Age=01"
+    calling _expect with not (calling _cookie_cleared with "sid=x; Max-Age=3600"), "Max-Age=3600"
+
+test "a cookie without Max-Age or Expires stays":
+    calling _expect with not (calling _cookie_cleared with "sid=x; Path=/"), "plain cookie"
+    calling _expect with not (calling _cookie_cleared with "sid=x; Max-Age=abc"), "unparseable Max-Age"
+
+test "Expires in the past clears the cookie":
+    calling _expect with (calling _cookie_cleared with "sid=x; Expires=Thu, 01 Jan 1970 00:00:00 GMT"), "past Expires"
+
+test "Expires in the future keeps the cookie":
+    calling _expect with not (calling _cookie_cleared with "sid=x; Expires=Thu, 01 Jan 2099 00:00:00 GMT"), "future Expires"
+
+test "Max-Age wins over Expires (RFC 6265 5.3)":
+    calling _expect with not (calling _cookie_cleared with "sid=x; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT"), "positive Max-Age beats past Expires"
+    calling _expect with (calling _cookie_cleared with "sid=x; Max-Age=0; Expires=Thu, 01 Jan 2099 00:00:00 GMT"), "zero Max-Age beats future Expires"
+
+test "an unparseable Expires does not clear":
+    calling _expect with not (calling _cookie_cleared with "sid=x; Expires=not-a-date"), "garbage Expires"
+
+test "cookie name/value extraction":
+    var name0 as string is calling _cookie_name with "sid=abc123; Path=/; HttpOnly"
+    calling _expect_str with name0, "sid", "cookie name"
+    banish name0
+    var value0 as string is calling _cookie_value with "sid=abc123; Path=/; HttpOnly"
+    calling _expect_str with value0, "abc123", "cookie value"
+    banish value0
+    var empty_name as string is calling _cookie_name with "=oops"
+    calling _expect_int with (empty_name length), 0, "empty cookie name"
+    banish empty_name
+    var spaced as string is calling _cookie_value with "k=  padded value ; Path=/"
+    calling _expect_str with spaced, "padded value", "trimmed cookie value"
+    banish spaced
+
+test "url_encode and url_decode round-trip":
+    var encoded as string is calling url_encode with "a b&ñ"
+    calling _expect_str with encoded, "a%20b%26%C3%B1", "encoded"
+    var decoded as string is calling url_decode with encoded
+    calling _expect_str with decoded, "a b&ñ", "round trip"
+    banish decoded
+    banish encoded
+    var plus as string is calling url_decode with "a+b"
+    calling _expect_str with plus, "a+b", "plus is not a space"
+    banish plus
+    var broken as string is calling url_decode with "%ZZ%2"
+    calling _expect_str with broken, "%ZZ%2", "malformed escapes preserved"
+    banish broken
+
+test "build_query_string sorts and encodes":
+    var params as map of string to string is map of string to string
+    calling params.put with "z", "1"
+    calling params.put with "a", "2 3"
+    var query as string is calling build_query_string with params
+    calling _expect_str with query, "a=2%203&z=1", "sorted query"
+    banish query
+    banish params
+
+test "parse_url splits an absolute URL":
+    var parsed as result of UrlParts to string is calling parse_url with "https://u:p@h:99/a?b=1#c"
+    calling _expect with parsed.is_ok, "parse_url ok"
+    if parsed.is_ok:
+        var parts as UrlParts is parsed.value
+        calling _expect_str with parts.scheme, "https", "scheme"
+        calling _expect_str with parts.userinfo, "u:p", "userinfo"
+        calling _expect_str with parts.host, "h", "host"
+        calling _expect_int with parts.port, 99, "port"
+        calling _expect_str with parts.path, "/a", "path"
+        calling _expect_str with parts.query, "b=1", "query"
+        calling _expect_str with parts.fragment, "c", "fragment"
+    banish parsed
+    var bad as result of UrlParts to string is calling parse_url with "nope"
+    calling _expect with not bad.is_ok, "parse_url rejects a relative URL"
+    banish bad
+
+test "control bytes and tokens":
+    calling _expect with (calling _has_control_byte with "a\rb"), "CR"
+    calling _expect with (calling _has_control_byte with "a\nb"), "LF"
+    # A NUL literal cannot be built here: string literals are NUL-terminated at
+    # the C boundary. The NUL branch stays as defence in depth for strings that
+    # arrive through `std.ffi.string_from_bytes`.
+    calling _expect with not (calling _has_control_byte with "plain value"), "plain"
+    calling _expect with (calling _is_token with "GET"), "token"
+    calling _expect with (calling _is_token with "X-Custom"), "token with dash"
+    calling _expect with not (calling _is_token with "bad name"), "space is not a token"
+    calling _expect with not (calling _is_token with ""), "empty is not a token"
+
+test "Request defaults and header replacement":
+    var req as Request is calling Request.new with "get", "https://example.com/"
+    calling _expect_str with req.method, "GET", "method upper-cased"
+    calling _expect with req.follow_redirects, "redirects on"
+    calling _expect_int with req.max_redirects, PETITIO_DEFAULT_MAX_REDIRECTS, "redirect limit"
+    calling _expect with req.verify_tls, "TLS on"
+    calling _expect with not req.has_body, "no body"
+    calling req.header with "Content-Type", "text/plain"
+    calling req.header with "content-TYPE", "application/json"
+    calling _expect_int with req.headers.len, 1, "case-insensitive replacement"
+    var ctype as string is calling req.headers.get with "content-type"
+    calling _expect_str with ctype, "application/json", "last value wins"
+    calling _expect with (calling req.has_header with "CONTENT-TYPE"), "has_header is CI"
+    banish req
+
+test "Session cookie jar operations":
+    var session as Session is calling Session.new
+    calling session.set_cookie with "sid", "abc"
+    calling _expect_int with (calling session.cookie_count), 1, "one cookie"
+    calling _expect with (calling session.has_cookie with "sid"), "has sid"
+    var removed as bool is calling session.remove_cookie with "sid"
+    calling _expect with removed, "remove_cookie"
+    calling _expect_int with (calling session.cookie_count), 0, "empty jar"
+    calling session.set_cookie with "a", "1"
+    calling session.set_cookie with "b", "2"
+    calling session.clear_cookies
+    calling _expect_int with (calling session.cookie_count), 0, "clear_cookies"
+    banish session
+
+test "take_response and take_error leave the result banish-safe":
+    var box as result of Response to HttpError is calling ok_of with (calling _empty_response)
+    var moved as Response is calling take_response with (sigil of box)
+    calling _expect_int with moved.status, 0, "moved status"
+    banish moved
+    banish box                          # must be a no-op, not a double free
+
+    var err_box as result of Response to HttpError is calling err_of with (with TlsError is "bad")
+    var error_value as HttpError is calling take_error with (sigil of err_box)
+    var message as string is calling error_value.message
+    calling _expect_str with message, "TLS error: bad", "moved error message"
+    banish message
+    banish error_value
+    banish err_box                      # must be a no-op
+
+## A zeroed `Response`, used by the move tests.
+weave _empty_response into Response:
+    var headers as map of string to string is map of string to string
+    var cookies as map of string to string is map of string to string
+    var cleared as list of string is list of string
+    var response as Response is:
+        status is 0
+        headers is headers
+        body is ""
+        url is ""
+        elapsed_sec is 0.0
+        redirected is false
+        cookies is cookies
+        cleared_cookies is cleared
+    return response

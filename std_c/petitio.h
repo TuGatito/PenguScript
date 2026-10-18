@@ -171,6 +171,10 @@ PenguString petitio_response_header_value(const petitio_response *response,
 /* Releases the response and its body/header block. Call once. */
 void petitio_response_free(petitio_response *response);
 
+/* Parses an HTTP date (`Wed, 21 Oct 2015 07:28:00 GMT`) into a Unix timestamp
+ * with libcurl's own parser, or -1 when the text is not a valid HTTP date. */
+int64_t petitio_parse_http_date(PenguString text);
+
 /* libcurl runtime version, for diagnostics ("libcurl/8.22.0"). Owned. */
 PenguString petitio_version(void);
 

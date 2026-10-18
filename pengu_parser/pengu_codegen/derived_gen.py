@@ -234,16 +234,25 @@ class DerivedGenMixin:
                 forward_decls.append(f"static inline void {c_rune}_nexus(void *p);")
                 forward_decls.append(f"static inline void _pengu_cleanup_{c_rune}(void *elem);")
 
-                lines = [
-                    f"static inline void {body_fn}(void *p) {{",
-                    "  if (!p) return;",
-                    f"  {c_rune} *pt = ({c_rune} *)p;",
-                ]
+                # Only declare the typed pointer when a field actually needs
+                # it. A rune that derives Nexus but owns nothing (every field
+                # is a scalar) used to emit an unused `Pair_int_int *pt`, which
+                # is a -Wunused-variable warning in every consumer bundle.
+                field_stmts = []
                 for f_name, f_type in fields.items():
                     f_c = self._c_ident(f_name)
                     stmt = self._derived_field_nexus(f"pt->{f_c}", f_type)
                     if stmt:
-                        lines.append(f"  {stmt}")
+                        field_stmts.append(f"  {stmt}")
+                lines = [
+                    f"static inline void {body_fn}(void *p) {{",
+                    "  if (!p) return;",
+                ]
+                if field_stmts:
+                    lines.append(f"  {c_rune} *pt = ({c_rune} *)p;")
+                    lines.extend(field_stmts)
+                else:
+                    lines.append("  (void)p;")
                 lines.append("}")
                 lines.append(f"static inline void _pengu_cleanup_{c_rune}(void *elem) {{")
                 lines.append(f"  {c_rune}_nexus(elem);")
