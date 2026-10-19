@@ -117,3 +117,20 @@ def test_a_missing_file_still_reports_the_import_error(lsp, tmp_path):
     lsp.open('import std.this_module_does_not_exist\n\nweave main into int:\n    return 0\n')
 
     assert any("Cannot resolve imported module" in msg for msg in _errors(lsp)), lsp.diagnostics
+
+
+def test_a_brand_new_file_that_is_not_on_disk_resolves_imports(lsp):
+    """A new, never-saved buffer must be checked entirely from memory.
+
+    The server used to materialize a temporary ``.pengu_lsp_shadow_*`` file for
+    this case (which also made the editor's file watcher fire during every
+    validation).  ``entry_source`` + ``module_sources`` cover it directly.
+    """
+    assert not lsp.path.exists()
+
+    lsp._validate(BUFFER)
+
+    assert _errors(lsp) == []
+    assert lsp.symbols is not None
+    main = lsp.symbols.lookup("main")
+    assert main is not None and main.file_path == str(lsp.path)

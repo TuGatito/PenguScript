@@ -10,7 +10,8 @@ import sys
 import threading
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # --- Critical: Force SelectorEventLoopPolicy on Windows ---
 # Python 3.14+ defaults to ProactorEventLoop, which causes hangs with pygls
@@ -30,6 +31,7 @@ from lsprotocol.types import (
     TEXT_DOCUMENT_DID_OPEN,
     TEXT_DOCUMENT_DID_CHANGE,
     TEXT_DOCUMENT_DID_SAVE,
+    TEXT_DOCUMENT_DID_CLOSE,
     TEXT_DOCUMENT_COMPLETION,
     TEXT_DOCUMENT_HOVER,
     TEXT_DOCUMENT_DEFINITION,
@@ -242,6 +244,16 @@ def diagnostics_from_errors(errors: List[PenguError], code: str) -> List[Diagnos
 # runs from once-per-keystroke to once per pause in typing.
 VALIDATION_DEBOUNCE_S = 0.35
 
+#: Identifier and declaration patterns shared by the lint pass. Compiled once:
+#: the lint runs on every validation and must not recompile 400 regexes.
+_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_DOTTED_METHOD_RE = re.compile(r"\.\s*([A-Za-z_][A-Za-z0-9_]*)")
+_IMPORT_LINE_RE = re.compile(
+    r"^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)"
+    r"(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*$"
+)
+_VAR_DECL_RE = re.compile(r"^\s*(?:var|let)\s+([A-Za-z_][A-Za-z0-9_]*)\s")
+
 
 class PenguLanguageServer(LanguageServer):
     """Custom language server subclass storing parsed symbols and document buffers."""
@@ -260,6 +272,11 @@ class PenguLanguageServer(LanguageServer):
         self._validation_cache: Dict[str, Tuple[str, List[Diagnostic]]] = {}
         # Guards _symbols / _docs / _validation_cache against worker threads.
         self._validation_lock = threading.Lock()
+        # Monotonic per-URI counter: a validation that finishes after a newer
+        # edit must not publish its diagnostics or overwrite the symbol table.
+        self._validation_generation: Dict[str, int] = {}
+        #: Latest scheduled validation task per URI (diagnostics + symbols).
+        self._pending_validation: Dict[str, "asyncio.Task[None]"] = {}
 
     def cancel_pending_validation(self, uri: str) -> None:
         """Cancels any scheduled (debounced) validation pending for a URI."""
@@ -348,6 +365,11 @@ server = PenguLanguageServer("pengus-lsp", f"v{_get_version()}")
 _MODULE_CACHE: Dict[str, object] = {}
 
 
+#: Upper bound for the alias -> module scope cache.  Normally a handful of
+#: imports; the bound only matters for a long session spanning many projects.
+_MODULE_CACHE_MAX = 256
+
+
 def _refresh_module_cache(symbols) -> None:
     """Records every resolved import's module_scope into ``_MODULE_CACHE``.
 
@@ -375,6 +397,8 @@ def _refresh_module_cache(symbols) -> None:
                 # Keyed under the import alias (e.g. 'spark' or an explicit
                 # alias from `import std.spark as sp`).
                 _MODULE_CACHE[name] = mod_scope
+    if len(_MODULE_CACHE) > _MODULE_CACHE_MAX:
+        _MODULE_CACHE.clear()
 
 
 #: Cache of ``module file -> methods its ``enchanting`` blocks declare``, keyed
@@ -471,27 +495,28 @@ def _style_warning_diagnostics(source: str, symbols=None) -> List[Diagnostic]:
     # Unused imports: an import is used when its alias (or the last spec
     # segment) appears somewhere outside the import block, or when the document
     # calls one of the methods the module attaches with `enchanting`.
-    called_methods = set(re.findall(r"\.\s*([A-Za-z_][A-Za-z0-9_]*)", source))
+    #
+    # One tokenization pass replaces the previous `re.search` per import line
+    # and `re.findall` over the whole source per local declaration.  That was
+    # quadratic: a 2 000-line buffer spent ~0.5 s per check inside 401
+    # full-source scans (the lint cost more than parsing it).
+    called_methods = set(_DOTTED_METHOD_RE.findall(source))
     global_symbols = getattr(getattr(symbols, "global_scope", None), "symbols", {}) or {}
     import_lines: List[tuple] = []
     for i, line in enumerate(lines):
-        m = re.match(
-            r"^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)"
-            r"(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?\s*$",
-            line,
-        )
+        m = _IMPORT_LINE_RE.match(line)
         if m:
             import_lines.append((i, line, m.group(1), m.group(2)))
     import_idx = {i for i, _, _, _ in import_lines}
+
+    tokens_outside_imports: set = set()
+    for i, line in enumerate(lines):
+        if i not in import_idx:
+            tokens_outside_imports.update(_IDENT_RE.findall(line))
+
     for i, _, spec, alias in import_lines:
         token = alias or spec.split(".")[-1]
-        used = False
-        for j, line in enumerate(lines):
-            if j == i or j in import_idx:
-                continue
-            if re.search(rf"\b{re.escape(token)}\b", line):
-                used = True
-                break
+        used = token in tokens_outside_imports
         if not used and called_methods:
             sym = global_symbols.get(token)
             if called_methods & _enchanting_methods_of(getattr(sym, "file_path", None)):
@@ -499,44 +524,23 @@ def _style_warning_diagnostics(source: str, symbols=None) -> List[Diagnostic]:
         if not used:
             diags.append(_warn(f"Unused import '{spec}'", i, 0, len(lines[i]) if i < len(lines) else 0))
 
-    # Unused local variables.
+    # Unused local variables: the identifier occurs exactly once in the file,
+    # i.e. only in its own declaration.  A single Counter is enough for every
+    # declaration, so the cost no longer grows with (declarations × file size).
+    token_counts: Dict[str, int] = {}
+    for token in _IDENT_RE.findall(source):
+        token_counts[token] = token_counts.get(token, 0) + 1
     for i, line in enumerate(lines):
-        m = re.match(r"^\s*(?:var|let)\s+([A-Za-z_][A-Za-z0-9_]*)\s", line)
+        m = _VAR_DECL_RE.match(line)
         if not m:
             continue
         name = m.group(1)
         if name.startswith("_"):
             continue
-        total = len(re.findall(rf"\b{re.escape(name)}\b", source))
-        if total == 1:  # only its own declaration appears
+        if token_counts.get(name, 0) == 1:  # only its own declaration appears
             col = line.find(name)
             diags.append(_warn(f"Unused variable '{name}'", i, col, col + len(name)))
     return diags
-
-
-def _remap_shadow_paths(symbols, shadow_path: str, real_path: str) -> None:
-    """Points symbols declared in a shadow file back at the real buffer path.
-
-    Unsaved buffers are checked through a temporary ``.pengu_lsp_shadow_*`` file
-    (see :func:`_compute_diagnostics`), which is deleted right after the check.
-    Symbols declared in that buffer carry the shadow path, so navigation would
-    hand the client a ``file://`` URI that no longer exists. Rewriting the
-    in-memory symbol table to the real path makes ``textDocument/definition``
-    land on the user's own buffer.
-
-    Args:
-        symbols: SymbolTable produced by a checker run (may be None/partial).
-        shadow_path: Temporary file the buffer was materialized to.
-        real_path: Real path of the (unsaved) buffer.
-    """
-    if symbols is None or not shadow_path or not real_path:
-        return
-    shadow_abs = os.path.abspath(shadow_path)
-    for scope in getattr(symbols, "all_scopes", []):
-        for sym in getattr(scope, "symbols", {}).values():
-            fp = getattr(sym, "file_path", None)
-            if fp and os.path.abspath(fp) == shadow_abs:
-                sym.file_path = real_path
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +610,7 @@ def _recover_symbols(
     lib_dir: str,
     src_dir: str,
     first_error_line: Optional[int],
+    module_sources: Optional[Dict[str, str]] = None,
 ):
     """Best-effort SymbolTable for a document that does not parse yet.
 
@@ -617,11 +622,13 @@ def _recover_symbols(
 
     Args:
         source: The real document text (the document that failed to parse).
-        filename: Path handed to the checker (shadow path when applicable).
+        filename: Path handed to the checker (the real document path).
         project_root: Project root used to resolve imports.
         lib_dir: Manifest ``lib_dir`` for the checker.
         src_dir: Manifest ``src_dir`` for the checker.
         first_error_line: 1-based line the parser choked on, when known.
+        module_sources: Unsaved buffers for imported modules (see
+            :class:`PenguChecker`).
 
     Returns:
         A SymbolTable, or None when no bounded repair produced a parseable
@@ -651,7 +658,10 @@ def _recover_symbols(
             continue
         except Exception:
             return None
-        checker = PenguChecker(base_dir=project_root, lib_dir=lib_dir, src_dir=src_dir)
+        checker = PenguChecker(
+            base_dir=project_root, lib_dir=lib_dir, src_dir=src_dir,
+            module_sources=module_sources,
+        )
         try:
             checker.check(tree, source=candidate, filename=filename)
         except PenguError:
@@ -662,7 +672,11 @@ def _recover_symbols(
     return None
 
 
-def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
+def _compute_diagnostics(
+    uri: str,
+    source: str,
+    should_abort: Optional[Callable[[], bool]] = None,
+) -> Optional[List[Diagnostic]]:
     """Runs parse + semantic check for one document (pure computation).
 
     Refreshes the cached document buffer and symbol table for ``uri`` and
@@ -673,33 +687,25 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
     Args:
         uri: Document URI.
         source: Text content of the document.
+        should_abort: Optional predicate consulted before the expensive passes
+            and before publishing state. Returns True when a newer edit has
+            superseded this run; the run then gives up and returns None.
 
     Returns:
-        List of LSP Diagnostic items (empty when the document is clean).
+        List of LSP Diagnostic items (empty when the document is clean), or
+        None when the run was superseded.
     """
-    server._docs[uri] = source
+    with server._validation_lock:
+        server._docs[uri] = source
+    if should_abort is not None and should_abort():
+        return None
     file_path = uri_to_path(uri)
+    # An unsaved buffer is checked from memory: the checker resolves its imports
+    # relative to this path and receives the text through `module_sources` /
+    # `entry_source`, so there is no need to materialize a temporary
+    # `.pengu_lsp_shadow_*` file (which also made the editor's file watcher fire
+    # on every validation and point symbols at a path that no longer exists).
     check_path = file_path
-    shadow = None
-    if not os.path.exists(file_path):
-        # The document is an unsaved editor buffer. The semantic checker loads
-        # imported modules relative to the entry file, so materialize the
-        # buffer to a temporary shadow file (same directory when possible) to
-        # keep imports and 'enchanting' methods of std modules visible.
-        import tempfile
-        base_dir_for_shadow = os.path.dirname(file_path) or os.getcwd()
-        try:
-            fd, shadow = tempfile.mkstemp(
-                suffix=".pengu",
-                prefix=".pengu_lsp_shadow_",
-                dir=base_dir_for_shadow if os.path.isdir(base_dir_for_shadow) else None,
-                text=True,
-            )
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(source)
-            check_path = shadow
-        except OSError:
-            shadow = None
     base_dir = os.getcwd()
     if os.path.dirname(file_path) and os.path.isdir(os.path.dirname(file_path)):
         base_dir = os.path.dirname(file_path)
@@ -711,16 +717,36 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
     project_root = _project_root_for_path(file_path) if file_path else base_dir
     lib_dir = _lib_dir_for_project(project_root)
     src_dir = _src_dir_for_project(project_root)
-    checker = PenguChecker(base_dir=project_root, lib_dir=lib_dir, src_dir=src_dir)
+    # Every open buffer is handed to the checker so an imported module that is
+    # being edited is read from the editor (ahead of disk), not from its last
+    # save. Without this, changing a function in module A and calling it from
+    # module B reported the old signature until B's file was reopened.
+    module_sources: Dict[str, str] = {}
+    with server._validation_lock:
+        open_docs = dict(server._docs)
+    for doc_uri, doc_source in open_docs.items():
+        try:
+            doc_path = uri_to_path(doc_uri)
+        except Exception:
+            continue
+        if doc_path:
+            module_sources[os.path.abspath(doc_path)] = doc_source
+    module_sources[os.path.abspath(file_path)] = source
+    checker = PenguChecker(
+        base_dir=project_root, lib_dir=lib_dir, src_dir=src_dir,
+        module_sources=module_sources,
+    )
 
     try:
         tree = parser.parse(source)
+        if should_abort is not None and should_abort():
+            return None
         # The check below records the resolved name of every `type of` on this
         # tree; the hover handler reads it back for exactly this text.
         type_of_lsp.remember(source, tree)
         checker.check(tree, source=source, filename=check_path)
-        if shadow is not None:
-            _remap_shadow_paths(checker.symbols, shadow, file_path)
+        if should_abort is not None and should_abort():
+            return None
         # If check succeeds without exception: the document is clean; lint it.
         with server._validation_lock:
             server._symbols[uri] = checker.symbols
@@ -731,19 +757,19 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
         all_errs = e.all_errors if hasattr(e, "all_errors") and e.all_errors else [e]
         diags = diagnostics_from_errors(all_errs, source)
         symbols = getattr(checker, "symbols", None)
-        if _has_no_user_symbols(symbols):
+        if _has_no_user_symbols(symbols) and not (should_abort is not None and should_abort()):
             # Either the parser rejected the buffer (mid-typing) or the check
             # died before collecting anything. Recover the declarations that
             # are not on the line being edited so completion, hover and
             # definition keep working while the user types.
             recovered = _recover_symbols(
                 source, check_path, project_root, lib_dir, src_dir,
-                getattr(e, "line", None),
+                getattr(e, "line", None), module_sources,
             )
             if recovered is not None and not _has_no_user_symbols(recovered):
                 symbols = recovered
-        if shadow is not None:
-            _remap_shadow_paths(symbols, shadow, file_path)
+        if should_abort is not None and should_abort():
+            return None
         with server._validation_lock:
             if symbols is not None:
                 server._symbols[uri] = symbols
@@ -765,13 +791,6 @@ def _compute_diagnostics(uri: str, source: str) -> List[Diagnostic]:
             source="pengus"
         )
         return [diag]
-
-    finally:
-        if shadow is not None:
-            try:
-                os.unlink(shadow)
-            except OSError:
-                pass
 
 
 def _cached_diagnostics(uri: str, source: str) -> Optional[List[Diagnostic]]:
@@ -795,7 +814,8 @@ def validate_document(uri: str, source: str) -> None:
         uri: Document URI.
         source: Text content of the document.
     """
-    server._docs[uri] = source
+    with server._validation_lock:
+        server._docs[uri] = source
     cached = _cached_diagnostics(uri, source)
     if cached is not None:
         server.publish_diagnostics(uri, cached)
@@ -806,60 +826,122 @@ def validate_document(uri: str, source: str) -> None:
     server.publish_diagnostics(uri, diags)
 
 
+#: One validation worker for the whole server.  The old code used the default
+#: executor, so a burst of edits to several documents (or a workspace-wide
+#: revalidation) could run many full parse+check passes at once; every one of
+#: them holds the GIL, which is what made hover and completion wait for seconds.
+#: A single worker also guarantees that results are published in edit order.
+_VALIDATION_EXECUTOR: Optional[ThreadPoolExecutor] = None
+
+
+def _validation_executor() -> ThreadPoolExecutor:
+    """Returns the server-wide single-thread validation executor."""
+    global _VALIDATION_EXECUTOR
+    if _VALIDATION_EXECUTOR is None:
+        _VALIDATION_EXECUTOR = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="pengu-lsp-validate"
+        )
+    return _VALIDATION_EXECUTOR
+
+
+def _superseded(uri: str, generation: int) -> Callable[[], bool]:
+    """Predicate telling a validation run that a newer edit replaced it."""
+
+    def _check() -> bool:
+        return server._validation_generation.get(uri) != generation
+
+    return _check
+
+
+async def _run_validation(uri: str, source: str, generation: int, delay: float) -> None:
+    """Runs one debounced parse+check pass and publishes its diagnostics."""
+    if delay > 0:
+        await asyncio.sleep(delay)
+    superseded = _superseded(uri, generation)
+    if superseded():
+        return
+    cached = _cached_diagnostics(uri, source)
+    if cached is not None:
+        if not superseded():
+            server.publish_diagnostics(uri, cached)
+        return
+    loop = asyncio.get_running_loop()
+    diags = await loop.run_in_executor(
+        _validation_executor(), _compute_diagnostics, uri, source, superseded
+    )
+    if diags is None or superseded():
+        return
+    with server._validation_lock:
+        if server._validation_generation.get(uri) != generation:
+            return
+        server._validation_cache[uri] = (server._source_hash(source), diags)
+    server.publish_diagnostics(uri, diags)
+
+
 async def _schedule_validation(uri: str, source: str, delay: float = 0.0) -> None:
-    """Validates one document, optionally debounced.
+    """Validates one document on the worker, optionally debounced.
 
     Any previously scheduled validation for ``uri`` is cancelled first, so a
     burst of didChange notifications collapses into a single run after the
-    latest edit.
-
-    * ``delay == 0`` (didOpen / didSave / flush): validates inline so the
-      handler only returns once diagnostics are published — subsequent client
-      requests always see fresh symbols.
-    * ``delay > 0`` (didChange): the expensive parse+check pass runs in a
-      worker thread so the asyncio event loop stays responsive for hover /
-      completion requests; diagnostics are published on the loop thread.
+    latest edit.  The handler awaits the run (the event loop stays free while
+    the worker computes), which keeps ``didOpen``/``didSave`` semantics: a
+    subsequent request can rely on the task being registered even when the
+    symbols themselves are still being produced.
 
     Args:
         uri: Document URI.
         source: Current text content.
         delay: Seconds to wait for typing to settle.
     """
+    with server._validation_lock:
+        server._docs[uri] = source
     server.cancel_pending_validation(uri)
+    generation = server._validation_generation.get(uri, 0) + 1
+    server._validation_generation[uri] = generation
 
-    if delay <= 0:
-        cached = _cached_diagnostics(uri, source)
-        if cached is not None:
-            server.publish_diagnostics(uri, cached)
-            return
-        diags = _compute_diagnostics(uri, source)
-        with server._validation_lock:
-            server._validation_cache[uri] = (server._source_hash(source), diags)
-        server.publish_diagnostics(uri, diags)
-        return
-
-    async def _job() -> None:
-        if delay > 0:
-            await asyncio.sleep(delay)
-        cached = _cached_diagnostics(uri, source)
-        if cached is not None:
-            server.publish_diagnostics(uri, cached)
-            return
-        loop = asyncio.get_running_loop()
-        diags = await loop.run_in_executor(None, _compute_diagnostics, uri, source)
-        with server._validation_lock:
-            server._validation_cache[uri] = (server._source_hash(source), diags)
-        server.publish_diagnostics(uri, diags)
-
-    task = asyncio.ensure_future(_job())
+    task = asyncio.ensure_future(_run_validation(uri, source, generation, delay))
     server._validate_tasks[uri] = task
+    server._pending_validation[uri] = task
 
     def _finished(t: "asyncio.Task[None]") -> None:
         if server._validate_tasks.get(uri) is t:
             server._validate_tasks.pop(uri, None)
+        if server._pending_validation.get(uri) is t:
+            server._pending_validation.pop(uri, None)
 
     task.add_done_callback(_finished)
+    try:
+        await task
+    except asyncio.CancelledError:
+        # A newer edit superseded this run; that run is already scheduled.
+        pass
+    except Exception as exc:  # never take the server down for one bad buffer
+        _debug(f"validation failed for {uri}: {exc}")
 
+
+async def _await_pending_validation(uri: str, timeout: float = 10.0) -> None:
+    """Waits for the first validation of a URI so an immediate request sees it.
+
+    Only waits when no symbol table exists yet: while the user is typing, an
+    existing (slightly stale) table is preferred over delaying hover/completion.
+    """
+    if server._symbols.get(uri) is not None:
+        return
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while server._symbols.get(uri) is None:
+        task = server._pending_validation.get(uri)
+        if task is None or task.done():
+            return
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
+        except (asyncio.CancelledError, Exception):
+            # Cancelled by a newer edit: wait for *that* run instead of
+            # returning an empty answer to the very first hover.
+            await asyncio.sleep(0)
 
 
 @server.feature(TEXT_DOCUMENT_DID_OPEN)
@@ -868,8 +950,30 @@ async def _wire_did_open(params: DidOpenTextDocumentParams):
     uri = params.text_document.uri
     source = server.get_document_source(uri) or params.text_document.text
     if source:
-        server._docs[uri] = source
+        with server._validation_lock:
+            server._docs[uri] = source
         await _schedule_validation(uri, source, 0.0)
+
+
+def _dependent_open_uris(changed_uri: str) -> List[str]:
+    """Open documents that import the module behind ``changed_uri``.
+
+    Editing a module in the editor must update the diagnostics of every open
+    importer even before the file is saved.  The dependency list comes from the
+    last successful import resolution (``import_order``), so this stays cheap and
+    never guesses.
+    """
+    try:
+        changed_path = os.path.abspath(uri_to_path(changed_uri))
+    except Exception:
+        return []
+    dependents: List[str] = []
+    for other_uri in list(server._docs.keys()):
+        if other_uri == changed_uri:
+            continue
+        if changed_path in _document_dependency_paths(other_uri):
+            dependents.append(other_uri)
+    return dependents
 
 
 @server.feature(TEXT_DOCUMENT_DID_CHANGE)
@@ -885,8 +989,23 @@ async def _wire_did_change(params: DidChangeTextDocumentParams):
             source = first_change.text
 
     if source:
-        server._docs[uri] = source
-        await _schedule_validation(uri, source, VALIDATION_DEBOUNCE_S)
+        with server._validation_lock:
+            server._docs[uri] = source
+        dependents = _dependent_open_uris(uri)
+        for dependent_uri in dependents:
+            _drop_validation_cache(dependent_uri)
+        await asyncio.gather(
+            _schedule_validation(uri, source, VALIDATION_DEBOUNCE_S),
+            *(
+                _schedule_validation(
+                    dependent_uri, server._docs[dependent_uri],
+                    VALIDATION_DEBOUNCE_S + 0.05,
+                )
+                for dependent_uri in dependents
+                if dependent_uri in server._docs
+            ),
+            return_exceptions=True,
+        )
 
 
 @server.feature(TEXT_DOCUMENT_DID_SAVE)
@@ -897,8 +1016,28 @@ async def _wire_did_save(params: DidSaveTextDocumentParams):
     if getattr(params, "text", None) is not None:
         source = params.text
     if source:
-        server._docs[uri] = source
+        with server._validation_lock:
+            server._docs[uri] = source
         await _schedule_validation(uri, source, 0.0)
+
+
+@server.feature(TEXT_DOCUMENT_DID_CLOSE)
+async def _wire_did_close(params):
+    """textDocument/didClose: release every per-buffer structure.
+
+    The server used to keep ``_docs``/``_symbols``/diagnostics for every file
+    ever opened in the session.  On a large workspace that is a slow memory leak
+    (each symbol table holds every imported module's types), and it also kept
+    validating buffers the editor had already closed.
+    """
+    uri = params.text_document.uri
+    server.cancel_pending_validation(uri)
+    server._validation_generation.pop(uri, None)
+    server._pending_validation.pop(uri, None)
+    with server._validation_lock:
+        server._docs.pop(uri, None)
+        server._symbols.pop(uri, None)
+        server._validation_cache.pop(uri, None)
 
 
 def did_open(params: DidOpenTextDocumentParams):
@@ -906,7 +1045,6 @@ def did_open(params: DidOpenTextDocumentParams):
     uri = params.text_document.uri
     source = server.get_document_source(uri) or params.text_document.text
     if source:
-        server._docs[uri] = source
         validate_document(uri, source)
 
 
@@ -919,8 +1057,16 @@ def did_change(params: DidChangeTextDocumentParams):
         if not getattr(first_change, "range", None):
             source = first_change.text
     if source:
-        server._docs[uri] = source
+        with server._validation_lock:
+            server._docs[uri] = source
+        dependents = _dependent_open_uris(uri)
+        for dependent_uri in dependents:
+            _drop_validation_cache(dependent_uri)
         validate_document(uri, source)
+        for dependent_uri in dependents:
+            dependent_source = server._docs.get(dependent_uri)
+            if dependent_source is not None:
+                validate_document(dependent_uri, dependent_source)
 
 
 def did_save(params: DidSaveTextDocumentParams):
@@ -930,7 +1076,6 @@ def did_save(params: DidSaveTextDocumentParams):
     if getattr(params, "text", None) is not None:
         source = params.text
     if source:
-        server._docs[uri] = source
         validate_document(uri, source)
 
 
@@ -942,7 +1087,14 @@ def _invalidate_all_caches() -> None:
     survive a change that could invalidate them.
     """
     _MODULE_CACHE.clear()
+    _PROJECT_DIRS_CACHE.clear()
     clear_symbol_caches()
+    try:
+        from pengu_parser.pengu_checker import clear_module_export_cache
+
+        clear_module_export_cache()
+    except Exception:
+        pass
     with server._validation_lock:
         server._validation_cache.clear()
 
@@ -960,16 +1112,116 @@ def did_change_configuration(params: DidChangeConfigurationParams) -> None:
         validate_document(uri, server._docs[uri])
 
 
+#: LSP ``FileChangeType`` values (1=created, 2=changed, 3=deleted).
+_FILE_CHANGE_CHANGED = 2
+
+
+def _document_dependency_paths(uri: str) -> set:
+    """Absolute module paths a checked document depends on.
+
+    ``import_order`` carries every transitive module the checker resolved (it
+    is exactly the list the import graph produced), so an edit to any of them
+    invalidates this document's diagnostics, while unrelated open buffers keep
+    their cached results.
+    """
+    symbols = server._symbols.get(uri)
+    deps: set = set()
+    for path in getattr(symbols, "import_order", None) or ():
+        try:
+            deps.add(os.path.abspath(path))
+        except Exception:
+            continue
+    scope = getattr(symbols, "global_scope", None)
+    for sym in getattr(scope, "symbols", {}).values():
+        if getattr(sym, "kind", "") != "import":
+            continue
+        file_path = getattr(sym, "file_path", None)
+        if file_path:
+            try:
+                deps.add(os.path.abspath(file_path))
+            except Exception:
+                pass
+    return deps
+
+
+def _read_file_text(path: str) -> Optional[str]:
+    """Reads a UTF-8 text file, returning None when it is gone/unreadable."""
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def _drop_validation_cache(uri: str) -> None:
+    """Forgets one document's cached diagnostics (symbols stay usable)."""
+    with server._validation_lock:
+        server._validation_cache.pop(uri, None)
+
+
+def _prepare_file_change(params: DidChangeWatchedFilesParams):
+    """Invalidates what a watched-file batch invalidates; returns affected URIs.
+
+    A *modified* module invalidates its cached export bundle through the
+    bundle's dependency signatures, so the expensive module cache survives a
+    normal save.  Creating or deleting a file can change which module an import
+    resolves to, and a manifest edit changes the resolution directories: those
+    cases still flush everything.  Only open documents that actually import a
+    changed file are re-checked, instead of every open buffer.
+    """
+    changed: set = set()
+    structural = False
+    for change in getattr(params, "changes", None) or ():
+        try:
+            path = os.path.abspath(uri_to_path(change.uri))
+        except Exception:
+            continue
+        changed.add(path)
+        if getattr(change, "type", _FILE_CHANGE_CHANGED) != _FILE_CHANGE_CHANGED:
+            structural = True
+        elif os.path.basename(path) in _PROJECT_MARKERS:
+            structural = True
+
+    if structural:
+        _invalidate_all_caches()
+        return changed, list(server._docs.keys())
+
+    # Source text changed (not the layout).  Module bundles verify their own
+    # dependency signatures, so they do not need a flush.
+    _MODULE_CACHE.clear()
+    _PROJECT_DIRS_CACHE.clear()
+    clear_symbol_caches()
+
+    affected: List[str] = []
+    for uri in list(server._docs.keys()):
+        try:
+            doc_path = os.path.abspath(uri_to_path(uri))
+        except Exception:
+            affected.append(uri)
+            continue
+        if doc_path in changed:
+            # An editor save already validated the buffer; only an external
+            # edit (disk text differs from the buffer) needs another pass.
+            if _read_file_text(doc_path) != server._docs.get(uri):
+                _drop_validation_cache(uri)
+                affected.append(uri)
+        elif _document_dependency_paths(uri) & changed:
+            _drop_validation_cache(uri)
+            affected.append(uri)
+    return changed, affected
+
+
 def did_change_watched_files(params: DidChangeWatchedFilesParams) -> None:
     """Programmatic didChangeWatchedFiles: react to on-disk changes.
 
-    Any ``.pengu``/``pengu.yaml`` change (created, modified or deleted) can
-    alter symbols, imports and diagnostics, so derived caches are dropped and
-    open documents re-validated.
+    Modified files invalidate only the open documents that import them; file
+    creation/deletion and manifest edits flush the resolution caches and
+    re-check everything (the import graph itself may have changed).
     """
-    _invalidate_all_caches()
-    for uri in list(server._docs.keys()):
-        validate_document(uri, server._docs[uri])
+    _, affected = _prepare_file_change(params)
+    for uri in affected:
+        if uri in server._docs:
+            validate_document(uri, server._docs[uri])
 
 
 @server.feature(WORKSPACE_DID_CHANGE_CONFIGURATION)
@@ -977,16 +1229,25 @@ async def _wire_did_change_configuration(params: DidChangeConfigurationParams):
     """workspace/didChangeConfiguration: settings changed; revalidate."""
     server.update_settings(getattr(params, "settings", None))
     _invalidate_all_caches()
-    for uri in list(server._docs.keys()):
-        await _schedule_validation(uri, server._docs[uri], 0.0)
+    await asyncio.gather(*(
+        _schedule_validation(uri, source, 0.0)
+        for uri, source in list(server._docs.items())
+    ), return_exceptions=True)
 
 
 @server.feature(WORKSPACE_DID_CHANGE_WATCHED_FILES)
 async def _wire_did_change_watched_files(params: DidChangeWatchedFilesParams):
-    """workspace/didChangeWatchedFiles: files changed on disk; revalidate."""
-    _invalidate_all_caches()
-    for uri in list(server._docs.keys()):
-        await _schedule_validation(uri, server._docs[uri], 0.0)
+    """workspace/didChangeWatchedFiles: files changed on disk; revalidate.
+
+    A tiny delay lets a ``didSave`` notification for the same edit arrive first;
+    its freshly cached diagnostics are then reused instead of recomputed.
+    """
+    _, affected = _prepare_file_change(params)
+    await asyncio.gather(*(
+        _schedule_validation(uri, server._docs[uri], 0.05)
+        for uri in affected
+        if uri in server._docs
+    ), return_exceptions=True)
 
 
 def path_to_uri(path: str) -> str:
@@ -1003,6 +1264,12 @@ def path_to_uri(path: str) -> str:
     TEXT_DOCUMENT_COMPLETION,
     CompletionOptions(trigger_characters=[".", ">"])
 )
+async def _wire_completions(params: CompletionParams):
+    """textDocument/completion, after the buffer's first validation exists."""
+    await _await_pending_validation(params.text_document.uri)
+    return completions(params)
+
+
 def completions(params: CompletionParams):
     """Handles textDocument/completion requests."""
     uri = params.text_document.uri
@@ -1018,6 +1285,12 @@ def completions(params: CompletionParams):
 
 
 @server.feature(TEXT_DOCUMENT_HOVER)
+async def _wire_hover(params: HoverParams):
+    """textDocument/hover, after the buffer's first validation exists."""
+    await _await_pending_validation(params.text_document.uri)
+    return hover(params)
+
+
 def hover(params: HoverParams):
     """Handles textDocument/hover requests."""
     uri = params.text_document.uri
@@ -1027,6 +1300,12 @@ def hover(params: HoverParams):
 
 
 @server.feature(TEXT_DOCUMENT_DEFINITION)
+async def _wire_definition(params: DefinitionParams):
+    """textDocument/definition, after the buffer's first validation exists."""
+    await _await_pending_validation(params.text_document.uri)
+    return definition(params)
+
+
 def definition(params: DefinitionParams):
     """Handles textDocument/definition requests."""
     uri = params.text_document.uri
@@ -1138,6 +1417,43 @@ def _project_root_for_path(file_path: str) -> str:
     return start
 
 
+#: ``project root -> (manifest signature, lib_dir, src_dir)``.  Both directory
+#: settings come from the same manifest read; caching the pair avoids parsing
+#: ``pengu.toml``/YAML twice per validation (once for each setting). The
+#: signature is every candidate manifest's ``(mtime, size)``, so an edit is
+#: picked up immediately.
+_PROJECT_DIRS_CACHE: Dict[str, Tuple[Tuple[Any, ...], str, str]] = {}
+
+
+def _project_dirs(project_root: str) -> Tuple[str, str]:
+    """Returns ``(lib_dir, src_dir)`` from the project manifest, cached."""
+    signature = []
+    for marker in _PROJECT_MARKERS:
+        path = os.path.join(project_root, marker)
+        try:
+            st = os.stat(path)
+        except OSError:
+            signature.append((marker, None, None))
+        else:
+            signature.append((marker, st.st_mtime_ns, st.st_size))
+    key = tuple(signature)
+    hit = _PROJECT_DIRS_CACHE.get(project_root)
+    if hit is not None and hit[0] == key:
+        return hit[1], hit[2]
+    lib_dir, src_dir = "lib", "src"
+    try:
+        from pengu_project import ProjectConfig
+        cfg = ProjectConfig.load(project_root)
+        lib_dir = getattr(cfg, "lib_dir", "lib") or "lib"
+        src_dir = getattr(cfg, "src_dir", "src") or "src"
+    except Exception:
+        pass
+    if len(_PROJECT_DIRS_CACHE) > 256:
+        _PROJECT_DIRS_CACHE.clear()
+    _PROJECT_DIRS_CACHE[project_root] = (key, lib_dir, src_dir)
+    return lib_dir, src_dir
+
+
 def _lib_dir_for_project(project_root: str) -> str:
     """Reads ``lib_dir`` from the project's manifest (default ``'lib'``).
 
@@ -1146,12 +1462,7 @@ def _lib_dir_for_project(project_root: str) -> str:
     unresolved (roadmap 0.20).  Falls back to ``'lib'`` when there is no
     manifest or it cannot be read.
     """
-    try:
-        from pengu_project import ProjectConfig
-        cfg = ProjectConfig.load(project_root)
-        return getattr(cfg, "lib_dir", "lib") or "lib"
-    except Exception:
-        return "lib"
+    return _project_dirs(project_root)[0]
 
 
 def _src_dir_for_project(project_root: str) -> str:
@@ -1161,12 +1472,7 @@ def _src_dir_for_project(project_root: str) -> str:
     ``src_dir = "pengu"`` must have them resolved from that directory, or every
     ``import`` in a document outside it is reported as unresolved.
     """
-    try:
-        from pengu_project import ProjectConfig
-        cfg = ProjectConfig.load(project_root)
-        return getattr(cfg, "src_dir", "src") or "src"
-    except Exception:
-        return "src"
+    return _project_dirs(project_root)[1]
 
 
 @server.feature(TEXT_DOCUMENT_IMPLEMENTATION)
@@ -1322,6 +1628,15 @@ def _is_declaration_occurrence(line: str, col: int, word: str) -> bool:
 
 _LSP_LEXER = None
 
+#: ``content hash -> lexer tokens``.  Semantic highlighting, document
+#: highlight, references and rename all scan the same buffer with the same
+#: lexer; without this cache every cursor movement re-lexed the whole file (a
+#: 2 000-line document costs ~150 ms per request, which is directly felt as
+#: highlight lag while moving the cursor).
+_TOKEN_CACHE: Dict[str, List[Any]] = {}
+_TOKEN_CACHE_ORDER: List[str] = []
+_TOKEN_CACHE_MAX = 4
+
 
 def _lsp_lexer():
     """Shared parser/lexer instance for token-level occurrence scanning."""
@@ -1329,6 +1644,33 @@ def _lsp_lexer():
     if _LSP_LEXER is None:
         _LSP_LEXER = PenguParser()
     return _LSP_LEXER
+
+
+def _lsp_tokens(doc_text: str) -> Optional[List[Any]]:
+    """Lexer tokens for ``doc_text``, cached by content hash.
+
+    Args:
+        doc_text: Document source.
+
+    Returns:
+        The (read-only) token list, or None when the lexer rejects the buffer.
+    """
+    if not doc_text:
+        return []
+    key = hashlib.sha1(doc_text.encode("utf-8", "replace")).hexdigest()
+    hit = _TOKEN_CACHE.get(key)
+    if hit is not None:
+        return hit
+    try:
+        parser = _lsp_lexer()
+        tokens = parser.get_tokens(parser._strip_comments(doc_text))
+    except Exception:
+        return None
+    if len(_TOKEN_CACHE_ORDER) >= _TOKEN_CACHE_MAX:
+        _TOKEN_CACHE.pop(_TOKEN_CACHE_ORDER.pop(0), None)
+    _TOKEN_CACHE[key] = tokens
+    _TOKEN_CACHE_ORDER.append(key)
+    return tokens
 
 
 def _interpolation_positions(raw: str, name: str, line: int, col: int) -> List[Tuple[int, int]]:
@@ -1399,10 +1741,8 @@ def _identifier_occurrences(
         except Exception:
             return False
 
-    try:
-        parser = _lsp_lexer()
-        tokens = parser.get_tokens(parser._strip_comments(doc_text))
-    except Exception:
+    tokens = _lsp_tokens(doc_text)
+    if tokens is None:
         return []
     out: List[Tuple[int, int]] = []
     for i, tok in enumerate(tokens):
@@ -1518,6 +1858,8 @@ def _file_symbols(path: str, text: str) -> Optional[SymbolTable]:
         symbols = getattr(checker, "symbols", None)
     except Exception:
         symbols = None
+    if len(_FILE_SYMBOL_CACHE) > 512:
+        _FILE_SYMBOL_CACHE.clear()
     _FILE_SYMBOL_CACHE[path] = (key, symbols)
     return symbols
 
@@ -1739,6 +2081,7 @@ def signature_help(params: SignatureHelpParams) -> Optional[SignatureHelp]:
 
 
 @server.feature(TEXT_DOCUMENT_DOCUMENT_HIGHLIGHT)
+@server.thread()
 def document_highlight(params: DocumentHighlightParams) -> Optional[List[DocumentHighlight]]:
     """Handles textDocument/documentHighlight requests.
 
@@ -2014,6 +2357,12 @@ def document_formatting(params: DocumentFormattingParams) -> Optional[List[TextE
 
 
 @server.feature(TEXT_DOCUMENT_DOCUMENT_SYMBOL)
+async def _wire_document_symbols(params: DocumentSymbolParams):
+    """textDocument/documentSymbol, after the buffer's first validation."""
+    await _await_pending_validation(params.text_document.uri)
+    return document_symbols(params)
+
+
 def document_symbols(params: DocumentSymbolParams) -> Optional[List[DocumentSymbol]]:
     """Generates document symbols for the outline and breadcrumbs view."""
     uri = params.text_document.uri
@@ -2023,6 +2372,10 @@ def document_symbols(params: DocumentSymbolParams) -> Optional[List[DocumentSymb
         return None
 
     lines = doc_text.splitlines()
+    try:
+        document_path = os.path.abspath(uri_to_path(uri))
+    except Exception:
+        document_path = ""
     doc_symbols: List[DocumentSymbol] = []
 
     table_dict = getattr(symbols, "table", None)
@@ -2032,21 +2385,48 @@ def document_symbols(params: DocumentSymbolParams) -> Optional[List[DocumentSymb
     if not table_dict:
         return None
 
+    if not lines:
+        return None
+
     for name, sym in table_dict.items():
         if sym.line is None:
             continue
+        # The checker registers every imported module's declarations in this
+        # document's global scope (for name/type resolution).  Those symbols
+        # carry line numbers from *their* file, which have no meaning in this
+        # buffer -- the old outline mixed thousands of std declarations into
+        # the user's file and produced selection ranges past the document,
+        # which is what made the VS Code client reject the whole reply.
+        sym_file = getattr(sym, "file_path", None)
+        if sym_file and document_path:
+            try:
+                if os.path.abspath(sym_file) != document_path and sym.kind != "import":
+                    continue
+            except Exception:
+                pass
+        # A symbol table can briefly describe the previous text (a didChange
+        # that is still being validated, or a checker run that failed after
+        # collecting).  A line number outside the current buffer used to
+        # produce a selection range past the end of its own full range, which
+        # makes the *client* throw `selectionRange must be contained in
+        # fullRange` and breaks the whole outline.  Skip stale entries instead.
+        if sym.line < 1 or sym.line > len(lines):
+            continue
 
-        sym_line = max(0, sym.line - 1)
-        sym_col = max(0, (sym.column or 1) - 1)
-        line_len = len(lines[sym_line]) if sym_line < len(lines) else 1
-
+        sym_line = sym.line - 1
+        line_len = len(lines[sym_line])
+        sym_col = min(max(0, (sym.column or 1) - 1), line_len)
+        # Clamp the end to the real line: `column + len(name)` can overrun the
+        # line when the checker reports a token span that does not match the
+        # buffer (multi-byte text, a half-typed declaration).
+        sel_end = min(line_len, sym_col + max(1, len(sym.name)))
         sym_range = Range(
             start=Position(line=sym_line, character=0),
-            end=Position(line=sym_line, character=line_len)
+            end=Position(line=sym_line, character=sel_end)
         )
         selection_range = Range(
             start=Position(line=sym_line, character=sym_col),
-            end=Position(line=sym_line, character=sym_col + len(sym.name))
+            end=Position(line=sym_line, character=sel_end)
         )
 
         kind = SymbolKind.Variable
@@ -2239,7 +2619,7 @@ _SYMBOL_KIND_TOKEN = {
 _STRING_TERMINALS = {"STRING", "RAW_STRING", "TRIPLE_STRING", "RAW_TRIPLE_STRING", "CHAR_LIT"}
 
 
-def _semantic_token_entry(tok, symbols) -> Optional[Tuple[int, int, int, int, int]]:
+def _semantic_token_entry(tok, symbols, lookup=None) -> Optional[Tuple[int, int, int, int, int]]:
     """0-based ``(line, col, length, type_index, modifiers_bitset)`` or None."""
     ttype = getattr(tok, "type", "")
     val = str(getattr(tok, "value", ""))
@@ -2260,7 +2640,12 @@ def _semantic_token_entry(tok, symbols) -> Optional[Tuple[int, int, int, int, in
     elif ttype == "NAME":
         t_idx = _TOKEN_TYPE_INDEX["variable"]
         sym = None
-        if symbols is not None:
+        if lookup is not None:
+            try:
+                sym = lookup(val, line)
+            except Exception:
+                sym = None
+        elif symbols is not None:
             try:
                 sym = symbols.lookup_at(val, line)
             except Exception:
@@ -2289,6 +2674,7 @@ def _semantic_token_entry(tok, symbols) -> Optional[Tuple[int, int, int, int, in
         token_modifiers=_SEMANTIC_TOKEN_MODIFIERS,
     )
 )
+@server.thread()
 def semantic_tokens_full(params: SemanticTokensParams) -> Optional[SemanticTokens]:
     """Handles textDocument/semanticTokens/full.
 
@@ -2304,11 +2690,36 @@ def semantic_tokens_full(params: SemanticTokensParams) -> Optional[SemanticToken
     if not doc_text:
         return None
     symbols = server._symbols.get(uri)
-    parser = _lsp_lexer()
-    try:
-        tokens = parser.get_tokens(parser._strip_comments(doc_text))
-    except Exception:
+    tokens = _lsp_tokens(doc_text)
+    if tokens is None:
         return None
+    # `SymbolTable.lookup_at` collects and sorts every enclosing scope for each
+    # token, which made highlighting a 2 000-line file spend most of its time
+    # in that loop.  Bucket the scopes by line once and use a dictionary hit
+    # per identifier instead.
+    scopes_by_line: Dict[int, List[Any]] = {}
+    if symbols is not None:
+        line_total = len(doc_text.splitlines()) + 1
+        for scope in getattr(symbols, "all_scopes", ()) or ():
+            if getattr(scope, "kind", "") == "global":
+                continue
+            start = getattr(scope, "start_line", 0) or 0
+            end = getattr(scope, "end_line", 0) or 0
+            if start < 1 or end < start:
+                continue
+            end = min(end, line_total)
+            if end - start > 10_000:
+                continue
+            for line_no in range(start, end + 1):
+                scopes_by_line.setdefault(line_no, []).append(scope)
+    global_symbols = getattr(getattr(symbols, "global_scope", None), "symbols", {}) or {}
+
+    def _lookup(name: str, line: int):
+        for scope in reversed(scopes_by_line.get(line, ())):
+            found = scope.symbols.get(name)
+            if found is not None:
+                return found
+        return global_symbols.get(name)
 
     raw: List[Tuple[int, int, int, int, int]] = []
     # `judge <rune> over <field>:` binds no symbol of its own, so the
@@ -2324,7 +2735,7 @@ def semantic_tokens_full(params: SemanticTokensParams) -> Optional[SemanticToken
     # label spans and keeps its ordinary lexical tokens.
     label_spans = {(l - 1, c - 1) for l, c, _n in loop_label_token_spans(doc_text)}
     for tok in tokens:
-        entry = _semantic_token_entry(tok, symbols)
+        entry = _semantic_token_entry(tok, symbols, _lookup)
         if entry is None:
             continue
         line0, col0, length, t_idx, mods = entry

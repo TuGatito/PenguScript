@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import threading
 import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple
@@ -15,6 +16,14 @@ from lark.indenter import Indenter, DedentError
 from .pengu_grammar import GRAMMAR
 
 BOM = "\ufeff"
+
+#: Shared Lark parser + indenter are stateful while a token stream is consumed
+#: (``PenguIndenter`` keeps the paren/indent stacks).  The language server
+#: parses on a worker thread while editor requests may lex the same parser from
+#: the request thread pool; without serialization a context switch in the
+#: middle of a token stream corrupts those stacks and produces random syntax
+#: errors.  Re-entrant because ``parse`` and ``parse_expr`` never nest.
+_PARSER_LOCK = threading.RLock()
 
 
 def strip_bom(code: str) -> str:
@@ -750,12 +759,13 @@ class PenguParser:
         clean_code = self._strip_comments(code).rstrip() + '\n'
         clean_code = self._merge_chain_continuations(clean_code)
         clean_code = self._expand_short_struct_inits(clean_code)
-        try:
-            tree = self.parser.parse(clean_code, start='start')
-        except LarkUnexpectedInput as exc:
-            raise self._parse_error(code, exc) from None
-        except LarkBaseError as exc:
-            raise self._parse_error(code, exc) from None
+        with _PARSER_LOCK:
+            try:
+                tree = self.parser.parse(clean_code, start='start')
+            except LarkUnexpectedInput as exc:
+                raise self._parse_error(code, exc) from None
+            except LarkBaseError as exc:
+                raise self._parse_error(code, exc) from None
         self._restitch_antiquus_bodies(tree, antiquus_bodies)
         self._attach_loop_labels(tree)
         return tree
@@ -771,12 +781,13 @@ class PenguParser:
         """
         code = strip_bom(code)
         clean_code = code.strip()
-        try:
-            return self.parser.parse(clean_code, start='expr')
-        except LarkUnexpectedInput as exc:
-            raise self._parse_error(code, exc) from None
-        except LarkBaseError as exc:
-            raise self._parse_error(code, exc) from None
+        with _PARSER_LOCK:
+            try:
+                return self.parser.parse(clean_code, start='expr')
+            except LarkUnexpectedInput as exc:
+                raise self._parse_error(code, exc) from None
+            except LarkBaseError as exc:
+                raise self._parse_error(code, exc) from None
 
     @staticmethod
     def _find_legacy_and(code: str):
@@ -937,7 +948,8 @@ class PenguParser:
             List of Lexer Token instances.
         """
         clean_code = strip_bom(code).rstrip() + '\n'
-        return list(self.parser.lex(clean_code))
+        with _PARSER_LOCK:
+            return list(self.parser.lex(clean_code))
 
 
 @dataclass

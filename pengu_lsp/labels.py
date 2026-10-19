@@ -50,6 +50,7 @@ from lsprotocol.types import (
 
 from pengu_parser.pengu_errors import PenguError
 from pengu_parser.pengu_parser import PenguParser
+from . import type_of
 
 #: Loop rules that may carry a flattened ``loop_label`` attribute.
 _LOOP_RULES = ("while_stmt", "for_range_stmt", "for_in_stmt")
@@ -124,6 +125,15 @@ def _parse(doc_text: Optional[str]) -> Optional[Tree]:
     key = hashlib.sha1(doc_text.encode("utf-8", "replace")).hexdigest()
     if key in _PARSE_CACHE:
         return _PARSE_CACHE[key]
+    # Validation already parsed this exact text; reuse that tree instead of
+    # charging a second full parse to the first hover/completion after an edit.
+    shared = type_of.remembered_tree(doc_text)
+    if shared is not None:
+        _PARSE_CACHE[key] = shared
+        _PARSE_CACHE_ORDER.append(key)
+        while len(_PARSE_CACHE_ORDER) > _PARSE_CACHE_MAX:
+            _PARSE_CACHE.pop(_PARSE_CACHE_ORDER.pop(0), None)
+        return shared
     try:
         tree: Optional[Tree] = PenguParser().parse(doc_text)
     except PenguError:

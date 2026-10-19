@@ -1,4 +1,5 @@
 from __future__ import annotations
+import hashlib
 import os
 import sys
 from typing import Dict, List, Optional, Tuple, Any, Set
@@ -188,6 +189,12 @@ class SymbolTable:
         self.functions: Dict[str, FnType] = {}
         self.methods: Dict[Tuple[str, str], FnType] = {}
         self.consts: Dict[str, Tuple[Optional[Type], Any]] = {}
+        #: Names registered in the type/function registries *because a module
+        #: was imported* (alias-prefixed and C-name spellings).  Completion uses
+        #: this to keep an import's whole surface out of the plain identifier
+        #: list: `import std.loom` used to add every `loom_*` function/type to
+        #: each keystroke's completion, thousands of irrelevant items.
+        self.imported_names: Set[str] = set()
 
         # Generic templates: name -> (type_params, AST node)
         self.generic_runes: Dict[str, Tuple[List[str], Any]] = {}
@@ -781,9 +788,107 @@ def companion_binding_path(module_path: str) -> Optional[str]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Module parsing and import-graph caches
+# ---------------------------------------------------------------------------
+#
+# A language server re-checks a buffer on every pause in typing.  Resolving its
+# imports used to re-parse the *whole* transitive import graph each time: a
+# 2 000-line document importing five std modules parsed 46 files for one check.
+# Parsed trees are immutable while the checker collects symbols from them, so
+# they can be shared for as long as the file they came from does not change.
+# The key carries the file signature (mtime + size), or a content hash for an
+# unsaved editor buffer, which makes every entry self-invalidating.
+_MODULE_TREE_CACHE: Dict[Any, Tree] = {}
+_MODULE_TREE_CACHE_MAX = 512
+
+
+def module_source_signature(path: str, source: Optional[str] = None) -> Tuple[Any, ...]:
+    """Returns a cache key/version for a module's source text.
+
+    Args:
+        path: Module file path (made absolute).
+        source: In-memory text (an unsaved editor buffer), or None to use the
+            file on disk.
+
+    Returns:
+        A tuple that differs whenever the content that would be parsed differs.
+        For files on disk it is ``(abspath, mtime_ns, size)``; for in-memory
+        text it is ``(abspath, "mem", length, sha1)`` so an override can never
+        collide with the disk version of the same path.
+    """
+    abs_path = os.path.abspath(path)
+    if source is not None:
+        digest = hashlib.sha1(source.encode("utf-8", "replace")).hexdigest()
+        return (abs_path, "mem", len(source), digest)
+    st = os.stat(abs_path)
+    return (abs_path, st.st_mtime_ns, st.st_size)
+
+
+def cached_module_tree(path: str, parser: Any, source: Optional[str] = None) -> Tree:
+    """Parses a module once per content signature.
+
+    Args:
+        path: Module file path.
+        parser: A :class:`PenguParser` instance.
+        source: In-memory text to parse instead of the file on disk.
+
+    Returns:
+        The parsed tree (shared, so callers must treat it as read-only).
+    """
+    abs_path = os.path.abspath(path)
+    try:
+        key = module_source_signature(abs_path, source)
+    except OSError:
+        # Missing file: let the parser/reader raise the contextual error rather
+        # than caching an exception.
+        if source is None:
+            with open(abs_path, "r", encoding="utf-8") as handle:
+                source = handle.read()
+        return parser.parse(source)
+    hit = _MODULE_TREE_CACHE.get(key)
+    if hit is not None:
+        return hit
+    if source is None:
+        with open(abs_path, "r", encoding="utf-8") as handle:
+            source = handle.read()
+    tree = parser.parse(source)
+    if len(_MODULE_TREE_CACHE) >= _MODULE_TREE_CACHE_MAX:
+        _MODULE_TREE_CACHE.clear()
+    _MODULE_TREE_CACHE[key] = tree
+    return tree
+
+
+def clear_module_tree_cache() -> None:
+    """Drops every parsed-module tree and cached import order."""
+    _MODULE_TREE_CACHE.clear()
+    _IMPORT_ORDER_CACHE.clear()
+
+
+#: ``(base, entry, lib_dir, src_dir) -> (versions, order)``.  ``versions`` is
+#: the signature of every file in the order, so adding an import to a dependency
+#: (which changes that file's mtime) invalidates the cached order.
+_IMPORT_ORDER_CACHE: Dict[Any, Tuple[Tuple[Tuple[Any, ...], ...], List[str]]] = {}
+_IMPORT_ORDER_CACHE_MAX = 128
+
+
+def _resolve_module_text(path: str, entry_abs: str, entry_source: Optional[str],
+                         module_sources: Optional[Dict[str, str]]) -> Optional[str]:
+    """In-memory text for ``path`` (entry or open buffer), else None."""
+    abs_path = os.path.abspath(path)
+    if entry_source is not None and abs_path == entry_abs:
+        return entry_source
+    if module_sources:
+        override = module_sources.get(abs_path)
+        if override is not None:
+            return override
+    return None
+
+
 def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None,
                     lib_dir: str = "lib", src_dir: str = "src",
-                    entry_source: Optional[str] = None) -> List[str]:
+                    entry_source: Optional[str] = None,
+                    module_sources: Optional[Dict[str, str]] = None) -> List[str]:
     """Resolves all module dependencies starting from an entry point and returns topological order.
 
     Args:
@@ -799,7 +904,12 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
             invisible: the module was never collected, its ``enchanting`` methods
             were never registered, and the first ``x.clamp`` failed with
             ``E0004 Type 'f32' has no method 'clamp'`` until the file was saved.
-            Only the *entry* is overridden; dependencies are still read from disk.
+        module_sources: Optional ``{absolute path: text}`` map of other unsaved
+            editor buffers. Imports of those modules use the buffer instead of
+            the (stale) file on disk.
+
+    Returns:
+        Absolute module paths in dependency-first order, ending with the entry.
     """
     if parser is None:
         from .pengu_parser import PenguParser
@@ -812,17 +922,24 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
             entry_abs = src_cand
 
     base_abs = os.path.abspath(base_dir)
+    overrides = module_sources or {}
+
+    def _missing(file_path: str, dot_path: Optional[str] = None) -> SemanticError:
+        if dot_path is not None:
+            return SemanticError(
+                f"Cannot resolve imported module '{dot_path}'",
+                code="E0004",
+                help=f"Ensure '{dot_path}.pengu' exists in source directory '{base_dir}' or stdlib.",
+                note="PenguScript module files must match import path."
+            )
+        return SemanticError(f"Module file not found: {file_path}", code="E0004")
 
     def extract_imports(file_path: str) -> List[str]:
         """Parses a file and extracts all its direct module imports."""
-        if entry_source is not None and os.path.abspath(file_path) == entry_abs:
-            code = entry_source
-        elif os.path.isfile(file_path):
-            with open(file_path, "r", encoding="utf-8") as f:
-                code = f.read()
-        else:
-            raise SemanticError(f"Module file not found: {file_path}", code="E0004")
-        tree = parser.parse(code)
+        override = _resolve_module_text(file_path, entry_abs, entry_source, overrides)
+        if override is None and not os.path.isfile(file_path):
+            raise _missing(file_path)
+        tree = cached_module_tree(file_path, parser, override)
         deps: List[str] = []
 
         # A wrapper's companion declarations must be checked *before* the
@@ -852,12 +969,7 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
                                                 from_dir=os.path.dirname(file_path),
                                                 lib_dir=lib_dir, src_dir=src_dir)
                     if not mod_path:
-                        raise SemanticError(
-                            f"Cannot resolve imported module '{dot_path}'",
-                            code="E0004",
-                            help=f"Ensure '{dot_path}.pengu' exists in source directory '{base_dir}' or stdlib.",
-                            note="PenguScript module files must match import path."
-                        )
+                        raise _missing(file_path, dot_path)
                     deps.append(mod_path)
                 for child in node.children:
                     walk(child)
@@ -865,14 +977,35 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
         walk(tree)
         return deps
 
+    def _signature_of(path: str) -> Optional[Tuple[Any, ...]]:
+        override = _resolve_module_text(path, entry_abs, entry_source, overrides)
+        if override is not None:
+            return module_source_signature(path, override)
+        try:
+            return module_source_signature(path)
+        except OSError:
+            return None
+
+    cache_key = (
+        base_abs, entry_abs, os.path.abspath(lib_dir or "lib"),
+        os.path.abspath(os.path.join(base_abs, src_dir or "src")),
+    )
+    cached = _IMPORT_ORDER_CACHE.get(cache_key)
+    if cached is not None:
+        versions, cached_order = cached
+        current = tuple(_signature_of(path) for path in cached_order)
+        if current == versions:
+            return list(cached_order)
+
     visited: Set[str] = set()
     visiting: Set[str] = set()
     order: List[str] = []
 
     def dfs(node: str, path: List[str]):
         """Performs three-color DFS to detect cycles and topologically sort dependencies."""
-        if node in visiting:
-            cycle_nodes = path + [node]
+        abs_node = os.path.abspath(node)
+        if abs_node in visiting:
+            cycle_nodes = path + [abs_node]
             cycle_str = " -> ".join([os.path.basename(p) for p in cycle_nodes])
             raise SemanticError(
                 f"Circular dependency detected in imports: {cycle_str}",
@@ -880,16 +1013,21 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
                 help=f"Remove circular import: {cycle_str}",
                 note="PenguScript forbids circular module dependencies to guarantee deterministic compilation."
             )
-        if node not in visited:
-            visiting.add(node)
-            dep_files = extract_imports(node)
+        if abs_node not in visited:
+            visiting.add(abs_node)
+            dep_files = extract_imports(abs_node)
             for dep in dep_files:
-                dfs(dep, path + [node])
-            visiting.remove(node)
-            visited.add(node)
-            order.append(node)
+                dfs(dep, path + [abs_node])
+            visiting.remove(abs_node)
+            visited.add(abs_node)
+            order.append(abs_node)
 
     dfs(entry_abs, [])
+
+    versions = tuple(_signature_of(path) for path in order)
+    if len(_IMPORT_ORDER_CACHE) >= _IMPORT_ORDER_CACHE_MAX:
+        _IMPORT_ORDER_CACHE.clear()
+    _IMPORT_ORDER_CACHE[cache_key] = (versions, list(order))
     return order
 
 

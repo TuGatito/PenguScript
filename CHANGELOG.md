@@ -2,6 +2,109 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.15.0] — 2026-10-19 — Language server: speed and stability
+
+The editor experience was dominated by one number: checking a 2 000-line file
+that imports five standard-library modules took **21 seconds**, and every pause
+in typing paid it again. The language server rebuilt the entire import graph on
+each validation, collected `std/spark.pengu` **106 times** for a single check
+(diamond imports expanded combinatorially), split the source once per
+declaration for doc comments, scanned the file once per unused variable, and ran
+all of it on the default thread pool while hover and completion waited on a
+shared, unsynchronised parser. The outline also crashed VS Code with
+`selectionRange must be contained in fullRange`, hover stayed on "loading...",
+and diagnostics sometimes never reflected a repair.
+
+This release fixes the infrastructure rather than papering over it.
+
+### Performance
+
+- **Imported-module export cache.** Collecting a module (and everything it
+  imports) is now memoized per content signature, so each module is collected
+  once per check instead of once per import edge. A 2 000-line document with
+  five std imports drops from **21 s to 0.53 s** per validation (warm), and the
+  first check of the session from tens of seconds to a few seconds. The cache is
+  process-wide, bounded, self-invalidating through `(mtime, size)` for files and
+  a content hash for unsaved buffers, and it records the modules each bundle
+  depends on so editing a transitive dependency rebuilds exactly the bundles
+  that re-export from it.
+- **Parsed trees and import order are cached** by content signature. The
+  resolver used to parse the whole transitive graph on every check; it now
+  re-parses only files that actually changed (or open buffers that differ from
+  disk).
+- **Linear doc-comment extraction.** `_extract_preceding_doc` called
+  `str.splitlines()` and walked upwards for every declaration (~24 000 times for
+  the document above, more time than the check itself). It builds the per-line
+  doc table in one pass now.
+- **Linear lint pass.** Unused-import and unused-variable warnings tokenise the
+  document once instead of running a whole-source regex per declaration.
+- **Single validation worker with generation-based cancellation.** A burst of
+  edits can no longer run several full checks concurrently (each holding the
+  GIL); a superseded run aborts before publishing diagnostics or overwriting the
+  symbol table.
+- **Semantic tokens: 233 ms → 59 ms** on a 2 000-line file. Scope lookups are
+  bucketed by line instead of sorting every enclosing scope per identifier;
+  lexer tokens are cached per content hash. Document highlight drops from
+  **147 ms to 16 ms** for the same reason.
+- **Completion is 2 500 items → under 100.** Imported modules' unqualified
+  declarations and internal spellings (`spark_println`, `loom_Vec2`) are no
+  longer offered as plain identifiers; their members remain available after the
+  import alias and their public types after `as`/`into`. Completion on the
+  2 000-line document drops from 156 ms to 6 ms.
+- **Hover reuses the validation tree** for loop-label and judge resolution, so
+  the first hover after an edit no longer pays a second full parse; doc comments
+  from other files are cached by file signature.
+
+### Fixed
+
+- **`documentSymbol` no longer throws `selectionRange must be contained in
+  fullRange`.** The outline mixed every imported module's declarations (which
+  carry line numbers from *their* files) into the current buffer. It now lists
+  only the document's own declarations plus its import aliases, skips stale
+  line numbers, clamps columns to the real line, and guarantees that every
+  selection range is contained in its full range and every child range in its
+  parent. VS Code therefore receives a valid reply instead of discarding the
+  whole outline.
+- **Hover no longer stays on "loading...".** `didOpen`/`didSave` validation is
+  asynchronous on the dedicated worker, and requests wait for the first
+  validation only when no symbol table exists yet; while typing they answer
+  immediately from the last validated table. A hover on a function with `##`
+  documentation now returns its signature and docs in milliseconds.
+- **An entry document's import aliases are no longer overwritten by an imported
+  module's own imports.** `import std.spark` followed by `import std.loom` used
+  to leave `spark` pointing at `std.loom`'s internal import (line 123), which
+  made hover, outline and go-to-definition target the wrong file and line.
+- **Cross-file edits are visible before saving.** Every open buffer is passed to
+  the checker, so an importer resolves an imported module from the editor
+  buffer instead of the stale file on disk. Editing a module in one tab now
+  revalidates the open documents that import it (and only those).
+- **Unsaved buffers are checked entirely in memory.** The old path wrote a
+  temporary `.pengu_lsp_shadow_*.pengu` next to the document and deleted it
+  after each check, which made the editor's file watcher fire during validation
+  and left symbol locations pointing at a file that no longer existed.
+- **Watched-file changes invalidate what they actually affect.** A normal save
+  no longer flushes the module cache and re-checks every open buffer: modified
+  modules are revalidated through dependency signatures, while file
+  creation/deletion and manifest edits still flush the resolution caches.
+- **Shared Lark parser is serialised.** The parser and its indenter carry
+  mutable state (paren/indent stacks) and were used concurrently by the
+  validation thread and request handlers, which could corrupt a token stream
+  and report random syntax errors. Access is now protected by a re-entrant lock.
+- **No per-buffer leaks.** `textDocument/didClose` releases the buffer, symbol
+  table, diagnostics and pending validation. The module, import-order, lexer,
+  per-file symbol and declaration caches are all bounded.
+
+### Tests
+
+- New `tests/lsp/test_document_symbols.py`: outline membership, range
+  containment for every symbol and child, stale line/column clamping, CRLF and
+  empty buffers.
+- New `tests/lsp/test_incremental_imports.py`: disk edits, transitive
+  dependency invalidation, unsaved imported buffers, entry alias precedence,
+  completion noise, targeted watched-file revalidation, `didClose` cleanup and
+  superseded-validation state safety.
+- The LSP suite itself runs in **about 16 s instead of 175 s** (150 → 166 tests).
+
 ## [2.14.0] — 2026-10-18 — Compression (gzip, zlib and raw deflate)
 
 `std.compressus` closes the last gap between the standard library and a

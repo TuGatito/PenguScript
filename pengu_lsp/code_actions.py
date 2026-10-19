@@ -565,6 +565,8 @@ def declaration_details(
                                 )
                 except OSError:
                     continue
+    if len(_DECL_CACHE) > 64:
+        _DECL_CACHE.clear()
     _DECL_CACHE[key] = details
     return details
 

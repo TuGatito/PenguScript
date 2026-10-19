@@ -51,6 +51,19 @@ def remember(source: str, tree: Optional[Tree]) -> None:
         _TREES.pop(_ORDER.pop(0), None)
 
 
+def remembered_tree(source: str) -> Optional[Tree]:
+    """The tree the last validation parsed for ``source``, if still cached.
+
+    Other request handlers (loop labels, ``judge`` completion) need the same
+    syntax tree.  Re-parsing a 2 000-line buffer inside a hover request added a
+    full parse to the first hover after every edit; sharing the checker's tree
+    keeps those requests at microsecond cost.
+    """
+    if not source:
+        return None
+    return _TREES.get(_key(source))
+
+
 def _line_starts(source: str) -> List[int]:
     """Character offset of the first character of every line."""
     starts = [0]

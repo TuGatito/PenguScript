@@ -42,6 +42,12 @@ KEYWORD_DOCS = {
 }
 
 
+#: ``(path, mtime_ns, size, line) -> doc comment``.  A hover used to re-read
+#: and split the whole source file for every request; an editor sends one hover
+#: per cursor movement, so a 4 000-line module cost a file read each time.
+_DOC_FILE_CACHE: Dict[tuple, str] = {}
+
+
 def extract_doc_from_file(sym: Symbol) -> str:
     """Reads '##'-doc comments directly above the symbol declaration.
 
@@ -58,6 +64,14 @@ def extract_doc_from_file(sym: Symbol) -> str:
     line = getattr(sym, "line", None)
     if not fp or not line or not os.path.isfile(fp):
         return ""
+    try:
+        st = os.stat(fp)
+        cache_key = (os.path.abspath(fp), st.st_mtime_ns, st.st_size, line)
+    except OSError:
+        return ""
+    cached = _DOC_FILE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     try:
         with open(fp, "r", encoding="utf-8") as f:
             lines = f.read().splitlines()
@@ -78,7 +92,11 @@ def extract_doc_from_file(sym: Symbol) -> str:
         else:
             break
     collected.reverse()
-    return "\n".join(collected)
+    result = "\n".join(collected)
+    if len(_DOC_FILE_CACHE) > 512:
+        _DOC_FILE_CACHE.clear()
+    _DOC_FILE_CACHE[cache_key] = result
+    return result
 
 
 def get_word_at_position(text: str, position: Position) -> Optional[str]:

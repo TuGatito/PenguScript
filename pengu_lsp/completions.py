@@ -132,6 +132,8 @@ def _available_module_specs(base_dir: str, include_stdlib: bool = True) -> List[
             _scan(base, base)  # loose script folder: files directly under it
 
     specs = sorted(set(specs))
+    if len(_MODULE_SPEC_CACHE) > 64:
+        _MODULE_SPEC_CACHE.clear()
     _MODULE_SPEC_CACHE[base_dir] = (now, specs)
     return specs
 
@@ -186,6 +188,42 @@ def _rune_fields_for(symbols, type_name: str):
         if isinstance(t, RuneType):
             return {k: v for k, v in t.fields.items() if not k.startswith("_")}
     return None
+
+
+def _current_document_path(uri: str) -> Optional[str]:
+    """Absolute path of the document being completed, or None for non-files."""
+    try:
+        from urllib.parse import unquote, urlparse
+
+        parsed = urlparse(uri)
+        if parsed.scheme == "file":
+            return os.path.abspath(unquote(parsed.path))
+    except Exception:
+        pass
+    return None
+
+
+def _belongs_to_document(sym, current_path: Optional[str]) -> bool:
+    """False for symbols collected from an imported module.
+
+    The checker registers every imported module's top-level functions and types
+    in the document's own symbol table (unqualified) so that code generation and
+    type resolution can see them.  Listing all of them in plain identifier
+    completion turned every keystroke into ~2 500 items (1 447 functions from
+    five std imports) and buried the user's own names.  Import aliases are kept:
+    they are exactly what the user types before a dot.
+    """
+    if current_path is None:
+        return True
+    if getattr(sym, "kind", "") == "import":
+        return True
+    file_path = getattr(sym, "file_path", None)
+    if not file_path:
+        return True
+    try:
+        return os.path.abspath(file_path) == current_path
+    except Exception:
+        return True
 
 
 def _lookup_at(symbols, name: str, cursor_line: int):
@@ -631,8 +669,44 @@ def _type_items(symbols: Optional[SymbolTable]) -> List[CompletionItem]:
             )
         )
 
+    imported_names = getattr(symbols, "imported_names", None) or set()
+    # Import aliases: monomorphization later adds spellings such as
+    # `numerus_Pair` (and `numerus_oracle_Pair`) to `generic_runes`, after the
+    # checker's imported-name snapshot was taken.  Any registry key prefixed
+    # with an import alias is an internal spelling, not something a user types.
+    scope_symbols = getattr(getattr(symbols, "global_scope", None), "symbols", {}) or {}
+    import_aliases = {
+        name for name, sym in scope_symbols.items()
+        if getattr(sym, "kind", "") == "import"
+    }
+    # An imported module's *public* types are usable by their bare name (the
+    # checker registers them in the type registries), but its internal
+    # `module_Type` spelling is not something a user writes.  Showing the bare
+    # public names keeps imported types available without flooding the list:
+    # five std imports produced 957 entries, 477 of them internal aliases.
+    public_imported: set = set()
+    if symbols is not None:
+        scope = getattr(symbols, "global_scope", None)
+        for import_symbol in getattr(scope, "symbols", {}).values():
+            if getattr(import_symbol, "kind", "") != "import":
+                continue
+            module_scope = getattr(import_symbol, "module_scope", None)
+            if module_scope is None:
+                continue
+            for member_name, member in getattr(module_scope, "symbols", {}).items():
+                if member_name.startswith("_"):
+                    continue
+                if getattr(member, "kind", "") in (
+                    "rune", "echo", "omen", "alias", "seal", "concept",
+                ):
+                    public_imported.add(member_name)
+
     def _add(name: str, kind: CompletionItemKind, detail: str) -> None:
         if name and name not in seen:
+            if name in imported_names and name not in public_imported:
+                return
+            if any(name.startswith(alias + "_") for alias in import_aliases):
+                return
             seen.add(name)
             items.append(
                 CompletionItem(label=name, kind=kind, detail=detail, insert_text=name)
@@ -651,6 +725,8 @@ def _type_items(symbols: Optional[SymbolTable]) -> List[CompletionItem]:
             _add(s_name, CompletionItemKind.TypeParameter, "seal")
         for g_name in getattr(symbols, "generic_runes", {}):
             _add(g_name, CompletionItemKind.Class, "generic rune")
+        for p_name in sorted(public_imported):
+            _add(p_name, CompletionItemKind.Class, "imported type")
     return items
 
 
@@ -767,6 +843,7 @@ def get_completions(
         CompletionList for VSCode LSP.
     """
     cursor_line = position.line + 1
+    current_path = _current_document_path(uri)
 
     # 0aa. `judge <rune> over ` / `when <Variant> with ` — the discriminant
     # fields and the rune's fields. Checked before the plain judge context so a
@@ -1002,6 +1079,8 @@ def get_completions(
         if table_dict:
             for name, sym in table_dict.items():
                 if name not in added_labels:
+                    if not _belongs_to_document(sym, current_path):
+                        continue
                     if sym.kind in ("weave", "function", "declare"):
                         t_str = f" {sym.type}" if getattr(sym, "type", None) else ""
                         call_items.append(
@@ -1061,6 +1140,8 @@ def get_completions(
 
         if table_dict:
             for name, sym in table_dict.items():
+                if not _belongs_to_document(sym, current_path):
+                    continue
                 if getattr(sym, "kind", "") in ("rune", "echo", "omen", "weave", "function", "declare", "alias", "var", "let", "const", "import"):
                     kind = (
                         CompletionItemKind.Class if sym.kind == "rune"
@@ -1083,13 +1164,20 @@ def get_completions(
                         )
                     )
 
+        # One label set instead of `any(item.label == ...)` per candidate:
+        # with imports the list holds thousands of items and the old scan made
+        # completion quadratic in its own output.
+        seen_labels = {item.label for item in items}
+        imported_names = getattr(symbols, "imported_names", None) or set()
+
         # 5. Dynamic Local Variables from Active Scopes around cursor_line
         if hasattr(symbols, "all_scopes"):
             for scope in symbols.all_scopes:
                 if scope.start_line <= cursor_line <= scope.end_line:
                     for sym in scope.symbols.values():
                         if getattr(sym, "kind", "") in ("var", "let", "param") and sym.name:
-                            if not any(it.label == sym.name for it in items):
+                            if sym.name not in seen_labels:
+                                seen_labels.add(sym.name)
                                 t_str = f" {sym.type}" if getattr(sym, "type", None) else ""
                                 items.append(
                                     CompletionItem(
@@ -1100,9 +1188,13 @@ def get_completions(
                                     )
                                 )
 
-        # Collect custom runes/types registered in symbols
+        # Collect custom runes/types registered in symbols. Names an import
+        # contributed (`loom_Vec2`, `Vec2` from a module) are excluded here:
+        # their qualified spelling is what the user writes, and dot completion
+        # already offers them after `module.`.
         for r_name in getattr(symbols, "runes", {}):
-            if not any(it.label == r_name for it in items):
+            if r_name not in seen_labels and r_name not in imported_names:
+                seen_labels.add(r_name)
                 items.append(
                     CompletionItem(
                         label=r_name,
@@ -1113,7 +1205,8 @@ def get_completions(
                 )
 
         for e_name in getattr(symbols, "echos", {}):
-            if not any(it.label == e_name for it in items):
+            if e_name not in seen_labels and e_name not in imported_names:
+                seen_labels.add(e_name)
                 items.append(
                     CompletionItem(
                         label=e_name,
@@ -1124,7 +1217,8 @@ def get_completions(
                 )
 
         for o_name in getattr(symbols, "omens", {}):
-            if not any(it.label == o_name for it in items):
+            if o_name not in seen_labels and o_name not in imported_names:
+                seen_labels.add(o_name)
                 items.append(
                     CompletionItem(
                         label=o_name,

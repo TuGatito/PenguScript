@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import re
+from dataclasses import dataclass
 from typing import List, Set, Optional, Dict, Tuple, Any
 from lark import Tree, Token
 
@@ -18,7 +19,11 @@ from .pengu_types import (
     type_has_derived_nexus,
     canonical_primitive_name,
 )
-from .pengu_symbols import SymbolTable, Symbol, Scope, resolve_imports, find_module_path, decl_layout, SHARD_RECEIVER_KEY
+from .pengu_symbols import (
+    SymbolTable, Symbol, Scope, resolve_imports, find_module_path, decl_layout,
+    SHARD_RECEIVER_KEY, cached_module_tree, module_source_signature,
+    clear_module_tree_cache,
+)
 from .pengu_infer import TypeInferrer, ConstFolder
 from .pengu_comptime import CompileTimeEnv, default_env, eval_comptime
 from .pengu_grammar import SIMPLE_STMT_ALIASES, split_when_pattern
@@ -345,30 +350,57 @@ def _warning_codes_from_directive(source: Optional[str]) -> Set[str]:
     return codes
 
 
-# Imported modules are re-parsed every time a module imports them (the
-# sub-checker below needs their top-level symbols).  Caching the parsed tree by
-# (path, mtime, size) removes ~200 redundant parses per build for a program that
-# pulls in several std modules.  Trees are read-only during collection, so
-# sharing them is safe; the cache is bounded and self-invalidating.
-_MODULE_TREE_CACHE: Dict[Any, Any] = {}
-_MODULE_TREE_CACHE_MAX = 512
+# ---------------------------------------------------------------------------
+# Imported-module export cache
+# ---------------------------------------------------------------------------
+#
+# Collecting an imported module (and, recursively, everything it imports) is
+# the dominant cost of checking a document with imports.  The sub-checker walk
+# in `_collect_top_level` rebuilt the same module hundreds of times: a file
+# importing `std.loom` collected `std/spark.pengu` 106 times for a single
+# check, because every diamond in the import graph expanded again.  A module's
+# exported symbols only depend on its source text and on the project's
+# resolution directories, so the collected bundle is memoized under that
+# signature.  The cache is process-wide (the LSP re-checks a buffer on every
+# pause in typing) and self-invalidating through mtime/size; unsaved editor
+# buffers are keyed by a content hash so they cannot alias the disk version.
+
+
+@dataclass
+class _ModuleExports:
+    """Collected, read-only view of one imported module."""
+
+    file_path: str
+    exports: List[Tuple[str, Symbol]]
+    symbols: SymbolTable
+    const_definitions: Dict[str, List[Tuple[Any, Optional[str]]]]
+    #: ``(path, signature)`` of every module this one imports, transitively.
+    #: A cache hit re-checks them so editing a dependency invalidates the
+    #: importers too, without flushing the whole cache on every save.
+    dependencies: Tuple[Tuple[str, Tuple[Any, ...]], ...] = ()
+
+
+_MODULE_EXPORTS_CACHE: Dict[Any, _ModuleExports] = {}
+_MODULE_EXPORTS_CACHE_MAX = 256
+#: Keys currently being built, so a circular import graph cannot recurse
+#: forever (the resolver reports the cycle; collection must still terminate).
+_MODULE_EXPORTS_IN_PROGRESS: Set[Any] = set()
+
+
+def clear_module_export_cache() -> None:
+    """Drops every cached module export bundle (and the shared trees)."""
+    _MODULE_EXPORTS_CACHE.clear()
+    _MODULE_EXPORTS_IN_PROGRESS.clear()
+    clear_module_tree_cache()
 
 
 def _cached_module_tree(path: str, code: str, parser: Any) -> Any:
-    """Parses a module once per (path, mtime, size) within the process."""
-    try:
-        st = os.stat(path)
-        key = (os.path.abspath(path), st.st_mtime_ns, st.st_size)
-    except OSError:
-        return parser.parse(code)
-    hit = _MODULE_TREE_CACHE.get(key)
-    if hit is not None:
-        return hit
-    tree = parser.parse(code)
-    if len(_MODULE_TREE_CACHE) >= _MODULE_TREE_CACHE_MAX:
-        _MODULE_TREE_CACHE.clear()
-    _MODULE_TREE_CACHE[key] = tree
-    return tree
+    """Parses a module once per content signature.
+
+    Kept as a thin compatibility wrapper: callers that already hold the text
+    still benefit from the shared cache.
+    """
+    return cached_module_tree(path, parser, code)
 
 
 class PenguChecker:
@@ -385,7 +417,8 @@ class PenguChecker:
         base_dir: Optional[str] = None,
         compile_env: Optional[CompileTimeEnv] = None,
         lib_dir: str = "lib",
-        src_dir: str = "src"
+        src_dir: str = "src",
+        module_sources: Optional[Dict[str, str]] = None,
     ):
         """Initializes semantic checker instance with source code and directory context.
 
@@ -398,6 +431,9 @@ class PenguChecker:
             lib_dir: External bindings directory name (pengu.yaml 'lib_dir').
             src_dir: Project source directory name (pengu.yaml 'src_dir'); the
                 directory import resolution searches before ``lib_dir``.
+            module_sources: Optional ``{absolute path: text}`` map of unsaved
+                editor buffers. An imported module that is currently open in
+                the editor is read from this map instead of from (stale) disk.
         """
         self.source_code = source_code if source_code is not None else source
         self.filename = filename
@@ -410,6 +446,15 @@ class PenguChecker:
         else:
             self.base_dir = os.path.abspath(os.getcwd())
         self.compile_env = compile_env if compile_env is not None else default_env()
+        # Normalized once: import collection does an abspath lookup per module.
+        self.module_sources: Dict[str, str] = {
+            os.path.abspath(path): text
+            for path, text in (module_sources or {}).items()
+        }
+        #: Modules this checker's collection touched, with the signature they
+        #: had. A sub-checker hands this to its importer so a cached bundle can
+        #: be revalidated against later edits of anything it depends on.
+        self._module_dependency_signatures: Set[Tuple[str, Tuple[Any, ...]]] = set()
 
         self.errors: List[PenguError] = []
         self.warnings: List[str] = []
@@ -814,6 +859,45 @@ class PenguChecker:
         """
         self.errors.append(err)
 
+    def _doc_table(self) -> Dict[int, str]:
+        """Maps a 1-indexed declaration line to the doc comment above it.
+
+        The table is built in one linear pass over the source.  The previous
+        implementation called ``str.splitlines()`` and walked upwards for every
+        declaration, which is quadratic in the file length: collecting the
+        imports of a 2 000-line document called it ~24 000 times and spent more
+        time splitting strings than checking the program.
+
+        Returns:
+            ``{1-indexed line of declaration: joined comment text}``.
+        """
+        cached = getattr(self, "_doc_table_cache", None)
+        if cached is not None and cached[0] is self.source_code:
+            return cached[1]
+        lines = self.source_code.splitlines()
+        table: Dict[int, str] = {}
+        idx = 0
+        total = len(lines)
+        while idx < total:
+            if not lines[idx].strip().startswith("#"):
+                idx += 1
+                continue
+            # A run of comment lines. The declaration (if any) is the line
+            # right after it; a blank line in between ends the association,
+            # exactly as the line-by-line version did.
+            collected: List[str] = []
+            while idx < total and lines[idx].strip().startswith("#"):
+                content = lines[idx].strip()
+                while content.startswith("#") or content.endswith("#"):
+                    content = content.strip("#").strip()
+                if content and not set(content) <= {"-", "=", "*", "_"}:
+                    collected.append(content)
+                idx += 1
+            if collected:
+                table[idx + 1] = "\n".join(collected).strip()
+        self._doc_table_cache = (self.source_code, table)
+        return table
+
     def _extract_preceding_doc(self, line: Optional[int]) -> Optional[str]:
         """Extracts doc comments (# or ##) immediately preceding a declaration.
 
@@ -825,34 +909,7 @@ class PenguChecker:
         """
         if not self.source_code or line is None or line <= 1:
             return None
-        lines = self.source_code.splitlines()
-        idx = line - 2  # 0-indexed line above declaration
-        if idx >= len(lines):
-            return None
-        collected: List[str] = []
-
-        while idx >= 0:
-            raw_line = lines[idx]
-            stripped = raw_line.strip()
-            if not stripped:
-                break
-            if stripped.startswith("#"):
-                content = stripped
-                while content.startswith("#") or content.endswith("#"):
-                    content = content.strip("#").strip()
-                if content and set(content) <= {"-", "=", "*", "_"}:
-                    idx -= 1
-                    continue
-                if content:
-                    collected.append(content)
-            else:
-                break
-            idx -= 1
-
-        if not collected:
-            return None
-        collected.reverse()
-        return "\n".join(collected).strip()
+        return self._doc_table().get(line)
 
     def _eval_when_condition(self, cond_node: Any, node: Any) -> Optional[bool]:
         """Evaluates a 'when' condition against the compile-time environment.
@@ -932,6 +989,127 @@ class PenguChecker:
     # -------------------------------------------------------------------------
     # Pass 1: Collect Top-Level Declarations
     # -------------------------------------------------------------------------
+    def _module_exports_for(self, mod_file: str) -> Optional[_ModuleExports]:
+        """Collects an imported module once and caches its exported surface.
+
+        The bundle is read-only: importers only copy names out of it and attach
+        a per-import alias, so all importers of one module in a program share a
+        single collection pass.  A file on disk is keyed by ``(mtime, size)``;
+        an unsaved editor buffer by its content hash.  The key also carries the
+        project directories, because they determine which files the module's own
+        imports resolve to.
+
+        Args:
+            mod_file: Resolved path of the imported module.
+
+        Returns:
+            The cached bundle, or None when the module cannot be read (or a
+            circular graph is already being collected above this call).
+        """
+        abs_file = os.path.abspath(mod_file)
+        override = self.module_sources.get(abs_file)
+        try:
+            signature = module_source_signature(abs_file, override)
+        except OSError:
+            return None
+        key = (signature, self.base_dir, self.lib_dir, self.src_dir)
+        hit = _MODULE_EXPORTS_CACHE.get(key)
+        if hit is not None:
+            if self._module_dependencies_are_current(hit):
+                self._record_module_dependency(abs_file, signature, hit)
+                return hit
+            # A module this one imports changed after the bundle was built:
+            # its re-exported names/types are stale. Drop and rebuild.
+            _MODULE_EXPORTS_CACHE.pop(key, None)
+        if key in _MODULE_EXPORTS_IN_PROGRESS:
+            return None
+        _MODULE_EXPORTS_IN_PROGRESS.add(key)
+        try:
+            if override is not None:
+                mod_code = override
+            else:
+                with open(abs_file, "r", encoding="utf-8") as handle:
+                    mod_code = handle.read()
+            from .pengu_parser import PenguParser
+
+            sub_tree = cached_module_tree(abs_file, PenguParser(), override)
+            sub_checker = PenguChecker(
+                base_dir=self.base_dir, lib_dir=self.lib_dir, src_dir=self.src_dir,
+                module_sources=self.module_sources,
+            )
+            sub_checker.source_code = mod_code
+            sub_checker.filename = abs_file
+            sub_checker._collect_top_level(sub_tree, import_order=[])
+
+            exports = list(sub_checker.symbols.global_scope.symbols.items())
+            # `_collect_top_level` records declared *types* in the type
+            # registries (runes/echos/omens/aliases/seals/concepts) but only
+            # declares non-type symbols in the global scope. Building the export
+            # list from the scope alone therefore dropped every type this module
+            # declares, and -- because a rune may be inherited from its own
+            # imports -- every type it re-exports, leaving `dep.Vec` with no
+            # fields (blocker B7). Types are exported explicitly here and the
+            # symbol is synthesised when the registry has no scope entry.
+            scope_names = {name for name, _ in exports}
+            for reg_kind, registry in (
+                ("rune", sub_checker.symbols.runes),
+                ("echo", sub_checker.symbols.echos),
+                ("omen", sub_checker.symbols.omens),
+                ("concept", sub_checker.symbols.concepts),
+            ):
+                for type_name, type_value in registry.items():
+                    if type_name in scope_names or type_name.startswith("_"):
+                        continue
+                    exports.append((type_name, Symbol(
+                        name=type_name, type=type_value, kind=reg_kind, is_public=True,
+                        file_path=abs_file,
+                        c_name=getattr(type_value, "c_name", None) or type_name,
+                    )))
+            for alias_name, alias_type in sub_checker.symbols.aliases.items():
+                if alias_name in scope_names or alias_name.startswith("_"):
+                    continue
+                exports.append((alias_name, Symbol(
+                    name=alias_name, type=AliasType(alias_name, alias_type), kind="alias",
+                    is_public=True, file_path=abs_file, c_name=alias_name,
+                )))
+
+            bundle = _ModuleExports(
+                file_path=abs_file,
+                exports=exports,
+                symbols=sub_checker.symbols,
+                const_definitions=sub_checker.const_definitions,
+                dependencies=tuple(sub_checker._module_dependency_signatures),
+            )
+        finally:
+            _MODULE_EXPORTS_IN_PROGRESS.discard(key)
+        if len(_MODULE_EXPORTS_CACHE) >= _MODULE_EXPORTS_CACHE_MAX:
+            _MODULE_EXPORTS_CACHE.clear()
+        _MODULE_EXPORTS_CACHE[key] = bundle
+        self._record_module_dependency(abs_file, signature, bundle)
+        return bundle
+
+    def _module_dependencies_are_current(self, bundle: _ModuleExports) -> bool:
+        """True when every module the bundle was built from is unchanged."""
+        for path, expected in bundle.dependencies:
+            try:
+                current = module_source_signature(path, self.module_sources.get(path))
+            except OSError:
+                return False
+            if current != expected:
+                return False
+        return True
+
+    def _record_module_dependency(self, path: str, signature: Tuple[Any, ...],
+                                  bundle: Optional[_ModuleExports]) -> None:
+        """Records the modules a checker's collection consumed.
+
+        The importer copies these into its own bundle so that a later edit of a
+        transitive dependency invalidates every bundle that re-exports from it.
+        """
+        self._module_dependency_signatures.add((path, signature))
+        if bundle is not None:
+            self._module_dependency_signatures.update(bundle.dependencies)
+
     def _collect_top_level(self, tree: Tree, import_order: Optional[List[str]] = None, current_insignia: Optional[str] = None, file_imports: Optional[Set[str]] = None) -> Optional[str]:
         """Discovers and registers all module definitions, imports, and declarations.
 
@@ -1062,102 +1240,79 @@ class PenguChecker:
                     mod_file = find_module_path(self.base_dir, dot_path, from_dir=from_d,
                                                 lib_dir=self.lib_dir, src_dir=self.src_dir)
                     if mod_file and os.path.isfile(mod_file):
-                        with open(mod_file, "r", encoding="utf-8") as mf:
-                            mod_code = mf.read()
-                        from .pengu_parser import PenguParser
-                        sub_parser = PenguParser()
-                        sub_tree = _cached_module_tree(mod_file, mod_code, sub_parser)
-                        sub_checker = PenguChecker(base_dir=self.base_dir,
-                                                   lib_dir=self.lib_dir, src_dir=self.src_dir)
-                        sub_checker.source_code = mod_code
-                        sub_checker.filename = mod_file
-                        sub_checker._collect_top_level(sub_tree, import_order=[])
-                        mod_abs_file = os.path.abspath(mod_file)
-                        exports = list(sub_checker.symbols.global_scope.symbols.items())
-                        # `_collect_top_level` records declared *types* in the
-                        # type registries (runes/echos/omens/aliases/seals/
-                        # concepts) but only declares non-type symbols in the
-                        # global scope. Building the export list from the scope
-                        # alone therefore dropped every type this module
-                        # declares, and -- because a rune may be inherited from
-                        # its own imports -- every type it re-exports, leaving
-                        # `dep.Vec` with no fields (blocker B7). Types are
-                        # exported explicitly here and the symbol is synthesised
-                        # when the registry has no matching scope entry.
-                        _scope_names = {n for n, _ in exports}
-                        for _reg_name, _reg in (
-                            ("rune", sub_checker.symbols.runes),
-                            ("echo", sub_checker.symbols.echos),
-                            ("omen", sub_checker.symbols.omens),
-                            ("concept", sub_checker.symbols.concepts),
-                        ):
-                            for _tname, _ttype in _reg.items():
-                                if _tname in _scope_names or _tname.startswith("_"):
+                        bundle = self._module_exports_for(mod_file)
+                        if bundle is not None:
+                            mod_file = bundle.file_path
+                            mod_symbols = bundle.symbols
+                            for sname, sym in bundle.exports:
+                                if sym.kind == "import":
                                     continue
-                                exports.append((_tname, Symbol(
-                                    name=_tname, type=_ttype, kind=_reg_name, is_public=True,
-                                    file_path=mod_file, c_name=getattr(_ttype, "c_name", None) or _tname,
-                                )))
-                        for _aname, _atype in sub_checker.symbols.aliases.items():
-                            if _aname in _scope_names or _aname.startswith("_"):
-                                continue
-                            exports.append((_aname, Symbol(
-                                name=_aname, type=AliasType(_aname, _atype), kind="alias", is_public=True,
-                                file_path=mod_file, c_name=_aname,
-                            )))
-                        for sname, sym in exports:
-                            if sym.kind == "import":
-                                continue
-                            # The module scope is the *complete* set of names the
-                            # module declares, private ones included: `E0043`
-                            # (private symbol access) can only be raised by the
-                            # consumer if the symbol is actually present here.
-                            # Filtering visibility at export time silently turned
-                            # `lib._secret` into an undefined identifier instead
-                            # of the documented diagnostic (B6).
-                            #
-                            # Re-export is intentional: a module that imports a
-                            # type makes it reachable as `<module>.<Type>`. The
-                            # old filter dropped any symbol whose file_path was
-                            # not this module's own file, which removed every
-                            # re-exported type (B7). The qualified lookup only
-                            # consults modules the caller actually imported, so
-                            # `lib.Vec` stays unreachable without `import lib`.
-                            mod_scope.define(sym)
-                            eff_c_name = sym.get_c_name()
-                            if sym.kind in ("weave", "function", "declare") and isinstance(sym.type, FnType):
-                                self.symbols.functions[f"{bind_name}_{sname}"] = sym.type
-                                self.symbols.functions[eff_c_name] = sym.type
-                            if sym.kind == "rune" and isinstance(sym.type, RuneType):
-                                self.symbols.runes[f"{bind_name}_{sname}"] = sym.type
-                                self.symbols.runes[eff_c_name] = sym.type
-                            if sym.kind == "const":
-                                cval = getattr(sym, "const_val", None)
-                                src_path = getattr(sym, "file_path", None) or mod_file
-                                self.symbols.consts[f"{bind_name}_{sname}"] = (sym.type, cval)
-                                self.symbols.consts[eff_c_name] = (sym.type, cval)
-                                self.const_definitions.setdefault(sname, []).append((cval, src_path))
-                            if sym.kind == "alias" and isinstance(sym.type, AliasType):
-                                self.symbols.aliases[f"{bind_name}_{sname}"] = sym.type.target
-                                self.symbols.aliases[eff_c_name] = sym.type.target
-                                self.symbols.aliases[sname] = sym.type.target
-                                self.symbols.global_scope.define(sym)
-                        for gname, ginfo in sub_checker.symbols.generic_functions.items():
-                            self.symbols.generic_functions[gname] = ginfo
-                            owner = sub_checker.symbols.generic_function_owner.get(gname)
-                            if owner:
-                                self.symbols.generic_function_owner[gname] = owner
-                            # Only the *imported module's own* generics get the
-                            # `{bind_name}_` alias. A sub-checker's table also
-                            # holds generics it pulled in transitively, and those
-                            # belong to their own module: aliasing them invented
-                            # functions that do not exist (`loom_running_sum` for a
-                            # generic defined in `std/tally`), which then made an
-                            # unrelated non-generic `loom.running_sum` resolve as
-                            # generic and fail with E0005.
-                            if owner == mod_file:
-                                self.symbols.generic_functions[f"{bind_name}_{gname}"] = ginfo
-                                self.symbols.generic_function_owner[f"{bind_name}_{gname}"] = owner
+                                # The module scope is the *complete* set of names
+                                # the module declares, private ones included:
+                                # `E0043` (private symbol access) can only be
+                                # raised by the consumer if the symbol is
+                                # actually present here. Filtering visibility at
+                                # export time silently turned `lib._secret` into
+                                # an undefined identifier instead of the
+                                # documented diagnostic (B6).
+                                #
+                                # Re-export is intentional: a module that imports
+                                # a type makes it reachable as `<module>.<Type>`.
+                                # The old filter dropped any symbol whose
+                                # file_path was not this module's own file, which
+                                # removed every re-exported type (B7). The
+                                # qualified lookup only consults modules the
+                                # caller actually imported, so `lib.Vec` stays
+                                # unreachable without `import lib`.
+                                mod_scope.define(sym)
+                                eff_c_name = sym.get_c_name()
+                                if sym.kind in ("weave", "function", "declare") and isinstance(sym.type, FnType):
+                                    self.symbols.functions[f"{bind_name}_{sname}"] = sym.type
+                                    self.symbols.functions[eff_c_name] = sym.type
+                                    self.symbols.imported_names.update(
+                                        (f"{bind_name}_{sname}", eff_c_name)
+                                    )
+                                if sym.kind == "rune" and isinstance(sym.type, RuneType):
+                                    self.symbols.runes[f"{bind_name}_{sname}"] = sym.type
+                                    self.symbols.runes[eff_c_name] = sym.type
+                                    self.symbols.imported_names.update(
+                                        (f"{bind_name}_{sname}", eff_c_name)
+                                    )
+                                if sym.kind == "const":
+                                    cval = getattr(sym, "const_val", None)
+                                    src_path = getattr(sym, "file_path", None) or mod_file
+                                    self.symbols.consts[f"{bind_name}_{sname}"] = (sym.type, cval)
+                                    self.symbols.consts[eff_c_name] = (sym.type, cval)
+                                    self.symbols.imported_names.update(
+                                        (f"{bind_name}_{sname}", eff_c_name)
+                                    )
+                                    self.const_definitions.setdefault(sname, []).append((cval, src_path))
+                                if sym.kind == "alias" and isinstance(sym.type, AliasType):
+                                    self.symbols.aliases[f"{bind_name}_{sname}"] = sym.type.target
+                                    self.symbols.aliases[eff_c_name] = sym.type.target
+                                    self.symbols.aliases[sname] = sym.type.target
+                                    self.symbols.imported_names.update(
+                                        (f"{bind_name}_{sname}", eff_c_name, sname)
+                                    )
+                                    self.symbols.global_scope.define(sym)
+                            for gname, ginfo in mod_symbols.generic_functions.items():
+                                self.symbols.generic_functions[gname] = ginfo
+                                owner = mod_symbols.generic_function_owner.get(gname)
+                                if owner:
+                                    self.symbols.generic_function_owner[gname] = owner
+                                # Only the *imported module's own* generics get
+                                # the `{bind_name}_` alias. A module's table also
+                                # holds generics it pulled in transitively, and
+                                # those belong to their own module: aliasing them
+                                # invented functions that do not exist
+                                # (`loom_running_sum` for a generic defined in
+                                # `std/tally`), which then made an unrelated
+                                # non-generic `loom.running_sum` resolve as generic
+                                # and fail with E0005.
+                                if owner == mod_file:
+                                    self.symbols.generic_functions[f"{bind_name}_{gname}"] = ginfo
+                                    self.symbols.generic_function_owner[f"{bind_name}_{gname}"] = owner
+                                    self.symbols.imported_names.add(f"{bind_name}_{gname}")
                 except PenguError as mod_err:
                     # Surface the imported module's own diagnostic instead of
                     # swallowing it and reporting a confusing 'undefined
@@ -2594,23 +2749,60 @@ class PenguChecker:
             if import_order is not None:
                 self.symbols.import_order = import_order
             else:
+                # Collecting imported modules registers their top-level names in
+                # *this* table (unqualified) so cross-module resolution works.
+                # A module that happens to declare the same name as the entry
+                # document must not replace the document's own declaration:
+                # `import std.spark` was overwritten by `std.loom`'s internal
+                # `import std.spark` (line 123 of loom), so the outline, hover
+                # and go-to-definition pointed at the wrong file/line.  Snapshot
+                # the entry's surface and restore it after the modules are in.
+                entry_global = dict(self.symbols.global_scope.symbols)
+                entry_registries = {
+                    name: dict(getattr(self.symbols, name))
+                    for name in (
+                        "runes", "echos", "omens", "aliases", "seals", "concepts",
+                        "functions", "consts", "methods",
+                        "generic_runes", "generic_echos", "generic_omens",
+                        "generic_aliases", "generic_concepts", "generic_functions",
+                        "generic_function_owner",
+                    )
+                    if hasattr(self.symbols, name)
+                }
+                registry_snapshot: Dict[str, Set[Any]] = {}
                 try:
                     order = resolve_imports(self.base_dir, target_file,
                                             parser=getattr(self, "parser", None),
                                             lib_dir=getattr(self, "lib_dir", "lib"),
                                             src_dir=getattr(self, "src_dir", "src"),
-                                            entry_source=entry_source)
+                                            entry_source=entry_source,
+                                            module_sources=self.module_sources)
                     self.symbols.import_order = order
+                    # Names these module collections add to the registries are
+                    # import-internal spellings (`loom_Vec2`, `spark_println`);
+                    # completion uses this set to keep them out of the plain
+                    # list (the entry's own names are removed again below).
+                    registry_snapshot = {
+                        name: set(getattr(self.symbols, name))
+                        for name in (
+                            "runes", "echos", "omens", "aliases", "functions",
+                            "consts", "generic_runes", "generic_echos",
+                            "generic_omens", "generic_aliases", "generic_concepts",
+                            "generic_functions",
+                        )
+                        if hasattr(self.symbols, name)
+                    }
                     from .pengu_parser import PenguParser
                     mod_parser = getattr(self, "parser", None) or PenguParser()
                     for mod_file in order:
                         mod_abs = os.path.abspath(mod_file)
                         if mod_abs not in self._collected_files:
                             self._collected_files.add(mod_abs)
-                            if os.path.isfile(mod_abs):
-                                with open(mod_abs, "r", encoding="utf-8") as mf:
-                                    m_code = mf.read()
-                                m_tree = mod_parser.parse(m_code)
+                            override = self.module_sources.get(mod_abs)
+                            if override is None and entry_source is not None and mod_abs == os.path.abspath(target_file):
+                                override = entry_source
+                            if override is not None or os.path.isfile(mod_abs):
+                                m_tree = cached_module_tree(mod_abs, mod_parser, override)
                                 prev_fn = self.filename
                                 prev_insignia = getattr(self.symbols, "insignia", None)
                                 try:
@@ -2622,6 +2814,25 @@ class PenguChecker:
                                     self.symbols.insignia = prev_insignia
                 except SemanticError as e:
                     self._record_error(e)
+                finally:
+                    # Entry declarations always win over an imported module's
+                    # homonyms; module-only names stay visible. Restored even
+                    # when resolution fails halfway through, so an unresolved
+                    # import can never rewrite the document's own names.
+                    self.symbols.global_scope.symbols.update(entry_global)
+                    for registry_name, saved in entry_registries.items():
+                        registry = getattr(self.symbols, registry_name, None)
+                        if isinstance(registry, dict):
+                            registry.update(saved)
+                    for registry_name, before in registry_snapshot.items():
+                        registry = getattr(self.symbols, registry_name, None)
+                        if isinstance(registry, dict):
+                            self.symbols.imported_names.update(
+                                set(registry) - before
+                            )
+                    # The entry's own declarations are not "imported names",
+                    # even when a module happened to define the same spelling.
+                    self.symbols.imported_names.difference_update(entry_global)
         return current_insignia
 
 
