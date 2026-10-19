@@ -243,6 +243,7 @@ def test_error_model_matches_the_c_bridge():
     assert len(wrapper) == len(expected) + 1 and wrapper[-1] == "HttpStatus"
 
 
+@pytest.mark.xdist_group("pengu-module-tests")
 def test_module_self_tests(has_cc):
     """`pengu test --entry std/petitio.pengu`: every in-module block passes.
 

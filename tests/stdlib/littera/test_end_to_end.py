@@ -21,6 +21,7 @@ pytestmark = pytest.mark.slow
 ROOT = Path(__file__).resolve().parents[3]
 
 
+@pytest.mark.xdist_group("pengu-module-tests")
 def test_module_self_tests_pass():
     """``pengu test --entry std/littera.pengu``: all embedded blocks pass."""
     res = subprocess.run(

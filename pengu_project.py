@@ -6536,21 +6536,23 @@ def selftest_project(base_ref: Optional[str] = None, smoke: bool = False,
         targets = [os.path.join("tests", "test_conformance.py")]
 
     cmd = [sys.executable, "-m", "pytest", *targets, "-p", "no:cacheprovider"]
-    # Fanning out is only worth it for a big selection. `-n auto` for one case or
-    # for the smoke tier costs more in worker startup (~0.25 s each) than the
-    # tests themselves, so a narrowed run defaults to serial; `--affected` keeps
-    # `auto` because it can legitimately select thousands of cases.
-    if jobs == "auto" and (test or smoke):
+    # Fanning out is only worth it for a big selection. A single conformance
+    # case (``--test``) is dominated by worker startup, so it defaults to serial.
+    # The smoke tier is ~380 tests (80 s serial, ~18 s parallel), so it keeps
+    # ``auto``; ``--affected`` also keeps it because it can select thousands.
+    if jobs == "auto" and test:
         jobs = "0"
-    if jobs and jobs != "0":
-        cmd += ["-n", jobs]
+    # Always spell out `-n`: pytest.ini defaults to `-n auto` for the full
+    # suite, and this command must be able to override it (a `--smoke` run that
+    # started 36 workers would spend more time booting them than testing).
+    jobs = jobs or "0"
+    cmd += ["-n", jobs]
     if smoke:
         # Narrow the *collection* too, not just the selection: see
-        # _selftest_smoke_targets.
+        # _selftest_smoke_targets. Rebuilding `cmd` drops the `-n` above, so it
+        # is re-added here.
         cmd = [sys.executable, "-m", "pytest", *_selftest_smoke_targets(root),
-               "-p", "no:cacheprovider"]
-        if jobs and jobs != "0":
-            cmd += ["-n", jobs]
+               "-p", "no:cacheprovider", "-n", jobs]
         cmd += ["-m", "smoke"]
 
     jsonl_path = None

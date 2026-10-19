@@ -84,7 +84,7 @@ Run from the repository root — the tests import `tests.conftest`.
 > `tests/test_*.py`.
 
 ```bash
-# Fast tier (<3 s): pure unit tests, no C compiler, no subprocess
+# Fast tier (~18 s): unit tests, no full rebuild, safe while iterating
 pengu selftest --smoke
 
 # Only the conformance cases your changes can affect

@@ -37,24 +37,6 @@ def has_cc() -> bool:
 
 
 @pytest.fixture
-def pengu_cli(tmp_path):
-    """Runs ``pengu_project.py <args>`` in ``tmp_path``."""
-    if not _have_cc():
-        pytest.skip("no C compiler available")
-    if not _have_runtime():
-        pytest.skip("libpengu_runtime.a not built (run build_runtime.py)")
-
-    def _run(*args: str, timeout: int = 240) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [sys.executable, str(ROOT / "pengu_project.py"), *args],
-            capture_output=True, text=True, timeout=timeout,
-            cwd=str(tmp_path), env={**os.environ, "PYTHONPATH": str(ROOT)},
-        )
-
-    return _run
-
-
-@pytest.fixture
 def compile_and_run(tmp_path):
     """Runs a complete program and returns its stdout without CLI chatter."""
     if not _have_cc():

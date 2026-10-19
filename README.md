@@ -337,15 +337,17 @@ python build_runtime.py
 # `pengu --version` is an alias.
 pengu -V
 
-# Run the test-suite (parallel; see AGENT_TESTING.md before adding tests)
+# Run the test-suite (parallel by default; see AGENT_TESTING.md before adding tests)
 pengu selftest
-pytest tests/ -n auto
+pytest tests/
 ```
 
-`pengu selftest --smoke` runs the fast tier (<3 s, no C compiler needed);
+`pengu selftest --smoke` runs the fast tier (~18 s, parallel, no full rebuild);
 `pengu selftest --affected` runs only what your changes can affect. The full suite
-is ~4 min 37 s parallel against 34 min 19 s serial. `pengu test` is a different
-command: it compiles *your* project and runs its integrated `test` blocks.
+is **~3–4 min** with the default `-n auto` (36 cores) against ~53 min serial
+(`-n 0`); the budget is 5–7 min, with 10 min as the hard ceiling. `pengu test` is
+a different command: it compiles *your* project and runs its integrated `test`
+blocks.
 
 #### Hello, world
 
@@ -779,7 +781,7 @@ Declared in [requirements.txt](requirements.txt):
 | [pycparser](https://github.com/eliben/pycparser)                              | C-header parsing in `pengu bind`                            | BSD-3-Clause                   |
 | [PyInstaller](https://pyinstaller.org/)                                       | Packaging the standalone `pengu` executable (release step)  | GPL-2.0-or-later (with bootloader exception) |
 | [pytest](https://pytest.org/)                                                 | Test runner (`pengu selftest`, `pytest tests/`)             | MIT                            |
-| [pytest-xdist](https://github.com/pytest-dev/pytest-xdist)                    | Parallel test execution (`-n auto`; 34 min -> 4 min 37 s)   | MIT                            |
+| [pytest-xdist](https://github.com/pytest-dev/pytest-xdist)                    | Parallel test execution (`-n auto` by default; 53 min -> 3 min) | MIT                        |
 | [pytest-timeout](https://github.com/pytest-dev/pytest-timeout)                | Per-test hang guard (`--timeout=`, `@pytest.mark.timeout`)  | MIT                            |
 | [pytest-cov](https://github.com/pytest-dev/pytest-cov) / [coverage](https://coverage.readthedocs.io/) | Coverage ratchet (`fail_under` in `.coveragerc`) | MIT / Apache-2.0 |
 | [Hypothesis](https://hypothesis.readthedocs.io/)                              | Property-based tests (formatter idempotency, semantics)     | MPL-2.0                        |
@@ -1078,14 +1080,15 @@ python build_runtime.py
 # `pengu --version` es un alias.
 pengu -V
 
-# Run the test-suite (en paralelo; lee AGENT_TESTING.md antes de añadir tests)
+# Ejecuta la suite (en paralelo por defecto; lee AGENT_TESTING.md antes de añadir tests)
 pengu selftest
-pytest tests/ -n auto
+pytest tests/
 ```
 
-`pengu selftest --smoke` ejecuta el tier rápido (<3 s, sin compilador de C);
+`pengu selftest --smoke` ejecuta el tier rápido (~18 s, en paralelo, sin rebuild completo);
 `pengu selftest --affected` ejecuta sólo lo que tus cambios pueden afectar. La
-suite completa tarda ~4 min 37 s en paralelo frente a 34 min 19 s en serie.
+suite completa tarda **~3–4 min** con `-n auto` (36 núcleos) frente a ~53 min
+en serie (`-n 0`); el presupuesto es 5–7 min, con 10 min como techo duro.
 `pengu test` es otro comando: compila *tu* proyecto y ejecuta sus bloques `test`.
 
 #### Hola, mundo
