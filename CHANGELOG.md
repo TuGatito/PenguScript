@@ -80,6 +80,13 @@ weave main into int:
 
 ### Fixed
 
+- The runtime build no longer aborts on Windows in `std_c/miniz.c`. `mz_ulong`
+  is `unsigned long`, i.e. 32 bits under LLP64, so miniz's
+  `(mz_uint64)(source_len | *pDest_len) > 0xFFFFFFFFU` guard is provably dead
+  code there and GCC 16 rejects it under `-Werror=type-limits`.
+  `build_runtime.py` now passes `-Wno-type-limits` to that one vendored unit
+  (`STD_C_WARNING_OVERRIDES`); LP64 still compiles the guard in and every other
+  `std_c` unit keeps the full `-Wall -Wextra -Werror` set.
 - `CompressError` uses `AllocationFailed` and `FileError` instead of
   `OutOfMemory` and `IoError`: variant names must be unique across every omen in
   a compilation, and `std.petitio`'s `HttpError` already owns both, so importing

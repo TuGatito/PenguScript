@@ -302,6 +302,31 @@ STD_C_DEFINES = {
     ),
 }
 
+#: Per-unit ``-W...`` overrides for vendored ``std_c/*.c`` translation units.
+#:
+#: The default stays the strict ``-Wall -Wextra -Werror`` set built in
+#: :func:`build_std_c`; this mapping only exists for a vendored file that trips
+#: a *platform-specific dead-code* diagnostic, where patching upstream sources
+#: would be worse than accepting code that is correct on every ABI.
+#:
+#: ``miniz.c`` is that case.  Both ``mz_compress2`` and ``mz_uncompress2``
+#: contain::
+#:
+#:     if ((mz_uint64)(source_len | *pDest_len) > 0xFFFFFFFFU)
+#:         return MZ_PARAM_ERROR;
+#:
+#: ``mz_ulong`` is ``unsigned long``, so on LLP64 (Windows) and ILP32 (wasm32,
+#: 32-bit Linux) the OR is 32 bits wide, casting it to ``mz_uint64`` cannot
+#: exceed ``0xFFFFFFFFU`` and GCC reports ``-Wtype-limits``, which ``-Werror``
+#: turns into the failure that used to abort the whole Windows build.  The
+#: upstream comment ("In case mz_ulong is 64-bits (argh I hate longs)") shows
+#: the guard is only meaningful on LP64, so on those ABIs it is harmless dead
+#: code, not a bug.  Clang (macOS and emcc) does not diagnose it at all, so the
+#: override is a no-op there and LP64 GCC keeps the check compiled in.
+STD_C_WARNING_OVERRIDES = {
+    "miniz": ("-Wno-type-limits",),
+}
+
 
 def _header_available(cc, header):
     """True when ``cc`` can preprocess ``#include <header>``."""
@@ -323,7 +348,9 @@ def build_std_c(cc, ar, dest_dir, rebuild=False, extra_flags=None):
     in ``std_c/`` (a header-only dependency such as ``utf8.h`` can change the
     generated code without touching the ``.c``). Compilation is strict:
     ``-std=c99 -Wall -Wextra -Werror`` so a warning in the vendored code is a
-    build failure rather than noise in every consumer build.
+    build failure rather than noise in every consumer build.  The only
+    exceptions are the units named in :data:`STD_C_WARNING_OVERRIDES`, whose
+    diagnostics are provably limited to an ABI where the flagged code is dead.
 
     A unit listed in :data:`STD_C_REQUIRES` whose system header is missing is
     skipped (see that constant).  ``pengu_runtime.h`` is on the include path
@@ -396,7 +423,11 @@ def build_std_c(cc, ar, dest_dir, rebuild=False, extra_flags=None):
             continue
 
         print(f"[STD_C] Compiling {source.name} -> {target_lib.name}...")
-        unit_flags = flags + list(STD_C_DEFINES.get(name, ()))
+        unit_flags = (
+            flags
+            + list(STD_C_WARNING_OVERRIDES.get(name, ()))
+            + list(STD_C_DEFINES.get(name, ()))
+        )
         run_cmd([cc] + unit_flags + ["-c", str(source), "-o", str(obj_path)])
         if target_lib.exists():
             target_lib.unlink()
