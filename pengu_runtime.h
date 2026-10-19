@@ -17,6 +17,23 @@
 #ifndef PENGU_RUNTIME_ORGANIZED_H
 #define PENGU_RUNTIME_ORGANIZED_H
 
+/*
+ * The runtime is C11: it uses `sscanf`, `getenv`, `fopen` and friends on
+ * purpose, because they are standard C and available everywhere (the `*_s`
+ * variants are MSVC-only).  Microsoft's CRT marks them deprecated with C4996,
+ * which clang reports as `-Wdeprecated-declarations`; under the `-Werror` the
+ * test suite and CI use, that turns a valid bundle into a build failure on
+ * Windows (clang.exe targets the MSVC CRT there even when it is not used as
+ * `clang-cl`).  The switch has to be defined before the first CRT header, so it
+ * lives at the top of this header -- the first include of every generated
+ * bundle -- and not in the build flags: a bundle compiled by hand
+ * (`clang -c bundle.c`) must not warn either.  `_WIN32` catches every Windows
+ * toolchain; MinGW and POSIX toolchains simply ignore the macro.
+ */
+#if defined(_WIN32) && !defined(_CRT_SECURE_NO_WARNINGS)
+#define _CRT_SECURE_NO_WARNINGS 1
+#endif
+
 /* =========================================================================
  * ABI v2 — frozen at PenguScript 1.0.0
  *

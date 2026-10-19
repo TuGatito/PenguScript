@@ -87,6 +87,12 @@ weave main into int:
   `build_runtime.py` now passes `-Wno-type-limits` to that one vendored unit
   (`STD_C_WARNING_OVERRIDES`); LP64 still compiles the guard in and every other
   `std_c` unit keeps the full `-Wall -Wextra -Werror` set.
+- Bundles compiled with `clang.exe` on Windows no longer fail under `-Werror`.
+  That clang targets the MSVC CRT, which marks `sscanf`, `getenv` and `fopen`
+  deprecated (C4996), while the runtime uses them on purpose because they are
+  standard C. `pengu_runtime.h` now defines `_CRT_SECURE_NO_WARNINGS` before its
+  first CRT include, so a bundle compiled by hand (`clang -c bundle.c`) is clean
+  too; MinGW and POSIX toolchains ignore the macro.
 - `CompressError` uses `AllocationFailed` and `FileError` instead of
   `OutOfMemory` and `IoError`: variant names must be unique across every omen in
   a compilation, and `std.petitio`'s `HttpError` already owns both, so importing
