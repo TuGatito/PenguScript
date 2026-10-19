@@ -79,7 +79,7 @@ import std.oracle
 # ----------------------------------------------------------------------------
 
 ## Standard library ward module version.
-const WARD_VERSION as string is "2.12.0"
+const WARD_VERSION as string is "2.13.0"
 
 # ----------------------------------------------------------------------------
 # Core Internal Formatting Helpers

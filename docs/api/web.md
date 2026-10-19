@@ -8,7 +8,7 @@
 
 ### `WEB_VERSION`
 
-> const string` = 2.12.0`
+> const string` = 2.13.0`
 
 Version constant for std.web (the toolchain version it ships with, per the
 stdlib versioning policy in LANGUAGE.md §19.0).

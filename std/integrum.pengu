@@ -72,7 +72,7 @@ import std.ward
 # ----------------------------------------------------------------------------
 
 ## Integrum module version.
-const INTEGRUM_VERSION as string is "2.12.0"
+const INTEGRUM_VERSION as string is "2.13.0"
 
 # ----------------------------------------------------------------------------
 # Private helpers (outside the shard: they do not need a `self`)

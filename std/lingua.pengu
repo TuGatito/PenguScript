@@ -87,7 +87,7 @@ import std.builder
 # ----------------------------------------------------------------------------
 
 ## Lingua module version.
-const LINGUA_VERSION as string is "2.12.0"
+const LINGUA_VERSION as string is "2.13.0"
 
 # ----------------------------------------------------------------------------
 # Types

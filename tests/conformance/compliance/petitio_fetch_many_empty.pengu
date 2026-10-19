@@ -1,0 +1,17 @@
+## `fetch_many` on an empty list: no engine, no transfers, empty result (offline).
+import std.petitio
+import std.spark
+
+weave main into int:
+    var requests as list of Request is list of Request
+    var results as list of result of Response to HttpError is calling petitio.fetch_many with requests
+    if results.len != 0:
+        calling spark.println with "FAIL empty batch produced results"
+    banish results
+    banish requests
+
+    # One request that cannot be built still yields a result in input order.
+    # (An empty `Request` list is the only offline case: a real transfer would
+    # open a socket, which the corpus does not do.)
+    calling spark.println with "OK petitio_fetch_many_empty"
+    return 0

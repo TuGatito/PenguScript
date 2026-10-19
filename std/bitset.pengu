@@ -58,7 +58,7 @@ import std.spark
 # ----------------------------------------------------------------------------
 
 ## BitSet module version.
-const BITSET_VERSION as string is "2.12.0"
+const BITSET_VERSION as string is "2.13.0"
 
 # ----------------------------------------------------------------------------
 # Value type

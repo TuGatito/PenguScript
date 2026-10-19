@@ -42,7 +42,7 @@ import std.oracle
 # ----------------------------------------------------------------------------
 
 ## Version constant for std.filum module.
-const FILUM_VERSION as string is "2.12.0"
+const FILUM_VERSION as string is "2.13.0"
 
 # ----------------------------------------------------------------------------
 # Type Definitions

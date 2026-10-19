@@ -166,9 +166,11 @@ struct petitio_request {
     int follow_redirects;
     int64_t max_redirects;
     int verify_tls;
+    int http_version;
     int64_t max_body;
     char *username;
     char *password;
+    int auth_mode;
     char *proxy;
     char *proxy_credentials;
     petitio_part *parts;
@@ -321,6 +323,13 @@ void petitio_request_set_max_body(petitio_request *request, int64_t max_bytes)
     request->max_body = max_bytes < 0 ? 0 : max_bytes;
 }
 
+void petitio_request_set_http_version(petitio_request *request, int version)
+{
+    if (request == NULL)
+        return;
+    request->http_version = version < 0 || version > 3 ? 0 : version;
+}
+
 void petitio_request_set_basic_auth(petitio_request *request, PenguString user,
                                     PenguString password)
 {
@@ -339,6 +348,13 @@ void petitio_request_set_basic_auth(petitio_request *request, PenguString user,
     free(request->password);
     request->username = user_copy;
     request->password = password_copy;
+}
+
+void petitio_request_set_auth_mode(petitio_request *request, int mode)
+{
+    if (request == NULL)
+        return;
+    request->auth_mode = mode < 0 || mode > 3 ? 0 : mode;
 }
 
 void petitio_request_set_proxy(petitio_request *request, PenguString proxy,
@@ -423,6 +439,8 @@ struct petitio_response {
     int url_len;
     double elapsed;
     int redirects;
+    int http_version;
+    int64_t bytes_written;
     int64_t max_body;
     int body_too_large;
     petitio_header *headers;
@@ -574,6 +592,8 @@ static int petitio_map_curl_error(CURLcode code, const petitio_response *respons
         return PETITIO_CONNECTION_FAILED;
     case CURLE_OUT_OF_MEMORY:
         return PETITIO_OUT_OF_MEMORY;
+    case CURLE_FILESIZE_EXCEEDED:
+        return PETITIO_BODY_TOO_LARGE;
     case CURLE_WRITE_ERROR:
     case CURLE_ABORTED_BY_CALLBACK:
         return response != NULL && response->body_too_large
@@ -599,41 +619,101 @@ static void petitio_response_set_error(petitio_response *response, int code,
                                             message == NULL ? 0 : (int)strlen(message));
 }
 
-static petitio_response *petitio_perform(petitio_request *request)
+/* A body sink that writes to a FILE* and enforces the size cap. */
+typedef struct petitio_file_sink {
+    FILE *file;
+    int64_t written;
+    int64_t max_body;
+    int too_large;
+    int io_error;
+} petitio_file_sink;
+
+/* A body sink that forwards every chunk to a PenguScript callback. */
+typedef struct petitio_stream_ctx {
+    petitio_stream_fn callback;
+    void *user;
+    int64_t written;
+    int64_t max_body;
+    int too_large;
+    int cancelled;
+} petitio_stream_ctx;
+
+static size_t petitio_file_write_cb(char *ptr, size_t size, size_t nmemb,
+                                    void *userdata)
 {
-    CURL *curl;
-    CURLcode code;
-    petitio_response *response;
-    struct curl_slist *headers = request->headers;
+    petitio_file_sink *sink = (petitio_file_sink *)userdata;
+    size_t total = size * nmemb;
+    if (sink->too_large || sink->io_error)
+        return 0;
+    if (sink->max_body > 0
+        && sink->written + (int64_t)total > sink->max_body) {
+        sink->too_large = 1;
+        return 0;
+    }
+    if (total > 0 && fwrite(ptr, 1, total, sink->file) != total) {
+        sink->io_error = 1;
+        return 0;
+    }
+    sink->written += (int64_t)total;
+    return total;
+}
+
+static size_t petitio_stream_write_cb(char *ptr, size_t size, size_t nmemb,
+                                      void *userdata)
+{
+    petitio_stream_ctx *ctx = (petitio_stream_ctx *)userdata;
+    size_t total = size * nmemb;
+    PenguString chunk;
+    if (ctx->too_large || ctx->cancelled)
+        return 0;
+    if (ctx->max_body > 0
+        && ctx->written + (int64_t)total > ctx->max_body) {
+        ctx->too_large = 1;
+        return 0;
+    }
+    /* Borrowed view: valid only during the callback, never owned. */
+    chunk.data = ptr;
+    chunk.len = (int)total;
+    chunk.is_owned = 0;
+    if (!ctx->callback(chunk, ctx->user)) {
+        ctx->cancelled = 1;
+        return 0;
+    }
+    ctx->written += (int64_t)total;
+    return total;
+}
+
+/* Reports an option failure with libcurl's own explanation instead of a
+ * generic message, so a bad multipart body or header is diagnosable. */
+static void petitio_response_set_option_error(petitio_response *response,
+                                              CURLcode code)
+{
+    char message[256];
+    snprintf(message, sizeof message, "libcurl rejected a request option: %s",
+             curl_easy_strerror(code));
+    petitio_response_set_error(response, PETITIO_PROTOCOL_ERROR, message);
+}
+
+/* Applies every option that is common to the four transfer modes. `write_cb`
+ * and `write_data` choose the body sink; `*out_mime` receives a multipart body
+ * the caller must free after the transfer (NULL when the request has none). */
+static CURLcode petitio_apply_options(CURL *curl, petitio_request *request,
+                                      petitio_response *response,
+                                      curl_write_callback write_cb,
+                                      void *write_data,
+                                      struct curl_mime **out_mime)
+{
     struct curl_mime *mime = NULL;
-    long status = 0;
-    double elapsed = 0.0;
-    long redirects = 0;
-    char *effective_url = NULL;
+    CURLcode code;
     int i;
 
-    petitio_global_init();
-    petitio_request_clear_error(request);
-    response = petitio_response_new();
-    if (response == NULL) {
-        /* Without a response object there is nowhere to report the failure. */
-        return NULL;
-    }
-    response->max_body = request->max_body;
-
-    curl = curl_easy_init();
-    if (curl == NULL) {
-        petitio_response_set_error(response, PETITIO_OUT_OF_MEMORY,
-                                   "curl_easy_init failed");
-        return response;
-    }
-
-    if (curl_easy_setopt(curl, CURLOPT_URL, request->url) != CURLE_OK)
-        goto option_error;
+    *out_mime = NULL;
+    if ((code = curl_easy_setopt(curl, CURLOPT_URL, request->url)) != CURLE_OK)
+        return code;
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, request->error_buffer);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, petitio_write_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, response);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, write_data);
     curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, petitio_header_cb);
     curl_easy_setopt(curl, CURLOPT_HEADERDATA, response);
     /* Only the two protocols `requests` speaks (and the wrapper documents).
@@ -657,11 +737,24 @@ static petitio_response *petitio_perform(petitio_request *request)
         curl_easy_setopt(curl, CURLOPT_MAXREDIRS, (long)request->max_redirects);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, request->verify_tls ? 1L : 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, request->verify_tls ? 2L : 0L);
+    if (request->http_version == 1) {
+        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_0);
+    } else if (request->http_version == 2) {
+        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION,
+                         CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+    } else if (request->http_version == 3) {
+        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_0);
+    } else {
+        curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    }
     if (request->timeout_ms > 0)
         curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, (long)request->timeout_ms);
     if (request->connect_timeout_ms > 0)
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS,
                          (long)request->connect_timeout_ms);
+    if (request->max_body > 0 && write_cb != petitio_write_cb)
+        curl_easy_setopt(curl, CURLOPT_MAXFILESIZE_LARGE,
+                         (curl_off_t)request->max_body);
 
     if (request->proxy != NULL) {
         curl_easy_setopt(curl, CURLOPT_PROXY, request->proxy);
@@ -670,7 +763,12 @@ static petitio_response *petitio_perform(petitio_request *request)
                              request->proxy_credentials);
     }
     if (request->username != NULL) {
-        curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
+        long scheme = CURLAUTH_BASIC;
+        if (request->auth_mode == 2)
+            scheme = CURLAUTH_DIGEST;
+        else if (request->auth_mode == 3)
+            scheme = CURLAUTH_ANY;
+        curl_easy_setopt(curl, CURLOPT_HTTPAUTH, scheme);
         curl_easy_setopt(curl, CURLOPT_USERNAME, request->username);
         curl_easy_setopt(curl, CURLOPT_PASSWORD,
                          request->password != NULL ? request->password : "");
@@ -679,12 +777,14 @@ static petitio_response *petitio_perform(petitio_request *request)
     if (request->part_count > 0) {
         mime = curl_mime_init(curl);
         if (mime == NULL)
-            goto option_error;
+            return CURLE_OUT_OF_MEMORY;
         for (i = 0; i < request->part_count; ++i) {
             petitio_part *part = &request->parts[i];
             curl_mimepart *entry = curl_mime_addpart(mime);
-            if (entry == NULL)
-                goto option_error;
+            if (entry == NULL) {
+                curl_mime_free(mime);
+                return CURLE_OUT_OF_MEMORY;
+            }
             curl_mime_name(entry, part->name);
             curl_mime_data(entry, part->value != NULL ? part->value : "",
                            (size_t)part->value_len);
@@ -693,12 +793,18 @@ static petitio_response *petitio_perform(petitio_request *request)
             if (part->content_type != NULL && part->content_type[0] != '\0')
                 curl_mime_type(entry, part->content_type);
         }
-        if (curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime) != CURLE_OK)
-            goto option_error;
+        if ((code = curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime)) != CURLE_OK) {
+            curl_mime_free(mime);
+            return code;
+        }
         /* A method other than POST must still be sent as given. */
-        if (strcmp(request->method, "POST") != 0
-            && curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, request->method) != CURLE_OK)
-            goto option_error;
+        if (strcmp(request->method, "POST") != 0) {
+            if ((code = curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST,
+                                         request->method)) != CURLE_OK) {
+                curl_mime_free(mime);
+                return code;
+            }
+        }
     } else {
         if (strcmp(request->method, "GET") == 0) {
             curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
@@ -706,28 +812,48 @@ static petitio_response *petitio_perform(petitio_request *request)
             curl_easy_setopt(curl, CURLOPT_POST, 1L);
         } else if (strcmp(request->method, "HEAD") == 0) {
             curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
-        } else if (curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST,
-                                    request->method) != CURLE_OK) {
-            goto option_error;
+        } else if ((code = curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST,
+                                            request->method)) != CURLE_OK) {
+            return code;
         }
         if (request->has_body) {
-            if (curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request->body) != CURLE_OK)
-                goto option_error;
-            if (curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE,
-                                 (curl_off_t)request->body_len) != CURLE_OK)
-                goto option_error;
+            if ((code = curl_easy_setopt(curl, CURLOPT_POSTFIELDS,
+                                         request->body)) != CURLE_OK)
+                return code;
+            if ((code = curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE,
+                                         (curl_off_t)request->body_len)) != CURLE_OK)
+                return code;
         }
     }
 
-    if (headers != NULL
-        && curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers) != CURLE_OK)
-        goto option_error;
+    if (request->headers != NULL
+        && (code = curl_easy_setopt(curl, CURLOPT_HTTPHEADER,
+                                    request->headers)) != CURLE_OK)
+        return code;
 
-    code = curl_easy_perform(curl);
+    *out_mime = mime;
+    return CURLE_OK;
+}
+
+/* Copies the transfer outcome into `response`. `written` is the byte count the
+ * sink observed; `override_error` wins over libcurl's own classification when a
+ * callbacks-only condition (cancellation, a failed write) explains the abort. */
+static void petitio_finish_response(petitio_request *request,
+                                    petitio_response *response, CURL *curl,
+                                    CURLcode code, int override_error,
+                                    const char *override_message,
+                                    int64_t written)
+{
+    long status = 0;
+    double elapsed = 0.0;
+    long redirects = 0;
+    long http_version = 0;
+    char *effective_url = NULL;
 
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &elapsed);
     curl_easy_getinfo(curl, CURLINFO_REDIRECT_COUNT, &redirects);
+    curl_easy_getinfo(curl, CURLINFO_HTTP_VERSION, &http_version);
     if (curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective_url) == CURLE_OK
         && effective_url != NULL) {
         response->url_len = (int)strlen(effective_url);
@@ -738,26 +864,70 @@ static petitio_response *petitio_perform(petitio_request *request)
     response->status = (int)status;
     response->elapsed = elapsed;
     response->redirects = (int)redirects;
-
-    if (code != CURLE_OK) {
-        const char *message = request->error_buffer[0] != '\0'
-                                  ? request->error_buffer
-                                  : curl_easy_strerror(code);
-        petitio_response_set_error(response, petitio_map_curl_error(code, response),
-                                   message);
+    response->bytes_written = written;
+    if (http_version == CURL_HTTP_VERSION_1_0) {
+        response->http_version = 0;   /* Http10 */
+    } else if (http_version == CURL_HTTP_VERSION_2_0
+               || http_version == CURL_HTTP_VERSION_2TLS) {
+        response->http_version = 2;   /* Http2 */
+#ifdef CURL_HTTP_VERSION_3
+    } else if (http_version == CURL_HTTP_VERSION_3
+               || http_version == CURL_HTTP_VERSION_3ONLY) {
+        response->http_version = 4;   /* Http3, reported only */
+#endif
+    } else {
+        response->http_version = 1;   /* Http11 */
     }
 
-    if (mime != NULL)
-        curl_mime_free(mime);
-    curl_easy_cleanup(curl);
-    return response;
+    if (code != CURLE_OK) {
+        const char *message = override_message != NULL
+                                  ? override_message
+                                  : (request->error_buffer[0] != '\0'
+                                         ? request->error_buffer
+                                         : curl_easy_strerror(code));
+        int mapped = override_error != 0
+                         ? override_error
+                         : petitio_map_curl_error(code, response);
+        petitio_response_set_error(response, mapped, message);
+    }
+}
 
-option_error:
+static petitio_response *petitio_perform(petitio_request *request)
+{
+    CURL *curl;
+    CURLcode code;
+    struct curl_mime *mime = NULL;
+    petitio_response *response;
+
+    petitio_global_init();
+    petitio_request_clear_error(request);
+    response = petitio_response_new();
+    if (response == NULL)
+        return NULL;
+    response->max_body = request->max_body;
+
+    curl = curl_easy_init();
+    if (curl == NULL) {
+        petitio_response_set_error(response, PETITIO_OUT_OF_MEMORY,
+                                   "curl_easy_init failed");
+        return response;
+    }
+    code = petitio_apply_options(curl, request, response, petitio_write_cb,
+                                 response, &mime);
+    if (code != CURLE_OK) {
+        if (mime != NULL)
+            curl_mime_free(mime);
+        curl_easy_cleanup(curl);
+        petitio_response_set_option_error(response, code);
+        return response;
+    }
+
+    code = curl_easy_perform(curl);
+    petitio_finish_response(request, response, curl, code, 0, NULL,
+                            (int64_t)response->body_len);
     if (mime != NULL)
         curl_mime_free(mime);
     curl_easy_cleanup(curl);
-    petitio_response_set_error(response, PETITIO_PROTOCOL_ERROR,
-                               "libcurl rejected a request option");
     return response;
 }
 
@@ -766,6 +936,413 @@ petitio_response *petitio_request_perform(petitio_request *request)
     if (request == NULL)
         return NULL;
     return petitio_perform(request);
+}
+
+/* Builds the "<prefix><path>" message for a file error without requiring the
+ * path to be NUL-terminated inside the caller's string. */
+static void petitio_response_set_path_error(petitio_response *response, int code,
+                                            const char *prefix, PenguString path)
+{
+    int prefix_len = (int)strlen(prefix);
+    int path_len = path.data != NULL && path.len > 0 ? path.len : 0;
+    char *message = (char *)malloc((size_t)prefix_len + (size_t)path_len + 1);
+    if (message == NULL) {
+        petitio_response_set_error(response, code, prefix);
+        return;
+    }
+    memcpy(message, prefix, (size_t)prefix_len);
+    if (path_len > 0)
+        memcpy(message + prefix_len, path.data, (size_t)path_len);
+    message[prefix_len + path_len] = '\0';
+    petitio_response_set_error(response, code, message);
+    free(message);
+}
+
+petitio_response *petitio_request_perform_to_file(petitio_request *request,
+                                                  PenguString path)
+{
+    CURL *curl;
+    CURLcode code;
+    struct curl_mime *mime = NULL;
+    petitio_response *response;
+    petitio_file_sink sink;
+    char *path_copy;
+
+    if (request == NULL)
+        return NULL;
+    petitio_global_init();
+    petitio_request_clear_error(request);
+    response = petitio_response_new();
+    if (response == NULL)
+        return NULL;
+    response->max_body = request->max_body;
+
+    path_copy = petitio_dup_pengu(path);
+    if (path_copy == NULL) {
+        petitio_response_set_error(response, PETITIO_OUT_OF_MEMORY,
+                                   "out of memory");
+        return response;
+    }
+    memset(&sink, 0, sizeof sink);
+    sink.max_body = request->max_body;
+    sink.file = fopen(path_copy, "wb");
+    if (sink.file == NULL) {
+        petitio_response_set_path_error(response, PETITIO_IO_ERROR,
+                                        "cannot open output file: ", path);
+        free(path_copy);
+        return response;
+    }
+    free(path_copy);
+
+    curl = curl_easy_init();
+    if (curl == NULL) {
+        fclose(sink.file);
+        petitio_response_set_error(response, PETITIO_OUT_OF_MEMORY,
+                                   "curl_easy_init failed");
+        return response;
+    }
+    code = petitio_apply_options(curl, request, response, petitio_file_write_cb,
+                                 &sink, &mime);
+    if (code != CURLE_OK) {
+        if (mime != NULL)
+            curl_mime_free(mime);
+        curl_easy_cleanup(curl);
+        fclose(sink.file);
+        petitio_response_set_option_error(response, code);
+        return response;
+    }
+
+    code = curl_easy_perform(curl);
+    fclose(sink.file);
+    if (sink.too_large) {
+        petitio_finish_response(request, response, curl, code,
+                                PETITIO_BODY_TOO_LARGE,
+                                "response body exceeds the configured limit",
+                                sink.written);
+    } else if (sink.io_error) {
+        petitio_finish_response(request, response, curl, code,
+                                PETITIO_IO_ERROR,
+                                "cannot write output file", sink.written);
+    } else {
+        petitio_finish_response(request, response, curl, code, 0, NULL,
+                                sink.written);
+    }
+    if (mime != NULL)
+        curl_mime_free(mime);
+    curl_easy_cleanup(curl);
+    return response;
+}
+
+petitio_response *petitio_request_perform_stream(petitio_request *request,
+                                                 petitio_stream_fn callback,
+                                                 void *user)
+{
+    CURL *curl;
+    CURLcode code;
+    struct curl_mime *mime = NULL;
+    petitio_response *response;
+    petitio_stream_ctx ctx;
+
+    if (request == NULL || callback == NULL)
+        return NULL;
+    petitio_global_init();
+    petitio_request_clear_error(request);
+    response = petitio_response_new();
+    if (response == NULL)
+        return NULL;
+    response->max_body = request->max_body;
+
+    memset(&ctx, 0, sizeof ctx);
+    ctx.callback = callback;
+    ctx.user = user;
+    ctx.max_body = request->max_body;
+
+    curl = curl_easy_init();
+    if (curl == NULL) {
+        petitio_response_set_error(response, PETITIO_OUT_OF_MEMORY,
+                                   "curl_easy_init failed");
+        return response;
+    }
+    code = petitio_apply_options(curl, request, response,
+                                 petitio_stream_write_cb, &ctx, &mime);
+    if (code != CURLE_OK) {
+        if (mime != NULL)
+            curl_mime_free(mime);
+        curl_easy_cleanup(curl);
+        petitio_response_set_option_error(response, code);
+        return response;
+    }
+
+    code = curl_easy_perform(curl);
+    if (ctx.too_large) {
+        petitio_finish_response(request, response, curl, code,
+                                PETITIO_BODY_TOO_LARGE,
+                                "response body exceeds the configured limit",
+                                ctx.written);
+    } else if (ctx.cancelled) {
+        petitio_finish_response(request, response, curl, code,
+                                PETITIO_CANCELLED,
+                                "transfer cancelled by callback", ctx.written);
+    } else {
+        petitio_finish_response(request, response, curl, code, 0, NULL,
+                                ctx.written);
+    }
+    if (mime != NULL)
+        curl_mime_free(mime);
+    curl_easy_cleanup(curl);
+    return response;
+}
+
+/* -------------------------------------------------------------------------
+ * Concurrent transfers (libcurl-multi)
+ *
+ * One engine, one thread. Each transfer owns its easy handle, its response,
+ * its multipart body and its `petitio_request`. The request's strings stay
+ * alive until the transfer is released, because CURLOPT_POSTFIELDS and the
+ * header list point into them.
+ * ------------------------------------------------------------------------- */
+
+typedef struct petitio_transfer {
+    CURL *curl;
+    petitio_request *request;
+    petitio_response *response;
+    struct curl_mime *mime;
+    int index;
+    int finished;
+    int queued;
+} petitio_transfer;
+
+struct petitio_multi {
+    CURLM *multi;
+    petitio_transfer *transfers;
+    int count;
+    int cap;
+    int *queue;
+    int queue_len;
+    int queue_cap;
+    int running;
+};
+
+static int petitio_multi_queue_push(petitio_multi *multi, int index)
+{
+    if (multi->queue_len == multi->queue_cap) {
+        int next_cap = multi->queue_cap == 0 ? 8 : multi->queue_cap * 2;
+        int *grown = (int *)realloc(multi->queue, (size_t)next_cap * sizeof(int));
+        if (grown == NULL)
+            return 0;
+        multi->queue = grown;
+        multi->queue_cap = next_cap;
+    }
+    multi->queue[multi->queue_len] = index;
+    multi->queue_len += 1;
+    return 1;
+}
+
+petitio_multi *petitio_multi_new(void)
+{
+    petitio_multi *multi;
+    petitio_global_init();
+    multi = (petitio_multi *)calloc(1, sizeof(petitio_multi));
+    if (multi == NULL)
+        return NULL;
+    multi->multi = curl_multi_init();
+    if (multi->multi == NULL) {
+        free(multi);
+        return NULL;
+    }
+    return multi;
+}
+
+static int petitio_multi_grow(petitio_multi *multi)
+{
+    int next_cap;
+    petitio_transfer *grown;
+    if (multi->count < multi->cap)
+        return 1;
+    next_cap = multi->cap == 0 ? 4 : multi->cap * 2;
+    grown = (petitio_transfer *)realloc(
+        multi->transfers, (size_t)next_cap * sizeof(petitio_transfer));
+    if (grown == NULL)
+        return 0;
+    multi->transfers = grown;
+    multi->cap = next_cap;
+    return 1;
+}
+
+int petitio_multi_add(petitio_multi *multi, petitio_request *request)
+{
+    petitio_transfer *transfer;
+    petitio_response *response;
+    CURL *curl;
+    CURLcode code;
+    struct curl_mime *mime = NULL;
+    int index;
+
+    if (multi == NULL || request == NULL)
+        return -1;
+    if (!petitio_multi_grow(multi))
+        return -1;
+    response = petitio_response_new();
+    if (response == NULL)
+        return -1;
+    response->max_body = request->max_body;
+
+    index = multi->count;
+    transfer = &multi->transfers[index];
+    memset(transfer, 0, sizeof(*transfer));
+    transfer->index = index;
+    transfer->request = request;
+    transfer->response = response;
+    multi->count += 1;
+
+    curl = curl_easy_init();
+    if (curl == NULL) {
+        petitio_response_set_error(response, PETITIO_OUT_OF_MEMORY,
+                                   "curl_easy_init failed");
+        transfer->finished = 1;
+        (void)petitio_multi_queue_push(multi, index);
+        return index;
+    }
+    code = petitio_apply_options(curl, request, response, petitio_write_cb,
+                                 response, &mime);
+    if (code != CURLE_OK) {
+        if (mime != NULL)
+            curl_mime_free(mime);
+        curl_easy_cleanup(curl);
+        petitio_response_set_option_error(response, code);
+        transfer->finished = 1;
+        (void)petitio_multi_queue_push(multi, index);
+        return index;
+    }
+    if (curl_multi_add_handle(multi->multi, curl) != CURLM_OK) {
+        if (mime != NULL)
+            curl_mime_free(mime);
+        curl_easy_cleanup(curl);
+        petitio_response_set_error(response, PETITIO_PROTOCOL_ERROR,
+                                   "libcurl could not add the transfer");
+        transfer->finished = 1;
+        (void)petitio_multi_queue_push(multi, index);
+        return index;
+    }
+    curl_easy_setopt(curl, CURLOPT_PRIVATE, (void *)(intptr_t)index);
+    transfer->curl = curl;
+    transfer->mime = mime;
+    return index;
+}
+
+int petitio_multi_perform(petitio_multi *multi)
+{
+    CURLMsg *message;
+    int messages_left = 0;
+    if (multi == NULL)
+        return 0;
+
+    if (curl_multi_perform(multi->multi, &multi->running) != CURLM_OK)
+        multi->running = 0;
+
+    while ((message = curl_multi_info_read(multi->multi, &messages_left)) != NULL) {
+        CURL *easy;
+        char *private_data = NULL;
+        int index;
+        petitio_transfer *transfer;
+        if (message->msg != CURLMSG_DONE)
+            continue;
+        easy = message->easy_handle;
+        if (curl_easy_getinfo(easy, CURLINFO_PRIVATE, &private_data) != CURLE_OK)
+            continue;
+        index = (int)(intptr_t)private_data;
+        if (index < 0 || index >= multi->count)
+            continue;
+        transfer = &multi->transfers[index];
+        if (transfer->curl != easy || transfer->finished)
+            continue;
+        petitio_finish_response(transfer->request, transfer->response, easy,
+                                message->data.result, 0, NULL,
+                                (int64_t)transfer->response->body_len);
+        curl_multi_remove_handle(multi->multi, easy);
+        curl_easy_cleanup(easy);
+        transfer->curl = NULL;
+        if (transfer->mime != NULL) {
+            curl_mime_free(transfer->mime);
+            transfer->mime = NULL;
+        }
+        transfer->finished = 1;
+        (void)petitio_multi_queue_push(multi, index);
+        transfer->queued = 1;
+    }
+    return multi->running;
+}
+
+void petitio_multi_wait(petitio_multi *multi, int timeout_ms)
+{
+    if (multi == NULL || timeout_ms < 0)
+        return;
+#if LIBCURL_VERSION_NUM >= 0x074200 /* 7.66.0 */
+    (void)curl_multi_poll(multi->multi, NULL, 0, timeout_ms, NULL);
+#else
+    (void)curl_multi_wait(multi->multi, NULL, 0, timeout_ms, NULL);
+#endif
+}
+
+int petitio_multi_count(const petitio_multi *multi)
+{
+    return multi == NULL ? 0 : multi->count;
+}
+
+petitio_response *petitio_multi_pop(petitio_multi *multi, int *out_index)
+{
+    int index;
+    petitio_transfer *transfer;
+    petitio_response *response;
+    if (multi == NULL || multi->queue_len == 0)
+        return NULL;
+    index = multi->queue[0];
+    memmove(multi->queue, multi->queue + 1,
+            (size_t)(multi->queue_len - 1) * sizeof(int));
+    multi->queue_len -= 1;
+    if (index < 0 || index >= multi->count)
+        return NULL;
+    transfer = &multi->transfers[index];
+    if (!transfer->finished)
+        return NULL;
+    response = transfer->response;
+    transfer->response = NULL;
+    transfer->queued = 0;
+    if (out_index != NULL)
+        *out_index = index;
+    return response;
+}
+
+void petitio_multi_free(petitio_multi *multi)
+{
+    int i;
+    if (multi == NULL)
+        return;
+    for (i = 0; i < multi->count; ++i) {
+        petitio_transfer *transfer = &multi->transfers[i];
+        if (transfer->curl != NULL) {
+            curl_multi_remove_handle(multi->multi, transfer->curl);
+            curl_easy_cleanup(transfer->curl);
+            transfer->curl = NULL;
+        }
+        if (transfer->mime != NULL) {
+            curl_mime_free(transfer->mime);
+            transfer->mime = NULL;
+        }
+        if (transfer->response != NULL) {
+            petitio_response_free(transfer->response);
+            transfer->response = NULL;
+        }
+        if (transfer->request != NULL) {
+            petitio_request_free(transfer->request);
+            transfer->request = NULL;
+        }
+    }
+    free(multi->transfers);
+    free(multi->queue);
+    if (multi->multi != NULL)
+        curl_multi_cleanup(multi->multi);
+    free(multi);
 }
 
 /* -------------------------------------------------------------------------
@@ -814,6 +1391,16 @@ int petitio_response_redirect_count(const petitio_response *response)
     return response == NULL ? 0 : response->redirects;
 }
 
+int petitio_response_http_version(const petitio_response *response)
+{
+    return response == NULL ? 1 : response->http_version;
+}
+
+int64_t petitio_response_bytes_written(const petitio_response *response)
+{
+    return response == NULL ? 0 : response->bytes_written;
+}
+
 int petitio_response_header_count(const petitio_response *response)
 {
     return response == NULL ? 0 : response->header_count;
@@ -847,6 +1434,22 @@ void petitio_response_free(petitio_response *response)
     free(response->url);
     free(response->error_message);
     free(response);
+}
+
+int64_t petitio_parse_http_date(PenguString text)
+{
+    char *copy;
+    time_t when;
+    if (text.data == NULL || text.len <= 0)
+        return -1;
+    copy = petitio_dup_pengu(text);
+    if (copy == NULL)
+        return -1;
+    /* curl_getdate accepts every date format RFC 7231 allows (IMF-fixdate,
+     * obsolete RFC 850 and asctime) and returns -1 when it cannot parse. */
+    when = curl_getdate(copy, NULL);
+    free(copy);
+    return (int64_t)when;
 }
 
 PenguString petitio_version(void)

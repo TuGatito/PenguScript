@@ -71,7 +71,7 @@ import std.ward
 # ----------------------------------------------------------------------------
 
 ## Numerus module version.
-const NUMERUS_VERSION as string is "2.12.0"
+const NUMERUS_VERSION as string is "2.13.0"
 
 # ----------------------------------------------------------------------------
 # Universal numeric methods (one body, one C function per concrete receiver)

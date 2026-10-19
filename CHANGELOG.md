@@ -2,6 +2,83 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.13.0] — 2026-10-18 — Streaming, HTTP/2 and concurrent transfers
+
+`std.petitio` 2.13.0 closes the gap with Python's `requests` and `httpx.zig`
+without adding async to the language: streaming downloads, HTTP/2, Digest
+authentication, SOCKS5, cookie files, `Expires` expiry and a single-threaded
+concurrent batch API. The same release fixes every bug found on the way —
+including a double free that had been latent since 2.12.0.
+
+```pengu
+import std.petitio
+import std.spark
+
+weave main into int:
+    var req as Request is calling Request.new with "GET", "https://example.com/big.bin"
+    defer banish req
+    calling req.http_version with HttpVersion.Http2
+    calling req.timeout with 30.0
+    calling req.max_body_bytes with 256 * 1024 * 1024
+    var r as result of Response to HttpError is calling req.send_to_file with "big.bin"
+    defer banish r
+    if not r.is_ok:
+        return 1
+    var resp as Response is calling petitio.take_response with (sigil of r)
+    calling spark.println with "{resp.bytes_written} bytes over protocol"
+    judge resp.http_version:
+        when Http2 -> calling spark.println with "HTTP/2"
+        else -> calling spark.println with "HTTP/1.1"
+    banish resp
+    return 0
+```
+
+### Added
+
+- **`HttpVersion`** (`Http10`, `Http11`, `Http2`, `Http2PriorKnowledge`, `Http3`
+  reported only) and `Request.http_version`; `Response.http_version` reports the
+  protocol the server actually spoke.
+- **`AuthMode`** (`NoAuth`, `BasicAuth`, `DigestAuth`, `AnyAuth`) with
+  `auth_digest` and `auth_any`. Digest answers the server's `401` challenge; the
+  password never crosses the wire.
+- **`Request.socks_proxy`**: SOCKS5 with `socks5h` (DNS resolved on the proxy, so
+  no query leaks locally).
+- **Streaming**: `Request.send_to_file(path)` and `Request.send_stream(cb, user)`,
+  plus `Response.bytes_written`. The callback receives a borrowed chunk view;
+  returning `false` aborts with `HttpError.Cancelled`.
+- **`HttpError.IoError`** for streaming file failures.
+- **`petitio.fetch_many(requests)`**: concurrent transfers on libcurl's `multi`
+  engine, one thread, results in input order. The input `Request`s stay owned by
+  the caller.
+- **Cookie files**: `Session.load_cookies_from_file`, `Session.save_cookies_to_file`
+  (Netscape format) and `Session.cookie(name)`.
+- 23 in-module tests for private helpers, three new conformance programs and
+  opt-in live tests (`PETITIO_LIVE=1`): HTTP/2 against Google, digest against
+  httpbin, expired/self-signed TLS against badssl, streaming and parallel timing.
+
+### Changed
+
+- **Cookie expiry follows RFC 6265**: any **non-positive** `Max-Age` (`0`, `-1`,
+  …) clears a cookie, `Expires` is evaluated with libcurl's `curl_getdate` when
+  there is no `Max-Age`, and `Max-Age` wins over `Expires` (§5.3).
+- Header and cookie values containing **NUL** are rejected like CR/LF: the C
+  bridge copies them into NUL-terminated header lines.
+- `PETITIO_DEFAULT_USER_AGENT` reports `petitio/2.13.0`; every `std/` module
+  reports `"2.13.0"`.
+
+### Fixed
+
+- **Double free in `Request.multipart_file`** (present since 2.12.0): the
+  `maybe` payload view was banished together with the box, and releasing a
+  `maybe string` already releases the payload. Found by the ASan gate.
+- `Session.clear_cookies` could loop forever if a removal failed; it now verifies
+  that the map shrank and breaks otherwise.
+- `Max-Age=-1` did not clear a cookie (`magnitude <= 0` only matched zero).
+- A rune that derives `Nexus` but owns no heap field generated an unused pointer,
+  a `-Wunused-variable` warning in every consumer bundle.
+- Option failures now carry libcurl's own reason (`curl_easy_strerror`)
+  instead of a generic "rejected a request option" message.
+
 ## [2.12.0] — 2026-10-18 — HTTP client and compiler fixes
 
 Closes Phase 1d: **`std.petitio`** is a complete, `requests`-shaped HTTP client

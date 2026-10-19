@@ -8,7 +8,7 @@
 
 ### `LOGICA_VERSION`
 
-> const string` = 2.12.0`
+> const string` = 2.13.0`
 
 Logica module version.
 

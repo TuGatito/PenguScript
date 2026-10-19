@@ -857,6 +857,17 @@ Use the one-shot helpers (`petitio.get`, `petitio.post_json`, …) when you do n
 need to configure anything: they build, send and release the request themselves.
 Use a `Session` when several requests share headers or cookies.
 
+For bodies that must not be buffered, `send_to_file(path)` writes to disk and
+`send_stream(cb, user)` forwards each chunk to a callback. The callback's
+`chunk` is a **borrowed view** of libcurl's buffer: do not store it, release it,
+or let it escape; returning `false` aborts with `HttpError.Cancelled`. For
+several requests at once, `fetch_many(requests)` runs them on one thread with
+libcurl-multi and returns results in input order (the input `Request`s remain
+yours). Pick the protocol with `http_version(HttpVersion.Http2)` and read what
+the server spoke from `resp.http_version`; authenticate with `auth_basic` /
+`auth_digest` / `auth_any`, and use SOCKS proxies with `socks_proxy` (DNS on the
+proxy, `socks5h`).
+
 ---
 
 ## 5. Optionals, results and errors

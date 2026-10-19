@@ -8,9 +8,35 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.12.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.13.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.12.0 → 2.13.0: streaming, HTTP/2 and concurrency
+
+This release is additive for callers. `std.petitio` gains streaming downloads,
+HTTP/2, Digest authentication, SOCKS5 proxies, `fetch_many`, cookie files and
+`Expires`-based cookie expiry.
+
+* **`Request` layout changed** (new `http_version`, `auth_mode` fields).
+  PenguScript compiles every program from source, so there is nothing to
+  rebuild by hand; C code that declares its own ABI-equivalent `Request` — there
+  is none in this repository — must be updated. `Response` gained
+  `bytes_written` and `http_version`, and `HttpError` gained `IoError` and
+  `Cancelled`.
+* `Request.send_to_file` / `send_stream` are the streaming entry points. A
+  `send_stream` chunk is **borrowed** for the duration of the callback; storing
+  or banishing it is a use-after-free. A callback that returns `false` aborts
+  with `HttpError.Cancelled`.
+* `fetch_many` uses libcurl's `multi` engine on one thread. It does **not**
+  release the input `Request` structs (the caller keeps ownership); the C
+  handles built from them are released internally.
+* Cookie expiry now honours `Expires` (via `curl_getdate`) and any
+  **non-positive** `Max-Age` (`0`, `-1`, …), with `Max-Age` taking priority.
+  Previously only `Max-Age=0` cleared a cookie.
+* A latent double free in `Request.multipart_file` (present since 2.12.0) is
+  fixed: the `maybe` payload view was released together with the box.
+* Every `std/` module now reports `"2.13.0"`.
 
 ## 2.11.0 → 2.12.0: HTTP and compiler fixes
 

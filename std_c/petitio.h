@@ -55,6 +55,7 @@
  * then hand-tune the result (`PenguString` -> `string`, `int64_t` -> `i64`,
  * `double` -> `f64`) as documented in docs/PETITIO.md. The real build always
  * takes the branch below and sees the genuine runtime definition. */
+#include <stdbool.h>
 #include <stdint.h>
 typedef struct { char *data; int len; int32_t is_owned; } PenguString;
 #else
@@ -80,7 +81,9 @@ typedef enum petitio_error {
     PETITIO_PROTOCOL_ERROR = 6,
     PETITIO_BODY_TOO_LARGE = 7,
     PETITIO_OUT_OF_MEMORY = 8,
-    PETITIO_UNSUPPORTED = 9
+    PETITIO_UNSUPPORTED = 9,
+    PETITIO_IO_ERROR = 10,
+    PETITIO_CANCELLED = 11
 } petitio_error;
 
 typedef struct petitio_request petitio_request;
@@ -109,6 +112,10 @@ void petitio_request_set_body(petitio_request *request, PenguString body);
 void petitio_request_set_timeout(petitio_request *request, int64_t timeout_ms,
                                  int64_t connect_timeout_ms);
 
+/* Protocol version: 0 = HTTP/1.1 (default), 1 = HTTP/2 over ALPN,
+ * 2 = HTTP/2 prior knowledge (no fallback). */
+void petitio_request_set_http_version(petitio_request *request, int version);
+
 /* Redirect policy. `max_redirects` is only meaningful when `follow` is non-zero. */
 void petitio_request_set_redirects(petitio_request *request, int follow,
                                    int64_t max_redirects);
@@ -123,6 +130,10 @@ void petitio_request_set_max_body(petitio_request *request, int64_t max_bytes);
 void petitio_request_set_basic_auth(petitio_request *request, PenguString user,
                                     PenguString password);
 
+/* Authentication scheme: 0 = no auth, 1 = Basic (RFC 7617), 2 = Digest
+ * (RFC 7616), 3 = negotiate any scheme the server offers. */
+void petitio_request_set_auth_mode(petitio_request *request, int mode);
+
 /* HTTP proxy, e.g. "http://127.0.0.1:8080". Empty disables it. */
 void petitio_request_set_proxy(petitio_request *request, PenguString proxy,
                                PenguString credentials);
@@ -136,6 +147,57 @@ int petitio_request_add_form_field(petitio_request *request, PenguString name,
 /* Performs the request. Never returns NULL: an allocation failure is reported
  * as PETITIO_OUT_OF_MEMORY on a response object with no body. */
 petitio_response *petitio_request_perform(petitio_request *request);
+
+/* Performs the request and writes the body to `path` instead of buffering it.
+ * `Response.body` stays empty and `bytes_written` reports the size. A failure to
+ * open or write the file is PETITIO_IO_ERROR; exceeding `max_body` aborts with
+ * PETITIO_BODY_TOO_LARGE. Returns NULL only on allocation failure. */
+petitio_response *petitio_request_perform_to_file(petitio_request *request,
+                                                  PenguString path);
+
+/* Receives one body chunk. `chunk` borrows libcurl's buffer: it is valid only
+ * for the duration of the call and must not be retained or released. Returning
+ * false aborts the transfer (PETITIO_CANCELLED). */
+typedef bool (*petitio_stream_fn)(PenguString chunk, void *user);
+
+/* Performs the request and hands every body chunk to `callback` instead of
+ * buffering it. `Response.body` stays empty. Returns NULL only on allocation
+ * failure. */
+petitio_response *petitio_request_perform_stream(petitio_request *request,
+                                                 petitio_stream_fn callback,
+                                                 void *user);
+
+/* --- Concurrent transfers (libcurl-multi) ------------------------------- */
+
+/* An engine that runs several requests on one thread. Every `add` takes
+ * ownership of the `petitio_request`; `pop` hands out one finished response at
+ * a time and the caller owns it. */
+typedef struct petitio_multi petitio_multi;
+
+/* Creates the engine. Returns NULL only on allocation or libcurl-init failure. */
+petitio_multi *petitio_multi_new(void);
+
+/* Adds `request` (takes ownership on success). Returns the request index, or
+ * -1 on allocation failure (the caller still owns the request then). */
+int petitio_multi_add(petitio_multi *multi, petitio_request *request);
+
+/* Pumps the engine and queues every transfer that finished. Returns the number
+ * of transfers still running. */
+int petitio_multi_perform(petitio_multi *multi);
+
+/* Blocks up to `timeout_ms` waiting for activity. */
+void petitio_multi_wait(petitio_multi *multi, int timeout_ms);
+
+/* Number of requests added so far. */
+int petitio_multi_count(const petitio_multi *multi);
+
+/* Pops one finished response (the caller owns it) and writes its request index
+ * to `*out_index`. Returns NULL when nothing is ready. */
+petitio_response *petitio_multi_pop(petitio_multi *multi, int *out_index);
+
+/* Aborts anything still running and releases every request, response, mime
+ * body and libcurl handle. Responses never popped are freed here. */
+void petitio_multi_free(petitio_multi *multi);
 
 /* --- Response ----------------------------------------------------------- */
 
@@ -160,6 +222,14 @@ double petitio_response_elapsed(const petitio_response *response);
 /* Number of redirects followed. */
 int petitio_response_redirect_count(const petitio_response *response);
 
+/* Bytes the transfer wrote: the body length for an in-memory response, the
+ * bytes written to the file or callback for a streaming one. */
+int64_t petitio_response_bytes_written(const petitio_response *response);
+
+/* Negotiated protocol version: 0 = HTTP/1.0, 1 = HTTP/1.1, 2 = HTTP/2,
+ * 4 = HTTP/3. */
+int petitio_response_http_version(const petitio_response *response);
+
 /* Final-response header count. Duplicates are preserved in receipt order and
  * names are lower-case. */
 int petitio_response_header_count(const petitio_response *response);
@@ -170,6 +240,10 @@ PenguString petitio_response_header_value(const petitio_response *response,
 
 /* Releases the response and its body/header block. Call once. */
 void petitio_response_free(petitio_response *response);
+
+/* Parses an HTTP date (`Wed, 21 Oct 2015 07:28:00 GMT`) into a Unix timestamp
+ * with libcurl's own parser, or -1 when the text is not a valid HTTP date. */
+int64_t petitio_parse_http_date(PenguString text);
 
 /* libcurl runtime version, for diagnostics ("libcurl/8.22.0"). Owned. */
 PenguString petitio_version(void);

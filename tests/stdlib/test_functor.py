@@ -25,7 +25,7 @@ pytestmark = pytest.mark.slow
 #: ``tests/stdlib/test_functor.py`` -> ``stdlib`` -> ``tests`` -> checkout.
 ROOT = Path(__file__).resolve().parents[2]
 
-_FUNCTOR_VERSION = "2.12.0"
+_FUNCTOR_VERSION = "2.13.0"
 
 
 def test_module_self_tests_pass():

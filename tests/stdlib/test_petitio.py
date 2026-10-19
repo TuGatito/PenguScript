@@ -17,8 +17,11 @@ file makes the offline half fast and deterministic.
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -51,6 +54,8 @@ weave make_response with status as int into Response:
         body is r"""{"ok":true}"""
         url is "https://example.com/"
         elapsed_sec is 0.1
+        bytes_written is 0
+        http_version is HttpVersion.Http11
         redirected is false
         cookies is cookies
         cleared_cookies is cleared
@@ -134,6 +139,28 @@ weave main into int:
     calling req.multipart_field with "field", "v"
     calling eq_i with req.parts.len, 1, "multipart part"
 
+    # Protocol version + authentication modes.
+    judge req.http_version:
+        when Http11 -> calling spark.println with "version=Http11"
+        else -> calling spark.println with "FAIL default version"
+    calling req.http_version with HttpVersion.Http2
+    judge req.http_version:
+        when Http2 -> calling spark.println with "version=Http2"
+        else -> calling spark.println with "FAIL Http2"
+    calling req.auth_digest with "u", "p"
+    judge req.auth_mode:
+        when DigestAuth -> calling spark.println with "auth=DigestAuth"
+        else -> calling spark.println with "FAIL digest mode"
+    calling req.socks_proxy with "127.0.0.1:1080", ""
+    calling eq_s with req.proxy, "socks5h://127.0.0.1:1080", "socks proxy"
+
+    # fetch_many on an empty list is a valid no-op.
+    var no_requests as list of Request is list of Request
+    var no_results as list of result of Response to HttpError is calling petitio.fetch_many with no_requests
+    calling eq_i with no_results.len, 0, "empty batch"
+    banish no_results
+    banish no_requests
+
     # Response queries + errors
     var ok_resp as Response is calling make_response with 200
     defer banish ok_resp
@@ -144,6 +171,7 @@ weave main into int:
     var text as string is calling ok_resp.text
     calling eq_s with text, r"""{"ok":true}""", "response text"
     banish text
+    calling eq_i with (ok_resp.bytes_written to int), 0, "hand-built bytes_written"
 
     var e as HttpError is with TooManyRedirects is 4
     var msg as string is calling e.message
@@ -204,11 +232,77 @@ def test_error_model_matches_the_c_bridge():
     # PETITIO_OK is the success code and has no error variant.
     expected = ["ConnectionFailed", "Timeout", "TooManyRedirects", "InvalidUrl",
                 "TlsError", "ProtocolError", "BodyTooLarge", "OutOfMemory",
-                "Unsupported"]
+                "Unsupported", "IoError", "Cancelled"]
     assert [n for n in c_names if n != "PETITIO_OK"] == [
         "PETITIO_CONNECTION_FAILED", "PETITIO_TIMEOUT", "PETITIO_TOO_MANY_REDIRECTS",
         "PETITIO_INVALID_URL", "PETITIO_TLS_ERROR", "PETITIO_PROTOCOL_ERROR",
         "PETITIO_BODY_TOO_LARGE", "PETITIO_OUT_OF_MEMORY", "PETITIO_UNSUPPORTED",
+        "PETITIO_IO_ERROR", "PETITIO_CANCELLED",
     ]
     assert wrapper[:len(expected)] == expected, wrapper
     assert len(wrapper) == len(expected) + 1 and wrapper[-1] == "HttpStatus"
+
+
+def test_module_self_tests(has_cc):
+    """`pengu test --entry std/petitio.pengu`: every in-module block passes.
+
+    The module tests exercise the private helpers (cookie parsing, URL codec,
+    the take_* ownership contract) that the compiled-program tests above cannot
+    reach from outside the module.
+    """
+    import subprocess
+    import sys
+
+    if not has_cc:
+        pytest.skip("no C compiler available")
+    if not (ROOT / "build" / "lib" / "libpengu_runtime.a").is_file():
+        pytest.skip("libpengu_runtime.a not built (run build_runtime.py)")
+    res = subprocess.run(
+        [sys.executable, str(ROOT / "pengu_project.py"), "test",
+         "--entry", str(ROOT / "std" / "petitio.pengu")],
+        capture_output=True, text=True, timeout=900,
+        cwd=str(ROOT), env={**os.environ, "PYTHONPATH": str(ROOT)},
+    )
+    assert res.returncode == 0, f"{res.stdout}\n{res.stderr}"
+    assert "All " in res.stdout or "passed" in res.stdout, res.stdout
+    assert "[PANIC]" not in res.stdout + res.stderr, res.stdout + res.stderr
+
+
+def test_cookie_files_round_trip(compile_and_run, tmp_path):
+    target = tmp_path / "cookies.txt"
+    program = f'''
+import std.petitio
+import std.spark
+
+weave main into int:
+    var session as Session is calling Session.new
+    calling session.set_cookie with "sid", "abc"
+    calling session.set_cookie with "theme", "dark"
+    var saved as result of void to HttpError is calling session.save_cookies_to_file with "{target}"
+    if not saved.is_ok:
+        calling spark.println with "FAIL save"
+        return 1
+    banish saved
+    var other as Session is calling Session.new
+    var loaded as result of int to HttpError is calling other.load_cookies_from_file with "{target}"
+    if not loaded.is_ok:
+        calling spark.println with "FAIL load"
+        return 2
+    calling spark.println with "loaded={{loaded.value}}"
+    banish loaded
+    var sid as string is calling other.cookie with "sid"
+    calling spark.println with "sid={{sid}}"
+    banish sid
+    var missing as string is calling other.cookie with "absent"
+    calling spark.println with "missing_len={{missing length}}"
+    banish missing
+    banish other
+    banish session
+    return 0
+'''
+    out = compile_and_run(program)
+    assert "FAIL" not in out, out
+    assert "loaded=2" in out, out
+    assert "sid=abc" in out, out
+    assert "missing_len=0" in out, out
+    assert target.is_file()

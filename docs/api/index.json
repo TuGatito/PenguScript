@@ -10518,8 +10518,24 @@
       "documented": true,
       "kind": "omen",
       "module": "petitio",
+      "name": "AuthMode",
+      "signature": "**AuthMode** : AuthMode"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "petitio",
       "name": "HttpError",
       "signature": "**HttpError** : HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "petitio",
+      "name": "HttpVersion",
+      "signature": "**HttpVersion** : HttpVersion"
     },
     {
       "deprecated": false,
@@ -10584,6 +10600,14 @@
       "module": "petitio",
       "name": "delete",
       "signature": "**delete**(url: string) -> result of Response to HttpError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "petitio",
+      "name": "fetch_many",
+      "signature": "**fetch_many**(requests: list of Request) -> list of result of Response to HttpError"
     },
     {
       "deprecated": false,

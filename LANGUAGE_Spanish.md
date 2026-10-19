@@ -3745,8 +3745,8 @@ test "stdlib version":
 `std/` exporte esa constante con una versión de release válida (opcionalmente
 con sufijo de prerelease semver). Como la biblioteca estándar va acoplada al
 compilador, la constante nombra la **release de stdlib con la que se distribuye**,
-no la última release que tocó ese archivo: todos los módulos de 2.12.0 declaran
-`"2.12.0"` (salvo `std.spark`, cuyo `SPARK_VERSION` conserva su propia revisión
+no la última release que tocó ese archivo: todos los módulos de 2.13.0 declaran
+`"2.13.0"` (salvo `std.spark`, cuyo `SPARK_VERSION` conserva su propia revisión
 de API `0.8.0-spark`, y `JSONRPC_PROTOCOL_VERSION`, que es la versión `"2.0"` del
 protocolo de cable). El uso de espacios de nombres ya mantiene cada módulo
 autocontenido (`std.<module>.<symbol>`), así que desacoplar la stdlib en paquetes
@@ -3759,7 +3759,7 @@ exporta `ARENA_VERSION`, `std.sourcemap` exporta `SOURCEMAP_VERSION`,
 `std.bitset` exporta `BITSET_VERSION`, `std.diagnostic` exporta
 `DIAGNOSTIC_VERSION`, `std.json` exporta `JSON_VERSION`, `std.jsonrpc` exporta
 `JSONRPC_VERSION`, `std.lingua` exporta `LINGUA_VERSION`, `std.regulus` exporta
-`REGULUS_VERSION` y `std.petitio` exporta `PETITIO_VERSION`, todos `"2.12.0"`. Los
+`REGULUS_VERSION` y `std.petitio` exporta `PETITIO_VERSION`, todos `"2.13.0"`. Los
 módulos builder y arena también exportan
 sus constantes de ajuste por defecto (`BUILDER_DEFAULT_CAPACITY`,
 `ARENA_DEFAULT_BLOCK_SIZE`, `ARENA_DEFAULT_ALIGNMENT`) para quien quiera reservar
@@ -3819,7 +3819,7 @@ parte de esta lista.
 | `std.jsonrpc` | JSON-RPC 2.0: `JsonRpcId`, `JsonRpcMessage` (`Request`/`Notification`/`ResponseOk`/`ResponseError`), `JsonRpcError`, los cinco códigos estándar, constructores `request`/`notification`/`response_ok`/`response_error`, `encode_*`, `parse_message`, `parse_batch`, `take_messages`, `free_messages`, constructores de error, `JsonRpcParseError`/`JsonRpcErrorKind` y framing LSP (`encode_framed`, `decode_framed_bytes`, `decode_framed`, `FramedDecode`). Comparable a `jsonrpc-core` de Rust. |
 | `std.lingua` | Texto UTF-8 sobre codepoints: `Codepoint` (un `seal` sobre `u32`), `LinguaError` con offsets de byte, `decode`/`decode_prefix`, `encode`/`encode_one`, `is_valid`/`validate`, `codepoint_count`/`utf16_length`, `is_ascii`/`is_bmp`/`is_letter`/`is_digit`/`is_whitespace`/`is_punctuation`/`is_symbol`/`is_control`/`is_surrogate`, `to_u32`/`from_u32`/`to_utf16`, `codepoint_at`/`byte_offset_of`/`next_codepoint`/`prev_codepoint` y un `grapheme_count` aproximado. Wrapper sobre `std_c/utf8.h` (sheredom, dominio público). Ver `docs/LINGUA.md`. Comparable a `utf8proc` (Julia) y al módulo `utf8` de Lua. |
 | `std.regulus` | Expresiones regulares pequeñas y explícitas: `Regex.compile`, `pattern`, `is_match`, `match`, `match_at`, `matches`, `replace_first`, `replace_all`, `split`, `escape`, `Match` y `RegexError`, más `is_match`/`find_first` de un solo uso. Gramática completa: `. ^ $ * + ? [] \d \w \s`; **sin** grupos, alternancia, `{n,m}`, lookaround, backreferences ni clases Unicode. Wrapper sobre `std_c/re.h` + `re.c` (kokke/tiny-regex-c, dominio público). Ver `docs/REGULUS.md`. Comparable a `re` de Python para búsquedas básicas. |
-| `std.petitio` | Cliente HTTP de alto nivel con API tipo `requests`: `Request` (`new`, `header`, `remove_header`, `has_header`, `text_body`, `json_body`, `form_body`, `bytes_body`, `timeout`, `connect_timeout`, `no_redirects`, `max_redirects`, `insecure`, `auth_basic`, `auth_bearer`, `proxy`, `max_body_bytes`, `multipart_field`, `multipart_bytes`, `multipart_file`, `send`), `Response` (`status`, `headers`, `body`, `url`, `elapsed_sec`, `redirected`, `cookies`, `cleared_cookies`, `is_ok`/`is_redirect`/`is_client_error`/`is_server_error`, `text`, `json`, `header`, `has_header`, `raise_for_status`), `Session` (headers y cookies persistentes), `FormPart`, `HttpError`, `UrlParts`, helpers de un solo uso `get`/`head`/`delete`/`options`/`post`/`post_json`/`post_form`/`post_text`/`put_json`/`patch_json`, helpers de URL `url_encode`/`url_decode`/`build_query_string`/`with_query`/`parse_url`, movimientos explícitos `take_response`/`take_error` y `libcurl_version`. Wrapper sobre el `libcurl` del sistema mediante `std_c/petitio.c` (se evaluó y descartó naett: sin timeout total, sin control de redirects ni de cookies). Ver `docs/PETITIO.md`. Comparable a `requests` de Python. |
+| `std.petitio` | Cliente HTTP de alto nivel con API tipo `requests`: `Request` (`new`, `header`, `remove_header`, `has_header`, `text_body`, `json_body`, `form_body`, `bytes_body`, `timeout`, `connect_timeout`, `no_redirects`, `max_redirects`, `insecure`, `http_version`, `auth_basic`, `auth_digest`, `auth_any`, `auth_bearer`, `proxy`, `socks_proxy`, `max_body_bytes`, `multipart_field`, `multipart_bytes`, `multipart_file`, `send`, `send_to_file`, `send_stream`), `Response` (`status`, `headers`, `body`, `url`, `elapsed_sec`, `bytes_written`, `http_version`, `redirected`, `cookies`, `cleared_cookies`, `is_ok`/`is_redirect`/`is_client_error`/`is_server_error`, `text`, `json`, `header`, `has_header`, `raise_for_status`), `Session` (headers y cookies persistentes, `load_cookies_from_file`/`save_cookies_to_file`, `cookie`), `FormPart`, `HttpError`, `UrlParts`, `HttpVersion`, `AuthMode`, helpers de un solo uso `get`/`head`/`delete`/`options`/`post`/`post_json`/`post_form`/`post_text`/`put_json`/`patch_json`, concurrencia `fetch_many`, helpers de URL `url_encode`/`url_decode`/`build_query_string`/`with_query`/`parse_url`, movimientos explícitos `take_response`/`take_error` y `libcurl_version`. Wrapper sobre el `libcurl` del sistema mediante `std_c/petitio.c` (se evaluó y descartó naett: sin timeout total, sin control de redirects ni de cookies). Ver `docs/PETITIO.md`. Comparable a `requests` de Python. |
 
 ### 19.1.1 Elegir entre `std.loom` y `std.tally`
 
@@ -3864,7 +3864,7 @@ familia que pierda (ítem 6.5, `AUDIT_1.0_FASE6.md`).
 
 ### 19.1.2 Los cuatro módulos fundamentales
 
-La línea 2.12.0 conserva los tres módulos de datos y los cuatro módulos fundamentales de la serie 2.9; estos últimos añaden que el compilador autohospedado (y cualquier otra
+La línea 2.13.0 conserva los tres módulos de datos y los cuatro módulos fundamentales de la serie 2.9; estos últimos añaden que el compilador autohospedado (y cualquier otra
 herramienta que construya texto, árboles, posiciones o conjuntos densos)
 necesita primero. Son deliberadamente generales: `builder` sirve igual para CSV,
 HTML y logs que para codegen; `arena` sirve igual para el AST de un parser que
@@ -4194,8 +4194,10 @@ forma parte de `libpengu_runtime.a`). La matriz la verifica
 ### 19.1.5 El módulo HTTP: `std.petitio`
 
 `std.petitio` es el cliente de red de la biblioteca estándar: un wrapper
-síncrono que devuelve `result` sobre **libcurl**, con una API con la forma de
-`requests`. No es un binding satélite, porque un lenguaje que no puede pedir una
+explícito que devuelve `result` sobre **libcurl**, con una API con la forma de
+`requests` (HTTP/1.0–1.1, HTTP/2, descargas en streaming, lotes concurrentes,
+autenticación Digest, SOCKS5 y ficheros de cookies incluidos). No es un binding
+satélite, porque un lenguaje que no puede pedir una
 URL no puede ejecutar `pengu add <url>` ni hablar con una API sin un repositorio
 de terceros; es un módulo de primera clase con la misma frontera explícita que
 `std.lingua` y `std.regulus` (`include`, `declare`, `link`, un puente C
@@ -4210,10 +4212,19 @@ wrapper; ver `docs/PETITIO.md` §1.
 
 **Errores.** Toda operación devuelve `result … to HttpError`. Las variantes son
 `ConnectionFailed`, `Timeout`, `TooManyRedirects`, `InvalidUrl`, `TlsError`,
-`ProtocolError`, `BodyTooLarge`, `OutOfMemory`, `Unsupported` y `HttpStatus` (de
-`raise_for_status`). Ningún fallo de red panickea; una entrada *de programa*
-malformada a un builder (una cabecera con CR/LF, un método con un espacio) sí,
-porque es un bug del llamador, no una condición.
+`ProtocolError`, `BodyTooLarge`, `OutOfMemory`, `Unsupported`, `IoError`
+(ficheros del streaming), `Cancelled` (un callback de `send_stream` devolvió
+`false`) y `HttpStatus` (de `raise_for_status`). Ningún fallo de red panickea;
+una entrada *de programa* malformada a un builder (una cabecera con CR, LF o NUL,
+un método con un espacio, `http_version(Http3)`) sí, porque es un bug del
+llamador, no una condición.
+
+**Streaming y concurrencia.** `Request.send_to_file` escribe en disco y
+`Request.send_stream` entrega cada trozo a un callback como vista prestada;
+ninguno bufferiza el cuerpo. `petitio.fetch_many(requests)` usa el motor `multi`
+de libcurl en un solo hilo —los streams HTTP/2 comparten conexión y las
+peticiones HTTP/1.1 se reparten en varias— y devuelve un result por entrada, en
+el orden de entrada. Los `Request` de entrada siguen siendo del llamador.
 
 **Propiedad.** `Request`, `Response`, `Session` y `UrlParts` derivan `Nexus`, así
 que `banish` libera cada string, map y list que contienen. Un `result` posee su
@@ -4257,9 +4268,10 @@ partir de `std_c/petitio.c` (estricto `-std=c99 -Wall -Wextra -Werror`) cuando
 contrario, así que una máquina sin las cabeceras de libcurl puede seguir
 compilando el resto de módulos. La misma matriz de
 `tests/build/test_smart_linking.py` lo cubre, incluido que las funciones del
-puente no referenciadas se recolectan como basura. Las descargas en streaming,
-las peticiones asíncronas y la expiración de cookies por fecha quedan
-deliberadamente fuera de alcance y se listan en `docs/PETITIO.md` §8.
+puente no referenciadas se recolectan como basura. HTTP/3 se informa en
+`Response.http_version` pero no se puede pedir (requiere un libcurl con QUIC);
+los controles de pool de conexiones, las subidas en streaming y async/await
+quedan fuera de alcance y se listan en `docs/PETITIO.md` §8.
 
 ### 19.2 Bindings externos (repositorios satélite)
 

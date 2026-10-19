@@ -3683,8 +3683,8 @@ test "stdlib version":
 module exports that constant with a valid release version (optionally with a
 semver prerelease suffix). Because the standard library is coupled to the
 compiler, the constant names the **stdlib release it ships with**, not the last
-release that happened to edit that file: every module of 2.12.0 reports
-`"2.12.0"` (except `std.spark`, whose `SPARK_VERSION` keeps its own
+release that happened to edit that file: every module of 2.13.0 reports
+`"2.13.0"` (except `std.spark`, whose `SPARK_VERSION` keeps its own
 `0.8.0-spark` API revision, and `JSONRPC_PROTOCOL_VERSION`, which is the wire
 protocol version `"2.0"`). Namespacing already keeps each module
 self-contained (`std.<module>.<symbol>`), so decoupling the stdlib into
@@ -3698,7 +3698,7 @@ exports `ARENA_VERSION`, `std.sourcemap` exports `SOURCEMAP_VERSION`,
 `DIAGNOSTIC_VERSION`, `std.json` exports `JSON_VERSION`, `std.jsonrpc` exports
 `JSONRPC_VERSION`, `std.lingua` exports `LINGUA_VERSION`, `std.regulus`
 exports `REGULUS_VERSION` and `std.petitio` exports `PETITIO_VERSION`, all
-`"2.12.0"`. The builder and arena modules also
+`"2.13.0"`. The builder and arena modules also
 export their default tuning constants (`BUILDER_DEFAULT_CAPACITY`,
 `ARENA_DEFAULT_BLOCK_SIZE`, `ARENA_DEFAULT_ALIGNMENT`) for callers that want to
 reserve exactly what the module would reserve.
@@ -3759,7 +3759,7 @@ this list.
 
 | `std.lingua` | UTF-8 text over codepoints: `Codepoint` (a `seal` over `u32`), `LinguaError` with byte offsets, `decode`/`decode_prefix`, `encode`/`encode_one`, `is_valid`/`validate`, `codepoint_count`/`utf16_length`, `is_ascii`/`is_bmp`/`is_letter`/`is_digit`/`is_whitespace`/`is_punctuation`/`is_symbol`/`is_control`/`is_surrogate`, `to_u32`/`from_u32`/`to_utf16`, `codepoint_at`/`byte_offset_of`/`next_codepoint`/`prev_codepoint`, and an approximate `grapheme_count`. Wrapper over `std_c/utf8.h` (sheredom, public domain). See `docs/LINGUA.md`. Comparable to `utf8proc` (Julia) and Lua's `utf8`. |
 | `std.regulus` | Small, explicit regular expressions: `Regex.compile`, `pattern`, `is_match`, `match`, `match_at`, `matches`, `replace_first`, `replace_all`, `split`, `escape`, `Match` and `RegexError`, plus one-shot `is_match`/`find_first`. Complete grammar: `. ^ $ * + ? [] \d \w \s`; **no** groups, alternation, `{n,m}`, lookaround, backreferences or Unicode classes. Wrapper over `std_c/re.h` + `re.c` (kokke/tiny-regex-c, public domain). See `docs/REGULUS.md`. Comparable to Python's `re` for basic search. |
-| `std.petitio` | High-level HTTP client with a `requests`-shaped API: `Request` (`new`, `header`, `remove_header`, `has_header`, `text_body`, `json_body`, `form_body`, `bytes_body`, `timeout`, `connect_timeout`, `no_redirects`, `max_redirects`, `insecure`, `auth_basic`, `auth_bearer`, `proxy`, `max_body_bytes`, `multipart_field`, `multipart_bytes`, `multipart_file`, `send`), `Response` (`status`, `headers`, `body`, `url`, `elapsed_sec`, `redirected`, `cookies`, `cleared_cookies`, `is_ok`/`is_redirect`/`is_client_error`/`is_server_error`, `text`, `json`, `header`, `has_header`, `raise_for_status`), `Session` (persistent headers and cookies), `FormPart`, `HttpError`, `UrlParts`, one-shot `get`/`head`/`delete`/`options`/`post`/`post_json`/`post_form`/`post_text`/`put_json`/`patch_json`, URL helpers `url_encode`/`url_decode`/`build_query_string`/`with_query`/`parse_url`, explicit moves `take_response`/`take_error`, and `libcurl_version`. Wrapper over the system `libcurl` through `std_c/petitio.c` (naett was evaluated and rejected: no total timeout, redirect or cookie control). See `docs/PETITIO.md`. Comparable to Python's `requests`. |
+| `std.petitio` | High-level HTTP client with a `requests`-shaped API: `Request` (`new`, `header`, `remove_header`, `has_header`, `text_body`, `json_body`, `form_body`, `bytes_body`, `timeout`, `connect_timeout`, `no_redirects`, `max_redirects`, `insecure`, `http_version`, `auth_basic`, `auth_digest`, `auth_any`, `auth_bearer`, `proxy`, `socks_proxy`, `max_body_bytes`, `multipart_field`, `multipart_bytes`, `multipart_file`, `send`, `send_to_file`, `send_stream`), `Response` (`status`, `headers`, `body`, `url`, `elapsed_sec`, `bytes_written`, `http_version`, `redirected`, `cookies`, `cleared_cookies`, `is_ok`/`is_redirect`/`is_client_error`/`is_server_error`, `text`, `json`, `header`, `has_header`, `raise_for_status`), `Session` (persistent headers and cookies, `load_cookies_from_file`/`save_cookies_to_file`, `cookie`), `FormPart`, `HttpError`, `UrlParts`, `HttpVersion`, `AuthMode`, one-shot `get`/`head`/`delete`/`options`/`post`/`post_json`/`post_form`/`post_text`/`put_json`/`patch_json`, concurrent `fetch_many`, URL helpers `url_encode`/`url_decode`/`build_query_string`/`with_query`/`parse_url`, explicit moves `take_response`/`take_error`, and `libcurl_version`. Wrapper over the system `libcurl` through `std_c/petitio.c` (naett was evaluated and rejected: no total timeout, redirect or cookie control). See `docs/PETITIO.md`. Comparable to Python's `requests`. |
 
 ### 19.1.1 Choosing between `std.loom` and `std.tally`
 
@@ -3804,7 +3804,7 @@ whichever family loses (item 6.5, `AUDIT_1.0_FASE6.md`).
 
 ### 19.1.2 The four fundamental modules
 
-The 2.12.0 line keeps the three data modules and the four fundamental modules of
+The 2.13.0 line keeps the three data modules and the four fundamental modules of
 the 2.9 series. The fundamental modules provide the building blocks the
 self-hosted compiler (and every other tool that builds text, trees, positions or
 dense sets) needs first. They are deliberately
@@ -4174,8 +4174,10 @@ contains neither header and links no `libre.a`. `build_runtime.py` builds
 
 ### 19.1.5 The HTTP module: `std.petitio`
 
-`std.petitio` is the network client of the standard library: a synchronous,
-`result`-returning wrapper over **libcurl** with a `requests`-shaped API. It is
+`std.petitio` is the network client of the standard library: an explicit,
+`result`-returning wrapper over **libcurl** with a `requests`-shaped API
+(HTTP/1.0–1.1, HTTP/2, streaming downloads, concurrent batches, Digest auth,
+SOCKS5 and cookie files included). It is
 not a satellite binding, because a language that cannot fetch a URL cannot run
 `pengu add <url>` or talk to an API without a third-party repository; it is a
 first-class module with the same explicit boundary as `std.lingua` and
@@ -4189,10 +4191,19 @@ and exposes every knob the wrapper documents; see `docs/PETITIO.md` §1.
 
 **Errors.** Every operation returns `result … to HttpError`. The variants are
 `ConnectionFailed`, `Timeout`, `TooManyRedirects`, `InvalidUrl`, `TlsError`,
-`ProtocolError`, `BodyTooLarge`, `OutOfMemory`, `Unsupported` and `HttpStatus`
-(from `raise_for_status`). No network failure panics; malformed *program input* to
-a builder (a header containing CR/LF, a method with a space) does, because it is a
-bug in the caller, not a condition.
+`ProtocolError`, `BodyTooLarge`, `OutOfMemory`, `Unsupported`, `IoError`
+(streaming file failures), `Cancelled` (a `send_stream` callback returned
+`false`) and `HttpStatus` (from `raise_for_status`). No network failure panics;
+malformed *program input* to a builder (a header containing CR, LF or NUL, a
+method with a space, `http_version(Http3)`) does, because it is a bug in the
+caller, not a condition.
+
+**Streaming and concurrency.** `Request.send_to_file` streams to disk and
+`Request.send_stream` hands each chunk to a callback as a borrowed view; neither
+buffers the body. `petitio.fetch_many(requests)` drives libcurl's `multi` engine
+on one thread — HTTP/2 streams share a connection, HTTP/1.1 requests are spread
+over several — and returns one result per input in input order. The input
+`Request` structs stay owned by the caller.
 
 **Ownership.** `Request`, `Response`, `Session` and `UrlParts` derive `Nexus`, so
 `banish` releases every string, map and list inside them. A `result` owns its
@@ -4235,9 +4246,10 @@ weave main into int:
 available and skips it with an actionable message otherwise, so a machine without
 the libcurl headers can still build every other module. The same
 `tests/build/test_smart_linking.py` matrix covers it, including the fact that
-unreferenced bridge functions are garbage-collected. Streaming downloads, async
-requests and cookie date expiry are deliberately out of scope and listed in
-`docs/PETITIO.md` §8.
+unreferenced bridge functions are garbage-collected. HTTP/3 is reported by
+`Response.http_version` but cannot be requested (it needs a QUIC-enabled
+libcurl); connection-pool controls, streaming uploads and async/await are out of
+scope and listed in `docs/PETITIO.md` §8.
 
 ### 19.2 External bindings (satellite repositories)
 

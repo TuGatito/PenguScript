@@ -1,12 +1,15 @@
 ## std/petitio.pengu — a high-level HTTP client with a `requests`-shaped API.
 ##
 ## `std.petitio` (Latin *petitio*, "a request") is PenguScript's HTTP client.
-## It is a synchronous, explicit, `result`-returning wrapper over **libcurl**:
+## It is an explicit, `result`-returning wrapper over **libcurl**:
 ## GET/POST/PUT/DELETE/HEAD/PATCH/OPTIONS, custom headers, JSON and
 ## form-urlencoded bodies, multipart/form-data, query strings, URL parsing,
-## total and connect timeouts, redirect control, TLS verification, Basic and
-## Bearer authentication, proxies, per-response body caps, sessions with
-## cookies, and a `Response` that can parse JSON.
+## total and connect timeouts, redirect control, TLS verification, Basic /
+## Digest / negotiated authentication, Bearer tokens, HTTP and SOCKS proxies,
+## HTTP/1.0, HTTP/1.1 and HTTP/2 (ALPN or prior knowledge), streaming downloads
+## to a file or a callback, concurrent batches with `fetch_many`, per-response
+## body caps, sessions with cookies (including `Expires`), and a `Response` that
+## can parse JSON.
 ##
 ## ## Why libcurl and not naett
 ##
@@ -68,12 +71,14 @@
 ## ## Errors
 ## Every network operation returns `result ... to HttpError`; none of them
 ## panic on a transport failure. Malformed *program input* to a builder
-## (`Request.new` with a method containing a space, `Request.header` with CR/LF
-## or ':' in the name, `Request.set_cookie` with ';' in the value) is a bug in
-## the caller and panics with a message naming the offending value — validate
-## untrusted data before you build the request (§14.36 of the Pengunic guide).
-## `multipart_file` is the exception: it reports `false` instead of panicking
-## because a missing file is a runtime condition, not a bug.
+## (`Request.new` with a method containing a space or a URL with a control byte,
+## `Request.header` with CR, LF or NUL or ':' in the name, `Request.set_cookie`
+## with ';' in the value, `Request.auth_*`/`proxy`/`multipart_*` with a control
+## byte, `Request.http_version` with `Http3`) is a bug in the caller and panics
+## with a message naming the offending value — validate untrusted data before you build
+## the request (§14.40–14.42 of the Pengunic guide). `multipart_file` is the
+## exception: it reports `false` instead of panicking because a missing file is
+## a runtime condition, not a bug.
 ##
 ## ## Feature matrix
 ## | Feature | Supported |
@@ -88,11 +93,16 @@
 ## | Total and connect timeouts | ✅ |
 ## | Redirect following with a limit, or none | ✅ |
 ## | TLS verification toggle (`insecure`) | ✅ |
-## | Basic and Bearer authentication | ✅ |
-## | Proxy (`proxy`) | ✅ |
-## | Cookies (`Session`) | ✅ name/value, `Max-Age=0` deletion |
+## | Basic / Digest / negotiated authentication, Bearer tokens | ✅ |
+## | HTTP and SOCKS5 proxies | ✅ |
+## | HTTP/1.0, HTTP/1.1, HTTP/2 over ALPN, HTTP/2 prior knowledge | ✅ |
+## | Cookies (`Session`) | ✅ name/value, `Max-Age` and `Expires` expiry |
+## | Cookie files (Netscape format) | ✅ `load_cookies_from_file` / `save_cookies_to_file` |
 ## | Response body cap (`max_body_bytes`) | ✅ |
-## | Streaming downloads, connection pooling, HTTP/2 tuning, async | ❌ out of scope |
+## | Streaming downloads to a file or a callback | ✅ `send_to_file` / `send_stream` |
+## | Concurrent requests on one thread | ✅ `fetch_many` (libcurl-multi) |
+## | HTTP/3 | ❌ reported only; requesting it panics (needs a QUIC-enabled libcurl) |
+## | Connection-pool controls, streaming uploads, async/await | ❌ out of scope |
 ##
 ## ## Complexity
 ## | Operation | Cost |
@@ -102,6 +112,8 @@
 ## | `build_query_string` | O(n log n) for n parameters (keys are sorted) |
 ## | `parse_url` | O(n) |
 ## | `Response.json` | O(body size) |
+## | `send_to_file` / `send_stream` | network-bound; one chunk copy, no body buffer |
+## | `fetch_many` | network-bound; one thread, transfers multiplexed |
 ##
 ## ## Versioning
 ## `PETITIO_VERSION` follows the stdlib versioning policy (LANGUAGE.md §19.0):
@@ -109,6 +121,7 @@
 
 import std.archivum
 import std.builder
+import std.chronicle
 import std.compass
 import std.ffi
 import std.json
@@ -120,7 +133,7 @@ import std.spark
 # ----------------------------------------------------------------------------
 
 ## Petitio module version (the stdlib release that ships it).
-const PETITIO_VERSION as string is "2.12.0"
+const PETITIO_VERSION as string is "2.13.0"
 
 ## Redirect limit used by `Request.new` and by the one-shot helpers, matching
 ## Python's `requests`.
@@ -130,7 +143,7 @@ const PETITIO_DEFAULT_MAX_REDIRECTS as int is 30
 const PETITIO_DEFAULT_TIMEOUT_SEC as f64 is 0.0
 
 ## `User-Agent` sent when the request does not set one.
-const PETITIO_DEFAULT_USER_AGENT as string is "petitio/2.12.0"
+const PETITIO_DEFAULT_USER_AGENT as string is "petitio/2.13.0"
 
 ## Content type `json_body` installs when the request has not set one.
 const PETITIO_JSON_CONTENT_TYPE as string is "application/json"
@@ -171,6 +184,10 @@ omen HttpError derive Nexus:
     OutOfMemory
     ## The URL names a protocol other than HTTP or HTTPS.
     Unsupported with reason as string
+    ## A local file could not be opened, written or read (streaming).
+    IoError with reason as string
+    ## A `send_stream` callback returned `false`, aborting the transfer.
+    Cancelled
     ## `raise_for_status` saw a 4xx/5xx response. The response is still
     ## available; this variant carries only the status code.
     HttpStatus with status as int
@@ -199,6 +216,8 @@ enchanting HttpError:
             when BodyTooLarge with max_bytes -> "response body exceeds {max_bytes} bytes"
             when OutOfMemory -> "out of memory"
             when Unsupported with reason -> "unsupported URL: {reason}"
+            when IoError with reason -> "I/O error: {reason}"
+            when Cancelled -> "transfer cancelled by callback"
             when HttpStatus with status -> "HTTP status {status}"
 
 # ----------------------------------------------------------------------------
@@ -219,6 +238,43 @@ rune FormPart derive Nexus:
     filename as string
     ## The part `Content-Type`, or `""` to let libcurl omit it.
     content_type as string
+
+## The HTTP protocol version requested from the server.
+##
+## ## Memoria
+## A plain C enum: no heap, nothing to release.
+omen HttpVersion:
+    ## HTTP/1.0, explicitly. Rarely what you want; HTTP/1.1 is the default.
+    Http10
+    ## HTTP/1.1 explicitly. The default, and what every server understands.
+    Http11
+    ## Negotiates HTTP/2 over ALPN and falls back to HTTP/1.1 when the server
+    ## does not offer it. Requires libcurl built with HTTP/2 support (7.47+).
+    Http2
+    ## Forces HTTP/2 without negotiation ("prior knowledge"). Fails with a
+    ## protocol error when the server only speaks HTTP/1.1.
+    Http2PriorKnowledge
+    ## HTTP/3. **Reported only** (`Response.http_version`): requesting it from a
+    ## `Request` panics, because a reliable HTTP/3 client needs a libcurl built
+    ## with QUIC support, which is not a portable assumption. A server may still
+    ## negotiate it when the library supports it.
+    Http3
+
+## How a request authenticates with `basic_user` / `basic_password`.
+##
+## ## Memoria
+## A plain C enum: no heap, nothing to release.
+omen AuthMode:
+    ## No authentication (the default).
+    NoAuth
+    ## HTTP Basic (RFC 7617): the credentials travel on every request.
+    BasicAuth
+    ## HTTP Digest (RFC 7616): libcurl answers the server's `401` challenge and
+    ## retries with a hashed response. The password never crosses the wire.
+    DigestAuth
+    ## Negotiates: libcurl picks the strongest scheme the server offers
+    ## (Digest when available, Basic otherwise).
+    AnyAuth
 
 ## A configurable HTTP request.
 ##
@@ -253,13 +309,18 @@ rune Request derive Nexus:
     ## Verify the peer certificate and hostname when `true`. Disable only for
     ## testing against a self-signed endpoint.
     verify_tls as bool
+    ## Protocol version to request. Set it with the `http_version` builder.
+    http_version as HttpVersion
     ## Abort with `HttpError.BodyTooLarge` once the body exceeds this many
     ## bytes. `0` means unlimited.
     max_body_bytes as i64
-    ## Basic-auth user name; empty disables Basic authentication.
+    ## Authentication user name; empty disables authentication.
     basic_user as string
-    ## Basic-auth password (ignored when `basic_user` is empty).
+    ## Authentication password (ignored when `basic_user` is empty).
     basic_password as string
+    ## Authentication scheme. Set it with `auth_basic`, `auth_digest` or
+    ## `auth_any`; `NoAuth` (the default) sends no credentials.
+    auth_mode as AuthMode
     ## Bearer token; empty disables it. An explicit `Authorization` header wins.
     bearer_token as string
     ## Proxy URL, e.g. `"http://127.0.0.1:8080"`; empty disables the proxy.
@@ -288,6 +349,14 @@ rune Response derive Nexus:
     url as string
     ## Wall-clock duration of the transfer, in seconds.
     elapsed_sec as f64
+    ## Bytes the transfer wrote: the body length for an in-memory response, or
+    ## the bytes written to the file / handed to the callback when streaming
+    ## (`body` is empty in that case).
+    bytes_written as i64
+    ## The protocol the server actually spoke (`Http10`, `Http11`, `Http2` or
+    ## `Http3`), as reported by libcurl. Requesting `Http2` does not guarantee
+    ## the response used it; check this field.
+    http_version as HttpVersion
     ## `true` when at least one redirect was followed.
     redirected as bool
     ## Cookies the server set, name → value, ignoring those it cleared.
@@ -453,17 +522,60 @@ weave _is_token with s as string into bool:
         set i is i + 1
     return true
 
-## `true` when `s` contains CR or LF (header/cookie injection).
-weave _has_line_break with s as string into bool:
+## `true` when `s` contains a byte that would corrupt a header or cookie line:
+## CR, LF or NUL.
+##
+## CR/LF would inject a second line; NUL truncates the value when the C bridge
+## copies it into libcurl's NUL-terminated header list, silently changing the
+## request. Both are rejected before they reach the wire.
+weave _has_control_byte with s as string into bool:
     var raw as ref to frozen byte is bytes of s
     var i as int is 0
     var n as int is s length
     while i < n:
         var b as int is (raw at i) to int
-        if b == 10 or b == 13:
+        if b == 10 or b == 13 or b == 0:
             return true
         set i is i + 1
     return false
+
+## The byte offset of the first case-insensitive occurrence of `needle` in
+## `haystack`, or `-1`.
+##
+## Used for `Set-Cookie` attribute names, which are case-insensitive while the
+## *values* (dates, paths) must keep their original case for `curl_getdate`.
+weave _find_ci with haystack as string, needle as string into int:
+    var hn as int is haystack length
+    var nn as int is needle length
+    if nn == 0:
+        return 0
+    if nn > hn:
+        return -1
+    var hay as ref to frozen byte is bytes of haystack
+    var pin as ref to frozen byte is bytes of needle
+    var i as int is 0
+    while i + nn <= hn:
+        var j as int is 0
+        var same as bool is true
+        while j < nn:
+            if (calling _lower_byte with ((hay at (i + j)) to int)) != (calling _lower_byte with ((pin at j) to int)):
+                set same is false
+                break
+            set j is j + 1
+        if same:
+            return i
+        set i is i + 1
+    return -1
+
+## Panics when `value` contains CR, LF or NUL, naming `what`.
+##
+## The C bridge hands URLs, credentials, proxy URLs and multipart file names to
+## libcurl as NUL-terminated strings, so a control byte would silently truncate
+## or split them. Rejecting it at the builder keeps the failure at the call that
+## made the mistake.
+weave _require_clean with value as string, what as string into void:
+    if calling _has_control_byte with value:
+        calling spark.panic with "petitio: {what} contains CR, LF or NUL"
 
 ## `true` when `b` may appear unescaped in a percent-encoded string
 ## (RFC 3986 `unreserved`: `A-Z a-z 0-9 - . _ ~`).
@@ -516,6 +628,12 @@ weave _flag with value as bool into int:
 ## pair is inserted at a fresh slot: overwriting in place would drop the old
 ## value's buffer (`pengu_map_put` never frees it) and passing a map-owned key
 ## back to `put` is unsafe across a rehash.
+##
+## ## Invariante de iteración
+## `m.remove` only tomb-stones the slot (it never grows or rehashes the table),
+## and the `put` that can rehash runs **after** the loop has exited, so mutating
+## the map from inside the `for` cannot invalidate the iterator. The loop breaks
+## immediately after the match for the same reason.
 weave _put_owned with m as ref to map of string to string, key as string, value as string into void:
     for existing in essence of m:
         if (calling scrolls.compare with existing, key) == 0:
@@ -555,8 +673,8 @@ weave _has_key with m as ref to map of string to string, key as string into bool
 weave _set_header with m as ref to map of string to string, name as string, value as string into void:
     if not calling _is_token with name:
         calling spark.panic with "petitio: invalid header name '{name}': expected an RFC 7230 token"
-    if calling _has_line_break with value:
-        calling spark.panic with "petitio: header '{name}' value contains CR or LF (header injection)"
+    if calling _has_control_byte with value:
+        calling spark.panic with "petitio: header '{name}' value contains CR, LF or NUL (header injection)"
     var key as string is calling scrolls.lower with name
     var stored as string is calling _copy with value
     calling _put_owned with m, key, stored
@@ -577,7 +695,7 @@ enchanting Request:
     ## redirects, verifies TLS, has no timeout and no body.
     ##
     ## ## Panics
-    ## When `method` is not an RFC 7230 token.
+    ## When `method` is not an RFC 7230 token, or `url` contains CR, LF or NUL.
     ##
     ## ## Ejemplo
     ## ```pengu
@@ -588,6 +706,7 @@ enchanting Request:
     weave ritual new with method as string, url as string into Request:
         if not calling _is_token with method:
             calling spark.panic with "petitio: invalid HTTP method '{method}'"
+        calling _require_clean with url, "URL"
         var headers as map of string to string is map of string to string
         var parts as list of FormPart is list of FormPart
         var request as Request is:
@@ -601,9 +720,11 @@ enchanting Request:
             follow_redirects is true
             max_redirects is PETITIO_DEFAULT_MAX_REDIRECTS
             verify_tls is true
+            http_version is HttpVersion.Http11
             max_body_bytes is 0
             basic_user is ""
             basic_password is ""
+            auth_mode is AuthMode.NoAuth
             bearer_token is ""
             proxy is ""
             proxy_credentials is ""
@@ -709,23 +830,118 @@ enchanting Request:
     weave insecure into void:
         set self->verify_tls is false
 
+    ## Requests a specific HTTP protocol version.
+    ##
+    ## ## Parámetros
+    ## - `version`: `Http11` (default), `Http2` (ALPN negotiation, falls back to
+    ##   HTTP/1.1) or `Http2PriorKnowledge` (force HTTP/2, no fallback).
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling req.http_version with HttpVersion.Http2
+    ## ```
+    weave http_version with version as HttpVersion into void:
+        if version == HttpVersion.Http3:
+            calling spark.panic with "petitio: HTTP/3 cannot be requested; libcurl may still negotiate it (check Response.http_version)"
+        set self->http_version is version
+
     ## Sends HTTP Basic credentials (RFC 7617).
+    ##
+    ## ## Panics
+    ## When `user` or `password` contains CR, LF or NUL.
+    ##
+    ## ## Advertencia
+    ## Basic sends the password on every request; over plain HTTP that is
+    ## readable by anyone on the path. Use HTTPS.
     weave auth_basic with user as string, password as string into void:
+        calling _require_clean with user, "auth user"
+        calling _require_clean with password, "auth password"
         banish self->basic_user
         banish self->basic_password
         set self->basic_user is (calling _copy with user)
         set self->basic_password is (calling _copy with password)
+        set self->auth_mode is AuthMode.BasicAuth
+
+    ## Sends HTTP Digest credentials (RFC 7616).
+    ##
+    ## libcurl answers the server's `401` challenge and retries with a hashed
+    ## response, so the password never crosses the wire. The server must offer
+    ## Digest; if it does not, the request fails with the server's `401` status.
+    ##
+    ## ## Panics
+    ## When `user` or `password` contains CR, LF or NUL.
+    ##
+    ## ## Advertencia
+    ## Digest over plain HTTP still lets an attacker capture and replay the
+    ## exchange. Use HTTPS.
+    weave auth_digest with user as string, password as string into void:
+        calling _require_clean with user, "auth user"
+        calling _require_clean with password, "auth password"
+        banish self->basic_user
+        banish self->basic_password
+        set self->basic_user is (calling _copy with user)
+        set self->basic_password is (calling _copy with password)
+        set self->auth_mode is AuthMode.DigestAuth
+
+    ## Negotiates the authentication scheme with the server.
+    ##
+    ## libcurl uses the strongest scheme the server offers (Digest when
+    ## available, Basic otherwise).
+    ##
+    ## ## Panics
+    ## When `user` or `password` contains CR, LF or NUL.
+    weave auth_any with user as string, password as string into void:
+        calling _require_clean with user, "auth user"
+        calling _require_clean with password, "auth password"
+        banish self->basic_user
+        banish self->basic_password
+        set self->basic_user is (calling _copy with user)
+        set self->basic_password is (calling _copy with password)
+        set self->auth_mode is AuthMode.AnyAuth
 
     ## Sends `Authorization: Bearer <token>`.
     ##
     ## An `Authorization` header set explicitly with `header` wins.
     weave auth_bearer with token as string into void:
+        calling _require_clean with token, "bearer token"
         banish self->bearer_token
         set self->bearer_token is (calling _copy with token)
 
+    ## Routes the request through a SOCKS5 proxy, resolving DNS **on the proxy**.
+    ##
+    ## Equivalent to `proxy("socks5h://" + url, credentials)`. The `h` matters:
+    ## `socks5h` sends the host name to the proxy instead of resolving it
+    ## locally, so the proxy (not your machine) sees the destination and no DNS
+    ## query leaks. A URL that already carries a scheme (`socks5://`,
+    ## `socks5h://`, `http://`) is used as given.
+    ##
+    ## ## Parámetros
+    ## - `url`: `"host:port"` (for example `"127.0.0.1:1080"`).
+    ## - `credentials`: `"user:password"`, or `""` for an open proxy.
+    ##
+    ## ## Panics
+    ## When `url` or `credentials` contains CR, LF or NUL.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## calling req.socks_proxy with "127.0.0.1:1080", ""
+    ## ```
+    weave socks_proxy with url as string, credentials as string into void:
+        if calling scrolls.contains with url, "://":
+            calling self.proxy with url, credentials
+            return
+        var full as string is "socks5h://{url}"
+        calling self.proxy with full, credentials
+        banish full
+
     ## Routes the request through `proxy` (`"http://host:port"`), optionally
     ## authenticated with `"user:password"`.
+    ##
+    ## ## Panics
+    ## When `proxy` or `credentials` contains CR, LF or NUL.
     weave proxy with proxy as string, credentials as string into void:
+        calling _require_clean with proxy, "proxy URL"
+        calling _require_clean with credentials, "proxy credentials"
         banish self->proxy
         banish self->proxy_credentials
         set self->proxy is (calling _copy with proxy)
@@ -753,6 +969,8 @@ enchanting Request:
     weave multipart_bytes with name as string, data as string, filename as string, content_type as string into void:
         if not calling _is_token with name:
             calling spark.panic with "petitio: invalid multipart field name '{name}'"
+        calling _require_clean with filename, "multipart file name"
+        calling _require_clean with content_type, "multipart content type"
         var part as FormPart is:
             name is (calling _copy with name)
             value is (calling _copy with data)
@@ -774,11 +992,13 @@ enchanting Request:
         if not content.is_present:
             banish content
             return false
+        # `data` is a borrowed view: `banish content` releases the payload
+        # buffer *and* the box through the derived Nexus, so releasing the view
+        # too would free the same block twice.
         var data as string is content.value
         var filename as string is calling compass.basename with path
         calling self.multipart_bytes with name, data, filename, PETITIO_BINARY_CONTENT_TYPE
         banish filename
-        banish data
         banish content
         return true
 
@@ -804,6 +1024,103 @@ enchanting Request:
         banish no_defaults
         banish no_cookies
         return outcome
+
+    ## Sends the request and writes the body to `path`, without buffering it.
+    ##
+    ## ## Parámetros
+    ## - `path`: destination file, overwritten when it exists. Its parent
+    ##   directory must exist.
+    ##
+    ## ## Retorno
+    ## `ok Response` with `body == ""` and `bytes_written` set, or
+    ## `err HttpError.IoError` when the file cannot be opened or written and
+    ## `err HttpError.BodyTooLarge` when `max_body_bytes` is exceeded.
+    ##
+    ## ## Memoria
+    ## The `Response` is owned; the `Request` stays reusable. The file is closed
+    ## before this returns.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var req as Request is calling Request.new with "GET", "https://example.com/big.bin"
+    ## calling req.max_body_bytes with 128 * 1024 * 1024
+    ## var r as result of Response to HttpError is calling req.send_to_file with "big.bin"
+    ## defer banish r
+    ## ```
+    weave send_to_file with path as string into result of Response to HttpError:
+        var no_defaults as map of string to string is map of string to string
+        var no_cookies as map of string to string is map of string to string
+        var handle as ref to petitio_request is calling _build_handle with self, (sigil of no_defaults), (sigil of no_cookies)
+        banish no_defaults
+        banish no_cookies
+        if calling ffi.is_null with handle:
+            return calling err_of with (with OutOfMemory is 0)
+        defer calling petitio_request_free with handle
+
+        var raw as ref to petitio_response is calling petitio_request_perform_to_file with handle, path
+        if calling ffi.is_null with raw:
+            return calling err_of with (with OutOfMemory is 0)
+        defer calling petitio_response_free with raw
+
+        var code as int is calling petitio_response_error with raw
+        if code != 0:
+            var reason as string is calling petitio_response_error_message with raw
+            var failure as HttpError is calling _error_from_code with code, reason, self
+            banish reason
+            return calling err_of with failure
+        var response as Response is calling _response_from_c with raw, self
+        return calling ok_of with response
+
+    ## Sends the request and hands every body chunk to `cb`.
+    ##
+    ## ## Parámetros
+    ## - `cb`: `weave chunk as string, user as ref to void into bool`. Return
+    ##   `true` to continue, `false` to abort (`err HttpError.Cancelled`).
+    ## - `user`: opaque context forwarded to `cb` (a `sigil of` a local is the
+    ##   usual choice).
+    ##
+    ## ## Advertencia
+    ## `chunk` is a **borrowed view** of libcurl's buffer. It is valid only
+    ## during the call: do not store it, do not `banish` it and do not let it
+    ## escape into a `defer`.
+    ##
+    ## ## Retorno
+    ## `ok Response` with `body == ""` and `bytes_written` set, `err Cancelled`
+    ## when `cb` returned `false`, or the usual transport errors.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## weave count with chunk as string, user as ref to void into bool:
+    ##     var total as ref to i64 is transmute user to ref to i64
+    ##     set essence of total is (essence of total) + (chunk length to i64)
+    ##     return true
+    ##
+    ## var total as i64 is 0
+    ## var r as result of Response to HttpError is calling req.send_stream with count, (sigil of total)
+    ## ```
+    weave send_stream with cb as ref to weave with chunk as string, user as ref to void into bool, user as ref to void into result of Response to HttpError:
+        var no_defaults as map of string to string is map of string to string
+        var no_cookies as map of string to string is map of string to string
+        var handle as ref to petitio_request is calling _build_handle with self, (sigil of no_defaults), (sigil of no_cookies)
+        banish no_defaults
+        banish no_cookies
+        if calling ffi.is_null with handle:
+            return calling err_of with (with OutOfMemory is 0)
+        defer calling petitio_request_free with handle
+
+        var raw as ref to petitio_response is calling petitio_request_perform_stream with handle, cb, user
+        if calling ffi.is_null with raw:
+            return calling err_of with (with OutOfMemory is 0)
+        defer calling petitio_response_free with raw
+
+        var code as int is calling petitio_response_error with raw
+        if code != 0:
+            var reason as string is calling petitio_response_error_message with raw
+            var failure as HttpError is calling _error_from_code with code, reason, self
+            banish reason
+            return calling err_of with failure
+        var response as Response is calling _response_from_c with raw, self
+        return calling ok_of with response
 
 # ----------------------------------------------------------------------------
 # Response queries
@@ -891,6 +1208,10 @@ enchanting Response:
 ## Every byte outside RFC 3986's `unreserved` set (`A-Z a-z 0-9 - . _ ~`) becomes
 ## `%XX` with upper-case hex digits. Space becomes `%20`, never `+`, so the
 ## result round-trips through `url_decode`.
+##
+## Encoding is **byte-exact**: the string's UTF-8 bytes are encoded one by one,
+## so `"ñ"` (two bytes) becomes `%C3%B1` and never a single percent escape. The
+## output depends only on those bytes: no locale, no Unicode normalization.
 ##
 ## ## Memoria
 ## Returns an owned string; `banish` it.
@@ -1191,6 +1512,10 @@ weave _error_from_code with code as int, reason as string, request as ref to Req
         return with OutOfMemory is 0
     if code == 9:
         return with Unsupported is (calling _copy with reason)
+    if code == 10:
+        return with IoError is (calling _copy with reason)
+    if code == 11:
+        return Cancelled
     return with ProtocolError is (calling _copy with reason)
 
 ## Copies the fields of a C response into an owned `Response`.
@@ -1225,26 +1550,61 @@ weave _response_from_c with raw as ref to petitio_response, request as ref to Re
     var status as int is calling petitio_response_status with raw
     var redirects as int is calling petitio_response_redirect_count with raw
     var elapsed as f64 is calling petitio_response_elapsed with raw
+    var protocol as HttpVersion is calling _http_version_from_code with (calling petitio_response_http_version with raw)
+    var written as i64 is calling petitio_response_bytes_written with raw
     var response as Response is:
         status is status
         headers is headers
         body is body
         url is effective
         elapsed_sec is elapsed
+        bytes_written is written
+        http_version is protocol
         redirected is redirects > 0
         cookies is cookies
         cleared_cookies is expired
     return response
 
-## Sends `request`, merging `overlay_headers` (session defaults, never
-## overriding a request header) and `cookies` (as a `Cookie` header).
-weave _perform with request as ref to Request, overlay_headers as ref to map of string to string, cookies as ref to map of string to string into result of Response to HttpError:
+## The C request code for `HttpVersion` (0 = 1.1, 1 = ALPN, 2 = prior
+## knowledge, 3 = 1.0). `Http3` has no request code; the builder rejects it.
+weave _http_version_code with version as HttpVersion into int:
+    return judge version:
+        when Http10 -> 3
+        when Http11 -> 0
+        when Http2 -> 1
+        when Http2PriorKnowledge -> 2
+        when Http3 -> 0
+
+## The `HttpVersion` for the C response code (0 = 1.0, 2 = 2, 4 = 3, rest = 1.1).
+weave _http_version_from_code with code as int into HttpVersion:
+    return judge code:
+        when 0 -> HttpVersion.Http10
+        when 2 -> HttpVersion.Http2
+        when 4 -> HttpVersion.Http3
+        else -> HttpVersion.Http11
+
+## The C code for `AuthMode` (0 = none, 1 = Basic, 2 = Digest, 3 = any).
+weave _auth_mode_code with mode as AuthMode into int:
+    return judge mode:
+        when NoAuth -> 0
+        when BasicAuth -> 1
+        when DigestAuth -> 2
+        when AnyAuth -> 3
+
+## An empty header map, for the helpers that take no overlay.
+weave _no_headers into map of string to string:
+    return map of string to string
+
+## Builds and configures the C request, merging `overlay_headers` (session
+## defaults, never overriding a request header) and `cookies` (one `Cookie`
+## header). Returns NULL only on allocation failure; the caller owns the handle.
+weave _build_handle with request as ref to Request, overlay_headers as ref to map of string to string, cookies as ref to map of string to string into ref to petitio_request:
     var handle as ref to petitio_request is calling petitio_request_new with request->url
     if calling ffi.is_null with handle:
-        return calling err_of with (with OutOfMemory is 0)
-    defer calling petitio_request_free with handle
+        return handle
 
     calling petitio_request_set_method with handle, request->method
+    calling petitio_request_set_http_version with handle, (calling _http_version_code with request->http_version)
     for name in request->headers:
         calling petitio_request_add_header with handle, name, (calling request->headers.get with name)
     for name in essence of overlay_headers:
@@ -1282,11 +1642,21 @@ weave _perform with request as ref to Request, overlay_headers as ref to map of 
     calling petitio_request_set_verify_tls with handle, (calling _flag with request->verify_tls)
     calling petitio_request_set_max_body with handle, request->max_body_bytes
     if (request->basic_user length) > 0:
+        calling petitio_request_set_auth_mode with handle, (calling _auth_mode_code with request->auth_mode)
         calling petitio_request_set_basic_auth with handle, request->basic_user, request->basic_password
     if (request->proxy length) > 0:
         calling petitio_request_set_proxy with handle, request->proxy, request->proxy_credentials
     for part in request->parts:
         calling petitio_request_add_form_field with handle, part.name, part.value, part.filename, part.content_type
+    return handle
+
+## Sends `request`, merging `overlay_headers` (session defaults, never
+## overriding a request header) and `cookies` (as a `Cookie` header).
+weave _perform with request as ref to Request, overlay_headers as ref to map of string to string, cookies as ref to map of string to string into result of Response to HttpError:
+    var handle as ref to petitio_request is calling _build_handle with request, overlay_headers, cookies
+    if calling ffi.is_null with handle:
+        return calling err_of with (with OutOfMemory is 0)
+    defer calling petitio_request_free with handle
 
     var raw as ref to petitio_response is calling petitio_request_perform with handle
     if calling ffi.is_null with raw:
@@ -1337,21 +1707,23 @@ weave _cookie_value with value as string into string:
         set end is end - 1
     return calling scrolls.substring with value, start, end
 
-## `true` when a `Set-Cookie` value carries `Max-Age=0`, which clears the
-## cookie.
+## `true` when a `Set-Cookie` value clears the cookie.
 ##
-## Date-based expiry (`Expires=...`) is **not** evaluated: a session keeps the
-## cookie until the server clears it with `Max-Age=0`, `Session.remove_cookie`
-## is called, or the process ends. Documented in `docs/PETITIO.md` §"Cookies".
+## A cookie is cleared when `Max-Age` is zero **or negative** (RFC 6265 §5.2.2
+## makes every non-positive delta expire immediately) or, when there is no
+## `Max-Age`, when its `Expires` date is in the past (see
+## `_cookie_expired_by_date`). `Max-Age` wins over `Expires` (§5.3): a one-hour
+## `Max-Age` keeps the cookie even if `Expires` points at 1970.
 ##
-## The attribute is parsed as a number (`Max-Age=0`, `max-age=00`), not by
+## The attribute is parsed as a number (`Max-Age=0`, `max-age=-1`), not by
 ## substring: `Max-Age=01` is a one-second cookie and must not clear anything.
 weave _cookie_cleared with value as string into bool:
     var lower as string is calling scrolls.lower with value
     var at as int is calling scrolls.find with lower, "max-age="
     if at < 0:
         banish lower
-        return false
+        # No Max-Age: `Expires` decides (RFC 6265 §5.3 gives Max-Age priority).
+        return calling _cookie_expired_by_date with value
     var i as int is at + 8
     var n as int is lower length
     var raw as ref to frozen byte is bytes of lower
@@ -1372,10 +1744,54 @@ weave _cookie_cleared with value as string into bool:
         set i is i + 1
     banish lower
     if digits == 0:
-        return false
+        return calling _cookie_expired_by_date with value
+    # Any non-positive Max-Age expires now. `magnitude` is the absolute value,
+    # so the sign is the only thing that matters: `-1` must clear as well.
     if negative:
-        return magnitude <= 0
+        return true
     return magnitude == 0
+
+## `true` when the `Expires` attribute of a `Set-Cookie` value is in the past.
+##
+## The date is parsed by libcurl (`curl_getdate`), which accepts every format
+## RFC 7231 allows. A missing or unparseable `Expires` does not expire anything:
+## only an explicit date at or before "now" clears the cookie.
+##
+## ## Memoria
+## Allocates one lowercase copy and one date substring, both released here.
+weave _cookie_expired_by_date with value as string into bool:
+    # The attribute *name* is case-insensitive, but the date value must keep
+    # its original case: curl_getdate rejects lower-case day and month names.
+    var at as int is calling _find_ci with value, "expires="
+    if at < 0:
+        return false
+    var i as int is at + 8
+    var n as int is value length
+    var raw as ref to frozen byte is bytes of value
+    while i < n and ((raw at i) == 32 or (raw at i) == 9):
+        set i is i + 1
+    var end as int is i
+    while end < n and (raw at end) != 59:
+        set end is end + 1
+    var date as string is calling scrolls.substring with value, i, end
+    var stamp as i64 is calling petitio_parse_http_date with date
+    banish date
+    if stamp < 0:
+        return false
+    var now as i64 is (calling chronicle.time) to i64
+    return stamp <= now
+
+## Releases every string of an owned `list of string`, then the list buffer.
+##
+## `banish list` frees only the element buffer (`PenguList` never recurses), so
+## a list returned by `scrolls.split` needs one release per element too.
+weave _free_strings with items as list of string into void:
+    var i as int is 0
+    while i < items.len:
+        var item as string is items at i
+        banish item
+        set i is i + 1
+    banish items
 
 # ----------------------------------------------------------------------------
 # Sessions
@@ -1417,8 +1833,8 @@ enchanting Session:
     weave set_cookie with name as string, value as string into void:
         if not calling _is_token with name:
             calling spark.panic with "petitio: invalid cookie name '{name}'"
-        if (calling _has_line_break with value) or (calling scrolls.contains with value, ";"):
-            calling spark.panic with "petitio: cookie '{name}' value contains ';' or a line break"
+        if (calling _has_control_byte with value) or (calling scrolls.contains with value, ";"):
+            calling spark.panic with "petitio: cookie '{name}' value contains ';', CR, LF or NUL"
         var key as string is calling _copy with name
         var stored as string is calling _copy with value
         calling _put_owned with (sigil of self->_cookies), key, stored
@@ -1428,16 +1844,92 @@ enchanting Session:
         return calling _remove_owned with (sigil of self->_cookies), name
 
     ## Forgets every cookie.
+    ##
+    ## ## Detalles
+    ## The loop removes one cookie per iteration and verifies that the map
+    ## actually shrank. If `_remove_owned` ever failed (a corrupt map, an OOM in
+    ## a key copy), an unguarded `while` would spin forever; the loop breaks
+    ## instead and leaves the remaining entries in place.
     weave clear_cookies into void:
         while self->_cookies.len > 0:
+            var before as int is self->_cookies.len
             var victim as string is ""
             for name in self->_cookies:
                 set victim is (calling _copy with name)
                 break
             if (victim length) == 0:
                 break
-            calling _remove_owned with (sigil of self->_cookies), victim
+            var removed as bool is calling _remove_owned with (sigil of self->_cookies), victim
             banish victim
+            if not removed or self->_cookies.len >= before:
+                break
+
+    ## Loads cookies from a Netscape-format cookie file.
+    ##
+    ## The jar is a name → value store: the domain, path, secure flag and expiry
+    ## columns are ignored (the wrapper does not scope cookies per host). A file
+    ## written by curl or by `save_cookies_to_file` loads; cookies already in the
+    ## session with the same name are replaced.
+    ##
+    ## ## Parámetros
+    ## - `path`: file to read. Missing or unreadable files are an error.
+    ##
+    ## ## Retorno
+    ## `ok n` with the number of cookies loaded, or `err IoError`.
+    weave load_cookies_from_file with path as string into result of int to HttpError:
+        var content as maybe string is calling archivum.read_file with path
+        if not content.is_present:
+            banish content
+            var reason as string is "cannot read cookie file: {path}"
+            var failure as HttpError is with IoError is reason
+            return calling err_of with failure
+        # Borrowed view: `banish content` releases the buffer and the box.
+        var text as string is content.value
+        var lines as list of string is calling scrolls.lines with text
+        var loaded as int is 0
+        var i as int is 0
+        while i < lines.len:
+            var line as string is lines at i
+            if (line length) > 0:
+                var raw as ref to frozen byte is bytes of line
+                if (raw at 0) != 35:
+                    var fields as list of string is calling scrolls.split with line, "\t"
+                    if fields.len >= 7:
+                        var name as string is fields at 5
+                        var value as string is fields at 6
+                        if (name length) > 0:
+                            calling self.set_cookie with name, value
+                            set loaded is loaded + 1
+                    calling _free_strings with fields
+            set i is i + 1
+        banish lines
+        banish content
+        return calling ok_of with loaded
+
+    ## Writes the current cookies as a Netscape-format cookie file.
+    ##
+    ## The domain, path, secure and expiry columns are placeholders (`.`,
+    ## `TRUE`, `/`, `FALSE`, `0`): the jar keeps only names and values, so the
+    ## file round-trips through `load_cookies_from_file` but does not describe
+    ## host scoping.
+    ##
+    ## ## Retorno
+    ## `ok 0`, or `err IoError` when the file cannot be written.
+    weave save_cookies_to_file with path as string into result of void to HttpError:
+        var sb as StringBuilder is calling StringBuilder.new
+        calling sb.append with "# Netscape HTTP Cookie File\n"
+        for name in self->_cookies:
+            var value as string is calling self->_cookies.get with name
+            calling sb.append with "{name}\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n"
+        var text as string is calling sb.finish
+        banish sb
+        var written as bool is calling archivum.write_file with path, text
+        banish text
+        if not written:
+            var reason as string is "cannot write cookie file: {path}"
+            var failure as HttpError is with IoError is reason
+            return calling err_of with failure
+        return calling ok_of with 0
 
     ## The number of stored cookies.
     weave cookie_count into int:
@@ -1446,6 +1938,16 @@ enchanting Session:
     ## `true` when the session stores `name`.
     weave has_cookie with name as string into bool:
         return calling self->_cookies.contains with name
+
+    ## The value stored for cookie `name`, or `""`.
+    ##
+    ## ## Memoria
+    ## An owned copy; `banish` it. `has_cookie` distinguishes a missing cookie
+    ## from one whose value is empty.
+    weave cookie with name as string into string:
+        if not (calling self->_cookies.contains with name):
+            return ""
+        return calling _copy with (calling self->_cookies.get with name)
 
     ## Sends `req` with the session's headers and cookies, and updates the
     ## cookie jar from the response.
@@ -1576,6 +2078,113 @@ weave post_text with url as string, body as string, content_type as string into 
 weave default_user_agent into string:
     return PETITIO_DEFAULT_USER_AGENT
 
+## Sends every request in `requests` concurrently on one thread.
+##
+## ## Detalles
+## libcurl's `multi` engine multiplexes the transfers: HTTP/2 requests share one
+## connection, HTTP/1.1 ones are spread over the engine's connections. There are
+## no threads and no async machinery; the call blocks until every transfer has
+## finished. The result order matches the input order, so `results at i`
+## describes `requests at i`.
+##
+## ## Propiedad
+## The input `Request` structs stay owned by the caller: `banish` them after the
+## call. The C handles built from them are owned and released by `fetch_many`.
+## This is a `Request`-level API: a `Session`'s default headers and cookies are
+## **not** applied, so copy them into each request when you need them.
+## The returned list is owned and each `result` inside is independent; release
+## them with `banish` (an `ok` result owns its `Response`, an `error` owns its
+## message).
+##
+## ## Retorno
+## `list of result of Response to HttpError`, one per input, in order. A request
+## whose handle could not be built yields `err OutOfMemory`.
+##
+## ## Ejemplo
+## ```pengu
+## var reqs as list of Request is list of Request
+## calling reqs.push with (calling Request.new with "GET", "https://example.com/a")
+## calling reqs.push with (calling Request.new with "GET", "https://example.com/b")
+## var results as list of result of Response to HttpError is calling fetch_many with reqs
+## for r in results:
+##     if r.is_ok:
+##         calling spark.println_int with r.value.status
+##     banish r
+## banish results
+## for req in reqs:
+##     banish req
+## banish reqs
+## ```
+weave fetch_many with requests as list of Request into list of result of Response to HttpError:
+    var results as list of result of Response to HttpError is list of result of Response to HttpError
+    var n as int is requests.len
+    var i as int is 0
+    while i < n:
+        calling results.push with (calling err_of with (with OutOfMemory is 0))
+        set i is i + 1
+    if n == 0:
+        return results
+
+    var engine as ref to petitio_multi is calling petitio_multi_new
+    if calling ffi.is_null with engine:
+        return results
+    defer calling petitio_multi_free with engine
+
+    var no_defaults as map of string to string is map of string to string
+    var no_cookies as map of string to string is map of string to string
+    var added as int is 0
+    set i is 0
+    while i < n:
+        var request as ref to Request is (sigil of (requests at i))
+        var handle as ref to petitio_request is calling _build_handle with request, (sigil of no_defaults), (sigil of no_cookies)
+        if calling ffi.is_null with handle:
+            set i is i + 1
+            continue
+        var index as int is calling petitio_multi_add with engine, handle
+        if index < 0:
+            calling petitio_request_free with handle
+        else:
+            set added is added + 1
+        set i is i + 1
+    banish no_defaults
+    banish no_cookies
+
+    var done as int is 0
+    var stalled as bool is false
+    while done < added and not stalled:
+        var running as int is calling petitio_multi_perform with engine
+        var pending as bool is true
+        while pending:
+            var index as int is -1
+            var raw as ref to petitio_response is calling petitio_multi_pop with engine, (sigil of index)
+            if calling ffi.is_null with raw:
+                set pending is false
+            else:
+                if index >= 0 and index < n:
+                    var request as ref to Request is (sigil of (requests at index))
+                    var previous as result of Response to HttpError is results at index
+                    banish previous
+                    var code as int is calling petitio_response_error with raw
+                    if code == 0:
+                        var response as Response is calling _response_from_c with raw, request
+                        set results at index is (calling ok_of with response)
+                    else:
+                        var reason as string is calling petitio_response_error_message with raw
+                        var failure as HttpError is calling _error_from_code with code, reason, request
+                        banish reason
+                        set results at index is (calling err_of with failure)
+                    set done is done + 1
+                calling petitio_response_free with raw
+        if done < added:
+            if running == 0:
+                # No transfer is running yet not everything finished: the
+                # engine cannot make progress, so do not spin forever. The
+                # remaining placeholders stay `err OutOfMemory`.
+                set stalled is true
+            else:
+                calling petitio_multi_wait with engine, 50
+    return results
+
 ## The libcurl runtime version this build links against (e.g. `"8.22.0"`).
 ##
 ## ## Retorno
@@ -1590,3 +2199,289 @@ weave default_user_agent into string:
 ## ```
 weave libcurl_version into string:
     return calling petitio_version
+
+# ----------------------------------------------------------------------------
+# Tests (run with `pengu test --entry std/petitio.pengu`)
+# ----------------------------------------------------------------------------
+#
+# These live inside the module because they exercise private helpers
+# (`_cookie_cleared`, `_cookie_name`, `_is_token`, …) that are deliberately not
+# exported. The public, network-free behaviour is covered by
+# `tests/stdlib/test_petitio.py` and the conformance corpus; the live half lives
+# in `tests/compat/test_petitio_vs_requests.py`.
+
+## Panics with `label` when `cond` is false.
+weave _expect with cond as bool, label as string into void:
+    if not cond:
+        calling spark.panic with "petitio test failed: {label}"
+
+## Panics with `label` when `actual != expected`.
+weave _expect_int with actual as int, expected as int, label as string into void:
+    if actual != expected:
+        calling spark.panic with "petitio test failed: {label}: {actual} != {expected}"
+
+## Panics with `label` when the two strings differ.
+weave _expect_str with actual as string, expected as string, label as string into void:
+    if (calling scrolls.compare with actual, expected) != 0:
+        calling spark.panic with "petitio test failed: {label}: '{actual}' != '{expected}'"
+
+test "Max-Age zero and negative clear the cookie":
+    calling _expect with (calling _cookie_cleared with "sid=x; Max-Age=0"), "Max-Age=0"
+    calling _expect with (calling _cookie_cleared with "sid=x; Max-Age=-1"), "Max-Age=-1"
+    calling _expect with (calling _cookie_cleared with "sid=x; Max-Age=-0"), "Max-Age=-0"
+    calling _expect with (calling _cookie_cleared with "sid=x; max-age=-999"), "negative lower-case"
+
+test "a positive Max-Age keeps the cookie":
+    calling _expect with not (calling _cookie_cleared with "sid=x; Max-Age=1"), "Max-Age=1"
+    calling _expect with not (calling _cookie_cleared with "sid=x; Max-Age=01"), "Max-Age=01"
+    calling _expect with not (calling _cookie_cleared with "sid=x; Max-Age=3600"), "Max-Age=3600"
+
+test "a cookie without Max-Age or Expires stays":
+    calling _expect with not (calling _cookie_cleared with "sid=x; Path=/"), "plain cookie"
+    calling _expect with not (calling _cookie_cleared with "sid=x; Max-Age=abc"), "unparseable Max-Age"
+
+test "Expires in the past clears the cookie":
+    calling _expect with (calling _cookie_cleared with "sid=x; Expires=Thu, 01 Jan 1970 00:00:00 GMT"), "past Expires"
+
+test "Expires in the future keeps the cookie":
+    calling _expect with not (calling _cookie_cleared with "sid=x; Expires=Thu, 01 Jan 2099 00:00:00 GMT"), "future Expires"
+
+test "Max-Age wins over Expires (RFC 6265 5.3)":
+    calling _expect with not (calling _cookie_cleared with "sid=x; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT"), "positive Max-Age beats past Expires"
+    calling _expect with (calling _cookie_cleared with "sid=x; Max-Age=0; Expires=Thu, 01 Jan 2099 00:00:00 GMT"), "zero Max-Age beats future Expires"
+
+test "an unparseable Expires does not clear":
+    calling _expect with not (calling _cookie_cleared with "sid=x; Expires=not-a-date"), "garbage Expires"
+
+test "cookie name/value extraction":
+    var name0 as string is calling _cookie_name with "sid=abc123; Path=/; HttpOnly"
+    calling _expect_str with name0, "sid", "cookie name"
+    banish name0
+    var value0 as string is calling _cookie_value with "sid=abc123; Path=/; HttpOnly"
+    calling _expect_str with value0, "abc123", "cookie value"
+    banish value0
+    var empty_name as string is calling _cookie_name with "=oops"
+    calling _expect_int with (empty_name length), 0, "empty cookie name"
+    banish empty_name
+    var spaced as string is calling _cookie_value with "k=  padded value ; Path=/"
+    calling _expect_str with spaced, "padded value", "trimmed cookie value"
+    banish spaced
+
+test "url_encode and url_decode round-trip":
+    var encoded as string is calling url_encode with "a b&ñ"
+    calling _expect_str with encoded, "a%20b%26%C3%B1", "encoded"
+    var decoded as string is calling url_decode with encoded
+    calling _expect_str with decoded, "a b&ñ", "round trip"
+    banish decoded
+    banish encoded
+    var plus as string is calling url_decode with "a+b"
+    calling _expect_str with plus, "a+b", "plus is not a space"
+    banish plus
+    var broken as string is calling url_decode with "%ZZ%2"
+    calling _expect_str with broken, "%ZZ%2", "malformed escapes preserved"
+    banish broken
+
+test "build_query_string sorts and encodes":
+    var params as map of string to string is map of string to string
+    calling params.put with "z", "1"
+    calling params.put with "a", "2 3"
+    var query as string is calling build_query_string with params
+    calling _expect_str with query, "a=2%203&z=1", "sorted query"
+    banish query
+    banish params
+
+test "parse_url splits an absolute URL":
+    var parsed as result of UrlParts to string is calling parse_url with "https://u:p@h:99/a?b=1#c"
+    calling _expect with parsed.is_ok, "parse_url ok"
+    if parsed.is_ok:
+        var parts as UrlParts is parsed.value
+        calling _expect_str with parts.scheme, "https", "scheme"
+        calling _expect_str with parts.userinfo, "u:p", "userinfo"
+        calling _expect_str with parts.host, "h", "host"
+        calling _expect_int with parts.port, 99, "port"
+        calling _expect_str with parts.path, "/a", "path"
+        calling _expect_str with parts.query, "b=1", "query"
+        calling _expect_str with parts.fragment, "c", "fragment"
+    banish parsed
+    var bad as result of UrlParts to string is calling parse_url with "nope"
+    calling _expect with not bad.is_ok, "parse_url rejects a relative URL"
+    banish bad
+
+test "control bytes and tokens":
+    calling _expect with (calling _has_control_byte with "a\rb"), "CR"
+    calling _expect with (calling _has_control_byte with "a\nb"), "LF"
+    # A NUL literal cannot be built here: string literals are NUL-terminated at
+    # the C boundary. The NUL branch stays as defence in depth for strings that
+    # arrive through `std.ffi.string_from_bytes`.
+    calling _expect with not (calling _has_control_byte with "plain value"), "plain"
+    calling _expect with (calling _is_token with "GET"), "token"
+    calling _expect with (calling _is_token with "X-Custom"), "token with dash"
+    calling _expect with not (calling _is_token with "bad name"), "space is not a token"
+    calling _expect with not (calling _is_token with ""), "empty is not a token"
+
+test "Request defaults and header replacement":
+    var req as Request is calling Request.new with "get", "https://example.com/"
+    calling _expect_str with req.method, "GET", "method upper-cased"
+    calling _expect with req.follow_redirects, "redirects on"
+    calling _expect_int with req.max_redirects, PETITIO_DEFAULT_MAX_REDIRECTS, "redirect limit"
+    calling _expect with req.verify_tls, "TLS on"
+    calling _expect with not req.has_body, "no body"
+    calling req.header with "Content-Type", "text/plain"
+    calling req.header with "content-TYPE", "application/json"
+    calling _expect_int with req.headers.len, 1, "case-insensitive replacement"
+    var ctype as string is calling req.headers.get with "content-type"
+    calling _expect_str with ctype, "application/json", "last value wins"
+    calling _expect with (calling req.has_header with "CONTENT-TYPE"), "has_header is CI"
+    banish req
+
+test "http_version defaults to HTTP/1.1 and is settable":
+    var req as Request is calling Request.new with "GET", "https://example.com/"
+    calling _expect_int with (calling _http_version_code with req.http_version), 0, "default version"
+    calling req.http_version with HttpVersion.Http2
+    calling _expect_int with (calling _http_version_code with req.http_version), 1, "ALPN code"
+    calling req.http_version with HttpVersion.Http2PriorKnowledge
+    calling _expect_int with (calling _http_version_code with req.http_version), 2, "prior-knowledge code"
+    calling req.http_version with HttpVersion.Http10
+    calling _expect_int with (calling _http_version_code with req.http_version), 3, "HTTP/1.0 code"
+    banish req
+
+test "the response protocol code maps back to an HttpVersion":
+    var v10 as HttpVersion is calling _http_version_from_code with 0
+    calling _expect_int with (calling _http_version_code with v10), 3, "1.0 round trip"
+    var v11 as HttpVersion is calling _http_version_from_code with 1
+    calling _expect_int with (calling _http_version_code with v11), 0, "1.1 round trip"
+    var v2 as HttpVersion is calling _http_version_from_code with 2
+    calling _expect_int with (calling _http_version_code with v2), 1, "2 round trip"
+    var v3 as HttpVersion is calling _http_version_from_code with 4
+    if v3 != HttpVersion.Http3:
+        calling spark.panic with "petitio test failed: HTTP/3 mapping"
+
+test "authentication modes are selected by their builders":
+    var req as Request is calling Request.new with "GET", "https://example.com/"
+    calling _expect_int with (calling _auth_mode_code with req.auth_mode), 0, "no auth by default"
+    calling req.auth_basic with "u", "p"
+    calling _expect_int with (calling _auth_mode_code with req.auth_mode), 1, "basic"
+    calling req.auth_digest with "u", "p"
+    calling _expect_int with (calling _auth_mode_code with req.auth_mode), 2, "digest"
+    calling req.auth_any with "u", "p"
+    calling _expect_int with (calling _auth_mode_code with req.auth_mode), 3, "any"
+    calling _expect_str with req.basic_user, "u", "user stored"
+    calling _expect_str with req.basic_password, "p", "password stored"
+    banish req
+
+test "socks_proxy prefixes socks5h and keeps an explicit scheme":
+    var req as Request is calling Request.new with "GET", "https://example.com/"
+    calling req.socks_proxy with "127.0.0.1:1080", ""
+    calling _expect_str with req.proxy, "socks5h://127.0.0.1:1080", "socks5h prefix"
+    calling req.socks_proxy with "socks5://127.0.0.1:1080", ""
+    calling _expect_str with req.proxy, "socks5://127.0.0.1:1080", "explicit scheme kept"
+    calling req.socks_proxy with "socks5h://127.0.0.1:1080", "u:p"
+    calling _expect_str with req.proxy, "socks5h://127.0.0.1:1080", "socks5h kept"
+    calling _expect_str with req.proxy_credentials, "u:p", "credentials kept"
+    banish req
+
+test "streaming error variants carry a message":
+    var io_error as HttpError is with IoError is "cannot open output file: /nope"
+    var io_message as string is calling io_error.message
+    calling _expect_str with io_message, "I/O error: cannot open output file: /nope", "io message"
+    banish io_message
+    banish io_error
+    var cancelled as HttpError is Cancelled
+    var cancelled_message as string is calling cancelled.message
+    calling _expect_str with cancelled_message, "transfer cancelled by callback", "cancelled message"
+    banish cancelled_message
+    banish cancelled
+
+test "fetch_many on an empty list returns an empty list":
+    var reqs as list of Request is list of Request
+    var results as list of result of Response to HttpError is calling fetch_many with reqs
+    calling _expect_int with results.len, 0, "empty result"
+    banish results
+    banish reqs
+
+test "Session cookie jar operations":
+    var session as Session is calling Session.new
+    calling session.set_cookie with "sid", "abc"
+    calling _expect_int with (calling session.cookie_count), 1, "one cookie"
+    calling _expect with (calling session.has_cookie with "sid"), "has sid"
+    var removed as bool is calling session.remove_cookie with "sid"
+    calling _expect with removed, "remove_cookie"
+    calling _expect_int with (calling session.cookie_count), 0, "empty jar"
+    calling session.set_cookie with "a", "1"
+    calling session.set_cookie with "b", "2"
+    calling session.clear_cookies
+    calling _expect_int with (calling session.cookie_count), 0, "clear_cookies"
+    banish session
+
+test "cookie files round-trip through the Netscape format":
+    var session as Session is calling Session.new
+    calling session.set_cookie with "sid", "abc"
+    calling session.set_cookie with "theme", "dark"
+    var saved as result of void to HttpError is calling session.save_cookies_to_file with "/tmp/petitio_cookies_test.txt"
+    calling _expect with saved.is_ok, "save ok"
+    banish saved
+    var loaded_session as Session is calling Session.new
+    var loaded as result of int to HttpError is calling loaded_session.load_cookies_from_file with "/tmp/petitio_cookies_test.txt"
+    calling _expect with loaded.is_ok, "load ok"
+    if loaded.is_ok:
+        calling _expect_int with loaded.value, 2, "two cookies loaded"
+    banish loaded
+    calling _expect_int with (calling loaded_session.cookie_count), 2, "loaded jar size"
+    var sid as string is calling loaded_session.cookie with "sid"
+    calling _expect_str with sid, "abc", "sid value"
+    banish sid
+    var missing as string is calling loaded_session.cookie with "nope"
+    calling _expect_int with (missing length), 0, "missing cookie"
+    banish missing
+    banish loaded_session
+    banish session
+    var removed as bool is calling archivum.delete_file with "/tmp/petitio_cookies_test.txt"
+    calling _expect with removed, "cleanup"
+
+test "loading a missing cookie file is an error":
+    var session as Session is calling Session.new
+    var loaded as result of int to HttpError is calling session.load_cookies_from_file with "/tmp/petitio_no_such_cookie_file.txt"
+    calling _expect with not loaded.is_ok, "missing file"
+    if not loaded.is_ok:
+        var failure as HttpError is calling take_error with (sigil of loaded)
+        judge failure:
+            when IoError with reason ->
+                calling _expect with (reason length) > 0, "io reason"
+            else ->
+                calling spark.panic with "petitio test failed: wrong missing-file variant"
+        banish failure
+    banish loaded
+    banish session
+
+test "take_response and take_error leave the result banish-safe":
+    var box as result of Response to HttpError is calling ok_of with (calling _empty_response)
+    var moved as Response is calling take_response with (sigil of box)
+    calling _expect_int with moved.status, 0, "moved status"
+    banish moved
+    banish box                          # must be a no-op, not a double free
+
+    var err_box as result of Response to HttpError is calling err_of with (with TlsError is "bad")
+    var error_value as HttpError is calling take_error with (sigil of err_box)
+    var message as string is calling error_value.message
+    calling _expect_str with message, "TLS error: bad", "moved error message"
+    banish message
+    banish error_value
+    banish err_box                      # must be a no-op
+
+## A zeroed `Response`, used by the move tests.
+weave _empty_response into Response:
+    var headers as map of string to string is map of string to string
+    var cookies as map of string to string is map of string to string
+    var cleared as list of string is list of string
+    var response as Response is:
+        status is 0
+        headers is headers
+        body is ""
+        url is ""
+        elapsed_sec is 0.0
+        bytes_written is 0
+        http_version is HttpVersion.Http11
+        redirected is false
+        cookies is cookies
+        cleared_cookies is cleared
+    return response

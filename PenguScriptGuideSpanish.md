@@ -858,6 +858,17 @@ Usa los helpers de un solo uso (`petitio.get`, `petitio.post_json`, …) cuando 
 necesites configurar nada: construyen, envían y liberan la petición ellos mismos.
 Usa una `Session` cuando varias peticiones compartan headers o cookies.
 
+Para cuerpos grandes no buffers: `send_to_file(path)` escribe en disco y
+`send_stream(cb, user)` entrega cada trozo a un callback. El `chunk` del callback
+es una **vista prestada** del buffer de libcurl: no se guarda, no se libera y no
+sale del callback; devolver `false` aborta con `HttpError.Cancelled`. Para varias
+peticiones a la vez, `fetch_many(requests)` las ejecuta en un solo hilo con
+libcurl-multi y devuelve los resultados en el orden de entrada (los `Request` de
+entrada siguen siendo tuyos). El protocolo se elige con
+`http_version(HttpVersion.Http2)` y se consulta en `resp.http_version`; la
+autenticación con `auth_basic` / `auth_digest` / `auth_any`, y los proxies SOCKS
+con `socks_proxy` (resuelve DNS en el proxy, `socks5h`).
+
 ---
 
 ## 5. Optionals, resultados y errores
