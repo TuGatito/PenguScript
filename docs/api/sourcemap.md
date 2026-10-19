@@ -8,7 +8,7 @@
 
 ### `SOURCEMAP_VERSION`
 
-> const string` = 2.13.0`
+> const string` = 2.14.0`
 
 SourceMap module version.
 

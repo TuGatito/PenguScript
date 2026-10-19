@@ -1,0 +1,28 @@
+## Compress and decompress a short text as gzip; the result is a standard
+## RFC 1952 member that starts with the gzip magic and round-trips byte-exactly.
+import std.compressus
+import std.scrolls
+import std.spark
+import std.ward
+
+weave main into int:
+    var text as string is "hello, gzip!"
+    var packed as result of string to CompressError is calling compressus.gzip_compress with text, CompressionLevel.Best
+    calling ward.assert_true with packed.is_ok
+    if packed.is_ok:
+        var magic as string is calling scrolls.substring with packed.value, 0, 2
+        calling ward.assert_eq_int with (calling scrolls.compare with magic, "\x1f\x8b"), 0
+        banish magic
+        var method as string is calling scrolls.substring with packed.value, 2, 3
+        calling ward.assert_eq_int with (calling scrolls.compare with method, "\x08"), 0
+        banish method
+        var back as result of string to CompressError is calling compressus.gzip_decompress with packed.value
+        calling ward.assert_true with back.is_ok
+        if back.is_ok:
+            calling ward.assert_eq_int with (calling scrolls.compare with back.value, text), 0
+        banish back
+    else:
+        calling spark.println with "FAIL compress"
+    banish packed
+    calling spark.println with "OK compressus_gzip_basic"
+    return 0

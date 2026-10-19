@@ -2,6 +2,95 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.14.0] — 2026-10-18 — Compression (gzip, zlib and raw deflate)
+
+`std.compressus` closes the last gap between the standard library and a
+self-hosted package manager: a PenguScript program can now download, decompress
+and verify a `.tar.gz` dependency without a satellite binding. It wraps the
+vendored miniz 3.1.2 (public domain) and adds the gzip container that miniz does
+not implement. Every format is byte-compatible with CPython's `gzip`/`zlib`,
+which the compatibility suite checks in both directions.
+
+```pengu
+import std.compressus
+import std.spark
+
+weave main into int:
+    var packed as result of string to CompressError is calling compressus.gzip_compress with "hello, gzip", CompressionLevel.Best
+    defer banish packed
+    if not packed.is_ok:
+        return 1
+    var plain as result of string to CompressError is calling compressus.gzip_decompress with packed.value
+    defer banish plain
+    if plain.is_ok:
+        calling spark.println with plain.value
+    return 0
+```
+
+### Added
+
+- **`std.compressus`**: gzip (RFC 1952), zlib (RFC 1950) and raw deflate
+  (RFC 1951) over `std_c/miniz.h` + `std_c/miniz.c` (miniz 3.1.2, public domain /
+  Unlicense). One-shot `gzip_compress`, `gzip_compress_named`, `gzip_decompress`,
+  `zlib_compress`, `zlib_decompress`, `deflate_compress`, `inflate_decompress`;
+  `detect_format`, `decompress_auto` and `decompress_as`; multi-member gzip; CRC-32 and Adler-32
+  with `*_continue`; file helpers `gzip_compress_file`, `gzip_decompress_file`,
+  `gzip_read_file`, `gzip_write_file`, `zlib_compress_file`,
+  `zlib_decompress_file`; the `CompressionLevel`, `CompressionFormat` and
+  `CompressError` model. The gzip header/trailer framing is implemented by the
+  wrapper (10-byte header, optional `FEXTRA`/`FNAME`/`FCOMMENT`/`FHCRC`, CRC-32
+  and ISIZE trailer) because miniz has no RFC 1952 support. See
+  `docs/COMPRESSUS.md`.
+- **Smart linking of miniz**: `std_c/miniz.c` is compiled into
+  `build/lib/libminiz.a` with a fixed macro subset (`MINIZ_NO_ARCHIVE_APIS`,
+  `MINIZ_NO_STDIO`, `MINIZ_NO_TIME`, `MINIZ_NO_ZLIB_COMPATIBLE_NAMES`).
+  `-lminiz` and `include "miniz_bind.h"` reach only programs that import
+  `std.compressus`. `tests/build/test_smart_linking.py` extends its matrix to
+  seven programs and checks the bundle, the link line and `nm`.
+- **Conformance corpus**: 11 `compressus_*.pengu` programs (raw binding, gzip
+  basic/empty/large/binary, zlib, raw deflate, auto-detection, files, hashes,
+  multi-member).
+- **Compatibility suite**: `tests/compat/test_compressus_vs_python.py` checks
+  50 byte strings in both directions for all three formats, multi-member gzip,
+  format detection and CRC-32/Adler-32 against CPython, plus a 120-case fuzz
+  corpus of random, malformed and truncated inputs that must never panic a
+  decompressor.
+- **Ownership gate**: `tests/stdlib/audit/test_compressus_ownership.py` runs a
+  100-iteration churn program under ASan + UBSan + LeakSanitizer, including every
+  error path.
+- **Documentation**: `docs/COMPRESSUS.md`; `LANGUAGE.md` §19.1.6 and
+  `LANGUAGE_Spanish.md` mirror; Pengunic §4.21 "Compression" and anti-patterns
+  §14.43–§14.45 (already-compressed data, one-shot for huge files, ignored
+  checksums) in both guides; `CHEATSHEET.md` §15.2.2; `README.md` module catalog
+  and vendored-library table; generated `docs/api/compressus.md`.
+
+### Changed
+
+- The standard library now has **40 modules** (34 pure PenguScript, two general C
+  bridges, four smart-linked C wrappers).
+- Every `std/` module reports `"2.14.0"`.
+- `PETITIO_DEFAULT_USER_AGENT` reports `petitio/2.14.0`.
+- `x to usize` / `to isize` / `to size_t` / `to i8` / `to i16` / `to int32` /
+  `to uint64` and the other documented scalar aliases now lower to a real C cast.
+  The cast predicate in the type checker and in the C emitter came from a
+  hard-coded list that omitted those spellings, so the expression parsed as a
+  *range* and the C referenced an undeclared `usize`. Both passes now derive the
+  predicate from `canonical_primitive_name`, and
+  `tests/compiler/test_ord_and_casts.py` pins the fix.
+
+### Fixed
+
+- `CompressError` uses `AllocationFailed` and `FileError` instead of
+  `OutOfMemory` and `IoError`: variant names must be unique across every omen in
+  a compilation, and `std.petitio`'s `HttpError` already owns both, so importing
+  `std.petitio` and `std.compressus` together would not have compiled.
+- The error-move path in `decompress_auto` and the `*_decompress_file` helpers
+  moves the `CompressError` payload out of the inner result before releasing the
+  box (`_take_error`). Borrowing `.error`, banishing the result and then
+  returning the borrowed variant would have left its `reason` dangling.
+- `README.md`'s Spanish vendored-library table now lists `libcurl` as well as the
+  engines, matching the English table.
+
 ## [2.13.0] — 2026-10-18 — Streaming, HTTP/2 and concurrent transfers
 
 `std.petitio` 2.13.0 closes the gap with Python's `requests` and `httpx.zig`

@@ -1,0 +1,31 @@
+## The empty payload is a valid gzip stream: 10-byte header, the two-byte empty
+## deflate block and the 8-byte trailer, 20 bytes in total.
+import std.compressus
+import std.spark
+import std.ward
+
+weave main into int:
+    var packed as result of string to CompressError is calling compressus.gzip_compress with "", CompressionLevel.Default
+    calling ward.assert_true with packed.is_ok
+    if packed.is_ok:
+        calling ward.assert_eq_int with (packed.value length), 20
+        var back as result of string to CompressError is calling compressus.gzip_decompress with packed.value
+        calling ward.assert_true with back.is_ok
+        if back.is_ok:
+            calling ward.assert_eq_int with (back.value length), 0
+        banish back
+    else:
+        calling spark.println with "FAIL compress"
+    banish packed
+    var zlib_empty as result of string to CompressError is calling compressus.zlib_compress with "", CompressionLevel.Default
+    calling ward.assert_true with zlib_empty.is_ok
+    if zlib_empty.is_ok:
+        calling ward.assert_eq_int with (zlib_empty.value length), 8
+        var zback as result of string to CompressError is calling compressus.zlib_decompress with zlib_empty.value
+        calling ward.assert_true with zback.is_ok
+        if zback.is_ok:
+            calling ward.assert_eq_int with (zback.value length), 0
+        banish zback
+    banish zlib_empty
+    calling spark.println with "OK compressus_gzip_empty"
+    return 0

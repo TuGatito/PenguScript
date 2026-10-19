@@ -133,7 +133,7 @@ import std.spark
 # ----------------------------------------------------------------------------
 
 ## Petitio module version (the stdlib release that ships it).
-const PETITIO_VERSION as string is "2.13.0"
+const PETITIO_VERSION as string is "2.14.0"
 
 ## Redirect limit used by `Request.new` and by the one-shot helpers, matching
 ## Python's `requests`.
@@ -143,7 +143,7 @@ const PETITIO_DEFAULT_MAX_REDIRECTS as int is 30
 const PETITIO_DEFAULT_TIMEOUT_SEC as f64 is 0.0
 
 ## `User-Agent` sent when the request does not set one.
-const PETITIO_DEFAULT_USER_AGENT as string is "petitio/2.13.0"
+const PETITIO_DEFAULT_USER_AGENT as string is "petitio/2.14.0"
 
 ## Content type `json_body` installs when the request has not set one.
 const PETITIO_JSON_CONTENT_TYPE as string is "application/json"

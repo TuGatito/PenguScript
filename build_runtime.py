@@ -286,6 +286,22 @@ STD_C_REQUIRES = {
     "petitio": ("curl/curl.h",),
 }
 
+#: Per-unit ``-D`` flags for the vendored ``std_c/*.c`` translation units.
+#:
+#: ``miniz.c`` includes ``miniz.h`` directly (the vendored file is untouched),
+#: so the configuration macros must reach *this* translation unit on the command
+#: line.  ``std_c/miniz_bind.h`` repeats the same set behind ``#ifndef`` guards
+#: for every consumer bundle, so the archive and its users cannot disagree.  See
+#: the comment at the top of ``std_c/miniz_bind.h`` for why each macro exists.
+STD_C_DEFINES = {
+    "miniz": (
+        "-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES",
+        "-DMINIZ_NO_ARCHIVE_APIS",
+        "-DMINIZ_NO_STDIO",
+        "-DMINIZ_NO_TIME",
+    ),
+}
+
 
 def _header_available(cc, header):
     """True when ``cc`` can preprocess ``#include <header>``."""
@@ -380,7 +396,8 @@ def build_std_c(cc, ar, dest_dir, rebuild=False, extra_flags=None):
             continue
 
         print(f"[STD_C] Compiling {source.name} -> {target_lib.name}...")
-        run_cmd([cc] + flags + ["-c", str(source), "-o", str(obj_path)])
+        unit_flags = flags + list(STD_C_DEFINES.get(name, ()))
+        run_cmd([cc] + unit_flags + ["-c", str(source), "-o", str(obj_path)])
         if target_lib.exists():
             target_lib.unlink()
         run_cmd([ar, "rcs", str(target_lib), str(obj_path)])

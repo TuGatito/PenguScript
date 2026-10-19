@@ -78,3 +78,40 @@ weave round_trip with c as char, b as byte into char:
     return (n + m) to char
 """)
     assert errors == [], [str(e) for e in errors]
+
+
+def test_narrow_and_pointer_sized_casts_are_casts_not_ranges(emit_c):
+    """`x to T` for every documented scalar alias lowers to a C cast.
+
+    The cast detector used a hard-coded list of primitive names that left out
+    `usize`/`isize`/`size_t` and the fixed-width `int8`..`uint64` spellings, so
+    `(n length) to usize` was emitted as a *range*
+    (`(PenguRange){ .start = ..., .end = (int64_t)(usize) }`) and the C compiler
+    reported an undeclared `usize`.  The predicate now comes from
+    `canonical_primitive_name`, the same alias table the type system uses.
+    """
+    c = emit_c("""
+weave pointer_sized with n as int into usize:
+    return n to usize
+
+weave signed_sized with n as int into isize:
+    return n to isize
+
+weave c_spelling with n as int into size_t:
+    return n to size_t
+
+weave narrow_signed with n as int into i8:
+    return n to i8
+
+weave narrow_unsigned with n as int into u16:
+    return n to u16
+
+weave fixed_width with n as int into uint64:
+    return n to uint64
+""")
+    assert "(PenguRange){" not in c, c
+    assert "((size_t)(n))" in c, c
+    assert "((intptr_t)(n))" in c, c
+    assert "((int8_t)(n))" in c, c
+    assert "((uint16_t)(n))" in c, c
+    assert "((uint64_t)(n))" in c, c

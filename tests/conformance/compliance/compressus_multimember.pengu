@@ -1,0 +1,33 @@
+## Gzip permits concatenated members (what `cat a.gz b.gz` produces). The
+## decompressor concatenates their payloads, exactly like `gzip -d`.
+import std.builder
+import std.compressus
+import std.scrolls
+import std.spark
+import std.ward
+
+weave main into int:
+    var first as result of string to CompressError is calling compressus.gzip_compress with "first|", CompressionLevel.Best
+    var second as result of string to CompressError is calling compressus.gzip_compress with "second|", CompressionLevel.Best
+    var third as result of string to CompressError is calling compressus.gzip_compress with "third", CompressionLevel.Best
+    calling ward.assert_true with first.is_ok
+    calling ward.assert_true with second.is_ok
+    calling ward.assert_true with third.is_ok
+    if first.is_ok and second.is_ok and third.is_ok:
+        var sb as StringBuilder is calling StringBuilder.new
+        calling sb.append with first.value
+        calling sb.append with second.value
+        calling sb.append with third.value
+        var joined as string is calling sb.finish
+        banish sb
+        var back as result of string to CompressError is calling compressus.gzip_decompress with joined
+        calling ward.assert_true with back.is_ok
+        if back.is_ok:
+            calling ward.assert_eq_int with (calling scrolls.compare with back.value, "first|second|third"), 0
+        banish back
+        banish joined
+    banish first
+    banish second
+    banish third
+    calling spark.println with "OK compressus_multimember"
+    return 0

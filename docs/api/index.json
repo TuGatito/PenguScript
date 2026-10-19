@@ -5077,6 +5077,286 @@
       "deprecated": false,
       "documented": true,
       "kind": "const",
+      "module": "compressus",
+      "name": "COMPRESSUS_VERSION",
+      "signature": "**COMPRESSUS_VERSION** : string"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "compressus",
+      "name": "GZIP_FLAG_FCOMMENT",
+      "signature": "**GZIP_FLAG_FCOMMENT** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "compressus",
+      "name": "GZIP_FLAG_FEXTRA",
+      "signature": "**GZIP_FLAG_FEXTRA** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "compressus",
+      "name": "GZIP_FLAG_FHCRC",
+      "signature": "**GZIP_FLAG_FHCRC** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "compressus",
+      "name": "GZIP_FLAG_FNAME",
+      "signature": "**GZIP_FLAG_FNAME** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "compressus",
+      "name": "GZIP_FLAG_RESERVED",
+      "signature": "**GZIP_FLAG_RESERVED** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "compressus",
+      "name": "GZIP_HEADER_SIZE",
+      "signature": "**GZIP_HEADER_SIZE** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "compressus",
+      "name": "GZIP_MAGIC_0",
+      "signature": "**GZIP_MAGIC_0** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "compressus",
+      "name": "GZIP_MAGIC_1",
+      "signature": "**GZIP_MAGIC_1** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "compressus",
+      "name": "GZIP_METHOD_DEFLATE",
+      "signature": "**GZIP_METHOD_DEFLATE** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "compressus",
+      "name": "GZIP_MIN_SIZE",
+      "signature": "**GZIP_MIN_SIZE** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
+      "module": "compressus",
+      "name": "GZIP_TRAILER_SIZE",
+      "signature": "**GZIP_TRAILER_SIZE** : int"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "compressus",
+      "name": "CompressError",
+      "signature": "**CompressError** : CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "compressus",
+      "name": "CompressionFormat",
+      "signature": "**CompressionFormat** : CompressionFormat"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "omen",
+      "module": "compressus",
+      "name": "CompressionLevel",
+      "signature": "**CompressionLevel** : CompressionLevel"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "adler32",
+      "signature": "**adler32**(data: string) -> u32"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "adler32_continue",
+      "signature": "**adler32_continue**(initial: u32, data: string) -> u32"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "crc32",
+      "signature": "**crc32**(data: string) -> u32"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "crc32_continue",
+      "signature": "**crc32_continue**(initial: u32, data: string) -> u32"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "decompress_as",
+      "signature": "**decompress_as**(data: string, format: CompressionFormat) -> result of (string, CompressionFormat) to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "decompress_auto",
+      "signature": "**decompress_auto**(data: string) -> result of (string, CompressionFormat) to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "deflate_compress",
+      "signature": "**deflate_compress**(data: string, level: CompressionLevel) -> result of string to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "detect_format",
+      "signature": "**detect_format**(data: string) -> maybe CompressionFormat"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "gzip_compress",
+      "signature": "**gzip_compress**(data: string, level: CompressionLevel) -> result of string to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "gzip_compress_file",
+      "signature": "**gzip_compress_file**(input_path: string, output_path: string, level: CompressionLevel) -> result of int to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "gzip_compress_named",
+      "signature": "**gzip_compress_named**(data: string, filename: string, level: CompressionLevel) -> result of string to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "gzip_decompress",
+      "signature": "**gzip_decompress**(data: string) -> result of string to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "gzip_decompress_file",
+      "signature": "**gzip_decompress_file**(input_path: string, output_path: string) -> result of int to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "gzip_read_file",
+      "signature": "**gzip_read_file**(path: string) -> result of string to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "gzip_write_file",
+      "signature": "**gzip_write_file**(path: string, data: string, level: CompressionLevel) -> result of void to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "inflate_decompress",
+      "signature": "**inflate_decompress**(data: string) -> result of string to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "zlib_compress",
+      "signature": "**zlib_compress**(data: string, level: CompressionLevel) -> result of string to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "zlib_compress_file",
+      "signature": "**zlib_compress_file**(input_path: string, output_path: string, level: CompressionLevel) -> result of int to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "zlib_decompress",
+      "signature": "**zlib_decompress**(data: string) -> result of string to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "weave",
+      "module": "compressus",
+      "name": "zlib_decompress_file",
+      "signature": "**zlib_decompress_file**(input_path: string, output_path: string) -> result of int to CompressError"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "const",
       "module": "coven",
       "name": "COVEN_VERSION",
       "signature": "**COVEN_VERSION** : string"

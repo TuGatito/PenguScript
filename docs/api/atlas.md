@@ -51,7 +51,7 @@ bind applies.
 
 ### `ATLAS_VERSION`
 
-> const string` = 2.13.0`
+> const string` = 2.14.0`
 
 Version of the `std.atlas` module.
 Parámetros

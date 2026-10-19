@@ -67,7 +67,7 @@ import std.spark
 # ----------------------------------------------------------------------------
 
 ## Arena module version.
-const ARENA_VERSION as string is "2.13.0"
+const ARENA_VERSION as string is "2.14.0"
 
 ## Block size used by `Arena.new` (4 KiB).
 const ARENA_DEFAULT_BLOCK_SIZE as usize is 4096

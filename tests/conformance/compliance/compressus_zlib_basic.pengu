@@ -1,0 +1,34 @@
+## zlib (RFC 1950): a two-byte header, deflate and the big-endian Adler-32
+## trailer. Level 9 starts with `78 da`, exactly like Python's zlib.
+import std.compressus
+import std.scrolls
+import std.spark
+import std.ward
+
+weave main into int:
+    var text as string is "zlib round trip, zlib round trip, zlib round trip"
+    var packed as result of string to CompressError is calling compressus.zlib_compress with text, CompressionLevel.Best
+    calling ward.assert_true with packed.is_ok
+    if packed.is_ok:
+        var header as string is calling scrolls.substring with packed.value, 0, 2
+        calling ward.assert_eq_int with (calling scrolls.compare with header, "\x78\xda"), 0
+        banish header
+        var back as result of string to CompressError is calling compressus.zlib_decompress with packed.value
+        calling ward.assert_true with back.is_ok
+        if back.is_ok:
+            calling ward.assert_eq_int with (calling scrolls.compare with back.value, text), 0
+        banish back
+        # A single flipped body byte must be reported, never accepted.
+        var broken as StringBuilder is calling StringBuilder.from_string with packed.value
+        calling broken.set_char_at with 5, 'Q'
+        var corrupt as string is calling broken.finish
+        banish broken
+        var rejected as result of string to CompressError is calling compressus.zlib_decompress with corrupt
+        calling ward.assert_false with rejected.is_ok
+        banish rejected
+        banish corrupt
+    else:
+        calling spark.println with "FAIL compress"
+    banish packed
+    calling spark.println with "OK compressus_zlib_basic"
+    return 0

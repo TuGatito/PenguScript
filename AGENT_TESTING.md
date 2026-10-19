@@ -5,7 +5,7 @@ default run must stay under 7 minutes on a normal developer machine; 10 minutes
 is the hard ceiling.** If a change pushes it past that, fix the test — do not
 delete coverage that is still earning its keep.
 
-Measured on the reference 36-core box (2026-10-18, `VERSION` 2.13.0):
+Measured on the reference 36-core box (2026-10-18, `VERSION` 2.14.0):
 
 | Command | Wall time | Tests |
 |---|---|---|

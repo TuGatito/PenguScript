@@ -46,7 +46,7 @@ calling compass.join with ["a", "b"]     # "a/b"
 
 ### `COMPASS_VERSION`
 
-> const string` = 2.13.0`
+> const string` = 2.14.0`
 
 Module version identifier for std.compass.
 

@@ -95,12 +95,12 @@ class DerivedGenMixin:
 
             # 1. Par (Equality: ==, !=)
             if "Par" in derived:
-                forward_decls.append(f"static inline bool {c_rune}_eq(const {c_rune} *a, const {c_rune} *b);")
-                forward_decls.append(f"static inline bool {c_rune}_Par(const {c_rune} *a, const {c_rune} *b);")
-                forward_decls.append(f"static inline bool {c_rune}_eq_val({c_rune} a, {c_rune} b);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline bool {c_rune}_eq(const {c_rune} *a, const {c_rune} *b);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline bool {c_rune}_Par(const {c_rune} *a, const {c_rune} *b);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline bool {c_rune}_eq_val({c_rune} a, {c_rune} b);")
 
                 lines = [
-                    f"static inline bool {c_rune}_eq(const {c_rune} *a, const {c_rune} *b) {{",
+                    f"PENGU_MAYBE_UNUSED static inline bool {c_rune}_eq(const {c_rune} *a, const {c_rune} *b) {{",
                     "  if (!a && !b) return true;",
                     "  if (!a || !b) return false;",
                 ]
@@ -127,22 +127,22 @@ class DerivedGenMixin:
                         lines.append(f"  if (!({cond})) return false;")
                 lines.append("  return true;")
                 lines.append("}")
-                lines.append(f"static inline bool {c_rune}_Par(const {c_rune} *a, const {c_rune} *b) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline bool {c_rune}_Par(const {c_rune} *a, const {c_rune} *b) {{")
                 lines.append(f"  return {c_rune}_eq(a, b);")
                 lines.append("}")
-                lines.append(f"static inline bool {c_rune}_eq_val({c_rune} a, {c_rune} b) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline bool {c_rune}_eq_val({c_rune} a, {c_rune} b) {{")
                 lines.append(f"  return {c_rune}_eq(&a, &b);")
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
 
             # 2. Ordo (Ordering: <, <=, >, >=)
             if "Ordo" in derived:
-                forward_decls.append(f"static inline int {c_rune}_cmp(const {c_rune} *a, const {c_rune} *b);")
-                forward_decls.append(f"static inline int {c_rune}_Ordo(const {c_rune} *a, const {c_rune} *b);")
-                forward_decls.append(f"static inline int {c_rune}_cmp_val({c_rune} a, {c_rune} b);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline int {c_rune}_cmp(const {c_rune} *a, const {c_rune} *b);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline int {c_rune}_Ordo(const {c_rune} *a, const {c_rune} *b);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline int {c_rune}_cmp_val({c_rune} a, {c_rune} b);")
 
                 lines = [
-                    f"static inline int {c_rune}_cmp(const {c_rune} *a, const {c_rune} *b) {{",
+                    f"PENGU_MAYBE_UNUSED static inline int {c_rune}_cmp(const {c_rune} *a, const {c_rune} *b) {{",
                     "  if (!a && !b) return 0;",
                     "  if (!a) return -1;",
                     "  if (!b) return 1;",
@@ -161,21 +161,21 @@ class DerivedGenMixin:
                         lines.append(f"  if (a->{f_c} > b->{f_c}) return 1;")
                 lines.append("  return 0;")
                 lines.append("}")
-                lines.append(f"static inline int {c_rune}_Ordo(const {c_rune} *a, const {c_rune} *b) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline int {c_rune}_Ordo(const {c_rune} *a, const {c_rune} *b) {{")
                 lines.append(f"  return {c_rune}_cmp(a, b);")
                 lines.append("}")
-                lines.append(f"static inline int {c_rune}_cmp_val({c_rune} a, {c_rune} b) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline int {c_rune}_cmp_val({c_rune} a, {c_rune} b) {{")
                 lines.append(f"  return {c_rune}_cmp(&a, &b);")
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
 
             # 3. Vinculum (Hashing)
             if "Vinculum" in derived:
-                forward_decls.append(f"static inline uint32_t {c_rune}_Vinculum(const {c_rune} *p);")
-                forward_decls.append(f"static inline uint32_t {c_rune}_hash(const {c_rune} *p);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline uint32_t {c_rune}_Vinculum(const {c_rune} *p);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline uint32_t {c_rune}_hash(const {c_rune} *p);")
 
                 lines = [
-                    f"static inline uint32_t {c_rune}_Vinculum(const {c_rune} *p) {{",
+                    f"PENGU_MAYBE_UNUSED static inline uint32_t {c_rune}_Vinculum(const {c_rune} *p) {{",
                     "  if (!p) return 0;",
                     "  uint32_t h = 2166136261u;",
                 ]
@@ -192,7 +192,7 @@ class DerivedGenMixin:
                         lines.append(f"  h = pengu_hash_bytes(&(p->{f_c}), sizeof(p->{f_c})) ^ (h * 16777619u);")
                 lines.append("  return h;")
                 lines.append("}")
-                lines.append(f"static inline uint32_t {c_rune}_hash(const {c_rune} *p) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline uint32_t {c_rune}_hash(const {c_rune} *p) {{")
                 lines.append(f"  return {c_rune}_Vinculum(p);")
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
@@ -205,11 +205,11 @@ class DerivedGenMixin:
                 # with "conflicting types". The public C entry point remains
                 # `_pengu_clone_<Rune>`.
                 clone_fn = f"_pengu_imago_{c_rune}"
-                forward_decls.append(f"static inline void {clone_fn}(void *dst, const void *src);")
-                forward_decls.append(f"static inline void _pengu_clone_{c_rune}(void *dst, const void *src);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline void {clone_fn}(void *dst, const void *src);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline void _pengu_clone_{c_rune}(void *dst, const void *src);")
 
                 lines = [
-                    f"static inline void {clone_fn}(void *dst, const void *src) {{",
+                    f"PENGU_MAYBE_UNUSED static inline void {clone_fn}(void *dst, const void *src) {{",
                     "  if (!dst || !src) return;",
                     f"  *({c_rune} *)dst = *(const {c_rune} *)src;",
                 ]
@@ -223,7 +223,7 @@ class DerivedGenMixin:
                     if stmt:
                         lines.append(f"  {stmt}")
                 lines.append("}")
-                lines.append(f"static inline void _pengu_clone_{c_rune}(void *dst, const void *src) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline void _pengu_clone_{c_rune}(void *dst, const void *src) {{")
                 lines.append(f"  {clone_fn}(dst, src);")
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
@@ -231,8 +231,8 @@ class DerivedGenMixin:
             # 5. Nexus (Drop / Cleanup) — only through an explicit 'derive'.
             if "Nexus" in derived:
                 body_fn = f"{c_rune}_nexus"
-                forward_decls.append(f"static inline void {c_rune}_nexus(void *p);")
-                forward_decls.append(f"static inline void _pengu_cleanup_{c_rune}(void *elem);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline void {c_rune}_nexus(void *p);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline void _pengu_cleanup_{c_rune}(void *elem);")
 
                 # Only declare the typed pointer when a field actually needs
                 # it. A rune that derives Nexus but owns nothing (every field
@@ -245,7 +245,7 @@ class DerivedGenMixin:
                     if stmt:
                         field_stmts.append(f"  {stmt}")
                 lines = [
-                    f"static inline void {body_fn}(void *p) {{",
+                    f"PENGU_MAYBE_UNUSED static inline void {body_fn}(void *p) {{",
                     "  if (!p) return;",
                 ]
                 if field_stmts:
@@ -254,7 +254,7 @@ class DerivedGenMixin:
                 else:
                     lines.append("  (void)p;")
                 lines.append("}")
-                lines.append(f"static inline void _pengu_cleanup_{c_rune}(void *elem) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline void _pengu_cleanup_{c_rune}(void *elem) {{")
                 lines.append(f"  {c_rune}_nexus(elem);")
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
@@ -298,11 +298,11 @@ class DerivedGenMixin:
 
             # 1. Par
             if "Par" in derived:
-                forward_decls.append(f"static inline bool {c_o}_eq(const {c_o} *a, const {c_o} *b);")
-                forward_decls.append(f"static inline bool {c_o}_Par(const {c_o} *a, const {c_o} *b);")
-                forward_decls.append(f"static inline bool {c_o}_eq_val({c_o} a, {c_o} b);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline bool {c_o}_eq(const {c_o} *a, const {c_o} *b);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline bool {c_o}_Par(const {c_o} *a, const {c_o} *b);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline bool {c_o}_eq_val({c_o} a, {c_o} b);")
                 lines = [
-                    f"static inline bool {c_o}_eq(const {c_o} *a, const {c_o} *b) {{",
+                    f"PENGU_MAYBE_UNUSED static inline bool {c_o}_eq(const {c_o} *a, const {c_o} *b) {{",
                     "  if (!a && !b) return true;",
                     "  if (!a || !b) return false;",
                 ]
@@ -325,21 +325,21 @@ class DerivedGenMixin:
                     lines.append("  return *a == *b;")
                 lines.append("  return true;")
                 lines.append("}")
-                lines.append(f"static inline bool {c_o}_Par(const {c_o} *a, const {c_o} *b) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline bool {c_o}_Par(const {c_o} *a, const {c_o} *b) {{")
                 lines.append(f"  return {c_o}_eq(a, b);")
                 lines.append("}")
-                lines.append(f"static inline bool {c_o}_eq_val({c_o} a, {c_o} b) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline bool {c_o}_eq_val({c_o} a, {c_o} b) {{")
                 lines.append(f"  return {c_o}_eq(&a, &b);")
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
 
             # 2. Ordo
             if "Ordo" in derived:
-                forward_decls.append(f"static inline int {c_o}_cmp(const {c_o} *a, const {c_o} *b);")
-                forward_decls.append(f"static inline int {c_o}_Ordo(const {c_o} *a, const {c_o} *b);")
-                forward_decls.append(f"static inline int {c_o}_cmp_val({c_o} a, {c_o} b);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline int {c_o}_cmp(const {c_o} *a, const {c_o} *b);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline int {c_o}_Ordo(const {c_o} *a, const {c_o} *b);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline int {c_o}_cmp_val({c_o} a, {c_o} b);")
                 lines = [
-                    f"static inline int {c_o}_cmp(const {c_o} *a, const {c_o} *b) {{",
+                    f"PENGU_MAYBE_UNUSED static inline int {c_o}_cmp(const {c_o} *a, const {c_o} *b) {{",
                     "  if (!a && !b) return 0;",
                     "  if (!a) return -1;",
                     "  if (!b) return 1;",
@@ -365,20 +365,20 @@ class DerivedGenMixin:
                     lines.append("  if (*a > *b) return 1;")
                 lines.append("  return 0;")
                 lines.append("}")
-                lines.append(f"static inline int {c_o}_Ordo(const {c_o} *a, const {c_o} *b) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline int {c_o}_Ordo(const {c_o} *a, const {c_o} *b) {{")
                 lines.append(f"  return {c_o}_cmp(a, b);")
                 lines.append("}")
-                lines.append(f"static inline int {c_o}_cmp_val({c_o} a, {c_o} b) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline int {c_o}_cmp_val({c_o} a, {c_o} b) {{")
                 lines.append(f"  return {c_o}_cmp(&a, &b);")
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
 
             # 3. Vinculum
             if "Vinculum" in derived:
-                forward_decls.append(f"static inline uint32_t {c_o}_Vinculum(const {c_o} *p);")
-                forward_decls.append(f"static inline uint32_t {c_o}_hash(const {c_o} *p);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline uint32_t {c_o}_Vinculum(const {c_o} *p);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline uint32_t {c_o}_hash(const {c_o} *p);")
                 lines = [
-                    f"static inline uint32_t {c_o}_Vinculum(const {c_o} *p) {{",
+                    f"PENGU_MAYBE_UNUSED static inline uint32_t {c_o}_Vinculum(const {c_o} *p) {{",
                     "  if (!p) return 0;",
                 ]
                 if is_algebraic:
@@ -399,7 +399,7 @@ class DerivedGenMixin:
                 else:
                     lines.append("  return (uint32_t)(*p);")
                 lines.append("}")
-                lines.append(f"static inline uint32_t {c_o}_hash(const {c_o} *p) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline uint32_t {c_o}_hash(const {c_o} *p) {{")
                 lines.append(f"  return {c_o}_Vinculum(p);")
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
@@ -407,10 +407,10 @@ class DerivedGenMixin:
             # 4. Imago — explicit 'derive Imago' only.
             if "Imago" in derived:
                 body_fn = f"_pengu_imago_{c_o}"
-                forward_decls.append(f"static inline void {body_fn}(void *dst, const void *src);")
-                forward_decls.append(f"static inline void _pengu_clone_{c_o}(void *dst, const void *src);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline void {body_fn}(void *dst, const void *src);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline void _pengu_clone_{c_o}(void *dst, const void *src);")
                 lines = [
-                    f"static inline void {body_fn}(void *dst, const void *src) {{",
+                    f"PENGU_MAYBE_UNUSED static inline void {body_fn}(void *dst, const void *src) {{",
                     "  if (!dst || !src) return;",
                     f"  *({c_o} *)dst = *(const {c_o} *)src;",
                 ]
@@ -430,7 +430,7 @@ class DerivedGenMixin:
                     lines.append("    default: break;")
                     lines.append("  }")
                 lines.append("}")
-                lines.append(f"static inline void _pengu_clone_{c_o}(void *dst, const void *src) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline void _pengu_clone_{c_o}(void *dst, const void *src) {{")
                 lines.append(f"  {body_fn}(dst, src);")
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
@@ -438,10 +438,10 @@ class DerivedGenMixin:
             # 5. Nexus — explicit 'derive Nexus' only.
             if "Nexus" in derived:
                 body_fn = f"{c_o}_nexus"
-                forward_decls.append(f"static inline void {c_o}_nexus(void *p);")
-                forward_decls.append(f"static inline void _pengu_cleanup_{c_o}(void *elem);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline void {c_o}_nexus(void *p);")
+                forward_decls.append(f"PENGU_MAYBE_UNUSED static inline void _pengu_cleanup_{c_o}(void *elem);")
                 lines = [
-                    f"static inline void {body_fn}(void *p) {{",
+                    f"PENGU_MAYBE_UNUSED static inline void {body_fn}(void *p) {{",
                     "  if (!p) return;",
                 ]
                 if is_algebraic:
@@ -461,7 +461,7 @@ class DerivedGenMixin:
                     lines.append("  }")
                 lines.append("  (void)p;")
                 lines.append("}")
-                lines.append(f"static inline void _pengu_cleanup_{c_o}(void *elem) {{")
+                lines.append(f"PENGU_MAYBE_UNUSED static inline void _pengu_cleanup_{c_o}(void *elem) {{")
                 lines.append(f"  {c_o}_nexus(elem);")
                 lines.append("}")
                 impl_blocks.append("\n".join(lines))
@@ -532,7 +532,7 @@ class DerivedGenMixin:
         cond = self._derived_field_eq("pa[i]", "pb[i]", u.element)
         self._pengu_eq_helper_defs = getattr(self, "_pengu_eq_helper_defs", [])
         self._pengu_eq_helper_defs.append(
-            f"static inline bool {fn}(const PenguList *a, const PenguList *b) {{\n"
+            f"PENGU_MAYBE_UNUSED static inline bool {fn}(const PenguList *a, const PenguList *b) {{\n"
             f"  if (a->len != b->len) return false;\n"
             f"  const {elem_c} *pa = (const {elem_c} *)a->data;\n"
             f"  const {elem_c} *pb = (const {elem_c} *)b->data;\n"
@@ -558,7 +558,7 @@ class DerivedGenMixin:
         cond = self._derived_field_eq("(*pa)", "(*pb)", u.element)
         self._pengu_eq_helper_defs = getattr(self, "_pengu_eq_helper_defs", [])
         self._pengu_eq_helper_defs.append(
-            f"static inline bool {fn}(const PenguMaybe *a, const PenguMaybe *b) {{\n"
+            f"PENGU_MAYBE_UNUSED static inline bool {fn}(const PenguMaybe *a, const PenguMaybe *b) {{\n"
             f"  if (a->is_present != b->is_present) return false;\n"
             f"  if (!a->is_present) return true;\n"
             f"  if (!a->value || !b->value) return a->value == b->value;\n"
@@ -585,7 +585,7 @@ class DerivedGenMixin:
         err_cond = self._derived_field_eq("(*ea)", "(*eb)", u.err_type)
         self._pengu_eq_helper_defs = getattr(self, "_pengu_eq_helper_defs", [])
         self._pengu_eq_helper_defs.append(
-            f"static inline bool {fn}(const PenguResult *a, const PenguResult *b) {{\n"
+            f"PENGU_MAYBE_UNUSED static inline bool {fn}(const PenguResult *a, const PenguResult *b) {{\n"
             f"  if (a->is_ok != b->is_ok) return false;\n"
             f"  if (a->is_ok) {{\n"
             f"    if (!a->ok_val || !b->ok_val) return a->ok_val == b->ok_val;\n"
@@ -616,7 +616,7 @@ class DerivedGenMixin:
             f"*(const {val_c} *)(ea->val)", f"*(const {val_c} *)(vb)", u.value)
         self._pengu_eq_helper_defs = getattr(self, "_pengu_eq_helper_defs", [])
         self._pengu_eq_helper_defs.append(
-            f"static inline bool {fn}(const PenguMap *a, const PenguMap *b) {{\n"
+            f"PENGU_MAYBE_UNUSED static inline bool {fn}(const PenguMap *a, const PenguMap *b) {{\n"
             f"  if (a->len != b->len) return false;\n"
             f"  for (int i = 0; i < a->cap; ++i) {{\n"
             f"    const PenguMapEntry *ea = &a->entries[i];\n"

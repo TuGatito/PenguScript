@@ -1,0 +1,192 @@
+## std/compressus.d.pengu — raw declarations for the vendored `miniz`
+## (`std_c/miniz.h` + `std_c/miniz.c`, public domain / Unlicense).
+##
+## This is the **internal** binding of `std/compressus.pengu`. Import the wrapper
+## (`import std.compressus`), not this declaration file: the wrapper owns the
+## `CompressionLevel` / `CompressionFormat` / `CompressError` model, the gzip
+## framing that miniz does not implement, the file helpers, the hashes and every
+## ownership rule.
+##
+## ## Why the header is `miniz_bind.h` and not `miniz.h`
+##
+## miniz is configured by macros that must be defined *before* it is
+## preprocessed, and PenguScript has no preprocessor. `std_c/miniz_bind.h` is a
+## four-line shim that selects the subset this binding uses
+## (`MINIZ_NO_ZLIB_COMPATIBLE_NAMES`, `MINIZ_NO_ARCHIVE_APIS`, `MINIZ_NO_STDIO`,
+## `MINIZ_NO_TIME`) and then includes the untouched upstream header. The same
+## macro set is passed to `std_c/miniz.c` by `build_runtime.py` (`STD_C_DEFINES`),
+## so the archive and every consumer bundle agree on one configuration.
+##
+## The shim is not cosmetic: under `-std=c99` GCC defines `__STRICT_ANSI__`,
+## which makes miniz's `MZ_FORCEINLINE` expand to nothing and turns every
+## `static` zlib-compatible alias (`crc32`, `inflate`, `zError`, ...) into an
+## unused function that `-Wall -Wextra -Werror` rejects. See the comment at the
+## top of `std_c/miniz_bind.h`.
+##
+## ## Why this file is hand-written
+##
+## `pengu bind std_c/miniz.h` does not digest the header: the preprocessed
+## translation unit contains GCC 16's `typedef __typeof__(nullptr) nullptr_t`
+## from `<stddef.h>`, which pycparser rejects. The 3.1.2 header is also a
+## single-header library with dozens of `#define`s, function-like macros and
+## struct-heavy `mz_zip_*` declarations that are out of scope here.
+##
+## The declarations below were transcribed by hand from the prototypes in
+## `std_c/miniz.h`, following the type mapping `pengu bind` documents
+## (`mz_ulong`/`unsigned long` -> `u64`, `size_t` -> `usize`, `unsigned char *`
+## -> `ref to byte`). Only the surface `std.compressus` needs is exposed; the
+## ZIP and PNG APIs are compiled out by `miniz_bind.h`.
+##
+## ## Regenerating
+##
+## ```text
+## pengu bind std_c/miniz.h --output /tmp/miniz.d.pengu \
+##     --include-paths std_c/ --system-includes
+## ```
+##
+## The command is expected to fail on the `nullptr_t` typedef; a future pycparser
+## release may fix it. When it starts working, diff the output against this file
+## by hand and keep the documentation below.
+##
+## ## Smart linking
+##
+## `link "miniz"` is emitted only when this module is part of the compilation,
+## and that is the whole contract. `build_runtime.py` archives
+## `std_c/miniz.c` into `build/lib/libminiz.a`; a program that never imports
+## `std.compressus` never receives `-lminiz` and never sees a miniz symbol.
+## `tests/build/test_smart_linking.py` asserts that through `bundle.c`, the
+## `--verbose` link line and `nm`.
+##
+## ## What miniz does *not* provide
+##
+## There is no gzip (RFC 1952) support: miniz emits and reads zlib (RFC 1950)
+## and raw deflate (RFC 1951) only. `std/compressus.pengu` builds the 10-byte
+## gzip header and the 8-byte CRC32/ISIZE trailer itself on top of the raw
+## deflate stream. That framing is documented in `docs/COMPRESSUS.md` §"Gzip
+## framing".
+include "miniz_bind.h"
+
+link "miniz"
+
+# ------------------------------------------------------------------
+# Return status codes (`enum` in miniz.h)
+# ------------------------------------------------------------------
+
+## Success.
+const MZ_OK as int is 0
+## The end of the compressed stream was reached. Not an error.
+const MZ_STREAM_END as int is 1
+## A preset dictionary is required; miniz never emits it.
+const MZ_NEED_DICT as int is 2
+## An operating-system error (`errno`).
+const MZ_ERRNO as int is -1
+## The stream state is invalid.
+const MZ_STREAM_ERROR as int is -2
+## The compressed input is corrupt or truncated.
+const MZ_DATA_ERROR as int is -3
+## The allocator refused a request.
+const MZ_MEM_ERROR as int is -4
+## No progress is possible with the input or output space given.
+const MZ_BUF_ERROR as int is -5
+## The stream was created by an incompatible miniz version.
+const MZ_VERSION_ERROR as int is -6
+## A function argument is out of range (miniz-specific).
+const MZ_PARAM_ERROR as int is -10000
+
+# ------------------------------------------------------------------
+# Compression levels
+# ------------------------------------------------------------------
+
+## Store only: emits a valid deflate stream with no compression.
+const MZ_NO_COMPRESSION as int is 0
+## Fastest compression (`zlib -1`).
+const MZ_BEST_SPEED as int is 1
+## Best standard compression (`zlib -9`).
+const MZ_BEST_COMPRESSION as int is 9
+## miniz-specific level above `MZ_BEST_COMPRESSION`; slowest and not
+## zlib-compatible as a *level*, but the emitted stream is still standard.
+const MZ_UBER_COMPRESSION as int is 10
+## Let miniz choose (`MZ_DEFAULT_LEVEL`, currently 6).
+const MZ_DEFAULT_COMPRESSION as int is -1
+
+# ------------------------------------------------------------------
+# Flush modes and window bits
+# ------------------------------------------------------------------
+
+## Accumulate output; return when the input is consumed or the output is full.
+const MZ_NO_FLUSH as int is 0
+## Finish the stream and emit the trailer.
+const MZ_FINISH as int is 4
+## Window bits for a zlib-wrapped stream. Negate it for raw deflate.
+const MZ_DEFAULT_WINDOW_BITS as int is 15
+
+# ------------------------------------------------------------------
+# tdefl / tinfl flags
+# ------------------------------------------------------------------
+
+## Default number of dictionary probes used by `tdefl_create_comp_flags_from_zip_params`.
+const TDEFL_DEFAULT_MAX_PROBES as int is 128
+## Ask `tdefl` to emit a zlib header and an Adler-32 trailer.
+const TDEFL_WRITE_ZLIB_HEADER as int is 4096
+## Ask `tinfl` to parse a zlib header and verify the Adler-32 trailer.
+const TINFL_FLAG_PARSE_ZLIB_HEADER as int is 1
+
+# ------------------------------------------------------------------
+# One-shot zlib API
+# ------------------------------------------------------------------
+
+## Returns the miniz version string (borrowed; do not `banish`).
+declare mz_version into ref to frozen char
+
+## Upper bound, in bytes, of the zlib output for `source_len` bytes of input.
+declare mz_compressBound with source_len as u64 into u64
+
+## Compresses `pSource` into `pDest` as a zlib stream at `level`.
+##
+## `pDest_len` is in/out: pass the capacity, read the produced length. Returns
+## `MZ_OK` or a negative `MZ_*` status.
+declare mz_compress2 with pDest as ref to byte, pDest_len as ref to u64, pSource as ref to frozen byte, source_len as u64, level as int into int
+
+## Decompresses a zlib stream from `pSource` into `pDest`.
+##
+## `pDest_len` is in/out: pass the capacity, read the produced length.
+declare mz_uncompress with pDest as ref to byte, pDest_len as ref to u64, pSource as ref to frozen byte, source_len as u64 into int
+
+# ------------------------------------------------------------------
+# One-shot raw deflate API (heap-allocating)
+# ------------------------------------------------------------------
+
+## Compresses a block to a `malloc`-owned raw deflate buffer.
+##
+## `pOut_len` receives the length. Release the result with `mz_free`, never with
+## `banish` (it is not a `PenguString`).
+declare tdefl_compress_mem_to_heap with pSrc_buf as ref to frozen void, src_buf_len as usize, pOut_len as ref to usize, flags as int into ref to byte
+
+## Builds the `tdefl` flag word for `level`, `window_bits` and `strategy`.
+##
+## Pass `-MZ_DEFAULT_WINDOW_BITS` for raw deflate, `MZ_DEFAULT_WINDOW_BITS` for
+## zlib.
+declare tdefl_create_comp_flags_from_zip_params with level as int, window_bits as int, strategy as int into u32
+
+## Decompresses a block to a `malloc`-owned buffer. Release it with `mz_free`.
+declare tinfl_decompress_mem_to_heap with pSrc_buf as ref to frozen void, src_buf_len as usize, pOut_len as ref to usize, flags as int into ref to byte
+
+# ------------------------------------------------------------------
+# Checksums and allocation
+# ------------------------------------------------------------------
+
+## CRC-32 (ISO 3309 / ITU-T V.42) of `buf_len` bytes, continuing `crc`.
+##
+## Start a fresh checksum with `crc == 0`. This is the checksum gzip stores in
+## its trailer.
+declare mz_crc32 with crc as u64, ptr as ref to frozen byte, buf_len as usize into u64
+
+## Adler-32 (RFC 1950) of `buf_len` bytes, continuing `adler`.
+##
+## Start a fresh checksum with `adler == 1`. This is the checksum zlib stores in
+## its trailer.
+declare mz_adler32 with adler as u64, ptr as ref to frozen byte, buf_len as usize into u64
+
+## Releases a block returned by `tdefl_compress_mem_to_heap`,
+## `tinfl_decompress_mem_to_heap` or any other miniz allocation.
+declare mz_free with p as ref to void into void

@@ -1,0 +1,43 @@
+## detect_format and decompress_auto recognise the two self-describing formats
+## and refuse everything else.
+import std.compressus
+import std.spark
+import std.ward
+
+weave main into int:
+    var text as string is "auto detection"
+    var gz as result of string to CompressError is calling compressus.gzip_compress with text, CompressionLevel.Fastest
+    var zl as result of string to CompressError is calling compressus.zlib_compress with text, CompressionLevel.Fastest
+    calling ward.assert_true with gz.is_ok
+    calling ward.assert_true with zl.is_ok
+    if gz.is_ok and zl.is_ok:
+        var gd as maybe CompressionFormat is calling compressus.detect_format with gz.value
+        calling ward.assert_true with (gd is present)
+        banish gd
+        var zd as maybe CompressionFormat is calling compressus.detect_format with zl.value
+        calling ward.assert_true with (zd is present)
+        banish zd
+        var ad as result of (string, CompressionFormat) to CompressError is calling compressus.decompress_auto with gz.value
+        calling ward.assert_true with ad.is_ok
+        if ad.is_ok:
+            let (plain, fmt) is ad.value
+            calling ward.assert_eq_int with (plain length), (text length)
+            var gzip_code as bool is false
+            judge fmt:
+                when Gzip ->
+                    set gzip_code is true
+                else ->
+                    set gzip_code is false
+            calling ward.assert_true with gzip_code
+        banish ad
+    banish gz
+    banish zl
+
+    var none as maybe CompressionFormat is calling compressus.detect_format with "plain prose"
+    calling ward.assert_false with (none is present)
+    banish none
+    var refused as result of (string, CompressionFormat) to CompressError is calling compressus.decompress_auto with "plain prose"
+    calling ward.assert_false with refused.is_ok
+    banish refused
+    calling spark.println with "OK compressus_auto_detect"
+    return 0

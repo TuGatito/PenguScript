@@ -8,9 +8,31 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.13.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.14.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.13.0 → 2.14.0: compression
+
+This release is additive. The new module is `std.compressus`: gzip (RFC 1952),
+zlib (RFC 1950) and raw deflate (RFC 1951) over the vendored miniz 3.1.2.
+
+* `import std.compressus` pulls `-lminiz` only for the importing program; no
+  system zlib is needed or used. `build_runtime.py` builds
+  `build/lib/libminiz.a` from `std_c/miniz.c` (no optional dependency, so the
+  archive is always present).
+* A `result of string to CompressError` owns its compressed/plain buffer.
+  Borrow with `r.value`/`r.error` and release only the result, or move it with
+  the module's `take_*` helpers; never both releases on a borrowed payload.
+* `CompressError` uses `AllocationFailed` and `FileError` instead of
+  `OutOfMemory` and `IoError`. Variant names are unique across a compilation
+  and `std.petitio`'s `HttpError` already owns both spellings, so a program may
+  import `std.petitio` and `std.compressus` together.
+* `x to usize`/`isize`/`size_t`/`i8`/`i16`/`int32`/`uint64`/… now lower to a
+  real C cast instead of a range. Code that accidentally used one of those
+  spellings as a range bound did not compile before; no valid program changes
+  meaning.
+* Every `std/` module now reports `"2.14.0"`.
 
 ## 2.12.0 → 2.13.0: streaming, HTTP/2 and concurrency
 

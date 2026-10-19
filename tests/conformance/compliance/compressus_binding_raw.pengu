@@ -1,0 +1,47 @@
+## The raw miniz declarations behind std.compressus are callable.
+##
+## This case proves the hand-written binding and the archived `miniz.c` are
+## real: it compresses and decompresses a zlib stream with the original C API,
+## computes a CRC-32 and compares it with the wrapper. It also proves that
+## importing `std.compressus` is enough to see both surfaces.
+import std.compressus
+import std.ffi
+import std.memoria
+import std.scrolls
+import std.spark
+import std.ward
+
+weave main into int:
+    var src as string is "Hello, miniz! Hello, miniz! Hello, miniz!"
+    var src_len as u64 is (src length) to u64
+    var bound as u64 is calling mz_compressBound with src_len
+    calling ward.assert_true with bound > src_len
+
+    var dest as ref to byte is calling memoria.alloc_array of byte with (bound to int)
+    defer banish dest
+    var dest_len as u64 is bound
+    var input as ref to frozen byte is bytes of src
+    var rc as int is calling mz_compress2 with dest, (sigil of dest_len), input, src_len, 9
+    calling ward.assert_eq_int with rc, 0
+    calling ward.assert_true with dest_len < src_len
+
+    var plain as ref to byte is calling memoria.alloc_array of byte with ((src length) + 1)
+    defer banish plain
+    var plain_len as u64 is src_len
+    var rc2 as int is calling mz_uncompress with plain, (sigil of plain_len), dest, dest_len
+    calling ward.assert_eq_int with rc2, 0
+    calling ward.assert_eq_int with (plain_len to int), (src length)
+    var copy as string is calling ffi.string_from_bytes with plain, (plain_len to int)
+    calling ward.assert_eq_int with (calling scrolls.compare with copy, src), 0
+    banish copy
+
+    var raw_crc as u64 is calling mz_crc32 with 0, input, ((src length) to usize)
+    var wrapped_crc as u32 is calling compressus.crc32 with src
+    calling ward.assert_true with raw_crc == (wrapped_crc to u64)
+
+    var raw_adler as u64 is calling mz_adler32 with 1, input, ((src length) to usize)
+    var wrapped_adler as u32 is calling compressus.adler32 with src
+    calling ward.assert_true with raw_adler == (wrapped_adler to u64)
+
+    calling spark.println with "OK compressus_binding_raw"
+    return 0

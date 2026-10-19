@@ -15,7 +15,7 @@ Panics with `label` when `cond` is false.
 
 ### `PETITIO_VERSION`
 
-> const string` = 2.13.0`
+> const string` = 2.14.0`
 
 Petitio module version (the stdlib release that ships it).
 
@@ -37,7 +37,7 @@ Default total timeout in seconds. `0.0` means "no deadline", like `requests`.
 
 ### `PETITIO_DEFAULT_USER_AGENT`
 
-> const string` = petitio/2.13.0`
+> const string` = petitio/2.14.0`
 
 `User-Agent` sent when the request does not set one.
 

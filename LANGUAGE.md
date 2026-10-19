@@ -36,12 +36,13 @@
 17. [Unit tests (`test`)](#17-unit-tests-test)
 18. [Block-style construction (`with:` expressions)](#18-block-style-construction-with-expressions)
 19. [Standard library](#19-standard-library)
-    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-39-modules)
+    - 19.1 [Pure PenguScript Modules](#191-pure-penguscript-modules-40-modules)
     - 19.1.1 [Choosing between `std.loom` and `std.tally`](#1911-choosing-between-stdloom-and-stdtally)
     - 19.1.2 [The four fundamental modules](#1912-the-four-fundamental-modules)
     - 19.1.3 [The data modules: `std.diagnostic`, `std.json`, `std.jsonrpc`](#1913-the-data-modules-stddiagnostic-stdjson-stdjsonrpc)
     - 19.1.4 [The text modules: `std.lingua` and `std.regulus`](#1914-the-text-modules-stdlingua-and-stdregulus)
     - 19.1.5 [The HTTP module: `std.petitio`](#1915-the-http-module-stdpetitio)
+    - 19.1.6 [The compression module: `std.compressus`](#1916-the-compression-module-stdcompressus)
     - 19.2 [External bindings (satellite repositories)](#192-external-bindings-satellite-repositories)
     - 19.3 [Core Standard Library Examples](#193-core-standard-library-examples)
     - 19.4 [Embedded Project Assets (`arca`)](#194-embedded-project-assets-arca)
@@ -3652,7 +3653,7 @@ Supported built-in methods inside collection `with` blocks:
 
 ## 19. Standard library
 
-PenguScript ships with **39 standard-library modules** (`std.<module>`), providing high-level, idiomatic abstractions for I/O,
+PenguScript ships with **40 standard-library modules** (`std.<module>`), providing high-level, idiomatic abstractions for I/O,
 strings, networking, concurrency, serialization, math, testing, and memory bridging.
 
 Bindings to external C libraries are no longer part of `std/`: they are distributed
@@ -3683,8 +3684,8 @@ test "stdlib version":
 module exports that constant with a valid release version (optionally with a
 semver prerelease suffix). Because the standard library is coupled to the
 compiler, the constant names the **stdlib release it ships with**, not the last
-release that happened to edit that file: every module of 2.13.0 reports
-`"2.13.0"` (except `std.spark`, whose `SPARK_VERSION` keeps its own
+release that happened to edit that file: every module of 2.14.0 reports
+`"2.14.0"` (except `std.spark`, whose `SPARK_VERSION` keeps its own
 `0.8.0-spark` API revision, and `JSONRPC_PROTOCOL_VERSION`, which is the wire
 protocol version `"2.0"`). Namespacing already keeps each module
 self-contained (`std.<module>.<symbol>`), so decoupling the stdlib into
@@ -3692,27 +3693,29 @@ independently versioned packages is reserved for 2.0.
 
 The four fundamental modules of the 2.9 series, the three data modules of the
 2.10 series, the two text modules of 2.11 (`std.lingua`, `std.regulus`) and the
-HTTP module of 2.12 (`std.petitio`) all follow the same rule. `std.builder` exports `BUILDER_VERSION`, `std.arena`
+HTTP module of 2.12 (`std.petitio`) and the compression module of 2.14
+(`std.compressus`) all follow the same rule. `std.builder` exports `BUILDER_VERSION`, `std.arena`
 exports `ARENA_VERSION`, `std.sourcemap` exports `SOURCEMAP_VERSION`,
 `std.bitset` exports `BITSET_VERSION`, `std.diagnostic` exports
 `DIAGNOSTIC_VERSION`, `std.json` exports `JSON_VERSION`, `std.jsonrpc` exports
 `JSONRPC_VERSION`, `std.lingua` exports `LINGUA_VERSION`, `std.regulus`
-exports `REGULUS_VERSION` and `std.petitio` exports `PETITIO_VERSION`, all
-`"2.13.0"`. The builder and arena modules also
+exports `REGULUS_VERSION`, `std.petitio` exports `PETITIO_VERSION` and
+`std.compressus` exports `COMPRESSUS_VERSION`, all `"2.14.0"`. The builder and arena modules also
 export their default tuning constants (`BUILDER_DEFAULT_CAPACITY`,
 `ARENA_DEFAULT_BLOCK_SIZE`, `ARENA_DEFAULT_ALIGNMENT`) for callers that want to
 reserve exactly what the module would reserve.
 
-### 19.1 Pure PenguScript Modules (39 modules)
+### 19.1 Pure PenguScript Modules (40 modules)
 
 All pure modules are located in the `std/` directory and imported as `import std.<module>`.
 
 "Pure" here means **no external C library**: everything ships in this repository and
 links against nothing but the PenguScript runtime. Two modules are general C bridges — `std.ffi` and `std.web` — and three more are
 deliberate wrappers over C libraries (`std.lingua` over the vendored `std_c/utf8.h`,
-`std.regulus` over `std_c/re.h`/`re.c`, and `std.petitio` over the system
-`libcurl` through the vendored `std_c/petitio.c` bridge).
-Those five use `include`, `declare`, `link` and `antiquus` as the explicit
+`std.regulus` over `std_c/re.h`/`re.c`, `std.petitio` over the system
+`libcurl` through the vendored `std_c/petitio.c` bridge, and `std.compressus`
+over the vendored `std_c/miniz.h`/`miniz.c`).
+Those six use `include`, `declare`, `link` and `antiquus` as the explicit
 boundary; the other 34 are written entirely in PenguScript. Bindings to
 third-party libraries are satellites installed with `pengu add`, not part of
 this list.
@@ -3760,6 +3763,7 @@ this list.
 | `std.lingua` | UTF-8 text over codepoints: `Codepoint` (a `seal` over `u32`), `LinguaError` with byte offsets, `decode`/`decode_prefix`, `encode`/`encode_one`, `is_valid`/`validate`, `codepoint_count`/`utf16_length`, `is_ascii`/`is_bmp`/`is_letter`/`is_digit`/`is_whitespace`/`is_punctuation`/`is_symbol`/`is_control`/`is_surrogate`, `to_u32`/`from_u32`/`to_utf16`, `codepoint_at`/`byte_offset_of`/`next_codepoint`/`prev_codepoint`, and an approximate `grapheme_count`. Wrapper over `std_c/utf8.h` (sheredom, public domain). See `docs/LINGUA.md`. Comparable to `utf8proc` (Julia) and Lua's `utf8`. |
 | `std.regulus` | Small, explicit regular expressions: `Regex.compile`, `pattern`, `is_match`, `match`, `match_at`, `matches`, `replace_first`, `replace_all`, `split`, `escape`, `Match` and `RegexError`, plus one-shot `is_match`/`find_first`. Complete grammar: `. ^ $ * + ? [] \d \w \s`; **no** groups, alternation, `{n,m}`, lookaround, backreferences or Unicode classes. Wrapper over `std_c/re.h` + `re.c` (kokke/tiny-regex-c, public domain). See `docs/REGULUS.md`. Comparable to Python's `re` for basic search. |
 | `std.petitio` | High-level HTTP client with a `requests`-shaped API: `Request` (`new`, `header`, `remove_header`, `has_header`, `text_body`, `json_body`, `form_body`, `bytes_body`, `timeout`, `connect_timeout`, `no_redirects`, `max_redirects`, `insecure`, `http_version`, `auth_basic`, `auth_digest`, `auth_any`, `auth_bearer`, `proxy`, `socks_proxy`, `max_body_bytes`, `multipart_field`, `multipart_bytes`, `multipart_file`, `send`, `send_to_file`, `send_stream`), `Response` (`status`, `headers`, `body`, `url`, `elapsed_sec`, `bytes_written`, `http_version`, `redirected`, `cookies`, `cleared_cookies`, `is_ok`/`is_redirect`/`is_client_error`/`is_server_error`, `text`, `json`, `header`, `has_header`, `raise_for_status`), `Session` (persistent headers and cookies, `load_cookies_from_file`/`save_cookies_to_file`, `cookie`), `FormPart`, `HttpError`, `UrlParts`, `HttpVersion`, `AuthMode`, one-shot `get`/`head`/`delete`/`options`/`post`/`post_json`/`post_form`/`post_text`/`put_json`/`patch_json`, concurrent `fetch_many`, URL helpers `url_encode`/`url_decode`/`build_query_string`/`with_query`/`parse_url`, explicit moves `take_response`/`take_error`, and `libcurl_version`. Wrapper over the system `libcurl` through `std_c/petitio.c` (naett was evaluated and rejected: no total timeout, redirect or cookie control). See `docs/PETITIO.md`. Comparable to Python's `requests`. |
+| `std.compressus` | gzip (RFC 1952), zlib (RFC 1950) and raw deflate (RFC 1951): one-shot `gzip_compress`, `gzip_compress_named`, `gzip_decompress`, `zlib_compress`, `zlib_decompress`, `deflate_compress`, `inflate_decompress`; format detection `detect_format` and `decompress_auto`; multi-member gzip; CRC-32 and Adler-32 with continuation (`crc32`, `crc32_continue`, `adler32`, `adler32_continue`); file helpers `gzip_compress_file`, `gzip_decompress_file`, `gzip_read_file`, `gzip_write_file`, `zlib_compress_file`, `zlib_decompress_file`; `CompressionLevel`, `CompressionFormat` and the `CompressError` taxonomy. Wrapper over the vendored `std_c/miniz.h`/`miniz.c` (miniz 3.1.2, public domain), with the gzip container implemented here because miniz has no RFC 1952 support. See `docs/COMPRESSUS.md`. Comparable to Python's `gzip` + `zlib`, Zig's `std.compress` and Odin's `core:compress`. |
 
 ### 19.1.1 Choosing between `std.loom` and `std.tally`
 
@@ -3804,7 +3808,7 @@ whichever family loses (item 6.5, `AUDIT_1.0_FASE6.md`).
 
 ### 19.1.2 The four fundamental modules
 
-The 2.13.0 line keeps the three data modules and the four fundamental modules of
+The 2.14.0 line keeps the three data modules and the four fundamental modules of
 the 2.9 series. The fundamental modules provide the building blocks the
 self-hosted compiler (and every other tool that builds text, trees, positions or
 dense sets) needs first. They are deliberately
@@ -4250,6 +4254,95 @@ unreferenced bridge functions are garbage-collected. HTTP/3 is reported by
 `Response.http_version` but cannot be requested (it needs a QUIC-enabled
 libcurl); connection-pool controls, streaming uploads and async/await are out of
 scope and listed in `docs/PETITIO.md` §8.
+
+
+### 19.1.6 The compression module: `std.compressus`
+
+`std.compressus` is the compression layer of the standard library: gzip, zlib
+and raw deflate, with an explicit `result`-based API and no panic on bad bytes.
+It is a first-class module rather than a satellite because a language that
+cannot decompress a `.tar.gz` cannot implement `pengu add <url>` in
+PenguScript, and because "download and verify a dependency" is exactly the
+self-hosting use case this module exists for.
+
+**Base library.** The module wraps miniz 3.1.2 (public domain), vendored in
+`std_c/miniz.h` + `std_c/miniz.c`. miniz implements RFC 1950 (zlib) and RFC 1951
+(raw deflate); **gzip is RFC 1952 and is implemented by the wrapper** on top of
+raw deflate. Using a vendored engine instead of the host's zlib means the same
+program emits the same bytes on Linux, macOS, Windows and Emscripten, and does
+not depend on which `zlib` ABI (or `zlib-ng` fork) the host ships. See
+`docs/COMPRESSUS.md` §1.
+
+**Formats.** `CompressionFormat.Gzip` for files, `.gz` downloads and HTTP
+`Content-Encoding: gzip`; `CompressionFormat.Zlib` when a specification says
+zlib; `CompressionFormat.RawDeflate` only when the surrounding protocol already
+carries framing and integrity. `detect_format` recognises gzip and zlib by their
+magic; raw deflate has none and is never guessed. `decompress_auto` returns the
+plain bytes *and* the detected format, and `decompress_as(data, format)` is the
+uniform entry point when the caller already knows the format (`Auto` falls back
+to detection):
+
+```pengu
+import std.compressus
+import std.spark
+
+weave main into int:
+    var packed as result of string to CompressError is calling compressus.gzip_compress with "hello, gzip", CompressionLevel.Best
+    defer banish packed
+    if not packed.is_ok:
+        return 1
+    var r as result of (string, CompressionFormat) to CompressError is calling compressus.decompress_auto with packed.value
+    defer banish r
+    if not r.is_ok:
+        return 1
+    let (plain, format) is r.value
+    calling spark.println with plain
+    return 0
+```
+
+**Errors and ownership.** Every operation returns `result … to CompressError`.
+A `result` owns its payload: borrow it with `.value` / `.error` and release the
+whole result with `banish`, or move it out with the module's `take_*` helpers.
+`CompressError` derives `Nexus`, so banishing an error also releases its
+`reason`. The variants are `InvalidInput`, `Corrupt`, `TrailingData`,
+`UnsupportedFormat`, `AllocationFailed`, `FileError` and `Internal`.
+`AllocationFailed` and `FileError` are named that way, rather than
+`OutOfMemory` and `IoError`, because LANGUAGE.md keeps variant names unique
+across every omen in a compilation and `std.petitio`'s `HttpError` already owns
+both spellings; a program that imports `std.petitio` and `std.compressus`
+together must compile.
+
+**Checksums.** `crc32` and `adler32` return the same values as Python's
+`zlib.crc32` / `zlib.adler32`; the `*_continue` variants let a large file be
+checked chunk by chunk. They are what a `pengu.lock` verifier needs.
+
+**File helpers.** `gzip_compress_file`, `gzip_decompress_file`,
+`gzip_read_file`, `gzip_write_file` and the two `zlib_*_file` functions read
+the whole file, call the one-shot function and write the whole result. They are
+convenience wrappers, not streaming; a file above ~100 MB should be split into
+members at the application level until the streaming API lands (2.14.1).
+
+**Smart linking.** `std/compressus.d.pengu` emits `include "miniz_bind.h"` and
+`link "miniz"`, and only an importing program receives `-lminiz`. The binding is
+hand-written: `pengu bind` cannot digest `miniz.h` under GCC 16 because the
+preprocessed `<stddef.h>` contains `typedef __typeof__(nullptr) nullptr_t`,
+which pycparser rejects. `docs/COMPRESSUS.md` §11 documents the regeneration
+command and the type mapping to follow when it starts working. The same
+`tests/build/test_smart_linking.py` matrix covers the archive, the header and
+the symbols, including garbage collection of unreferenced entry points.
+
+**Interoperability.** gzip output opens with `gzip -d` and Python's
+`gzip.decompress`; zlib output opens with `zlib.decompress`; raw deflate opens
+with `zlib.decompress(data, -15)`. `tests/compat/test_compressus_vs_python.py`
+checks 50 byte strings in both directions for all three formats, plus
+multi-member gzip, detection and both checksums. The one deliberate difference
+from Python is strictness: trailing bytes after a complete stream are
+`TrailingData` instead of being silently ignored.
+
+**Limitations.** No ZIP archives (`mz_zip_*` is compiled out; a future
+`std.zip`), no Zstandard/Brotli/LZ4/bzip2 (satellites), no streaming yet
+(2.14.1), and one-shot input is bounded by the language's 32-bit `string`
+length. See `docs/COMPRESSUS.md` §12.
 
 ### 19.2 External bindings (satellite repositories)
 

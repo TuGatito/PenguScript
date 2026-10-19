@@ -8,7 +8,7 @@
 
 ### `ORACLE_VERSION`
 
-> const string` = 2.13.0`
+> const string` = 2.14.0`
 
 Revision of the `oracle` API.
 Deliberately not the toolchain version: it only moves when an `oracle`

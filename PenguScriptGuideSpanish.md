@@ -869,6 +869,64 @@ entrada siguen siendo tuyos). El protocolo se elige con
 autenticación con `auth_basic` / `auth_digest` / `auth_any`, y los proxies SOCKS
 con `socks_proxy` (resuelve DNS en el proxy, `socks5h`).
 
+### 4.21 Compresión: `gzip`, `zlib` o deflate crudo
+
+`std.compressus` es el módulo de compresión. La primera decisión es **si
+comprimir siquiera**: comprimir cambia CPU por bytes, y solo gana cuando el
+payload supera unos cientos de bytes y no está ya comprimido. JPEG, PNG, MP4,
+ZIP, `.gz`, PDF (normalmente) y la mayoría de los cuerpos de protocolos modernos
+ya están comprimidos; pasarlos otra vez por gzip gasta CPU para hacerlos *más
+grandes*.
+
+La segunda decisión es el **formato**:
+
+| Caso de uso | Formato | Por qué |
+|---|---|---|
+| Un fichero en disco (`.gz`, un tarball, una descarga) | `CompressionFormat.Gzip` | autodescriptivo, lo leen `gzip -d` y cualquier herramienta de archivo |
+| HTTP `Content-Encoding: gzip` | `CompressionFormat.Gzip` | lo que negocian navegadores y servidores |
+| Un protocolo que dice "zlib" (PNG `IDAT`, algo de HTTP) | `CompressionFormat.Zlib` | el framing más pequeño y el Adler-32 que pide la especificación |
+| Un protocolo que ya aporta framing y checksum (miembro ZIP, WebSocket `permessage-deflate`) | `CompressionFormat.RawDeflate` | sin cabecera ni checksum duplicados |
+
+Comprimir siempre devuelve un `result`: la entrada inválida es un valor, nunca un
+panic. El resultado posee los bytes comprimidos; se toman prestados con `.value`
+y se libera el resultado completo con `banish`.
+
+```pengu
+import std.compressus
+import std.spark
+
+weave save_log with text as string, path as string into int:
+    var packed as result of string to CompressError is calling compressus.gzip_compress with text, CompressionLevel.Best
+    defer banish packed
+    if not packed.is_ok:
+        var failure as CompressError is packed.error
+        var why as string is calling failure.message
+        calling spark.eprintln with why
+        banish why
+        return 1
+    var ok as bool is calling archivum.write_bytes with path, packed.value
+    if not ok:
+        return 1
+    return 0
+```
+
+Usa `CompressionLevel.Fastest` en una ruta caliente (logs, telemetría, cuerpos de
+petición) y `CompressionLevel.Best` cuando el fichero se escribe una vez y se lee
+muchas.
+
+**One-shot vs trozos.** Las funciones one-shot mantienen en memoria toda la
+entrada y toda la salida. Por debajo de ~10 MB esa es la herramienta correcta:
+una llamada, una alocación, ninguna máquina de estados. Entre 10 MB y ~100 MB
+sigue funcionando, pero el pico de memoria es entrada + salida; por encima de
+~100 MB, parte el payload en **miembros** gzip independientes y concatenados —
+`gzip_decompress` (y cualquier lector) acepta un fichero multi-miembro. Una API
+de streaming real llega en 2.14.1.
+
+**Verifica lo que transportas.** `crc32` y `adler32` devuelven los mismos valores
+que `zlib.crc32` / `zlib.adler32` de Python, y las variantes `*_continue`
+permiten verificar un fichero trozo a trozo. Una dependencia descargada no es
+fiable hasta que su checksum coincide con el del manifiesto.
+
 ---
 
 ## 5. Optionals, resultados y errores
@@ -3336,3 +3394,109 @@ caja sigue poseyendo los strings. Liberar la copia y el result libera los mismos
 buffers dos veces. Usa `take_response` / `take_error` cuando el valor deba
 sobrevivir al ámbito del result: vacían la caja, así que las dos liberaciones son
 independientes.
+
+### 14.43 Comprimir datos que ya están comprimidos
+
+```pengu-invalid
+# ❌ Anti-Pengunic: un payload JPEG/PNG/MP4/ZIP/.gz ya está comprimido.
+# Gzip solo puede añadir una cabecera y un trailer; la salida es *más grande*
+# y la CPU se gasta para nada.
+var packed as result of string to CompressError is calling compressus.gzip_compress with jpeg_bytes, CompressionLevel.Best
+```
+
+```pengu
+# ✅ Pengunic: comprime una vez, en el origen, y deja pasar los bytes.
+# Comprueba la magia en lugar de adivinar por la extensión del fichero.
+var kind as maybe CompressionFormat is calling compressus.detect_format with payload
+if kind is present:
+    # Ya es gzip o zlib: guárdalo tal cual, no lo recomprimas.
+    calling archivum.write_bytes with path, payload
+else:
+    var packed as result of string to CompressError is calling compressus.gzip_compress with payload, CompressionLevel.Default
+    defer banish packed
+    if packed.is_ok:
+        calling archivum.write_bytes with path, packed.value
+```
+
+Los ratios de compresión vienen de la *redundancia*. El texto, JSON, los logs, el
+código fuente y los medios sin comprimir tienen mucha; JPEG, PNG, MP4, ZIP y gzip
+ya la han eliminado. La doble compresión también rompe las cachés direccionadas
+por contenido y los checksums: la misma imagen re-codificada en otro momento
+produce bytes distintos.
+
+---
+
+### 14.44 One-shot para ficheros de más de ~100 MB
+
+```pengu-invalid
+# ❌ Anti-Pengunic: lee 8 GiB, aloca 8 GiB, comprime en otros 8 GiB.
+# El pico de memoria es entrada + salida y el alocador fallará antes del final.
+var r as result of int to CompressError is calling compressus.gzip_compress_file with "huge.tar", "huge.tar.gz", CompressionLevel.Best
+```
+
+```pengu
+# ✅ Pengunic: parte la entrada en miembros gzip independientes y concaténalos.
+# Cualquier lector (gzip -d, Python, std.compressus) acepta un multi-miembro,
+# y el lado de la salida queda acotado a un trozo en vez de al archivo entero.
+var source as maybe string is calling archivum.read_bytes with "huge.tar"
+if not (source is present):
+    return 1
+var whole as string is source.value
+var out as StringBuilder is calling StringBuilder.new
+defer banish out
+var offset as int is 0
+while offset < (whole length):
+    var stop as int is offset + 8388608          # 8 MiB por miembro
+    if stop > (whole length):
+        set stop is whole length
+    var chunk as string is calling scrolls.substring with whole, offset, stop
+    var piece as result of string to CompressError is calling compressus.gzip_compress with chunk, CompressionLevel.Default
+    if piece.is_ok:
+        calling out.append with piece.value
+    banish piece
+    banish chunk
+    set offset is stop
+var joined as string is calling out.finish
+calling archivum.write_bytes with "huge.tar.gz", joined
+banish joined
+banish source
+```
+
+Los helpers de fichero (`gzip_compress_file`, `gzip_decompress_file`) son
+envoltorios de conveniencia: leen el fichero completo y escriben el resultado
+completo. Eso está bien para un fichero de configuración o un tarball de código,
+y mal para una imagen de disco. El umbral no es una regla dura — mide el pico de
+memoria de *tu* carga — pero ~10 MB es donde trocear empieza a compensar y
+~100 MB es donde one-shot deja de ser defendible. Una API de streaming de primera
+clase está prevista para 2.14.1.
+
+---
+
+### 14.45 Ignorar el checksum de los datos transportados
+
+```pengu-invalid
+# ❌ Anti-Pengunic: "se descomprimió" no es "es el fichero que pedimos".
+# Una descarga truncada o un proxy que cambió el cuerpo puede producir un
+# stream gzip más corto y con aspecto válido.
+var r as result of string to CompressError is calling compressus.gzip_decompress with downloaded
+calling spark.println with r.value
+```
+
+```pengu
+# ✅ Pengunic: verifica el checksum del manifiesto antes de usar los bytes.
+var r as result of string to CompressError is calling compressus.gzip_decompress with downloaded
+defer banish r
+if not r.is_ok:
+    return 1
+var actual as u32 is calling compressus.crc32 with r.value
+if actual != expected_crc32:
+    calling spark.eprintln with "checksum mismatch: refusing to install"
+    return 1
+# ... solo ahora escribe el fichero o extrae el archivo ...
+```
+
+Los trailers de gzip y zlib protegen el *transporte* de un stream: un cuerpo
+corrupto es `Corrupt`, no basura silenciosa. **No** demuestran que el stream sea
+el artefacto que pediste. Un manifiesto de dependencias debe llevar su propio
+checksum (SHA-256 en `pengu.lock`; CRC-32 es una primera línea rápida, no una
+frontera de seguridad). Verifica antes de ejecutar, extraer o sobrescribir nada.

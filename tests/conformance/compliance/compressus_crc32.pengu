@@ -1,0 +1,22 @@
+## CRC-32 and Adler-32 match their published values, and continuing a checksum
+## equals checksumming the concatenation.
+import std.compressus
+import std.spark
+import std.ward
+
+weave main into int:
+    calling ward.assert_eq_int with ((calling compressus.crc32 with "") to int), 0
+    calling ward.assert_eq_int with ((calling compressus.crc32 with "hello") to int), 907060870
+    calling ward.assert_eq_int with ((calling compressus.adler32 with "") to int), 1
+    calling ward.assert_eq_int with ((calling compressus.adler32 with "hello") to int), 103547413
+
+    var first as u32 is calling compressus.crc32 with "hel"
+    var joined as u32 is calling compressus.crc32_continue with first, "lo"
+    calling ward.assert_true with joined == (907060870 to u32)
+
+    var a1 as u32 is calling compressus.adler32 with "hel"
+    var a2 as u32 is calling compressus.adler32_continue with a1, "lo"
+    calling ward.assert_true with a2 == (103547413 to u32)
+
+    calling spark.println with "OK compressus_crc32"
+    return 0

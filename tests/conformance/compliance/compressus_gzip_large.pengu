@@ -1,0 +1,29 @@
+## One MiB of repetitive text: the compressed form must be much smaller and the
+## decompressed form must be byte-identical.
+import std.builder
+import std.compressus
+import std.scrolls
+import std.spark
+import std.ward
+
+weave main into int:
+    var sb as StringBuilder is calling StringBuilder.with_capacity with 1048576
+    calling sb.append_repeat with "0123456789abcdef", 65536
+    var payload as string is calling sb.substring with 0, 1048576
+    banish sb
+    var packed as result of string to CompressError is calling compressus.gzip_compress with payload, CompressionLevel.Best
+    calling ward.assert_true with packed.is_ok
+    if packed.is_ok:
+        calling ward.assert_true with (packed.value length) < 4096
+        var back as result of string to CompressError is calling compressus.gzip_decompress with packed.value
+        calling ward.assert_true with back.is_ok
+        if back.is_ok:
+            calling ward.assert_eq_int with (back.value length), 1048576
+            calling ward.assert_eq_int with (calling scrolls.compare with back.value, payload), 0
+        banish back
+    else:
+        calling spark.println with "FAIL compress"
+    banish packed
+    banish payload
+    calling spark.println with "OK compressus_gzip_large"
+    return 0

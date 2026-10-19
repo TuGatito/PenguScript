@@ -1,0 +1,1461 @@
+## std/compressus.pengu — gzip, zlib and raw deflate with explicit ownership.
+##
+## `std.compressus` wraps the vendored `std_c/miniz.h` + `std_c/miniz.c`
+## (miniz 3.1.2, public domain / Unlicense) and adds the one thing miniz does
+## not implement: the **gzip** container (RFC 1952). The result is a small,
+## dependency-free compression module that reads and writes the same bytes as
+## Python's `gzip`/`zlib`, Zig's `std.compress` and Odin's `core:compress`.
+##
+## ## Formats
+##
+## | Format | Magic | Checksum | Use it for |
+## |---|---|---|---|
+## | `Gzip` | `1f 8b` | CRC-32 + ISIZE trailer | files (`.gz`), HTTP `Content-Encoding: gzip`, `pengu add` tarballs |
+## | `Zlib` | `78 xx` | Adler-32 trailer | protocols that specify zlib (some HTTP, PNG `IDAT`) |
+## | `RawDeflate` | none | none | streams that already carry framing/length (ZIP members, WebSocket permessage-deflate) |
+##
+## Every format is a **byte-exact** standard: gzip output opens with `gzip -d`
+## and `gzip.decompress`, zlib output opens with `zlib.decompress`, and both are
+## verified by `tests/compat/test_compressus_vs_python.py`.
+##
+## ## Quick start
+##
+## ```pengu
+## import std.compressus
+## import std.spark
+##
+## weave main into int:
+##     var packed as result of string to CompressError is calling compressus.gzip_compress with "hello", CompressionLevel.Best
+##     defer banish packed
+##     if not packed.is_ok:
+##         calling spark.println with (calling packed.error.message)
+##         return 1
+##     var blob as string is packed.value          # borrowed view
+##     var plain as result of string to CompressError is calling compressus.gzip_decompress with blob
+##     defer banish plain
+##     if plain.is_ok:
+##         calling spark.println with plain.value  # "hello"
+##     return 0
+## ```
+##
+## ## Ownership (read this once)
+##
+## - Every weave returns a `result`. **A `result` owns its payload.** Release
+##   the whole result with `banish result`, and never `banish result.value` or
+##   `result.error` separately — that frees the same buffer twice.
+## - `result.value` / `result.error` are **borrowed views**. Use them while the
+##   result is alive.
+## - `CompressError` derives `Nexus`, so `banish` on a result whose payload is
+##   an error releases the reason strings and the variant box.
+## - `CompressError.message` returns an **owned** string; `banish` it.
+## - The file helpers return the number of bytes written and own nothing else.
+##
+## ```pengu
+## var r as result of string to CompressError is calling compressus.gzip_compress with data, CompressionLevel.Best
+## if not r.is_ok:
+##     return 1
+## var out as string is r.value       # borrowed: do NOT banish
+## # ... use out ...
+## banish r                           # releases out and the result box
+## ```
+##
+## ## One-shot vs file helpers
+##
+## The one-shot weaves (`gzip_compress`, `gzip_decompress`, ...) work on a whole
+## `string` in memory. The file helpers read the complete file, call the
+## one-shot weave and write the complete result; they are convenience wrappers,
+## **not** a streaming API, so peak memory is roughly the sum of the input and
+## the output. For files above ~100 MB, compress in chunks at the application
+## level or wait for the streaming API (see `docs/COMPRESSUS.md`).
+##
+## ## Errors
+##
+## | Variant | Meaning |
+## |---|---|
+## | `InvalidInput` | the caller passed something impossible (a NUL in a gzip filename, `Auto` to a compressor, or an input whose output would exceed the 32-bit `string` length) |
+## | `Corrupt` | the compressed bytes are malformed, truncated or fail their checksum |
+## | `TrailingData` | a valid stream ended before the input did; `extra_bytes` says how many bytes are left |
+## | `UnsupportedFormat` | auto-detection did not recognise the magic; `magic` is the first four bytes, little-endian |
+## | `AllocationFailed` | an allocation failed |
+## | `FileError` | a file could not be read or written; `reason` names the path |
+## | `Internal` | an unexpected miniz status; `code` is the raw `MZ_*` value |
+##
+## None of these panics: invalid bytes are a normal runtime condition, so every
+## weave returns `error` instead. A null `ref` passed to an internal bridge is a
+## programming bug and may still crash, exactly like the rest of the stdlib.
+##
+## ## Complexity
+##
+## | Operation | Cost |
+## |---|---|
+## | `gzip_compress`, `zlib_compress`, `deflate_compress` | O(n) + one output allocation |
+## | `gzip_decompress`, `zlib_decompress`, `inflate_decompress` | O(n) + one growable output buffer |
+## | `detect_format` | O(1) |
+## | `crc32`, `adler32` | O(n), no allocation |
+## | file helpers | O(file size) read + the one-shot cost + O(output) write |
+##
+## ## Smart linking
+##
+## `std/compressus.d.pengu` says `link "miniz"`, so `-lminiz` reaches the linker
+## **only** when `std.compressus` is imported. A program that never compresses
+## neither includes `miniz_bind.h` nor links a single miniz symbol.
+## `tests/build/test_smart_linking.py` proves all of that with `bundle.c`, the
+## `--verbose` link line and `nm`.
+##
+## See `docs/COMPRESSUS.md` for the format details, the gzip framing walkthrough
+## and the comparison with Python, Zig and Odin.
+##
+## ## Why miniz, and why not a system zlib
+##
+## miniz is one translation unit with no external dependency, so it builds
+## identically on Linux, macOS, Windows and Emscripten and a PenguScript program
+## never depends on a host `zlib` ABI (which differs between `zlib`, `zlib-ng`,
+## Chromium's bundled copy and Windows' `zlib1.dll`). It is public domain, which
+## keeps the toolchain license simple. Its output is standard deflate: the tests
+## compare it with Python byte for byte where the standard fixes the bytes.
+import std.archivum
+import std.builder
+
+# ----------------------------------------------------------------------------
+# Module version
+# ----------------------------------------------------------------------------
+
+## Compressus module version.
+const COMPRESSUS_VERSION as string is "2.14.0"
+
+## Size of the fixed part of a gzip header, in bytes (RFC 1952 §2.3).
+const GZIP_HEADER_SIZE as int is 10
+
+## Size of a gzip trailer: CRC-32 and ISIZE, four bytes each (RFC 1952 §2.3.1).
+const GZIP_TRAILER_SIZE as int is 8
+
+## Smallest possible gzip stream: 10-byte header, the two-byte empty deflate
+## block (`03 00`) and the 8-byte trailer. `gzip -d` accepts it.
+const GZIP_MIN_SIZE as int is 20
+
+## First gzip magic byte (`0x1f`).
+const GZIP_MAGIC_0 as int is 31
+
+## Second gzip magic byte (`0x8b`).
+const GZIP_MAGIC_1 as int is 139
+
+## The only compression method gzip defines (`CM = 8`, deflate).
+const GZIP_METHOD_DEFLATE as int is 8
+
+## `FLG` bit 2: an `FEXTRA` field follows the fixed header.
+const GZIP_FLAG_FEXTRA as int is 4
+
+## `FLG` bit 3: an `FNAME` field follows (the original file name).
+const GZIP_FLAG_FNAME as int is 8
+
+## `FLG` bit 4: an `FCOMMENT` field follows.
+const GZIP_FLAG_FCOMMENT as int is 16
+
+## `FLG` bit 1: an `FHCRC` field follows (low 16 bits of the header CRC-32).
+const GZIP_FLAG_FHCRC as int is 2
+
+## Bits 5-7 of `FLG` are reserved; RFC 1952 requires them to be zero.
+const GZIP_FLAG_RESERVED as int is 224
+
+# ----------------------------------------------------------------------------
+# Public types
+# ----------------------------------------------------------------------------
+
+## How hard the compressor works.
+##
+## Higher levels produce smaller output and take longer. The names map to the
+## zlib/miniz scale; `Default` is a concrete *6* (never miniz's `-1` sentinel,
+## so two calls with the same level are byte-identical).
+omen CompressionLevel:
+    ## Store only (`0`). The stream is valid deflate with no compression.
+    None
+    ## Fastest compression (`1`). Big output, low CPU.
+    Fastest
+    ## Balanced default (`6`). The right choice unless you measured otherwise.
+    Default
+    ## Above the default (`7`). A little smaller, a little slower.
+    Better
+    ## Best standard compression (`9`). The zlib ceiling.
+    Best
+    ## miniz-specific (`10`): tries harder than `Best`. Slower, and **not**
+    ## accepted by a strict zlib implementation as a *level*, although the
+    ## stream it emits is still standard deflate.
+    Uber
+
+## The container format around a deflate stream.
+omen CompressionFormat:
+    ## RFC 1952. A 10-byte header, raw deflate and a CRC-32/ISIZE trailer.
+    ## What `.gz` files, `gzip -d` and HTTP `Content-Encoding: gzip` use.
+    Gzip
+    ## RFC 1950. A two-byte header and a big-endian Adler-32 trailer.
+    ## What `zlib.decompress` expects and what PNG `IDAT` holds.
+    Zlib
+    ## RFC 1951. Deflate with no header and no checksum. Use it only when the
+    ## surrounding protocol already provides framing and integrity.
+    RawDeflate
+    ## "Let `decompress_auto` decide." **Only** valid as an input to
+    ## `decompress_auto`; passing it to a compressor is `InvalidInput`.
+    Auto
+
+## What went wrong while compressing, decompressing or reading/writing a file.
+##
+## ## Memoria
+## Derives `Nexus`, so releasing a `result` that carries an error releases the
+## `reason` string. `message` returns an owned description; `banish` it.
+omen CompressError derive Nexus:
+    ## The caller passed something no format can represent: a NUL byte in a
+    ## gzip filename, an empty filename, `CompressionFormat.Auto` to a
+    ## compressor, or an input whose compressed/decompressed output would
+    ## exceed the 32-bit `string` length.
+    InvalidInput with reason as string
+    ## The compressed bytes are malformed, truncated, or fail their checksum.
+    Corrupt with reason as string
+    ## A complete stream ended before the input did. `extra_bytes` is the
+    ## number of bytes after the last valid member.
+    TrailingData with extra_bytes as int
+    ## Auto-detection did not recognise the magic. `magic` is up to four bytes,
+    ## little-endian (so `1f 8b` is `0x00008b1f`).
+    UnsupportedFormat with magic as u32
+    ## An allocation failed. Named `AllocationFailed`, not `OutOfMemory`,
+    ## because LANGUAGE.md requires variant names to be unique across every
+    ## omen in a compilation and `HttpError`/`RegexError` already use
+    ## `OutOfMemory`; a program that imports `std.petitio` and
+    ## `std.compressus` together (the `pengu add` future) must compile.
+    AllocationFailed
+    ## A file could not be read or written. Named `FileError` because
+    ## `HttpError` already owns an `IoError` variant and LANGUAGE.md keeps
+    ## variant names unique across every omen in a compilation.
+    FileError with reason as string
+    ## An unexpected miniz status. `code` is the raw `MZ_*` value.
+    Internal with code as int, reason as string
+
+# ----------------------------------------------------------------------------
+# Error descriptions
+# ----------------------------------------------------------------------------
+
+enchanting CompressError:
+    ## A human-readable description of the failure.
+    ##
+    ## ## Retorno
+    ## An **owned** string; release it with `banish`.
+    ##
+    ## ## Ejemplo
+    ## ```pengu
+    ## var e as CompressError is r.error
+    ## var text as string is calling e.message
+    ## calling spark.println with text
+    ## banish text
+    ## ```
+    weave message into string:
+        return judge (essence of self):
+            when InvalidInput with reason -> "invalid input: {reason}"
+            when Corrupt with reason -> "corrupt compressed data: {reason}"
+            when TrailingData with extra_bytes -> "trailing data after the last stream: {extra_bytes} bytes"
+            when UnsupportedFormat with magic -> "unsupported compression format (magic {magic})"
+            when AllocationFailed -> "out of memory"
+            when FileError with reason -> "I/O error: {reason}"
+            when Internal with code, reason -> "internal miniz error {code}: {reason}"
+
+# ----------------------------------------------------------------------------
+# Private C bridges
+#
+# Every block below either owns a byte-level operation that the language cannot
+# express without a temporary allocation per byte, or calls miniz with its real
+# C types. The public logic — format detection, gzip header parsing, member
+# traversal and checksum comparison — stays in PenguScript below.
+# ----------------------------------------------------------------------------
+
+## Returns the byte value at `i`, or 0 when `i` is out of bounds.
+##
+## ## Motivo
+## `(calling scrolls.substring with s, i, i + 1)` allocates a one-byte string
+## for every inspected byte. Header parsing inspects a dozen bytes per member;
+## `.data`/`.len` allocates nothing.
+##
+## ## Memoria
+## Reads only; allocates nothing.
+antiquus _byte_at with s as string, i as int into int:
+    r"""
+if (!s.data || i < 0 || i >= s.len) return 0;
+return (int)(unsigned char)s.data[i];
+"""
+
+## CRC-32 of `length` bytes starting at `offset`, continuing `seed`.
+##
+## ## Memoria
+## Reads only; allocates nothing. Out-of-range slices return `seed` unchanged.
+antiquus _crc32_range with data as string, offset as int, length as int, seed as u32 into u32:
+    r"""
+if (offset < 0 || length < 0 || offset > data.len || length > data.len - offset)
+    return seed;
+const unsigned char *p = (const unsigned char *)(data.data ? data.data : "");
+return (uint32_t)mz_crc32((mz_ulong)seed, p + offset, (size_t)length);
+"""
+
+## Adler-32 of `length` bytes starting at `offset`, continuing `seed`.
+##
+## ## Memoria
+## Reads only; allocates nothing. Out-of-range slices return `seed` unchanged.
+antiquus _adler32_range with data as string, offset as int, length as int, seed as u32 into u32:
+    r"""
+if (offset < 0 || length < 0 || offset > data.len || length > data.len - offset)
+    return seed;
+const unsigned char *p = (const unsigned char *)(data.data ? data.data : "");
+return (uint32_t)mz_adler32((mz_ulong)seed, p + offset, (size_t)length);
+"""
+
+## Compresses `data` as a **raw** deflate stream (RFC 1951) at `level`.
+##
+## ## Motivo
+## `tdefl_compress_mem_to_heap` takes the flag word built from
+## `(level, -15, TDEFL_DEFAULT_MAX_PROBES)`, which selects raw deflate and one
+## exact-size allocation. Doing the same through the streaming API would need an
+## `mz_stream` the binding deliberately does not expose.
+##
+## ## Memoria
+## The returned `PenguString` owns a `malloc` block that miniz allocated with its
+## default allocator (`malloc`), which is exactly what `banish` calls. `status`
+## receives `MZ_OK` or a negative `MZ_*` code.
+antiquus _deflate_raw with data as string, level as int, status as ref to int into string:
+    r"""
+*status = MZ_OK;
+const unsigned char *in = (const unsigned char *)(data.data ? data.data : "");
+size_t n = (size_t)(data.len > 0 ? data.len : 0);
+int flags = (int)tdefl_create_comp_flags_from_zip_params(
+    level, -MZ_DEFAULT_WINDOW_BITS, TDEFL_DEFAULT_MAX_PROBES);
+size_t out_len = 0;
+void *buf = tdefl_compress_mem_to_heap(in, n, &out_len, flags);
+if (!buf) {
+    *status = MZ_MEM_ERROR;
+    return pengu_string_from_cstr("");
+}
+if (out_len > (size_t)INT_MAX) {
+    mz_free(buf);
+    *status = MZ_PARAM_ERROR;
+    return pengu_string_from_cstr("");
+}
+PenguString s;
+s.data = (char *)buf;
+s.len = (int)out_len;
+s.is_owned = 1;
+return s;
+"""
+
+## Compresses `data` as a **zlib** stream (RFC 1950) at `level`.
+##
+## ## Motivo
+## `mz_compress2` computes the zlib header, the deflate body and the Adler-32
+## trailer in one call. Reimplementing the Adler-32 trailer here would duplicate
+## a checksum miniz already emits and verifies.
+##
+## ## Memoria
+## Allocates exactly `mz_compressBound(n)` bytes with `malloc`; the returned
+## string owns them. `status` receives `MZ_OK` or a negative `MZ_*` code.
+antiquus _deflate_zlib with data as string, level as int, status as ref to int into string:
+    r"""
+*status = MZ_OK;
+const unsigned char *in = (const unsigned char *)(data.data ? data.data : "");
+size_t n = (size_t)(data.len > 0 ? data.len : 0);
+if (n > 0xFFFFFFFFu) {
+    *status = MZ_PARAM_ERROR;
+    return pengu_string_from_cstr("");
+}
+mz_ulong cap = mz_compressBound((mz_ulong)n);
+if (cap == 0) cap = 128;
+if (cap > (mz_ulong)INT_MAX) {
+    *status = MZ_PARAM_ERROR;
+    return pengu_string_from_cstr("");
+}
+unsigned char *buf = (unsigned char *)malloc((size_t)cap);
+if (!buf) {
+    *status = MZ_MEM_ERROR;
+    return pengu_string_from_cstr("");
+}
+mz_ulong out_len = cap;
+int rc = mz_compress2(buf, &out_len, in, (mz_ulong)n, level);
+if (rc != MZ_OK) {
+    free(buf);
+    *status = rc;
+    return pengu_string_from_cstr("");
+}
+if (out_len > (mz_ulong)INT_MAX) {
+    free(buf);
+    *status = MZ_PARAM_ERROR;
+    return pengu_string_from_cstr("");
+}
+PenguString s;
+s.data = (char *)buf;
+s.len = (int)out_len;
+s.is_owned = 1;
+return s;
+"""
+
+## Compresses `data` as a **gzip** stream (RFC 1952) at `level`.
+##
+## ## Motivo
+## miniz has no gzip support. This block emits the 10-byte fixed header (plus an
+## `FNAME` field when `filename` is non-empty), the raw deflate body and the
+## CRC-32/ISIZE trailer in **one** allocation: concatenating three PenguScript
+## strings would copy the body twice and allocate two temporaries.
+##
+## `MTIME` is always zero, so the same input and level produce the same bytes on
+## any machine and at any time. `OS` is `0xff` ("unknown"), which every reader
+## accepts. `XFL` follows gzip's convention (`2` for level 9, `4` for level 1,
+## `0` otherwise); no reader depends on it.
+##
+## ## Memoria
+## Allocates the exact output size with `malloc`; the returned string owns it.
+## The temporary deflate block is released with `mz_free` before returning.
+## `status` receives `MZ_OK` or a negative `MZ_*` code.
+antiquus _gzip_compress with data as string, level as int, filename as string, status as ref to int into string:
+    r"""
+*status = MZ_OK;
+const unsigned char *in = (const unsigned char *)(data.data ? data.data : "");
+size_t n = (size_t)(data.len > 0 ? data.len : 0);
+size_t name_len = (filename.data && filename.len > 0) ? (size_t)filename.len : (size_t)0;
+
+int flags = (int)tdefl_create_comp_flags_from_zip_params(
+    level, -MZ_DEFAULT_WINDOW_BITS, TDEFL_DEFAULT_MAX_PROBES);
+size_t raw_len = 0;
+void *raw = tdefl_compress_mem_to_heap(in, n, &raw_len, flags);
+if (!raw) {
+    *status = MZ_MEM_ERROR;
+    return pengu_string_from_cstr("");
+}
+
+/* header + body + trailer; the guard keeps every size arithmetic overflow-free
+ * and every length inside the int the PenguString header stores. */
+size_t header_len = (size_t)GZIP_HEADER_SIZE + (name_len ? name_len + 1 : (size_t)0);
+if (raw_len > (size_t)INT_MAX || header_len > (size_t)INT_MAX - raw_len - (size_t)GZIP_TRAILER_SIZE) {
+    mz_free(raw);
+    *status = MZ_PARAM_ERROR;
+    return pengu_string_from_cstr("");
+}
+size_t total = header_len + raw_len + (size_t)GZIP_TRAILER_SIZE;
+unsigned char *out = (unsigned char *)malloc(total);
+if (!out) {
+    mz_free(raw);
+    *status = MZ_MEM_ERROR;
+    return pengu_string_from_cstr("");
+}
+
+size_t o = 0;
+out[o++] = 0x1f;
+out[o++] = 0x8b;
+out[o++] = 0x08;
+out[o++] = name_len ? 0x08 : 0x00; /* FLG: FNAME only */
+out[o++] = 0x00; /* MTIME byte 0 */
+out[o++] = 0x00; /* MTIME byte 1 */
+out[o++] = 0x00; /* MTIME byte 2 */
+out[o++] = 0x00; /* MTIME byte 3 */
+out[o++] = (unsigned char)((level == 9) ? 2 : ((level == 1) ? 4 : 0)); /* XFL */
+out[o++] = 0xff; /* OS: unknown */
+if (name_len) {
+    memcpy(out + o, filename.data, name_len);
+    o += name_len;
+    out[o++] = 0x00;
+}
+if (raw_len) memcpy(out + o, raw, raw_len);
+o += raw_len;
+
+uint32_t crc = (uint32_t)mz_crc32(0, in, n);
+out[o++] = (unsigned char)(crc & 0xff);
+out[o++] = (unsigned char)((crc >> 8) & 0xff);
+out[o++] = (unsigned char)((crc >> 16) & 0xff);
+out[o++] = (unsigned char)((crc >> 24) & 0xff);
+uint32_t isize = (uint32_t)(n & 0xffffffffu);
+out[o++] = (unsigned char)(isize & 0xff);
+out[o++] = (unsigned char)((isize >> 8) & 0xff);
+out[o++] = (unsigned char)((isize >> 16) & 0xff);
+out[o++] = (unsigned char)((isize >> 24) & 0xff);
+
+mz_free(raw);
+
+PenguString s;
+s.data = (char *)out;
+s.len = (int)o;
+s.is_owned = 1;
+return s;
+"""
+
+## Inflates `data[offset..]` with `window_bits` (`15` = zlib, `-15` = raw).
+##
+## ## Motivo
+## The size of a deflate stream's output is not stored anywhere: it must be
+## discovered by inflating. This block grows the output buffer geometrically
+## with `realloc` and stops on `MZ_STREAM_END`, on a hard error, or when the
+## input is exhausted before the end of the stream (truncation).
+##
+## `consumed` receives the number of **input** bytes the stream used (the offset
+## of the trailer in a gzip member). `status` receives `MZ_OK` on success or a
+## negative `MZ_*` code; `MZ_BUF_ERROR` means "the input ended mid-stream".
+##
+## ## Memoria
+## Allocates one growable buffer that the returned string owns. `data` is read
+## only. The temporary `mz_stream` is ended on every path.
+antiquus _inflate_at with data as string, offset as int, window_bits as int, consumed as ref to int, status as ref to int into string:
+    r"""
+*consumed = 0;
+*status = MZ_OK;
+if (offset < 0 || data.len < 0 || offset > data.len) {
+    *status = MZ_PARAM_ERROR;
+    return pengu_string_from_cstr("");
+}
+const unsigned char *base = (const unsigned char *)(data.data ? data.data : "");
+size_t in_len = (size_t)(data.len - offset);
+if (in_len > 0xFFFFFFFFu) {
+    *status = MZ_PARAM_ERROR;
+    return pengu_string_from_cstr("");
+}
+
+mz_stream stream;
+memset(&stream, 0, sizeof(stream));
+int rc = mz_inflateInit2(&stream, window_bits);
+if (rc != MZ_OK) {
+    *status = rc;
+    return pengu_string_from_cstr("");
+}
+
+size_t cap = 256;
+if (in_len <= ((size_t)-1 - 64) / 3) cap = in_len * 3 + 64;
+if (cap < 256) cap = 256;
+if (cap > (size_t)(1u << 20)) cap = (size_t)(1u << 20);
+unsigned char *out = (unsigned char *)malloc(cap);
+if (!out) {
+    mz_inflateEnd(&stream);
+    *status = MZ_MEM_ERROR;
+    return pengu_string_from_cstr("");
+}
+
+stream.next_in = base + offset;
+stream.avail_in = (unsigned int)in_len;
+
+size_t used = 0;
+for (;;) {
+    if (used == cap) {
+        /* `PenguString.len` is a 32-bit int, so a larger output cannot be
+         * returned; stop before the doubling arithmetic can overflow. */
+        if (cap >= (size_t)INT_MAX) {
+            free(out);
+            mz_inflateEnd(&stream);
+            *status = MZ_PARAM_ERROR;
+            return pengu_string_from_cstr("");
+        }
+        size_t next_cap = cap * 2;
+        if (next_cap > (size_t)INT_MAX) next_cap = (size_t)INT_MAX;
+        unsigned char *grown = (unsigned char *)realloc(out, next_cap);
+        if (!grown) {
+            free(out);
+            mz_inflateEnd(&stream);
+            *status = MZ_MEM_ERROR;
+            return pengu_string_from_cstr("");
+        }
+        out = grown;
+        cap = next_cap;
+    }
+    stream.next_out = out + used;
+    stream.avail_out = (unsigned int)(cap - used);
+    unsigned int before_in = stream.avail_in;
+    unsigned int before_out = stream.avail_out;
+    rc = mz_inflate(&stream, MZ_NO_FLUSH);
+    used = cap - (size_t)stream.avail_out;
+    if (rc == MZ_STREAM_END) {
+        *consumed = (int)stream.total_in;
+        *status = MZ_OK;
+        mz_inflateEnd(&stream);
+        PenguString s;
+        s.data = (char *)out;
+        s.len = (int)used;
+        s.is_owned = 1;
+        return s;
+    }
+    if (rc != MZ_OK && rc != MZ_BUF_ERROR) {
+        free(out);
+        mz_inflateEnd(&stream);
+        *status = rc;
+        return pengu_string_from_cstr("");
+    }
+    if (stream.avail_out == 0) continue;
+    if (stream.avail_in == before_in && stream.avail_out == before_out) {
+        free(out);
+        mz_inflateEnd(&stream);
+        *status = MZ_BUF_ERROR;
+        return pengu_string_from_cstr("");
+    }
+}
+"""
+
+# ----------------------------------------------------------------------------
+# Internal helpers
+# ----------------------------------------------------------------------------
+
+## Maps a `CompressionLevel` to the integer miniz expects.
+##
+## `Default` is **6**, not miniz's `-1` sentinel: a concrete level keeps the
+## output byte-identical between calls, which `tests/stdlib/test_compressus.py`
+## asserts.
+weave _level_code with level as CompressionLevel into int:
+    return judge level:
+        when None -> 0
+        when Fastest -> 1
+        when Default -> 6
+        when Better -> 7
+        when Best -> 9
+        when Uber -> 10
+
+## Reads a little-endian 32-bit integer at `at`. Out-of-range bytes read as 0.
+##
+## ## Memoria
+## Reads only; allocates nothing.
+weave _le32 with data as string, at as int into u32:
+    var b0 as int is calling _byte_at with data, at
+    var b1 as int is calling _byte_at with data, at + 1
+    var b2 as int is calling _byte_at with data, at + 2
+    var b3 as int is calling _byte_at with data, at + 3
+    return (b0 to u32) | ((b1 to u32) << 8) | ((b2 to u32) << 16) | ((b3 to u32) << 24)
+
+## Moves the success payload out of a `result of string to CompressError`.
+##
+## ## Motivo
+## `result.value` is a borrowed view: releasing the result releases the string
+## too. `decompress_auto` has to return the plain bytes *and* release the inner
+## result's box, so it moves the payload out first and then banishes an empty
+## result. Doing that from PenguScript would need a copy.
+##
+## ## Memoria
+## Transfers ownership of the string to the caller and leaves the result box
+## empty (`ok_val == NULL`, `is_ok == false`), so a later `banish` on it is a
+## no-op. Returns a non-owning `""` when `r` is not a successful result.
+antiquus _take_ok_string with r as ref to result of string to CompressError into string:
+    r"""
+if (!r || !r->is_ok || !r->ok_val) return pengu_string_from_cstr("");
+PenguString out = *(PenguString *)r->ok_val;
+free(r->ok_val);
+r->ok_val = NULL;
+r->is_ok = false;
+r->err_val = NULL;
+return out;
+"""
+
+## Moves the error payload out of a `result of string to CompressError`.
+##
+## ## Motivo
+## `result.error` is a borrowed view: releasing the result frees the reason
+## string it points at. Every failure path in this module has to return the
+## error *and* release the inner result's box, so it moves the payload out
+## first. Doing that from PenguScript would copy the struct but not the string
+## it owns, leaving a dangling `reason`.
+##
+## ## Memoria
+## Transfers ownership of the `CompressError` (including its reason string) to
+## the caller and leaves the result box empty, so a later `banish` on it is a
+## no-op.
+antiquus _take_error with r as ref to result of string to CompressError into CompressError:
+    r"""
+CompressError out;
+memset(&out, 0, sizeof out);
+if (!r || r->is_ok || !r->err_val) return out;
+out = *(CompressError *)r->err_val;
+free(r->err_val);
+r->err_val = NULL;
+r->is_ok = true;
+r->ok_val = NULL;
+return out;
+"""
+
+## Maps a miniz status to a `CompressError`.
+##
+## `context` names the operation for the `Internal` fallback, so an unexpected
+## status still says *where* it happened.
+weave _error_from_status with status as int, context as string into CompressError:
+    if status == -4:
+        return AllocationFailed
+    if status == -3:
+        return with Corrupt is "{context}: data error"
+    if status == -5:
+        return with Corrupt is "{context}: input ended before the end of the stream"
+    if status == -10000:
+        return with InvalidInput is "{context}: miniz rejected an out-of-range argument"
+    if status == 2:
+        return with Corrupt is "{context}: stream requires a preset dictionary, which std.compressus does not support"
+    return with Internal is with code is status, reason is context
+
+## Returns the offset of the first byte after the gzip header that starts at
+## `at`, or a negative code describing why the header is unusable.
+##
+## Codes: `-1` not gzip (bad magic), `-2` truncated header, `-3` unsupported
+## compression method, `-4` reserved `FLG` bits set, `-5` `FHCRC` mismatch.
+##
+## The parser walks every optional field RFC 1952 defines — `FEXTRA`, `FNAME`,
+## `FCOMMENT` and `FHCRC` — so a stream produced by any conforming writer
+## (including one with an original filename) is accepted.
+##
+## ## Memoria
+## Reads only; allocates nothing.
+weave _gzip_header_len with data as string, at as int into int:
+    var n as int is data length
+    # Magic first: a short run of bytes after a complete member is trailing
+    # data, not a truncated header. Only bytes that *start* with `1f 8b` can be
+    # a truncated member.
+    if at < 0 or at >= n:
+        return -2
+    if (calling _byte_at with data, at) != GZIP_MAGIC_0:
+        return -1
+    if at + 1 >= n:
+        return -2
+    if (calling _byte_at with data, at + 1) != GZIP_MAGIC_1:
+        return -1
+    if at + GZIP_HEADER_SIZE > n:
+        return -2
+    if (calling _byte_at with data, at + 2) != GZIP_METHOD_DEFLATE:
+        return -3
+    var flags as int is calling _byte_at with data, at + 3
+    if (flags & GZIP_FLAG_RESERVED) != 0:
+        return -4
+    var i as int is at + GZIP_HEADER_SIZE
+    if (flags & GZIP_FLAG_FEXTRA) != 0:
+        if i + 2 > n:
+            return -2
+        var xlen as int is (calling _byte_at with data, i) + ((calling _byte_at with data, i + 1) * 256)
+        set i is i + 2 + xlen
+        if i > n:
+            return -2
+    if (flags & GZIP_FLAG_FNAME) != 0:
+        while i < n:
+            if (calling _byte_at with data, i) == 0:
+                break
+            set i is i + 1
+        if i >= n:
+            return -2
+        set i is i + 1
+    if (flags & GZIP_FLAG_FCOMMENT) != 0:
+        while i < n:
+            if (calling _byte_at with data, i) == 0:
+                break
+            set i is i + 1
+        if i >= n:
+            return -2
+        set i is i + 1
+    if (flags & GZIP_FLAG_FHCRC) != 0:
+        if i + 2 > n:
+            return -2
+        var stored as u32 is (calling _le32 with data, i) & 65535
+        var actual as u32 is (calling _crc32_range with data, at, i - at, 0) & 65535
+        if stored != actual:
+            return -5
+        set i is i + 2
+    return i - at
+
+## Maps a `CompressionFormat` to a small integer, for comparisons.
+##
+## Omens are compared with `judge`, not with `is`; the code keeps
+## `decompress_auto` flat instead of nesting two judges per branch.
+weave _format_code with format as CompressionFormat into int:
+    return judge format:
+        when Gzip -> 0
+        when Zlib -> 1
+        when RawDeflate -> 2
+        when Auto -> 3
+
+## Maps a `_gzip_header_len` failure code to the error the public API returns.
+weave _gzip_header_error with code as int, data as string, at as int, member as int into CompressError:
+    if code == -1:
+        if member == 0:
+            return with UnsupportedFormat is calling _le32 with data, at
+        return with TrailingData is with extra_bytes is ((data length) - at)
+    if code == -2:
+        return with Corrupt is "truncated gzip header"
+    if code == -3:
+        return with Corrupt is "gzip compression method is not deflate (CM != 8)"
+    if code == -4:
+        return with Corrupt is "gzip reserved FLG bits are set"
+    return with Corrupt is "gzip header CRC16 (FHCRC) does not match"
+
+# ----------------------------------------------------------------------------
+# Gzip
+# ----------------------------------------------------------------------------
+
+## Compresses `data` as a gzip stream (RFC 1952), with `MTIME` zero.
+##
+## The output opens with `gzip -d` and with Python's `gzip.decompress`. Because
+## `MTIME` is always zero, compressing the same bytes at the same level is
+## deterministic.
+##
+## ## Parámetros
+## - `data`: bytes to compress. Borrowed.
+## - `level`: how hard to work. See `CompressionLevel`.
+##
+## ## Retorno
+## `ok` with an **owned** gzip string (release the result with `banish`), or
+## `err CompressError`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of string to CompressError is calling compressus.gzip_compress with "hello", CompressionLevel.Best
+## defer banish r
+## if r.is_ok:
+##     calling archivum.write_bytes with "hello.gz", r.value
+## ```
+weave gzip_compress with data as string, level as CompressionLevel into result of string to CompressError:
+    return calling gzip_compress_named with data, "", level
+
+## Compresses `data` as a gzip stream that records `filename` in the `FNAME`
+## header field.
+##
+## `FNAME` is metadata only: it is the original file name, not a path, and no
+## reader is required to use it. Pass `""` for a stream with no `FNAME` field —
+## that is exactly what `gzip_compress` does. A filename containing a NUL byte
+## cannot be represented (the field is NUL-terminated) and is rejected with
+## `InvalidInput`.
+##
+## ## Parámetros
+## - `data`: bytes to compress. Borrowed.
+## - `filename`: original name to record, or `""`. Borrowed.
+## - `level`: how hard to work.
+##
+## ## Retorno
+## `ok` with an **owned** gzip string, or `err CompressError`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of string to CompressError is calling compressus.gzip_compress_named with payload, "notes.txt", CompressionLevel.Default
+## defer banish r
+## ```
+weave gzip_compress_named with data as string, filename as string, level as CompressionLevel into result of string to CompressError:
+    var name as string is filename
+    if (filename length) > 0:
+        var i as int is 0
+        var n as int is filename length
+        while i < n:
+            if (calling _byte_at with filename, i) == 0:
+                return calling err_of with (with InvalidInput is "gzip filename must not contain a NUL byte")
+            set i is i + 1
+    else:
+        set name is ""
+    var status as int is 0
+    var packed as string is calling _gzip_compress with data, (calling _level_code with level), name, (sigil of status)
+    if status != 0:
+        banish packed
+        return calling err_of with (calling _error_from_status with status, "gzip compression")
+    return calling ok_of with packed
+
+## Decompresses one or more concatenated gzip members.
+##
+## Multi-member streams (two `.gz` files concatenated with `cat`) decompress to
+## the concatenation of their payloads, exactly like `gzip -d` and Python's
+## `gzip.decompress`. Each member's CRC-32 and ISIZE are verified; a mismatch is
+## `Corrupt`, not silently accepted.
+##
+## ## Parámetros
+## - `data`: the gzip bytes. Borrowed.
+##
+## ## Retorno
+## `ok` with the **owned** plain bytes (release the result with `banish`), or
+## `err CompressError`:
+## - `Corrupt` for a truncated header, a bad checksum or a truncated body;
+## - `UnsupportedFormat` when `data` does not start with the gzip magic;
+## - `TrailingData` when a valid member is followed by bytes that are not
+##   another gzip member.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of string to CompressError is calling compressus.gzip_decompress with blob
+## defer banish r
+## ```
+weave gzip_decompress with data as string into result of string to CompressError:
+    var n as int is data length
+    if n < GZIP_MIN_SIZE:
+        if n >= 2 and (calling _byte_at with data, 0) == GZIP_MAGIC_0 and (calling _byte_at with data, 1) == GZIP_MAGIC_1:
+            return calling err_of with (with Corrupt is "gzip stream is shorter than its header and trailer")
+        return calling err_of with (with UnsupportedFormat is calling _le32 with data, 0)
+
+    # A compressed member is usually smaller than its payload, so the input
+    # size is a safe *lower* bound for the builder. Only multiply for small
+    # inputs, where the three-times guess avoids the first reallocation without
+    # risking a 32-bit overflow on a large one.
+    var initial as int is n
+    if n < 1048576:
+        set initial is n * 3
+    if initial > 67108864:
+        set initial is 67108864
+    var sb as builder.StringBuilder is calling StringBuilder.with_capacity with initial
+    defer banish sb
+
+    var offset as int is 0
+    var member as int is 0
+    while offset < n:
+        var header_len as int is calling _gzip_header_len with data, offset
+        if header_len < 0:
+            return calling err_of with (calling _gzip_header_error with header_len, data, offset, member)
+        var body_at as int is offset + header_len
+        var consumed as int is 0
+        var status as int is 0
+        var body as string is calling _inflate_at with data, body_at, -15, (sigil of consumed), (sigil of status)
+        if status != 0:
+            banish body
+            if status == -3:
+                return calling err_of with (with Corrupt is "gzip member {member}: deflate data is corrupt")
+            return calling err_of with (calling _error_from_status with status, "gzip member {member}")
+        var trailer_at as int is body_at + consumed
+        if trailer_at + GZIP_TRAILER_SIZE > n:
+            banish body
+            return calling err_of with (with Corrupt is "gzip member {member}: truncated trailer")
+        var stored_crc as u32 is calling _le32 with data, trailer_at
+        var stored_size as u32 is calling _le32 with data, trailer_at + 4
+        var actual_crc as u32 is calling _crc32_range with body, 0, (body length), 0
+        if stored_crc != actual_crc:
+            banish body
+            return calling err_of with (with Corrupt is "gzip member {member}: CRC-32 mismatch")
+        var actual_size as u32 is (body length) to u32
+        if stored_size != actual_size:
+            banish body
+            return calling err_of with (with Corrupt is "gzip member {member}: ISIZE mismatch")
+        calling sb.append with body
+        banish body
+        set offset is trailer_at + GZIP_TRAILER_SIZE
+        set member is member + 1
+
+    return calling ok_of with (calling sb.finish)
+
+# ----------------------------------------------------------------------------
+# Zlib
+# ----------------------------------------------------------------------------
+
+## Compresses `data` as a zlib stream (RFC 1950).
+##
+## The output is what Python's `zlib.decompress` expects and what a zlib-aware
+## HTTP server accepts. miniz computes the Adler-32 trailer.
+##
+## ## Parámetros
+## - `data`: bytes to compress. Borrowed.
+## - `level`: how hard to work.
+##
+## ## Retorno
+## `ok` with an **owned** zlib string, or `err CompressError`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of string to CompressError is calling compressus.zlib_compress with "hello", CompressionLevel.Best
+## defer banish r
+## ```
+weave zlib_compress with data as string, level as CompressionLevel into result of string to CompressError:
+    var status as int is 0
+    var packed as string is calling _deflate_zlib with data, (calling _level_code with level), (sigil of status)
+    if status != 0:
+        banish packed
+        return calling err_of with (calling _error_from_status with status, "zlib compression")
+    return calling ok_of with packed
+
+## Decompresses a zlib stream (RFC 1950).
+##
+## The Adler-32 trailer is verified by miniz. Bytes after the end of the stream
+## are `TrailingData`, never silently ignored.
+##
+## ## Parámetros
+## - `data`: the zlib bytes. Borrowed.
+##
+## ## Retorno
+## `ok` with the **owned** plain bytes, or `err CompressError`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of string to CompressError is calling compressus.zlib_decompress with blob
+## defer banish r
+## ```
+weave zlib_decompress with data as string into result of string to CompressError:
+    if (data length) < 2:
+        return calling err_of with (with Corrupt is "zlib stream is shorter than its header")
+    var consumed as int is 0
+    var status as int is 0
+    var plain as string is calling _inflate_at with data, 0, 15, (sigil of consumed), (sigil of status)
+    if status != 0:
+        banish plain
+        if status == -3:
+            return calling err_of with (with Corrupt is "zlib stream is corrupt or its Adler-32 does not match")
+        return calling err_of with (calling _error_from_status with status, "zlib decompression")
+    if consumed != (data length):
+        var extra as int is (data length) - consumed
+        banish plain
+        return calling err_of with (with TrailingData is with extra_bytes is extra)
+    return calling ok_of with plain
+
+# ----------------------------------------------------------------------------
+# Raw deflate
+# ----------------------------------------------------------------------------
+
+## Compresses `data` as a **raw** deflate stream (RFC 1951).
+##
+## There is no header and no checksum: use it only when the surrounding protocol
+## already frames the stream and protects its integrity (a ZIP member, a
+## WebSocket `permessage-deflate` frame, a length-prefixed record).
+##
+## ## Parámetros
+## - `data`: bytes to compress. Borrowed.
+## - `level`: how hard to work.
+##
+## ## Retorno
+## `ok` with an **owned** deflate string, or `err CompressError`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of string to CompressError is calling compressus.deflate_compress with "hello", CompressionLevel.Fastest
+## defer banish r
+## ```
+weave deflate_compress with data as string, level as CompressionLevel into result of string to CompressError:
+    var status as int is 0
+    var packed as string is calling _deflate_raw with data, (calling _level_code with level), (sigil of status)
+    if status != 0:
+        banish packed
+        return calling err_of with (calling _error_from_status with status, "raw deflate compression")
+    return calling ok_of with packed
+
+## Decompresses a **raw** deflate stream (RFC 1951).
+##
+## Empty input is the empty string: this weaves answers "what does this stream
+## decompress to", and an absent stream carries no bytes. A truncated or corrupt
+## stream is `Corrupt`, and bytes after the end of the stream are
+## `TrailingData`.
+##
+## ## Parámetros
+## - `data`: the raw deflate bytes. Borrowed.
+##
+## ## Retorno
+## `ok` with the **owned** plain bytes, or `err CompressError`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of string to CompressError is calling compressus.inflate_decompress with blob
+## defer banish r
+## ```
+weave inflate_decompress with data as string into result of string to CompressError:
+    if (data length) == 0:
+        var empty as string is ""
+        return calling ok_of with empty
+    var consumed as int is 0
+    var status as int is 0
+    var plain as string is calling _inflate_at with data, 0, -15, (sigil of consumed), (sigil of status)
+    if status != 0:
+        banish plain
+        if status == -3:
+            return calling err_of with (with Corrupt is "raw deflate stream is corrupt")
+        return calling err_of with (calling _error_from_status with status, "raw deflate decompression")
+    if consumed != (data length):
+        var extra as int is (data length) - consumed
+        banish plain
+        return calling err_of with (with TrailingData is with extra_bytes is extra)
+    return calling ok_of with plain
+
+# ----------------------------------------------------------------------------
+# Format detection
+# ----------------------------------------------------------------------------
+
+## Detects the container format from the first bytes.
+##
+## Recognises the gzip magic (`1f 8b`) and a structurally valid zlib header
+## (`CM = 8`, `CINFO <= 7`, `FCHECK` consistent). Raw deflate has no magic and
+## is **not** detected: pass `CompressionFormat.RawDeflate` explicitly.
+##
+## ## Parámetros
+## - `data`: the bytes to inspect. Borrowed; only the first two are read.
+##
+## ## Retorno
+## `some CompressionFormat` or `maybe none`.
+##
+## ## Ejemplo
+## ```pengu
+## var f as maybe CompressionFormat is calling compressus.detect_format with blob
+## if f is present:
+##     calling spark.println with "known format"
+## ```
+weave detect_format with data as string into maybe CompressionFormat:
+    var n as int is data length
+    if n >= 2 and (calling _byte_at with data, 0) == GZIP_MAGIC_0 and (calling _byte_at with data, 1) == GZIP_MAGIC_1:
+        var gzip as CompressionFormat is CompressionFormat.Gzip
+        return some gzip
+    if n >= 2:
+        var cmf as int is calling _byte_at with data, 0
+        var flg as int is calling _byte_at with data, 1
+        if (cmf & 15) == 8 and (cmf >> 4) <= 7:
+            if ((cmf * 256) + flg) % 31 == 0:
+                var zlib as CompressionFormat is CompressionFormat.Zlib
+                return some zlib
+    return maybe none
+
+## Packs a `string` and its format into the tuple `decompress_auto` returns.
+##
+## ## Memoria
+## Moves `text` into the tuple; the caller owns it through the result.
+weave _format_pair with text as string, format as CompressionFormat into (string, CompressionFormat):
+    return text, format
+
+## Decompresses `data` in whichever format `detect_format` recognises.
+##
+## Raw deflate is not auto-detected; use `inflate_decompress` when the protocol
+## says the bytes are raw.
+##
+## ## Parámetros
+## - `data`: the compressed bytes. Borrowed.
+##
+## ## Retorno
+## `ok (plain, format)` with the owned plain bytes and the detected format, or
+## `err CompressError`. An unrecognised magic is `UnsupportedFormat` with the
+## first four bytes (little-endian) in `magic`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of (string, CompressionFormat) to CompressError is calling compressus.decompress_auto with blob
+## defer banish r
+## if r.is_ok:
+##     var pair as (string, CompressionFormat) is r.value
+##     var plain as string is pair.0
+## ```
+weave decompress_auto with data as string into result of (string, CompressionFormat) to CompressError:
+    var detected as maybe CompressionFormat is calling detect_format with data
+    if not (detected is present):
+        banish detected
+        return calling err_of with (with UnsupportedFormat is calling _le32 with data, 0)
+    var format as CompressionFormat is detected.value
+    banish detected
+    var code as int is calling _format_code with format
+    if code == 0:
+        var gz as result of string to CompressError is calling gzip_decompress with data
+        if gz.is_ok:
+            var plain as string is calling _take_ok_string with (sigil of gz)
+            banish gz
+            return calling ok_of with (calling _format_pair with plain, format)
+        var gz_failure as CompressError is calling _take_error with (sigil of gz)
+        banish gz
+        return calling err_of with gz_failure
+    if code == 1:
+        var zr as result of string to CompressError is calling zlib_decompress with data
+        if zr.is_ok:
+            var plain as string is calling _take_ok_string with (sigil of zr)
+            banish zr
+            return calling ok_of with (calling _format_pair with plain, format)
+        var zr_failure as CompressError is calling _take_error with (sigil of zr)
+        banish zr
+        return calling err_of with zr_failure
+    return calling err_of with (with UnsupportedFormat is calling _le32 with data, 0)
+
+## Decompresses `data` as an explicit format, with `Auto` as the detecting
+## choice.
+##
+## This is the uniform entry point for code that already knows the format (a
+## protocol field, a file extension, a manifest): `Gzip`, `Zlib` and
+## `RawDeflate` dispatch to the matching decompressor, and `Auto` calls
+## `decompress_auto`. The returned tuple always says which decoder actually ran.
+##
+## ## Parámetros
+## - `data`: the compressed bytes. Borrowed.
+## - `format`: the container, or `CompressionFormat.Auto`.
+##
+## ## Retorno
+## `ok (plain, format)` with the **owned** plain bytes, or `err CompressError`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of (string, CompressionFormat) to CompressError is calling compressus.decompress_as with blob, CompressionFormat.Auto
+## defer banish r
+## if r.is_ok:
+##     let (plain, fmt) is r.value
+## ```
+weave decompress_as with data as string, format as CompressionFormat into result of (string, CompressionFormat) to CompressError:
+    var code as int is calling _format_code with format
+    if code == 3:
+        return calling decompress_auto with data
+    if code == 0:
+        var gzip_result as result of string to CompressError is calling gzip_decompress with data
+        if gzip_result.is_ok:
+            var plain as string is calling _take_ok_string with (sigil of gzip_result)
+            banish gzip_result
+            return calling ok_of with (calling _format_pair with plain, format)
+        var gzip_failure as CompressError is calling _take_error with (sigil of gzip_result)
+        banish gzip_result
+        return calling err_of with gzip_failure
+    if code == 1:
+        var zlib_result as result of string to CompressError is calling zlib_decompress with data
+        if zlib_result.is_ok:
+            var plain as string is calling _take_ok_string with (sigil of zlib_result)
+            banish zlib_result
+            return calling ok_of with (calling _format_pair with plain, format)
+        var zlib_failure as CompressError is calling _take_error with (sigil of zlib_result)
+        banish zlib_result
+        return calling err_of with zlib_failure
+    var raw_result as result of string to CompressError is calling inflate_decompress with data
+    if raw_result.is_ok:
+        var plain as string is calling _take_ok_string with (sigil of raw_result)
+        banish raw_result
+        return calling ok_of with (calling _format_pair with plain, format)
+    var raw_failure as CompressError is calling _take_error with (sigil of raw_result)
+    banish raw_result
+    return calling err_of with raw_failure
+
+# ----------------------------------------------------------------------------
+# Checksums
+# ----------------------------------------------------------------------------
+
+## CRC-32 (ISO 3309 / ITU-T V.42) of `data`, the checksum gzip stores.
+##
+## `crc32("")` is `0`. The result matches Python's `zlib.crc32(data)` and
+## `crc32` from `binascii`.
+##
+## ## Parámetros
+## - `data`: the bytes to checksum. Borrowed.
+##
+## ## Retorno
+## The 32-bit checksum.
+##
+## ## Ejemplo
+## ```pengu
+## var c as u32 is calling compressus.crc32 with "hello"
+## ```
+weave crc32 with data as string into u32:
+    return calling _crc32_range with data, 0, (data length), 0
+
+## CRC-32 of `data` continuing a previous checksum.
+##
+## `crc32_continue(crc32(a), b) == crc32(a + b)`, so a large file can be
+## checksummed chunk by chunk without keeping it in memory. Start with `0`.
+##
+## ## Parámetros
+## - `initial`: the previous checksum, or `0` to start.
+## - `data`: the next bytes. Borrowed.
+##
+## ## Retorno
+## The updated 32-bit checksum.
+##
+## ## Ejemplo
+## ```pengu
+## var c as u32 is 0
+## set c is calling compressus.crc32_continue with c, chunk_a
+## set c is calling compressus.crc32_continue with c, chunk_b
+## ```
+weave crc32_continue with initial as u32, data as string into u32:
+    return calling _crc32_range with data, 0, (data length), initial
+
+## Adler-32 (RFC 1950) of `data`, the checksum zlib stores.
+##
+## `adler32("")` is `1`. The result matches Python's `zlib.adler32(data)`.
+##
+## ## Parámetros
+## - `data`: the bytes to checksum. Borrowed.
+##
+## ## Retorno
+## The 32-bit checksum.
+##
+## ## Ejemplo
+## ```pengu
+## var a as u32 is calling compressus.adler32 with "hello"
+## ```
+weave adler32 with data as string into u32:
+    return calling _adler32_range with data, 0, (data length), 1
+
+## Adler-32 of `data` continuing a previous checksum.
+##
+## `adler32_continue(adler32(a), b) == adler32(a + b)`. Start with `1`.
+##
+## ## Parámetros
+## - `initial`: the previous checksum, or `1` to start.
+## - `data`: the next bytes. Borrowed.
+##
+## ## Retorno
+## The updated 32-bit checksum.
+##
+## ## Ejemplo
+## ```pengu
+## var a as u32 is 1
+## set a is calling compressus.adler32_continue with a, chunk
+## ```
+weave adler32_continue with initial as u32, data as string into u32:
+    return calling _adler32_range with data, 0, (data length), initial
+
+# ----------------------------------------------------------------------------
+# File helpers
+# ----------------------------------------------------------------------------
+
+## Reads `input_path`, compresses it as gzip and writes `output_path`.
+##
+## The whole file is read into memory and the whole result is written at once;
+## see the module note on large files.
+##
+## ## Parámetros
+## - `input_path`: file to read. Borrowed.
+## - `output_path`: file to create or truncate. Borrowed.
+## - `level`: how hard to work.
+##
+## ## Retorno
+## `ok` with the number of **compressed** bytes written, `err CompressError`
+## (`FileError` when either file cannot be opened).
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of int to CompressError is calling compressus.gzip_compress_file with "notes.txt", "notes.txt.gz", CompressionLevel.Best
+## ```
+weave gzip_compress_file with input_path as string, output_path as string, level as CompressionLevel into result of int to CompressError:
+    var content as maybe string is calling archivum.read_bytes with input_path
+    if not (content is present):
+        banish content
+        return calling err_of with (with FileError is "cannot read '{input_path}'")
+    var data as string is content.value
+    var packed as result of string to CompressError is calling gzip_compress with data, level
+    banish content
+    if not packed.is_ok:
+        var failure as CompressError is calling _take_error with (sigil of packed)
+        banish packed
+        return calling err_of with failure
+    var blob as string is packed.value
+    var written as bool is calling archivum.write_bytes with output_path, blob
+    var size as int is blob length
+    banish packed
+    if not written:
+        return calling err_of with (with FileError is "cannot write '{output_path}'")
+    return calling ok_of with size
+
+## Reads `input_path` as gzip and writes the plain bytes to `output_path`.
+##
+## ## Parámetros
+## - `input_path`: gzip file to read. Borrowed.
+## - `output_path`: file to create or truncate. Borrowed.
+##
+## ## Retorno
+## `ok` with the number of **decompressed** bytes written, or `err`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of int to CompressError is calling compressus.gzip_decompress_file with "notes.txt.gz", "notes.txt"
+## ```
+weave gzip_decompress_file with input_path as string, output_path as string into result of int to CompressError:
+    var content as maybe string is calling archivum.read_bytes with input_path
+    if not (content is present):
+        banish content
+        return calling err_of with (with FileError is "cannot read '{input_path}'")
+    var data as string is content.value
+    var plain as result of string to CompressError is calling gzip_decompress with data
+    banish content
+    if not plain.is_ok:
+        var failure as CompressError is calling _take_error with (sigil of plain)
+        banish plain
+        return calling err_of with failure
+    var plain_bytes as string is plain.value
+    var written as bool is calling archivum.write_bytes with output_path, plain_bytes
+    var size as int is plain_bytes length
+    banish plain
+    if not written:
+        return calling err_of with (with FileError is "cannot write '{output_path}'")
+    return calling ok_of with size
+
+## Reads a gzip file and returns its decompressed contents.
+##
+## ## Parámetros
+## - `path`: the `.gz` file. Borrowed.
+##
+## ## Retorno
+## `ok` with the **owned** plain bytes, or `err`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of string to CompressError is calling compressus.gzip_read_file with "notes.txt.gz"
+## ```
+weave gzip_read_file with path as string into result of string to CompressError:
+    var content as maybe string is calling archivum.read_bytes with path
+    if not (content is present):
+        banish content
+        return calling err_of with (with FileError is "cannot read '{path}'")
+    var data as string is content.value
+    var plain as result of string to CompressError is calling gzip_decompress with data
+    banish content
+    return plain
+
+## Compresses `data` as gzip and writes it to `path`.
+##
+## ## Parámetros
+## - `path`: file to create or truncate. Borrowed.
+## - `data`: bytes to compress. Borrowed.
+## - `level`: how hard to work.
+##
+## ## Retorno
+## `ok` with nothing, or `err`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of void to CompressError is calling compressus.gzip_write_file with "notes.txt.gz", "hello", CompressionLevel.Best
+## ```
+weave gzip_write_file with path as string, data as string, level as CompressionLevel into result of void to CompressError:
+    var packed as result of string to CompressError is calling gzip_compress with data, level
+    if not packed.is_ok:
+        var failure as CompressError is calling _take_error with (sigil of packed)
+        banish packed
+        return calling err_of with failure
+    var blob as string is packed.value
+    var written as bool is calling archivum.write_bytes with path, blob
+    banish packed
+    if not written:
+        return calling err_of with (with FileError is "cannot write '{path}'")
+    return calling ok_of with 0
+
+## Reads `input_path`, compresses it as zlib and writes `output_path`.
+##
+## ## Parámetros
+## - `input_path`: file to read. Borrowed.
+## - `output_path`: file to create or truncate. Borrowed.
+## - `level`: how hard to work.
+##
+## ## Retorno
+## `ok` with the number of **compressed** bytes written, or `err`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of int to CompressError is calling compressus.zlib_compress_file with "a.bin", "a.zlib", CompressionLevel.Best
+## ```
+weave zlib_compress_file with input_path as string, output_path as string, level as CompressionLevel into result of int to CompressError:
+    var content as maybe string is calling archivum.read_bytes with input_path
+    if not (content is present):
+        banish content
+        return calling err_of with (with FileError is "cannot read '{input_path}'")
+    var data as string is content.value
+    var packed as result of string to CompressError is calling zlib_compress with data, level
+    banish content
+    if not packed.is_ok:
+        var failure as CompressError is calling _take_error with (sigil of packed)
+        banish packed
+        return calling err_of with failure
+    var blob as string is packed.value
+    var written as bool is calling archivum.write_bytes with output_path, blob
+    var size as int is blob length
+    banish packed
+    if not written:
+        return calling err_of with (with FileError is "cannot write '{output_path}'")
+    return calling ok_of with size
+
+## Reads `input_path` as zlib and writes the plain bytes to `output_path`.
+##
+## ## Parámetros
+## - `input_path`: zlib file to read. Borrowed.
+## - `output_path`: file to create or truncate. Borrowed.
+##
+## ## Retorno
+## `ok` with the number of **decompressed** bytes written, or `err`.
+##
+## ## Ejemplo
+## ```pengu
+## var r as result of int to CompressError is calling compressus.zlib_decompress_file with "a.zlib", "a.bin"
+## ```
+weave zlib_decompress_file with input_path as string, output_path as string into result of int to CompressError:
+    var content as maybe string is calling archivum.read_bytes with input_path
+    if not (content is present):
+        banish content
+        return calling err_of with (with FileError is "cannot read '{input_path}'")
+    var data as string is content.value
+    var plain as result of string to CompressError is calling zlib_decompress with data
+    banish content
+    if not plain.is_ok:
+        var failure as CompressError is calling _take_error with (sigil of plain)
+        banish plain
+        return calling err_of with failure
+    var plain_bytes as string is plain.value
+    var written as bool is calling archivum.write_bytes with output_path, plain_bytes
+    var size as int is plain_bytes length
+    banish plain
+    if not written:
+        return calling err_of with (with FileError is "cannot write '{output_path}'")
+    return calling ok_of with size

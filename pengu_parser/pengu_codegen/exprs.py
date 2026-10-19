@@ -2421,7 +2421,16 @@ class ExprMixin:
                     # referenced an undeclared `T`.  `lookup_type` is the same
                     # predicate the inferrer uses, which is what keeps the two
                     # passes in step.
-                    elif name in ("int", "i32", "i64", "f32", "f64", "float", "double", "bool", "string", "char", "byte", "u8", "u16", "u32", "u64") or (self.symbols and (name in self.symbols.runes or self.symbols.lookup_type(name) is not None)):
+                    #
+                    # `canonical_primitive_name` is the whole documented scalar
+                    # set (LANGUAGE.md §4.1).  The old hard-coded tuple omitted
+                    # `usize`/`isize`/`size_t` and the `int8`..`uint64` spellings,
+                    # so `(src length) to usize` type-checked as a cast but was
+                    # emitted as a *range* (`(PenguRange){...}`) and the C
+                    # referenced an undeclared `usize` identifier.  Deriving the
+                    # predicate from the one alias table keeps the two lists from
+                    # drifting again.
+                    elif canonical_primitive_name(name) is not None or name == "string" or (self.symbols and (name in self.symbols.runes or self.symbols.lookup_type(name) is not None)):
                         is_type_cast = True
                         cast_target = ast_to_type(right_node, self._lookup_type_fn)
                     elif name in self.runes or name in self.seals or name in self.aliases:

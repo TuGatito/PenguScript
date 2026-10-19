@@ -87,7 +87,15 @@ class ProtoMixin:
             if is_msvc and not auto_inline:
                 parts.append("static __forceinline")
             else:
-                parts.append("static inline")
+                # The checker promotes small non-recursive weaves to `static
+                # inline`, and DCE keeps a module's public entry points even
+                # when the program never calls them. Clang's
+                # `-Wunused-function` treats an unreferenced `static inline`
+                # as a warning, and `-Werror` would reject a valid program;
+                # `PENGU_MAYBE_UNUSED` is empty on MSVC and `unused` on
+                # GNU/Clang. Explicit `inline weave` gets the same treatment
+                # because an unreferenced one is dead code, not a mistake.
+                parts.append("PENGU_MAYBE_UNUSED static inline")
                 if not auto_inline:
                     c_attrs.append("always_inline")
 

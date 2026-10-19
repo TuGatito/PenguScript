@@ -2680,7 +2680,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 
 `std/spark.pengu` defines `SPARK_VERSION` and `STD_VERSION` constants; `spark.spark_version` returns the version string.
 
-### 15.2 Core module catalog (39 modules)
+### 15.2 Core module catalog (40 modules)
 
 | Module | Import | Implementation | Purpose & key functions |
 | ------ | ------ | -------------- | ----------------------- |
@@ -2706,6 +2706,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **lingua** | `import std.lingua` | C header (`std_c/utf8.h`) + Pengu wrapper | UTF-8 over codepoints: `Codepoint` (`seal` over `u32`), `LinguaError` with byte offsets, `decode`/`decode_prefix`, `encode`/`encode_one`, `is_valid`/`validate`, `codepoint_count`/`utf16_length`, classification (`is_letter`, `is_digit`, `is_whitespace`, `is_punctuation`, `is_symbol`, `is_control`), `from_u32`/`to_utf16`, navigation (`codepoint_at`, `byte_offset_of`, `next_codepoint`, `prev_codepoint`) and `grapheme_count`. Smart-linked: `utf8.h` only when imported. See `docs/LINGUA.md`. |
 | **regulus** | `import std.regulus` | C (`std_c/re.h` + `re.c`) + Pengu wrapper | Small regex: `Regex.compile`, `pattern`, `is_match`, `match`, `match_at`, `matches`, `replace_first`, `replace_all`, `split`, `escape`, `Match`, `RegexError`; one-shot `regulus.is_match`/`find_first`. Grammar: `. ^ $ * + ? [] \d \w \s`; no groups/alternation/`{n,m}`/lookaround. Smart-linked: `-lre` only when imported. See `docs/REGULUS.md`. |
 | **petitio** | `import std.petitio` | C (`std_c/petitio.h` + `petitio.c`) over system **libcurl** + Pengu wrapper | HTTP client with a `requests`-shaped API: `Request` (`new`, `header`, `text_body`, `json_body`, `form_body`, `timeout`, `no_redirects`, `auth_basic`, `auth_bearer`, `proxy`, `max_body_bytes`, `multipart_*`, `send`), `Response` (`status`, `headers`, `body`, `text`, `json`, `header`, `raise_for_status`, `is_ok`…), `Session` with cookies, `HttpError`, `UrlParts`, one-shot `get`/`post_json`/`post_form`/`put_json`/`delete`/`head`, URL helpers `url_encode`/`url_decode`/`build_query_string`/`with_query`/`parse_url`, and explicit moves `take_response`/`take_error`. Smart-linked: `-lpetitio -lcurl` only when imported. See `docs/PETITIO.md`. |
+| **compressus** | `import std.compressus` | C (`std_c/miniz.h` + `miniz.c`) + Pengu wrapper | gzip/zlib/raw deflate: one-shot `gzip_compress`, `gzip_compress_named`, `gzip_decompress`, `zlib_compress`, `zlib_decompress`, `deflate_compress`, `inflate_decompress`; `detect_format`/`decompress_auto`/`decompress_as`; multi-member gzip; `crc32`/`adler32` and `*_continue`; file helpers `gzip_compress_file`/`gzip_decompress_file`/`gzip_read_file`/`gzip_write_file`/`zlib_*_file`; `CompressionLevel`, `CompressionFormat`, `CompressError`. Smart-linked: `-lminiz` only when imported. See `docs/COMPRESSUS.md`. |
 | **filum** | `import std.filum` | C primitives | Concurrency: `mutex`/`lock`/`unlock`/`try_lock`, `wait_group` (`add`, `done`, `wait`), `once`, channels, thread spawn, condition variables, atomics (opaque-handle value types). |
 | **fractio** | `import std.fractio` | Pure PenguScript + `libm` | Float-only methods: a shard `where T: Real:` for IEEE 754 classification (`is_nan`, `is_finite`, `is_infinite`, `is_positive_infinity`, `is_negative_infinity`), `approx_eq`, `lerp`, `reciprocal`, `copysign`, `degrees`, `radians`; plus concrete `float`/`f64` blocks for the `libm` transcendentals `sqrt`, `cbrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `pow`, `hypot`. Monomorphized to `f64_sqrt`, `float_is_nan`. |
 | **integrum** | `import std.integrum` | Pure PenguScript | Integer-only methods over every signed/unsigned primitive via one `enchanting shard T where T: Integrum:`. Predicates `is_even`, `is_odd`, `is_power_of_two`, `is_multiple_of`, `is_prime`; bits `bit_count`, `bit_length`, `leading_zeros`, `trailing_zeros`, `next_power_of_two`, `prev_power_of_two`; Euclidean division `div_rem` (→ `(T, T)`), `div_floor`, `mod_floor`; number theory `gcd`, `lcm`, `next_prime`, `prev_prime`, `factorial`; representations `to_hex`, `to_bin`, `to_oct` (**allocate — `banish`**). Delegates `abs` to `std.numerus`. |
@@ -2762,6 +2763,56 @@ weave main into int:
 - `DiagnosticBag.error/warning/info/hint` add a one-label diagnostic;
   `render_json` is the LSP form.
 
+
+### 15.2.2 Compression (`std.compressus`)
+
+gzip and zlib are byte formats, not options: compress with `gzip_compress`,
+release the `result`, and verify the checksum of anything you downloaded.
+
+```pengu
+import std.compressus
+import std.spark
+
+weave main into int:
+    var text as string is "the quick brown fox jumps over the lazy dog"
+
+    var packed as result of string to CompressError is calling compressus.gzip_compress with text, CompressionLevel.Best
+    defer banish packed
+    if not packed.is_ok:
+        var failure as CompressError is packed.error
+        var why as string is calling failure.message
+        calling spark.eprintln with why
+        banish why
+        return 1
+
+    var plain as result of string to CompressError is calling compressus.gzip_decompress with packed.value
+    defer banish plain
+    if plain.is_ok:
+        calling spark.println with plain.value          # the original text
+
+    var crc as u32 is calling compressus.crc32 with text
+    calling spark.println_int with (crc to int)          # zlib.crc32(text)
+    return 0
+```
+
+- Formats: `Gzip` (files, HTTP `Content-Encoding: gzip`), `Zlib` (specs that
+  say zlib / PNG `IDAT`), `RawDeflate` (a protocol that already frames and
+  checksums). `detect_format` recognises gzip and zlib; raw deflate is never
+  guessed. `decompress_as(data, format)` dispatches explicitly and accepts
+  `Auto` for detection.
+- Levels: `None`, `Fastest`, `Default` (6), `Better`, `Best`, `Uber` (miniz).
+- `result.value` is **borrowed**; `banish` the result, not the view.
+  `CompressError` derives `Nexus`, so the same `banish` releases an error's
+  reason. `CompressError.message` returns an owned copy.
+- Multi-member gzip: `gzip_decompress` concatenates members (`cat a.gz b.gz`).
+- One-shot holds input + output in RAM. For >~100 MB, compress 8 MiB chunks as
+  independent members and concatenate them; a streaming API lands in 2.14.1.
+- File helpers (`gzip_compress_file`, `gzip_read_file`, …) are convenience
+  wrappers over the one-shot functions, not streaming.
+- Already-compressed payloads (JPEG, PNG, MP4, ZIP, `.gz`) do **not** get
+  smaller. `std.compressus` is a transport/archive tool, not a magic wand.
+- Smart-linked: `-lminiz` only when imported. See `docs/COMPRESSUS.md`.
+
 ### 15.3 HTTP requests (`std.petitio`)
 
 The client is libcurl under a `requests`-shaped wrapper. Build a `Request`,
@@ -2817,10 +2868,11 @@ weave main into int:
 
 ### 15.4 External bindings (satellite repositories)
 
-`std_c/` vendors three C dependencies: `utf8.h` (sheredom, public domain) for
+`std_c/` vendors four C dependencies: `utf8.h` (sheredom, public domain) for
 `std.lingua`, `re.h`/`re.c` (kokke/tiny-regex-c, public domain) for
-`std.regulus`, and `petitio.h`/`petitio.c` (the First-party libcurl bridge) for
-`std.petitio`. `build_runtime.py` archives each `std_c/*.c` into its own
+`std.regulus`, `petitio.h`/`petitio.c` (the first-party libcurl bridge) for
+`std.petitio`, and `miniz.h`/`miniz.c` (miniz 3.1.2, public domain, configured
+by `miniz_bind.h`) for `std.compressus`. `build_runtime.py` archives each `std_c/*.c` into its own
 `build/lib/lib<name>.a`, and a module's `link "..."` lines reach only the
 programs that import it. The runtime itself stays self-contained (libc, libm,
 pthreads).

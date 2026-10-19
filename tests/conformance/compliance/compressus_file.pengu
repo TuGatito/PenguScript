@@ -1,0 +1,51 @@
+## File helpers: compress to a `.gz`, read it back, decompress to a file and
+## verify every byte. Files are written under the test's working directory and
+## removed at the end.
+import std.archivum
+import std.compressus
+import std.scrolls
+import std.spark
+import std.ward
+
+weave main into int:
+    var text as string is "file helpers write real gzip members\n"
+    calling ward.assert_true with (calling archivum.write_bytes with "conformance_in.txt", text)
+
+    var compressed as result of int to CompressError is calling compressus.gzip_compress_file with "conformance_in.txt", "conformance_mid.gz", CompressionLevel.Best
+    calling ward.assert_true with compressed.is_ok
+    if compressed.is_ok:
+        calling ward.assert_true with compressed.value > 0
+    banish compressed
+
+    var read_back as result of string to CompressError is calling compressus.gzip_read_file with "conformance_mid.gz"
+    calling ward.assert_true with read_back.is_ok
+    if read_back.is_ok:
+        calling ward.assert_eq_int with (calling scrolls.compare with read_back.value, text), 0
+    banish read_back
+
+    var decompressed as result of int to CompressError is calling compressus.gzip_decompress_file with "conformance_mid.gz", "conformance_out.txt"
+    calling ward.assert_true with decompressed.is_ok
+    if decompressed.is_ok:
+        calling ward.assert_eq_int with decompressed.value, (text length)
+    banish decompressed
+
+    var written as result of void to CompressError is calling compressus.gzip_write_file with "conformance_write.gz", text, CompressionLevel.Fastest
+    calling ward.assert_true with written.is_ok
+    banish written
+
+    var reread as result of string to CompressError is calling compressus.gzip_read_file with "conformance_write.gz"
+    calling ward.assert_true with reread.is_ok
+    if reread.is_ok:
+        calling ward.assert_eq_int with (calling scrolls.compare with reread.value, text), 0
+    banish reread
+
+    var missing as result of string to CompressError is calling compressus.gzip_read_file with "conformance_missing.gz"
+    calling ward.assert_false with missing.is_ok
+    banish missing
+
+    calling archivum.delete_file with "conformance_in.txt"
+    calling archivum.delete_file with "conformance_mid.gz"
+    calling archivum.delete_file with "conformance_out.txt"
+    calling archivum.delete_file with "conformance_write.gz"
+    calling spark.println with "OK compressus_file"
+    return 0

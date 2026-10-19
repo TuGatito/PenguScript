@@ -295,7 +295,7 @@ bind string with Ordered:
 ## ```pengu
 ## calling spark.println with ATLAS_VERSION    # 2.1.0
 ## ```
-const ATLAS_VERSION as string is "2.13.0"
+const ATLAS_VERSION as string is "2.14.0"
 
 # --- Generic enchanting: K: Par, V: Par ------------------------------------
 

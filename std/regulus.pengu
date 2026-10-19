@@ -94,7 +94,7 @@ import std.scrolls
 # ----------------------------------------------------------------------------
 
 ## Regulus module version.
-const REGULUS_VERSION as string is "2.13.0"
+const REGULUS_VERSION as string is "2.14.0"
 
 ## Longest accepted pattern, in bytes.
 ##

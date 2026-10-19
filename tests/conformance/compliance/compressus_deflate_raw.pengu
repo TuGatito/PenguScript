@@ -1,0 +1,36 @@
+## Raw deflate (RFC 1951): no header, no checksum. Empty input decompresses to
+## the empty string, trailing bytes are TrailingData.
+import std.builder
+import std.compressus
+import std.spark
+import std.ward
+
+weave main into int:
+    var text as string is "raw deflate has no framing at all"
+    var packed as result of string to CompressError is calling compressus.deflate_compress with text, CompressionLevel.Best
+    calling ward.assert_true with packed.is_ok
+    if packed.is_ok:
+        var back as result of string to CompressError is calling compressus.inflate_decompress with packed.value
+        calling ward.assert_true with back.is_ok
+        if back.is_ok:
+            calling ward.assert_eq_int with (back.value length), (text length)
+        banish back
+        var extra as StringBuilder is calling StringBuilder.from_string with packed.value
+        calling extra.append with "trailing"
+        var with_extra as string is calling extra.finish
+        banish extra
+        var rejected as result of string to CompressError is calling compressus.inflate_decompress with with_extra
+        calling ward.assert_false with rejected.is_ok
+        banish rejected
+        banish with_extra
+    else:
+        calling spark.println with "FAIL compress"
+    banish packed
+
+    var empty as result of string to CompressError is calling compressus.inflate_decompress with ""
+    calling ward.assert_true with empty.is_ok
+    if empty.is_ok:
+        calling ward.assert_eq_int with (empty.value length), 0
+    banish empty
+    calling spark.println with "OK compressus_deflate_raw"
+    return 0

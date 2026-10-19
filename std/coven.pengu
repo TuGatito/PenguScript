@@ -162,7 +162,7 @@ import std.scrolls
 ## signature changes. 2.1.0 added the generic `Set of T`; 2.2.0 adds the wide
 ## integer constructors (`new_i64_set`, `new_u64_set`, `new_usize_set`,
 ## `new_isize_set`).
-const COVEN_VERSION as string is "2.13.0"
+const COVEN_VERSION as string is "2.14.0"
 
 # ----------------------------------------------------------------------------
 # Ownership bridges (raw-buffer plumbing)

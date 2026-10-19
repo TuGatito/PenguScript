@@ -115,7 +115,7 @@ import std.oracle
 # ----------------------------------------------------------------------------
 
 ## Version constant for the std.cipher module.
-const CIPHER_VERSION as string is "2.13.0"
+const CIPHER_VERSION as string is "2.14.0"
 
 # The two Base85 alphabets contain `{`, which a normal PenguScript string
 # literal reads as the start of an interpolation, and a raw string still trips

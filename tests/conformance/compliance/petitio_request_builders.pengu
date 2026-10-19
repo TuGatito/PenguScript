@@ -102,9 +102,9 @@ weave main into int:
     calling eq_i with (req.max_body_bytes to int), 1024, "body cap"
 
     # Constants.
-    calling eq_s with petitio.PETITIO_VERSION, "2.13.0", "version"
-    calling eq_s with petitio.PETITIO_DEFAULT_USER_AGENT, "petitio/2.13.0", "user agent"
-    calling eq_s with (calling petitio.default_user_agent), "petitio/2.13.0", "default_user_agent"
+    calling eq_s with petitio.PETITIO_VERSION, "2.14.0", "version"
+    calling eq_s with petitio.PETITIO_DEFAULT_USER_AGENT, "petitio/2.14.0", "user agent"
+    calling eq_s with (calling petitio.default_user_agent), "petitio/2.14.0", "default_user_agent"
 
     calling spark.println with "OK petitio_request_builders"
     return 0

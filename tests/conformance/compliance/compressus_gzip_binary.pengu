@@ -1,0 +1,34 @@
+## Every byte value, including NUL, survives a gzip round-trip. The buffer is
+## built one character at a time because a string literal stops at a NUL.
+import std.builder
+import std.compressus
+import std.scrolls
+import std.spark
+import std.ward
+
+weave main into int:
+    var sb as StringBuilder is calling StringBuilder.with_capacity with 256
+    var b as int is 0
+    while b < 256:
+        calling sb.append_char with (b to char)
+        set b is b + 1
+    var payload as string is calling sb.finish
+    banish sb
+    calling ward.assert_eq_int with (payload length), 256
+    var before_crc as u32 is calling compressus.crc32 with payload
+    var packed as result of string to CompressError is calling compressus.gzip_compress with payload, CompressionLevel.Best
+    calling ward.assert_true with packed.is_ok
+    if packed.is_ok:
+        var back as result of string to CompressError is calling compressus.gzip_decompress with packed.value
+        calling ward.assert_true with back.is_ok
+        if back.is_ok:
+            calling ward.assert_eq_int with (back.value length), 256
+            calling ward.assert_eq_int with (calling scrolls.compare with back.value, payload), 0
+            calling ward.assert_true with (calling compressus.crc32 with back.value) == before_crc
+        banish back
+    else:
+        calling spark.println with "FAIL compress"
+    banish packed
+    banish payload
+    calling spark.println with "OK compressus_gzip_binary"
+    return 0
