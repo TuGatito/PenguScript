@@ -683,6 +683,17 @@ static size_t petitio_stream_write_cb(char *ptr, size_t size, size_t nmemb,
     return total;
 }
 
+/* Reports an option failure with libcurl's own explanation instead of a
+ * generic message, so a bad multipart body or header is diagnosable. */
+static void petitio_response_set_option_error(petitio_response *response,
+                                              CURLcode code)
+{
+    char message[256];
+    snprintf(message, sizeof message, "libcurl rejected a request option: %s",
+             curl_easy_strerror(code));
+    petitio_response_set_error(response, PETITIO_PROTOCOL_ERROR, message);
+}
+
 /* Applies every option that is common to the four transfer modes. `write_cb`
  * and `write_data` choose the body sink; `*out_mime` receives a multipart body
  * the caller must free after the transfer (NULL when the request has none). */
@@ -907,8 +918,7 @@ static petitio_response *petitio_perform(petitio_request *request)
         if (mime != NULL)
             curl_mime_free(mime);
         curl_easy_cleanup(curl);
-        petitio_response_set_error(response, PETITIO_PROTOCOL_ERROR,
-                                   "libcurl rejected a request option");
+        petitio_response_set_option_error(response, code);
         return response;
     }
 
@@ -998,8 +1008,7 @@ petitio_response *petitio_request_perform_to_file(petitio_request *request,
             curl_mime_free(mime);
         curl_easy_cleanup(curl);
         fclose(sink.file);
-        petitio_response_set_error(response, PETITIO_PROTOCOL_ERROR,
-                                   "libcurl rejected a request option");
+        petitio_response_set_option_error(response, code);
         return response;
     }
 
@@ -1060,8 +1069,7 @@ petitio_response *petitio_request_perform_stream(petitio_request *request,
         if (mime != NULL)
             curl_mime_free(mime);
         curl_easy_cleanup(curl);
-        petitio_response_set_error(response, PETITIO_PROTOCOL_ERROR,
-                                   "libcurl rejected a request option");
+        petitio_response_set_option_error(response, code);
         return response;
     }
 
@@ -1201,8 +1209,7 @@ int petitio_multi_add(petitio_multi *multi, petitio_request *request)
         if (mime != NULL)
             curl_mime_free(mime);
         curl_easy_cleanup(curl);
-        petitio_response_set_error(response, PETITIO_PROTOCOL_ERROR,
-                                   "libcurl rejected a request option");
+        petitio_response_set_option_error(response, code);
         transfer->finished = 1;
         (void)petitio_multi_queue_push(multi, index);
         return index;

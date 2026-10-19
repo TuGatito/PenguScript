@@ -29,7 +29,7 @@ import std.fractio     # sqrt, pow, sin/cos/tan, exp, ln, log2, log10, hypot, de
 # ----------------------------------------------------------------------------
 
 ## Arithmancy module version.
-const ARITHMANCY_VERSION as string is "2.12.0"
+const ARITHMANCY_VERSION as string is "2.13.0"
 
 ## Pi: ratio of a circle's circumference to its diameter.
 const PI as float is 3.141592653589793

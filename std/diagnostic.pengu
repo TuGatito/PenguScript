@@ -82,7 +82,7 @@ import std.spark
 # ----------------------------------------------------------------------------
 
 ## Diagnostic module version.
-const DIAGNOSTIC_VERSION as string is "2.12.0"
+const DIAGNOSTIC_VERSION as string is "2.13.0"
 
 ## LSP severity number for `Severity.Error`.
 const DIAGNOSTIC_SEVERITY_ERROR as int is 1

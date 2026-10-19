@@ -303,7 +303,7 @@ def test_petitio_matches_urllib(compile_and_run, http_base):
     get_body = json.loads(seen["GET body"])
     assert get_body["query"] == {"a": "1"}
     assert get_body["x-test"] == "petitio"
-    assert get_body["ua"] == "petitio/2.12.0"
+    assert get_body["ua"] == "petitio/2.13.0"
     assert reference["query"] == {"a": "1"}
 
     # JSON POST.

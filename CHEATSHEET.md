@@ -2796,6 +2796,15 @@ weave main into int:
 
 - One-shots: `petitio.get`, `post`, `post_json`, `post_form`, `put_json`,
   `patch_json`, `delete`, `head`, `options`, `post_text`.
+- Streaming: `req.send_to_file(path)` (no body in RAM, `bytes_written` set) and
+  `req.send_stream(cb, user)` (chunk is **borrowed**; `false` → `Cancelled`).
+- Concurrency: `petitio.fetch_many(requests)` runs them on libcurl-multi, one
+  thread, input order; the input `Request`s stay yours.
+- Protocol/auth: `req.http_version(HttpVersion.Http2)` (ALPN) or
+  `Http2PriorKnowledge`; `resp.http_version` reports what the server spoke.
+  `auth_basic` / `auth_digest` / `auth_any`; `socks_proxy` uses `socks5h`.
+- Cookies: `Max-Age` (any non-positive) and `Expires` both expire; `Max-Age`
+  wins. `Session.load_cookies_from_file` / `save_cookies_to_file` (Netscape).
 - `json_body`/`form_body` set the content type; call `header` **after** them to
   override it.
 - Query strings: `build_query_string` sorts and encodes; `with_query` appends.

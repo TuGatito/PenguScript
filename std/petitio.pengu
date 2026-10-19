@@ -1,12 +1,15 @@
 ## std/petitio.pengu — a high-level HTTP client with a `requests`-shaped API.
 ##
 ## `std.petitio` (Latin *petitio*, "a request") is PenguScript's HTTP client.
-## It is a synchronous, explicit, `result`-returning wrapper over **libcurl**:
+## It is an explicit, `result`-returning wrapper over **libcurl**:
 ## GET/POST/PUT/DELETE/HEAD/PATCH/OPTIONS, custom headers, JSON and
 ## form-urlencoded bodies, multipart/form-data, query strings, URL parsing,
-## total and connect timeouts, redirect control, TLS verification, Basic and
-## Bearer authentication, proxies, per-response body caps, sessions with
-## cookies, and a `Response` that can parse JSON.
+## total and connect timeouts, redirect control, TLS verification, Basic /
+## Digest / negotiated authentication, Bearer tokens, HTTP and SOCKS proxies,
+## HTTP/1.0, HTTP/1.1 and HTTP/2 (ALPN or prior knowledge), streaming downloads
+## to a file or a callback, concurrent batches with `fetch_many`, per-response
+## body caps, sessions with cookies (including `Expires`), and a `Response` that
+## can parse JSON.
 ##
 ## ## Why libcurl and not naett
 ##
@@ -68,12 +71,14 @@
 ## ## Errors
 ## Every network operation returns `result ... to HttpError`; none of them
 ## panic on a transport failure. Malformed *program input* to a builder
-## (`Request.new` with a method containing a space, `Request.header` with CR/LF
-## or ':' in the name, `Request.set_cookie` with ';' in the value) is a bug in
-## the caller and panics with a message naming the offending value — validate
-## untrusted data before you build the request (§14.36 of the Pengunic guide).
-## `multipart_file` is the exception: it reports `false` instead of panicking
-## because a missing file is a runtime condition, not a bug.
+## (`Request.new` with a method containing a space or a URL with a control byte,
+## `Request.header` with CR, LF or NUL or ':' in the name, `Request.set_cookie`
+## with ';' in the value, `Request.auth_*`/`proxy`/`multipart_*` with a control
+## byte, `Request.http_version` with `Http3`) is a bug in the caller and panics
+## with a message naming the offending value — validate untrusted data before you build
+## the request (§14.40–14.42 of the Pengunic guide). `multipart_file` is the
+## exception: it reports `false` instead of panicking because a missing file is
+## a runtime condition, not a bug.
 ##
 ## ## Feature matrix
 ## | Feature | Supported |
@@ -88,11 +93,16 @@
 ## | Total and connect timeouts | ✅ |
 ## | Redirect following with a limit, or none | ✅ |
 ## | TLS verification toggle (`insecure`) | ✅ |
-## | Basic and Bearer authentication | ✅ |
-## | Proxy (`proxy`) | ✅ |
-## | Cookies (`Session`) | ✅ name/value, `Max-Age=0` deletion |
+## | Basic / Digest / negotiated authentication, Bearer tokens | ✅ |
+## | HTTP and SOCKS5 proxies | ✅ |
+## | HTTP/1.0, HTTP/1.1, HTTP/2 over ALPN, HTTP/2 prior knowledge | ✅ |
+## | Cookies (`Session`) | ✅ name/value, `Max-Age` and `Expires` expiry |
+## | Cookie files (Netscape format) | ✅ `load_cookies_from_file` / `save_cookies_to_file` |
 ## | Response body cap (`max_body_bytes`) | ✅ |
-## | Streaming downloads, connection pooling, HTTP/2 tuning, async | ❌ out of scope |
+## | Streaming downloads to a file or a callback | ✅ `send_to_file` / `send_stream` |
+## | Concurrent requests on one thread | ✅ `fetch_many` (libcurl-multi) |
+## | HTTP/3 | ❌ reported only; requesting it panics (needs a QUIC-enabled libcurl) |
+## | Connection-pool controls, streaming uploads, async/await | ❌ out of scope |
 ##
 ## ## Complexity
 ## | Operation | Cost |
@@ -102,6 +112,8 @@
 ## | `build_query_string` | O(n log n) for n parameters (keys are sorted) |
 ## | `parse_url` | O(n) |
 ## | `Response.json` | O(body size) |
+## | `send_to_file` / `send_stream` | network-bound; one chunk copy, no body buffer |
+## | `fetch_many` | network-bound; one thread, transfers multiplexed |
 ##
 ## ## Versioning
 ## `PETITIO_VERSION` follows the stdlib versioning policy (LANGUAGE.md §19.0):
@@ -121,7 +133,7 @@ import std.spark
 # ----------------------------------------------------------------------------
 
 ## Petitio module version (the stdlib release that ships it).
-const PETITIO_VERSION as string is "2.12.0"
+const PETITIO_VERSION as string is "2.13.0"
 
 ## Redirect limit used by `Request.new` and by the one-shot helpers, matching
 ## Python's `requests`.
@@ -131,7 +143,7 @@ const PETITIO_DEFAULT_MAX_REDIRECTS as int is 30
 const PETITIO_DEFAULT_TIMEOUT_SEC as f64 is 0.0
 
 ## `User-Agent` sent when the request does not set one.
-const PETITIO_DEFAULT_USER_AGENT as string is "petitio/2.12.0"
+const PETITIO_DEFAULT_USER_AGENT as string is "petitio/2.13.0"
 
 ## Content type `json_body` installs when the request has not set one.
 const PETITIO_JSON_CONTENT_TYPE as string is "application/json"
@@ -555,6 +567,16 @@ weave _find_ci with haystack as string, needle as string into int:
         set i is i + 1
     return -1
 
+## Panics when `value` contains CR, LF or NUL, naming `what`.
+##
+## The C bridge hands URLs, credentials, proxy URLs and multipart file names to
+## libcurl as NUL-terminated strings, so a control byte would silently truncate
+## or split them. Rejecting it at the builder keeps the failure at the call that
+## made the mistake.
+weave _require_clean with value as string, what as string into void:
+    if calling _has_control_byte with value:
+        calling spark.panic with "petitio: {what} contains CR, LF or NUL"
+
 ## `true` when `b` may appear unescaped in a percent-encoded string
 ## (RFC 3986 `unreserved`: `A-Z a-z 0-9 - . _ ~`).
 weave _is_unreserved with b as int into bool:
@@ -673,7 +695,7 @@ enchanting Request:
     ## redirects, verifies TLS, has no timeout and no body.
     ##
     ## ## Panics
-    ## When `method` is not an RFC 7230 token.
+    ## When `method` is not an RFC 7230 token, or `url` contains CR, LF or NUL.
     ##
     ## ## Ejemplo
     ## ```pengu
@@ -684,6 +706,7 @@ enchanting Request:
     weave ritual new with method as string, url as string into Request:
         if not calling _is_token with method:
             calling spark.panic with "petitio: invalid HTTP method '{method}'"
+        calling _require_clean with url, "URL"
         var headers as map of string to string is map of string to string
         var parts as list of FormPart is list of FormPart
         var request as Request is:
@@ -824,10 +847,15 @@ enchanting Request:
 
     ## Sends HTTP Basic credentials (RFC 7617).
     ##
+    ## ## Panics
+    ## When `user` or `password` contains CR, LF or NUL.
+    ##
     ## ## Advertencia
     ## Basic sends the password on every request; over plain HTTP that is
     ## readable by anyone on the path. Use HTTPS.
     weave auth_basic with user as string, password as string into void:
+        calling _require_clean with user, "auth user"
+        calling _require_clean with password, "auth password"
         banish self->basic_user
         banish self->basic_password
         set self->basic_user is (calling _copy with user)
@@ -840,10 +868,15 @@ enchanting Request:
     ## response, so the password never crosses the wire. The server must offer
     ## Digest; if it does not, the request fails with the server's `401` status.
     ##
+    ## ## Panics
+    ## When `user` or `password` contains CR, LF or NUL.
+    ##
     ## ## Advertencia
     ## Digest over plain HTTP still lets an attacker capture and replay the
     ## exchange. Use HTTPS.
     weave auth_digest with user as string, password as string into void:
+        calling _require_clean with user, "auth user"
+        calling _require_clean with password, "auth password"
         banish self->basic_user
         banish self->basic_password
         set self->basic_user is (calling _copy with user)
@@ -854,7 +887,12 @@ enchanting Request:
     ##
     ## libcurl uses the strongest scheme the server offers (Digest when
     ## available, Basic otherwise).
+    ##
+    ## ## Panics
+    ## When `user` or `password` contains CR, LF or NUL.
     weave auth_any with user as string, password as string into void:
+        calling _require_clean with user, "auth user"
+        calling _require_clean with password, "auth password"
         banish self->basic_user
         banish self->basic_password
         set self->basic_user is (calling _copy with user)
@@ -865,6 +903,7 @@ enchanting Request:
     ##
     ## An `Authorization` header set explicitly with `header` wins.
     weave auth_bearer with token as string into void:
+        calling _require_clean with token, "bearer token"
         banish self->bearer_token
         set self->bearer_token is (calling _copy with token)
 
@@ -880,6 +919,9 @@ enchanting Request:
     ## - `url`: `"host:port"` (for example `"127.0.0.1:1080"`).
     ## - `credentials`: `"user:password"`, or `""` for an open proxy.
     ##
+    ## ## Panics
+    ## When `url` or `credentials` contains CR, LF or NUL.
+    ##
     ## ## Ejemplo
     ## ```pengu
     ## calling req.socks_proxy with "127.0.0.1:1080", ""
@@ -894,7 +936,12 @@ enchanting Request:
 
     ## Routes the request through `proxy` (`"http://host:port"`), optionally
     ## authenticated with `"user:password"`.
+    ##
+    ## ## Panics
+    ## When `proxy` or `credentials` contains CR, LF or NUL.
     weave proxy with proxy as string, credentials as string into void:
+        calling _require_clean with proxy, "proxy URL"
+        calling _require_clean with credentials, "proxy credentials"
         banish self->proxy
         banish self->proxy_credentials
         set self->proxy is (calling _copy with proxy)
@@ -922,6 +969,8 @@ enchanting Request:
     weave multipart_bytes with name as string, data as string, filename as string, content_type as string into void:
         if not calling _is_token with name:
             calling spark.panic with "petitio: invalid multipart field name '{name}'"
+        calling _require_clean with filename, "multipart file name"
+        calling _require_clean with content_type, "multipart content type"
         var part as FormPart is:
             name is (calling _copy with name)
             value is (calling _copy with data)
@@ -1159,6 +1208,10 @@ enchanting Response:
 ## Every byte outside RFC 3986's `unreserved` set (`A-Z a-z 0-9 - . _ ~`) becomes
 ## `%XX` with upper-case hex digits. Space becomes `%20`, never `+`, so the
 ## result round-trips through `url_decode`.
+##
+## Encoding is **byte-exact**: the string's UTF-8 bytes are encoded one by one,
+## so `"ñ"` (two bytes) becomes `%C3%B1` and never a single percent escape. The
+## output depends only on those bytes: no locale, no Unicode normalization.
 ##
 ## ## Memoria
 ## Returns an owned string; `banish` it.
@@ -2037,6 +2090,8 @@ weave default_user_agent into string:
 ## ## Propiedad
 ## The input `Request` structs stay owned by the caller: `banish` them after the
 ## call. The C handles built from them are owned and released by `fetch_many`.
+## This is a `Request`-level API: a `Session`'s default headers and cookies are
+## **not** applied, so copy them into each request when you need them.
 ## The returned list is owned and each `result` inside is independent; release
 ## them with `banish` (an `ok` result owns its `Response`, an `error` owns its
 ## message).
@@ -2095,8 +2150,9 @@ weave fetch_many with requests as list of Request into list of result of Respons
     banish no_cookies
 
     var done as int is 0
-    while done < added:
-        var ignored as int is calling petitio_multi_perform with engine
+    var stalled as bool is false
+    while done < added and not stalled:
+        var running as int is calling petitio_multi_perform with engine
         var pending as bool is true
         while pending:
             var index as int is -1
@@ -2120,7 +2176,13 @@ weave fetch_many with requests as list of Request into list of result of Respons
                     set done is done + 1
                 calling petitio_response_free with raw
         if done < added:
-            calling petitio_multi_wait with engine, 50
+            if running == 0:
+                # No transfer is running yet not everything finished: the
+                # engine cannot make progress, so do not spin forever. The
+                # remaining placeholders stay `err OutOfMemory`.
+                set stalled is true
+            else:
+                calling petitio_multi_wait with engine, 50
     return results
 
 ## The libcurl runtime version this build links against (e.g. `"8.22.0"`).
