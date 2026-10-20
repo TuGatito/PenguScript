@@ -77,7 +77,8 @@ def test_init_cbind_creates_full_binding_scaffold(tmp_path: Path) -> None:
     assert (proj / "include" / "pengu_demo.h").is_file()
     assert (proj / "c" / "pengu_demo.c").is_file()
     assert (proj / "lib").is_dir()
-    assert (proj / "build.py").is_file()
+    assert (proj / "build.pengu").is_file()
+    assert not (proj / "build.py").exists()
     assert (proj / "README.md").is_file()
     manifest = (proj / "pengu.toml").read_text(encoding="utf-8")
     assert 'entry = "pengu/pengu_demo.d.pengu"' in manifest
@@ -180,14 +181,14 @@ def test_cbind_roundtrip_add_and_build(tmp_path: Path) -> None:
     run_cli("init", "app", cwd=consumer_root)
     app_dir = consumer_root / "app"
 
-    # 3. Install the binding; --trust lets build.py compile the native part.
+    # 3. Install the binding; --trust lets build.pengu compile the native part.
     run_cli("add", str(binding_repo), "--trust", cwd=app_dir)
 
     installed = app_dir / "lib" / "pengu_demo"
     assert (installed / "pengu" / "pengu_demo.d.pengu").is_file()
     # The redundant root copy must not exist (bug fix 4.2).
     assert not (installed / "pengu_demo.d.pengu").is_file()
-    # build.py compiled the toy C library into lib/.
+    # build.pengu compiled the toy C library into lib/.
     assert (installed / "lib" / "libpengu_demo.a").is_file()
 
     # 4. Use the binding from a program.

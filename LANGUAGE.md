@@ -4880,6 +4880,63 @@ the fresh line.
   search box (name / kind / module / signature / summary).
 
 
+### 20.2.6 Build scripts for bindings and libraries (`build.pengu`)
+
+A binding or a reusable library can ship its native build logic as a
+**`build.pengu`** script. It is ordinary PenguScript: the toolchain compiles it
+with the same `std/` and runtime as the rest of the project, so it needs no
+Python and no separate build dependency. It is the **official** format for
+dependency build scripts.
+
+```pengu
+import std.archivum
+import std.invoke
+import std.rites
+import std.spark
+
+weave main into int:
+    var parser as invoke.Parser is calling invoke.new_parser with "build", "compile c/*.c"
+    calling parser.add_flag with "force", "f", "rebuild", false
+    let argv as list of string is calling rites.get_args
+    let res as invoke.ParseResult is calling parser.parse with argv
+    let force as bool is calling res.get_bool_or with "force", false
+    let sources as list of string is calling archivum.find_by_ext with "c", ".c", false
+    if sources.len == 0:
+        calling spark.println with "nothing to compile"
+        return 0
+    # compile each source and archive `lib/lib<name>.a`; honour `force`
+    return 0
+```
+
+Discovery order when `pengu add <repo> --trust` or `pengu update --trust` runs
+a dependency's build (first hit wins):
+
+1. `build.pengu` — preferred, invoked as
+   `pengu run <dep>/build.pengu [-- --force]`;
+2. `build.py` — legacy, run with the current Python interpreter;
+3. `build.bat` (Windows) / `build.sh` (POSIX) — legacy;
+4. `Makefile` — legacy.
+
+The legacy forms keep working, receive `--force` as a plain argument, and print
+an informational note (suppressed by `--quiet` and in CI). They are deprecated
+for the 2.16.0–2.x window and removed in **3.0.0**.
+
+`pengu add` builds the dependency you named, once. Transitive dependencies are
+installed with their build script **skipped** (`--trust` is consent for one
+repository); build one explicitly with `pengu add <transitive> --trust`.
+`pengu update --trust` always rebuilds with `--force`, because a `git pull` can
+change the native sources. A missing `libpengu_runtime.a` or an unreachable CLI
+is reported as an actionable warning, never as a crash.
+
+The nested CLI is located as the frozen executable, as the source checkout
+(`python pengu_project.py …`), or as `pengu` on `PATH`; set
+`PENGU_BIN=/path/to/pengu` to override that (CI, PATH-less environments,
+relocated installs). To migrate an existing `build.py`, replace `os.makedirs`
+with `std.archivum.create_dir`, `shutil.which` with `std.rites.which`,
+`subprocess.run` with `std.rites.run_shell`, `glob` with
+`std.archivum.find_by_ext`, and `sys.exit(N)` with `return N` from
+`weave main`; the full table is in [docs/BINDINGS.md](../docs/BINDINGS.md).
+
 ### 20.3 Execution & Script Mode (`pengu run`)
 
 Compiles and immediately executes the project target:
@@ -5004,12 +5061,12 @@ pengu lsp [--stdio] [--tcp] [--host HOST] [--port PORT]
 Integrates external PenguScript modules and C bindings:
 
 ```bash
-pengu add <source> [--branch BRANCH] [--name NAME] [--config CONFIG] [--no-build]
-pengu update [--config CONFIG] [--verbose]
+pengu add <source> [--branch BRANCH] [--name NAME] [--config CONFIG] [--no-build] [--rebuild] [--trust]
+pengu update [--config CONFIG] [--verbose] [--trust] [--no-build]
 ```
 
-- `pengu add`: Clones a remote git repository or symlinks a local directory into `lib/<name>`, and records the dependency in `pengu.yaml`.
-- `pengu update`: Performs `git pull` across all dependencies in `lib/` and re-runs dependency build scripts.
+- `pengu add`: Clones a remote git repository or copies a local directory into `lib/<name>`, and records the dependency in `pengu.toml`. With `--trust` it runs the dependency's `build.pengu` (or a legacy build script); `--rebuild` passes `--force`, `--no-build` skips it. Re-adding an existing Git checkout forces a rebuild when its `git pull` succeeds.
+- `pengu update`: Performs `git pull` across all dependencies in `lib/` and re-runs their build scripts **with `--force`** when `--trust` is given. `--no-build` only pulls.
 
 ### 20.12 Project Clean (`pengu clean`)
 

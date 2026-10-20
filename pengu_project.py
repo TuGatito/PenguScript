@@ -3684,10 +3684,11 @@ def _update_config_dependency(base_dir: str, dep_name: str, source: str, branch:
 def _dependency_build_allowed(dep_name: str, trusted: bool = False) -> bool:
     """Decides whether a dependency's build script may run (roadmap 5.3).
 
-    A build script (``build.py``/``build.sh``/``Makefile``) is arbitrary code
-    from a third party.  It only runs when explicitly trusted: ``--trust``,
-    ``PENGU_TRUST_ALL=1``, or an interactive "yes".  In a non-interactive shell
-    without trust it is skipped with a warning instead of silently executing.
+    A build script (``build.pengu``/``build.py``/``build.sh``/``Makefile``) is
+    arbitrary code from a third party.  It only runs when explicitly trusted:
+    ``--trust``, ``PENGU_TRUST_ALL=1``, or an interactive "yes".  In a
+    non-interactive shell without trust it is skipped with a warning instead of
+    silently executing.
     """
     if trusted:
         return True
@@ -3704,50 +3705,162 @@ def _dependency_build_allowed(dep_name: str, trusted: bool = False) -> bool:
     return answer.strip().lower() in ("y", "yes")
 
 
-def _run_dependency_build(target_dir: str, dep_name: str, trusted: bool = False) -> bool:
-    """Runs the dependency's build script (build.py / build.bat / build.sh / Makefile).
+def _pengu_cli_argv() -> List[str]:
+    """Returns the argv needed to invoke the ``pengu`` CLI.
+
+    A ``build.pengu`` script is executed through the CLI (``pengu run``), which
+    is the component that knows how to compile a ``.pengu`` file and where the
+    standard library lives.  The CLI can be a frozen executable, a source
+    checkout driven by Python, or a binary on ``PATH``:
+
+    * **PyInstaller release**: ``sys.executable`` *is* the ``pengu`` binary.
+    * **Source checkout**: ``sys.executable`` plus this file.
+    * **Installed on PATH**: ``shutil.which("pengu")``.
+    * **``PENGU_BIN``**: overrides everything (tests/CI/relocated installs).
+
+    Returns:
+        The argv prefix, e.g. ``["pengu"]`` or ``[python, "pengu_project.py"]``.
+
+    Raises:
+        RuntimeError: when no CLI can be located.  Callers must catch it and
+            degrade gracefully; it must never crash ``pengu add``.
+    """
+    override = os.environ.get("PENGU_BIN", "").strip()
+    if override:
+        return [override]
+    if getattr(sys, "frozen", False):
+        # The release binary *is* the CLI; extra arguments are subcommands.
+        return [sys.executable]
+    this_file = globals().get("__file__", "")
+    if this_file and os.path.basename(this_file) == "pengu_project.py":
+        return [sys.executable, os.path.abspath(this_file)]
+    which = shutil.which("pengu")
+    if which:
+        return [which]
+    if this_file:
+        local = os.path.join(os.path.dirname(os.path.abspath(this_file)), "pengu_project.py")
+        if os.path.isfile(local):
+            return [sys.executable, local]
+    raise RuntimeError(
+        "cannot locate the pengu CLI to run a build.pengu script.\n"
+        "  Install pengu on PATH, or set PENGU_BIN=/path/to/pengu."
+    )
+
+
+def _run_dependency_build(target_dir: str, dep_name: str, trusted: bool = False,
+                          force: bool = False) -> bool:
+    """Runs the dependency's build script.
+
+    Discovery order (first hit wins):
+
+    1. ``build.pengu`` -- preferred, executed through the ``pengu`` CLI as
+       ``pengu run <file> [-- --force]``;
+    2. ``build.py`` -- legacy, run with the current Python interpreter;
+    3. ``build.bat`` -- legacy, Windows only;
+    4. ``build.sh`` -- legacy, POSIX only;
+    5. ``Makefile`` -- legacy, run with ``make``.
+
+    A ``build.pengu`` needs ``libpengu_runtime.a`` because ``pengu run`` compiles
+    and links a program.  The archive is checked *before* invoking the CLI so a
+    missing runtime reads as "run ``build_runtime.py``" instead of a confusing
+    linker error from a nested ``pengu run``.
 
     Args:
         target_dir: Installed dependency directory.
         dep_name: Dependency display name.
         trusted: True when the caller already trusted this dependency (--trust).
+        force: True to ask the script to rebuild even when its archive exists.
+            ``build.pengu`` receives ``-- --force``; legacy scripts receive a
+            plain ``--force`` token (they ignore it if they do not parse it).
 
     Returns:
-        True when a build script was found and executed.
+        True when a build script was found and executed (even when it failed:
+        a failure is reported as a warning, same as the historical behaviour).
     """
+    build_pengu = os.path.join(target_dir, "build.pengu")
     build_py = os.path.join(target_dir, "build.py")
     build_bat = os.path.join(target_dir, "build.bat")
     build_sh = os.path.join(target_dir, "build.sh")
     makefile = os.path.join(target_dir, "Makefile")
 
-    build_cmd = None
-    if os.path.isfile(build_py):
-        build_cmd = [sys.executable, "build.py"]
+    build_cmd: Optional[List[str]] = None
+    legacy_label = ""
+    if os.path.isfile(build_pengu):
+        # `pengu run` needs the runtime archive. Report the actionable command
+        # here instead of letting the nested CLI fail with a linker message
+        # that blames the build script.
+        if _find_runtime_archive() is None:
+            emit(f"     Warning skipping '{dep_name}' build.pengu: "
+                 f"libpengu_runtime.a not found (run `python build_runtime.py`)",
+                 file=sys.stderr, color="yellow", level="warning")
+            return False
+        try:
+            build_cmd = _pengu_cli_argv() + ["run", build_pengu]
+        except RuntimeError as exc:
+            emit(f"     Warning cannot run '{dep_name}' build.pengu: {exc}",
+                 file=sys.stderr, color="yellow", level="warning")
+            return False
+        if force:
+            build_cmd += ["--", "--force"]
+    elif os.path.isfile(build_py):
+        build_cmd = [sys.executable, "build.py"] + (["--force"] if force else [])
+        legacy_label = "build.py"
     elif sys.platform == "win32" and os.path.isfile(build_bat):
-        build_cmd = ["cmd.exe", "/c", "build.bat"]
+        build_cmd = ["cmd.exe", "/c", "build.bat"] + (["--force"] if force else [])
+        legacy_label = "build.bat"
     elif sys.platform != "win32" and os.path.isfile(build_sh):
-        build_cmd = ["sh", "build.sh"]
+        build_cmd = ["sh", "build.sh"] + (["--force"] if force else [])
+        legacy_label = "build.sh"
     elif os.path.isfile(makefile):
         build_cmd = ["make"]
+        legacy_label = "Makefile"
 
-    if build_cmd:
-        if not _dependency_build_allowed(dep_name, trusted=trusted):
-            return False
-        emit(f"    Building dependency '{dep_name}' with {' '.join(build_cmd)}", color="cyan", level="progress")
+    if build_cmd is None:
+        return False
+
+    if not _dependency_build_allowed(dep_name, trusted=trusted):
+        return False
+
+    if legacy_label and not os.environ.get("CI"):
+        # Soft deprecation: visible in interactive runs, never in CI logs and
+        # never through `--quiet` (level="progress"). It changes no exit code.
+        emit(f"     Note '{dep_name}' uses a legacy build script ({legacy_label}); "
+             f"`build.pengu` is preferred (see docs/BINDINGS.md).",
+             color="dim", level="progress")
+
+    emit(f"    Building dependency '{dep_name}' with {' '.join(build_cmd)}",
+         color="cyan", level="progress")
+    try:
         res = subprocess.run(build_cmd, cwd=target_dir, capture_output=True, text=True)
-        if res.returncode != 0:
-            emit(f"     Warning build script returned code {res.returncode}:\n{res.stderr}", file=sys.stderr, color="yellow", level="warning")
-        return True
-    return False
+    except OSError as exc:
+        # `PENGU_BIN` may point at a path that does not exist, and a frozen
+        # build may have lost its interpreter. Warn and let `pengu add`
+        # continue: the dependency is installed, only its native part is
+        # missing.
+        emit(f"     Warning could not execute the build script for '{dep_name}': {exc}",
+             file=sys.stderr, color="yellow", level="warning")
+        return False
+    if res.returncode != 0:
+        detail = (res.stderr or "").strip()
+        emit(f"     Warning build script returned code {res.returncode}"
+             + (f":\n{detail}" if detail else ""),
+             file=sys.stderr, color="yellow", level="warning")
+    return True
 
 
 def update_project(config_path: Optional[str] = None, verbose: bool = False,
-                   trusted: bool = False) -> int:
+                   trusted: bool = False, rebuild: bool = True) -> int:
     """Updates every configured dependency: git pull + re-run build scripts.
+
+    ``pengu update`` rebuilds by default (roadmap 2.16): a pull can change the
+    native sources, and leaving a stale ``lib/*.a`` next to fresh sources is a
+    silent correctness bug.  ``--no-build`` opts out.
 
     Args:
         config_path: Optional path to pengu config file or project root.
         verbose: True to print the git commands being executed.
+        trusted: True to run the dependencies' build scripts.
+        rebuild: True (default) to re-run the build scripts with ``--force``.
 
     Returns:
         Number of dependencies updated.
@@ -3801,7 +3914,10 @@ def update_project(config_path: Optional[str] = None, verbose: bool = False,
         else:
             print("   (local copy — nothing to pull)")
 
-        _run_dependency_build(target_dir, dep_name, trusted=trusted)
+        if rebuild:
+            # Always force: the pull (or a fresh checkout) may have changed the
+            # native sources, so an existing lib/lib*.a proves nothing.
+            _run_dependency_build(target_dir, dep_name, trusted=trusted, force=True)
         updated += 1
 
     # Refresh pengu.lock so the new commits/tags are recorded (roadmap 4.1.g).
@@ -4018,6 +4134,7 @@ def add_dependency(
     config_path: Optional[str] = None,
     run_build: bool = True,
     trusted: bool = False,
+    force_build: bool = False,
     _resolve_transitive: bool = True,
     _record_in_manifest: bool = True,
 ) -> str:
@@ -4031,7 +4148,12 @@ def add_dependency(
         branch: Optional git branch or tag to checkout.
         name: Optional custom binding name override.
         config_path: Optional path to pengu config file or project root.
-        run_build: Whether to execute build scripts (build.py, build.sh, build.bat, Makefile) if present.
+        run_build: Whether to execute build scripts (build.pengu, build.py,
+            build.sh, build.bat, Makefile) if present.
+        trusted: True to allow executing the dependency's build script.
+        force_build: True to ask the build script to rebuild even when its
+            archive already exists (``pengu add --rebuild``). An existing Git
+            checkout refreshed by ``git pull`` is forced automatically.
 
     Returns:
         Path to installed binding directory.
@@ -4051,8 +4173,18 @@ def add_dependency(
             dep_name = "binding"
 
     lib_dir = os.path.abspath(os.path.join(config.base_dir, config.lib_dir))
-    os.makedirs(lib_dir, exist_ok=True)
     target_dir = os.path.join(lib_dir, dep_name)
+    # `dep_name` comes from a URL or from `--name`, so it can be ".." (or an
+    # absolute path on POSIX, which `os.path.join` would let escape lib/).
+    # `remove_dependency` already guarded this; `add` must too, or a clone/copy
+    # could write outside the project.
+    try:
+        inside_lib = os.path.commonpath([os.path.abspath(target_dir), lib_dir]) == lib_dir
+    except ValueError:  # different drives on Windows
+        inside_lib = False
+    if not inside_lib:
+        raise ValueError(f"refusing to install '{dep_name}': outside {lib_dir}")
+    os.makedirs(lib_dir, exist_ok=True)
 
     emit(f"    Fetching dependency '{dep_name}' from {dep_source}", color="cyan", level="progress")
 
@@ -4065,8 +4197,9 @@ def add_dependency(
              color="yellow", level="progress")
 
     # 2. Check Git URL vs Local directory
-    is_git_url = any(dep_source.startswith(p) for p in ("http://", "https://", "git://", "git@", "ssh://")) or dep_source.endswith(".git")
+    is_git_url = any(dep_source.startswith(p) for p in ("http://", "https://", "git://", "git@", "ssh://", "file://")) or dep_source.endswith(".git")
 
+    existing_repo_updated = False
     if is_git_url:
         if os.path.isdir(target_dir):
             if os.path.isdir(os.path.join(target_dir, ".git")):
@@ -4076,7 +4209,10 @@ def add_dependency(
                 # no hint that nothing was updated.
                 res = subprocess.run(["git", "-C", target_dir, "pull"],
                                      capture_output=True, text=True)
-                if res.returncode != 0:
+                if res.returncode == 0:
+                    # Fresh sources on disk invalidate any existing lib/*.a.
+                    existing_repo_updated = True
+                else:
                     emit(
                         f"     Warning 'git pull' failed (rc={res.returncode}); "
                         f"using the existing checkout. Run 'pengu update {dep_name}' "
@@ -4127,7 +4263,11 @@ def add_dependency(
     # not touch the source repository.
     for item in os.listdir(target_dir):
         item_p = os.path.join(target_dir, item)
-        if os.path.isfile(item_p) and item.endswith(".pengu"):
+        # `build.pengu` is a build script, not an importable module: moving it
+        # into pengu/ would hide it from `_run_dependency_build` (which runs
+        # before or after this relocation depending on the caller).
+        if (os.path.isfile(item_p) and item.endswith(".pengu")
+                and item != "build.pengu"):
             dest_p = os.path.join(pengu_sub, item)
             if not os.path.exists(dest_p):
                 try:
@@ -4145,7 +4285,10 @@ def add_dependency(
 
     # 4. Run build script if present
     if run_build:
-        _run_dependency_build(target_dir, dep_name, trusted=trusted)
+        # A refreshed checkout must be rebuilt: `git pull` may have changed the
+        # native sources while `lib/lib*.a` still reflects the old ones.
+        _run_dependency_build(target_dir, dep_name, trusted=trusted,
+                              force=force_build or existing_repo_updated)
 
     # 5. Update configuration file (skipped for transitive installs: those
     #    belong to their parent's manifest, not to the project's).
@@ -4778,7 +4921,17 @@ def _emit_pengu_lib_template(proj_dir: str, name: str) -> None:
     the library repo and from a consumer.
     """
     pengu_dir = os.path.join(proj_dir, "pengu")
-    os.makedirs(pengu_dir, exist_ok=True)
+    c_dir = os.path.join(proj_dir, "c")
+    inc_dir = os.path.join(proj_dir, "include")
+    lib_dir = os.path.join(proj_dir, "lib")
+    # A pure library needs none of these, but creating them now means adding a
+    # native extension later is a matter of dropping a .c into c/ (no layout
+    # migration, no manifest edit).
+    for d in (pengu_dir, c_dir, inc_dir, lib_dir):
+        os.makedirs(d, exist_ok=True)
+    _write_file(os.path.join(lib_dir, ".gitkeep"), "")
+    _write_file(os.path.join(c_dir, ".gitkeep"), "")
+    _write_file(os.path.join(inc_dir, ".gitkeep"), "")
 
     main_content = f"""## {name} - a pure PenguScript library.
 ##
@@ -4813,6 +4966,132 @@ test "mul works":
 """
     _write_file(os.path.join(pengu_dir, f"{name}.pengu"), main_content)
 
+    build_pengu = '''## build.pengu -- Construccion opcional de extensiones nativas de `__NAME__`.
+##
+## Una libreria puramente PenguScript no necesita compilar nada: los `test`
+## inline del modulo (`pengu test`) son su verificacion. Este script existe
+## para el caso en que quieras anadir codigo C a `c/` mas adelante.
+##
+## Se ejecuta automaticamente con `pengu add <repo> --trust` y `pengu update`.
+##
+## Manualmente:
+##     pengu run build.pengu
+##     pengu run build.pengu -- --force
+##
+## Si `c/` esta vacio (lo habitual en una libreria pura), sale con 0.
+##
+## El nombre debe coincidir con el de la libreria (`lib/lib__NAME__.a`) para
+## que el consumidor lo detecte.
+
+import std.archivum
+import std.compass
+import std.invoke
+import std.rites
+import std.scrolls
+import std.spark
+
+## Identidad de la libreria.
+const LIBRARY_NAME as string is "__NAME__"
+
+## Imprime una linea "[pengu-lib] ...".
+## (`log` choca con `log()` de math.h en el C generado.)
+weave pengu_lib_log with message as string into void:
+    calling spark.println with "[pengu-lib] {message}"
+
+## Flags comunes del compilador C. En Windows/MinGW no hace falta -fPIC.
+weave pengu_lib_cflags into string:
+    return when os == "windows" then "-c -I include" else "-c -fPIC -I include"
+
+## True cuando `value` es una ruta o una linea de comandos, no un nombre suelto.
+weave pengu_lib_is_tool_spec with value as string into bool:
+    if (calling compass.is_absolute with value) or (calling scrolls.contains with value, "/") or (calling scrolls.contains with value, "\\\\") or (calling scrolls.contains with value, " "):
+        return true
+    return false
+
+## Resuelve una herramienta C: $ENV si esta definida, si no el primer nombre
+## de `names` que aparezca en PATH.
+weave pengu_lib_resolve_tool with env_name as string, names as list of string into maybe string:
+    let from_env as string is calling rites.getenv_or with env_name, ""
+    if from_env != "":
+        if calling pengu_lib_is_tool_spec with from_env:
+            return some from_env
+        return calling rites.which with from_env
+    for name in names:
+        let found as maybe string is calling rites.which with name
+        if found is present:
+            return found
+    return maybe none
+
+## Compila cada `c/*.c` a `lib/<stem>.o` y archiva todos en `lib/lib<name>.a`.
+## Devuelve 0 en exito (o si no hay fuentes); 1 si algo falla.
+weave pengu_lib_compile with name as string into int:
+    let sources as list of string is calling archivum.find_by_ext with "c", ".c", false
+    if sources.len == 0:
+        calling pengu_lib_log with "sin fuentes C en c/; nada que compilar (libreria pura)"
+        return 0
+
+    let cc_names as list of string is ["gcc", "clang", "cc"]
+    let cc as maybe string is calling pengu_lib_resolve_tool with "CC", cc_names
+    if cc is not present:
+        calling pengu_lib_log with "compilador C no encontrado (define CC=/ruta/al/compilador)"
+        return 1
+    let ar_names as list of string is ["ar", "llvm-ar"]
+    let ar as maybe string is calling pengu_lib_resolve_tool with "AR", ar_names
+    if ar is not present:
+        calling pengu_lib_log with "archivador no encontrado (define AR=/ruta/a/ar)"
+        return 1
+
+    var objects as list of string is list of string
+    let flags as string is calling pengu_lib_cflags
+    for src in sources:
+        let stem as string is calling compass.stem with src
+        let obj as string is "lib/{stem}.o"
+        let src_q as string is calling rites.shell_escape with src
+        let obj_q as string is calling rites.shell_escape with obj
+        let cc_q as string is calling rites.shell_escape with cc.value
+        let cmd as string is "{cc_q} {flags} {src_q} -o {obj_q}"
+        calling pengu_lib_log with "compilando {src}"
+        let rc as int is calling rites.run_shell with cmd
+        if rc != 0:
+            calling pengu_lib_log with "fallo al compilar {src}"
+            return 1
+        calling objects.push with obj
+
+    let objs_joined as string is calling scrolls.join with objects, " "
+    let archive as string is "lib/lib{name}.a"
+    let archive_q as string is calling rites.shell_escape with archive
+    let ar_q as string is calling rites.shell_escape with ar.value
+    let ar_cmd as string is "{ar_q} rcs {archive_q} {objs_joined}"
+    calling pengu_lib_log with "archivando en {archive}"
+    let rc_ar as int is calling rites.run_shell with ar_cmd
+    if rc_ar != 0:
+        calling pengu_lib_log with "fallo al archivar {archive}"
+        return 1
+
+    for obj in objects:
+        let _removed as bool is calling archivum.delete_file with obj
+    return 0
+
+weave main into int:
+    var _d1 as bool is calling archivum.create_dir with "lib"
+    var _d2 as bool is calling archivum.create_dir with "include"
+    var _d3 as bool is calling archivum.create_dir with "c"
+
+    var parser as invoke.Parser is calling invoke.new_parser with "build", "Compila extensiones C de la libreria (si las hay)"
+    calling parser.add_flag with "force", "f", "Recompilar aunque lib/*.a ya exista", false
+    let argv as list of string is calling rites.get_args
+    let res as invoke.ParseResult is calling parser.parse with argv
+    let force as bool is calling res.get_bool_or with "force", false
+
+    let name as string is LIBRARY_NAME
+    let archive as string is "lib/lib{name}.a"
+    if (calling archivum.is_file with archive) and not force:
+        calling pengu_lib_log with "{archive} ya existe (usa --force para recompilar)"
+        return 0
+    return calling pengu_lib_compile with name
+'''
+    _write_file(os.path.join(proj_dir, "build.pengu"), build_pengu.replace("__NAME__", name))
+
     readme = f"""# {name}
 
 A pure PenguScript library. It has no C sources and no native dependencies.
@@ -4824,13 +5103,21 @@ A pure PenguScript library. It has no C sources and no native dependencies.
 |-- pengu.toml
 |-- README.md
 |-- .gitignore
-`-- pengu/
-    `-- {name}.pengu    # the library module + inline `test` blocks
+|-- build.pengu             # optional native extensions (no-op without c/*.c)
+|-- pengu/
+|   `-- {name}.pengu        # the library module + inline `test` blocks
+|-- c/                      # optional C glue, compiled by build.pengu
+|-- include/                # optional C headers
+`-- lib/                    # compiled archives (built by build.pengu)
 ```
 
 ## Install (from a consumer project)
 
-    pengu add <this-repo-url>
+    pengu add <this-repo-url> --trust
+
+`--trust` lets the installer run `build.pengu`. It is a no-op while `c/` is
+empty; add C sources there and the same script compiles them into
+`lib/lib{name}.a`.
 
 Then:
 
@@ -4844,10 +5131,17 @@ weave main into int:
 ## Test this library
 
     pengu test
+
+## Build the optional native part
+
+    pengu run build.pengu
+    pengu run build.pengu -- --force
 """
     _write_file(os.path.join(proj_dir, "README.md"), readme)
 
     gitignore = """build/
+lib/*.a
+lib/*.o
 *.o
 *.a
 *.lib
@@ -4860,11 +5154,11 @@ weave main into int:
 
 
 def _emit_cbind_template(proj_dir: str, name: str) -> None:
-    """Scaffolds a binding to a C library: pengu/, include/, c/, lib/, build.py.
+    """Scaffolds a binding to a C library: pengu/, include/, c/, lib/, build.pengu.
 
     The layout is exactly what ``add_dependency`` standardises a dependency to,
     so installing this repository into a consumer moves nothing and cannot
-    leave a duplicate module behind. ``build.py`` compiles the toy
+    leave a duplicate module behind. ``build.pengu`` compiles the toy
     ``c/<name>.c`` out of the box, so a freshly generated binding compiles and
     links before the user replaces it with the real library.
     """
@@ -4877,7 +5171,7 @@ def _emit_cbind_template(proj_dir: str, name: str) -> None:
     lib_dir = os.path.join(proj_dir, "lib")
     for d in (pengu_dir, inc_dir, c_dir, lib_dir):
         os.makedirs(d, exist_ok=True)
-    # .gitkeep so lib/ can be committed even before build.py produces anything.
+    # .gitkeep so lib/ can be committed even before build.pengu produces anything.
     _write_file(os.path.join(lib_dir, ".gitkeep"), "")
 
     header = f"""/* {name}.h - replace with the real C header of the library you bind.
@@ -4900,7 +5194,7 @@ const char *{ident}_greet(void);
     _write_file(os.path.join(inc_dir, f"{name}.h"), header)
 
     c_source = f"""/* A toy implementation so `pengu init --template cbind` produces a binding
- * that actually compiles and runs. Delete it once build.py fetches the real
+ * that actually compiles and runs. Delete it once build.pengu fetches the real
  * library. */
 #include "{name}.h"
 #include <stddef.h>
@@ -4946,71 +5240,152 @@ declare {ident}_greet into ref to frozen char
 """
     _write_file(os.path.join(pengu_dir, f"{name}.d.pengu"), dpengu)
 
-    build_py = '''#!/usr/bin/env python3
-"""Builds the native part of the `__NAME__` PenguScript binding.
+    build_pengu = '''## build.pengu -- Compila la parte nativa del binding `__NAME__`.
+##
+## Se ejecuta automaticamente con:
+##     pengu add <repo> --trust             (primera vez)
+##     pengu add <repo> --trust --rebuild   (forzar recompilacion)
+##     pengu update --trust                 (siempre fuerza, porque hubo git pull)
+##
+## Manualmente:
+##     pengu run build.pengu
+##     pengu run build.pengu -- --force
+##
+## Layout del binding:
+##     include/    headers C commiteados (autoritativos: pengu/*.d.pengu
+##                 se genero a partir de ELLOS, no los sobrescribas)
+##     c/          fuentes C (glue opcional)
+##     lib/        bibliotecas compiladas -- este script las produce
+##     vendor/     (opcional, gitignored) fuentes de terceros
+##     pengu/      bindings .d.pengu commiteados
+##
+## Adapta este archivo a tu binding:
+##     - Si `c/` contiene todo el codigo, nada que hacer.
+##     - Si necesitas descargar codigo de terceros (p.ej. raylib), anade
+##       tu logica en `fetch_sources` o antes de compilar: git clone,
+##       make -C, cp del .a resultante a lib/. Manten la idempotencia:
+##       `pengu update` vuelve a ejecutar este script.
+##     - Si `c/` no existe o esta vacio, el script termina con 0.
+##
+## El nombre debe coincidir con `link "__NAME__"` en pengu/__NAME__.d.pengu:
+## el consumidor enlaza `-l__NAME__` contra lib/lib__NAME__.a.
 
-Invoked by `pengu add <repo> --trust`, or manually with `python build.py` from
-the binding's own directory. It must leave the compiled library in ./lib/ and
-the header in ./include/, so the consumer's `pengu build` auto-detects both.
-"""
-from __future__ import annotations
+import std.archivum
+import std.compass
+import std.invoke
+import std.rites
+import std.scrolls
+import std.spark
 
-import os
-import shutil
-import subprocess
-import sys
+## Identidad del binding. Cambiala solo si renombras tambien el `link` de
+## pengu/__NAME__.d.pengu.
+const BINDING_NAME as string is "__NAME__"
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-LIB_DIR = os.path.join(HERE, "lib")
-INC_DIR = os.path.join(HERE, "include")
-C_DIR = os.path.join(HERE, "c")
+## Imprime una linea "[cbind] ...".
+## (`log` choca con `log()` de math.h en el C generado.)
+weave cbind_log with message as string into void:
+    calling spark.println with "[cbind] {message}"
 
+## Flags comunes del compilador C. En Windows/MinGW no hace falta -fPIC.
+weave cbind_cflags into string:
+    return when os == "windows" then "-c -I include" else "-c -fPIC -I include"
 
-def _cc() -> str:
-    """The C compiler to use: $CC, else gcc, else clang, else cc."""
-    return os.environ.get("CC") or shutil.which("gcc") or shutil.which("clang") or "cc"
+## True cuando `value` es una ruta o una linea de comandos, no un nombre suelto.
+weave cbind_is_tool_spec with value as string into bool:
+    if (calling compass.is_absolute with value) or (calling scrolls.contains with value, "/") or (calling scrolls.contains with value, "\\\\") or (calling scrolls.contains with value, " "):
+        return true
+    return false
 
+## Resuelve una herramienta C: $ENV si esta definida, si no el primer nombre
+## de `names` que aparezca en PATH.
+weave cbind_resolve_tool with env_name as string, names as list of string into maybe string:
+    let from_env as string is calling rites.getenv_or with env_name, ""
+    if from_env != "":
+        if calling cbind_is_tool_spec with from_env:
+            return some from_env
+        return calling rites.which with from_env
+    for name in names:
+        let found as maybe string is calling rites.which with name
+        if found is present:
+            return found
+    return maybe none
 
-def _ar() -> str:
-    """The static archiver to use: $AR, else ar, else llvm-ar."""
-    return os.environ.get("AR") or shutil.which("ar") or shutil.which("llvm-ar") or "ar"
+## Compila cada `c/*.c` a `lib/<stem>.o` y archiva todos en `lib/lib<name>.a`.
+## Devuelve 0 en exito; 1 si algo falla.
+weave cbind_compile with name as string into int:
+    # TODO: si necesitas fuentes de terceros (raylib, SDL, zlib, ...), hazlo
+    # aqui antes de compilar: `git clone`, `make -C`, y copia el `.a` a lib/.
+    # Manten la idempotencia: `pengu update` vuelve a ejecutar este script.
+    let sources as list of string is calling archivum.find_by_ext with "c", ".c", false
+    if sources.len == 0:
+        calling cbind_log with "sin fuentes C en c/; nada que compilar"
+        return 0
 
+    let cc_names as list of string is ["gcc", "clang", "cc"]
+    let cc as maybe string is calling cbind_resolve_tool with "CC", cc_names
+    if cc is not present:
+        calling cbind_log with "compilador C no encontrado (define CC=/ruta/al/compilador)"
+        return 1
+    let ar_names as list of string is ["ar", "llvm-ar"]
+    let ar as maybe string is calling cbind_resolve_tool with "AR", ar_names
+    if ar is not present:
+        calling cbind_log with "archivador no encontrado (define AR=/ruta/a/ar)"
+        return 1
 
-def main() -> int:
-    os.makedirs(LIB_DIR, exist_ok=True)
-    os.makedirs(INC_DIR, exist_ok=True)
-    os.makedirs(C_DIR, exist_ok=True)
+    var objects as list of string is list of string
+    let flags as string is calling cbind_cflags
+    for src in sources:
+        let stem as string is calling compass.stem with src
+        let obj as string is "lib/{stem}.o"
+        let src_q as string is calling rites.shell_escape with src
+        let obj_q as string is calling rites.shell_escape with obj
+        let cc_q as string is calling rites.shell_escape with cc.value
+        let cmd as string is "{cc_q} {flags} {src_q} -o {obj_q}"
+        calling cbind_log with "compilando {src}"
+        let rc as int is calling rites.run_shell with cmd
+        if rc != 0:
+            calling cbind_log with "fallo al compilar {src}"
+            return 1
+        calling objects.push with obj
 
-    # TODO: replace this block with the real fetch/compile logic for
-    # `__NAME__`. For example (raylib):
-    #     subprocess.run(["git", "clone", "--depth", "1",
-    #                     "https://github.com/raysan5/raylib.git", "vendor/raylib"],
-    #                    check=True)
-    #     subprocess.run(["make", "-C", "vendor/raylib/src",
-    #                     "PLATFORM=PLATFORM_DESKTOP"], check=True)
-    #     shutil.copy("vendor/raylib/src/libraylib.a", LIB_DIR)
-    #     shutil.copy("vendor/raylib/src/raylib.h", INC_DIR)
-    #
-    # Keep the script idempotent: `pengu update` re-runs it.
+    let objs_joined as string is calling scrolls.join with objects, " "
+    let archive as string is "lib/lib{name}.a"
+    let archive_q as string is calling rites.shell_escape with archive
+    let ar_q as string is calling rites.shell_escape with ar.value
+    let ar_cmd as string is "{ar_q} rcs {archive_q} {objs_joined}"
+    calling cbind_log with "archivando en {archive}"
+    let rc_ar as int is calling rites.run_shell with ar_cmd
+    if rc_ar != 0:
+        calling cbind_log with "fallo al archivar {archive}"
+        return 1
 
-    src = os.path.join(C_DIR, "__NAME__.c")
-    if os.path.isfile(src):
-        obj = os.path.join(LIB_DIR, "__NAME__.o")
-        lib = os.path.join(LIB_DIR, "lib__NAME__.a")
-        print("[cbind] compiling " + src)
-        subprocess.run([_cc(), "-c", "-fPIC", "-I", INC_DIR, src, "-o", obj],
-                       check=True)
-        print("[cbind] archiving " + lib)
-        subprocess.run([_ar(), "rcs", lib, obj], check=True)
+    # Limpieza: los .o intermedios ya no se necesitan.
+    for obj in objects:
+        let _removed as bool is calling archivum.delete_file with obj
 
-    print("[cbind] done - artifacts in " + LIB_DIR)
+    calling cbind_log with "hecho -- artefactos en lib/"
     return 0
 
+weave main into int:
+    var _d1 as bool is calling archivum.create_dir with "lib"
+    var _d2 as bool is calling archivum.create_dir with "include"
 
-if __name__ == "__main__":
-    raise SystemExit(main())
-'''.replace("__NAME__", name)
-    _write_file(os.path.join(proj_dir, "build.py"), build_py)
+    # CLI: `--force` para recompilar aunque lib/lib<name>.a ya exista.
+    var parser as invoke.Parser is calling invoke.new_parser with "build", "Compila la parte nativa del binding"
+    calling parser.add_flag with "force", "f", "Recompilar aunque lib/*.a ya exista", false
+    let argv as list of string is calling rites.get_args
+    let res as invoke.ParseResult is calling parser.parse with argv
+    let force as bool is calling res.get_bool_or with "force", false
+
+    let name as string is BINDING_NAME
+    let archive as string is "lib/lib{name}.a"
+    if (calling archivum.is_file with archive) and not force:
+        calling cbind_log with "{archive} ya existe (usa --force para recompilar)"
+        return 0
+
+    return calling cbind_compile with name
+'''
+    _write_file(os.path.join(proj_dir, "build.pengu"), build_pengu.replace("__NAME__", name))
 
     readme = f"""# {name} - PenguScript binding
 
@@ -5022,8 +5397,8 @@ From any PenguScript project:
 
     pengu add <this-repo-url> --trust
 
-`--trust` is required the first time because `build.py` compiles the native
-part.
+`--trust` is required the first time because `build.pengu` compiles the native
+part. Use `pengu add <this-repo-url> --trust --rebuild` to force a rebuild.
 
 ## Use
 
@@ -5037,6 +5412,14 @@ weave main into int:
   return x
 ```
 
+## Build the native part
+
+    pengu run build.pengu              # skip if lib/lib{name}.a exists
+    pengu run build.pengu -- --force   # always rebuild
+
+`pengu add --trust` and `pengu update --trust` run it automatically, from the
+binding's own directory.
+
 ## Regenerate the declarations
 
 If you change `include/{name}.h`, regenerate the binding:
@@ -5048,14 +5431,14 @@ If you change `include/{name}.h`, regenerate the binding:
 ```
 {name}/
 |-- pengu.toml
-|-- build.py                 # fetches/compiles the native part into lib/
+|-- build.pengu             # compiles the native part into lib/
 |-- pengu/
-|   `-- {name}.d.pengu       # declarations (include/link/declare)
+|   `-- {name}.d.pengu      # declarations (include/link/declare)
 |-- include/
-|   `-- {name}.h             # the real C header
+|   `-- {name}.h            # the real C header
 |-- c/
-|   `-- {name}.c             # optional glue code
-`-- lib/                     # compiled native libraries (built by build.py)
+|   `-- {name}.c            # optional glue code
+`-- lib/                    # compiled native libraries (built by build.pengu)
 ```
 
 The `link "{name}"` statement in `pengu/{name}.d.pengu` propagates to the
@@ -5072,9 +5455,9 @@ the full contract.
 *.dylib
 *.dll
 *.exe
-# lib/ is where build.py places compiled artifacts. Committing them makes
+# lib/ is where build.pengu places compiled artifacts. Committing them makes
 # `pengu add` work without a C toolchain; leaving them out keeps the repo
-# small. If you leave them out, `pengu add --trust` runs build.py to produce
+# small. If you leave them out, `pengu add --trust` runs build.pengu to produce
 # them.
 # lib/
 """
@@ -5369,7 +5752,7 @@ Run `pengu assets --list` to see the current embedded assets.
 
     if template_name == "cbind":
         # A C binding is a whole repository layout (pengu/include/c/lib plus
-        # build.py); the helper writes its own README and .gitignore.
+        # build.pengu); the helper writes its own README and .gitignore.
         _emit_cbind_template(proj_dir, name)
     elif template_name == "pengu-lib":
         _emit_pengu_lib_template(proj_dir, name)
@@ -6702,8 +7085,11 @@ _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
     },
     "add": {
         "description": "Add an external dependency by cloning it into lib/<name>.",
-        "epilog": "Exit codes: 0 added, 1 clone/build failure, 2 bad usage.\n"
-                  "Example:\n  pengu add https://github.com/me/lib.git --name mylib",
+        "epilog": "Runs build.pengu (preferred) or a legacy build script when --trust\n"
+                  "is given. Exit codes: 0 added, 1 clone/build failure, 2 bad usage.\n"
+                  "Examples:\n"
+                  "  pengu add https://github.com/me/lib.git --name mylib\n"
+                  "  pengu add https://github.com/me/binding --trust --rebuild",
     },
     "remove": {
         "description": "Remove an installed dependency and its manifest entry.",
@@ -6795,9 +7181,10 @@ _SUBCOMMAND_DOCS: Dict[str, Dict[str, str]] = {
     },
     "update": {
         "description": "Update every dependency: git pull plus its build scripts.",
-        "epilog": "Exit codes: 0 updated (a dependency that fails to pull is skipped\n"
+        "epilog": "Build scripts are re-run with --force by default; --no-build skips them.\n"
+                  "Exit codes: 0 updated (a dependency that fails to pull is skipped\n"
                   "with a warning), 1 write failure, 2 bad usage.\n"
-                  "Example:\n  pengu update",
+                  "Examples:\n  pengu update --trust\n  pengu update --trust --no-build",
     },
     "bind": {
         "description": "Translate a C header into a PenguScript .d.pengu declaration file.",
@@ -6922,8 +7309,12 @@ def create_cli_parser() -> argparse.ArgumentParser:
     add_p.add_argument("--name", "-n", default=None, help="Custom binding name override")
     add_p.add_argument("--config", "-c", default=None, help="Path to config file or project root")
     add_p.add_argument("--no-build", action="store_true", help="Skip executing dependency build script")
+    add_p.add_argument("--rebuild", action="store_true",
+                       help="Pass --force to the dependency's build script "
+                            "(rebuild even when lib/*.a already exists)")
     add_p.add_argument("--trust", action="store_true",
-                       help="Trust and run the dependency build scripts (build.py/build.sh/Makefile)")
+                       help="Trust and run the dependency build scripts "
+                            "(build.pengu/build.py/build.sh/Makefile)")
 
     # remove
     remove_p = subparsers.add_parser("remove", help="Remove an installed dependency (lib/<name> + manifest)")
@@ -7157,6 +7548,9 @@ def create_cli_parser() -> argparse.ArgumentParser:
     update_p.add_argument("--verbose", action="store_true", help="Print the git commands being executed")
     update_p.add_argument("--trust", action="store_true",
                           help="Trust and re-run dependency build scripts")
+    update_p.add_argument("--no-build", action="store_true",
+                          help="Skip running the dependency build scripts "
+                               "(only git pull / checkout)")
 
     # bind
     bind_p = subparsers.add_parser("bind", help="Generate a .d.pengu binding from a C header")
@@ -7435,6 +7829,7 @@ def main():
                 config_path=args.config,
                 run_build=not args.no_build,
                 trusted=getattr(args, "trust", False),
+                force_build=getattr(args, "rebuild", False),
             )
         except (DependencyConflictError, RuntimeError, FileNotFoundError, shutil.Error, OSError) as e:
             # `shutil.Error`/`OSError` are what a copy of an unreadable or
@@ -7659,7 +8054,8 @@ def main():
         sys.exit(1 if (args.check and changed > 0) else 0)
     elif args.command == "update":
         update_project(config_path=args.config, verbose=getattr(args, "verbose", False),
-                       trusted=getattr(args, "trust", False))
+                       trusted=getattr(args, "trust", False),
+                       rebuild=not getattr(args, "no_build", False))
     elif args.command == "bind":
         from pengu_bind import HeaderParseError, generate_bind_file
         try:

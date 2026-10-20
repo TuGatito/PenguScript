@@ -8,9 +8,35 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.15.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.16.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.15.0 → 2.16.0: `build.pengu` and dependency build scripts
+
+This release is additive for the language. It changes how the **toolchain**
+builds dependencies:
+
+* A binding or library may ship `build.pengu` instead of `build.py`. Discovery
+  order is `build.pengu` > `build.py` > `build.bat`/`build.sh` > `Makefile`.
+* `pengu add <repo> --trust` and `pengu update --trust` run it as
+  `pengu run <dep>/build.pengu [-- --force]`.
+* `pengu add --rebuild` forces the build; `pengu update --no-build` only pulls;
+  `pengu update --trust` always rebuilds.
+* `build.py`/`build.sh`/`build.bat`/`Makefile` still work and print a
+  deprecation note; they are removed in **3.0.0**.
+
+Migration steps for a binding author:
+
+1. Rename `build.py` to `build.pengu` and port it (the mapping table is in
+   [`docs/BINDINGS.md`](docs/BINDINGS.md) §2.2.2).
+2. Run `pengu run build.pengu -- --force` and confirm the archive lands in
+   `lib/`.
+3. Keep `build.py` only if you need to support pengu < 2.16 (the reference
+   `raylib-pengu` keeps a shim).
+4. Commit both the script and the updated README; consumers need no change.
+
+No `.pengu` source needs to change.
 
 ## 2.13.0 → 2.14.0: compression
 

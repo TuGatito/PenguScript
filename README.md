@@ -1,6 +1,6 @@
 # PenguScript
 
-![Version](https://img.shields.io/badge/version-2.15.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) ![WebAssembly](https://img.shields.io/badge/target-WebAssembly%20%28Emscripten%29-purple)
+![Version](https://img.shields.io/badge/version-2.16.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) ![WebAssembly](https://img.shields.io/badge/target-WebAssembly%20%28Emscripten%29-purple)
 
 **🌍 Languages / Idiomas:** [🇬🇧 English](#-english) · [🇪🇸 Español](#-español)
 
@@ -102,6 +102,34 @@
 
 ## 🇬🇧 English
 
+### What's new in 2.16 — `build.pengu` is the official build script
+
+PenguScript 2.16 makes **`build.pengu`** the preferred build-script format for
+bindings and libraries. The build is ordinary PenguScript code, compiled and run
+by the same toolchain, so it uses the same `std/` APIs as the project and needs
+no Python at all.
+
+- **Automatic discovery** — `pengu add <repo> --trust` and `pengu update --trust`
+  run the dependency's build script as `pengu run <dep>/build.pengu [-- --force]`.
+  The order is `build.pengu` > `build.py` > `build.bat`/`build.sh` > `Makefile`.
+- **Legacy scripts keep working** but print a non-blocking note. `build.py`,
+  `build.sh`, `build.bat` and `Makefile` are deprecated and will be removed in
+  **3.0.0** (see [docs/DEPRECATIONS.md](docs/DEPRECATIONS.md)).
+- **Templates migrated** — `pengu init --template cbind` and `--template
+  pengu-lib` emit `build.pengu` (and create `c/`, `include/`, `lib/`) instead of
+  `build.py`. The generated cbind script compiles every `c/*.c` into
+  `lib/lib<name>.a`; the pengu-lib one is a harmless no-op until you add C glue.
+- **New flags** — `pengu add --rebuild` forces the dependency build, and
+  `pengu update --no-build` pulls without rebuilding. `pengu update --trust`
+  always rebuilds, because a pull can change the native sources.
+- **`PENGU_BIN`** — tells the toolchain which `pengu` executable to use for
+  nested `build.pengu` runs (CI, PATH-less environments, relocated installs).
+- **Fixes** — `pengu update` no longer leaves a stale `lib/*.a` after
+  `git pull`; re-adding an existing checkout rebuilds it; a missing
+  `libpengu_runtime.a` or CLI becomes an actionable warning instead of a crash;
+  `pengu add` no longer moves `build.pengu` into `pengu/`; and `--name ..`
+  cannot escape `lib/`.
+
 ### What's new in 2.2 — compile to WebAssembly
 
 PenguScript 2.2 adds a **WebAssembly target**: the same `.pengu` source builds natively *and* for the browser (or headless Node) through Emscripten, with no source changes and no per-target branches in user code. As with every release since 1.x, 2.2 is **additive** — no existing program stops compiling.
@@ -117,7 +145,7 @@ PenguScript 2.2 adds a **WebAssembly target**: the same `.pengu` source builds n
 ### What's new in 2.1 — reusable packages as templates
 
 - **`pengu init --template pengu-lib`** creates a pure PenguScript library: the module lives in `pengu/<name>.pengu` with inline `test` blocks, and `entry`/`src_dir` point at `pengu/` so `pengu test` runs inside the library.
-- **`pengu init --template cbind`** creates a C library binding: `pengu/<name>.d.pengu` (with `include "..."` + `link "..."`), a real `include/<name>.h`, a toy `c/<name>.c` that compiles out of the box, an empty `lib/`, a portable `build.py` and a README. Consumers install it with `pengu add <repo> --trust` and `import <name>`.
+- **`pengu init --template cbind`** creates a C library binding: `pengu/<name>.d.pengu` (with `include "..."` + `link "..."`), a real `include/<name>.h`, a toy `c/<name>.c` that compiles out of the box, an empty `lib/`, a portable `build.py` (superseded by `build.pengu` in 2.16) and a README. Consumers install it with `pengu add <repo> --trust` and `import <name>`.
 - **`pengu new cbind <name>` / `pengu new pengu-lib <name>`** — the template-first spelling, and **`--force`** (`-f`) writes into an existing non-empty directory, which `init`/`new` otherwise refuse. See [Making bindings](#making-bindings-pure-penguscript-libraries-and-c-bindings).
 
 ### What's new in 2.0
@@ -261,7 +289,7 @@ pengu add https://github.com/me/my_algorithms
 ```bash
 pengu init pengu_raylib --template cbind
 cd pengu_raylib
-# edit build.py to fetch/compile raylib
+# edit build.pengu to fetch/compile raylib
 # edit pengu/raylib.d.pengu (or generate it with `pengu bind include/raylib.h`)
 # commit and push
 ```
@@ -273,8 +301,21 @@ pengu add https://github.com/me/pengu_raylib --trust
 # then: import raylib
 ```
 
-`--trust` is required the first time because `build.py` compiles the native
-part. Both templates also have a template-first spelling —
+`--trust` is required the first time because `build.pengu` compiles the native
+part. The generated binding looks like this:
+
+```
+pengu_raylib/
+|-- pengu.toml
+|-- build.pengu             # compiles c/*.c into lib/lib<name>.a
+|-- pengu/raylib.d.pengu    # include + link + declare
+|-- include/raylib.h
+|-- c/                      # optional glue
+`-- lib/                    # libraylib.a (gitignored by default)
+```
+
+Run it by hand with `pengu run build.pengu` (or `pengu run build.pengu --
+--force` to rebuild). Both templates also have a template-first spelling —
 `pengu new pengu-lib my_algorithms` / `pengu new cbind pengu_raylib` — and
 `--force` (`-f`) lets `init`/`new` write into an existing non-empty directory.
 See [docs/BINDINGS.md](docs/BINDINGS.md) for the full contract, including
@@ -333,7 +374,7 @@ pip install -r requirements.txt
 # Build the C runtime into build/lib
 python build_runtime.py
 
-# Confirm the toolchain version (prints the toolchain version, `pengu 2.15.0`);
+# Confirm the toolchain version (prints the toolchain version, `pengu 2.16.0`);
 # `pengu --version` is an alias.
 pengu -V
 
@@ -379,12 +420,12 @@ pengu run hello.pengu
 | ---------- | ------------------------------------------------------------------------------------------------- |
 | `init`     | Create a new project template (`--type exe\|c\|obj\|static\|shared`, `--template exe\|cli\|pengu-lib\|cbind`, `--format toml\|yaml`, `--links`, `--cc`, `--output-name`, `--force`). |
 | `new`      | Create a project from a template, template-first (`pengu new cbind pengu_raylib`; `pengu new pengu-lib my_lib`; `--links`, `--cc`, `--output-name`, `--format`, `--force`). |
-| `add`      | Add an external dependency or binding (git URL or local folder, optional build script); the source tree is copied into `lib/<name>/`. |
+| `add`      | Add an external dependency or binding (git URL or local folder); the source tree is copied into `lib/<name>/`. `--trust` runs its build script, `--rebuild` forces it, `--no-build` skips it. |
 | `build`    | Compile the project per its config (`--profile release`, `--cc`, `-D`, `--test`, `--target wasm32-unknown-emscripten`, `--verbose`). |
 | `run`      | Build and execute the project target, or run a standalone `.pengu` file directly as a script (`--target wasm32-unknown-emscripten` runs the wasm build with Node). |
 | `test`     | Compile in `--test` mode and run the project's integrated unit tests (`--json`, `--watch`, `--target`).        |
 | `check`    | Parse and type-check every module without generating code — CI friendly.                          |
-| `update`   | Pull and rebuild each configured dependency.                                                      |
+| `update`   | Pull and rebuild each configured dependency (`--trust` runs build scripts; `--no-build` only pulls). |
 | `bind`     | Generate a `.d.pengu` declaration file from a C header (`--prefix`, `--links`, `--ignore`, …).    |
 | `fmt`      | Format `.pengu` files or directories (`--check` only reports; `--tabs`/`--indent`).               |
 | `clean`    | Remove the build directory and generated artifacts.                                               |
@@ -846,6 +887,37 @@ PenguScript is released under the **[MIT License](LICENSE)** — © 2026 TuGatit
 > fuente, sin cambios, para el navegador o para Node — y como toda publicación
 > desde la 1.x es **aditiva**: ver *Novedades de la 2.2*.
 
+### Novedades de la 2.16 — `build.pengu` es el script de construcción oficial
+
+PenguScript 2.16 convierte **`build.pengu`** en el formato preferido para los
+scripts de construcción de enlaces y bibliotecas. La compilación es código
+PenguScript normal, compilado y ejecutado por la misma cadena de herramientas,
+así que usa las mismas APIs de `std/` que el proyecto y no necesita Python.
+
+- **Detección automática** — `pengu add <repo> --trust` y `pengu update --trust`
+  ejecutan el script del binding como `pengu run <dep>/build.pengu [-- --force]`.
+  El orden es `build.pengu` > `build.py` > `build.bat`/`build.sh` > `Makefile`.
+- **Los scripts antiguos siguen funcionando**, pero muestran una nota que no
+  bloquea nada. `build.py`, `build.sh`, `build.bat` y `Makefile` quedan
+  obsoletos y se eliminarán en la **3.0.0** (ver
+  [docs/DEPRECATIONS.md](docs/DEPRECATIONS.md)).
+- **Plantillas migradas** — `pengu init --template cbind` y `--template
+  pengu-lib` generan `build.pengu` (y crean `c/`, `include/`, `lib/`) en lugar de
+  `build.py`. El script cbind generado compila cada `c/*.c` en
+  `lib/lib<name>.a`; el de pengu-lib no hace nada hasta que añadas glue C.
+- **Flags nuevas** — `pengu add --rebuild` fuerza la compilación de la
+  dependencia y `pengu update --no-build` hace el pull sin recompilar.
+  `pengu update --trust` siempre recompila, porque un pull puede cambiar las
+  fuentes nativas.
+- **`PENGU_BIN`** — indica a la cadena de herramientas qué ejecutable `pengu`
+  usar para las ejecuciones anidadas de `build.pengu` (CI, entornos sin `PATH`,
+  instalaciones reubicadas).
+- **Correcciones** — `pengu update` ya no deja un `lib/*.a` obsoleto tras
+  `git pull`; volver a añadir un checkout existente lo recompila; la falta de
+  `libpengu_runtime.a` o del CLI pasa a ser un aviso accionable en vez de un
+  fallo; `pengu add` ya no mueve `build.pengu` a `pengu/`; y `--name ..` no
+  puede escapar de `lib/`.
+
 ### Novedades de la 2.2 — compilar a WebAssembly
 
 PenguScript 2.2 añade un **objetivo WebAssembly**: el mismo fuente `.pengu` compila de forma nativa *y* para el navegador (o para Node sin interfaz) mediante Emscripten, sin tocar el código ni ramas por objetivo. Como toda publicación desde la 1.x, la 2.2 es **aditiva** — ningún programa existente deja de compilar.
@@ -861,7 +933,7 @@ PenguScript 2.2 añade un **objetivo WebAssembly**: el mismo fuente `.pengu` com
 ### Novedades de la 2.1 — paquetes reutilizables como plantillas
 
 - **`pengu init --template pengu-lib`** crea una biblioteca pura de PenguScript: el módulo vive en `pengu/<name>.pengu` con bloques `test` en línea, y `entry`/`src_dir` apuntan a `pengu/` para que `pengu test` se ejecute dentro de la biblioteca.
-- **`pengu init --template cbind`** crea un enlace a biblioteca de C: `pengu/<name>.d.pengu` (con `include "..."` + `link "..."`), un `include/<name>.h` real, un `c/<name>.c` de juguete que compila tal cual, un `lib/` vacío, un `build.py` portable y un README. Los consumidores lo instalan con `pengu add <repo> --trust` e `import <name>`.
+- **`pengu init --template cbind`** crea un enlace a biblioteca de C: `pengu/<name>.d.pengu` (con `include "..."` + `link "..."`), un `include/<name>.h` real, un `c/<name>.c` de juguete que compila tal cual, un `lib/` vacío, un `build.py` portable (sustituido por `build.pengu` en la 2.16) y un README. Los consumidores lo instalan con `pengu add <repo> --trust` e `import <name>`.
 - **`pengu new cbind <name>` / `pengu new pengu-lib <name>`** — la forma de plantilla primero, y **`--force`** (`-f`) escribe en un directorio existente no vacío, que `init`/`new` rechazan sin ella. Consulta [Cómo crear bindings](#cómo-crear-bindings-bibliotecas-puras-y-enlaces-a-c).
 
 ### Novedades de la 2.0
@@ -1005,7 +1077,7 @@ sqlite3, …):
 ```bash
 pengu init pengu_raylib --template cbind
 cd pengu_raylib
-# edita build.py para descargar/compilar raylib
+# edita build.pengu para descargar/compilar raylib
 # edita pengu/raylib.d.pengu (o genéralo con `pengu bind include/raylib.h`)
 # haz commit y push
 ```
@@ -1017,8 +1089,22 @@ pengu add https://github.com/me/pengu_raylib --trust
 # después: import raylib
 ```
 
-`--trust` es obligatorio la primera vez porque `build.py` compila la parte
-nativa. Ambas plantillas tienen además su forma de plantilla primero —
+`--trust` es obligatorio la primera vez porque `build.pengu` compila la parte
+nativa. El binding generado tiene este aspecto:
+
+```
+pengu_raylib/
+|-- pengu.toml
+|-- build.pengu             # compila c/*.c en lib/lib<name>.a
+|-- pengu/raylib.d.pengu    # include + link + declare
+|-- include/raylib.h
+|-- c/                      # glue opcional
+`-- lib/                    # libraylib.a (ignorado por git por defecto)
+```
+
+Ejecútalo a mano con `pengu run build.pengu` (o `pengu run build.pengu --
+--force` para recompilar). Ambas plantillas tienen además su forma de plantilla
+primero —
 `pengu new pengu-lib my_algorithms` / `pengu new cbind pengu_raylib` — y
 `--force` (`-f`) permite a `init`/`new` escribir en un directorio existente no
 vacío. Consulta [docs/BINDINGS.md](docs/BINDINGS.md) para ver el contrato
@@ -1078,7 +1164,7 @@ pip install -r requirements.txt
 # Build the C runtime into build/lib
 python build_runtime.py
 
-# Confirma la versión de la cadena de herramientas (imprime `pengu 2.15.0`);
+# Confirma la versión de la cadena de herramientas (imprime `pengu 2.16.0`);
 # `pengu --version` es un alias.
 pengu -V
 
@@ -1123,12 +1209,12 @@ pengu run hello.pengu
 | ---------- | ------------------------------------------------------------------------------------------------- |
 | `init`     | Crea una plantilla de proyecto nueva (`--type exe\|c\|obj\|static\|shared`, `--template exe\|cli\|pengu-lib\|cbind`, `--format toml\|yaml`, `--links`, `--cc`, `--output-name`, `--force`). |
 | `new`      | Crea un proyecto a partir de una plantilla, con la plantilla primero (`pengu new cbind pengu_raylib`; `pengu new pengu-lib my_lib`; `--links`, `--cc`, `--output-name`, `--format`, `--force`). |
-| `add`      | Añade una dependencia o enlace externo (URL de git o carpeta local, con script de compilación opcional); el árbol de fuentes se copia en `lib/<name>/`. |
+| `add`      | Añade una dependencia o enlace externo (URL de git o carpeta local); el árbol de fuentes se copia en `lib/<name>/`. `--trust` ejecuta su script de construcción, `--rebuild` lo fuerza y `--no-build` lo omite. |
 | `build`    | Compila el proyecto según su configuración (`--profile release`, `--cc`, `-D`, `--test`, `--target wasm32-unknown-emscripten`, `--verbose`). |
 | `run`      | Compila y ejecuta el objetivo del proyecto, o ejecuta un archivo `.pengu` suelto directamente como script (`--target wasm32-unknown-emscripten` ejecuta la compilación wasm con Node). |
 | `test`     | Compila en modo `--test` y ejecuta las pruebas unitarias integradas del proyecto (`--json`, `--watch`, `--target`). |
 | `check`    | Analiza y verifica tipos de todos los módulos sin generar código — ideal para CI.                 |
-| `update`   | Actualiza y recompila cada dependencia configurada.                                               |
+| `update`   | Actualiza y recompila cada dependencia configurada (`--trust` ejecuta los scripts; `--no-build` solo hace el pull). |
 | `bind`     | Genera un archivo de declaraciones `.d.pengu` a partir de una cabecera de C (`--prefix`, `--links`, `--ignore`, …). |
 | `fmt`      | Formatea archivos o directorios `.pengu` (`--check` solo informa; `--tabs`/`--indent`).           |
 | `clean`    | Elimina el directorio de compilación y los artefactos generados.                                  |

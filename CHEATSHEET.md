@@ -2407,7 +2407,7 @@ my_project/
 │       ├── include/    #   C headers (.h)
 │       ├── c/          #   C glue / wrapper sources (.c)
 │       ├── lib/        #   precompiled native binaries (.a / .so / .dll / .lib)
-│       └── build.py    #   optional build script run on 'pengu add'
+│       └── build.pengu #   optional build script run on 'pengu add'
 ├── include/            # project C headers
 ├── c/                  # project C glue sources
 └── build/              # generated artifacts (bundle.c, binaries) — gitignored
@@ -2462,10 +2462,12 @@ pengu add https://github.com/example/mylib
 pengu add ../my_local_binding --name my_lib
 
 # Update dependencies: git pull (configured branch) + re-run build scripts
-pengu update
+pengu update --trust
 
-# Binding packages may ship build.py / build.bat / build.sh / a Makefile,
-# executed automatically on 'pengu add' (skip with --no-build)
+# Binding packages may ship build.pengu (preferred) or, as legacy,
+# build.py / build.bat / build.sh / a Makefile. It runs automatically on
+# 'pengu add --trust' (force with --rebuild, skip with --no-build).
+pengu add https://github.com/example/mylib --trust --rebuild
 ```
 
 ### 13.6 Module state idioms (singletons & services)
@@ -3558,9 +3560,9 @@ Scaffold a binding repository, fill in the native build and the declarations,
 then install it from any project:
 
 ```bash
-pengu init pengu_raylib --template cbind   # pengu/, include/, c/, lib/, build.py
+pengu init pengu_raylib --template cbind   # pengu/, include/, c/, lib/, build.pengu
 cd pengu_raylib
-#   edit build.py  -> fetch/compile raylib into lib/ and copy raylib.h into include/
+#   edit build.pengu -> fetch/compile raylib into lib/ and copy raylib.h into include/
 pengu bind include/raylib.h --output pengu/raylib.d.pengu --links raylib
 #   add `include "raylib.h"` and one `link "..."` per native library if missing
 git init && git add . && git commit -m "feat: raylib binding"

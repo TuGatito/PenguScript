@@ -47,17 +47,44 @@ deprecated alias for `pengu-lib` and prints a notice.
 | `exe` | `pengu init my_game` | `src/main.pengu` hello-world (`weave main into void:`) | Default standalone program |
 | `cli` | `pengu init my_tool --template cli` | `src/main.pengu` with a `std.invoke` argument parser | Command-line tools |
 | `pengu-lib` | `pengu init my_lib --template pengu-lib` | `pengu/my_lib.pengu` with inline `test` blocks; `entry`/`src_dir` point at `pengu/` | Pure PenguScript libraries consumable with `pengu add` |
-| `cbind` | `pengu init pengu_raylib --template cbind` | `pengu/raylib.d.pengu`, `include/raylib.h`, `c/raylib.c`, `lib/`, `build.py` | Bindings to a native C library |
+| `cbind` | `pengu init pengu_raylib --template cbind` | `pengu/raylib.d.pengu`, `include/raylib.h`, `c/raylib.c`, `lib/`, `build.pengu` | Bindings to a native C library |
 
 `pengu-lib` and `cbind` repositories are laid out exactly the way
 `pengu add` standardises a dependency (`pengu/`, `include/`, `c/`, `lib/`), so
 installing one into a consumer moves nothing and leaves no duplicate module
 behind. `cbind` ships a toy C library that compiles out of the box; replace
-`c/<name>.c` and `include/<name>.h` with the real library and let `build.py`
+`c/<name>.c` and `include/<name>.h` with the real library and let `build.pengu`
 fetch/compile it. The `link "..."` statements in `pengu/<name>.d.pengu`
 propagate to the consumer's link line automatically.
 
-See [BINDINGS.md](BINDINGS.md) for the full binding contract.
+Both templates now emit `build.pengu` (a PenguScript script compiled by the
+toolchain), not `build.py`. Run it manually with `pengu run build.pengu`, or
+`pengu run build.pengu -- --force` to rebuild. `pengu add --trust` and
+`pengu update --trust` run it automatically.
+
+See [BINDINGS.md](BINDINGS.md) for the full binding contract, the discovery
+order and the migration table from `build.py`.
+
+### Dependency builds: `pengu add` / `pengu update`
+
+| Command | Behaviour |
+|---|---|
+| `pengu add <url> --trust` | Installs the dependency and runs its `build.pengu` (or a legacy build script). A fresh clone does **not** force a rebuild. |
+| `pengu add <url> --trust --rebuild` | Same, but passes `--force` to the build script. |
+| `pengu add <url> --trust --no-build` | Installs without running any build script. |
+| `pengu update --trust` | Pulls every dependency and re-runs its build script **with `--force`**, because the pull may have changed native sources. |
+| `pengu update --trust --no-build` | Pulls only; never runs a build script. |
+
+Re-adding an already-installed Git dependency also forces a rebuild when its
+`git pull` succeeds. The build script is discovered in this order:
+`build.pengu` > `build.py` > `build.bat`/`build.sh` > `Makefile`; the legacy
+forms print a deprecation note and stop working in 3.0.0.
+
+`build.pengu` is executed through the CLI itself. If the CLI is not on `PATH`
+(CI, a relocated install), set `PENGU_BIN=/path/to/pengu`; if
+`libpengu_runtime.a` is missing, the toolchain prints the
+`python build_runtime.py` hint and skips the build instead of failing inside a
+nested `pengu run`.
 
 ### Non-empty directories
 

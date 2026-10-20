@@ -30,9 +30,19 @@ are installed per project with `pengu add`.
 
 ```bash
 cd my_project
-pengu add https://github.com/pengu-lang/pengu-raylib
-pengu update
+pengu add https://github.com/pengu-lang/pengu-raylib --trust
+pengu update --trust
 ```
+
+`--trust` is required because the satellite ships a `build.pengu` (or, in older
+satellites, a legacy `build.py`) that compiles its native part. Without it the
+dependency is still installed, and the toolchain warns that the build script was
+skipped. `pengu add ... --rebuild` forces the build, and
+`pengu update --no-build` skips it.
+
+If `pengu` is not on `PATH` in CI, set `PENGU_BIN=/path/to/pengu` so the nested
+`pengu run <dep>/build.pengu` works. A satellite whose `lib/` is committed does
+not need a build at install time at all.
 
 Then import normally:
 

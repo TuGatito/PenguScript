@@ -4867,6 +4867,65 @@ indenta la línea nueva.
 - `docs/index.html` incrusta el índice de símbolos como JSON y ofrece un buscador en
   el cliente (nombre / clase / módulo / firma / resumen).
 
+### 20.2.6 Scripts de construcción para bindings y bibliotecas (`build.pengu`)
+
+Un binding o una biblioteca reutilizable puede incluir su lógica de
+construcción nativa como un script **`build.pengu`**. Es PenguScript normal: la
+cadena de herramientas lo compila con el mismo `std/` y el mismo runtime que el
+resto del proyecto, así que no necesita Python ni una dependencia de build
+aparte. Es el formato **oficial** para los scripts de construcción de
+dependencias.
+
+```pengu
+import std.archivum
+import std.invoke
+import std.rites
+import std.spark
+
+weave main into int:
+    var parser as invoke.Parser is calling invoke.new_parser with "build", "compila c/*.c"
+    calling parser.add_flag with "force", "f", "recompilar", false
+    let argv as list of string is calling rites.get_args
+    let res as invoke.ParseResult is calling parser.parse with argv
+    let force as bool is calling res.get_bool_or with "force", false
+    let sources as list of string is calling archivum.find_by_ext with "c", ".c", false
+    if sources.len == 0:
+        calling spark.println with "nada que compilar"
+        return 0
+    # compila cada fuente y archiva `lib/lib<name>.a`; respeta `force`
+    return 0
+```
+
+Orden de descubrimiento cuando `pengu add <repo> --trust` o
+`pengu update --trust` ejecutan el build de una dependencia (gana el primero):
+
+1. `build.pengu` — preferido, invocado como
+   `pengu run <dep>/build.pengu [-- --force]`;
+2. `build.py` — legacy, ejecutado con el intérprete de Python actual;
+3. `build.bat` (Windows) / `build.sh` (POSIX) — legacy;
+4. `Makefile` — legacy.
+
+Las formas legacy siguen funcionando, reciben `--force` como argumento plano y
+muestran una nota informativa (silenciada por `--quiet` y en CI). Quedan
+obsoletas durante la ventana 2.16.0–2.x y se eliminan en la **3.0.0**.
+
+`pengu add` construye la dependencia que nombraste, una sola vez. Las
+dependencias transitivas se instalan con su script de build **omitido**
+(`--trust` es consentimiento para un repositorio); construye una explícitamente
+con `pengu add <transitiva> --trust`. `pengu update --trust` siempre recompila
+con `--force`, porque un `git pull` puede cambiar las fuentes nativas. La falta
+de `libpengu_runtime.a` o un CLI inalcanzable se reportan como un aviso
+accionable, nunca como un fallo.
+
+El CLI anidado se localiza como ejecutable congelado, como checkout de fuentes
+(`python pengu_project.py …`) o como `pengu` en `PATH`; define
+`PENGU_BIN=/ruta/a/pengu` para sustituirlo (CI, entornos sin `PATH`,
+instalaciones reubicadas). Para migrar un `build.py` existente, sustituye
+`os.makedirs` por `std.archivum.create_dir`, `shutil.which` por
+`std.rites.which`, `subprocess.run` por `std.rites.run_shell`, `glob` por
+`std.archivum.find_by_ext` y `sys.exit(N)` por `return N` desde `weave main`;
+la tabla completa está en [docs/BINDINGS.md](../docs/BINDINGS.md).
+
 ### 20.3 Ejecución y modo script (`pengu run`)
 
 Compila y ejecuta de inmediato el destino del proyecto:
@@ -4991,12 +5050,12 @@ pengu lsp [--stdio] [--tcp] [--host HOST] [--port PORT]
 Integra módulos externos de PenguScript y bindings de C:
 
 ```bash
-pengu add <source> [--branch BRANCH] [--name NAME] [--config CONFIG] [--no-build]
-pengu update [--config CONFIG] [--verbose]
+pengu add <source> [--branch BRANCH] [--name NAME] [--config CONFIG] [--no-build] [--rebuild] [--trust]
+pengu update [--config CONFIG] [--verbose] [--trust] [--no-build]
 ```
 
-- `pengu add`: Clona un repositorio git remoto o crea un symlink de un directorio local en `lib/<name>`, y registra la dependencia en `pengu.yaml`.
-- `pengu update`: Ejecuta `git pull` en todas las dependencias de `lib/` y vuelve a ejecutar los scripts de build de las dependencias.
+- `pengu add`: Clona un repositorio git remoto o copia un directorio local en `lib/<name>`, y registra la dependencia en `pengu.toml`. Con `--trust` ejecuta el `build.pengu` de la dependencia (o un script legacy); `--rebuild` pasa `--force` y `--no-build` lo omite. Volver a añadir un checkout Git existente fuerza una recompilación cuando su `git pull` tiene éxito.
+- `pengu update`: Ejecuta `git pull` en todas las dependencias de `lib/` y vuelve a ejecutar sus scripts de build **con `--force`** cuando se pasa `--trust`. `--no-build` solo hace el pull.
 
 ### 20.12 Limpieza del proyecto (`pengu clean`)
 

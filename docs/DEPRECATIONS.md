@@ -223,3 +223,23 @@ several `Set of T` specialisations exist, so the constructors are the module
 functions `make_set` / `from_items_set` (with an explicit `of T`) plus the
 concrete `new_int_set` / `new_string_set` / `new_float_set` / `new_bool_set` /
 `new_char_set`.
+
+---
+
+## 7. Toolchain — build scripts (`build.py` and friends)
+
+The toolchain-level deprecation is independent of the stdlib symbols above.
+
+| Symbol | Replacement | Since | Status |
+| --- | --- | --- | --- |
+| `build.py` | `build.pengu` | 2.16.0 | 3.0.0 |
+| `build.bat` | `build.pengu` | 2.16.0 | 3.0.0 |
+| `build.sh` | `build.pengu` | 2.16.0 | 3.0.0 |
+| `Makefile` (as a dependency build script) | `build.pengu` | 2.16.0 | 3.0.0 |
+
+`pengu add --trust` and `pengu update --trust` discover `build.pengu` first and
+still execute the legacy forms, emitting a non-blocking note (suppressed by
+`--quiet` and in CI). The deprecation window is **2.16.0 through the 2.x line**;
+the legacy discovery and execution are removed in **3.0.0**. `Makefile` remains
+fully supported for building *the PenguScript repository itself* — the removal
+only concerns dependency build scripts.

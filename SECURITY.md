@@ -24,7 +24,8 @@ In scope:
 - **Toolchain** — `pengu bind`, `pengu add`, `pengu lock`/`pengu verify`,
   `pengu vendor`, the dependency resolver and the language server.
 - **Build-time execution** — anything PenguScript runs on your behalf
-  (`gcc -E` for bindings, dependency `build.py`/`build.sh`/`Makefile`).
+  (`gcc -E` for bindings, dependency `build.pengu` and the legacy
+  `build.py`/`build.sh`/`Makefile` scripts).
 
 Out of scope:
 

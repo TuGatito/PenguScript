@@ -2,6 +2,76 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.16.0] — 2026-10-19 — `build.pengu` is the official build script
+
+Bindings and libraries now ship their native build logic as a **`build.pengu`**
+script: ordinary PenguScript, compiled and run by the same toolchain, with the
+same `std/` APIs and no Python dependency. The toolchain discovers and runs it
+automatically, and the templates emit it instead of `build.py`.
+
+### Added
+
+- **`build.pengu`** as the preferred build-script format for bindings and
+  PenguScript libraries. `pengu add <repo> --trust` and
+  `pengu update --trust` run it as `pengu run <dep>/build.pengu [-- --force]`.
+- **`--rebuild`** on `pengu add`: passes `--force` to the dependency's build
+  script (rebuild even when `lib/*.a` already exists).
+- **`--no-build`** on `pengu update`: pulls without re-running build scripts.
+- **`PENGU_BIN`** environment variable: the CLI to use for nested `build.pengu`
+  runs (CI, PATH-less environments, relocated installs).
+- `tests/build/test_build_pengu.py`: discovery, force propagation, missing
+  runtime/CLI, templates, end-to-end `add`/`update` and the generated script
+  compiling a toy source.
+
+### Changed
+
+- **Templates `cbind` and `pengu-lib`** emit `build.pengu`
+  (and create `c/`, `include/`, `lib/`) instead of `build.py`.
+- **`pengu update --trust`** forces a rebuild of every dependency build script.
+- **Re-adding an existing Git dependency** forces a rebuild when its `git pull`
+  succeeds.
+- **`resolve_transitive_dependencies`** keeps installing transitive dependencies
+  with their build scripts skipped (documented; `--trust` is consent for one
+  repository).
+- **`pengu add` no longer moves `build.pengu` into `pengu/`**: it is a build
+  script, not an importable module.
+- The reference `raylib-pengu` binding ships `build.pengu`; its `build.py` is
+  now a compatibility shim for pengu < 2.16.
+
+### Deprecated
+
+- **`build.py` / `build.sh` / `build.bat` / `Makefile`** as dependency build
+  scripts. They keep working and emit a non-blocking note (suppressed by
+  `--quiet` and in CI); removal is scheduled for **3.0.0**
+  (see `docs/DEPRECATIONS.md`).
+
+### Fixed
+
+- **`pengu update` left a stale `lib/*.a`** after `git pull` because it did not
+  force a rebuild (B1).
+- **`pengu add <existing> --trust` did not rebuild** after refreshing the
+  checkout (B2).
+- **A missing `libpengu_runtime.a`** reported a cryptic failure from the nested
+  `pengu run`; it now prints the `python build_runtime.py` hint and skips the
+  build (B6).
+- **`_run_dependency_build` crashed** with `RuntimeError`/`OSError` when the CLI
+  could not be located or executed; it now warns and returns `False` (B5).
+- **`pengu add --name ..` could write outside `lib/`**; the target is now
+  validated with `os.path.commonpath` (B9).
+- **`file://` dependency URLs** are recognised as Git sources, which makes
+  offline clone/pull flows and their tests possible.
+
+### Docs
+
+- `README.md` (EN + ES): version badge, *What's new in 2.16*, binding layout and
+  CLI tables.
+- `LANGUAGE.md` / `LANGUAGE_Spanish.md`: §20.2.6 (`build.pengu`) and §20.11
+  (`--rebuild`, `--no-build`, `--trust`, `PENGU_BIN`).
+- `docs/BINDINGS.md`: discovery order, layout, generated scripts, migration
+  table from `build.py`, transitive-dependency limitation, `PENGU_BIN`.
+- `docs/EXTERNAL_MODULES.md`, `docs/PENGU_BUILD.md`, `docs/DEPRECATIONS.md`.
+- `docs/README_RELEASE.md` where it referred to `build.py`.
+
 ## [2.15.0] — 2026-10-19 — Language server: speed and stability
 
 The editor experience was dominated by one number: checking a 2 000-line file
