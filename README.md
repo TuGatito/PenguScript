@@ -139,7 +139,10 @@ no Python at all.
   strip the first and last quote of such a line, so the compiler/archiver step
   failed and `pengu add --trust` left `lib/lib<name>.a` missing. The shared
   `pengu_c_exec` bridge now wraps a Windows command line that starts with a
-  quote, and a regression test exercises the same path through the CLI.
+  quote, and a regression test exercises the same path through the CLI. The
+  Windows-only branches of `std.rites`' `config_dir`/`cache_dir`/`data_dir`
+  also had `[E0014]` errors that only a Windows host type-checked; they now use
+  explicit `if`/`return` and a compile-time test covers them everywhere.
 
 ### What's new in 2.2 — compile to WebAssembly
 
@@ -940,7 +943,11 @@ así que usa las mismas APIs de `std/` que el proyecto y no necesita Python.
   esa línea, así que el paso de compilación/archivado fallaba y `pengu add
   --trust` dejaba sin crear `lib/lib<name>.a`. El puente compartido
   `pengu_c_exec` ahora envuelve una línea de Windows que empieza por comilla, y
-  un test de regresión recorre el mismo camino a través del CLI.
+  un test de regresión recorre el mismo camino a través del CLI. Las ramas
+  Windows de `config_dir`/`cache_dir`/`data_dir` de `std.rites` también tenían
+  errores `[E0014]` que solo se comprobaban en un host Windows; ahora usan
+  `if`/`return` explícitos y un test de compilación las cubre en cualquier
+  sistema.
 
 ### Novedades de la 2.2 — compilar a WebAssembly
 

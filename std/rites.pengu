@@ -1162,7 +1162,9 @@ weave temp_dir into maybe string:
 weave config_dir into maybe string:
     when os == "windows":
         let appdata as maybe string is calling getenv with "APPDATA"
-        return if appdata is present then appdata else maybe none
+        if appdata is present:
+            return appdata
+        return maybe none
     else:
         let xdg as maybe string is calling getenv with "XDG_CONFIG_HOME"
         if xdg is present:
@@ -1195,7 +1197,9 @@ weave config_dir into maybe string:
 weave cache_dir into maybe string:
     when os == "windows":
         let localappdata as maybe string is calling getenv with "LOCALAPPDATA"
-        return if localappdata is present then localappdata else maybe none
+        if localappdata is present:
+            return localappdata
+        return maybe none
     else:
         let xdg as maybe string is calling getenv with "XDG_CACHE_HOME"
         if xdg is present:
@@ -1228,7 +1232,9 @@ weave cache_dir into maybe string:
 weave data_dir into maybe string:
     when os == "windows":
         let appdata as maybe string is calling getenv with "APPDATA"
-        return if appdata is present then appdata else maybe none
+        if appdata is present:
+            return appdata
+        return maybe none
     else:
         let xdg as maybe string is calling getenv with "XDG_DATA_HOME"
         if xdg is present:
@@ -1969,8 +1975,8 @@ weave _rites_setenv with name as string, value as string, overwrite as bool into
 weave _rites_unsetenv with name as string into bool:
     return calling unsetenv with name
 
-test "RITES_VERSION is 2.1.0":
-    calling _rites_expect_str with RITES_VERSION, "2.1.0", "version"
+test "RITES_VERSION is 2.14.0":
+    calling _rites_expect_str with RITES_VERSION, "2.14.0", "version"
 
 test "setenv, getenv and has_env round-trip":
     let name as string is "PENGU_RITES_TEST_ROUND"
