@@ -5,11 +5,11 @@ default run must stay under 7 minutes on a normal developer machine; 10 minutes
 is the hard ceiling.** If a change pushes it past that, fix the test — do not
 delete coverage that is still earning its keep.
 
-Measured on the reference 36-core box (2026-10-18, `VERSION` 2.14.0):
+Measured on the reference 36-core box (2026-10-20, `VERSION` 2.16.1):
 
 | Command | Wall time | Tests |
 |---|---|---|
-| `pytest tests/` (the default, parallel) | **3–4 min** (195–202 s measured) | 1201 collected, 1198 passed, 3 skipped |
+| `pytest tests/` (the default, parallel) | **3–4 min** (195–202 s measured) | 1271 collected, 1268 passed, 3 skipped |
 | `pytest tests/ -n 0` (serial, for debugging) | ~53 min | same |
 | `pengu selftest --smoke` | ~18 s | fast tier, no full rebuild |
 
@@ -59,4 +59,6 @@ pytest tests/stdlib/test_petitio.py
 ```
 
 `tests/tooling/test_test_config.py` fails if `pytest.ini` loses `-n auto` or
-`--dist loadgroup`, which is how a serial (53-minute) run creeps back in.
+`--dist loadgroup`, which is how a serial (53-minute) run creeps back in. It
+also fails if `norecursedirs` regains `build`, which would silently hide every
+test under `tests/build/` from the default suite.

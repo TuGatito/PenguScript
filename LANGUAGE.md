@@ -4918,7 +4918,7 @@ a dependency's build (first hit wins):
 4. `Makefile` — legacy.
 
 The legacy forms keep working, receive `--force` as a plain argument, and print
-an informational note (suppressed by `--quiet` and in CI). They are deprecated
+an informational note (suppressed by `--quiet` and in CI unless `--verbose` is given). They are deprecated
 for the 2.16.0–2.x window and removed in **3.0.0**.
 
 `pengu add` builds the dependency you named, once. Transitive dependencies are

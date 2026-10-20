@@ -239,7 +239,7 @@ The toolchain-level deprecation is independent of the stdlib symbols above.
 
 `pengu add --trust` and `pengu update --trust` discover `build.pengu` first and
 still execute the legacy forms, emitting a non-blocking note (suppressed by
-`--quiet` and in CI). The deprecation window is **2.16.0 through the 2.x line**;
+`--quiet` and by CI unless `--verbose` is given). The deprecation window is **2.16.0 through the 2.x line**;
 the legacy discovery and execution are removed in **3.0.0**. `Makefile` remains
 fully supported for building *the PenguScript repository itself* — the removal
 only concerns dependency build scripts.

@@ -259,7 +259,7 @@ The toolchain looks for build scripts in this order (first hit wins):
 5. `Makefile` — legacy, run with `make`.
 
 The legacy forms still work, receive `--force` as a plain argument, and print an
-informational note (suppressed by `--quiet` and in CI). They are **deprecated**
+informational note (suppressed by `--quiet` and in CI unless `--verbose` is given). They are **deprecated**
 and will be removed in **3.0.0**; the deprecation window is 2.16.0 through the
 2.x line (see [DEPRECATIONS.md](DEPRECATIONS.md)).
 

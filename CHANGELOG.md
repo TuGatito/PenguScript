@@ -2,6 +2,36 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.16.1] — 2026-10-20 — CI smoke determinism
+
+### Fixed
+
+- **The `build.pengu` smoke suite failed on GitHub Actions.** The legacy-build
+  deprecation note is intentionally suppressed when `CI` is set, but
+  `test_run_dependency_build_falls_back_to_py` asserted the note
+  unconditionally, so the test passed locally (no `CI`) and failed in the
+  `Smoke (fast feedback)` job. The test now clears `CI` to exercise the
+  interactive path, and a new test pins the CI-suppressed path explicitly.
+- **`--verbose` now shows the legacy-build note even when `CI` is set.**
+  `_run_dependency_build` accepts `verbose`, and `pengu update --verbose`
+  forwards it, matching the documented "verbose or non-CI" rule.
+- **33 tests under `tests/build/` were invisible to the default suite.**
+  Pytest's default `norecursedirs` contains `build` as a *basename* pattern, so
+  `pytest tests` silently skipped `tests/build/test_smart_linking.py` and
+  `tests/build/test_build_pengu.py` (the latter only ran because
+  `selftest --smoke` passes selected file paths explicitly). `pytest.ini` now
+  sets `testpaths = tests` and an explicit `norecursedirs` without `build`, and
+  `test_tests_build_is_collected` guards the configuration.
+
+### Tests
+
+- `test_run_dependency_build_falls_back_to_py` clears `CI` before asserting the
+  note.
+- New `test_legacy_note_is_suppressed_in_ci` asserts the note is absent when
+  `CI=true` while the build still runs.
+- New `test_legacy_note_can_be_requested_with_verbose_in_ci` pins the
+  `--verbose` override.
+
 ## [2.16.0] — 2026-10-19 — `build.pengu` is the official build script
 
 Bindings and libraries now ship their native build logic as a **`build.pengu`**

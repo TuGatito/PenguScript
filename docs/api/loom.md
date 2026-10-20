@@ -126,7 +126,7 @@ calling loom.pad_right with [1, 2], 4, -1      # [1, 2, -1, -1]
 
 ### `LOOM_VERSION`
 
-> const string` = 2.16.0`
+> const string` = 2.16.1`
 
 The version of the loom module.
 

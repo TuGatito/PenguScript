@@ -1,6 +1,6 @@
 # PenguScript
 
-![Version](https://img.shields.io/badge/version-2.16.0-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) ![WebAssembly](https://img.shields.io/badge/target-WebAssembly%20%28Emscripten%29-purple)
+![Version](https://img.shields.io/badge/version-2.16.1-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) ![WebAssembly](https://img.shields.io/badge/target-WebAssembly%20%28Emscripten%29-purple)
 
 **🌍 Languages / Idiomas:** [🇬🇧 English](#-english) · [🇪🇸 Español](#-español)
 
@@ -129,6 +129,11 @@ no Python at all.
   `libpengu_runtime.a` or CLI becomes an actionable warning instead of a crash;
   `pengu add` no longer moves `build.pengu` into `pengu/`; and `--name ..`
   cannot escape `lib/`.
+- **2.16.1** — the smoke suite is now deterministic under GitHub Actions: the
+  legacy-build deprecation note is covered both when it is shown (interactive)
+  and when it is suppressed (`CI` set), instead of asserting the interactive
+  path unconditionally. The default suite now collects `tests/build/` (33
+  tests that pytest's default `norecursedirs` was silently skipping).
 
 ### What's new in 2.2 — compile to WebAssembly
 
@@ -374,7 +379,7 @@ pip install -r requirements.txt
 # Build the C runtime into build/lib
 python build_runtime.py
 
-# Confirm the toolchain version (prints the toolchain version, `pengu 2.16.0`);
+# Confirm the toolchain version (prints the toolchain version, `pengu 2.16.1`);
 # `pengu --version` is an alias.
 pengu -V
 
@@ -917,6 +922,12 @@ así que usa las mismas APIs de `std/` que el proyecto y no necesita Python.
   `libpengu_runtime.a` o del CLI pasa a ser un aviso accionable en vez de un
   fallo; `pengu add` ya no mueve `build.pengu` a `pengu/`; y `--name ..` no
   puede escapar de `lib/`.
+- **2.16.1** — la suite smoke ya es determinista en GitHub Actions: la nota de
+  deprecación de los scripts legacy se prueba tanto cuando se muestra
+  (interactivo) como cuando se silencia (`CI` definido), en lugar de asumir
+  siempre la ruta interactiva. La suite por defecto ahora recoge
+  `tests/build/` (33 tests que el `norecursedirs` por defecto de pytest
+  omitía en silencio).
 
 ### Novedades de la 2.2 — compilar a WebAssembly
 
@@ -1164,7 +1175,7 @@ pip install -r requirements.txt
 # Build the C runtime into build/lib
 python build_runtime.py
 
-# Confirma la versión de la cadena de herramientas (imprime `pengu 2.16.0`);
+# Confirma la versión de la cadena de herramientas (imprime `pengu 2.16.1`);
 # `pengu --version` es un alias.
 pengu -V
 

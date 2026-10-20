@@ -4906,7 +4906,7 @@ Orden de descubrimiento cuando `pengu add <repo> --trust` o
 4. `Makefile` — legacy.
 
 Las formas legacy siguen funcionando, reciben `--force` como argumento plano y
-muestran una nota informativa (silenciada por `--quiet` y en CI). Quedan
+muestran una nota informativa (silenciada por `--quiet` y en CI salvo con `--verbose`). Quedan
 obsoletas durante la ventana 2.16.0–2.x y se eliminan en la **3.0.0**.
 
 `pengu add` construye la dependencia que nombraste, una sola vez. Las

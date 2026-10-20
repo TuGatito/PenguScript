@@ -3748,7 +3748,7 @@ def _pengu_cli_argv() -> List[str]:
 
 
 def _run_dependency_build(target_dir: str, dep_name: str, trusted: bool = False,
-                          force: bool = False) -> bool:
+                          force: bool = False, verbose: bool = False) -> bool:
     """Runs the dependency's build script.
 
     Discovery order (first hit wins):
@@ -3772,6 +3772,8 @@ def _run_dependency_build(target_dir: str, dep_name: str, trusted: bool = False,
         force: True to ask the script to rebuild even when its archive exists.
             ``build.pengu`` receives ``-- --force``; legacy scripts receive a
             plain ``--force`` token (they ignore it if they do not parse it).
+        verbose: True to show the legacy-build deprecation note even in CI.
+            Outside CI the note is shown regardless; ``--quiet`` always wins.
 
     Returns:
         True when a build script was found and executed (even when it failed:
@@ -3821,9 +3823,10 @@ def _run_dependency_build(target_dir: str, dep_name: str, trusted: bool = False,
     if not _dependency_build_allowed(dep_name, trusted=trusted):
         return False
 
-    if legacy_label and not os.environ.get("CI"):
-        # Soft deprecation: visible in interactive runs, never in CI logs and
-        # never through `--quiet` (level="progress"). It changes no exit code.
+    if legacy_label and (verbose or not os.environ.get("CI")):
+        # Soft deprecation: visible in interactive runs (and with --verbose),
+        # suppressed in CI logs and through `--quiet` (level="progress"). It
+        # changes no exit code.
         emit(f"     Note '{dep_name}' uses a legacy build script ({legacy_label}); "
              f"`build.pengu` is preferred (see docs/BINDINGS.md).",
              color="dim", level="progress")
@@ -3917,7 +3920,8 @@ def update_project(config_path: Optional[str] = None, verbose: bool = False,
         if rebuild:
             # Always force: the pull (or a fresh checkout) may have changed the
             # native sources, so an existing lib/lib*.a proves nothing.
-            _run_dependency_build(target_dir, dep_name, trusted=trusted, force=True)
+            _run_dependency_build(target_dir, dep_name, trusted=trusted,
+                                  force=True, verbose=verbose)
         updated += 1
 
     # Refresh pengu.lock so the new commits/tags are recorded (roadmap 4.1.g).

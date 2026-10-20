@@ -146,7 +146,11 @@ def test_run_dependency_build_prefers_build_pengu(
 
 @pytest.mark.smoke
 def test_run_dependency_build_falls_back_to_py(
-        tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    # The note is deliberately suppressed in CI; GitHub Actions sets CI=true,
+    # so the test must clear it to exercise the interactive path.
+    monkeypatch.delenv("CI", raising=False)
     dep = tmp_path / "dep"
     marker = dep / "build_py_ran"
     _write(dep / "build.py", f"""
@@ -155,6 +159,31 @@ def test_run_dependency_build_falls_back_to_py(
     """)
     assert pp._run_dependency_build(str(dep), "dep", trusted=True) is True
     assert marker.read_text() == "ran"
+    assert "legacy build script (build.py)" in capsys.readouterr().out
+
+
+@pytest.mark.smoke
+def test_legacy_note_is_suppressed_in_ci(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("CI", "true")
+    dep = tmp_path / "dep"
+    _write(dep / "build.py", "raise SystemExit(0)\n")
+    assert pp._run_dependency_build(str(dep), "dep", trusted=True) is True
+    out = capsys.readouterr().out
+    assert "Building dependency 'dep'" in out
+    assert "legacy build script" not in out
+
+
+@pytest.mark.smoke
+def test_legacy_note_can_be_requested_with_verbose_in_ci(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+        capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("CI", "true")
+    dep = tmp_path / "dep"
+    _write(dep / "build.py", "raise SystemExit(0)\n")
+    assert pp._run_dependency_build(
+        str(dep), "dep", trusted=True, verbose=True) is True
     assert "legacy build script (build.py)" in capsys.readouterr().out
 
 
