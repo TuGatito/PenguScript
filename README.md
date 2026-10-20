@@ -1,6 +1,6 @@
 # PenguScript
 
-![Version](https://img.shields.io/badge/version-2.16.1-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) ![WebAssembly](https://img.shields.io/badge/target-WebAssembly%20%28Emscripten%29-purple)
+![Version](https://img.shields.io/badge/version-2.16.2-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green) ![Python](https://img.shields.io/badge/python-3.11+-yellow) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey) ![WebAssembly](https://img.shields.io/badge/target-WebAssembly%20%28Emscripten%29-purple)
 
 **🌍 Languages / Idiomas:** [🇬🇧 English](#-english) · [🇪🇸 Español](#-español)
 
@@ -134,6 +134,12 @@ no Python at all.
   and when it is suppressed (`CI` set), instead of asserting the interactive
   path unconditionally. The default suite now collects `tests/build/` (33
   tests that pytest's default `norecursedirs` was silently skipping).
+- **2.16.2** — native binding builds work again on Windows. `build.pengu`
+  quotes the resolved `cc`/`ar` with `rites.shell_escape`, and `cmd.exe` used to
+  strip the first and last quote of such a line, so the compiler/archiver step
+  failed and `pengu add --trust` left `lib/lib<name>.a` missing. The shared
+  `pengu_c_exec` bridge now wraps a Windows command line that starts with a
+  quote, and a regression test exercises the same path through the CLI.
 
 ### What's new in 2.2 — compile to WebAssembly
 
@@ -379,7 +385,7 @@ pip install -r requirements.txt
 # Build the C runtime into build/lib
 python build_runtime.py
 
-# Confirm the toolchain version (prints the toolchain version, `pengu 2.16.1`);
+# Confirm the toolchain version (prints the toolchain version, `pengu 2.16.2`);
 # `pengu --version` is an alias.
 pengu -V
 
@@ -928,6 +934,13 @@ así que usa las mismas APIs de `std/` que el proyecto y no necesita Python.
   siempre la ruta interactiva. La suite por defecto ahora recoge
   `tests/build/` (33 tests que el `norecursedirs` por defecto de pytest
   omitía en silencio).
+- **2.16.2** — las compilaciones nativas de bindings vuelven a funcionar en
+  Windows. `build.pengu` entrecomilla el `cc`/`ar` resuelto con
+  `rites.shell_escape`, y `cmd.exe` eliminaba la primera y la última comilla de
+  esa línea, así que el paso de compilación/archivado fallaba y `pengu add
+  --trust` dejaba sin crear `lib/lib<name>.a`. El puente compartido
+  `pengu_c_exec` ahora envuelve una línea de Windows que empieza por comilla, y
+  un test de regresión recorre el mismo camino a través del CLI.
 
 ### Novedades de la 2.2 — compilar a WebAssembly
 
@@ -1175,7 +1188,7 @@ pip install -r requirements.txt
 # Build the C runtime into build/lib
 python build_runtime.py
 
-# Confirma la versión de la cadena de herramientas (imprime `pengu 2.16.1`);
+# Confirma la versión de la cadena de herramientas (imprime `pengu 2.16.2`);
 # `pengu --version` es un alias.
 pengu -V
 

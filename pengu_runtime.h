@@ -3474,7 +3474,47 @@ extern "C"
         cmdbuf[pos] = '\0';
       }
     }
-    int res = system(cmdbuf);
+    const char *script = cmdbuf;
+#if PENGU_WINDOWS
+    /* `system()` runs `%COMSPEC% /c <command>` and cmd.exe has a legacy
+     * heuristic: when the command line starts with a quote and contains more
+     * than two quotes, it strips the FIRST and LAST quote before parsing.
+     * A perfectly ordinary command built with `rites.shell_escape` — e.g.
+     * `"C:\mingw64\bin\gcc.exe" -c "c\x.c" -o "lib\x.o"` — therefore reaches
+     * cmd.exe as `C:\mingw64\bin\gcc.exe" -c ... "lib\x.o` and fails with
+     * "not recognized as an internal or external command".  This broke
+     * `build.pengu` on Windows for every binding: the generated script quotes
+     * the resolved `cc`/`ar`, so `pengu add --trust` warned and never produced
+     * lib/lib<name>.a.
+     *
+     * Wrapping the whole line in one extra pair of quotes is the documented
+     * workaround: cmd.exe strips that outer pair instead, leaving the intended
+     * command line byte-for-byte intact.  Shell operators after the program
+     * (redirection, pipes) still work because the outer quotes are removed
+     * before cmd.exe parses them.  Only lines whose first character is a quote
+     * need this; anything else (`echo hi > out`) is passed through untouched. */
+    char *wrapped = NULL;
+    if (cmdbuf[0] == '"')
+    {
+      wrapped = (char *)malloc(total_len + 2u);
+      if (!wrapped)
+      {
+        if (heap)
+          free(cmdbuf);
+        return -1;
+      }
+      wrapped[0] = '"';
+      memcpy(wrapped + 1, cmdbuf, total_len);
+      wrapped[total_len] = '"';
+      wrapped[total_len + 1] = '\0';
+      script = wrapped;
+    }
+#endif
+    int res = system(script);
+#if PENGU_WINDOWS
+    if (wrapped)
+      free(wrapped);
+#endif
     if (heap)
       free(cmdbuf);
     return res;

@@ -8,7 +8,7 @@
 
 ### `FUNCTOR_VERSION`
 
-> const string` = 2.16.1`
+> const string` = 2.16.2`
 
 The version of the functor module.
 
