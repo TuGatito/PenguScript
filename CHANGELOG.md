@@ -2,6 +2,48 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.16.4] — 2026-10-21 — Documentation refresh & version integrity
+
+### Changed
+
+- **README rewritten in English and Spanish.** The document now has a clear
+  landing page (what the language is, why it exists, honest maintainer note), a
+  table of contents in both languages, the complete `pengu` command surface
+  (`remove`, `upgrade`, `tree`, `metadata`, `verify`, `vendor`, `doctor`, `gc`,
+  `benchmark`, `expand`, `time`, `eval`, `watch` and `selftest` were missing), a
+  corrected project layout, and a grouped standard-library reference covering
+  all **40** modules — including `arena`, `bitset`, `builder`, `diagnostic`,
+  `functor`, `invoke`, `json`, `jsonrpc`, `ledger`, `memoria` and `sourcemap`,
+  which had no description before. The former giant "What's new in 2.0/2.1/2.2"
+  walls are no longer duplicated in the README; it keeps a short overview and
+  links to this changelog for the full history.
+- **The README now says who maintains the project.** A prominent note explains
+  that PenguScript is maintained by **TuGatito** with a lot of help from
+  **DeepSeek (AI)**, that development is slow and incremental, and that the goal
+  is a fun, understandable language rather than a large-team product. It also
+  documents the known limits and asks readers to evaluate the project before
+  using it for production work.
+- **Acknowledgements are complete and easier to scan.** Python dependencies,
+  vendored C engines (`utf8.h`, `tiny-regex-c`, `miniz`, libcurl), TinyCC,
+  Emscripten, GCC/Clang and the VS Code tooling are credited in both languages,
+  with a special thanks section.
+
+### Fixed
+
+- **Version metadata is consistent again.** `2.16.3` was tagged from a
+  changelog-only bump: `VERSION`, `pengu_version.FALLBACK_VERSION` and the VS
+  Code manifest still said `2.16.2`. The published artifacts therefore failed
+  `scripts/verify_release_artifact.py` (`pengu -V` reported `2.16.2`, expected
+  `2.16.3`) and the release shipped `pengus-2.16.2.vsix`. This release updates
+  `VERSION`, the fallback constant, the README badge,
+  `vscode-extension/package.json`, `package-lock.json`, `MIGRATION.md` and the
+  `FUNCTOR_VERSION` / `LOOM_VERSION` markers together, so the tag, the binaries,
+  the VSIX and the version check all agree.
+- **Stale README paths removed.** The old document pointed at
+  `tests/std_programs/`, `tests/test_generics/` and `tests/migration/`, none of
+  which exist in the current tree; the new project layout points at `tests/`,
+  `examples/` and `docs/api/` instead.
+
 ## [2.16.3] — 2026-10-20 — Windows `build.pengu` fixes
 
 ### Fixed
