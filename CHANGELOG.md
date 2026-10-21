@@ -2,7 +2,7 @@
  
 All notable changes to PenguScript will be documented in this file.
 
-## [2.16.2] — 2026-10-20 — Windows `build.pengu` fixes
+## [2.16.3] — 2026-10-20 — Windows `build.pengu` fixes
 
 ### Fixed
 
