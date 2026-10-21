@@ -94,7 +94,9 @@ from pengu_semver import (
     select_version,
 )
 from pengu_paths import (
+    executable_dir,
     find_runtime_header,
+    module_root,
     runtime_include_dirs,
     runtime_lib_dirs,
     std_dirs,
@@ -1230,18 +1232,30 @@ class PenguBuilder:
     def collect_lib_dirs_and_links(self) -> Tuple[List[str], List[str]]:
         """Collects library search paths (-L) and automatically detected library names (-l) from lib/ and lib/*/lib/.
 
+        WebAssembly builds use a disjoint layout: ``lib/wasm/`` for the project
+        and ``lib/<binding>/lib/wasm/`` for each binding.  A wasm object and a
+        host object are not interchangeable, so the host ``lib/`` directories
+        are deliberately not searched for an ``emscripten`` target.
+
         Returns:
             Tuple of (lib_directories_list, auto_detected_library_names_list).
         """
         lib_dirs: List[str] = []
         auto_links: List[str] = []
+        is_wasm = self.target_os == "emscripten"
 
         # 1. Project lib dir
-        cand_lib = [
-            os.path.abspath(os.path.join(self.config.base_dir, self.config.lib_dir)),
-            os.path.abspath(os.path.join(self.config.base_dir, "lib")),
-        ]
-        for ld in set(cand_lib):
+        if is_wasm:
+            cand_lib = [
+                os.path.abspath(os.path.join(self.config.base_dir, self.config.lib_dir, "wasm")),
+                os.path.abspath(os.path.join(self.config.base_dir, "lib", "wasm")),
+            ]
+        else:
+            cand_lib = [
+                os.path.abspath(os.path.join(self.config.base_dir, self.config.lib_dir)),
+                os.path.abspath(os.path.join(self.config.base_dir, "lib")),
+            ]
+        for ld in dict.fromkeys(cand_lib):
             if os.path.isdir(ld) and ld not in lib_dirs:
                 lib_dirs.append(ld)
 
@@ -1251,6 +1265,16 @@ class PenguBuilder:
             try:
                 for entry in os.scandir(lib_root):
                     if entry.is_dir():
+                        if is_wasm:
+                            # Prefer a binding's wasm archive; never fall back
+                            # to its host lib/ directory.
+                            for cand in (os.path.join(entry.path, "lib", "wasm"),
+                                         os.path.join(entry.path, "wasm")):
+                                if os.path.isdir(cand):
+                                    abs_cand = os.path.abspath(cand)
+                                    if abs_cand not in lib_dirs:
+                                        lib_dirs.append(abs_cand)
+                            continue
                         b_lib = os.path.join(entry.path, "lib")
                         if os.path.isdir(b_lib):
                             abs_b_lib = os.path.abspath(b_lib)
@@ -1264,11 +1288,17 @@ class PenguBuilder:
             except Exception:
                 pass
 
-        # 3. Configured lib dirs
+        # 3. Configured lib dirs.  For wasm, a ``<dir>/wasm`` sibling wins so a
+        # project can point at one base directory for both targets.
         for ld in self.config.lib_dirs:
             abs_ld = os.path.abspath(os.path.join(self.config.base_dir, ld)) if not os.path.isabs(ld) else ld
-            if os.path.isdir(abs_ld) and abs_ld not in lib_dirs:
-                lib_dirs.append(abs_ld)
+            if is_wasm:
+                wasm_ld = os.path.join(abs_ld, "wasm")
+                chosen = wasm_ld if os.path.isdir(wasm_ld) else abs_ld
+            else:
+                chosen = abs_ld
+            if os.path.isdir(chosen) and chosen not in lib_dirs:
+                lib_dirs.append(chosen)
 
         # 4. Automatically detect libraries to link in project and binding lib_dirs only
         # (toolchain runtime libraries must be linked explicitly via `link "..."` or config.links)
@@ -2090,6 +2120,15 @@ class PenguBuilder:
                 shell = _wasm_shell_file()
                 if shell:
                     link_flags += ["--shell-file", shell]
+
+        # Raw linker options contributed by an imported binding
+        # (`ldflag "..."`).  `link "..."` can only name a library; a port
+        # selector such as Emscripten's `-sUSE_GLFW=3` needs this escape hatch.
+        # They stay outside the `--start-group` wrapper and before the
+        # project's own `ldflags`, so a project can still override them.
+        for flag in getattr(getattr(self.checker, "symbols", None), "ldflags", []) or []:
+            if flag not in link_flags:
+                link_flags.append(flag)
 
         # Item 4.11: cl.exe takes none of the GNU link syntax. Translate the
         # whole list once here so every output kind below stays GNU-shaped.
@@ -3081,10 +3120,28 @@ def _wasm_runtime_lib_dirs() -> List[str]:
             if os.path.isdir(cand) and cand not in dirs:
                 dirs.append(cand)
 
-    for base in (os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
+    for base in (str(module_root()), os.getcwd()):
         p = os.path.join(base, "build", "wasm", "lib")
         if os.path.isdir(p) and p not in dirs:
             dirs.append(p)
+
+    # A frozen release (PyInstaller) runs with ``__file__`` inside a temporary
+    # _MEI directory, not next to the ``pengu`` executable.  A portable install
+    # keeps its cross runtime under ``<exe>/build/wasm/lib`` or
+    # ``<exe>/runtime/wasm/lib``; the onefile extraction root is also a valid
+    # location for a bundled copy.
+    exe_dir = executable_dir()
+    if exe_dir is not None:
+        for sub in (("build", "wasm", "lib"), ("runtime", "wasm", "lib")):
+            p = str(exe_dir.joinpath(*sub))
+            if os.path.isdir(p) and p not in dirs:
+                dirs.append(p)
+    mip = getattr(sys, "_MEIPASS", None)
+    if mip:
+        for sub in (("build", "wasm", "lib"), ("runtime", "wasm", "lib")):
+            p = os.path.join(mip, *sub)
+            if os.path.isdir(p) and p not in dirs:
+                dirs.append(p)
     return dirs
 
 

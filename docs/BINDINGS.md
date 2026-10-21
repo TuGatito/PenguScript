@@ -103,7 +103,7 @@ then regenerate the declarations.
 ### 2.1 The `.d.pengu` file
 
 `pengu/raylib.d.pengu` is a **declaration file**: it declares the C surface and
-the native libraries, and nothing else. Three rules:
+the native libraries, and nothing else. Four rules:
 
 ```pengu
 include "raylib.h"
@@ -112,6 +112,9 @@ link "raylib"
 link "m"
 link "pthread"
 link "dl"
+
+when wasm:
+    ldflag "-sUSE_GLFW=3"
 
 alias AudioStream as opaque
 declare InitWindow with width as int, height as int, title as ref to frozen char into void
@@ -124,7 +127,13 @@ declare InitWindow with width as int, height as int, title as ref to frozen char
    **propagate automatically** to the consumer's link line. Declare them here,
    not in the binding's own `pengu.toml` `links` key — that key only affects the
    binding's own build, which consumers never run.
-3. **`declare` / `alias` / `rune` / …** is the C surface. `pengu bind` can
+3. **`ldflag "..."`** contributes one raw linker option that a library name
+   cannot express. The canonical case is Emscripten: raylib's web backend needs
+   the GLFW **port**, `-sUSE_GLFW=3`, not an archive. `ldflag` is conditional
+   like `link`, so guard target-specific options with `when wasm:`/`when os`.
+   A `lib/wasm/lib<name>.a` archive is selected automatically for an
+   `emscripten` target; the host `lib/` is never searched there.
+4. **`declare` / `alias` / `rune` / …** is the C surface. `pengu bind` can
    generate all of it from a header.
 
 Generate (or regenerate) the declarations from the header:

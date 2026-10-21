@@ -66,9 +66,33 @@ The CLI looks for the wasm archive in this order (see `_wasm_runtime_lib_dirs`):
 
 1. `$PENGU_LIB_DIR`, when set — an **override**, not one more search path;
 2. `$PENGU_RUNTIME_CROSS/lib` and `$PENGU_RUNTIME_CROSS`;
-3. `build/wasm/lib` in the checkout.
+3. `build/wasm/lib` next to the source checkout, or next to the installed
+   `pengu` executable (`<exe>/build/wasm/lib`, `<exe>/runtime/wasm/lib`);
+4. the same paths under the PyInstaller extraction root.
 
 The host `build/lib` is deliberately **not** in that list.
+
+### 2.1.1 Native libraries from a project or binding
+
+The same host/wasm separation applies to the libraries a project links:
+
+| Target | Project archive | Binding archive |
+|---|---|---|
+| native | `lib/libfoo.a` | `lib/<binding>/lib/libfoo.a` |
+| wasm | `lib/wasm/libfoo.a` | `lib/<binding>/lib/wasm/libfoo.a` |
+
+An `emscripten` build searches only the `wasm` directories, so a host
+`libraylib.a` cannot be picked by mistake; a native build searches only the
+host directories. A binding that needs a raw option the linker cannot express
+as an archive declares it next to `link`:
+
+```pengu
+when wasm:
+    link "raylib"
+    ldflag "-sUSE_GLFW=3"
+```
+
+`ldflag` is documented in [`LANGUAGE.md` §14.2](../LANGUAGE.md#142-include-link-ldflag-insignia-declare).
 
 ---
 

@@ -427,6 +427,11 @@ class CollectMixin:
             if link_val not in self.links:
                 self.links.append(link_val)
 
+        elif rule == "ldflag_stmt":
+            flag_val = str(stmt.children[0]).strip('"')
+            if flag_val not in self.ldflags:
+                self.ldflags.append(flag_val)
+
         elif rule == "weave_decl":
             if any(isinstance(c, Tree) and c.data == "shard_params" for c in stmt.children):
                 return

@@ -245,6 +245,10 @@ class SymbolTable:
         self.has_includes: bool = False
         self.includes: List[str] = []
         self.links: List[str] = []
+        # Raw linker options contributed by a binding (`ldflag "..."`).  These
+        # are the flags a C library needs but `link "..."` cannot express, such
+        # as Emscripten's `-sUSE_GLFW=3` port selector.
+        self.ldflags: List[str] = []
         self.imports: List[str] = []
         self.imported_modules: Set[str] = set()
         self.import_graph: Dict[str, List[str]] = {}

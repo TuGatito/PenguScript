@@ -222,6 +222,7 @@ class PenguCodegen(
         self.tests: List[Dict[str, Any]] = []
         self.includes: List[str] = []
         self.links: List[str] = []
+        self.ldflags: List[str] = []
         self.has_main = False
         # Return type of 'weave main', used as the process exit status.
         self.main_return_type: Optional[Type] = None

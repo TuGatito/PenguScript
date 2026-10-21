@@ -3022,17 +3022,24 @@ import components.player             # project module (src/components/player.pen
   - **Local Symbol Conflicts:** An alias colliding with an existing local symbol in the current module raises `E0036`.
 - **Encapsulation (`E0043`):** Top-level symbols starting with `_` are module-private and cannot be accessed from importing modules (`E0043: PrivateSymbolAccessError`).
 
-### 14.2 `include`, `link`, `insignia`, `declare`
+### 14.2 `include`, `link`, `ldflag`, `insignia`, `declare`
 
 ```pengu
 include "mylib.h"
 link "mylib"
 link "m"
+ldflag "-sUSE_GLFW=3"
 insignia mylib_
 ```
 
 - `include` adds the C header to the generated file.
 - `link` adds the library to the linker command.
+- `ldflag` adds one raw linker option to the **consumer's** link line. Use it
+  only for options a library name cannot express — an Emscripten port selector
+  such as `-sUSE_GLFW=3`, a framework, or a linker script. Like `link`, it is
+  conditional: put it under `when wasm:` when only that target needs it. The
+  option stays outside the `--start-group` wrapper and can be overridden by the
+  project's own `ldflags`.
 - `insignia` changes the C prefix for every subsequent declaration/type in
   the module (e.g. `insignia pengu_` makes `weave helper` become
   `pengu_helper` at the C level).

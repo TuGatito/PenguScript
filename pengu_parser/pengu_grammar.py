@@ -14,6 +14,7 @@ file: _NEWLINE* (top_stmt _NEWLINE*)*
 top_stmt: import_stmt
         | include_stmt
         | link_stmt
+        | ldflag_stmt
         | insignia_stmt
         | const_decl
         | rune_decl
@@ -37,6 +38,7 @@ dotted_path: NAME ("." NAME)*
 
 include_stmt: "include" STRING _NEWLINE
 link_stmt: "link" STRING _NEWLINE
+ldflag_stmt: "ldflag" STRING _NEWLINE
 insignia_stmt: "insignia" NAME _NEWLINE
 
 # Statement-level declarations require a mandatory _NEWLINE delimiter (or _DEDENT from an indented block)

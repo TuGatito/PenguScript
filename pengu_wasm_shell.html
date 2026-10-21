@@ -42,6 +42,10 @@
   #term .err { color: #f85149; }
   /* Hidden unless the program actually uses a canvas (WebGL / SDL surfaces). */
   canvas.emscripten { display: block; margin: 0 auto; background: #000; border: 0; }
+  /* A graphics program owns the page; the terminal log would push the canvas
+     below the viewport once raylib prints its initialization banner. */
+  body.has-canvas #term { display: none; }
+  body.has-canvas canvas.emscripten { margin: auto; max-width: 100%; }
 </style>
 </head>
 <body>
@@ -86,6 +90,23 @@
 
     // `Module` is read by the generated loader. print/printErr are the two
     // hooks that carry the program's stdout/stderr.
+    //
+    // The canvas starts hidden so a terminal-only program does not reserve a
+    // black rectangle. The first WebGL context request (raylib, SDL surfaces,
+    // Emscripten's GLFW port) reveals it; no graphics program ever reaches
+    // this hook, so the terminal layout stays unchanged for them.
+    (function () {
+      var getContext = canvasElement.getContext.bind(canvasElement);
+      canvasElement.getContext = function (kind, attrs) {
+        var ctx = getContext(kind, attrs);
+        if (ctx && /webgl/i.test(String(kind))) {
+          canvasElement.hidden = false;
+          document.body.classList.add('has-canvas');
+        }
+        return ctx;
+      };
+    })();
+
     var Module = {
       print:  function (text) { appendLine(text, false); },
       printErr: function (text) { appendLine(text, true); },

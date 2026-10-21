@@ -1171,6 +1171,11 @@ class PenguChecker:
                 lib = str(stmt.children[0]).strip('"')
                 self.symbols.links.append(lib)
 
+            elif rule == "ldflag_stmt":
+                flag = str(stmt.children[0]).strip('"')
+                if flag not in self.symbols.ldflags:
+                    self.symbols.ldflags.append(flag)
+
             elif rule == "import_stmt":
                 has_imports = True
                 path_tree = stmt.children[0]
