@@ -14,6 +14,7 @@ drive the shipped module the way a program does:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -25,7 +26,7 @@ pytestmark = pytest.mark.slow
 #: ``tests/stdlib/test_functor.py`` -> ``stdlib`` -> ``tests`` -> checkout.
 ROOT = Path(__file__).resolve().parents[2]
 
-_FUNCTOR_VERSION = "2.16.5"
+_FUNCTOR_VERSION = "2.17.0"
 
 
 @pytest.mark.xdist_group("pengu-module-tests")
@@ -141,8 +142,13 @@ def test_construction_is_two_pointers_and_allocates_nothing(tmp_path):
     assert "struct Fn1_int_int {" in c
     assert "int32_t (*fn_ptr)(void*, int32_t);" in c
     assert "void* ctx;" in c
-    # `make_fn1` is the constructor; its body must not allocate.
-    start = c.index("Fn1_int_int make_fn1_int_int__Multiplier")
+    # `make_fn1` is the constructor; its body must not allocate.  The exact
+    # mangled spelling is an implementation detail (and DCE now drops the
+    # duplicate alias specialization), so locate the constructor by the shape
+    # of its emitted definition instead of hard-coding one specialization.
+    ctor = re.search(r"^Fn1_int_int (\w*make_fn1\w*)\([^;]*\)\s*\{", c, re.M)
+    assert ctor, "no make_fn1 constructor definition in the bundle"
+    start = ctor.start()
     body = c[start:c.index("\n}", start)]
     assert "malloc" not in body
     assert "pengu_alloc" not in body

@@ -7,9 +7,18 @@ toolchain root, as documented in ``docs/PERFORMANCE.md``.
 
 from pengu_parser.pengu_dce import (  # noqa: F401
     collect_references,
+    identifiers_in_text,
     is_prunable_module,
     prune_weaves,
+    resolved_std_roots,
     summarize,
 )
 
-__all__ = ["collect_references", "is_prunable_module", "prune_weaves", "summarize"]
+__all__ = [
+    "collect_references",
+    "identifiers_in_text",
+    "is_prunable_module",
+    "prune_weaves",
+    "resolved_std_roots",
+    "summarize",
+]

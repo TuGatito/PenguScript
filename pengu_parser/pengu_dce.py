@@ -1,25 +1,39 @@
-"""Dead-code elimination for standard-library modules.
+"""Dead-code elimination over the collected weaves.
 
 A script that imports ``std.spark`` just for ``println`` used to pull in *every*
 weave of that module, the whole transitive ``std`` closure included.  The
 generated ``bundle.c`` is then several times larger than needed, which slows the
 C compiler and the reader.
 
-The pass is intentionally *conservative* and name based:
+There are two layers, and they see different things:
+
+* :func:`prune_weaves` here is the **conservative, name-based** pass.  It runs
+  before code generation, so it can only inspect Pengu names in the AST.  It is
+  the fallback for ``--test`` (test bodies can call specializations that the
+  exact pass does not translate) and the starting point for the exact pass.
+* ``PenguCodegen._discover_reachable_weaves`` (``pengu_codegen/bundle.py``) is
+  the **exact** pass used by normal builds: it translates a root weave, scans
+  the C it just produced for the real ``c_name`` of every call/function value,
+  and repeats.  That is what drops unreachable ``shard`` specializations,
+  ``@mutates`` aliases and default-argument callees while keeping everything
+  that is actually emitted.
+
+Both layers share the same root policy:
 
 * Every weave declared in a **non-std** module is a root and is always emitted
   (public API of the user's project, bindings, static libraries…).
-* A std/lib weave is kept when its name (or its C name) appears anywhere in the
-  roots' bodies, transitively.
-* References are collected as raw identifiers from the body AST, so a weave that
-  is only mentioned indirectly (a callback passed by name, an enchanting method
-  reached through a variable) survives as well.
+* ``@export`` and ``main`` are roots wherever they live.
+* Monomorphized instances are **not** roots: the exact pass discovers them from
+  the emitted C.  :func:`prune_weaves` keeps them on purpose because it cannot
+  see C; the exact pass then filters the list, so keeping them here is only a
+  conservative intermediate state.
 * Only *weave bodies and prototypes* are pruned.  Runes, omens, typedefs and
   constants are left alone: they are cheap and pruning them risks changing struct
   layouts or enum values.
 
-Everything is best effort: with ``dce=False`` (``--no-dce``) the code generator
-behaves exactly as before, which makes A/B comparisons and bug reports easy.
+Everything is best effort: with ``dce=False`` (``--no-dce``) both layers are
+disabled and the code generator behaves exactly as it did before the pass
+existed, which makes A/B comparisons and bug reports easy.
 """
 
 from __future__ import annotations
@@ -42,29 +56,77 @@ def _norm(path: str) -> str:
     return os.path.normpath(os.path.abspath(path)).replace("\\", "/")
 
 
-def is_prunable_module(filepath: str, base_dir: Optional[str] = None) -> bool:
+def resolved_std_roots(extra_roots: Optional[Iterable[str]] = None) -> List[str]:
+    """Directories whose direct children are standard-library modules.
+
+    A source checkout keeps ``<repo>/std``, but installed layouts do not:
+    ``<prefix>/share/pengu/std`` (FHS), a wheel, or a directory selected with
+    ``PENGU_STD_DIR``.  Asking :func:`pengu_paths.std_dirs` for the real roots
+    is what keeps the DCE pass effective outside the checkout.  Hard-coding
+    ``<repo>/std`` silently disabled the pass in every packaged build.
+
+    Args:
+        extra_roots: Optional additional ``std`` directories, tried first.
+
+    Returns:
+        Normalized, de-duplicated absolute paths in lookup order.
+    """
+    candidates: List[str] = []
+    if extra_roots:
+        candidates.extend(str(p) for p in extra_roots)
+    try:  # Lazy: keeps this module importable without the toolchain package.
+        from pengu_paths import std_dirs
+        candidates.extend(str(p) for p in std_dirs())
+    except Exception:  # pragma: no cover - only when the checkout is incomplete
+        pass
+    candidates.append(os.path.join(_REPO_ROOT, "std"))
+
+    roots: List[str] = []
+    seen: Set[str] = set()
+    for candidate in candidates:
+        norm = _norm(candidate).rstrip("/")
+        if norm and norm not in seen:
+            seen.add(norm)
+            roots.append(norm)
+    return roots
+
+
+def is_prunable_module(filepath: str, base_dir: Optional[str] = None,
+                       std_roots: Optional[Iterable[str]] = None) -> bool:
     """True for modules whose symbols may be dropped (``std/`` and ``lib/`` only).
 
-    A module is prunable when it lives in `std/` or `lib/` directly under one
-    of the known roots (the repository root or the project's ``base_dir``):
+    A module is prunable when it lives in a real ``std/`` directory (the
+    checkout's, ``PENGU_STD_DIR``, an FHS install...) or in ``lib/`` directly
+    under the project's ``base_dir`` or the repository root:
 
-    * ``<repo>/std/spark.pengu``          -> prunable
-    * ``<base_dir>/lib/vendor.pengu``     -> prunable
-    * ``<base_dir>/src/main.pengu``       -> NOT prunable
-    * ``/home/me/lib/project/main.pengu`` -> NOT prunable
+    * ``<repo>/std/spark.pengu``                 -> prunable
+    * ``<prefix>/share/pengu/std/spark.pengu``   -> prunable
+    * ``<base_dir>/lib/vendor.pengu``            -> prunable
+    * ``<base_dir>/src/main.pengu``              -> NOT prunable
+    * ``/home/me/lib/project/main.pengu``        -> NOT prunable
 
-    The last case is why the check is anchored to a root instead of scanning for
-    a ``lib`` *component* anywhere in the path: a user project that happens to
-    live in a directory called ``lib`` must keep every one of its weaves.
+    The last case is why the ``lib`` check is anchored to a root instead of
+    scanning for a ``lib`` *component* anywhere in the path: a user project
+    that happens to live in a directory called ``lib`` must keep every one of
+    its weaves.
 
     ``.d.pengu`` binding files are never prunable: their C declarations and
     ``enchanting`` glue are emitted as a unit.
+
+    Args:
+        filepath: Absolute or relative path of the module.
+        base_dir: Project root, used for the project-local ``std/``/``lib/``.
+        std_roots: Pre-resolved std roots; computed once when omitted.
     """
     if not filepath:
         return False
     path = _norm(filepath)
     if path.endswith(".d.pengu"):
         return False
+    for std_root in (std_roots if std_roots is not None else resolved_std_roots()):
+        root = _norm(str(std_root)).rstrip("/")
+        if path == root or path.startswith(root + "/"):
+            return True
     roots = []
     if base_dir:
         roots.append(_norm(base_dir))
@@ -85,7 +147,7 @@ def is_prunable_module(filepath: str, base_dir: Optional[str] = None) -> bool:
 _IDENT_RE = None
 
 
-def _identifiers_in_text(text: str) -> Set[str]:
+def identifiers_in_text(text: str) -> Set[str]:
     """Identifier-like words of an interpolated expression ('{calling f with x}')."""
     global _IDENT_RE
     if _IDENT_RE is None:
@@ -122,11 +184,11 @@ def collect_references(stmts: Iterable[Any]) -> Set[str]:
                     from .pengu_parser import extract_string_parts
                     _raw, _triple, parts = extract_string_parts(raw)
                 except Exception:
-                    refs |= _identifiers_in_text(raw)
+                    refs |= identifiers_in_text(raw)
                     continue
                 for part in parts:
                     if getattr(part, "is_expr", False):
-                        refs |= _identifiers_in_text(getattr(part, "text", "") or str(part))
+                        refs |= identifiers_in_text(getattr(part, "text", "") or str(part))
         except Exception:
             continue
     # `@mutates` exposes the pure form of a method as `get_<name>`, which is not a
@@ -184,7 +246,8 @@ def _is_referenced(weave: Dict[str, Any], alive: Set[str]) -> bool:
 
 def prune_weaves(weaves: Sequence[Dict[str, Any]],
                  extra_refs: Iterable[str] = (),
-                 base_dir: Optional[str] = None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+                 base_dir: Optional[str] = None,
+                 std_roots: Optional[Iterable[str]] = None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Splits the collected weaves into (kept, dropped).
 
     ``weaves`` items are the dictionaries built by the code generator; they must
@@ -193,10 +256,21 @@ def prune_weaves(weaves: Sequence[Dict[str, Any]],
     ``extra_refs`` are additional root names (the bodies of ``test`` blocks, a
     plugin's entry points…).  ``base_dir`` is the project root, used to decide
     whether a weave belongs to a prunable ``lib/`` directory of the project.
+    ``std_roots`` are the resolved standard-library roots; when omitted they are
+    discovered from ``pengu_paths.std_dirs()`` (see
+    :func:`resolved_std_roots`).  Resolving them once keeps the per-weave check
+    cheap and, more importantly, makes it work outside the source checkout.
+
+    Monomorphized instances (``subst_map``) are kept unconditionally.  This
+    function cannot see the emitted C, so it cannot know which specializations a
+    body actually calls; the code generator's exact pass narrows the list
+    afterwards.  In ``--test`` mode that exact pass is skipped, so keeping every
+    instance is also the safe answer for test bodies.
     """
     kept: List[Dict[str, Any]] = []
     std_weaves: List[Dict[str, Any]] = []
     alive: Set[str] = set(extra_refs or ())
+    roots = list(std_roots) if std_roots is not None else resolved_std_roots()
 
     for weave in weaves:
         # Generic templates and their monomorphized instances are never pruned:
@@ -218,7 +292,7 @@ def prune_weaves(weaves: Sequence[Dict[str, Any]],
             alive.add(str(weave.get("c_name", "")))
             alive |= set(weave.get("refs") or ())
             continue
-        if is_prunable_module(weave.get("filepath", ""), base_dir):
+        if is_prunable_module(weave.get("filepath", ""), base_dir, roots):
             std_weaves.append(weave)
         else:
             kept.append(weave)

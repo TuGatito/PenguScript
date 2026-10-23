@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.16.5-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.17.0-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="https://github.com/TuGatito/PenguScript/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/TuGatito/PenguScript/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-yellow">
@@ -503,7 +503,7 @@ project. Five independent optimisations, each with a documented off-switch:
 | --- | --- | --- |
 | Parser-table cache | Serializes Lark's LALR tables (~3.9 s → ~0.25 s per process) | `PENGU_CACHE=0` |
 | Binary cache | Reuses the linked binary keyed by the content hash of the script and imports | `--no-cache`, `--ephemeral` |
-| Dead-code elimination | Emits only the `std/` / `lib/` weaves reachable from `main` / tests | `--no-dce`, `PENGU_NO_DCE=1` |
+| Dead-code elimination | Emits only the `std/` / `lib/` weaves and generic instances the emitted C actually reaches | `--no-dce`, `PENGU_NO_DCE=1` |
 | TinyCC | Bundled in releases; ~19 ms to compile a bundle vs ~400 ms for gcc | `PENGU_NO_TCC=1`, `PENGU_DEV_CC=gcc` |
 | pkg-config memoization | One probe per package per process instead of ~12 spawns | always on |
 
@@ -1202,7 +1202,7 @@ documentado:
 | --- | --- | --- |
 | Caché de tablas del parser | Serializa las tablas LALR de Lark (~3,9 s → ~0,25 s por proceso) | `PENGU_CACHE=0` |
 | Caché de binarios | Reutiliza el binario enlazado según el hash del contenido del script y sus imports | `--no-cache`, `--ephemeral` |
-| Eliminación de código muerto | Emite solo los `weave` de `std/` / `lib/` alcanzables desde `main` / tests | `--no-dce`, `PENGU_NO_DCE=1` |
+| Eliminación de código muerto | Emite solo los `weave` de `std/` / `lib/` y las instancias genéricas que el C emitido realmente alcanza | `--no-dce`, `PENGU_NO_DCE=1` |
 | TinyCC | Incluido en releases; ~19 ms por bundle frente a ~400 ms con gcc | `PENGU_NO_TCC=1`, `PENGU_DEV_CC=gcc` |
 | Memoización de pkg-config | Una consulta por paquete y proceso en vez de ~12 lanzamientos | siempre activa |
 

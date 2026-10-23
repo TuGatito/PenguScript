@@ -31,6 +31,7 @@ from ._base import (
     TypeParam,
     VOID_TYPE,
     _dce_collect_refs,
+    _dce_identifiers_in_text,
     ast_to_type,
     canonical_primitive_name,
     eval_comptime,
@@ -43,6 +44,32 @@ from .ast_utils import (
     skip_weave_modifiers,
     unwrap_top_level,
 )
+
+
+def _dce_refs_for(body_stmts, params=(), c_body=None):
+    """References that must keep a weave alive.
+
+    A collection-time reference scan only looked at ``body_stmts``.  That missed
+    two real cases:
+
+    * **Default arguments** are translated at every *call site*, so a weave
+      mentioned only by ``with n as int is calling std.helper(...)`` was pruned
+      while the caller still emitted the call (C implicit-declaration error).
+    * **``antiquus`` bodies** are literal C text, not AST; an internal helper
+      called only from C disappeared unless it happened to be ``@export``ed.
+
+    The scan is still conservative (raw identifiers), so it can keep a weave a
+    later exact-reachability pass would drop, but it can never drop one that is
+    named here.
+    """
+    refs = _dce_collect_refs(body_stmts)
+    defaults = [p[2] for p in params if len(p) >= 3 and p[2] is not None]
+    if defaults:
+        refs |= _dce_collect_refs(defaults)
+    if c_body:
+        refs |= _dce_identifiers_in_text(c_body)
+    return refs
+
 
 class CollectMixin:
     """Collection of the top-level declarations of every module."""
@@ -591,7 +618,7 @@ class CollectMixin:
                 "is_ritual": is_ritual,
                 "attributes": attrs,
                 "body_stmts": body_stmts,
-                "refs": _dce_collect_refs(body_stmts),
+                "refs": _dce_refs_for(body_stmts, params, c_body),
                 "c_body": c_body,
                 "subst_map": subst_map,
                 "filepath": filepath,
@@ -834,7 +861,7 @@ class CollectMixin:
             "is_ritual": is_ritual,
             "attributes": attrs,
             "body_stmts": body_stmts,
-            "refs": _dce_collect_refs(body_stmts),
+            "refs": _dce_refs_for(body_stmts, params, c_body),
             "c_body": c_body,
             # Generic templates are never emitted on their own (their bodies
             # need concrete substitutions), so DCE must leave them alone.

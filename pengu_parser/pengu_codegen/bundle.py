@@ -5,18 +5,31 @@ Part of :class:`~pengu_parser.pengu_codegen.main.PenguCodegen`; see
 """
 from __future__ import annotations
 
+import re
+from collections import deque
+
 from ._base import (
+    Any,
     Dict,
     List,
     Optional,
     PENGU_VERSION,
+    RuneType,
     Set,
     Tree,
     _dce_collect_refs,
+    _dce_resolved_std_roots,
     _dce_summarize,
+    is_prunable_module,
     os,
     prune_weaves,
 )
+
+#: Identifier-shaped token in generated C.  Reachability discovery scans the C
+#: it has just produced: the text contains the exact `c_name` of every function
+#: value, call, callback table and `@mutates` alias, so no AST-name heuristic
+#: is involved.
+_C_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 #: ``PENGU_ENABLE_*`` runtime gate -> the ``std`` module that switches it on.
 #: Mirrors ``pengu_project.py``'s ``_FEATURE_GATE_MODULES`` (which also decides
@@ -79,23 +92,53 @@ class BundleMixin:
         Returns:
             Generated C code string.
         """
-        # Dead-code elimination: drop std/lib weaves nothing reachable refers to.
-        # Runs before any section is generated so prototypes and definitions stay
-        # consistent (see pengu_dce.py for the safety rules).
+        # A bundle is generated once per builder, but keeping the pass
+        # idempotent makes `generate_bundle()` safe to call twice (tests and
+        # the LSP do).  The catalog is captured before any pruning, so a second
+        # call can rediscover from the full set instead of from the previous
+        # call's filtered list.
+        import time as _time
+        _t_dce_all = _time.time()
+        if self._dce_all_weaves:
+            known = {id(w) for w in self._dce_all_weaves}
+            for w in self.weaves:
+                if id(w) not in known:
+                    self._dce_all_weaves.append(w)
+                    known.add(id(w))
+            self.weaves = list(self._dce_all_weaves)
+        else:
+            self._dce_all_weaves = list(self.weaves)
+        self._definition_cache = {}
+        self._dce_materialized = set()
+
+        # Compact label for the self-describing marker below (`std` = checked
+        # now, `off` = PENGU_NO_DCE, `test` = instances kept for test bodies).
+        dce_mode = "test" if is_test else "std"
+
+        # Dead-code elimination, pass 1: conservative, name-based.  This is the
+        # fallback for --test (test bodies can call instances that the exact
+        # pass would not see) and the starting point for the exact pass below.
         if self.dce_enabled and self.weaves:
-            import time as _time
             _t_dce = _time.time()
             before = len(self.weaves)
-            # 'test' blocks are collected separately from the weaves, so their
-            # references are roots too (otherwise --test mode would link against
-            # pruned std helpers).
+            # Resolve the standard-library roots once.  The same list is what
+            # `is_prunable_module` uses, so a packaged std/ (FHS, PENGU_STD_DIR,
+            # wheel) is pruned exactly like the checkout's.
+            std_roots = _dce_resolved_std_roots()
+            self._dce_std_roots = std_roots
+            # 'test' blocks are collected separately from the weaves, so in
+            # --test mode their references are roots too (otherwise the test
+            # runner would link against pruned std helpers).  A normal build
+            # does not emit the test section, so those references must NOT keep
+            # production code alive: they used to inflate every `pengu run`.
             extra_roots: Set[str] = set()
-            for test in self.tests:
-                extra_roots |= _dce_collect_refs(test.get("body_stmts") or [])
+            if is_test:
+                for test in self.tests:
+                    extra_roots |= _dce_collect_refs(test.get("body_stmts") or [])
             kept, dropped = prune_weaves(self.weaves, extra_refs=extra_roots,
-                                         base_dir=self.base_dir)
+                                         base_dir=self.base_dir, std_roots=std_roots)
+            self.weaves = kept
             if dropped:
-                self.weaves = kept
                 self.dce_stats = {
                     "before": before,
                     "after": len(kept),
@@ -104,6 +147,10 @@ class BundleMixin:
                     "seconds": _time.time() - _t_dce,
                     "message": _dce_summarize(dropped, before, len(kept)),
                 }
+            else:
+                self.dce_stats = {}
+        else:
+            self.dce_stats = {}
 
         all_includes = list(self.includes)
         if custom_includes:
@@ -119,6 +166,38 @@ class BundleMixin:
                 self._unsafe_depth = 0
         self.line_base_dir = os.path.dirname(os.path.abspath(output_path)) if output_path else None
         self.bundle_display_path = os.path.basename(output_path) if output_path else None
+
+        # Generate the sections that do not depend on the weave list first.  The
+        # discovery pass below translates bodies (so it needs `line_base_dir`
+        # set) and scans lambdas/derived helpers, so those two sections are
+        # generated here as well.  Nothing here mutates the weave list.
+        derived_impls = self.generate_derived_implementations()
+        constants = self.generate_constants()
+        lambdas_code = self.generate_lambdas()
+
+        # Dead-code elimination, pass 2: exact reachability over the C the
+        # generator will actually emit.  Runs in normal builds only; --test
+        # keeps every instance because test bodies are not part of this scan.
+        if self.dce_enabled and dce_mode == "std" and self._dce_all_weaves:
+            self.weaves = list(self._dce_all_weaves)
+            self._discover_reachable_weaves((lambdas_code, derived_impls, constants))
+            if self.dce_stats:
+                # Report both layers: the metric is "time spent pruning", not
+                # just the exact pass.
+                self.dce_stats["seconds"] = _time.time() - _t_dce_all
+
+        # Type and forward sections come after discovery: translating a body
+        # can materialize a specialization whose tuple return registers a new
+        # product struct.  Generating the type section first would omit it.
+        forward_decls = self.generate_forward_declarations()
+        type_defs = self.generate_type_definitions()
+        prototypes = self.generate_function_prototypes()
+        function_defs = self.generate_function_definitions()
+        test_section = self.generate_test_section() if is_test else ""
+        entry_code = ""
+        if not is_library:
+            entry_code = (self.generate_test_entry_point() if is_test
+                          else self.generate_entry_point())
 
         sections = [
             f"/* Auto-generated by PenguScript v{PENGU_VERSION} */",
@@ -181,25 +260,6 @@ class BundleMixin:
         sections.append(" */")
         sections.append("")
 
-
-        # Generate every section before assembling so the lazily-registered
-        # element helpers (list of maybe/result/array) are all known: they are
-        # emitted as forward declarations before the function definitions and as
-        # definitions after them.  Relative generation order is unchanged, and
-        # the test section is generated here too because its bodies can also
-        # require element helpers.
-        forward_decls = self.generate_forward_declarations()
-        type_defs = self.generate_type_definitions()
-        derived_impls = self.generate_derived_implementations()
-        constants = self.generate_constants()
-        prototypes = self.generate_function_prototypes()
-        lambdas_code = self.generate_lambdas()
-        function_defs = self.generate_function_definitions()
-        test_section = self.generate_test_section() if is_test else ""
-        entry_code = ""
-        if not is_library:
-            entry_code = (self.generate_test_entry_point() if is_test
-                          else self.generate_entry_point())
         sections.append(forward_decls)
         sections.append(type_defs)
         sections.append(derived_impls)
@@ -222,6 +282,175 @@ class BundleMixin:
                 f.write(bundle_code)
 
         return bundle_code
+
+    def _is_dce_root(self, w: Dict[str, Any]) -> bool:
+        """True for a weave that survives regardless of who calls it.
+
+        Roots are the entry point, every ``@export`` FFI symbol, and every
+        weave that does not belong to a prunable ``std/``/``lib/`` module.
+        User module weaves are roots until ``--dce-scope=user`` exists; a
+        library build must keep its public API, so this stays conservative.
+        """
+        if (w.get("attributes") or {}).get("export"):
+            # An FFI entry point is a root wherever it lives, including a
+            # (rare) exported specialization.
+            return True
+        if w.get("is_generic") or w.get("subst_map"):
+            # Monomorphized instances are not roots: the worklist discovers
+            # them from the C symbol a live body actually names.  (They used to
+            # be roots because their synthetic `filepath="."` is not under
+            # std/, which pulled every instance of the transitive closure in.)
+            return False
+        if w.get("name") == "main" or w.get("c_name") == "pengu_main":
+            return True
+        return not is_prunable_module(
+            str(w.get("filepath", "")), self.base_dir, self._dce_std_roots)
+
+    def _materialize_instance(self, name: str,
+                              catalog: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Collects an instance the code generator created on demand.
+
+        The checker pre-registers almost every monomorphization, but a call
+        whose explicit type arguments are resolved only at codegen time can add
+        a new entry while a body is translated.  When the emitted C names one
+        of those, the record is collected here instead of being pruned as
+        "unknown".
+        """
+        existing = catalog.get(name)
+        if existing is not None:
+            return existing
+        if name in self._dce_materialized:
+            return None
+        symbols = self.symbols
+        if symbols is None:
+            return None
+        self._dce_materialized.add(name)
+
+        fn = (getattr(symbols, "monomorphized_functions", {}) or {}).get(name)
+        if fn is not None:
+            fn_ast, subst_map = fn
+            self._collect_monomorphized_weave(name, fn_ast, subst_map, None,
+                                              filepath=".")
+        else:
+            entry = (getattr(symbols, "monomorphized_methods", {}) or {}).get(name)
+            if entry is None:
+                return None
+            if len(entry) == 3:
+                m_ast, subst_map, rec_type = entry
+            else:
+                m_ast, subst_map = entry
+                rec_tname = name.rsplit("_", 1)[0]
+                rec_type = symbols.lookup_type(rec_tname) or RuneType(name=rec_tname)
+            self._collect_monomorphized_weave(name, m_ast, subst_map, rec_type,
+                                              filepath=".")
+
+        for w in reversed(self.weaves):
+            if w.get("c_name") == name:
+                catalog[name] = w
+                return w
+        return None
+
+    def _scan_c_text(self, text: str, catalog: Dict[str, Dict[str, Any]],
+                     queue: deque, queued: Set[str]) -> None:
+        """Queues every catalog weave mentioned by generated C text.
+
+        Scanning the emitted C (instead of the Pengu AST) is what makes the
+        pass exact: the text contains the final ``c_name`` of calls, function
+        values, ``@mutates`` variants and concept methods.  It also removes the
+        old false positives where a local variable named ``len`` kept
+        ``pengu_len`` alive: the C text spells the symbol ``pengu_len``, never
+        ``len``.
+
+        The scan is intentionally conservative in one direction only: an
+        identifier that looks like a call but does not resolve to a C symbol
+        keeps the weaves with that Pengu short name.  That fallback is rare
+        (unresolved/generated calls) and cannot cause a missing definition.
+        """
+        if not text:
+            return
+        for match in _C_IDENT_RE.finditer(text):
+            ident = match.group(0)
+            dep = catalog.get(ident)
+            if dep is None:
+                dep = self._materialize_instance(ident, catalog)
+            if dep is None:
+                tail = text[match.end():]
+                if tail[:1] == "(":
+                    for cand in self._dce_by_name.get(ident, ()):
+                        if cand["c_name"] not in queued:
+                            queue.append(cand)
+                            queued.add(cand["c_name"])
+                continue
+            if dep["c_name"] not in queued:
+                queue.append(dep)
+                queued.add(dep["c_name"])
+
+    def _discover_reachable_weaves(self, extra_texts=()) -> None:
+        """Filters ``self.weaves`` to the weaves the emitted C actually reaches.
+
+        Worklist over C symbols: translate a root, scan the text it produced,
+        translate every new catalog name, repeat.  The bodies are cached in
+        ``self._definition_cache`` so the final emission is byte-for-byte what
+        the scanner inspected (and no body is translated twice).
+
+        ``extra_texts`` are sections that are also emitted as C but are not
+        weave bodies (lambdas, derived helpers); a dependency named only there
+        must survive too.
+        """
+        all_weaves = list(self._dce_all_weaves or self.weaves)
+        catalog: Dict[str, Dict[str, Any]] = {}
+        self._dce_by_name: Dict[str, List[Dict[str, Any]]] = {}
+        for w in all_weaves:
+            if w.get("is_generic"):
+                continue
+            catalog[w["c_name"]] = w
+            self._dce_by_name.setdefault(str(w.get("name", "")), []).append(w)
+        # Records materialized by an earlier build in the same generator are
+        # part of the catalog too (they live after the original snapshot).
+        for w in self.weaves[len(all_weaves):]:
+            if w.get("is_generic"):
+                continue
+            catalog.setdefault(w["c_name"], w)
+            self._dce_by_name.setdefault(str(w.get("name", "")), []).append(w)
+
+        queue: deque = deque()
+        queued: Set[str] = set()
+        for w in all_weaves:
+            if w.get("is_generic"):
+                continue
+            if self._is_dce_root(w) and w["c_name"] not in queued:
+                queue.append(w)
+                queued.add(w["c_name"])
+
+        for text in extra_texts:
+            self._scan_c_text(text, catalog, queue, queued)
+
+        live: Set[str] = set()
+        while queue:
+            w = queue.popleft()
+            name = w["c_name"]
+            if name in live:
+                continue
+            live.add(name)
+            text = self._definition_cache.get(name)
+            if text is None:
+                text = self._generate_one_definition(w)
+                self._definition_cache[name] = text
+            self._scan_c_text(text, catalog, queue, queued)
+
+        before = len(self.weaves)
+        dropped = [w for w in self.weaves if w["c_name"] not in live]
+        self.weaves = [w for w in self.weaves if w["c_name"] in live]
+        if dropped:
+            self.dce_stats = {
+                "before": before,
+                "after": len(self.weaves),
+                "dropped": len(dropped),
+                "names": sorted({str(w.get("name", "?")) for w in dropped}),
+                "message": _dce_summarize(dropped, before, len(self.weaves)),
+            }
+        else:
+            self.dce_stats = {}
 
     def _std_feature_gates(self, bundle_code: str) -> "Dict[str, int]":
         """Value of every ``PENGU_ENABLE_*`` gate for this program.

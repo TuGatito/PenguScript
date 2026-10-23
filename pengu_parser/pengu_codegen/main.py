@@ -218,6 +218,15 @@ class PenguCodegen(
         _no_dce = os.environ.get("PENGU_NO_DCE", "").strip().lower() in {"1", "true", "yes", "on"}
         self.dce_enabled = not _no_dce
         self.dce_stats: Dict[str, Any] = {}
+        # Reachability discovery (Phase 1).  `_dce_all_weaves` is the full
+        # catalog collected from the modules; `_definition_cache` holds the C
+        # text of every weave translated during discovery, so the final
+        # emission reuses exactly what the scanner inspected.  `_dce_std_roots`
+        # is resolved once per build (see pengu_dce.resolved_std_roots).
+        self._dce_all_weaves: List[Dict[str, Any]] = []
+        self._dce_std_roots: List[str] = []
+        self._dce_materialized: Set[str] = set()
+        self._definition_cache: Dict[str, str] = {}
         self.fn_info: Dict[str, Dict[str, Any]] = {}
         self.tests: List[Dict[str, Any]] = []
         self.includes: List[str] = []

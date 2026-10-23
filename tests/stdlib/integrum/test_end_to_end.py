@@ -140,11 +140,16 @@ def test_monomorphized_symbols_and_delegation(tmp_path):
     )
     assert res.returncode == 0, f"expand failed:\n{res.stdout}\n{res.stderr}"
     bundle = res.stdout
-    for symbol in ("int_gcd", "i64_gcd", "u32_next_prime", "int__is_prime_impl",
+    for symbol in ("int_gcd", "i64_gcd", "u32_next_prime",
                    "u32__is_prime_impl", "int_to_hex"):
         assert re.search(rf"\b{re.escape(symbol)}\b", bundle), (
             f"{symbol} missing from the bundle"
         )
+    # `int__is_prime_impl` is only reachable from `int.get_next_prime`; this
+    # program calls `u32.get_next_prime`, so DCE correctly drops the int copy.
+    assert not re.search(r"\bint__is_prime_impl\b", bundle), (
+        "an unreachable int specialization is still in the bundle"
+    )
     # `gcd` normalizes through `abs`, which lives in std.numerus.
     assert re.search(r"\bint_abs\b", bundle), "delegation to numerus.abs missing"
     assert "pengu_gcd" not in bundle, "symbols must not carry a pengu_ prefix"

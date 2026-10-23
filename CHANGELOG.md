@@ -2,6 +2,103 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.17.0] — 2026-10-23 — Exact DCE: unused imports stop dragging dead specializations
+
+This release covers **Phase 0** (correctness of the pass) and **Phase 1** (exact
+reachability) of the import/bundle-size work.  The two phases landed together
+because they share the same catalog and root policy; the changelog labels each
+change with the phase it belongs to.
+
+### Changed
+
+- **Phase 1 — exact reachability over the emitted C.**  Normal builds now
+  translate a root weave, scan the C it just produced for the real `c_name` of
+  every call, function value, `@mutates` alias and concept method, translate
+  each new dependency and repeat until the worklist is empty
+  (`PenguCodegen._discover_reachable_weaves`).  The translated bodies are cached
+  and emitted verbatim, so the scanner and the bundle cannot disagree and no
+  body is translated twice.  The old conservative, name-based pass remains as
+  the `--test` fallback (test bodies are not part of the scan) and as the
+  starting point for the exact pass.
+- **Phase 1 — unreachable monomorphized instances are no longer roots.**
+  Instances used to be kept unconditionally because their synthetic
+  `filepath="."` did not look like `std/`, which pulled the whole transitive
+  closure of specializations into every bundle.  They are still collected in
+  the catalog, so a call that needs one finds it; only the ones the emitted C
+  names are emitted.  An instance created during codegen is materialized on
+  demand.
+- **Phase 0 — `std/` roots are resolved, not assumed.**  `resolved_std_roots()`
+  asks `pengu_paths.std_dirs()` for the real `std` directories (checkout,
+  `PENGU_STD_DIR`, FHS `share/pengu/std`, wheel).  Previously the pass only
+  recognised `<repo>/std` and `<base_dir>/std|lib`, so an installed toolchain
+  silently emitted every std weave.  Measured on a FHS-style layout:
+  `hello.pengu` 923 lines / 35.9 KB -> 96 lines / 3.7 KB.
+- **Phase 0 — `--test` no longer inflates production bundles.**  References from
+  `test` blocks are roots only when `--test` is on.  A normal build does not
+  emit the test section, so its helpers used to stay alive for no reason.
+- **Phase 0 — default arguments and `antiquus` bodies are references.**
+  Default-argument expressions are translated at the call site, not in the
+  callee body; a weave named only there was pruned while the caller kept
+  emitting the call (C implicit-declaration error).  Literal C bodies are
+  scanned for identifiers too, so a same-module helper called only from an
+  `antiquus` survives without an `@export`.
+- **Phase 1 — common local names no longer keep std weaves alive.**  The
+  scan is over C symbols (`pengu_len`), not AST names (`len`), so a local
+  variable called `len`, `values` or `contains` no longer keeps an unrelated
+  std function.
+
+### Fixed
+
+- **`pengu check` could pass while `pengu run` failed with an implicit
+  declaration** when the only reference to a std weave was a default argument.
+- **The standard library was not pruned at all outside the source checkout**
+  (FHS, `PENGU_STD_DIR`, pip); there was no warning, only a bundle ~10x larger.
+- **Dead specializations were emitted forever.**  Two existing tests pinned
+  dead symbols (`make_fn1_int_int__Multiplier`, `int__is_prime_impl`); they now
+  locate/assert the live symbols, and the unused specializations are gone.
+- **DCE statistics now measure both layers.**  `pengu time` reports the total
+  pruning time, not just the exact pass.
+
+### Added
+
+- `tests/compiler/test_dce.py`: whole-project regression tests for the installed
+  `std` layout, default arguments, test-only references, instance pruning,
+  lambdas, function values, interpolation, common local names, `@export`,
+  `--no-dce`, and a `-Werror=implicit-function-declaration` compile check.
+- `tests/compiler/test_binary_size_reduction.py`: the feature-gate tables agree,
+  the checkout/installed roots are discovered, and ceiling budgets catch a
+  regression back to "emit the whole closure".
+
+### Measured (reference machine, `pengu expand`)
+
+| Program | Before | After |
+|---|---:|---:|
+| `hello.pengu` (`println`) | 96 lines / 3.7 KB | 96 lines / 3.7 KB (already minimal) |
+| `import std.json`, unused | 4 221 lines / 142.2 KB | **872 lines / 34.9 KB** |
+| `cipher.encode_base64`, one call | 15 959 lines / 581.7 KB | **611 lines / 25.9 KB** |
+| `import std.petitio`, unused | 20 357 lines / 782.2 KB | **1 682 lines / 68.1 KB** |
+| `benches/stdlib_ops` (3 calls) | 15 663 lines / 568.9 KB | **572 lines / 25.3 KB** |
+
+The remainder is dominated by types, constants and derived `static inline`
+helpers of imported modules (the next, opt-in pruning phase), not by reachable
+code.
+
+`gcc -c -O2` on the same bundles: `cipher` **9.2 s -> 0.20 s**, `petitio`
+**10.3 s -> 0.15 s**, `stdlib_ops` **8.8 s -> 0.39 s**.  `pengu time` no longer
+reports a codegen dominated by dead specializations (`cipher`: 905 ms -> 328 ms
+in this environment; the remaining parse+check time is the checker's transitive
+monomorphization, a separate item).
+
+### Notes
+
+- `--no-dce` / `PENGU_NO_DCE=1` still reproduces the pre-DCE output byte for
+  byte and stays the escape hatch for A/B comparisons and bug reports.
+- Test bundles (`--test`) keep every instance on purpose; they are not
+  distributed and test bodies are not part of the discovery scan yet.
+- Runes, omens, constants, `declare`s and derived implementations are still
+  emitted.  User modules are still fully emitted (scoped tree-shaking of `src/`
+  is a separate, opt-in phase).
+
 ## [2.16.5] — 2026-10-22 — Script cache actually hits (stable identities)
 
 ### Fixed

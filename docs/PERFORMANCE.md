@@ -164,52 +164,71 @@ A script build is cached or discarded, never debugged, so `pengu run` adds
 profile (and drops `-g`). TCC only receives `-O0` (it rejects unknown options).
 `pengu build --profile release` is untouched.
 
-## 6. Dead-code elimination (`pengu_dce.py`)
+## 6. Dead-code elimination
 
 Importing a std module used to emit every weave of it (and of its transitive
-imports). DCE prunes the ones nothing reachable refers to:
+imports). DCE now runs in two layers:
 
-* roots: every weave of a **non-std** module (user code, bindings, static
-  libraries are always emitted), `main`, and the bodies of `test` blocks,
-* a prunable weave is kept when its name, its C name or the module-qualified
-  spelling stripped of its module prefix (`spark_println` → `println`) appears
-  in the roots' bodies, transitively,
-* references are collected from the AST **and** from interpolated strings
-  (which are re-parsed later, so `"{calling cb64_char with v}"` keeps
-  `cb64_char`),
-* generic templates and their monomorphized instances are never pruned, and the
-  original weave order is preserved (specialization names carry counters),
-* only weave bodies/prototypes are dropped: runes, omens, constants, `declare`s
-  and C declarations are always emitted.
+1. **Conservative, name-based** (`pengu_parser/pengu_dce.py::prune_weaves`): the
+   historical pass. It runs before code generation and only sees Pengu names in
+   the AST. It is the fallback for `--test` (test bodies can call generic
+   specializations that the exact pass does not translate) and the starting
+   point for the exact pass.
+2. **Exact reachability over the emitted C**
+   (`pengu_codegen/bundle.py::_discover_reachable_weaves`): used by normal
+   builds. It translates a root weave, scans the C it just produced for the real
+   `c_name` of every call, function value, `@mutates` alias and concept method,
+   translates every new dependency and repeats until the worklist is empty. The
+   translated bodies are cached and emitted verbatim, so what the scanner saw is
+   what the bundle contains.
 
-**What counts as prunable** is anchored to a root, not to a path component: a
-module is prunable when it lives directly under `std/` or `lib/` of the
-repository or of the project's `base_dir`. A user project that merely *lives* in
-a directory called `lib` (`/home/me/lib/proj/…`) keeps every weave, and
-`.d.pengu` bindings are never pruned.
+**Roots** are the same for both layers:
 
-**Alias fix.** The reference matcher used to strip *any* suffix, so a weave named
-`unused_vendor` inside `lib/vendor/pengu/vendor.pengu` was kept by its own last
-segment `vendor`, which appears in every call site as the module alias — nothing
-inside `lib/` bindings was ever pruned. Only the module's own prefix (plus
-multi-token suffixes for modules whose insignia differs from their file name) is
-stripped now.
+* every weave of a **non-std** module (user code, bindings, static libraries are
+  always emitted),
+* `main` / `pengu_main` and every `@export("…")` symbol,
+* in `--test` mode, the bodies of `test` blocks (via the name-based layer).
 
-| Bundle | Before | After |
-|---|---:|---:|
-| `hello.pengu` (uses only `println`) | 432 lines / 19.4 KB | **65 lines / 2.3 KB** (-84%) |
+**What gets pruned.** Weave bodies and prototypes. In a normal build the exact
+pass also drops unreachable monomorphized instances (the old pass kept every
+specialization because its synthetic `filepath="."` made it a root), dead
+`@mutates` aliases and callees reachable only through default arguments.
+Runes, omens, constants, `declare`s and derived implementations are still
+emitted (pruning them is a later, opt-in step).
+
+**What counts as prunable** is anchored to a real `std/` directory, not only to
+the checkout path: `resolved_std_roots()` asks `pengu_paths.std_dirs()`, so FHS
+installs (`<prefix>/share/pengu/std`), `PENGU_STD_DIR` and wheels prune exactly
+like a source checkout. A user project that merely *lives* in a directory called
+`lib` (`/home/me/lib/proj/…`) keeps every weave, and `.d.pengu` bindings are
+never pruned.
+
+| Bundle | 2.16.5 (old DCE) | 2.17.0 (exact DCE) | Reduction |
+|---|---:|---:|---:|
+| `hello.pengu` (uses only `println`) | 96 lines / 3.7 KB | 96 lines / 3.7 KB | already minimal |
+| `import std.json` (unused) | 4 221 lines / 142.2 KB | **872 lines / 34.9 KB** | -75% |
+| `cipher.encode_base64` (one call) | 15 959 lines / 581.7 KB | **611 lines / 25.9 KB** | -96% |
+| `import std.petitio` (unused) | 20 357 lines / 782.2 KB | **1 682 lines / 68.1 KB** | -91% |
+| `benches/stdlib_ops.pengu` (3 calls) | 15 663 lines / 568.9 KB | **572 lines / 25.3 KB** | -96% |
+
+(With DCE disabled entirely, `hello.pengu` is 924 lines / 42.9 KB; the 2.16.5
+figure above is the old pass with the already-minimal import.)
+
+The remaining size is mostly types, constants and derived `static inline`
+helpers of imported modules; that is the next (opt-in) pruning step, not a
+reachability miss.
 
 `pengu expand script.pengu` prints the resulting bundle, `--verbose` reports the
-reduction (`[pengu] DCE: dropped 33 unused std weave(s) … 35 -> 2 weaves (-94%)`),
-`pengu time` prints the pruned count, and the bundle itself is self-describing:
+reduction (`[pengu] DCE: dropped … weave(s)`), `pengu time` prints the pruned
+count, and the bundle itself is self-describing:
 
 ```c
-/* Dead-code elimination: pruned 33 of 35 std/lib weave(s), 35 -> 2 */
+/* Dead-code elimination: pruned 1494 of 1500 std/lib weave(s), 1500 -> 6 */
 ...
 /* Dead-code elimination: disabled (PENGU_NO_DCE) */   // with --no-dce
 ```
 
-`PENGU_NO_DCE=1` / `--no-dce` disable the pass (also useful for bug reports).
+`PENGU_NO_DCE=1` / `--no-dce` disable both layers (also useful for bug reports).
 `--no-dce` is part of the script cache key, so an A/B comparison never reuses the
 other mode's binary; in project mode it reaches `build_project` through
 `pengu run --no-dce` as well.
@@ -389,11 +408,16 @@ The regression tests for all of this live in `tests/compiler/test_run_cache.py`,
   the next run is a hit, but a *fixed* TCC will not be retried until the entry is
   invalidated (`pengu gc`/`pengu run --no-cache`).
 * **`PKG_CONFIG_PATH` is not part of the pkg-config cache key** (see §8).
-* **DCE is name-based.** A weave reachable only through a mechanism that leaves
-  no identifier in the AST (a string built at runtime and looked up dynamically)
-  could in principle be pruned. Runes, omens, constants, `declare`s and bindings
-  are never pruned, and user modules are always fully emitted, which keeps the
-  surface small.
+* **DCE sees the AST and the emitted C, not runtime strings.** A weave reachable
+  only through a name built at runtime (or through a C macro/header the bundle
+  never spells) could in principle be pruned. Normal builds use the exact
+  C-symbol pass; `--test` uses the conservative name-based one. Runes, omens,
+  constants, `declare`s and bindings are never pruned, user modules are always
+  fully emitted, and `@export` is the documented root for FFI entry points, so
+  the practical surface is small.
+* **Test bundles keep every instance.** `--test` skips the exact pass because
+  test bodies are not part of the discovery scan; the resulting bundle is larger
+  than a production one, but it is not distributed.
 * **Leak checking is Linux/glibc only.** The bundled interposer
   (`tests/leakcheck.c`) is an `LD_PRELOAD` shim that needs `<link.h>`,
   `dl_iterate_phdr` and `__libc_malloc`; macOS and Windows have none of those.

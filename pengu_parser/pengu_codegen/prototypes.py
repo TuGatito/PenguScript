@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 
 from ._base import (
+    List,
     RefType,
     Token,
     Tree,
@@ -19,6 +20,43 @@ from .ctype import (
 class ProtoMixin:
     """Function prototypes, attributes and the function definitions."""
 
+    def _weave_c_decl(self, w: dict) -> tuple[str, str, str, str]:
+        """C declaration (without ``;``) plus the attribute prefixes for a weave.
+
+        Shared by the prototype and definition emitters so the two can never
+        drift: a signature mismatch between them is an implicit-declaration or
+        conflicting-types failure in the generated C, not a compile-time error
+        in the compiler.
+
+        Args:
+            w: The collected weave record.
+
+        Returns:
+            ``(decl, inline_prefix, noreturn_prefix, actual_c_name)``.
+        """
+        c_name = w["c_name"]
+        param_strs = []
+
+        # Self parameter for enchanting methods (only if not ritual).  A
+        # primitive / bare-`shard T` receiver is a value: `int32_t self`, not
+        # `int32_t* self`, exactly as C models it.
+        if w["enchanted_type"] is not None and not w.get("is_ritual", False):
+            self_t_str = CTypeMapper.to_c_type(w["enchanted_type"])
+            param_strs.append(
+                f"{self_t_str} self" if w.get("self_is_value") else f"{self_t_str}* self"
+            )
+
+        for p_info in w["params"]:
+            p_name, p_type = p_info[0], p_info[1]
+            param_strs.append(CTypeMapper.to_c_decl(p_type, self._c_ident(p_name)))
+
+        params_formatted = ", ".join(param_strs) if param_strs else "void"
+        inline_pfx = self._attributes_prefix(w)
+        noreturn_pfx = self._noreturn_prefix(w)
+        fn_actual_name = "pengu_main" if c_name == "main" else c_name
+        decl = CTypeMapper.to_c_decl(w["return_type"], f"{fn_actual_name}({params_formatted})")
+        return decl, inline_pfx, noreturn_pfx, fn_actual_name
+
     def generate_function_prototypes(self) -> str:
         """Generates all forward function prototypes."""
         lines = [
@@ -28,32 +66,12 @@ class ProtoMixin:
         ]
 
         for w in self.weaves:
-            c_name = w["c_name"]
-            ret_str = CTypeMapper.to_c_type(w["return_type"])
-            param_strs = []
-
-            # Self parameter for enchanting methods (only if not ritual).  A
-            # primitive / bare-`shard T` receiver is a value: `int32_t self`, not
-            # `int32_t* self`, exactly as C models it.
-            if w["enchanted_type"] is not None and not w.get("is_ritual", False):
-                self_t_str = CTypeMapper.to_c_type(w["enchanted_type"])
-                param_strs.append(
-                    f"{self_t_str} self" if w.get("self_is_value") else f"{self_t_str}* self"
-                )
-
-            for p_info in w["params"]:
-                p_name, p_type = p_info[0], p_info[1]
-                param_strs.append(CTypeMapper.to_c_decl(p_type, self._c_ident(p_name)))
-
-            params_formatted = ", ".join(param_strs) if param_strs else "void"
-            inline_pfx = self._attributes_prefix(w)
-            noreturn_pfx = self._noreturn_prefix(w)
-            fn_actual_name = "pengu_main" if c_name == "main" else c_name
-            decl = CTypeMapper.to_c_decl(w["return_type"], f"{fn_actual_name}({params_formatted})")
+            decl, inline_pfx, noreturn_pfx, _ = self._weave_c_decl(w)
             lines.append(f"{inline_pfx}{noreturn_pfx}{decl};")
 
         lines.append("")
         return "\n".join(lines)
+
     def _noreturn_prefix(self, w: dict) -> str:
         """C prefix for a `@noreturn` weave.
 
@@ -256,162 +274,176 @@ class ProtoMixin:
         unused = [self._c_ident(name) for name in names if name not in used]
         return unused
 
-    def generate_function_definitions(self) -> str:
-        """Generates function implementation bodies in topological module order."""
+    def generate_function_definitions(self, weaves=None) -> str:
+        """Generates function bodies, reusing the discovery cache when present.
+
+        Phase 1 translates every reachable weave once, during reachability
+        discovery, and caches the text.  Reusing that cache here is what keeps
+        the emitted C identical to what the discovery pass inspected: a second
+        translation would be observable (fresh temporaries, different
+        counters) and could disagree with the prototype set.
+
+        Args:
+            weaves: Optional explicit weave list (tests / callers that already
+                filtered the list).  Defaults to ``self.weaves``.
+        """
         lines = [
             "/* -------------------------------------------------------------------------",
             " * Function Definitions",
             " * ------------------------------------------------------------------------- */",
         ]
 
-        for w in self.weaves:
-            self._apply_main_flag(w.get("filepath"))
-            self.current_source_file = w.get("filepath")
-            c_name = w["c_name"]
-            ret_str = CTypeMapper.to_c_type(w["return_type"])
-            param_strs = []
+        for w in (self.weaves if weaves is None else weaves):
+            text = self._definition_cache.get(w["c_name"])
+            if text is None:
+                text = self._generate_one_definition(w)
+                self._definition_cache[w["c_name"]] = text
+            lines.append(text)
 
-            if w["enchanted_type"] is not None and not w.get("is_ritual", False):
-                self_t_str = CTypeMapper.to_c_type(w["enchanted_type"])
-                param_strs.append(
-                    f"{self_t_str} self" if w.get("self_is_value") else f"{self_t_str}* self"
-                )
+        return "\n".join(lines)
 
-            for p_info in w["params"]:
-                p_name, p_type = p_info[0], p_info[1]
-                # restrict is opt-in: see CTypeMapper.to_c_decl
-                param_strs.append(CTypeMapper.to_c_decl(p_type, self._c_ident(p_name)))
+    def _generate_one_definition(self, w: dict) -> str:
+        """Emits the C definition of one weave (without the section header).
 
-            params_formatted = ", ".join(param_strs) if param_strs else "void"
-            inline_pfx = self._attributes_prefix(w)
-            noreturn_pfx = self._noreturn_prefix(w)
-            fn_actual_name = "pengu_main" if c_name == "main" else c_name
-            decl = CTypeMapper.to_c_decl(w["return_type"], f"{fn_actual_name}({params_formatted})")
+        Extracted from :meth:`generate_function_definitions` so the reachability
+        pass can translate a body *before* deciding whether it will be emitted.
+        All generator state a body can touch is saved and restored around the
+        call, so translating a weave is independent of translation order.
 
-            marker = self._line_marker(w.get("line"), w.get("filepath"))
-            if marker:
-                lines.append(marker)
+        Args:
+            w: The collected weave record.
 
-            c_body = w.get("c_body")
-            if c_body is not None:
-                # `antiquus`: the body is literal C written by the user.  It is
-                # emitted verbatim, with no frame push/pop and no implicit
-                # return.  The `#line` directives name the antiquus instead of
-                # the bundle, so a C diagnostic inside the body points at
-                #     antiquus:<name>:<line>
-                # which is unambiguous and easy to grep.
-                lines.append(f"{inline_pfx}{noreturn_pfx}{decl} {{")
-                if self.emit_line_markers:
-                    lines.append(f'#line 1 "antiquus:{fn_actual_name}"')
-                lines.append(c_body if c_body else f"/* antiquus {fn_actual_name}: empty C body */")
-                restore = self._line_marker((w.get("line") or 1) + 1, w.get("filepath"))
-                if restore:
-                    lines.append(restore)
-                lines.append("}")
-                lines.append("")
-                continue
+        Returns:
+            The C definition text, including its ``#line`` marker.
+        """
+        lines: List[str] = []
+        self._apply_main_flag(w.get("filepath"))
+        self.current_source_file = w.get("filepath")
+        decl, inline_pfx, noreturn_pfx, fn_actual_name = self._weave_c_decl(w)
 
+        marker = self._line_marker(w.get("line"), w.get("filepath"))
+        if marker:
+            lines.append(marker)
+
+        c_body = w.get("c_body")
+        if c_body is not None:
+            # `antiquus`: the body is literal C written by the user.  It is
+            # emitted verbatim, with no frame push/pop and no implicit
+            # return.  The `#line` directives name the antiquus instead of
+            # the bundle, so a C diagnostic inside the body points at
+            #     antiquus:<name>:<line>
+            # which is unambiguous and easy to grep.
             lines.append(f"{inline_pfx}{noreturn_pfx}{decl} {{")
-            self.indent_level += 1
-            # A generic instantiation may be generated *while* an enclosing
-            # function body is being translated (first call site wins).  The
-            # generator keeps function-scoped state on `self`, so save it and
-            # restore it at the end: without this, the instantiated body saw
-            # the enclosing function's `local_vars` and resolved, for example,
-            # `.first` to an unrelated local rune named `first`. That produced
-            # a wrong `sizeof` in `memcpy` and the oracle bundle warned under
-            # -Wstringop-overflow.
-            saved_gen_state = (
-                dict(self.local_vars),
-                self.current_function,
-                self.current_return_type,
-                self.current_enchanted_type,
-                dict(getattr(self, "current_subst_map", {}) or {}),
-                getattr(self, "current_self_is_value", False),
-                list(getattr(self, "with_stack", []) or []),
-                list(getattr(self, "with_type_stack", []) or []),
-                getattr(self, "_void_locals", set()),
-            )
-            push_path = self._display_path(w.get("filepath")) or ""
-            push_line = w.get("line") or 0
-            lines.append(f'{self.indent()}pengu_frame_push("{fn_actual_name}", "{push_path}", {push_line});')
-            self.current_function = fn_actual_name
-            self.current_return_type = w["return_type"]
-            self.current_enchanted_type = w.get("enchanted_type")
-            self.current_subst_map = w.get("subst_map", {})
-            self.local_vars = {}
-            # A generic instantiation may be emitted from inside an enclosing
-            # `with:` block; the new function starts with no with-context, or
-            # its `.field` targets would resolve against the caller's target.
-            self.with_stack = []
-            self.with_type_stack = []
-            # Value-vs-reference receiver comes from the collected declaration
-            # (see `_collect_weave`), never from the type alone: `enchanting int:`
-            # is a value, `bind int with Ordered:` is a pointer.
-            self.current_self_is_value = bool(w.get("self_is_value"))
-            if w["enchanted_type"] is not None and not w.get("is_ritual", False):
-                # Value receiver (primitive / bare `shard T`): `self` is the value
-                # itself, so `calling self.other_method` passes it by value and
-                # `self % 2` is plain C arithmetic, not a pointer deref.
-                if self.current_self_is_value:
-                    self.local_vars["self"] = w["enchanted_type"]
-                else:
-                    self.local_vars["self"] = RefType(w["enchanted_type"])
-            for p_info in w["params"]:
-                self.local_vars[p_info[0]] = p_info[1]
-
-            self.defer_stack.append([])
-            self.errdefer_stack.append([])
-
-            # Implicit return (guide §4.11): when the body's last statement is a
-            # value expression and the weave returns a non-void type, that value
-            # is the result.  Translating it as a real ``return_stmt`` gives the
-            # same cleanup handling as an explicit ``return``.
-            body_stmts = w["body_stmts"]
-            # Parameters the body never mentions: one `(void)name;` each, so the
-            # bundle is clean under `-Wextra -Werror` (`type of p` is exactly
-            # such a case: the operand is inspected, never emitted).
-            for unused_param in self._unused_parameter_names(w, body_stmts):
-                lines.append(f"{self.indent()}(void){unused_param};")
-            self._void_locals = self._unused_local_names(body_stmts)
-            tail_expr = self._implicit_return_expr(body_stmts, w.get("return_type"))
-            if tail_expr is not None:
-                body_code = self._translate_block(body_stmts[:-1])
-                lines.append(body_code)
-                lines.append(self._translate_stmt(Tree("return_stmt", [tail_expr],
-                                                       meta=getattr(tail_expr, "meta", None))))
-            else:
-                body_code = self._translate_block(body_stmts)
-                lines.append(body_code)
-
-            # Emit any remaining top-level defers before function exit.
-            active_defers = self.defer_stack.pop() if self.defer_stack else []
-            if self.errdefer_stack:
-                self.errdefer_stack.pop()
-            # With a synthesized implicit return the deferred cleanup is already
-            # emitted *inside* the return statement; emitting it again here would
-            # double-free.
-            body_is_jump = self._stmts_end_with_jump(w["body_stmts"])
-            if tail_expr is None and not body_is_jump:
-                if active_defers:
-                    lines.append(f"{self.indent()}/* Deferred cleanup */")
-                    for d in reversed(active_defers):
-                        lines.append(self._format_defer_cleanup(d, self.indent()))
-
-            # The trailing pop is the fall-through exit.  Every `return` already
-            # emits its own `pengu_frame_pop()` (see `return_stmt` in stmts.py),
-            # so appending one after a jump only creates unreachable code -- and
-            # unreachable *calls* after a `return` make gcc report a spurious
-            # "-Wreturn-type: control reaches end of non-void function" for the
-            # whole bundle when it is compiled at -O0 with -fsanitize=address.
-            if tail_expr is None and not body_is_jump:
-                lines.append(f"{self.indent()}pengu_frame_pop();")
-            self.indent_level -= 1
+            if self.emit_line_markers:
+                lines.append(f'#line 1 "antiquus:{fn_actual_name}"')
+            lines.append(c_body if c_body else f"/* antiquus {fn_actual_name}: empty C body */")
+            restore = self._line_marker((w.get("line") or 1) + 1, w.get("filepath"))
+            if restore:
+                lines.append(restore)
             lines.append("}")
             lines.append("")
-            (self.local_vars, self.current_function, self.current_return_type,
-             self.current_enchanted_type, self.current_subst_map,
-             self.current_self_is_value, self.with_stack,
-             self.with_type_stack, self._void_locals) = saved_gen_state
+            return "\n".join(lines)
 
+        lines.append(f"{inline_pfx}{noreturn_pfx}{decl} {{")
+        self.indent_level += 1
+        # A generic instantiation may be generated *while* an enclosing
+        # function body is being translated (first call site wins).  The
+        # generator keeps function-scoped state on `self`, so save it and
+        # restore it at the end: without this, the instantiated body saw the
+        # enclosing function's `local_vars` and resolved, for example,
+        # `.first` to an unrelated local rune named `first`.  That produced a
+        # wrong `sizeof` in `memcpy` and the oracle bundle warned under
+        # -Wstringop-overflow.
+        saved_gen_state = (
+            dict(self.local_vars),
+            self.current_function,
+            self.current_return_type,
+            self.current_enchanted_type,
+            dict(getattr(self, "current_subst_map", {}) or {}),
+            getattr(self, "current_self_is_value", False),
+            list(getattr(self, "with_stack", []) or []),
+            list(getattr(self, "with_type_stack", []) or []),
+            getattr(self, "_void_locals", set()),
+        )
+        push_path = self._display_path(w.get("filepath")) or ""
+        push_line = w.get("line") or 0
+        lines.append(f'{self.indent()}pengu_frame_push("{fn_actual_name}", "{push_path}", {push_line});')
+        self.current_function = fn_actual_name
+        self.current_return_type = w["return_type"]
+        self.current_enchanted_type = w.get("enchanted_type")
+        self.current_subst_map = w.get("subst_map", {})
+        self.local_vars = {}
+        # A generic instantiation may be emitted from inside an enclosing
+        # `with:` block; the new function starts with no with-context, or
+        # its `.field` targets would resolve against the caller's target.
+        self.with_stack = []
+        self.with_type_stack = []
+        # Value-vs-reference receiver comes from the collected declaration
+        # (see `_collect_weave`), never from the type alone: `enchanting int:`
+        # is a value, `bind int with Ordered:` is a pointer.
+        self.current_self_is_value = bool(w.get("self_is_value"))
+        if w["enchanted_type"] is not None and not w.get("is_ritual", False):
+            # Value receiver (primitive / bare `shard T`): `self` is the value
+            # itself, so `calling self.other_method` passes it by value and
+            # `self % 2` is plain C arithmetic, not a pointer deref.
+            if self.current_self_is_value:
+                self.local_vars["self"] = w["enchanted_type"]
+            else:
+                self.local_vars["self"] = RefType(w["enchanted_type"])
+        for p_info in w["params"]:
+            self.local_vars[p_info[0]] = p_info[1]
+
+        self.defer_stack.append([])
+        self.errdefer_stack.append([])
+
+        # Implicit return (guide §4.11): when the body's last statement is a
+        # value expression and the weave returns a non-void type, that value
+        # is the result.  Translating it as a real ``return_stmt`` gives the
+        # same cleanup handling as an explicit ``return``.
+        body_stmts = w["body_stmts"]
+        # Parameters the body never mentions: one `(void)name;` each, so the
+        # bundle is clean under `-Wextra -Werror` (`type of p` is exactly
+        # such a case: the operand is inspected, never emitted).
+        for unused_param in self._unused_parameter_names(w, body_stmts):
+            lines.append(f"{self.indent()}(void){unused_param};")
+        self._void_locals = self._unused_local_names(body_stmts)
+        tail_expr = self._implicit_return_expr(body_stmts, w.get("return_type"))
+        if tail_expr is not None:
+            body_code = self._translate_block(body_stmts[:-1])
+            lines.append(body_code)
+            lines.append(self._translate_stmt(Tree("return_stmt", [tail_expr],
+                                                   meta=getattr(tail_expr, "meta", None))))
+        else:
+            body_code = self._translate_block(body_stmts)
+            lines.append(body_code)
+
+        # Emit any remaining top-level defers before function exit.
+        active_defers = self.defer_stack.pop() if self.defer_stack else []
+        if self.errdefer_stack:
+            self.errdefer_stack.pop()
+        # With a synthesized implicit return the deferred cleanup is already
+        # emitted *inside* the return statement; emitting it again here would
+        # double-free.
+        body_is_jump = self._stmts_end_with_jump(w["body_stmts"])
+        if tail_expr is None and not body_is_jump:
+            if active_defers:
+                lines.append(f"{self.indent()}/* Deferred cleanup */")
+                for d in reversed(active_defers):
+                    lines.append(self._format_defer_cleanup(d, self.indent()))
+
+        # The trailing pop is the fall-through exit.  Every `return` already
+        # emits its own `pengu_frame_pop()` (see `return_stmt` in stmts.py),
+        # so appending one after a jump only creates unreachable code -- and
+        # unreachable *calls* after a `return` make gcc report a spurious
+        # "-Wreturn-type: control reaches end of non-void function" for the
+        # whole bundle when it is compiled at -O0 with -fsanitize=address.
+        if tail_expr is None and not body_is_jump:
+            lines.append(f"{self.indent()}pengu_frame_pop();")
+        self.indent_level -= 1
+        lines.append("}")
+        lines.append("")
+        (self.local_vars, self.current_function, self.current_return_type,
+         self.current_enchanted_type, self.current_subst_map,
+         self.current_self_is_value, self.with_stack,
+         self.with_type_stack, self._void_locals) = saved_gen_state
         return "\n".join(lines)

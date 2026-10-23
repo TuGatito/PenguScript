@@ -187,13 +187,17 @@ or `generate_test_entry_point()` (line 9799) in `--test` mode. Statements and
 expressions go through `_translate_stmt_impl()` (line 4283) and
 `_translate_expr_impl()` (line 7010).
 
-Dead-code elimination runs **first** in `generate_bundle()` (line 9861), before
-any section is emitted, so prototypes and definitions stay consistent:
-`pengu_parser.pengu_dce.prune_weaves()` (line 175), rooted at
-`collect_references()` (line 97) plus the references of every `test` block.
-`PENGU_NO_DCE=1` disables it; statistics land in `codegen.dce_stats`. The
-generated C carries `#line N "source.pengu"` markers, so native diagnostics land
-on the `.pengu` file the user wrote. `build_runtime.py` is *not* part of a normal
+Dead-code elimination runs inside `generate_bundle()` and has two layers.
+`pengu_parser.pengu_dce.prune_weaves()` is the conservative, name-based pass
+(rooted at `collect_references()` plus the references of every `test` block); it
+runs first and is the fallback for `--test`. Normal builds then run the exact
+pass, `PenguCodegen._discover_reachable_weaves()`, which translates a root,
+scans the emitted C for real `c_name`s, and repeats until the worklist is empty.
+The translated bodies are cached in `_definition_cache`, and prototypes and
+definitions are emitted from the filtered weave list, so both stay consistent.
+`PENGU_NO_DCE=1` disables both layers; statistics land in `codegen.dce_stats`.
+The generated C carries `#line N "source.pengu"` markers, so native diagnostics
+land on the `.pengu` file the user wrote. `build_runtime.py` is *not* part of a normal
 build — it is the maintainer/CI step that produces `build/lib/libpengu_runtime.a`
 (§7).
 

@@ -36,7 +36,10 @@ from pengu_parser.pengu_grammar import (
 )
 from pengu_parser.pengu_dce import (
     collect_references as _dce_collect_refs,
+    identifiers_in_text as _dce_identifiers_in_text,
+    is_prunable_module,
     prune_weaves,
+    resolved_std_roots as _dce_resolved_std_roots,
     summarize as _dce_summarize,
 )
 
