@@ -133,19 +133,23 @@ weave main into int:
     return 0
 """,
     # The union case: several bindings at once must not pull an archive twice
-    # and must not lose one either. `std.regulus` is deliberately absent: its
-    # `RegexError.OutOfMemory` and `std.petitio`'s `HttpError.OutOfMemory`
-    # collide under LANGUAGE.md's "variant names are unique across the module"
-    # rule when both are imported. That is a pre-existing language constraint,
-    # unrelated to compression; the `both` case covers the language + regex
-    # union and this case covers the archive-heavy union.
+    # and must not lose one either. `std.regulus` and `std.petitio` used to be
+    # impossible to import together (their omen variants shared simple names);
+    # Track B4 renamed the variants, so this covers the archive-heavy union and
+    # the former collision in one build.
     "all_std_c": """import std.spark
 import std.lingua
+import std.regulus
 import std.petitio
 import std.compressus
 
 weave main into int:
     calling spark.println_int with (calling lingua.codepoint_count with "ñ")
+    var cr as result of Regex to RegexError is calling Regex.compile with "a+"
+    if cr.is_ok:
+        var rx as Regex is cr.value
+        defer banish rx
+        calling spark.println_bool with (calling rx.is_match with "baa")
     var encoded as string is calling petitio.url_encode with "a b"
     banish encoded
     var version as string is calling petitio.libcurl_version
@@ -198,7 +202,7 @@ def _symbols(exe: Path) -> str:
         ("both", True, True, False, False),
         ("petitio", False, False, True, False),
         ("compressus", False, False, False, True),
-        ("all_std_c", True, False, True, True),
+        ("all_std_c", True, True, True, True),
     ],
 )
 def test_smart_linking_matrix(tmp_path, name, lingua, regulus, petitio, compressus):

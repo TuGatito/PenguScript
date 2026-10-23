@@ -11,7 +11,7 @@
 `cipher` owns byte encodings and JSON: Base64 (standard/URL/unpadded), Hex,
 Base32, Base85 (RFC 1924), Z85 (ZeroMQ), Base58 (Bitcoin), RFC 3986
 percent-encoding, CRC-32, string escaping, the legacy flat JSON surface and the
-generic `JsonValue` tree. It imports `std.spark`, `std.archivum`,
+generic `CipherJsonValue` tree. It imports `std.spark`, `std.archivum`,
 `std.scrolls` and `std.oracle`, and declares one runtime bridge
 (`pengu_map_keys_string`) before setting `insignia cipher_`.
 
@@ -24,7 +24,7 @@ generic `JsonValue` tree. It imports `std.spark`, `std.archivum`,
 | `string` returns (encoders, serializers, escapes, …) | freshly allocated | `banish` |
 | `maybe T` returns (`decode_*`, `parse_*`) | owns its payload | `banish` on the payload after unpacking |
 | `list` / `map` returns (`parse_json_array`, `json_value_items`, …) | freshly allocated | `banish` |
-| `JsonValue` returns (`parse_json_value`, `json_value_*`) | freshly allocated tree | `banish` |
+| `CipherJsonValue` returns (`parse_json_value`, `json_value_*`) | freshly allocated tree | `banish` |
 
 ## Constants
 
@@ -139,31 +139,31 @@ assembled once by the cached private weaves `_base85_alphabet` / `_z85_alphabet`
 | `is_valid_json_value` | `(string) -> bool` | any single valid value |
 | `read_json_file` / `write_json_file` / `write_json_file_pretty` | file helpers | via `std.archivum` |
 
-## Generic `JsonValue`
+## Generic `CipherJsonValue`
 
 | Symbol | Signature | Semantics |
 |---|---|---|
-| `JsonValue` (omen) | `JvNull`, `JvBool with value`, `JvInt with value`, `JvFloat with value`, `JvString with value`, `JvArray with node`, `JvObject with node` | the `json.loads` tree |
-| `JsonArrayNode` / `JsonObjectNode` (rune) | `items as list of JsonValue` / `pairs as map of string to JsonValue` | recursive payload wrappers (see G-2) |
-| `parse_json_value` | `(string) -> maybe JsonValue` | strict parser, UTF-8 checked, surrogate-aware |
-| `parse_json_to_map` / `parse_json_to_list` | `(string) -> maybe map of string to JsonValue` / `… list of JsonValue` | typed roots |
-| `stringify_json_value` | `(JsonValue) -> string` | compact, sorted keys |
-| `stringify_json_value_pretty` | `(JsonValue, int = 2) -> string` | indented |
-| `json_dumps_canonical` | `(JsonValue) -> string` | compact, sorted keys (RFC 8785 shape; 32-bit numbers) |
-| `json_value_type` | `(JsonValue) -> string` | `"null"`, `"bool"`, `"int"`, `"float"`, `"string"`, `"array"`, `"object"` |
-| `json_value_to_string` | `(JsonValue) -> string` | scalar text / compact JSON |
-| `json_value_get` | `(JsonValue, string) -> maybe JsonValue` | object member |
-| `json_value_at` | `(JsonValue, int) -> maybe JsonValue` | array element (negative counts from the end) |
-| `json_value_as_int` / `_as_float` / `_as_string` / `_as_bool` | `(JsonValue) -> maybe T` | coercion (see `docs/BUGS_FIXED_CHUNK7.md` for the exact table) |
-| `json_value_len` | `(JsonValue) -> int` | array/object length, string byte length, `0` for scalars |
-| `json_value_items` / `json_value_pairs` | `(JsonValue) -> maybe list of JsonValue` / `… map of string to JsonValue` | fresh copies |
-| `json_value_is_null` / `_is_bool` / `_is_int` / `_is_float` / `_is_string` / `_is_array` / `_is_object` | `(JsonValue) -> bool` | predicates |
-| `json_value_deep_clone` | `(JsonValue) -> JsonValue` | independent copy |
-| `json_value_equal` | `(JsonValue, JsonValue) -> bool` | deep equality; `int`/`float` compare numerically |
-| `json_value_merge` | `(JsonValue, JsonValue) -> JsonValue` | shallow object merge |
-| `json_value_merge_patch` | `(JsonValue, JsonValue) -> JsonValue` | RFC 7396 |
-| `json_pointer_get` | `(JsonValue, string) -> maybe JsonValue` | RFC 6901 |
-| `json_patch` | `(JsonValue, JsonValue) -> result of JsonValue to string` | RFC 6902 (`add`, `remove`, `replace`, `move`, `copy`, `test`) |
+| `CipherJsonValue` (omen) | `JvNull`, `JvBool with value`, `JvInt with value`, `JvFloat with value`, `JvString with value`, `JvArray with node`, `JvObject with node` | the `json.loads` tree |
+| `JsonArrayNode` / `JsonObjectNode` (rune) | `items as list of CipherJsonValue` / `pairs as map of string to CipherJsonValue` | recursive payload wrappers (see G-2) |
+| `parse_json_value` | `(string) -> maybe CipherJsonValue` | strict parser, UTF-8 checked, surrogate-aware |
+| `parse_json_to_map` / `parse_json_to_list` | `(string) -> maybe map of string to CipherJsonValue` / `… list of CipherJsonValue` | typed roots |
+| `stringify_json_value` | `(CipherJsonValue) -> string` | compact, sorted keys |
+| `stringify_json_value_pretty` | `(CipherJsonValue, int = 2) -> string` | indented |
+| `json_dumps_canonical` | `(CipherJsonValue) -> string` | compact, sorted keys (RFC 8785 shape; 32-bit numbers) |
+| `json_value_type` | `(CipherJsonValue) -> string` | `"null"`, `"bool"`, `"int"`, `"float"`, `"string"`, `"array"`, `"object"` |
+| `json_value_to_string` | `(CipherJsonValue) -> string` | scalar text / compact JSON |
+| `json_value_get` | `(CipherJsonValue, string) -> maybe CipherJsonValue` | object member |
+| `json_value_at` | `(CipherJsonValue, int) -> maybe CipherJsonValue` | array element (negative counts from the end) |
+| `json_value_as_int` / `_as_float` / `_as_string` / `_as_bool` | `(CipherJsonValue) -> maybe T` | coercion (see `docs/BUGS_FIXED_CHUNK7.md` for the exact table) |
+| `json_value_len` | `(CipherJsonValue) -> int` | array/object length, string byte length, `0` for scalars |
+| `json_value_items` / `json_value_pairs` | `(CipherJsonValue) -> maybe list of CipherJsonValue` / `… map of string to CipherJsonValue` | fresh copies |
+| `json_value_is_null` / `_is_bool` / `_is_int` / `_is_float` / `_is_string` / `_is_array` / `_is_object` | `(CipherJsonValue) -> bool` | predicates |
+| `json_value_deep_clone` | `(CipherJsonValue) -> CipherJsonValue` | independent copy |
+| `json_value_equal` | `(CipherJsonValue, CipherJsonValue) -> bool` | deep equality; `int`/`float` compare numerically |
+| `json_value_merge` | `(CipherJsonValue, CipherJsonValue) -> CipherJsonValue` | shallow object merge |
+| `json_value_merge_patch` | `(CipherJsonValue, CipherJsonValue) -> CipherJsonValue` | RFC 7396 |
+| `json_pointer_get` | `(CipherJsonValue, string) -> maybe CipherJsonValue` | RFC 6901 |
+| `json_patch` | `(CipherJsonValue, CipherJsonValue) -> result of CipherJsonValue to string` | RFC 6902 (`add`, `remove`, `replace`, `move`, `copy`, `test`) |
 
 ## Typed serializers
 
@@ -183,7 +183,7 @@ assembled once by the cached private weaves `_base85_alphabet` / `_z85_alphabet`
 
 ## Documented deviations
 
-1. **`JsonValue` variant names are `Jv*`.** The frozen `JsonKind` omen already
+1. **`CipherJsonValue` variant names are `Jv*`.** The frozen `JsonKind` omen already
    owns `JsonNull`, `JsonBool`, `JsonString`, `JsonArray` and `JsonObject`, and
    omen variants live in a single global namespace (compiler finding G-3 in the
    bug doc). Renaming the *legacy* names would break the frozen contract, so the

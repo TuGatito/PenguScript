@@ -231,8 +231,8 @@ def test_error_model_matches_the_c_bridge():
     wrapper = _wrapper_variants()
     # PETITIO_OK is the success code and has no error variant.
     expected = ["ConnectionFailed", "Timeout", "TooManyRedirects", "InvalidUrl",
-                "TlsError", "ProtocolError", "BodyTooLarge", "OutOfMemory",
-                "Unsupported", "IoError", "Cancelled"]
+                "TlsError", "ProtocolError", "BodyTooLarge", "HttpOutOfMemory",
+                "Unsupported", "HttpIoError", "Cancelled"]
     assert [n for n in c_names if n != "PETITIO_OK"] == [
         "PETITIO_CONNECTION_FAILED", "PETITIO_TIMEOUT", "PETITIO_TOO_MANY_REDIRECTS",
         "PETITIO_INVALID_URL", "PETITIO_TLS_ERROR", "PETITIO_PROTOCOL_ERROR",

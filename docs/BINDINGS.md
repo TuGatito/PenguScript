@@ -215,7 +215,7 @@ weave cbind_log with message as string into void:
 
 weave main into int:
     var _d as bool is calling archivum.create_dir with "lib"
-    var parser as invoke.Parser is calling invoke.new_parser with "build", "build the binding"
+    var parser as invoke.CommandParser is calling invoke.new_parser with "build", "build the binding"
     calling parser.add_flag with "force", "f", "rebuild", false
     let argv as list of string is calling rites.get_args
     let res as invoke.ParseResult is calling parser.parse with argv

@@ -362,7 +362,7 @@ var k as cipher.JsonKind is calling cipher.json_kind_of with "42"
 ```
 
 
-### `JsonValue`
+### `CipherJsonValue`
 
 > **omen** (integer values, algebraic payload)
 
@@ -378,7 +378,7 @@ Variantes
 - `JvObject with node`: the recursive object payload.
 Nota
 The recursive payloads travel through `JsonArrayNode` / `JsonObjectNode`
-because a direct `list of JsonValue` field inside this `omen` does not
+because a direct `list of CipherJsonValue` field inside this `omen` does not
 type-check on the 2.0.0 checker (finding C-2 in the Chunk 7 bug doc). Use
 `json_value_items` / `json_value_pairs` to read them without naming the
 wrapper.
@@ -392,20 +392,20 @@ wrapper.
 
 > **rune** struct
 
-Recursive payload of the `JsonValue.JvArray` variant.
+Recursive payload of the `CipherJsonValue.JvArray` variant.
 Campos
 - `items`: the array elements, in document order.
 
 **Fields:**
 
-- `items` : list of JsonValue
+- `items` : list of CipherJsonValue
 
 
 ### `JsonObjectNode`
 
 > **rune** struct
 
-Recursive payload of the `JsonValue.JvObject` variant.
+Recursive payload of the `CipherJsonValue.JvObject` variant.
 Campos
 - `pairs`: the object members. JSON object order is not representable in a
 PenguScript `map`, so iteration order is unspecified; `json_dumps_canonical`
@@ -413,7 +413,7 @@ sorts the keys.
 
 **Fields:**
 
-- `pairs` : map of string to JsonValue
+- `pairs` : map of string to CipherJsonValue
 
 
 ### `cb64_char`
@@ -1081,9 +1081,9 @@ for a very negative exponent) because PenguScript's `float` is 32-bit.
 
 ### `_parse_value_at_depth`
 
-> **cipher__parse_value_at_depth**(json: string, p: ref to int, depth: int) -> maybe JsonValue
+> **cipher__parse_value_at_depth**(json: string, p: ref to int, depth: int) -> maybe CipherJsonValue
 
-Recursive descent parser producing the generic `JsonValue` tree.
+Recursive descent parser producing the generic `CipherJsonValue` tree.
 Parámetros
 - `json`: the document. Borrowed.
 - `p`: read/write cursor.
@@ -1272,9 +1272,9 @@ An owned string of `n` spaces; release it with `banish`.
 
 ### `parse_json_value`
 
-> **cipher_parse_json_value**(json: string) -> maybe JsonValue
+> **cipher_parse_json_value**(json: string) -> maybe CipherJsonValue
 
-Parses a JSON document into the generic `JsonValue` tree.
+Parses a JSON document into the generic `CipherJsonValue` tree.
 Parámetros
 - `json`: the document; must contain exactly one value. Borrowed.
 Retorno
@@ -1284,15 +1284,15 @@ invalid UTF-8, malformed `\uXXXX` escapes and trailing content are rejected.
 Valid surrogate pairs are combined into one code point.
 Ejemplo
 ```pengu
-var v as maybe cipher.JsonValue is calling cipher.parse_json_value with "[1, 2, 3]"
+var v as maybe cipher.CipherJsonValue is calling cipher.parse_json_value with "[1, 2, 3]"
 ```
 
 
 ### `parse_json_to_map`
 
-> **cipher_parse_json_to_map**(json: string) -> maybe map of string to JsonValue
+> **cipher_parse_json_to_map**(json: string) -> maybe map of string to CipherJsonValue
 
-Parses a JSON object into a `map of string to JsonValue`.
+Parses a JSON object into a `map of string to CipherJsonValue`.
 Parámetros
 - `json`: the document; must be a single JSON object. Borrowed.
 Retorno
@@ -1302,9 +1302,9 @@ an object or is malformed.
 
 ### `parse_json_to_list`
 
-> **cipher_parse_json_to_list**(json: string) -> maybe list of JsonValue
+> **cipher_parse_json_to_list**(json: string) -> maybe list of CipherJsonValue
 
-Parses a JSON array into a `list of JsonValue`.
+Parses a JSON array into a `list of CipherJsonValue`.
 Parámetros
 - `json`: the document; must be a single JSON array. Borrowed.
 Retorno
@@ -1314,9 +1314,9 @@ an array or is malformed.
 
 ### `_jv_kind`
 
-> **cipher__jv_kind**(v: JsonValue) -> int
+> **cipher__jv_kind**(v: CipherJsonValue) -> int
 
-Kind of a `JsonValue` as an integer code (private, for dispatch).
+Kind of a `CipherJsonValue` as an integer code (private, for dispatch).
 Parámetros
 - `v`: the value. Borrowed.
 Retorno
@@ -1325,29 +1325,29 @@ Retorno
 
 ### `_copy_value_map`
 
-> **cipher__copy_value_map**(m: map of string to JsonValue) -> map of string to JsonValue
+> **cipher__copy_value_map**(m: map of string to CipherJsonValue) -> map of string to CipherJsonValue
 
 Shallow copy of an object payload, so a mutation cannot alias the original.
 Parámetros
 - `m`: the object payload. Borrowed.
 Retorno
-A new map sharing the child `JsonValue`s; release it with `banish`.
+A new map sharing the child `CipherJsonValue`s; release it with `banish`.
 
 
 ### `_copy_value_list`
 
-> **cipher__copy_value_list**(xs: list of JsonValue) -> list of JsonValue
+> **cipher__copy_value_list**(xs: list of CipherJsonValue) -> list of CipherJsonValue
 
 Shallow copy of an array payload.
 Parámetros
 - `xs`: the array payload. Borrowed.
 Retorno
-A new list sharing the child `JsonValue`s; release it with `banish`.
+A new list sharing the child `CipherJsonValue`s; release it with `banish`.
 
 
 ### `_jv_pairs_of`
 
-> **cipher__jv_pairs_of**(v: JsonValue) -> map of string to JsonValue
+> **cipher__jv_pairs_of**(v: CipherJsonValue) -> map of string to CipherJsonValue
 
 Object payload of `v` as a fresh mutable map (empty for other kinds).
 Parámetros
@@ -1358,7 +1358,7 @@ A new map; release it with `banish`.
 
 ### `_jv_items_of`
 
-> **cipher__jv_items_of**(v: JsonValue) -> list of JsonValue
+> **cipher__jv_items_of**(v: CipherJsonValue) -> list of CipherJsonValue
 
 Array payload of `v` as a fresh mutable list (empty for other kinds).
 Parámetros
@@ -1388,7 +1388,7 @@ Retorno
 
 ### `json_value_type`
 
-> **cipher_json_value_type**(v: JsonValue) -> string
+> **cipher_json_value_type**(v: CipherJsonValue) -> string
 
 Returns the variant name of `v`.
 Parámetros
@@ -1418,9 +1418,9 @@ shortest round-tripping spelling.
 
 ### `_stringify_value`
 
-> **cipher__stringify_value**(v: JsonValue, pretty: bool, level: int, indent: int) -> string
+> **cipher__stringify_value**(v: CipherJsonValue, pretty: bool, level: int, indent: int) -> string
 
-Serializes a `JsonValue` as JSON, optionally indented (private workhorse).
+Serializes a `CipherJsonValue` as JSON, optionally indented (private workhorse).
 Parámetros
 - `v`: the value. Borrowed.
 - `pretty`: `true` for multi-line output.
@@ -1445,7 +1445,7 @@ this module routes through here so its member order is deterministic.
 
 ### `_stringify_items`
 
-> **cipher__stringify_items**(items: list of JsonValue, pretty: bool, level: int, indent: int) -> string
+> **cipher__stringify_items**(items: list of CipherJsonValue, pretty: bool, level: int, indent: int) -> string
 
 Serializes an array payload (helper of `_stringify_value`).
 Parámetros
@@ -1457,7 +1457,7 @@ An owned JSON array; release it with `banish`.
 
 ### `_stringify_pairs`
 
-> **cipher__stringify_pairs**(pairs: map of string to JsonValue, pretty: bool, level: int, indent: int) -> string
+> **cipher__stringify_pairs**(pairs: map of string to CipherJsonValue, pretty: bool, level: int, indent: int) -> string
 
 Serializes an object payload (helper of `_stringify_value`).
 Parámetros
@@ -1469,9 +1469,9 @@ An owned JSON object with sorted keys; release it with `banish`.
 
 ### `stringify_json_value`
 
-> **cipher_stringify_json_value**(v: JsonValue) -> string
+> **cipher_stringify_json_value**(v: CipherJsonValue) -> string
 
-Serializes a `JsonValue` as compact JSON.
+Serializes a `CipherJsonValue` as compact JSON.
 Parámetros
 - `v`: the value. Borrowed.
 Retorno
@@ -1485,9 +1485,9 @@ calling cipher.stringify_json_value with v
 
 ### `stringify_json_value_pretty`
 
-> **cipher_stringify_json_value_pretty**(v: JsonValue, indent: int) -> string
+> **cipher_stringify_json_value_pretty**(v: CipherJsonValue, indent: int) -> string
 
-Serializes a `JsonValue` as indented JSON.
+Serializes a `CipherJsonValue` as indented JSON.
 Parámetros
 - `v`: the value. Borrowed.
 - `indent`: spaces per nesting level (default `2`).
@@ -1502,9 +1502,9 @@ calling cipher.stringify_json_value_pretty with v, 4
 
 ### `json_dumps_canonical`
 
-> **cipher_json_dumps_canonical**(v: JsonValue) -> string
+> **cipher_json_dumps_canonical**(v: CipherJsonValue) -> string
 
-Serializes a `JsonValue` in canonical form: compact with sorted keys (the
+Serializes a `CipherJsonValue` in canonical form: compact with sorted keys (the
 RFC 8785 shape).
 Parámetros
 - `v`: the value. Borrowed.
@@ -1520,9 +1520,9 @@ calling cipher.json_dumps_canonical with v
 
 ### `json_value_to_string`
 
-> **cipher_json_value_to_string**(v: JsonValue) -> string
+> **cipher_json_value_to_string**(v: CipherJsonValue) -> string
 
-Renders a `JsonValue` as human-readable text (containers become compact JSON).
+Renders a `CipherJsonValue` as human-readable text (containers become compact JSON).
 Parámetros
 - `v`: the value. Borrowed.
 Retorno
@@ -1536,7 +1536,7 @@ calling cipher.json_value_to_string with v
 
 ### `json_value_is_null`
 
-> **cipher_json_value_is_null**(v: JsonValue) -> bool
+> **cipher_json_value_is_null**(v: CipherJsonValue) -> bool
 
 True when `v` is JSON `null`.
 Parámetros
@@ -1547,7 +1547,7 @@ Retorno
 
 ### `json_value_is_bool`
 
-> **cipher_json_value_is_bool**(v: JsonValue) -> bool
+> **cipher_json_value_is_bool**(v: CipherJsonValue) -> bool
 
 True when `v` is a JSON boolean.
 Parámetros
@@ -1558,7 +1558,7 @@ Retorno
 
 ### `json_value_is_int`
 
-> **cipher_json_value_is_int**(v: JsonValue) -> bool
+> **cipher_json_value_is_int**(v: CipherJsonValue) -> bool
 
 True when `v` is an integral JSON number.
 Parámetros
@@ -1569,7 +1569,7 @@ Retorno
 
 ### `json_value_is_float`
 
-> **cipher_json_value_is_float**(v: JsonValue) -> bool
+> **cipher_json_value_is_float**(v: CipherJsonValue) -> bool
 
 True when `v` is a fractional JSON number.
 Parámetros
@@ -1580,7 +1580,7 @@ Retorno
 
 ### `json_value_is_string`
 
-> **cipher_json_value_is_string**(v: JsonValue) -> bool
+> **cipher_json_value_is_string**(v: CipherJsonValue) -> bool
 
 True when `v` is a JSON string.
 Parámetros
@@ -1591,7 +1591,7 @@ Retorno
 
 ### `json_value_is_array`
 
-> **cipher_json_value_is_array**(v: JsonValue) -> bool
+> **cipher_json_value_is_array**(v: CipherJsonValue) -> bool
 
 True when `v` is a JSON array.
 Parámetros
@@ -1602,7 +1602,7 @@ Retorno
 
 ### `json_value_is_object`
 
-> **cipher_json_value_is_object**(v: JsonValue) -> bool
+> **cipher_json_value_is_object**(v: CipherJsonValue) -> bool
 
 True when `v` is a JSON object.
 Parámetros
@@ -1613,7 +1613,7 @@ Retorno
 
 ### `json_value_len`
 
-> **cipher_json_value_len**(v: JsonValue) -> int
+> **cipher_json_value_len**(v: CipherJsonValue) -> int
 
 Number of elements in an array, members in an object or bytes in a string.
 Parámetros
@@ -1628,7 +1628,7 @@ calling cipher.json_value_len with v    # 3
 
 ### `json_value_items`
 
-> **cipher_json_value_items**(v: JsonValue) -> maybe list of JsonValue
+> **cipher_json_value_items**(v: CipherJsonValue) -> maybe list of CipherJsonValue
 
 Returns the array elements of `v` as a fresh list.
 Parámetros
@@ -1639,7 +1639,7 @@ Retorno
 
 ### `json_value_pairs`
 
-> **cipher_json_value_pairs**(v: JsonValue) -> maybe map of string to JsonValue
+> **cipher_json_value_pairs**(v: CipherJsonValue) -> maybe map of string to CipherJsonValue
 
 Returns the object members of `v` as a fresh map.
 Parámetros
@@ -1650,7 +1650,7 @@ Retorno
 
 ### `json_value_get`
 
-> **cipher_json_value_get**(v: JsonValue, key: string) -> maybe JsonValue
+> **cipher_json_value_get**(v: CipherJsonValue, key: string) -> maybe CipherJsonValue
 
 Returns the member `key` of an object.
 Parámetros
@@ -1666,7 +1666,7 @@ calling cipher.json_value_get with v, "name"
 
 ### `json_value_at`
 
-> **cipher_json_value_at**(v: JsonValue, idx: int) -> maybe JsonValue
+> **cipher_json_value_at**(v: CipherJsonValue, idx: int) -> maybe CipherJsonValue
 
 Returns element `idx` of an array.
 Parámetros
@@ -1682,7 +1682,7 @@ calling cipher.json_value_at with v, 0
 
 ### `json_value_as_int`
 
-> **cipher_json_value_as_int**(v: JsonValue) -> maybe int
+> **cipher_json_value_as_int**(v: CipherJsonValue) -> maybe int
 
 Coerces `v` to an `int`.
 Parámetros
@@ -1695,7 +1695,7 @@ otherwise.
 
 ### `json_value_as_float`
 
-> **cipher_json_value_as_float**(v: JsonValue) -> maybe float
+> **cipher_json_value_as_float**(v: CipherJsonValue) -> maybe float
 
 Coerces `v` to a 32-bit `float`.
 Parámetros
@@ -1707,7 +1707,7 @@ for a numeric `JvString`; `0.0` for `JvNull`; `none` otherwise.
 
 ### `json_value_as_bool`
 
-> **cipher_json_value_as_bool**(v: JsonValue) -> maybe bool
+> **cipher_json_value_as_bool**(v: CipherJsonValue) -> maybe bool
 
 Coerces `v` to a `bool`.
 Parámetros
@@ -1719,7 +1719,7 @@ for `JvFloat`; `none` for arrays, objects and strings.
 
 ### `json_value_as_string`
 
-> **cipher_json_value_as_string**(v: JsonValue) -> maybe string
+> **cipher_json_value_as_string**(v: CipherJsonValue) -> maybe string
 
 Coerces `v` to a `string`.
 Parámetros
@@ -1888,9 +1888,9 @@ An owned map holding every member of `a` and `b`; release it with `banish`.
 
 ### `json_value_deep_clone`
 
-> **cipher_json_value_deep_clone**(v: JsonValue) -> JsonValue
+> **cipher_json_value_deep_clone**(v: CipherJsonValue) -> CipherJsonValue
 
-Deep-copies a `JsonValue` tree.
+Deep-copies a `CipherJsonValue` tree.
 Parámetros
 - `v`: the value. Borrowed.
 Retorno
@@ -1900,9 +1900,9 @@ it with `banish`.
 
 ### `json_value_equal`
 
-> **cipher_json_value_equal**(a: JsonValue, b: JsonValue) -> bool
+> **cipher_json_value_equal**(a: CipherJsonValue, b: CipherJsonValue) -> bool
 
-Deep structural equality for `JsonValue` trees.
+Deep structural equality for `CipherJsonValue` trees.
 Parámetros
 - `a`: the left value. Borrowed.
 - `b`: the right value. Borrowed.
@@ -1913,9 +1913,9 @@ values. An `int` and a `float` compare equal when their numeric values match.
 
 ### `json_value_merge`
 
-> **cipher_json_value_merge**(a: JsonValue, b: JsonValue) -> JsonValue
+> **cipher_json_value_merge**(a: CipherJsonValue, b: CipherJsonValue) -> CipherJsonValue
 
-Shallow merge of two `JsonValue` objects; members of `b` win.
+Shallow merge of two `CipherJsonValue` objects; members of `b` win.
 Parámetros
 - `a`: the base value. Borrowed.
 - `b`: the overriding value. Borrowed.
@@ -1926,7 +1926,7 @@ clone of `b`. Use `json_merge_patch` for the recursive RFC 7396 semantics.
 
 ### `json_merge_patch`
 
-> **cipher_json_merge_patch**(a: JsonValue, b: JsonValue) -> JsonValue
+> **cipher_json_merge_patch**(a: CipherJsonValue, b: CipherJsonValue) -> CipherJsonValue
 
 Applies an RFC 7396 JSON Merge Patch.
 Parámetros
@@ -1955,9 +1955,9 @@ An owned list of segments (`["users", "0", "name"]`); release it with
 
 ### `_value_from_raw`
 
-> **cipher__value_from_raw**(raw: string) -> JsonValue
+> **cipher__value_from_raw**(raw: string) -> CipherJsonValue
 
-Parses one legacy raw value as a `JsonValue`, falling back to a string.
+Parses one legacy raw value as a `CipherJsonValue`, falling back to a string.
 Parámetros
 - `raw`: the raw JSON text stored by `parse_json`. Borrowed. A member that is
 a JSON string arrives unquoted, so `hello` is not a valid JSON document and
@@ -1968,9 +1968,9 @@ An owned value; release it with `banish`.
 
 ### `_value_from_map`
 
-> **cipher__value_from_map**(m: map of string to string) -> JsonValue
+> **cipher__value_from_map**(m: map of string to string) -> CipherJsonValue
 
-Builds a `JsonValue` object from a flat JSON map.
+Builds a `CipherJsonValue` object from a flat JSON map.
 Parámetros
 - `m`: the flat JSON map. Borrowed.
 Retorno
@@ -2038,9 +2038,9 @@ not start with `/`. `~1` becomes `/` and `~0` becomes `~`.
 
 ### `json_pointer_get`
 
-> **cipher_json_pointer_get**(v: JsonValue, pointer: string) -> maybe JsonValue
+> **cipher_json_pointer_get**(v: CipherJsonValue, pointer: string) -> maybe CipherJsonValue
 
-Resolves an RFC 6901 JSON Pointer against a `JsonValue`.
+Resolves an RFC 6901 JSON Pointer against a `CipherJsonValue`.
 Parámetros
 - `v`: the document. Borrowed.
 - `pointer`: the pointer; `""` selects the whole document. Borrowed.
@@ -2054,7 +2054,7 @@ calling cipher.json_pointer_get with v, "/users/0/name"
 
 ### `_jv_get`
 
-> **cipher__jv_get**(v: JsonValue, segs: list of string, i: int) -> maybe JsonValue
+> **cipher__jv_get**(v: CipherJsonValue, segs: list of string, i: int) -> maybe CipherJsonValue
 
 Recursive resolver behind `json_pointer_get` (private).
 Parámetros
@@ -2067,7 +2067,7 @@ Retorno
 
 ### `_jv_put`
 
-> **cipher__jv_put**(root: JsonValue, segs: list of string, i: int, value: JsonValue, replace_only: bool) -> maybe JsonValue
+> **cipher__jv_put**(root: CipherJsonValue, segs: list of string, i: int, value: CipherJsonValue, replace_only: bool) -> maybe CipherJsonValue
 
 Recursive "add" and "replace" behind `json_patch` (private).
 Parámetros
@@ -2083,7 +2083,7 @@ Retorno
 
 ### `_jv_remove`
 
-> **cipher__jv_remove**(root: JsonValue, segs: list of string, i: int) -> maybe JsonValue
+> **cipher__jv_remove**(root: CipherJsonValue, segs: list of string, i: int) -> maybe CipherJsonValue
 
 Recursive "remove" behind `json_patch` (private).
 Parámetros
@@ -2096,7 +2096,7 @@ Retorno
 
 ### `_op_field`
 
-> **cipher__op_field**(op: JsonValue, name: string) -> maybe string
+> **cipher__op_field**(op: CipherJsonValue, name: string) -> maybe string
 
 Reads a string member of an operation object.
 Parámetros
@@ -2108,24 +2108,24 @@ Retorno
 
 ### `json_patch`
 
-> **cipher_json_patch**(v: JsonValue, patch: JsonValue) -> result of JsonValue to string
+> **cipher_json_patch**(v: CipherJsonValue, patch: CipherJsonValue) -> result of CipherJsonValue to string
 
 Applies an RFC 6902 JSON Patch document.
 Parámetros
 - `v`: the target document. Borrowed.
-- `patch`: a `JsonValue` that must be an array of operation objects (`add`,
+- `patch`: a `CipherJsonValue` that must be an array of operation objects (`add`,
 `remove`, `replace`, `move`, `copy`, `test`). Borrowed.
 Retorno
-`ok patched` or `err message` (a `result of JsonValue to string`).
+`ok patched` or `err message` (a `result of CipherJsonValue to string`).
 Ejemplo
 ```pengu
-var r as result of cipher.JsonValue to string is calling cipher.json_patch with doc, patch
+var r as result of cipher.CipherJsonValue to string is calling cipher.json_patch with doc, patch
 ```
 
 
 ### `_json_patch_ops`
 
-> **cipher__json_patch_ops**(root: JsonValue, ops: list of JsonValue, i: int) -> result of JsonValue to string
+> **cipher__json_patch_ops**(root: CipherJsonValue, ops: list of CipherJsonValue, i: int) -> result of CipherJsonValue to string
 
 Applies the operations of a patch document in order (private, recursive).
 Parámetros

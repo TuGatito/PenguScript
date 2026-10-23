@@ -8,7 +8,7 @@ weave main into int:
     defer banish sm
     var start as int is 22
     var end as int is 23
-    var span as Span is calling sm.span_at with start, end
+    var span as SourceSpan is calling sm.span_at with start, end
     var line as string is calling sm.line_text with (span.start.line)
     defer banish line
     calling spark.println with "error: type mismatch"

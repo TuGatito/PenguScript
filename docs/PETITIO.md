@@ -323,9 +323,9 @@ transport failure.
 | `TlsError(reason)` | Certificate/hostname verification or TLS negotiation failed. |
 | `ProtocolError(reason)` | Malformed response or an option libcurl rejected. |
 | `BodyTooLarge(max_bytes)` | The body exceeded `max_body_bytes`. |
-| `OutOfMemory` | An allocation failed. |
+| `HttpOutOfMemory` | An allocation failed. |
 | `Unsupported(reason)` | The URL is not `http`/`https`. |
-| `IoError(reason)` | A streaming transfer could not open, write or read its file. |
+| `HttpIoError(reason)` | A streaming transfer could not open, write or read its file. |
 | `Cancelled` | A `send_stream` callback returned `false`. |
 | `HttpStatus(status)` | `raise_for_status` saw 4xx/5xx. |
 

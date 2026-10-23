@@ -204,9 +204,10 @@ Reads only; no allocation.
 
 Number of lines in a source text (at least one).
 Motivo
-The renderer only needs line starts; keeping the line scanner here avoids a
-dependency on `std.sourcemap` (which exports its own `Span`, a name that
-would collide with this module's `Span` in a multi-module type table).
+The renderer only needs line starts; keeping the line scanner here avoids
+pulling a second source-mapping module into every diagnostics build.
+(`std.sourcemap` names its range `SourceSpan` since 2.19, so the old
+`Span` clash is gone; this module keeps its own `Span` for API stability.)
 Memoria
 Reads only; allocates nothing.
 
@@ -217,8 +218,8 @@ Reads only; allocates nothing.
 
 Returns an owned copy of a 1-indexed line, without its terminator.
 Motivo
-Same as `_diagnostic_line_count`: one small bridge instead of importing a
-module whose `Span` has the same name as ours.
+Same as `_diagnostic_line_count`: one small bridge instead of importing
+another module for a line scan.
 Memoria
 Returns an owned string; release it with `banish`.
 

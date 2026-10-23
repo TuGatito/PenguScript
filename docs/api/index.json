@@ -3670,16 +3670,16 @@
       "documented": true,
       "kind": "omen",
       "module": "cipher",
-      "name": "JsonKind",
-      "signature": "**JsonKind** : JsonKind"
+      "name": "CipherJsonValue",
+      "signature": "**CipherJsonValue** : CipherJsonValue"
     },
     {
       "deprecated": false,
       "documented": true,
       "kind": "omen",
       "module": "cipher",
-      "name": "JsonValue",
-      "signature": "**JsonValue** : JsonValue"
+      "name": "JsonKind",
+      "signature": "**JsonKind** : JsonKind"
     },
     {
       "deprecated": false,
@@ -3935,7 +3935,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_dumps_canonical",
-      "signature": "**cipher_json_dumps_canonical**(v: JsonValue) -> string"
+      "signature": "**cipher_json_dumps_canonical**(v: CipherJsonValue) -> string"
     },
     {
       "deprecated": false,
@@ -4031,7 +4031,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_merge_patch",
-      "signature": "**cipher_json_merge_patch**(a: JsonValue, b: JsonValue) -> JsonValue"
+      "signature": "**cipher_json_merge_patch**(a: CipherJsonValue, b: CipherJsonValue) -> CipherJsonValue"
     },
     {
       "deprecated": false,
@@ -4047,7 +4047,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_patch",
-      "signature": "**cipher_json_patch**(v: JsonValue, patch: JsonValue) -> result of JsonValue to string"
+      "signature": "**cipher_json_patch**(v: CipherJsonValue, patch: CipherJsonValue) -> result of CipherJsonValue to string"
     },
     {
       "deprecated": false,
@@ -4063,7 +4063,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_pointer_get",
-      "signature": "**cipher_json_pointer_get**(v: JsonValue, pointer: string) -> maybe JsonValue"
+      "signature": "**cipher_json_pointer_get**(v: CipherJsonValue, pointer: string) -> maybe CipherJsonValue"
     },
     {
       "deprecated": false,
@@ -4103,7 +4103,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_as_bool",
-      "signature": "**cipher_json_value_as_bool**(v: JsonValue) -> maybe bool"
+      "signature": "**cipher_json_value_as_bool**(v: CipherJsonValue) -> maybe bool"
     },
     {
       "deprecated": false,
@@ -4111,7 +4111,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_as_float",
-      "signature": "**cipher_json_value_as_float**(v: JsonValue) -> maybe float"
+      "signature": "**cipher_json_value_as_float**(v: CipherJsonValue) -> maybe float"
     },
     {
       "deprecated": false,
@@ -4119,7 +4119,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_as_int",
-      "signature": "**cipher_json_value_as_int**(v: JsonValue) -> maybe int"
+      "signature": "**cipher_json_value_as_int**(v: CipherJsonValue) -> maybe int"
     },
     {
       "deprecated": false,
@@ -4127,7 +4127,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_as_string",
-      "signature": "**cipher_json_value_as_string**(v: JsonValue) -> maybe string"
+      "signature": "**cipher_json_value_as_string**(v: CipherJsonValue) -> maybe string"
     },
     {
       "deprecated": false,
@@ -4135,7 +4135,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_at",
-      "signature": "**cipher_json_value_at**(v: JsonValue, idx: int) -> maybe JsonValue"
+      "signature": "**cipher_json_value_at**(v: CipherJsonValue, idx: int) -> maybe CipherJsonValue"
     },
     {
       "deprecated": false,
@@ -4143,7 +4143,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_deep_clone",
-      "signature": "**cipher_json_value_deep_clone**(v: JsonValue) -> JsonValue"
+      "signature": "**cipher_json_value_deep_clone**(v: CipherJsonValue) -> CipherJsonValue"
     },
     {
       "deprecated": false,
@@ -4151,7 +4151,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_equal",
-      "signature": "**cipher_json_value_equal**(a: JsonValue, b: JsonValue) -> bool"
+      "signature": "**cipher_json_value_equal**(a: CipherJsonValue, b: CipherJsonValue) -> bool"
     },
     {
       "deprecated": false,
@@ -4159,7 +4159,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_get",
-      "signature": "**cipher_json_value_get**(v: JsonValue, key: string) -> maybe JsonValue"
+      "signature": "**cipher_json_value_get**(v: CipherJsonValue, key: string) -> maybe CipherJsonValue"
     },
     {
       "deprecated": false,
@@ -4167,7 +4167,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_is_array",
-      "signature": "**cipher_json_value_is_array**(v: JsonValue) -> bool"
+      "signature": "**cipher_json_value_is_array**(v: CipherJsonValue) -> bool"
     },
     {
       "deprecated": false,
@@ -4175,7 +4175,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_is_bool",
-      "signature": "**cipher_json_value_is_bool**(v: JsonValue) -> bool"
+      "signature": "**cipher_json_value_is_bool**(v: CipherJsonValue) -> bool"
     },
     {
       "deprecated": false,
@@ -4183,7 +4183,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_is_float",
-      "signature": "**cipher_json_value_is_float**(v: JsonValue) -> bool"
+      "signature": "**cipher_json_value_is_float**(v: CipherJsonValue) -> bool"
     },
     {
       "deprecated": false,
@@ -4191,7 +4191,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_is_int",
-      "signature": "**cipher_json_value_is_int**(v: JsonValue) -> bool"
+      "signature": "**cipher_json_value_is_int**(v: CipherJsonValue) -> bool"
     },
     {
       "deprecated": false,
@@ -4199,7 +4199,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_is_null",
-      "signature": "**cipher_json_value_is_null**(v: JsonValue) -> bool"
+      "signature": "**cipher_json_value_is_null**(v: CipherJsonValue) -> bool"
     },
     {
       "deprecated": false,
@@ -4207,7 +4207,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_is_object",
-      "signature": "**cipher_json_value_is_object**(v: JsonValue) -> bool"
+      "signature": "**cipher_json_value_is_object**(v: CipherJsonValue) -> bool"
     },
     {
       "deprecated": false,
@@ -4215,7 +4215,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_is_string",
-      "signature": "**cipher_json_value_is_string**(v: JsonValue) -> bool"
+      "signature": "**cipher_json_value_is_string**(v: CipherJsonValue) -> bool"
     },
     {
       "deprecated": false,
@@ -4223,7 +4223,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_items",
-      "signature": "**cipher_json_value_items**(v: JsonValue) -> maybe list of JsonValue"
+      "signature": "**cipher_json_value_items**(v: CipherJsonValue) -> maybe list of CipherJsonValue"
     },
     {
       "deprecated": false,
@@ -4231,7 +4231,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_len",
-      "signature": "**cipher_json_value_len**(v: JsonValue) -> int"
+      "signature": "**cipher_json_value_len**(v: CipherJsonValue) -> int"
     },
     {
       "deprecated": false,
@@ -4239,7 +4239,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_merge",
-      "signature": "**cipher_json_value_merge**(a: JsonValue, b: JsonValue) -> JsonValue"
+      "signature": "**cipher_json_value_merge**(a: CipherJsonValue, b: CipherJsonValue) -> CipherJsonValue"
     },
     {
       "deprecated": false,
@@ -4247,7 +4247,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_pairs",
-      "signature": "**cipher_json_value_pairs**(v: JsonValue) -> maybe map of string to JsonValue"
+      "signature": "**cipher_json_value_pairs**(v: CipherJsonValue) -> maybe map of string to CipherJsonValue"
     },
     {
       "deprecated": false,
@@ -4255,7 +4255,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_to_string",
-      "signature": "**cipher_json_value_to_string**(v: JsonValue) -> string"
+      "signature": "**cipher_json_value_to_string**(v: CipherJsonValue) -> string"
     },
     {
       "deprecated": false,
@@ -4263,7 +4263,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "json_value_type",
-      "signature": "**cipher_json_value_type**(v: JsonValue) -> string"
+      "signature": "**cipher_json_value_type**(v: CipherJsonValue) -> string"
     },
     {
       "deprecated": false,
@@ -4295,7 +4295,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "parse_json_to_list",
-      "signature": "**cipher_parse_json_to_list**(json: string) -> maybe list of JsonValue"
+      "signature": "**cipher_parse_json_to_list**(json: string) -> maybe list of CipherJsonValue"
     },
     {
       "deprecated": false,
@@ -4303,7 +4303,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "parse_json_to_map",
-      "signature": "**cipher_parse_json_to_map**(json: string) -> maybe map of string to JsonValue"
+      "signature": "**cipher_parse_json_to_map**(json: string) -> maybe map of string to CipherJsonValue"
     },
     {
       "deprecated": false,
@@ -4311,7 +4311,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "parse_json_value",
-      "signature": "**cipher_parse_json_value**(json: string) -> maybe JsonValue"
+      "signature": "**cipher_parse_json_value**(json: string) -> maybe CipherJsonValue"
     },
     {
       "deprecated": false,
@@ -4391,7 +4391,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "stringify_json_value",
-      "signature": "**cipher_stringify_json_value**(v: JsonValue) -> string"
+      "signature": "**cipher_stringify_json_value**(v: CipherJsonValue) -> string"
     },
     {
       "deprecated": false,
@@ -4399,7 +4399,7 @@
       "kind": "weave",
       "module": "cipher",
       "name": "stringify_json_value_pretty",
-      "signature": "**cipher_stringify_json_value_pretty**(v: JsonValue, indent: int) -> string"
+      "signature": "**cipher_stringify_json_value_pretty**(v: CipherJsonValue, indent: int) -> string"
     },
     {
       "deprecated": false,
@@ -7318,6 +7318,14 @@
       "documented": true,
       "kind": "rune",
       "module": "invoke",
+      "name": "CommandParser",
+      "signature": "**CommandParser** : CommandParser"
+    },
+    {
+      "deprecated": false,
+      "documented": true,
+      "kind": "rune",
+      "module": "invoke",
       "name": "Flag",
       "signature": "**Flag** : Flag"
     },
@@ -7350,14 +7358,6 @@
       "documented": true,
       "kind": "rune",
       "module": "invoke",
-      "name": "Parser",
-      "signature": "**Parser** : Parser"
-    },
-    {
-      "deprecated": false,
-      "documented": true,
-      "kind": "rune",
-      "module": "invoke",
       "name": "Positional",
       "signature": "**Positional** : Positional"
     },
@@ -7375,7 +7375,7 @@
       "kind": "weave",
       "module": "invoke",
       "name": "new_parser",
-      "signature": "**new_parser**(name: string, description: string) -> Parser"
+      "signature": "**new_parser**(name: string, description: string) -> CommandParser"
     },
     {
       "deprecated": false,
@@ -12406,8 +12406,8 @@
       "documented": true,
       "kind": "rune",
       "module": "sourcemap",
-      "name": "Span",
-      "signature": "**Span** : Span"
+      "name": "SourceSpan",
+      "signature": "**SourceSpan** : SourceSpan"
     },
     {
       "deprecated": false,

@@ -181,11 +181,11 @@ omen HttpError derive Nexus:
     ## The body exceeded the request's `max_body_bytes` cap.
     BodyTooLarge with max_bytes as i64
     ## An allocation failed.
-    OutOfMemory
+    HttpOutOfMemory
     ## The URL names a protocol other than HTTP or HTTPS.
     Unsupported with reason as string
     ## A local file could not be opened, written or read (streaming).
-    IoError with reason as string
+    HttpIoError with reason as string
     ## A `send_stream` callback returned `false`, aborting the transfer.
     Cancelled
     ## `raise_for_status` saw a 4xx/5xx response. The response is still
@@ -214,9 +214,9 @@ enchanting HttpError:
             when TlsError with reason -> "TLS error: {reason}"
             when ProtocolError with reason -> "protocol error: {reason}"
             when BodyTooLarge with max_bytes -> "response body exceeds {max_bytes} bytes"
-            when OutOfMemory -> "out of memory"
+            when HttpOutOfMemory -> "out of memory"
             when Unsupported with reason -> "unsupported URL: {reason}"
-            when IoError with reason -> "I/O error: {reason}"
+            when HttpIoError with reason -> "I/O error: {reason}"
             when Cancelled -> "transfer cancelled by callback"
             when HttpStatus with status -> "HTTP status {status}"
 
@@ -1033,7 +1033,7 @@ enchanting Request:
     ##
     ## ## Retorno
     ## `ok Response` with `body == ""` and `bytes_written` set, or
-    ## `err HttpError.IoError` when the file cannot be opened or written and
+    ## `err HttpError.HttpIoError` when the file cannot be opened or written and
     ## `err HttpError.BodyTooLarge` when `max_body_bytes` is exceeded.
     ##
     ## ## Memoria
@@ -1054,12 +1054,12 @@ enchanting Request:
         banish no_defaults
         banish no_cookies
         if calling ffi.is_null with handle:
-            return calling err_of with (with OutOfMemory is 0)
+            return calling err_of with (with HttpOutOfMemory is 0)
         defer calling petitio_request_free with handle
 
         var raw as ref to petitio_response is calling petitio_request_perform_to_file with handle, path
         if calling ffi.is_null with raw:
-            return calling err_of with (with OutOfMemory is 0)
+            return calling err_of with (with HttpOutOfMemory is 0)
         defer calling petitio_response_free with raw
 
         var code as int is calling petitio_response_error with raw
@@ -1105,12 +1105,12 @@ enchanting Request:
         banish no_defaults
         banish no_cookies
         if calling ffi.is_null with handle:
-            return calling err_of with (with OutOfMemory is 0)
+            return calling err_of with (with HttpOutOfMemory is 0)
         defer calling petitio_request_free with handle
 
         var raw as ref to petitio_response is calling petitio_request_perform_stream with handle, cb, user
         if calling ffi.is_null with raw:
-            return calling err_of with (with OutOfMemory is 0)
+            return calling err_of with (with HttpOutOfMemory is 0)
         defer calling petitio_response_free with raw
 
         var code as int is calling petitio_response_error with raw
@@ -1509,11 +1509,11 @@ weave _error_from_code with code as int, reason as string, request as ref to Req
     if code == 7:
         return with BodyTooLarge is request->max_body_bytes
     if code == 8:
-        return with OutOfMemory is 0
+        return with HttpOutOfMemory is 0
     if code == 9:
         return with Unsupported is (calling _copy with reason)
     if code == 10:
-        return with IoError is (calling _copy with reason)
+        return with HttpIoError is (calling _copy with reason)
     if code == 11:
         return Cancelled
     return with ProtocolError is (calling _copy with reason)
@@ -1655,12 +1655,12 @@ weave _build_handle with request as ref to Request, overlay_headers as ref to ma
 weave _perform with request as ref to Request, overlay_headers as ref to map of string to string, cookies as ref to map of string to string into result of Response to HttpError:
     var handle as ref to petitio_request is calling _build_handle with request, overlay_headers, cookies
     if calling ffi.is_null with handle:
-        return calling err_of with (with OutOfMemory is 0)
+        return calling err_of with (with HttpOutOfMemory is 0)
     defer calling petitio_request_free with handle
 
     var raw as ref to petitio_response is calling petitio_request_perform with handle
     if calling ffi.is_null with raw:
-        return calling err_of with (with OutOfMemory is 0)
+        return calling err_of with (with HttpOutOfMemory is 0)
     defer calling petitio_response_free with raw
 
     var code as int is calling petitio_response_error with raw
@@ -1875,13 +1875,13 @@ enchanting Session:
     ## - `path`: file to read. Missing or unreadable files are an error.
     ##
     ## ## Retorno
-    ## `ok n` with the number of cookies loaded, or `err IoError`.
+    ## `ok n` with the number of cookies loaded, or `err HttpIoError`.
     weave load_cookies_from_file with path as string into result of int to HttpError:
         var content as maybe string is calling archivum.read_file with path
         if not content.is_present:
             banish content
             var reason as string is "cannot read cookie file: {path}"
-            var failure as HttpError is with IoError is reason
+            var failure as HttpError is with HttpIoError is reason
             return calling err_of with failure
         # Borrowed view: `banish content` releases the buffer and the box.
         var text as string is content.value
@@ -1914,7 +1914,7 @@ enchanting Session:
     ## host scoping.
     ##
     ## ## Retorno
-    ## `ok 0`, or `err IoError` when the file cannot be written.
+    ## `ok 0`, or `err HttpIoError` when the file cannot be written.
     weave save_cookies_to_file with path as string into result of void to HttpError:
         var sb as StringBuilder is calling StringBuilder.new
         calling sb.append with "# Netscape HTTP Cookie File\n"
@@ -1927,7 +1927,7 @@ enchanting Session:
         banish text
         if not written:
             var reason as string is "cannot write cookie file: {path}"
-            var failure as HttpError is with IoError is reason
+            var failure as HttpError is with HttpIoError is reason
             return calling err_of with failure
         return calling ok_of with 0
 
@@ -2098,7 +2098,7 @@ weave default_user_agent into string:
 ##
 ## ## Retorno
 ## `list of result of Response to HttpError`, one per input, in order. A request
-## whose handle could not be built yields `err OutOfMemory`.
+## whose handle could not be built yields `err HttpOutOfMemory`.
 ##
 ## ## Ejemplo
 ## ```pengu
@@ -2120,7 +2120,7 @@ weave fetch_many with requests as list of Request into list of result of Respons
     var n as int is requests.len
     var i as int is 0
     while i < n:
-        calling results.push with (calling err_of with (with OutOfMemory is 0))
+        calling results.push with (calling err_of with (with HttpOutOfMemory is 0))
         set i is i + 1
     if n == 0:
         return results
@@ -2179,7 +2179,7 @@ weave fetch_many with requests as list of Request into list of result of Respons
             if running == 0:
                 # No transfer is running yet not everything finished: the
                 # engine cannot make progress, so do not spin forever. The
-                # remaining placeholders stay `err OutOfMemory`.
+                # remaining placeholders stay `err HttpOutOfMemory`.
                 set stalled is true
             else:
                 calling petitio_multi_wait with engine, 50
@@ -2381,7 +2381,7 @@ test "socks_proxy prefixes socks5h and keeps an explicit scheme":
     banish req
 
 test "streaming error variants carry a message":
-    var io_error as HttpError is with IoError is "cannot open output file: /nope"
+    var io_error as HttpError is with HttpIoError is "cannot open output file: /nope"
     var io_message as string is calling io_error.message
     calling _expect_str with io_message, "I/O error: cannot open output file: /nope", "io message"
     banish io_message
@@ -2445,7 +2445,7 @@ test "loading a missing cookie file is an error":
     if not loaded.is_ok:
         var failure as HttpError is calling take_error with (sigil of loaded)
         judge failure:
-            when IoError with reason ->
+            when HttpIoError with reason ->
                 calling _expect with (reason length) > 0, "io reason"
             else ->
                 calling spark.panic with "petitio test failed: wrong missing-file variant"

@@ -2,6 +2,65 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.19.0] — 2026-10-23 — Track B4: global type namespace, no silent C collisions
+
+### Added
+
+- **`E0070` `DuplicateTypeNameError`.** `rune`, `echo`, `omen`, `alias` and
+  `seal` names live in one compilation-wide namespace. A second declaration of
+  the same name in the same module, or in another imported module, is now a
+  clear error instead of silently overwriting the first type (and later
+  emitting a struct/union conflict or invalid C). `a.Config` and `b.Config`
+  are rejected: an `insignia` prefix changes the C spelling, not the Pengu
+  name. The diagnostic names both files and points at the second declaration.
+- The catalog is generated: `LANGUAGE.md` §22.2, `LANGUAGE_Spanish.md` §22.2
+  and `docs/error_catalog.json` now run through `E0070`.
+
+### Changed (breaking standard-library type renames)
+
+PenguScript 2.x resolves type names program-globally, so two std modules could
+not be imported together when they used the same type or simple omen-variant
+name. The collisions were removed at the source:
+
+| Before | After |
+|---|---|
+| `cipher.JsonValue` | `cipher.CipherJsonValue` |
+| `sourcemap.Span` | `sourcemap.SourceSpan` |
+| `invoke.Parser` | `invoke.CommandParser` |
+| `jsonrpc.JsonRpcMessage.Request` | `jsonrpc.JsonRpcMessage.RpcRequest` |
+| `petitio.HttpError.IoError` | `petitio.HttpError.HttpIoError` |
+| `petitio.HttpError.OutOfMemory` | `petitio.HttpError.HttpOutOfMemory` |
+| `regulus.RegexError.OutOfMemory` | `regulus.RegexError.RegexOutOfMemory` |
+
+The C API (`cipher_json_*`, `petitio_*`, enum tags, headers) is unchanged; only
+the Pengu type/variant spelling moved. `diagnostic.Span` and `json.JsonValue`
+keep their names. The `std.petitio` error-code-to-variant mapping is still by
+position; the wrapper test now expects the new names.
+
+After the renames, **every std module can be imported in one program**: the
+`all_std` check is clean (only pre-existing warnings), the generated C
+syntax-checks, and the smart-linking matrix now imports `std.regulus` and
+`std.petitio` together (the former `OutOfMemory` collision).
+
+### Fixed
+
+- A cross-module duplicate type used to compile with `pengu check` clean and
+  then fail in C (or, worse, silently use the second declaration's layout).
+- `std.sourcemap`'s type is no longer confused with `diagnostic.Span`;
+  `diagnostic.pengu`'s design notes were updated.
+- `docs/COMPRESSUS.md` and the compressus comments no longer claim that
+  `HttpError`/`RegexError` own `OutOfMemory`; those names are now free (the
+  `AllocationFailed`/`FileError` spellings stay for API compatibility).
+
+### Verified
+
+- New tests: same-module and cross-module duplicates for all five type kinds
+  (`E0070`), diamond imports (no false positive), unimported modules (no
+  false positive), `insignia` duplicates, all-std import + C syntax check, and
+  `regulus` + `petitio` together.
+- Full suite (default): **1344 passed, 3 skipped**.
+- `make_release.py` portable and FHS layouts: smoke tests OK.
+
 ## [2.18.0] — 2026-10-23 — Phase 4: derived helpers pruned by default; opt-in type/constant pruning
 
 ### Changed

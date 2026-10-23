@@ -12,7 +12,7 @@ weave main into int:
     var line as string is calling sm.line_text with 1
     defer banish line
     calling spark.println with line
-    var span as Span is calling sm.line_span with 2
+    var span as SourceSpan is calling sm.line_span with 2
     calling spark.println with "span={span.start.col}..{span.end.col}"
     calling spark.println with "OK sourcemap_basic"
     return 0

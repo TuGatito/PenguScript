@@ -88,7 +88,7 @@ weave main into int:
     banish resp
 
     # The two streaming-only error variants explain themselves.
-    var io_error as HttpError is with IoError is "cannot open output file: /nope"
+    var io_error as HttpError is with HttpIoError is "cannot open output file: /nope"
     var io_message as string is calling io_error.message
     calling eq_s with io_message, "I/O error: cannot open output file: /nope", "io message"
     banish io_message

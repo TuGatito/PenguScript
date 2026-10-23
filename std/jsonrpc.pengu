@@ -15,7 +15,7 @@
 ##     var id as JsonRpcId is with Number is 1
 ##     var params as json.JsonValue is calling json.empty_array
 ##     calling params.push_json with (calling json.JsonValue.int_val with 42)
-##     var msg as JsonRpcMessage is with Request is id, method is "foo", params is some params
+##     var msg as JsonRpcMessage is with RpcRequest is id, method is "foo", params is some params
 ##     var wire as string is calling rpc.encode_framed with msg
 ##     defer banish wire
 ##     calling spark.print with wire
@@ -115,7 +115,7 @@ rune JsonRpcError derive Nexus, Par, Imago:
 ## One JSON-RPC 2.0 message.
 ##
 ## ## Variantes
-## - `Request`: an id, a method and optional params. A response is expected.
+## - `RpcRequest`: an id, a method and optional params. A response is expected.
 ## - `Notification`: a method and optional params; no id, no response.
 ## - `ResponseOk`: an id and a result value.
 ## - `ResponseError`: an id and an error object.
@@ -124,7 +124,7 @@ rune JsonRpcError derive Nexus, Par, Imago:
 ## Owns every payload; `banish msg` releases the whole message.
 omen JsonRpcMessage derive Nexus, Par, Imago:
     ## A call that expects a response.
-    Request with id as JsonRpcId, method as string, params as maybe json.JsonValue
+    RpcRequest with id as JsonRpcId, method as string, params as maybe json.JsonValue
     ## A call that expects no response.
     Notification with method as string, params as maybe json.JsonValue
     ## A successful response.
@@ -218,9 +218,9 @@ rune FramedDecode derive Nexus, Par:
 ## - `params`: optional params. Ownership transfers.
 ##
 ## ## Retorno
-## `JsonRpcMessage.Request`.
+## `JsonRpcMessage.RpcRequest`.
 weave request with id as JsonRpcId, method as string, params as maybe json.JsonValue into JsonRpcMessage:
-    return with Request is with id is id, method is method, params is params
+    return with RpcRequest is with id is id, method is method, params is params
 
 ## Builds a notification.
 ##
@@ -488,7 +488,7 @@ weave encode_response_error with id as JsonRpcId, err as JsonRpcError into strin
 weave encode_message with msg as JsonRpcMessage into string:
     var text as string is ""
     var ignored as int is judge msg:
-        when Request with id, method, params ->
+        when RpcRequest with id, method, params ->
             set text is calling encode_request with id, method, params
             0
         when Notification with method, params ->
@@ -846,7 +846,7 @@ enchanting JsonRpcMessage:
     ## `"response_ok"` or `"response_error"`).
     weave kind_name into string:
         return judge (essence of self):
-            when Request -> "request"
+            when RpcRequest -> "request"
             when Notification -> "notification"
             when ResponseOk -> "response_ok"
             when ResponseError -> "response_error"

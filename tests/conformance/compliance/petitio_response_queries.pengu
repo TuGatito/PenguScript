@@ -140,7 +140,7 @@ weave main into int:
     calling check_message with (sigil of e7), "response body exceeds 10 bytes", "message cap"
     banish e7
 
-    var e8 as HttpError is with OutOfMemory is 0
+    var e8 as HttpError is with HttpOutOfMemory is 0
     calling check_message with (sigil of e8), "out of memory", "message oom"
     banish e8
 

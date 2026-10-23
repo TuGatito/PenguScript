@@ -86,7 +86,7 @@ rune Position derive Par:
 ##
 ## ## Memoria
 ## Value type: no heap fields, nothing to release.
-rune Span derive Par:
+rune SourceSpan derive Par:
     start as Position
     end as Position
 
@@ -326,7 +326,7 @@ enchanting SourceMap:
     ## - `line`: 1-indexed line number.
     ##
     ## ## Retorno
-    ## A `Span` from `(line, 1)` to `(line, line_len + 1)`.
+    ## A `SourceSpan` from `(line, 1)` to `(line, line_len + 1)`.
     ##
     ## ## Memoria
     ## Allocates a temporary string to measure the line, releases it, and
@@ -334,19 +334,19 @@ enchanting SourceMap:
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## var span as Span is calling map.line_span with 2
+    ## var span as SourceSpan is calling map.line_span with 2
     ## ```
-    weave line_span with line as int into Span:
+    weave line_span with line as int into SourceSpan:
         var text as string is calling self.line_text with line
         var n as int is text length
         banish text
         return with start is (with line is line, col is 1), end is (with line is line, col is (n + 1))
 
     # ------------------------------------------------------------------------
-    # Span helpers
+    # SourceSpan helpers
     # ------------------------------------------------------------------------
 
-    ## Builds a `Span` from two byte offsets.
+    ## Builds a `SourceSpan` from two byte offsets.
     ##
     ## Offsets are clamped to `[0, source_len]`; `end_offset < start_offset`
     ## panics because a half-open span cannot run backwards. `start == end` is
@@ -357,16 +357,16 @@ enchanting SourceMap:
     ## - `end_offset`: exclusive byte offset.
     ##
     ## ## Retorno
-    ## A `Span` with both positions resolved.
+    ## A `SourceSpan` with both positions resolved.
     ##
     ## ## Memoria
     ## O(log lines), no allocation. Panics on a backwards span.
     ##
     ## ## Ejemplo
     ## ```pengu
-    ## var span as Span is calling map.span_at with 0, 4
+    ## var span as SourceSpan is calling map.span_at with 0, 4
     ## ```
-    weave span_at with start_offset as int, end_offset as int into Span:
+    weave span_at with start_offset as int, end_offset as int into SourceSpan:
         if end_offset < start_offset:
             calling spark.panic with "SourceMap.span_at: end before start"
         var start as Position is calling self.position_at with start_offset
@@ -386,7 +386,7 @@ enchanting SourceMap:
     ##
     ## ## Memoria
     ## O(1), no allocation.
-    weave span_to_positions with span as Span into (Position, Position):
+    weave span_to_positions with span as SourceSpan into (Position, Position):
         return span.start, span.end
 
     # ------------------------------------------------------------------------

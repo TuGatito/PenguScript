@@ -41,7 +41,7 @@ Value type: no heap fields, nothing to release.
 - `col` : int
 
 
-### `Span`
+### `SourceSpan`
 
 > **rune** struct
 

@@ -106,7 +106,7 @@ rune Match derive Par:
 omen RegexError:
     PatternTooLong
     InvalidSyntax with position as int
-    OutOfMemory
+    RegexOutOfMemory
 ```
 
 `Match` has **no capture groups**, because the engine has none. A pattern such as
@@ -275,7 +275,7 @@ Never concatenate raw user input into a pattern.
 | compiled program over 30 symbols or 40 class bytes | `PatternTooLong` |
 | unterminated `[` | `InvalidSyntax` with the byte position of `[` |
 | trailing `\` | `InvalidSyntax` with the position of `\` |
-| allocator failure | `OutOfMemory` |
+| allocator failure | `RegexOutOfMemory` |
 
 The error type has no message field: the engine has no diagnostics beyond the
 position, and the wrapper does not invent one.

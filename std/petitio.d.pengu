@@ -175,7 +175,7 @@ declare petitio_request_set_proxy with request as ref to petitio_request, proxy 
 declare petitio_request_add_form_field with request as ref to petitio_request, name as string, value as string, filename as string, content_type as string into int
 
 # Performs the request. Returns NULL only when the response object itself cannot
-# be allocated (reported by the wrapper as `HttpError.OutOfMemory`).
+# be allocated (reported by the wrapper as `HttpError.HttpOutOfMemory`).
 declare petitio_request_perform with request as ref to petitio_request into ref to petitio_response
 
 # Performs the request and writes the body to `path` instead of buffering it.

@@ -147,7 +147,7 @@ omen RegexError:
     ## The pattern is structurally invalid (for example an unterminated `[`).
     InvalidSyntax with position as int
     ## The allocator refused the compiled block.
-    OutOfMemory
+    RegexOutOfMemory
 
 # ----------------------------------------------------------------------------
 # Internal C bridge
@@ -351,7 +351,7 @@ enchanting Regex:
             if code == 2:
                 return calling err_of with (with PatternTooLong is 0)
             if code == 3:
-                return calling err_of with (with OutOfMemory is 0)
+                return calling err_of with (with RegexOutOfMemory is 0)
             var position as int is calling _regulus_syntax_position with pattern
             return calling err_of with (with InvalidSyntax is with position is position)
         var owned as string is calling scrolls.substring with pattern, 0, pattern length

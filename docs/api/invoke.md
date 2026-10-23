@@ -82,7 +82,7 @@ A subcommand specification for hierarchical commands (e.g. git commit).
 - `description` : string
 
 
-### `Parser`
+### `CommandParser`
 
 > **rune** struct
 
@@ -118,12 +118,12 @@ The outcome of an argument parse run.
 
 ### `new_parser`
 
-> **new_parser**(name: string, description: string) -> Parser
+> **new_parser**(name: string, description: string) -> CommandParser
 
-Creates a new empty Parser for a program called `name` with `description`.
-Signature: new_parser(name as string, description as string) into Parser
-Memory: Allocates and returns a fresh Parser struct.
-Example: var p as Parser is calling invoke.new_parser with "git", "VCS tool"
+Creates a new empty CommandParser for a program called `name` with `description`.
+Signature: new_parser(name as string, description as string) into CommandParser
+Memory: Allocates and returns a fresh CommandParser struct.
+Example: var p as CommandParser is calling invoke.new_parser with "git", "VCS tool"
 
 
 ### `_levenshtein`

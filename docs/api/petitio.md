@@ -724,7 +724,7 @@ them with `banish` (an `ok` result owns its `Response`, an `error` owns its
 message).
 Retorno
 `list of result of Response to HttpError`, one per input, in order. A request
-whose handle could not be built yields `err OutOfMemory`.
+whose handle could not be built yields `err HttpOutOfMemory`.
 Ejemplo
 ```pengu
 var reqs as list of Request is list of Request

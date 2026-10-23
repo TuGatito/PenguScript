@@ -180,6 +180,7 @@
         "Cannot iterate directly over generic type parameter '{}'",
         "Cannot iterate over non-collection type '{}'",
         "Cannot iterate over non-collection type '{}' at codegen time",
+        "Cannot iterate over non-collection type '{}' at codegen time (over '{}')",
         "Cannot iterate over non-iterable type '{}' in comprehension",
         "Cannot return value of type '{}' from a function returning '{}' (bound: {})",
         "Cannot slice type '{}'",
@@ -963,6 +964,7 @@
         "SemanticError"
       ],
       "conditions": [
+        "Ambiguous algebraic-omen initializer: {}",
         "Ambiguous struct init with fields {}, matches: {}"
       ]
     },
@@ -1131,6 +1133,18 @@
         {
           "help": "Rename one of the two loops; labels must be unique within a function.",
           "note": "A loop label ('outer: for …') is a function-local name; two loops cannot share it."
+        }
+      ]
+    },
+    "E0070": {
+      "classes": [
+        "DuplicateTypeNameError"
+      ],
+      "explanation": "two top-level type declarations share a name.\n\nPenguScript 2.x keeps type names program-global: ``a.Config`` and\n``b.Config`` resolve through one registry and would emit one C type, even\nwhen a module has an ``insignia`` prefix.  A duplicate is therefore\nrejected instead of letting the second declaration silently win (or the\ngenerated C fail with a conflicting-struct error).  The same diagnostic\ncovers a same-module redeclaration.",
+      "guidance": [
+        {
+          "help": "Rename one of the types; type names are program-global in PenguScript 2.x.",
+          "note": "A module qualifier or an 'insignia' C prefix does not make two Pengu type names distinct."
         }
       ]
     }

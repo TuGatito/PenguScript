@@ -53,7 +53,7 @@ weave main into int:
     var sm as SourceMap is calling SourceMap.from_source with msg
     defer banish sm
     var p as Position is calling sm.position_at with 0
-    var span as Span is calling sm.span_at with 0, (calling sm.source_len)
+    var span as SourceSpan is calling sm.span_at with 0, (calling sm.source_len)
     let (ps, pe) is calling sm.span_to_positions with span
     var line as string is calling sm.line_text with 1
     defer banish line

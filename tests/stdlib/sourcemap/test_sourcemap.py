@@ -63,13 +63,13 @@ weave main into int:
     defer banish t2
     calling eq_s with t2, "b", "line2"
 
-    var span as Span is calling m.line_span with 1
+    var span as SourceSpan is calling m.line_span with 1
     calling eq_i with span.start.line, 1, "span start line"
     calling eq_i with span.start.col, 1, "span start col"
     calling eq_i with span.end.line, 1, "span end line"
     calling eq_i with span.end.col, 2, "span end col"
 
-    var s2 as Span is calling m.span_at with 0, 3
+    var s2 as SourceSpan is calling m.span_at with 0, 3
     calling eq_i with s2.start.line, 1, "span_at start"
     calling eq_i with s2.end.line, 2, "span_at end"
     let (ps, pe) is calling m.span_to_positions with s2
@@ -143,7 +143,7 @@ weave main into int:
     calling eq_s with ut, "ñ", "unicode line"
     calling eq_i with (calling uni.source_len), 3, "unicode bytes"
     calling eq_i with (calling uni.offset_of with 1, 3), 2, "unicode col3"
-    var us as Span is calling uni.line_span with 1
+    var us as SourceSpan is calling uni.line_span with 1
     calling eq_i with us.end.col, 3, "unicode span end"
     calling spark.println with "DONE"
     return 0
@@ -155,7 +155,7 @@ weave main into int:
     ("calling m.offset_of with 1, 0", "column must be >= 1"),
     ("calling m.offset_of with 1, 99", "past end of line"),
     ("calling m.line_text with 0", "line out of range"),
-    ("var s as Span is calling m.span_at with 2, 1", "end before start"),
+    ("var s as SourceSpan is calling m.span_at with 2, 1", "end before start"),
 ])
 def test_sourcemap_panics_are_fatal(run_pengu, body, expected):
     res = run_pengu(f"""

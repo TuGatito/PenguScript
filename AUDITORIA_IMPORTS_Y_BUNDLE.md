@@ -10,9 +10,10 @@
 > `--prune-types` añade la poda opt-in de tipos/constantes: `cipher` 1 función
 > queda en **11,4 KB** (6,7 KB con el flag), `petitio` sin usar en **15,9 KB**
 > (4,4 KB) y `cipher`/`petitio` ya no arrastran `derive` ni tipos muertos.
-> Quedan las fases **3** (módulos de usuario), **5** (`#line`/gates/includes/
-> links) y los tracks de correctitud **B4** (colisiones de tipos) y **B10**
-> (función genérica como valor).
+> Quedan las fases **3** (módulos de usuario) y **5** (`#line`/gates/includes/
+> links), y el track de correctitud **B10** (función genérica como valor).
+> **B4** se cerró en **2.19.0** con `E0070` y los renombres del std que permiten
+> importar todos los módulos a la vez.
 
 ---
 
@@ -583,6 +584,17 @@ en `_collect_weave` **y** en `_collect_monomorphized_weave`. Añadir un test que
 ---
 
 ### 🔴 B4 — Colisiones de nombres de tipos entre módulos: C inválido con `check` limpio
+
+> **✅ Implementado en 2.19.0.** El checker rechaza duplicados con `E0070`
+> (`DuplicateTypeNameError`) en el mismo módulo o entre módulos importados, y
+> los renombres del std (`cipher.CipherJsonValue`, `sourcemap.SourceSpan`,
+> `invoke.CommandParser`, `jsonrpc…RpcRequest`, `HttpError.HttpIoError`,
+> `HttpError.HttpOutOfMemory`, `RegexError.RegexOutOfMemory`) eliminan las
+> colisiones que impedían importar todos los módulos juntos. Se verificó con
+> `pengu check` y compilación C de un programa que importa **todo** el std.
+> La solución elegida es el **diagnóstico claro** (opción 1/2 del diseño), no
+> el mangling por módulo (opción 3), que queda para 3.0 si se quiere permitir
+> `a.Config` + `b.Config`.
 
 **Síntoma.** Dos módulos (std o del usuario) declaran un tipo con el mismo nombre. El checker no lo detecta; el codegen emite **un solo** `struct` con el layout del último registrado; el C resultante no compila (o el tipo “pertenece” al módulo equivocado).
 

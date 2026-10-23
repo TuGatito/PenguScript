@@ -8,9 +8,42 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.18.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.19.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.18.0 → 2.19.0: global type names and standard-library renames
+
+This release fixes **Track B4**: PenguScript keeps type names in one
+compilation-wide namespace, so two imported modules could declare the same
+`rune`/`omen`/`alias`/`seal`/`echo` name. The second declaration used to
+overwrite the first silently, and code generation then produced invalid C
+(`json.JsonValue` + `cipher.JsonValue`, `diagnostic.Span` +
+`sourcemap.Span`, …). `pengu check` now reports **`E0070`
+`DuplicateTypeNameError`** for a duplicate in one module or across imported
+modules. `a.Config` and `b.Config` cannot coexist; rename one. An `insignia`
+C prefix does not make the Pengu names distinct.
+
+The standard library's collisions were removed, which is a **breaking API
+rename** for code that spelled the old names:
+
+| Module | Before | After |
+|---|---|---|
+| `std.cipher` | `JsonValue` | `CipherJsonValue` |
+| `std.sourcemap` | `Span` | `SourceSpan` |
+| `std.invoke` | `Parser` | `CommandParser` |
+| `std.jsonrpc` | `JsonRpcMessage.Request` | `JsonRpcMessage.RpcRequest` |
+| `std.petitio` | `HttpError.IoError` | `HttpError.HttpIoError` |
+| `std.petitio` | `HttpError.OutOfMemory` | `HttpError.HttpOutOfMemory` |
+| `std.regulus` | `RegexError.OutOfMemory` | `RegexError.RegexOutOfMemory` |
+
+Only the Pengu spelling moved; the C functions/headers/enums
+(`cipher_json_*`, `petitio_*`, `PETITIO_*`) are unchanged. `diagnostic.Span`
+and `json.JsonValue` keep their names. Most projects only need the rename in
+their source; a program that imports both sides of a former collision now
+compiles after updating the variant/type names. Run `pengu check` to see
+`E0070` (duplicate type) or `E0046` (omen variant vs a global symbol) before
+building.
 
 ## 2.15.0 → 2.16.0: `build.pengu` and dependency build scripts
 
@@ -51,9 +84,11 @@ zlib (RFC 1950) and raw deflate (RFC 1951) over the vendored miniz 3.1.2.
   Borrow with `r.value`/`r.error` and release only the result, or move it with
   the module's `take_*` helpers; never both releases on a borrowed payload.
 * `CompressError` uses `AllocationFailed` and `FileError` instead of
-  `OutOfMemory` and `IoError`. Variant names are unique across a compilation
-  and `std.petitio`'s `HttpError` already owns both spellings, so a program may
-  import `std.petitio` and `std.compressus` together.
+  `OutOfMemory` and `IoError`. When 2.14 shipped, variant names were unique
+  across a compilation and `std.petitio`'s `HttpError` already owned both
+  spellings. In 2.19 the petitio variants were renamed (`HttpOutOfMemory`,
+  `HttpIoError`); `AllocationFailed`/`FileError` stay for API compatibility and
+  a program may still import `std.petitio` and `std.compressus` together.
 * `x to usize`/`isize`/`size_t`/`i8`/`i16`/`int32`/`uint64`/… now lower to a
   real C cast instead of a range. Code that accidentally used one of those
   spellings as a range bound did not compile before; no valid program changes

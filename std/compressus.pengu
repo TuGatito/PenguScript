@@ -216,15 +216,11 @@ omen CompressError derive Nexus:
     ## Auto-detection did not recognise the magic. `magic` is up to four bytes,
     ## little-endian (so `1f 8b` is `0x00008b1f`).
     UnsupportedFormat with magic as u32
-    ## An allocation failed. Named `AllocationFailed`, not `OutOfMemory`,
-    ## because LANGUAGE.md requires variant names to be unique across every
-    ## omen in a compilation and `HttpError`/`RegexError` already use
-    ## `OutOfMemory`; a program that imports `std.petitio` and
-    ## `std.compressus` together (the `pengu add` future) must compile.
+    ## An allocation failed. Named `AllocationFailed` (the spelling predates
+    ## the 2.19 variant-namespace cleanup; kept for API compatibility).
     AllocationFailed
-    ## A file could not be read or written. Named `FileError` because
-    ## `HttpError` already owns an `IoError` variant and LANGUAGE.md keeps
-    ## variant names unique across every omen in a compilation.
+    ## A file could not be read or written. Named `FileError` to avoid the
+    ## bare `IoError` used by `std.archivum`'s error type.
     FileError with reason as string
     ## An unexpected miniz status. `code` is the raw `MZ_*` value.
     Internal with code as int, reason as string

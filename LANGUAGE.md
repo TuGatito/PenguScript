@@ -3021,6 +3021,7 @@ import components.player             # project module (src/components/player.pen
   - **Discard Alias Forbidden:** Binding an import to `_` (`import std.math as _`) raises `E0036: Import alias cannot be '_' (discard)`.
   - **Local Symbol Conflicts:** An alias colliding with an existing local symbol in the current module raises `E0036`.
 - **Encapsulation (`E0043`):** Top-level symbols starting with `_` are module-private and cannot be accessed from importing modules (`E0043: PrivateSymbolAccessError`).
+- **Type names are program-global (`E0070`):** `rune`, `echo`, `omen`, `alias` and `seal` names live in one compilation-wide namespace. If two imported modules both declare `Config`, the second declaration is `E0070: DuplicateTypeNameError`; `a.Config` and `b.Config` do **not** get separate C types (an `insignia` prefix changes the C spelling, not the Pengu name). Rename one of the types. A second declaration of the same name in one module is also `E0070`.
 
 ### 14.2 `include`, `link`, `ldflag`, `insignia`, `declare`
 
@@ -4902,7 +4903,7 @@ import std.rites
 import std.spark
 
 weave main into int:
-    var parser as invoke.Parser is calling invoke.new_parser with "build", "compile c/*.c"
+    var parser as invoke.CommandParser is calling invoke.new_parser with "build", "compile c/*.c"
     calling parser.add_flag with "force", "f", "rebuild", false
     let argv as list of string is calling rites.get_args
     let res as invoke.ParseResult is calling parser.parse with argv
@@ -5235,7 +5236,7 @@ error[E0006]: cannot assign to immutable variable 'count'
 
 <!-- BEGIN GENERATED DIAGNOSTIC CATALOG — tools/gen_error_catalog.py -->
 
-### 22.2 Compiler Error Catalog (`E0000`–`E0069`)
+### 22.2 Compiler Error Catalog (`E0000`–`E0070`)
 
 Generated from the compiler sources by `tools/gen_error_catalog.py` (error classes and their `code=` defaults in [`pengu_parser/pengu_errors.py`](pengu_parser/pengu_errors.py), every `code="Exxxx"` emission in `pengu_parser/`, `pengu_project.py` and `pengu_lsp/`).  The machine-readable form of this table is [`docs/error_catalog.json`](docs/error_catalog.json); `tests/test_error_catalog_sync.py` fails when the code and this table diverge, so **do not edit it by hand** — run `python tools/gen_error_catalog.py --write`.
 
@@ -5248,7 +5249,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0002` | `VarLetTopLevelError` | 3 | var/let declared at top-level. | 1 help / 1 note |
 | `E0003` | `SelfDotAccessError`, `SemanticError` | 7 | self accessed with dot instead of arrow. | 1 help / 1 note |
 | `E0004` | `SemanticError`, `UndefinedIdentifierError` | 16 | identifier not defined in symbol table. | 1 help / 1 note |
-| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 152 | types incompatible. | 1 help / 1 note |
+| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 153 | types incompatible. | 1 help / 1 note |
 | `E0006` | `InvalidMemoryOpError`, `MutabilityError` | 12 | assignment to immutable let binding or constant. | 1 help / 1 note |
 | `E0007` | `InvalidControlFlowError` | 2 | break/continue outside loop. | 1 help / 1 note |
 | `E0008` | `InvalidMemoryOpError`, `SemanticError`, `TypeMismatchError` | 15 | invalid sigil/banish on literal/const. | 1 help / 1 note |
@@ -5296,7 +5297,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0051` | `SemanticError` | 1 | — | — |
 | `E0052` | `DuplicateConceptBindingError` | 2 | duplicate concept binding or duplicate (type, method) implementation.  Covers two cases: binding the same ``(type, concept)`` pair twice, and two distinct concepts providing the same ``(type, method)`` pair (which a call site could not resolve). | 1 help / 1 note |
 | `E0053` | `SemanticError` | 3 | — | — |
-| `E0054` | `SemanticError` | 1 | — | — |
+| `E0054` | `SemanticError` | 2 | — | — |
 | `E0055` | `SemanticError` | 1 | — | — |
 | `E0056` | `SemanticError`, `UnknownAttributeError` | 9 | unknown attribute or invalid attribute usage. | 1 help / 1 note |
 | `E0057` | `InvalidCharLiteralError` | 2 | char literal cannot hold codepoint > 0x7F. | 1 help / 1 note |
@@ -5309,6 +5310,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0067` | `InvalidMutatesAttributeError` | 0 | ``@mutates`` applied where in-place mutation cannot work.  ``@mutates`` is only meaningful on a method inside an ``enchanting`` block, and only when the method returns the receiver's own type -- that return value is what the call site assigns back to the receiver.  A top-level ``weave``, a ``declare``, a mismatched return type or a body that both returns a value and assigns to the receiver is rejected here. | 1 help / 1 note |
 | `E0068` | `MutatingGetterCollisionError` | 0 | ``@mutates weave foo`` collides with an explicit ``weave get_foo``.  The compiler reserves ``get_<name>`` for the pure form of a ``@mutates`` method, so declaring both would give ``get_<name>`` two definitions with no way to choose between them. | 1 help / 1 note |
 | `E0069` | `DuplicateLabelError` | 1 | two loops in the same function declare the same label.  A loop label (``outer: for …``) is a *function-local* name; the code generator turns it into a single C label, so two loops sharing a name inside one function would emit two identical C labels.  The rule is deliberately stricter than "two nested loops may not share a name": two *sibling* loops with the same label are rejected as well, because the name no longer identifies one place to jump to. | 1 help / 1 note |
+| `E0070` | `DuplicateTypeNameError` | 0 | two top-level type declarations share a name.  PenguScript 2.x keeps type names program-global: ``a.Config`` and ``b.Config`` resolve through one registry and would emit one C type, even when a module has an ``insignia`` prefix.  A duplicate is therefore rejected instead of letting the second declaration silently win (or the generated C fail with a conflicting-struct error).  The same diagnostic covers a same-module redeclaration. | 1 help / 1 note |
 
 ### 22.3 Compiler Warning Catalog (`W0000`–`W0013`)
 

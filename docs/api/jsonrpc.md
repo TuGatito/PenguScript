@@ -89,7 +89,7 @@ Owns `message` and `data`; `banish err` releases both.
 
 One JSON-RPC 2.0 message.
 Variantes
-- `Request`: an id, a method and optional params. A response is expected.
+- `RpcRequest`: an id, a method and optional params. A response is expected.
 - `Notification`: a method and optional params; no id, no response.
 - `ResponseOk`: an id and a result value.
 - `ResponseError`: an id and an error object.
@@ -181,7 +181,7 @@ Parámetros
 - `method`: the method name. Ownership transfers.
 - `params`: optional params. Ownership transfers.
 Retorno
-`JsonRpcMessage.Request`.
+`JsonRpcMessage.RpcRequest`.
 
 
 ### `notification`

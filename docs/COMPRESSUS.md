@@ -147,7 +147,7 @@ when the result is an error. `CompressError.message` returns an **owned** string
 | `Corrupt` | malformed, truncated, or checksum-failing bytes |
 | `TrailingData` | a valid stream ended before the input did; `extra_bytes` says how much is left |
 | `UnsupportedFormat` | auto-detection did not recognise the magic; `magic` is the first four bytes, little-endian |
-| `AllocationFailed` | an allocation failed (named this way because `HttpError`/`RegexError` already use `OutOfMemory`, and variant names are unique across a compilation) |
+| `AllocationFailed` | an allocation failed (historical name, kept for API compatibility) |
 | `FileError` | a file could not be read or written (named this way because `HttpError` already uses `IoError`) |
 | `Internal` | an unexpected miniz status; `code` is the raw `MZ_*` value |
 

@@ -182,7 +182,7 @@ weave kind_of with pattern as string into int:
     var e as RegexError is r.error
     var kind as int is judge e:
         when PatternTooLong -> 2
-        when OutOfMemory -> 3
+        when RegexOutOfMemory -> 3
         when InvalidSyntax with position -> 1
     banish r
     return kind

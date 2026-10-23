@@ -5181,7 +5181,7 @@ weave main into int:
     var _d2 as bool is calling archivum.create_dir with "include"
     var _d3 as bool is calling archivum.create_dir with "c"
 
-    var parser as invoke.Parser is calling invoke.new_parser with "build", "Compila extensiones C de la libreria (si las hay)"
+    var parser as invoke.CommandParser is calling invoke.new_parser with "build", "Compila extensiones C de la libreria (si las hay)"
     calling parser.add_flag with "force", "f", "Recompilar aunque lib/*.a ya exista", false
     let argv as list of string is calling rites.get_args
     let res as invoke.ParseResult is calling parser.parse with argv
@@ -5475,7 +5475,7 @@ weave main into int:
     var _d2 as bool is calling archivum.create_dir with "include"
 
     # CLI: `--force` para recompilar aunque lib/lib<name>.a ya exista.
-    var parser as invoke.Parser is calling invoke.new_parser with "build", "Compila la parte nativa del binding"
+    var parser as invoke.CommandParser is calling invoke.new_parser with "build", "Compila la parte nativa del binding"
     calling parser.add_flag with "force", "f", "Recompilar aunque lib/*.a ya exista", false
     let argv as list of string is calling rites.get_args
     let res as invoke.ParseResult is calling parser.parse with argv
@@ -5798,8 +5798,8 @@ import std.rites
 import std.spark
 
 ## Builds the argument parser for {name}.
-weave build_parser into invoke.Parser:
-  var p as invoke.Parser is calling invoke.new_parser with "{name}", "TODO: describe {name}"
+weave build_parser into invoke.CommandParser:
+  var p as invoke.CommandParser is calling invoke.new_parser with "{name}", "TODO: describe {name}"
   calling p.add_flag with "verbose", "v", "Enable verbose output", false
   calling p.add_option with "output", "o", "Write the result to FILE", false, ""
   calling p.add_positional with "input", "Input file to process", false, ""
@@ -5807,7 +5807,7 @@ weave build_parser into invoke.Parser:
 
 ## Entry point: parses the command line and reports what it understood.
 weave main into int:
-  var parser as invoke.Parser is calling build_parser
+  var parser as invoke.CommandParser is calling build_parser
   var argv as list of string is calling rites.get_args
   var res as invoke.ParseResult is calling parser.parse with argv
   if calling res.get_bool_or with "verbose", false:

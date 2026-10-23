@@ -550,6 +550,23 @@ class DuplicateLabelError(SemanticError):
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 
+class DuplicateTypeNameError(SemanticError):
+    """E0070: two top-level type declarations share a name.
+
+    PenguScript 2.x keeps type names program-global: ``a.Config`` and
+    ``b.Config`` resolve through one registry and would emit one C type, even
+    when a module has an ``insignia`` prefix.  A duplicate is therefore
+    rejected instead of letting the second declaration silently win (or the
+    generated C fail with a conflicting-struct error).  The same diagnostic
+    covers a same-module redeclaration.
+    """
+    def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
+        kwargs.setdefault("code", "E0070")
+        kwargs.setdefault("help", "Rename one of the types; type names are program-global in PenguScript 2.x.")
+        kwargs.setdefault("note", "A module qualifier or an 'insignia' C prefix does not make two Pengu type names distinct.")
+        super().__init__(message, line=line, col=col, column=column, **kwargs)
+
+
 class AntiquusBodyError(SemanticError):
     """E0059: an `antiquus` body is missing, empty, or not a triple-quoted string.
 

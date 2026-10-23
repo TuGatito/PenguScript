@@ -3,7 +3,7 @@
 #
 # Typical usage:
 #   import std.invoke
-#   var parser as Parser is calling invoke.new_parser with "myapp", "A demo CLI"
+#   var parser as CommandParser is calling invoke.new_parser with "myapp", "A demo CLI"
 #   calling parser.add_option with "output", "o", "Output file", false, "out.txt"
 #   calling parser.add_flag with "verbose", "v", "Verbose output", false
 #   calling parser.add_positional with "input", "Input file", true, ""
@@ -72,7 +72,7 @@ rune Subcommand:
     description as string
 
 ## The mutable configuration of a CLI parser.
-rune Parser:
+rune CommandParser:
     name as string
     description as string
     positionals as list of Positional
@@ -92,15 +92,15 @@ rune ParseResult:
     multi_vals as list of string
 
 # ----------------------------------------------------------------------------
-# Parser Construction
+# CommandParser Construction
 # ----------------------------------------------------------------------------
 
-## Creates a new empty Parser for a program called `name` with `description`.
+## Creates a new empty CommandParser for a program called `name` with `description`.
 ##
-## Signature: new_parser(name as string, description as string) into Parser
-## Memory: Allocates and returns a fresh Parser struct.
-## Example: var p as Parser is calling invoke.new_parser with "git", "VCS tool"
-weave new_parser with name as string , description as string into Parser:
+## Signature: new_parser(name as string, description as string) into CommandParser
+## Memory: Allocates and returns a fresh CommandParser struct.
+## Example: var p as CommandParser is calling invoke.new_parser with "git", "VCS tool"
+weave new_parser with name as string , description as string into CommandParser:
     var p as list of Positional is list of Positional
     var o as list of Option is list of Option
     var f as list of Flag is list of Flag
@@ -154,10 +154,10 @@ weave _levenshtein with a as string , b as string into int:
     return v0 at lb
 
 # ----------------------------------------------------------------------------
-# Parser Methods
+# CommandParser Methods
 # ----------------------------------------------------------------------------
 
-enchanting Parser:
+enchanting CommandParser:
     ## Appends a positional-argument spec to the parser.
     weave add_positional with name as string , help as string , required as bool , default_val as string into void:
         var pos as Positional is with name is name , help is help , required is required , default is default_val
@@ -190,8 +190,8 @@ enchanting Parser:
         var flg as Flag is with long is long , short is short , help is help , default is default_val
         calling self->flags.push with flg
 
-    ## Registers a subcommand and returns a fresh Parser configured for it.
-    weave add_subcommand with name as string , description as string into Parser:
+    ## Registers a subcommand and returns a fresh CommandParser configured for it.
+    weave add_subcommand with name as string , description as string into CommandParser:
         var sc as Subcommand is with name is name , description is description
         calling self->subcommands.push with sc
         var sub_name as string is "{self->name} {name}"

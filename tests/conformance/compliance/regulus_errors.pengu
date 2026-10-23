@@ -12,7 +12,7 @@ weave position_of with pattern as string into int:
     var e as RegexError is r.error
     var position as int is judge e:
         when PatternTooLong -> -2
-        when OutOfMemory -> -3
+        when RegexOutOfMemory -> -3
         when InvalidSyntax with position -> position
     banish r
     return position
