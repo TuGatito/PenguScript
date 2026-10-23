@@ -26,7 +26,7 @@ pytestmark = pytest.mark.slow
 #: ``tests/stdlib/test_functor.py`` -> ``stdlib`` -> ``tests`` -> checkout.
 ROOT = Path(__file__).resolve().parents[2]
 
-_FUNCTOR_VERSION = "2.17.0"
+_FUNCTOR_VERSION = "2.18.0"
 
 
 @pytest.mark.xdist_group("pengu-module-tests")
@@ -134,7 +134,10 @@ def test_construction_is_two_pointers_and_allocates_nothing(tmp_path):
     res = subprocess.run(
         [sys.executable, str(ROOT / "pengu_project.py"), "expand", str(source)],
         capture_output=True, text=True, timeout=300,
-        cwd=str(tmp_path), env={**os.environ, "PYTHONPATH": str(ROOT)},
+        cwd=str(tmp_path),
+        # This test asserts the emitted `#define` of a constant the program
+        # does not otherwise need; `--prune-types` would correctly drop it.
+        env={**os.environ, "PYTHONPATH": str(ROOT), "PENGU_PRUNE_TYPES": "0"},
     )
     assert res.returncode == 0, res.stderr
     c = res.stdout

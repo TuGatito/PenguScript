@@ -107,7 +107,7 @@ files but never deletes what is already there.
 | Caché del grafo de imports | Reutiliza la lista de módulos validando el digest de cada uno | `PENGU_CACHE=0` |
 | TCC | Compilador preferido para `pengu run` si está disponible (empaquetado en los releases); ~19 ms por bundle frente a ~400 ms de gcc | `PENGU_NO_TCC=1`, `PENGU_DEV_CC=gcc` |
 | Flags de desarrollo | `-g0 -fno-plt -pipe -fno-ident -fno-asynchronous-unwind-tables` en el perfil `debug` de `pengu run` | `pengu build --profile release` |
-| DCE | Elimina las funciones de `std/`/`lib/` no alcanzables con una pasada exacta por símbolos C (924 → 96 líneas / 42,9 → 3,7 KB en `hello.pengu`, -91%); las instancias genéricas no alcanzables ya no se emiten. `bundle.c` lleva `/* Dead-code elimination: pruned N of M … */` y `pengu time` imprime el nº podado | `--no-dce`, `PENGU_NO_DCE=1` |
+| DCE | Elimina las funciones de `std/`/`lib/` no alcanzables con una pasada exacta por símbolos C (924 → 96 líneas / 42,9 → 3,7 KB en `hello.pengu`, -91%); las instancias genéricas y los helpers derivados no alcanzables ya no se emiten. `bundle.c` lleva `/* Dead-code elimination: pruned N of M … */` y `pengu time` imprime el nº podado. `--prune-types` añade la poda opt-in de tipos/constantes | `--no-dce`, `PENGU_NO_DCE=1` |
 | PCH | Precompila `pengu_runtime.h`; `build_runtime.py` deja uno compartido en `build/include/pengu_runtime.h.gch` y los releases lo empaquetan (opt-in: `--pch`, sin ganancia medible: ver `docs/PERFORMANCE.md` §7) | `--pch` lo activa, `--no-pch` lo fuerza a off |
 | Memoización de `pkg-config` | Una sonda por paquete y proceso en vez de ~12 (~320 ms → 201 ms por build) | — (siempre activa; los paquetes que se sondeaban eran bibliotecas externas, hoy repos satélite, así que un build estándar no sondea nada) |
 
@@ -139,6 +139,7 @@ Flags globales (todos los subcomandos):
 | `--pch` | Activa el header precompilado de `pengu_runtime.h` (gcc/clang) |
 | `--no-pch` | Fuerza el PCH a off (ya es el valor por defecto en `run`) |
 | `--no-dce` | Emite todos los weaves de `std/`/`lib/` (desactiva DCE) |
+| `--prune-types` | Opt-in: poda también tipos y constantes que ningún C emitido nombra (respeta `--test`, librerías y `--no-dce`) |
 | `--` | Todo lo que sigue se pasa al script (`std.rites.get_args`) |
 
 `pengu run` acepta además `--cc` (sustituye al compilador de desarrollo; con

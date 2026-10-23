@@ -193,8 +193,22 @@ imports). DCE now runs in two layers:
 pass also drops unreachable monomorphized instances (the old pass kept every
 specialization because its synthetic `filepath="."` made it a root), dead
 `@mutates` aliases and callees reachable only through default arguments.
-Runes, omens, constants, `declare`s and derived implementations are still
-emitted (pruning them is a later, opt-in step).
+
+**Phase 4a — derived helpers (default).** `Par`, `Ordo`, `Vinculum`, `Imago`
+and `Nexus` helpers are `static inline` functions of the bundle, so their only
+possible callers are the bundle's own C. A helper block is kept only when a live
+weave body, lambda, constant or another live block names one of its functions;
+the field-type closure is followed (`Outer_eq` keeps `Inner_eq`). Blocks are
+kept whole, so a concept used by a type stays together.
+
+**Phase 4b — types and constants (`--prune-types`, opt-in).** Drops types and
+constants no emitted C text names. Roots are live bodies, prototypes, lambdas,
+kept constants and kept derived helpers; a type keeps everything its definition
+needs (fields, container elements, alias/seal targets, tuple elements), and
+simple-enum variants (`Color_Red`) seed their enum. Constants are closed over
+other kept constants. This stays opt-in because a `c/` glue file can name a
+Pengu type or constant the bundle never spells; `--test` and library builds keep
+everything, and `--no-dce` overrides both phases.
 
 **What counts as prunable** is anchored to a real `std/` directory, not only to
 the checkout path: `resolved_std_roots()` asks `pengu_paths.std_dirs()`, so FHS
@@ -203,35 +217,39 @@ like a source checkout. A user project that merely *lives* in a directory called
 `lib` (`/home/me/lib/proj/…`) keeps every weave, and `.d.pengu` bindings are
 never pruned.
 
-| Bundle | 2.16.5 (old DCE) | 2.17.0 (exact DCE) | Reduction |
+| Bundle | 2.16.5 | 2.18.0 default | 2.18.0 `--prune-types` |
 |---|---:|---:|---:|
-| `hello.pengu` (uses only `println`) | 96 lines / 3.7 KB | 96 lines / 3.7 KB | already minimal |
-| `import std.json` (unused) | 4 221 lines / 142.2 KB | **872 lines / 34.9 KB** | -75% |
-| `cipher.encode_base64` (one call) | 15 959 lines / 581.7 KB | **611 lines / 25.9 KB** | -96% |
-| `import std.petitio` (unused) | 20 357 lines / 782.2 KB | **1 682 lines / 68.1 KB** | -91% |
-| `benches/stdlib_ops.pengu` (3 calls) | 15 663 lines / 568.9 KB | **572 lines / 25.3 KB** | -96% |
+| `hello.pengu` (uses only `println`) | 3.7 KB | 3.7 KB | **3.5 KB** |
+| `import std.json` (unused) | 142.2 KB | **8.1 KB** | **2.8 KB** |
+| `cipher.encode_base64` (one call) | 581.7 KB | **11.4 KB** | **6.7 KB** |
+| `import std.petitio` (unused) | 782.2 KB | **15.9 KB** | **4.4 KB** |
+| `benches/stdlib_ops.pengu` (3 calls) | 568.9 KB | **10.8 KB** | **8.8 KB** |
+| `benches/loom_ops.pengu` (6 calls) | 633.6 KB | **18.3 KB** | **13.3 KB** |
 
 (With DCE disabled entirely, `hello.pengu` is 924 lines / 42.9 KB; the 2.16.5
-figure above is the old pass with the already-minimal import.)
+figures are the old subtree-name pass with the already-minimal import.)
 
-The remaining size is mostly types, constants and derived `static inline`
-helpers of imported modules; that is the next (opt-in) pruning step, not a
-reachability miss.
+The remaining size after `--prune-types` is mostly runtime/ABI boilerplate and
+the modules that are genuinely used; user modules are still fully emitted (a
+separate, opt-in scoped tree-shaking phase).
 
 `pengu expand script.pengu` prints the resulting bundle, `--verbose` reports the
-reduction (`[pengu] DCE: dropped … weave(s)`), `pengu time` prints the pruned
-count, and the bundle itself is self-describing:
+weave reduction (`[pengu] DCE: dropped … weave(s)`), `pengu time` prints the
+pruned count, and the bundle itself is self-describing:
 
 ```c
 /* Dead-code elimination: pruned 1494 of 1500 std/lib weave(s), 1500 -> 6 */
+/* Dead-code elimination: pruned 20 of 20 derived helper block(s) */
+/* Dead-code elimination (--prune-types): pruned 16 type(s), 22 constant(s) */
 ...
 /* Dead-code elimination: disabled (PENGU_NO_DCE) */   // with --no-dce
 ```
 
-`PENGU_NO_DCE=1` / `--no-dce` disable both layers (also useful for bug reports).
-`--no-dce` is part of the script cache key, so an A/B comparison never reuses the
-other mode's binary; in project mode it reaches `build_project` through
-`pengu run --no-dce` as well.
+`PENGU_NO_DCE=1` / `--no-dce` disable both exact layers (also useful for bug
+reports). `--prune-types` / `PENGU_PRUNE_TYPES=1` enables phase 4b. Both are part
+of the script cache key and of the project config hash, so an A/B comparison
+never reuses the other mode's binary; in project mode they reach
+`build_project` through `pengu run --no-dce` / `pengu build --prune-types`.
 
 ## 7. Precompiled header (opt-in)
 

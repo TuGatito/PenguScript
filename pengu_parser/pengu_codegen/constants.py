@@ -5,17 +5,21 @@ Part of :class:`~pengu_parser.pengu_codegen.main.PenguCodegen`; see
 """
 from __future__ import annotations
 
+import re
+
 from ._base import (
     Any,
     AnyType,
     AliasType,
     ArrayType,
     FrozenType,
+    List,
     Optional,
     RangeConst,
     SealType,
     Token,
     Tree,
+    Tuple,
     Type,
     TypeParam,
     canonical_primitive_name,
@@ -87,14 +91,14 @@ class ConstMixin:
         if not self.consts:
             return ""
 
-        emitted_lines = []
+        entries: List[Tuple[str, str]] = []
         for name, (c_type, val) in self.consts.items():
             if name in self.declaration_consts:
                 continue
             c_name = self._c_ident(name)
             if val is not None:
                 if isinstance(val, RangeConst):
-                    emitted_lines.append(f"static const PenguRange {c_name} = {{ .start = {val.start}, .end = {val.end} }};")
+                    entries.append((name, f"static const PenguRange {c_name} = {{ .start = {val.start}, .end = {val.end} }};"))
                 elif isinstance(val, str):
                     expr_node = self.const_nodes.get(name)
                     if expr_node is not None and isinstance(expr_node, Tree) and expr_node.data == "string_lit" and expr_node.children:
@@ -104,13 +108,13 @@ class ConstMixin:
                     else:
                         cstr = self._translate_string_lit(val, as_c_literal=True)
                     if self._is_ref_char_type(c_type):
-                        emitted_lines.append(f'#define {c_name} {cstr}')
+                        entries.append((name, f'#define {c_name} {cstr}'))
                     else:
-                        emitted_lines.append(f'#define {c_name} pengu_string_from_cstr({cstr})')
+                        entries.append((name, f'#define {c_name} pengu_string_from_cstr({cstr})'))
                 elif isinstance(val, bool):
-                    emitted_lines.append(f'#define {c_name} {"true" if val else "false"}')
+                    entries.append((name, f'#define {c_name} {"true" if val else "false"}'))
                 else:
-                    emitted_lines.append(f"#define {c_name} {val}")
+                    entries.append((name, f"#define {c_name} {val}"))
             else:
                 expr_node = self.const_nodes.get(name)
                 if (c_type is None or isinstance(c_type, AnyType)) and self.symbols:
@@ -123,24 +127,97 @@ class ConstMixin:
                     dims_str = "".join(f"[{d}]" for d in dims)
                     base_t = get_array_base_type(c_type)
                     decl_arr = CTypeMapper.to_c_decl(base_t, f"{c_name}{dims_str}", const=True)
-                    emitted_lines.append(f"static {decl_arr} = {expr_code};")
+                    entries.append((name, f"static {decl_arr} = {expr_code};"))
                 elif c_type is not None and expr_node is not None:
                     expr_code = self._translate_expr(expr_node, expected_type=c_type)
                     decl_const = CTypeMapper.to_c_decl(c_type, c_name, const=True)
-                    emitted_lines.append(f"static {decl_const} = {expr_code};")
+                    entries.append((name, f"static {decl_const} = {expr_code};"))
                 else:
                     t_str = CTypeMapper.to_c_type(c_type, const=True)
-                    emitted_lines.append(f"{t_str} {c_name};")
+                    entries.append((name, f"{t_str} {c_name};"))
 
-        if not emitted_lines:
-            return ""
-
-        lines = [
+        header = [
             "/* -------------------------------------------------------------------------",
             " * Global Constants",
             " * ------------------------------------------------------------------------- */",
-        ] + emitted_lines + [""]
-        return "\n".join(lines)
+        ]
+        # Keep the (name, line) split around: `--prune-types` filters constants
+        # after the live weave bodies are known, without re-translating any
+        # initializer expression.
+        self._const_units = (header, entries)
+        return self._render_const_units(self._const_units)
+
+    def compute_live_consts(self, root_texts) -> set:
+        """C names of global constants the emitted text references.
+
+        ``--prune-types`` only.  A constant used solely by C glue is invisible
+        here (hence the opt-in); constants referenced by another *kept* constant
+        are closed over too.
+
+        Args:
+            root_texts: C sections that can name a constant.
+
+        Returns:
+            The live constant names (the ``#define``/static identifier).
+        """
+        units = getattr(self, "_const_units", None)
+        entries = dict(units[1]) if units else {}
+        known = {n for n in self.consts if n not in self.declaration_consts}
+        live: set = set()
+        for text in root_texts:
+            for match in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*", text or ""):
+                ident = match.group(0)
+                if ident in known:
+                    live.add(ident)
+        changed = True
+        while changed:
+            changed = False
+            for name in list(live):
+                for match in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*",
+                                         entries.get(name, "")):
+                    ident = match.group(0)
+                    if ident in known and ident not in live:
+                        live.add(ident)
+                        changed = True
+        return live
+
+    def _render_const_units(self, units) -> str:
+        """Assembles a ``(header, entries)`` tuple into C."""
+        if units is None:
+            return ""
+        header, entries = units
+        if not entries:
+            return ""
+        return "\n".join(header + [line for _name, line in entries] + [""])
+
+    def prune_constants(self, live_names) -> str:
+        """Drops global constants no emitted C text references.
+
+        `--prune-types` only.  Constants are macros/statics of the bundle; a
+        constant used only by C glue is invisible here, which is why this is
+        opt-in (a `.d.pengu` constant is never pruned: it is emitted by its
+        binding, not by this list).
+
+        Args:
+            live_names: C names mentioned by the live bundle text.
+
+        Returns:
+            The filtered constants section.
+        """
+        units = getattr(self, "_const_units", None)
+        if units is None:
+            return ""
+        header, entries = units
+        live_names = set(live_names or ())
+        kept = [(n, line) for n, line in entries if n in live_names]
+        if len(kept) == len(entries):
+            return self._render_const_units(units)
+        self.dce_stats = dict(getattr(self, "dce_stats", {}) or {})
+        self.dce_stats["consts_before"] = len(entries)
+        self.dce_stats["consts_after"] = len(kept)
+        self.dce_stats["consts_dropped"] = len(entries) - len(kept)
+        return self._render_const_units((header, kept))
+
     def generate_constants(self) -> str:
         """Alias for generate_global_constants."""
         return self.generate_global_constants()

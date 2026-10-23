@@ -5,6 +5,8 @@ Part of :class:`~pengu_parser.pengu_codegen.main.PenguCodegen`; see
 """
 from __future__ import annotations
 
+import re
+
 from ._base import (
     AliasType,
     ArrayType,
@@ -25,6 +27,22 @@ from ._base import (
 from .ctype import (
     CTypeMapper,
 )
+
+#: A generated helper definition or prototype.  Derived helpers are all
+#: `PENGU_MAYBE_UNUSED static inline`, so the name is the first identifier
+#: before the parameter list and every definition starts at the beginning of a
+#: line (calls are indented, so they never match).
+_DERIVED_DEF_RE = re.compile(
+    r"^\s*PENGU_MAYBE_UNUSED static inline [^(\n]+?\b([A-Za-z_]\w*)\s*\(",
+    re.M,
+)
+_DERIVED_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _derived_names(text: str) -> set:
+    """Names of the helpers *defined* in a derived block."""
+    return set(_DERIVED_DEF_RE.findall(text or ""))
+
 
 class DerivedGenMixin:
     """Code generated for the derived concepts (Par, Ordo, Vinculum, Imago, Nexus)."""
@@ -59,6 +77,14 @@ class DerivedGenMixin:
         return f"_pengu_cleanup_{self._derived_type_c_name(u)}"
     def generate_derived_implementations(self) -> str:
         """Generates automatic implementations for derived concepts (Par, Ordo, Vinculum, Imago, Nexus)."""
+        # These caches register the ``_pengu_eq_*`` helpers lazily and live on
+        # `self`; a second `generate_bundle()` on the same generator must not
+        # inherit the first build's helper list (it would emit duplicates).
+        self._pengu_eq_helper_defs = []
+        self._pengu_list_eq_helpers = {}
+        self._pengu_maybe_eq_helpers = {}
+        self._pengu_result_eq_helpers = {}
+        self._pengu_map_eq_helpers = {}
         forward_decls = []
         impl_blocks = []
 
@@ -468,15 +494,100 @@ class DerivedGenMixin:
 
         helper_defs = list(getattr(self, "_pengu_eq_helper_defs", []) or [])
 
-        if not forward_decls and not impl_blocks and not helper_defs:
-            return ""
-
         header = [
             "/* -------------------------------------------------------------------------",
             " * Derived Concept Implementations (Par, Ordo, Vinculum, Imago, Nexus)",
             " * ------------------------------------------------------------------------- */",
         ]
-        return "\n".join(header) + "\n" + "\n".join(forward_decls) + "\n\n" + "\n\n".join(helper_defs + impl_blocks) + "\n"
+        # Keep the pieces around: reachability pruning (phase 4a) needs to
+        # filter individual helpers after the live weave bodies are known.
+        self._derived_units = (header, forward_decls, helper_defs, impl_blocks)
+        return self._render_derived_units(self._derived_units)
+    def _render_derived_units(self, units) -> str:
+        """Assembles a ``(header, forward, helpers, impls)`` tuple into C."""
+        header, forward, helpers, impls = units
+        if not forward and not helpers and not impls:
+            return ""
+        return ("\n".join(header) + "\n" + "\n".join(forward) + "\n\n"
+                + "\n\n".join(helpers + impls) + "\n")
+
+    def prune_derived_implementations(self, root_texts=()) -> str:
+        """Drops derived helpers no emitted C text reaches.
+
+        Every derived helper is a file-local ``static inline`` function: it can
+        only be called from the bundle itself, never from another translation
+        unit (``c/`` glue, a header, or the linker).  That makes C-symbol
+        reachability exact and safe here.
+
+        A helper block (for example the three functions of ``Par``) is kept when
+        any of its definitions is named by a live weave body, a lambda, a
+        constant or another live derived helper.  Blocks are kept whole, which
+        is conservative inside a concept but still removes every block whose
+        type is unused (the common case for an unused generic-heavy import).
+
+        Args:
+            root_texts: C sections that can call a derived helper.
+
+        Returns:
+            The filtered derived section.  The original unit list is left
+            intact so a later call can re-filter from the full set.
+        """
+        units = getattr(self, "_derived_units", None)
+        if not units:
+            return ""
+        header, forward, helpers, impls = units
+        blocks = list(helpers) + list(impls)
+        if not blocks:
+            return self._render_derived_units(units)
+
+        index = {}
+        block_names = []
+        for i, block in enumerate(blocks):
+            names = _derived_names(block)
+            block_names.append(names)
+            for name in names:
+                index.setdefault(name, []).append(i)
+
+        # Seed from every C text that is emitted outside the derived section,
+        # then close over calls between derived blocks.
+        stack = []
+        for text in root_texts:
+            for match in _DERIVED_IDENT_RE.finditer(text or ""):
+                stack.extend(index.get(match.group(0), ()))
+
+        live_blocks = set()
+        while stack:
+            bi = stack.pop()
+            if bi in live_blocks:
+                continue
+            live_blocks.add(bi)
+            for match in _DERIVED_IDENT_RE.finditer(blocks[bi]):
+                stack.extend(index.get(match.group(0), ()))
+
+        if len(live_blocks) == len(blocks):
+            return self._render_derived_units(units)
+
+        self.dce_stats = dict(getattr(self, "dce_stats", {}) or {})
+        self.dce_stats["derived_before"] = len(blocks)
+        self.dce_stats["derived_after"] = len(live_blocks)
+        self.dce_stats["derived_dropped"] = len(blocks) - len(live_blocks)
+        if not live_blocks:
+            return ""
+
+        live_names = set()
+        for bi in live_blocks:
+            live_names |= block_names[bi]
+        live_forward = []
+        for line in forward:
+            names = _derived_names(line)
+            if names & live_names:
+                live_forward.append(line)
+        n_helpers = len(helpers)
+        live_helpers = [b for i, b in enumerate(helpers) if i in live_blocks]
+        live_impls = [b for i, b in enumerate(impls) if (i + n_helpers) in live_blocks]
+        return self._render_derived_units(
+            (header, live_forward, live_helpers, live_impls))
+
     def _derived_field_eq(self, a_expr: str, b_expr: str, f_type: Type) -> str:
         """C condition that is true when the two field accesses compare equal."""
         u = self._derived_unwrap(f_type)

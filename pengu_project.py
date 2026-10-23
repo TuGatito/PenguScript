@@ -844,6 +844,13 @@ class PenguBuilder:
             # invalidate the cache (a sanitizer build must never reuse a plain one).
             "env_cflags": os.environ.get("PENGU_CFLAGS", "").strip(),
             "env_ldflags": os.environ.get("PENGU_LDFLAGS", "").strip(),
+            # Both switches are read from the environment by PenguCodegen; the
+            # project build cache must not serve a bundle made with the other
+            # setting.
+            "dce_disabled": os.environ.get("PENGU_NO_DCE", "").strip().lower()
+                            in {"1", "true", "yes", "on"},
+            "prune_types": os.environ.get("PENGU_PRUNE_TYPES", "").strip().lower()
+                           in {"1", "true", "yes", "on"},
         }, sort_keys=True)
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
@@ -2644,6 +2651,7 @@ def build_project(
     verbose: bool = False,
     pch: bool = False,
     no_dce: bool = False,
+    prune_types: bool = False,
     strict_c99: bool = False,
     target_compiler: str = "",
     target: str = "",
@@ -2748,6 +2756,9 @@ def build_project(
     prev_no_dce = os.environ.get("PENGU_NO_DCE")
     if no_dce:
         os.environ["PENGU_NO_DCE"] = "1"
+    prev_prune_types = os.environ.get("PENGU_PRUNE_TYPES")
+    if prune_types:
+        os.environ["PENGU_PRUNE_TYPES"] = "1"
     try:
         if output and (output.endswith(".c") or output == "bundle.c"):
             artifact, is_cached = builder.bundle(output_file=output)
@@ -2779,6 +2790,11 @@ def build_project(
                 os.environ.pop("PENGU_NO_DCE", None)
             else:
                 os.environ["PENGU_NO_DCE"] = prev_no_dce
+        if prune_types:
+            if prev_prune_types is None:
+                os.environ.pop("PENGU_PRUNE_TYPES", None)
+            else:
+                os.environ["PENGU_PRUNE_TYPES"] = prev_prune_types
     elapsed = time.time() - t0
 
     if json_output:
@@ -6015,7 +6031,7 @@ def doctor_report(as_json: bool = False) -> int:
 
 def expand_script(script: str, output: Optional[str] = None,
                   defines: Optional[List[str]] = None,
-                  verbose: bool = False) -> int:
+                  verbose: bool = False, prune_types: bool = False) -> int:
     """Prints the generated ``bundle.c`` of a script (no project tree changes)."""
     script_abs = os.path.abspath(script)
     if not os.path.isfile(script_abs):
@@ -6023,6 +6039,9 @@ def expand_script(script: str, output: Optional[str] = None,
     base_dir, _manifest, src_dir, lib_dir, include_dir = _script_build_context(script_abs)
     out_name = os.path.splitext(os.path.basename(script_abs))[0]
     tmp = tempfile.mkdtemp(prefix=f"pengu_expand_{out_name}_")
+    prev_prune_types = os.environ.get("PENGU_PRUNE_TYPES")
+    if prune_types:
+        os.environ["PENGU_PRUNE_TYPES"] = "1"
     try:
         cfg = ProjectConfig(
             entry=script_abs,
@@ -6060,11 +6079,16 @@ def expand_script(script: str, output: Optional[str] = None,
         return 0
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        if prune_types:
+            if prev_prune_types is None:
+                os.environ.pop("PENGU_PRUNE_TYPES", None)
+            else:
+                os.environ["PENGU_PRUNE_TYPES"] = prev_prune_types
 
 
 def time_script(script: str, defines: Optional[List[str]] = None,
                 cc: Optional[str] = None, script_args: Optional[List[str]] = None,
-                no_dce: bool = False) -> int:
+                no_dce: bool = False, prune_types: bool = False) -> int:
     """Runs a script and reports the time spent in every phase."""
     import platform
     t_start = time.time()
@@ -6079,6 +6103,9 @@ def time_script(script: str, defines: Optional[List[str]] = None,
     prev_no_dce = os.environ.get("PENGU_NO_DCE")
     if no_dce:
         os.environ["PENGU_NO_DCE"] = "1"
+    prev_prune_types = os.environ.get("PENGU_PRUNE_TYPES")
+    if prune_types:
+        os.environ["PENGU_PRUNE_TYPES"] = "1"
     try:
         cfg = ProjectConfig(
             entry=script_abs,
@@ -6151,6 +6178,11 @@ def time_script(script: str, defines: Optional[List[str]] = None,
                 os.environ.pop("PENGU_NO_DCE", None)
             else:
                 os.environ["PENGU_NO_DCE"] = prev_no_dce
+        if prune_types:
+            if prev_prune_types is None:
+                os.environ.pop("PENGU_PRUNE_TYPES", None)
+            else:
+                os.environ["PENGU_PRUNE_TYPES"] = prev_prune_types
         shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -6323,6 +6355,7 @@ def _test_run_command(artifact: str, target: str, config: "ProjectConfig") -> Li
 def run_project(config_path: Optional[str] = None, profile: str = "debug", test: bool = False,
                 defines: Optional[List[str]] = None, cc: Optional[str] = None,
                 verbose: bool = False, pch: bool = False, no_dce: bool = False,
+                prune_types: bool = False,
                 strict_c99: bool = False, target_compiler: str = "",
                 target: str = "", locked: bool = False, frozen: bool = False,
                 release_unsafe: bool = False,
@@ -6338,6 +6371,7 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
         verbose: True to print module order, C commands and phase timings.
         pch: True to precompile pengu_runtime.h for this build.
         no_dce: True to keep every std/lib weave in bundle.c.
+        prune_types: True to prune unreachable types/constants (opt-in).
 
     Returns:
         Process exit code.
@@ -6347,6 +6381,7 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
         config.cc = _resolve_cc_argument(cc)
     artifact = build_project(config_path, profile=profile, test=test, defines=defines,
                              cc=cc, verbose=verbose, pch=pch, no_dce=no_dce,
+                             prune_types=prune_types,
                              strict_c99=strict_c99, target_compiler=target_compiler,
                              target=target, locked=locked, frozen=frozen,
                              release_unsafe=release_unsafe)
@@ -6382,7 +6417,8 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                clear_cache: bool = False, ephemeral: bool = False,
                script_args: Optional[List[str]] = None,
                quiet: bool = False, no_pch: bool = True,
-               no_dce: bool = False, strict_c99: bool = False,
+               no_dce: bool = False, prune_types: bool = False,
+               strict_c99: bool = False,
                target_compiler: str = "", target: str = "",
                locked: bool = False, frozen: bool = False,
                release_unsafe: bool = False,
@@ -6561,6 +6597,9 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         # environment-only form (`export PENGU_NO_DCE=1`) must affect the key too.
         dce_disabled = bool(no_dce or os.environ.get("PENGU_NO_DCE", "").strip().lower()
                             in {"1", "true", "yes", "on"})
+        prune_types_enabled = bool(
+            prune_types or os.environ.get("PENGU_PRUNE_TYPES", "").strip().lower()
+            in {"1", "true", "yes", "on"})
         cache_key = script_cache_key(
             script_abs,
             module_order,
@@ -6579,6 +6618,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
             extra_digests=[
                 d for d in (
                     "dce=off" if dce_disabled else "dce=on",
+                    "types=pruned" if prune_types_enabled else "types=kept",
                     f"std-c={std_c_digest}" if std_c_digest else None,
                     "release-unsafe" if getattr(cfg, "release_unsafe", False) else None,
                     (f"env-cflags={os.environ.get('PENGU_CFLAGS', '').strip()}"
@@ -6619,6 +6659,9 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     prev_no_dce = os.environ.get("PENGU_NO_DCE")
     if no_dce:
         os.environ["PENGU_NO_DCE"] = "1"
+    prev_prune_types = os.environ.get("PENGU_PRUNE_TYPES")
+    if prune_types:
+        os.environ["PENGU_PRUNE_TYPES"] = "1"
     try:
         builder = PenguBuilder(cfg)
         builder.is_test_mode = False
@@ -6677,6 +6720,11 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                 os.environ.pop("PENGU_NO_DCE", None)
             else:
                 os.environ["PENGU_NO_DCE"] = prev_no_dce
+        if prune_types:
+            if prev_prune_types is None:
+                os.environ.pop("PENGU_PRUNE_TYPES", None)
+            else:
+                os.environ["PENGU_PRUNE_TYPES"] = prev_prune_types
 
 
 def _find_watch_files(base_dir: str) -> List[str]:
@@ -7550,6 +7598,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
                          help="Force the precompiled header off (it is already the default)")
     build_p.add_argument("--no-dce", "--no_dce", dest="no_dce", action="store_true",
                          help="Keep every std/lib weave in bundle.c (disable dead-code elimination)")
+    build_p.add_argument("--prune-types", "--prune_types", dest="prune_types", action="store_true",
+                         help="Opt-in: also prune types and constants no emitted C text names")
     build_p.add_argument("--json", action="store_true",
                          help="Emit machine-readable JSON Lines (for CI)")
 
@@ -7579,6 +7629,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
                        help="Force the precompiled header off (already the default)")
     run_p.add_argument("--no-dce", "--no_dce", dest="no_dce", action="store_true",
                        help="Disable dead-code elimination of unused std weaves")
+    run_p.add_argument("--prune-types", "--prune_types", dest="prune_types", action="store_true",
+                       help="Opt-in: also prune types and constants no emitted C text names")
     # Roadmap Phase 2: portable C output (build/run share the same knobs).
     for _p in (build_p, run_p):
         _p.add_argument("--strict-c99", "--strict_c99", dest="strict_c99", action="store_true",
@@ -7629,6 +7681,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
     expand_p.add_argument("--verbose", action="store_true", help="Print module order and phase timings")
     expand_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
                           help="Compile-time define (repeatable)")
+    expand_p.add_argument("--prune-types", "--prune_types", dest="prune_types", action="store_true",
+                          help="Opt-in: also prune types and constants no emitted C text names")
 
     # time
     time_p = subparsers.add_parser("time", help="Run a script and report per-phase timings")
@@ -7636,6 +7690,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
     time_p.add_argument("--cc", default=None, help="C compiler override")
     time_p.add_argument("--no-dce", "--no_dce", dest="no_dce", action="store_true",
                         help="Disable dead-code elimination of unused std weaves")
+    time_p.add_argument("--prune-types", "--prune_types", dest="prune_types", action="store_true",
+                         help="Opt-in: also prune types and constants no emitted C text names")
     time_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
                         help="Compile-time define (repeatable)")
     time_p.add_argument("script_args", nargs="*", default=None,
@@ -8074,6 +8130,7 @@ def main():
                 verbose=getattr(args, "verbose", False),
                 pch=getattr(args, "pch", False) and not getattr(args, "no_pch", False),
                 no_dce=getattr(args, "no_dce", False),
+                prune_types=getattr(args, "prune_types", False),
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
                 target=getattr(args, "target", "") or "",
@@ -8112,6 +8169,7 @@ def main():
                     quiet=getattr(args, "quiet", False),
                     no_pch=no_pch,
                     no_dce=getattr(args, "no_dce", False),
+                    prune_types=getattr(args, "prune_types", False),
                     strict_c99=getattr(args, "strict_c99", False),
                     target_compiler=getattr(args, "target_compiler", "") or "",
                     target=getattr(args, "target", "") or "",
@@ -8129,6 +8187,7 @@ def main():
                 verbose=getattr(args, "verbose", False),
                 pch=getattr(args, "pch", False) and not getattr(args, "no_pch", False),
                 no_dce=getattr(args, "no_dce", False),
+                prune_types=getattr(args, "prune_types", False),
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
                 target=getattr(args, "target", "") or "",
@@ -8295,14 +8354,16 @@ def main():
         _run_command(
             lambda: expand_script(args.script, output=getattr(args, "output", None),
                                   defines=getattr(args, "defines", None),
-                                  verbose=getattr(args, "verbose", False)),
+                                  verbose=getattr(args, "verbose", False),
+                                  prune_types=getattr(args, "prune_types", False)),
             source=args.script)
     elif args.command == "time":
         _run_command(
             lambda: time_script(args.script, defines=getattr(args, "defines", None),
                                 cc=getattr(args, "cc", None),
                                 script_args=_consume_script_args(getattr(args, "script_args", None)),
-                                no_dce=getattr(args, "no_dce", False)),
+                                no_dce=getattr(args, "no_dce", False),
+                                prune_types=getattr(args, "prune_types", False)),
             source=args.script)
     elif args.command == "eval":
         _run_command(

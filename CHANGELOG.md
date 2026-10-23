@@ -2,6 +2,70 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.18.0] — 2026-10-23 — Phase 4: derived helpers pruned by default; opt-in type/constant pruning
+
+### Changed
+
+- **Phase 4a — derived helper blocks are reachability-filtered (default).**
+  `Par`, `Ordo`, `Vinculum`, `Imago` and `Nexus` helpers used to be emitted for
+  every deriving type in every imported module. They are `static inline`
+  functions of the bundle, so their only possible callers are the bundle's own
+  C: the exact DCE pass now keeps a block only when a live weave body, lambda,
+  constant or another live derived helper names one of its functions. Blocks are
+  kept whole (conservative inside one concept) and the field-type closure is
+  followed, so `Outer_eq` keeps `Inner_eq`. A `rune Data derive Par, Ordo,
+  Vinculum, Imago, Nexus` that only uses `==` emits the `Par` block and drops
+  the other four.
+- **Phase 4b — opt-in `--prune-types` / `PENGU_PRUNE_TYPES=1`.** Drops types
+  and constants that no emitted C text names. Roots are the live weave bodies,
+  prototypes, lambdas, kept constants and kept derived helpers; a type keeps
+  everything its definition needs (fields, container elements, alias/seal
+  targets, tuple elements) and simple-enum variants (`Color_Red`) seed their
+  enum. Constants are closed over the other kept constants. This is **opt-in**
+  because a `c/` glue file can name a Pengu type or constant the bundle never
+  spells; `--test` and library builds (`static`/`shared`/`obj`) never prune
+  types/constants. `--no-dce` overrides both.
+- **CLI and cache keys.** `--prune-types` is accepted by `build`, `run`, `time`
+  and `expand`. The flag, and `PENGU_NO_DCE`, are now part of the project config
+  hash and the script cache key, so a build cannot reuse a bundle produced with
+  the other setting.
+- **Self-describing markers.** `bundle.c` reports the derived blocks and (with
+  `--prune-types`) the types/constants it dropped, next to the weave marker.
+
+### Fixed
+
+- **Derived helpers of unused types were the largest remaining cost** after the
+  exact weave pass (e.g. `std.json` unused: 26.9 KB of a 34.9 KB bundle).
+- **Project builds could reuse a bundle across DCE settings**: the config hash
+  did not include `PENGU_NO_DCE`; it now does (and `PENGU_PRUNE_TYPES`).
+- Existing declaration-shape tests now *use* the rune they declare, and the
+  functor version-constant test pins pruning off, so both remain meaningful
+  under the new flag.
+
+### Measured (reference machine, `pengu expand`)
+
+| Bundle | 2.17.0 | 2.18.0 default | 2.18.0 `--prune-types` |
+|---|---:|---:|---:|
+| `hello.pengu` (`println`) | 3.7 KB | 3.7 KB | 3.5 KB |
+| `import std.json`, unused | 34.9 KB | **8.1 KB** | **2.8 KB** |
+| `cipher.encode_base64`, one call | 25.9 KB | **11.4 KB** | **6.7 KB** |
+| `import std.petitio`, unused | 68.1 KB | **15.9 KB** | **4.4 KB** |
+| `benches/stdlib_ops` | 25.3 KB | **10.8 KB** | **8.8 KB** |
+| `benches/loom_ops` | 38.1 KB | **18.3 KB** | **13.3 KB** |
+
+`gcc -c -O2` on the cipher bundle is now ~180 ms (it was 200 ms in 2.17.0 and
+9.2 s before exact DCE); the remaining time is dominated by the fixed runtime
+header, not by dead code.
+
+### Notes
+
+- Test bundles (`--test`) keep every instance, type and constant; they are not
+  distributed and their bodies are outside both liveness scans.
+- User modules are still fully emitted (scoped `src/` tree-shaking remains the
+  next size phase).
+- With `--prune-types`, C glue in `c/` that names Pengu types/constants must be
+  checked by the user; `@export` covers functions, not types.
+
 ## [2.17.0] — 2026-10-23 — Exact DCE: unused imports stop dragging dead specializations
 
 This release covers **Phase 0** (correctness of the pass) and **Phase 1** (exact

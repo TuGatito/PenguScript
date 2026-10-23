@@ -227,6 +227,15 @@ class PenguCodegen(
         self._dce_std_roots: List[str] = []
         self._dce_materialized: Set[str] = set()
         self._definition_cache: Dict[str, str] = {}
+        # Phase 4b: opt-in pruning of types/constants the emitted C never names.
+        # Read from the environment so every CLI path (expand/build/run/time)
+        # reaches the same switch; --prune-types sets it.  Default off: C glue
+        # can name a type or constant the bundle does not spell.
+        _prune_types = os.environ.get("PENGU_PRUNE_TYPES", "").strip().lower()
+        self.prune_types_enabled = _prune_types in {"1", "true", "yes", "on"}
+        self._live_type_names: Optional[Set[str]] = None
+        self._const_units = None
+        self._derived_units = None
         self.fn_info: Dict[str, Dict[str, Any]] = {}
         self.tests: List[Dict[str, Any]] = []
         self.includes: List[str] = []

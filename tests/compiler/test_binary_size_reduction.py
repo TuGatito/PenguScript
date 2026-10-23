@@ -13,6 +13,7 @@ reason.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from pengu_parser.pengu_codegen.bundle import FEATURE_GATE_MODULES
 
@@ -68,11 +69,12 @@ def test_installed_std_root_is_discovered(monkeypatch, tmp_path):
 import pytest
 
 
-def _expand_bytes(pengu_cli, tmp_path, source: str, tag: str) -> tuple[int, str]:
+def _expand_bytes(pengu_cli, tmp_path, source: str, tag: str,
+                  extra: tuple[str, ...] = ()) -> tuple[int, str]:
     script = tmp_path / f"{tag}.pengu"
     script.write_text(source, encoding="utf-8")
     out = tmp_path / f"{tag}.c"
-    res = pengu_cli("expand", str(script), "-o", str(out))
+    res = pengu_cli("expand", str(script), "-o", str(out), *extra)
     assert res.returncode == 0, res.stderr
     return out.stat().st_size, out.read_text(encoding="utf-8")
 
@@ -98,7 +100,7 @@ import std.json
 weave main into int:
     return 0
 """, "json_unused")
-    assert size < 45_000, f"unused std.json is {size} bytes"
+    assert size < 12_000, f"unused std.json is {size} bytes"
     assert "some_of_int" not in c
 
 
@@ -112,9 +114,19 @@ weave main into int:
     banish s
     return 0
 """, "cipher_one")
-    assert size < 40_000, f"cipher one-function bundle is {size} bytes"
+    assert size < 16_000, f"cipher one-function bundle is {size} bytes"
     assert "cipher_encode_base64" in c
     assert "some_of_int" not in c
+
+
+@pytest.mark.slow
+def test_stdlib_ops_stays_small(pengu_cli, tmp_path):
+    bench = Path(__file__).resolve().parents[2] / "benches" / "stdlib_ops.pengu"
+    out = tmp_path / "stdlib_ops.c"
+    res = pengu_cli("expand", str(bench), "-o", str(out))
+    assert res.returncode == 0, res.stderr
+    size = out.stat().st_size
+    assert size < 15_000, f"benches/stdlib_ops is {size} bytes"
 
 
 @pytest.mark.slow
@@ -125,5 +137,42 @@ import std.petitio
 weave main into int:
     return 0
 """, "petitio_unused")
-    assert size < 80_000, f"unused std.petitio is {size} bytes"
+    assert size < 22_000, f"unused std.petitio is {size} bytes"
     assert "some_of_int" not in c
+
+
+@pytest.mark.slow
+def test_prune_types_unused_json_budget(pengu_cli, tmp_path):
+    size, c = _expand_bytes(pengu_cli, tmp_path, """
+import std.json
+
+weave main into int:
+    return 0
+""", "json_pruned", extra=("--prune-types",))
+    assert size < 4_000, f"pruned unused std.json is {size} bytes"
+    assert "--prune-types" in c
+
+
+@pytest.mark.slow
+def test_prune_types_cipher_budget(pengu_cli, tmp_path):
+    size, c = _expand_bytes(pengu_cli, tmp_path, """
+import std.cipher
+
+weave main into int:
+    var s as string is calling cipher.encode_base64 with "hi"
+    banish s
+    return 0
+""", "cipher_pruned", extra=("--prune-types",))
+    assert size < 8_000, f"pruned cipher one-function bundle is {size} bytes"
+    assert "cipher_encode_base64" in c
+
+
+@pytest.mark.slow
+def test_prune_types_petitio_budget(pengu_cli, tmp_path):
+    size, c = _expand_bytes(pengu_cli, tmp_path, """
+import std.petitio
+
+weave main into int:
+    return 0
+""", "petitio_pruned", extra=("--prune-types",))
+    assert size < 6_000, f"pruned unused std.petitio is {size} bytes"

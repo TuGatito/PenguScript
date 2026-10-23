@@ -5,19 +5,29 @@ Part of :class:`~pengu_parser.pengu_codegen.main.PenguCodegen`; see
 """
 from __future__ import annotations
 
+import re
+
 from ._base import (
     AliasType,
     ArrayType,
     BaseType,
+    EchoType,
     FnType,
     FrozenType,
+    ListType,
+    ManyType,
+    MapType,
+    MaybeType,
     OmenType,
     Optional,
     RefType,
+    ResultType,
     RuneType,
     SealType,
+    SliceType,
     TupleType,
     Type,
+    TypeParam,
 )
 from .ctype import (
     CTypeMapper,
@@ -32,21 +42,21 @@ class TypesMixin:
 
         # Runes
         for name in self.runes:
-            if name in self.declaration_types:
+            if name in self.declaration_types or not self._type_is_live(name):
                 continue
             decls.append(f"struct {name};")
             decls.append(f"typedef struct {name} {name};")
 
         # Echos
         for name in self.echos:
-            if name in self.declaration_types:
+            if name in self.declaration_types or not self._type_is_live(name):
                 continue
             decls.append(f"union {name};")
             decls.append(f"typedef union {name} {name};")
 
         # Omens
         for name, variants in self.omens.items():
-            if name in self.declaration_types:
+            if name in self.declaration_types or not self._type_is_live(name):
                 continue
             is_algebraic = any(bool(fields) for fields in variants.values())
             is_string_valued = bool(name in self.omen_values and any(isinstance(v, str) for v in self.omen_values[name].values()))
@@ -66,7 +76,7 @@ class TypesMixin:
 
         # Seals (Newtypes)
         for name, underlying in self.seals.items():
-            if name in self.declaration_types:
+            if name in self.declaration_types or not self._type_is_live(name):
                 continue
             u_str = CTypeMapper.to_c_type(underlying)
             decls.append(f"typedef {u_str} {name};")
@@ -94,7 +104,7 @@ class TypesMixin:
         # 1. Type Aliases
         alias_lines = []
         for name, target in self.aliases.items():
-            if name in self.declaration_types:
+            if name in self.declaration_types or not self._type_is_live(name):
                 continue
             if isinstance(target, BaseType) and target.name == "opaque":
                 alias_lines.append(f"typedef struct {name} {name};")
@@ -112,7 +122,7 @@ class TypesMixin:
         # 1.5 Seals (Newtypes)
         seal_lines = []
         for name, underlying in self.seals.items():
-            if name in self.declaration_types:
+            if name in self.declaration_types or not self._type_is_live(name):
                 continue
             u_str = CTypeMapper.to_c_type(underlying)
             seal_lines.append(f"typedef {u_str} {name};")
@@ -145,7 +155,8 @@ class TypesMixin:
         type_order += [n for n in self.runes if not n.startswith("_pengu_tup_")]
         type_order += [n for n in self.echos if n not in self.runes]
         type_order += algebraic_omens
-        type_order = [n for n in type_order if n not in self.declaration_types]
+        type_order = [n for n in type_order
+                      if n not in self.declaration_types and self._type_is_live(n)]
         type_order = self._order_types_by_value(type_order)
         for name in type_order:
             if name in self.runes:
@@ -227,7 +238,7 @@ class TypesMixin:
         # 3. String-valued omens (plain enums are complete in the forward
         # declarations above, so they are not repeated here).
         for name, variants in self.omens.items():
-            if name in self.declaration_types:
+            if name in self.declaration_types or not self._type_is_live(name):
                 continue
             is_algebraic = any(bool(fields) for fields in variants.values())
             if is_algebraic:
@@ -260,6 +271,157 @@ class TypesMixin:
             " * ------------------------------------------------------------------------- */",
         ]
         return "\n".join(header) + "\n" + "\n\n".join(blocks) + "\n"
+    def _type_is_live(self, name: str) -> bool:
+        """True when a type must be emitted (no filter, or in the live set)."""
+        live = getattr(self, "_live_type_names", None)
+        return live is None or name in live
+
+    def _add_live_type_name(self, name: str, live: set) -> None:
+        """Marks a type and every type its *definition* needs."""
+        if not name or name in live:
+            return
+        if name in self.runes:
+            live.add(name)
+            for field_type in self.runes[name].values():
+                self._walk_type(field_type, live)
+            return
+        if name in self.echos:
+            live.add(name)
+            for field_type in self.echos[name].values():
+                self._walk_type(field_type, live)
+            return
+        if name in self.omens:
+            live.add(name)
+            for variant_fields in self.omens[name].values():
+                for field_type in variant_fields.values():
+                    self._walk_type(field_type, live)
+            return
+        if name in self.aliases:
+            live.add(name)
+            self._walk_type(self.aliases[name], live)
+            return
+        if name in self.seals:
+            live.add(name)
+            self._walk_type(self.seals[name], live)
+
+    def _walk_type(self, t: Optional[Type], live: set) -> None:
+        """Adds every aggregate/alias needed by ``t`` (transitively)."""
+        if t is None or isinstance(t, TypeParam):
+            return
+        if isinstance(t, FrozenType):
+            self._walk_type(t.target, live)
+            return
+        if isinstance(t, AliasType):
+            name = getattr(t, "c_name", None) or getattr(t, "name", "")
+            if name in self.aliases:
+                self._add_live_type_name(name, live)
+            self._walk_type(t.target, live)
+            return
+        if isinstance(t, SealType):
+            name = getattr(t, "c_name", None) or getattr(t, "name", "")
+            if name in self.seals:
+                self._add_live_type_name(name, live)
+            self._walk_type(t.underlying, live)
+            return
+        if isinstance(t, RuneType):
+            name = getattr(t, "c_name", None) or getattr(t, "name", "")
+            if name in self.runes:
+                self._add_live_type_name(name, live)
+            else:
+                live.add(name)
+                for field_type in (getattr(t, "fields", {}) or {}).values():
+                    self._walk_type(field_type, live)
+            return
+        if isinstance(t, EchoType):
+            name = getattr(t, "c_name", None) or getattr(t, "name", "")
+            if name in self.echos:
+                self._add_live_type_name(name, live)
+            else:
+                live.add(name)
+                for field_type in (getattr(t, "fields", {}) or {}).values():
+                    self._walk_type(field_type, live)
+            return
+        if isinstance(t, OmenType):
+            name = getattr(t, "c_name", None) or getattr(t, "name", "")
+            if name in self.omens:
+                self._add_live_type_name(name, live)
+            else:
+                live.add(name)
+                for variant_fields in (getattr(t, "variants", {}) or {}).values():
+                    for field_type in (variant_fields or {}).values():
+                        self._walk_type(field_type, live)
+            return
+        if isinstance(t, TupleType):
+            try:
+                name = t.c_name()
+            except Exception:
+                name = ""
+            if name in self.runes:
+                self._add_live_type_name(name, live)
+            for element in t.elements:
+                self._walk_type(element, live)
+            return
+        if isinstance(t, (ListType, SliceType, ManyType)):
+            self._walk_type(getattr(t, "element", None), live)
+            return
+        if isinstance(t, MapType):
+            self._walk_type(t.key, live)
+            self._walk_type(t.value, live)
+            return
+        if isinstance(t, MaybeType):
+            self._walk_type(t.element, live)
+            return
+        if isinstance(t, ResultType):
+            self._walk_type(t.ok_type, live)
+            self._walk_type(t.err_type, live)
+            return
+        if isinstance(t, ArrayType):
+            self._walk_type(t.element, live)
+            return
+        if isinstance(t, RefType):
+            self._walk_type(t.target, live)
+            return
+        if isinstance(t, FnType):
+            for param in (getattr(t, "params", None) or []):
+                p_type = param[1] if isinstance(param, tuple) and len(param) >= 2 else param
+                self._walk_type(p_type, live)
+            self._walk_type(getattr(t, "return_type", None), live)
+
+    def compute_live_types(self, root_texts, extra_types=()) -> set:
+        """Computes the transitive set of types the emitted C references.
+
+        Enabled by ``--prune-types`` only.  The roots are type C names mentioned
+        by live weave bodies, prototypes, lambdas, kept constants and kept
+        derived helpers; a type keeps every type its *definition* needs (field
+        types, container elements, alias/seal targets, tuple elements).  Simple
+        enum variants (`Color_Red`) also seed their enum (`Color`).
+
+        Args:
+            root_texts: C texts that will be emitted outside the type sections.
+            extra_types: Type objects whose use is known but whose spelling may
+                be absent from the text (constant types).
+
+        Returns:
+            The live type-name set (also stored on ``self``).
+        """
+        live: set = set()
+        known = set(self.runes) | set(self.echos) | set(self.omens) | set(self.aliases) | set(self.seals)
+        omen_names = list(self.omens)
+        for text in root_texts:
+            for match in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*", text or ""):
+                ident = match.group(0)
+                if ident in known:
+                    self._add_live_type_name(ident, live)
+                elif "_" in ident:
+                    for oname in omen_names:
+                        if ident.startswith(oname + "_"):
+                            self._add_live_type_name(oname, live)
+                            break
+        for t in extra_types:
+            self._walk_type(t, live)
+        self._live_type_names = live
+        return live
+
     def _value_deps(self, t: Type, deps: set) -> None:
         """Adds the aggregates that ``t`` needs *complete* when used by value.
 

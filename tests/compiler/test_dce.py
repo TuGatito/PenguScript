@@ -371,3 +371,342 @@ def test_generated_c_has_no_implicit_declarations(expand, ccheck, source, tag):
     """Every reachability miss would surface here as an implicit declaration."""
     c = expand(source)
     ccheck(c, tag=tag)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4a — derived helpers
+# ---------------------------------------------------------------------------
+
+def test_derived_helpers_of_unused_runes_are_dropped(expand):
+    c = expand("""
+rune Used derive Par:
+    x as int
+
+rune Unused derive Par:
+    x as int
+
+weave main into int:
+    var a as Used is with x is 1
+    var b as Used is with x is 1
+    if a == b:
+        return 0
+    return 1
+""")
+    assert _defined(c, "Used_eq")
+    assert not _defined(c, "Unused_eq"), (
+        "a derived helper for an unused rune is still in the bundle"
+    )
+    assert "derived helper block" in c
+
+
+def test_derived_helpers_close_over_field_types(expand):
+    c = expand("""
+rune Inner derive Par:
+    v as int
+
+rune Outer derive Par:
+    inner as Inner
+
+weave main into int:
+    var a as Outer is with inner is with v is 1
+    var b as Outer is with inner is with v is 1
+    if a == b:
+        return 0
+    return 1
+""")
+    assert _defined(c, "Outer_eq")
+    assert _defined(c, "Inner_eq"), (
+        "Outer_eq calls Inner_eq; the closure must keep Inner's helper"
+    )
+
+
+def test_only_the_used_concept_block_is_kept(expand):
+    c = expand("""
+rune Data derive Par, Ordo, Vinculum, Imago, Nexus:
+    v as int
+
+weave main into int:
+    var a as Data is with v is 1
+    var b as Data is with v is 1
+    if a == b:
+        return 0
+    return 1
+""")
+    assert _defined(c, "Data_eq")
+    # The other concept blocks are independent and unused.
+    assert not _defined(c, "Data_cmp")
+    assert not _defined(c, "Data_Vinculum")
+    assert not _defined(c, "_pengu_clone_Data")
+    assert not _defined(c, "Data_nexus")
+    assert "pruned 4 of 5 derived helper block(s)" in c
+
+
+def test_test_mode_keeps_all_derived_helpers(pengu_cli, tmp_path):
+    (tmp_path / "pengu.toml").write_text(
+        'name = "dce_derived_test"\nversion = "0.1.0"\nentry = "src/main.pengu"\noutput = "c"\n',
+        encoding="utf-8",
+    )
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "main.pengu").write_text(
+        "rune Data derive Par, Ordo, Vinculum, Imago, Nexus:\n"
+        "    v as int\n\n"
+        "test \"eq\":\n"
+        "    var a as Data is with v is 1\n"
+        "    var b as Data is with v is 1\n"
+        "    if a == b:\n"
+        "        return\n\n"
+        "weave main into int:\n"
+        "    return 0\n",
+        encoding="utf-8",
+    )
+    res = pengu_cli("build", "--test")
+    assert res.returncode == 0, res.stderr
+    c = (tmp_path / "build" / "bundle.c").read_text(encoding="utf-8")
+    assert _defined(c, "Data_cmp")
+    assert _defined(c, "Data_Vinculum")
+    assert _defined(c, "_pengu_clone_Data")
+    assert _defined(c, "Data_nexus")
+    assert "derived helper block" not in c
+
+
+# ---------------------------------------------------------------------------
+# Phase 4b — opt-in type/constant pruning
+# ---------------------------------------------------------------------------
+
+def test_prune_types_is_opt_in(expand):
+    source = """
+rune Used:
+    v as int
+
+rune Unused:
+    w as int
+
+weave main into int:
+    var u as Used is with v is 3
+    return u.v
+"""
+    kept = expand(source, tag="types_default")
+    assert "struct Unused" in kept
+
+    pruned = expand(source, tag="types_pruned", env={"PENGU_PRUNE_TYPES": "1"})
+    assert "struct Used" in pruned
+    assert "struct Unused" not in pruned
+    assert "--prune-types" in pruned
+
+
+def test_prune_types_keeps_types_named_by_signatures(expand):
+    c = expand(
+        """
+rune Secret:
+    value as int
+
+rune Hidden:
+    value as int
+
+weave peek with p as ref to Secret into int:
+    return 0
+
+weave main into int:
+    return 0
+""",
+        tag="types_signature",
+        env={"PENGU_PRUNE_TYPES": "1"},
+    )
+    assert "struct Secret" in c
+    assert "struct Hidden" not in c
+
+
+def test_prune_types_keeps_types_used_only_by_constants(expand):
+    c = expand(
+        """
+rune Palette:
+    r as int
+
+rune Other:
+    z as int
+
+const P as Palette is with r is 5
+
+weave main into int:
+    return P.r
+""",
+        tag="types_const",
+        env={"PENGU_PRUNE_TYPES": "1"},
+    )
+    assert "struct Palette" in c
+    assert "struct Other" not in c
+    assert "static const Palette P" in c
+
+
+def test_prune_types_drops_unused_constants(expand):
+    c = expand(
+        """
+const USED as array of int with size 3 is [1, 2, 3]
+const GONE_ARR as array of int with size 2 is [8, 9]
+
+weave main into int:
+    return USED at 0
+""",
+        tag="consts",
+        env={"PENGU_PRUNE_TYPES": "1"},
+    )
+    assert "USED[3]" in c
+    assert "GONE_ARR" not in c
+
+
+def test_prune_types_drops_unused_enum_but_keeps_used(expand):
+    c = expand(
+        """
+omen Color:
+    Red
+    Blue
+
+omen Other:
+    A
+    B
+
+weave main into int:
+    var c as Color is Color.Red
+    return 0
+""",
+        tag="omen",
+        env={"PENGU_PRUNE_TYPES": "1"},
+    )
+    assert "Color_Red" in c
+    assert "Other_A" not in c
+
+
+def test_prune_types_does_not_run_with_no_dce(expand):
+    c = expand(
+        """
+rune Used:
+    v as int
+
+rune Unused:
+    w as int
+
+weave main into int:
+    var u as Used is with v is 3
+    return u.v
+""",
+        tag="types_nodce",
+        env={"PENGU_PRUNE_TYPES": "1", "PENGU_NO_DCE": "1"},
+    )
+    assert "struct Unused" in c
+    assert "--prune-types" not in c
+
+
+@pytest.mark.parametrize("source,tag", [
+    ("""
+rune Used:
+    v as int
+
+rune Unused:
+    w as int
+
+weave main into int:
+    var u as Used is with v is 3
+    return u.v
+""", "prune_rune"),
+    ("""
+omen Shape:
+    Circle with r as float
+    Empty
+
+omen Other:
+    Thing with v as int
+
+weave area with s as Shape into float:
+    return judge s:
+        when Circle with r -> r * 3.0
+        else -> 0.0
+
+weave main into int:
+    var s as Shape is with Circle is with r is 2.0
+    return (calling area with s) to int
+""", "prune_omen"),
+    ("""
+rune P:
+    x as int
+
+rune Q:
+    y as int
+
+weave pair into (P, P):
+    var a as P is with x is 1
+    var b as P is with x is 2
+    return a, b
+
+weave main into int:
+    let (a, b) is calling pair
+    return a.x + b.x
+""", "prune_tuple"),
+    ("""
+rune Inner:
+    x as int
+
+alias Alias as Inner
+seal UnusedSeal as int
+
+weave read_inner with a as Alias into int:
+    return a.x
+
+weave main into int:
+    var i as Inner is with x is 4
+    return calling read_inner with i
+""", "prune_alias"),
+])
+def test_prune_types_bundles_compile(expand, ccheck, source, tag):
+    c = expand(source, tag=tag, env={"PENGU_PRUNE_TYPES": "1"})
+    ccheck(c, tag=tag)
+
+
+def test_prune_types_does_not_run_in_test_mode(pengu_cli, tmp_path):
+    """--test keeps types/constants: test bodies are outside the liveness scan."""
+    (tmp_path / "pengu.toml").write_text(
+        'name = "dce_types_test"\nversion = "0.1.0"\nentry = "src/main.pengu"\noutput = "c"\n',
+        encoding="utf-8",
+    )
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "main.pengu").write_text(
+        "rune Used:\n"
+        "    v as int\n\n"
+        "rune Unused:\n"
+        "    w as int\n\n"
+        "const GONE as int is 9\n\n"
+        "test \"used\":\n"
+        "    var u as Used is with v is 1\n"
+        "    if u.v == 1:\n"
+        "        return\n\n"
+        "weave main into int:\n"
+        "    return 0\n",
+        encoding="utf-8",
+    )
+    res = pengu_cli("build", "--test", "--prune-types")
+    assert res.returncode == 0, res.stderr
+    c = (tmp_path / "build" / "bundle.c").read_text(encoding="utf-8")
+    assert "struct Unused" in c
+    assert "GONE" in c
+    assert "--prune-types" not in c
+
+
+def test_prune_types_keeps_type_named_by_size_of(expand):
+    c = expand(
+        """
+rune Sized:
+    v as int
+
+rune Dropped:
+    z as int
+
+weave main into int:
+    let n as usize is size of Sized
+    return 0
+""",
+        tag="types_sizeof",
+        env={"PENGU_PRUNE_TYPES": "1"},
+    )
+    assert "struct Sized" in c
+    assert "struct Dropped" not in c

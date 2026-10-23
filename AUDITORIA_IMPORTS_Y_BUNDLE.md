@@ -4,11 +4,15 @@
 > **Alcance:** cómo se resuelven e incluyen los `import`, qué se emite en `build/bundle.c`, qué se puede podar, y qué bugs/fugas aparecen por el camino.
 > **Estado:** auditoría **sin cambios de código**. Todo lo que sigue se midió sobre esta copia del repositorio.
 >
-> **Actualización (23 oct 2026):** las fases **0** y **1** ya están implementadas en
-> **2.17.0** (ver `CHANGELOG.md`). Los números reales están allí; las proyecciones
-> "~10,5 KB" de §6.3/§9 incluían también la poda de `derive` (fase 4), así que el
-> resultado real de la fase 1 es mayor (p. ej. `cipher` 1 función: 25,9 KB, no
-> 10,5 KB). Las fases 2–5 siguen pendientes.
+> **Actualización (23 oct 2026):** las fases **0, 1 y 4** ya están implementadas
+> (**2.17.0** y **2.18.0**; ver `CHANGELOG.md`). La fase 2 quedó absorbida por el
+> worklist de la fase 1. En 2.18.0 los helpers `derive` se podan por defecto y
+> `--prune-types` añade la poda opt-in de tipos/constantes: `cipher` 1 función
+> queda en **11,4 KB** (6,7 KB con el flag), `petitio` sin usar en **15,9 KB**
+> (4,4 KB) y `cipher`/`petitio` ya no arrastran `derive` ni tipos muertos.
+> Quedan las fases **3** (módulos de usuario), **5** (`#line`/gates/includes/
+> links) y los tracks de correctitud **B4** (colisiones de tipos) y **B10**
+> (función genérica como valor).
 
 ---
 

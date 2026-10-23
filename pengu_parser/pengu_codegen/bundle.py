@@ -110,6 +110,7 @@ class BundleMixin:
             self._dce_all_weaves = list(self.weaves)
         self._definition_cache = {}
         self._dce_materialized = set()
+        self._live_type_names = None
 
         # Compact label for the self-describing marker below (`std` = checked
         # now, `off` = PENGU_NO_DCE, `test` = instances kept for test bodies).
@@ -186,12 +187,52 @@ class BundleMixin:
                 # just the exact pass.
                 self.dce_stats["seconds"] = _time.time() - _t_dce_all
 
+            # Phase 4a: derived helpers are `static inline`, so their only
+            # possible callers are this bundle's own C.  Drop the blocks no
+            # live body/lambda/constant (or another live block) names.
+            roots = list(self._definition_cache.values()) + [lambdas_code, constants]
+            derived_impls = self.prune_derived_implementations(roots)
+
+        # Prototypes are independent of the type sections (they are just
+        # signatures), and the type-liveness pass below needs their text: a
+        # type can be named by a kept signature and nowhere else.
+        prototypes = self.generate_function_prototypes()
+
+        # Phase 4b, opt-in: drop types/constants no emitted C names.  Off by
+        # default because a `c/` glue file can name a Pengu type or constant
+        # the bundle never spells.  A library's public API includes its types,
+        # so a shared/static/obj build keeps them all.
+        prune_types = (self.prune_types_enabled and self.dce_enabled
+                       and not is_test and not is_library)
+        if prune_types:
+            live_texts = (list(self._definition_cache.values())
+                          + [prototypes, lambdas_code, derived_impls])
+            live_consts = self.compute_live_consts(live_texts)
+            constants = self.prune_constants(live_consts)
+            extra_types = []
+            for const_name in live_consts:
+                const_type = (self.consts.get(const_name) or (None, None))[0]
+                if const_type is not None:
+                    extra_types.append(const_type)
+            live_types = self.compute_live_types(
+                live_texts + [constants], extra_types=extra_types)
+            all_type_names = set()
+            for table in (self.runes, self.echos, self.omens,
+                          self.aliases, self.seals):
+                all_type_names |= set(table)
+            all_type_names -= self.declaration_types
+            dropped_types = all_type_names - live_types
+            if dropped_types:
+                self.dce_stats = dict(self.dce_stats or {})
+                self.dce_stats["types_before"] = len(all_type_names)
+                self.dce_stats["types_after"] = len(all_type_names & live_types)
+                self.dce_stats["types_dropped"] = len(dropped_types)
+
         # Type and forward sections come after discovery: translating a body
         # can materialize a specialization whose tuple return registers a new
         # product struct.  Generating the type section first would omit it.
         forward_decls = self.generate_forward_declarations()
         type_defs = self.generate_type_definitions()
-        prototypes = self.generate_function_prototypes()
         function_defs = self.generate_function_definitions()
         test_section = self.generate_test_section() if is_test else ""
         entry_code = ""
@@ -246,6 +287,17 @@ class BundleMixin:
             )
         elif not self.dce_enabled:
             sections.append("/* Dead-code elimination: disabled (PENGU_NO_DCE) */")
+        if self.dce_stats.get("derived_dropped"):
+            sections.append(
+                f"/* Dead-code elimination: pruned {self.dce_stats['derived_dropped']} of "
+                f"{self.dce_stats['derived_before']} derived helper block(s) */"
+            )
+        if self.dce_stats.get("types_dropped") or self.dce_stats.get("consts_dropped"):
+            sections.append(
+                f"/* Dead-code elimination (--prune-types): pruned "
+                f"{self.dce_stats.get('types_dropped', 0)} type(s), "
+                f"{self.dce_stats.get('consts_dropped', 0)} constant(s) */"
+            )
 
         for inc in all_includes:
             if inc.startswith("<") or inc.startswith('"'):

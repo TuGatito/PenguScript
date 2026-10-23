@@ -65,6 +65,11 @@ _FN_FIELD = """
 rune Handler:
     fn_ptr as ref to weave with ctx as ref to void, a as int into int
     ctx as ref to void
+
+# A by-value use keeps the rune in the bundle under --prune-types; the test is
+# about the declarator shape, not about an unreachable type.
+weave takes_handler with h as Handler into int:
+    return 0
 """
 
 
@@ -81,6 +86,9 @@ def test_echo_function_pointer_field_is_a_valid_declarator(emit_c, tmp_path):
 echo Value:
     as_int as int
     as_fn as ref to weave with ctx as ref to void into int
+
+weave takes_value with v as Value into int:
+    return 0
 """
     c = _compile(emit_c, tmp_path, source, "echo_fn")
     assert "(*as_fn)(void*)" in c
@@ -92,6 +100,9 @@ def test_omen_function_pointer_payload_is_a_valid_declarator(emit_c, tmp_path):
 omen Slot:
     Empty
     Callback with fn_ptr as ref to weave with ctx as ref to void into int
+
+weave takes_slot with s as Slot into int:
+    return 0
 """
     c = _compile(emit_c, tmp_path, source, "omen_fn")
     assert "(*fn_ptr)(void*)" in c
@@ -121,6 +132,9 @@ def test_array_of_function_pointers_is_a_valid_declarator(emit_c, tmp_path):
     source = """
 rune Table:
     fns as array of weave with x as int into int with size 2
+
+weave takes_table with t as Table into int:
+    return 0
 """
     c = _compile(emit_c, tmp_path, source, "fn_array")
     assert "(*fns[2])(int32_t)" in c
