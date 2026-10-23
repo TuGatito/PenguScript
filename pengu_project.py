@@ -99,6 +99,7 @@ from pengu_paths import (
     module_root,
     runtime_include_dirs,
     runtime_lib_dirs,
+    std_c_dir,
     std_dirs,
     version_files,
 )
@@ -107,7 +108,9 @@ from pengu_cache import (
     cache_root,
     cache_summary,
     clear_script_cache,
+    directory_digest,
     gc_script_cache,
+    logical_module_id,
     lookup_cached_binary,
     script_cache_key,
     store_cached_binary,
@@ -702,6 +705,10 @@ class PenguBuilder:
         # build is retried once with this one instead of dying: TCC is fast but
         # is not a complete C11 implementation.
         self.fallback_cc: Optional[str] = None
+        # Import graph already resolved by the caller (script mode).  Reusing it
+        # keeps the list used for the cache key and the list actually compiled
+        # identical, and avoids parsing the graph a second time.
+        self.module_order: Optional[List[str]] = None
         # Phase timings collected for 'pengu time' / '--verbose'.
         self.timings: Dict[str, float] = {}
 
@@ -1223,9 +1230,11 @@ class PenguBuilder:
         # `std.regulus` says `#include "re.h"`. A project include/ directory that
         # happens to hold a same-named header must not shadow the engine the
         # standard library was compiled and tested against.
-        std_c_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "std_c")
-        if os.path.isdir(std_c_dir) and std_c_dir not in dirs:
-            dirs.insert(0, std_c_dir)
+        vendored_dir = std_c_dir()
+        if vendored_dir is not None:
+            vendored = str(vendored_dir)
+            if vendored not in dirs:
+                dirs.insert(0, vendored)
 
         return dirs
 
@@ -1473,9 +1482,14 @@ class PenguBuilder:
         bundle_path = output_file or os.path.join(build_dir, "bundle.c")
         entry_abs = self.config.resolve_entry()
 
-        # 1. Resolve module order
+        # 1. Resolve module order.  Script mode already resolved it (and used it
+        # to compute the binary cache key); reusing that list guarantees the key
+        # describes the modules that are actually compiled.  Project builds and
+        # in-memory sources still resolve here.
         module_order: List[str] = []
-        if os.path.isfile(entry_abs):
+        if self.module_order is not None:
+            module_order = list(self.module_order)
+        elif os.path.isfile(entry_abs):
             from pengu_parser.pengu_symbols import resolve_imports as _resolve_imports
             module_order = _resolve_imports(self.config.base_dir, entry_abs, self.parser,
                                             lib_dir=getattr(self.config, "lib_dir", "lib"),
@@ -1501,7 +1515,11 @@ class PenguBuilder:
             self.locate_and_copy_runtime(build_dir)
             return bundle_path, True
 
-        # 3. Check all source files with PenguChecker and collect parsed trees
+        # 3. Check all source files with PenguChecker and collect parsed trees.
+        # `cached_module_tree` is the same per-content cache `resolve_imports`
+        # already populated when it scanned this module for `import` lines, so
+        # the checker reuses that AST instead of parsing the file a second time.
+        from pengu_parser.pengu_symbols import cached_module_tree
         parsed_trees: List[Tuple[str, Tree]] = []
         for i, mod_path in enumerate(module_order):
             # 'main' is a per-module compile-time variable: only the entry module
@@ -1515,7 +1533,16 @@ class PenguBuilder:
             else:
                 code = ""
             if code:
-                tree = self.parser.parse(code)
+                try:
+                    tree = cached_module_tree(
+                        mod_path,
+                        self.parser,
+                        source=(self.source_code
+                                if self.source_code is not None and mod_path == entry_abs
+                                else None),
+                    )
+                except OSError:
+                    tree = self.parser.parse(code)
                 self.checker.check(tree, source=code, filename=mod_path, reset_symbols=(i == 0), import_order=module_order)
                 parsed_trees.append((mod_path, tree))
 
@@ -5993,15 +6020,19 @@ def expand_script(script: str, output: Optional[str] = None,
     script_abs = os.path.abspath(script)
     if not os.path.isfile(script_abs):
         raise FileNotFoundError(f"Script not found: {script}")
+    base_dir, _manifest, src_dir, lib_dir, include_dir = _script_build_context(script_abs)
     out_name = os.path.splitext(os.path.basename(script_abs))[0]
     tmp = tempfile.mkdtemp(prefix=f"pengu_expand_{out_name}_")
     try:
         cfg = ProjectConfig(
             entry=script_abs,
-            base_dir=os.getcwd(),
+            base_dir=base_dir,
             output=OutputType.C,
             output_name=out_name,
             name=out_name,
+            src_dir=src_dir,
+            lib_dir=lib_dir,
+            include_dir=include_dir,
             links=["pengu_runtime"],
             build_dir=tmp,
         )
@@ -6010,6 +6041,15 @@ def expand_script(script: str, output: Optional[str] = None,
         builder = PenguBuilder(cfg)
         builder.entry_as_main = True
         builder.verbose = verbose
+        try:
+            from pengu_parser.pengu_symbols import resolve_imports as _resolve_imports
+            builder.module_order = _resolve_imports(
+                base_dir, script_abs, builder.parser,
+                lib_dir=lib_dir, src_dir=src_dir)
+        except Exception:
+            # Let bundle() resolve and report the real diagnostic; a one-entry
+            # fallback would hide the broken import.
+            builder.module_order = None
         bundle_path, _ = builder.bundle()
         text = Path(bundle_path).read_text(encoding="utf-8")
         if output:
@@ -6024,12 +6064,15 @@ def expand_script(script: str, output: Optional[str] = None,
 
 def time_script(script: str, defines: Optional[List[str]] = None,
                 cc: Optional[str] = None, script_args: Optional[List[str]] = None,
-                use_cache: bool = True, no_dce: bool = False) -> int:
+                no_dce: bool = False) -> int:
     """Runs a script and reports the time spent in every phase."""
     import platform
     t_start = time.time()
     script_abs = os.path.abspath(script)
-    base_dir = os.getcwd()
+    # Resolve imports exactly like `pengu run` does; resolving from the cwd made
+    # `pengu time path/to/app.pengu` see a different graph (and could poison the
+    # manifest shared with `run`).
+    base_dir, _manifest, src_dir, lib_dir, include_dir = _script_build_context(script_abs)
     out_name = os.path.splitext(os.path.basename(script_abs))[0]
     tmp = tempfile.mkdtemp(prefix=f"pengu_time_{out_name}_")
     phases: Dict[str, float] = {}
@@ -6043,6 +6086,9 @@ def time_script(script: str, defines: Optional[List[str]] = None,
             output=OutputType.EXE,
             output_name=out_name,
             name=out_name,
+            src_dir=src_dir,
+            lib_dir=lib_dir,
+            include_dir=include_dir,
             links=["pengu_runtime"],
             build_dir=tmp,
         )
@@ -6050,19 +6096,26 @@ def time_script(script: str, defines: Optional[List[str]] = None,
             cfg.defines = list(cfg.defines or []) + defines
         configured_cc = cfg.cc or cc or "gcc"
         cfg.cc = pick_dev_compiler(configured_cc)
+        resolution = _script_resolution(base_dir, src_dir, lib_dir)
+        resolution_ok = False
         t_imports = time.time()
         try:
             from pengu_cache import resolve_module_list_cached
             from pengu_parser.pengu_parser import PenguParser as _P
             from pengu_parser.pengu_symbols import resolve_imports as _ri
             module_order = resolve_module_list_cached(
-                script_abs, lambda: _ri(base_dir, script_abs, _P()))
+                script_abs,
+                lambda: _ri(base_dir, script_abs, _P(), lib_dir=lib_dir, src_dir=src_dir),
+                resolution,
+            )
+            resolution_ok = True
         except Exception:
             module_order = [script_abs]
         phases["resolve imports"] = time.time() - t_imports
 
         builder = PenguBuilder(cfg)
         builder.entry_as_main = True
+        builder.module_order = module_order if resolution_ok else None
         if os.path.basename(cfg.cc).lower() != os.path.basename(configured_cc).lower():
             builder.fallback_cc = configured_cc
         t_build = time.time()
@@ -6132,11 +6185,12 @@ def watch_script(script: str, defines: Optional[List[str]] = None,
                  interval: float = 0.4) -> int:
     """Re-runs a script whenever it (or one of its imports) changes."""
     script_abs = os.path.abspath(script)
-    base_dir = os.getcwd()
+    # Same rule as `run`/`time`: the script's own project, never the cwd.
+    base_dir, _manifest, src_dir, lib_dir, _include = _script_build_context(script_abs)
     try:
         from pengu_parser.pengu_parser import PenguParser as _P
         from pengu_parser.pengu_symbols import resolve_imports as _ri
-        watched = _ri(base_dir, script_abs, _P())
+        watched = _ri(base_dir, script_abs, _P(), lib_dir=lib_dir, src_dir=src_dir)
     except Exception:
         watched = [script_abs]
 
@@ -6165,7 +6219,8 @@ def watch_script(script: str, defines: Optional[List[str]] = None,
                     try:
                         from pengu_parser.pengu_parser import PenguParser as _P2
                         from pengu_parser.pengu_symbols import resolve_imports as _ri2
-                        watched = _ri2(base_dir, script_abs, _P2())
+                        watched = _ri2(base_dir, script_abs, _P2(),
+                                       lib_dir=lib_dir, src_dir=src_dir)
                     except Exception:
                         pass
                     break
@@ -6185,6 +6240,62 @@ def _consume_script_args(raw: Optional[List[str]]) -> List[str]:
     if args and args[0] == "--":
         args = args[1:]
     return args
+
+
+#: Files that mark a directory as a PenguScript project root.
+_SCRIPT_PROJECT_FILES = ("pengu.toml", "pengu.yaml", "pengu.yml", "pengu.json", "Pengu.toml")
+
+
+def _script_build_context(script_abs: str, config_path: Optional[str] = None):
+    """Returns ``(base_dir, manifest, src_dir, lib_dir, include_dir)``.
+
+    The rule used to exist only inside ``run_script``; ``time``/``watch``/
+    ``expand`` resolved from ``cwd`` instead, so the same script could see a
+    different module graph depending on which command ran it (and whichever ran
+    first could poison the shared import manifest).
+    """
+    if config_path:
+        manifest = ProjectConfig.load(config_path)
+        base_dir = manifest.base_dir
+    else:
+        # Walk up from the script; the cwd is never the base.
+        base_dir = os.path.dirname(script_abs) or os.getcwd()
+        probe = base_dir
+        while True:
+            if any(os.path.isfile(os.path.join(probe, cand)) for cand in _SCRIPT_PROJECT_FILES):
+                base_dir = probe
+                break
+            parent = os.path.dirname(probe)
+            if parent == probe:
+                break
+            probe = parent
+        manifest = None
+        if any(os.path.isfile(os.path.join(base_dir, cand)) for cand in _SCRIPT_PROJECT_FILES):
+            try:
+                manifest = ProjectConfig.load(base_dir)
+            except Exception:
+                manifest = None
+    if manifest is not None:
+        src_dir = getattr(manifest, "src_dir", "src") or "src"
+        lib_dir = getattr(manifest, "lib_dir", "lib") or "lib"
+        include_dir = getattr(manifest, "include_dir", "include") or "include"
+    else:
+        src_dir, lib_dir, include_dir = "src", "lib", "include"
+    return base_dir, manifest, src_dir, lib_dir, include_dir
+
+
+def _script_resolution(base_dir: str, src_dir: str, lib_dir: str) -> dict:
+    """Resolution context for the import manifest and the cache key."""
+    try:
+        roots = [str(p) for p in std_dirs()]
+    except Exception:
+        roots = []
+    return {
+        "base_dir": base_dir,
+        "lib_dir": lib_dir,
+        "src_dir": src_dir,
+        "std_dirs": roots,
+    }
 
 
 def _test_run_command(artifact: str, target: str, config: "ProjectConfig") -> List[str]:
@@ -6265,7 +6376,8 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
 
 
 def run_script(script: str, defines: Optional[List[str]] = None,
-               cc: Optional[str] = None, verbose: bool = False,
+               cc: Optional[str] = None, profile: str = "debug",
+               verbose: bool = False,
                keep: bool = False, no_cache: bool = False,
                clear_cache: bool = False, ephemeral: bool = False,
                script_args: Optional[List[str]] = None,
@@ -6296,6 +6408,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         script: Path to the .pengu file to execute.
         defines: Optional -D NAME / -D NAME=value compile-time defines.
         cc: Optional C compiler override (e.g. 'clang').
+        profile: Build profile ('debug' or 'release') for a script.
         verbose: True to print module order, C commands and phase timings.
         keep: Compile in ``build/<name>_run`` and keep the artefacts.
         no_cache: Bypass the binary cache for this invocation.
@@ -6331,43 +6444,9 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     # Import resolution base.  It used to be `os.getcwd()`, which made
     # `pengu run dir/app.pengu` fail to see `dir/lib/...` and made the same
     # script resolve different modules depending on where it was invoked from.
-    # The script's own directory is the predictable rule (and the one `check`
-    # already uses); `--config` overrides it explicitly.
-    # A project file above the script (`src/app.pengu` inside a project) owns
-    # the layout, so the import roots come from the *manifest*: its `src_dir` /
-    # `lib_dir`, not the defaults.  Without this, `pengu run examples/x.pengu`
-    # in a project with `src_dir = "pengu"` looked for `import m` in
-    # `<base>/src/m.pengu` and never found the project's own modules.
-    project_files = ("pengu.toml", "pengu.yaml", "pengu.yml", "pengu.json", "Pengu.toml")
-    if config_path:
-        manifest = ProjectConfig.load(config_path)
-        base_dir = manifest.base_dir
-    else:
-        # The search walks up from the script; otherwise the script's own
-        # directory is the base.  The one thing it is never is the cwd: `pengu
-        # run` from two directories must resolve the same modules.
-        base_dir = os.path.dirname(script_abs) or os.getcwd()
-        probe = base_dir
-        while True:
-            if any(os.path.isfile(os.path.join(probe, cand)) for cand in project_files):
-                base_dir = probe
-                break
-            parent = os.path.dirname(probe)
-            if parent == probe:
-                break
-            probe = parent
-        manifest = None
-        if any(os.path.isfile(os.path.join(base_dir, cand)) for cand in project_files):
-            try:
-                manifest = ProjectConfig.load(base_dir)
-            except Exception:
-                manifest = None
-    if manifest is not None:
-        script_src_dir = getattr(manifest, "src_dir", "src") or "src"
-        script_lib_dir = getattr(manifest, "lib_dir", "lib") or "lib"
-        include_dir = getattr(manifest, "include_dir", "include") or "include"
-    else:
-        script_src_dir, script_lib_dir, include_dir = "src", "lib", "include"
+    # `_script_build_context` is the single rule shared by run/time/watch/expand.
+    base_dir, _manifest, script_src_dir, script_lib_dir, include_dir = _script_build_context(
+        script_abs, config_path)
     rel = _display_relpath(script_abs, base_dir)
     entry = rel if not rel.startswith("..") else script_abs
     out_name = os.path.splitext(os.path.basename(script_abs))[0]
@@ -6382,6 +6461,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         src_dir=script_src_dir,
         lib_dir=script_lib_dir,
         include_dir=include_dir,
+        profile=profile,
         # 'pengu run script.pengu' needs the runtime archive: the string /
         # container helpers it calls live in libpengu_runtime.a.
         links=["pengu_runtime"],
@@ -6410,12 +6490,16 @@ def run_script(script: str, defines: Optional[List[str]] = None,
 
     # --- cache lookup -----------------------------------------------------
     # Resolving the import graph only parses the modules (no semantic checks),
-    # and the parser tables are cached, so this costs a few milliseconds.
+    # and the parser tables are cached, so this costs a few milliseconds.  The
+    # resolution context (base/lib/src + current std roots) is part of the
+    # manifest identity, so a `--config` or PENGU_STD_DIR change cannot reuse a
+    # list resolved under the old settings.
+    resolution = _script_resolution(base_dir, script_src_dir, script_lib_dir)
+    std_roots = resolution["std_dirs"]
     module_order: List[str] = []
+    resolution_ok = False
     try:
         from pengu_cache import resolve_module_list_cached
-        from pengu_parser.pengu_parser import PenguParser
-
         from pengu_parser.pengu_symbols import resolve_imports as _resolve_imports3
         from pengu_parser.pengu_parser import PenguParser as _PenguParser2
 
@@ -6423,8 +6507,12 @@ def run_script(script: str, defines: Optional[List[str]] = None,
             return _resolve_imports3(base_dir, script_abs, _PenguParser2(),
                                      lib_dir=script_lib_dir, src_dir=script_src_dir)
 
-        module_order = resolve_module_list_cached(script_abs, _resolve)
+        module_order = resolve_module_list_cached(script_abs, _resolve, resolution)
+        resolution_ok = True
     except Exception:
+        # Do not cache the one-entry fallback: the builder must resolve (and
+        # report) the real failure, and a key built from a partial graph must
+        # never be stored.
         module_order = [script_abs]
     if script_abs not in module_order:
         module_order.append(script_abs)
@@ -6433,10 +6521,15 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     # compile speed matters more than codegen quality).  Keep the project's
     # compiler around: it is the fallback when TCC rejects the bundle.
     configured_cc = cfg.cc or "gcc"
-    dev_cc = pick_dev_compiler(configured_cc)
+    # TCC is the *development* compiler: a release run should honour the
+    # configured compiler instead of feeding -flto/-O3 to a C compiler that does
+    # not implement them.  An explicit --cc still wins.
+    dev_cc = (pick_dev_compiler(configured_cc)
+              if str(profile).lower() == "debug" else configured_cc)
     cfg.cc = dev_cc
 
-    use_cache = not no_cache and not ephemeral and not cache_disabled()
+    use_cache = (not no_cache and not ephemeral and not cache_disabled()
+                 and resolution_ok)
     cache_key: Optional[str] = None
     # '--keep' exists to inspect the generated C, so it always rebuilds (but it
     # still refreshes the cache entry).
@@ -6446,21 +6539,47 @@ def run_script(script: str, defines: Optional[List[str]] = None,
             include = find_runtime_header()
         except Exception:
             include = None
+        try:
+            target_os = parse_target_triple(str(getattr(cfg, "target", "") or "")).os
+            runtime_archive = _find_runtime_archive(
+                "emscripten" if target_os == "emscripten" else "")
+        except Exception:
+            runtime_archive = None
+        module_ids = [
+            logical_module_id(mod, entry_abs=script_abs, base_dir=base_dir, std_dirs=std_roots)
+            for mod in module_order
+        ]
+        entry_id = logical_module_id(
+            script_abs, entry_abs=script_abs, base_dir=base_dir, std_dirs=std_roots)
+        try:
+            vendored_std_c = std_c_dir()
+            std_c_digest = (directory_digest(str(vendored_std_c))
+                            if vendored_std_c is not None else None)
+        except Exception:
+            std_c_digest = None
+        # The DCE switch is read from the environment by PenguCodegen, so the
+        # environment-only form (`export PENGU_NO_DCE=1`) must affect the key too.
+        dce_disabled = bool(no_dce or os.environ.get("PENGU_NO_DCE", "").strip().lower()
+                            in {"1", "true", "yes", "on"})
         cache_key = script_cache_key(
             script_abs,
             module_order,
             version=PENGU_VERSION,
-            profile="debug",
+            profile=profile,
             cc=dev_cc,
             defines=cfg.defines,
             links=cfg.links,
             cflags=cfg.cflags,
             runtime_header=str(include) if include else None,
+            runtime_archive=runtime_archive,
+            module_ids=module_ids,
+            entry_id=entry_id,
             # DCE and the Phase 2 portability knobs are build options: they must
             # not reuse (or pollute) the entry of a build made with other flags.
             extra_digests=[
                 d for d in (
-                    "dce=off" if no_dce else None,
+                    "dce=off" if dce_disabled else "dce=on",
+                    f"std-c={std_c_digest}" if std_c_digest else None,
                     "release-unsafe" if getattr(cfg, "release_unsafe", False) else None,
                     (f"env-cflags={os.environ.get('PENGU_CFLAGS', '').strip()}"
                      if os.environ.get("PENGU_CFLAGS", "").strip() else None),
@@ -6504,8 +6623,12 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         builder = PenguBuilder(cfg)
         builder.is_test_mode = False
         builder.entry_as_main = True
+        # Compile exactly the graph whose contents produced `cache_key`.
+        builder.module_order = module_order if resolution_ok else None
         builder.verbose = verbose
-        builder.dev_fast_flags = True
+        # `--profile release` must not be silently downgraded by the throw-away
+        # debug flags (TCC used to receive `-O3 ... -O0` in that case).
+        builder.dev_fast_flags = str(profile).lower() == "debug"
         builder.use_pch = not no_pch
         # `pengu run --deny-deprecated script.pengu` must mean the same as for a
         # project; without this the flag was silently ignored (roadmap 6.0.d).
@@ -7979,6 +8102,7 @@ def main():
                     config_path=getattr(args, "config", None),
                     defines=getattr(args, "defines", None),
                     cc=getattr(args, "cc", None),
+                    profile=getattr(args, "profile", "debug"),
                     verbose=getattr(args, "verbose", False),
                     keep=getattr(args, "keep", False),
                     no_cache=getattr(args, "no_cache", False),

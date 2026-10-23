@@ -5,9 +5,10 @@ which matters for the *cache miss* path of ``pengu run``.  It is shipped inside
 the PyInstaller bundle (``--add-binary``) and located in this order:
 
 1. ``<bundle>/tcc/tcc`` (``sys._MEIPASS`` when frozen),
-2. ``<checkout>/tcc/tcc`` (an unpacked release next to the sources),
-3. ``$PENGU_TCC``,
-4. ``PATH``.
+2. ``<exe_dir>/tcc/tcc`` (a portable install that keeps TCC beside ``pengu``),
+3. ``<checkout>/tcc/tcc`` (an unpacked release next to the sources),
+4. ``$PENGU_TCC``,
+5. ``PATH``.
 
 ``PENGU_DEV_CC`` overrides everything (handy for CI or for forcing gcc when TCC
 miscompiles something), and ``PENGU_NO_TCC=1`` disables TCC entirely.
@@ -71,6 +72,7 @@ def find_tcc() -> Optional[str]:
     if os.environ.get("PENGU_NO_TCC", "").strip().lower() in {"1", "true", "yes", "on"}:
         return None
     base = _bundle_base()
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable))
     candidates: List[str] = [
         os.path.join(base, "tcc", _exe("tcc")),
         # Older release archives shipped the Windows binary without the '.exe'
@@ -87,11 +89,24 @@ def find_tcc() -> Optional[str]:
         os.path.join(base, "build", "tcc-dist", "tcc-dist", _exe("tcc")),
         os.path.join(base, "build", "tcc-dist", "bin", _exe("tcc")),
         os.path.join(base, "build", "tcc-dist", _exe("tcc")),
+        # A *frozen* onefile build extracts its payload into a new _MEIPASS on
+        # every run, so a TCC placed next to the pengu executable (the natural
+        # portable-install layout, and the one make_release.py documents) was
+        # never found.  Probe the executable's own directory too; the list is
+        # de-duplicated because _MEIPASS == exe_dir for onedir builds.
+        os.path.join(exe_dir, "tcc", _exe("tcc")),
+        os.path.join(exe_dir, "tcc", "tcc"),
+        os.path.join(exe_dir, "tcc-dist", "bin", _exe("tcc")),
+        os.path.join(exe_dir, "tcc-dist", _exe("tcc")),
     ]
     env = os.environ.get("PENGU_TCC")
     if env:
         candidates.append(env)
+    seen: set[str] = set()
     for cand in candidates:
+        if cand in seen:
+            continue
+        seen.add(cand)
         if os.path.isfile(cand) and os.access(cand, os.X_OK):
             return os.path.abspath(cand)
     found = shutil.which("tcc")

@@ -2,6 +2,86 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.16.5] — 2026-10-22 — Script cache actually hits (stable identities)
+
+### Fixed
+
+- **`pengu run script.pengu` rebuilt on every invocation in the frozen
+  release.** PyInstaller's onefile build extracts the payload into a new
+  `/tmp/_MEI...` directory for each process, and that path leaked into both the
+  binary cache key (`script_cache_key`) and the import manifest
+  (`~/.cache/pengu/imports`). The key changed every run, the manifest saw its
+  absolute module paths disappear, and even a byte-identical script was a cache
+  miss (~11 s wall clock, of which `Finished in ...` only showed the ~7 s
+  build). Modules and the compiler are now identified without absolute paths:
+  the key hashes a logical identity (`std:spark`, `project:lib/helper`) plus the
+  content digest, and the compiler by basename (`tcc`, `gcc`).
+- **The import manifest could serve the wrong `std` or project layout.** It
+  stored absolute paths and only checked that they still existed, so changing
+  `PENGU_STD_DIR`, `--config`, `lib_dir` or `src_dir` could reuse a graph
+  resolved under the previous settings. The manifest now stores root-relative
+  references (`std:`/`base:`/`abs:`) plus a digest, records the resolution
+  fingerprint (base/lib/src) in both the payload and the file name, and
+  re-resolves `std:` references against the *current* search roots. A changed
+  module invalidates it; an unchanged one survives a new `_MEIPASS`.
+- **The builder could compile a different module list than the one hashed for
+  the cache key.** `run_script` resolved the graph, then `PenguBuilder.bundle()`
+  resolved it again on its own. The builder now accepts `module_order` and uses
+  it verbatim; script builds and the cache key compile exactly the same graph.
+- **The AST was parsed twice per miss.** `resolve_imports()` built the tree to
+  find `import` lines and `bundle()` parsed every module again for the checker.
+  The checker now reuses `cached_module_tree()`, which removes ~2.5 s from a
+  cold 14-module script build (measured 4.66 s -> 2.09 s).
+- **A TCC placed next to the `pengu` executable was invisible.** `find_tcc()`
+  only probed `_MEIPASS`, `$PENGU_TCC` and `PATH`; a portable install with
+  `tcc/` beside the binary fell back to gcc. It now probes the executable's own
+  directory (deduplicated), and the release still prefers its bundled copy.
+- **The release bundle put TCC at a path the toolchain never probes.**
+  `make_release.py` passed `--add-binary <tcc>:tcc/tcc`; PyInstaller treats the
+  destination as a directory and appended the basename, producing
+  `<bundle>/tcc/tcc/tcc`. Every release therefore shipped a TCC that
+  `find_tcc()` could not find and silently used gcc. The destination is now
+  `tcc`, which lands at `<bundle>/tcc/tcc` (or `tcc.exe`) exactly where
+  `find_tcc()` looks.
+- **Cache-key omissions.** The runtime archive (`libpengu_runtime.a`), the
+  vendored `std_c/` headers and an environment-only `PENGU_NO_DCE=1` now affect
+  the script key; a runtime bugfix or a DCE switch can no longer reuse a stale
+  binary.
+- **`pengu run --profile release` was accepted and ignored for scripts.** The
+  profile is now passed to `ProjectConfig` and to the cache key, the debug-only
+  fast flags are not applied to release runs, and release builds use the
+  configured compiler rather than TCC (which does not implement `-flto`/`-O3`).
+- **`pengu gc` could delete entries that were used every day.** A cache hit
+  refreshes the entry directory's mtime; failed stores no longer leave empty
+  directories behind.
+
+### Changed
+
+- **Frozen builds prefer stable installation assets.** `std/`,
+  `runtime/include`, the runtime archive, `std_c/` and `VERSION` are looked up
+  next to the `pengu` executable before PyInstaller's per-process `_MEIPASS`.
+  A onefile release that ships external assets therefore gets the same paths
+  (and the same cache key) on every run; the bundled copy remains the fallback.
+- **`pengu time`, `pengu watch` and `pengu expand` use the script's project.**
+  They resolved imports from the current working directory while `pengu run`
+  used the script directory (or the manifest), so the same file could see a
+  different graph and poison the shared manifest. All four now share
+  `_script_build_context()`.
+- **Import-order memo honours the `std` search roots.** The in-process
+  `_IMPORT_ORDER_CACHE` key omitted them, so a long-lived process (LSP, watch,
+  tests) could keep a graph resolved against a previous `PENGU_STD_DIR`.
+- **Cache format v2.** Existing v1 script entries and import manifests are
+  ignored once and rebuild on first use; `pengu gc --all` reclaims the old
+  directories.
+
+### Tests
+
+- `tests/tooling/test_script_cache.py` covers layout-independent keys, runtime
+  archive/flag sensitivity, std-root remapping and invalidation, frozen asset
+  ordering, TCC discovery next to the executable, the shared script base
+  directory, and the builder's `module_order`/AST reuse (including a guard that
+  fails if `bundle()` re-resolves imports or reparses a cached module).
+
 ## [2.16.4] — 2026-10-21 — Documentation refresh & version integrity
 
 ### Changed

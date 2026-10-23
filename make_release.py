@@ -512,15 +512,17 @@ def find_tcc_include(tcc_bin: Path) -> Optional[Path]:
 def tcc_add_binary_args(tcc_bin: Path, data_sep: str) -> List[str]:
     """PyInstaller ``--add-binary`` arguments that bundle a TCC installation.
 
-    The destination **keeps the source file name**: on Windows the binary is
-    ``tcc.exe`` and ``pengu_tcc.find_tcc()`` probes ``<bundle>/tcc/tcc.exe``.
-    Hard-coding ``tcc/tcc`` shipped the file under a name the frozen toolchain
-    never looks for, silently disabling TCC in Windows releases.
+    PyInstaller treats ``DEST`` as a **directory** and appends the source
+    basename itself.  Passing ``tcc/tcc`` therefore produced
+    ``<bundle>/tcc/tcc/tcc`` — a path ``pengu_tcc.find_tcc()`` never probes, so
+    every release silently fell back to gcc.  The destination is just ``tcc``:
+    the binary lands at ``<bundle>/tcc/tcc`` (``tcc.exe`` on Windows), which is
+    exactly what ``find_tcc()`` checks.
 
     The include tree (``stdarg.h``, ``stddef.h``, ``tccdefs.h`` …) travels with
     it so the bundled compiler can actually build the generated bundle.
     """
-    args = [f"{tcc_bin}{data_sep}tcc/{tcc_bin.name}"]
+    args = [f"{tcc_bin}{data_sep}tcc"]
     include = find_tcc_include(tcc_bin)
     if include is not None:
         args.append(f"{include}{data_sep}tcc/include")

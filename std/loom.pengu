@@ -127,7 +127,7 @@ insignia loom_
 # --- Public constants ---------------------------------------------------
 
 ## The version of the loom module.
-const LOOM_VERSION as string is "2.16.4"
+const LOOM_VERSION as string is "2.16.5"
 
 # --- Sequence generation ------------------------------------------------
 
@@ -3563,5 +3563,5 @@ test "a string context works in map_ctx":
     defer banish ys
     calling _expect_eq with (ys at 0), "positive", "string ctx positive"
     calling _expect_eq with (ys at 1), "other", "string ctx other"
-test "LOOM_VERSION is version 2.16.4":
-    calling _expect with LOOM_VERSION == "2.16.4", "version"
+test "LOOM_VERSION is version 2.16.5":
+    calling _expect with LOOM_VERSION == "2.16.5", "version"

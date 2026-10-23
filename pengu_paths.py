@@ -81,6 +81,27 @@ def executable_dir() -> Optional[Path]:
         return exe.parent
 
 
+def _install_dir() -> Optional[Path]:
+    """Directory of the installed ``pengu`` binary, stable across processes.
+
+    ``executable_dir`` only recognises the documented binary names.  A frozen
+    build can be renamed (``pengu-linux``, a wrapper, ...), and in that case the
+    data next to the executable is still the stable, user-visible installation:
+    preferring it over PyInstaller's per-process ``_MEIPASS`` is what makes the
+    script cache reusable.  Returns ``None`` for a plain ``python`` run.
+    """
+    found = executable_dir()
+    if found is not None:
+        return found
+    if getattr(sys, "frozen", False):
+        exe = Path(sys.executable)
+        try:
+            return exe.resolve().parent
+        except OSError:
+            return exe.parent
+    return None
+
+
 def fhs_prefixes() -> List[Path]:
     """FHS prefixes to probe, highest priority first.
 
@@ -130,19 +151,23 @@ def runtime_include_dirs() -> List[Path]:
         if p.is_dir():
             dirs.append(p)
 
+    # The installation directory is stable across processes; PyInstaller's
+    # ``_MEIPASS`` is recreated for every invocation.  Prefer the former so the
+    # compiler reads the same runtime header a user can inspect and update, and
+    # so the script-cache key does not inherit an ephemeral path.
+    exe_dir = _install_dir()
+    if exe_dir is not None:
+        for sub in ("runtime/include", "runtime"):
+            p = exe_dir / sub
+            if p.is_dir():
+                dirs.append(p)
+
     for base in (module_root(), Path.cwd()):
         p = base / "build" / "include"
         if p.is_dir():
             dirs.append(p)
         if (base / "pengu_runtime.h").is_file():
             dirs.append(base)
-
-    exe_dir = executable_dir()
-    if exe_dir is not None:
-        for sub in ("runtime/include", "runtime"):
-            p = exe_dir / sub
-            if p.is_dir():
-                dirs.append(p)
 
     for prefix in fhs_prefixes():
         p = prefix / "include" / "pengu"
@@ -191,17 +216,17 @@ def runtime_lib_dirs() -> List[Path]:
             if p.is_dir():
                 dirs.append(p)
 
-    for base in (module_root(), Path.cwd()):
-        p = base / "build" / "lib"
-        if p.is_dir():
-            dirs.append(p)
-
-    exe_dir = executable_dir()
+    exe_dir = _install_dir()
     if exe_dir is not None:
         for sub in ("runtime/lib", "runtime"):
             p = exe_dir / sub
             if p.is_dir():
                 dirs.append(p)
+
+    for base in (module_root(), Path.cwd()):
+        p = base / "build" / "lib"
+        if p.is_dir():
+            dirs.append(p)
 
     for prefix in fhs_prefixes():
         # Scoped strictly to lib/pengu and lib64/pengu to prevent auto-linking
@@ -239,14 +264,17 @@ def std_dirs() -> List[Path]:
             if p.is_dir():
                 dirs.append(p)
 
-    for base in (module_root(), Path.cwd()):
-        p = base / "std"
+    # Stable installation first: in a frozen build ``module_root()`` is inside
+    # the per-process ``_MEIPASS`` extraction, and a path from there changes on
+    # every run (which used to poison both the import cache and the binary key).
+    exe_dir = _install_dir()
+    if exe_dir is not None:
+        p = exe_dir / "std"
         if p.is_dir():
             dirs.append(p)
 
-    exe_dir = executable_dir()
-    if exe_dir is not None:
-        p = exe_dir / "std"
+    for base in (module_root(), Path.cwd()):
+        p = base / "std"
         if p.is_dir():
             dirs.append(p)
 
@@ -283,14 +311,14 @@ def version_files() -> List[Path]:
             if p.is_file():
                 files.append(p)
 
-    for base in (module_root(), Path.cwd()):
-        p = base / "VERSION"
+    exe_dir = _install_dir()
+    if exe_dir is not None:
+        p = exe_dir / "VERSION"
         if p.is_file():
             files.append(p)
 
-    exe_dir = executable_dir()
-    if exe_dir is not None:
-        p = exe_dir / "VERSION"
+    for base in (module_root(), Path.cwd()):
+        p = base / "VERSION"
         if p.is_file():
             files.append(p)
 
@@ -336,6 +364,29 @@ def find_std_dir() -> Optional[Path]:
     """Return the first ``std/`` directory found across every layout."""
     dirs = std_dirs()
     return dirs[0] if dirs else None
+
+
+def std_c_dir() -> Optional[Path]:
+    """Return the stable directory holding the vendored ``std_c`` C headers.
+
+    The generated bundle may ``#include "utf8.h"`` / ``"re.h"`` from here, so it
+    is a build input: the installation copy must win over the per-process
+    PyInstaller extraction, both for correctness after an upgrade and for a
+    stable script-cache key.
+    """
+    candidates: List[Path] = []
+    exe_dir = _install_dir()
+    if exe_dir is not None:
+        candidates.append(exe_dir / "std_c")
+    for base in (module_root(), Path.cwd()):
+        candidates.append(base / "std_c")
+    mip = getattr(sys, "_MEIPASS", None)
+    if mip:
+        candidates.append(Path(mip) / "std_c")
+    for candidate in _dedup(candidates):
+        if candidate.is_dir():
+            return candidate
+    return None
 
 
 def find_version_file() -> Optional[Path]:

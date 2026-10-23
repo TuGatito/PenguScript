@@ -126,9 +126,10 @@ once the parser tables are cached). It is bundled in the release archives and
 built by CI, and `find_tcc()` looks in this order:
 
 1. `<bundle>/tcc/tcc` (PyInstaller `sys._MEIPASS`),
-2. `<checkout>/tcc/tcc` (unpacked release next to the sources),
-3. `$PENGU_TCC`,
-4. `PATH`.
+2. `<exe_dir>/tcc/tcc` (portable install: TCC beside the `pengu` executable),
+3. `<checkout>/tcc/tcc` (unpacked release next to the sources),
+4. `$PENGU_TCC`,
+5. `PATH`.
 
 `pick_dev_compiler()` prefers it for development builds (`pengu run`) and falls
 back to the configured compiler.

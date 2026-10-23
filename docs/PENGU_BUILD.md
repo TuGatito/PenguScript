@@ -184,8 +184,8 @@ gcc/clang):
 
 En runtime `pengu_tcc.find_tcc()` busca en este orden:
 `<bundle>/tcc/tcc(.exe)` (PyInstaller `sys._MEIPASS`), el mismo sin sufijo (releases
-antiguos), `<checkout>/tcc*`, el staging `build/tcc-dist[/tcc-dist]/bin/tcc`,
-`$PENGU_TCC` y `PATH`.
+antiguos), `<exe_dir>/tcc/tcc(.exe)` (instalación portable con TCC junto a `pengu`),
+`<checkout>/tcc*`, el staging `build/tcc-dist[/tcc-dist]/bin/tcc`, `$PENGU_TCC` y `PATH`.
 `PENGU_NO_TCC=1` desactiva TCC por completo. `pengu doctor`
 reporta la ruta y la versión de TCC, la del compilador C (`<cc> --version`) y la
 ruta del PCH compartido; `pengu doctor --json` expone `cc_version`, `tcc`,

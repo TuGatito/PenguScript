@@ -990,9 +990,20 @@ def resolve_imports(base_dir: str, entry_file: str, parser: Optional[Any] = None
         except OSError:
             return None
 
+    # The std search roots are part of the identity: changing PENGU_STD_DIR (or
+    # moving to an installation with a different std/) must not return a graph
+    # resolved against the previous roots.  They were omitted before, so a
+    # long-lived process (LSP, watch mode, tests) could silently keep the old
+    # std for the rest of its life.
+    try:
+        from pengu_paths import std_dirs as _std_dirs
+        std_key = tuple(str(p) for p in _std_dirs())
+    except Exception:
+        std_key = ()
     cache_key = (
         base_abs, entry_abs, os.path.abspath(lib_dir or "lib"),
         os.path.abspath(os.path.join(base_abs, src_dir or "src")),
+        std_key,
     )
     cached = _IMPORT_ORDER_CACHE.get(cache_key)
     if cached is not None:
