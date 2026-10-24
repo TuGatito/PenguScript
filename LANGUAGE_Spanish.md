@@ -1,6 +1,6 @@
 # Referencia del Lenguaje PenguScript
 
-> **Versión cubierta:** PenguScript **2.0.0** (sincronizada con `VERSION` y `pengu_version.py`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
+> **Versión cubierta:** PenguScript **3.0.1** (sincronizada con `VERSION` y `pengu_version.py`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
 > **Política de idioma.** El inglés es el idioma canónico de la documentación de
 > PenguScript, así que el documento **normativo** es [`LANGUAGE.md`](LANGUAGE.md).
 > Esta traducción al español es **no normativa**: puede ir por detrás y, donde los dos
@@ -2649,6 +2649,63 @@ weave main into void:
     let f2 is try calling risky with 10           # propagate to caller
 ```
 
+### Constructores y ownership
+
+`maybe` y `result` se construyen con intrínsecos del compilador, no con literales
+mágicos ni con `ok`/`err`:
+
+| Constructor | Produce | Ejemplo |
+|---|---|---|
+| `some x` | `maybe T` presente | `var m as maybe int is some 42` |
+| `maybe none` | `maybe T` vacío | `var m as maybe int is maybe none` |
+| `calling ok_of with v` | lado `ok` de `result of T to E` | `var r as result of int to string is calling ok_of with 1` |
+| `calling err_of with e` | lado `err` de `result of T to E` | `return calling err_of with IoError.NotFound` |
+
+> [!WARNING]
+> `ok` y `err` **no son constructores ni palabras clave**: `ok 1` produce
+> `E0004: Undefined identifier 'ok'`. Usa siempre `calling ok_of with …` /
+> `calling err_of with …`.
+
+**`result of T` sin `to E`.** El `E` es opcional en la gramática y vale `error`
+(el `const char*` del runtime). Es una forma heredada: para código nuevo escribe
+siempre `result of T to E` con un `omen` de error, que es el tipo que permite
+distinguir causas y el que usan los módulos de la std.
+
+**`result of void to E`.** El lado de éxito no tiene payload. El idioma actual es
+boxear un valor dummy que nunca se lee:
+
+```pengu
+weave validate with s as string into result of void to Problem:
+    if (s length) == 0:
+        return calling err_of with Problem.Empty
+    return calling ok_of with 0      # dummy de éxito para un result de void
+```
+
+**Ownership al encajonar.** `some`, `ok_of` y `err_of` copian los bytes del
+payload en una caja del heap. Cuando el operando es un **almacenamiento vivo con
+dueño** (una variable, un campo o `essence of`), el constructor lo trata como un
+**move**: vacía el slot de origen y la caja pasa a ser el único dueño. No uses ni
+hagas `banish` del origen después de encajonarlo; hacerlo era el doble free que
+corrigió la versión 3.0.1. Un rvalue (literal, llamada, `do:`) no tiene slot que
+vaciar: la caja es dueña directamente. Un **parámetro de función** de tipo string/contenedor es prestado: si se
+encajona, el constructor clona el payload y el caller conserva su dueño; así
+`wrap with s` puede devolver un `maybe`/`result` sin robarle el búfer a quien
+llama. (Los parámetros rune/omen siguen el camino de move superficial.)
+
+```pengu
+weave main into int:
+    var s as string is "{42}"
+    var m as maybe string is some s     # mueve s: s queda vacío
+    banish m                            # libera el búfer y la caja
+    # banish s                          # sería un no-op: s ya está vacío
+    return 0
+```
+
+`banish m` sobre un `maybe`/`result` libera el payload que la caja posee y
+después la caja. En un bloque `or:` sobre un `result`, el binding `error` recibe
+ese payload y pasa a poseerlo; si no lo consumes, libera el `error` dentro del
+bloque.
+
 ### Semántica y lowering de codegen:
 
 - **Contenedores de valor:** `maybe T` y `result of T to E` se representan en C como
@@ -2732,9 +2789,20 @@ weave load with path as string into string:
     return calling archivum.describe_error with r.error
 ```
 
-El resto de la biblioteca estándar conserva `maybe`/`bool` hasta que cada módulo
-reciba el mismo tratamiento aditivo; la migración completa se sigue como el item
-4.4 del roadmap y es deliberadamente la última porque toca APIs públicas.
+La migración es aditiva y nunca rompedora, pero **no es uniforme**: cada módulo
+eligió el contenedor que su dominio necesita. El estado en 3.0.1 es:
+
+| Estilo | Módulos | Criterio |
+|---|---|---|
+| `result` como contenedor principal | `lingua`, `petitio`, `jsonrpc`, `ward`; `compressus` casi por completo | El fallo tiene causa tipada y el llamador necesita reaccionar |
+| Ambos | `archivum`, `oracle`, `json`, `regulus` | Se conserva la API `maybe`/`bool` por compatibilidad y se añade `result` donde importa el motivo |
+| `maybe`/`bool` | `ledger`, `loom`, `cipher`, `tally`, … | “No está” o “no se pudo” sin una causa que el llamador deba distinguir |
+
+La regla para código nuevo es la misma de esta sección: **`maybe` para ausencia,
+`result` para causa**. No se migra un módulo en masa solo por simetría; se añade
+`result` cuando el diagnóstico o la recuperación selectiva lo justifican. Los
+módulos que ya son `result` no necesitan variantes `maybe` (un fallo de UTF-8 o
+de red no es una ausencia).
 
 ---
 
@@ -2780,10 +2848,10 @@ Reglas:
   longitud y la capacidad. **No** libera los búferes del heap a los que apunten claves o
   valores de tipo string (véase §13.5).
 - `banish d` (donde `d` es un rune con `derive Nexus`): emite `_pengu_cleanup_D(&d)`, el
+  destructor que el rune declaró (§9.1.2).
 - `banish m` (donde `m as maybe T` / `result of T to E`): libera la carga que la caja
   posee y después la caja misma. Nada invoca esto de forma implícita; es la bajada del
   `banish` que tú escribiste.
-  destructor que el rune declaró (§9.1.2).
 - `defer banish x` / `errdefer banish x` programan la liberación en lugar de ejecutarla
   ahora: `defer` la ejecuta al salir del ámbito, `errdefer` solo en un retorno de error,
   ambas en orden LIFO.
@@ -2793,10 +2861,12 @@ Reglas:
 De dónde vienen los valores del heap:
 - `sigil of x` toma una dirección sin procesar; `pengu_sigil_alloc` es el asignador del
   runtime que hay detrás de `some`.
-- `some x`, `ok x`, `err x` encajonan la carga útil en un `PenguMaybe`/`PenguResult` con
-  `memcpy`. **No** clonan una carga útil del heap: la caja guarda una copia del valor, y
-  si ese valor referencia un búfer del heap, liberar el original sigue siendo decisión
-  tuya.
+- `some x`, `calling ok_of with x` y `calling err_of with x` encajonan la carga útil
+  en un `PenguMaybe`/`PenguResult` con `memcpy`. Si `x` es un almacenamiento vivo con
+  dueño (variable, campo, `essence of`), el constructor lo **mueve**: vacía el slot de
+  origen y la caja queda como único dueño. No uses ni hagas `banish` del origen después;
+  si `x` es un rvalue (literal, llamada, `do:`), no hay slot que vaciar y la caja es
+  dueña directamente. Esto evita el doble free de versiones anteriores.
 - Los constructores de contenedores (`list of T`, `map of K to V`, `[...]`, literales de
   mapa) asignan el búfer propio del contenedor; el formato `{expr}` y `(x to string)`
   asignan un búfer de cadena nuevo.
@@ -2891,7 +2961,7 @@ El compilador no asigna ni libera nada por su cuenta. En particular:
 - **Sin inferencia de pila/montón.** Ningún pase decide si un local vive en la pila o en el heap; un valor está donde lo ponen su declaración y su tipo.
 - **Sin copia profunda al almacenar.** `list.push` / `map.put` copian los bytes del elemento con `memcpy` y nunca clonan la carga útil; escribir una `string` en un campo de struct o en un elemento de contenedor es la misma copia. El contenedor no asume la liberación de aquello a lo que apunte la copia.
 - **Sin `Imago` / `Nexus` implícitos.** Un rune obtiene un ayudante de clonado o un destructor solo cuando declara `derive Imago` / `derive Nexus` (§11.6). Nada los deriva de los campos.
-- **Sin clonado oculto al encajonar.** `some x`, `ok x` y `err x` guardan un `memcpy` de la carga útil en un `PenguMaybe`/`PenguResult`; no duplican ningún búfer del heap al que esta referencie.
+- **Encajonar mueve, no clona.** `some x`, `calling ok_of with x` y `calling err_of with x` guardan un `memcpy` de la carga útil en un `PenguMaybe`/`PenguResult`. Si `x` es un slot vivo con dueño, el constructor lo vacía y la caja pasa a poseer el búfer; `banish` del contenedor libera payload y caja. No hagas `banish` del origen después de encajonarlo.
 - **Dos temporales con dueño no tienen nombre que banishar.** Ambos se derivan de la regla anterior y hay que resolverlos ligando el valor a un local:
   - un literal interpolado pasado *directamente* a una llamada — `calling println with "{x}"` — asigna una `string` nueva (LANGUAGE.md §15.2) que ningún enlace nombra, así que se filtra. Lígalo primero: `let msg as string is "{x}"`, y luego `banish msg` al terminar. Lo mismo vale para `(x to string)`, `s.substring`, `s.char_at`, `s.trim` y cualquier otro productor de strings con dueño usado como argumento.
   - `for ch in s` liga `ch` a una **`string` de un byte con dueño y nueva en cada iteración** (un resultado de `pengu_string_char_at`, no una vista). Si el cuerpo no la guarda ni hace `banish ch`, se filtra; `banish ch` al final del cuerpo la libera, y un `return`/`break` deja el `ch` actual pendiente de liberar antes de salir. Itere bytes sin asignar con un bucle de índice sobre `ref to byte` (`bytes of s`) cuando el carácter solo se inspecciona.

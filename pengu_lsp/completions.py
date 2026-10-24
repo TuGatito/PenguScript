@@ -624,7 +624,10 @@ BASE_KEYWORDS = [
     ("sigil of", "sigil of ${1:var}", "Take pointer reference (&)", CompletionItemKind.Snippet),
     ("essence of", "essence of ${1:ptr}", "Dereference pointer (*)", CompletionItemKind.Snippet),
     ("calling", "calling ${1:func} with ${2:arg}", "Function invocation", CompletionItemKind.Snippet),
+    ("some", "some ${1:value}", "Present optional value (maybe T)", CompletionItemKind.Snippet),
     ("maybe none", "maybe none", "Empty optional value", CompletionItemKind.Keyword),
+    ("ok_of", "calling ok_of with ${1:value}", "Success side of a result of T to E", CompletionItemKind.Snippet),
+    ("err_of", "calling err_of with ${1:error}", "Failure side of a result of T to E", CompletionItemKind.Snippet),
     ("error", "error", "Error literal", CompletionItemKind.Keyword),
     ("transmute", "transmute ${1:expr} as ${2:type}", "Unsafe bitwise cast", CompletionItemKind.Snippet),
 ]

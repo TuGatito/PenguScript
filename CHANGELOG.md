@@ -2,6 +2,65 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [3.0.1] — 2026-10-23 — `maybe`/`result` audit fixes
+
+### Fixed
+
+- **`ok_of`/`err_of` now type-check the payload against the declared result
+  side.** `calling ok_of with "text"` inside `result of int to string` used to
+  compile “clean” and box a `PenguString` that every consumer read as
+  `int32_t` (silent UB). It is now `E0005`, naming the expected type.
+- **Bare `result of T` defaults to the `error` type again.** The optional
+  `to E` left a `None` child behind, and `ast_to_type` turned it into `any`;
+  the result then accepted any error payload. New code should always spell
+  `result of T to E`.
+- **Boxing moves an owning source slot.** `some x`, `calling ok_of with x` and
+  `calling err_of with x` used to copy the payload shallowly while both the
+  source and the box could `banish` it: a double free. The constructor now
+  empties the source slot when the box allocation succeeds, leaving the box as
+  the sole owner. Borrowed string/container parameters are cloned instead, so a
+  callee boxing a parameter cannot steal the caller's buffer. The contract is
+  documented in both language references and both style guides.
+- **`or:` over a `result` rvalue releases its box.** The success payload is
+  moved to the target and the failure payload to the `error` binding; the
+  24-byte box is freed on both paths. The `err_of with error` idiom inside an
+  `or:` block also resolves the contextual `error` type in codegen.
+- **Size estimates match the ABI.** `result of T to E` is 24 bytes (not
+  `ok + err + 4`), `list` is 24 and `map` is 32. The LSP hover and the
+  cheatsheet now report the real `PenguResult`/`PenguList`/`PenguMap` layouts.
+- **LSP hover documents `maybe`, `result`, `some`, `maybe none`, `ok_of` and
+  `err_of`.** The type keywords and constructors no longer return an empty
+  hover.
+- **LSP completions insert `some`, `calling ok_of with …` and
+  `calling err_of with …`.**
+
+### Changed
+
+- **Constructors take ownership of a named payload.** Do not use or `banish`
+  the source after `some x` / `ok_of with x` / `err_of with x`; the box owns
+  the buffer. The old “the source keeps ownership” wording was wrong and has
+  been removed from §13.4/§13.6.
+- **`result of T` without `to E` is legacy.** It lowers to
+  `result of T to error` (`const char*`); use an error `omen` in new APIs.
+
+### Docs
+
+- Both language references (`LANGUAGE.md`, `LANGUAGE_Spanish.md`) gained a
+  constructors-and-ownership section, a corrected D5 module matrix and a fixed
+  `banish` bullet.
+- Both style guides (`PenguScriptGuideEnglish.md`,
+  `PenguScriptGuideSpanish.md`) gained “absence vs cause”, constructor and
+  ownership guidance, including the `or:` error-ownership rule.
+- `CHEATSHEET.md` documents the real container sizes, the `result of T`
+  default error and the `or:` binding type.
+
+### Verified
+
+- Full suite: **1400 passed, 3 skipped** (the three opt-in `requests`/live
+  HTTP compatibility tests).
+- `make_release.py` portable smoke tests: **PASS** (CLI help, `pengu init`, standalone run, embedded assets, `doctor`, bundled TCC + cache).
+- Frozen bundle reports `PenguScript v3.0.1`; VSIX `pengus-3.0.1.vsix` packaged.
+
 ## [3.0.0] — 2026-10-23 — Module-scoped type names; optional native pruning
 
 ### Changed (breaking for duplicate type names)

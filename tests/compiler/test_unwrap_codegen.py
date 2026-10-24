@@ -95,3 +95,126 @@ weave main into int:
     return 0
 """)
     assert out.strip() == ""
+
+
+def test_boxing_moves_an_owning_source(emit_c):
+    """`some s` moves `s`: the generated C empties the source slot."""
+    c = emit_c("""
+weave main into int:
+    var s as string is "{1}"
+    var m as maybe string is some s
+    banish m
+    banish s
+    return 0
+""")
+    assert "(s).data = NULL" in c, c
+    assert "(s).is_owned = 0" in c, c
+    assert "if (_maybe" in c and ".value) {" in c, c
+
+
+def test_or_block_releases_a_result_rvalue_box(emit_c):
+    """`or:` over a result rvalue frees the box after copying the payload."""
+    c = emit_c("""
+weave f into result of string to string:
+    return calling ok_of with "x"
+
+weave main into int:
+    var s as string is (calling f) or:
+        return 1
+    banish s
+    return 0
+""")
+    assert "free(_res" in c, c
+    assert ".ok_val = NULL" in c, c
+    assert ".err_val = NULL" in c, c
+    # The payload itself is moved into `s`, not freed with the box.
+    assert "pengu_banish_string(&s)" in c, c
+
+
+def test_boxing_then_banishing_both_does_not_double_free(compile_and_run):
+    """The constructor is a move; `banish` of the source is a no-op."""
+    out = compile_and_run("""
+weave main into int:
+    var s as string is "{1}"
+    var m as maybe string is some s
+    banish m
+    banish s
+
+    var t as string is "{2}"
+    var r as result of string to string is calling ok_of with t
+    banish r
+    banish t
+
+    var u as string is "{3}"
+    var e as result of string to string is calling err_of with u
+    banish e
+    banish u
+    return 0
+""")
+    assert out.strip() == "", out
+
+
+def test_boxing_a_parameter_clones_and_keeps_the_caller_owner(compile_and_run):
+    """A callee cannot move the caller's slot: boxing a parameter clones it."""
+    out = compile_and_run("""
+weave wrap with s as string into maybe string:
+    return some s
+
+weave wrap_ok with s as string into result of string to string:
+    return calling ok_of with s
+
+weave wrap_err with s as string into result of int to string:
+    return calling err_of with s
+
+weave main into int:
+    var s as string is "{1}"
+    var m as maybe string is calling wrap with s
+    banish m
+    banish s
+
+    var t as string is "{2}"
+    var r as result of string to string is calling wrap_ok with t
+    banish r
+    banish t
+
+    var u as string is "{3}"
+    var e as result of int to string is calling wrap_err with u
+    banish e
+    banish u
+    return 0
+""")
+    assert out.strip() == "", out
+
+
+def test_or_block_releases_a_result_error_box(emit_c):
+    """The failure path frees the box after copying `error` out of it."""
+    c = emit_c("""
+weave f into result of int to string:
+    return calling err_of with "boom"
+
+weave main into int:
+    var n as int is (calling f) or:
+        return 1
+    return n
+""")
+    assert "free(_res" in c, c
+    assert ".err_val = NULL" in c, c
+
+
+def test_or_block_can_rebox_the_contextual_error(compile_and_run):
+    """`return calling err_of with error` resolves `error` in codegen."""
+    out = compile_and_run("""
+weave f into result of int to string:
+    return calling err_of with "boom"
+
+weave g into result of int to string:
+    var n as int is (calling f) or:
+        return calling err_of with error
+    return calling ok_of with n
+
+weave main into int:
+    var r as result of int to string is calling g
+    banish r
+    return 0
+""")
+    assert out.strip() == "", out

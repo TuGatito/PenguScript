@@ -4250,6 +4250,28 @@ class TypeInferrer:
                 note="Fixed arrays decay to pointers in C and cannot be stored by value."
             )
         if isinstance(expected_type, ResultType):
+            # The argument was inferred above; the expected side is the other
+            # half of the same result.  Returning expected_type without this
+            # check let `ok_of "text"` land in `result of int to string`: the
+            # codegen boxes the actual argument type (PenguString) while every
+            # consumer reads the declared side (int32_t), i.e. silent UB.
+            #
+            # `result of void to E` is the "validate and propagate" idiom: its
+            # success side has no payload, so `calling ok_of with 0` boxes a
+            # dummy value that is never read.  Keep that escape hatch, but
+            # reject mismatches on every side with a real payload.
+            if (exp_inner is not None and exp_inner != VOID_TYPE
+                    and not inner_t.is_compatible(exp_inner)):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"'{ctor}' payload is '{inner_t}', but this result expects "
+                    f"'{exp_inner}' on the '{side_name}' side",
+                    node,
+                    code="E0005",
+                    help=f"Use a '{side_name}' value of type '{exp_inner}', or "
+                         f"change the result declaration to match '{inner_t}'.",
+                    note="'ok_of'/'err_of' box a value of the type declared by the result."
+                )
             return expected_type
         raise self._make_error(
             TypeMismatchError,

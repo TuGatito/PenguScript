@@ -372,6 +372,7 @@ class ProtoMixin:
             list(getattr(self, "with_stack", []) or []),
             list(getattr(self, "with_type_stack", []) or []),
             getattr(self, "_void_locals", set()),
+            set(getattr(self, "current_param_names", set())),
         )
         push_path = self._display_path(w.get("filepath")) or ""
         push_line = w.get("line") or 0
@@ -381,6 +382,7 @@ class ProtoMixin:
         self.current_enchanted_type = w.get("enchanted_type")
         self.current_subst_map = w.get("subst_map", {})
         self.local_vars = {}
+        self.current_param_names = {p_info[0] for p_info in w["params"]}
         # A generic instantiation may be emitted from inside an enclosing
         # `with:` block; the new function starts with no with-context, or
         # its `.field` targets would resolve against the caller's target.
@@ -453,5 +455,6 @@ class ProtoMixin:
         (self.local_vars, self.current_function, self.current_return_type,
          self.current_enchanted_type, self.current_subst_map,
          self.current_self_is_value, self.with_stack,
-         self.with_type_stack, self._void_locals) = saved_gen_state
+         self.with_type_stack, self._void_locals,
+         self.current_param_names) = saved_gen_state
         return "\n".join(lines)

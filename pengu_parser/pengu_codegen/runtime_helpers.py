@@ -219,6 +219,150 @@ class RuntimeMixin:
             inner = self._release_payload_stmts(u, ptr, "")
             return inner.splitlines() if inner.strip() else []
         return []
+
+    #: AST nodes that name storage the program can still reach after boxing.
+    #: A constructor over one of these is a *move*: the box becomes the owner
+    #: and the source slot is emptied so a later `banish` cannot free the same
+    #: buffer twice.  Element expressions (`at`) are deliberately excluded:
+    #: their lowering is a call/accessor, not a plain assignment target.
+    _BOX_MOVE_LVALUES = (
+        "var_ref", "field_access", "arrow_access", "self_ref", "self_arrow",
+        "essence_of",
+    )
+
+    def _payload_is_released_by_banish(self, t: Optional[Type], _depth: int = 0) -> bool:
+        """True when `banish` of a box holding ``t`` releases ``t``'s contents.
+
+        ``_release_payload_stmts`` is the source of truth: strings, lists, maps,
+        arrays/tuples with owning elements and maybe/result wrappers are
+        released; a rune/omen only when it derives Nexus.  The move-clear must
+        mirror it exactly, or it would empty a source that the box does not own.
+        """
+        if t is None or _depth > 12:
+            return False
+        u = t
+        while isinstance(u, (AliasType, FrozenType, SealType)):
+            nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
+            if nxt is None or nxt is u:
+                break
+            u = nxt
+        if isinstance(u, BaseType):
+            return u.name == "string"
+        if isinstance(u, (ListType, MapType, MaybeType, ResultType)):
+            return True
+        if isinstance(u, ArrayType):
+            return self._payload_is_released_by_banish(u.element, _depth + 1)
+        if isinstance(u, TupleType):
+            return any(
+                self._payload_is_released_by_banish(elem, _depth + 1)
+                for elem in u.elements
+            )
+        if isinstance(u, (RuneType, OmenType)):
+            return type_has_derived_nexus(u, self.symbols)
+        return False
+
+    def _boxing_move_stmts(self, arg_node: Any, arg_c: str,
+                           arg_t: Optional[Type],
+                           when: Optional[str] = None) -> List[str]:
+        """Clear a source lvalue after its bytes were copied into a new box.
+
+        `some`/`ok_of`/`err_of` copy the payload with ``memcpy`` and `banish`
+        on the box then releases that payload.  If the source is a live local,
+        struct field or `essence of` slot, both names own the same buffer: the
+        programmer who banishes both gets a double free (and the one who keeps
+        using the source gets a dangling view).  Treating the constructor as a
+        move empties only the source, leaving the box as the single owner.
+
+        Rvalues (literals, calls, `do:` blocks) have no source storage and are
+        skipped.  A `frozen` source is skipped too: writing through it is
+        forbidden, and the frozen view itself does not own the buffer.
+        """
+        bare = arg_node
+        while (isinstance(bare, Tree)
+               and bare.data in ("paren_expr", "value_expr", "expr", "primary")
+               and len(bare.children) == 1):
+            bare = bare.children[0]
+        if not isinstance(bare, Tree) or bare.data not in self._BOX_MOVE_LVALUES:
+            return []
+        if isinstance(arg_t, FrozenType):
+            return []
+
+        u = arg_t
+        while isinstance(u, (AliasType, SealType)):
+            nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
+            if nxt is None or nxt is u:
+                break
+            u = nxt
+        if not self._payload_is_released_by_banish(u):
+            return []
+        if isinstance(u, BaseType) and u.name == "string":
+            lines = [
+                f"({arg_c}).data = NULL;",
+                f"({arg_c}).len = 0;",
+                f"({arg_c}).is_owned = 0;",
+            ]
+        elif isinstance(u, ListType):
+            lines = [
+                f"({arg_c}).data = NULL;",
+                f"({arg_c}).len = 0;",
+                f"({arg_c}).cap = 0;",
+            ]
+        elif isinstance(u, MapType):
+            lines = [
+                f"({arg_c}).entries = NULL;",
+                f"({arg_c}).len = 0;",
+                f"({arg_c}).cap = 0;",
+            ]
+        else:
+            # Arrays, tuples, nested maybe/result wrappers and Nexus
+            # runes/omens: zeroing the source slot moves the whole aggregate
+            # into the box.
+            lines = [f"memset(&({arg_c}), 0, sizeof({arg_c}));"]
+        if when is None:
+            return lines
+        # Only move when the box allocation succeeded.  On OOM the constructor
+        # leaves the container empty and the source must keep its payload.
+        return [f"if ({when}) {{"] + [f"  {line}" for line in lines] + ["}"]
+
+    def _boxing_is_borrowed_parameter(self, arg_node: Any) -> bool:
+        """True when the boxed operand is a function parameter (borrowed)."""
+        bare = arg_node
+        while (isinstance(bare, Tree)
+               and bare.data in ("paren_expr", "value_expr", "expr", "primary")
+               and len(bare.children) == 1):
+            bare = bare.children[0]
+        if not isinstance(bare, Tree) or bare.data != "var_ref":
+            return False
+        return str(bare.children[0]) in getattr(self, "current_param_names", set())
+
+    def _boxing_clone_stmts(self, arg_t: Optional[Type], arg_c: str,
+                            box_expr: str) -> Optional[List[str]]:
+        """Deep-copy an owning value into a fresh box, or None if unsupported.
+
+        A function parameter is a borrowed alias of the caller's buffer.  A
+        shallow ``memcpy`` into the box would give the caller and the callee two
+        owners, so a later `banish` of the caller's local frees the box's buffer.
+        Parameters of container/string type are therefore cloned; local rvalues
+        keep the cheaper memcpy + move path.
+        """
+        if arg_t is None:
+            return None
+        u = arg_t
+        while isinstance(u, (AliasType, SealType)):
+            nxt = getattr(u, "target", None) or getattr(u, "underlying", None)
+            if nxt is None or nxt is u:
+                break
+            u = nxt
+        if isinstance(u, BaseType):
+            supported = u.name == "string"
+        else:
+            supported = isinstance(u, (ListType, MapType, MaybeType, ResultType))
+        if not supported:
+            return None
+        inner = self._derived_field_clone(
+            f"(*(({CTypeMapper.to_c_type(arg_t)}*)({box_expr})))", arg_c, arg_t)
+        return inner.splitlines() if inner and inner.strip() else None
+
     def _translate_banish_target(self, target_expr: Any, stmt_context: bool = False) -> str:
         """Translates banish target into appropriate runtime free call according to type.
 

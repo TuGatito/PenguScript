@@ -994,17 +994,31 @@ class ExprMixin:
             tmp = self.get_temp_name("_some")
             decl_tmp = CTypeMapper.to_c_decl(arg_t, tmp)
             maybe_tmp = self.get_temp_name("_maybe")
-            # The box stores the payload bytes (memcpy).  It does not clone a
-            # heap payload: the source keeps ownership of its buffer, exactly as
-            # in C, and releasing either side is the programmer's decision.
+            # The box stores the payload bytes.  A function parameter is a
+            # borrowed alias of the caller's buffer, so it is cloned instead of
+            # moved; a live local/field is moved (the source slot is emptied);
+            # an rvalue has no source slot.
+            borrowed = self._boxing_is_borrowed_parameter(arg_node)
+            clone_stmts = (
+                self._boxing_clone_stmts(arg_t, arg_c, f"{maybe_tmp}.value")
+                if borrowed else None
+            )
             stmts = [
                 f"{decl_tmp} = {arg_c};",
                 f"PenguMaybe {maybe_tmp};",
                 f"{maybe_tmp}.is_present = true;",
                 f"{maybe_tmp}.value = pengu_sigil_alloc(sizeof({tmp}));",
                 f"if (!{maybe_tmp}.value) {maybe_tmp}.is_present = false;",
-                f"else memcpy({maybe_tmp}.value, &({tmp}), sizeof({tmp}));",
             ]
+            if clone_stmts is not None:
+                stmts.append("else {")
+                stmts.extend(f"  {line}" for line in clone_stmts)
+                stmts.append("}")
+            else:
+                stmts.append(f"else memcpy({maybe_tmp}.value, &({tmp}), sizeof({tmp}));")
+                if not borrowed:
+                    stmts.extend(self._boxing_move_stmts(
+                        arg_node, arg_c, arg_t, when=f"{maybe_tmp}.value"))
             return self._block_expr(stmts, maybe_tmp)
 
         # 3b-bis. 'ok expr' / 'err expr': native result construction.

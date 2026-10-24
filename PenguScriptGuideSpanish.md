@@ -1,6 +1,6 @@
 # Guía de Estilo Pengunic
 
-> **Versión cubierta:** PenguScript **2.0.0**
+> **Versión cubierta:** PenguScript **3.0.1**
 > **Política de idioma.** El inglés es canónico: la guía normativa es
 > [`PenguScriptGuideEnglish.md`](PenguScriptGuideEnglish.md). Esta traducción al
 > español es **no normativa**; donde discrepen, gana la guía inglesa.
@@ -936,11 +936,62 @@ fiable hasta que su checksum coincide con el del manifiesto.
 | Situación | Tipo | Ejemplo |
 |---|---|---|
 | Puede faltar, sin razón de fallo | `maybe T` | `find_user → maybe User` |
-| Puede fallar con detalle | `result of T to E` | `parse_config → result of Config to string` |
+| Puede fallar con detalle | `result of T to E` | `parse_config → result of Config to ConfigError` |
 | Fallo irrecuperable (bug, invariante roto) | `panic` | `weave divide with a, b: if b == 0: panic "division by zero"` |
 | Pointer que puede no apuntar a nada | `ref to T` + `null` | `ref to Buffer is null` |
 
 **Regla:** Nunca uses un valor centinela (`-1`, `""`, `0`) para "no encontrado". Usa `maybe T`.
+
+### 5.1.1 La frontera: ausencia vs causa
+
+`maybe` y `result` no compiten; responden preguntas distintas:
+
+| Pregunta | Contenedor | Cuándo |
+|---|---|---|
+| “¿Está o no está?” | `maybe T` | La ausencia es un resultado normal y no hay nada más que contar |
+| “¿Falló? ¿Por qué?” | `result of T to E` | Quien llama necesita distinguir causas y reaccionar distinto |
+| “¿Sí o no?” | `bool` | Solo hay dos respuestas y ninguna causa que reportar |
+| “Esto no puede pasar” | `panic` | Invariante rota o bug del programa |
+
+**No uses `maybe` para ocultar un fallo con causa.** `read_file → maybe string`
+no distingue “no existe” de “sin permisos”; si el llamador necesita esa
+distinción, la API debe ser `result of string to IoError`.
+
+**No uses `result` para un lookup normal.** `find_user → result of User to
+NotFound` obliga a inventar un error y hace que “no encontrado” parezca una
+excepción. Si la ausencia es la respuesta, `maybe User` es más honesto.
+
+**No uses `result of T to string` como cajón de sastre.** Define un `omen` por
+módulo (`IoError`, `JsonError`, `LinguaError`, `HttpError`, …); así el llamador
+puede usar `judge` sobre variantes y el compilador comprueba que cubre todas.
+
+### 5.1.2 Constructores y ownership
+
+```pengu
+# maybe: presencia
+var user as maybe User is some found
+var nobody as maybe User is maybe none
+
+# result: causa tipada
+var cfg as result of Config to ConfigError is calling ok_of with parsed
+return calling err_of with ConfigError.Missing
+```
+
+- `some x`, `calling ok_of with x` y `calling err_of with x` son los únicos
+  constructores. **`ok x` y `err x` no existen** (`E0004`); no los escribas.
+- El tipo de `E` debe ser el declarado por el `result`. No mezcles un `string`
+  con un `omen` “porque los dos son errores”.
+- Encajonar un payload con dueño desde una variable o campo lo **mueve**: la caja
+  pasa a ser la dueña y el slot de origen se vacía. No hagas `banish` del origen
+  después de `some s` / `ok_of with s` / `err_of with s`.
+- Dentro de una función, un parámetro de tipo string/contenedor es
+  **prestado**: si lo encajonas, el constructor clona el payload y el caller
+  conserva el suyo. No intentes mover el slot del caller desde el callee.
+- `banish m` sobre un `maybe`/`result` libera el payload que la caja posee y la
+  caja. En un `or:` sobre `result`, el binding `error` posee el payload; si no lo
+  reencajonas, libéralo dentro del bloque.
+- `result of void to E` no tiene payload de éxito; el idioma actual es
+  `return calling ok_of with 0` (dummy que nunca se lee).
 
 ### 5.2 `or else` para fallback
 
@@ -976,7 +1027,7 @@ weave greet with m as maybe User into string:
 Cuando la función **también** devuelve `maybe` o `result` compatible:
 
 ```pengu
-weave load_config into result of Config to string:
+weave load_config into result of Config to ConfigError:
     let raw is try calling read_file with "config.txt"
     let cfg is try calling parse_config with raw
     return cfg

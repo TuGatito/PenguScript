@@ -233,7 +233,7 @@ Identifiers match `[a-zA-Z_][a-zA-Z0-9_]*`. `_` alone is the discard binding (e.
 | Text | `string` |
 | Unit | `void` |
 | Optional | `maybe T` |
-| Result | `result of T to E` (E defaults to the runtime error type) |
+| Result | `result of T to E` (`to E` is optional and defaults to `error`; always spell it in new code) |
 | References | `ref to T` (pointer), `ref to void` (generic pointer) |
 | Arrays | `array of T with size N` |
 | Slices | `slice of T` |
@@ -277,7 +277,7 @@ Identifiers match `[a-zA-Z_][a-zA-Z0-9_]*`. `_` alone is the discard binding (e.
 > [!NOTE]
 > Integer aliases share a C type: `int`/`i32`/`int32`/`int32_t` → `int32_t`; `float`/`f32` → `float`; `double`/`f64` → `double`; `byte`/`u8`/`uint8`/`uint8_t` → `uint8_t`, and so on for every fixed-width family. `char` maps to C `char`.
 
-The compiler reports an approximate byte size for every type (LSP hover shows it). Fixed sizes on 64-bit targets: `bool` 1, `int`/`i32`/`float`/`f32` 4, `i64`/`f64` 8, `string` 16, a reference 8, `maybe T` ≈ `sizeof(T)+4`, `result of T to E` ≈ `ok + err + 4`, an array `N * sizeof(elem)`, `slice`/`list`/`map` 24 (estimator value; `PenguMap`'s real struct is larger). Run `pengu build` and hover in the LSP for the exact per-type number used by the checker.
+The compiler reports an approximate byte size for every type (LSP hover shows it). Fixed sizes on 64-bit targets: `bool` 1, `int`/`i32`/`float`/`f32` 4, `i64`/`f64` 8, `string` 16, a reference 8, `maybe T` 16 (`PenguMaybe` = `is_present` + payload pointer), `result of T to E` 24 (`PenguResult` = `is_ok` + two payload pointers), an array `N * sizeof(elem)`, `slice` 24, `list` 24, `map` 32. Run `pengu build` and hover in the LSP for the exact per-type number used by the checker.
 
 ### 4.3 Literals
 
@@ -2031,8 +2031,7 @@ void main(void) {
 | `expr or else fallback` | value when present/ok, otherwise the fallback expression | `maybe T`, `result of T to E` |
 | `expr or return value` | bind the value on success; otherwise `return value` from the current function | `maybe T`, `result of T to E` |
 | `try expr` | bind the success value; on failure return `maybe none` / the error result to the caller (requires a compatible `maybe`/`result` function return, `E0045`) | `maybe T`, `result of T to E` |
-| `expr or:` (block) | on failure run the block; inside it `error` is a `string` describing the error | `maybe T`, `result of T to E` |
-| `try expr` | unwrap success values from error/maybe unions, propagating failures to the caller | `maybe T`, `result of T to E` |
+| `expr or:` (block) | on failure run the block; inside it `error` is a `string` for `maybe` or the `E` payload for `result` | `maybe T`, `result of T to E` |
 
 Using any unwrap operator on a non-maybe/non-result expression is a type error (`E0005`).
 

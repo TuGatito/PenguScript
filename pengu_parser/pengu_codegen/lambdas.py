@@ -80,13 +80,16 @@ class LambdaMixin:
 
         # Translate the body in the same isolated scope.
         saved_locals = dict(self.local_vars)
+        saved_params = set(getattr(self, "current_param_names", set()))
         saved_ind = self.indent_level
         self.local_vars = dict(zip(pnames, ptypes))
+        self.current_param_names = set(pnames)
         self.indent_level = 1
         try:
             body_c = self._translate_expr(body, expected_type=ret_t)
         finally:
             self.local_vars = saved_locals
+            self.current_param_names = saved_params
             self.indent_level = saved_ind
 
         ret_c = CTypeMapper.to_c_type(ret_t)

@@ -167,27 +167,36 @@ class OrBlockMixin:
         # A 'maybe T' box built by 'some' (or handed over by a call) is owned by
         # this expression: the payload is *moved* into the result and only the
         # box allocation is released here.  A direct reference to a local must
-        # not be freed (the local still owns its box); a result box may belong to
-        # the C side, so it is left alone.  Look through grouping parentheses:
-        # '(some s) or:' arrives as paren_expr(some_expr(...)) and used to keep
-        # the box (and its payload) allocated forever.
+        # not be freed (the local still owns its box).  Look through grouping
+        # parentheses: '(some s) or:' arrives as paren_expr(some_expr(...)).
+        #
+        # The same rule applies to a `result` rvalue.  Leaving its box alone
+        # (the old behaviour) leaked 24 bytes per evaluation and, on the error
+        # path, the error payload as well.  Free only the box: the payload was
+        # copied into the target (ok) or into the block's `error` binding
+        # (err), which now owns it.
         own_box_op = left_op
         while (isinstance(own_box_op, Tree)
                and own_box_op.data in ("paren_expr", "value_expr", "expr")
                and len(own_box_op.children) == 1):
             own_box_op = own_box_op.children[0]
-        own_box = (is_maybe and isinstance(own_box_op, Tree)
-                   and own_box_op.data in ("some_expr", "maybe_none", "calling_expr",
-                                           "or_block", "or_else", "if_stmt", "do_expr"))
+        owns_rvalue_box = not self._unwrap_borrows_box(left_op)
+        own_box = owns_rvalue_box and (
+            not is_maybe
+            or (isinstance(own_box_op, Tree)
+                and own_box_op.data in ("some_expr", "maybe_none", "calling_expr",
+                                        "or_block", "or_else", "if_stmt", "do_expr"))
+        )
         if own_box:
-            # The payload is *moved* into the result by the assignment above
-            # ('x = *(PenguString*)box.value' shares the buffer), so only the
-            # box allocation may be released here: releasing the payload would
-            # free memory the result now owns.  Releasing the result itself is
-            # responsible for the moved value.
-            ok_free = (f"  free({tmp_res}.value); {tmp_res}.value = NULL;\n"
-                       f"  {tmp_res}.is_present = false;\n")
-            fail_free = f"  pengu_banish_maybe(&{tmp_res});\n"
+            if is_maybe:
+                ok_free = (f"  free({tmp_res}.value); {tmp_res}.value = NULL;\n"
+                           f"  {tmp_res}.is_present = false;\n")
+                fail_free = f"  pengu_banish_maybe(&{tmp_res});\n"
+            else:
+                # `error` was copied out of err_val before this runs; freeing
+                # the box (not the payload) hands the payload to the binding.
+                ok_free = f"  free({tmp_res}.ok_val); {tmp_res}.ok_val = NULL;\n"
+                fail_free = f"  free({tmp_res}.err_val); {tmp_res}.err_val = NULL;\n"
         else:
             ok_free = fail_free = ""
 
@@ -508,6 +517,16 @@ class OrBlockMixin:
         """
         arg_c = self._translate_expr(arg_node)
         arg_t = self._infer_node_type(arg_node)
+        if arg_t is None and isinstance(arg_node, Tree) and arg_node.data == "var_ref":
+            # `or:` binds the failure payload as the contextual local `error`;
+            # inference on that synthetic node has no type, so resolve it from
+            # the codegen scope.  Without this, the documented
+            # `return calling err_of with error` idiom fails in codegen.
+            arg_t = self._lookup_var_type(str(arg_node.children[0]))
+        if arg_t is None and isinstance(arg_node, Tree) and arg_node.data == "error_lit":
+            # The grammar parses `error` as a literal, not as a var_ref, so the
+            # var_ref fallback above does not see it.
+            arg_t = self.local_vars.get("error")
         if arg_t is None:
             if isinstance(arg_node, Tree) and arg_node.data in ("int_lit", "true_lit", "false_lit"):
                 arg_t = INT_TYPE
@@ -527,6 +546,12 @@ class OrBlockMixin:
         tmp = self.get_temp_name("_res_val")
         decl_tmp = CTypeMapper.to_c_decl(arg_t, tmp)
         res_tmp = self.get_temp_name("_result")
+        box_expr = f"{res_tmp}.{side}"
+        borrowed = self._boxing_is_borrowed_parameter(arg_node)
+        clone_stmts = (
+            self._boxing_clone_stmts(arg_t, arg_c, box_expr)
+            if borrowed else None
+        )
         stmts = [
             f"{decl_tmp} = {arg_c};",
             f"PenguResult {res_tmp};",
@@ -535,7 +560,16 @@ class OrBlockMixin:
             f"{res_tmp}.err_val = NULL;",
             f"{res_tmp}.{side} = pengu_sigil_alloc(sizeof({tmp}));",
             f"if (!{res_tmp}.{side}) {res_tmp}.is_ok = {'false' if is_ok else 'true'};",
-            # The box stores the payload bytes; the source keeps whatever it owned.
-            f"else memcpy({res_tmp}.{side}, &({tmp}), sizeof({tmp}));",
         ]
+        if clone_stmts is not None:
+            stmts.append("else {")
+            stmts.extend(f"  {line}" for line in clone_stmts)
+            stmts.append("}")
+        else:
+            # The box stores the payload bytes; a live source slot is moved
+            # into it (see _boxing_move_stmts), so the box is the single owner.
+            stmts.append(f"else memcpy({box_expr}, &({tmp}), sizeof({tmp}));")
+            if not borrowed:
+                stmts.extend(self._boxing_move_stmts(
+                    arg_node, arg_c, arg_t, when=box_expr))
         return self._block_expr(stmts, res_tmp)

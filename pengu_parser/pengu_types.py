@@ -2855,7 +2855,13 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
 
     elif rule == "result_type":
         ok_type = ast_to_type(type_node.children[0], symbol_lookup_fn)
-        err_type = ast_to_type(type_node.children[1], symbol_lookup_fn) if len(type_node.children) > 1 else ERROR_TYPE
+        # The optional 'to E' leaves a None child behind.  Testing only the
+        # children count made a bare 'result of T' convert that None into
+        # AnyType instead of the documented default error type; every consumer
+        # then saw an unknown error side and the constructor accepted any
+        # payload, which is exactly the type-confusion hole.
+        err_node = type_node.children[1] if len(type_node.children) > 1 else None
+        err_type = ast_to_type(err_node, symbol_lookup_fn) if err_node is not None else ERROR_TYPE
         return ResultType(ok_type=ok_type, err_type=err_type)
 
     elif rule == "tuple_type":
@@ -2943,18 +2949,19 @@ def estimate_size(t: Optional[Type], custom_types: Optional[Dict[str, Type]] = N
         return 24  # PenguSlice: void* data (8) + int len (4) + padding (4) + size_t elem_size (8) = 24 bytes
 
     if isinstance(t, ListType):
-        return 40  # PenguList: data (8) + len (4) + cap (4) + elem_size (8) + cleanup (8) + clone (8) = 40 bytes
+        return 24  # PenguList (ABI v2): data (8) + len (4) + cap (4) + elem_size (8)
 
     if isinstance(t, MapType):
-        return 64  # PenguMap: entries (8) + len (4) + cap (4) + key_sz (8) + val_sz (8) + 4 callbacks (32) = 64 bytes
+        return 32  # PenguMap (ABI v2): entries (8) + len (4) + cap (4) + key_size (8) + val_size (8)
 
     if isinstance(t, MaybeType):
         return 16  # PenguMaybe: bool is_present (1) + padding (7) + void* value (8) = 16 bytes
 
     if isinstance(t, ResultType):
-        ok_sz = estimate_size(t.ok_type, custom_types, seen)
-        err_sz = estimate_size(t.err_type, custom_types, seen)
-        return ok_sz + err_sz + 4
+        # PenguResult is a fixed pair of payload pointers plus the is_ok flag;
+        # the payload types live behind the pointers and do not change its size.
+        # The old ok+err+4 estimate was neither the C layout (24) nor stable.
+        return 24
 
     if isinstance(t, RuneType):
         if t.name in seen:

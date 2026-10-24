@@ -39,6 +39,52 @@ KEYWORD_DOCS = {
     "when": "**when**: Pattern matching branch in a `judge` expression.",
     "declare": "**declare**: Declares an external C function binding.",
     "import": "**import**: Imports a PenguScript module or stdlib package.",
+    "maybe": (
+        "**`maybe T`** — an optional value: present (`some x`) or empty "
+        "(`maybe none`). It carries **no failure cause**.\n\n"
+        "- Build: `var m as maybe int is some 42` / `var m as maybe int is maybe none`.\n"
+        "- Inspect: `.is_present`, `.value`, `is present`, `is not present`.\n"
+        "- Consume: `or else`, `or return`, `try`, or a block `or:`.\n"
+        "- Default: `donum (maybe T)` is `maybe none`.\n\n"
+        "Use it for lookups and optional fields; use `result of T to E` when the "
+        "caller needs to know *why* an operation failed."
+    ),
+    "result": (
+        "**`result of T to E`** — a typed fallible result: `ok(T)` or `err(E)`. "
+        "`E` is the failure cause (usually an `omen`).\n\n"
+        "- Build: `calling ok_of with v` / `calling err_of with e`. "
+        "`ok v` and `err v` are **not** PenguScript syntax.\n"
+        "- Inspect: `.is_ok`, `.value`, `.error` (alias `.err`).\n"
+        "- Consume: `or else`, `or return`, `try`, or a block `or:`; inside `or:` "
+        "the failure payload is bound as `error`.\n"
+        "- No default: `donum (result of T to E)` is rejected (`E0049`).\n\n"
+        "Use it for I/O, parsing, network and validation; use `maybe T` when "
+        "absence alone is the whole story."
+    ),
+    "some": (
+        "**`some x`** — constructs a present `maybe T` and moves `x` into the "
+        "container's heap box.\n\n"
+        "```pengus\nvar m as maybe int is some 42\nif m is present:\n  return m.value\n```\n\n"
+        "For the empty case use `maybe none`."
+    ),
+    "none": (
+        "**`maybe none`** — constructs an empty `maybe T`.\n\n"
+        "It needs a type context: `var m as maybe int is maybe none` (`E0014` "
+        "without one). `none` alone is not a keyword."
+    ),
+    "ok_of": (
+        "**`calling ok_of with v`** — constructs the success side of a "
+        "`result of T to E`.\n\n"
+        "It is a compiler intrinsic (there is no `std.oracle.ok_of` function). "
+        "The target type supplies `E`; the payload supplies `T`. `ok v` is not "
+        "valid syntax."
+    ),
+    "err_of": (
+        "**`calling err_of with e`** — constructs the failure side of a "
+        "`result of T to E`.\n\n"
+        "It is a compiler intrinsic. The target type supplies `T`; the payload "
+        "supplies `E`. `err e` is not valid syntax."
+    ),
 }
 
 
@@ -396,13 +442,27 @@ def get_hover(
     if not word:
         return None
 
-    # Handle keyword documentation
+    # Handle keyword documentation.  `result` and `none` are ordinary
+    # identifiers outside their type/value forms, and `ok_of`/`err_of` are
+    # call targets, so only answer when the line really uses the keyword form.
     clean_kw = word.replace("->", "").strip()
-    if clean_kw in KEYWORD_DOCS:
+    keyword_doc = KEYWORD_DOCS.get(clean_kw)
+    if keyword_doc is not None:
+        lines = text.splitlines() if text else []
+        line_text = lines[position.line] if 0 <= position.line < len(lines) else ""
+        if clean_kw == "result":
+            keyword_doc = keyword_doc if re.search(r"\bresult\s+of\b", line_text) else None
+        elif clean_kw == "none":
+            keyword_doc = keyword_doc if re.search(r"\bmaybe\s+none\b", line_text) else None
+        elif clean_kw in ("ok_of", "err_of"):
+            keyword_doc = keyword_doc if re.search(
+                rf"\b(?:calling\s+|\.){re.escape(clean_kw)}\b", line_text
+            ) else None
+    if keyword_doc is not None:
         return Hover(
             contents=MarkupContent(
                 kind=MarkupKind.Markdown,
-                value=KEYWORD_DOCS[clean_kw]
+                value=keyword_doc
             )
         )
 

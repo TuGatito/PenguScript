@@ -273,6 +273,7 @@ class PenguCodegen(
 
         # Translation state
         self.current_function: Optional[str] = None
+        self.current_param_names: set = set()
         self.current_return_type: Optional[Type] = None
         self.current_enchanted_type: Optional[Type] = None
         #: True while translating a method whose `self` is a value (a primitive

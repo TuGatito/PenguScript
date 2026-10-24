@@ -1,6 +1,6 @@
 # PenguScript Language Reference
 
-> **Version covered:** PenguScript **2.0.0** (synchronized with `VERSION` and `pengu_version.py`; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
+> **Version covered:** PenguScript **3.0.1** (synchronized with `VERSION` and `pengu_version.py`; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
 > **Language policy.** English is the canonical language of the PenguScript
 > documentation, so **this document is the normative one**. A Spanish translation is
 > maintained at [`LANGUAGE_Spanish.md`](LANGUAGE_Spanish.md); it is **non-normative**,
@@ -2741,9 +2741,77 @@ weave load with path as string into string:
     return calling archivum.describe_error with r.error
 ```
 
-The rest of the standard library keeps `maybe`/`bool` until each module gets the
-same additive treatment; the full migration is tracked as roadmap 4.4 and is
-deliberately last because it touches public APIs.
+Migration is additive and never breaking, but it is **not uniform**: each module
+chose the container its domain needs. The state in 3.0.1 is:
+
+| Style | Modules | Criterion |
+|---|---|---|
+| `result` as the primary container | `lingua`, `petitio`, `jsonrpc`, `ward`; `compressus` almost entirely | The failure has a typed cause and the caller must react to it |
+| Both | `archivum`, `oracle`, `json`, `regulus` | The `maybe`/`bool` API is kept for compatibility; `result` is added where the cause matters |
+| `maybe`/`bool` | `ledger`, `loom`, `cipher`, `tally`, … | “Not there” or “could not” with no cause the caller must distinguish |
+
+The rule for new code is the one in this section: **`maybe` for absence,
+`result` for cause**. Do not migrate a module wholesale for symmetry; add
+`result` when diagnosis or selective recovery justifies it. Modules that are
+already `result` do not need `maybe` variants (a UTF-8 or network failure is not
+an absence).
+
+### Constructors & ownership
+
+`maybe` and `result` are built with compiler intrinsics, not magic literals or
+`ok`/`err`:
+
+| Constructor | Produces | Example |
+|---|---|---|
+| `some x` | a present `maybe T` | `var m as maybe int is some 42` |
+| `maybe none` | an empty `maybe T` | `var m as maybe int is maybe none` |
+| `calling ok_of with v` | the `ok` side of `result of T to E` | `var r as result of int to string is calling ok_of with 1` |
+| `calling err_of with e` | the `err` side of `result of T to E` | `return calling err_of with IoError.NotFound` |
+
+> [!WARNING]
+> `ok` and `err` are **not** constructors or keywords: `ok 1` reports
+> `E0004: Undefined identifier 'ok'`. Always spell the intrinsics
+> `calling ok_of with …` / `calling err_of with …`.
+
+**`result of T` without `to E`.** `E` is optional in the grammar and defaults to
+`error` (the runtime's `const char*`). This is a legacy spelling: new code should
+write `result of T to E` with an error `omen`, which is the type that carries
+distinguishable causes and the one the standard library uses.
+
+**`result of void to E`.** The success side has no payload. The current idiom is
+to box a dummy value that is never read:
+
+```pengu
+weave validate with s as string into result of void to Problem:
+    if (s length) == 0:
+        return calling err_of with Problem.Empty
+    return calling ok_of with 0      # success dummy for a void result
+```
+
+**Ownership when boxing.** `some`, `ok_of` and `err_of` copy the payload bytes
+into a heap box. When the operand is a **live owning storage slot** (a variable,
+a field, or `essence of`), the constructor treats it as a **move**: it empties
+the source slot and the box becomes the sole owner. Do not use or `banish` the
+source after boxing it; doing so was the double free fixed in 3.0.1. An rvalue
+(literal, call, `do:` block) has no slot to empty: the box owns the payload
+directly. A **function parameter** of string/container type is borrowed: boxing it
+clones the payload and the caller keeps ownership, so `wrap with s` can return a
+`maybe`/`result` without stealing the caller's buffer. (Rune/omen parameters
+still take the shallow move path.)
+
+```pengu
+weave main into int:
+    var s as string is "{42}"
+    var m as maybe string is some s     # moves s: s is now empty
+    banish m                            # releases the buffer and the box
+    # banish s                          # would be a no-op: s is already empty
+    return 0
+```
+
+`banish m` on a `maybe`/`result` releases the payload the box owns and then the
+box. In an `or:` block over a `result`, the `error` binding receives that payload
+and becomes its owner; if you do not consume it, release `error` inside the
+block.
 
 ### Semantics & Codegen Lowering:
 
@@ -2810,7 +2878,7 @@ Rules:
 
 Where heap values come from:
 - `sigil of x` takes a raw address; `pengu_sigil_alloc` is the runtime allocator behind `some`.
-- `some x`, `ok x`, `err x` box the payload in a `PenguMaybe`/`PenguResult` with `memcpy`. They do **not** clone a heap payload: the box holds a copy of the value, and if that value references a heap buffer, releasing the original stays your decision.
+- `some x`, `calling ok_of with x` and `calling err_of with x` box the payload in a `PenguMaybe`/`PenguResult` with `memcpy`. If `x` is a live owning storage slot (variable, field, `essence of`), the constructor **moves** it: the source slot is emptied and the box becomes the sole owner. Do not use or `banish` the source afterwards. An rvalue (literal, call, `do:` block) has no slot to empty; the box owns the payload directly. This is what prevents the double free of earlier releases.
 - Container constructors (`list of T`, `map of K to V`, `[...]`, map literals) allocate the container's own buffer; format `{expr}` and `(x to string)` allocate a fresh string buffer.
 - `pengu_string_copy` and `pengu_banish_string` are the explicit copy/release pair for strings.
 
@@ -2884,7 +2952,7 @@ The compiler allocates and releases nothing on its own. In particular:
 - **No stack/heap inference.** No pass decides whether a local lives on the stack or the heap; a value is wherever its declaration and type put it.
 - **No deep copy on store.** `list.push` / `map.put` copy the element bytes with `memcpy` and never clone the payload; writing a `string` into a struct field or a container element is the same copy. The container does not take over releasing what the copy points at.
 - **No implicit `Imago` / `Nexus`.** A rune gets a clone callback or a destructor only when it declares `derive Imago` / `derive Nexus` (§11.6). Nothing derives them from the fields.
-- **No hidden boxing clone.** `some x`, `ok x` and `err x` store a `memcpy` of the payload in a `PenguMaybe`/`PenguResult`; they do not duplicate a heap buffer it references.
+- **Boxing moves, it does not clone.** `some x`, `calling ok_of with x` and `calling err_of with x` store a `memcpy` of the payload in a `PenguMaybe`/`PenguResult`. If `x` is a live owning slot, the constructor empties it and the box owns the buffer; `banish` of the container releases the payload and the box. Do not `banish` the source after boxing it.
 - **Two owning temporaries have no name to banish.** Both follow from the rule above and must be handled by binding the value to a local:
   - an interpolated literal passed *directly* to a call — `calling println with "{x}"` — allocates a fresh `string` (LANGUAGE.md §15.2) that no binding names, so it leaks. Bind it first: `let msg as string is "{x}"`, then `banish msg` when done. The same applies to `(x to string)`, `s.substring`, `s.char_at`, `s.trim` and every other owned-string producer used as an argument.
   - `for ch in s` binds `ch` to a **fresh owned one-byte `string` per iteration** (a `pengu_string_char_at` result, not a view). If the body neither stores nor `banish ch`es it, it leaks; `banish ch` at the end of the body releases it, and a `return`/`break` leaves the current `ch` to be released before leaving. Iterate bytes without allocating with a `ref to byte` index loop (`bytes of s`) when the character is only inspected.
