@@ -2,6 +2,52 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.20.0] — 2026-10-23 — Track B10: generic functions as values
+
+### Added
+
+- **Generic function values are materialized from the expected type.** A
+  `weave … shard T …` used as a value now instantiates the concrete C
+  function instead of emitting the undefined template name:
+
+  ```pengu
+  weave twice shard T with x as T into T:
+      return x
+
+  var f as weave with int into int is twice   # emits twice_int
+  ```
+
+  The type arguments come from the annotation, callback parameter or return
+  type at the use site. Local and imported generic functions work, as do
+  multi-parameter generics (`first_int_string`), `where` bounds and struct
+  fields.
+- Imported generic values are resolved through the module member's C name
+  (`atlas.map_size` → `atlas_map_size_int_string`), not just through bare
+  local names.
+
+### Fixed
+
+- Using a generic function as a value used to pass `pengu check` and then emit
+  `((int32_t (*)(int32_t))twice)` without a definition. It now either emits
+  the instance or reports a clear `E0005` ("cannot be used as a value without
+  a concrete function type").
+- No expected function type (including `var f as any is twice`) is `E0005`
+  rather than invalid C; a generic function value inside another generic
+  function (`weave with T into T`) is rejected until `T` is concrete.
+- Alias/frozen types are transparent during generic unification, so
+  `alias M as map of K to V` works as an expected callback type.
+- `where` bound names are extracted through `_node_to_name`; the error used to
+  print the raw Lark tree (`Tree('dotted_path', …)`) instead of `Num`, which
+  also made valid bounds fail for method bounds.
+
+### Verified
+
+- New tests: local, callback, return, multi-parameter, imported, struct-field
+  and bound-checked generic values; no-context and nested-generic diagnostics;
+  emission of the concrete instance; survival under `--prune-types`.
+- Full suite: **1356 passed, 3 skipped**; with `PENGU_PRUNE_TYPES=1` (the two
+  opt-in tests deselected): **1354 passed, 3 skipped**.
+
 ## [2.19.0] — 2026-10-23 — Track B4: global type namespace, no silent C collisions
 
 ### Added

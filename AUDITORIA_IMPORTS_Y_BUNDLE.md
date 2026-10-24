@@ -11,9 +11,8 @@
 > queda en **11,4 KB** (6,7 KB con el flag), `petitio` sin usar en **15,9 KB**
 > (4,4 KB) y `cipher`/`petitio` ya no arrastran `derive` ni tipos muertos.
 > Quedan las fases **3** (módulos de usuario) y **5** (`#line`/gates/includes/
-> links), y el track de correctitud **B10** (función genérica como valor).
-> **B4** se cerró en **2.19.0** con `E0070` y los renombres del std que permiten
-> importar todos los módulos a la vez.
+> links). **B4** se cerró en **2.19.0** (`E0070` + renombres del std) y **B10**
+> en **2.20.0** (funciones genéricas como valor: instancia concreta o `E0005`).
 
 ---
 
@@ -939,6 +938,14 @@ Un `import std.petitio` sin usar deja `#include "petitio.h"` en el bundle (y, en
 ---
 
 ### 🟡 B10 — Función genérica como valor: se emite la plantilla, no la instancia
+
+> **✅ Implementado en 2.20.0.** El inferrer instancia la función genérica a
+> partir del `FnType` esperado (anotación, callback, retorno o campo):
+> `twice_int`, `first_int_string`, `atlas_map_size_int_string`… Si no hay un
+> tipo de función concreto, o queda una `T` genérica, se emite `E0005` claro en
+> vez de C inválido. Se comparten la validación de `where` (`E0032`), el
+> registro de la instancia y el worklist del DCE. El fix corto de "rechazar
+> siempre" no fue necesario.
 
 **Síntoma.** Usar un `weave shard T` como valor de función compila el checker, pero emite el nombre de la plantilla (que nunca se define).
 

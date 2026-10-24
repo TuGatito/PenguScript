@@ -1202,6 +1202,7 @@ weave main into void:
 
 - **Decaimiento de callback a `void*`:** Cualquier identificador de `weave` o lambda puede pasarse donde se espera `ref to void` o `ref to frozen void` (habitual en APIs de C que reciben punteros de callback `void* user_data`).
 - **Conversión de callbacks:** El compilador emite automáticamente conversiones explícitas de punteros a función (p. ej. `((AudioCallback)on_audio)`) para satisfacer a los compiladores estrictos de C99/C11 (como GCC 14+).
+- **Funciones genéricas como valor (B10):** un `weave … shard T …` usado como valor se instancia a partir del tipo de puntero a función esperado. `var f as weave with int into int is twice` materializa `twice_int`; funciona igual como argumento callback, valor de retorno o campo de un rune, y con funciones genéricas importadas (`is atlas.map_size`). Sin un tipo de función concreto no hay nada que inferir: `var f as int is twice` es `E0005`, y una función genérica como valor dentro de otra función genérica necesita un tipo concreto (una `T` aún genérica no se puede instanciar). Las violaciones de `where` siguen siendo `E0032`.
 
 ### 8.4 Lambdas
 
@@ -5239,7 +5240,7 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0002` | `VarLetTopLevelError` | 3 | var/let declared at top-level. | 1 help / 1 note |
 | `E0003` | `SelfDotAccessError`, `SemanticError` | 7 | self accessed with dot instead of arrow. | 1 help / 1 note |
 | `E0004` | `SemanticError`, `UndefinedIdentifierError` | 16 | identifier not defined in symbol table. | 1 help / 1 note |
-| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 153 | types incompatible. | 1 help / 1 note |
+| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 156 | types incompatible. | 1 help / 1 note |
 | `E0006` | `InvalidMemoryOpError`, `MutabilityError` | 12 | assignment to immutable let binding or constant. | 1 help / 1 note |
 | `E0007` | `InvalidControlFlowError` | 2 | break/continue outside loop. | 1 help / 1 note |
 | `E0008` | `InvalidMemoryOpError`, `SemanticError`, `TypeMismatchError` | 15 | invalid sigil/banish on literal/const. | 1 help / 1 note |

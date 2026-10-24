@@ -566,11 +566,15 @@ class BundleMixin:
                             if not c_name and name in self.fn_info:
                                 c_name = self.fn_info[name].get("c_name")
                         if c_name:
-                            node._pengu_resolved_c_name = c_name
+                            existing = getattr(node, "_pengu_resolved_c_name", None)
+                            if not (existing and existing in getattr(self.symbols, "monomorphized_functions", {})):
+                                node._pengu_resolved_c_name = c_name
                     elif name in self.fn_info:
                         c_name = self.fn_info[name].get("c_name")
                         if c_name:
-                            node._pengu_resolved_c_name = c_name
+                            existing = getattr(node, "_pengu_resolved_c_name", None)
+                            if not (existing and existing in getattr(self.symbols, "monomorphized_functions", {})):
+                                node._pengu_resolved_c_name = c_name
     def get_temp_name(self, prefix: str = "_tmp") -> str:
         """Generates unique local variable identifier.
 

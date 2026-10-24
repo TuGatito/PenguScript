@@ -12,6 +12,7 @@ from .pengu_types import (
     Type, BaseType, RefType, ArrayType, SliceType, ManyType, ListType, MapType, MaybeType,
     RuneType, EchoType, OmenType, ResultType, FnType, OPAQUE_TYPE, AliasType, AnyType, FrozenType, RangeType,
     TypeParam, NullType, NULL_TYPE, INT_TYPE, I32_TYPE, I64_TYPE, U32_TYPE, U64_TYPE, CHAR_TYPE, BYTE_TYPE,
+    TupleType,
     U8_TYPE, I8_TYPE, U16_TYPE, I16_TYPE, USIZE_TYPE, ISIZE_TYPE, FLOAT_TYPE, F32_TYPE,
     F64_TYPE, DOUBLE_TYPE, BOOL_TYPE, STRING_TYPE, VOID_TYPE, ERROR_TYPE, ConceptType, SealType,
     CVarArgsType,
@@ -992,7 +993,13 @@ class TypeInferrer:
                 sym = self.symbols.lookup(val)
                 if sym is not None:
                     self._check_deprecated_symbol(sym, val)
-                    return sym.type
+                    sym_type = sym.type
+                    if (isinstance(sym_type, FnType)
+                            and getattr(sym_type, "type_params", None)
+                            and getattr(sym, "kind", "") in ("weave", "function", "declare")):
+                        return self._infer_generic_function_value(
+                            val, sym_type, expected_type, node)
+                    return sym_type
                 t = self.symbols.lookup_type(val)
                 if t is not None:
                     self._check_deprecated_symbol(t, val)
@@ -1276,7 +1283,13 @@ class TypeInferrer:
             if sym is not None:
                 if sym.kind == "omen_variant" and isinstance(sym.type, OmenType) and sym.type.is_string_valued:
                     return FrozenType(STRING_TYPE)
-                return sym.type
+                sym_type = sym.type
+                if (isinstance(sym_type, FnType)
+                        and getattr(sym_type, "type_params", None)
+                        and getattr(sym, "kind", "") in ("weave", "function", "declare")):
+                    return self._infer_generic_function_value(
+                        name, sym_type, expected_type, node)
+                return sym_type
             if name.isupper() and self.symbols.has_includes:
                 return INT_TYPE
             if name.isupper() and not self.symbols.has_includes:
@@ -1355,7 +1368,15 @@ class TypeInferrer:
                         if mod_sym and getattr(mod_sym, "type", None):
                             if getattr(mod_sym, "kind", "") == "omen_variant" and isinstance(mod_sym.type, OmenType) and mod_sym.type.is_string_valued:
                                 return FrozenType(STRING_TYPE)
-                            return mod_sym.type
+                            mod_t = mod_sym.type
+                            if (isinstance(mod_t, FnType)
+                                    and getattr(mod_t, "type_params", None)
+                                    and getattr(mod_sym, "kind", "") in ("weave", "function", "declare")):
+                                fn_name = (getattr(mod_sym, "c_name", None)
+                                           or f"{var_name}_{field_name}")
+                                return self._infer_generic_function_value(
+                                    fn_name, mod_t, expected_type, node)
+                            return mod_t
                     c_sym = self.symbols.lookup(f"{var_name}_{field_name}") or self.symbols.lookup(field_name)
                     if c_sym and c_sym.type:
                         if getattr(c_sym, "kind", "") == "omen_variant" and isinstance(c_sym.type, OmenType) and c_sym.type.is_string_valued:
@@ -3193,101 +3214,8 @@ class TypeInferrer:
                     if n_name in param_dict:
                         self._unify_type(param_dict[n_name], arg_t, subst_map)
 
-                unresolved = [tp for tp in type_params if tp not in subst_map]
-                if unresolved:
-                    raise self._make_error(
-                        TypeMismatchError,
-                        f"Could not infer type parameter(s) {', '.join(unresolved)} for generic function '{fn_name}'",
-                        node,
-                        code="E0005",
-                        help="Ensure arguments provide enough type information to deduce all type parameters.",
-                        note="Generic functions require all type parameters to be inferable."
-                    )
-
-                def _extract_shard_params_bounds(shard_node: Tree) -> Tuple[List[str], Dict[str, List[str]]]:
-                    t_params: List[str] = []
-                    b_dict: Dict[str, List[str]] = {}
-                    if not isinstance(shard_node, Tree):
-                        return t_params, b_dict
-                    for ch in shard_node.children:
-                        if isinstance(ch, Token) and ch.type == "NAME":
-                            t_params.append(str(ch))
-                        elif isinstance(ch, Tree) and ch.data == "where_clause":
-                            for wb in ch.children:
-                                if isinstance(wb, Tree) and wb.data == "where_bound":
-                                    tp_n = _node_to_name(wb.children[0])
-                                    c_n = _node_to_name(wb.children[1])
-                                    b_dict.setdefault(tp_n, []).append(c_n)
-                    return t_params, b_dict
-
-                fn_bounds = {}
-                if fn_name and fn_name in self.symbols.generic_functions:
-                    fn_ast = self.symbols.generic_functions[fn_name][1]
-                    for ch in fn_ast.children:
-                        if isinstance(ch, Tree) and ch.data == "shard_params":
-                            _, fn_bounds = _extract_shard_params_bounds(ch)
-                            break
-
-                for tp, arg_t in subst_map.items():
-                    for bound in fn_bounds.get(tp, []):
-                        if not implements_concept(arg_t, bound, self.symbols):
-                            t_display = getattr(arg_t, "name", str(arg_t))
-                            raise self._make_error(
-                                ConceptBoundNotSatisfiedError,
-                                f"Type '{t_display}' does not implement concept '{bound}' required by generic parameter '{tp}'",
-                                node,
-                                code="E0032",
-                                help=f"Bind concept '{bound}' to type '{t_display}' using 'bind {t_display} with {bound}:'.",
-                                note=f"Generic function '{fn_name}' requires '{tp}: {bound}'."
-                            )
-
-                specialized_fn_type = fn_type.substitute(subst_map)
-                mangled_args = "_".join(subst_map[tp].get_mangled_name() for tp in type_params)
-
-                sym = self.symbols.lookup(fn_name) if self.symbols else None
-                module_prefix = ""
-                if sym and getattr(sym, "file_path", None):
-                    stem = os.path.splitext(os.path.basename(sym.file_path))[0]
-                    if stem.endswith(".d"):
-                        stem = stem[:-2]
-                    cur_fp = getattr(self, "filename", "") or ""
-                    cur_stem = os.path.splitext(os.path.basename(cur_fp))[0] if cur_fp else ""
-                    if cur_stem.endswith(".d"):
-                        cur_stem = cur_stem[:-2]
-                    if stem and stem != cur_stem and not fn_name.startswith(f"{stem}_"):
-                        module_prefix = stem
-                mangled_fn_name = f"{module_prefix}{'_' if module_prefix else ''}{fn_name}_{mangled_args}"
-
-                target_g_name = fn_name
-                if target_g_name not in self.symbols.generic_functions and module_prefix and f"{module_prefix}_{fn_name}" in self.symbols.generic_functions:
-                    target_g_name = f"{module_prefix}_{fn_name}"
-
-                if target_g_name and target_g_name in self.symbols.generic_functions:
-                    fn_ast = self.symbols.generic_functions[target_g_name][1]
-                    self.symbols.monomorphized_functions[mangled_fn_name] = (fn_ast, subst_map)
-
-                elif fn_name and "_" in fn_name:
-                    fn_sym = self.symbols.lookup(fn_name)
-                    if not (fn_sym and getattr(fn_sym, "kind", "") in ("weave", "function", "declare")):
-                        first_p, last_p = fn_name.split("_", 1)
-                        if (first_p, last_p) in self.symbols.generic_methods:
-                            entry = self.symbols.generic_methods[(first_p, last_p)]
-                            method_ast = entry[2] if len(entry) == 3 else entry[1]
-                            m_target_t = specialized_fn_type.return_type
-                            self.symbols.monomorphized_methods[mangled_fn_name] = (method_ast, subst_map, m_target_t)
-                            m_cand = f"{first_p}_{mangled_args}_{last_p}"
-                            self.symbols.monomorphized_methods[m_cand] = (method_ast, subst_map, m_target_t)
-                            self.symbols.functions[m_cand] = specialized_fn_type
-
-                self.symbols.functions[mangled_fn_name] = specialized_fn_type
-                if f"{fn_name}_{mangled_args}" not in self.symbols.functions:
-                    self.symbols.functions[f"{fn_name}_{mangled_args}"] = specialized_fn_type
-                self.symbols.global_scope.define(Symbol(
-                    name=mangled_fn_name,
-                    type=specialized_fn_type,
-                    kind="function"
-                ))
-                fn_type = specialized_fn_type
+                fn_type, _, _ = self._specialize_generic_function(
+                    fn_name, fn_type, subst_map, node, type_params)
 
             elif method_name and method_self_type is not None:
                 receiver_type = method_self_type.target if isinstance(method_self_type, RefType) else method_self_type
@@ -5083,17 +5011,205 @@ class TypeInferrer:
             elif isinstance(ch, Tree) and ch.data == "where_clause":
                 for wb in ch.children:
                     if isinstance(wb, Tree) and wb.data == "where_bound":
-                        t_param_node = wb.children[0]
-                        t_param_name = str(t_param_node.children[0]) if isinstance(t_param_node, Tree) else str(t_param_node)
-                        concept_node = wb.children[1]
-                        concept_name = str(concept_node.children[0]) if isinstance(concept_node, Tree) else str(concept_node)
+                        t_param_name = _node_to_name(wb.children[0])
+                        concept_name = _node_to_name(wb.children[1])
                         bounds.setdefault(t_param_name, []).append(concept_name)
         return type_params, bounds
+
+    def _specialize_generic_function(self, fn_name: Optional[str], fn_type: FnType,
+                                     subst_map: Dict[str, Type], node: Any,
+                                     type_params: List[str],
+                                     allow_method: bool = True):
+        """Validates and registers a concrete generic-function instance.
+
+        Shared by the call path and by generic functions used as *values*
+        (Track B10).  The returned name is the C symbol the emitter must use;
+        `registered` is false when no generic AST could be found (the call path
+        preserves its old best-effort behaviour, the value path rejects it).
+
+        Returns:
+            ``(specialized_fn_type, mangled_name, registered)``.
+        """
+        type_params = list(type_params or [])
+        unresolved = [tp for tp in type_params if tp not in subst_map]
+        if unresolved:
+            raise self._make_error(
+                TypeMismatchError,
+                f"Could not infer type parameter(s) {', '.join(unresolved)} for generic function '{fn_name}'",
+                node,
+                code="E0005",
+                help="Ensure arguments provide enough type information to deduce all type parameters.",
+                note="Generic functions require all type parameters to be inferable."
+            )
+
+        fn_bounds: Dict[str, List[str]] = {}
+        if fn_name and fn_name in self.symbols.generic_functions:
+            fn_ast = self.symbols.generic_functions[fn_name][1]
+            for ch in fn_ast.children:
+                if isinstance(ch, Tree) and ch.data == "shard_params":
+                    _, fn_bounds = self._extract_shard_params_bounds(ch)
+                    break
+        for tp, arg_t in subst_map.items():
+            for bound in fn_bounds.get(tp, []):
+                if not implements_concept(arg_t, bound, self.symbols):
+                    t_display = getattr(arg_t, "name", str(arg_t))
+                    raise self._make_error(
+                        ConceptBoundNotSatisfiedError,
+                        f"Type '{t_display}' does not implement concept '{bound}' required by generic parameter '{tp}'",
+                        node,
+                        code="E0032",
+                        help=f"Bind concept '{bound}' to type '{t_display}' using 'bind {t_display} with {bound}:'.",
+                        note=f"Generic function '{fn_name}' requires '{tp}: {bound}'."
+                    )
+
+        specialized_fn_type = fn_type.substitute(subst_map)
+        mangled_args = "_".join(subst_map[tp].get_mangled_name() for tp in type_params)
+
+        sym = self.symbols.lookup(fn_name) if (self.symbols and fn_name) else None
+        module_prefix = ""
+        if sym and getattr(sym, "file_path", None):
+            stem = os.path.splitext(os.path.basename(sym.file_path))[0]
+            if stem.endswith(".d"):
+                stem = stem[:-2]
+            cur_fp = getattr(self, "filename", "") or ""
+            cur_stem = os.path.splitext(os.path.basename(cur_fp))[0] if cur_fp else ""
+            if cur_stem.endswith(".d"):
+                cur_stem = cur_stem[:-2]
+            if stem and stem != cur_stem and not fn_name.startswith(f"{stem}_"):
+                module_prefix = stem
+        mangled_fn_name = f"{module_prefix}{'_' if module_prefix else ''}{fn_name}_{mangled_args}"
+
+        target_g_name = fn_name
+        if (target_g_name not in self.symbols.generic_functions and module_prefix
+                and f"{module_prefix}_{fn_name}" in self.symbols.generic_functions):
+            target_g_name = f"{module_prefix}_{fn_name}"
+
+        registered = False
+        if target_g_name and target_g_name in self.symbols.generic_functions:
+            fn_ast = self.symbols.generic_functions[target_g_name][1]
+            self.symbols.monomorphized_functions[mangled_fn_name] = (fn_ast, subst_map)
+            registered = True
+
+        elif allow_method and fn_name and "_" in fn_name:
+            fn_sym = self.symbols.lookup(fn_name)
+            if not (fn_sym and getattr(fn_sym, "kind", "") in ("weave", "function", "declare")):
+                first_p, last_p = fn_name.split("_", 1)
+                if (first_p, last_p) in self.symbols.generic_methods:
+                    entry = self.symbols.generic_methods[(first_p, last_p)]
+                    method_ast = entry[2] if len(entry) == 3 else entry[1]
+                    m_target_t = specialized_fn_type.return_type
+                    self.symbols.monomorphized_methods[mangled_fn_name] = (method_ast, subst_map, m_target_t)
+                    m_cand = f"{first_p}_{mangled_args}_{last_p}"
+                    self.symbols.monomorphized_methods[m_cand] = (method_ast, subst_map, m_target_t)
+                    self.symbols.functions[m_cand] = specialized_fn_type
+                    registered = True
+
+        self.symbols.functions[mangled_fn_name] = specialized_fn_type
+        if f"{fn_name}_{mangled_args}" not in self.symbols.functions:
+            self.symbols.functions[f"{fn_name}_{mangled_args}"] = specialized_fn_type
+        self.symbols.global_scope.define(Symbol(
+            name=mangled_fn_name,
+            type=specialized_fn_type,
+            kind="function"
+        ))
+        return specialized_fn_type, mangled_fn_name, registered
+
+    def _type_is_concrete(self, t: Type, seen: Optional[set] = None) -> bool:
+        """True when ``t`` contains no unresolved type parameter or ``any``."""
+        if t is None:
+            return False
+        if seen is None:
+            seen = set()
+        if id(t) in seen:
+            return True
+        seen.add(id(t))
+        if isinstance(t, (TypeParam, AnyType)):
+            return False
+        if isinstance(t, (AliasType, FrozenType, RefType, SealType)):
+            target = getattr(t, "target", None) or getattr(t, "underlying", None)
+            return self._type_is_concrete(target, seen)
+        if isinstance(t, (ListType, SliceType, ManyType, MaybeType, ArrayType)):
+            return self._type_is_concrete(getattr(t, "element", None), seen)
+        if isinstance(t, MapType):
+            return self._type_is_concrete(t.key, seen) and self._type_is_concrete(t.value, seen)
+        if isinstance(t, ResultType):
+            return (self._type_is_concrete(t.ok_type, seen)
+                    and self._type_is_concrete(t.err_type, seen))
+        if isinstance(t, TupleType):
+            return all(self._type_is_concrete(e, seen) for e in t.elements)
+        if isinstance(t, FnType):
+            return (all(self._type_is_concrete(p[1] if isinstance(p, tuple) else p, seen)
+                        for p in (t.params or []))
+                    and self._type_is_concrete(t.return_type, seen))
+        args = getattr(t, "type_args", None) or []
+        return all(self._type_is_concrete(a, seen) for a in args)
+
+    def _infer_generic_function_value(self, name: str, fn_type: FnType,
+                                      expected_type: Optional[Type], node: Any) -> Type:
+        """Monomorphizes a generic function used as a value (Track B10).
+
+        The annotation (or the parameter/return type at the use site) is the
+        only source of concrete type arguments: ``var f as weave with int into
+        int is twice`` instantiates ``twice_int``.  Without a concrete
+        function-pointer expectation there is nothing to infer, so the use is
+        rejected instead of emitting the undefined template name.
+        """
+        target = expected_type
+        while isinstance(target, (AliasType, FrozenType)):
+            target = getattr(target, "target", None)
+        if isinstance(target, RefType):
+            target = target.target
+            while isinstance(target, (AliasType, FrozenType)):
+                target = getattr(target, "target", None)
+        if not isinstance(target, FnType):
+            raise self._make_error(
+                TypeMismatchError,
+                f"Generic function '{name}' cannot be used as a value without a concrete function type",
+                node,
+                code="E0005",
+                help=f"Annotate it with a function-pointer type (e.g. 'var f as weave with int into int is {name}') "
+                     "or call it directly so its type arguments can be inferred.",
+                note="A generic function needs one concrete instance per type argument; a bare value has no argument list to infer them from."
+            )
+        subst_map: Dict[str, Type] = {}
+        self._unify_type(fn_type, target, subst_map)
+        type_params = list(getattr(fn_type, "type_params", []) or [])
+        for tp in type_params:
+            if tp not in subst_map or not self._type_is_concrete(subst_map[tp]):
+                raise self._make_error(
+                    TypeMismatchError,
+                    f"Could not infer a concrete type for parameter '{tp}' of generic function '{name}' "
+                    f"from '{target}'",
+                    node,
+                    code="E0005",
+                    help=f"Use a concrete function-pointer type whose parameters determine '{tp}'.",
+                    note="Generic functions used as values are instantiated from the expected function type."
+                )
+        specialized, mangled, registered = self._specialize_generic_function(
+            name, fn_type, subst_map, node, type_params, allow_method=False)
+        if not registered:
+            raise self._make_error(
+                TypeMismatchError,
+                f"Generic function '{name}' has no definition that can be instantiated here",
+                node,
+                code="E0005",
+                help="Define the generic function in a PenguScript module (not only in a C binding).",
+                note="Only generic PenguScript functions can be materialized as function values."
+            )
+        node._pengu_resolved_c_name = mangled
+        return specialized
 
     def _unify_type(self, param_t: Type, arg_t: Type, subst_map: Dict[str, Type]) -> None:
         """Recursively matches param_t against arg_t to infer generic type parameter bindings."""
         if param_t is None or arg_t is None:
             return
+        # Aliases and frozen views are transparent: `alias M as map of K to V`
+        # must unify with `map of K to V` when the expected function type uses
+        # the alias.  (Seals are nominal and deliberately not unwrapped here.)
+        if isinstance(param_t, (AliasType, FrozenType)) and getattr(param_t, "target", None) is not None:
+            return self._unify_type(param_t.target, arg_t, subst_map)
+        if isinstance(arg_t, (AliasType, FrozenType)) and getattr(arg_t, "target", None) is not None:
+            return self._unify_type(param_t, arg_t.target, subst_map)
         if isinstance(param_t, TypeParam):
             if param_t.name not in subst_map:
                 subst_map[param_t.name] = arg_t

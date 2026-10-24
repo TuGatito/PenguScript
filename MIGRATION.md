@@ -8,9 +8,33 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.19.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.20.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.19.0 → 2.20.0: generic functions as values
+
+This release is additive. A `shard` function can now be used as a value when the
+expected type is a concrete function pointer:
+
+```pengu
+weave twice shard T with x as T into T:
+    return x
+
+var f as weave with int into int is twice   # instantiates twice_int
+```
+
+The instance is materialized from the annotation (or from the callback
+parameter / return type at the use site); local and imported generic functions,
+multi-parameter generics and `where` bounds are supported. Using a generic
+function as a value without a concrete function type is now a clear `E0005`
+instead of emitting an undefined C template name. A function value inside a
+generic function still needs a concrete type (`weave with T into T` cannot be
+instantiated until the outer `T` is known), and is rejected the same way.
+
+No existing program changes meaning. Removing the old invalid-C path is the
+only observable difference for code that used to compile the checker and then
+fail in C.
 
 ## 2.18.0 → 2.19.0: global type names and standard-library renames
 

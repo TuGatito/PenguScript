@@ -1862,6 +1862,14 @@ class ExprMixin:
 
         # 5. Member and index access
         elif rule == "field_access":
+            # A generic function used as a value is materialized by the
+            # checker/inferrer, which records the concrete C name on the node
+            # (Track B10).  Only trust it while the instance is still registered
+            # for this build.
+            resolved_generic = getattr(node, "_pengu_resolved_c_name", None)
+            if (resolved_generic
+                    and resolved_generic in getattr(self.symbols, "monomorphized_functions", {})):
+                return self._cast_fn_value(resolved_generic, expected_type)
             target_node = node.children[0]
             raw_field = str(node.children[1])
             field_name = self._c_ident(raw_field)

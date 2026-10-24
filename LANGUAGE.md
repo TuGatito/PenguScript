@@ -1217,6 +1217,7 @@ weave main into void:
 
 - **Callback Decay to `void*`:** Any `weave` identifier or lambda can be passed where `ref to void` or `ref to frozen void` is expected (common in C APIs taking `void* user_data` callback pointers).
 - **Callback Casting:** The compiler automatically emits explicit function pointer casts (e.g. `((AudioCallback)on_audio)`) to satisfy strict C99/C11 compilers (such as GCC 14+).
+- **Generic function values (B10):** a `weave … shard T …` used as a value is instantiated from the expected function-pointer type. `var f as weave with int into int is twice` materializes `twice_int`; the same works when the function is a callback argument, a return value or a struct field, and for imported generic functions (`is atlas.map_size`). Without a concrete function type there is nothing to infer: `var f as int is twice` is `E0005`, and a generic function value inside another generic function needs a concrete type (a `T` that is still generic cannot be instantiated). Bound violations are the usual `E0032`.
 
 ### 8.4 Lambdas
 
@@ -5249,7 +5250,7 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0002` | `VarLetTopLevelError` | 3 | var/let declared at top-level. | 1 help / 1 note |
 | `E0003` | `SelfDotAccessError`, `SemanticError` | 7 | self accessed with dot instead of arrow. | 1 help / 1 note |
 | `E0004` | `SemanticError`, `UndefinedIdentifierError` | 16 | identifier not defined in symbol table. | 1 help / 1 note |
-| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 153 | types incompatible. | 1 help / 1 note |
+| `E0005` | `ConceptBoundNotSatisfiedError`, `SemanticError`, `TypeMismatchError` | 156 | types incompatible. | 1 help / 1 note |
 | `E0006` | `InvalidMemoryOpError`, `MutabilityError` | 12 | assignment to immutable let binding or constant. | 1 help / 1 note |
 | `E0007` | `InvalidControlFlowError` | 2 | break/continue outside loop. | 1 help / 1 note |
 | `E0008` | `InvalidMemoryOpError`, `SemanticError`, `TypeMismatchError` | 15 | invalid sigil/banish on literal/const. | 1 help / 1 note |
