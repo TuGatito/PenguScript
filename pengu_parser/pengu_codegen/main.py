@@ -237,6 +237,10 @@ class PenguCodegen(
         # can name a type or constant the bundle does not spell.
         _prune_types = os.environ.get("PENGU_PRUNE_TYPES", "").strip().lower()
         self.prune_types_enabled = _prune_types in {"1", "true", "yes", "on"}
+        # Phase 3: opt-in tree-shaking of ordinary project modules.  The code
+        # generator turns it off for --test, library outputs and --no-dce.
+        self.dce_scope_user = (
+            os.environ.get("PENGU_DCE_SCOPE", "").strip().lower() == "user")
         self._live_type_names: Optional[Set[str]] = None
         self._const_units = None
         self._derived_units = None

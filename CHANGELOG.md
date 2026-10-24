@@ -2,6 +2,50 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.22.0] — 2026-10-23 — Phase 3: opt-in user-module tree shaking
+
+### Added
+
+- **`--dce-scope=user` / `--tree-shake-user` / `PENGU_DCE_SCOPE=user`.** By
+  default every weave of a project module is a root (an executable may expose
+  helpers to C, plugins or future code). The opt-in scope moves ordinary
+  project modules into the prunable set:
+
+  * roots: `main`/`pengu_main`, every `@export`, and every identifier in the
+    project's `c/` glue sources (read before pruning, so a C callback keeps the
+    Pengu function it calls);
+  * `.d.pengu` bindings stay unprunable (C boundary);
+  * `--test`, `static`/`shared`/`obj` outputs and `--no-dce` keep everything;
+  * the flag is part of the script cache key and project config hash.
+
+  Example (two dead helpers): 3.4 KB → **2.9 KB**; a 40-helper utility module
+  (only `helper_0` called) drops from **15.5 KB to 2.9 KB** (−82 %). The bundle
+  marker says `(scope=user)`.
+- Available on `build`, `run`, `time` and `expand`; `--dce-scope=std` explicitly
+  overrides a `PENGU_DCE_SCOPE=user` environment.
+
+### Fixed
+
+- The script cache key now includes the project's `c/` glue contents. It used
+  to ignore them, so editing a C file could reuse a stale script binary; with
+  `--dce-scope=user` the glue also decides which project weaves stay alive.
+
+### Notes
+
+- Do **not** enable this when plugins are loaded with `dlopen` or symbols are
+  resolved by name at runtime; the DCE scan cannot see them. Mark such entry
+  points with `@export`.
+- Types/constants are still governed by the separate `--prune-types` opt-in.
+
+### Verified
+
+- New tests: default keeps user code, user scope prunes it, alias/env, `@export`
+  root, C-glue root, library/test/`--no-dce` keep everything, exact cache
+  invalidation.
+- Full suite: **1372 passed, 3 skipped**; with `PENGU_PRUNE_TYPES=1` (the two
+  opt-in tests deselected): **1370 passed, 3 skipped**.
+- Portable and FHS releases: smoke tests OK (2.22.0).
+
 ## [2.21.0] — 2026-10-23 — Phase 5: optional `#line` removal and B12 hygiene
 
 ### Added

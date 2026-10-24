@@ -92,7 +92,8 @@ def resolved_std_roots(extra_roots: Optional[Iterable[str]] = None) -> List[str]
 
 
 def is_prunable_module(filepath: str, base_dir: Optional[str] = None,
-                       std_roots: Optional[Iterable[str]] = None) -> bool:
+                       std_roots: Optional[Iterable[str]] = None,
+                       include_user: bool = False) -> bool:
     """True for modules whose symbols may be dropped (``std/`` and ``lib/`` only).
 
     A module is prunable when it lives in a real ``std/`` directory (the
@@ -117,6 +118,8 @@ def is_prunable_module(filepath: str, base_dir: Optional[str] = None,
         filepath: Absolute or relative path of the module.
         base_dir: Project root, used for the project-local ``std/``/``lib/``.
         std_roots: Pre-resolved std roots; computed once when omitted.
+        include_user: Also treat ordinary project modules as prunable
+            (``--dce-scope=user``).  ``.d.pengu`` bindings stay unprunable.
     """
     if not filepath:
         return False
@@ -141,7 +144,7 @@ def is_prunable_module(filepath: str, base_dir: Optional[str] = None,
         first = rel.split("/", 1)[0]
         if first in ("std", "lib"):
             return True
-    return False
+    return bool(include_user)
 
 
 _IDENT_RE = None
@@ -247,7 +250,8 @@ def _is_referenced(weave: Dict[str, Any], alive: Set[str]) -> bool:
 def prune_weaves(weaves: Sequence[Dict[str, Any]],
                  extra_refs: Iterable[str] = (),
                  base_dir: Optional[str] = None,
-                 std_roots: Optional[Iterable[str]] = None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+                 std_roots: Optional[Iterable[str]] = None,
+                 include_user: bool = False) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Splits the collected weaves into (kept, dropped).
 
     ``weaves`` items are the dictionaries built by the code generator; they must
@@ -260,6 +264,9 @@ def prune_weaves(weaves: Sequence[Dict[str, Any]],
     discovered from ``pengu_paths.std_dirs()`` (see
     :func:`resolved_std_roots`).  Resolving them once keeps the per-weave check
     cheap and, more importantly, makes it work outside the source checkout.
+    ``include_user`` moves ordinary project modules into the prunable set too
+    (``--dce-scope=user``); ``.d.pengu`` bindings and ``@export``/``main`` stay
+    roots.
 
     Monomorphized instances (``subst_map``) are kept unconditionally.  This
     function cannot see the emitted C, so it cannot know which specializations a
@@ -293,7 +300,8 @@ def prune_weaves(weaves: Sequence[Dict[str, Any]],
             alive.add(str(weave.get("c_name", "")))
             alive |= set(weave.get("refs") or ())
             continue
-        if is_prunable_module(weave.get("filepath", ""), base_dir, roots):
+        if is_prunable_module(weave.get("filepath", ""), base_dir, roots,
+                              include_user=include_user):
             std_weaves.append(weave)
         else:
             kept.append(weave)
@@ -340,5 +348,5 @@ def summarize(dropped: Sequence[Dict[str, Any]], before: int, after: int) -> str
     names = ", ".join(sorted({str(w.get("name", "?")) for w in dropped})[:6])
     more = "" if len(dropped) <= 6 else f" (+{len(dropped) - 6} more)"
     pct = (1.0 - (after / before)) * 100.0 if before else 0.0
-    return (f"DCE: dropped {len(dropped)} unused std weave(s) "
+    return (f"DCE: dropped {len(dropped)} unused weave(s) "
             f"[{names}{more}] — {before} -> {after} weaves (-{pct:.0f}%)")

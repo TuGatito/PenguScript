@@ -238,7 +238,7 @@ weave reduction (`[pengu] DCE: dropped … weave(s)`), `pengu time` prints the
 pruned count, and the bundle itself is self-describing:
 
 ```c
-/* Dead-code elimination: pruned 1494 of 1500 std/lib weave(s), 1500 -> 6 */
+/* Dead-code elimination: pruned 1494 of 1500 module weave(s), 1500 -> 6 */
 /* Dead-code elimination: pruned 20 of 20 derived helper block(s) */
 /* Dead-code elimination (--prune-types): pruned 16 type(s), 22 constant(s) */
 ...
@@ -251,7 +251,35 @@ of the script cache key and of the project config hash, so an A/B comparison
 never reuses the other mode's binary; in project mode they reach
 `build_project` through `pengu run --no-dce` / `pengu build --prune-types`.
 
-### 6.1 `#line` directives (`--no-line-markers`)
+### 6.1 User-module tree shaking (`--dce-scope=user`)
+
+By default every weave in a **user** module is a root: a project imports a
+utility module and its whole public surface is emitted, even in an executable
+where only `main` is called. `--dce-scope=user` (alias `--tree-shake-user`, env
+`PENGU_DCE_SCOPE=user`) treats ordinary project modules like `std/`:
+
+* roots are `main` / `pengu_main`, every `@export`, and the identifiers found in
+  the project's `c/` glue sources (read before DCE decides);
+* `.d.pengu` bindings stay unprunable (they are the C boundary);
+* `--test`, `static`/`shared`/`obj` outputs and `--no-dce` keep everything —
+  test bodies must reach any helper, and a library's public API is its product.
+
+The flag is off by default and is part of the script cache key/config hash.
+
+```pengu
+# util.pengu: 40 helpers, only helper_used is called
+import util
+weave main into int:
+    return calling util.helper_used with 1
+```
+
+With two dead helpers the bundle is 3.4 KB → **2.9 KB**; a 40-helper utility
+module (only `helper_0` called) is **15.5 KB → 2.9 KB** (−82 %). The savings
+depend on how many “public-looking” helpers a project carries. Do **not** enable it when
+plugins are loaded with `dlopen` or symbols are resolved by name at runtime:
+those are not visible to the DCE scan. Give such entry points `@export`.
+
+### 6.2 `#line` directives (`--no-line-markers`)
 
 `bundle.c` carries `#line` directives so a C compiler error points at the
 `.pengu` source line instead of the generated file. They are on by default and

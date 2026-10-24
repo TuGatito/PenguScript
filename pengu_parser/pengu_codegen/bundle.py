@@ -18,6 +18,7 @@ from ._base import (
     Set,
     Tree,
     _dce_collect_refs,
+    _dce_identifiers_in_text,
     _dce_resolved_std_roots,
     _dce_summarize,
     is_prunable_module,
@@ -68,7 +69,8 @@ class BundleMixin:
         custom_includes: Optional[List[str]] = None,
         is_library: bool = False,
         output_path: Optional[str] = None,
-        is_test: bool = False
+        is_test: bool = False,
+        c_glue_text: str = "",
     ) -> str:
         """Generates single monolithic bundle.c combining all modules and runtime header.
 
@@ -88,6 +90,8 @@ class BundleMixin:
             output_path: Optional destination file path to write bundle.c.
             is_test: True to emit the integrated unit-test runner instead of the
                 normal application entry point.
+            c_glue_text: Project C glue sources, scanned as DCE roots when
+                ``--dce-scope=user`` is active.
 
         Returns:
             Generated C code string.
@@ -112,9 +116,17 @@ class BundleMixin:
         self._dce_materialized = set()
         self._live_type_names = None
 
+        # Phase 3 is opt-in and never applies to tests or library outputs: test
+        # bodies must be able to call any helper, and a library's public API is
+        # its product.  `--no-dce` also wins.
+        scope_user = bool(self.dce_scope_user and self.dce_enabled
+                          and not is_test and not is_library)
+        self._dce_scope_user_active = scope_user
+
         # Compact label for the self-describing marker below (`std` = checked
-        # now, `off` = PENGU_NO_DCE, `test` = instances kept for test bodies).
-        dce_mode = "test" if is_test else "std"
+        # now, `off` = PENGU_NO_DCE, `test` = instances kept for test bodies,
+        # `user` = ordinary project modules are prunable too).
+        dce_mode = "test" if is_test else ("user" if scope_user else "std")
 
         # Dead-code elimination, pass 1: conservative, name-based.  This is the
         # fallback for --test (test bodies can call instances that the exact
@@ -136,8 +148,14 @@ class BundleMixin:
             if is_test:
                 for test in self.tests:
                     extra_roots |= _dce_collect_refs(test.get("body_stmts") or [])
+            if scope_user and c_glue_text:
+                # A C glue file can call a project weave the bundle never names
+                # in PenguScript.  Scan every identifier (conservative) and keep
+                # the matching names/c_names.
+                extra_roots |= _dce_identifiers_in_text(c_glue_text)
             kept, dropped = prune_weaves(self.weaves, extra_refs=extra_roots,
-                                         base_dir=self.base_dir, std_roots=std_roots)
+                                         base_dir=self.base_dir, std_roots=std_roots,
+                                         include_user=scope_user)
             self.weaves = kept
             if dropped:
                 self.dce_stats = {
@@ -179,9 +197,12 @@ class BundleMixin:
         # Dead-code elimination, pass 2: exact reachability over the C the
         # generator will actually emit.  Runs in normal builds only; --test
         # keeps every instance because test bodies are not part of this scan.
-        if self.dce_enabled and dce_mode == "std" and self._dce_all_weaves:
+        if self.dce_enabled and dce_mode in ("std", "user") and self._dce_all_weaves:
             self.weaves = list(self._dce_all_weaves)
-            self._discover_reachable_weaves((lambdas_code, derived_impls, constants))
+            extra_texts = (lambdas_code, derived_impls, constants)
+            if scope_user and c_glue_text:
+                extra_texts = extra_texts + (c_glue_text,)
+            self._discover_reachable_weaves(extra_texts)
             if self.dce_stats:
                 # Report both layers: the metric is "time spent pruning", not
                 # just the exact pass.
@@ -280,10 +301,11 @@ class BundleMixin:
         # Self-describing marker so a bundle.c found in the wild says whether DCE
         # ran and how much it dropped (handy when A/B comparing --no-dce builds).
         if self.dce_stats.get("dropped"):
+            scope_note = " (scope=user)" if self._dce_scope_user_active else ""
             sections.append(
                 f"/* Dead-code elimination: pruned {self.dce_stats['dropped']} of "
-                f"{self.dce_stats['before']} std/lib weave(s), "
-                f"{self.dce_stats['before']} -> {self.dce_stats['after']} */"
+                f"{self.dce_stats['before']} module weave(s), "
+                f"{self.dce_stats['before']} -> {self.dce_stats['after']}{scope_note} */"
             )
         elif not self.dce_enabled:
             sections.append("/* Dead-code elimination: disabled (PENGU_NO_DCE) */")
@@ -355,8 +377,14 @@ class BundleMixin:
             return False
         if w.get("name") == "main" or w.get("c_name") == "pengu_main":
             return True
+        filepath = str(w.get("filepath", ""))
+        if getattr(self, "_dce_scope_user_active", False):
+            # `--dce-scope=user`: ordinary project weaves are prunable; only
+            # the C binding boundary stays a root.  C glue references are fed
+            # through the extra-text scan.
+            return filepath.endswith(".d.pengu")
         return not is_prunable_module(
-            str(w.get("filepath", "")), self.base_dir, self._dce_std_roots)
+            filepath, self.base_dir, self._dce_std_roots)
 
     def _materialize_instance(self, name: str,
                               catalog: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:

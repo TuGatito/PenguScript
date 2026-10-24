@@ -8,9 +8,28 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.21.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.22.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.21.0 → 2.22.0: optional user-module tree shaking (phase 3)
+
+This release is additive and **off by default**. Executables normally keep every
+weave of the project's own modules; `--dce-scope=user` (alias
+`--tree-shake-user`, env `PENGU_DCE_SCOPE=user`) treats ordinary project modules
+like `std/`:
+
+```console
+pengu build --dce-scope=user
+pengu expand --tree-shake-user src/main.pengu -o build/bundle.c
+```
+
+Roots are `main`/`pengu_main`, every `@export`, and identifiers found in the
+project's `c/` glue sources. `.d.pengu` bindings stay unprunable. `--test`,
+`static`/`shared`/`obj` outputs and `--no-dce` keep everything. Do not enable it
+for `dlopen`/runtime-symbol plugins; mark those entry points with `@export`.
+The flag is part of the script cache key and project config hash. No source
+changes are required for normal builds.
 
 ## 2.20.0 → 2.21.0: optional `#line` removal (phase 5)
 

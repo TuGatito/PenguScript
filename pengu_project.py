@@ -620,6 +620,35 @@ class EntryPointNotFoundError(RuntimeError):
         self.col = 0
 
 
+def _collect_c_glue_sources(base_dir: str, c_dir: str, lib_dir: str) -> List[str]:
+    """Project + binding ``.c`` glue files (no generated assets)."""
+    c_files: List[str] = []
+    cand_c_dirs = [
+        os.path.abspath(os.path.join(base_dir, c_dir)),
+        os.path.abspath(os.path.join(base_dir, "c")),
+    ]
+    for directory in set(cand_c_dirs):
+        if os.path.isdir(directory):
+            for root, _, files in os.walk(directory):
+                for f in files:
+                    if f.endswith(".c"):
+                        c_files.append(os.path.abspath(os.path.join(root, f)))
+    lib_root = os.path.abspath(os.path.join(base_dir, lib_dir))
+    if os.path.isdir(lib_root):
+        try:
+            for entry in os.scandir(lib_root):
+                if entry.is_dir():
+                    binding_c = os.path.join(entry.path, "c")
+                    if os.path.isdir(binding_c):
+                        for root, _, files in os.walk(binding_c):
+                            for f in files:
+                                if f.endswith(".c"):
+                                    c_files.append(os.path.abspath(os.path.join(root, f)))
+        except Exception:  # noqa: BLE001 - a broken lib tree must not hide glue
+            pass
+    return sorted(set(c_files))
+
+
 class PenguBuilder:
     """Orchestrates parsing, semantic checking, C bundling, runtime copying, and compilation."""
 
@@ -853,6 +882,7 @@ class PenguBuilder:
                            in {"1", "true", "yes", "on"},
             "no_line_markers": os.environ.get("PENGU_NO_LINE_MARKERS", "").strip().lower()
                                in {"1", "true", "yes", "on"},
+            "dce_scope": os.environ.get("PENGU_DCE_SCOPE", "std").strip().lower(),
         }, sort_keys=True)
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
@@ -1135,34 +1165,9 @@ class PenguBuilder:
         Returns:
             Sorted, deduplicated list of absolute .c file paths.
         """
-        c_files: List[str] = []
-
-        # 1. Project C sources (from config.c_dir and c/)
-        cand_c_dirs = [
-            os.path.abspath(os.path.join(self.config.base_dir, self.config.c_dir)),
-            os.path.abspath(os.path.join(self.config.base_dir, "c")),
-        ]
-        for c_dir in set(cand_c_dirs):
-            if os.path.isdir(c_dir):
-                for root, _, files in os.walk(c_dir):
-                    for f in files:
-                        if f.endswith(".c"):
-                            c_files.append(os.path.abspath(os.path.join(root, f)))
-
-        # 2. Binding C sources (lib/*/c/)
-        lib_root = os.path.abspath(os.path.join(self.config.base_dir, self.config.lib_dir))
-        if os.path.isdir(lib_root):
-            try:
-                for entry in os.scandir(lib_root):
-                    if entry.is_dir():
-                        binding_c = os.path.join(entry.path, "c")
-                        if os.path.isdir(binding_c):
-                            for root, _, files in os.walk(binding_c):
-                                for f in files:
-                                    if f.endswith(".c"):
-                                        c_files.append(os.path.abspath(os.path.join(root, f)))
-            except Exception:
-                pass
+        # 1-2. Project and binding C glue; 3. generated embedded assets.
+        c_files: List[str] = _collect_c_glue_sources(
+            self.config.base_dir, self.config.c_dir, self.config.lib_dir)
 
         # 3. Generated embedded assets C source (build/<module>_assets.c)
         if getattr(self.config, "assets_module", None):
@@ -1581,11 +1586,29 @@ class PenguBuilder:
         codegen.entry_file = os.path.abspath(self.config.resolve_entry())
         codegen.collect_declarations(parsed_trees)
         is_lib = self.config.output in (OutputType.STATIC, OutputType.SHARED, OutputType.OBJ)
+        # Phase 3 (`--dce-scope=user`): C glue is invisible to the Pengu AST, so
+        # scan its text before deciding which project weaves are dead.  Only do
+        # the I/O when the opt-in scope is active and it can actually apply.
+        c_glue_text = ""
+        if getattr(codegen, "dce_scope_user", False) and not self.is_test_mode and not is_lib:
+            try:
+                c_sources = self.collect_c_sources()
+            except Exception:  # noqa: BLE001 - DCE must never fail the build here
+                c_sources = []
+            chunks = []
+            for c_path in c_sources:
+                try:
+                    with open(c_path, "r", encoding="utf-8", errors="replace") as fh:
+                        chunks.append(fh.read())
+                except OSError:
+                    continue
+            c_glue_text = "\n".join(chunks)
         codegen.generate_bundle(
             custom_includes=self.config.includes,
             is_library=is_lib,
             output_path=bundle_path,
-            is_test=self.is_test_mode
+            is_test=self.is_test_mode,
+            c_glue_text=c_glue_text,
         )
 
         self.timings["codegen"] = time.time() - t_codegen
@@ -2655,6 +2678,7 @@ def build_project(
     no_dce: bool = False,
     prune_types: bool = False,
     no_line_markers: bool = False,
+    dce_scope: Optional[str] = None,
     strict_c99: bool = False,
     target_compiler: str = "",
     target: str = "",
@@ -2765,6 +2789,9 @@ def build_project(
     prev_line_markers = os.environ.get("PENGU_NO_LINE_MARKERS")
     if no_line_markers:
         os.environ["PENGU_NO_LINE_MARKERS"] = "1"
+    prev_dce_scope = os.environ.get("PENGU_DCE_SCOPE")
+    if dce_scope:
+        os.environ["PENGU_DCE_SCOPE"] = dce_scope
     try:
         if output and (output.endswith(".c") or output == "bundle.c"):
             artifact, is_cached = builder.bundle(output_file=output)
@@ -2806,6 +2833,11 @@ def build_project(
                 os.environ.pop("PENGU_NO_LINE_MARKERS", None)
             else:
                 os.environ["PENGU_NO_LINE_MARKERS"] = prev_line_markers
+        if dce_scope:
+            if prev_dce_scope is None:
+                os.environ.pop("PENGU_DCE_SCOPE", None)
+            else:
+                os.environ["PENGU_DCE_SCOPE"] = prev_dce_scope
     elapsed = time.time() - t0
 
     if json_output:
@@ -6043,7 +6075,8 @@ def doctor_report(as_json: bool = False) -> int:
 def expand_script(script: str, output: Optional[str] = None,
                   defines: Optional[List[str]] = None,
                   verbose: bool = False, prune_types: bool = False,
-                  no_line_markers: bool = False) -> int:
+                  no_line_markers: bool = False,
+                  dce_scope: Optional[str] = None) -> int:
     """Prints the generated ``bundle.c`` of a script (no project tree changes)."""
     script_abs = os.path.abspath(script)
     if not os.path.isfile(script_abs):
@@ -6057,6 +6090,9 @@ def expand_script(script: str, output: Optional[str] = None,
     prev_line_markers = os.environ.get("PENGU_NO_LINE_MARKERS")
     if no_line_markers:
         os.environ["PENGU_NO_LINE_MARKERS"] = "1"
+    prev_dce_scope = os.environ.get("PENGU_DCE_SCOPE")
+    if dce_scope:
+        os.environ["PENGU_DCE_SCOPE"] = dce_scope
     try:
         cfg = ProjectConfig(
             entry=script_abs,
@@ -6104,12 +6140,18 @@ def expand_script(script: str, output: Optional[str] = None,
                 os.environ.pop("PENGU_NO_LINE_MARKERS", None)
             else:
                 os.environ["PENGU_NO_LINE_MARKERS"] = prev_line_markers
+        if dce_scope:
+            if prev_dce_scope is None:
+                os.environ.pop("PENGU_DCE_SCOPE", None)
+            else:
+                os.environ["PENGU_DCE_SCOPE"] = prev_dce_scope
 
 
 def time_script(script: str, defines: Optional[List[str]] = None,
                 cc: Optional[str] = None, script_args: Optional[List[str]] = None,
                 no_dce: bool = False, prune_types: bool = False,
-                no_line_markers: bool = False) -> int:
+                no_line_markers: bool = False,
+                dce_scope: Optional[str] = None) -> int:
     """Runs a script and reports the time spent in every phase."""
     import platform
     t_start = time.time()
@@ -6130,6 +6172,9 @@ def time_script(script: str, defines: Optional[List[str]] = None,
     prev_line_markers = os.environ.get("PENGU_NO_LINE_MARKERS")
     if no_line_markers:
         os.environ["PENGU_NO_LINE_MARKERS"] = "1"
+    prev_dce_scope = os.environ.get("PENGU_DCE_SCOPE")
+    if dce_scope:
+        os.environ["PENGU_DCE_SCOPE"] = dce_scope
     try:
         cfg = ProjectConfig(
             entry=script_abs,
@@ -6212,6 +6257,11 @@ def time_script(script: str, defines: Optional[List[str]] = None,
                 os.environ.pop("PENGU_NO_LINE_MARKERS", None)
             else:
                 os.environ["PENGU_NO_LINE_MARKERS"] = prev_line_markers
+        if dce_scope:
+            if prev_dce_scope is None:
+                os.environ.pop("PENGU_DCE_SCOPE", None)
+            else:
+                os.environ["PENGU_DCE_SCOPE"] = prev_dce_scope
         shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -6385,6 +6435,7 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
                 defines: Optional[List[str]] = None, cc: Optional[str] = None,
                 verbose: bool = False, pch: bool = False, no_dce: bool = False,
                 prune_types: bool = False, no_line_markers: bool = False,
+                dce_scope: Optional[str] = None,
                 strict_c99: bool = False, target_compiler: str = "",
                 target: str = "", locked: bool = False, frozen: bool = False,
                 release_unsafe: bool = False,
@@ -6402,6 +6453,7 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
         no_dce: True to keep every std/lib weave in bundle.c.
         prune_types: True to prune unreachable types/constants (opt-in).
         no_line_markers: True to omit #line directives (smaller bundle).
+        dce_scope: 'std' (default) or 'user' (prune unused project weaves).
 
     Returns:
         Process exit code.
@@ -6413,6 +6465,7 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
                              cc=cc, verbose=verbose, pch=pch, no_dce=no_dce,
                              prune_types=prune_types,
                              no_line_markers=no_line_markers,
+                             dce_scope=dce_scope,
                              strict_c99=strict_c99, target_compiler=target_compiler,
                              target=target, locked=locked, frozen=frozen,
                              release_unsafe=release_unsafe)
@@ -6450,6 +6503,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                quiet: bool = False, no_pch: bool = True,
                no_dce: bool = False, prune_types: bool = False,
                no_line_markers: bool = False,
+               dce_scope: Optional[str] = None,
                strict_c99: bool = False,
                target_compiler: str = "", target: str = "",
                locked: bool = False, frozen: bool = False,
@@ -6549,6 +6603,15 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     # page + a loader JS + a module, so it bypasses that binary cache and is
     # executed with Node (see below).
     script_is_wasm = parse_target_triple(str(getattr(cfg, "target", "") or "")).os == "emscripten"
+    # C glue is compiled into the executable (and, with --dce-scope=user, can
+    # keep project weaves alive).  It used to be absent from the script cache
+    # key, so editing c/*.c could reuse a stale binary.
+    try:
+        c_glue_digest = "".join(
+            file_content_digest(path)
+            for path in _collect_c_glue_sources(cfg.base_dir, cfg.c_dir, cfg.lib_dir))
+    except Exception:  # noqa: BLE001 - cache key must not fail on a broken c/ tree
+        c_glue_digest = ""
     cfg.release_unsafe = bool(release_unsafe)
     cfg.deny_deprecated = bool(deny_deprecated)
     _set_release_unsafe(cfg.release_unsafe)
@@ -6635,6 +6698,10 @@ def run_script(script: str, defines: Optional[List[str]] = None,
         line_markers_disabled = bool(
             no_line_markers or os.environ.get("PENGU_NO_LINE_MARKERS", "").strip().lower()
             in {"1", "true", "yes", "on"})
+        effective_dce_scope = (dce_scope
+                               or os.environ.get("PENGU_DCE_SCOPE", "std")).strip().lower()
+        if effective_dce_scope not in ("std", "user"):
+            effective_dce_scope = "std"
         cache_key = script_cache_key(
             script_abs,
             module_order,
@@ -6655,6 +6722,8 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                     "dce=off" if dce_disabled else "dce=on",
                     "types=pruned" if prune_types_enabled else "types=kept",
                     "line-markers=off" if line_markers_disabled else "line-markers=on",
+                    f"dce-scope={effective_dce_scope}",
+                    f"c-glue={c_glue_digest}" if c_glue_digest else None,
                     f"std-c={std_c_digest}" if std_c_digest else None,
                     "release-unsafe" if getattr(cfg, "release_unsafe", False) else None,
                     (f"env-cflags={os.environ.get('PENGU_CFLAGS', '').strip()}"
@@ -6701,6 +6770,9 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     prev_line_markers = os.environ.get("PENGU_NO_LINE_MARKERS")
     if no_line_markers:
         os.environ["PENGU_NO_LINE_MARKERS"] = "1"
+    prev_dce_scope = os.environ.get("PENGU_DCE_SCOPE")
+    if dce_scope:
+        os.environ["PENGU_DCE_SCOPE"] = dce_scope
     try:
         builder = PenguBuilder(cfg)
         builder.is_test_mode = False
@@ -6769,6 +6841,11 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                 os.environ.pop("PENGU_NO_LINE_MARKERS", None)
             else:
                 os.environ["PENGU_NO_LINE_MARKERS"] = prev_line_markers
+        if dce_scope:
+            if prev_dce_scope is None:
+                os.environ.pop("PENGU_DCE_SCOPE", None)
+            else:
+                os.environ["PENGU_DCE_SCOPE"] = prev_dce_scope
 
 
 def _find_watch_files(base_dir: str) -> List[str]:
@@ -7646,6 +7723,10 @@ def create_cli_parser() -> argparse.ArgumentParser:
                          help="Opt-in: also prune types and constants no emitted C text names")
     build_p.add_argument("--no-line-markers", "--no_line_markers", dest="no_line_markers", action="store_true",
                          help="Omit #line directives from bundle.c (smaller, worse C diagnostics)")
+    build_p.add_argument("--dce-scope", "--dce_scope", dest="dce_scope", choices=("std", "user"), default=None,
+                         help="std (default) prunes std/lib only; user also prunes unused project weaves")
+    build_p.add_argument("--tree-shake-user", dest="dce_scope", action="store_const", const="user",
+                         help="Alias for --dce-scope=user")
     build_p.add_argument("--json", action="store_true",
                          help="Emit machine-readable JSON Lines (for CI)")
 
@@ -7679,6 +7760,10 @@ def create_cli_parser() -> argparse.ArgumentParser:
                        help="Opt-in: also prune types and constants no emitted C text names")
     run_p.add_argument("--no-line-markers", "--no_line_markers", dest="no_line_markers", action="store_true",
                        help="Omit #line directives from bundle.c (smaller, worse C diagnostics)")
+    run_p.add_argument("--dce-scope", "--dce_scope", dest="dce_scope", choices=("std", "user"), default=None,
+                       help="std (default) prunes std/lib only; user also prunes unused project weaves")
+    run_p.add_argument("--tree-shake-user", dest="dce_scope", action="store_const", const="user",
+                       help="Alias for --dce-scope=user")
     # Roadmap Phase 2: portable C output (build/run share the same knobs).
     for _p in (build_p, run_p):
         _p.add_argument("--strict-c99", "--strict_c99", dest="strict_c99", action="store_true",
@@ -7733,6 +7818,10 @@ def create_cli_parser() -> argparse.ArgumentParser:
                           help="Opt-in: also prune types and constants no emitted C text names")
     expand_p.add_argument("--no-line-markers", "--no_line_markers", dest="no_line_markers", action="store_true",
                           help="Omit #line directives from bundle.c (smaller, worse C diagnostics)")
+    expand_p.add_argument("--dce-scope", "--dce_scope", dest="dce_scope", choices=("std", "user"), default=None,
+                          help="std (default) prunes std/lib only; user also prunes unused project weaves")
+    expand_p.add_argument("--tree-shake-user", dest="dce_scope", action="store_const", const="user",
+                          help="Alias for --dce-scope=user")
 
     # time
     time_p = subparsers.add_parser("time", help="Run a script and report per-phase timings")
@@ -7744,6 +7833,10 @@ def create_cli_parser() -> argparse.ArgumentParser:
                          help="Opt-in: also prune types and constants no emitted C text names")
     time_p.add_argument("--no-line-markers", "--no_line_markers", dest="no_line_markers", action="store_true",
                          help="Omit #line directives from bundle.c (smaller, worse C diagnostics)")
+    time_p.add_argument("--dce-scope", "--dce_scope", dest="dce_scope", choices=("std", "user"), default=None,
+                         help="std (default) prunes std/lib only; user also prunes unused project weaves")
+    time_p.add_argument("--tree-shake-user", dest="dce_scope", action="store_const", const="user",
+                         help="Alias for --dce-scope=user")
     time_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
                         help="Compile-time define (repeatable)")
     time_p.add_argument("script_args", nargs="*", default=None,
@@ -8184,6 +8277,7 @@ def main():
                 no_dce=getattr(args, "no_dce", False),
                 prune_types=getattr(args, "prune_types", False),
                 no_line_markers=getattr(args, "no_line_markers", False),
+                dce_scope=getattr(args, "dce_scope", None),
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
                 target=getattr(args, "target", "") or "",
@@ -8224,6 +8318,7 @@ def main():
                     no_dce=getattr(args, "no_dce", False),
                     prune_types=getattr(args, "prune_types", False),
                     no_line_markers=getattr(args, "no_line_markers", False),
+                    dce_scope=getattr(args, "dce_scope", None),
                     strict_c99=getattr(args, "strict_c99", False),
                     target_compiler=getattr(args, "target_compiler", "") or "",
                     target=getattr(args, "target", "") or "",
@@ -8243,6 +8338,7 @@ def main():
                 no_dce=getattr(args, "no_dce", False),
                 prune_types=getattr(args, "prune_types", False),
                 no_line_markers=getattr(args, "no_line_markers", False),
+                dce_scope=getattr(args, "dce_scope", None),
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
                 target=getattr(args, "target", "") or "",
@@ -8411,7 +8507,8 @@ def main():
                                   defines=getattr(args, "defines", None),
                                   verbose=getattr(args, "verbose", False),
                                   prune_types=getattr(args, "prune_types", False),
-                                  no_line_markers=getattr(args, "no_line_markers", False)),
+                                  no_line_markers=getattr(args, "no_line_markers", False),
+                                  dce_scope=getattr(args, "dce_scope", None)),
             source=args.script)
     elif args.command == "time":
         _run_command(
@@ -8420,7 +8517,8 @@ def main():
                                 script_args=_consume_script_args(getattr(args, "script_args", None)),
                                 no_dce=getattr(args, "no_dce", False),
                                 prune_types=getattr(args, "prune_types", False),
-                                no_line_markers=getattr(args, "no_line_markers", False)),
+                                no_line_markers=getattr(args, "no_line_markers", False),
+                                dce_scope=getattr(args, "dce_scope", None)),
             source=args.script)
     elif args.command == "eval":
         _run_command(

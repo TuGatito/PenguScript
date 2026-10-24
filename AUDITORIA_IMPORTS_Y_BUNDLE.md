@@ -10,10 +10,9 @@
 > `--prune-types` añade la poda opt-in de tipos/constantes: `cipher` 1 función
 > queda en **11,4 KB** (6,7 KB con el flag), `petitio` sin usar en **15,9 KB**
 > (4,4 KB) y `cipher`/`petitio` ya no arrastran `derive` ni tipos muertos.
-> Queda la fase **3** (módulos de usuario) y la poda nativa de includes/links
-> (conservadora por el C glue). **B4** se cerró en **2.19.0**, **B10** en
-> **2.20.0** y **B11/B12** en **2.21.0** (`--no-line-markers` 4–13 % e higiene
-> de docs; gates ya por import + prefijo C).
+> Queda la poda nativa de includes/links (conservadora por el C glue).
+> **B4** se cerró en **2.19.0**, **B10** en **2.20.0**, **B11/B12** en
+> **2.21.0** y la **fase 3 / B6** en **2.22.0** (`--dce-scope=user`, opt-in).
 
 ---
 
@@ -791,6 +790,14 @@ if is_test:
 
 ### 🟠 B6 — Los módulos del usuario nunca se podan
 
+> **✅ Implementado en 2.22.0.** `--dce-scope=user` / `--tree-shake-user` /
+> `PENGU_DCE_SCOPE=user` poda los `weave` no usados de módulos de proyecto. Las
+> raíces son `main`, `@export`, los `test` (modo test), los bindings `.d.pengu`
+> y los identificadores del C glue de `c/` (se leen antes de decidir). Las
+> salidas `static/shared/obj` y `--no-dce` mantienen todo. Ejemplo de dos
+> helpers muertos: 3,4 → 2,9 KB; el caso de 40 helpers (solo `helper_0` usado)
+> baja de 15,5 KB a 2,9 KB (−82 %). La marca del bundle indica `(scope=user)`.
+
 **Síntoma.** En un ejecutable, **todas** las funciones de `src/` se emiten, se llamen o no.
 
 **Repro.**
@@ -824,7 +831,7 @@ else:
 
 El docstring lo declara intencional (“public API of the user's project, bindings, static libraries”), y `docs/PERFORMANCE.md` lo repite: “user modules are always fully emitted”. Pero en un **ejecutable** esa API pública no existe; el usuario solo tiene `main`. La petición de “podar también módulos de usuario” es legítima.
 
-**Fix.** Fase 3, **opt-in** (`--dce-scope=user`, alias `--tree-shake-user`): raíces = `main`, entry module, `@export`, tests (en modo test) y los símbolos que aparezcan en el C glue de `c/`. `output: static/shared/obj` mantiene todo (es una librería). Detalle en [§6.5](#65-fase-3--módulos-de-usuario-opcional).
+**Fix.** ✅ Implementado en 2.22.0: `--dce-scope=user` (alias `--tree-shake-user`) con raíces `main`, `@export`, tests en modo test y los identificadores del C glue de `c/`; `static/shared/obj` y `--no-dce` mantienen todo. Detalle en [§6.5](#65-fase-3--módulos-de-usuario-opcional).
 
 **Impacto.** En el ejemplo, ~21 KB de 24,5 KB (86 %) es código muerto. En proyectos reales con utilidades, factories o handlers, puede ser más.
 
