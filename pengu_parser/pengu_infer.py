@@ -340,9 +340,11 @@ class ConstFolder:
             return None
 
         elif rule == "chr_expr":
-            v = self.fold(node.children[0])
-            if isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 255:
-                return chr(v)
+            # Never fold `chr` into a Python `str`.  `chr(200)` is the *byte*
+            # 0xC8, but a Python str is Unicode: formatting it later encoded
+            # U+00C8 as the two UTF-8 bytes `c2 88`, so `"a{(chr 200)}b"` was
+            # four bytes long instead of three (B11).  Keeping it as a runtime
+            # `pengu_string_from_char((char)n)` preserves the byte semantics.
             return None
 
         elif rule == "bytes_expr":
@@ -3028,7 +3030,16 @@ class TypeInferrer:
                     first_name = str(target_node.children[0])
                     m_name = str(target_node.children[-1].children[0])
                     first_sym = self.symbols.lookup(first_name) if self.symbols else None
-                    if first_sym and first_sym.kind == "import" and len(target_node.children) == 2:
+                    if (first_sym is not None and first_sym.kind == "import"
+                            and len(target_node.children) == 3
+                            and isinstance(target_node.children[1], Tree)
+                            and target_node.children[1].data in ("dot_access", "arrow_access")):
+                        q_scope = getattr(first_sym, "module_scope", None)
+                        q_type_name = str(target_node.children[1].children[0])
+                        q_type_sym = q_scope.lookup(q_type_name) if q_scope is not None else None
+                        q_base = get_type_base_name(getattr(q_type_sym, "type", None)) if q_type_sym else q_type_name
+                        fn_name = f"{q_base}_{m_name}"
+                    elif first_sym and first_sym.kind == "import" and len(target_node.children) == 2:
                         fn_name = f"{first_name}_{m_name}"
                         if fn_name not in self.symbols.generic_functions and m_name in self.symbols.generic_functions:
                             # The bare entry is a convenience for calling an imported
@@ -3213,6 +3224,17 @@ class TypeInferrer:
                 for n_name, (arg_t, _) in named_args:
                     if n_name in param_dict:
                         self._unify_type(param_dict[n_name], arg_t, subst_map)
+
+                # A generic constructor with no value parameters (`Box.empty of
+                # T`, `Set.empty`) can only bind `T` from the slot it is assigned
+                # to.  Use the contextual type as a last unification source; it
+                # never overrides a parameter-derived binding because
+                # `_unify_type` leaves an already-bound parameter alone.
+                if expected_type is not None and not isinstance(expected_type, AnyType):
+                    try:
+                        self._unify_type(fn_type.return_type, expected_type, subst_map)
+                    except Exception:
+                        pass
 
                 fn_type, _, _ = self._specialize_generic_function(
                     fn_name, fn_type, subst_map, node, type_params)
@@ -4677,6 +4699,70 @@ class TypeInferrer:
                     m_name = str(method_acc.children[0])
                     is_self = (obj_name == "self")
                     obj_sym = None if is_self else self.symbols.lookup(obj_name)
+
+                    # `module.Type.method` (B2b).  The checker used to treat
+                    # the whole chain as a field path rooted at the module, so
+                    # a perfectly valid `compass.Path.from_str` failed with
+                    # "Type 'compass' has no method 'from_str'".  Resolve the
+                    # type through the import's module scope and then the method
+                    # on that type, exactly like the unqualified `Type.method`
+                    # form.
+                    if (obj_sym is not None and obj_sym.kind == "import"
+                            and len(target_node.children) == 3
+                            and isinstance(target_node.children[1], Tree)
+                            and target_node.children[1].data in ("dot_access", "arrow_access")
+                            and isinstance(target_node.children[2], Tree)
+                            and target_node.children[2].data in ("dot_access", "arrow_access")):
+                        q_type_name = str(target_node.children[1].children[0])
+                        q_m_name = str(target_node.children[2].children[0])
+                        q_scope = getattr(obj_sym, "module_scope", None)
+                        q_type_sym = q_scope.lookup(q_type_name) if q_scope is not None else None
+                        q_kind = getattr(q_type_sym, "kind", "")
+                        if q_type_sym is not None and q_kind in (
+                                "rune", "echo", "omen", "seal", "alias", "type"):
+                            q_type = getattr(q_type_sym, "type", None)
+                            q_base = get_type_base_name(q_type) if q_type is not None else q_type_name
+                            m_key = (q_base, q_m_name)
+                            if m_key in self.symbols.methods:
+                                m_fn = self.symbols.methods[m_key]
+                                if not getattr(m_fn, "is_ritual", False):
+                                    raise self._make_error(
+                                        InvalidRitualCallError,
+                                        f"Method '{q_m_name}' of type '{q_base}' is an instance method and cannot be called statically without an instance",
+                                        target_node,
+                                        code="E0034",
+                                        help=f"Call as 'instance.{q_m_name}(...)' instead, or declare as 'weave ritual {q_m_name}' in 'enchanting {q_base}:'.",
+                                        note=f"Method '{q_m_name}' requires an instance."
+                                    )
+                                if m_key in self.symbols.generic_methods:
+                                    entry = self.symbols.generic_methods[m_key]
+                                    recv_p, m_p, _ = (entry[0], entry[1], entry[2]) if len(entry) == 3 else (entry[0], [], entry[1])
+                                    all_tp = list(recv_p) + list(m_p)
+                                    if all_tp:
+                                        import copy
+                                        m_fn = copy.copy(m_fn)
+                                        m_fn.type_params = all_tp
+                                return m_fn, None
+                            if f"{q_base}_{q_m_name}" in self.symbols.functions:
+                                fn_sym = self.symbols.functions[f"{q_base}_{q_m_name}"]
+                                if not getattr(fn_sym, "is_ritual", False):
+                                    raise self._make_error(
+                                        InvalidRitualCallError,
+                                        f"Method '{q_m_name}' of type '{q_base}' is an instance method and cannot be called statically without an instance",
+                                        target_node,
+                                        code="E0034",
+                                        help=f"Call as 'instance.{q_m_name}(...)' instead.",
+                                        note=f"Method '{q_m_name}' requires an instance."
+                                    )
+                                return fn_sym, None
+                            raise self._make_error(
+                                UndefinedIdentifierError,
+                                f"Type '{q_type_name}' of module '{obj_name}' has no ritual method '{q_m_name}'",
+                                target_node,
+                                code="E0004",
+                                help=f"Declare 'weave ritual {q_m_name}' inside 'enchanting {q_type_name}:'.",
+                                note=f"Type '{q_type_name}' does not define ritual method '{q_m_name}'."
+                            )
 
                     if is_self or (obj_sym is not None and obj_sym.kind not in ("rune", "echo", "omen", "seal", "alias", "concept", "type")):
                         if is_self:

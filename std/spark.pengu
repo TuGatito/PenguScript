@@ -150,7 +150,8 @@ fflush(stderr);
 ## `banish`. `prompt` is borrowed and never freed.
 ##
 ## ## Precondiciones
-## A single line is limited to 4095 bytes; longer input is split across reads.
+## None: the buffer grows dynamically, so a line longer than 4 KiB is returned
+## whole.  (The previous stack `char buf[4096]` split it across two reads.)
 antiquus pengu_input with prompt as string into string:
     r"""
 if (prompt.data && prompt.len > 0)
@@ -158,13 +159,44 @@ if (prompt.data && prompt.len > 0)
 fwrite(prompt.data, 1, (size_t)prompt.len, stdout);
 fflush(stdout);
 }
-char buf[4096];
-if (!fgets(buf, sizeof(buf), stdin))
+size_t cap = 4096;
+size_t len = 0;
+char *buf = (char *)malloc(cap);
+if (!buf)
 return pengu_string_from_cstr("");
-size_t l = strlen(buf);
-while (l > 0 && (buf[l - 1] == '\r' || buf[l - 1] == '\n'))
-buf[--l] = '\0';
-return pengu_string_new(buf);
+int c;
+bool any = false;
+while ((c = fgetc(stdin)) != EOF)
+{
+any = true;
+if (c == '\n')
+break;
+if (len + 2 > cap)
+{
+cap *= 2;
+char *nb = (char *)realloc(buf, cap);
+if (!nb)
+{
+free(buf);
+return pengu_string_from_cstr("");
+}
+buf = nb;
+}
+buf[len++] = (char)c;
+}
+if (!any)
+{
+free(buf);
+return pengu_string_from_cstr("");
+}
+if (len > 0 && buf[len - 1] == '\r')
+len--;
+buf[len] = '\0';
+PenguString out;
+out.data = buf;
+out.len = (int)len;
+out.is_owned = 1;
+return out;
 """
 
 ## Reads a single byte from stdin, or `none` at end of input.
@@ -242,8 +274,10 @@ return pengu_maybe_some(res);
 ##
 ## ## Memoria
 ## Allocates a temporary NUL-terminated copy of `s` (freed before returning) and,
-## on success, one boxed `double` inside the returned `maybe`. Release the `maybe`
-## with `banish`.
+## on success, one boxed `float` inside the returned `maybe`. Release the `maybe`
+## with `banish`. The box must be `sizeof(float)`: `maybe float` is unwrapped as
+## `(*(float *)box.value)` by the code generator, so boxing a `double` (8 bytes)
+## made every consumer read the low four bytes of the double and return 0.0.
 antiquus pengu_parse_float with s as string into maybe float:
     r"""
 if (!s.data || s.len <= 0)
@@ -268,10 +302,10 @@ free(tmp);
 return pengu_maybe_none();
 }
 free(tmp);
-double *res = (double *)malloc(sizeof(double));
+float *res = (float *)malloc(sizeof(float));
 if (!res)
 return pengu_maybe_none();
-*res = val;
+*res = (float)val;
 return pengu_maybe_some(res);
 """
 

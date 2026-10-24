@@ -4068,9 +4068,9 @@ def update_project(config_path: Optional[str] = None, verbose: bool = False,
 
         git_dir = os.path.join(target_dir, ".git")
         if os.path.isdir(git_dir):
-            cmd_fetch = ["git", "-C", target_dir, "pull"]
+            cmd_fetch = ["git", "-C", target_dir, "pull", "--ff-only"]
             if branch:
-                cmd_fetch = ["git", "-C", target_dir, "pull", "origin", branch]
+                cmd_fetch = ["git", "-C", target_dir, "pull", "--ff-only", "origin", branch]
             if verbose:
                 print(f"   $ {' '.join(cmd_fetch)}", file=sys.stderr)
             res = subprocess.run(cmd_fetch, capture_output=True, text=True)
@@ -4382,7 +4382,7 @@ def add_dependency(
                 # A failed `git pull` must not look like a successful refresh:
                 # the old `check=False` left the user on the stale checkout with
                 # no hint that nothing was updated.
-                res = subprocess.run(["git", "-C", target_dir, "pull"],
+                res = subprocess.run(["git", "-C", target_dir, "pull", "--ff-only"],
                                      capture_output=True, text=True)
                 if res.returncode == 0:
                     # Fresh sources on disk invalidate any existing lib/*.a.

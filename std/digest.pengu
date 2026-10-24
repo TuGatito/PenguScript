@@ -1,0 +1,218 @@
+## std/digest.pengu — cryptographic and non-cryptographic digests.
+##
+## `std.cipher` covers CRC-32 and encodings; the compiler's cache, lockfile and
+## TCC verification need SHA-256, which CRC-32 cannot replace.  This module is
+## intentionally small and dependency-free: the block function is embedded C
+## (the same policy as `std.cipher`), the public surface is PenguScript, and the
+## only allocation is the returned string.
+##
+## ## Example
+## ```pengu
+## import std.digest
+## import std.spark
+##
+## weave main into int:
+##     let h as string is calling digest.sha256_hex with "abc"
+##     calling spark.println with h
+##     banish h
+##     return 0
+## ```
+##
+## ## Memory
+## `sha256_hex`, `sha256_raw` and `fnv1a64` return owned strings where
+## applicable.  `sha256_file` returns a `maybe string` whose payload is owned.
+## Release strings with `banish`; integers need no release.
+##
+## ## Design notes
+## - **Raw + hex.** `sha256_raw` returns the 32-byte digest (binary-safe, so it
+##   can be embedded in a cache key); `sha256_hex` is the lowercase-hex view.
+## - **File hashing reuses the byte path.** `sha256_file` reads through
+##   `std.archivum.read_bytes`, which is already binary-safe, so there is one
+##   SHA-256 implementation rather than a second streaming one.
+## - **FNV-1a is 64-bit.** It is for hash tables and non-security cache shards;
+##   never use it where SHA-256 is required.
+
+const DIGEST_VERSION as string is "3.0.2"
+
+
+import std.archivum
+import std.builder
+
+# ----------------------------------------------------------------------------
+# SHA-256
+# ----------------------------------------------------------------------------
+
+## Returns the 32 raw SHA-256 bytes of `data`.
+##
+## ## Memoria
+## The returned string owns a 32-byte buffer; release it with `banish`.
+weave sha256_raw with data as string into string:
+    return calling _sha256_raw with data
+
+## Returns the lowercase hexadecimal SHA-256 digest of `data`.
+##
+## ## Memoria
+## The returned string owns its buffer; release it with `banish`.
+weave sha256_hex with data as string into string:
+    let raw as string is calling sha256_raw with data
+    defer banish raw
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    while i < 32:
+        let b as int is ord (raw at i)
+        let hi as string is calling _digest_hex_digit with b / 16
+        let lo as string is calling _digest_hex_digit with b % 16
+        calling sb.append with hi
+        calling sb.append with lo
+        banish hi
+        banish lo
+        set i is i + 1
+    return calling sb.finish
+
+## Returns the SHA-256 hex digest of the file at `path`.
+##
+## ## Retorno
+## `some hex` when the file can be read, `maybe none` otherwise.
+##
+## ## Memoria
+## The payload is owned; release it with `banish`.
+weave sha256_file with path as string into maybe string:
+    var data as string is (calling archivum.read_bytes with path) or:
+        return maybe none
+    defer banish data
+    var hex as string is calling sha256_hex with data
+    return some hex
+
+## Lowercase hexadecimal digits, indexed by nibble value.
+const DIGEST_HEX as string is "0123456789abcdef"
+
+## Maps a nibble (0-15) to its lowercase hex character.
+weave _digest_hex_digit with n as int into string:
+    if n < 0 or n > 15:
+        return "0"
+    let end_idx as int is n + 1
+    return DIGEST_HEX at n to end_idx
+
+## One-shot SHA-256 of a PenguString's exact bytes (embedded NULs included).
+##
+## ## Motivo
+## The block function needs 32-bit rotate/shift arithmetic, endian-safe message
+## padding and a fixed K table.  Expressing that in PenguScript would require
+## explicit 64-bit masking around every addition; C already has the unsigned
+## wraparound semantics SHA-256 is defined over.
+##
+## ## Memoria
+## Allocates a temporary padded message and the 32-byte result; the temporary
+## is freed before returning and the result is owned by the caller.
+antiquus _sha256_raw with data as string into string:
+    r"""
+static const uint32_t _pengu_sha256_k[64] = {
+  0x428a2f98u, 0x71374491u, 0xb5c0fbcfu, 0xe9b5dba5u,
+  0x3956c25bu, 0x59f111f1u, 0x923f82a4u, 0xab1c5ed5u,
+  0xd807aa98u, 0x12835b01u, 0x243185beu, 0x550c7dc3u,
+  0x72be5d74u, 0x80deb1feu, 0x9bdc06a7u, 0xc19bf174u,
+  0xe49b69c1u, 0xefbe4786u, 0x0fc19dc6u, 0x240ca1ccu,
+  0x2de92c6fu, 0x4a7484aau, 0x5cb0a9dcu, 0x76f988dau,
+  0x983e5152u, 0xa831c66du, 0xb00327c8u, 0xbf597fc7u,
+  0xc6e00bf3u, 0xd5a79147u, 0x06ca6351u, 0x14292967u,
+  0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u,
+  0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u,
+  0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u,
+  0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
+  0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u,
+  0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
+  0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u,
+  0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u
+};
+#define PENGU_ROTR(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
+uint32_t h[8] = {
+  0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+  0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u
+};
+size_t len = (data.data != NULL && data.len > 0) ? (size_t)data.len : 0;
+size_t total = ((len + 9 + 63) / 64) * 64;
+unsigned char *msg = (unsigned char *)calloc(total, 1);
+if (!msg)
+return pengu_string_from_cstr("");
+if (len > 0)
+memcpy(msg, data.data, len);
+msg[len] = 0x80;
+uint64_t bits = (uint64_t)len * 8u;
+for (size_t i = 0; i < 8; i++)
+msg[total - 1 - i] = (unsigned char)((bits >> (8 * i)) & 0xffu);
+for (size_t off = 0; off < total; off += 64)
+{
+uint32_t w[64];
+for (int i = 0; i < 16; i++)
+{
+w[i] = ((uint32_t)msg[off + i * 4] << 24) |
+       ((uint32_t)msg[off + i * 4 + 1] << 16) |
+       ((uint32_t)msg[off + i * 4 + 2] << 8) |
+       ((uint32_t)msg[off + i * 4 + 3]);
+}
+for (int i = 16; i < 64; i++)
+{
+uint32_t s0 = PENGU_ROTR(w[i - 15], 7) ^ PENGU_ROTR(w[i - 15], 18) ^ (w[i - 15] >> 3);
+uint32_t s1 = PENGU_ROTR(w[i - 2], 17) ^ PENGU_ROTR(w[i - 2], 19) ^ (w[i - 2] >> 10);
+w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+}
+uint32_t a = h[0], b = h[1], c = h[2], d = h[3];
+uint32_t e = h[4], f = h[5], g = h[6], hh = h[7];
+for (int i = 0; i < 64; i++)
+{
+uint32_t S1 = PENGU_ROTR(e, 6) ^ PENGU_ROTR(e, 11) ^ PENGU_ROTR(e, 25);
+uint32_t ch = (e & f) ^ ((~e) & g);
+uint32_t t1 = hh + S1 + ch + _pengu_sha256_k[i] + w[i];
+uint32_t S0 = PENGU_ROTR(a, 2) ^ PENGU_ROTR(a, 13) ^ PENGU_ROTR(a, 22);
+uint32_t maj = (a & b) ^ (a & c) ^ (b & c);
+uint32_t t2 = S0 + maj;
+hh = g; g = f; f = e; e = d + t1;
+d = c; c = b; b = a; a = t1 + t2;
+}
+h[0] += a; h[1] += b; h[2] += c; h[3] += d;
+h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+}
+free(msg);
+char *out = (char *)malloc(32);
+if (!out)
+return pengu_string_from_cstr("");
+for (int i = 0; i < 8; i++)
+{
+out[i * 4] = (char)((h[i] >> 24) & 0xffu);
+out[i * 4 + 1] = (char)((h[i] >> 16) & 0xffu);
+out[i * 4 + 2] = (char)((h[i] >> 8) & 0xffu);
+out[i * 4 + 3] = (char)(h[i] & 0xffu);
+}
+PenguString res;
+res.data = out;
+res.len = 32;
+res.is_owned = 1;
+return res;
+#undef PENGU_ROTR
+"""
+
+# ----------------------------------------------------------------------------
+# FNV-1a
+# ----------------------------------------------------------------------------
+
+## Returns the 64-bit FNV-1a hash of `data`.
+##
+## ## Memoria
+## Allocates nothing; the hash is a plain `u64`.
+weave fnv1a64 with data as string into u64:
+    return calling _fnv1a64 with data
+
+antiquus _fnv1a64 with data as string into u64:
+    r"""
+uint64_t hash = 14695981039346656037ull;
+if (data.data)
+{
+for (int i = 0; i < data.len; i++)
+{
+hash ^= (uint64_t)(unsigned char)data.data[i];
+hash *= 1099511628211ull;
+}
+}
+return hash;
+"""

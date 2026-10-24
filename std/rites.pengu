@@ -83,6 +83,15 @@
 
 import std.spark
 
+# `_rites_capture_all` needs the wait-status macros on POSIX and the Win32 temp
+# file API on Windows.  `pengu_runtime.h` already includes <windows.h>; these
+# conditional includes keep the POSIX build strict (`-std=c11`) without pulling
+# POSIX headers into a Windows build.
+when os == "windows":
+    include "io.h"
+else:
+    include "sys/wait.h"
+
 # ----------------------------------------------------------------------------
 # External C Runtime Declarations (environment, args, process, platform)
 # ----------------------------------------------------------------------------
@@ -321,6 +330,186 @@ return 128 + WTERMSIG(st);
 return -1;
 #endif
 """
+
+## A completed child process with both output streams and its exit code.
+##
+## ## Campos
+## - `stdout`: everything the child wrote to standard output.
+## - `stderr`: everything the child wrote to standard error.
+## - `code`: exit status (128 + signal on POSIX when it was killed).
+## - `timed_out`: reserved for callers that implement a timeout; the built-in
+##   bridge is blocking and always reports `false`.
+##
+## ## Memoria
+## Both strings are owned by the rune; release each one with `banish` after the
+## last use.  The rune itself is a plain value (no hidden allocation).
+rune ProcessResult:
+    stdout as string
+    stderr as string
+    code as int
+    timed_out as bool
+
+## Runs `cmd` with `args` and captures stdout, stderr and the exit code.
+##
+## ## Motivo
+## `popen` can only capture one stream, and both `run_capture` and
+## `run_capture_stderr` discard the buffer when the child fails.  A compiler
+## driver needs gcc's diagnostics *and* its exit status from the same run
+## (B3), so this bridge connects two temporary files to stdout/stderr, waits
+## for the child and reads both back.  It never loses output on a non-zero exit.
+##
+## ## Memoria
+## Both out parameters receive freshly allocated owned strings; the caller
+## releases them.  `cmdline` is borrowed.
+##
+## ## Efectos
+## Blocks until the child exits.  POSIX uses `fork`/`execl("/bin/sh")`;
+## Windows uses `system()` with temporary files.
+antiquus _rites_capture_all with cmdline as string, out as ref to string, errtext as ref to string into int:
+    r"""
+out->data = (char *)"";
+out->len = 0;
+out->is_owned = 0;
+errtext->data = (char *)"";
+errtext->len = 0;
+errtext->is_owned = 0;
+if (!cmdline.data || cmdline.len <= 0)
+return -1;
+char *cline = (char *)malloc((size_t)cmdline.len + 1);
+if (!cline)
+return -1;
+memcpy(cline, cmdline.data, (size_t)cmdline.len);
+cline[cmdline.len] = '\0';
+
+#define PENGU_RITES_READ_FILE(STREAM, DEST)                                    \
+  do {                                                                         \
+    rewind(STREAM);                                                            \
+    if (fseek(STREAM, 0, SEEK_END) == 0) {                                     \
+      long _n = ftell(STREAM);                                                 \
+      if (_n < 0) _n = 0;                                                      \
+      rewind(STREAM);                                                          \
+      char *_buf = (char *)malloc((size_t)_n + 1);                             \
+      if (_buf) {                                                              \
+        size_t _got = fread(_buf, 1, (size_t)_n, STREAM);                      \
+        _buf[_got] = '\0';                                                     \
+        DEST->data = _buf;                                                     \
+        DEST->len = (int)_got;                                                 \
+        DEST->is_owned = 1;                                                    \
+      }                                                                        \
+    }                                                                          \
+  } while (0)
+
+#if defined(_WIN32)
+char tmpdir[MAX_PATH];
+char outpath[MAX_PATH];
+char errpath[MAX_PATH];
+if (GetTempPathA(MAX_PATH, tmpdir) == 0 ||
+    GetTempFileNameA(tmpdir, "pgo", 0, outpath) == 0 ||
+    GetTempFileNameA(tmpdir, "pge", 0, errpath) == 0)
+{
+  free(cline);
+  return -1;
+}
+size_t cmd_cap = (size_t)cmdline.len + (size_t)MAX_PATH * 2 + 64;
+char *cmd = (char *)malloc(cmd_cap);
+if (!cmd)
+{
+  DeleteFileA(outpath);
+  DeleteFileA(errpath);
+  free(cline);
+  return -1;
+}
+snprintf(cmd, cmd_cap, "%s > \"%s\" 2> \"%s\"", cline, outpath, errpath);
+int code = system(cmd);
+free(cmd);
+free(cline);
+FILE *fo = fopen(outpath, "rb");
+FILE *fe = fopen(errpath, "rb");
+if (fo) { PENGU_RITES_READ_FILE(fo, out); fclose(fo); }
+if (fe) { PENGU_RITES_READ_FILE(fe, errtext); fclose(fe); }
+DeleteFileA(outpath);
+DeleteFileA(errpath);
+return code;
+#else
+FILE *fo = tmpfile();
+FILE *fe = tmpfile();
+if (!fo || !fe)
+{
+  if (fo) fclose(fo);
+  if (fe) fclose(fe);
+  free(cline);
+  return -1;
+}
+pid_t pid = fork();
+if (pid < 0)
+{
+  fclose(fo);
+  fclose(fe);
+  free(cline);
+  return -1;
+}
+if (pid == 0)
+{
+  dup2(fileno(fo), STDOUT_FILENO);
+  dup2(fileno(fe), STDERR_FILENO);
+  execl("/bin/sh", "sh", "-c", cline, (char *)NULL);
+  _exit(127);
+}
+free(cline);
+int status = 0;
+while (waitpid(pid, &status, 0) < 0)
+{
+  if (errno != EINTR)
+  {
+    status = -1;
+    break;
+  }
+}
+int code = -1;
+if (status >= 0)
+{
+  if (WIFEXITED(status))
+    code = WEXITSTATUS(status);
+  else if (WIFSIGNALED(status))
+    code = 128 + WTERMSIG(status);
+}
+PENGU_RITES_READ_FILE(fo, out);
+PENGU_RITES_READ_FILE(fe, errtext);
+fclose(fo);
+fclose(fe);
+return code;
+#endif
+#undef PENGU_RITES_READ_FILE
+"""
+
+## Runs `cmd` with `args`, returning both streams and the exit code.
+##
+## ## Parámetros
+## - `cmd`: executable or shell command line. Borrowed.
+## - `args`: arguments, each escaped with `shell_escape`. Borrowed.
+##
+## ## Retorno
+## A `ProcessResult` whose `stdout`/`stderr` are owned strings and whose `code`
+## is the child's exit status.  Unlike `run_capture`, a non-zero exit does not
+## hide the output; this is the API a compiler driver uses for `gcc`.
+##
+## ## Memoria
+## The caller owns both strings inside the result and must `banish` each one.
+##
+## ## Ejemplo
+## ```pengu
+## let r as rites.ProcessResult is calling rites.run_capture_all with "gcc", ["-v"]
+## calling spark.println_int with r.code
+## banish r.stdout
+## banish r.stderr
+## ```
+weave run_capture_all with cmd as string , args as list of string into ProcessResult:
+    let line as string is calling _rites_build_cmdline with cmd , args
+    defer banish line
+    var out as string is ""
+    var errtext as string is ""
+    let code as int is calling _rites_capture_all with line , (sigil of out) , (sigil of errtext)
+    return with stdout is out, stderr is errtext, code is code, timed_out is false
 
 ## Returns POSIX credential `which` for the current process.
 ##

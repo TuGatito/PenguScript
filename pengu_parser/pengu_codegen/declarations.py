@@ -26,6 +26,7 @@ from ._base import (
     ResultType,
     RuneType,
     SliceType,
+    Symbol,
     Token,
     Tree,
     Tuple,
@@ -816,6 +817,197 @@ class CollectMixin:
                                     cand = f"{rec_mangled}_{c_m}"
                                     sub_map = dict(zip(type_params, t_args))
                                     self.symbols.monomorphized_methods[cand] = (method_ast, sub_map, enchanted_type)
+
+        # Generic functions may call other generic functions.  The checker
+        # resolves the call once, while `T` is still a type parameter, so it
+        # only registers the unspecialized `callee_T` template.  Every concrete
+        # instance therefore needs its own transitive specialization
+        # (`callee_int`, `callee_string`, ...), both so the call site can name
+        # the right C symbol and so `collect_declarations` emits the body.  The
+        # outer fixed-point loop in `collect_declarations` picks up whatever
+        # this registers and processes it in turn.
+        self._register_transitive_generic_calls(
+            body_stmts, params, subst_map, enchanted_type)
+
+    def _register_transitive_generic_calls(self, body_stmts, params,
+                                           subst_map: Dict[str, Type],
+                                           enchanted_type: Optional[Type]) -> None:
+        """Registers generic callees reached from a monomorphized body.
+
+        This is the B1 fix: ``weave twice shard T`` calling ``ident<T>`` used
+        to emit ``ident_T(x)`` in every instance.  The call target is resolved
+        here per instance, with the caller's substitution already applied to
+        its parameter types, and the callee's declared type parameters are
+        recovered by unifying its signature against the inferred argument
+        types.  Registration is enough: ``collect_declarations`` has a
+        fixed-point loop that collects (and later emits) every entry added to
+        ``symbols.monomorphized_functions``.
+
+        The scan is deliberately conservative -- unknown argument types simply
+        leave the call for the checker/codegen's existing fallback -- so it can
+        never invent a specialization that the checker would reject.
+        """
+        if not self.symbols or not body_stmts:
+            return
+        generic_functions = getattr(self.symbols, "generic_functions", {}) or {}
+        if not generic_functions:
+            return
+
+        saved_local_vars = self.local_vars
+        saved_subst = getattr(self, "current_subst_map", {})
+        saved_enchanted = getattr(self, "current_enchanted_type", None)
+        try:
+            self.local_vars = {p[0]: p[1] for p in params if len(p) >= 2}
+            self.current_subst_map = dict(subst_map or {})
+            self.current_enchanted_type = enchanted_type
+
+            inferrer = self._make_inferrer()
+            saved_scope = self.symbols.current_scope
+            saved_scopes_len = len(self.symbols.all_scopes)
+            try:
+                inferrer.symbols.push_scope(kind="block")
+                for var_name, var_type in self.local_vars.items():
+                    if var_type is not None:
+                        inferrer.symbols.define(Symbol(
+                            name=var_name, type=var_type, kind="var",
+                            line=0, column=0, file_path="."))
+            except Exception:
+                pass
+
+            for stmt in body_stmts:
+                if not isinstance(stmt, Tree):
+                    continue
+                for sub in stmt.iter_subtrees():
+                    if sub.data != "calling_expr" or not sub.children:
+                        continue
+                    target = sub.children[0]
+                    if not isinstance(target, Tree) or target.data != "normal_target":
+                        continue
+                    candidate = self._generic_call_candidate(target)
+                    if candidate is None:
+                        continue
+                    fn_type = self.symbols.functions.get(candidate)
+                    if fn_type is None or not getattr(fn_type, "type_params", None):
+                        continue
+                    type_params = list(fn_type.type_params)
+                    try:
+                        arg_types = self._infer_generic_args(inferrer, fn_type, sub)
+                    except Exception:
+                        arg_types = None
+                    if not arg_types:
+                        continue
+                    subst: Dict[str, Type] = {}
+                    params_by_name = {p[0]: p[1] for p in fn_type.params if p[0]}
+                    try:
+                        for p_name, arg_t in arg_types.items():
+                            p_type = params_by_name.get(p_name)
+                            if p_type is not None and arg_t is not None:
+                                inferrer._unify_type(p_type, arg_t, subst)
+                    except Exception:
+                        continue
+                    if any(tp not in subst or not inferrer._type_is_concrete(subst[tp])
+                           for tp in type_params):
+                        continue
+                    fn_ast = generic_functions.get(candidate)
+                    fn_ast = fn_ast[1] if fn_ast else None
+                    try:
+                        _, c_name, registered = inferrer._specialize_generic_function(
+                            candidate, fn_type, subst, sub, type_params,
+                            allow_method=False)
+                    except Exception:
+                        continue
+                    if registered and fn_ast is not None:
+                        # `_specialize_generic_function` owns the name and the
+                        # symbol-table entries; the fixed-point loop in
+                        # collect_declarations owns turning the entry into a C
+                        # definition.
+                        if not any(w.get("c_name") == c_name for w in self.weaves):
+                            self._collect_monomorphized_weave(
+                                c_name, fn_ast, subst, None, filepath=".")
+        finally:
+            try:
+                self.symbols.current_scope = saved_scope
+                if len(self.symbols.all_scopes) > saved_scopes_len:
+                    del self.symbols.all_scopes[saved_scopes_len:]
+            except (AttributeError, UnboundLocalError):
+                pass
+            self.local_vars = saved_local_vars
+            self.current_subst_map = saved_subst
+            self.current_enchanted_type = saved_enchanted
+
+    def _generic_call_candidate(self, target: Tree) -> Optional[str]:
+        """Best-effort name of the generic function a call target refers to.
+
+        Only bare names, ``module.function`` and ``Type.ritual`` are
+        considered.  A method on a local value must not be mistaken for a free
+        generic function that happens to share its name.
+        """
+        if not target.children:
+            return None
+        first = target.children[0]
+        if len(target.children) == 1 and isinstance(first, (Token, str)):
+            name = str(first)
+            return name if name in self.symbols.generic_functions else None
+        if len(target.children) == 2:
+            acc = target.children[1]
+            if not (isinstance(acc, Tree) and acc.data in ("dot_access", "arrow_access") and acc.children):
+                return None
+            m_name = str(acc.children[0])
+            base = str(first)
+            base_sym = self.symbols.lookup(base) if self.symbols else None
+            if base_sym is not None and getattr(base_sym, "kind", "") == "import":
+                prefixed = f"{base}_{m_name}"
+                return prefixed if prefixed in self.symbols.generic_functions else m_name
+            # A type-qualified static call (`Box.empty`); the ritual path has
+            # its own specialization, but a free generic reached through a
+            # type/module alias is still worth registering by bare name.
+            if self.symbols.lookup_type(base) is not None or base in self.runes:
+                prefixed = f"{base}_{m_name}"
+                if prefixed in self.symbols.generic_functions:
+                    return prefixed
+                if m_name in self.symbols.generic_functions:
+                    return m_name
+        return None
+
+    def _infer_generic_args(self, inferrer, fn_type, call: Tree) -> Dict[str, Any]:
+        """Infers call arguments, mapped by declared parameter name.
+
+        Named arguments may be supplied out of declaration order, so zipping a
+        flat expression list against ``fn_type.params`` would unify the wrong
+        types.  Defaults omitted at the call site simply stay absent.
+        """
+        positional: List[Any] = []
+        named: Dict[str, Any] = {}
+        for child in call.children[1:]:
+            if not (isinstance(child, Tree) and child.data == "arg_list"):
+                continue
+            for arg in child.children:
+                if not isinstance(arg, Tree):
+                    continue
+                if arg.data == "pos_arg" and arg.children:
+                    positional.append(arg.children[0])
+                elif arg.data == "named_arg" and len(arg.children) > 1:
+                    named[str(arg.children[0])] = arg.children[1]
+        out: Dict[str, Any] = {}
+        pos_index = 0
+        for p_name, _p_type in fn_type.params:
+            if not p_name:
+                continue
+            node = named.get(p_name)
+            if node is None and pos_index < len(positional):
+                node = positional[pos_index]
+                pos_index += 1
+            if node is None:
+                continue
+            try:
+                arg_t = inferrer.infer(node)
+            except Exception:
+                arg_t = None
+            if arg_t is not None and self.current_subst_map:
+                arg_t = arg_t.substitute(self.current_subst_map)
+            out[p_name] = arg_t
+        return out
+
     def _collect_weave(self, node: Tree, filepath: str, enchanted_type: Optional[Type], prefix: Optional[str] = None,
                        self_is_value: bool = False) -> None:
         """Collects function declaration details.

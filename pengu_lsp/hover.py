@@ -18,6 +18,7 @@ from pengu_parser.pengu_types import (
 from .judge_over import judge_over_hover
 from .labels import loop_label_hover
 from .type_of import type_of_hover
+from .positions import utf16_to_cp
 
 
 KEYWORD_DOCS = {
@@ -160,7 +161,8 @@ def get_word_at_position(text: str, position: Position) -> Optional[str]:
         return None
 
     line = lines[position.line]
-    col = position.character
+    # LSP sends UTF-16 code units; Python indexes code points.
+    col = utf16_to_cp(line, position.character)
     if col < 0 or col > len(line):
         return None
 

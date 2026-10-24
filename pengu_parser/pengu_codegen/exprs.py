@@ -458,6 +458,117 @@ class ExprMixin:
             return "free"
         return "skip"
 
+    def _qualified_type_call_parts(self, target):
+        """Splits ``module.Type.method`` into its type and method.
+
+        Returns ``(type_name, method_name, type_object, import_symbol)`` or
+        ``None``.  The module scope is the authority: a module may export a type
+        with the same logical name as one in another module, and the C name on
+        the type symbol already carries the resolved prefix.
+        """
+        if not isinstance(target, Tree) or target.data != "normal_target":
+            return None
+        if len(target.children) != 3:
+            return None
+        first = target.children[0]
+        second = target.children[1]
+        third = target.children[2]
+        if not isinstance(second, Tree) or second.data not in ("dot_access", "arrow_access"):
+            return None
+        if not isinstance(third, Tree) or third.data not in ("dot_access", "arrow_access"):
+            return None
+        if self.symbols is None:
+            return None
+        base = str(first)
+        imp = self.symbols.lookup(base)
+        if imp is None or getattr(imp, "kind", "") != "import":
+            return None
+        scope = getattr(imp, "module_scope", None)
+        if scope is None:
+            return None
+        type_name = str(second.children[0])
+        type_sym = scope.lookup(type_name)
+        if type_sym is None or getattr(type_sym, "kind", "") not in (
+                "rune", "echo", "omen", "seal", "alias", "type"):
+            return None
+        return type_name, str(third.children[0]), getattr(type_sym, "type", None), imp
+
+    def _ritual_type_args(self, explicit_type_args, expected_type):
+        """Type arguments available for a generic ritual constructor.
+
+        Explicit ``Type.method of T`` wins.  Otherwise the assignment target
+        supplies them (`var b as Box of string is calling Box.empty`), which is
+        how a constructor with no parameters can still be specialized.
+        """
+        args = list(explicit_type_args or [])
+        if args:
+            return args
+        probe = expected_type
+        seen = 0
+        while probe is not None and seen < 8:
+            seen += 1
+            if isinstance(probe, (AliasType, FrozenType)):
+                probe = getattr(probe, "target", None)
+                continue
+            if isinstance(probe, RefType):
+                probe = getattr(probe, "target", None)
+                continue
+            break
+        t_args = list(getattr(probe, "type_args", None) or [])
+        return t_args
+
+    def _resolve_ritual_c_name(self, base_names, method_c_name, default_c_name,
+                               explicit_type_args, expected_type, arg_nodes=None):
+        """Picks the exact C symbol for a (possibly generic) ritual call.
+
+        B2: ``Box.empty of int`` and ``Box.empty of string`` share the base
+        name ``Box_empty``.  The old fallback took the first match in the
+        monomorphization table, so every specialization after the first called
+        the first one's C function.  Mangle the call from its type arguments
+        (explicit, or borrowed from the expected type) and only fall back to a
+        unique prefix match when no type can be recovered.
+        """
+        def _known(name):
+            return (name in self.fn_info
+                    or any(w.get("c_name") == name for w in self.weaves)
+                    or (self.symbols is not None
+                        and name in getattr(self.symbols, "monomorphized_methods", {})))
+
+        if _known(default_c_name):
+            return default_c_name
+
+        bases = []
+        for b in base_names:
+            if b and b not in bases:
+                bases.append(b)
+        type_args = self._ritual_type_args(explicit_type_args, expected_type)
+        if type_args:
+            suffix = "_".join(t.get_mangled_name() for t in type_args)
+            for b in bases:
+                for cand in (f"{b}_{method_c_name}_{suffix}", f"{b}_{suffix}_{method_c_name}"):
+                    if _known(cand):
+                        return cand
+            # The call may carry the type arguments before the method name in
+            # the mapped key even when the base itself is already mangled
+            # (`Box_int_empty`).
+            for b in bases:
+                if b.endswith("_" + suffix):
+                    cand = f"{b}_{method_c_name}"
+                    if _known(cand):
+                        return cand
+
+        if self.symbols is not None:
+            mono = getattr(self.symbols, "monomorphized_methods", {}) or {}
+            matches = []
+            for key in mono:
+                if (any(key.startswith(f"{b}_") for b in bases)
+                        and (key.endswith(f"_{method_c_name}")
+                             or f"_{method_c_name}_" in key)):
+                    matches.append(key)
+            if len(matches) == 1:
+                return matches[0]
+        return default_c_name
+
     def _resolve_monomorphized_call(self, base_names, m_name, arg_nodes):
         """Resolve the exact monomorphized C name of a generic call.
 
@@ -1137,6 +1248,27 @@ class ExprMixin:
                             raw_arg_nodes.append(arg.children[1])
                             args.append(self._translate_expr(arg.children[1]))
 
+            # 0a. Qualified type call: `module.Type.ritual(...)` (B2b).  Must
+            #     run before method chaining, which would read the chain as
+            #     field accesses rooted at the module (`compass.Path.from_str`).
+            qualified = self._qualified_type_call_parts(target_node)
+            if qualified is not None:
+                q_type_name, q_m_name, q_type, _q_import = qualified
+                t_c_name = (getattr(q_type, "c_name", None)
+                            or self._c_ident(q_type_name))
+                c_m_name = self._c_ident(q_m_name)
+                default_c = f"{t_c_name}_{c_m_name}"
+                c_fn_name = self._resolve_ritual_c_name(
+                    (t_c_name, self._c_ident(q_type_name)), c_m_name,
+                    default_c, explicit_type_args, expected_type, raw_arg_nodes)
+                entry = self.fn_info.get(c_fn_name)
+                if entry and entry.get("params") is not None:
+                    call_args = self._build_call_args(entry["params"], raw_arg_nodes)
+                    return f"{c_fn_name}({', '.join(call_args)})"
+                if any(w.get("c_name") == c_fn_name for w in self.weaves):
+                    return f"{c_fn_name}({', '.join(args)})"
+                return f"{c_fn_name}({', '.join(args)})"
+
             # 0. Method chaining: `calling a.m1.m2 [with args]`.  Must run before
             #    the single-step path, which would render `a.m1` as a C member
             #    access and emit invalid C.
@@ -1271,14 +1403,9 @@ class ExprMixin:
                     t_c_name = getattr(sym_t, "c_name", None) or self._c_ident(obj_name)
                     c_m_name = self._c_ident(m_name)
                     c_fn_name = f"{t_c_name}_{c_m_name}"
-                    if c_fn_name not in self.fn_info and not any(w["c_name"] == c_fn_name for w in self.weaves):
-                        plain_cand = f"{self._c_ident(obj_name)}_{c_m_name}"
-                        if plain_cand in self.fn_info or any(w["c_name"] == plain_cand for w in self.weaves):
-                            c_fn_name = plain_cand
-                        elif hasattr(self.symbols, "monomorphized_methods"):
-                            matches = [m for m in self.symbols.monomorphized_methods if (m.startswith(f"{self._c_ident(obj_name)}_") and m.endswith(f"_{c_m_name}")) or m.startswith(f"{plain_cand}_")]
-                            if matches:
-                                c_fn_name = matches[0]
+                    c_fn_name = self._resolve_ritual_c_name(
+                        (t_c_name, self._c_ident(obj_name)), c_m_name, c_fn_name,
+                        explicit_type_args, expected_type, raw_arg_nodes)
                     fn_entry = self.fn_info.get(c_fn_name)
                     if fn_entry and fn_entry.get("params") is not None:
                         fn_params = fn_entry["params"]

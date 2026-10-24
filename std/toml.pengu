@@ -1,0 +1,436 @@
+## std.toml.pengu — TOML 1.0 reader and writer for manifests and lockfiles.
+##
+## `pengu.toml` and `pengu.lock` are TOML.  The compiler cannot rely on
+## Python's `tomllib` once it runs as a native binary, so this module provides a
+## small, dependency-free parser and serializer.  Parsing returns a flat list of
+## `TomlEntry` values whose keys are dotted paths (`project.name`), with array
+## elements spelled `[0]`, `[1]` and array-of-tables elements spelled
+## `package[0]`, `package[1]`.  That representation is deterministic, easy to
+## search, and needs no recursive AST allocation.
+##
+## ## Example
+## ```pengu
+## import std.toml
+## import std.spark
+##
+## weave main into int:
+##     let doc as result of list of toml.TomlEntry to string is calling toml.parse with "name = \"demo\"\n"
+##     if doc.is_ok:
+##         let name as string is calling toml.get with doc.value, "name"
+##         calling spark.println with name
+##         banish name
+##         calling toml.free_entries with doc.value
+##     return 0
+## ```
+##
+## ## Memory
+## `parse` returns an owned list; every `TomlEntry.key`/`.value` is owned, so
+## release the list with `toml.free_entries`.  Getters (`get`, `get_array`)
+## return freshly allocated strings owned by the caller.
+##
+## ## Design notes
+## - **Flat, stable keys.** No map iteration is involved in parsing or
+##   serialization, which keeps golden files reproducible (B9).
+## - **C block parser, Pengu API.** The TOML grammar (multiline strings, arrays,
+##   inline tables, quoted keys, escapes) lives in `std_c/toml_min.h`; the
+##   public surface and ownership stay in PenguScript.
+## - **Dates are strings.** A manifest/lockfile never needs calendar arithmetic;
+##   date/time values keep their original text and kind `TomlKind.STRING`.
+## - **Errors carry line numbers.** `parse` returns `err("... line N")` instead of
+##   silently returning an empty document.
+
+const TOML_VERSION as string is "3.0.2"
+
+
+import std.archivum
+import std.builder
+
+include "toml_min.h"
+
+# ----------------------------------------------------------------------------
+# Value model
+# ----------------------------------------------------------------------------
+
+## Kind tags returned by `TomlEntry.kind`.
+const TOML_STRING as int is 1
+const TOML_INT as int is 2
+const TOML_FLOAT as int is 3
+const TOML_BOOL as int is 4
+const TOML_ARRAY as int is 5
+const TOML_TABLE as int is 6
+const TOML_ARRAY_TABLE as int is 7
+
+## One flattened TOML key/value pair.
+##
+## `key` is a dotted path; array elements use `[n]`.  `kind` is one of the
+## `TOML_*` constants above.
+rune TomlEntry:
+    key as string
+    value as string
+    kind as int
+
+# ----------------------------------------------------------------------------
+# Parsing
+# ----------------------------------------------------------------------------
+
+## Parses `text` as TOML.
+##
+## ## Retorno
+## `ok(entries)` on success, `err(message)` with a line number on failure.
+##
+## ## Memoria
+## On success the caller owns every entry string and the list; release them with
+## `free_entries`.
+weave parse with text as string into result of list of TomlEntry to string:
+    var doc as ref to void is calling _toml_parse with text
+    if doc == null:
+        return calling err_of with "out of memory while parsing TOML"
+    let err as string is calling _toml_error with doc
+    if (err length) > 0:
+        let msg as string is "{err}"
+        banish err
+        calling _toml_free with doc
+        return calling err_of with msg
+    var entries as list of TomlEntry is list of TomlEntry
+    let count as int is calling _toml_count with doc
+    var i as int is 0
+    while i < count:
+        let key as string is calling _toml_key with doc, i
+        let value as string is calling _toml_value with doc, i
+        let kind as int is calling _toml_kind with doc, i
+        calling entries.push with (with key is key, value is value, kind is kind)
+        set i is i + 1
+    banish err
+    calling _toml_free with doc
+    return calling ok_of with entries
+
+## Parses the TOML file at `path`.
+weave parse_file with path as string into result of list of TomlEntry to string:
+    var data as string is (calling archivum.read_file with path) or:
+        return calling err_of with "cannot read TOML file"
+    let result as result of list of TomlEntry to string is calling parse with data
+    banish data
+    return result
+
+## Releases every string in `entries` and then the list itself.
+weave free_entries with entries as list of TomlEntry into void:
+    for e in entries:
+        banish e.key
+        banish e.value
+    banish entries
+
+# ----------------------------------------------------------------------------
+# Queries
+# ----------------------------------------------------------------------------
+
+## Returns the index of `key` in `entries`, or `-1`.
+weave find with entries as list of TomlEntry, key as string into int:
+    var i as int is 0
+    for e in entries:
+        if e.key == key:
+            return i
+        set i is i + 1
+    return 0 - 1
+
+## True when `entries` contains `key`.
+weave has with entries as list of TomlEntry, key as string into bool:
+    return (calling find with entries, key) >= 0
+
+## Returns a copy of the scalar value stored at `key` ("" when absent).
+##
+## ## Memoria
+## The result is owned; release it with `banish`.
+weave get with entries as list of TomlEntry, key as string into string:
+    let i as int is calling find with entries, key
+    if i < 0:
+        return ""
+    let value as string is (entries at i).value
+    return calling _toml_copy with value
+
+## Returns `key` as an int, or `fallback` when absent/unparseable.
+weave get_int with entries as list of TomlEntry, key as string, fallback as int into int:
+    let i as int is calling find with entries, key
+    if i < 0:
+        return fallback
+    let value as string is (entries at i).value
+    return calling _toml_to_int with value, fallback
+
+## Returns `key` as a float, or `fallback` when absent/unparseable.
+weave get_float with entries as list of TomlEntry, key as string, fallback as float into float:
+    let i as int is calling find with entries, key
+    if i < 0:
+        return fallback
+    let value as string is (entries at i).value
+    return calling _toml_to_float with value, fallback
+
+## Returns `key` as a bool, or `fallback` when absent.
+weave get_bool with entries as list of TomlEntry, key as string, fallback as bool into bool:
+    let i as int is calling find with entries, key
+    if i < 0:
+        return fallback
+    let value as string is (entries at i).value
+    if value == "true":
+        return true
+    if value == "false":
+        return false
+    return fallback
+
+## Returns every element of the array at `key` as owned strings.
+##
+## Elements are read from `key[0]`, `key[1]`, ... until the first gap.  A
+## missing array returns an empty list.
+##
+## ## Memoria
+## The list and every element are owned; release them with `free_strings`.
+weave get_array with entries as list of TomlEntry, key as string into list of string:
+    var out as list of string is list of string
+    var i as int is 0
+    while true:
+        let sub as string is "{key}[{i}]"
+        let idx as int is calling find with entries, sub
+        if idx < 0:
+            banish sub
+            break
+        let value as string is calling get with entries, sub
+        banish sub
+        calling out.push with value
+        set i is i + 1
+    return out
+
+## Releases a list of strings returned by `get_array`.
+weave free_strings with values as list of string into void:
+    for s in values:
+        banish s
+    banish values
+
+## Returns every scalar key that starts with `prefix`.
+weave keys_with_prefix with entries as list of TomlEntry, prefix as string into list of string:
+    var out as list of string is list of string
+    for e in entries:
+        if e.kind != TOML_TABLE and e.kind != TOML_ARRAY_TABLE and e.kind != TOML_ARRAY:
+            if (e.key length) >= (prefix length):
+                if (e.key at 0 to (prefix length)) == prefix:
+                    calling out.push with (calling _toml_copy with e.key)
+    return out
+
+# ----------------------------------------------------------------------------
+# Serialization
+# ----------------------------------------------------------------------------
+
+## Serializes `entries` back to TOML text.
+##
+## Tables are emitted from their `TOML_TABLE` markers, scalar arrays are grouped
+## from their `[n]` elements, and values are quoted/escaped according to their
+## kind.  The result is deterministic (source order).
+weave stringify with entries as list of TomlEntry into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var current as string is ""
+    defer banish current
+    var i as int is 0
+    var n as int is (entries length)
+    while i < n:
+        let e as TomlEntry is (entries at i)
+        if e.kind == TOML_ARRAY_TABLE:
+            set i is i + 1
+        else if e.kind == TOML_TABLE:
+            if (e.key length) > 0:
+                let base as string is calling _toml_array_base with e.key
+                if (base length) < (e.key length):
+                    calling sb.append with "\n[["
+                    calling sb.append with base
+                    calling sb.append with "]]\n"
+                else:
+                    calling sb.append with "\n["
+                    calling sb.append with e.key
+                    calling sb.append with "]\n"
+                banish base
+                let new_current as string is calling _toml_copy with e.key
+                banish current
+                set current is new_current
+            set i is i + 1
+        else if e.kind == TOML_ARRAY:
+            # Group the whole `key[...]` family into one array line, including
+            # nested arrays; `j` skips every consumed element.
+            let base as string is calling _toml_array_base with e.key
+            var j as int is i + 1
+            while j < n:
+                let nx as TomlEntry is (entries at j)
+                if (nx.key length) <= (base length):
+                    break
+                if (nx.key at 0 to (base length)) != base:
+                    break
+                if (nx.key at (base length) to (base length + 1)) != "[":
+                    break
+                set j is j + 1
+            let rel as string is calling _toml_relative_key with e.key, current
+            calling sb.append with rel
+            banish rel
+            calling sb.append with " = "
+            let rendered as string is calling _toml_render_array with entries, base
+            calling sb.append with rendered
+            banish rendered
+            calling sb.append with "\n"
+            banish base
+            set i is j
+        else:
+            let rel as string is calling _toml_relative_key with e.key, current
+            calling sb.append with rel
+            banish rel
+            calling sb.append with " = "
+            let formatted as string is calling _toml_format_value with e
+            calling sb.append with formatted
+            banish formatted
+            calling sb.append with "\n"
+            set i is i + 1
+    return calling sb.finish
+
+weave _toml_render_array with entries as list of TomlEntry, key as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "["
+    var i as int is 0
+    var first as bool is true
+    while true:
+        let sub as string is "{key}[{i}]"
+        let idx as int is calling find with entries, sub
+        if idx < 0:
+            banish sub
+            break
+        if not first:
+            calling sb.append with ", "
+        set first is false
+        let elem as TomlEntry is (entries at idx)
+        if elem.kind == TOML_ARRAY:
+            let nested as string is calling _toml_render_array with entries, sub
+            calling sb.append with nested
+            banish nested
+        else:
+            let formatted as string is calling _toml_format_value with elem
+            calling sb.append with formatted
+            banish formatted
+        banish sub
+        set i is i + 1
+    calling sb.append with "]"
+    return calling sb.finish
+
+weave _toml_array_base with key as string into string:
+    var idx as int is (key length)
+    var i as int is 0
+    let kb as ref to frozen byte is bytes of key
+    while i < (key length):
+        if (kb at i) == 91:
+            set idx is i
+            break
+        set i is i + 1
+    return key at 0 to idx
+
+weave _toml_relative_key with key as string, current as string into string:
+    if (current length) > 0 and (key length) > (current length):
+        if (key at 0 to (current length)) == current:
+            let start as int is (current length) + 1
+            return key at start to (key length)
+    return calling _toml_copy with key
+
+weave _toml_format_value with e as TomlEntry into string:
+    if e.kind == TOML_BOOL or e.kind == TOML_INT or e.kind == TOML_FLOAT:
+        return calling _toml_copy with e.value
+    return calling _toml_quote with e.value
+
+weave _toml_quote with s as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "\""
+    for ch in s:
+        if ch == "\"":
+            calling sb.append with "\\\""
+        else if ch == "\\":
+            calling sb.append with "\\\\"
+        else if ch == "\n":
+            calling sb.append with "\\n"
+        else if ch == "\r":
+            calling sb.append with "\\r"
+        else if ch == "\t":
+            calling sb.append with "\\t"
+        else:
+            calling sb.append with ch
+        banish ch
+    calling sb.append with "\""
+    return calling sb.finish
+
+# ----------------------------------------------------------------------------
+# C bridge
+# ----------------------------------------------------------------------------
+
+antiquus _toml_parse with text as string into ref to void:
+    r"""
+return (void *)pengu_toml_parse(text.data, text.len);
+"""
+
+antiquus _toml_free with doc as ref to void into void:
+    r"""
+pengu_toml_free((PenguTomlDoc *)doc);
+"""
+
+antiquus _toml_count with doc as ref to void into int:
+    r"""
+return pengu_toml_count((PenguTomlDoc *)doc);
+"""
+
+antiquus _toml_key with doc as ref to void, i as int into string:
+    r"""
+const char *s = pengu_toml_key((PenguTomlDoc *)doc, i);
+return pengu_string_new(s ? s : "");
+"""
+
+antiquus _toml_value with doc as ref to void, i as int into string:
+    r"""
+const char *s = pengu_toml_value((PenguTomlDoc *)doc, i);
+return pengu_string_new(s ? s : "");
+"""
+
+antiquus _toml_kind with doc as ref to void, i as int into int:
+    r"""
+return pengu_toml_kind((PenguTomlDoc *)doc, i);
+"""
+
+antiquus _toml_error with doc as ref to void into string:
+    r"""
+const char *s = pengu_toml_error_text((PenguTomlDoc *)doc);
+return pengu_string_new(s ? s : "");
+"""
+
+antiquus _toml_copy with s as string into string:
+    r"""
+return pengu_string_copy(s);
+"""
+
+antiquus _toml_to_int with s as string, fallback as int into int:
+    r"""
+if (!s.data || s.len <= 0)
+return fallback;
+char buf[64];
+int n = (s.len < (int)sizeof(buf) - 1) ? s.len : (int)sizeof(buf) - 1;
+memcpy(buf, s.data, (size_t)n);
+buf[n] = '\0';
+char *end = NULL;
+long long v = strtoll(buf, &end, 10);
+if (!end || *end != '\0' || end == buf)
+return fallback;
+return (int32_t)v;
+"""
+
+antiquus _toml_to_float with s as string, fallback as float into float:
+    r"""
+if (!s.data || s.len <= 0)
+return fallback;
+char buf[128];
+int n = (s.len < (int)sizeof(buf) - 1) ? s.len : (int)sizeof(buf) - 1;
+memcpy(buf, s.data, (size_t)n);
+buf[n] = '\0';
+char *end = NULL;
+double v = strtod(buf, &end);
+if (!end || *end != '\0' || end == buf)
+return fallback;
+return (float)v;
+"""

@@ -1,0 +1,328 @@
+## std/io.pengu — binary-safe standard I/O for stdio-driven tools.
+##
+## `std.spark` covers line-oriented console input, but an LSP (or any protocol
+## with `Content-Length` framing) needs to read exactly N bytes without losing
+## embedded NULs, and needs to write a frame and flush it.  The methods here
+## keep the language's byte-oriented `string` representation: the returned
+## string's `length` is the number of bytes read, even when those bytes include
+## `\0`.
+##
+## ## Example
+## ```pengu
+## import std.io
+## import std.spark
+##
+## weave main into int:
+##     let header as string is calling io.read_stdin_line
+##     let body as maybe string is calling io.read_stdin_exact with 16
+##     if body is present:
+##         calling io.write_stdout with body.value
+##         calling io.flush_stdout
+##     return 0
+## ```
+##
+## ## Memory
+## Every `string` returned by `read_*` is freshly allocated and owned by the
+## caller; release it with `banish`.  `write_*` borrows its argument and never
+## frees it.  A `maybe string` owns its payload only when present.
+##
+## ## Design notes
+## - **Byte counts, not characters.** The functions operate on `PenguString.len`
+##   bytes and never treat the buffer as NUL-terminated.  This is what makes a
+##   binary LSP frame (`Content-Length: 42\r\n\r\n{...}`) safe.
+## - **No hidden buffering layer.** Reads use `fread` on `stdin`, writes use
+##   `fwrite` on `stdout`/`stderr`, and `flush_*` exposes `fflush` so a client
+##   that waits for a response cannot deadlock.
+## - **`is_tty` is advisory.** It lets the CLI choose coloured diagnostics;
+##   redirected streams report false.
+
+const IO_VERSION as string is "3.0.2"
+
+
+when os == "windows":
+    include "io.h"
+else:
+    include "unistd.h"
+
+# ----------------------------------------------------------------------------
+# Internal byte helpers
+# ----------------------------------------------------------------------------
+
+## Builds an owned PenguString from exactly `n` bytes, preserving embedded NULs.
+##
+## ## Motivo
+## `pengu_string_new` uses `strlen`, which truncates a binary frame at the
+## first NUL.  Constructing the three-field struct here is the only way to keep
+## the exact length the caller read.
+##
+## ## Memoria
+## The returned string owns a fresh `n`-byte buffer (plus the NUL terminator
+## that makes accidental C-string use safe).  The caller releases it.
+antiquus _io_from_bytes with data as ref to byte, n as int into string:
+    r"""
+PenguString out;
+out.data = (char *)"";
+out.len = 0;
+out.is_owned = 0;
+if (n <= 0 || !data)
+return out;
+out.data = (char *)malloc((size_t)n + 1);
+if (!out.data)
+return out;
+memcpy(out.data, data, (size_t)n);
+out.data[n] = '\0';
+out.len = n;
+out.is_owned = 1;
+return out;
+"""
+
+# ----------------------------------------------------------------------------
+# Standard input
+# ----------------------------------------------------------------------------
+
+## Reads up to `max_bytes` bytes from stdin.
+##
+## ## Parámetros
+## - `max_bytes`: upper bound (0 returns an empty string).
+##
+## ## Retorno
+## An owned string with the bytes actually read; empty at EOF or on error.
+##
+## ## Memoria
+## The caller releases the result with `banish`.
+weave read_stdin with max_bytes as int into string:
+    return calling _io_read_stdin with max_bytes
+
+antiquus _io_read_stdin with max_bytes as int into string:
+    r"""
+PenguString out;
+out.data = (char *)"";
+out.len = 0;
+out.is_owned = 0;
+if (max_bytes <= 0)
+return out;
+char *buf = (char *)malloc((size_t)max_bytes + 1);
+if (!buf)
+return out;
+size_t got = fread(buf, 1, (size_t)max_bytes, stdin);
+buf[got] = '\0';
+if (got == 0)
+{
+free(buf);
+return out;
+}
+out.data = buf;
+out.len = (int)got;
+out.is_owned = 1;
+return out;
+"""
+
+## Reads exactly `n` bytes from stdin.
+##
+## ## Parámetros
+## - `n`: exact byte count (must be > 0).
+##
+## ## Retorno
+## `some bytes` when all `n` bytes arrived, `none` at EOF or on a short read.
+##
+## ## Memoria
+## The payload is owned by the caller; release it with `banish`.
+weave read_stdin_exact with n as int into maybe string:
+    return calling _io_read_stdin_exact with n
+
+antiquus _io_read_stdin_exact with n as int into maybe string:
+    r"""
+if (n <= 0)
+return pengu_maybe_none();
+char *buf = (char *)malloc((size_t)n + 1);
+if (!buf)
+return pengu_maybe_none();
+size_t got = 0;
+while (got < (size_t)n)
+{
+size_t part = fread(buf + got, 1, (size_t)n - got, stdin);
+if (part == 0)
+break;
+got += part;
+}
+if (got != (size_t)n)
+{
+free(buf);
+return pengu_maybe_none();
+}
+buf[n] = '\0';
+PenguString *boxed = (PenguString *)malloc(sizeof(PenguString));
+if (!boxed)
+{
+free(buf);
+return pengu_maybe_none();
+}
+boxed->data = buf;
+boxed->len = n;
+boxed->is_owned = 1;
+return pengu_maybe_some(boxed);
+"""
+
+## Reads stdin until EOF.
+##
+## ## Retorno
+## An owned string with every byte read; empty when stdin is already at EOF.
+##
+## ## Memoria
+## The caller releases the result with `banish`.
+weave read_stdin_all into string:
+    return calling _io_read_stdin_all
+
+antiquus _io_read_stdin_all into string:
+    r"""
+size_t cap = 8192;
+size_t len = 0;
+char *buf = (char *)malloc(cap);
+if (!buf)
+return pengu_string_from_cstr("");
+for (;;)
+{
+if (len + 4096 + 1 > cap)
+{
+cap *= 2;
+char *nb = (char *)realloc(buf, cap);
+if (!nb)
+{
+free(buf);
+return pengu_string_from_cstr("");
+}
+buf = nb;
+}
+size_t got = fread(buf + len, 1, 4096, stdin);
+len += got;
+if (got < 4096)
+break;
+}
+buf[len] = '\0';
+PenguString out;
+out.data = buf;
+out.len = (int)len;
+out.is_owned = 1;
+return out;
+"""
+
+## Reads one line from stdin, without the trailing newline.
+##
+## Provided here so a client can use `std.io` alone; `std.spark.read_line` is
+## the higher-level prompt-aware version.
+weave read_stdin_line into string:
+    return calling _io_read_stdin_line
+
+antiquus _io_read_stdin_line into string:
+    r"""
+size_t cap = 256;
+size_t len = 0;
+char *buf = (char *)malloc(cap);
+if (!buf)
+return pengu_string_from_cstr("");
+int c;
+bool saw_any = false;
+while ((c = fgetc(stdin)) != EOF)
+{
+saw_any = true;
+if (c == '\n')
+break;
+if (len + 2 > cap)
+{
+cap *= 2;
+char *nb = (char *)realloc(buf, cap);
+if (!nb)
+{
+free(buf);
+return pengu_string_from_cstr("");
+}
+buf = nb;
+}
+buf[len++] = (char)c;
+}
+if (!saw_any)
+{
+free(buf);
+return pengu_string_from_cstr("");
+}
+if (len > 0 && buf[len - 1] == '\r')
+len--;
+buf[len] = '\0';
+PenguString out;
+out.data = buf;
+out.len = (int)len;
+out.is_owned = 1;
+return out;
+"""
+
+# ----------------------------------------------------------------------------
+# Standard output / error
+# ----------------------------------------------------------------------------
+
+## Writes `data` to stdout.
+##
+## ## Retorno
+## True when every byte was written, false otherwise.
+##
+## ## Memoria
+## Borrows `data`; never frees it.
+weave write_stdout with data as string into bool:
+    return calling _io_write_stdout with data
+
+antiquus _io_write_stdout with data as string into bool:
+    r"""
+if (!data.data || data.len <= 0)
+return true;
+return fwrite(data.data, 1, (size_t)data.len, stdout) == (size_t)data.len;
+"""
+
+## Writes `data` to stderr.
+##
+## ## Retorno
+## True when every byte was written, false otherwise.
+##
+## ## Memoria
+## Borrows `data`; never frees it.
+weave write_stderr with data as string into bool:
+    return calling _io_write_stderr with data
+
+antiquus _io_write_stderr with data as string into bool:
+    r"""
+if (!data.data || data.len <= 0)
+return true;
+return fwrite(data.data, 1, (size_t)data.len, stderr) == (size_t)data.len;
+"""
+
+## Flushes buffered stdout.
+weave flush_stdout into void:
+    calling _io_flush_stdout
+
+antiquus _io_flush_stdout into void:
+    r"""
+fflush(stdout);
+"""
+
+## Flushes buffered stderr.
+weave flush_stderr into void:
+    calling _io_flush_stderr
+
+antiquus _io_flush_stderr into void:
+    r"""
+fflush(stderr);
+"""
+
+## True when `fd` refers to a terminal.
+##
+## ## Parámetros
+## - `fd`: 0 = stdin, 1 = stdout, 2 = stderr.
+weave is_tty with fd as int into bool:
+    return calling _io_is_tty with fd
+
+antiquus _io_is_tty with fd as int into bool:
+    r"""
+#if defined(_WIN32)
+return _isatty(fd) != 0;
+#else
+return isatty(fd) != 0;
+#endif
+"""

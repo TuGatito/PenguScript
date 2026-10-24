@@ -119,6 +119,7 @@ from pengu_parser.pengu_types import FnType
 from .formatting import format_pengu_source, load_format_config
 from .completions import get_completions
 from .hover import get_hover, get_word_at_position
+from .positions import cp_to_utf16, utf16_to_cp
 from .judge_over import (
     binding_token_spans,
     discriminant_token_spans,
@@ -199,17 +200,21 @@ def diagnostics_from_errors(errors: List[PenguError], code: str) -> List[Diagnos
         err_col = err.col if err.col is not None else 1
 
         start_line = max(0, err_line - 1)
-        start_char = max(0, err_col - 1)
+        # Lark reports code-point columns; LSP wants UTF-16 code units.  A
+        # non-BMP character before the token used to shift every diagnostic.
+        src_line = lines[start_line] if start_line < len(lines) else ""
+        start_cp = max(0, err_col - 1)
+        start_char = cp_to_utf16(src_line, start_cp)
 
-        # Determine end character
-        line_len = len(lines[start_line]) if start_line < len(lines) else 0
-        if getattr(err, "span_end", None) is not None and err.span_end > start_char:
-            end_char = min(line_len, err.span_end) if line_len else err.span_end
+        # Determine end character in code points first, then convert.
+        line_len = len(src_line)
+        if getattr(err, "span_end", None) is not None and err.span_end > start_cp:
+            end_cp = min(line_len, err.span_end) if line_len else err.span_end
         elif getattr(err, "span_start", None) and getattr(err, "span_end", None):
-            end_char = min(line_len, err.span_end) if line_len else err.span_end
+            end_cp = min(line_len, err.span_end) if line_len else err.span_end
         else:
-            word_len = 5
-            end_char = min(line_len, start_char + word_len) if line_len else start_char + 1
+            end_cp = min(line_len, start_cp + 5) if line_len else start_cp + 1
+        end_char = cp_to_utf16(src_line, end_cp)
 
         diag_range = Range(
             start=Position(line=start_line, character=start_char),
@@ -482,10 +487,13 @@ def _style_warning_diagnostics(source: str, symbols=None) -> List[Diagnostic]:
     lines = source.splitlines()
 
     def _warn(msg: str, line_no: int, start_c: int, end_c: int) -> Diagnostic:
+        src = lines[line_no] if 0 <= line_no < len(lines) else ""
+        u_start = cp_to_utf16(src, start_c)
+        u_end = cp_to_utf16(src, max(end_c, start_c + 1))
         return Diagnostic(
             range=Range(
-                start=Position(line=line_no, character=start_c),
-                end=Position(line=line_no, character=max(end_c, start_c + 1)),
+                start=Position(line=line_no, character=u_start),
+                end=Position(line=line_no, character=max(u_end, u_start + 1)),
             ),
             message=msg,
             severity=DiagnosticSeverity.Warning,
@@ -783,7 +791,9 @@ def _compute_diagnostics(
         err_line = getattr(e, "line", 1) or 1
         err_col = getattr(e, "column", 1) or 1
         start_l = max(0, err_line - 1)
-        start_c = max(0, err_col - 1)
+        _src_lines = source.splitlines() if source else []
+        _line = _src_lines[start_l] if start_l < len(_src_lines) else ""
+        start_c = cp_to_utf16(_line, max(0, err_col - 1))
         diag = Diagnostic(
             range=Range(start=Position(line=start_l, character=start_c), end=Position(line=start_l, character=start_c + 1)),
             message=str(e),
@@ -1279,7 +1289,8 @@ def completions(params: CompletionParams):
     line_prefix = ""
     if 0 <= params.position.line < len(lines):
         curr_line = lines[params.position.line]
-        line_prefix = curr_line[:params.position.character]
+        _col = utf16_to_cp(curr_line, params.position.character)
+        line_prefix = curr_line[:_col]
     base_dir = os.path.dirname(uri_to_path(uri)) or os.getcwd()
     return get_completions(uri, params.position, symbols, line_prefix, _MODULE_CACHE, base_dir, doc_text)
 
@@ -1356,7 +1367,7 @@ def definition(params: DefinitionParams):
         lines = doc_text.splitlines()
         if 0 <= params.position.line < len(lines):
             line_str = lines[params.position.line]
-            col = params.position.character
+            col = utf16_to_cp(line_str, params.position.character)
             prefix_to_word = line_str[:col]
             dot_m = re.search(r"([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)?$", prefix_to_word)
             if dot_m:
@@ -1379,11 +1390,20 @@ def definition(params: DefinitionParams):
     if target_sym and target_sym.line is not None and target_sym.column is not None:
         line = max(0, target_sym.line - 1)
         col = max(0, target_sym.column - 1)
+        _target_path = uri_to_path(target_uri) if target_uri.startswith("file:") else target_uri
+        try:
+            with open(_target_path, "r", encoding="utf-8") as _tf:
+                _target_lines = _tf.read().splitlines()
+        except OSError:
+            _target_lines = []
+        _src = _target_lines[line] if 0 <= line < len(_target_lines) else ""
+        _start = cp_to_utf16(_src, col)
+        _end = cp_to_utf16(_src, col + len(target_sym.name))
         return Location(
             uri=target_uri,
             range=Range(
-                start=Position(line=line, character=col),
-                end=Position(line=line, character=col + len(target_sym.name))
+                start=Position(line=line, character=_start),
+                end=Position(line=line, character=max(_end, _start + 1))
             )
         )
     return None
@@ -1497,17 +1517,27 @@ def implementation(params: ImplementationParams):
         return None
     out: List[Location] = []
     seen = set()
+    _file_lines: Dict[str, List[str]] = {}
     for fpath, line, col in hits:
         key = (os.path.abspath(fpath), line)
         if key in seen:
             continue
         seen.add(key)
+        if fpath not in _file_lines:
+            try:
+                with open(fpath, "r", encoding="utf-8") as _hf:
+                    _file_lines[fpath] = _hf.read().splitlines()
+            except OSError:
+                _file_lines[fpath] = []
+        _src = _file_lines[fpath][line] if 0 <= line < len(_file_lines[fpath]) else ""
+        _start = cp_to_utf16(_src, col)
+        _end = cp_to_utf16(_src, col + len(word))
         out.append(
             Location(
                 uri=path_to_uri(fpath),
                 range=Range(
-                    start=Position(line=line, character=col),
-                    end=Position(line=line, character=col + len(word)),
+                    start=Position(line=line, character=_start),
+                    end=Position(line=line, character=max(_end, _start + 1)),
                 ),
             )
         )
@@ -2014,7 +2044,8 @@ def signature_help(params: SignatureHelpParams) -> Optional[SignatureHelp]:
     if not (0 <= params.position.line < len(lines)):
         return None
 
-    line_str = lines[params.position.line][:params.position.character]
+    _sig_line = lines[params.position.line]
+    line_str = _sig_line[:utf16_to_cp(_sig_line, params.position.character)]
 
     # Detecta llamadas tipo `calling func with a, b` o `calling mod.func with a` o `func(a, b`
     calling_m = re.search(r"\bcalling\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)(?:\s+with\s+|\s+)?(.*)$", line_str)
@@ -2131,11 +2162,13 @@ def document_highlight(params: DocumentHighlightParams) -> Optional[List[Documen
         kind = DocumentHighlightKind.Read
         if re.search(r"\b(var|let|const|set)\s+$", before):
             kind = DocumentHighlightKind.Write
+        _start = cp_to_utf16(src, start_col)
+        _end = cp_to_utf16(src, end_col)
         highlights.append(
             DocumentHighlight(
                 range=Range(
-                    start=Position(line=line_idx, character=start_col),
-                    end=Position(line=line_idx, character=end_col),
+                    start=Position(line=line_idx, character=_start),
+                    end=Position(line=line_idx, character=max(_end, _start + 1)),
                 ),
                 kind=kind,
             )
@@ -2176,7 +2209,7 @@ def prepare_rename(params: PrepareRenameParams):
     if not (0 <= line_no < len(lines)):
         return None
     line = lines[line_no]
-    col = min(max(params.position.character, 0), len(line))
+    col = min(max(utf16_to_cp(line, params.position.character), 0), len(line))
 
     start = col
     while start > 0 and (line[start - 1].isalnum() or line[start - 1] == "_"):
@@ -2237,17 +2270,23 @@ def rename_symbol(params: RenameParams) -> Optional[WorkspaceEdit]:
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", new_name):
         return None
 
-    def _edits(positions) -> List[TextEdit]:
-        return [
-            TextEdit(
+    _rename_lines = doc_text.splitlines()
+
+    def _edits(positions, source_text=None) -> List[TextEdit]:
+        out: List[TextEdit] = []
+        _lines = source_text.splitlines() if source_text is not None else _rename_lines
+        for ln, col in positions:
+            src = _lines[ln] if 0 <= ln < len(_lines) else ""
+            _start = cp_to_utf16(src, col)
+            _end = cp_to_utf16(src, col + len(clean_old))
+            out.append(TextEdit(
                 range=Range(
-                    start=Position(line=ln, character=col),
-                    end=Position(line=ln, character=col + len(clean_old)),
+                    start=Position(line=ln, character=_start),
+                    end=Position(line=ln, character=max(_end, _start + 1)),
                 ),
                 new_text=new_name,
-            )
-            for ln, col in positions
-        ]
+            ))
+        return out
 
     # A loop label is not a symbol: rename its declaration and every
     # `break`/`continue` enclosed by that loop, within the same function.
@@ -2280,7 +2319,7 @@ def rename_symbol(params: RenameParams) -> Optional[WorkspaceEdit]:
         def _collect(f_abs: str, text: str, file_symbols, edit_uri: str) -> None:
             edits = _edits(_identifier_occurrences(
                 text, clean_old, include=_non_local_occurrence(file_symbols, clean_old)
-            ))
+            ), text)
             if edits:
                 changes[edit_uri] = edits
 
@@ -2722,6 +2761,7 @@ def semantic_tokens_full(params: SemanticTokensParams) -> Optional[SemanticToken
         return global_symbols.get(name)
 
     raw: List[Tuple[int, int, int, int, int]] = []
+    _sem_lines = doc_text.splitlines()
     # `judge <rune> over <field>:` binds no symbol of its own, so the
     # discriminant is highlighted as a field and each `with` binding as an
     # immutable variable.  The spans are matched by (0-based) line/column
@@ -2749,7 +2789,10 @@ def semantic_tokens_full(params: SemanticTokensParams) -> Optional[SemanticToken
         elif (line0, col0) in binding_spans:
             t_idx = _TOKEN_TYPE_INDEX["variable"]
             mods |= 1 << _TOKEN_MOD_INDEX["readonly"]
-        raw.append((line0, col0, length, t_idx, mods))
+        _sl = _sem_lines[line0] if 0 <= line0 < len(_sem_lines) else ""
+        _u_start = cp_to_utf16(_sl, col0)
+        _u_end = cp_to_utf16(_sl, col0 + length)
+        raw.append((line0, _u_start, max(1, _u_end - _u_start), t_idx, mods))
 
     raw.sort(key=lambda e: (e[0], e[1], e[2]))
     data: List[int] = []

@@ -948,7 +948,7 @@ enchanting string:
             set i is i + 1
         return codes
 
-    # --- Search ---------------------------------------------------------
+    ## --- Search ---------------------------------------------------------
     ## True when `sub` occurs anywhere in the string.
     ##
     ## ## Parámetros
@@ -1129,7 +1129,7 @@ enchanting string:
     weave count_matches with sub as string into int:
         return calling self.count with sub
 
-    # --- Slicing --------------------------------------------------------
+    ## --- Slicing --------------------------------------------------------
     ## Substring from `start_pos` (inclusive) to `end_pos` (exclusive).
     ##
     ## ## Parámetros
@@ -1179,7 +1179,7 @@ enchanting string:
         let sv is essence of self
         return calling pengu_string_reverse with sv
 
-    # --- Case -----------------------------------------------------------
+    ## --- Case -----------------------------------------------------------
     ## Copy with the ASCII letters A-Z lowered.
     ##
     ## ## Parámetros

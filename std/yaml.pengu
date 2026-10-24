@@ -1,0 +1,254 @@
+## std.yaml.pengu — the YAML subset used by legacy `pengu.yaml` manifests.
+##
+## TOML is the canonical manifest format, but `pengu.yaml`/`pengu.yml` remain
+## supported.  The Python fallback parser is a ~35-line indentation walker, not
+## a YAML implementation; this module ports exactly that subset:
+##
+## - `key: value` scalars;
+## - `key:` sections nested by indentation;
+## - inline arrays `key: [a, b, "c"]`;
+## - `#` comments and blank lines;
+## - quoted or bare scalars.
+##
+## Anchors, aliases, multi-document streams, block scalars and complex keys are
+## deliberately out of scope, matching the existing fallback (and documenting
+## that fact instead of silently accepting them).
+##
+## ## Example
+## ```pengu
+## import std.yaml
+## import std.spark
+##
+## weave main into int:
+##     let doc as result of list of yaml.YamlEntry to string is calling yaml.parse with "project:\n  name: demo\n"
+##     if doc.is_ok:
+##         calling spark.println with (calling yaml.get with doc.value, "project.name")
+##         calling yaml.free_entries with doc.value
+##     return 0
+## ```
+##
+## ## Memoria
+## The returned list and every `YamlEntry` string are owned. Release them with
+## `free_entries`; getters return owned copies.
+
+const YAML_VERSION as string is "3.0.2"
+
+
+import std.archivum
+import std.scrolls
+import std.toml
+
+## One flattened YAML key/value pair.  The shape intentionally matches
+## `toml.TomlEntry` so manifest consumers can share one code path.
+alias YamlEntry as toml.TomlEntry
+
+## Parses the supported YAML subset.
+weave parse with text as string into result of list of YamlEntry to string:
+    var entries as list of YamlEntry is list of YamlEntry
+    var paths as list of string is list of string
+    var indents as list of int is list of int
+    calling paths.push with ""
+    calling indents.push with 0
+    let lines as list of string is calling text.split_lines
+    var line_no as int is 0
+    for raw in lines:
+        set line_no is line_no + 1
+        let line as string is calling _yaml_strip_comment with raw
+        let trimmed as string is calling line.get_trim
+        if (trimmed length) > 0:
+            let indent as int is calling _yaml_indent with raw
+            while (indents length) > 1 and indent <= (indents at ((indents length) - 1)):
+                var popped as string is calling paths.pop
+                banish popped
+                let _old_indent as int is calling indents.pop
+            let parent as string is (paths at ((paths length) - 1))
+            let colon as int is calling _yaml_find_colon with trimmed
+            if colon < 0:
+                banish line
+                banish trimmed
+                banish lines
+                calling _yaml_free_stack with paths, indents
+                for e in entries:
+                    banish e.key
+                    banish e.value
+                banish entries
+                return calling err_of with "YAML: expected 'key: value' at line {line_no}"
+            let key as string is calling trimmed.get_substring with 0, colon
+            let value_start as int is colon + 1
+            let full as string is calling _yaml_join_path with parent, key
+            banish key
+            let value as string is calling _yaml_unquote with (trimmed at value_start to (trimmed length))
+            if (value length) == 0:
+                calling entries.push with (with key is (calling _yaml_copy with full), value is "", kind is toml.TOML_TABLE)
+                calling paths.push with (calling _yaml_copy with full)
+                calling indents.push with indent
+            else:
+                let vb as ref to frozen byte is bytes of value
+                if (vb at 0) == 91 and (vb at ((value length) - 1)) == 93:
+                    calling entries.push with (with key is (calling _yaml_copy with full), value is "", kind is toml.TOML_ARRAY)
+                    let inner as string is calling value.get_substring with 1, ((value length) - 1)
+                    var idx as int is 0
+                    var items as list of string is calling inner.split with ","
+                    for item in items:
+                        let elem as string is calling _yaml_unquote with item
+                        if (elem length) > 0:
+                            let ekey as string is "{full}[{idx}]"
+                            calling entries.push with (with key is ekey, value is (calling _yaml_copy with elem), kind is toml.TOML_STRING)
+                            set idx is idx + 1
+                        banish item
+                        banish elem
+                    banish items
+                    banish inner
+                else:
+                    let kind as int is calling _yaml_scalar_kind with value
+                    calling entries.push with (with key is (calling _yaml_copy with full), value is (calling _yaml_copy with value), kind is kind)
+            banish full
+            banish value
+        banish line
+        banish trimmed
+    banish lines
+    calling _yaml_free_stack with paths, indents
+    return calling ok_of with entries
+
+## Parses a YAML file.
+weave parse_file with path as string into result of list of YamlEntry to string:
+    var data as string is (calling archivum.read_file with path) or:
+        return calling err_of with "cannot read YAML file"
+    let result as result of list of YamlEntry to string is calling parse with data
+    banish data
+    return result
+
+## Releases every string in `entries` and then the list.
+weave free_entries with entries as list of YamlEntry into void:
+    for e in entries:
+        banish e.key
+        banish e.value
+    banish entries
+
+## Returns the index of `key`, or -1.
+weave find with entries as list of YamlEntry, key as string into int:
+    var i as int is 0
+    for e in entries:
+        if e.key == key:
+            return i
+        set i is i + 1
+    return 0 - 1
+
+## Returns an owned copy of `key`'s value ("" when absent).
+weave get with entries as list of YamlEntry, key as string into string:
+    let i as int is calling find with entries, key
+    if i < 0:
+        return ""
+    return calling _yaml_copy with (entries at i).value
+
+## Releases a list of strings returned by an array helper.
+weave free_strings with values as list of string into void:
+    for s in values:
+        banish s
+    banish values
+
+## Returns every element of `key[0]`, `key[1]`, ... as owned strings.
+weave get_array with entries as list of YamlEntry, key as string into list of string:
+    var out as list of string is list of string
+    var i as int is 0
+    while true:
+        let sub as string is "{key}[{i}]"
+        let idx as int is calling find with entries, sub
+        if idx < 0:
+            banish sub
+            break
+        calling out.push with (calling _yaml_copy with (entries at idx).value)
+        banish sub
+        set i is i + 1
+    return out
+
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
+
+weave _yaml_copy with s as string into string:
+    return calling _yaml_strdup with s
+
+antiquus _yaml_strdup with s as string into string:
+    r"""
+return pengu_string_copy(s);
+"""
+
+weave _yaml_free_stack with paths as list of string, indents as list of int into void:
+    for p in paths:
+        banish p
+    banish paths
+    banish indents
+
+weave _yaml_indent with raw as string into int:
+    var n as int is 0
+    let rawb as ref to frozen byte is bytes of raw
+    while n < (raw length):
+        if (rawb at n) == 32:
+            set n is n + 1
+        else if (rawb at n) == 9:
+            set n is n + 2
+        else:
+            break
+    return n
+
+weave _yaml_strip_comment with raw as string into string:
+    var i as int is 0
+    var quote as int is 0
+    let rawb as ref to frozen byte is bytes of raw
+    while i < (raw length):
+        if quote == 0:
+            if (rawb at i) == 35:
+                return raw at 0 to i
+            if (rawb at i) == 34 or (rawb at i) == 39:
+                set quote is rawb at i
+        else if (rawb at i) == quote:
+            set quote is 0
+        set i is i + 1
+    return calling _yaml_copy with raw
+
+weave _yaml_find_colon with s as string into int:
+    var i as int is 0
+    var quote as int is 0
+    let sb as ref to frozen byte is bytes of s
+    while i < (s length):
+        if quote == 0:
+            if (sb at i) == 34 or (sb at i) == 39:
+                set quote is sb at i
+            else if (sb at i) == 58:
+                return i
+        else if (sb at i) == quote:
+            set quote is 0
+        set i is i + 1
+    return 0 - 1
+
+weave _yaml_join_path with parent as string, key as string into string:
+    if (parent length) == 0:
+        return calling _yaml_copy with key
+    return "{parent}.{key}"
+
+weave _yaml_unquote with s as string into string:
+    let trimmed as string is calling s.get_trim
+    defer banish trimmed
+    if (trimmed length) >= 2:
+        let tb as ref to frozen byte is bytes of trimmed
+        if ((tb at 0) == 34 and (tb at ((trimmed length) - 1)) == 34) or ((tb at 0) == 39 and (tb at ((trimmed length) - 1)) == 39):
+            return calling trimmed.get_substring with 1, ((trimmed length) - 1)
+    return calling _yaml_copy with trimmed
+
+weave _yaml_scalar_kind with value as string into int:
+    if value == "true" or value == "false":
+        return toml.TOML_BOOL
+    var i as int is 0
+    if (value length) > 0:
+        if (value at 0) == "-" or (value at 0) == "+":
+            set i is 1
+        var digits as bool is true
+        let vb as ref to frozen byte is bytes of value
+        while i < (value length):
+            if (vb at i) < 48 or (vb at i) > 57:
+                set digits is false
+            set i is i + 1
+        if digits and (value length) > 0:
+            return toml.TOML_INT
+    return toml.TOML_STRING

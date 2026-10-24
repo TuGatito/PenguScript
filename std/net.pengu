@@ -1,0 +1,343 @@
+## std.net.pengu — blocking TCP sockets for long-lived tools (LSP `--tcp`).
+##
+## The LSP transport needs a listening socket, accepted connections and
+## byte-exact reads/writes.  This module exposes exactly that surface: a plain
+## `Socket` rune holding the OS descriptor and free functions for the
+## operations, so no heap object hides behind the handle.
+##
+## ## Example
+## ```pengu
+## import std.net
+## import std.io
+##
+## weave main into int:
+##     let server as result of net.Socket to string is calling net.listen with "127.0.0.1", 0
+##     if server is ok:
+##         let conn as result of net.Socket to string is calling net.accept with (sigil of server.value)
+##         if conn is ok:
+##             let frame as string is calling net.read with (sigil of conn.value), 4096
+##             calling net.close with (sigil of conn.value)
+##             banish frame
+##         calling net.close with (sigil of server.value)
+##     return 0
+## ```
+##
+## ## Memory
+## `listen`/`accept`/`connect` return a `result` whose payload is a value rune;
+## a failed result owns its error string and must be released with `banish`
+## (or matched with `or:`).  `read` returns an owned string; `write` borrows its
+## argument.  A `Socket` is just an integer descriptor: `net.close` is the only
+## resource release and is idempotent.
+##
+## ## Design notes
+## - **POSIX first.** Linux/macOS use BSD sockets.  Windows builds expose the
+##   same API but return an `err_of` “not available” result instead of failing
+##   to compile; the LSP stdio transport is the portable path.
+## - **Blocking by design.** The server loop is one connection per thread or one
+##   blocking read; the LSP does not need non-blocking I/O for its framing.
+## - **Descriptors are `i64`.** A Windows `SOCKET` is pointer-sized, so a 32-bit
+##   `int` would truncate it.  `i64` keeps the ABI correct on every platform.
+## - **Negative errno.** The C bridge returns `-errno`; the wrappers turn that
+##   into a human-readable `err(...)` string with `strerror`.
+
+const NET_VERSION as string is "3.0.2"
+
+
+when os == "windows":
+    include "io.h"
+else:
+    include "sys/socket.h"
+    include "netdb.h"
+    include "unistd.h"
+    include "errno.h"
+
+# ----------------------------------------------------------------------------
+# Socket handle
+# ----------------------------------------------------------------------------
+
+## A live TCP connection or listening socket.
+##
+## `fd` is a negative sentinel when closed.  Copying the rune copies the
+## descriptor, so only one owner should call `close`.
+rune Socket:
+    fd as i64
+
+## True when the handle has not been closed.
+weave is_open with s as ref to Socket into bool:
+    return s->fd >= 0
+
+## Closes `s` and marks it closed.  Safe to call twice.
+weave close with s as ref to Socket into void:
+    if s->fd >= 0:
+        calling _net_close with s->fd
+        set s->fd is 0 - 1
+
+# ----------------------------------------------------------------------------
+# Error text
+# ----------------------------------------------------------------------------
+
+weave _net_error_text with code as int into string:
+    return calling _net_strerror with code
+
+antiquus _net_strerror with code as int into string:
+    r"""
+int e = code;
+const char *msg = (e != 0) ? strerror(e) : "socket error";
+return pengu_string_new(msg);
+"""
+
+# ----------------------------------------------------------------------------
+# Listening / accepting / connecting
+# ----------------------------------------------------------------------------
+
+## Creates a TCP listening socket bound to `host`:`port`.
+##
+## `port` 0 asks the OS for an ephemeral port (useful in tests).  The result is
+## a `result of Socket to string`: `ok(socket)` or `err(message)`.
+weave listen with host as string, port as int into result of Socket to string:
+    let fd as i64 is calling _net_listen with host , port
+    if fd < 0:
+        let msg as string is calling _net_error_text with (0 - fd to int)
+        return calling err_of with msg
+    return calling ok_of with (with fd is fd)
+
+## Accepts one pending connection on `s`.
+weave accept with s as ref to Socket into result of Socket to string:
+    let fd as i64 is calling _net_accept with s->fd
+    if fd < 0:
+        let msg as string is calling _net_error_text with (0 - fd to int)
+        return calling err_of with msg
+    return calling ok_of with (with fd is fd)
+
+## Connects to `host`:`port`.
+weave connect with host as string, port as int into result of Socket to string:
+    let fd as i64 is calling _net_connect with host , port
+    if fd < 0:
+        let msg as string is calling _net_error_text with (0 - fd to int)
+        return calling err_of with msg
+    return calling ok_of with (with fd is fd)
+
+# ----------------------------------------------------------------------------
+# Data transfer
+# ----------------------------------------------------------------------------
+
+## Reads up to `max_bytes` bytes from `s`.
+##
+## Returns an owned string; a closed connection or error yields an empty string
+## (use `read_exact` when a short read must be reported).
+weave read with s as ref to Socket, max_bytes as int into string:
+    return calling _net_read with s->fd , max_bytes
+
+## Reads exactly `n` bytes from `s`.
+##
+## Returns `some bytes` only when all requested bytes arrived before EOF.
+weave read_exact with s as ref to Socket, n as int into maybe string:
+    return calling _net_read_exact with s->fd , n
+
+## Writes every byte of `data` to `s`.
+##
+## Returns the number of bytes written, or a negative value on error.
+weave write with s as ref to Socket, data as string into int:
+    return calling _net_write with s->fd , data
+
+# ----------------------------------------------------------------------------
+# POSIX C bridges
+# ----------------------------------------------------------------------------
+
+antiquus _net_listen with host as string, port as int into i64:
+    r"""
+#if defined(_WIN32)
+(void)host; (void)port;
+return -1;
+#else
+char portbuf[16];
+snprintf(portbuf, sizeof(portbuf), "%d", port);
+char *hostbuf = (char *)malloc((size_t)host.len + 1);
+if (!hostbuf)
+return -1;
+memcpy(hostbuf, host.data ? host.data : "", (size_t)host.len);
+hostbuf[host.len] = '\0';
+struct addrinfo hints;
+struct addrinfo *res = NULL;
+memset(&hints, 0, sizeof(hints));
+hints.ai_family = AF_UNSPEC;
+hints.ai_socktype = SOCK_STREAM;
+hints.ai_flags = AI_PASSIVE;
+int gai = getaddrinfo((host.len > 0) ? hostbuf : NULL, portbuf, &hints, &res);
+free(hostbuf);
+if (gai != 0)
+return -1;
+int64_t result = -1;
+for (struct addrinfo *rp = res; rp != NULL; rp = rp->ai_next)
+{
+int fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+if (fd < 0)
+continue;
+int one = 1;
+setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+if (bind(fd, rp->ai_addr, rp->ai_addrlen) == 0 && listen(fd, 16) == 0)
+{
+result = (int64_t)fd;
+break;
+}
+close(fd);
+}
+freeaddrinfo(res);
+return result;
+#endif
+"""
+
+antiquus _net_accept with fd as i64 into i64:
+    r"""
+#if defined(_WIN32)
+(void)fd;
+return -1;
+#else
+if (fd < 0)
+return -1;
+int c = accept((int)fd, NULL, NULL);
+if (c < 0)
+return -(int64_t)errno;
+return (int64_t)c;
+#endif
+"""
+
+antiquus _net_connect with host as string, port as int into i64:
+    r"""
+#if defined(_WIN32)
+(void)host; (void)port;
+return -1;
+#else
+char portbuf[16];
+snprintf(portbuf, sizeof(portbuf), "%d", port);
+char *hostbuf = (char *)malloc((size_t)host.len + 1);
+if (!hostbuf)
+return -1;
+memcpy(hostbuf, host.data ? host.data : "", (size_t)host.len);
+hostbuf[host.len] = '\0';
+struct addrinfo hints;
+struct addrinfo *res = NULL;
+memset(&hints, 0, sizeof(hints));
+hints.ai_family = AF_UNSPEC;
+hints.ai_socktype = SOCK_STREAM;
+int gai = getaddrinfo(hostbuf, portbuf, &hints, &res);
+free(hostbuf);
+if (gai != 0)
+return -1;
+int64_t result = -1;
+for (struct addrinfo *rp = res; rp != NULL; rp = rp->ai_next)
+{
+int fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+if (fd < 0)
+continue;
+if (connect(fd, rp->ai_addr, rp->ai_addrlen) == 0)
+{
+result = (int64_t)fd;
+break;
+}
+close(fd);
+}
+freeaddrinfo(res);
+return result;
+#endif
+"""
+
+antiquus _net_read with fd as i64, max_bytes as int into string:
+    r"""
+#if defined(_WIN32)
+(void)fd; (void)max_bytes;
+return pengu_string_from_cstr("");
+#else
+if (fd < 0 || max_bytes <= 0)
+return pengu_string_from_cstr("");
+char *buf = (char *)malloc((size_t)max_bytes + 1);
+if (!buf)
+return pengu_string_from_cstr("");
+ssize_t got;
+do
+{
+got = recv((int)fd, buf, (size_t)max_bytes, 0);
+} while (got < 0 && errno == EINTR);
+if (got <= 0)
+{
+free(buf);
+return pengu_string_from_cstr("");
+}
+buf[got] = '\0';
+PenguString out;
+out.data = buf;
+out.len = (int)got;
+out.is_owned = 1;
+return out;
+#endif
+"""
+
+antiquus _net_read_exact with fd as i64, n as int into maybe string:
+    r"""
+#if defined(_WIN32)
+(void)fd; (void)n;
+return pengu_maybe_none();
+#else
+if (fd < 0 || n <= 0)
+return pengu_maybe_none();
+char *buf = (char *)malloc((size_t)n + 1);
+if (!buf)
+return pengu_maybe_none();
+size_t got = 0;
+while (got < (size_t)n)
+{
+ssize_t part = recv((int)fd, buf + got, (size_t)n - got, 0);
+if (part < 0 && errno == EINTR)
+continue;
+if (part <= 0)
+{
+free(buf);
+return pengu_maybe_none();
+}
+got += (size_t)part;
+}
+buf[n] = '\0';
+PenguString *boxed = (PenguString *)malloc(sizeof(PenguString));
+if (!boxed)
+{
+free(buf);
+return pengu_maybe_none();
+}
+boxed->data = buf;
+boxed->len = n;
+boxed->is_owned = 1;
+return pengu_maybe_some(boxed);
+#endif
+"""
+
+antiquus _net_write with fd as i64, data as string into int:
+    r"""
+#if defined(_WIN32)
+(void)fd; (void)data;
+return -1;
+#else
+if (fd < 0 || !data.data || data.len <= 0)
+return 0;
+size_t sent = 0;
+while (sent < (size_t)data.len)
+{
+ssize_t part = send((int)fd, data.data + sent, (size_t)data.len - sent, 0);
+if (part < 0 && errno == EINTR)
+continue;
+if (part <= 0)
+return -((int)errno);
+sent += (size_t)part;
+}
+return (int)sent;
+#endif
+"""
+
+antiquus _net_close with fd as i64 into void:
+    r"""
+#if defined(_WIN32)
+(void)fd;
+#else
+if (fd >= 0)
+close((int)fd);
+#endif
+"""

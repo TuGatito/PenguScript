@@ -26,7 +26,7 @@ pytestmark = pytest.mark.slow
 #: ``tests/stdlib/test_functor.py`` -> ``stdlib`` -> ``tests`` -> checkout.
 ROOT = Path(__file__).resolve().parents[2]
 
-_FUNCTOR_VERSION = "3.0.1"
+_FUNCTOR_VERSION = "3.0.2"
 
 
 @pytest.mark.xdist_group("pengu-module-tests")

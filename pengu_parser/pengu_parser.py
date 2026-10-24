@@ -17,6 +17,14 @@ from .pengu_grammar import GRAMMAR
 
 BOM = "\ufeff"
 
+#: Maximum syntactic nesting accepted by the front end (parentheses, brackets,
+#: braces and indentation blocks).  Lark builds a recursive tree and the
+#: checker/codegen walk it recursively; an adversarial source with ~1 000
+#: nested parentheses used to escape as a raw ``RecursionError`` with no file
+#: position (B7).  Rejecting it in the parser gives every front end -- CLI, LSP
+#: and the future self-hosted compiler -- a normal ``E0000`` diagnostic.
+MAX_PARSE_DEPTH = 512
+
 #: Shared Lark parser + indenter are stateful while a token stream is consumed
 #: (``PenguIndenter`` keeps the paren/indent stacks).  The language server
 #: parses on a worker thread while editor requests may lex the same parser from
@@ -718,20 +726,126 @@ class PenguParser:
         Args:
             tree: The freshly parsed tree, mutated in place.
         """
-        def _walk(node: Any) -> None:
-            if not isinstance(node, Tree):
-                return
+        # Iterative walk: a recursive one hit Python's recursion limit on the
+        # same deeply nested sources the parser depth guard rejects, and an
+        # explicit stack keeps this pass linear in the number of nodes.
+        stack: List[Tree] = [tree]
+        while stack:
+            node = stack.pop()
             for idx, child in enumerate(node.children):
                 if isinstance(child, Tree) and child.data == "labeled_loop":
                     label = str(child.children[0])
                     loop = child.children[1]
                     loop.loop_label = label
                     node.children[idx] = loop
-                    _walk(loop)
-                else:
-                    _walk(child)
+                    stack.append(loop)
+                elif isinstance(child, Tree):
+                    stack.append(child)
 
-        _walk(tree)
+    @staticmethod
+    def _check_nesting_depth(code: str) -> None:
+        """Rejects sources whose delimiter/indent nesting is too deep.
+
+        The scan is deliberately lexical: strings, chars and comments are
+        skipped, and antiquus C bodies have already been replaced by the caller,
+        so ordinary C braces never count against the PenguScript limit.  The
+        first delimiter past :data:`MAX_PARSE_DEPTH` is reported with its real
+        line/column instead of the 0:0 produced by an uncaught RecursionError.
+        """
+        from .pengu_errors import ParseError
+
+        depth = 0
+        line = 1
+        col = 0
+        i = 0
+        n = len(code)
+        quote = None
+        triple = False
+        while i < n:
+            ch = code[i]
+            col += 1
+            if ch == "\n":
+                line += 1
+                col = 0
+                i += 1
+                continue
+            if quote is not None:
+                if triple:
+                    end = (chr(34) * 3) if quote == chr(34) else (chr(39) * 3)
+                    if code.startswith(end, i):
+                        i += 3
+                        col += 2
+                        quote = None
+                        triple = False
+                        continue
+                    i += 1
+                    continue
+                if ch == "\\":
+                    i += 2
+                    col += 1
+                    continue
+                if ch == quote:
+                    quote = None
+                i += 1
+                continue
+            if ch == "#":
+                while i < n and code[i] != "\n":
+                    i += 1
+                continue
+            if ch in ('"', "'"):
+                if code.startswith(ch * 3, i):
+                    quote = ch
+                    triple = True
+                    i += 3
+                    col += 2
+                    continue
+                quote = ch
+                i += 1
+                continue
+            if ch in "([{":
+                depth += 1
+                if depth > MAX_PARSE_DEPTH:
+                    raise ParseError(
+                        f"Source nesting exceeds the maximum supported depth ({MAX_PARSE_DEPTH})",
+                        code="E0000",
+                        line=line,
+                        column=col,
+                        help="Split the expression into named intermediate values, "
+                             "or reduce the number of nested blocks.",
+                        note="The parser, checker and C backend are recursive; "
+                             "the limit protects them from a stack overflow.",
+                    )
+            elif ch in ")]}":
+                if depth > 0:
+                    depth -= 1
+            i += 1
+
+        # Indentation blocks are recursive too.  Count leading whitespace per
+        # logical line (ignoring blank/comment lines) so a 10 000-deep `if`
+        # pyramid is rejected with a position rather than a stack trace.
+        indent_depth = 0
+        for lineno, source_line in enumerate(code.splitlines(), 1):
+            stripped = source_line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            indent = 0
+            for c in source_line:
+                if c == " ":
+                    indent += 1
+                elif c == "\t":
+                    indent += 2
+                else:
+                    break
+            indent_depth = max(indent_depth, indent // 2)
+            if indent_depth > MAX_PARSE_DEPTH:
+                raise ParseError(
+                    f"Block nesting exceeds the maximum supported depth ({MAX_PARSE_DEPTH})",
+                    code="E0000",
+                    line=lineno,
+                    column=1,
+                    help="Flatten the block structure or split it into helper weaves.",
+                    note="Deeply nested blocks exceed the recursive front-end limit.",
+                )
 
     def parse(self, code: str) -> Tree:
         """Parses PenguScript source code into a Lark AST Tree.
@@ -755,6 +869,9 @@ class PenguParser:
         # inside the C code.  The body is replaced by a normal placeholder
         # token that survives every preprocessing step intact.
         code, antiquus_bodies = self._extract_antiquus_bodies(code)
+        # Check after extraction: a large embedded C body may legitimately be
+        # nested more deeply than the PenguScript front end allows.
+        self._check_nesting_depth(code)
         self._check_indentation_consistency(code)
         clean_code = self._strip_comments(code).rstrip() + '\n'
         clean_code = self._merge_chain_continuations(clean_code)
@@ -766,6 +883,15 @@ class PenguParser:
                 raise self._parse_error(code, exc) from None
             except LarkBaseError as exc:
                 raise self._parse_error(code, exc) from None
+            except RecursionError:
+                from .pengu_errors import ParseError
+                raise ParseError(
+                    f"Source nesting exceeds the maximum supported depth ({MAX_PARSE_DEPTH})",
+                    code="E0000",
+                    line=1,
+                    column=1,
+                    help="Reduce expression/block nesting.",
+                ) from None
         self._restitch_antiquus_bodies(tree, antiquus_bodies)
         self._attach_loop_labels(tree)
         return tree
@@ -788,6 +914,15 @@ class PenguParser:
                 raise self._parse_error(code, exc) from None
             except LarkBaseError as exc:
                 raise self._parse_error(code, exc) from None
+            except RecursionError:
+                from .pengu_errors import ParseError
+                raise ParseError(
+                    f"Source nesting exceeds the maximum supported depth ({MAX_PARSE_DEPTH})",
+                    code="E0000",
+                    line=1,
+                    column=1,
+                    help="Reduce expression nesting.",
+                ) from None
 
     @staticmethod
     def _find_legacy_and(code: str):

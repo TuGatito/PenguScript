@@ -2,6 +2,129 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [3.0.2] — 2026-10-24 — Self-hosting audit fixes (B1–B12)
+
+Closes every compiler, stdlib and LSP defect listed in
+`AUDITORIA_AUTO_HOSPEDAJE.md` (commit `0c20e3f`, version 3.0.1).  This release
+does **not** start the `psc/` port; it removes the blockers the audit documented
+before F0 can begin.
+
+### Fixed — compiler
+
+- **B1: a generic can call another generic.**  The checker still resolves the
+  call once while `T` is a type parameter, but codegen now performs a transitive
+  fixed-point pass over every concrete instance: it infers the callee's type
+  arguments from the caller's substituted parameter types (positional and named
+  arguments alike) and registers `callee_int`, `callee_string`, … instead of
+  emitting the unspecialized `callee_T`.  Works for generic → generic chains of
+  any depth and for `enchanting shard T` methods that call generic functions.
+- **B2: generic `ritual` constructors keep every specialization.**  The call is
+  now mangled from its explicit or contextual type arguments
+  (`Box.empty of string` → `Box_empty_string`) instead of taking the first
+  matching entry in the monomorphization table.  Parameterless constructors can
+  also bind `T` from the assignment target (`var b as Box of string is calling
+  Box.empty`), and constructors with value parameters work.
+- **B2b: qualified type calls resolve.**  `mod.Type.method(...)` is resolved
+  through the import's module scope in the checker and emitted as the type's C
+  function (`compass.Path.from_str` → `Path_from_str`).  Aliased imports and
+  generic types (`m.Box.empty of int`) are covered.  The stdlib examples that
+  used the broken spelling now compile as written (B12).
+- **B7: deep nesting produces `E0000`, not a `RecursionError`.**  The parser
+  rejects delimiter or indentation nesting beyond `MAX_PARSE_DEPTH` (512) with
+  the real line/column, catches any residual `RecursionError` in `parse` and
+  `parse_expr`, and `_attach_loop_labels` walks the tree iteratively.
+- **B11: `chr` is byte-valued again.**  `chr` is no longer constant-folded to a
+  Python `str`; folding `(chr 200)` into UTF-8 produced `c2 88` and made
+  `"a{(chr 200)}b"` four bytes long.  It now stays a runtime
+  `pengu_string_from_char((char)n)`, so the string is three bytes and
+  `ord (s at 1) == 200`.
+
+### Fixed — stdlib
+
+- **B10: `spark.parse_float` returns the parsed value.**  The C bridge boxed a
+  `double` (8 bytes) while `maybe float` is read as `(float *)` (4 bytes), so
+  every consumer saw `0.0`.  It now allocates `sizeof(float)` and stores
+  `(float)val`; `3.5`, `-0.25`, `1e3`, `nan` and overflow/`ERANGE` rejections
+  are covered by regression tests.
+- **B3: process capture keeps both streams on failure.**  New
+  `rites.ProcessResult` (`stdout`, `stderr`, `code`, `timed_out`) and
+  `rites.run_capture_all` use a POSIX `fork`/`exec` bridge with two temporary
+  files (Windows uses `system` + temp files).  A non-zero exit no longer
+  discards gcc's diagnostics; `run_capture` keeps its original contract.
+- **B4: binary stdio and sockets.**  New `std.io` provides `read_stdin`,
+  `read_stdin_exact`, `read_stdin_all`, `read_stdin_line`, `write_stdout`,
+  `write_stderr`, `flush_stdout`, `flush_stderr` and `is_tty` on byte-exact,
+  NUL-safe `PenguString`s.  New `std.net` provides blocking TCP
+  `listen`/`accept`/`connect`/`read`/`read_exact`/`write`/`close` with `i64`
+  descriptors and negative-errno error strings.  `spark.read_line` no longer
+  truncates at 4 095 bytes; its buffer grows dynamically.
+- **B5: SHA-256, TOML and YAML.**  New `std.digest` (`sha256_raw`,
+  `sha256_hex`, `sha256_file`, `fnv1a64`), `std.toml` (`parse`, `parse_file`,
+  `get*`, `stringify`, array/table markers, nested arrays) and `std.yaml`
+  (the existing legacy manifest subset, now without Python) close the P0 gaps.
+  The TOML grammar lives in the self-contained `std_c/toml_min.h`; released
+  bundles stage it in `runtime/include/`.
+- **B8: ownership fixes found while auditing the new paths.**  Fixed a
+  use-after-free in `toml.get_array` (the key was released before the second
+  lookup), a quote-buffer alias in the YAML scanner, leaked transient strings in
+  TOML serialization and SHA-256 hex formatting, and an error-path leak in YAML.
+  New ASan gates cover digest/TOML/YAML/process, in addition to the existing
+  fundamentals and comprehensive gates.
+- **B9: determinism is tested.**  A new test compiles the same program twice
+  through independent generators and requires byte-identical C.  TOML entries
+  are flat, source-ordered keys (never map order), which is the same rule PSC
+  must follow.
+
+### Fixed — tooling
+
+- **Dependency refreshes cannot enter a merge state.**  Both `pengu add` (on an
+  existing checkout) and `pengu update` now run `git pull --ff-only` instead of
+  a bare `git pull`.  A configured `pull.rebase=false` or a divergent local
+  branch used to stop the refresh with "Need to specify how to reconcile
+  divergent branches"; the build then silently ran against a stale checkout.
+  The regression suite that creates a real local git origin is deterministic
+  again.
+
+### Fixed — LSP
+
+- **B6: UTF-16 positions.**  New `pengu_lsp.positions` converts between UTF-16
+  code units (the protocol) and Python code points.  Incoming hover/completion/
+  signature-help positions are decoded before indexing; diagnostics,
+  definition, implementation, document highlights, rename edits and semantic
+  tokens are encoded after the feature computes them.  Regression tests use
+  `ñ`, `日本語` and `😀` (including the BMP→UTF-16 offset shift).
+
+### Added
+
+- `std.digest`, `std.io`, `std.net`, `std.toml` and `std.yaml`, each with its
+  `<MODULE>_VERSION` marker (`3.0.2`), module docs, shipped headers and tests.
+- Regression suites: `tests/compiler/test_audit_autohost_regressions.py`,
+  `tests/stdlib/test_audit_std_modules.py`,
+  `tests/stdlib/audit/test_audit_modules_memory.py` and
+  `tests/lsp/test_utf16_positions.py`.
+- A repository-root `conftest.py` so the documented bare `pytest tests/`
+  command resolves `pengu_project` (previously only `python -m pytest` did).
+
+### Docs
+
+- `LANGUAGE.md` / `LANGUAGE_Spanish.md` report 3.0.2.
+- `std/compass.pengu` and `std/chronicle.pengu` examples are executable again
+  thanks to B2b; a regression test compiles both documented spells.
+- `std/rites.pengu`, `std/spark.pengu`, `std/functor.pengu` and
+  `std/loom.pengu` document the new contracts and version.
+
+### Verified
+
+- Full suite: **1432 passed, 3 skipped** (the three opt-in `requests`/live HTTP
+  compatibility tests), 110 s parallel.
+- ASan/UBSan: fundamentals **1 passed**, comprehensive **5 passed**, new
+  audit-modules gate **1 passed** with `detect_leaks=1`.
+- `make_release.py --rebuild`: portable package, `pengu doctor`, project init,
+  standalone run, embedded assets and bundled-TCC cache smoke tests all PASS;
+  `pengu --version` and the frozen bundle report **3.0.2**; VSIX
+  `pengus-3.0.2.vsix` packaged.  The frozen binary also runs a program that
+  imports `std.toml` and `std.digest`.
+
 ## [3.0.1] — 2026-10-23 — `maybe`/`result` audit fixes
 
 ### Fixed
