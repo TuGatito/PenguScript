@@ -2,6 +2,49 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [2.21.0] — 2026-10-23 — Phase 5: optional `#line` removal and B12 hygiene
+
+### Added
+
+- **`--no-line-markers` / `PENGU_NO_LINE_MARKERS=1`.** `#line` directives are
+  on by default because they map C compiler diagnostics back to the `.pengu`
+  file and line. Omitting them saves 4–26 % of `bundle.c`:
+
+  | Bundle | with `#line` | `--no-line-markers` |
+  |---|---:|---:|
+  | `hello.pengu` (`println`) | 3.7 KB | **3.3 KB** (-13 %) |
+  | `cipher.encode_base64` (one call) | 11.4 KB | **10.3 KB** (-10 %) |
+  | `import std.petitio` (unused) | 15.9 KB | **15.2 KB** (-4 %) |
+  | `benches/stdlib_ops.pengu` | 10.8 KB | **8.0 KB** (-26 %) |
+  | `benches/atlas_ops.pengu` | 16.7 KB | **12.4 KB** (-26 %) |
+
+  The flag is accepted by `build`, `run`, `time` and `expand`, and is part of
+  the script cache key and the project config hash.
+- Gate decision remains conservative/exact: the existing
+  `PENGU_ENABLE_THREADS` logic already keys on the imported module plus the
+  `pengu_c_filum_` C prefix, so a hand-written `declare` keeps compiling.
+  Include/link pruning by live module stays conservative because `c/` glue can
+  use a binding without the bundle naming its prefix.
+
+### Fixed (B12 hygiene)
+
+- `pengu_dce.py` no longer claims monomorphized instances are created during
+  body generation (the checker creates them first) and documents phase 4's
+  derived/type pruning accurately.
+- The feature-gate table duplication is covered by
+  `test_binary_size_reduction.py::test_feature_gate_tables_agree` (already
+  present; the stale comment is gone).
+- `docs/PERFORMANCE.md` gains the `#line` measurements and the conservative
+  include/link note; `docs/PENGU_BUILD.md`/`README.md` list the new flag.
+
+### Verified
+
+- New tests: line markers default-on, flag/env removal, compilable output and
+  size reduction; hello/cipher no-marker budgets.
+- Full suite: **1363 passed, 3 skipped**; with `PENGU_PRUNE_TYPES=1` (the two
+  opt-in tests deselected): **1361 passed, 3 skipped**.
+- Portable and FHS releases: smoke tests OK (2.21.0).
+
 ## [2.20.0] — 2026-10-23 — Track B10: generic functions as values
 
 ### Added

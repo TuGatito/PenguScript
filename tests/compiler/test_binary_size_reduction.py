@@ -176,3 +176,30 @@ weave main into int:
     return 0
 """, "petitio_pruned", extra=("--prune-types",))
     assert size < 6_000, f"pruned unused std.petitio is {size} bytes"
+
+
+@pytest.mark.slow
+def test_no_line_markers_hello_budget(pengu_cli, tmp_path):
+    size, c = _expand_bytes(pengu_cli, tmp_path, """
+import std.spark
+
+weave main into int:
+    calling spark.println with "hi"
+    return 0
+""", "hello_nolm", extra=("--no-line-markers",))
+    assert size < 3_500, f"hello without #line is {size} bytes"
+    assert "#line" not in c
+
+
+@pytest.mark.slow
+def test_no_line_markers_cipher_budget(pengu_cli, tmp_path):
+    size, c = _expand_bytes(pengu_cli, tmp_path, """
+import std.cipher
+
+weave main into int:
+    var s as string is calling cipher.encode_base64 with "hi"
+    banish s
+    return 0
+""", "cipher_nolm", extra=("--no-line-markers",))
+    assert size < 10_800, f"cipher without #line is {size} bytes"
+    assert "#line" not in c

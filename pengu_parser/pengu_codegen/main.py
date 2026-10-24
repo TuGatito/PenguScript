@@ -182,7 +182,11 @@ class PenguCodegen(
         # suppressed inside expression contexts, where the generated code may be
         # a GCC statement-expression passed to a function-like macro
         # (`pengu_to_string(x)`), which a directive would break.
-        self.emit_line_markers = True
+        # B11: `#line` directives are on by default (they map C diagnostics back
+        # to .pengu); --no-line-markers trades that traceability for ~12 % of the
+        # bundle.  Read from the environment so build/run/time/expand all agree.
+        _no_line_markers = os.environ.get("PENGU_NO_LINE_MARKERS", "").strip().lower()
+        self.emit_line_markers = _no_line_markers not in {"1", "true", "yes", "on"}
         self.line_base_dir: Optional[str] = None
         self.current_source_file: Optional[str] = None
         self.bundle_display_path: Optional[str] = None

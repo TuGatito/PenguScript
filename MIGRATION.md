@@ -8,9 +8,27 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.20.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 2.21.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.20.0 → 2.21.0: optional `#line` removal (phase 5)
+
+This release is additive. `bundle.c` still carries `#line` directives by
+default (they make C compiler errors name the `.pengu` source file and line).
+Pass `--no-line-markers` (or set `PENGU_NO_LINE_MARKERS=1`) to omit them and
+save roughly 4–26 % of the generated file:
+
+```console
+pengu build --no-line-markers
+pengu expand --no-line-markers src/main.pengu -o build/bundle.c
+```
+
+The flag is part of the script cache key and the project config hash, so a
+cached binary is never reused across the two modes. No Pengu source changes.
+Native include/link pruning by live module is deliberately still conservative:
+a `c/` glue file can reference a binding without the bundle spelling its C
+prefix.
 
 ## 2.19.0 → 2.20.0: generic functions as values
 

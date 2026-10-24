@@ -10,9 +10,10 @@
 > `--prune-types` añade la poda opt-in de tipos/constantes: `cipher` 1 función
 > queda en **11,4 KB** (6,7 KB con el flag), `petitio` sin usar en **15,9 KB**
 > (4,4 KB) y `cipher`/`petitio` ya no arrastran `derive` ni tipos muertos.
-> Quedan las fases **3** (módulos de usuario) y **5** (`#line`/gates/includes/
-> links). **B4** se cerró en **2.19.0** (`E0070` + renombres del std) y **B10**
-> en **2.20.0** (funciones genéricas como valor: instancia concreta o `E0005`).
+> Queda la fase **3** (módulos de usuario) y la poda nativa de includes/links
+> (conservadora por el C glue). **B4** se cerró en **2.19.0**, **B10** en
+> **2.20.0** y **B11/B12** en **2.21.0** (`--no-line-markers` 4–13 % e higiene
+> de docs; gates ya por import + prefijo C).
 
 ---
 
@@ -980,6 +981,13 @@ $ gcc -fsyntax-only genfn.c
 
 ### 🟡 B11 — `#line` es el 12–23 % y no hay forma de apagarlo
 
+> **✅ Implementado en 2.21.0.** `--no-line-markers` /
+> `PENGU_NO_LINE_MARKERS=1` omite las directivas y entra en la cache key y el
+> config hash. Medido: `hello` 3,7 → 3,3 KB (−13 %), `cipher` 11,4 → 10,3 KB
+> (−10 %), `petitio` 15,9 → 15,2 KB (−4 %), `stdlib_ops` 10,8 → 8,0 KB (−26 %),
+> `atlas_ops` 16,7 → 12,4 KB (−26 %). Por defecto siguen encendidas para no
+> perder la trazabilidad de los diagnósticos C.
+
 **Síntoma.** `emit_line_markers` está fijado a `True`:
 
 ```python
@@ -994,6 +1002,12 @@ No hay flag de CLI ni variable de entorno. En un bundle grande son 112–181 KB 
 ---
 
 ### 🟡 B12 — Higiene: test referenciado que no existe, docs y docstrings desactualizados
+
+> **✅ Limpiado en 2.21.0.** El test de tablas de feature gates existe, el
+> docstring de `pengu_dce.py` ya no afirma que las instancias se crean durante
+> la generación de cuerpos, y `docs/PERFORMANCE.md` documenta `#line` y la
+> política conservadora de includes/links. Los números de línea históricos se
+> sustituyeron por referencias al archivo/función cuando aplicaba.
 
 | Qué | Dónde | Estado |
 |---|---|---|

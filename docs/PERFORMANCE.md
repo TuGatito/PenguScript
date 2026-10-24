@@ -251,6 +251,30 @@ of the script cache key and of the project config hash, so an A/B comparison
 never reuses the other mode's binary; in project mode they reach
 `build_project` through `pengu run --no-dce` / `pengu build --prune-types`.
 
+### 6.1 `#line` directives (`--no-line-markers`)
+
+`bundle.c` carries `#line` directives so a C compiler error points at the
+`.pengu` source line instead of the generated file. They are on by default and
+cost 4–26 % of the bundle (the share grows with the number of emitted
+statements):
+
+| Bundle | with `#line` | `--no-line-markers` | saved |
+|---|---:|---:|---:|
+| `hello.pengu` (`println`) | 3.7 KB | **3.3 KB** | -13 % |
+| `cipher.encode_base64` (one call) | 11.4 KB | **10.3 KB** | -10 % |
+| `import std.petitio` (unused) | 15.9 KB | **15.2 KB** | -4 % |
+| `benches/stdlib_ops.pengu` | 10.8 KB | **8.0 KB** | -26 % |
+| `benches/atlas_ops.pengu` | 16.7 KB | **12.4 KB** | -26 % |
+
+Use `--no-line-markers` (or `PENGU_NO_LINE_MARKERS=1`) when the bundle is the
+deliverable and C-level traceability matters less; the flag is part of the script
+cache key and the project config hash. Keep it off for bug reports: the default
+is what makes a C diagnostic name the `.pengu` file and line.
+
+Native include/link pruning by live module remains conservative: a `c/` glue
+file can use a binding without the bundle naming its C prefix, so `#include` and
+`-l` entries are only removed when the module is clearly dead (a later phase).
+
 ## 7. Precompiled header (opt-in)
 
 `build_runtime.py` compiles a **shared** `build/include/pengu_runtime.h.gch`

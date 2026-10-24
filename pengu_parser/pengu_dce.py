@@ -27,9 +27,9 @@ Both layers share the same root policy:
   the emitted C.  :func:`prune_weaves` keeps them on purpose because it cannot
   see C; the exact pass then filters the list, so keeping them here is only a
   conservative intermediate state.
-* Only *weave bodies and prototypes* are pruned.  Runes, omens, typedefs and
-  constants are left alone: they are cheap and pruning them risks changing struct
-  layouts or enum values.
+* Weave bodies and prototypes are always pruned.  Derived helper blocks are
+  pruned too when their C symbols are unreachable (phase 4a); types and
+  constants are only pruned with the opt-in ``--prune-types`` (phase 4b).
 
 Everything is best effort: with ``dce=False`` (``--no-dce``) both layers are
 disabled and the code generator behaves exactly as it did before the pass
@@ -273,9 +273,10 @@ def prune_weaves(weaves: Sequence[Dict[str, Any]],
     roots = list(std_roots) if std_roots is not None else resolved_std_roots()
 
     for weave in weaves:
-        # Generic templates and their monomorphized instances are never pruned:
-        # the instances are created *during* body generation (after this pass)
-        # and their substitution must stay exactly as the call sites built it.
+        # Generic templates and their monomorphized instances are never pruned
+        # here: the checker creates the instances before this pass, and their
+        # substitution must stay exactly as the call sites built it.  The exact
+        # pass later keeps only the instances the emitted C actually names.
         if weave.get("subst_map") or weave.get("is_generic"):
             kept.append(weave)
             alive.add(str(weave.get("name", "")))

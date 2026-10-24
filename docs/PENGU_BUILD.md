@@ -140,6 +140,7 @@ Flags globales (todos los subcomandos):
 | `--no-pch` | Fuerza el PCH a off (ya es el valor por defecto en `run`) |
 | `--no-dce` | Emite todos los weaves de `std/`/`lib/` (desactiva DCE) |
 | `--prune-types` | Opt-in: poda también tipos y constantes que ningún C emitido nombra (respeta `--test`, librerías y `--no-dce`) |
+| `--no-line-markers` | Omite las directivas `#line` de `bundle.c` (≈4–13 % menos; los errores C apuntan al bundle). También `PENGU_NO_LINE_MARKERS=1` |
 | `--` | Todo lo que sigue se pasa al script (`std.rites.get_args`) |
 
 `pengu run` acepta además `--cc` (sustituye al compilador de desarrollo; con

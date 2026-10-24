@@ -5,7 +5,7 @@
 > against. A change to a signature here is a breaking change and must bump
 > `LOOM_VERSION`.
 >
-> Module revision: **`2.20.0`** (`LOOM_VERSION`).
+> Module revision: **`2.21.0`** (`LOOM_VERSION`).
 > Source: [`std/loom.pengu`](../std/loom.pengu).
 
 `loom` is the **safe** family of list helpers: sequence generation, slicing,
