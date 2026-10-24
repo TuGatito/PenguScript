@@ -5,6 +5,8 @@ Part of :class:`~pengu_parser.pengu_codegen.main.PenguCodegen`; see
 """
 from __future__ import annotations
 
+import re
+
 from ._base import (
     AliasType,
     Any,
@@ -16,6 +18,7 @@ from ._base import (
     EchoType,
     List,
     ListType,
+    Set,
     MapType,
     MaybeType,
     OmenType,
@@ -153,6 +156,7 @@ class CollectMixin:
             else:
                 kept_stmts.append((tnode, tfile))
         top_stmts = kept_stmts
+        self._normalize_module_scoped_type_names()
 
         # Pass 1: Register names (skipping generic templates)
         cur_file = None
@@ -161,6 +165,8 @@ class CollectMixin:
             if filepath != cur_file:
                 cur_file = filepath
                 cur_insignia = None
+                if self.symbols and filepath:
+                    self.symbols.current_module = os.path.normcase(os.path.abspath(filepath))
             stmt = unwrap_top_level(top_node)
             if not isinstance(stmt, Tree):
                 continue
@@ -174,24 +180,27 @@ class CollectMixin:
             if rule == "rune_decl":
                 r_attrs, r_idx = _extract_attributes_from_node(stmt.children)
                 name = str(stmt.children[r_idx])
-                c_name = f"{cur_insignia}{name}" if cur_insignia else name
+                c_name = self._decl_type_c_name(name, cur_insignia, filepath)
                 self.runes[c_name] = {}
                 self.rune_attributes[c_name] = r_attrs
             elif rule == "echo_decl":
                 e_attrs, e_idx = _extract_attributes_from_node(stmt.children)
                 name = str(stmt.children[e_idx])
-                c_name = f"{cur_insignia}{name}" if cur_insignia else name
+                c_name = self._decl_type_c_name(name, cur_insignia, filepath)
                 self.echos[c_name] = {}
                 self.rune_attributes[c_name] = e_attrs
             elif rule == "omen_decl":
                 name = str(stmt.children[0])
-                c_name = f"{cur_insignia}{name}" if cur_insignia else name
+                c_name = self._decl_type_c_name(name, cur_insignia, filepath)
                 self.omens[c_name] = {}
             elif rule == "alias_decl":
                 name = str(stmt.children[0])
-                c_name = f"{cur_insignia}{name}" if cur_insignia else name
+                c_name = self._decl_type_c_name(name, cur_insignia, filepath)
                 self.aliases[c_name] = VOID_TYPE
 
+        import os as _os
+        if _os.environ.get("PENGU_DEBUG_TYPES"):
+            print("DBG pass1 runes", list(self.runes.keys()))
         # Pass 2: Populate definitions
         cur_file = None
         cur_insignia = None
@@ -199,6 +208,8 @@ class CollectMixin:
             if filepath != cur_file:
                 cur_file = filepath
                 cur_insignia = None
+                if self.symbols and filepath:
+                    self.symbols.current_module = os.path.normcase(os.path.abspath(filepath))
             stmt = unwrap_top_level(top_node)
             if isinstance(stmt, Tree) and stmt.data == "insignia_stmt":
                 cur_insignia = str(stmt.children[0])
@@ -256,6 +267,109 @@ class CollectMixin:
         for t in self.tests:
             for st in t.get("body_stmts", []):
                 self._register_lambdas_in(st, src_file=t.get("filepath"))
+    def _normalize_module_scoped_type_names(self) -> None:
+        """Gives duplicate logical type names deterministic module C names.
+
+        The checker resolves `a.Config`/`b.Config`, but imported-module
+        sub-checkers can leave extra type objects with the logical C name in
+        the tables.  Normalize every object of a (module, logical name) pair so
+        tables, fields, signatures and `types_by_module` agree on
+        `a_Config`/`b_Config`.
+        """
+        if self.symbols is None:
+            return
+        tables = (self.symbols.runes, self.symbols.echos, self.symbols.omens,
+                  self.symbols.aliases, self.symbols.seals)
+        groups: Dict[str, Dict[str, List[Any]]] = {}
+        for table in tables:
+            for type_obj in {id(v): v for v in table.values()}.values():
+                name = getattr(type_obj, "name", None)
+                module = getattr(type_obj, "module", None)
+                if name and module:
+                    bucket = groups.setdefault(name, {}).setdefault(module, [])
+                    if not any(existing is type_obj for existing in bucket):
+                        bucket.append(type_obj)
+        for name in sorted(groups):
+            by_module = groups[name]
+            if len(by_module) < 2:
+                continue
+            used: Set[str] = set()
+            for module in sorted(by_module):
+                candidates = by_module[module]
+                canonical = candidates[0]
+                registry = None
+                for table in tables:
+                    if any(value is canonical for value in table.values()):
+                        registry = table
+                        break
+                if registry is None:
+                    continue
+                stem = os.path.basename(module)
+                if stem.endswith(".d.pengu"):
+                    stem = stem[:-8]
+                elif stem.endswith(".pengu"):
+                    stem = stem[:-6]
+                stem = re.sub(r"[^A-Za-z0-9_]", "_", stem) or "mod"
+                if stem[0].isdigit():
+                    stem = f"m_{stem}"
+                candidate = f"{stem}_{name}"
+                suffix = 2
+                while candidate in used:
+                    candidate = f"{stem}_{name}_{suffix}"
+                    suffix += 1
+                used.add(candidate)
+                for type_obj in candidates:
+                    obj_registry = None
+                    for table in tables:
+                        if any(value is type_obj for value in table.values()):
+                            obj_registry = table
+                            break
+                    if obj_registry is None:
+                        continue
+                    old_keys = [key for key, value in obj_registry.items()
+                                if value is type_obj]
+                    type_obj.c_name = candidate
+                    for key in old_keys:
+                        del obj_registry[key]
+                    obj_registry[candidate] = type_obj
+                self.symbols.types_by_module.setdefault(module, {})[name] = canonical
+            # Remove any stale global alias for an ambiguous logical name.
+            sym = self.symbols.global_scope.symbols.get(name)
+            if sym is not None:
+                all_types = [t for bucket in by_module.values() for t in bucket]
+                if getattr(sym, "type", None) in all_types:
+                    del self.symbols.global_scope.symbols[name]
+
+    def _decl_type_c_name(self, name: str, insignia: Optional[str],
+                          filepath: Optional[str] = None) -> str:
+        """C name of a declared type, honouring 3.0 module-scoped duplicates."""
+        if self.symbols is not None:
+            module = None
+            if filepath:
+                try:
+                    module = os.path.normcase(os.path.abspath(filepath))
+                except (OSError, ValueError):  # pragma: no cover
+                    module = None
+            for table in (self.symbols.runes, self.symbols.echos,
+                          self.symbols.omens, self.symbols.aliases,
+                          self.symbols.seals):
+                for type_obj in table.values():
+                    if (getattr(type_obj, "name", None) == name
+                            and module
+                            and os.path.normcase(os.path.abspath(
+                                getattr(type_obj, "module", "") or "")) == module):
+                        resolved = getattr(type_obj, "c_name", None)
+                        if resolved:
+                            return resolved
+            try:
+                type_obj = self.symbols.lookup_type(name)
+            except Exception:  # noqa: BLE001 - collection must stay best effort
+                type_obj = None
+            resolved = getattr(type_obj, "c_name", None)
+            if resolved:
+                return resolved
+        return f"{insignia}{name}" if insignia else name
+
     def _collect_top_stmt(self, top_node: Tree, filepath: str, prefix: Optional[str] = None) -> None:
         """Dispatches top-level statement collection."""
         stmt = unwrap_top_level(top_node)
@@ -270,7 +384,7 @@ class CollectMixin:
                 return
             r_attrs, r_idx = _extract_attributes_from_node(stmt.children)
             name = str(stmt.children[r_idx])
-            c_name = f"{prefix}{name}" if prefix else name
+            c_name = self._decl_type_c_name(name, prefix, filepath)
             self.rune_attributes[c_name] = r_attrs
             fields = {}
             field_attrs = {}
@@ -296,7 +410,7 @@ class CollectMixin:
                 return
             e_attrs, e_idx = _extract_attributes_from_node(stmt.children)
             name = str(stmt.children[e_idx])
-            c_name = f"{prefix}{name}" if prefix else name
+            c_name = self._decl_type_c_name(name, prefix, filepath)
             self.rune_attributes[c_name] = e_attrs
             fields = {}
             field_attrs = {}
@@ -318,7 +432,7 @@ class CollectMixin:
             if has_shards:
                 return
             name = str(stmt.children[0])
-            c_name = f"{prefix}{name}" if prefix else name
+            c_name = self._decl_type_c_name(name, prefix, filepath)
             variants = {}
             for v in stmt.children[1:]:
                 if isinstance(v, Tree) and v.data == "omen_variant":
@@ -332,7 +446,7 @@ class CollectMixin:
                     variants[v_name] = v_fields
             self.omens[c_name] = variants
             self._rune_file_paths[c_name] = filepath or ""
-            omen_t = (self.symbols.omens.get(name) or self.symbols.omens.get(c_name)) if self.symbols else None
+            omen_t = (self.symbols.omens.get(c_name) or self.symbols.omens.get(name)) if self.symbols else None
             if omen_t and hasattr(omen_t, "variant_values") and omen_t.variant_values:
                 self.omen_values[c_name] = dict(omen_t.variant_values)
             if filepath and filepath.endswith(".d.pengu"):
@@ -342,7 +456,7 @@ class CollectMixin:
             if has_shards:
                 return
             name = str(stmt.children[0])
-            c_name = f"{prefix}{name}" if prefix else name
+            c_name = self._decl_type_c_name(name, prefix, filepath)
             rem_children = [c for c in stmt.children[1:] if c is not None]
             target_t = ast_to_type(rem_children[0], self._lookup_type_fn)
             self.aliases[c_name] = target_t
@@ -351,7 +465,7 @@ class CollectMixin:
 
         elif rule == "seal_decl":
             name = str(stmt.children[0])
-            c_name = f"{prefix}{name}" if prefix else name
+            c_name = self._decl_type_c_name(name, prefix, filepath)
             underlying_t = ast_to_type(stmt.children[1], self._lookup_type_fn)
             self.seals[c_name] = underlying_t
             if filepath and filepath.endswith(".d.pengu"):
@@ -443,21 +557,25 @@ class CollectMixin:
                     ret_type = ast_to_type(child_n, self._lookup_type_fn)
             self.fn_info[fn_name] = {"c_name": c_fn_name, "params": params, "return_type": ret_type, "is_ritual": is_ritual}
             self.fn_info[c_fn_name] = {"c_name": c_fn_name, "params": params, "return_type": ret_type, "is_ritual": is_ritual}
+            self._record_module_c_name(filepath, c_fn_name)
 
         elif rule == "include_stmt":
             inc_val = str(stmt.children[0]).strip('"')
             if inc_val not in self.includes:
                 self.includes.append(inc_val)
+            self._record_origin(self.include_origins, inc_val, filepath)
 
         elif rule == "link_stmt":
             link_val = str(stmt.children[0]).strip('"')
             if link_val not in self.links:
                 self.links.append(link_val)
+            self._record_origin(self.link_origins, link_val, filepath)
 
         elif rule == "ldflag_stmt":
             flag_val = str(stmt.children[0]).strip('"')
             if flag_val not in self.ldflags:
                 self.ldflags.append(flag_val)
+            self._record_origin(self.ldflag_origins, flag_val, filepath)
 
         elif rule == "weave_decl":
             if any(isinstance(c, Tree) and c.data == "shard_params" for c in stmt.children):
@@ -598,6 +716,7 @@ class CollectMixin:
 
         self.fn_info[specialized_name] = {"c_name": c_name, "params": params, "return_type": ret_type, "is_ritual": is_ritual}
         self.fn_info[c_name] = {"c_name": c_name, "params": params, "return_type": ret_type, "is_ritual": is_ritual}
+        self._record_module_c_name(filepath, c_name)
 
         if filepath and filepath.endswith(".d.pengu"):
             return
@@ -935,6 +1054,8 @@ class CollectMixin:
 
         for top_node, filepath in top_stmts:
             self._apply_main_flag(filepath)
+            if self.symbols and filepath:
+                self.symbols.current_module = os.path.normcase(os.path.abspath(filepath))
             process(top_node, filepath)
         return out
     def _file_is_main(self, filepath: Optional[str]) -> bool:

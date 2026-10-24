@@ -551,19 +551,20 @@ class DuplicateLabelError(SemanticError):
 
 
 class DuplicateTypeNameError(SemanticError):
-    """E0070: two top-level type declarations share a name.
+    """E0070: a type declaration cannot be given a distinct C identity.
 
-    PenguScript 2.x keeps type names program-global: ``a.Config`` and
-    ``b.Config`` resolve through one registry and would emit one C type, even
-    when a module has an ``insignia`` prefix.  A duplicate is therefore
-    rejected instead of letting the second declaration silently win (or the
-    generated C fail with a conflicting-struct error).  The same diagnostic
-    covers a same-module redeclaration.
+    PenguScript 3.0 scopes type names per module: two modules may declare a
+    data-only ``Config``, emitted as ``a_Config``/``b_Config`` and referenced as
+    ``a.Config``/``b.Config``.  This diagnostic remains for the cases where that
+    is not possible or not implemented: a second declaration in the *same*
+    module, duplicate generic types (their specialization names are still
+    global) and duplicate types with methods (method C symbols use the logical
+    type name).  Rename one of the types in those cases.
     """
     def __init__(self, message: str, line: Optional[int] = None, col: Optional[int] = None, column: Optional[int] = None, **kwargs):
         kwargs.setdefault("code", "E0070")
-        kwargs.setdefault("help", "Rename one of the types; type names are program-global in PenguScript 2.x.")
-        kwargs.setdefault("note", "A module qualifier or an 'insignia' C prefix does not make two Pengu type names distinct.")
+        kwargs.setdefault("help", "Rename one of the types; only data-only duplicate types get module-scoped C names in 3.0.")
+        kwargs.setdefault("note", "Generic specializations and methods still use global C symbols, so those duplicates cannot coexist.")
         super().__init__(message, line=line, col=col, column=column, **kwargs)
 
 

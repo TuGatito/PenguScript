@@ -303,6 +303,29 @@ Native include/link pruning by live module remains conservative: a `c/` glue
 file can use a binding without the bundle naming its C prefix, so `#include` and
 `-l` entries are only removed when the module is clearly dead (a later phase).
 
+### 6.3 Native includes/links (`--prune-native`)
+
+DCE removes dead Pengu weaves, but an unused binding still contributes its
+`#include` and `link`/`ldflag` entries. `--prune-native` (env
+`PENGU_PRUNE_NATIVE=1`) keeps a module's native entries only when that module
+is still live:
+
+* a kept weave belongs to it, or its C symbols/prefix (`petitio_`, `re_`, …)
+  are named by the emitted C;
+* the project's `c/` glue names one of its C symbols/prefixes (read before DCE,
+  so a C callback keeps both the Pengu function and the native library);
+* otherwise its includes and `link`/`ldflag` entries are dropped.
+
+It is **opt-in** because `c/` glue can also use a library symbol nobody declared
+in PenguScript; the prefix scan is conservative but not omniscient.
+`--test`, `static`/`shared`/`obj` outputs and `--no-dce` keep every native
+entry. The flag is in the script cache key/config hash.
+
+Measured on the unused-`std.petitio` program: `petitio.h` disappears from the
+bundle and `-lpetitio`/`-lcurl` disappear from the link line. A C glue that
+mentions `petitio_url_encode` keeps both; the same holds for `std.regulus`
+(`re.h`, `-lre`).
+
 ## 7. Precompiled header (opt-in)
 
 `build_runtime.py` compiles a **shared** `build/include/pengu_runtime.h.gch`

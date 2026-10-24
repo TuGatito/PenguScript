@@ -1,4 +1,4 @@
-"""Track B4: type names are program-global (E0070)."""
+"""Track B4/3.0: module-scoped data types; E0070 for unsupported duplicates."""
 from __future__ import annotations
 
 import re
@@ -45,25 +45,34 @@ def test_same_module_duplicate_for_every_type_kind(pengu_cli, tmp_path, decl):
     assert "E0070" in out
 
 
-def test_two_modules_cannot_declare_the_same_type(pengu_cli, tmp_path):
+def test_two_modules_can_declare_data_types_with_the_same_name(pengu_cli, tmp_path):
     _write(tmp_path / "a.pengu", "rune Config:\n    a as int\n")
     _write(tmp_path / "b.pengu", "rune Config:\n    b as int\n")
     main = tmp_path / "main.pengu"
-    _write(main, "import a\nimport b\n\nweave main into int:\n    return 0\n")
+    _write(main, "import a\nimport b\n\n"
+                 "weave use with x as a.Config, y as b.Config into int:\n"
+                 "    return 0\n\n"
+                 "weave main into int:\n"
+                 "    return 0\n")
     rc, out = _check(pengu_cli, main)
-    assert rc != 0
-    assert "E0070" in out
-    assert "'a.pengu'" in out and "'b.pengu'" in out
+    assert rc == 0, out
+    res = pengu_cli("expand", str(main), "-o", str(tmp_path / "bundle.c"))
+    assert res.returncode == 0, (res.stdout or "") + (res.stderr or "")
+    c = (tmp_path / "bundle.c").read_text(encoding="utf-8")
+    assert "struct a_Config" in c and "struct b_Config" in c
 
 
-def test_rune_and_omen_share_the_type_namespace(pengu_cli, tmp_path):
+def test_rune_and_omen_can_share_a_logical_name(pengu_cli, tmp_path):
     _write(tmp_path / "a.pengu", "rune Thing:\n    a as int\n")
     _write(tmp_path / "b.pengu", "omen Thing:\n    A\n")
     main = tmp_path / "main.pengu"
-    _write(main, "import a\nimport b\n\nweave main into int:\n    return 0\n")
+    _write(main, "import a\nimport b\n\n"
+                 "weave use with x as a.Thing, y as b.Thing into int:\n"
+                 "    return 0\n\n"
+                 "weave main into int:\n"
+                 "    return 0\n")
     rc, out = _check(pengu_cli, main)
-    assert rc != 0
-    assert "E0070" in out
+    assert rc == 0, out
 
 
 def test_diamond_import_of_one_type_is_not_a_duplicate(pengu_cli, tmp_path):
@@ -85,11 +94,41 @@ def test_unimported_module_does_not_collide(pengu_cli, tmp_path):
     assert rc == 0, out
 
 
-def test_insignia_does_not_make_types_distinct(pengu_cli, tmp_path):
+def test_insignia_duplicate_types_get_module_scoped_c_names(pengu_cli, tmp_path):
     _write(tmp_path / "a.pengu", "insignia a_\n\nrune Config:\n    a as int\n")
     _write(tmp_path / "b.pengu", "insignia b_\n\nrune Config:\n    b as int\n")
     main = tmp_path / "main.pengu"
-    _write(main, "import a\nimport b\n\nweave main into int:\n    return 0\n")
+    _write(main, "import a\nimport b\n\n"
+                 "weave use with x as a.Config, y as b.Config into int:\n"
+                 "    return 0\n\n"
+                 "weave main into int:\n"
+                 "    return 0\n")
+    rc, out = _check(pengu_cli, main)
+    assert rc == 0, out
+
+
+def test_duplicate_types_with_methods_are_e0070(pengu_cli, tmp_path):
+    _write(tmp_path / "a.pengu",
+           "rune Config:\n    a as int\n\n"
+           "enchanting Config:\n    weave get_a into int:\n        return self->a\n")
+    _write(tmp_path / "b.pengu",
+           "rune Config:\n    b as int\n\n"
+           "enchanting Config:\n    weave get_b into int:\n        return self->b\n")
+    main = tmp_path / "main.pengu"
+    _write(main, "import a\nimport b\n\n"
+                 "weave main into int:\n    return 0\n")
+    rc, out = _check(pengu_cli, main)
+    assert rc != 0
+    assert "E0070" in out
+    assert "has methods" in out
+
+
+def test_duplicate_generic_types_are_e0070(pengu_cli, tmp_path):
+    _write(tmp_path / "a.pengu", "rune Box shard T:\n    value as T\n")
+    _write(tmp_path / "b.pengu", "rune Box shard T:\n    item as T\n")
+    main = tmp_path / "main.pengu"
+    _write(main, "import a\nimport b\n\n"
+                 "weave main into int:\n    return 0\n")
     rc, out = _check(pengu_cli, main)
     assert rc != 0
     assert "E0070" in out
@@ -134,3 +173,31 @@ weave main into int:
 """)
     res = pengu_cli("check", str(tmp_path / "main.pengu"))
     assert res.returncode == 0, (res.stdout or "") + (res.stderr or "")
+
+
+def test_duplicate_data_types_compile_and_run(pengu_cli, tmp_path):
+    _write(tmp_path / "a.pengu", "rune Config:\n    a as int\n\n"
+                                 "weave make_a into Config:\n    return with a is 1\n")
+    _write(tmp_path / "b.pengu", "rune Config:\n    b as int\n\n"
+                                 "weave make_b into Config:\n    return with b is 2\n")
+    main = tmp_path / "main.pengu"
+    _write(main, "import a\nimport b\n\n"
+                 "weave main into int:\n"
+                 "    var x as a.Config is calling a.make_a\n"
+                 "    var y as b.Config is calling b.make_b\n"
+                 "    return x.a + y.b\n")
+    res = pengu_cli("run", "--keep", "--no-cache", str(main))
+    assert res.returncode == 3, (res.stdout or "") + (res.stderr or "")
+    c = (tmp_path / "build" / "main_run" / "bundle.c").read_text(encoding="utf-8")
+    assert "struct a_Config" in c and "struct b_Config" in c
+
+
+def test_unqualified_duplicate_type_is_an_error(pengu_cli, tmp_path):
+    _write(tmp_path / "a.pengu", "rune Config:\n    a as int\n")
+    _write(tmp_path / "b.pengu", "rune Config:\n    b as int\n")
+    main = tmp_path / "main.pengu"
+    _write(main, "import a\nimport b\n\n"
+                 "weave use with c as Config into int:\n    return 0\n")
+    rc, out = _check(pengu_cli, main)
+    assert rc != 0
+    assert "Config" in out

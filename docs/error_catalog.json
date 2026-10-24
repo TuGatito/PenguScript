@@ -1143,11 +1143,11 @@
       "classes": [
         "DuplicateTypeNameError"
       ],
-      "explanation": "two top-level type declarations share a name.\n\nPenguScript 2.x keeps type names program-global: ``a.Config`` and\n``b.Config`` resolve through one registry and would emit one C type, even\nwhen a module has an ``insignia`` prefix.  A duplicate is therefore\nrejected instead of letting the second declaration silently win (or the\ngenerated C fail with a conflicting-struct error).  The same diagnostic\ncovers a same-module redeclaration.",
+      "explanation": "a type declaration cannot be given a distinct C identity.\n\nPenguScript 3.0 scopes type names per module: two modules may declare a\ndata-only ``Config``, emitted as ``a_Config``/``b_Config`` and referenced as\n``a.Config``/``b.Config``.  This diagnostic remains for the cases where that\nis not possible or not implemented: a second declaration in the *same*\nmodule, duplicate generic types (their specialization names are still\nglobal) and duplicate types with methods (method C symbols use the logical\ntype name).  Rename one of the types in those cases.",
       "guidance": [
         {
-          "help": "Rename one of the types; type names are program-global in PenguScript 2.x.",
-          "note": "A module qualifier or an 'insignia' C prefix does not make two Pengu type names distinct."
+          "help": "Rename one of the types; only data-only duplicate types get module-scoped C names in 3.0.",
+          "note": "Generic specializations and methods still use global C symbols, so those duplicates cannot coexist."
         }
       ]
     }

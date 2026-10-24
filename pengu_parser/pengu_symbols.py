@@ -241,14 +241,23 @@ class SymbolTable:
         self.monomorphized_functions: Dict[str, Tuple[Any, Dict[str, Type]]] = {}
         self.monomorphized_methods: Dict[str, Tuple[Any, Dict[str, Type]]] = {}
         self._generated_instances: Set[str] = set()
+        # 3.0 module-scoped type names: the type declared *in* each module,
+        # plus the module whose AST is currently being checked/generated.
+        # Duplicate logical names across modules are re-keyed to module-prefixed
+        # C names; unqualified lookup resolves against the current module first.
+        self.types_by_module: Dict[str, Dict[str, Type]] = {}
+        self.current_module: Optional[str] = None
 
         self.has_includes: bool = False
         self.includes: List[str] = []
         self.links: List[str] = []
+        # Module provenance for native link pruning (--prune-native).
+        self.link_origins: Dict[str, Set[str]] = {}
         # Raw linker options contributed by a binding (`ldflag "..."`).  These
         # are the flags a C library needs but `link "..."` cannot express, such
         # as Emscripten's `-sUSE_GLFW=3` port selector.
         self.ldflags: List[str] = []
+        self.ldflag_origins: Dict[str, Set[str]] = {}
         self.imports: List[str] = []
         self.imported_modules: Set[str] = set()
         self.import_graph: Dict[str, List[str]] = {}
@@ -444,6 +453,19 @@ class SymbolTable:
         """
         return self.current_scope.lookup_local(name)
 
+    def register_type(self, type_obj: Type) -> None:
+        """Records a declared type as belonging to its module (3.0 scoping)."""
+        module = getattr(type_obj, "module", None)
+        name = getattr(type_obj, "name", None)
+        if module and name:
+            self.types_by_module.setdefault(module, {})[name] = type_obj
+
+    def module_types(self, module: Optional[str]) -> Dict[str, Type]:
+        """The types declared in ``module`` (normalized path), if known."""
+        if not module:
+            return {}
+        return self.types_by_module.get(module, {})
+
     def lookup_type(self, name: str) -> Optional[Type]:
         """Resolves type name across aliases, seals, concepts, runes, echos, and omens.
 
@@ -455,6 +477,13 @@ class SymbolTable:
         """
         if name in self.monomorphized_types:
             return self.monomorphized_types[name]
+        # Unqualified type names are module-local first (3.0).  A duplicate
+        # logical name in two modules has no global entry; the owning module
+        # still resolves its own type, and other modules use `mod.Type`.
+        if "." not in name and self.current_module:
+            own = self.types_by_module.get(self.current_module, {}).get(name)
+            if own is not None:
+                return own
         if name in self.aliases:
             return self.aliases[name]
         if name in self.seals:

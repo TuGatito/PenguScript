@@ -883,6 +883,8 @@ class PenguBuilder:
             "no_line_markers": os.environ.get("PENGU_NO_LINE_MARKERS", "").strip().lower()
                                in {"1", "true", "yes", "on"},
             "dce_scope": os.environ.get("PENGU_DCE_SCOPE", "std").strip().lower(),
+            "prune_native": os.environ.get("PENGU_PRUNE_NATIVE", "").strip().lower()
+                            in {"1", "true", "yes", "on"},
         }, sort_keys=True)
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
@@ -1590,7 +1592,8 @@ class PenguBuilder:
         # scan its text before deciding which project weaves are dead.  Only do
         # the I/O when the opt-in scope is active and it can actually apply.
         c_glue_text = ""
-        if getattr(codegen, "dce_scope_user", False) and not self.is_test_mode and not is_lib:
+        if (getattr(codegen, "dce_scope_user", False)
+                or getattr(codegen, "prune_native_enabled", False))                 and not self.is_test_mode and not is_lib:
             try:
                 c_sources = self.collect_c_sources()
             except Exception:  # noqa: BLE001 - DCE must never fail the build here
@@ -1610,6 +1613,9 @@ class PenguBuilder:
             is_test=self.is_test_mode,
             c_glue_text=c_glue_text,
         )
+        # `_build_command()` runs after bundle generation and uses this to
+        # filter `link`/`ldflag` entries by live module (--prune-native).
+        self._last_codegen = codegen
 
         self.timings["codegen"] = time.time() - t_codegen
         if self.verbose:
@@ -2067,7 +2073,13 @@ class PenguBuilder:
             if link not in all_links:
                 all_links.append(link)
         if hasattr(self.checker, "symbols") and self.checker.symbols:
-            for link in self.checker.symbols.links:
+            checker_links = list(self.checker.symbols.links)
+            native = getattr(self, "_last_codegen", None)
+            if native is not None and getattr(native, "_native_active", False):
+                checker_links = native.filter_native_links(
+                    checker_links,
+                    getattr(self.checker.symbols, "link_origins", None))
+            for link in checker_links:
                 if link not in all_links:
                     all_links.append(link)
         for link in auto_links:
@@ -2185,7 +2197,14 @@ class PenguBuilder:
         # selector such as Emscripten's `-sUSE_GLFW=3` needs this escape hatch.
         # They stay outside the `--start-group` wrapper and before the
         # project's own `ldflags`, so a project can still override them.
-        for flag in getattr(getattr(self.checker, "symbols", None), "ldflags", []) or []:
+        checker_ldflags = list(
+            getattr(getattr(self.checker, "symbols", None), "ldflags", []) or [])
+        native = getattr(self, "_last_codegen", None)
+        if native is not None and getattr(native, "_native_active", False):
+            checker_ldflags = native.filter_native_links(
+                checker_ldflags,
+                getattr(self.checker.symbols, "ldflag_origins", None))
+        for flag in checker_ldflags:
             if flag not in link_flags:
                 link_flags.append(flag)
 
@@ -2679,6 +2698,7 @@ def build_project(
     prune_types: bool = False,
     no_line_markers: bool = False,
     dce_scope: Optional[str] = None,
+    prune_native: bool = False,
     strict_c99: bool = False,
     target_compiler: str = "",
     target: str = "",
@@ -2792,6 +2812,9 @@ def build_project(
     prev_dce_scope = os.environ.get("PENGU_DCE_SCOPE")
     if dce_scope:
         os.environ["PENGU_DCE_SCOPE"] = dce_scope
+    prev_prune_native = os.environ.get("PENGU_PRUNE_NATIVE")
+    if prune_native:
+        os.environ["PENGU_PRUNE_NATIVE"] = "1"
     try:
         if output and (output.endswith(".c") or output == "bundle.c"):
             artifact, is_cached = builder.bundle(output_file=output)
@@ -2838,6 +2861,11 @@ def build_project(
                 os.environ.pop("PENGU_DCE_SCOPE", None)
             else:
                 os.environ["PENGU_DCE_SCOPE"] = prev_dce_scope
+        if prune_native:
+            if prev_prune_native is None:
+                os.environ.pop("PENGU_PRUNE_NATIVE", None)
+            else:
+                os.environ["PENGU_PRUNE_NATIVE"] = prev_prune_native
     elapsed = time.time() - t0
 
     if json_output:
@@ -6076,7 +6104,8 @@ def expand_script(script: str, output: Optional[str] = None,
                   defines: Optional[List[str]] = None,
                   verbose: bool = False, prune_types: bool = False,
                   no_line_markers: bool = False,
-                  dce_scope: Optional[str] = None) -> int:
+                  dce_scope: Optional[str] = None,
+                  prune_native: bool = False) -> int:
     """Prints the generated ``bundle.c`` of a script (no project tree changes)."""
     script_abs = os.path.abspath(script)
     if not os.path.isfile(script_abs):
@@ -6093,6 +6122,9 @@ def expand_script(script: str, output: Optional[str] = None,
     prev_dce_scope = os.environ.get("PENGU_DCE_SCOPE")
     if dce_scope:
         os.environ["PENGU_DCE_SCOPE"] = dce_scope
+    prev_prune_native = os.environ.get("PENGU_PRUNE_NATIVE")
+    if prune_native:
+        os.environ["PENGU_PRUNE_NATIVE"] = "1"
     try:
         cfg = ProjectConfig(
             entry=script_abs,
@@ -6145,13 +6177,19 @@ def expand_script(script: str, output: Optional[str] = None,
                 os.environ.pop("PENGU_DCE_SCOPE", None)
             else:
                 os.environ["PENGU_DCE_SCOPE"] = prev_dce_scope
+        if prune_native:
+            if prev_prune_native is None:
+                os.environ.pop("PENGU_PRUNE_NATIVE", None)
+            else:
+                os.environ["PENGU_PRUNE_NATIVE"] = prev_prune_native
 
 
 def time_script(script: str, defines: Optional[List[str]] = None,
                 cc: Optional[str] = None, script_args: Optional[List[str]] = None,
                 no_dce: bool = False, prune_types: bool = False,
                 no_line_markers: bool = False,
-                dce_scope: Optional[str] = None) -> int:
+                dce_scope: Optional[str] = None,
+                prune_native: bool = False) -> int:
     """Runs a script and reports the time spent in every phase."""
     import platform
     t_start = time.time()
@@ -6175,6 +6213,9 @@ def time_script(script: str, defines: Optional[List[str]] = None,
     prev_dce_scope = os.environ.get("PENGU_DCE_SCOPE")
     if dce_scope:
         os.environ["PENGU_DCE_SCOPE"] = dce_scope
+    prev_prune_native = os.environ.get("PENGU_PRUNE_NATIVE")
+    if prune_native:
+        os.environ["PENGU_PRUNE_NATIVE"] = "1"
     try:
         cfg = ProjectConfig(
             entry=script_abs,
@@ -6262,6 +6303,11 @@ def time_script(script: str, defines: Optional[List[str]] = None,
                 os.environ.pop("PENGU_DCE_SCOPE", None)
             else:
                 os.environ["PENGU_DCE_SCOPE"] = prev_dce_scope
+        if prune_native:
+            if prev_prune_native is None:
+                os.environ.pop("PENGU_PRUNE_NATIVE", None)
+            else:
+                os.environ["PENGU_PRUNE_NATIVE"] = prev_prune_native
         shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -6436,6 +6482,7 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
                 verbose: bool = False, pch: bool = False, no_dce: bool = False,
                 prune_types: bool = False, no_line_markers: bool = False,
                 dce_scope: Optional[str] = None,
+                prune_native: bool = False,
                 strict_c99: bool = False, target_compiler: str = "",
                 target: str = "", locked: bool = False, frozen: bool = False,
                 release_unsafe: bool = False,
@@ -6454,6 +6501,7 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
         prune_types: True to prune unreachable types/constants (opt-in).
         no_line_markers: True to omit #line directives (smaller bundle).
         dce_scope: 'std' (default) or 'user' (prune unused project weaves).
+        prune_native: True to drop includes/links of modules no live C uses.
 
     Returns:
         Process exit code.
@@ -6466,6 +6514,7 @@ def run_project(config_path: Optional[str] = None, profile: str = "debug", test:
                              prune_types=prune_types,
                              no_line_markers=no_line_markers,
                              dce_scope=dce_scope,
+                             prune_native=prune_native,
                              strict_c99=strict_c99, target_compiler=target_compiler,
                              target=target, locked=locked, frozen=frozen,
                              release_unsafe=release_unsafe)
@@ -6504,6 +6553,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                no_dce: bool = False, prune_types: bool = False,
                no_line_markers: bool = False,
                dce_scope: Optional[str] = None,
+               prune_native: bool = False,
                strict_c99: bool = False,
                target_compiler: str = "", target: str = "",
                locked: bool = False, frozen: bool = False,
@@ -6702,6 +6752,9 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                                or os.environ.get("PENGU_DCE_SCOPE", "std")).strip().lower()
         if effective_dce_scope not in ("std", "user"):
             effective_dce_scope = "std"
+        native_prune_enabled = bool(
+            prune_native or os.environ.get("PENGU_PRUNE_NATIVE", "").strip().lower()
+            in {"1", "true", "yes", "on"})
         cache_key = script_cache_key(
             script_abs,
             module_order,
@@ -6723,6 +6776,7 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                     "types=pruned" if prune_types_enabled else "types=kept",
                     "line-markers=off" if line_markers_disabled else "line-markers=on",
                     f"dce-scope={effective_dce_scope}",
+                    "prune-native" if native_prune_enabled else None,
                     f"c-glue={c_glue_digest}" if c_glue_digest else None,
                     f"std-c={std_c_digest}" if std_c_digest else None,
                     "release-unsafe" if getattr(cfg, "release_unsafe", False) else None,
@@ -6773,6 +6827,9 @@ def run_script(script: str, defines: Optional[List[str]] = None,
     prev_dce_scope = os.environ.get("PENGU_DCE_SCOPE")
     if dce_scope:
         os.environ["PENGU_DCE_SCOPE"] = dce_scope
+    prev_prune_native = os.environ.get("PENGU_PRUNE_NATIVE")
+    if prune_native:
+        os.environ["PENGU_PRUNE_NATIVE"] = "1"
     try:
         builder = PenguBuilder(cfg)
         builder.is_test_mode = False
@@ -6846,6 +6903,11 @@ def run_script(script: str, defines: Optional[List[str]] = None,
                 os.environ.pop("PENGU_DCE_SCOPE", None)
             else:
                 os.environ["PENGU_DCE_SCOPE"] = prev_dce_scope
+        if prune_native:
+            if prev_prune_native is None:
+                os.environ.pop("PENGU_PRUNE_NATIVE", None)
+            else:
+                os.environ["PENGU_PRUNE_NATIVE"] = prev_prune_native
 
 
 def _find_watch_files(base_dir: str) -> List[str]:
@@ -7727,6 +7789,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
                          help="std (default) prunes std/lib only; user also prunes unused project weaves")
     build_p.add_argument("--tree-shake-user", dest="dce_scope", action="store_const", const="user",
                          help="Alias for --dce-scope=user")
+    build_p.add_argument("--prune-native", "--prune_native", dest="prune_native", action="store_true",
+                         help="Opt-in: drop includes/links of modules no live C uses (scans c/ glue)")
     build_p.add_argument("--json", action="store_true",
                          help="Emit machine-readable JSON Lines (for CI)")
 
@@ -7764,6 +7828,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
                        help="std (default) prunes std/lib only; user also prunes unused project weaves")
     run_p.add_argument("--tree-shake-user", dest="dce_scope", action="store_const", const="user",
                        help="Alias for --dce-scope=user")
+    run_p.add_argument("--prune-native", "--prune_native", dest="prune_native", action="store_true",
+                       help="Opt-in: drop includes/links of modules no live C uses (scans c/ glue)")
     # Roadmap Phase 2: portable C output (build/run share the same knobs).
     for _p in (build_p, run_p):
         _p.add_argument("--strict-c99", "--strict_c99", dest="strict_c99", action="store_true",
@@ -7822,6 +7888,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
                           help="std (default) prunes std/lib only; user also prunes unused project weaves")
     expand_p.add_argument("--tree-shake-user", dest="dce_scope", action="store_const", const="user",
                           help="Alias for --dce-scope=user")
+    expand_p.add_argument("--prune-native", "--prune_native", dest="prune_native", action="store_true",
+                          help="Opt-in: drop includes/links of modules no live C uses (scans c/ glue)")
 
     # time
     time_p = subparsers.add_parser("time", help="Run a script and report per-phase timings")
@@ -7837,6 +7905,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
                          help="std (default) prunes std/lib only; user also prunes unused project weaves")
     time_p.add_argument("--tree-shake-user", dest="dce_scope", action="store_const", const="user",
                          help="Alias for --dce-scope=user")
+    time_p.add_argument("--prune-native", "--prune_native", dest="prune_native", action="store_true",
+                         help="Opt-in: drop includes/links of modules no live C uses (scans c/ glue)")
     time_p.add_argument("-D", "--define", dest="defines", action="append", default=None,
                         help="Compile-time define (repeatable)")
     time_p.add_argument("script_args", nargs="*", default=None,
@@ -8278,6 +8348,7 @@ def main():
                 prune_types=getattr(args, "prune_types", False),
                 no_line_markers=getattr(args, "no_line_markers", False),
                 dce_scope=getattr(args, "dce_scope", None),
+                prune_native=getattr(args, "prune_native", False),
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
                 target=getattr(args, "target", "") or "",
@@ -8319,6 +8390,7 @@ def main():
                     prune_types=getattr(args, "prune_types", False),
                     no_line_markers=getattr(args, "no_line_markers", False),
                     dce_scope=getattr(args, "dce_scope", None),
+                    prune_native=getattr(args, "prune_native", False),
                     strict_c99=getattr(args, "strict_c99", False),
                     target_compiler=getattr(args, "target_compiler", "") or "",
                     target=getattr(args, "target", "") or "",
@@ -8339,6 +8411,7 @@ def main():
                 prune_types=getattr(args, "prune_types", False),
                 no_line_markers=getattr(args, "no_line_markers", False),
                 dce_scope=getattr(args, "dce_scope", None),
+                prune_native=getattr(args, "prune_native", False),
                 strict_c99=getattr(args, "strict_c99", False),
                 target_compiler=getattr(args, "target_compiler", "") or "",
                 target=getattr(args, "target", "") or "",
@@ -8508,7 +8581,8 @@ def main():
                                   verbose=getattr(args, "verbose", False),
                                   prune_types=getattr(args, "prune_types", False),
                                   no_line_markers=getattr(args, "no_line_markers", False),
-                                  dce_scope=getattr(args, "dce_scope", None)),
+                                  dce_scope=getattr(args, "dce_scope", None),
+                                  prune_native=getattr(args, "prune_native", False)),
             source=args.script)
     elif args.command == "time":
         _run_command(
@@ -8518,7 +8592,8 @@ def main():
                                 no_dce=getattr(args, "no_dce", False),
                                 prune_types=getattr(args, "prune_types", False),
                                 no_line_markers=getattr(args, "no_line_markers", False),
-                                dce_scope=getattr(args, "dce_scope", None)),
+                                dce_scope=getattr(args, "dce_scope", None),
+                                prune_native=getattr(args, "prune_native", False)),
             source=args.script)
     elif args.command == "eval":
         _run_command(

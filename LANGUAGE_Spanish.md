@@ -3044,13 +3044,7 @@ import components.player             # project module (src/components/player.pen
 - **Encapsulación (`E0043`):** los símbolos de nivel superior que empiezan por `_` son
   privados del módulo y no se pueden acceder desde los módulos que los importan
   (`E0043: PrivateSymbolAccessError`).
-- **Los nombres de tipo son globales al programa (`E0070`):** los nombres de `rune`,
-  `echo`, `omen`, `alias` y `seal` viven en un único espacio de nombres de toda la
-  compilación. Si dos módulos importados declaran `Config`, la segunda declaración es
-  `E0070: DuplicateTypeNameError`; `a.Config` y `b.Config` **no** obtienen tipos C
-  distintos (un prefijo `insignia` cambia la grafía C, no el nombre Pengu). Renombra
-  uno de los tipos. La segunda declaración del mismo nombre en un módulo también es
-  `E0070`.
+- **Los nombres de tipo tienen alcance de módulo (3.0):** cada módulo posee sus nombres de `rune`, `echo`, `omen`, `alias` y `seal`. Dentro de un módulo, `Config` se refiere al tipo de ese módulo; desde otro módulo se usa `a.Config`/`b.Config`. Dos módulos pueden declarar el mismo nombre de tipo **solo con datos**: emiten tipos C separados (`a_Config`, `b_Config`). Los tipos **genéricos** duplicados y los tipos duplicados **con métodos** siguen siendo `E0070: DuplicateTypeNameError`, porque sus símbolos C de especialización/método aún no tienen alcance de módulo; renombra uno. La segunda declaración del mismo nombre en un módulo también es `E0070`.
 
 ### 14.2 `include`, `link`, `insignia`, `declare`
 
@@ -5301,7 +5295,7 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0067` | `InvalidMutatesAttributeError` | 0 | ``@mutates`` applied where in-place mutation cannot work.  ``@mutates`` is only meaningful on a method inside an ``enchanting`` block, and only when the method returns the receiver's own type -- that return value is what the call site assigns back to the receiver.  A top-level ``weave``, a ``declare``, a mismatched return type or a body that both returns a value and assigns to the receiver is rejected here. | 1 help / 1 note |
 | `E0068` | `MutatingGetterCollisionError` | 0 | ``@mutates weave foo`` collides with an explicit ``weave get_foo``.  The compiler reserves ``get_<name>`` for the pure form of a ``@mutates`` method, so declaring both would give ``get_<name>`` two definitions with no way to choose between them. | 1 help / 1 note |
 | `E0069` | `DuplicateLabelError` | 1 | two loops in the same function declare the same label.  A loop label (``outer: for …``) is a *function-local* name; the code generator turns it into a single C label, so two loops sharing a name inside one function would emit two identical C labels.  The rule is deliberately stricter than "two nested loops may not share a name": two *sibling* loops with the same label are rejected as well, because the name no longer identifies one place to jump to. | 1 help / 1 note |
-| `E0070` | `DuplicateTypeNameError` | 0 | two top-level type declarations share a name.  PenguScript 2.x keeps type names program-global: ``a.Config`` and ``b.Config`` resolve through one registry and would emit one C type, even when a module has an ``insignia`` prefix.  A duplicate is therefore rejected instead of letting the second declaration silently win (or the generated C fail with a conflicting-struct error).  The same diagnostic covers a same-module redeclaration. | 1 help / 1 note |
+| `E0070` | `DuplicateTypeNameError` | 0 | a type declaration cannot be given a distinct C identity.  PenguScript 3.0 scopes type names per module: two modules may declare a data-only ``Config``, emitted as ``a_Config``/``b_Config`` and referenced as ``a.Config``/``b.Config``.  This diagnostic remains for the cases where that is not possible or not implemented: a second declaration in the *same* module, duplicate generic types (their specialization names are still global) and duplicate types with methods (method C symbols use the logical type name).  Rename one of the types in those cases. | 1 help / 1 note |
 
 ### 22.3 Catálogo de advertencias del compilador (`W0000`–`W0013`)
 

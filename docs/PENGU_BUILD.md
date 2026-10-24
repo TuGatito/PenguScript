@@ -142,6 +142,7 @@ Flags globales (todos los subcomandos):
 | `--prune-types` | Opt-in: poda también tipos y constantes que ningún C emitido nombra (respeta `--test`, librerías y `--no-dce`) |
 | `--no-line-markers` | Omite las directivas `#line` de `bundle.c` (≈4–26 % menos; los errores C apuntan al bundle). También `PENGU_NO_LINE_MARKERS=1` |
 | `--dce-scope=user` | Opt-in: poda también los `weave` no usados de módulos de proyecto (`src/`), conservando `main`, `@export`, bindings `.d.pengu` y lo referenciado por `c/`. Alias `--tree-shake-user`; por defecto `std` |
+| `--prune-native` | Opt-in: poda includes/`link`/`ldflag` de módulos que ningún `weave` vivo, símbolo C ni glue de `c/` usa. También `PENGU_PRUNE_NATIVE=1` |
 | `--` | Todo lo que sigue se pasa al script (`std.rites.get_args`) |
 
 `pengu run` acepta además `--cc` (sustituye al compilador de desarrollo; con

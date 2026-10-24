@@ -5,6 +5,8 @@ Part of :class:`~pengu_parser.pengu_codegen.main.PenguCodegen`; see
 """
 from __future__ import annotations
 
+import os
+
 from ._base import (
     AliasType,
     Any,
@@ -38,6 +40,9 @@ from ._base import (
     primitive_lookup_order,
     canonical_type_name,
     type_owns_heap,
+    Dict,
+    Set,
+    _dce_identifiers_in_text,
 )
 from .ctype import (
     CTypeMapper,
@@ -420,13 +425,15 @@ class SymbolMixin:
         """Type lookup resolver for AST conversion during codegen."""
         if hasattr(self, "current_subst_map") and self.current_subst_map and name in self.current_subst_map:
             return self.current_subst_map[name]
-        sym = self.symbols.lookup(name) if self.symbols else None
-        if sym and sym.type:
-            return sym.type
+        # Module-scoped types (3.0) must win over a global symbol with the
+        # same logical name; `lookup_type` consults the current module first.
         if self.symbols is not None:
             resolved = self.symbols.lookup_type(name)
             if resolved is not None:
                 return resolved
+        sym = self.symbols.lookup(name) if self.symbols else None
+        if sym and sym.type:
+            return sym.type
         if name in self.runes:
             return RuneType(name, self.runes[name])
         if name in self.echos:
@@ -649,6 +656,98 @@ class SymbolMixin:
                     if self._type_owns_heap(v_fields, _depth + 1):
                         return True
         return False
+    @staticmethod
+    def _norm_native_path(path: Optional[str]) -> Optional[str]:
+        if not path or path == ".":
+            return None
+        try:
+            return os.path.normcase(os.path.abspath(path))
+        except (OSError, ValueError):  # pragma: no cover - defensive
+            return None
+
+    def _record_origin(self, table: "Dict[str, Set[str]]", value: str,
+                       filepath: Optional[str]) -> None:
+        """Records which module contributed an include/link/ldflag."""
+        key = self._norm_native_path(filepath)
+        if key:
+            table.setdefault(value, set()).add(key)
+
+    def _record_module_c_name(self, filepath: Optional[str], c_name: str) -> None:
+        """Records a module's emitted C symbols for native include/link DCE."""
+        key = self._norm_native_path(filepath)
+        if key and c_name:
+            self.module_c_names.setdefault(key, set()).add(c_name)
+
+    def _module_is_native_live(self, filepath: Optional[str]) -> bool:
+        """True when a module's C symbols (or its prefix) are still used."""
+        key = self._norm_native_path(filepath)
+        if not key:
+            return True  # unknown origin: conservative
+        if key in self._native_live_files:
+            return True
+        for c_name in self.module_c_names.get(key, ()):
+            if c_name in self._native_idents:
+                return True
+        stem = os.path.basename(key)
+        if stem.endswith(".d.pengu"):
+            stem = stem[:-8]
+        elif stem.endswith(".pengu"):
+            stem = stem[:-6]
+        prefix = f"{self._c_ident(stem)}_"
+        if any(ident.startswith(prefix) for ident in self._native_idents):
+            return True
+        # A C glue file may call a library symbol that is not declared in the
+        # binding itself (`re_foo`, `curl_easy_*`).  The module's `link` names
+        # give a second conservative prefix.
+        for link in self._native_module_links.get(key, ()):
+            if any(ident.startswith(f"{self._c_ident(link)}_")
+                   for ident in self._native_idents):
+                return True
+        return False
+
+    def filter_native_links(self, values, origins=None) -> list:
+        """Drops link/ldflag entries whose only declaring module is dead."""
+        if not self._native_active:
+            return list(values)
+        origins = origins or {}
+        kept = []
+        for value in values:
+            origin_set = origins.get(value) or set()
+            if not origin_set or any(self._module_is_native_live(o) for o in origin_set):
+                kept.append(value)
+                continue
+            # Unknown extra symbol from the same native library (a C glue file
+            # can call a function the binding never declared): keep by prefix.
+            prefix = f"{self._c_ident(value)}_"
+            if any(ident.startswith(prefix) for ident in self._native_idents):
+                kept.append(value)
+        return kept
+
+    def _filter_native_includes(self, includes, custom_includes, texts) -> list:
+        """Keeps includes of live modules, C glue prefixes and user headers."""
+        self._native_idents = set()
+        for text in texts:
+            self._native_idents |= _dce_identifiers_in_text(text or "")
+        self._native_live_files = {
+            self._norm_native_path(str(w.get("filepath", "")))
+            for w in self.weaves
+        }
+        self._native_live_files.discard(None)
+        self._native_module_links = {}
+        for link, origins in self.link_origins.items():
+            for origin in origins:
+                self._native_module_links.setdefault(origin, set()).add(link)
+        custom = set(custom_includes or ())
+        kept = []
+        for inc in includes:
+            if inc in custom:
+                kept.append(inc)
+                continue
+            origins = self.include_origins.get(inc) or set()
+            if not origins or any(self._module_is_native_live(o) for o in origins):
+                kept.append(inc)
+        return kept
+
     @staticmethod
     def _c_ident(name: str) -> str:
         if name in (

@@ -8,9 +8,42 @@ history, and they landed in `0.10.0` and `1.0.0`. The only other break is the
 compiler and runtime are additive, but programs that imported a binding now need
 its satellite repository.
 
-> **Current version: 2.22.0** (read from [`VERSION`](VERSION)). See
+> **Current version: 3.0.0** (read from [`VERSION`](VERSION)). See
 > [`CHANGELOG.md`](CHANGELOG.md) for the full history and
 > [`LANGUAGE.md` §23](LANGUAGE.md) for the stability policy that governs it.
+
+## 2.22.0 → 3.0.0: module-scoped type names and native pruning
+
+**Breaking only for programs that declare the same type name in two modules.**
+Type names are now module-scoped: inside a module, `Config` resolves to its own
+declaration; from another module use `a.Config`/`b.Config`. Two modules may each
+declare a **data-only** `Config`; they emit `a_Config` and `b_Config`, so both
+can coexist in the same C program.
+
+```pengu
+# a.pengu                       # b.pengu
+rune Config:                    rune Config:
+    a as int                        b as int
+
+# main.pengu
+import a
+import b
+weave use with x as a.Config, y as b.Config into int:
+    return 0
+```
+
+Limits (still `E0070`): a second declaration in the **same** module, duplicate
+**generic** types (specialization names remain global) and duplicate types
+**with methods** (method C symbols use the logical name). Rename one of those.
+
+If C glue refers to a duplicated type by its old bare C name (`Config`), update
+it to the module-prefixed name (`a_Config`) or expose an `@export` function
+instead. Unique type names keep their old C spelling.
+
+Also in 3.0 (opt-in, no source changes): `--prune-native` /
+`PENGU_PRUNE_NATIVE=1` drops includes and `link`/`ldflag` entries of modules no
+live C uses, after scanning `c/` glue. It is off by default because hand-written
+C can call a library symbol that Pengu never declares.
 
 ## 2.21.0 → 2.22.0: optional user-module tree shaking (phase 3)
 
@@ -118,7 +151,7 @@ builds dependencies:
 * `pengu add --rebuild` forces the build; `pengu update --no-build` only pulls;
   `pengu update --trust` always rebuilds.
 * `build.py`/`build.sh`/`build.bat`/`Makefile` still work and print a
-  deprecation note; they are removed in **3.0.0**.
+  deprecation note; they are candidates for removal in a future major.
 
 Migration steps for a binding author:
 

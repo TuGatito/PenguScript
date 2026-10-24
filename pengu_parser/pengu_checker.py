@@ -1,4 +1,5 @@
 from __future__ import annotations
+import hashlib
 import os
 import re
 from dataclasses import dataclass
@@ -464,6 +465,11 @@ class PenguChecker:
         #: First declaration of each program-global type name (E0070).  Kept
         #: across the builder's per-module check loop, reset with the symbols.
         self._type_name_owner: Dict[str, Any] = {}
+        # 3.0: logical names declared in more than one module.  These are
+        # allowed (each type gets a module-prefixed C name) except for generic
+        # types and types with methods, which still need distinct names.
+        self._duplicate_type_groups: Dict[str, List[Any]] = {}
+        self._duplicate_method_reported: Set[str] = set()
         self.block_stmts_stack: List[List[Tree]] = []
         # Nesting depth of 'test' blocks. A local whose name matches a
         # global weave is deliberate and idiomatic inside a test body
@@ -550,6 +556,8 @@ class PenguChecker:
             self.symbols = SymbolTable()
             self._collected_files = set()
             self._type_name_owner = {}
+            self._duplicate_type_groups = {}
+            self._duplicate_method_reported = set()
         self.inferrer = TypeInferrer(self.symbols, source_code=self.source_code, filename=self.filename,
                                      compile_env=self.compile_env)
         self.const_folder = ConstFolder(self.symbols)
@@ -558,6 +566,7 @@ class PenguChecker:
 
         # Pass 1: Collect all top-level types, functions, declarations, includes, and modules
         self._collect_top_level(tree, import_order=import_order)
+        self._drop_ambiguous_type_keys()
         self._check_omen_variant_collisions()
         # Pass 1b: every top-level type is registered now, so declared type
         # nodes (params, returns, fields) can be validated.
@@ -566,6 +575,7 @@ class PenguChecker:
         # Pass 2: Validate semantic rules and type check
         self.symbols.has_includes = bool(self.symbols.includes) and reset_symbols is False
         self._check_node(tree)
+        self._check_duplicate_type_methods()
 
         # Append inferrer warnings
         self.warnings.extend(self.inferrer.warnings)
@@ -1124,6 +1134,12 @@ class PenguChecker:
         """
         if not hasattr(self, "_collected_files") or self._collected_files is None:
             self._collected_files = set()
+        # 3.0: unqualified type names resolve inside the module being collected.
+        if self.filename:
+            try:
+                self.symbols.current_module = os.path.normcase(os.path.abspath(self.filename))
+            except (OSError, ValueError):  # pragma: no cover
+                pass
         has_imports = False
         is_d_pengu = bool(self.filename and self.filename.endswith(".d.pengu"))
         is_std = bool(self.filename and ("std" in self.filename.replace("/", "\\").split("\\") or "std" in self.filename.replace("\\", "/").split("/")))
@@ -1174,11 +1190,15 @@ class PenguChecker:
             elif rule == "link_stmt":
                 lib = str(stmt.children[0]).strip('"')
                 self.symbols.links.append(lib)
+                origin = os.path.normcase(os.path.abspath(self.filename or ""))
+                self.symbols.link_origins.setdefault(lib, set()).add(origin)
 
             elif rule == "ldflag_stmt":
                 flag = str(stmt.children[0]).strip('"')
                 if flag not in self.symbols.ldflags:
                     self.symbols.ldflags.append(flag)
+                origin = os.path.normcase(os.path.abspath(self.filename or ""))
+                self.symbols.ldflag_origins.setdefault(flag, set()).add(origin)
 
             elif rule == "import_stmt":
                 has_imports = True
@@ -1408,10 +1428,10 @@ class PenguChecker:
                 rune_t = RuneType(name=r_name, fields=fields, type_params=type_params, base_name=r_name, c_name=c_r_name, derived_concepts=list(derived_concepts), bounds=bounds, attributes=r_attrs, field_attributes=field_attrs, module=self._type_module(self.filename))
                 if type_params:
                     self.symbols.generic_runes[r_name] = (type_params, stmt)
-                self._register_type_name(r_name, rune_t, stmt)
                 self.symbols.runes[r_name] = rune_t
                 if c_r_name != r_name:
                     self.symbols.runes[c_r_name] = rune_t
+                self._register_type_name(r_name, rune_t, stmt)
 
                 def lookup_tp(tname: str):
                     if tname in type_params:
@@ -1620,10 +1640,10 @@ class PenguChecker:
                     if c_e_name != e_name:
                         self.symbols.concept_bindings[(c_e_name, d_concept)] = {}
 
-                self._register_type_name(e_name, echo_t, stmt)
                 self.symbols.echos[e_name] = echo_t
                 if c_e_name != e_name:
                     self.symbols.echos[c_e_name] = echo_t
+                self._register_type_name(e_name, echo_t, stmt)
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
                     name=e_name, type=echo_t, kind="echo", line=line, column=col, doc=doc, file_path=self.filename, c_name=c_e_name
@@ -1852,10 +1872,10 @@ class PenguChecker:
                     if c_o_name != o_name:
                         self.symbols.concept_bindings.setdefault((c_o_name, d_concept), {})
 
-                self._register_type_name(o_name, omen_t, stmt)
                 self.symbols.omens[o_name] = omen_t
                 if c_o_name != o_name:
                     self.symbols.omens[c_o_name] = omen_t
+                self._register_type_name(o_name, omen_t, stmt)
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
                     name=o_name, type=omen_t, kind="omen", line=line, column=col, doc=doc, file_path=self.filename, c_name=c_o_name
@@ -1903,10 +1923,10 @@ class PenguChecker:
                 alias_obj = AliasType(name=a_name, target=target_t, type_params=type_params, c_name=c_a_name, module=self._type_module(self.filename))
                 if type_params:
                     self.symbols.generic_aliases[a_name] = (type_params, stmt)
-                self._register_type_name(a_name, alias_obj, stmt)
                 self.symbols.aliases[a_name] = alias_obj
                 if c_a_name != a_name:
                     self.symbols.aliases[c_a_name] = alias_obj
+                self._register_type_name(a_name, alias_obj, stmt)
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
                     name=a_name, type=alias_obj, kind="alias", line=line, column=col, doc=doc, file_path=self.filename, c_name=c_a_name
@@ -1928,10 +1948,10 @@ class PenguChecker:
                 c_s_name = f"{current_insignia}{s_name}" if current_insignia else s_name
                 underlying_t = ast_to_type(stmt.children[1], self.symbols.lookup_type)
                 seal_obj = SealType(name=s_name, underlying=underlying_t, c_name=c_s_name, module=self._type_module(self.filename))
-                self._register_type_name(s_name, seal_obj, stmt)
                 self.symbols.seals[s_name] = seal_obj
                 if c_s_name != s_name:
                     self.symbols.seals[c_s_name] = seal_obj
+                self._register_type_name(s_name, seal_obj, stmt)
                 doc = self._extract_preceding_doc(line)
                 self.symbols.global_scope.define(Symbol(
                     name=s_name, type=seal_obj, kind="seal", line=line, column=col, doc=doc, file_path=self.filename, c_name=c_s_name
@@ -4517,6 +4537,7 @@ class PenguChecker:
         """
         line, col = self._get_loc(node) if node is not None else (None, None)
         cur_module = getattr(new_type, "module", None)
+        self.symbols.register_type(new_type)
         entry = self._type_name_owner.get(name)
         if entry is not None:
             owner, prev_module, prev_line, prev_col = entry
@@ -4542,17 +4563,111 @@ class PenguChecker:
                          f"'{self._display_module(prev_module)}'.",
                 ))
             else:
-                self._record_error(self._make_error(
-                    DuplicateTypeNameError,
-                    f"Type name '{name}' is declared in both "
-                    f"'{self._display_module(prev_module)}' and "
-                    f"'{self._display_module(cur_module)}'",
-                    node,
-                    help=f"Rename one of the types; '{self._display_module(prev_module)}.{name}' "
-                         f"and '{self._display_module(cur_module)}.{name}' would emit the same C type.",
-                    note="Type names are program-global in PenguScript 2.x; an 'insignia' C prefix does not make two declarations distinct.",
-                ))
+                group = self._duplicate_type_groups.setdefault(name, [])
+                if owner not in group:
+                    group.append(owner)
+                if new_type not in group:
+                    group.append(new_type)
+                if getattr(owner, "type_params", None) or getattr(new_type, "type_params", None):
+                    self._record_error(self._make_error(
+                        DuplicateTypeNameError,
+                        f"Generic type name '{name}' is declared in both "
+                        f"'{self._display_module(prev_module)}' and "
+                        f"'{self._display_module(cur_module)}'",
+                        node,
+                        help="Generic types cannot share a logical name across modules yet; rename one.",
+                        note="Only non-generic, method-less types can use module-scoped C names in 3.0.",
+                    ))
+                self._make_duplicate_type_c_names(name, group)
         self._type_name_owner[name] = (new_type, cur_module, line, col)
+
+    def _type_registry(self, type_obj: Any) -> Optional[Dict[str, Any]]:
+        if isinstance(type_obj, RuneType):
+            return self.symbols.runes
+        if isinstance(type_obj, EchoType):
+            return self.symbols.echos
+        if isinstance(type_obj, OmenType):
+            return self.symbols.omens
+        if isinstance(type_obj, AliasType):
+            return self.symbols.aliases
+        if isinstance(type_obj, SealType):
+            return self.symbols.seals
+        return None
+
+    def _c_type_name_taken(self, candidate: str, group: List[Any]) -> bool:
+        for table in (self.symbols.runes, self.symbols.echos,
+                      self.symbols.omens, self.symbols.aliases, self.symbols.seals):
+            value = table.get(candidate)
+            if value is not None and value not in group:
+                return True
+        return False
+
+    def _make_duplicate_type_c_names(self, logical: str, group: List[Any]) -> None:
+        """Gives every type in a duplicate group a module-prefixed C name.
+
+        `a.Config` and `b.Config` keep one logical name in the symbol table but
+        emit `a_Config` and `b_Config`; unqualified `Config` is module-local.
+        """
+        used: Set[str] = set()
+        for type_obj in group:
+            registry = self._type_registry(type_obj)
+            if registry is None:
+                continue
+            module = getattr(type_obj, "module", None) or ""
+            stem = os.path.basename(module)
+            if stem.endswith(".d.pengu"):
+                stem = stem[:-8]
+            elif stem.endswith(".pengu"):
+                stem = stem[:-6]
+            stem = re.sub(r"[^A-Za-z0-9_]", "_", stem) or "mod"
+            if stem[0].isdigit():
+                stem = f"m_{stem}"
+            candidate = f"{stem}_{logical}"
+            suffix = 2
+            while candidate in used or self._c_type_name_taken(candidate, group):
+                candidate = f"{stem}_{logical}_{suffix}"
+                suffix += 1
+            used.add(candidate)
+            old_keys = [key for key, value in registry.items() if value is type_obj]
+            type_obj.c_name = candidate
+            for key in old_keys:
+                del registry[key]
+            registry[candidate] = type_obj
+        # No global fallback for an ambiguous unqualified name: `Config` in a
+        # module that declares neither is an error; use `a.Config`/`b.Config`.
+        sym = self.symbols.global_scope.symbols.get(logical)
+        if sym is not None and getattr(sym, "type", None) in group:
+            del self.symbols.global_scope.symbols[logical]
+
+    def _check_duplicate_type_methods(self) -> None:
+        """Rejects duplicate types whose method C symbols are still global."""
+        for name, group in self._duplicate_type_groups.items():
+            if name in self._duplicate_method_reported:
+                continue
+            has_methods = False
+            for type_obj in group:
+                if getattr(type_obj, "methods", None):
+                    has_methods = True
+                    break
+                for key in self.symbols.methods:
+                    if key and key[0] in (getattr(type_obj, "name", None),
+                                          getattr(type_obj, "c_name", None)):
+                        has_methods = True
+                        break
+                if has_methods:
+                    break
+            if not has_methods:
+                continue
+            self._duplicate_method_reported.add(name)
+            modules = [self._display_module(getattr(t, "module", None)) for t in group]
+            self._record_error(self._make_error(
+                DuplicateTypeNameError,
+                f"Type name '{name}' is declared in multiple modules "
+                f"({', '.join(modules)}) and has methods",
+                line=1, col=1,
+                help="Rename one of the types; method C names are not module-scoped yet.",
+                note="Data-only duplicate types get module-prefixed C names; methods keep the logical type name.",
+            ))
 
     @staticmethod
     def _type_module(path: Optional[str]) -> Optional[str]:
@@ -6772,7 +6887,11 @@ class PenguChecker:
 
         target_type = target_type.substitute({tp: TypeParam(tp, bounds=bounds.get(tp, [])) for tp in type_params})
 
-        if isinstance(target_type, RuneType) and base_tname not in self.symbols.runes:
+        if (isinstance(target_type, RuneType)
+                and base_tname not in self.symbols.runes
+                and not any(getattr(v, "name", "") == base_tname
+                            or getattr(v, "c_name", "") == base_tname
+                            for v in self.symbols.runes.values())):
             err = self._make_error(
                 SemanticError,
                 f"Cannot enchant undefined Rune '{target_type.name}'",
@@ -8030,6 +8149,20 @@ class PenguChecker:
                 self._record_error(err)
         except SemanticError as e:
             self._record_error(e)
+
+    def _drop_ambiguous_type_keys(self) -> None:
+        """Removes logical keys re-added by import export merging (3.0).
+
+        After a duplicate name is module-prefixed, a later import merge can
+        register the old logical name again.  Drop it so unqualified `Config`
+        in a module that declares neither type is an error, not a silent pick.
+        """
+        for name in self._duplicate_type_groups:
+            for table in (self.symbols.runes, self.symbols.echos,
+                          self.symbols.omens, self.symbols.aliases,
+                          self.symbols.seals):
+                table.pop(name, None)
+            self.symbols.global_scope.symbols.pop(name, None)
 
     def _check_omen_variant_collisions(self) -> None:
         """Reports collisions between omen variant names and global symbols.

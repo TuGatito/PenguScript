@@ -2,6 +2,45 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [3.0.0] — 2026-10-23 — Module-scoped type names; optional native pruning
+
+### Changed (breaking for duplicate type names)
+
+- **Type names are module-scoped.** Each module owns its `rune`, `echo`, `omen`,
+  `alias` and `seal` names: inside a module `Config` is that module's type, and
+  other modules use `a.Config`/`b.Config`.
+- Two modules may declare the same **data-only** type name. They emit distinct
+  C types (`a_Config`, `b_Config`) and both may be used in one program.
+- Still `E0070`: a second declaration in the **same** module, duplicate
+  **generic** types (specialization names remain global) and duplicate types
+  **with methods** (method C symbols use the logical type name). The diagnostic
+  says which case applies.
+- **C glue migration:** if hand-written C names a duplicated type, use its
+  module-prefixed name (`a_Config`) or expose an `@export` function. Unique
+  type names keep their old C spelling, so most projects need no change.
+
+### Added
+
+- **`--prune-native` / `PENGU_PRUNE_NATIVE=1` (opt-in).** Drops a module's
+  `#include`, `link` and `ldflag` entries when no kept weave, emitted C symbol
+  or `c/` glue reference needs them. The C glue is scanned before DCE, so a C
+  callback keeps both its Pengu function and the native library. The prefix
+  scan also covers library symbols never declared in Pengu (`re_*`,
+  `curl_easy_*`). `--test`, `static`/`shared`/`obj` and `--no-dce` keep every
+  native entry; the flag is in the script cache key/config hash.
+  Measured: an unused `std.petitio` loses `petitio.h` and the
+  `-lpetitio`/`-lcurl` link entries; `std.regulus` loses `re.h`/`-lre`.
+- New tests: duplicate data types across two modules (check, C names, compile
+  and run), same-name rune+omen, `insignia` duplicates, methods/generic
+  rejection, unqualified ambiguity; native include/link drop and C-glue keep,
+  library/test/`--no-dce`, and cache invalidation.
+
+### Verified
+
+- Full suite: **1381 passed, 3 skipped**; with `PENGU_PRUNE_TYPES=1` (the two
+  opt-in tests deselected): **1379 passed, 3 skipped**.
+- `make_release.py` portable and FHS: smoke tests OK (3.0.0).
+
 ## [2.22.0] — 2026-10-23 — Phase 3: opt-in user-module tree shaking
 
 ### Added

@@ -244,6 +244,19 @@ class PenguCodegen(
         self._live_type_names: Optional[Set[str]] = None
         self._const_units = None
         self._derived_units = None
+        # Native include/link pruning (opt-in --prune-native): provenance and
+        # per-module C symbols.  The C glue text decides which dead-looking
+        # modules are actually used by hand-written C.
+        _prune_native = os.environ.get("PENGU_PRUNE_NATIVE", "").strip().lower()
+        self.prune_native_enabled = _prune_native in {"1", "true", "yes", "on"}
+        self.include_origins: Dict[str, Set[str]] = {}
+        self.link_origins: Dict[str, Set[str]] = {}
+        self.ldflag_origins: Dict[str, Set[str]] = {}
+        self.module_c_names: Dict[str, Set[str]] = {}
+        self._native_active = False
+        self._native_idents: Set[str] = set()
+        self._native_live_files: Set[str] = set()
+        self._native_module_links: Dict[str, Set[str]] = {}
         self.fn_info: Dict[str, Dict[str, Any]] = {}
         self.tests: List[Dict[str, Any]] = []
         self.includes: List[str] = []

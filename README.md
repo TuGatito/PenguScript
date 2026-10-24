@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-2.22.0-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-3.0.0-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="https://github.com/TuGatito/PenguScript/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/TuGatito/PenguScript/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-yellow">
@@ -497,7 +497,7 @@ troubleshooting.
 ### ⚡ Performance
 
 `pengu run script.pengu` is meant to feel like running a script, not building a
-project. Five independent optimisations, each with a documented off-switch:
+project. Eight independent optimisations, each with a documented off-switch:
 
 | Optimisation | What it does | Disable with |
 | --- | --- | --- |
@@ -506,6 +506,7 @@ project. Five independent optimisations, each with a documented off-switch:
 | Dead-code elimination | Emits only the `std/` / `lib/` weaves, generic instances and derived helpers the emitted C actually reaches; `--prune-types` also drops unreferenced types/constants | `--no-dce`, `--prune-types` |
 | Line markers | `#line` directives map C diagnostics back to `.pengu`; removing them saves 4–26 % of `bundle.c` | `--no-line-markers`, `PENGU_NO_LINE_MARKERS=1` |
 | User-module tree shaking | Opt-in: prunes unused weaves in project modules too, keeping `main`, `@export`, bindings and `c/` references | `--dce-scope=user`, `--tree-shake-user` |
+| Native pruning | Opt-in: drops includes/`link`/`ldflag` entries of modules no live C or `c/` glue uses | `--prune-native`, `PENGU_PRUNE_NATIVE=1` |
 | TinyCC | Bundled in releases; ~19 ms to compile a bundle vs ~400 ms for gcc | `PENGU_NO_TCC=1`, `PENGU_DEV_CC=gcc` |
 | pkg-config memoization | One probe per package per process instead of ~12 spawns | always on |
 
@@ -1197,7 +1198,7 @@ resolución de problemas.
 ### ⚡ Rendimiento
 
 `pengu run script.pengu` debe sentirse como ejecutar un script, no como compilar
-un proyecto. Cinco optimizaciones independientes, cada una con su interruptor
+un proyecto. Ocho optimizaciones independientes, cada una con su interruptor
 documentado:
 
 | Optimización | Qué hace | Desactivar con |
@@ -1207,6 +1208,7 @@ documentado:
 | Eliminación de código muerto | Emite solo los `weave` de `std/` / `lib/`, las instancias genéricas y los helpers derivados que el C emitido realmente alcanza; `--prune-types` poda además tipos/constantes no referenciados | `--no-dce`, `--prune-types` |
 | Marcadores `#line` | Las directivas `#line` mapean diagnósticos C a `.pengu`; quitarlas ahorra un 4–26 % de `bundle.c` | `--no-line-markers`, `PENGU_NO_LINE_MARKERS=1` |
 | Poda de módulos de usuario | Opt-in: poda también los `weave` no usados de módulos de proyecto, conservando `main`, `@export`, bindings y referencias de `c/` | `--dce-scope=user`, `--tree-shake-user` |
+| Poda nativa | Opt-in: elimina includes/`link`/`ldflag` de módulos que ningún C vivo ni el glue de `c/` usa | `--prune-native`, `PENGU_PRUNE_NATIVE=1` |
 | TinyCC | Incluido en releases; ~19 ms por bundle frente a ~400 ms con gcc | `PENGU_NO_TCC=1`, `PENGU_DEV_CC=gcc` |
 | Memoización de pkg-config | Una consulta por paquete y proceso en vez de ~12 lanzamientos | siempre activa |
 

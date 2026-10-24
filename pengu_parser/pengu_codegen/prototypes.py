@@ -5,6 +5,7 @@ Part of :class:`~pengu_parser.pengu_codegen.main.PenguCodegen`; see
 """
 from __future__ import annotations
 
+import os
 import re
 
 from ._base import (
@@ -319,6 +320,13 @@ class ProtoMixin:
         lines: List[str] = []
         self._apply_main_flag(w.get("filepath"))
         self.current_source_file = w.get("filepath")
+        previous_module = (self.symbols.current_module if self.symbols else None)
+        if self.symbols and w.get("filepath"):
+            try:
+                self.symbols.current_module = os.path.normcase(
+                    os.path.abspath(w["filepath"]))
+            except (OSError, ValueError):  # pragma: no cover
+                pass
         decl, inline_pfx, noreturn_pfx, fn_actual_name = self._weave_c_decl(w)
 
         marker = self._line_marker(w.get("line"), w.get("filepath"))
