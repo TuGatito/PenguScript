@@ -2005,7 +2005,19 @@ def type_has_unresolved_parts(t: Optional[Type], _seen: Optional[Set[int]] = Non
     if id(t) in _seen:
         return False
     _seen.add(id(t))
+    # `ast_to_type` can leave a caller's type parameter as a bare
+    # `RuneType("T")`/`EchoType("U")` (no fields, no type args).  It is a
+    # placeholder, not a nominal type, even though its optional metadata
+    # (`c_name`, `module`, ...) is None like any other concrete type's.
+    if isinstance(t, (RuneType, EchoType)):
+        name = getattr(t, "name", "")
+        if (not getattr(t, "fields", None) and not getattr(t, "type_args", None)
+                and isinstance(name, str) and name.isupper() and len(name) <= 2):
+            return True
     for value in vars(t).values():
+        # Optional metadata is None on a perfectly concrete type.
+        if value is None:
+            continue
         if type_has_unresolved_parts(value, _seen):
             return True
     return False
@@ -2731,6 +2743,22 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
             if arg_t is not None:
                 type_args.append(arg_t)
 
+        def _arg_unresolved(arg: Type) -> bool:
+            if isinstance(arg, TypeParam) or type_has_unresolved_parts(arg):
+                return True
+            if isinstance(arg, BaseType):
+                n = getattr(arg, "name", "")
+                # A single/double uppercase BaseType is a caller type parameter
+                # unless the symbol table knows a *real* declaration with that
+                # name.  `lookup_type("T")` may synthesize `BaseType("T")` for
+                # an unknown name, which is not evidence of a real type.
+                if isinstance(n, str) and n.isupper() and len(n) <= 2:
+                    known = symbol_lookup_fn(n) if symbol_lookup_fn is not None else None
+                    if (known is None
+                            or (isinstance(known, BaseType) and getattr(known, "name", None) == n)):
+                        return True
+            return False
+
         if symbol_lookup_fn:
             t = symbol_lookup_fn(name)
             if t is not None:
@@ -2740,7 +2768,8 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
                         subst_map = dict(zip(t_params, type_args))
                         specialized = t.substitute(subst_map)
                         st = _resolve_symbol_table(symbol_lookup_fn)
-                        if st and hasattr(st, "monomorphized_types") and not any(isinstance(a, TypeParam) for a in type_args):
+                        if st and hasattr(st, "monomorphized_types") and not any(
+                                _arg_unresolved(a) for a in type_args):
                             st.monomorphized_types[specialized.name] = specialized
                             if hasattr(st, "concept_bindings") and hasattr(specialized, "derived_concepts"):
                                 for d_concept in specialized.derived_concepts:
@@ -2758,7 +2787,8 @@ def ast_to_type(type_node: Any, symbol_lookup_fn: Optional[Any] = None) -> Type:
                         subst_map = dict(zip(t.type_params, type_args))
                         specialized = t.substitute(subst_map)
                         st = _resolve_symbol_table(symbol_lookup_fn)
-                        if st and hasattr(st, "monomorphized_types"):
+                        if st and hasattr(st, "monomorphized_types") and not any(
+                                _arg_unresolved(a) for a in type_args):
                             st.monomorphized_types[specialized.name] = specialized
                             st.aliases[specialized.name] = specialized
                         return specialized

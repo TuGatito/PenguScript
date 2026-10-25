@@ -37,102 +37,24 @@ class InterpMixin:
         from pengu_parser.pengu_parser import extract_string_parts, PenguParser
         is_raw, is_triple, parts = extract_string_parts(s_val)
 
-        def _escape_c(text: str, is_raw_lit: bool) -> str:
-            if is_raw_lit:
-                res = []
-                for ch in text:
-                    if ch == '\\':
-                        res.append('\\\\')
-                    elif ch == '"':
-                        res.append('\\"')
-                    elif ch == '\n':
-                        res.append('\\n')
-                    elif ch == '\r':
-                        res.append('\\r')
-                    elif ch == '\t':
-                        res.append('\\t')
-                    else:
-                        res.append(ch)
-                return "".join(res)
-            else:
-                res = []
-                i = 0
-                n = len(text)
-                while i < n:
-                    ch = text[i]
-                    if ch == '\\' and i + 1 < n:
-                        if text.startswith('\\u{', i):
-                            close_b = text.find('}', i + 3)
-                            if close_b != -1:
-                                hex_str = text[i + 3:close_b]
-                                try:
-                                    cp = int(hex_str, 16)
-                                    dec_ch = chr(cp)
-                                    if dec_ch == '"':
-                                        res.append('\\"')
-                                    elif dec_ch == '\n':
-                                        res.append('\\n')
-                                    elif dec_ch == '\r':
-                                        res.append('\\r')
-                                    elif dec_ch == '\0':
-                                        res.append('\\0')
-                                    else:
-                                        res.append(dec_ch)
-                                    i = close_b + 1
-                                    continue
-                                except (ValueError, OverflowError):
-                                    pass
-                        elif text.startswith('\\u', i) and i + 5 < n:
-                            hex_str = text[i + 2:i + 6]
-                            if all(c in '0123456789abcdefABCDEF' for c in hex_str):
-                                try:
-                                    cp = int(hex_str, 16)
-                                    dec_ch = chr(cp)
-                                    if dec_ch == '"':
-                                        res.append('\\"')
-                                    elif dec_ch == '\n':
-                                        res.append('\\n')
-                                    elif dec_ch == '\r':
-                                        res.append('\\r')
-                                    elif dec_ch == '\0':
-                                        res.append('\\0')
-                                    else:
-                                        res.append(dec_ch)
-                                    i += 6
-                                    continue
-                                except (ValueError, OverflowError):
-                                    pass
-                        if text[i + 1] == '\\':
-                            res.append('\\\\')
-                            i += 2
-                            continue
-                        res.append(ch)
-                        res.append(text[i + 1])
-                        i += 2
-                        continue
-                    if ch == '"':
-                        res.append('\\"')
-                    elif ch == '\n':
-                        res.append('\\n')
-                    elif ch == '\r':
-                        res.append('\\r')
-                    elif ch == '\0':
-                        res.append('\\0')
-                    else:
-                        res.append(ch)
-                    i += 1
-                return "".join(res)
-
         has_expr = any(p.is_expr for p in parts)
+        decoded_parts = [self._decode_literal(p.text, is_raw) for p in parts]
         if as_c_literal:
             if has_expr:
                 raise SemanticError("String interpolation is not supported when expecting a C string literal (ref to char)")
-            full_lit = "".join(_escape_c(p.text, is_raw) for p in parts)
-            return f'"{full_lit}"'
+            full_bytes = b"".join(decoded_parts)
+            return '"' + self._c_escape_bytes(full_bytes) + '"'
 
         if not has_expr:
-            full_lit = "".join(_escape_c(p.text, is_raw) for p in parts)
-            return f'pengu_string_from_cstr("{full_lit}")'
+            full_bytes = b"".join(decoded_parts)
+            literal = self._c_escape_bytes(full_bytes)
+            # Keep the borrowed static view spelling for ordinary literals
+            # (many code-shape tests and docs quote it); only the NUL-bearing
+            # case needs the explicit-length constructor, because strlen would
+            # truncate there.
+            if 0 in full_bytes:
+                return f'pengu_string_from_cstr_len("{literal}", {len(full_bytes)})'
+            return f'pengu_string_from_cstr("{literal}")'
         if not hasattr(self, "_expr_parser"):
             self._expr_parser = PenguParser()
         parser = self._expr_parser
@@ -140,9 +62,16 @@ class InterpMixin:
         c_args = []
         preamble_decls = []
         postamble_cleanups = []
-        for p in parts:
+        for p, decoded in zip(parts, decoded_parts):
             if not p.is_expr:
-                fmt_parts.append(_escape_c(p.text, is_raw).replace("%", "%%"))
+                if b"\x00" in decoded:
+                    raise SemanticError(
+                        "A NUL byte cannot appear in the literal part of an interpolated string",
+                        code="E0019",
+                        help="Build the value with 'pengu_string_format_ex' over a non-NUL format, or concatenate at runtime.",
+                        note="C format strings are NUL-terminated; the compiler rejects this instead of truncating silently.",
+                    )
+                fmt_parts.append(self._c_escape_bytes(decoded, for_format=True))
             else:
                 expr_str = p.text.strip()
                 try:
@@ -248,6 +177,143 @@ class InterpMixin:
                 return fmt_call
             return f"(__extension__({{ {' '.join(preamble_decls)} {fmt_call}; }}))"
         return fmt_call
+    @staticmethod
+    def _decode_literal(text: str, is_raw_lit: bool) -> bytes:
+        """Decodes a string literal body to its exact byte sequence.
+
+        This happens *before* C generation on purpose: ``\\xNN`` is a byte,
+        not a Unicode code point, and the C compiler must never decide
+        where the escape ends (``"\\x41B"`` means 0x41B to a C compiler,
+        not ``A`` followed by ``B``).  ``\\x00`` also has to survive: the
+        old path emitted a NUL into a `pengu_string_from_cstr` literal and
+        strlen truncated the value to zero bytes.
+        """
+        if is_raw_lit:
+            return text.encode("utf-8")
+        out = bytearray()
+        i = 0
+        n = len(text)
+        simple = {
+            "n": 0x0A, "r": 0x0D, "t": 0x09, "b": 0x08,
+            "f": 0x0C, "v": 0x0B, "a": 0x07, "\\": 0x5C,
+            '"': 0x22, "'": 0x27, "?": 0x3F,
+        }
+        while i < n:
+            ch = text[i]
+            if ch != "\\":
+                out.extend(ch.encode("utf-8"))
+                i += 1
+                continue
+            if i + 1 >= n:
+                out.append(0x5C)
+                break
+            nxt = text[i + 1]
+            if text.startswith("\\u{", i):
+                close_b = text.find("}", i + 3)
+                if close_b != -1:
+                    try:
+                        cp = int(text[i + 3:close_b], 16)
+                        out.extend(chr(cp).encode("utf-8"))
+                        i = close_b + 1
+                        continue
+                    except (ValueError, OverflowError):
+                        pass
+            if nxt == "u" and i + 5 < n:
+                hex_str = text[i + 2:i + 6]
+                if all(c in "0123456789abcdefABCDEF" for c in hex_str):
+                    try:
+                        cp = int(hex_str, 16)
+                        out.extend(chr(cp).encode("utf-8"))
+                        i += 6
+                        continue
+                    except (ValueError, OverflowError):
+                        pass
+            if nxt in ("x", "X"):
+                j = i + 2
+                digits = ""
+                while j < n and len(digits) < 2 and text[j] in "0123456789abcdefABCDEF":
+                    digits += text[j]
+                    j += 1
+                if digits:
+                    out.append(int(digits, 16) & 0xFF)
+                    i = j
+                    continue
+            if nxt in "01234567":
+                j = i + 1
+                digits = ""
+                while j < n and len(digits) < 3 and text[j] in "01234567":
+                    digits += text[j]
+                    j += 1
+                if digits == "":
+                    out.append(0)
+                    i += 2
+                    continue
+                out.append(int(digits, 8) & 0xFF)
+                i = j
+                continue
+            code = simple.get(nxt)
+            if code is not None:
+                out.append(code)
+                i += 2
+                continue
+            # Unknown escape: preserve the backslash and the character as
+            # data.  The C emitter will escape the backslash, so the
+            # generated literal still contains exactly what was written.
+            out.append(0x5C)
+            out.extend(nxt.encode("utf-8"))
+            i += 2
+        return bytes(out)
+
+    @staticmethod
+    def _c_escape_bytes(data: bytes, for_format: bool = False) -> str:
+        """Renders decoded bytes as the contents of a C string literal."""
+        out = []
+        for b in data:
+            if b == 0x22:
+                out.append('\\"')
+            elif b == 0x5C:
+                out.append("\\\\")
+            elif b == 0x0A:
+                out.append("\\n")
+            elif b == 0x0D:
+                out.append("\\r")
+            elif b == 0x09:
+                out.append("\\t")
+            elif b == 0x08:
+                out.append("\\b")
+            elif b == 0x0C:
+                out.append("\\f")
+            elif 0x20 <= b <= 0x7E:
+                ch = chr(b)
+                if for_format and ch == "%":
+                    out.append("%%")
+                else:
+                    out.append(ch)
+            else:
+                # Three-digit octal escapes are self-delimiting: unlike
+                # \\xNN they cannot absorb a following hex digit.
+                out.append("\\%03o" % b)
+        return "".join(out)
+
+    def _translate_string_value(self, s_val: Any) -> str:
+        """C expression for a string literal/constant, preserving NUL bytes.
+
+        Constants and folded literals go through the same escape decoder as
+        ordinary literals, so ``const Z as string is "\x00"`` is a one-byte
+        value rather than an empty `strlen` view.
+        """
+        from pengu_parser.pengu_parser import extract_string_parts
+
+        text = str(s_val)
+        is_raw, _is_triple, parts = extract_string_parts(text)
+        if any(p.is_expr for p in parts):
+            return self._translate_string_lit(text)
+        data = b"".join(self._decode_literal(p.text, is_raw) for p in parts)
+        literal = self._c_escape_bytes(data)
+        if 0 in data:
+            return f'pengu_string_from_cstr_len("{literal}", {len(data)})'
+        return f'pengu_string_from_cstr("{literal}")'
+
     @staticmethod
     def _int_interp_spec(t: Optional[Type]) -> tuple:
         """(format specifier, C cast) for interpolating an integer type.

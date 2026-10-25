@@ -498,10 +498,14 @@ class ExprMixin:
 
         Explicit ``Type.method of T`` wins.  Otherwise the assignment target
         supplies them (`var b as Box of string is calling Box.empty`), which is
-        how a constructor with no parameters can still be specialized.
+        how a constructor with no parameters can still be specialized.  Inside
+        a monomorphized generic body a type argument may still be spelled `T`;
+        apply the caller's substitution before mangling.
         """
         args = list(explicit_type_args or [])
         if args:
+            if self.current_subst_map:
+                args = [t.substitute(self.current_subst_map) for t in args]
             return args
         probe = expected_type
         seen = 0
@@ -515,6 +519,8 @@ class ExprMixin:
                 continue
             break
         t_args = list(getattr(probe, "type_args", None) or [])
+        if self.current_subst_map:
+            t_args = [t.substitute(self.current_subst_map) for t in t_args]
         return t_args
 
     def _resolve_ritual_c_name(self, base_names, method_c_name, default_c_name,
@@ -568,6 +574,50 @@ class ExprMixin:
             if len(matches) == 1:
                 return matches[0]
         return default_c_name
+
+    def _specialization_from_expected(self, base_names, expected_type):
+        """Select a zero-argument generic instance from its contextual type.
+
+        ``var a as Box of int is calling moda.make_box`` has no value arguments
+        and no explicit ``of int``, so the only source of ``T`` is the return
+        slot.  The checker has already registered ``moda_make_box_int``; this
+        recovers the suffix by unifying the declared return type with the
+        (substituted) expected type.
+        """
+        if expected_type is None or self.symbols is None:
+            return None
+        mono = getattr(self.symbols, "monomorphized_functions", {}) or {}
+        if not mono:
+            return None
+        exp_t = expected_type
+        if self.current_subst_map:
+            exp_t = exp_t.substitute(self.current_subst_map)
+        inferrer = self._make_inferrer()
+        decl_fn = None
+        for cand in base_names:
+            decl_fn = self.symbols.functions.get(cand)
+            if decl_fn is not None:
+                break
+        type_params = list(getattr(decl_fn, "type_params", None) or []) if decl_fn else []
+        if not decl_fn or not type_params:
+            return None
+        subst: Dict[str, Type] = {}
+        try:
+            inferrer._unify_type(decl_fn.return_type, exp_t, subst)
+        except Exception:
+            return None
+        if any(tp not in subst or not inferrer._type_is_concrete(subst[tp])
+               for tp in type_params):
+            return None
+        suffix = "_".join(subst[tp].get_mangled_name() for tp in type_params)
+        for b in base_names:
+            if not b:
+                continue
+            cand = f"{b}_{suffix}"
+            if cand in mono:
+                return cand
+        matches = [m for m in mono if m.endswith(f"_{suffix}")]
+        return matches[0] if len(matches) == 1 else None
 
     def _resolve_monomorphized_call(self, base_names, m_name, arg_nodes):
         """Resolve the exact monomorphized C name of a generic call.
@@ -1351,6 +1401,9 @@ class ExprMixin:
                         elif hasattr(self.symbols, "monomorphized_functions"):
                             resolved = self._resolve_monomorphized_call(
                                 (prefixed, alias_prefixed, m_name), m_name, raw_arg_nodes)
+                            if resolved is None and expected_type is not None:
+                                resolved = self._specialization_from_expected(
+                                    (prefixed, alias_prefixed, m_name), expected_type)
                             if resolved:
                                 prefixed = resolved
                         # Prefer the unambiguous module-scoped C name when the code
@@ -1968,6 +2021,34 @@ class ExprMixin:
                                     c_matches = [m for m in self.symbols.monomorphized_functions if m.endswith(f"_{mangled}")]
                                     if len(c_matches) == 1:
                                         resolved = c_matches[0]
+                            if resolved is None and expected_type is not None and decl_fn and type_params:
+                                # A generic function with no value arguments
+                                # (`make_box shard T into Box of T`, `empty
+                                # shard T into list of T`) can only bind T from
+                                # the slot it is assigned to.  The checker has
+                                # already registered the instance; recover its
+                                # suffix by unifying the declared return type
+                                # with the contextual type (after the caller's
+                                # own substitution, for generic bodies).
+                                exp_t = expected_type
+                                if self.current_subst_map:
+                                    exp_t = exp_t.substitute(self.current_subst_map)
+                                ret_subst: Dict[str, Type] = {}
+                                try:
+                                    inferrer._unify_type(decl_fn.return_type, exp_t, ret_subst)
+                                except Exception:
+                                    ret_subst = {}
+                                if all(tp in ret_subst and inferrer._type_is_concrete(ret_subst[tp])
+                                       for tp in type_params):
+                                    cand = f"{target_str}_" + "_".join(
+                                        ret_subst[tp].get_mangled_name() for tp in type_params)
+                                    if cand in self.symbols.monomorphized_functions:
+                                        resolved = cand
+                                    else:
+                                        c_matches = [m for m in self.symbols.monomorphized_functions
+                                                     if m.endswith(f"_{cand}")]
+                                        if len(c_matches) == 1:
+                                            resolved = c_matches[0]
                             if resolved:
                                 target_str = resolved
                             elif len(matches) == 1:

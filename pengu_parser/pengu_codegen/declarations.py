@@ -43,6 +43,7 @@ from ._base import (
     os,
     SHARD_RECEIVER_KEY,
 )
+from pengu_parser.pengu_types import type_has_unresolved_parts
 from .ast_utils import (
     _extract_attributes_from_node,
     skip_weave_modifiers,
@@ -77,6 +78,136 @@ def _dce_refs_for(body_stmts, params=(), c_body=None):
 
 class CollectMixin:
     """Collection of the top-level declarations of every module."""
+
+    def _has_placeholder_type(self, t, _seen=None) -> bool:
+        """True when a type still spells a caller type parameter.
+
+        `type_has_unresolved_parts` deliberately cannot interpret
+        `BaseType("K")` without a symbol table.  This helper adds that context:
+        an unknown single/double uppercase name is a type parameter, while a
+        real `rune R`/`omen K` is in one of the declaration tables.
+        """
+        if t is None or _seen is None:
+            _seen = set()
+        if isinstance(t, TypeParam):
+            return True
+        if isinstance(t, BaseType):
+            name = getattr(t, "name", "")
+            if isinstance(name, str) and name.isupper() and len(name) <= 2:
+                known = (name in self.runes or name in self.echos
+                         or name in self.omens or name in self.aliases
+                         or name in self.seals)
+                if not known and self.symbols is not None:
+                    known = (name in self.symbols.runes or name in self.symbols.echos
+                             or name in self.symbols.omens or name in self.symbols.aliases
+                             or name in self.symbols.seals)
+                if not known:
+                    return True
+        if isinstance(t, (RuneType, EchoType)):
+            name = getattr(t, "name", "")
+            if (not getattr(t, "fields", None) and not getattr(t, "type_args", None)
+                    and isinstance(name, str) and name.isupper() and len(name) <= 2):
+                known = (name in self.runes or name in self.echos
+                         or name in self.omens or name in self.aliases
+                         or name in self.seals)
+                if not known and self.symbols is not None:
+                    known = (name in self.symbols.runes or name in self.symbols.echos
+                             or name in self.symbols.omens or name in self.symbols.aliases
+                             or name in self.symbols.seals)
+                if not known:
+                    return True
+        if isinstance(t, (list, tuple)):
+            return any(self._has_placeholder_type(i, _seen) for i in t)
+        if isinstance(t, dict):
+            return any(self._has_placeholder_type(v, _seen) for v in t.values())
+        if not isinstance(t, Type):
+            return False
+        if id(t) in _seen:
+            return False
+        _seen.add(id(t))
+        for value in vars(t).values():
+            if value is None:
+                continue
+            if self._has_placeholder_type(value, _seen):
+                return True
+        return False
+
+    def _prune_duplicate_type_aliases(self) -> None:
+        """Drops duplicate logical keys whose C name is the prefixed twin.
+
+        Module-scoped normalization can leave both `CipherJsonValue` and
+        `cipher_CipherJsonValue` in `self.omens`, with the same symbol table
+        entry (`c_name == "cipher_CipherJsonValue"`).  Emitting the short key
+        as a second struct produced a definition whose recursive fields still
+        named the short `JsonArrayNode`, which is deliberately not emitted.
+        The prefixed entry is the real type; the short key is only an alias.
+        """
+        if self.symbols is None:
+            return
+        for table_name in ("runes", "echos", "omens", "aliases", "seals"):
+            table = getattr(self, table_name, None)
+            symbols_table = getattr(self.symbols, table_name, None)
+            if not isinstance(table, dict) or not isinstance(symbols_table, dict):
+                continue
+            for name in list(table):
+                sym_type = symbols_table.get(name)
+                c_name = getattr(sym_type, "c_name", None)
+                if not c_name or c_name == name:
+                    continue
+                if c_name in table:
+                    table.pop(name, None)
+                    symbols_table.pop(name, None)
+                    for attr in ("rune_attributes", "rune_field_attributes", "declaration_types"):
+                        extra = getattr(self, attr, None)
+                        if isinstance(extra, dict):
+                            extra.pop(name, None)
+
+    def _prune_placeholder_types(self) -> None:
+        """Remove generic placeholders registered by other passes.
+
+        `collect_declarations` prunes once, but body translation (and the
+        combined multi-module checker) can add a placeholder type later.  Any
+        `Pair of K and V` that still carries a caller type parameter must not
+        reach the derived-helper or type sections.
+        """
+        removed = set()
+
+        def _fields_of(table_name, value):
+            if table_name in ("runes", "echos"):
+                return list(value.values())
+            if table_name == "omens":
+                out = []
+                for variants in value.values():
+                    if isinstance(variants, dict):
+                        out.extend(variants.values())
+                return out
+            return [value]
+
+        for table_name in ("runes", "echos", "omens", "aliases", "seals"):
+            table = getattr(self, table_name, None)
+            if not isinstance(table, dict):
+                continue
+            for name in list(table):
+                value = table[name]
+                if any(self._has_placeholder_type(t) for t in _fields_of(table_name, value)):
+                    removed.add(name)
+                    table.pop(name, None)
+        if self.symbols is not None:
+            for name in list(getattr(self.symbols, "monomorphized_types", {})):
+                if self._has_placeholder_type(self.symbols.monomorphized_types[name]):
+                    removed.add(name)
+                    self.symbols.monomorphized_types.pop(name, None)
+        if removed:
+            for attr in ("rune_attributes", "rune_field_attributes", "declaration_types"):
+                table = getattr(self, attr, None)
+                if isinstance(table, dict):
+                    for name in removed:
+                        table.pop(name, None)
+            for attr in ("runes", "echos", "omens", "aliases", "seals"):
+                symbol_table = getattr(self.symbols, attr, None) if self.symbols is not None else None
+                if isinstance(symbol_table, dict):
+                    for name in removed:
+                        symbol_table.pop(name, None)
 
     def collect_declarations(self, trees: List[Tuple[str, Tree]]) -> None:
         """Two-pass declarations collection to resolve forward and circular references.
@@ -219,8 +350,13 @@ class CollectMixin:
 
         # Pass 3: Collect monomorphized types and functions from symbol table
         if self.symbols:
-            for m_name, m_type in self.symbols.monomorphized_types.items():
+            for m_name, m_type in list(self.symbols.monomorphized_types.items()):
                 if m_name in self.symbols._generated_instances:
+                    continue
+                if self._has_placeholder_type(m_type):
+                    # A combined multi-module checker can leave `Pair of K and V`
+                    # registered with caller placeholders; it is not a real type.
+                    self.symbols.monomorphized_types.pop(m_name, None)
                     continue
                 self.symbols._generated_instances.add(m_name)
                 if isinstance(m_type, RuneType) and m_name not in self.runes:
@@ -827,11 +963,72 @@ class CollectMixin:
         # outer fixed-point loop in `collect_declarations` picks up whatever
         # this registers and processes it in turn.
         self._register_transitive_generic_calls(
-            body_stmts, params, subst_map, enchanted_type)
+            body_stmts, params, subst_map, enchanted_type, ret_type)
+        self._register_types_for_body(body_stmts, params, ret_type, subst_map)
+
+    def _register_types_for_body(self, body_stmts, params, ret_type,
+                                 subst_map: Dict[str, Type]) -> None:
+        """Registers concrete generic types used only inside a body.
+
+        The checker skips `monomorphized_types` while a type argument is still
+        `T`.  A body such as `var b as Box of T is calling Box.empty` therefore
+        emitted `Box_int b` without a matching typedef.  Substitute the
+        caller's map over every type annotation (parameters, return and locals)
+        and materialize the concrete type in the same tables the checker uses.
+        """
+        def _add(t: Optional[Type]) -> None:
+            if t is None:
+                return
+            if subst_map:
+                t = t.substitute(subst_map)
+            if type_has_unresolved_parts(t) or self._has_placeholder_type(t):
+                return
+            name = getattr(t, "name", None) or (t.get_mangled_name() if hasattr(t, "get_mangled_name") else None)
+            if not name:
+                return
+            if isinstance(t, RuneType):
+                if name not in self.runes:
+                    self.runes[name] = t.fields
+                if self.symbols is not None:
+                    self.symbols.runes[name] = t
+            elif isinstance(t, EchoType):
+                if name not in self.echos:
+                    self.echos[name] = t.fields
+                if self.symbols is not None:
+                    self.symbols.echos[name] = t
+            elif isinstance(t, OmenType):
+                if name not in self.omens:
+                    self.omens[name] = t.variants
+                if self.symbols is not None:
+                    self.symbols.omens[name] = t
+            elif isinstance(t, AliasType):
+                if name not in self.aliases:
+                    self.aliases[name] = t.target
+                if self.symbols is not None:
+                    self.symbols.aliases[name] = t
+            else:
+                return
+            if self.symbols is not None:
+                self.symbols.monomorphized_types[name] = t
+        for _p in params:
+            if len(_p) >= 2:
+                _add(_p[1])
+        _add(ret_type)
+        for stmt in body_stmts:
+            if not isinstance(stmt, Tree):
+                continue
+            for node in stmt.iter_subtrees():
+                if node.data in self._TYPE_NODE_NAMES:
+                    try:
+                        t = ast_to_type(node, self._lookup_type_fn)
+                    except Exception as exc:
+                        continue
+                    _add(t)
 
     def _register_transitive_generic_calls(self, body_stmts, params,
                                            subst_map: Dict[str, Type],
-                                           enchanted_type: Optional[Type]) -> None:
+                                           enchanted_type: Optional[Type],
+                                           ret_type: Optional[Type] = None) -> None:
         """Registers generic callees reached from a monomorphized body.
 
         This is the B1 fix: ``weave twice shard T`` calling ``ident<T>`` used
@@ -850,7 +1047,8 @@ class CollectMixin:
         if not self.symbols or not body_stmts:
             return
         generic_functions = getattr(self.symbols, "generic_functions", {}) or {}
-        if not generic_functions:
+        generic_methods = getattr(self.symbols, "generic_methods", {}) or {}
+        if not generic_functions and not generic_methods:
             return
 
         saved_local_vars = self.local_vars
@@ -877,6 +1075,7 @@ class CollectMixin:
             for stmt in body_stmts:
                 if not isinstance(stmt, Tree):
                     continue
+                stmt_expected = self._statement_expected_type(stmt, ret_type)
                 for sub in stmt.iter_subtrees():
                     if sub.data != "calling_expr" or not sub.children:
                         continue
@@ -885,6 +1084,14 @@ class CollectMixin:
                         continue
                     candidate = self._generic_call_candidate(target)
                     if candidate is None:
+                        # A generic `ritual` constructor (`Box.empty of T`)
+                        # has no entry in `generic_functions`: it lives in
+                        # `generic_methods`.  Register its concrete instance
+                        # for this monomorphized caller so the fixed-point loop
+                        # emits `Box_empty_int` / `Box_empty_string` rather
+                        # than the unspecialized `Box_empty_T` template.
+                        self._register_ritual_from_body(
+                            target, sub, inferrer, stmt_expected)
                         continue
                     fn_type = self.symbols.functions.get(candidate)
                     if fn_type is None or not getattr(fn_type, "type_params", None):
@@ -894,17 +1101,28 @@ class CollectMixin:
                         arg_types = self._infer_generic_args(inferrer, fn_type, sub)
                     except Exception:
                         arg_types = None
-                    if not arg_types:
+                    if not arg_types and stmt_expected is None:
                         continue
                     subst: Dict[str, Type] = {}
                     params_by_name = {p[0]: p[1] for p in fn_type.params if p[0]}
                     try:
-                        for p_name, arg_t in arg_types.items():
+                        for p_name, arg_t in (arg_types or {}).items():
                             p_type = params_by_name.get(p_name)
                             if p_type is not None and arg_t is not None:
                                 inferrer._unify_type(p_type, arg_t, subst)
                     except Exception:
                         continue
+                    # Zero-argument generic callee (`calling make_box`) or a
+                    # type parameter that appears only in the return type: the
+                    # contextual return slot is the remaining source of truth.
+                    if stmt_expected is not None and any(tp not in subst for tp in type_params):
+                        exp_t = stmt_expected
+                        if self.current_subst_map:
+                            exp_t = exp_t.substitute(self.current_subst_map)
+                        try:
+                            inferrer._unify_type(fn_type.return_type, exp_t, subst)
+                        except Exception:
+                            pass
                     if any(tp not in subst or not inferrer._type_is_concrete(subst[tp])
                            for tp in type_params):
                         continue
@@ -934,6 +1152,134 @@ class CollectMixin:
             self.local_vars = saved_local_vars
             self.current_subst_map = saved_subst
             self.current_enchanted_type = saved_enchanted
+
+    _TYPE_NODE_NAMES = frozenset({
+        "base_type", "custom_type", "ref_type", "array_type", "slice_type",
+        "list_type", "map_type", "maybe_type", "result_type", "tuple_type",
+        "opaque_type", "fn_type", "seal_type", "alias_type",
+    })
+
+    def _statement_expected_type(self, stmt: Tree, ret_type: Optional[Type]) -> Optional[Type]:
+        """Contextual type available to a call inside one statement.
+
+        A returned expression gets the enclosing weave's return type; a typed
+        local (`var b as Box of T is calling Box.empty`) gets its annotation.
+        This is what lets a generic constructor with no value arguments bind
+        ``T`` while the body is still being collected, before codegen knows
+        every local-variable type.
+        """
+        nodes = list(stmt.iter_subtrees())
+        if ret_type is not None and any(n.data == "return_stmt" for n in nodes):
+            return ret_type
+        for node in nodes:
+            if node.data not in ("var_decl", "let_decl", "static_var_decl"):
+                continue
+            for child in node.children:
+                if isinstance(child, Tree) and child.data in self._TYPE_NODE_NAMES:
+                    try:
+                        t = ast_to_type(child, self._lookup_type_fn)
+                        if self.current_subst_map:
+                            t = t.substitute(self.current_subst_map)
+                        return t
+                    except Exception:
+                        pass
+        return None
+
+    def _register_ritual_from_body(self, target: Tree, call: Tree, inferrer,
+                                   expected_type: Optional[Type] = None) -> bool:
+        """Registers a generic ritual call found in a monomorphized body.
+
+        ``Box.empty of T`` inside ``weave make_box shard T`` is resolved by the
+        checker while T is still a parameter, so no concrete method instance is
+        recorded.  At every concrete instantiation the explicit type argument
+        (or the value arguments) are substituted with the caller's map, and
+        ``_specialize_generic_function`` records the same keys the checker uses
+        at a non-generic call site: ``Box_empty_int`` and ``Box_int_empty``.
+        """
+        if not self.symbols or len(target.children) not in (2, 3):
+            return False
+        first = target.children[0]
+        acc = target.children[-1]
+        if not (isinstance(acc, Tree) and acc.data in ("dot_access", "arrow_access")
+                and acc.children and isinstance(first, (Token, str))):
+            return False
+        base = str(first)
+        method = str(acc.children[0])
+        if len(target.children) == 3:
+            # `module.Type.method`: resolve Type through the import's scope.
+            second = target.children[1]
+            if not (isinstance(second, Tree) and second.data in ("dot_access", "arrow_access")
+                    and second.children):
+                return False
+            imp = self.symbols.lookup(base)
+            scope = getattr(imp, "module_scope", None) if imp is not None else None
+            type_sym = scope.lookup(str(second.children[0])) if scope is not None else None
+            if type_sym is None or getattr(type_sym, "kind", "") not in (
+                    "rune", "echo", "omen", "seal", "alias", "type"):
+                return False
+            base = str(second.children[0])
+        elif not (base in self.runes or base in self.echos or base in self.omens
+                  or base in self.seals or self.symbols.lookup_type(base) is not None):
+            return False
+        entry = getattr(self.symbols, "generic_methods", {}).get((base, method))
+        if entry is None:
+            return False
+        recv_params, m_params, method_ast = (entry[0], entry[1], entry[2]) if len(entry) == 3 else (entry[0], [], entry[1])
+        all_tp = list(recv_params) + list(m_params)
+        if not all_tp:
+            return False
+
+        explicit: List[Type] = []
+        for child in call.children[1:]:
+            if isinstance(child, Tree) and child.data == "generic_args":
+                for c in child.children:
+                    if c is None:
+                        continue
+                    try:
+                        t = ast_to_type(c, self._lookup_type_fn)
+                        if self.current_subst_map:
+                            t = t.substitute(self.current_subst_map)
+                        explicit.append(t)
+                    except Exception:
+                        pass
+        subst: Dict[str, Type] = {}
+        if explicit and len(explicit) == len(all_tp):
+            subst = dict(zip(all_tp, explicit))
+        m_type = self.symbols.methods.get((base, method))
+        if m_type is None:
+            return False
+        if len(subst) < len(all_tp) and expected_type is not None:
+            exp_t = expected_type
+            if self.current_subst_map:
+                exp_t = exp_t.substitute(self.current_subst_map)
+            try:
+                inferrer._unify_type(m_type.return_type, exp_t, subst)
+            except Exception:
+                pass
+        if len(subst) < len(all_tp):
+            try:
+                arg_types = self._infer_generic_args(inferrer, m_type, call)
+            except Exception:
+                arg_types = {}
+            params_by_name = {p[0]: p[1] for p in m_type.params if p[0]}
+            try:
+                for p_name, arg_t in arg_types.items():
+                    p_type = params_by_name.get(p_name)
+                    if p_type is not None and arg_t is not None:
+                        inferrer._unify_type(p_type, arg_t, subst)
+            except Exception:
+                pass
+        if any(tp not in subst or not inferrer._type_is_concrete(subst[tp]) for tp in all_tp):
+            return False
+        import copy as _copy
+        fn_type = _copy.copy(m_type)
+        fn_type.type_params = all_tp
+        try:
+            _, c_name, registered = inferrer._specialize_generic_function(
+                f"{base}_{method}", fn_type, subst, call, all_tp, allow_method=True)
+        except Exception:
+            return False
+        return bool(registered)
 
     def _generic_call_candidate(self, target: Tree) -> Optional[str]:
         """Best-effort name of the generic function a call target refers to.

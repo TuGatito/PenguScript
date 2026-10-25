@@ -2,6 +2,110 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [3.0.3] — 2026-10-24 — B1/B2 residuals and byte-exact `\xNN`
+
+Closes the three gaps left after 3.0.2.  The full 3.0.1 audit remains closed; this
+release makes the generic and string-escape edges deterministic enough to start
+the `psc/` port without workarounds.
+
+### Fixed — compiler (B1 residuals)
+
+- **Imported generic without explicit `of T`, including a generic rune return.**
+  `var a as moda.Box of int is calling moda.make_box` (and the equivalent in a
+  generic body) had no value arguments and no explicit type argument, so codegen
+  emitted the bare `make_box()` instead of `moda_make_box_int()`.  The module
+  call path now recovers the specialization by unifying the declared return
+  type with the contextual type (`_specialization_from_expected`).
+- **Generic rune return with no arguments.**  `weave make_box shard T into Box
+  of T` called as `var a as Box of int is calling make_box` now selects
+  `make_box_int`; the same fallback covers `list of T`, `maybe T`, `result of T
+  to E` and user generics, not just ritual constructors.
+- **Zero-argument generic callees inside generic bodies.**  A generic body that
+  returns another generic's result (`weave outer shard T into moda.Box of T:
+  return calling moda.make_box`) now registers `moda_make_box_int` /
+  `moda_make_box_string` transitively from the enclosing return type, including
+  when the callee lives in an imported module.
+- **Concrete generic types used only in a body.**  `var b as Box of T is
+  calling Box.empty` inside `make shard T` emitted `Box_int b` without a
+  typedef.  Every type annotation in a monomorphized body (parameters, return
+  and locals) is now substituted and materialized as a concrete type.
+- **Placeholder types can no longer reach C.**  `BaseType("T")`/`BaseType("U")`
+  left by `ast_to_type` (and optional `None` metadata such as `c_name`) used to
+  make `Pair of K and V` look concrete, producing `struct Pair_T_U { T first;
+  ... }`.  Placeholder detection is now context-aware: a short uppercase name
+  is a type parameter unless the declaration tables contain a real
+  `rune`/`omen`/`echo`, and recursive self-references (`omen V: ... list of V`)
+  are preserved.  A final prune runs before the derived/type sections, so a
+  late registration cannot reintroduce one.
+- **Duplicate module-scoped type aliases are pruned.**  A combined build could
+  keep both `CipherJsonValue` and `cipher_CipherJsonValue` with the same symbol
+  (`c_name = cipher_CipherJsonValue`); the short twin emitted a struct whose
+  recursive fields named the unemitted short `JsonArrayNode`.  The short alias
+  is dropped when the prefixed twin exists.  Fixes the `std.cipher` edge and
+  leak suites.
+- **Parameter tuples with defaults.**  Type registration accepts the 2- and
+  3-tuple parameter shapes (`name, type[, default]`) instead of unpacking them
+  blindly.
+
+### Fixed — compiler (B2 in generic context)
+
+- Generic `ritual` constructors called from a generic body now register the
+  concrete instance.  Covered forms:
+  - `return calling Box.empty of T` (explicit type argument);
+  - `return calling Box.empty` (enclosing return type);
+  - `var b as Box of T is calling Box.empty` (typed local);
+  - `calling Box.make with v` (value parameter inference);
+  - imported types (`moda.Box.empty`) and aliased imports.
+  The same fixed-point loop that collects `Box_empty_int`/`Box_empty_string`
+  now feeds the method monomorphization table, so the body never emits the
+  unspecialized `Box_empty_T` template.
+
+### Fixed — `\xNN` before C generation
+
+- String literals are fully decoded to bytes **before** C emission.  `\xNN`
+  now means exactly one byte, never a C hex escape that absorbs a following
+  digit (`"\x41B"` is two bytes `AB`, not 0x41B), and `\x00` survives with
+  length 1 instead of being truncated by `strlen`.
+- Octal (`\101`), `\0`, `\u{...}`, `\uNNNN`, `\n`/`\r`/`\t`/`\b`/`\f`/
+  `\v`/`\a`, escaped quotes/backslashes and raw strings share the same decoder.
+- The generated C uses self-delimiting three-digit octal escapes for non-
+  printable bytes, so UTF-8 text and arbitrary binary bytes compile unchanged.
+- Literals containing NUL use the new borrowed
+  `pengu_string_from_cstr_len(data, len)` runtime view; ordinary literals keep
+  the existing `pengu_string_from_cstr` spelling.  Constants go through the
+  same path, so `const Z as string is "\x00"` is a one-byte value.
+- A NUL byte in the literal part of an interpolated string is rejected with a
+  clear `E0019` instead of silently truncating the C format string.
+
+### Fixed — tooling
+
+- **Diverged managed dependency checkouts recover.**  `git pull --ff-only` can
+  fail on a dependency left diverged by an interrupted fetch; the managed
+  checkout now fetches and resets to its upstream before giving up.  This makes
+  the real-local-git `pengu add` regression deterministic and prevents a
+  "refreshed" checkout from silently keeping stale sources.
+
+### Added
+
+- `tests/compiler/test_audit_residuals_302.py`: imported/no-`of` generic rune
+  returns, zero-argument returns (rune, list, maybe), generic-body constructors
+  with/without `of`, imported qualified constructors, typed-local generic types,
+  placeholder-type rejection, `\xNN` adjacency/NUL/octal/unicode and constants.
+- Regression coverage for legitimate single-letter types (`rune R`, `omen K`) and
+  recursive self-referential omens.
+
+### Verified
+
+- Full suite: **1443 passed, 3 skipped** (the three opt-in `requests`/live HTTP
+  compatibility tests), 109.6 s parallel; no stale `build/bundle.c` race.
+- ASan/UBSan gates re-run for the stdlib fundamentals, comprehensive and
+  audit-modules suites.
+- `make_release.py --rebuild`: portable package, `pengu doctor`, `init`,
+  standalone run, embedded assets and bundled-TCC cache smoke tests PASS;
+  `pengu --version` and the frozen bundle report **3.0.3**; VSIX
+  `pengus-3.0.3.vsix`; the frozen binary runs programs importing the new
+  `std.toml`/`std.digest` modules.
+
 ## [3.0.2] — 2026-10-24 — Self-hosting audit fixes (B1–B12)
 
 Closes every compiler, stdlib and LSP defect listed in

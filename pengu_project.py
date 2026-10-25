@@ -4022,6 +4022,39 @@ def _run_dependency_build(target_dir: str, dep_name: str, trusted: bool = False,
     return True
 
 
+def _refresh_managed_git_checkout(target_dir: str, branch: Optional[str] = None) -> bool:
+    """Refreshes a dependency checkout, recovering from a diverged branch.
+
+    Dependency directories are managed by ``pengu`` and are not user working
+    copies.  A previous run (or an interrupted fetch) can leave the local
+    branch diverged from its upstream; a plain ``git pull --ff-only`` then
+    aborts and the caller silently keeps a stale checkout.  Fetch first and,
+    if the fast-forward is impossible, reset the managed branch to its
+    upstream so the promised "refreshed checkout forces a rebuild" holds.
+    """
+    cmd = ["git", "-C", target_dir, "pull", "--ff-only"]
+    if branch:
+        cmd += ["origin", branch]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode == 0:
+        return True
+    fetch = subprocess.run(["git", "-C", target_dir, "fetch", "--all", "--prune"],
+                           capture_output=True, text=True)
+    if fetch.returncode != 0:
+        return False
+    upstream = subprocess.run(
+        ["git", "-C", target_dir, "rev-parse", "--abbrev-ref",
+         "--symbolic-full-name", "@{u}"],
+        capture_output=True, text=True,
+    )
+    ref = upstream.stdout.strip() if upstream.returncode == 0 else ""
+    if not ref:
+        ref = f"origin/{branch}" if branch else "origin/HEAD"
+    reset = subprocess.run(["git", "-C", target_dir, "reset", "--hard", ref],
+                           capture_output=True, text=True)
+    return reset.returncode == 0
+
+
 def update_project(config_path: Optional[str] = None, verbose: bool = False,
                    trusted: bool = False, rebuild: bool = True) -> int:
     """Updates every configured dependency: git pull + re-run build scripts.
@@ -4073,18 +4106,12 @@ def update_project(config_path: Optional[str] = None, verbose: bool = False,
                 cmd_fetch = ["git", "-C", target_dir, "pull", "--ff-only", "origin", branch]
             if verbose:
                 print(f"   $ {' '.join(cmd_fetch)}", file=sys.stderr)
-            res = subprocess.run(cmd_fetch, capture_output=True, text=True)
-            if res.returncode != 0:
-                detail = (res.stderr or res.stdout or "").strip()
+            if not _refresh_managed_git_checkout(target_dir, branch):
                 emit(
-                    f"     Warning 'git pull' failed for '{dep_name}' "
-                    f"(rc={res.returncode}):\n  {detail}",
+                    f"     Warning could not refresh '{dep_name}'; "
+                    f"keeping the existing checkout.",
                     file=sys.stderr, color="yellow", level="warning",
                 )
-            else:
-                tail = (res.stdout or res.stderr or "").strip()
-                if tail:
-                    print(f"   {tail.splitlines()[-1]}")
         else:
             print("   (local copy — nothing to pull)")
 
@@ -4382,16 +4409,14 @@ def add_dependency(
                 # A failed `git pull` must not look like a successful refresh:
                 # the old `check=False` left the user on the stale checkout with
                 # no hint that nothing was updated.
-                res = subprocess.run(["git", "-C", target_dir, "pull", "--ff-only"],
-                                     capture_output=True, text=True)
-                if res.returncode == 0:
+                if _refresh_managed_git_checkout(target_dir, branch):
                     # Fresh sources on disk invalidate any existing lib/*.a.
                     existing_repo_updated = True
                 else:
                     emit(
-                        f"     Warning 'git pull' failed (rc={res.returncode}); "
+                        f"     Warning could not refresh dependency '{dep_name}'; "
                         f"using the existing checkout. Run 'pengu update {dep_name}' "
-                        f"manually to see the error:\n{(res.stderr or '').strip()}",
+                        f"manually to see the error.",
                         file=sys.stderr, color="yellow", level="warning",
                     )
             else:

@@ -39,7 +39,7 @@
 ## - **Errors carry line numbers.** `parse` returns `err("... line N")` instead of
 ##   silently returning an empty document.
 
-const TOML_VERSION as string is "3.0.2"
+const TOML_VERSION as string is "3.0.3"
 
 
 import std.archivum

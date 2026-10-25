@@ -31,7 +31,7 @@
 ## The returned list and every `YamlEntry` string are owned. Release them with
 ## `free_entries`; getters return owned copies.
 
-const YAML_VERSION as string is "3.0.2"
+const YAML_VERSION as string is "3.0.3"
 
 
 import std.archivum

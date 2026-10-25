@@ -36,7 +36,7 @@
 ## - **`is_tty` is advisory.** It lets the CLI choose coloured diagnostics;
 ##   redirected streams report false.
 
-const IO_VERSION as string is "3.0.2"
+const IO_VERSION as string is "3.0.3"
 
 
 when os == "windows":

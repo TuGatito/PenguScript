@@ -40,7 +40,7 @@
 ## - **Negative errno.** The C bridge returns `-errno`; the wrappers turn that
 ##   into a human-readable `err(...)` string with `strerror`.
 
-const NET_VERSION as string is "3.0.2"
+const NET_VERSION as string is "3.0.3"
 
 
 when os == "windows":

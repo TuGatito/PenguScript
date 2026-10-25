@@ -36,6 +36,70 @@ from .ctype import (
 class TypesMixin:
     """C struct/union/enum definitions and their forward declarations."""
 
+    def _contains_type_placeholder(self, t, _seen=None) -> bool:
+        """True for a `TypeParam` or a bare `RuneType("T")` placeholder.
+
+        The combined multi-module checker can leave a caller's type parameter
+        as a nominal-looking `RuneType` (no fields, no type args) inside
+        `symbols.monomorphized_types`.  Emitting that as `struct Pair_T_U`
+        produces invalid C (`T first;`).  A placeholder must never reach the
+        type sections, even if some earlier pass registered it.
+        """
+        if t is None or _seen is None:
+            _seen = set()
+        if isinstance(t, TypeParam):
+            return True
+        if isinstance(t, (RuneType, EchoType)):
+            name = getattr(t, "name", "")
+            if (not getattr(t, "fields", None) and not getattr(t, "type_args", None)
+                    and isinstance(name, str) and name.isupper() and len(name) <= 2):
+                known = (name in self.runes or name in self.echos
+                         or name in self.omens or name in self.aliases
+                         or name in self.seals)
+                if not known and self.symbols is not None:
+                    known = (name in self.symbols.runes or name in self.symbols.echos
+                             or name in self.symbols.omens or name in self.symbols.aliases
+                             or name in self.symbols.seals)
+                if not known:
+                    return True
+        if isinstance(t, BaseType):
+            # `ast_to_type` may leave a caller's type parameter as BaseType("T").
+            # A real single-letter type (`rune R`, `omen K`) is in one of the
+            # declaration tables; only an unknown uppercase name is a
+            # placeholder.  Known primitives are lowercase anyway.
+            name = getattr(t, "name", "")
+            if isinstance(name, str) and name.isupper() and len(name) <= 2:
+                known = (name in self.runes or name in self.echos
+                         or name in self.omens or name in self.aliases
+                         or name in self.seals)
+                if not known and self.symbols is not None:
+                    known = (name in self.symbols.runes or name in self.symbols.echos
+                             or name in self.symbols.omens or name in self.symbols.aliases
+                             or name in self.symbols.seals)
+                if not known:
+                    return True
+        if isinstance(t, (list, tuple)):
+            return any(self._contains_type_placeholder(i, _seen) for i in t)
+        if isinstance(t, dict):
+            return any(self._contains_type_placeholder(v, _seen) for v in t.values())
+        if not isinstance(t, Type):
+            return False
+        if id(t) in _seen:
+            return False
+        _seen.add(id(t))
+        for value in vars(t).values():
+            if value is None:
+                continue
+            if self._contains_type_placeholder(value, _seen):
+                return True
+        return False
+
+    def _fields_have_placeholder(self, fields) -> bool:
+        for f_type in fields.values():
+            if self._contains_type_placeholder(f_type):
+                return True
+        return False
+
     def generate_forward_declarations(self) -> str:
         """Generates consistent forward struct/union/omen declarations and function prototypes."""
         decls = []
@@ -44,12 +108,16 @@ class TypesMixin:
         for name in self.runes:
             if name in self.declaration_types or not self._type_is_live(name):
                 continue
+            if self._fields_have_placeholder(self.runes[name]):
+                continue
             decls.append(f"struct {name};")
             decls.append(f"typedef struct {name} {name};")
 
         # Echos
         for name in self.echos:
             if name in self.declaration_types or not self._type_is_live(name):
+                continue
+            if self._fields_have_placeholder(self.echos[name]):
                 continue
             decls.append(f"union {name};")
             decls.append(f"typedef union {name} {name};")
@@ -161,6 +229,8 @@ class TypesMixin:
         for name in type_order:
             if name in self.runes:
                 fields = self.runes[name]
+                if self._fields_have_placeholder(fields):
+                    continue
                 r_attrs = self.rune_attributes.get(name, {})
                 is_msvc = self.target_compiler == "msvc"
                 c_struct_attrs = []
@@ -204,6 +274,8 @@ class TypesMixin:
                 blocks.append("\n".join(rune_lines))
             elif name in self.echos:
                 fields = self.echos[name]
+                if self._fields_have_placeholder(fields):
+                    continue
                 echo_lines = [f"union {name} {{"]
                 for f_name, f_type in fields.items():
                     member = self._declared_member(f_type, self._c_ident(f_name))

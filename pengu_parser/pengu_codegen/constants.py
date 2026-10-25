@@ -78,13 +78,11 @@ class ConstMixin:
         elif isinstance(val, str):
             if val.startswith("'") and val.endswith("'"):
                 return val
-            if val.startswith('"') and val.endswith('"'):
-                cstr = val
-            else:
-                cstr = self._translate_string_lit(val, as_c_literal=True)
             if self._is_ref_char_type(expected_type):
-                return cstr
-            return f'pengu_string_from_cstr({cstr})'
+                if val.startswith('"') and val.endswith('"'):
+                    return val
+                return self._translate_string_lit(val, as_c_literal=True)
+            return self._translate_string_value(val)
         return str(val)
     def generate_global_constants(self) -> str:
         """Generates #define or const statements for global module constants."""
@@ -101,16 +99,22 @@ class ConstMixin:
                     entries.append((name, f"static const PenguRange {c_name} = {{ .start = {val.start}, .end = {val.end} }};"))
                 elif isinstance(val, str):
                     expr_node = self.const_nodes.get(name)
-                    if expr_node is not None and isinstance(expr_node, Tree) and expr_node.data == "string_lit" and expr_node.children:
-                        cstr = self._translate_string_lit(str(expr_node.children[0]), as_c_literal=True)
-                    elif expr_node is not None and isinstance(expr_node, Token):
-                        cstr = self._translate_string_lit(str(expr_node), as_c_literal=True)
-                    else:
-                        cstr = self._translate_string_lit(val, as_c_literal=True)
                     if self._is_ref_char_type(c_type):
+                        if expr_node is not None and isinstance(expr_node, Tree) and expr_node.data == "string_lit" and expr_node.children:
+                            cstr = self._translate_string_lit(str(expr_node.children[0]), as_c_literal=True)
+                        elif expr_node is not None and isinstance(expr_node, Token):
+                            cstr = self._translate_string_lit(str(expr_node), as_c_literal=True)
+                        else:
+                            cstr = self._translate_string_lit(val, as_c_literal=True)
                         entries.append((name, f'#define {c_name} {cstr}'))
                     else:
-                        entries.append((name, f'#define {c_name} pengu_string_from_cstr({cstr})'))
+                        if expr_node is not None and isinstance(expr_node, Tree) and expr_node.data == "string_lit" and expr_node.children:
+                            value_expr = self._translate_string_value(str(expr_node.children[0]))
+                        elif expr_node is not None and isinstance(expr_node, Token):
+                            value_expr = self._translate_string_value(str(expr_node))
+                        else:
+                            value_expr = self._translate_string_value(val)
+                        entries.append((name, f'#define {c_name} {value_expr}'))
                 elif isinstance(val, bool):
                     entries.append((name, f'#define {c_name} {"true" if val else "false"}'))
                 else:

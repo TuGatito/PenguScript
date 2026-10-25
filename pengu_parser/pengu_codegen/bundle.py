@@ -195,6 +195,8 @@ class BundleMixin:
         # discovery pass below translates bodies (so it needs `line_base_dir`
         # set) and scans lambdas/derived helpers, so those two sections are
         # generated here as well.  Nothing here mutates the weave list.
+        self._prune_placeholder_types()
+        self._prune_duplicate_type_aliases()
         derived_impls = self.generate_derived_implementations()
         constants = self.generate_constants()
         lambdas_code = self.generate_lambdas()
@@ -257,6 +259,8 @@ class BundleMixin:
         # Type and forward sections come after discovery: translating a body
         # can materialize a specialization whose tuple return registers a new
         # product struct.  Generating the type section first would omit it.
+        self._prune_placeholder_types()
+        self._prune_duplicate_type_aliases()
         forward_decls = self.generate_forward_declarations()
         type_defs = self.generate_type_definitions()
         function_defs = self.generate_function_definitions()

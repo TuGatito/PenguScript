@@ -32,7 +32,7 @@
 ## - **FNV-1a is 64-bit.** It is for hash tables and non-security cache shards;
 ##   never use it where SHA-256 is required.
 
-const DIGEST_VERSION as string is "3.0.2"
+const DIGEST_VERSION as string is "3.0.3"
 
 
 import std.archivum

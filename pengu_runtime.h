@@ -1095,6 +1095,36 @@ extern "C"
     return s;
   }
 
+  /**
+   * @brief Constructs a non-owning PenguString view with an explicit length.
+   *
+   * The compiler emits this for every string literal after decoding `\xNN`,
+   * `\0` and `\u{...}` escapes itself.  Unlike `pengu_string_from_cstr`, the
+   * length comes from the compiler (the C literal is emitted with unambiguous
+   * octal escapes), so an embedded NUL or a byte >= 0x80 is preserved byte for
+   * byte.  The C string literal has static storage duration, so the view stays
+   * valid for the life of the program and must not be `banish`ed.
+   *
+   * @param str C string literal (borrowed, static storage).
+   * @param len Exact number of bytes to expose.
+   * @return Non-owning PenguString view.
+   */
+  static inline PenguString pengu_string_from_cstr_len(const char *str, int len)
+  {
+    PenguString s;
+    if (!str || len < 0)
+    {
+      s.data = (char *)"";
+      s.len = 0;
+      s.is_owned = 0;
+      return s;
+    }
+    s.data = (char *)str;
+    s.len = len;
+    s.is_owned = 0;
+    return s;
+  }
+
   /** @brief Shared read-only empty C string used by the null-safe helpers. */
   #define PENGU_EMPTY_CSTR ""
 

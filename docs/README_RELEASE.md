@@ -10,7 +10,7 @@ This directory contains the standalone distribution of the **PenguScript Compile
 \
 pengucc_build/
 ├── pengu
-├── pengus-3.0.2.vsix
+├── pengus-3.0.3.vsix
 ├── std/                             # 38 standard-library modules
 ├── std_c/                           # vendored utf8.h and tiny-regex-c (public domain)
 └── runtime/
@@ -36,7 +36,7 @@ the build machine's absolute layout (Phase 9, finding F9-N8).
 1. Open Visual Studio Code.
 2. Go to **Extensions** (`Ctrl+Shift+X`).
 3. Click the `...` menu (Views and More Actions) in the top-right corner.
-4. Select **Install from VSIX...** and choose `pengucc_build/pengus-3.0.2.vsix` (relative to the unpacked archive).
+4. Select **Install from VSIX...** and choose `pengucc_build/pengus-3.0.3.vsix` (relative to the unpacked archive).
 
 ### 3. Create a new project
 ```bash

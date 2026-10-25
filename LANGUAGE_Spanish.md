@@ -1,6 +1,6 @@
 # Referencia del Lenguaje PenguScript
 
-> **Versión cubierta:** PenguScript **3.0.2** (sincronizada con `VERSION` y `pengu_version.py`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
+> **Versión cubierta:** PenguScript **3.0.3** (sincronizada con `VERSION` y `pengu_version.py`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
 > **Política de idioma.** El inglés es el idioma canónico de la documentación de
 > PenguScript, así que el documento **normativo** es [`LANGUAGE.md`](LANGUAGE.md).
 > Esta traducción al español es **no normativa**: puede ir por detrás y, donde los dos
