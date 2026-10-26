@@ -1,0 +1,32 @@
+error[E0000]: unexpected dedent to column 6 (expected 4)
+  --> tests/fixtures/indent_bad.pengu:4:7
+  |
+2 |     if true:
+3 |         return 1
+4 |       return 2
+  |       ^
+  |
+   = note: The lexer recovers by remembering the new level.
+   = help: Use the same indentation width as the enclosing block.
+
+error[E0000]: expected an expression
+  --> tests/fixtures/indent_bad.pengu:4:7
+  |
+2 |     if true:
+3 |         return 1
+4 |       return 2
+  |       ^
+  |
+   = help: Write an expression after the operator or keyword.
+
+error[E0000]: unexpected 
+  --> tests/fixtures/indent_bad.pengu:5:1
+  |
+3 |         return 1
+4 |       return 2
+5 | 
+  | ^
+  |
+   = note: PenguScript parses blocks by indentation; argument, parameter and field lists use ','.
+   = help: Check the syntax around this position (see LANGUAGE.md / CHEATSHEET.md).
+

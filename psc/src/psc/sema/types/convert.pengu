@@ -1,0 +1,278 @@
+## psc/sema/types/convert.pengu — AST de tipo → `TypeId`.
+##
+## El AST de F2 replica la forma de Lark. Este módulo traduce cada nodo
+## `*_type` a la tabla plana. Los nombres se resuelven en `SemaSymbols`; un
+## nombre desconocido produce `E0004` y `TkError` para no encadenar errores.
+##
+## ## Memoria
+## `TypeCtx` presta todas sus referencias. Los `TypeId` viven en la tabla.
+
+import std.builder
+import std.diagnostic as diag
+import std.spark
+
+import psc.source as psource
+import psc.lexer_state as psstate
+import psc.ast.node as psast
+import psc.ast.kind as pskind
+
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.symbols.table as symbols
+import psc.sema.ast as astutil
+import psc.sema.diagnostics as sdiag
+
+insignia sema_type_convert_
+
+## Contexto de conversión.
+##
+## ## Memoria
+## Todas las referencias son prestadas.
+rune TypeCtx:
+    ## Tabla de tipos.
+    types as ref to types.SemaTypeTable
+    ## Tabla de símbolos.
+    symbols as ref to symbols.SemaSymbols
+    ## Pool de nombres.
+    names as ref to npool.NamePool
+    ## Bag de diagnósticos.
+    bag as ref to diag.DiagnosticBag
+    ## Fuente actual.
+    src as ref to psource.SourceFile
+    ## Tokens actuales.
+    lex as ref to psstate.LexResult
+    ## AST actual.
+    ast as ref to psast.PsAst
+
+## Convierte un nodo de tipo.
+##
+## ## Memoria
+## Puede añadir tipos y diagnósticos.
+weave convert with ctx as ref to TypeCtx, node as int into int:
+    if node < 0:
+        return 0
+    var kind as pskind.NodeKind is calling astutil.kind_of with ctx->ast, node
+    if kind == pskind.NodeKind.NdError:
+        return 0
+    if kind == pskind.NodeKind.NdTypeOrParam:
+        var inner as int is calling astutil.node_child with ctx->ast, node, 0
+        if inner < 0:
+            return 0
+        if (calling astutil.kind_of with ctx->ast, inner) == pskind.NodeKind.NdShardParamRef:
+            return calling convert_param with ctx, inner
+        return calling convert with ctx, inner
+    if kind == pskind.NodeKind.NdShardParamRef:
+        return calling convert_param with ctx, node
+    if kind == pskind.NodeKind.NdBaseType:
+        var txt as string is calling astutil.child_token_text with ctx->src, ctx->lex, ctx->ast, node, 0
+        defer banish txt
+        return calling types.base with ctx->types, txt
+    if kind == pskind.NodeKind.NdOpaqueType:
+        return 4
+    if kind == pskind.NodeKind.NdRefType:
+        var inner2 as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 0)
+        return calling types.ref_to with ctx->types, inner2
+    if kind == pskind.NodeKind.NdFrozenType:
+        var inner3 as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 0)
+        return calling types.frozen with ctx->types, inner3
+    if kind == pskind.NodeKind.NdSliceType:
+        var inner4 as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 0)
+        return calling types.slice_of with ctx->types, inner4
+    if kind == pskind.NodeKind.NdManyType:
+        var inner5 as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 0)
+        return calling types.many_of with ctx->types, inner5
+    if kind == pskind.NodeKind.NdListType:
+        var inner6 as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 0)
+        return calling types.list_of with ctx->types, inner6
+    if kind == pskind.NodeKind.NdMaybeType:
+        var inner7 as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 0)
+        return calling types.maybe_of with ctx->types, inner7
+    if kind == pskind.NodeKind.NdMapType:
+        var k as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 0)
+        var v as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 1)
+        return calling types.map_of with ctx->types, k, v
+    if kind == pskind.NodeKind.NdResultType:
+        var ok as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 0)
+        var err as int is 3
+        var errt as int is calling astutil.node_child with ctx->ast, node, 1
+        if errt >= 0:
+            set err is calling convert with ctx, errt
+        return calling types.result_of with ctx->types, ok, err
+    if kind == pskind.NodeKind.NdArrayType:
+        var elem as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, node, 0)
+        var size as int is -1
+        var st as int is calling astutil.token_child with ctx->ast, node, 1
+        if st >= 0:
+            var txt2 as string is calling astutil.token_text with ctx->src, ctx->lex, st
+            defer banish txt2
+            var parsed as maybe int is calling parse_int_aux with txt2
+            if parsed.is_present:
+                set size is parsed.value
+                banish parsed
+        return calling types.array_of with ctx->types, elem, size
+    if kind == pskind.NodeKind.NdTupleType:
+        var ids as list of int is list of int
+        defer banish ids
+        var i as int is 0
+        var n as int is calling astutil.child_count with ctx->ast, node
+        while i < n:
+            var c as int is calling astutil.node_child with ctx->ast, node, i
+            if c >= 0:
+                calling ids.push with (calling convert with ctx, c)
+            set i is i + 1
+        return calling types.tuple_of with ctx->types, ids
+    if kind == pskind.NodeKind.NdFnType:
+        return calling convert_fn with ctx, node
+    if kind == pskind.NodeKind.NdCustomType:
+        return calling convert_custom with ctx, node
+    return 0
+
+## Convierte `shard T` en un `TypeParam`.
+##
+## ## Memoria
+## Añade un tipo param y un tipo.
+weave convert_param with ctx as ref to TypeCtx, node as int into int:
+    var nid as int is -1
+    var tok as int is calling astutil.token_child with ctx->ast, node, 0
+    if tok >= 0:
+        var txt as string is calling astutil.token_text with ctx->src, ctx->lex, tok
+        defer banish txt
+        set nid is calling npool.intern with ctx->names, txt
+    else:
+        set nid is calling npool.intern with ctx->names, "T"
+    var info as types.SemaTypeParamInfo is with name is nid, bounds_first is 0, bounds_count is 0, flags is 0
+    return calling types.type_param_type with ctx->types, info
+
+## Convierte un tipo custom (`mod.Name`/`Name` + args).
+##
+## ## Memoria
+## Puede añadir diagnósticos; devuelve `TkError` si no existe.
+weave convert_custom with ctx as ref to TypeCtx, node as int into int:
+    var path_node as int is calling astutil.node_child with ctx->ast, node, 0
+    var name as string is calling path_text with ctx, path_node
+    defer banish name
+    var t as int is 0
+    if name != "":
+        set t is calling symbols.lookup_type_name with ctx->symbols, name
+        if t < 0:
+            # `mod.Type`: probar el último componente.
+            var last as string is calling last_component with name
+            defer banish last
+            if last != name:
+                set t is calling symbols.lookup_type_name with ctx->symbols, last
+    if t < 0 and calling looks_like_type_param with name:
+        var pid as int is calling npool.intern with ctx->names, name
+        var pinfo as types.SemaTypeParamInfo is with name is pid, bounds_first is 0, bounds_count is 0, flags is 0
+        return calling types.type_param_type with ctx->types, pinfo
+    if t < 0 and ctx->symbols->has_includes:
+        # Un tipo de cabecera C (`cairo_t`, `petitio_response`, ...): opaque.
+        return 4
+    if t < 0:
+        var msg as string is "undefined type '{name}'"
+        calling sdiag.node_error with ctx->bag, ctx->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with ctx->ast, node), (calling astutil.end_of with ctx->ast, node), msg, "Declare the type or import the module that defines it.", "Types must be declared before they are used."
+        banish msg
+        return 0
+    # Los argumentos genéricos se validan pero la especialización completa se
+    # construye en `generics/instantiate.pengu`. Aquí se conserva el tipo base.
+    var i as int is 1
+    var n as int is calling astutil.child_count with ctx->ast, node
+    while i < n:
+        var c as int is calling astutil.node_child with ctx->ast, node, i
+        if c >= 0:
+            var ignored as int is calling convert with ctx, c
+        set i is i + 1
+    return t
+
+## Convierte una firma `weave with ... into ...`.
+##
+## ## Memoria
+## Añade params/tipo a la tabla.
+weave convert_fn with ctx as ref to TypeCtx, node as int into int:
+    var first as int is 0
+    var count as int is 0
+    var params_node as int is calling astutil.node_child with ctx->ast, node, 0
+    if params_node >= 0:
+        var pn as int is calling astutil.child_count with ctx->ast, params_node
+        var i as int is 0
+        while i < pn:
+            var pnid as int is calling astutil.node_child with ctx->ast, params_node, i
+            if pnid >= 0:
+                var pname as int is calling astutil.token_child with ctx->ast, pnid, 0
+                var pid as int is -1
+                if pname >= 0:
+                    var ptxt as string is calling astutil.token_text with ctx->src, ctx->lex, pname
+                    defer banish ptxt
+                    set pid is calling npool.intern with ctx->names, ptxt
+                var pty as int is calling convert with ctx, (calling astutil.node_child with ctx->ast, pnid, 1)
+                var fp as types.SemaFnParam is with name is pid, type is pty, flags is 0, default_node is -1
+                var idx as int is calling types.add_fn_param with ctx->types, fp
+                if count == 0:
+                    set first is idx
+                set count is count + 1
+            set i is i + 1
+    var ret as int is 3
+    var rnode as int is calling astutil.node_child with ctx->ast, node, 1
+    if rnode >= 0:
+        set ret is calling convert with ctx, rnode
+    var info as types.SemaFnInfo is with params_first is first, params_count is count, return_type is ret, tparams_first is 0, tparams_count is 0, flags is 0, attrs_node is -1
+    return calling types.fn_type with ctx->types, info
+
+## Texto de un `dotted_path`.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave path_text with ctx as ref to TypeCtx, node as int into string:
+    if node < 0:
+        return ""
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    var n as int is calling astutil.child_count with ctx->ast, node
+    while i < n:
+        var txt as string is calling astutil.child_token_text with ctx->src, ctx->lex, ctx->ast, node, i
+        if i > 0:
+            calling sb.append with "."
+        calling sb.append with txt
+        banish txt
+        set i is i + 1
+    return calling sb.finish
+
+## ¿El nombre parece un parámetro de tipo (`T`, `A`, `B`)?
+##
+## ## Memoria
+## O(1).
+weave looks_like_type_param with s as string into bool:
+    var n as int is s length
+    if n < 1 or n > 2:
+        return false
+    var b as ref to frozen byte is bytes of s
+    var c as int is (b at 0) to int
+    return c >= 65 and c <= 90
+
+## Último componente de un nombre dotted.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave last_component with s as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    var n as int is s length
+    var start as int is 0
+    while i < n:
+        if (s at i) == ".":
+            set start is i + 1
+        set i is i + 1
+    set i is start
+    while i < n:
+        calling sb.append with (s at i)
+        set i is i + 1
+    return calling sb.finish
+
+## Parser de enteros auxiliar para tamaños de array.
+##
+## ## Memoria
+## Devuelve un maybe; liberar si está presente.
+weave parse_int_aux with s as string into maybe int:
+    return calling spark.parse_int with s

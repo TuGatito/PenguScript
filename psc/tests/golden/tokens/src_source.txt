@@ -1,0 +1,1526 @@
+# psc-token-dump v1
+# file: src/psc/source.pengu
+# sha256: cee10bff59d67fbd2645a41cc2aa2f81f664fafefc47301a1b7f8d897bbf120c
+# bytes: 12354
+# lines: 346
+# columns: index	kind	lexeme	start	end	line	col	end_line	end_col	aux
+0	Newline	\n##\n## `SourceFile` es la \xc3\xbanica copia del texto de un archivo dentro de PSC. Guarda\n## los bytes **sin BOM** (CRLF preservado), un \xc3\xadndice de inicios de l\xc3\xadnea y el\n## SHA-256 de los bytes **originales** (BOM/CRLF incluidos).\n##\n## ## Convenciones\n## - `line` y `col` son 1-indexed.\n## - `col` es una columna de **byte**, no de codepoint. Coincide con\n##   `std.sourcemap` y con el lexer; el LSP convierte a UTF-16 en el borde.\n## - `\\n` empieza una l\xc3\xadnea nueva. En un par `\\r\\n`, el `\\r` sigue contando para\n##   los offsets, pero `line_text` lo excluye.\n## - Los offsets son relativos a `text` (despu\xc3\xa9s de quitar el BOM). Para obtener\n##   el offset en el archivo original: `offset + bom_len`.\n##\n## ## Ejemplo\n## ```pengu\n## import psc.source\n##\n## var f as SourceFile is calling SourceFile.from_text with "a.pengu", "hola\\nmundo\\n"\n## defer banish f\n## var p as sourcemap.Position is calling f.position_at with 6\n## # p.line == 2, p.col == 1\n## ```\n##\n## ## Memoria\n## `banish f` libera `path`, `text`, `line_starts` y `sha256`.\n\n	83	1120	1	84	29	1	0
+1	Keyword(import)	import	1120	1126	29	1	29	7	0
+2	Identifier	std	1127	1130	29	8	29	11	0
+3	Dot	.	1130	1131	29	11	29	12	0
+4	Identifier	builder	1131	1138	29	12	29	19	0
+5	Newline	\n	1138	1139	29	19	30	1	0
+6	Keyword(import)	import	1139	1145	30	1	30	7	0
+7	Identifier	std	1146	1149	30	8	30	11	0
+8	Dot	.	1149	1150	30	11	30	12	0
+9	Identifier	digest	1150	1156	30	12	30	18	0
+10	Newline	\n	1156	1157	30	18	31	1	0
+11	Keyword(import)	import	1157	1163	31	1	31	7	0
+12	Identifier	std	1164	1167	31	8	31	11	0
+13	Dot	.	1167	1168	31	11	31	12	0
+14	Identifier	sourcemap	1168	1177	31	12	31	21	0
+15	Newline	\n	1177	1178	31	21	32	1	0
+16	Keyword(import)	import	1178	1184	32	1	32	7	0
+17	Identifier	std	1185	1188	32	8	32	11	0
+18	Dot	.	1188	1189	32	11	32	12	0
+19	Identifier	spark	1189	1194	32	12	32	17	0
+20	Newline	\n\n	1194	1196	32	17	34	1	0
+21	Keyword(import)	import	1196	1202	34	1	34	7	0
+22	Identifier	psc	1203	1206	34	8	34	11	0
+23	Dot	.	1206	1207	34	11	34	12	0
+24	Identifier	span	1207	1211	34	12	34	16	0
+25	Keyword(as)	as	1212	1214	34	17	34	19	0
+26	Identifier	pspan	1215	1220	34	20	34	25	0
+27	Newline	\n\n## Primer byte de un BOM UTF-8.\n	1220	1254	34	25	37	1	0
+28	Keyword(const)	const	1254	1259	37	1	37	6	0
+29	Identifier	SOURCE_BOM_0	1260	1272	37	7	37	19	0
+30	Keyword(as)	as	1273	1275	37	20	37	22	0
+31	Identifier	int	1276	1279	37	23	37	26	0
+32	Keyword(is)	is	1280	1282	37	27	37	29	0
+33	IntLit	0xEF	1283	1287	37	30	37	34	16
+34	Newline	\n\n## Segundo byte de un BOM UTF-8.\n	1287	1322	37	34	40	1	0
+35	Keyword(const)	const	1322	1327	40	1	40	6	0
+36	Identifier	SOURCE_BOM_1	1328	1340	40	7	40	19	0
+37	Keyword(as)	as	1341	1343	40	20	40	22	0
+38	Identifier	int	1344	1347	40	23	40	26	0
+39	Keyword(is)	is	1348	1350	40	27	40	29	0
+40	IntLit	0xBB	1351	1355	40	30	40	34	16
+41	Newline	\n\n## Tercer byte de un BOM UTF-8.\n	1355	1389	40	34	43	1	0
+42	Keyword(const)	const	1389	1394	43	1	43	6	0
+43	Identifier	SOURCE_BOM_2	1395	1407	43	7	43	19	0
+44	Keyword(as)	as	1408	1410	43	20	43	22	0
+45	Identifier	int	1411	1414	43	23	43	26	0
+46	Keyword(is)	is	1415	1417	43	27	43	29	0
+47	IntLit	0xBF	1418	1422	43	30	43	34	16
+48	Newline	\n\n## Byte de line feed.\n	1422	1446	43	34	46	1	0
+49	Keyword(const)	const	1446	1451	46	1	46	6	0
+50	Identifier	SOURCE_LF	1452	1461	46	7	46	16	0
+51	Keyword(as)	as	1462	1464	46	17	46	19	0
+52	Identifier	int	1465	1468	46	20	46	23	0
+53	Keyword(is)	is	1469	1471	46	24	46	26	0
+54	IntLit	10	1472	1474	46	27	46	29	10
+55	Newline	\n\n## Byte de carriage return.\n	1474	1504	46	29	49	1	0
+56	Keyword(const)	const	1504	1509	49	1	49	6	0
+57	Identifier	SOURCE_CR	1510	1519	49	7	49	16	0
+58	Keyword(as)	as	1520	1522	49	17	49	19	0
+59	Identifier	int	1523	1526	49	20	49	23	0
+60	Keyword(is)	is	1527	1529	49	24	49	26	0
+61	IntLit	13	1530	1532	49	27	49	29	10
+62	Newline	\n\n## Por qu\xc3\xa9 fall\xc3\xb3 una lectura de archivo.\n	1532	1577	49	29	52	1	0
+63	Keyword(omen)	omen	1577	1581	52	1	52	5	0
+64	Identifier	SourceErrorKind	1582	1597	52	6	52	21	0
+65	Colon	:	1597	1598	52	21	52	22	0
+66	Newline	\n    ## El archivo no se pudo leer (no existe, permisos, E/S).\n    	1598	1665	52	22	54	5	4
+67	Indent		1665	1665	54	5	54	5	4
+68	Identifier	SrcRead	1665	1672	54	5	54	12	0
+69	Newline	\n    ## La ruta no es utilizable como archivo.\n    	1672	1723	54	12	56	5	4
+70	Identifier	SrcInvalidPath	1723	1737	56	5	56	19	0
+71	Newline	\n\n## Error de carga de un archivo. No es un diagn\xc3\xb3stico l\xc3\xa9xico: no hay pspan.\n##\n## ## Memoria\n## `banish error` libera `path` y `message`.\n	1737	1879	56	19	62	1	0
+72	Dedent		1879	1879	62	1	62	1	0
+73	Keyword(rune)	rune	1879	1883	62	1	62	5	0
+74	Identifier	SourceError	1884	1895	62	6	62	17	0
+75	Keyword(derive)	derive	1896	1902	62	18	62	24	0
+76	Identifier	Nexus	1903	1908	62	25	62	30	0
+77	Colon	:	1908	1909	62	30	62	31	0
+78	Newline	\n    ## Categor\xc3\xada del fallo.\n    	1909	1943	62	31	64	5	4
+79	Indent		1943	1943	64	5	64	5	4
+80	Identifier	kind	1943	1947	64	5	64	9	0
+81	Keyword(as)	as	1948	1950	64	10	64	12	0
+82	Identifier	SourceErrorKind	1951	1966	64	13	64	28	0
+83	Newline	\n    ## Ruta solicitada.\n    	1966	1995	64	28	66	5	4
+84	Identifier	path	1995	1999	66	5	66	9	0
+85	Keyword(as)	as	2000	2002	66	10	66	12	0
+86	Identifier	string	2003	2009	66	13	66	19	0
+87	Newline	\n    ## Mensaje legible.\n    	2009	2038	66	19	68	5	4
+88	Identifier	message	2038	2045	68	5	68	12	0
+89	Keyword(as)	as	2046	2048	68	13	68	15	0
+90	Identifier	string	2049	2055	68	16	68	22	0
+91	Newline	\n\n## Construye un `SourceError` con copias propias de `path` y `message`.\n##\n## ## Memoria\n## Devuelve un valor owned; liberar con `banish`.\n	2055	2196	68	22	74	1	0
+92	Dedent		2196	2196	74	1	74	1	0
+93	Keyword(weave)	weave	2196	2201	74	1	74	6	0
+94	Identifier	source_error	2202	2214	74	7	74	19	0
+95	Keyword(with)	with	2215	2219	74	20	74	24	0
+96	Identifier	kind	2220	2224	74	25	74	29	0
+97	Keyword(as)	as	2225	2227	74	30	74	32	0
+98	Identifier	SourceErrorKind	2228	2243	74	33	74	48	0
+99	Comma	,	2243	2244	74	48	74	49	0
+100	Identifier	path	2245	2249	74	50	74	54	0
+101	Keyword(as)	as	2250	2252	74	55	74	57	0
+102	Identifier	string	2253	2259	74	58	74	64	0
+103	Comma	,	2259	2260	74	64	74	65	0
+104	Identifier	message	2261	2268	74	66	74	73	0
+105	Keyword(as)	as	2269	2271	74	74	74	76	0
+106	Identifier	string	2272	2278	74	77	74	83	0
+107	Keyword(into)	into	2279	2283	74	84	74	88	0
+108	Identifier	SourceError	2284	2295	74	89	74	100	0
+109	Colon	:	2295	2296	74	100	74	101	0
+110	Newline	\n    	2296	2301	74	101	75	5	4
+111	Indent		2301	2301	75	5	75	5	4
+112	Keyword(var)	var	2301	2304	75	5	75	8	0
+113	Identifier	p	2305	2306	75	9	75	10	0
+114	Keyword(as)	as	2307	2309	75	11	75	13	0
+115	Identifier	string	2310	2316	75	14	75	20	0
+116	Keyword(is)	is	2317	2319	75	21	75	23	0
+117	StringLit	"{path}"	2320	2328	75	24	75	32	0
+118	Newline	\n    	2328	2333	75	32	76	5	4
+119	Keyword(var)	var	2333	2336	76	5	76	8	0
+120	Identifier	m	2337	2338	76	9	76	10	0
+121	Keyword(as)	as	2339	2341	76	11	76	13	0
+122	Identifier	string	2342	2348	76	14	76	20	0
+123	Keyword(is)	is	2349	2351	76	21	76	23	0
+124	StringLit	"{message}"	2352	2363	76	24	76	35	1
+125	Newline	\n    	2363	2368	76	35	77	5	4
+126	Keyword(return)	return	2368	2374	77	5	77	11	0
+127	Keyword(with)	with	2375	2379	77	12	77	16	0
+128	Identifier	kind	2380	2384	77	17	77	21	0
+129	Keyword(is)	is	2385	2387	77	22	77	24	0
+130	Identifier	kind	2388	2392	77	25	77	29	0
+131	Comma	,	2392	2393	77	29	77	30	0
+132	Identifier	path	2394	2398	77	31	77	35	0
+133	Keyword(is)	is	2399	2401	77	36	77	38	0
+134	Identifier	p	2402	2403	77	39	77	40	0
+135	Comma	,	2403	2404	77	40	77	41	0
+136	Identifier	message	2405	2412	77	42	77	49	0
+137	Keyword(is)	is	2413	2415	77	50	77	52	0
+138	Identifier	m	2416	2417	77	53	77	54	0
+139	Newline	\n\n## Convierte los 32 bytes de un SHA-256 a hex min\xc3\xbasculas.\n##\n## `std.digest.sha256_hex` usa `ord (raw at i)`, que en 3.0.3 asigna un string\n## por byte y filtra. Este helper usa `bytes of` y un builder, sin temporales.\n##\n## ## Memoria\n## Devuelve un `string` owned; liberar con `banish`.\n	2417	2709	77	54	86	1	0
+140	Dedent		2709	2709	86	1	86	1	0
+141	Keyword(weave)	weave	2709	2714	86	1	86	6	0
+142	Identifier	sha256_hex_of	2715	2728	86	7	86	20	0
+143	Keyword(with)	with	2729	2733	86	21	86	25	0
+144	Identifier	raw_hash	2734	2742	86	26	86	34	0
+145	Keyword(as)	as	2743	2745	86	35	86	37	0
+146	Identifier	string	2746	2752	86	38	86	44	0
+147	Keyword(into)	into	2753	2757	86	45	86	49	0
+148	Identifier	string	2758	2764	86	50	86	56	0
+149	Colon	:	2764	2765	86	56	86	57	0
+150	Newline	\n    	2765	2770	86	57	87	5	4
+151	Indent		2770	2770	87	5	87	5	4
+152	Keyword(var)	var	2770	2773	87	5	87	8	0
+153	Identifier	sb	2774	2776	87	9	87	11	0
+154	Keyword(as)	as	2777	2779	87	12	87	14	0
+155	Identifier	StringBuilder	2780	2793	87	15	87	28	0
+156	Keyword(is)	is	2794	2796	87	29	87	31	0
+157	Keyword(calling)	calling	2797	2804	87	32	87	39	0
+158	Identifier	StringBuilder	2805	2818	87	40	87	53	0
+159	Dot	.	2818	2819	87	53	87	54	0
+160	Identifier	new	2819	2822	87	54	87	57	0
+161	Newline	\n    	2822	2827	87	57	88	5	4
+162	Keyword(defer)	defer	2827	2832	88	5	88	10	0
+163	Keyword(banish)	banish	2833	2839	88	11	88	17	0
+164	Identifier	sb	2840	2842	88	18	88	20	0
+165	Newline	\n    	2842	2847	88	20	89	5	4
+166	Keyword(var)	var	2847	2850	89	5	89	8	0
+167	Identifier	raw_bytes	2851	2860	89	9	89	18	0
+168	Keyword(as)	as	2861	2863	89	19	89	21	0
+169	Identifier	ref	2864	2867	89	22	89	25	0
+170	Keyword(to)	to	2868	2870	89	26	89	28	0
+171	Identifier	frozen	2871	2877	89	29	89	35	0
+172	Identifier	byte	2878	2882	89	36	89	40	0
+173	Keyword(is)	is	2883	2885	89	41	89	43	0
+174	Keyword(bytes)	bytes	2886	2891	89	44	89	49	0
+175	Keyword(of)	of	2892	2894	89	50	89	52	0
+176	Identifier	raw_hash	2895	2903	89	53	89	61	0
+177	Newline	\n    	2903	2908	89	61	90	5	4
+178	Keyword(var)	var	2908	2911	90	5	90	8	0
+179	Identifier	i	2912	2913	90	9	90	10	0
+180	Keyword(as)	as	2914	2916	90	11	90	13	0
+181	Identifier	int	2917	2920	90	14	90	17	0
+182	Keyword(is)	is	2921	2923	90	18	90	20	0
+183	IntLit	0	2924	2925	90	21	90	22	10
+184	Newline	\n    	2925	2930	90	22	91	5	4
+185	Keyword(var)	var	2930	2933	91	5	91	8	0
+186	Identifier	n	2934	2935	91	9	91	10	0
+187	Keyword(as)	as	2936	2938	91	11	91	13	0
+188	Identifier	int	2939	2942	91	14	91	17	0
+189	Keyword(is)	is	2943	2945	91	18	91	20	0
+190	Identifier	raw_hash	2946	2954	91	21	91	29	0
+191	Identifier	length	2955	2961	91	30	91	36	0
+192	Newline	\n    	2961	2966	91	36	92	5	4
+193	Keyword(while)	while	2966	2971	92	5	92	10	0
+194	Identifier	i	2972	2973	92	11	92	12	0
+195	Less	<	2974	2975	92	13	92	14	0
+196	Identifier	n	2976	2977	92	15	92	16	0
+197	Colon	:	2977	2978	92	16	92	17	0
+198	Newline	\n        	2978	2987	92	17	93	9	8
+199	Indent		2987	2987	93	9	93	9	8
+200	Keyword(var)	var	2987	2990	93	9	93	12	0
+201	Identifier	b	2991	2992	93	13	93	14	0
+202	Keyword(as)	as	2993	2995	93	15	93	17	0
+203	Identifier	int	2996	2999	93	18	93	21	0
+204	Keyword(is)	is	3000	3002	93	22	93	24	0
+205	LeftParen	(	3003	3004	93	25	93	26	0
+206	Identifier	raw_bytes	3004	3013	93	26	93	35	0
+207	Identifier	at	3014	3016	93	36	93	38	0
+208	Identifier	i	3017	3018	93	39	93	40	0
+209	RightParen	)	3018	3019	93	40	93	41	0
+210	Keyword(to)	to	3020	3022	93	42	93	44	0
+211	Identifier	int	3023	3026	93	45	93	48	0
+212	Newline	\n        	3026	3035	93	48	94	9	8
+213	Keyword(var)	var	3035	3038	94	9	94	12	0
+214	Identifier	hi	3039	3041	94	13	94	15	0
+215	Keyword(as)	as	3042	3044	94	16	94	18	0
+216	Identifier	int	3045	3048	94	19	94	22	0
+217	Keyword(is)	is	3049	3051	94	23	94	25	0
+218	LeftParen	(	3052	3053	94	26	94	27	0
+219	Identifier	b	3053	3054	94	27	94	28	0
+220	ShiftRight	>>	3055	3057	94	29	94	31	0
+221	IntLit	4	3058	3059	94	32	94	33	10
+222	RightParen	)	3059	3060	94	33	94	34	0
+223	Ampersand	&	3061	3062	94	35	94	36	0
+224	IntLit	0x0F	3063	3067	94	37	94	41	16
+225	Newline	\n        	3067	3076	94	41	95	9	8
+226	Keyword(var)	var	3076	3079	95	9	95	12	0
+227	Identifier	lo	3080	3082	95	13	95	15	0
+228	Keyword(as)	as	3083	3085	95	16	95	18	0
+229	Identifier	int	3086	3089	95	19	95	22	0
+230	Keyword(is)	is	3090	3092	95	23	95	25	0
+231	Identifier	b	3093	3094	95	26	95	27	0
+232	Ampersand	&	3095	3096	95	28	95	29	0
+233	IntLit	0x0F	3097	3101	95	30	95	34	16
+234	Newline	\n        	3101	3110	95	34	96	9	8
+235	Keyword(calling)	calling	3110	3117	96	9	96	16	0
+236	Identifier	sb	3118	3120	96	17	96	19	0
+237	Dot	.	3120	3121	96	19	96	20	0
+238	Identifier	append_char	3121	3132	96	20	96	31	0
+239	Keyword(with)	with	3133	3137	96	32	96	36	0
+240	LeftParen	(	3138	3139	96	37	96	38	0
+241	Keyword(calling)	calling	3139	3146	96	38	96	45	0
+242	Identifier	nibble_char	3147	3158	96	46	96	57	0
+243	Keyword(with)	with	3159	3163	96	58	96	62	0
+244	Identifier	hi	3164	3166	96	63	96	65	0
+245	RightParen	)	3166	3167	96	65	96	66	0
+246	Newline	\n        	3167	3176	96	66	97	9	8
+247	Keyword(calling)	calling	3176	3183	97	9	97	16	0
+248	Identifier	sb	3184	3186	97	17	97	19	0
+249	Dot	.	3186	3187	97	19	97	20	0
+250	Identifier	append_char	3187	3198	97	20	97	31	0
+251	Keyword(with)	with	3199	3203	97	32	97	36	0
+252	LeftParen	(	3204	3205	97	37	97	38	0
+253	Keyword(calling)	calling	3205	3212	97	38	97	45	0
+254	Identifier	nibble_char	3213	3224	97	46	97	57	0
+255	Keyword(with)	with	3225	3229	97	58	97	62	0
+256	Identifier	lo	3230	3232	97	63	97	65	0
+257	RightParen	)	3232	3233	97	65	97	66	0
+258	Newline	\n        	3233	3242	97	66	98	9	8
+259	Keyword(set)	set	3242	3245	98	9	98	12	0
+260	Identifier	i	3246	3247	98	13	98	14	0
+261	Keyword(is)	is	3248	3250	98	15	98	17	0
+262	Identifier	i	3251	3252	98	18	98	19	0
+263	Plus	+	3253	3254	98	20	98	21	0
+264	IntLit	1	3255	3256	98	22	98	23	10
+265	Newline	\n    	3256	3261	98	23	99	5	4
+266	Dedent		3261	3261	99	5	99	5	0
+267	Keyword(return)	return	3261	3267	99	5	99	11	0
+268	Keyword(calling)	calling	3268	3275	99	12	99	19	0
+269	Identifier	sb	3276	3278	99	20	99	22	0
+270	Dot	.	3278	3279	99	22	99	23	0
+271	Identifier	finish	3279	3285	99	23	99	29	0
+272	Newline	\n\n## Car\xc3\xa1cter hex de un nibble (0-15).\n##\n## ## Memoria\n## O(1), no asigna.\n	3285	3362	99	29	105	1	0
+273	Dedent		3362	3362	105	1	105	1	0
+274	Keyword(weave)	weave	3362	3367	105	1	105	6	0
+275	Identifier	nibble_char	3368	3379	105	7	105	18	0
+276	Keyword(with)	with	3380	3384	105	19	105	23	0
+277	Identifier	n	3385	3386	105	24	105	25	0
+278	Keyword(as)	as	3387	3389	105	26	105	28	0
+279	Identifier	int	3390	3393	105	29	105	32	0
+280	Keyword(into)	into	3394	3398	105	33	105	37	0
+281	Identifier	char	3399	3403	105	38	105	42	0
+282	Colon	:	3403	3404	105	42	105	43	0
+283	Newline	\n    	3404	3409	105	43	106	5	4
+284	Indent		3409	3409	106	5	106	5	4
+285	Keyword(if)	if	3409	3411	106	5	106	7	0
+286	Identifier	n	3412	3413	106	8	106	9	0
+287	Less	<	3414	3415	106	10	106	11	0
+288	IntLit	10	3416	3418	106	12	106	14	10
+289	Colon	:	3418	3419	106	14	106	15	0
+290	Newline	\n        	3419	3428	106	15	107	9	8
+291	Indent		3428	3428	107	9	107	9	8
+292	Keyword(return)	return	3428	3434	107	9	107	15	0
+293	LeftParen	(	3435	3436	107	16	107	17	0
+294	IntLit	48	3436	3438	107	17	107	19	10
+295	Plus	+	3439	3440	107	20	107	21	0
+296	Identifier	n	3441	3442	107	22	107	23	0
+297	RightParen	)	3442	3443	107	23	107	24	0
+298	Keyword(to)	to	3444	3446	107	25	107	27	0
+299	Identifier	char	3447	3451	107	28	107	32	0
+300	Newline	\n    	3451	3456	107	32	108	5	4
+301	Dedent		3456	3456	108	5	108	5	0
+302	Keyword(return)	return	3456	3462	108	5	108	11	0
+303	LeftParen	(	3463	3464	108	12	108	13	0
+304	IntLit	87	3464	3466	108	13	108	15	10
+305	Plus	+	3467	3468	108	16	108	17	0
+306	Identifier	n	3469	3470	108	18	108	19	0
+307	RightParen	)	3470	3471	108	19	108	20	0
+308	Keyword(to)	to	3472	3474	108	21	108	23	0
+309	Identifier	char	3475	3479	108	24	108	28	0
+310	Newline	\n\n## Un archivo fuente inmutable.\n##\n## ## Memoria\n## `banish file` libera `path`, `text`, `line_starts` y `sha256`.\n	3479	3596	108	28	114	1	0
+311	Dedent		3596	3596	114	1	114	1	0
+312	Keyword(rune)	rune	3596	3600	114	1	114	5	0
+313	Identifier	SourceFile	3601	3611	114	6	114	16	0
+314	Keyword(derive)	derive	3612	3618	114	17	114	23	0
+315	Identifier	Nexus	3619	3624	114	24	114	29	0
+316	Colon	:	3624	3625	114	29	114	30	0
+317	Newline	\n    ## Ruta l\xc3\xb3gica usada en diagn\xc3\xb3sticos (la que pas\xc3\xb3 el llamador).\n    	3625	3701	114	30	116	5	4
+318	Indent		3701	3701	116	5	116	5	4
+319	Identifier	path	3701	3705	116	5	116	9	0
+320	Keyword(as)	as	3706	3708	116	10	116	12	0
+321	Identifier	string	3709	3715	116	13	116	19	0
+322	Newline	\n    ## Bytes sin BOM; CRLF preservado.\n    	3715	3759	116	19	118	5	4
+323	Identifier	text	3759	3763	118	5	118	9	0
+324	Keyword(as)	as	3764	3766	118	10	118	12	0
+325	Identifier	string	3767	3773	118	13	118	19	0
+326	Newline	\n    ## Offset del primer byte de cada l\xc3\xadnea. Siempre empieza en 0.\n    	3773	3846	118	19	120	5	4
+327	Identifier	line_starts	3846	3857	120	5	120	16	0
+328	Keyword(as)	as	3858	3860	120	17	120	19	0
+329	Identifier	list	3861	3865	120	20	120	24	0
+330	Keyword(of)	of	3866	3868	120	25	120	27	0
+331	Identifier	int	3869	3872	120	28	120	31	0
+332	Newline	\n    ## SHA-256 hex de los bytes originales (incluye BOM y CRLF).\n    	3872	3942	120	31	122	5	4
+333	Identifier	sha256	3942	3948	122	5	122	11	0
+334	Keyword(as)	as	3949	3951	122	12	122	14	0
+335	Identifier	string	3952	3958	122	15	122	21	0
+336	Newline	\n    ## Bytes de BOM eliminados al principio.\n    	3958	4008	122	21	124	5	4
+337	Identifier	bom_len	4008	4015	124	5	124	12	0
+338	Keyword(as)	as	4016	4018	124	13	124	15	0
+339	Identifier	int	4019	4022	124	16	124	19	0
+340	Newline	\n    ## Longitud original del archivo en bytes.\n    	4022	4074	124	19	126	5	4
+341	Identifier	raw_len	4074	4081	126	5	126	12	0
+342	Keyword(as)	as	4082	4084	126	13	126	15	0
+343	Identifier	int	4085	4088	126	16	126	19	0
+344	Newline	\n\n	4088	4090	126	19	128	1	0
+345	Dedent		4090	4090	128	1	128	1	0
+346	Keyword(enchanting)	enchanting	4090	4100	128	1	128	11	0
+347	Identifier	SourceFile	4101	4111	128	12	128	22	0
+348	Colon	:	4111	4112	128	22	128	23	0
+349	Newline	\n    ## Construye un `SourceFile` desde bytes crudos.\n    ##\n    ## Quita todos los BOM iniciales, conserva CRLF y calcula el SHA-256 de\n    ## `raw` (antes de quitar el BOM).\n    ##\n    ## ## Par\xc3\xa1metros\n    ## - `path`: ruta l\xc3\xb3gica; se copia.\n    ## - `raw`: contenido binario; se copia.\n    ##\n    ## ## Memoria\n    ## Asigna `text`, `line_starts`, `sha256` y `path`. Liberar con `banish`.\n    	4112	4510	128	23	140	5	4
+350	Indent		4510	4510	140	5	140	5	4
+351	Keyword(weave)	weave	4510	4515	140	5	140	10	0
+352	Identifier	ritual	4516	4522	140	11	140	17	0
+353	Identifier	from_bytes	4523	4533	140	18	140	28	0
+354	Keyword(with)	with	4534	4538	140	29	140	33	0
+355	Identifier	path	4539	4543	140	34	140	38	0
+356	Keyword(as)	as	4544	4546	140	39	140	41	0
+357	Identifier	string	4547	4553	140	42	140	48	0
+358	Comma	,	4553	4554	140	48	140	49	0
+359	Identifier	raw	4555	4558	140	50	140	53	0
+360	Keyword(as)	as	4559	4561	140	54	140	56	0
+361	Identifier	string	4562	4568	140	57	140	63	0
+362	Keyword(into)	into	4569	4573	140	64	140	68	0
+363	Identifier	SourceFile	4574	4584	140	69	140	79	0
+364	Colon	:	4584	4585	140	79	140	80	0
+365	Newline	\n        	4585	4594	140	80	141	9	8
+366	Indent		4594	4594	141	9	141	9	8
+367	Keyword(var)	var	4594	4597	141	9	141	12	0
+368	Identifier	n	4598	4599	141	13	141	14	0
+369	Keyword(as)	as	4600	4602	141	15	141	17	0
+370	Identifier	int	4603	4606	141	18	141	21	0
+371	Keyword(is)	is	4607	4609	141	22	141	24	0
+372	Identifier	raw	4610	4613	141	25	141	28	0
+373	Identifier	length	4614	4620	141	29	141	35	0
+374	Newline	\n        	4620	4629	141	35	142	9	8
+375	Keyword(var)	var	4629	4632	142	9	142	12	0
+376	Identifier	scan	4633	4637	142	13	142	17	0
+377	Keyword(as)	as	4638	4640	142	18	142	20	0
+378	Identifier	int	4641	4644	142	21	142	24	0
+379	Keyword(is)	is	4645	4647	142	25	142	27	0
+380	IntLit	0	4648	4649	142	28	142	29	10
+381	Newline	\n        	4649	4658	142	29	143	9	8
+382	Keyword(var)	var	4658	4661	143	9	143	12	0
+383	Identifier	rb	4662	4664	143	13	143	15	0
+384	Keyword(as)	as	4665	4667	143	16	143	18	0
+385	Identifier	ref	4668	4671	143	19	143	22	0
+386	Keyword(to)	to	4672	4674	143	23	143	25	0
+387	Identifier	frozen	4675	4681	143	26	143	32	0
+388	Identifier	byte	4682	4686	143	33	143	37	0
+389	Keyword(is)	is	4687	4689	143	38	143	40	0
+390	Keyword(bytes)	bytes	4690	4695	143	41	143	46	0
+391	Keyword(of)	of	4696	4698	143	47	143	49	0
+392	Identifier	raw	4699	4702	143	50	143	53	0
+393	Newline	\n        	4702	4711	143	53	144	9	8
+394	Keyword(while)	while	4711	4716	144	9	144	14	0
+395	Identifier	scan	4717	4721	144	15	144	19	0
+396	Plus	+	4722	4723	144	20	144	21	0
+397	IntLit	2	4724	4725	144	22	144	23	10
+398	Less	<	4726	4727	144	24	144	25	0
+399	Identifier	n	4728	4729	144	26	144	27	0
+400	Colon	:	4729	4730	144	27	144	28	0
+401	Newline	\n            	4730	4743	144	28	145	13	12
+402	Indent		4743	4743	145	13	145	13	12
+403	Keyword(if)	if	4743	4745	145	13	145	15	0
+404	LeftParen	(	4746	4747	145	16	145	17	0
+405	LeftParen	(	4747	4748	145	17	145	18	0
+406	Identifier	rb	4748	4750	145	18	145	20	0
+407	Identifier	at	4751	4753	145	21	145	23	0
+408	Identifier	scan	4754	4758	145	24	145	28	0
+409	RightParen	)	4758	4759	145	28	145	29	0
+410	Keyword(to)	to	4760	4762	145	30	145	32	0
+411	Identifier	int	4763	4766	145	33	145	36	0
+412	RightParen	)	4766	4767	145	36	145	37	0
+413	NotEqual	!=	4768	4770	145	38	145	40	0
+414	Identifier	SOURCE_BOM_0	4771	4783	145	41	145	53	0
+415	Colon	:	4783	4784	145	53	145	54	0
+416	Newline	\n                	4784	4801	145	54	146	17	16
+417	Indent		4801	4801	146	17	146	17	16
+418	Keyword(break)	break	4801	4806	146	17	146	22	0
+419	Newline	\n            	4806	4819	146	22	147	13	12
+420	Dedent		4819	4819	147	13	147	13	0
+421	Keyword(if)	if	4819	4821	147	13	147	15	0
+422	LeftParen	(	4822	4823	147	16	147	17	0
+423	LeftParen	(	4823	4824	147	17	147	18	0
+424	Identifier	rb	4824	4826	147	18	147	20	0
+425	Identifier	at	4827	4829	147	21	147	23	0
+426	LeftParen	(	4830	4831	147	24	147	25	0
+427	Identifier	scan	4831	4835	147	25	147	29	0
+428	Plus	+	4836	4837	147	30	147	31	0
+429	IntLit	1	4838	4839	147	32	147	33	10
+430	RightParen	)	4839	4840	147	33	147	34	0
+431	RightParen	)	4840	4841	147	34	147	35	0
+432	Keyword(to)	to	4842	4844	147	36	147	38	0
+433	Identifier	int	4845	4848	147	39	147	42	0
+434	RightParen	)	4848	4849	147	42	147	43	0
+435	NotEqual	!=	4850	4852	147	44	147	46	0
+436	Identifier	SOURCE_BOM_1	4853	4865	147	47	147	59	0
+437	Colon	:	4865	4866	147	59	147	60	0
+438	Newline	\n                	4866	4883	147	60	148	17	16
+439	Indent		4883	4883	148	17	148	17	16
+440	Keyword(break)	break	4883	4888	148	17	148	22	0
+441	Newline	\n            	4888	4901	148	22	149	13	12
+442	Dedent		4901	4901	149	13	149	13	0
+443	Keyword(if)	if	4901	4903	149	13	149	15	0
+444	LeftParen	(	4904	4905	149	16	149	17	0
+445	LeftParen	(	4905	4906	149	17	149	18	0
+446	Identifier	rb	4906	4908	149	18	149	20	0
+447	Identifier	at	4909	4911	149	21	149	23	0
+448	LeftParen	(	4912	4913	149	24	149	25	0
+449	Identifier	scan	4913	4917	149	25	149	29	0
+450	Plus	+	4918	4919	149	30	149	31	0
+451	IntLit	2	4920	4921	149	32	149	33	10
+452	RightParen	)	4921	4922	149	33	149	34	0
+453	RightParen	)	4922	4923	149	34	149	35	0
+454	Keyword(to)	to	4924	4926	149	36	149	38	0
+455	Identifier	int	4927	4930	149	39	149	42	0
+456	RightParen	)	4930	4931	149	42	149	43	0
+457	NotEqual	!=	4932	4934	149	44	149	46	0
+458	Identifier	SOURCE_BOM_2	4935	4947	149	47	149	59	0
+459	Colon	:	4947	4948	149	59	149	60	0
+460	Newline	\n                	4948	4965	149	60	150	17	16
+461	Indent		4965	4965	150	17	150	17	16
+462	Keyword(break)	break	4965	4970	150	17	150	22	0
+463	Newline	\n            	4970	4983	150	22	151	13	12
+464	Dedent		4983	4983	151	13	151	13	0
+465	Keyword(set)	set	4983	4986	151	13	151	16	0
+466	Identifier	scan	4987	4991	151	17	151	21	0
+467	Keyword(is)	is	4992	4994	151	22	151	24	0
+468	Identifier	scan	4995	4999	151	25	151	29	0
+469	Plus	+	5000	5001	151	30	151	31	0
+470	IntLit	3	5002	5003	151	32	151	33	10
+471	Newline	\n        	5003	5012	151	33	152	9	8
+472	Dedent		5012	5012	152	9	152	9	0
+473	Keyword(var)	var	5012	5015	152	9	152	12	0
+474	Identifier	tlen	5016	5020	152	13	152	17	0
+475	Keyword(as)	as	5021	5023	152	18	152	20	0
+476	Identifier	int	5024	5027	152	21	152	24	0
+477	Keyword(is)	is	5028	5030	152	25	152	27	0
+478	Identifier	n	5031	5032	152	28	152	29	0
+479	Minus	-	5033	5034	152	30	152	31	0
+480	Identifier	scan	5035	5039	152	32	152	36	0
+481	Newline	\n        	5039	5048	152	36	153	9	8
+482	Keyword(var)	var	5048	5051	153	9	153	12	0
+483	Identifier	text	5052	5056	153	13	153	17	0
+484	Keyword(as)	as	5057	5059	153	18	153	20	0
+485	Identifier	string	5060	5066	153	21	153	27	0
+486	Keyword(is)	is	5067	5069	153	28	153	30	0
+487	Identifier	raw	5070	5073	153	31	153	34	0
+488	Identifier	at	5074	5076	153	35	153	37	0
+489	Identifier	scan	5077	5081	153	38	153	42	0
+490	Keyword(to)	to	5082	5084	153	43	153	45	0
+491	Identifier	n	5085	5086	153	46	153	47	0
+492	Newline	\n        	5086	5095	153	47	154	9	8
+493	Keyword(var)	var	5095	5098	154	9	154	12	0
+494	Identifier	raw_hash	5099	5107	154	13	154	21	0
+495	Keyword(as)	as	5108	5110	154	22	154	24	0
+496	Identifier	string	5111	5117	154	25	154	31	0
+497	Keyword(is)	is	5118	5120	154	32	154	34	0
+498	Keyword(calling)	calling	5121	5128	154	35	154	42	0
+499	Identifier	digest	5129	5135	154	43	154	49	0
+500	Dot	.	5135	5136	154	49	154	50	0
+501	Identifier	sha256_raw	5136	5146	154	50	154	60	0
+502	Keyword(with)	with	5147	5151	154	61	154	65	0
+503	Identifier	raw	5152	5155	154	66	154	69	0
+504	Newline	\n        	5155	5164	154	69	155	9	8
+505	Keyword(var)	var	5164	5167	155	9	155	12	0
+506	Identifier	hash	5168	5172	155	13	155	17	0
+507	Keyword(as)	as	5173	5175	155	18	155	20	0
+508	Identifier	string	5176	5182	155	21	155	27	0
+509	Keyword(is)	is	5183	5185	155	28	155	30	0
+510	Keyword(calling)	calling	5186	5193	155	31	155	38	0
+511	Identifier	sha256_hex_of	5194	5207	155	39	155	52	0
+512	Keyword(with)	with	5208	5212	155	53	155	57	0
+513	Identifier	raw_hash	5213	5221	155	58	155	66	0
+514	Newline	\n        	5221	5230	155	66	156	9	8
+515	Keyword(banish)	banish	5230	5236	156	9	156	15	0
+516	Identifier	raw_hash	5237	5245	156	16	156	24	0
+517	Newline	\n        	5245	5254	156	24	157	9	8
+518	Keyword(var)	var	5254	5257	157	9	157	12	0
+519	Identifier	starts	5258	5264	157	13	157	19	0
+520	Keyword(as)	as	5265	5267	157	20	157	22	0
+521	Identifier	list	5268	5272	157	23	157	27	0
+522	Keyword(of)	of	5273	5275	157	28	157	30	0
+523	Identifier	int	5276	5279	157	31	157	34	0
+524	Keyword(is)	is	5280	5282	157	35	157	37	0
+525	Identifier	list	5283	5287	157	38	157	42	0
+526	Keyword(of)	of	5288	5290	157	43	157	45	0
+527	Identifier	int	5291	5294	157	46	157	49	0
+528	Newline	\n        	5294	5303	157	49	158	9	8
+529	Keyword(calling)	calling	5303	5310	158	9	158	16	0
+530	Identifier	starts	5311	5317	158	17	158	23	0
+531	Dot	.	5317	5318	158	23	158	24	0
+532	Identifier	push	5318	5322	158	24	158	28	0
+533	Keyword(with)	with	5323	5327	158	29	158	33	0
+534	IntLit	0	5328	5329	158	34	158	35	10
+535	Newline	\n        	5329	5338	158	35	159	9	8
+536	Keyword(var)	var	5338	5341	159	9	159	12	0
+537	Identifier	i	5342	5343	159	13	159	14	0
+538	Keyword(as)	as	5344	5346	159	15	159	17	0
+539	Identifier	int	5347	5350	159	18	159	21	0
+540	Keyword(is)	is	5351	5353	159	22	159	24	0
+541	IntLit	0	5354	5355	159	25	159	26	10
+542	Newline	\n        	5355	5364	159	26	160	9	8
+543	Keyword(var)	var	5364	5367	160	9	160	12	0
+544	Identifier	tb	5368	5370	160	13	160	15	0
+545	Keyword(as)	as	5371	5373	160	16	160	18	0
+546	Identifier	ref	5374	5377	160	19	160	22	0
+547	Keyword(to)	to	5378	5380	160	23	160	25	0
+548	Identifier	frozen	5381	5387	160	26	160	32	0
+549	Identifier	byte	5388	5392	160	33	160	37	0
+550	Keyword(is)	is	5393	5395	160	38	160	40	0
+551	Keyword(bytes)	bytes	5396	5401	160	41	160	46	0
+552	Keyword(of)	of	5402	5404	160	47	160	49	0
+553	Identifier	text	5405	5409	160	50	160	54	0
+554	Newline	\n        	5409	5418	160	54	161	9	8
+555	Keyword(while)	while	5418	5423	161	9	161	14	0
+556	Identifier	i	5424	5425	161	15	161	16	0
+557	Less	<	5426	5427	161	17	161	18	0
+558	Identifier	tlen	5428	5432	161	19	161	23	0
+559	Colon	:	5432	5433	161	23	161	24	0
+560	Newline	\n            	5433	5446	161	24	162	13	12
+561	Indent		5446	5446	162	13	162	13	12
+562	Keyword(if)	if	5446	5448	162	13	162	15	0
+563	LeftParen	(	5449	5450	162	16	162	17	0
+564	LeftParen	(	5450	5451	162	17	162	18	0
+565	Identifier	tb	5451	5453	162	18	162	20	0
+566	Identifier	at	5454	5456	162	21	162	23	0
+567	Identifier	i	5457	5458	162	24	162	25	0
+568	RightParen	)	5458	5459	162	25	162	26	0
+569	Keyword(to)	to	5460	5462	162	27	162	29	0
+570	Identifier	int	5463	5466	162	30	162	33	0
+571	RightParen	)	5466	5467	162	33	162	34	0
+572	Equal	==	5468	5470	162	35	162	37	0
+573	Identifier	SOURCE_LF	5471	5480	162	38	162	47	0
+574	Colon	:	5480	5481	162	47	162	48	0
+575	Newline	\n                	5481	5498	162	48	163	17	16
+576	Indent		5498	5498	163	17	163	17	16
+577	Keyword(calling)	calling	5498	5505	163	17	163	24	0
+578	Identifier	starts	5506	5512	163	25	163	31	0
+579	Dot	.	5512	5513	163	31	163	32	0
+580	Identifier	push	5513	5517	163	32	163	36	0
+581	Keyword(with)	with	5518	5522	163	37	163	41	0
+582	Identifier	i	5523	5524	163	42	163	43	0
+583	Plus	+	5525	5526	163	44	163	45	0
+584	IntLit	1	5527	5528	163	46	163	47	10
+585	Newline	\n            	5528	5541	163	47	164	13	12
+586	Dedent		5541	5541	164	13	164	13	0
+587	Keyword(set)	set	5541	5544	164	13	164	16	0
+588	Identifier	i	5545	5546	164	17	164	18	0
+589	Keyword(is)	is	5547	5549	164	19	164	21	0
+590	Identifier	i	5550	5551	164	22	164	23	0
+591	Plus	+	5552	5553	164	24	164	25	0
+592	IntLit	1	5554	5555	164	26	164	27	10
+593	Newline	\n        	5555	5564	164	27	165	9	8
+594	Dedent		5564	5564	165	9	165	9	0
+595	Keyword(var)	var	5564	5567	165	9	165	12	0
+596	Identifier	p	5568	5569	165	13	165	14	0
+597	Keyword(as)	as	5570	5572	165	15	165	17	0
+598	Identifier	string	5573	5579	165	18	165	24	0
+599	Keyword(is)	is	5580	5582	165	25	165	27	0
+600	StringLit	"{path}"	5583	5591	165	28	165	36	2
+601	Newline	\n        	5591	5600	165	36	166	9	8
+602	Keyword(return)	return	5600	5606	166	9	166	15	0
+603	Keyword(with)	with	5607	5611	166	16	166	20	0
+604	Identifier	path	5612	5616	166	21	166	25	0
+605	Keyword(is)	is	5617	5619	166	26	166	28	0
+606	Identifier	p	5620	5621	166	29	166	30	0
+607	Comma	,	5621	5622	166	30	166	31	0
+608	Identifier	text	5623	5627	166	32	166	36	0
+609	Keyword(is)	is	5628	5630	166	37	166	39	0
+610	Identifier	text	5631	5635	166	40	166	44	0
+611	Comma	,	5635	5636	166	44	166	45	0
+612	Identifier	line_starts	5637	5648	166	46	166	57	0
+613	Keyword(is)	is	5649	5651	166	58	166	60	0
+614	Identifier	starts	5652	5658	166	61	166	67	0
+615	Comma	,	5658	5659	166	67	166	68	0
+616	Identifier	sha256	5660	5666	166	69	166	75	0
+617	Keyword(is)	is	5667	5669	166	76	166	78	0
+618	Identifier	hash	5670	5674	166	79	166	83	0
+619	Comma	,	5674	5675	166	83	166	84	0
+620	Identifier	bom_len	5676	5683	166	85	166	92	0
+621	Keyword(is)	is	5684	5686	166	93	166	95	0
+622	Identifier	scan	5687	5691	166	96	166	100	0
+623	Comma	,	5691	5692	166	100	166	101	0
+624	Identifier	raw_len	5693	5700	166	102	166	109	0
+625	Keyword(is)	is	5701	5703	166	110	166	112	0
+626	Identifier	n	5704	5705	166	113	166	114	0
+627	Newline	\n\n    ## Alias de `from_bytes` para texto ya en memoria (LSP, tests).\n    ##\n    ## ## Memoria\n    ## Igual que `from_bytes`.\n    	5705	5835	166	114	172	5	4
+628	Dedent		5835	5835	172	5	172	5	0
+629	Keyword(weave)	weave	5835	5840	172	5	172	10	0
+630	Identifier	ritual	5841	5847	172	11	172	17	0
+631	Identifier	from_text	5848	5857	172	18	172	27	0
+632	Keyword(with)	with	5858	5862	172	28	172	32	0
+633	Identifier	path	5863	5867	172	33	172	37	0
+634	Keyword(as)	as	5868	5870	172	38	172	40	0
+635	Identifier	string	5871	5877	172	41	172	47	0
+636	Comma	,	5877	5878	172	47	172	48	0
+637	Identifier	text	5879	5883	172	49	172	53	0
+638	Keyword(as)	as	5884	5886	172	54	172	56	0
+639	Identifier	string	5887	5893	172	57	172	63	0
+640	Keyword(into)	into	5894	5898	172	64	172	68	0
+641	Identifier	SourceFile	5899	5909	172	69	172	79	0
+642	Colon	:	5909	5910	172	79	172	80	0
+643	Newline	\n        	5910	5919	172	80	173	9	8
+644	Indent		5919	5919	173	9	173	9	8
+645	Keyword(return)	return	5919	5925	173	9	173	15	0
+646	Keyword(calling)	calling	5926	5933	173	16	173	23	0
+647	Identifier	SourceFile	5934	5944	173	24	173	34	0
+648	Dot	.	5944	5945	173	34	173	35	0
+649	Identifier	from_bytes	5945	5955	173	35	173	45	0
+650	Keyword(with)	with	5956	5960	173	46	173	50	0
+651	Identifier	path	5961	5965	173	51	173	55	0
+652	Comma	,	5965	5966	173	55	173	56	0
+653	Identifier	text	5967	5971	173	57	173	61	0
+654	Newline	\n\n    # ------------------------------------------------------------------\n    # Consultas b\xc3\xa1sicas\n    # ------------------------------------------------------------------\n\n    ## Ruta l\xc3\xb3gica del archivo (prestada).\n    	5971	6193	173	61	180	5	4
+655	Dedent		6193	6193	180	5	180	5	0
+656	Keyword(weave)	weave	6193	6198	180	5	180	10	0
+657	Identifier	get_path	6199	6207	180	11	180	19	0
+658	Keyword(into)	into	6208	6212	180	20	180	24	0
+659	Identifier	string	6213	6219	180	25	180	31	0
+660	Colon	:	6219	6220	180	31	180	32	0
+661	Newline	\n        	6220	6229	180	32	181	9	8
+662	Indent		6229	6229	181	9	181	9	8
+663	Keyword(return)	return	6229	6235	181	9	181	15	0
+664	Identifier	self	6236	6240	181	16	181	20	0
+665	Arrow	->	6240	6242	181	20	181	22	0
+666	Identifier	path	6242	6246	181	22	181	26	0
+667	Newline	\n\n    ## Texto sin BOM (prestado).\n    	6246	6285	181	26	184	5	4
+668	Dedent		6285	6285	184	5	184	5	0
+669	Keyword(weave)	weave	6285	6290	184	5	184	10	0
+670	Identifier	get_text	6291	6299	184	11	184	19	0
+671	Keyword(into)	into	6300	6304	184	20	184	24	0
+672	Identifier	string	6305	6311	184	25	184	31	0
+673	Colon	:	6311	6312	184	31	184	32	0
+674	Newline	\n        	6312	6321	184	32	185	9	8
+675	Indent		6321	6321	185	9	185	9	8
+676	Keyword(return)	return	6321	6327	185	9	185	15	0
+677	Identifier	self	6328	6332	185	16	185	20	0
+678	Arrow	->	6332	6334	185	20	185	22	0
+679	Identifier	text	6334	6338	185	22	185	26	0
+680	Newline	\n\n    ## Longitud del texto en bytes.\n    	6338	6380	185	26	188	5	4
+681	Dedent		6380	6380	188	5	188	5	0
+682	Keyword(weave)	weave	6380	6385	188	5	188	10	0
+683	Identifier	byte_len	6386	6394	188	11	188	19	0
+684	Keyword(into)	into	6395	6399	188	20	188	24	0
+685	Identifier	int	6400	6403	188	25	188	28	0
+686	Colon	:	6403	6404	188	28	188	29	0
+687	Newline	\n        	6404	6413	188	29	189	9	8
+688	Indent		6413	6413	189	9	189	9	8
+689	Keyword(var)	var	6413	6416	189	9	189	12	0
+690	Identifier	t	6417	6418	189	13	189	14	0
+691	Keyword(as)	as	6419	6421	189	15	189	17	0
+692	Identifier	string	6422	6428	189	18	189	24	0
+693	Keyword(is)	is	6429	6431	189	25	189	27	0
+694	Identifier	self	6432	6436	189	28	189	32	0
+695	Arrow	->	6436	6438	189	32	189	34	0
+696	Identifier	text	6438	6442	189	34	189	38	0
+697	Newline	\n        	6442	6451	189	38	190	9	8
+698	Keyword(return)	return	6451	6457	190	9	190	15	0
+699	Identifier	t	6458	6459	190	16	190	17	0
+700	Identifier	length	6460	6466	190	18	190	24	0
+701	Newline	\n\n    ## N\xc3\xbamero de l\xc3\xadneas. Un archivo vac\xc3\xado tiene una l\xc3\xadnea vac\xc3\xada.\n    	6466	6542	190	24	193	5	4
+702	Dedent		6542	6542	193	5	193	5	0
+703	Keyword(weave)	weave	6542	6547	193	5	193	10	0
+704	Identifier	line_count	6548	6558	193	11	193	21	0
+705	Keyword(into)	into	6559	6563	193	22	193	26	0
+706	Identifier	int	6564	6567	193	27	193	30	0
+707	Colon	:	6567	6568	193	30	193	31	0
+708	Newline	\n        	6568	6577	193	31	194	9	8
+709	Indent		6577	6577	194	9	194	9	8
+710	Keyword(return)	return	6577	6583	194	9	194	15	0
+711	Identifier	self	6584	6588	194	16	194	20	0
+712	Arrow	->	6588	6590	194	20	194	22	0
+713	Identifier	line_starts	6590	6601	194	22	194	33	0
+714	Dot	.	6601	6602	194	33	194	34	0
+715	Identifier	len	6602	6605	194	34	194	37	0
+716	Newline	\n\n    ## SHA-256 hex de los bytes originales (prestado).\n    	6605	6666	194	37	197	5	4
+717	Dedent		6666	6666	197	5	197	5	0
+718	Keyword(weave)	weave	6666	6671	197	5	197	10	0
+719	Identifier	get_sha256	6672	6682	197	11	197	21	0
+720	Keyword(into)	into	6683	6687	197	22	197	26	0
+721	Identifier	string	6688	6694	197	27	197	33	0
+722	Colon	:	6694	6695	197	33	197	34	0
+723	Newline	\n        	6695	6704	197	34	198	9	8
+724	Indent		6704	6704	198	9	198	9	8
+725	Keyword(return)	return	6704	6710	198	9	198	15	0
+726	Identifier	self	6711	6715	198	16	198	20	0
+727	Arrow	->	6715	6717	198	20	198	22	0
+728	Identifier	sha256	6717	6723	198	22	198	28	0
+729	Newline	\n\n    ## Bytes de BOM eliminados.\n    	6723	6761	198	28	201	5	4
+730	Dedent		6761	6761	201	5	201	5	0
+731	Keyword(weave)	weave	6761	6766	201	5	201	10	0
+732	Identifier	get_bom_len	6767	6778	201	11	201	22	0
+733	Keyword(into)	into	6779	6783	201	23	201	27	0
+734	Identifier	int	6784	6787	201	28	201	31	0
+735	Colon	:	6787	6788	201	31	201	32	0
+736	Newline	\n        	6788	6797	201	32	202	9	8
+737	Indent		6797	6797	202	9	202	9	8
+738	Keyword(return)	return	6797	6803	202	9	202	15	0
+739	Identifier	self	6804	6808	202	16	202	20	0
+740	Arrow	->	6808	6810	202	20	202	22	0
+741	Identifier	bom_len	6810	6817	202	22	202	29	0
+742	Newline	\n\n    ## Longitud original del archivo.\n    	6817	6861	202	29	205	5	4
+743	Dedent		6861	6861	205	5	205	5	0
+744	Keyword(weave)	weave	6861	6866	205	5	205	10	0
+745	Identifier	get_raw_len	6867	6878	205	11	205	22	0
+746	Keyword(into)	into	6879	6883	205	23	205	27	0
+747	Identifier	int	6884	6887	205	28	205	31	0
+748	Colon	:	6887	6888	205	31	205	32	0
+749	Newline	\n        	6888	6897	205	32	206	9	8
+750	Indent		6897	6897	206	9	206	9	8
+751	Keyword(return)	return	6897	6903	206	9	206	15	0
+752	Identifier	self	6904	6908	206	16	206	20	0
+753	Arrow	->	6908	6910	206	20	206	22	0
+754	Identifier	raw_len	6910	6917	206	22	206	29	0
+755	Newline	\n\n    ## Convierte un offset del texto sin BOM al offset del archivo original.\n    	6917	7000	206	29	209	5	4
+756	Dedent		7000	7000	209	5	209	5	0
+757	Keyword(weave)	weave	7000	7005	209	5	209	10	0
+758	Identifier	file_offset	7006	7017	209	11	209	22	0
+759	Keyword(with)	with	7018	7022	209	23	209	27	0
+760	Identifier	offset	7023	7029	209	28	209	34	0
+761	Keyword(as)	as	7030	7032	209	35	209	37	0
+762	Identifier	int	7033	7036	209	38	209	41	0
+763	Keyword(into)	into	7037	7041	209	42	209	46	0
+764	Identifier	int	7042	7045	209	47	209	50	0
+765	Colon	:	7045	7046	209	50	209	51	0
+766	Newline	\n        	7046	7055	209	51	210	9	8
+767	Indent		7055	7055	210	9	210	9	8
+768	Keyword(return)	return	7055	7061	210	9	210	15	0
+769	Identifier	offset	7062	7068	210	16	210	22	0
+770	Plus	+	7069	7070	210	23	210	24	0
+771	Identifier	self	7071	7075	210	25	210	29	0
+772	Arrow	->	7075	7077	210	29	210	31	0
+773	Identifier	bom_len	7077	7084	210	31	210	38	0
+774	Newline	\n\n    ## `true` cuando `offset` est\xc3\xa1 en `[0, byte_len]`.\n    	7084	7146	210	38	213	5	4
+775	Dedent		7146	7146	213	5	213	5	0
+776	Keyword(weave)	weave	7146	7151	213	5	213	10	0
+777	Identifier	is_valid_offset	7152	7167	213	11	213	26	0
+778	Keyword(with)	with	7168	7172	213	27	213	31	0
+779	Identifier	offset	7173	7179	213	32	213	38	0
+780	Keyword(as)	as	7180	7182	213	39	213	41	0
+781	Identifier	int	7183	7186	213	42	213	45	0
+782	Keyword(into)	into	7187	7191	213	46	213	50	0
+783	Identifier	bool	7192	7196	213	51	213	55	0
+784	Colon	:	7196	7197	213	55	213	56	0
+785	Newline	\n        	7197	7206	213	56	214	9	8
+786	Indent		7206	7206	214	9	214	9	8
+787	Keyword(return)	return	7206	7212	214	9	214	15	0
+788	Identifier	offset	7213	7219	214	16	214	22	0
+789	GreaterOrEqual	>=	7220	7222	214	23	214	25	0
+790	IntLit	0	7223	7224	214	26	214	27	10
+791	Keyword(and)	and	7225	7228	214	28	214	31	0
+792	Identifier	offset	7229	7235	214	32	214	38	0
+793	LessOrEqual	<=	7236	7238	214	39	214	41	0
+794	LeftParen	(	7239	7240	214	42	214	43	0
+795	Keyword(calling)	calling	7240	7247	214	43	214	50	0
+796	Identifier	self	7248	7252	214	51	214	55	0
+797	Dot	.	7252	7253	214	55	214	56	0
+798	Identifier	byte_len	7253	7261	214	56	214	64	0
+799	RightParen	)	7261	7262	214	64	214	65	0
+800	Newline	\n\n    # ------------------------------------------------------------------\n    # Offset <-> (line, col)\n    # ------------------------------------------------------------------\n\n    ## Convierte un offset de byte a `(line, col)` 1-indexed.\n    ##\n    ## Los offsets fuera de rango se clampan. `position_at(byte_len)` es la\n    ## posici\xc3\xb3n justo despu\xc3\xa9s del \xc3\xbaltimo byte.\n    ##\n    ## ## Memoria\n    ## O(log l\xc3\xadneas), no asigna.\n    	7262	7698	214	65	227	5	4
+801	Dedent		7698	7698	227	5	227	5	0
+802	Keyword(weave)	weave	7698	7703	227	5	227	10	0
+803	Identifier	position_at	7704	7715	227	11	227	22	0
+804	Keyword(with)	with	7716	7720	227	23	227	27	0
+805	Identifier	offset	7721	7727	227	28	227	34	0
+806	Keyword(as)	as	7728	7730	227	35	227	37	0
+807	Identifier	int	7731	7734	227	38	227	41	0
+808	Keyword(into)	into	7735	7739	227	42	227	46	0
+809	Identifier	sourcemap	7740	7749	227	47	227	56	0
+810	Dot	.	7749	7750	227	56	227	57	0
+811	Identifier	Position	7750	7758	227	57	227	65	0
+812	Colon	:	7758	7759	227	65	227	66	0
+813	Newline	\n        	7759	7768	227	66	228	9	8
+814	Indent		7768	7768	228	9	228	9	8
+815	Keyword(var)	var	7768	7771	228	9	228	12	0
+816	Identifier	off	7772	7775	228	13	228	16	0
+817	Keyword(as)	as	7776	7778	228	17	228	19	0
+818	Identifier	int	7779	7782	228	20	228	23	0
+819	Keyword(is)	is	7783	7785	228	24	228	26	0
+820	Identifier	offset	7786	7792	228	27	228	33	0
+821	Newline	\n        	7792	7801	228	33	229	9	8
+822	Keyword(if)	if	7801	7803	229	9	229	11	0
+823	Identifier	off	7804	7807	229	12	229	15	0
+824	Less	<	7808	7809	229	16	229	17	0
+825	IntLit	0	7810	7811	229	18	229	19	10
+826	Colon	:	7811	7812	229	19	229	20	0
+827	Newline	\n            	7812	7825	229	20	230	13	12
+828	Indent		7825	7825	230	13	230	13	12
+829	Keyword(set)	set	7825	7828	230	13	230	16	0
+830	Identifier	off	7829	7832	230	17	230	20	0
+831	Keyword(is)	is	7833	7835	230	21	230	23	0
+832	IntLit	0	7836	7837	230	24	230	25	10
+833	Newline	\n        	7837	7846	230	25	231	9	8
+834	Dedent		7846	7846	231	9	231	9	0
+835	Keyword(var)	var	7846	7849	231	9	231	12	0
+836	Identifier	n	7850	7851	231	13	231	14	0
+837	Keyword(as)	as	7852	7854	231	15	231	17	0
+838	Identifier	int	7855	7858	231	18	231	21	0
+839	Keyword(is)	is	7859	7861	231	22	231	24	0
+840	LeftParen	(	7862	7863	231	25	231	26	0
+841	Keyword(calling)	calling	7863	7870	231	26	231	33	0
+842	Identifier	self	7871	7875	231	34	231	38	0
+843	Dot	.	7875	7876	231	38	231	39	0
+844	Identifier	byte_len	7876	7884	231	39	231	47	0
+845	RightParen	)	7884	7885	231	47	231	48	0
+846	Newline	\n        	7885	7894	231	48	232	9	8
+847	Keyword(if)	if	7894	7896	232	9	232	11	0
+848	Identifier	off	7897	7900	232	12	232	15	0
+849	Greater	>	7901	7902	232	16	232	17	0
+850	Identifier	n	7903	7904	232	18	232	19	0
+851	Colon	:	7904	7905	232	19	232	20	0
+852	Newline	\n            	7905	7918	232	20	233	13	12
+853	Indent		7918	7918	233	13	233	13	12
+854	Keyword(set)	set	7918	7921	233	13	233	16	0
+855	Identifier	off	7922	7925	233	17	233	20	0
+856	Keyword(is)	is	7926	7928	233	21	233	23	0
+857	Identifier	n	7929	7930	233	24	233	25	0
+858	Newline	\n        	7930	7939	233	25	234	9	8
+859	Dedent		7939	7939	234	9	234	9	0
+860	Keyword(var)	var	7939	7942	234	9	234	12	0
+861	Identifier	lo	7943	7945	234	13	234	15	0
+862	Keyword(as)	as	7946	7948	234	16	234	18	0
+863	Identifier	int	7949	7952	234	19	234	22	0
+864	Keyword(is)	is	7953	7955	234	23	234	25	0
+865	IntLit	0	7956	7957	234	26	234	27	10
+866	Newline	\n        	7957	7966	234	27	235	9	8
+867	Keyword(var)	var	7966	7969	235	9	235	12	0
+868	Identifier	hi	7970	7972	235	13	235	15	0
+869	Keyword(as)	as	7973	7975	235	16	235	18	0
+870	Identifier	int	7976	7979	235	19	235	22	0
+871	Keyword(is)	is	7980	7982	235	23	235	25	0
+872	Identifier	self	7983	7987	235	26	235	30	0
+873	Arrow	->	7987	7989	235	30	235	32	0
+874	Identifier	line_starts	7989	8000	235	32	235	43	0
+875	Dot	.	8000	8001	235	43	235	44	0
+876	Identifier	len	8001	8004	235	44	235	47	0
+877	Minus	-	8005	8006	235	48	235	49	0
+878	IntLit	1	8007	8008	235	50	235	51	10
+879	Newline	\n        	8008	8017	235	51	236	9	8
+880	Keyword(while)	while	8017	8022	236	9	236	14	0
+881	Identifier	lo	8023	8025	236	15	236	17	0
+882	Less	<	8026	8027	236	18	236	19	0
+883	Identifier	hi	8028	8030	236	20	236	22	0
+884	Colon	:	8030	8031	236	22	236	23	0
+885	Newline	\n            	8031	8044	236	23	237	13	12
+886	Indent		8044	8044	237	13	237	13	12
+887	Keyword(var)	var	8044	8047	237	13	237	16	0
+888	Identifier	mid	8048	8051	237	17	237	20	0
+889	Keyword(as)	as	8052	8054	237	21	237	23	0
+890	Identifier	int	8055	8058	237	24	237	27	0
+891	Keyword(is)	is	8059	8061	237	28	237	30	0
+892	LeftParen	(	8062	8063	237	31	237	32	0
+893	Identifier	lo	8063	8065	237	32	237	34	0
+894	Plus	+	8066	8067	237	35	237	36	0
+895	Identifier	hi	8068	8070	237	37	237	39	0
+896	Plus	+	8071	8072	237	40	237	41	0
+897	IntLit	1	8073	8074	237	42	237	43	10
+898	RightParen	)	8074	8075	237	43	237	44	0
+899	Slash	/	8076	8077	237	45	237	46	0
+900	IntLit	2	8078	8079	237	47	237	48	10
+901	Newline	\n            	8079	8092	237	48	238	13	12
+902	Keyword(if)	if	8092	8094	238	13	238	15	0
+903	LeftParen	(	8095	8096	238	16	238	17	0
+904	Identifier	self	8096	8100	238	17	238	21	0
+905	Arrow	->	8100	8102	238	21	238	23	0
+906	Identifier	line_starts	8102	8113	238	23	238	34	0
+907	Identifier	at	8114	8116	238	35	238	37	0
+908	Identifier	mid	8117	8120	238	38	238	41	0
+909	RightParen	)	8120	8121	238	41	238	42	0
+910	LessOrEqual	<=	8122	8124	238	43	238	45	0
+911	Identifier	off	8125	8128	238	46	238	49	0
+912	Colon	:	8128	8129	238	49	238	50	0
+913	Newline	\n                	8129	8146	238	50	239	17	16
+914	Indent		8146	8146	239	17	239	17	16
+915	Keyword(set)	set	8146	8149	239	17	239	20	0
+916	Identifier	lo	8150	8152	239	21	239	23	0
+917	Keyword(is)	is	8153	8155	239	24	239	26	0
+918	Identifier	mid	8156	8159	239	27	239	30	0
+919	Newline	\n            	8159	8172	239	30	240	13	12
+920	Dedent		8172	8172	240	13	240	13	0
+921	Keyword(else)	else	8172	8176	240	13	240	17	0
+922	Colon	:	8176	8177	240	17	240	18	0
+923	Newline	\n                	8177	8194	240	18	241	17	16
+924	Indent		8194	8194	241	17	241	17	16
+925	Keyword(set)	set	8194	8197	241	17	241	20	0
+926	Identifier	hi	8198	8200	241	21	241	23	0
+927	Keyword(is)	is	8201	8203	241	24	241	26	0
+928	Identifier	mid	8204	8207	241	27	241	30	0
+929	Minus	-	8208	8209	241	31	241	32	0
+930	IntLit	1	8210	8211	241	33	241	34	10
+931	Newline	\n        	8211	8220	241	34	242	9	8
+932	Dedent		8220	8220	242	9	242	9	0
+933	Dedent		8220	8220	242	9	242	9	0
+934	Keyword(var)	var	8220	8223	242	9	242	12	0
+935	Identifier	start	8224	8229	242	13	242	18	0
+936	Keyword(as)	as	8230	8232	242	19	242	21	0
+937	Identifier	int	8233	8236	242	22	242	25	0
+938	Keyword(is)	is	8237	8239	242	26	242	28	0
+939	Identifier	self	8240	8244	242	29	242	33	0
+940	Arrow	->	8244	8246	242	33	242	35	0
+941	Identifier	line_starts	8246	8257	242	35	242	46	0
+942	Identifier	at	8258	8260	242	47	242	49	0
+943	Identifier	lo	8261	8263	242	50	242	52	0
+944	Newline	\n        	8263	8272	242	52	243	9	8
+945	Keyword(return)	return	8272	8278	243	9	243	15	0
+946	Keyword(with)	with	8279	8283	243	16	243	20	0
+947	Identifier	line	8284	8288	243	21	243	25	0
+948	Keyword(is)	is	8289	8291	243	26	243	28	0
+949	LeftParen	(	8292	8293	243	29	243	30	0
+950	Identifier	lo	8293	8295	243	30	243	32	0
+951	Plus	+	8296	8297	243	33	243	34	0
+952	IntLit	1	8298	8299	243	35	243	36	10
+953	RightParen	)	8299	8300	243	36	243	37	0
+954	Comma	,	8300	8301	243	37	243	38	0
+955	Identifier	col	8302	8305	243	39	243	42	0
+956	Keyword(is)	is	8306	8308	243	43	243	45	0
+957	LeftParen	(	8309	8310	243	46	243	47	0
+958	Identifier	off	8310	8313	243	47	243	50	0
+959	Minus	-	8314	8315	243	51	243	52	0
+960	Identifier	start	8316	8321	243	53	243	58	0
+961	Plus	+	8322	8323	243	59	243	60	0
+962	IntLit	1	8324	8325	243	61	243	62	10
+963	RightParen	)	8325	8326	243	62	243	63	0
+964	Newline	\n\n    ## Convierte `(line, col)` 1-indexed a un offset de byte.\n    ##\n    ## Panica si la posici\xc3\xb3n no existe. Los usos internos de PSC prefieren\n    ## `span_at`, que clampa.\n    ##\n    ## ## Memoria\n    ## O(1), no asigna.\n    	8326	8556	243	63	252	5	4
+965	Dedent		8556	8556	252	5	252	5	0
+966	Keyword(weave)	weave	8556	8561	252	5	252	10	0
+967	Identifier	offset_of	8562	8571	252	11	252	20	0
+968	Keyword(with)	with	8572	8576	252	21	252	25	0
+969	Identifier	line	8577	8581	252	26	252	30	0
+970	Keyword(as)	as	8582	8584	252	31	252	33	0
+971	Identifier	int	8585	8588	252	34	252	37	0
+972	Comma	,	8588	8589	252	37	252	38	0
+973	Identifier	col	8590	8593	252	39	252	42	0
+974	Keyword(as)	as	8594	8596	252	43	252	45	0
+975	Identifier	int	8597	8600	252	46	252	49	0
+976	Keyword(into)	into	8601	8605	252	50	252	54	0
+977	Identifier	int	8606	8609	252	55	252	58	0
+978	Colon	:	8609	8610	252	58	252	59	0
+979	Newline	\n        	8610	8619	252	59	253	9	8
+980	Indent		8619	8619	253	9	253	9	8
+981	Keyword(if)	if	8619	8621	253	9	253	11	0
+982	Identifier	line	8622	8626	253	12	253	16	0
+983	Less	<	8627	8628	253	17	253	18	0
+984	IntLit	1	8629	8630	253	19	253	20	10
+985	Keyword(or)	or	8631	8633	253	21	253	23	0
+986	Identifier	line	8634	8638	253	24	253	28	0
+987	Greater	>	8639	8640	253	29	253	30	0
+988	Identifier	self	8641	8645	253	31	253	35	0
+989	Arrow	->	8645	8647	253	35	253	37	0
+990	Identifier	line_starts	8647	8658	253	37	253	48	0
+991	Dot	.	8658	8659	253	48	253	49	0
+992	Identifier	len	8659	8662	253	49	253	52	0
+993	Colon	:	8662	8663	253	52	253	53	0
+994	Newline	\n            	8663	8676	253	53	254	13	12
+995	Indent		8676	8676	254	13	254	13	12
+996	Keyword(calling)	calling	8676	8683	254	13	254	20	0
+997	Identifier	spark	8684	8689	254	21	254	26	0
+998	Dot	.	8689	8690	254	26	254	27	0
+999	Identifier	panic	8690	8695	254	27	254	32	0
+1000	Keyword(with)	with	8696	8700	254	33	254	37	0
+1001	StringLit	"SourceFile.offset_of: line out of range"	8701	8742	254	38	254	79	3
+1002	Newline	\n        	8742	8751	254	79	255	9	8
+1003	Dedent		8751	8751	255	9	255	9	0
+1004	Keyword(if)	if	8751	8753	255	9	255	11	0
+1005	Identifier	col	8754	8757	255	12	255	15	0
+1006	Less	<	8758	8759	255	16	255	17	0
+1007	IntLit	1	8760	8761	255	18	255	19	10
+1008	Colon	:	8761	8762	255	19	255	20	0
+1009	Newline	\n            	8762	8775	255	20	256	13	12
+1010	Indent		8775	8775	256	13	256	13	12
+1011	Keyword(calling)	calling	8775	8782	256	13	256	20	0
+1012	Identifier	spark	8783	8788	256	21	256	26	0
+1013	Dot	.	8788	8789	256	26	256	27	0
+1014	Identifier	panic	8789	8794	256	27	256	32	0
+1015	Keyword(with)	with	8795	8799	256	33	256	37	0
+1016	StringLit	"SourceFile.offset_of: column must be >= 1"	8800	8843	256	38	256	81	4
+1017	Newline	\n        	8843	8852	256	81	257	9	8
+1018	Dedent		8852	8852	257	9	257	9	0
+1019	Keyword(var)	var	8852	8855	257	9	257	12	0
+1020	Identifier	start	8856	8861	257	13	257	18	0
+1021	Keyword(as)	as	8862	8864	257	19	257	21	0
+1022	Identifier	int	8865	8868	257	22	257	25	0
+1023	Keyword(is)	is	8869	8871	257	26	257	28	0
+1024	Identifier	self	8872	8876	257	29	257	33	0
+1025	Arrow	->	8876	8878	257	33	257	35	0
+1026	Identifier	line_starts	8878	8889	257	35	257	46	0
+1027	Identifier	at	8890	8892	257	47	257	49	0
+1028	LeftParen	(	8893	8894	257	50	257	51	0
+1029	Identifier	line	8894	8898	257	51	257	55	0
+1030	Minus	-	8899	8900	257	56	257	57	0
+1031	IntLit	1	8901	8902	257	58	257	59	10
+1032	RightParen	)	8902	8903	257	59	257	60	0
+1033	Newline	\n        	8903	8912	257	60	258	9	8
+1034	Keyword(var)	var	8912	8915	258	9	258	12	0
+1035	Identifier	off	8916	8919	258	13	258	16	0
+1036	Keyword(as)	as	8920	8922	258	17	258	19	0
+1037	Identifier	int	8923	8926	258	20	258	23	0
+1038	Keyword(is)	is	8927	8929	258	24	258	26	0
+1039	Identifier	start	8930	8935	258	27	258	32	0
+1040	Plus	+	8936	8937	258	33	258	34	0
+1041	Identifier	col	8938	8941	258	35	258	38	0
+1042	Minus	-	8942	8943	258	39	258	40	0
+1043	IntLit	1	8944	8945	258	41	258	42	10
+1044	Newline	\n        	8945	8954	258	42	259	9	8
+1045	Keyword(if)	if	8954	8956	259	9	259	11	0
+1046	Identifier	line	8957	8961	259	12	259	16	0
+1047	Less	<	8962	8963	259	17	259	18	0
+1048	Identifier	self	8964	8968	259	19	259	23	0
+1049	Arrow	->	8968	8970	259	23	259	25	0
+1050	Identifier	line_starts	8970	8981	259	25	259	36	0
+1051	Dot	.	8981	8982	259	36	259	37	0
+1052	Identifier	len	8982	8985	259	37	259	40	0
+1053	Colon	:	8985	8986	259	40	259	41	0
+1054	Newline	\n            	8986	8999	259	41	260	13	12
+1055	Indent		8999	8999	260	13	260	13	12
+1056	Keyword(var)	var	8999	9002	260	13	260	16	0
+1057	Identifier	next_start	9003	9013	260	17	260	27	0
+1058	Keyword(as)	as	9014	9016	260	28	260	30	0
+1059	Identifier	int	9017	9020	260	31	260	34	0
+1060	Keyword(is)	is	9021	9023	260	35	260	37	0
+1061	Identifier	self	9024	9028	260	38	260	42	0
+1062	Arrow	->	9028	9030	260	42	260	44	0
+1063	Identifier	line_starts	9030	9041	260	44	260	55	0
+1064	Identifier	at	9042	9044	260	56	260	58	0
+1065	Identifier	line	9045	9049	260	59	260	63	0
+1066	Newline	\n            	9049	9062	260	63	261	13	12
+1067	Keyword(if)	if	9062	9064	261	13	261	15	0
+1068	Identifier	off	9065	9068	261	16	261	19	0
+1069	GreaterOrEqual	>=	9069	9071	261	20	261	22	0
+1070	Identifier	next_start	9072	9082	261	23	261	33	0
+1071	Colon	:	9082	9083	261	33	261	34	0
+1072	Newline	\n                	9083	9100	261	34	262	17	16
+1073	Indent		9100	9100	262	17	262	17	16
+1074	Keyword(calling)	calling	9100	9107	262	17	262	24	0
+1075	Identifier	spark	9108	9113	262	25	262	30	0
+1076	Dot	.	9113	9114	262	30	262	31	0
+1077	Identifier	panic	9114	9119	262	31	262	36	0
+1078	Keyword(with)	with	9120	9124	262	37	262	41	0
+1079	StringLit	"SourceFile.offset_of: column past end of line"	9125	9172	262	42	262	89	5
+1080	Newline	\n        	9172	9181	262	89	263	9	8
+1081	Dedent		9181	9181	263	9	263	9	0
+1082	Dedent		9181	9181	263	9	263	9	0
+1083	Keyword(else)	else	9181	9185	263	9	263	13	0
+1084	Colon	:	9185	9186	263	13	263	14	0
+1085	Newline	\n            	9186	9199	263	14	264	13	12
+1086	Indent		9199	9199	264	13	264	13	12
+1087	Keyword(if)	if	9199	9201	264	13	264	15	0
+1088	Identifier	off	9202	9205	264	16	264	19	0
+1089	Greater	>	9206	9207	264	20	264	21	0
+1090	LeftParen	(	9208	9209	264	22	264	23	0
+1091	Keyword(calling)	calling	9209	9216	264	23	264	30	0
+1092	Identifier	self	9217	9221	264	31	264	35	0
+1093	Dot	.	9221	9222	264	35	264	36	0
+1094	Identifier	byte_len	9222	9230	264	36	264	44	0
+1095	RightParen	)	9230	9231	264	44	264	45	0
+1096	Colon	:	9231	9232	264	45	264	46	0
+1097	Newline	\n                	9232	9249	264	46	265	17	16
+1098	Indent		9249	9249	265	17	265	17	16
+1099	Keyword(calling)	calling	9249	9256	265	17	265	24	0
+1100	Identifier	spark	9257	9262	265	25	265	30	0
+1101	Dot	.	9262	9263	265	30	265	31	0
+1102	Identifier	panic	9263	9268	265	31	265	36	0
+1103	Keyword(with)	with	9269	9273	265	37	265	41	0
+1104	StringLit	"SourceFile.offset_of: column past end of source"	9274	9323	265	42	265	91	6
+1105	Newline	\n        	9323	9332	265	91	266	9	8
+1106	Dedent		9332	9332	266	9	266	9	0
+1107	Dedent		9332	9332	266	9	266	9	0
+1108	Keyword(return)	return	9332	9338	266	9	266	15	0
+1109	Identifier	off	9339	9342	266	16	266	19	0
+1110	Newline	\n\n    ## Texto de una l\xc3\xadnea (1-indexed), sin `\\n` ni `\\r\\n`.\n    ##\n    ## ## Retorno\n    ## Un `string` owned; liberar con `banish`.\n    ##\n    ## ## Memoria\n    ## Asigna la longitud de la l\xc3\xadnea.\n    	9342	9546	266	19	275	5	4
+1111	Dedent		9546	9546	275	5	275	5	0
+1112	Keyword(weave)	weave	9546	9551	275	5	275	10	0
+1113	Identifier	line_text	9552	9561	275	11	275	20	0
+1114	Keyword(with)	with	9562	9566	275	21	275	25	0
+1115	Identifier	line	9567	9571	275	26	275	30	0
+1116	Keyword(as)	as	9572	9574	275	31	275	33	0
+1117	Identifier	int	9575	9578	275	34	275	37	0
+1118	Keyword(into)	into	9579	9583	275	38	275	42	0
+1119	Identifier	string	9584	9590	275	43	275	49	0
+1120	Colon	:	9590	9591	275	49	275	50	0
+1121	Newline	\n        	9591	9600	275	50	276	9	8
+1122	Indent		9600	9600	276	9	276	9	8
+1123	Keyword(if)	if	9600	9602	276	9	276	11	0
+1124	Identifier	line	9603	9607	276	12	276	16	0
+1125	Less	<	9608	9609	276	17	276	18	0
+1126	IntLit	1	9610	9611	276	19	276	20	10
+1127	Keyword(or)	or	9612	9614	276	21	276	23	0
+1128	Identifier	line	9615	9619	276	24	276	28	0
+1129	Greater	>	9620	9621	276	29	276	30	0
+1130	Identifier	self	9622	9626	276	31	276	35	0
+1131	Arrow	->	9626	9628	276	35	276	37	0
+1132	Identifier	line_starts	9628	9639	276	37	276	48	0
+1133	Dot	.	9639	9640	276	48	276	49	0
+1134	Identifier	len	9640	9643	276	49	276	52	0
+1135	Colon	:	9643	9644	276	52	276	53	0
+1136	Newline	\n            	9644	9657	276	53	277	13	12
+1137	Indent		9657	9657	277	13	277	13	12
+1138	Keyword(calling)	calling	9657	9664	277	13	277	20	0
+1139	Identifier	spark	9665	9670	277	21	277	26	0
+1140	Dot	.	9670	9671	277	26	277	27	0
+1141	Identifier	panic	9671	9676	277	27	277	32	0
+1142	Keyword(with)	with	9677	9681	277	33	277	37	0
+1143	StringLit	"SourceFile.line_text: line out of range"	9682	9723	277	38	277	79	7
+1144	Newline	\n        	9723	9732	277	79	278	9	8
+1145	Dedent		9732	9732	278	9	278	9	0
+1146	Keyword(var)	var	9732	9735	278	9	278	12	0
+1147	Identifier	start	9736	9741	278	13	278	18	0
+1148	Keyword(as)	as	9742	9744	278	19	278	21	0
+1149	Identifier	int	9745	9748	278	22	278	25	0
+1150	Keyword(is)	is	9749	9751	278	26	278	28	0
+1151	Identifier	self	9752	9756	278	29	278	33	0
+1152	Arrow	->	9756	9758	278	33	278	35	0
+1153	Identifier	line_starts	9758	9769	278	35	278	46	0
+1154	Identifier	at	9770	9772	278	47	278	49	0
+1155	LeftParen	(	9773	9774	278	50	278	51	0
+1156	Identifier	line	9774	9778	278	51	278	55	0
+1157	Minus	-	9779	9780	278	56	278	57	0
+1158	IntLit	1	9781	9782	278	58	278	59	10
+1159	RightParen	)	9782	9783	278	59	278	60	0
+1160	Newline	\n        	9783	9792	278	60	279	9	8
+1161	Keyword(var)	var	9792	9795	279	9	279	12	0
+1162	Identifier	end	9796	9799	279	13	279	16	0
+1163	Keyword(as)	as	9800	9802	279	17	279	19	0
+1164	Identifier	int	9803	9806	279	20	279	23	0
+1165	Keyword(is)	is	9807	9809	279	24	279	26	0
+1166	Keyword(calling)	calling	9810	9817	279	27	279	34	0
+1167	Identifier	self	9818	9822	279	35	279	39	0
+1168	Dot	.	9822	9823	279	39	279	40	0
+1169	Identifier	_line_end_offset	9823	9839	279	40	279	56	0
+1170	Keyword(with)	with	9840	9844	279	57	279	61	0
+1171	Identifier	line	9845	9849	279	62	279	66	0
+1172	Newline	\n        	9849	9858	279	66	280	9	8
+1173	Keyword(return)	return	9858	9864	280	9	280	15	0
+1174	Identifier	self	9865	9869	280	16	280	20	0
+1175	Arrow	->	9869	9871	280	20	280	22	0
+1176	Identifier	text	9871	9875	280	22	280	26	0
+1177	Identifier	at	9876	9878	280	27	280	29	0
+1178	Identifier	start	9879	9884	280	30	280	35	0
+1179	Keyword(to)	to	9885	9887	280	36	280	38	0
+1180	Identifier	end	9888	9891	280	39	280	42	0
+1181	Newline	\n\n    ## Rango que cubre una l\xc3\xadnea sin su terminador.\n    ##\n    ## ## Memoria\n    ## Asigna un temporal para medir la l\xc3\xadnea; devuelve un valor.\n    	9891	10042	280	42	286	5	4
+1182	Dedent		10042	10042	286	5	286	5	0
+1183	Keyword(weave)	weave	10042	10047	286	5	286	10	0
+1184	Identifier	line_span	10048	10057	286	11	286	20	0
+1185	Keyword(with)	with	10058	10062	286	21	286	25	0
+1186	Identifier	line	10063	10067	286	26	286	30	0
+1187	Keyword(as)	as	10068	10070	286	31	286	33	0
+1188	Identifier	int	10071	10074	286	34	286	37	0
+1189	Keyword(into)	into	10075	10079	286	38	286	42	0
+1190	Identifier	pspan	10080	10085	286	43	286	48	0
+1191	Dot	.	10085	10086	286	48	286	49	0
+1192	Identifier	ByteSpan	10086	10094	286	49	286	57	0
+1193	Colon	:	10094	10095	286	57	286	58	0
+1194	Newline	\n        	10095	10104	286	58	287	9	8
+1195	Indent		10104	10104	287	9	287	9	8
+1196	Keyword(var)	var	10104	10107	287	9	287	12	0
+1197	Identifier	start	10108	10113	287	13	287	18	0
+1198	Keyword(as)	as	10114	10116	287	19	287	21	0
+1199	Identifier	int	10117	10120	287	22	287	25	0
+1200	Keyword(is)	is	10121	10123	287	26	287	28	0
+1201	Identifier	self	10124	10128	287	29	287	33	0
+1202	Arrow	->	10128	10130	287	33	287	35	0
+1203	Identifier	line_starts	10130	10141	287	35	287	46	0
+1204	Identifier	at	10142	10144	287	47	287	49	0
+1205	LeftParen	(	10145	10146	287	50	287	51	0
+1206	Identifier	line	10146	10150	287	51	287	55	0
+1207	Minus	-	10151	10152	287	56	287	57	0
+1208	IntLit	1	10153	10154	287	58	287	59	10
+1209	RightParen	)	10154	10155	287	59	287	60	0
+1210	Newline	\n        	10155	10164	287	60	288	9	8
+1211	Keyword(var)	var	10164	10167	288	9	288	12	0
+1212	Identifier	end	10168	10171	288	13	288	16	0
+1213	Keyword(as)	as	10172	10174	288	17	288	19	0
+1214	Identifier	int	10175	10178	288	20	288	23	0
+1215	Keyword(is)	is	10179	10181	288	24	288	26	0
+1216	Keyword(calling)	calling	10182	10189	288	27	288	34	0
+1217	Identifier	self	10190	10194	288	35	288	39	0
+1218	Dot	.	10194	10195	288	39	288	40	0
+1219	Identifier	_line_end_offset	10195	10211	288	40	288	56	0
+1220	Keyword(with)	with	10212	10216	288	57	288	61	0
+1221	Identifier	line	10217	10221	288	62	288	66	0
+1222	Newline	\n        	10221	10230	288	66	289	9	8
+1223	Keyword(return)	return	10230	10236	289	9	289	15	0
+1224	Keyword(with)	with	10237	10241	289	16	289	20	0
+1225	Identifier	start	10242	10247	289	21	289	26	0
+1226	Keyword(is)	is	10248	10250	289	27	289	29	0
+1227	Identifier	start	10251	10256	289	30	289	35	0
+1228	Comma	,	10256	10257	289	35	289	36	0
+1229	Identifier	end	10258	10261	289	37	289	40	0
+1230	Keyword(is)	is	10262	10264	289	41	289	43	0
+1231	Identifier	end	10265	10268	289	44	289	47	0
+1232	Newline	\n\n    ## Posici\xc3\xb3n del final del archivo.\n    ##\n    ## ## Memoria\n    ## O(log l\xc3\xadneas), no asigna.\n    	10268	10373	289	47	295	5	4
+1233	Dedent		10373	10373	295	5	295	5	0
+1234	Keyword(weave)	weave	10373	10378	295	5	295	10	0
+1235	Identifier	eof_position	10379	10391	295	11	295	23	0
+1236	Keyword(into)	into	10392	10396	295	24	295	28	0
+1237	Identifier	sourcemap	10397	10406	295	29	295	38	0
+1238	Dot	.	10406	10407	295	38	295	39	0
+1239	Identifier	Position	10407	10415	295	39	295	47	0
+1240	Colon	:	10415	10416	295	47	295	48	0
+1241	Newline	\n        	10416	10425	295	48	296	9	8
+1242	Indent		10425	10425	296	9	296	9	8
+1243	Keyword(return)	return	10425	10431	296	9	296	15	0
+1244	Keyword(calling)	calling	10432	10439	296	16	296	23	0
+1245	Identifier	self	10440	10444	296	24	296	28	0
+1246	Dot	.	10444	10445	296	28	296	29	0
+1247	Identifier	position_at	10445	10456	296	29	296	40	0
+1248	Keyword(with)	with	10457	10461	296	41	296	45	0
+1249	LeftParen	(	10462	10463	296	46	296	47	0
+1250	Keyword(calling)	calling	10463	10470	296	47	296	54	0
+1251	Identifier	self	10471	10475	296	55	296	59	0
+1252	Dot	.	10475	10476	296	59	296	60	0
+1253	Identifier	byte_len	10476	10484	296	60	296	68	0
+1254	RightParen	)	10484	10485	296	68	296	69	0
+1255	Newline	\n\n    # ------------------------------------------------------------------\n    # Spans y slicing\n    # ------------------------------------------------------------------\n\n    ## Convierte un `ByteSpan` en el `ByteSpan` normalizado del archivo.\n    ##\n    ## ## Memoria\n    ## O(1), no asigna.\n    	10485	10782	296	69	306	5	4
+1256	Dedent		10782	10782	306	5	306	5	0
+1257	Keyword(weave)	weave	10782	10787	306	5	306	10	0
+1258	Identifier	span_at	10788	10795	306	11	306	18	0
+1259	Keyword(with)	with	10796	10800	306	19	306	23	0
+1260	Identifier	start	10801	10806	306	24	306	29	0
+1261	Keyword(as)	as	10807	10809	306	30	306	32	0
+1262	Identifier	int	10810	10813	306	33	306	36	0
+1263	Comma	,	10813	10814	306	36	306	37	0
+1264	Identifier	end	10815	10818	306	38	306	41	0
+1265	Keyword(as)	as	10819	10821	306	42	306	44	0
+1266	Identifier	int	10822	10825	306	45	306	48	0
+1267	Keyword(into)	into	10826	10830	306	49	306	53	0
+1268	Identifier	pspan	10831	10836	306	54	306	59	0
+1269	Dot	.	10836	10837	306	59	306	60	0
+1270	Identifier	ByteSpan	10837	10845	306	60	306	68	0
+1271	Colon	:	10845	10846	306	68	306	69	0
+1272	Newline	\n        	10846	10855	306	69	307	9	8
+1273	Indent		10855	10855	307	9	307	9	8
+1274	Keyword(var)	var	10855	10858	307	9	307	12	0
+1275	Identifier	s	10859	10860	307	13	307	14	0
+1276	Keyword(as)	as	10861	10863	307	15	307	17	0
+1277	Identifier	pspan	10864	10869	307	18	307	23	0
+1278	Dot	.	10869	10870	307	23	307	24	0
+1279	Identifier	ByteSpan	10870	10878	307	24	307	32	0
+1280	Keyword(is)	is	10879	10881	307	33	307	35	0
+1281	Keyword(with)	with	10882	10886	307	36	307	40	0
+1282	Identifier	start	10887	10892	307	41	307	46	0
+1283	Keyword(is)	is	10893	10895	307	47	307	49	0
+1284	Identifier	start	10896	10901	307	50	307	55	0
+1285	Comma	,	10901	10902	307	55	307	56	0
+1286	Identifier	end	10903	10906	307	57	307	60	0
+1287	Keyword(is)	is	10907	10909	307	61	307	63	0
+1288	Identifier	end	10910	10913	307	64	307	67	0
+1289	Newline	\n        	10913	10922	307	67	308	9	8
+1290	Keyword(return)	return	10922	10928	308	9	308	15	0
+1291	Keyword(calling)	calling	10929	10936	308	16	308	23	0
+1292	Identifier	pspan	10937	10942	308	24	308	29	0
+1293	Dot	.	10942	10943	308	29	308	30	0
+1294	Identifier	span_clamp	10943	10953	308	30	308	40	0
+1295	Keyword(with)	with	10954	10958	308	41	308	45	0
+1296	Identifier	s	10959	10960	308	46	308	47	0
+1297	Comma	,	10960	10961	308	47	308	48	0
+1298	LeftParen	(	10962	10963	308	49	308	50	0
+1299	Keyword(calling)	calling	10963	10970	308	50	308	57	0
+1300	Identifier	self	10971	10975	308	58	308	62	0
+1301	Dot	.	10975	10976	308	62	308	63	0
+1302	Identifier	byte_len	10976	10984	308	63	308	71	0
+1303	RightParen	)	10984	10985	308	71	308	72	0
+1304	Newline	\n\n    ## Copia el texto del pspan.\n    ##\n    ## ## Retorno\n    ## Un `string` owned; liberar con `banish`.\n    ##\n    ## ## Memoria\n    ## Asigna la longitud del pspan.\n    	10985	11159	308	72	317	5	4
+1305	Dedent		11159	11159	317	5	317	5	0
+1306	Keyword(weave)	weave	11159	11164	317	5	317	10	0
+1307	Identifier	slice	11165	11170	317	11	317	16	0
+1308	Keyword(with)	with	11171	11175	317	17	317	21	0
+1309	Identifier	s	11176	11177	317	22	317	23	0
+1310	Keyword(as)	as	11178	11180	317	24	317	26	0
+1311	Identifier	pspan	11181	11186	317	27	317	32	0
+1312	Dot	.	11186	11187	317	32	317	33	0
+1313	Identifier	ByteSpan	11187	11195	317	33	317	41	0
+1314	Keyword(into)	into	11196	11200	317	42	317	46	0
+1315	Identifier	string	11201	11207	317	47	317	53	0
+1316	Colon	:	11207	11208	317	53	317	54	0
+1317	Newline	\n        	11208	11217	317	54	318	9	8
+1318	Indent		11217	11217	318	9	318	9	8
+1319	Keyword(var)	var	11217	11220	318	9	318	12	0
+1320	Identifier	c	11221	11222	318	13	318	14	0
+1321	Keyword(as)	as	11223	11225	318	15	318	17	0
+1322	Identifier	pspan	11226	11231	318	18	318	23	0
+1323	Dot	.	11231	11232	318	23	318	24	0
+1324	Identifier	ByteSpan	11232	11240	318	24	318	32	0
+1325	Keyword(is)	is	11241	11243	318	33	318	35	0
+1326	Keyword(calling)	calling	11244	11251	318	36	318	43	0
+1327	Identifier	pspan	11252	11257	318	44	318	49	0
+1328	Dot	.	11257	11258	318	49	318	50	0
+1329	Identifier	span_clamp	11258	11268	318	50	318	60	0
+1330	Keyword(with)	with	11269	11273	318	61	318	65	0
+1331	Identifier	s	11274	11275	318	66	318	67	0
+1332	Comma	,	11275	11276	318	67	318	68	0
+1333	LeftParen	(	11277	11278	318	69	318	70	0
+1334	Keyword(calling)	calling	11278	11285	318	70	318	77	0
+1335	Identifier	self	11286	11290	318	78	318	82	0
+1336	Dot	.	11290	11291	318	82	318	83	0
+1337	Identifier	byte_len	11291	11299	318	83	318	91	0
+1338	RightParen	)	11299	11300	318	91	318	92	0
+1339	Newline	\n        	11300	11309	318	92	319	9	8
+1340	Keyword(return)	return	11309	11315	319	9	319	15	0
+1341	Identifier	self	11316	11320	319	16	319	20	0
+1342	Arrow	->	11320	11322	319	20	319	22	0
+1343	Identifier	text	11322	11326	319	22	319	26	0
+1344	Identifier	at	11327	11329	319	27	319	29	0
+1345	Identifier	c	11330	11331	319	30	319	31	0
+1346	Dot	.	11331	11332	319	31	319	32	0
+1347	Identifier	start	11332	11337	319	32	319	37	0
+1348	Keyword(to)	to	11338	11340	319	38	319	40	0
+1349	Identifier	c	11341	11342	319	41	319	42	0
+1350	Dot	.	11342	11343	319	42	319	43	0
+1351	Identifier	end	11343	11346	319	43	319	46	0
+1352	Newline	\n\n    ## Byte en `offset` como entero, o `-1` fuera de rango.\n    ##\n    ## ## Memoria\n    ## O(1), no asigna.\n    	11346	11461	319	46	325	5	4
+1353	Dedent		11461	11461	325	5	325	5	0
+1354	Keyword(weave)	weave	11461	11466	325	5	325	10	0
+1355	Identifier	byte_at	11467	11474	325	11	325	18	0
+1356	Keyword(with)	with	11475	11479	325	19	325	23	0
+1357	Identifier	offset	11480	11486	325	24	325	30	0
+1358	Keyword(as)	as	11487	11489	325	31	325	33	0
+1359	Identifier	int	11490	11493	325	34	325	37	0
+1360	Keyword(into)	into	11494	11498	325	38	325	42	0
+1361	Identifier	int	11499	11502	325	43	325	46	0
+1362	Colon	:	11502	11503	325	46	325	47	0
+1363	Newline	\n        	11503	11512	325	47	326	9	8
+1364	Indent		11512	11512	326	9	326	9	8
+1365	Keyword(var)	var	11512	11515	326	9	326	12	0
+1366	Identifier	n	11516	11517	326	13	326	14	0
+1367	Keyword(as)	as	11518	11520	326	15	326	17	0
+1368	Identifier	int	11521	11524	326	18	326	21	0
+1369	Keyword(is)	is	11525	11527	326	22	326	24	0
+1370	LeftParen	(	11528	11529	326	25	326	26	0
+1371	Keyword(calling)	calling	11529	11536	326	26	326	33	0
+1372	Identifier	self	11537	11541	326	34	326	38	0
+1373	Dot	.	11541	11542	326	38	326	39	0
+1374	Identifier	byte_len	11542	11550	326	39	326	47	0
+1375	RightParen	)	11550	11551	326	47	326	48	0
+1376	Newline	\n        	11551	11560	326	48	327	9	8
+1377	Keyword(if)	if	11560	11562	327	9	327	11	0
+1378	Identifier	offset	11563	11569	327	12	327	18	0
+1379	Less	<	11570	11571	327	19	327	20	0
+1380	IntLit	0	11572	11573	327	21	327	22	10
+1381	Keyword(or)	or	11574	11576	327	23	327	25	0
+1382	Identifier	offset	11577	11583	327	26	327	32	0
+1383	GreaterOrEqual	>=	11584	11586	327	33	327	35	0
+1384	Identifier	n	11587	11588	327	36	327	37	0
+1385	Colon	:	11588	11589	327	37	327	38	0
+1386	Newline	\n            	11589	11602	327	38	328	13	12
+1387	Indent		11602	11602	328	13	328	13	12
+1388	Keyword(return)	return	11602	11608	328	13	328	19	0
+1389	Minus	-	11609	11610	328	20	328	21	0
+1390	IntLit	1	11610	11611	328	21	328	22	10
+1391	Newline	\n        	11611	11620	328	22	329	9	8
+1392	Dedent		11620	11620	329	9	329	9	0
+1393	Keyword(var)	var	11620	11623	329	9	329	12	0
+1394	Identifier	raw	11624	11627	329	13	329	16	0
+1395	Keyword(as)	as	11628	11630	329	17	329	19	0
+1396	Identifier	ref	11631	11634	329	20	329	23	0
+1397	Keyword(to)	to	11635	11637	329	24	329	26	0
+1398	Identifier	frozen	11638	11644	329	27	329	33	0
+1399	Identifier	byte	11645	11649	329	34	329	38	0
+1400	Keyword(is)	is	11650	11652	329	39	329	41	0
+1401	Keyword(bytes)	bytes	11653	11658	329	42	329	47	0
+1402	Keyword(of)	of	11659	11661	329	48	329	50	0
+1403	Identifier	self	11662	11666	329	51	329	55	0
+1404	Arrow	->	11666	11668	329	55	329	57	0
+1405	Identifier	text	11668	11672	329	57	329	61	0
+1406	Newline	\n        	11672	11681	329	61	330	9	8
+1407	Keyword(return)	return	11681	11687	330	9	330	15	0
+1408	LeftParen	(	11688	11689	330	16	330	17	0
+1409	Identifier	raw	11689	11692	330	17	330	20	0
+1410	Identifier	at	11693	11695	330	21	330	23	0
+1411	Identifier	offset	11696	11702	330	24	330	30	0
+1412	RightParen	)	11702	11703	330	30	330	31	0
+1413	Keyword(to)	to	11704	11706	330	32	330	34	0
+1414	Identifier	int	11707	11710	330	35	330	38	0
+1415	Newline	\n\n    # ------------------------------------------------------------------\n    # Helpers privados\n    # ------------------------------------------------------------------\n\n    ## Offset del final del texto de una l\xc3\xadnea, sin `\\n` ni `\\r`.\n    	11710	11953	330	38	337	5	4
+1416	Dedent		11953	11953	337	5	337	5	0
+1417	Keyword(weave)	weave	11953	11958	337	5	337	10	0
+1418	Identifier	_line_end_offset	11959	11975	337	11	337	27	0
+1419	Keyword(with)	with	11976	11980	337	28	337	32	0
+1420	Identifier	line	11981	11985	337	33	337	37	0
+1421	Keyword(as)	as	11986	11988	337	38	337	40	0
+1422	Identifier	int	11989	11992	337	41	337	44	0
+1423	Keyword(into)	into	11993	11997	337	45	337	49	0
+1424	Identifier	int	11998	12001	337	50	337	53	0
+1425	Colon	:	12001	12002	337	53	337	54	0
+1426	Newline	\n        	12002	12011	337	54	338	9	8
+1427	Indent		12011	12011	338	9	338	9	8
+1428	Keyword(var)	var	12011	12014	338	9	338	12	0
+1429	Identifier	start	12015	12020	338	13	338	18	0
+1430	Keyword(as)	as	12021	12023	338	19	338	21	0
+1431	Identifier	int	12024	12027	338	22	338	25	0
+1432	Keyword(is)	is	12028	12030	338	26	338	28	0
+1433	Identifier	self	12031	12035	338	29	338	33	0
+1434	Arrow	->	12035	12037	338	33	338	35	0
+1435	Identifier	line_starts	12037	12048	338	35	338	46	0
+1436	Identifier	at	12049	12051	338	47	338	49	0
+1437	LeftParen	(	12052	12053	338	50	338	51	0
+1438	Identifier	line	12053	12057	338	51	338	55	0
+1439	Minus	-	12058	12059	338	56	338	57	0
+1440	IntLit	1	12060	12061	338	58	338	59	10
+1441	RightParen	)	12061	12062	338	59	338	60	0
+1442	Newline	\n        	12062	12071	338	60	339	9	8
+1443	Keyword(var)	var	12071	12074	339	9	339	12	0
+1444	Identifier	end	12075	12078	339	13	339	16	0
+1445	Keyword(as)	as	12079	12081	339	17	339	19	0
+1446	Identifier	int	12082	12085	339	20	339	23	0
+1447	Keyword(is)	is	12086	12088	339	24	339	26	0
+1448	LeftParen	(	12089	12090	339	27	339	28	0
+1449	Keyword(calling)	calling	12090	12097	339	28	339	35	0
+1450	Identifier	self	12098	12102	339	36	339	40	0
+1451	Dot	.	12102	12103	339	40	339	41	0
+1452	Identifier	byte_len	12103	12111	339	41	339	49	0
+1453	RightParen	)	12111	12112	339	49	339	50	0
+1454	Newline	\n        	12112	12121	339	50	340	9	8
+1455	Keyword(if)	if	12121	12123	340	9	340	11	0
+1456	Identifier	line	12124	12128	340	12	340	16	0
+1457	Less	<	12129	12130	340	17	340	18	0
+1458	Identifier	self	12131	12135	340	19	340	23	0
+1459	Arrow	->	12135	12137	340	23	340	25	0
+1460	Identifier	line_starts	12137	12148	340	25	340	36	0
+1461	Dot	.	12148	12149	340	36	340	37	0
+1462	Identifier	len	12149	12152	340	37	340	40	0
+1463	Colon	:	12152	12153	340	40	340	41	0
+1464	Newline	\n            	12153	12166	340	41	341	13	12
+1465	Indent		12166	12166	341	13	341	13	12
+1466	Keyword(set)	set	12166	12169	341	13	341	16	0
+1467	Identifier	end	12170	12173	341	17	341	20	0
+1468	Keyword(is)	is	12174	12176	341	21	341	23	0
+1469	LeftParen	(	12177	12178	341	24	341	25	0
+1470	Identifier	self	12178	12182	341	25	341	29	0
+1471	Arrow	->	12182	12184	341	29	341	31	0
+1472	Identifier	line_starts	12184	12195	341	31	341	42	0
+1473	Identifier	at	12196	12198	341	43	341	45	0
+1474	Identifier	line	12199	12203	341	46	341	50	0
+1475	RightParen	)	12203	12204	341	50	341	51	0
+1476	Minus	-	12205	12206	341	52	341	53	0
+1477	IntLit	1	12207	12208	341	54	341	55	10
+1478	Newline	\n        	12208	12217	341	55	342	9	8
+1479	Dedent		12217	12217	342	9	342	9	0
+1480	Keyword(if)	if	12217	12219	342	9	342	11	0
+1481	Identifier	end	12220	12223	342	12	342	15	0
+1482	Greater	>	12224	12225	342	16	342	17	0
+1483	Identifier	start	12226	12231	342	18	342	23	0
+1484	Colon	:	12231	12232	342	23	342	24	0
+1485	Newline	\n            	12232	12245	342	24	343	13	12
+1486	Indent		12245	12245	343	13	343	13	12
+1487	Keyword(if)	if	12245	12247	343	13	343	15	0
+1488	LeftParen	(	12248	12249	343	16	343	17	0
+1489	Keyword(calling)	calling	12249	12256	343	17	343	24	0
+1490	Identifier	self	12257	12261	343	25	343	29	0
+1491	Dot	.	12261	12262	343	29	343	30	0
+1492	Identifier	byte_at	12262	12269	343	30	343	37	0
+1493	Keyword(with)	with	12270	12274	343	38	343	42	0
+1494	LeftParen	(	12275	12276	343	43	343	44	0
+1495	Identifier	end	12276	12279	343	44	343	47	0
+1496	Minus	-	12280	12281	343	48	343	49	0
+1497	IntLit	1	12282	12283	343	50	343	51	10
+1498	RightParen	)	12283	12284	343	51	343	52	0
+1499	RightParen	)	12284	12285	343	52	343	53	0
+1500	Equal	==	12286	12288	343	54	343	56	0
+1501	Identifier	SOURCE_CR	12289	12298	343	57	343	66	0
+1502	Colon	:	12298	12299	343	66	343	67	0
+1503	Newline	\n                	12299	12316	343	67	344	17	16
+1504	Indent		12316	12316	344	17	344	17	16
+1505	Keyword(set)	set	12316	12319	344	17	344	20	0
+1506	Identifier	end	12320	12323	344	21	344	24	0
+1507	Keyword(is)	is	12324	12326	344	25	344	27	0
+1508	Identifier	end	12327	12330	344	28	344	31	0
+1509	Minus	-	12331	12332	344	32	344	33	0
+1510	IntLit	1	12333	12334	344	34	344	35	10
+1511	Newline	\n        	12334	12343	344	35	345	9	8
+1512	Dedent		12343	12343	345	9	345	9	0
+1513	Dedent		12343	12343	345	9	345	9	0
+1514	Keyword(return)	return	12343	12349	345	9	345	15	0
+1515	Identifier	end	12350	12353	345	16	345	19	0
+1516	Newline	\n	12353	12354	345	19	346	1	0
+1517	Dedent		12354	12354	346	1	346	1	0
+1518	Dedent		12354	12354	346	1	346	1	0
+1519	Eof		12354	12354	346	1	346	1	0

@@ -1,0 +1,184 @@
+## psc/token_dump.pengu — volcado TSV canónico de tokens y comentarios.
+##
+## El formato es estable y determinista; los golden tests comparan estos bytes.
+##
+## ```text
+## # psc-token-dump v1
+## # file: <path>
+## # sha256: <hex>
+## # bytes: <n>
+## # lines: <n>
+## # columns: index  kind  lexeme  start  end  line  col  end_line  end_col  aux
+## 0	Keyword(Import)	import	0	6	1	1	1	7	0
+## ```
+##
+## ## Memoria
+## `dump` devuelve un `string` owned; liberar con `banish`.
+
+import std.builder
+import std.sourcemap
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer_state as psstate
+
+## Volcado completo.
+##
+## ## Parámetros
+## - `src`: fuente.
+## - `result`: tokens, comentarios y tablas.
+## - `keywords`: tabla para imprimir `Keyword(Name)`.
+## - `include_comments`: añadir la sección de trivia.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave dump with src as ref to psource.SourceFile, result as ref to LexResult, keywords as ref to KeywordTable, include_comments as bool into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "# psc-token-dump v1"
+    calling ps_token_dump_newline with sigil of sb
+    calling sb.append with "# file: "
+    calling sb.append with src->path
+    calling ps_token_dump_newline with sigil of sb
+    calling sb.append with "# sha256: "
+    calling sb.append with (calling src.get_sha256)
+    calling ps_token_dump_newline with sigil of sb
+    calling sb.append with "# bytes: "
+    calling sb.append_int with (calling src.byte_len)
+    calling ps_token_dump_newline with sigil of sb
+    calling sb.append with "# lines: "
+    calling sb.append_int with (calling src.line_count)
+    calling ps_token_dump_newline with sigil of sb
+    calling sb.append with "# columns: index\tkind\tlexeme\tstart\tend\tline\tcol\tend_line\tend_col\taux"
+    calling ps_token_dump_newline with sigil of sb
+    var i as int is 0
+    while i < result->tokens.len:
+        var t as Token is result->tokens at i
+        calling sb.append_int with i
+        calling tab with sigil of sb
+        if t.kind == TokKeyword:
+            calling sb.append with "Keyword("
+            calling sb.append with (calling pstoken.keyword_name with keywords, t.kw)
+            calling sb.append with ")"
+        else:
+            calling sb.append with (calling pstoken.token_kind_name with t.kind)
+        calling tab with sigil of sb
+        if t.kind == TokAntiquusBody:
+            calling sb.append with "<antiquus>"
+        else:
+            var lex as string is calling src.slice with (calling pstoken.token_span with t)
+            calling append_escaped with sigil of sb, lex
+            banish lex
+        calling tab with sigil of sb
+        calling sb.append_int with t.start
+        calling tab with sigil of sb
+        calling sb.append_int with t.end
+        calling tab with sigil of sb
+        calling sb.append_int with t.line
+        calling tab with sigil of sb
+        calling sb.append_int with t.col
+        calling tab with sigil of sb
+        var ep as sourcemap.Position is calling src.position_at with t.end
+        calling sb.append_int with ep.line
+        calling tab with sigil of sb
+        calling sb.append_int with ep.col
+        calling tab with sigil of sb
+        calling sb.append_int with t.aux
+        calling ps_token_dump_newline with sigil of sb
+        set i is i + 1
+    if include_comments:
+        calling sb.append with "# comments"
+        calling ps_token_dump_newline with sigil of sb
+        calling sb.append with "# columns: index\tkind\tstart\tend\tline\tcol\tclosed"
+        calling ps_token_dump_newline with sigil of sb
+        var j as int is 0
+        while j < result->comments.len:
+            var c as Comment is result->comments at j
+            calling sb.append_int with j
+            calling tab with sigil of sb
+            calling sb.append with (calling comment_kind_name with c.kind)
+            calling tab with sigil of sb
+            calling sb.append_int with c.start
+            calling tab with sigil of sb
+            calling sb.append_int with c.end
+            calling tab with sigil of sb
+            calling sb.append_int with c.line
+            calling tab with sigil of sb
+            calling sb.append_int with c.col
+            calling tab with sigil of sb
+            calling sb.append_bool with c.closed
+            calling ps_token_dump_newline with sigil of sb
+            set j is j + 1
+    return calling sb.finish
+
+## Nombre de un tipo de comentario.
+##
+## ## Memoria
+## Literal estático; no liberar.
+weave comment_kind_name with k as CommentKind into string:
+    if k == ComLine:
+        return "Line"
+    if k == ComDoc:
+        return "Doc"
+    return "DocBlock"
+
+## Añade un tabulador.
+##
+## ## Memoria
+## O(1), el builder crece si hace falta.
+weave tab with sb as ref to StringBuilder into void:
+    calling sb.append_char with (9 to char)
+
+## Añade un salto de línea.
+##
+## ## Memoria
+## O(1), el builder crece si hace falta.
+weave ps_token_dump_newline with sb as ref to StringBuilder into void:
+    calling sb.append_char with (10 to char)
+
+## Añade un lexema escapado en una línea.
+##
+## ## Memoria
+## O(bytes), sin temporales owned.
+weave append_escaped with sb as ref to StringBuilder, s as string into void:
+    var raw as ref to frozen byte is bytes of s
+    var n as int is s length
+    var i as int is 0
+    while i < n:
+        var b as int is (raw at i) to int
+        if b == 92:
+            calling sb.append with "\\\\"
+        else if b == 9:
+            calling sb.append with "\\t"
+        else if b == 10:
+            calling sb.append with "\\n"
+        else if b == 13:
+            calling sb.append with "\\r"
+        else if b == 0:
+            calling sb.append with "\\0"
+        else if b >= 32 and b <= 126:
+            calling sb.append_char with (b to char)
+        else:
+            calling sb.append with "\\x"
+            calling ps_token_dump_append_hex_byte with sb, b
+        set i is i + 1
+
+## Añade dos dígitos hex de un byte.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_token_dump_append_hex_byte with sb as ref to StringBuilder, b as int into void:
+    var hi as int is (b >> 4) & 0x0F
+    var lo as int is b & 0x0F
+    calling sb.append_char with ((calling ps_token_dump_hex_char with hi) to char)
+    calling sb.append_char with ((calling ps_token_dump_hex_char with lo) to char)
+
+## Valor ASCII de un nibble hex.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_token_dump_hex_char with n as int into int:
+    if n < 10:
+        return 48 + n
+    return 87 + n

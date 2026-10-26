@@ -1,0 +1,130 @@
+## psc/sema/modules/loader.pengu — carga de un módulo con F1 + F2.
+##
+## `SemaModule` es el bundle que posee todo lo que necesita el checker de un
+## archivo: `SourceFile`, `LexResult` y `PsParseResult` (que a su vez posee el
+## AST). El `DiagnosticBag` es compartido por el programa para conservar el
+## orden de diagnósticos entre módulos.
+##
+## ## Memoria
+## `load_module` devuelve un `SemaModule` owned. `free_module` libera parse,
+## lex, fuente y path en ese orden. El bag es prestado y no se libera aquí.
+
+import std.archivum
+import std.diagnostic as diag
+
+import psc.source as psource
+import psc.lexer_state as psstate
+import psc.lexer as pslexer
+import psc.token as pstoken
+import psc.ast.node as psast
+import psc.parse.state as pstate
+import psc.parse.api as papi
+import psc.sema.diagnostics as sdiag
+import psc.sema.names as npool
+import psc.sema.annotate as ann
+
+insignia sema_loader_
+
+## Un módulo cargado.
+##
+## ## Memoria
+## Sin `derive Nexus`: `free_module` libera cada campo.
+rune SemaModule:
+    ## Ruta lógica usada en diagnósticos.
+    path as string
+    ## Fuente; dueño.
+    source as psource.SourceFile
+    ## Tokens; dueño.
+    lex as psstate.LexResult
+    ## Parse result; dueño del AST.
+    parse as pstate.PsParseResult
+    ## `true` si se leyó y parseó sin errores.
+    ok as bool
+    ## ID asignado por `SemaProgram` (`-1` al cargar).
+    id as int
+    ## `true` si es el entry.
+    is_entry as bool
+    ## `true` si vive bajo `std/`.
+    is_std as bool
+    ## `NameId` del `insignia` (`-1` si no).
+    insignia as int
+    ## Profundidad de import (para diagnósticos).
+    depth as int
+    ## Anotaciones semánticas por nodo.
+    annotations as ann.SemaAnnotations
+    ## Scope global del módulo (`-1` hasta que el programa lo cree).
+    scope as int
+    ## `nodo de declaración -> TypeId` para la predeclaración.
+    type_ids as map of int to int
+    ## Módulo padre si este es un binding `.d.pengu` (`-1` si no).
+    companion_for as int
+
+## Libera un módulo.
+##
+## ## Memoria
+## Libera el AST, los tokens, la fuente y el path.
+weave free_module with m as ref to SemaModule into void:
+    calling ann.free_annotations with (sigil of m->annotations)
+    banish m->type_ids
+    banish m->parse
+    banish m->lex
+    banish m->source
+    banish m->path
+
+## Carga un archivo desde disco.
+##
+## Si la lectura falla, emite `E0004` y devuelve un módulo vacío con `ok=false`.
+##
+## ## Memoria
+## Devuelve un módulo owned; liberar con `free_module`.
+weave load_module with path as string, bag as ref to diag.DiagnosticBag, is_entry as bool, is_std as bool, depth as int into SemaModule:
+    var m as maybe string is calling archivum.read_text with path
+    if not m.is_present:
+        return calling empty_module with path, bag, false, is_entry, is_std, depth
+    var text as string is calling npool.copy_string with m.value
+    banish m
+    return calling load_text with path, text, bag, true, is_entry, is_std, depth
+
+## Carga un módulo desde texto (para tests/LSP).
+##
+## ## Memoria
+## Devuelve un módulo owned; liberar con `free_module`.
+weave load_text with path as string, text as string, bag as ref to diag.DiagnosticBag, readable as bool, is_entry as bool, is_std as bool, depth as int into SemaModule:
+    var owned_path as string is calling npool.copy_string with path
+    var owned_text as string is calling npool.copy_string with text
+    var src as psource.SourceFile is calling SourceFile.from_text with owned_path, owned_text
+    calling bag.add_source with path, (calling src.get_text)
+    var kw as pstoken.KeywordTable is calling pstoken.keyword_table_new
+    var lopt as psstate.LexOptions is calling psstate.default_lex_options
+    var lex as psstate.LexResult is calling pslexer.lex with (sigil of src), bag, (sigil of kw), lopt
+    banish kw
+    var popt as pstate.PsParseOptions is calling pstate.ps_default_parse_options
+    var parse as pstate.PsParseResult is calling papi.ps_parse_file with (sigil of src), bag, (sigil of lex), popt
+    var notes as ann.SemaAnnotations is calling ann.new_annotations with (sigil of parse.ast)
+    return with path is owned_path, source is src, lex is lex, parse is parse, ok is (readable and parse.ok), id is -1, is_entry is is_entry, is_std is is_std, insignia is -1, depth is depth, annotations is notes, scope is -1, type_ids is map of int to int, companion_for is -1
+
+## Módulo vacío para una lectura fallida.
+##
+## ## Memoria
+## Igual que `load_text` pero sin texto; emite E0004.
+weave empty_module with path as string, bag as ref to diag.DiagnosticBag, readable as bool, is_entry as bool, is_std as bool, depth as int into SemaModule:
+    var msg as string is "cannot read module '{path}'"
+    defer banish msg
+    var empty as psource.SourceFile is calling empty_source with path
+    calling sdiag.node_error with bag, (sigil of empty), sdiag.CODE_UNDEFINED, 0, 0, msg, "Check the path and the project's src/lib directories.", "The module could not be opened."
+    banish empty
+    return calling load_text with path, "", bag, false, is_entry, is_std, depth
+
+## Fuente vacía auxiliar para emitir un diagnóstico de lectura.
+##
+## ## Memoria
+## Devuelve una fuente owned; el llamador la libera con `banish`.
+weave empty_source with path as string into psource.SourceFile:
+    return calling SourceFile.from_text with path, ""
+
+## ¿El módulo tiene AST?
+##
+## ## Memoria
+## O(1).
+weave has_ast with m as ref to SemaModule into bool:
+    return m->parse.root >= 0

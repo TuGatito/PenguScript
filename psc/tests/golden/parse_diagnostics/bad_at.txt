@@ -1,0 +1,11 @@
+error[E0000]: The index after 'at' binds tighter than '-': parenthesise the index expression
+  --> tests/fixtures/parser_bad_at.pengu:2:17
+  |
+1 | weave f with xs as list of int, n as int into int:
+2 |     set xs at n - 1 is 0
+  |                 ^
+3 |     return 0
+  |
+   = note: 'at' is a postfix operator, like '.field' or 'length': it takes a single atom as its index.
+   = help: Write 'set xs at (n - 1) is v' when the index is computed.
+

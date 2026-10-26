@@ -1,0 +1,10 @@
+error[E0000]: 'and' is no longer a separator: use ',' (offending 'and' at line 1, column 23)
+  --> tests/fixtures/parser_bad_and.pengu:1:23
+  |
+1 | weave f with a as int and b as int into int:
+  |                       ^^^
+2 |     return a
+  |
+   = note: The old 'and' list separator was removed in 0.10.0; see the CHANGELOG migration notes.
+   = help: Since 0.10.0 'and' is the boolean operator (short-circuit). Separate arguments, parameters and struct fields with ',' — e.g. 'calling f with 1, 2', 'weave g with x as int, y as int', 'with x is 1, y is 2'. ('map of K to V' still uses 'to'.)
+

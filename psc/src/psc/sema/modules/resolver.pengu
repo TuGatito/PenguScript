@@ -1,0 +1,226 @@
+## psc/sema/modules/resolver.pengu — encontrar el archivo de un import.
+##
+## Réplica del orden de `pengu_symbols.find_module_path`:
+## `std/`, directorio del importador, `src_dir`, `lib_dir` y raíz. Devuelve
+## `""` si no existe; el programa emite `E0004` con el contexto del import.
+##
+## ## Memoria
+## Devuelve strings owned; el llamador los libera.
+
+import std.archivum
+import std.builder
+import std.compass
+
+import psc.sema.options as opts
+
+insignia sema_resolver_
+
+## Concatena dos componentes con `/`.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave join2 with a as string, b as string into string:
+    if a == "":
+        return "{b}"
+    if b == "":
+        return "{a}"
+    return "{a}/{b}"
+
+## Concatena tres componentes.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave join3 with a as string, b as string, c as string into string:
+    var ab as string is calling join2 with a, b
+    defer banish ab
+    return calling join2 with ab, c
+
+## Convierte `a.b.c` en `a/b/c`.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave dot_to_path with dot as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    var n as int is dot length
+    while i < n:
+        var ch as string is dot at i
+        if ch == ".":
+            calling sb.append with "/"
+        else:
+            calling sb.append with ch
+        set i is i + 1
+    return calling sb.finish
+
+## Primer componente de un path con `/`.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave first_component with path as string into string:
+    var i as int is 0
+    var n as int is path length
+    while i < n:
+        if (path at i) == "/":
+            return calling slice_prefix with path, i
+        set i is i + 1
+    return "{path}"
+
+## Resto tras el primer `/`.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave rest_after_first with path as string into string:
+    var i as int is 0
+    var n as int is path length
+    while i < n:
+        if (path at i) == "/":
+            var start as int is i + 1
+            return calling slice_from with path, start
+        set i is i + 1
+    return ""
+
+## Prefijo de `s` hasta `end`.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave slice_prefix with s as string, end as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    while i < end:
+        calling sb.append with (s at i)
+        set i is i + 1
+    return calling sb.finish
+
+## Sufijo de `s` desde `start`.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave slice_from with s as string, start as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is start
+    var n as int is s length
+    while i < n:
+        calling sb.append with (s at i)
+        set i is i + 1
+    return calling sb.finish
+
+## Prueba los cuatro candidatos de un prefijo.
+##
+## Devuelve el primero que exista, o `""`.
+##
+## ## Memoria
+## Devuelve un string owned si encuentra; `""` es literal.
+weave try_prefix with prefix as string into string:
+    var a as string is "{prefix}.pengu"
+    defer banish a
+    if calling archivum.is_file with a:
+        return "{a}"
+    var b as string is "{prefix}.d.pengu"
+    defer banish b
+    if calling archivum.is_file with b:
+        return "{b}"
+    var c as string is "{prefix}/__init__.pengu"
+    defer banish c
+    if calling archivum.is_file with c:
+        return "{c}"
+    var d as string is "{prefix}/__init__.d.pengu"
+    defer banish d
+    if calling archivum.is_file with d:
+        return "{d}"
+    return ""
+
+## Busca un import.
+##
+## `from_dir` es el directorio del archivo importador; `dot` es `a.b.c`.
+##
+## ## Memoria
+## Devuelve un path owned o `""`; liberar si no está vacío.
+weave find_module with options as ref to opts.SemaOptions, dot as string, from_dir as string into string:
+    var rel as string is calling dot_to_path with dot
+    defer banish rel
+    var is_std as bool is dot == "std" or (dot length > 4 and (dot at 3) == ".")
+    # 1. std
+    if is_std:
+        var std_rel as string is calling rest_after_first with rel
+        defer banish std_rel
+        var i as int is 0
+        while i < options->std_dirs.len:
+            var dir as string is (options->std_dirs at i)
+            var pre as string is calling join2 with dir, std_rel
+            defer banish pre
+            var hit as string is calling try_prefix with pre
+            if hit != "":
+                return hit
+            banish hit
+            set i is i + 1
+        var fallback as string is calling join2 with options->base_dir, "std"
+        defer banish fallback
+        var pre2 as string is calling join2 with fallback, std_rel
+        defer banish pre2
+        var hit2 as string is calling try_prefix with pre2
+        if hit2 != "":
+            return hit2
+        banish hit2
+    # 2. relativo al importador
+    if from_dir != "":
+        var pre3 as string is calling join2 with from_dir, rel
+        defer banish pre3
+        var hit3 as string is calling try_prefix with pre3
+        if hit3 != "":
+            return hit3
+        banish hit3
+    # 3. src_dir
+    var src_root as string is calling join2 with options->base_dir, options->src_dir
+    defer banish src_root
+    var pre4 as string is calling join2 with src_root, rel
+    defer banish pre4
+    var hit4 as string is calling try_prefix with pre4
+    if hit4 != "":
+        return hit4
+    banish hit4
+    # 4. lib_dir/<binding>/pengu/<rest> y /<binding>/<rest>
+    var binding as string is calling first_component with rel
+    defer banish binding
+    var rest as string is calling rest_after_first with rel
+    defer banish rest
+    if binding != "":
+        var lib_root as string is calling join3 with options->base_dir, options->lib_dir, binding
+        defer banish lib_root
+        if rest != "":
+            var p1 as string is calling join3 with lib_root, "pengu", rest
+            defer banish p1
+            var h1 as string is calling try_prefix with p1
+            if h1 != "":
+                return h1
+            banish h1
+            var p2 as string is calling join2 with lib_root, rest
+            defer banish p2
+            var h2 as string is calling try_prefix with p2
+            if h2 != "":
+                return h2
+            banish h2
+    # 5. base_dir
+    var pre5 as string is calling join2 with options->base_dir, rel
+    defer banish pre5
+    var hit5 as string is calling try_prefix with pre5
+    if hit5 != "":
+        return hit5
+    banish hit5
+    return ""
+
+## Directorio de un archivo.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave dir_of with path as string into string:
+    return calling compass.cp_dirname with path
+
+## Normaliza un path absoluto/relativo.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave normalize_path with path as string into string:
+    return calling compass.cp_normalize with path

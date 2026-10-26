@@ -1,0 +1,51 @@
+## Smoke de recolección: carga un weave y registra su símbolo.
+##
+## No es el test final; valida loader + collector + state.
+
+import std.diagnostic as diag
+import std.spark
+
+import psc.sema.names as npool
+import psc.sema.types.table as types
+import psc.sema.symbols.table as symbols
+import psc.sema.options as sopts
+import psc.sema.modules.loader as loader
+import psc.sema.modules.program as program
+import psc.sema.state as state
+import psc.sema.check.collect as collect
+import psc.sema.check.body as checker
+import psc.sema.api as sema_api
+
+weave main into int:
+    var pool as npool.NamePool is calling npool.new_pool
+    defer calling npool.free_pool with (sigil of pool)
+    var t as types.SemaTypeTable is calling types.new_table with (sigil of pool)
+    defer calling types.free_table with (sigil of t)
+    var syms as symbols.SemaSymbols is calling symbols.new_symbols with (sigil of t), (sigil of pool)
+    defer calling symbols.free_symbols with (sigil of syms)
+    var opts as sopts.SemaOptions is calling sopts.default_options with "."
+    defer calling sopts.free_options with (sigil of opts)
+    var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+    defer banish bag
+
+    var src as string is "weave main into int:\n    return \"x\"\n"
+    var m as loader.SemaModule is calling loader.load_text with "t.pengu", src, (sigil of bag), true, true, false, 0
+    if not m.ok:
+        calling spark.println with "parse failed"
+        return 1
+    var st as state.SemaState is with module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of t), symbols is (sigil of syms), names is (sigil of pool), bag is (sigil of bag), opts is (sigil of opts), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is 100, stop_after_first is false, stop is false
+    calling checker.install with (sigil of st)
+    calling collect.collect_module with (sigil of st)
+    calling checker.check_module_bodies with (sigil of st)
+    var root as int is m.parse.root
+    var file as int is 0
+    var top as int is 0
+    calling spark.println with "collect smoke bad-return: errors={bag.error_count} symbols={syms.symbols.len}"
+    var sid as int is calling symbols.lookup_name with (sigil of syms), "main"
+    if sid < 0:
+        calling spark.println with "collector did not register main"
+        return 2
+    if bag.error_count == 0:
+        calling spark.println with "expected a type mismatch"
+        return 3
+    return 0

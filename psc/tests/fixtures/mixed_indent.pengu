@@ -1,0 +1,4 @@
+weave f into int:
+	var a as int is 0
+    var b as int is 1
+    return a + b

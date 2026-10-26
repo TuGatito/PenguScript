@@ -1,0 +1,4 @@
+import std.spark
+
+weave main into int:
+    return 0

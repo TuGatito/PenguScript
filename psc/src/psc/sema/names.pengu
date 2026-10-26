@@ -1,0 +1,135 @@
+## psc/sema/names.pengu — internado de nombres y textos semánticos.
+##
+## Todo nombre que sobrevive al análisis (`SemaType.name`, `SemaSymbol.name`,
+## nombres C, docs, textos de `type of`) se guarda una sola vez aquí y se
+## referencia con un `NameId` (`int`). Esto evita duplicar strings en cada
+## símbolo/tipo y hace que el dump semántico sea determinista.
+##
+## ## Memoria
+## `NamePool` es dueño de cada string de `strings` y del mapa `ids`.
+## `free_pool` libera ambos; `text` presta el string (no lo liberes).
+##
+## ## Ejemplo
+## ```pengu
+## var pool as NamePool is calling new_pool
+## var id as int is calling intern with (sigil of pool), "Point"
+## calling spark.println with calling text with (sigil of pool), id
+## calling free_pool with (sigil of pool)
+## ```
+
+import std.spark
+
+insignia sema_names_
+
+## Copia owned de un string.
+##
+## ## Motivo
+## `intern` debe ser el único dueño del texto: el llamador conserva su string
+## temporal y lo libera. Un `push` normal copiaría solo la cabecera y dejaría
+## el pool apuntando a memoria liberada.
+##
+## ## Memoria
+## Devuelve un buffer owned; liberar con `banish`.
+antiquus _copy_string with s as string into string:
+    r"""
+return pengu_string_copy(s);
+"""
+
+## Copia owned de un string para quien necesite una clave estable.
+##
+## ## Memoria
+## Devuelve un buffer owned; liberar con `banish`.
+weave copy_string with s as string into string:
+    return calling _copy_string with s
+
+## Pool de nombres internados.
+##
+## ## Memoria
+## Sin `derive Nexus`: los strings de `strings` necesitan `banish` individual
+## antes de liberar la lista. Usar `free_pool`.
+rune NamePool:
+    ## Textos en orden de primera aparición; `NameId` es el índice.
+    strings as list of string
+    ## Índice inverso para no duplicar.
+    ids as map of string to int
+
+## Crea un pool vacío.
+##
+## ## Memoria
+## Asigna la lista y el mapa; liberar con `free_pool`.
+weave new_pool into NamePool:
+    return with strings is list of string, ids is map of string to int
+
+## Libera todos los nombres y el índice.
+##
+## ## Memoria
+## Libera cada string, luego la lista y el mapa. El pool no debe usarse después.
+weave free_pool with pool as ref to NamePool into void:
+    var i as int is 0
+    while i < pool->strings.len:
+        banish pool->strings at (i)
+        set i is i + 1
+    banish pool->strings
+    banish pool->ids
+
+## Número de nombres internados.
+##
+## ## Memoria
+## O(1), no asigna.
+weave pool_len with pool as ref to NamePool into int:
+    return pool->strings.len
+
+## Interna `s` y devuelve su `NameId`.
+##
+## ## Memoria
+## Si es nuevo, copia `s` a la lista; el llamador conserva su string.
+weave intern with pool as ref to NamePool, s as string into int:
+    if calling pool->ids.has with s:
+        return calling pool->ids.get with s
+    var id as int is pool->strings.len
+    var owned as string is calling _copy_string with s
+    calling pool->strings.push with owned
+    calling pool->ids.put with owned, id
+    return id
+
+## Interna `s` solo si no existe y devuelve el id existente.
+##
+## ## Memoria
+## Igual que `intern`; se ofrece como nombre explícito para el collector.
+weave intern_if_missing with pool as ref to NamePool, s as string into int:
+    return calling intern with pool, s
+
+## Texto de un `NameId`.
+##
+## ## Memoria
+## Devuelve un préstamo al string del pool; no lo liberes.
+weave text with pool as ref to NamePool, id as int into string:
+    if id < 0 or id >= pool->strings.len:
+        return ""
+    return (pool->strings at id)
+
+## `true` si el id está dentro del pool.
+##
+## ## Memoria
+## O(1), no asigna.
+weave has_id with pool as ref to NamePool, id as int into bool:
+    return id >= 0 and id < pool->strings.len
+
+## `NameId` existente o `-1`.
+##
+## ## Memoria
+## O(1) promedio; no asigna.
+weave find with pool as ref to NamePool, s as string into int:
+    if calling pool->ids.has with s:
+        return calling pool->ids.get with s
+    return -1
+
+## Depuración: imprime los nombres en orden.
+##
+## ## Memoria
+## No asigna salvo la salida de `spark`.
+weave dump_pool with pool as ref to NamePool into void:
+    var i as int is 0
+    while i < pool->strings.len:
+        calling spark.print with "{i}: {(pool->strings at i)}"
+        set i is i + 1

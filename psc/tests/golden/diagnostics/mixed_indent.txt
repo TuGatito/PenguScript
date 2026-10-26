@@ -1,0 +1,11 @@
+warning[W0005]: Inconsistent indentation: line 2 uses tabs, line 3 uses spaces
+  --> tests/fixtures/mixed_indent.pengu:3:1
+  |
+1 | weave f into int:
+2 | 	var a as int is 0
+3 |     var b as int is 1
+  | ^
+4 |     return a + b
+  |
+   = help: Use either tabs or spaces consistently.
+

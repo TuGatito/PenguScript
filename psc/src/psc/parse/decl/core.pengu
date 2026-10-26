@@ -1,0 +1,909 @@
+## psc/parse/decl/core.pengu — declaraciones top-level.
+##
+## Aquí viven `import`/`include`/`link`/`ldflag`/`insignia`, los tipos
+## nominales (`rune`, `echo`, `omen`, `alias`, `seal`), `concept`, `bind`,
+## `weave`, `enchanting`, `antiquus`, `declare`, `test` y `when` top-level.
+## Las declaraciones locales (`var`/`let`/`const`/`static`) se reutilizan de
+## `stmt/core.pengu`.
+##
+## ## Memoria
+## Construye nodos en el AST; no asigna strings salvo diagnósticos.
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.state as psstate
+import psc.parse.diagnostics as pdiag
+import psc.parse.types as ptypes
+import psc.parse.expr.ops as pexpr
+import psc.parse.stmt.core as pstmt
+
+insignia psc_parse_decl_
+
+# ---------------------------------------------------------------------------
+# Archivo y lista de declaraciones
+# ---------------------------------------------------------------------------
+
+## Parsea un archivo completo y devuelve la raíz `start`.
+##
+## ## Memoria
+## Crea `start -> file -> top_stmt*`.
+weave pdecl_parse_file with p as ref to PsParser into int:
+    var start as int is 0
+    var end as int is (calling p->src.byte_len)
+    calling ps_begin_children with p
+    var file_node as int is calling pdecl_parse_file_body with p
+    calling ps_add_child with p, file_node
+    var root as int is calling ps_finish_node with p, NodeKind.NdStart, start, end, 0
+    set p->root is root
+    return root
+
+## Parsea el nodo `file`.
+##
+## ## Memoria
+## Crea `file` con los `top_stmt`.
+weave pdecl_parse_file_body with p as ref to PsParser into int:
+    var start as int is 0
+    var end as int is (calling p->src.byte_len)
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        calling ps_skip_newlines with p
+        if calling ps_check with p, TokEof:
+            set more is false
+        else:
+            var before as int is p->pos
+            var top as int is calling pdecl_parse_top_stmt with p
+            calling ps_add_child with p, top
+            if p->pos == before:
+                var forced as Token is calling ps_advance with p
+            if p->stop:
+                set more is false
+    return calling ps_finish_node with p, NodeKind.NdFile, start, end, 0
+
+## Parsea un `top_stmt` y lo envuelve.
+##
+## ## Memoria
+## Crea un nodo `top_stmt`.
+weave pdecl_parse_top_stmt with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var attrs as int is calling pdecl_parse_attributes with p
+    var inner as int is calling pdecl_parse_top_inner with p, attrs
+    calling ps_begin_children with p
+    calling ps_add_child with p, inner
+    return calling ps_finish_node with p, NodeKind.NdTopStmt, start, (calling pexpr.pexpr_end_of with p, inner), 0
+
+## Despacha una declaración top-level.
+##
+## ## Memoria
+## Construye el nodo de la declaración.
+weave pdecl_parse_top_inner with p as ref to PsParser, attrs as int into int:
+    if calling ps_check_kw with p, KwImport:
+        return calling pdecl_parse_import with p
+    if calling ps_check_kw with p, KwInclude:
+        return calling pdecl_parse_string_top with p, NodeKind.NdIncludeStmt
+    if calling ps_check_kw with p, KwLink:
+        return calling pdecl_parse_string_top with p, NodeKind.NdLinkStmt
+    if calling ps_check_kw with p, KwLdflag:
+        return calling pdecl_parse_string_top with p, NodeKind.NdLdflagStmt
+    if calling ps_check_kw with p, KwInsignia:
+        return calling pdecl_parse_insignia with p
+    if calling ps_check_kw with p, KwConst:
+        return calling pstmt.pstmt_parse_const with p
+    if calling ps_check_kw with p, KwVar:
+        return calling pstmt.pstmt_parse_var with p
+    if calling ps_check_kw with p, KwLet:
+        return calling pstmt.pstmt_parse_let with p
+    if calling ps_check_kw with p, KwRune:
+        return calling pdecl_parse_record with p, NodeKind.NdRuneDecl, attrs
+    if calling ps_check_kw with p, KwEcho:
+        return calling pdecl_parse_record with p, NodeKind.NdEchoDecl, attrs
+    if calling ps_check_kw with p, KwOmen:
+        return calling pdecl_parse_omen with p
+    if calling ps_check_kw with p, KwAlias:
+        return calling pdecl_parse_alias with p
+    if calling ps_check_kw with p, KwSeal:
+        return calling pdecl_parse_seal with p
+    if calling ps_check_kw with p, KwConcept:
+        return calling pdecl_parse_concept with p
+    if calling ps_check_kw with p, KwBind:
+        return calling pdecl_parse_bind with p
+    if calling ps_check_kw with p, KwWeave:
+        return calling pdecl_parse_weave with p, attrs
+    if calling ps_check_kw with p, KwEnchanting:
+        return calling pdecl_parse_enchanting with p
+    if calling ps_check_kw with p, KwAntiquus:
+        return calling pdecl_parse_antiquus with p, attrs
+    if calling ps_check_kw with p, KwDeclare:
+        return calling pdecl_parse_declare with p, attrs
+    if calling ps_check_kw with p, KwTest:
+        return calling pdecl_parse_test with p
+    if calling ps_check_kw with p, KwWhen:
+        return calling pdecl_parse_when_top with p
+    var off as int is calling ps_current_start with p
+    calling ps_emit_here with p, pdiag.ParseIssue.ParseUnexpectedToken, (calling pdecl_token_text with p)
+    var err as int is calling ps_error_node with p, off, off
+    calling ps_synchronize with p
+    return err
+
+## Texto del token actual para un diagnóstico.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave pdecl_token_text with p as ref to PsParser into string:
+    var t as Token is calling ps_current_token with p
+    var s as pspan.ByteSpan is calling pstoken.token_span with t
+    return calling p->src.slice with s
+
+# ---------------------------------------------------------------------------
+# Declaraciones simples
+# ---------------------------------------------------------------------------
+
+## Parsea `import dotted [as NAME]`.
+##
+## ## Memoria
+## Crea un nodo `import_stmt`.
+weave pdecl_parse_import with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwImport, "'import'"
+    calling ps_begin_children with p
+    var path as int is calling ptypes.ptype_parse_dotted_path with p
+    calling ps_add_child with p, path
+    if calling ps_check_kw with p, KwAs:
+        var ignored2 as Token is calling ps_advance with p
+        if calling ps_check_name_like with p:
+            calling ps_add_name_like with p
+        else:
+            calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    else:
+        calling ps_add_absent with p
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdImportStmt, start, (calling ps_previous_end with p), 0
+
+## Parsea `include/link/ldflag "..."`.
+##
+## ## Memoria
+## Crea un nodo con el token string.
+weave pdecl_parse_string_top with p as ref to PsParser, kind as NodeKind into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    calling ps_begin_children with p
+    if calling ps_check with p, TokStringLit:
+        calling ps_add_token with p, p->pos
+        var ignored2 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedToken, "string literal"
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, kind, start, (calling ps_previous_end with p), 0
+
+## Parsea `insignia NAME`.
+##
+## ## Memoria
+## Crea un nodo `insignia_stmt`.
+weave pdecl_parse_insignia with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwInsignia, "'insignia'"
+    calling ps_begin_children with p
+    if calling ps_check with p, TokIdentifier:
+        calling ps_add_token with p, p->pos
+        var ignored2 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdInsigniaStmt, start, (calling ps_previous_end with p), 0
+
+# ---------------------------------------------------------------------------
+# Atributos y modificadores
+# ---------------------------------------------------------------------------
+
+## Parsea cero o más atributos `@...`.
+##
+## ## Memoria
+## Crea un nodo `attributes` (posiblemente vacío).
+weave pdecl_parse_attributes with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    while calling ps_check with p, TokAt:
+        var attr as int is calling pdecl_parse_attribute with p
+        calling ps_add_child with p, attr
+    return calling ps_finish_node with p, NodeKind.NdAttributes, start, (calling ps_previous_end with p), 0
+
+## Parsea `@ NAME [ "(" args ")" ] [NEWLINE]`.
+##
+## ## Memoria
+## Crea un nodo `attribute`.
+weave pdecl_parse_attribute with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect with p, TokAt, "'@'"
+    calling ps_begin_children with p
+    if calling ps_check with p, TokIdentifier:
+        calling ps_add_token with p, p->pos
+        var ignored2 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    if calling ps_check with p, TokLeftParen:
+        calling ps_add_child with p, (calling pdecl_parse_attribute_args with p)
+    else:
+        calling ps_add_absent with p
+    var attr as int is calling ps_finish_node with p, NodeKind.NdAttribute, start, (calling ps_previous_end with p), 0
+    if calling ps_check with p, TokNewline:
+        var ignored3 as Token is calling ps_advance with p
+    return attr
+
+## Parsea `(arg, arg...)` de un atributo.
+##
+## ## Memoria
+## Crea un nodo `attribute_args`.
+weave pdecl_parse_attribute_args with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect with p, TokLeftParen, "'('"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        if (calling ps_check with p, TokIdentifier) or (calling ps_check with p, TokIntLit) or (calling ps_check with p, TokStringLit):
+            calling ps_add_token with p, p->pos
+            var ignored2 as Token is calling ps_advance with p
+        else:
+            calling ps_emit_here with p, pdiag.ParseIssue.ParseInvalidAttribute, ""
+            set more is false
+        if calling ps_check with p, TokComma:
+            var ignored3 as Token is calling ps_advance with p
+        else:
+            set more is false
+    var ignored4 as Token is calling ps_expect with p, TokRightParen, "')'"
+    return calling ps_finish_node with p, NodeKind.NdAttributeArgs, start, (calling ps_previous_end with p), 0
+
+## Parsea `inline`/`ritual` (modificadores soft).
+##
+## ## Memoria
+## Crea nodos `weave_modifier`.
+weave pdecl_parse_modifiers_into with p as ref to PsParser into void:
+    var more as bool is true
+    while more:
+        if calling ps_check_word with p, "inline":
+            var start as int is calling ps_current_start with p
+            var ti as int is p->pos
+            var ignored as Token is calling ps_advance with p
+            var mod as int is calling ps_leaf_token with p, NodeKind.NdWeaveModifier, ti, start, (calling ps_previous_end with p)
+            calling ps_add_child with p, mod
+        else if calling ps_check_word with p, "ritual":
+            var start2 as int is calling ps_current_start with p
+            var ti2 as int is p->pos
+            var ignored2 as Token is calling ps_advance with p
+            var mod2 as int is calling ps_leaf_token with p, NodeKind.NdWeaveModifier, ti2, start2, (calling ps_previous_end with p)
+            calling ps_add_child with p, mod2
+        else:
+            set more is false
+
+# ---------------------------------------------------------------------------
+# rune / echo / omen / alias / seal
+# ---------------------------------------------------------------------------
+
+## Parsea `rune`/`echo`.
+##
+## ## Memoria
+## Crea el nodo de registro con sus campos.
+weave pdecl_parse_record with p as ref to PsParser, kind as NodeKind, attrs as int into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    calling ps_begin_children with p
+    if kind == NodeKind.NdRuneDecl:
+        calling ps_add_child with p, attrs
+    calling pdecl_add_name_token with p
+    if calling ps_check_kw with p, KwCyclus:
+        var ignored2 as Token is calling ps_advance with p
+        calling ps_add_child with p, (calling pdecl_empty_node_here with p, NodeKind.NdCyclusKw)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwShard:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwDerive:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_derive_clause with p)
+    else:
+        calling ps_add_absent with p
+    var ignored3 as Token is calling ps_expect with p, TokColon, "':'"
+    var ignored4 as Token is calling ps_expect with p, TokNewline, "newline"
+    var ignored5 as Token is calling ps_expect with p, TokIndent, "indent"
+    var count as int is 0
+    var more as bool is true
+    while more:
+        calling ps_skip_newlines with p
+        if (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+            set more is false
+        else:
+            var before as int is p->pos
+            var field as int is calling pdecl_parse_field with p
+            calling ps_add_child with p, field
+            set count is count + 1
+            if p->pos == before:
+                var forced as Token is calling ps_advance with p
+    if count == 0:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseEmptyBlock, ""
+    if calling ps_check with p, TokDedent:
+        var ignored6 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedDedent, ""
+    return calling ps_finish_node with p, kind, start, (calling ps_previous_end with p), 0
+
+## Parsea un campo `@attrs NAME as type`.
+##
+## ## Memoria
+## Crea un nodo `field_decl`.
+weave pdecl_parse_field with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    var attrs as int is calling pdecl_parse_attributes with p
+    calling ps_add_child with p, attrs
+    calling ps_add_name_like with p
+    var ignored as Token is calling ps_expect_kw with p, KwAs, "'as'"
+    var ty as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, ty
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdFieldDecl, start, (calling pexpr.pexpr_end_of with p, ty), 0
+
+## Parsea `omen NAME ...:`.
+##
+## ## Memoria
+## Crea un nodo `omen_decl` con sus variantes.
+weave pdecl_parse_omen with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwOmen, "'omen'"
+    calling ps_begin_children with p
+    calling pdecl_add_name_token with p
+    if calling ps_check_kw with p, KwCyclus:
+        var ignored2 as Token is calling ps_advance with p
+        calling ps_add_child with p, (calling pdecl_empty_node_here with p, NodeKind.NdCyclusKw)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwShard:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwWith:
+        var ignored3 as Token is calling ps_advance with p
+        if calling ps_check_word with p, "string":
+            var st as int is calling ps_current_start with p
+            var ignored4 as Token is calling ps_advance with p
+            var sk as int is calling ps_finish_node with p, NodeKind.NdOmenStringKind, st, st, 0
+            calling ps_add_child with p, sk
+        else:
+            calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedToken, "'string'"
+            calling ps_add_child with p, (calling pdecl_empty_node_here with p, NodeKind.NdOmenStringKind)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwDerive:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_derive_clause with p)
+    else:
+        calling ps_add_absent with p
+    var ignored5 as Token is calling ps_expect with p, TokColon, "':'"
+    var ignored6 as Token is calling ps_expect with p, TokNewline, "newline"
+    var ignored7 as Token is calling ps_expect with p, TokIndent, "indent"
+    var count as int is 0
+    var more as bool is true
+    while more:
+        calling ps_skip_newlines with p
+        if (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+            set more is false
+        else:
+            var before as int is p->pos
+            var variant as int is calling pdecl_parse_omen_variant with p
+            calling ps_add_child with p, variant
+            set count is count + 1
+            if p->pos == before:
+                var forced as Token is calling ps_advance with p
+    if count == 0:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseEmptyBlock, ""
+    if calling ps_check with p, TokDedent:
+        var ignored8 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedDedent, ""
+    return calling ps_finish_node with p, NodeKind.NdOmenDecl, start, (calling ps_previous_end with p), 0
+
+## Parsea una variante de `omen`.
+##
+## ## Memoria
+## Crea un nodo `omen_variant`.
+weave pdecl_parse_omen_variant with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    calling pdecl_add_name_token with p
+    if calling ps_check_kw with p, KwIs:
+        var ignored as Token is calling ps_advance with p
+        var value as int is calling pexpr.pexpr_parse_expr with p
+        calling ps_add_child with p, value
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwWith:
+        var ignored2 as Token is calling ps_advance with p
+        var more as bool is true
+        while more:
+            var field as int is calling pdecl_parse_omen_field with p
+            calling ps_add_child with p, field
+            if calling ps_check with p, TokComma:
+                var ignored3 as Token is calling ps_advance with p
+            else if calling ps_check_kw with p, KwAnd:
+                var ignored4 as Token is calling ps_advance with p
+            else:
+                set more is false
+    else:
+        calling ps_add_absent with p
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdOmenVariant, start, (calling ps_previous_end with p), 0
+
+## Parsea `NAME as type` de una variante.
+##
+## ## Memoria
+## Crea un nodo `omen_field`.
+weave pdecl_parse_omen_field with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    calling pdecl_add_name_token with p
+    var ignored as Token is calling ps_expect_kw with p, KwAs, "'as'"
+    var ty as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, ty
+    return calling ps_finish_node with p, NodeKind.NdOmenField, start, (calling pexpr.pexpr_end_of with p, ty), 0
+
+## Parsea `alias NAME [shard...] as type`.
+##
+## ## Memoria
+## Crea un nodo `alias_decl`.
+weave pdecl_parse_alias with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwAlias, "'alias'"
+    calling ps_begin_children with p
+    calling pdecl_add_name_token with p
+    if calling ps_check_kw with p, KwShard:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)
+    else:
+        calling ps_add_absent with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwAs, "'as'"
+    var ty as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, ty
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdAliasDecl, start, (calling pexpr.pexpr_end_of with p, ty), 0
+
+## Parsea `seal NAME as type`.
+##
+## ## Memoria
+## Crea un nodo `seal_decl`.
+weave pdecl_parse_seal with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwSeal, "'seal'"
+    calling ps_begin_children with p
+    calling pdecl_add_name_token with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwAs, "'as'"
+    var ty as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, ty
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdSealDecl, start, (calling pexpr.pexpr_end_of with p, ty), 0
+
+# ---------------------------------------------------------------------------
+# concept / bind / weave / enchanting / declare / antiquus
+# ---------------------------------------------------------------------------
+
+## Parsea `concept NAME [shard] : methods`.
+##
+## ## Memoria
+## Crea un nodo `concept_decl`.
+weave pdecl_parse_concept with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwConcept, "'concept'"
+    calling ps_begin_children with p
+    calling pdecl_add_name_token with p
+    if calling ps_check_kw with p, KwShard:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)
+    else:
+        calling ps_add_absent with p
+    var ignored2 as Token is calling ps_expect with p, TokColon, "':'"
+    var ignored3 as Token is calling ps_expect with p, TokNewline, "newline"
+    var ignored4 as Token is calling ps_expect with p, TokIndent, "indent"
+    var more as bool is true
+    while more:
+        calling ps_skip_newlines with p
+        if (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+            set more is false
+        else:
+            var before as int is p->pos
+            var method as int is calling pdecl_parse_concept_method with p
+            calling ps_add_child with p, method
+            if p->pos == before:
+                var forced as Token is calling ps_advance with p
+    if calling ps_check with p, TokDedent:
+        var ignored5 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedDedent, ""
+    return calling ps_finish_node with p, NodeKind.NdConceptDecl, start, (calling ps_previous_end with p), 0
+
+## Parsea un método de `concept` (sin cuerpo).
+##
+## ## Memoria
+## Crea un nodo `concept_method`.
+weave pdecl_parse_concept_method with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    calling pdecl_parse_modifiers_into with p
+    var ignored as Token is calling ps_expect_kw with p, KwWeave, "'weave'"
+    calling pdecl_parse_modifiers_into with p
+    calling pdecl_add_name_token with p
+    if calling ps_check_kw with p, KwShard:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwWith:
+        calling ps_add_child with p, (calling pdecl_parse_param_list with p)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwInto:
+        var ignored2 as Token is calling ps_advance with p
+        var ty as int is calling ptypes.ptype_parse_type with p
+        calling ps_add_child with p, ty
+    else:
+        calling ps_add_absent with p
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdConceptMethod, start, (calling ps_previous_end with p), 0
+
+## Parsea `bind TYPE with CUSTOM [shard] : weaves`.
+##
+## ## Memoria
+## Crea un nodo `bind_decl`.
+weave pdecl_parse_bind with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwBind, "'bind'"
+    calling ps_begin_children with p
+    var ty as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, ty
+    var ignored2 as Token is calling ps_expect_kw with p, KwWith, "'with'"
+    var custom as int is calling ptypes.ptype_parse_custom with p
+    calling ps_add_child with p, custom
+    if calling ps_check_kw with p, KwShard:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)
+    else:
+        calling ps_add_absent with p
+    var ignored3 as Token is calling ps_expect with p, TokColon, "':'"
+    var ignored4 as Token is calling ps_expect with p, TokNewline, "newline"
+    var ignored5 as Token is calling ps_expect with p, TokIndent, "indent"
+    var more as bool is true
+    while more:
+        calling ps_skip_newlines with p
+        if (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+            set more is false
+        else:
+            var before as int is p->pos
+            var mattrs as int is calling pdecl_parse_attributes with p
+            var method as int is calling pdecl_parse_weave with p, mattrs
+            calling ps_add_child with p, method
+            if p->pos == before:
+                var forced as Token is calling ps_advance with p
+    if calling ps_check with p, TokDedent:
+        var ignored6 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedDedent, ""
+    return calling ps_finish_node with p, NodeKind.NdBindDecl, start, (calling ps_previous_end with p), 0
+
+## Parsea `weave ...: cuerpo`.
+##
+## ## Memoria
+## Crea un nodo `weave_decl`.
+weave pdecl_parse_weave with p as ref to PsParser, attrs as int into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, attrs
+    calling pdecl_parse_modifiers_into with p
+    var ignored as Token is calling ps_expect_kw with p, KwWeave, "'weave'"
+    calling pdecl_parse_modifiers_into with p
+    calling pdecl_add_name_token with p
+    if calling ps_check_kw with p, KwShard:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwWith:
+        calling ps_add_child with p, (calling pdecl_parse_param_list with p)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwInto:
+        var ignored2 as Token is calling ps_advance with p
+        var ty as int is calling ptypes.ptype_parse_type with p
+        calling ps_add_child with p, ty
+    else:
+        calling ps_add_absent with p
+    calling pstmt.pstmt_parse_block_into with p
+    return calling ps_finish_node with p, NodeKind.NdWeaveDecl, start, (calling ps_previous_end with p), 0
+
+## Parsea `enchanting RECEIVER [shard|where] : weaves`.
+##
+## ## Memoria
+## Crea un nodo `enchanting_decl`.
+weave pdecl_parse_enchanting with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwEnchanting, "'enchanting'"
+    calling ps_begin_children with p
+    if calling ps_check_kw with p, KwShard:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_shard_ref with p)
+    else:
+        var ty as int is calling ptypes.ptype_parse_type with p
+        calling ps_begin_children with p
+        calling ps_add_child with p, ty
+        var wrapped as int is calling ps_finish_node with p, NodeKind.NdTypeOrParam, (calling pexpr.pexpr_start_of with p, ty), (calling pexpr.pexpr_end_of with p, ty), 0
+        calling ps_add_child with p, wrapped
+    if calling ps_check_kw with p, KwShard:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)
+    else if calling ps_check_kw with p, KwWhere:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_where_clause with p)
+    var ignored2 as Token is calling ps_expect with p, TokColon, "':'"
+    var ignored3 as Token is calling ps_expect with p, TokNewline, "newline"
+    var ignored4 as Token is calling ps_expect with p, TokIndent, "indent"
+    var more as bool is true
+    while more:
+        calling ps_skip_newlines with p
+        if (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+            set more is false
+        else:
+            var before as int is p->pos
+            var mattrs as int is calling pdecl_parse_attributes with p
+            var method as int is calling pdecl_parse_weave with p, mattrs
+            calling ps_add_child with p, method
+            if p->pos == before:
+                var forced as Token is calling ps_advance with p
+    if calling ps_check with p, TokDedent:
+        var ignored5 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedDedent, ""
+    return calling ps_finish_node with p, NodeKind.NdEnchantingDecl, start, (calling ps_previous_end with p), 0
+
+## Parsea `declare ...` (sin cuerpo).
+##
+## ## Memoria
+## Crea un nodo `declare_stmt`.
+weave pdecl_parse_declare with p as ref to PsParser, attrs as int into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, attrs
+    calling pdecl_parse_modifiers_into with p
+    var ignored as Token is calling ps_expect_kw with p, KwDeclare, "'declare'"
+    calling pdecl_parse_modifiers_into with p
+    calling pdecl_add_name_token with p
+    if calling ps_check_kw with p, KwShard:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwWith:
+        calling ps_add_child with p, (calling pdecl_parse_declare_params with p)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwInto:
+        var ignored2 as Token is calling ps_advance with p
+        var ty as int is calling ptypes.ptype_parse_type with p
+        calling ps_add_child with p, ty
+    else:
+        calling ps_add_absent with p
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdDeclareStmt, start, (calling ps_previous_end with p), 0
+
+## Parsea `antiquus ...:` + cuerpo C.
+##
+## ## Memoria
+## Crea un nodo `antiquus_decl` con el token del cuerpo.
+weave pdecl_parse_antiquus with p as ref to PsParser, attrs as int into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, attrs
+    calling pdecl_parse_modifiers_into with p
+    var ignored as Token is calling ps_expect_kw with p, KwAntiquus, "'antiquus'"
+    calling pdecl_parse_modifiers_into with p
+    calling pdecl_add_name_token with p
+    if calling ps_check_kw with p, KwShard:
+        calling ps_add_child with p, (calling ptypes.ptype_parse_shard_params with p)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwWith:
+        calling ps_add_child with p, (calling pdecl_parse_param_list with p)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwInto:
+        var ignored2 as Token is calling ps_advance with p
+        var ty as int is calling ptypes.ptype_parse_type with p
+        calling ps_add_child with p, ty
+    else:
+        calling ps_add_absent with p
+    var ignored3 as Token is calling ps_expect with p, TokColon, "':'"
+    var ignored4 as Token is calling ps_expect with p, TokNewline, "newline"
+    var ignored5 as Token is calling ps_expect with p, TokIndent, "indent"
+    if calling ps_check with p, TokAntiquusBody:
+        calling ps_add_token with p, p->pos
+        var ignored6 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedToken, "antiquus body"
+        calling ps_add_absent with p
+    if calling ps_check with p, TokNewline:
+        var ignored7 as Token is calling ps_advance with p
+    if calling ps_check with p, TokDedent:
+        var ignored8 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedDedent, ""
+    return calling ps_finish_node with p, NodeKind.NdAntiquusDecl, start, (calling ps_previous_end with p), 0
+
+# ---------------------------------------------------------------------------
+# test / when top-level
+# ---------------------------------------------------------------------------
+
+## Parsea `test "nombre": ...`.
+##
+## ## Memoria
+## Crea un nodo `test_decl` con los `stmt` hijos.
+weave pdecl_parse_test with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwTest, "'test'"
+    calling ps_begin_children with p
+    if calling ps_check with p, TokStringLit:
+        calling ps_add_token with p, p->pos
+        var ignored2 as Token is calling ps_advance with p
+    else if calling ps_check_name_like with p:
+        calling ps_add_name_like with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    calling pstmt.pstmt_parse_block_into with p
+    return calling ps_finish_node with p, NodeKind.NdTestDecl, start, (calling ps_previous_end with p), 0
+
+## Parsea `when cond:` con declaraciones top-level.
+##
+## ## Memoria
+## Crea un nodo `when_top_decl`.
+weave pdecl_parse_when_top with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWhen, "'when'"
+    var cond as int is calling pexpr.pexpr_parse_expr with p
+    var ignored2 as Token is calling ps_expect with p, TokColon, "':'"
+    var ignored3 as Token is calling ps_expect with p, TokNewline, "newline"
+    var ignored4 as Token is calling ps_expect with p, TokIndent, "indent"
+    calling ps_begin_children with p
+    calling ps_add_child with p, cond
+    var more as bool is true
+    while more:
+        calling ps_skip_newlines with p
+        if (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+            set more is false
+        else:
+            var before as int is p->pos
+            var top as int is calling pdecl_parse_top_stmt with p
+            calling ps_add_child with p, top
+            if p->pos == before:
+                var forced as Token is calling ps_advance with p
+    if calling ps_check with p, TokDedent:
+        var ignored5 as Token is calling ps_advance with p
+    if calling ps_check_kw with p, KwElse:
+        var eb as int is calling pdecl_parse_when_top_else with p
+        calling ps_add_child with p, eb
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdWhenTopDecl, start, (calling ps_previous_end with p), 0
+
+## Parsea el `else` de un `when` top-level.
+##
+## ## Memoria
+## Crea `when_top_else_plain` o `when_top_else_when`.
+weave pdecl_parse_when_top_else with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwElse, "'else'"
+    if calling ps_check_kw with p, KwWhen:
+        calling ps_begin_children with p
+        var nested as int is calling pdecl_parse_when_top with p
+        calling ps_add_child with p, nested
+        return calling ps_finish_node with p, NodeKind.NdWhenTopElseWhen, start, (calling pexpr.pexpr_end_of with p, nested), 0
+    var ignored2 as Token is calling ps_expect with p, TokColon, "':'"
+    var ignored3 as Token is calling ps_expect with p, TokNewline, "newline"
+    var ignored4 as Token is calling ps_expect with p, TokIndent, "indent"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        calling ps_skip_newlines with p
+        if (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+            set more is false
+        else:
+            var before as int is p->pos
+            var top as int is calling pdecl_parse_top_stmt with p
+            calling ps_add_child with p, top
+            if p->pos == before:
+                var forced as Token is calling ps_advance with p
+    if calling ps_check with p, TokDedent:
+        var ignored5 as Token is calling ps_advance with p
+    return calling ps_finish_node with p, NodeKind.NdWhenTopElsePlain, start, (calling ps_previous_end with p), 0
+
+# ---------------------------------------------------------------------------
+# Parámetros
+# ---------------------------------------------------------------------------
+
+## Parsea `with param (, param)*`.
+##
+## ## Memoria
+## Crea un nodo `param_list`.
+weave pdecl_parse_param_list with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWith, "'with'"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        var param as int is calling pdecl_parse_param with p
+        calling ps_add_child with p, param
+        if calling ps_check with p, TokComma:
+            var ignored2 as Token is calling ps_advance with p
+        else if calling ps_check_kw with p, KwAnd:
+            var at_and as Token is calling ps_current_token with p
+            var detail as string is "line {at_and.line}, column {at_and.col}"
+            defer banish detail
+            calling ps_emit_issue with p, pdiag.ParseIssue.ParseLegacyAndSeparator, at_and.start, at_and.end, detail
+            var ignored3 as Token is calling ps_advance with p
+        else:
+            set more is false
+    return calling ps_finish_node with p, NodeKind.NdParamList, start, (calling ps_previous_end with p), 0
+
+## Parsea `NAME as type [is default]`.
+##
+## ## Memoria
+## Crea un nodo `param`.
+weave pdecl_parse_param with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    calling pdecl_add_name_token with p
+    var ignored as Token is calling ps_expect_kw with p, KwAs, "'as'"
+    var ty as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, ty
+    if calling ps_check_kw with p, KwIs:
+        var ignored2 as Token is calling ps_advance with p
+        var fn as ref to weave with p as ref to PsParser into int is p->hooks.list_expr
+        var value as int is calling fn with p
+        calling ps_add_child with p, value
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdParam, start, (calling ps_previous_end with p), 0
+
+## Parsea `with` + parámetros de `declare` y `...`.
+##
+## ## Memoria
+## Crea un nodo `declare_params`.
+weave pdecl_parse_declare_params with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWith, "'with'"
+    calling ps_begin_children with p
+    if calling ps_check with p, TokEllipsis:
+        calling ps_add_token with p, p->pos
+        var ignored2 as Token is calling ps_advance with p
+        return calling ps_finish_node with p, NodeKind.NdDeclareParams, start, (calling ps_previous_end with p), 0
+    var more as bool is true
+    while more:
+        var param as int is calling pdecl_parse_param with p
+        calling ps_add_child with p, param
+        if calling ps_check with p, TokComma:
+            var ignored3 as Token is calling ps_advance with p
+        else:
+            set more is false
+    if calling ps_check with p, TokEllipsis:
+        calling ps_add_token with p, p->pos
+        var ignored4 as Token is calling ps_advance with p
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdDeclareParams, start, (calling ps_previous_end with p), 0
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+## Añade el token del nombre actual o emite un error.
+##
+## ## Memoria
+## O(1), no asigna.
+weave pdecl_add_name_token with p as ref to PsParser into void:
+    calling ps_add_name_like with p
+
+## Crea un nodo vacío en la posición actual sin consumir nada.
+##
+## ## Memoria
+## Crea un nodo POD.
+weave pdecl_empty_node_here with p as ref to PsParser, kind as NodeKind into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    return calling ps_finish_node with p, kind, start, start, 0

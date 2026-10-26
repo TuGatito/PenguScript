@@ -2097,7 +2097,13 @@ class ExprMixin:
             field_name = self._c_ident(raw_field)
             if isinstance(target_node, Tree) and target_node.data == "var_ref":
                 var_name = str(target_node.children[0])
-                sym = self.symbols.lookup(var_name) if self.symbols else None
+                # A local/parameter shadows any module import of the same name.
+                # Without this guard, a file that imports a module as `span`
+                # made an unrelated parameter named `span` resolve as a module
+                # and `span.start_line` became the undefined C expression
+                # `span_start_line`.
+                sym = (self.symbols.lookup(var_name)
+                       if (self.symbols and var_name not in self.local_vars) else None)
                 if sym and sym.kind == "import":
                     if sym.module_scope:
                         mod_field_sym = sym.module_scope.lookup(raw_field)

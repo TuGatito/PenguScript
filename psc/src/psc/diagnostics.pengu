@@ -1,0 +1,238 @@
+## psc/diagnostics.pengu — diagnósticos léxicos con códigos compatibles.
+##
+## PSC no reimplementa el renderizador: usa `std.diagnostic` (`DiagnosticBag`,
+## `Span`, `Label`, render plain/ANSI/JSON) y añade una fachada con los códigos
+## que el compilador ya publica:
+##
+## | Código | Uso |
+## |---|---|
+## | `E0000` | errores léxicos y de indentación |
+## | `E0059` | `antiquus` sin cuerpo o con cuerpo vacío |
+## | `W0005` | indentación mixta (tabs y espacios) |
+##
+## `E0057` (char > 0x7F) es semántico y lo emite F3; F1 solo guarda el valor.
+##
+## ## Memoria
+## `emit_issue` construye el mensaje, lo copia dentro del diagnóstico y lo
+## libera. `help`/`note` se transfieren al `Diagnostic`. El `DiagnosticBag` es
+## dueño de todo lo añadido.
+
+import std.diagnostic as diag
+import std.sourcemap
+
+import psc.span as pspan
+import psc.source as psource
+
+## Código de error léxico/sintáctico genérico.
+const PSC_E_LEX as string is "E0000"
+
+## Código de error de cuerpo `antiquus`.
+const PSC_E_ANTIQUUS as string is "E0059"
+
+## Código de warning por indentación mixta.
+const PSC_W_INDENT as string is "W0005"
+
+## Cada problema que puede detectar la fase léxica.
+##
+## El código público se calcula con `issue_code`; varios issues comparten
+## `E0000`, igual que en stage0.
+omen LexIssue:
+    ## String normal sin comilla de cierre.
+    LexUnterminatedString
+    ## Triple string sin `"""` de cierre.
+    LexUnterminatedTripleString
+    ## Raw string sin comilla de cierre.
+    LexUnterminatedRawString
+    ## Char literal sin `'` de cierre.
+    LexUnterminatedChar
+    ## Char literal con cero o más de una unidad.
+    LexInvalidCharLiteral
+    ## Número con una forma que el scanner no puede completar.
+    LexInvalidNumber
+    ## Byte/codepoint que no puede empezar un token.
+    LexUnknownCharacter
+    ## Secuencia UTF-8 inválida.
+    LexInvalidUtf8
+    ## BOM fuera del inicio del archivo.
+    LexUnexpectedBom
+    ## Dedent a un nivel que no existe en la pila.
+    LexIndentMismatch
+    ## Tabs y espacios mezclados en la indentación.
+    LexMixedIndentation
+    ## `)`/`]`/`}` sin apertura.
+    LexUnmatchedCloseBracket
+    ## `(`/`[`/`{` sin cierre al EOF.
+    LexUnclosedBracket
+    ## `antiquus` sin cuerpo triple.
+    LexAntiquusMissingBody
+    ## `antiquus` con cuerpo vacío.
+    LexAntiquusEmptyBody
+    ## Interpolación anidada por encima del límite.
+    LexInterpolationTooDeep
+
+## Código público de un issue.
+##
+## ## Memoria
+## Devuelve un literal estático; no asignar ni liberar.
+weave issue_code with issue as LexIssue into string:
+    if issue == LexAntiquusMissingBody or issue == LexAntiquusEmptyBody:
+        return PSC_E_ANTIQUUS
+    if issue == LexMixedIndentation:
+        return PSC_W_INDENT
+    return PSC_E_LEX
+
+## Severidad de un issue.
+##
+## ## Memoria
+## O(1), no asigna.
+weave issue_severity with issue as LexIssue into diag.Severity:
+    if issue == LexMixedIndentation:
+        return diag.Severity.Warning
+    return diag.Severity.Error
+
+## Texto principal del issue.
+##
+## `detail` se interpola solo en los issues que lo necesitan; el resto lo
+## ignora. El resultado es owned.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave issue_message with issue as LexIssue, detail as string into string:
+    var msg as string is judge issue:
+        when LexUnterminatedString -> "unterminated string literal"
+        when LexUnterminatedTripleString -> "unterminated triple-quoted string literal"
+        when LexUnterminatedRawString -> "unterminated raw string literal"
+        when LexUnterminatedChar -> "unterminated character literal"
+        when LexInvalidCharLiteral -> "invalid character literal"
+        when LexInvalidNumber -> "invalid numeric literal"
+        when LexUnknownCharacter -> "unexpected character '{detail}'"
+        when LexInvalidUtf8 -> "source is not valid UTF-8 ({detail})"
+        when LexUnexpectedBom -> "unexpected byte-order mark"
+        when LexIndentMismatch -> "unexpected dedent to column {detail}"
+        when LexMixedIndentation -> "Inconsistent indentation: {detail}"
+        when LexUnmatchedCloseBracket -> "unmatched '{detail}'"
+        when LexUnclosedBracket -> "unclosed '{detail}'"
+        when LexAntiquusMissingBody -> "Antiquus '{detail}' has no triple-quoted C body"
+        when LexAntiquusEmptyBody -> "Antiquus '{detail}' has an empty C body"
+        when LexInterpolationTooDeep -> "interpolation nesting exceeds the limit ({detail})"
+    return msg
+
+## Texto de ayuda del issue ("" si no tiene).
+##
+## ## Memoria
+## Devuelve un literal estático; no liberar.
+weave issue_help with issue as LexIssue into string:
+    return judge issue:
+        when LexUnterminatedString -> "Add a closing '\"' before the end of the line."
+        when LexUnterminatedTripleString -> "Add a closing '\"\"\"' for the literal."
+        when LexUnterminatedRawString -> "Add a closing '\"' for the raw literal."
+        when LexUnterminatedChar -> "Add a closing \"'\" for the character literal."
+        when LexInvalidCharLiteral -> "Write exactly one character or one escape between the quotes."
+        when LexInvalidNumber -> "Check the digits and the 0x/0o/0b prefix."
+        when LexUnknownCharacter -> "Remove the character or move it inside a string."
+        when LexInvalidUtf8 -> "Save the file as UTF-8."
+        when LexUnexpectedBom -> "Remove the byte-order mark from the middle of the file."
+        when LexIndentMismatch -> "Use the same indentation width as the enclosing block."
+        when LexMixedIndentation -> "Use either tabs or spaces consistently."
+        when LexUnmatchedCloseBracket -> "Remove the closing delimiter or add its opening one."
+        when LexUnclosedBracket -> "Close the delimiter before the end of the file."
+        when LexAntiquusMissingBody -> "Write the C body as '\"\"\"...\"\"\"' or 'r\"\"\"...\"\"\"'."
+        when LexAntiquusEmptyBody -> "Add the C statements that the antiquus should emit."
+        when LexInterpolationTooDeep -> "Split the interpolated expression into a named value."
+
+## Nota adicional del issue ("" si no tiene).
+##
+## ## Memoria
+## Devuelve un literal estático; no liberar.
+weave issue_note with issue as LexIssue into string:
+    return judge issue:
+        when LexUnterminatedString -> "A string literal must close on the same source file."
+        when LexUnterminatedTripleString -> "Triple-quoted strings end at the first '\"\"\"'."
+        when LexUnterminatedRawString -> "Raw strings do not interpret escapes, but still need a closing quote."
+        when LexUnterminatedChar -> "A char literal is exactly one character or one escape."
+        when LexInvalidCharLiteral -> r"Examples: 'a', '\n', '\x41', '\u{1F427}'."
+        when LexInvalidNumber -> ""
+        when LexUnknownCharacter -> "PenguScript identifiers are ASCII-only."
+        when LexInvalidUtf8 -> "The compiler keeps lexing so an editor can still show diagnostics."
+        when LexUnexpectedBom -> "Only a leading BOM is metadata."
+        when LexIndentMismatch -> "The lexer recovers by remembering the new level."
+        when LexMixedIndentation -> "A tab counts as two columns."
+        when LexUnmatchedCloseBracket -> "The parser will also recover from this position."
+        when LexUnclosedBracket -> "The indentation pass reports it at EOF."
+        when LexAntiquusMissingBody -> "The body is emitted literally into the generated C."
+        when LexAntiquusEmptyBody -> "An antiquus with no C produces an empty function body."
+        when LexInterpolationTooDeep -> "The scanner is iterative; the limit protects later phases."
+
+## Construye el `diag.Span` de un rango, clampando y ordenando.
+##
+## ## Memoria
+## Copia la ruta del archivo dentro del `Span`; el `Span` es owned.
+weave diag_span with src as ref to psource.SourceFile, s as pspan.ByteSpan into diag.Span:
+    var c as pspan.ByteSpan is calling pspan.span_clamp with s, (calling src.byte_len)
+    var a as sourcemap.Position is calling src.position_at with c.start
+    var b as sourcemap.Position is calling src.position_at with c.end
+    return calling diag.span_from_positions with src->path, a.line, a.col, b.line, b.col, c.start, c.end
+
+## Emite un error con código, mensaje, span, help y note.
+##
+## `message`, `help` y `note` son prestados; este helper copia lo que necesita.
+## El `Span` se construye desde `src`.
+##
+## ## Memoria
+## Asigna el `Span`, el `Label` y las copias internas del diagnóstico; el bag
+## pasa a ser dueño. No libera los parámetros.
+weave emit_error with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, code as string, message as string, s as pspan.ByteSpan, help as string, note as string into void:
+    var sp as diag.Span is calling diag_span with src, s
+    var lb as diag.Label is calling diag.label with sp, "", true
+    var labels_list as list of diag.Label is calling diag.labels with lb
+    var h as maybe string is maybe none
+    if help length > 0:
+        var hc as string is "{help}"
+        set h is some hc
+    var n as maybe string is maybe none
+    if note length > 0:
+        var nc as string is "{note}"
+        set n is some nc
+    var d as diag.Diagnostic is calling diag.diagnostic with diag.Severity.Error, code, message, labels_list, h, n, (calling diag.no_related)
+    calling bag.add with d
+
+## Emite un warning con código, mensaje, span y help.
+##
+## ## Memoria
+## Igual que `emit_error`, con severidad `Warning`.
+weave emit_warning with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, code as string, message as string, s as pspan.ByteSpan, help as string into void:
+    var sp as diag.Span is calling diag_span with src, s
+    var lb as diag.Label is calling diag.label with sp, "", true
+    var labels_list as list of diag.Label is calling diag.labels with lb
+    var h as maybe string is maybe none
+    if help length > 0:
+        var hc as string is "{help}"
+        set h is some hc
+    var d as diag.Diagnostic is calling diag.diagnostic with diag.Severity.Warning, code, message, labels_list, h, (maybe none), (calling diag.no_related)
+    calling bag.add with d
+
+## Emite el diagnóstico correspondiente a un `LexIssue`.
+##
+## ## Memoria
+## Construye y libera el mensaje; el diagnóstico pasa a ser propiedad del bag.
+weave emit_issue with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, issue as LexIssue, s as pspan.ByteSpan, detail as string into void:
+    var code as string is calling issue_code with issue
+    var msg as string is calling issue_message with issue, detail
+    defer banish msg
+    var help as string is calling issue_help with issue
+    var note as string is calling issue_note with issue
+    if issue == LexMixedIndentation:
+        calling emit_warning with bag, src, code, msg, s, help
+    else:
+        calling emit_error with bag, src, code, msg, s, help, note
+
+## Renderiza el bag forzando ANSI, incluso si stderr no es un TTY.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave render_forced with bag as ref to diag.DiagnosticBag into string:
+    var opts as diag.RenderOptions is calling diag.default_render_options
+    set opts.color is true
+    set opts.force_color is true
+    return calling bag.render with opts
+

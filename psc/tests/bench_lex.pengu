@@ -1,0 +1,46 @@
+## Benchmark de lexación: genera ~1 MB de fuente y mide tokens/s.
+##   pengu run tests/bench_lex.pengu --no-cache --profile release
+import std.spark
+import std.builder
+import std.chronicle
+import std.diagnostic as diag
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer as pslexer
+
+weave main into int:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    while i < 20000:
+        calling sb.append with "weave f{i} with a as int into int:\n"
+        calling sb.append with "    ## doc line\n"
+        calling sb.append with r"""    var s as string is "value {a} and 0x1_f"
+"""
+        calling sb.append with "    if a > 10 and a != 3:\n"
+        calling sb.append with "        return a + 1\n"
+        calling sb.append with "    return a\n"
+        set i is i + 1
+    var text as string is calling sb.finish
+    defer banish text
+    var f as SourceFile is calling SourceFile.from_text with "bench.pengu", text
+    defer banish f
+    var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+    defer banish bag
+    var kw as KeywordTable is calling pstoken.keyword_table_new
+    defer banish kw
+    var opts as LexOptions is calling default_lex_options
+    var sw as chronicle.Stopwatch is calling chronicle.Stopwatch.new
+    var r as LexResult is calling pslexer.lex with sigil of f, sigil of bag, sigil of kw, opts
+    var ms as int is calling sw.elapsed_ms
+    var nbytes as int is calling f.byte_len
+    var tokens as int is r.tokens.len
+    var mbs as float is 0.0
+    var secs as float is calling sw.elapsed_sec
+    if secs > 0.0:
+        var bf as float is (nbytes to float)
+        set mbs is bf / 1048576.0 / secs
+    calling spark.println with "bytes={nbytes} tokens={tokens} ms={ms} MB/s={mbs}"
+    calling spark.println_int with bag.items.len
+    banish r
+    return 0

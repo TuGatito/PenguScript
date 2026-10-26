@@ -1,0 +1,531 @@
+## psc/parse/expr/atoms.pengu — átomos de expresión.
+##
+## Cubre `primary` de la gramática: nombres, literales, paréntesis,
+## contenedores, `with` struct-init, `with:`, `do:`, `lambda`, `donum` y
+## `defined`. Las expresiones anidadas se piden a los hooks de
+## `PsHooks`, que apuntan a `expr/ops.pengu`; así este archivo no importa
+## `ops` y no hay ciclo.
+##
+## ## Memoria
+## Construye nodos en el AST. Los strings solo se crean para diagnósticos.
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.state as psstate
+import psc.parse.diagnostics as pdiag
+import psc.parse.types as ptypes
+
+insignia psc_parse_atom_
+
+## Pide una expresión completa al hook.
+##
+## ## Memoria
+## Llama a `PsHooks.expr`; no asigna.
+weave patom_nested_expr with p as ref to PsParser into int:
+    var fn as ref to weave with p as ref to PsParser into int is p->hooks.expr
+    return calling fn with p
+
+## Pide una expresión de lista al hook.
+##
+## ## Memoria
+## Llama a `PsHooks.list_expr`; no asigna.
+weave patom_nested_list_expr with p as ref to PsParser into int:
+    var fn as ref to weave with p as ref to PsParser into int is p->hooks.list_expr
+    return calling fn with p
+
+## Pide una expresión de lista de valor al hook.
+##
+## ## Memoria
+## Llama a `PsHooks.list_value_expr`; no asigna.
+weave patom_nested_list_value with p as ref to PsParser into int:
+    var fn as ref to weave with p as ref to PsParser into int is p->hooks.list_value_expr
+    return calling fn with p
+
+## Crea un nodo hoja con el token actual y avanza.
+##
+## ## Memoria
+## Crea un nodo y avanza un token.
+weave patom_leaf with p as ref to PsParser, kind as NodeKind into int:
+    var ti as int is p->pos
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    return calling ps_leaf_token with p, kind, ti, start, (calling ps_previous_end with p)
+
+## Crea un nodo sin hijos y avanza.
+##
+## ## Memoria
+## Crea un nodo y avanza un token.
+weave patom_empty with p as ref to PsParser, kind as NodeKind into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    calling ps_begin_children with p
+    return calling ps_finish_node with p, kind, start, (calling ps_previous_end with p), 0
+
+## Parsea `primary`.
+##
+## ## Memoria
+## Construye el nodo correspondiente en el AST.
+weave patom_parse_primary with p as ref to PsParser into int:
+    if not (calling ps_enter_depth with p):
+        var off as int is calling ps_current_start with p
+        return calling ps_error_node with p, off, off
+    defer calling ps_leave_depth with p
+    var k as TokenKind is calling ps_kind_at with p
+    if k == TokIntLit:
+        return calling patom_leaf with p, NodeKind.NdIntLit
+    if k == TokFloatLit:
+        return calling patom_leaf with p, NodeKind.NdFloatLit
+    if k == TokStringLit:
+        return calling patom_leaf with p, NodeKind.NdStringLit
+    if k == TokCharLit:
+        return calling patom_leaf with p, NodeKind.NdCharLit
+    if k == TokLeftParen:
+        return calling patom_parse_paren with p
+    if k == TokLeftBracket:
+        return calling patom_parse_array_lit with p
+    if k == TokLeftBrace:
+        return calling patom_parse_map_lit with p
+    if k == TokKeyword:
+        return calling patom_parse_keyword_atom with p
+    if k == TokIdentifier:
+        if calling ps_check_word with p, "self":
+            return calling patom_empty with p, NodeKind.NdSelfRef
+        if calling ps_check_word with p, "list":
+            return calling patom_parse_list_init with p
+        if calling ps_check_word with p, "map":
+            return calling patom_parse_map_init with p
+        if calling ps_check_word with p, "array":
+            return calling patom_parse_array_init with p
+        if calling ps_check_word with p, "do":
+            var fn2 as ref to weave with p as ref to PsParser into int is p->hooks.do_block
+            return calling fn2 with p
+        return calling patom_leaf with p, NodeKind.NdVarRef
+    var off2 as int is calling ps_current_start with p
+    calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedExpression, ""
+    return calling ps_error_node with p, off2, off2
+
+## Átomos que empiezan por keyword.
+##
+## ## Memoria
+## Construye el nodo correspondiente.
+weave patom_parse_keyword_atom with p as ref to PsParser into int:
+    var k as KeywordKind is calling ps_kw_at with p
+    if k == KwTrue:
+        return calling patom_empty with p, NodeKind.NdTrueLit
+    if k == KwFalse:
+        return calling patom_empty with p, NodeKind.NdFalseLit
+    if k == KwNull:
+        return calling patom_empty with p, NodeKind.NdNullLit
+    if k == KwError:
+        return calling patom_empty with p, NodeKind.NdErrorLit
+    if k == KwMaybe:
+        var start as int is calling ps_current_start with p
+        var ignored as Token is calling ps_advance with p
+        var ignored2 as Token is calling ps_expect_kw with p, KwNone, "'none'"
+        calling ps_begin_children with p
+        return calling ps_finish_node with p, NodeKind.NdMaybeNone, start, (calling ps_previous_end with p), 0
+    if k == KwWith:
+        if (calling ps_kind_ahead with p, 1) == TokColon:
+            var fn as ref to weave with p as ref to PsParser into int is p->hooks.with_init
+            return calling fn with p
+        return calling patom_parse_struct_init with p
+    if k == KwLambda:
+        return calling patom_parse_lambda with p
+    if k == KwDonum:
+        return calling patom_parse_donum with p
+    if k == KwDefined:
+        return calling patom_parse_defined with p
+    # Stage0 usa un lexer contextual: una palabra reservada en posición de
+    # nombre es un identificador. Aquí cualquier keyword que no sea un átomo
+    # conocido cae a `var_ref`.
+    return calling patom_leaf with p, NodeKind.NdVarRef
+
+## Parsea `( expr )`.
+##
+## ## Memoria
+## Crea un nodo `paren_expr`.
+weave patom_parse_paren with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect with p, TokLeftParen, "'('"
+    calling ps_begin_children with p
+    var inner as int is calling patom_nested_expr with p
+    calling ps_add_child with p, inner
+    var ignored2 as Token is calling ps_expect with p, TokRightParen, "')'"
+    return calling ps_finish_node with p, NodeKind.NdParenExpr, start, (calling ps_previous_end with p), 0
+
+## Parsea un array literal `[a, b, ...]`.
+##
+## ## Memoria
+## Crea un nodo `array_lit`.
+weave patom_parse_array_lit with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect with p, TokLeftBracket, "'['"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        calling ps_skip_newlines with p
+        if calling ps_check with p, TokRightBracket:
+            set more is false
+        else:
+            var item as int is calling patom_nested_list_expr with p
+            calling ps_add_child with p, item
+            calling ps_skip_newlines with p
+            if calling ps_check with p, TokComma:
+                var ignored2 as Token is calling ps_advance with p
+            else:
+                set more is false
+    var ignored3 as Token is calling ps_expect with p, TokRightBracket, "']'"
+    return calling ps_finish_node with p, NodeKind.NdArrayLit, start, (calling ps_previous_end with p), 0
+
+## Parsea un map literal `{clave: valor, ...}`.
+##
+## ## Memoria
+## Crea un nodo `map_lit` con `map_entry`.
+weave patom_parse_map_lit with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect with p, TokLeftBrace, "'{'"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        calling ps_skip_newlines with p
+        if calling ps_check with p, TokRightBrace:
+            set more is false
+        else:
+            var entry as int is calling patom_parse_map_entry with p
+            calling ps_add_child with p, entry
+            calling ps_skip_newlines with p
+            if calling ps_check with p, TokComma:
+                var ignored2 as Token is calling ps_advance with p
+            else:
+                set more is false
+    var ignored3 as Token is calling ps_expect with p, TokRightBrace, "'}'"
+    return calling ps_finish_node with p, NodeKind.NdMapLit, start, (calling ps_previous_end with p), 0
+
+## Parsea una entrada de mapa/clave.
+##
+## ## Memoria
+## Crea un nodo `map_entry`.
+weave patom_parse_map_entry with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    if calling ps_check with p, TokStringLit:
+        calling ps_add_token with p, p->pos
+        var ignored as Token is calling ps_advance with p
+    else if calling ps_check_name_like with p:
+        if (calling ps_kind_ahead with p, 1) == TokColon:
+            calling ps_add_name_like with p
+        else:
+            var key as int is calling patom_nested_list_expr with p
+            calling ps_add_child with p, key
+    else:
+        var key2 as int is calling patom_nested_list_expr with p
+        calling ps_add_child with p, key2
+    var ignored3 as Token is calling ps_expect with p, TokColon, "':'"
+    var value as int is calling patom_nested_list_expr with p
+    calling ps_add_child with p, value
+    return calling ps_finish_node with p, NodeKind.NdMapEntry, start, (calling ps_previous_end with p), 0
+
+## Parsea `with campo is valor, ...`.
+##
+## ## Memoria
+## Crea un nodo `struct_init` con `field_init`.
+weave patom_parse_struct_init with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWith, "'with'"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        var field as int is calling patom_parse_field_init with p
+        calling ps_add_child with p, field
+        if calling ps_check with p, TokComma:
+            var ignored2 as Token is calling ps_advance with p
+        else:
+            set more is false
+    return calling ps_finish_node with p, NodeKind.NdStructInit, start, (calling ps_previous_end with p), 0
+
+## Parsea un campo de `with`.
+##
+## Si el slot es un único nombre, se expande a `nombre is nombre`, igual que
+## hace stage0 antes de parsear.
+##
+## ## Memoria
+## Crea un nodo `field_init`.
+weave patom_parse_field_init with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    if calling ps_check_name_like with p:
+        if (calling ps_kind_ahead with p, 1) == TokKeyword:
+            if (calling ps_kw_at_offset with p, 1) == KwIs:
+                calling ps_add_name_like with p
+                var ignored2 as Token is calling ps_expect_kw with p, KwIs, "'is'"
+                var value as int is calling patom_nested_list_value with p
+                calling ps_add_child with p, value
+                return calling ps_finish_node with p, NodeKind.NdFieldInit, start, (calling ps_previous_end with p), 0
+        # forma corta: `with a` -> `with a is a`
+        var ti as int is p->pos
+        calling ps_add_name_like with p
+        calling ps_begin_children with p
+        calling ps_add_token with p, ti
+        var ref_node as int is calling ps_finish_node with p, NodeKind.NdVarRef, start, (calling ps_previous_end with p), 0
+        calling ps_add_child with p, ref_node
+        return calling ps_finish_node with p, NodeKind.NdFieldInit, start, (calling ps_previous_end with p), 0
+    calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    var err as int is calling ps_error_node with p, start, start
+    calling ps_add_child with p, err
+    return calling ps_finish_node with p, NodeKind.NdFieldInit, start, (calling ps_previous_end with p), 0
+
+## Parsea `list of T [with capacity expr]`.
+##
+## ## Memoria
+## Crea un nodo `list_init_expr`.
+weave patom_parse_list_init with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+    calling ps_begin_children with p
+    var ty as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, ty
+    if calling ps_check_kw with p, KwWith:
+        var ignored3 as Token is calling ps_advance with p
+        var ignored4 as bool is calling ps_accept_word with p, "capacity"
+        var cap as int is calling patom_nested_expr with p
+        calling ps_add_child with p, cap
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdListInitExpr, start, (calling ps_previous_end with p), 0
+
+## Parsea `map of K to V`.
+##
+## ## Memoria
+## Crea un nodo `map_init_expr`.
+weave patom_parse_map_init with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+    calling ps_begin_children with p
+    var key as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, key
+    var ignored3 as Token is calling ps_expect_kw with p, KwTo, "'to'"
+    var val as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, val
+    return calling ps_finish_node with p, NodeKind.NdMapInitExpr, start, (calling ps_previous_end with p), 0
+
+## Parsea `array of T with size N`.
+##
+## ## Memoria
+## Crea un nodo `array_init_expr`.
+weave patom_parse_array_init with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+    calling ps_begin_children with p
+    var ty as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, ty
+    var ignored3 as Token is calling ps_expect_kw with p, KwWith, "'with'"
+    var ignored4 as bool is calling ps_accept_word with p, "size"
+    var size as int is calling patom_nested_expr with p
+    calling ps_add_child with p, size
+    return calling ps_finish_node with p, NodeKind.NdArrayInitExpr, start, (calling ps_previous_end with p), 0
+
+## Parsea `lambda [params] into expr`.
+##
+## ## Memoria
+## Crea `lambda_expr` o `lambda_no_params`.
+weave patom_parse_lambda with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwLambda, "'lambda'"
+    if calling ps_check_kw with p, KwInto:
+        var ignored2 as Token is calling ps_advance with p
+        calling ps_begin_children with p
+        var body as int is calling patom_nested_expr with p
+        calling ps_add_child with p, body
+        return calling ps_finish_node with p, NodeKind.NdLambdaNoParams, start, (calling ps_previous_end with p), 0
+    calling ps_begin_children with p
+    var params as int is calling patom_parse_lambda_params with p
+    calling ps_add_child with p, params
+    var ignored3 as Token is calling ps_expect_kw with p, KwInto, "'into'"
+    var body2 as int is calling patom_nested_expr with p
+    calling ps_add_child with p, body2
+    return calling ps_finish_node with p, NodeKind.NdLambdaExpr, start, (calling ps_previous_end with p), 0
+
+## Parsea la lista de parámetros de una lambda.
+##
+## ## Memoria
+## Crea un nodo `lambda_param_list`.
+weave patom_parse_lambda_params with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        var param as int is calling patom_parse_lambda_param with p
+        calling ps_add_child with p, param
+        if calling ps_check with p, TokComma:
+            var ignored as Token is calling ps_advance with p
+        else:
+            set more is false
+    return calling ps_finish_node with p, NodeKind.NdLambdaParamList, start, (calling ps_previous_end with p), 0
+
+## Parsea `NAME as type`.
+##
+## ## Memoria
+## Crea un nodo `lambda_param`.
+weave patom_parse_lambda_param with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    if calling ps_check with p, TokIdentifier:
+        calling ps_add_token with p, p->pos
+        var ignored as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    var ignored2 as Token is calling ps_expect_kw with p, KwAs, "'as'"
+    var ty as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, ty
+    return calling ps_finish_node with p, NodeKind.NdLambdaParam, start, (calling ps_previous_end with p), 0
+
+## Parsea `donum T`.
+##
+## ## Memoria
+## Crea un nodo `donum_expr`.
+weave patom_parse_donum with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwDonum, "'donum'"
+    calling ps_begin_children with p
+    var ty as int is calling ptypes.ptype_parse_type with p
+    calling ps_add_child with p, ty
+    return calling ps_finish_node with p, NodeKind.NdDonumExpr, start, (calling ps_previous_end with p), 0
+
+## Parsea `defined(NAME)`.
+##
+## ## Memoria
+## Crea un nodo `defined_expr`.
+weave patom_parse_defined with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwDefined, "'defined'"
+    var ignored2 as Token is calling ps_expect with p, TokLeftParen, "'('"
+    calling ps_begin_children with p
+    if calling ps_check with p, TokIdentifier:
+        calling ps_add_token with p, p->pos
+        var ignored3 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    var ignored4 as Token is calling ps_expect with p, TokRightParen, "')'"
+    return calling ps_finish_node with p, NodeKind.NdDefinedExpr, start, (calling ps_previous_end with p), 0
+
+## Parsea un literal indentado (valor de `var`/`const`).
+##
+## ## Memoria
+## Crea `indent_literal` y sus filas/entradas.
+weave patom_parse_indent_literal with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    if calling ps_check with p, TokColon:
+        var ignored as Token is calling ps_advance with p
+    var ignored2 as Token is calling ps_expect with p, TokNewline, "newline"
+    var ignored3 as Token is calling ps_expect with p, TokIndent, "indent"
+    calling ps_begin_children with p
+    if calling patom_is_entry_start with p:
+        var entries as int is calling patom_parse_indent_entries with p
+        calling ps_add_child with p, entries
+    else:
+        var rows as int is calling patom_parse_indent_rows with p
+        calling ps_add_child with p, rows
+    var ignored4 as Token is calling ps_expect with p, TokDedent, "dedent"
+    return calling ps_finish_node with p, NodeKind.NdIndentLiteral, start, (calling ps_previous_end with p), 0
+
+## `true` si la primera línea del literal indentado es una entrada.
+##
+## ## Memoria
+## O(1), no asigna.
+weave patom_is_entry_start with p as ref to PsParser into bool:
+    var k as TokenKind is calling ps_kind_at with p
+    if k == TokStringLit:
+        return (calling ps_kind_ahead with p, 1) == TokColon
+    if k == TokIdentifier:
+        var n as TokenKind is calling ps_kind_ahead with p, 1
+        if n == TokColon:
+            return true
+        if n == TokKeyword:
+            return (calling ps_kw_at_offset with p, 1) == KwIs
+    return false
+
+## Parsea filas de un literal indentado.
+##
+## ## Memoria
+## Crea un nodo `indent_array` con `indent_row`.
+weave patom_parse_indent_rows with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokDedent:
+            set more is false
+        else:
+            var row as int is calling patom_parse_indent_row with p
+            calling ps_add_child with p, row
+    return calling ps_finish_node with p, NodeKind.NdIndentArray, start, (calling ps_previous_end with p), 0
+
+## Parsea una fila de un literal indentado.
+##
+## ## Memoria
+## Crea un nodo `indent_row`.
+weave patom_parse_indent_row with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        var item as int is calling patom_nested_list_expr with p
+        calling ps_add_child with p, item
+        if calling ps_check with p, TokComma:
+            var ignored as Token is calling ps_advance with p
+        else:
+            set more is false
+    var ignored2 as Token is calling ps_expect with p, TokNewline, "newline"
+    return calling ps_finish_node with p, NodeKind.NdIndentRow, start, (calling ps_previous_end with p), 0
+
+## Parsea entradas de un literal indentado.
+##
+## ## Memoria
+## Crea un nodo `indent_entries`.
+weave patom_parse_indent_entries with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokDedent:
+            set more is false
+        else:
+            var entry as int is calling patom_parse_indent_entry with p
+            calling ps_add_child with p, entry
+    return calling ps_finish_node with p, NodeKind.NdIndentEntries, start, (calling ps_previous_end with p), 0
+
+## Parsea una entrada `clave: valor` o `campo is valor`.
+##
+## ## Memoria
+## Crea `map_entry` o `field_entry`.
+weave patom_parse_indent_entry with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    if calling ps_check_name_like with p:
+        if (calling ps_kind_ahead with p, 1) == TokKeyword:
+            if (calling ps_kw_at_offset with p, 1) == KwIs:
+                calling ps_add_name_like with p
+                var ignored2 as Token is calling ps_expect_kw with p, KwIs, "'is'"
+                var value as int is calling patom_nested_list_expr with p
+                calling ps_add_child with p, value
+                var ignored3 as Token is calling ps_expect with p, TokNewline, "newline"
+                return calling ps_finish_node with p, NodeKind.NdFieldEntry, start, (calling ps_previous_end with p), 0
+        calling ps_add_token with p, p->pos
+        var ignored4 as Token is calling ps_advance with p
+    else if calling ps_check with p, TokStringLit:
+        calling ps_add_token with p, p->pos
+        var ignored5 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    var ignored6 as Token is calling ps_expect with p, TokColon, "':'"
+    var value2 as int is calling patom_nested_list_expr with p
+    calling ps_add_child with p, value2
+    var ignored7 as Token is calling ps_expect with p, TokNewline, "newline"
+    return calling ps_finish_node with p, NodeKind.NdMapEntry, start, (calling ps_previous_end with p), 0

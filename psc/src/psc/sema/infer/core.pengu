@@ -1,0 +1,1128 @@
+## psc/sema/infer/core.pengu — inferencia de expresiones (núcleo).
+##
+## Cubre literales, referencias, operadores, accesos, llamadas simples y
+## constructores de contenedores. Las construcciones que necesitan el checker
+## (`if`/`do`/`with`/`judge`/lambda) se delegan a `SemaHooks`; así el módulo no
+## importa `check` y no hay ciclos.
+##
+## ## Memoria
+## Todo es de solo lectura sobre la tabla de tipos/símbolos. Los strings
+## temporales se liberan en la misma función.
+
+import std.diagnostic as diag
+import std.spark
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.source as psource
+import psc.lexer_state as psstate
+
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.types.compat as compat
+import psc.sema.types.convert as convert
+import psc.sema.types.canonical as canonical
+import psc.sema.symbols.table as symbols
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.scope as scope
+import psc.sema.ast as astutil
+import psc.sema.state as state
+import psc.sema.annotate as ann
+import psc.sema.diagnostics as sdiag
+
+insignia sema_infer_
+
+## Infiere una expresión y la anota.
+##
+## `expected` es `-1` si no hay contexto. Devuelve `0` (`TkError`) en error.
+##
+## ## Memoria
+## Puede emitir diagnósticos; no posee recursos.
+weave infer with s as ref to state.SemaState, node as int, expected as int into int:
+    if node < 0:
+        return 0
+    var kind as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    var t as int is 0
+    if kind == pskind.NodeKind.NdIntLit:
+        set t is calling infer_int with s, node
+    else if kind == pskind.NodeKind.NdFloatLit:
+        set t is calling types.base with s->types, "float"
+    else if kind == pskind.NodeKind.NdStringLit:
+        set t is calling types.base with s->types, "string"
+    else if kind == pskind.NodeKind.NdCharLit:
+        set t is calling types.base with s->types, "char"
+    else if kind == pskind.NodeKind.NdTrueLit or kind == pskind.NodeKind.NdFalseLit:
+        set t is calling types.base with s->types, "bool"
+    else if kind == pskind.NodeKind.NdNullLit:
+        set t is 2
+    else if kind == pskind.NodeKind.NdErrorLit:
+        set t is 0
+    else if kind == pskind.NodeKind.NdMaybeNone:
+        set t is calling infer_none with s, node, expected
+    else if kind == pskind.NodeKind.NdVarRef:
+        set t is calling infer_var with s, node
+    else if kind == pskind.NodeKind.NdSelfRef:
+        set t is calling infer_name with s, node, "self", node
+    else if kind == pskind.NodeKind.NdParenExpr:
+        set t is calling infer with s, (calling astutil.node_child with s->ast, node, 0), expected
+    else if kind == pskind.NodeKind.NdSomeExpr:
+        var inner as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1
+        set t is calling types.maybe_of with s->types, inner
+    else if kind == pskind.NodeKind.NdDonumExpr:
+        set t is calling infer_donum with s, node, expected
+    else if kind == pskind.NodeKind.NdDefinedExpr:
+        set t is calling types.base with s->types, "bool"
+    else if kind == pskind.NodeKind.NdCallingExpr:
+        set t is calling infer_call with s, node, expected
+    else if kind == pskind.NodeKind.NdFieldAccess:
+        set t is calling infer_field with s, node
+    else if kind == pskind.NodeKind.NdArrowAccess:
+        set t is calling infer_arrow with s, node
+    else if kind == pskind.NodeKind.NdAtExpr:
+        set t is calling infer_at with s, node
+    else if kind == pskind.NodeKind.NdSliceAtExpr:
+        var sbase as int is calling astutil.node_child with s->ast, node, 0
+        if sbase >= 0:
+            set t is calling infer with s, sbase, -1
+        else:
+            set t is 0
+    else if kind == pskind.NodeKind.NdLengthExpr:
+        set t is calling types.base with s->types, "int"
+    else if kind == pskind.NodeKind.NdToExpr:
+        set t is calling infer_to with s, node
+    else if kind == pskind.NodeKind.NdListInitExpr:
+        set t is calling infer_list_init with s, node, expected
+    else if kind == pskind.NodeKind.NdMapInitExpr:
+        set t is calling infer_map_init with s, node, expected
+    else if kind == pskind.NodeKind.NdArrayInitExpr:
+        set t is calling infer_array_init with s, node, expected
+    else if kind == pskind.NodeKind.NdArrayLit:
+        set t is calling infer_list_lit with s, node, expected
+    else if kind == pskind.NodeKind.NdMapLit:
+        set t is calling infer_map_lit with s, node, expected
+    else if kind == pskind.NodeKind.NdStructInit:
+        set t is calling infer_struct_init with s, node
+    else if kind == pskind.NodeKind.NdBoolOr or kind == pskind.NodeKind.NdBoolAnd:
+        set t is calling infer_bool with s, node
+    else if kind == pskind.NodeKind.NdIsPresent or kind == pskind.NodeKind.NdIsNotPresent or kind == pskind.NodeKind.NdIsTrue or kind == pskind.NodeKind.NdIsFalse or kind == pskind.NodeKind.NdInExpr or kind == pskind.NodeKind.NdNotInExpr:
+        var il as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1
+        if kind == pskind.NodeKind.NdInExpr or kind == pskind.NodeKind.NdNotInExpr:
+            var ir as int is calling infer with s, (calling astutil.node_child with s->ast, node, 1), -1
+        set t is calling types.base with s->types, "bool"
+    else if kind == pskind.NodeKind.NdEq or kind == pskind.NodeKind.NdNe or kind == pskind.NodeKind.NdLt or kind == pskind.NodeKind.NdLe or kind == pskind.NodeKind.NdGt or kind == pskind.NodeKind.NdGe:
+        set t is calling infer_compare with s, node
+    else if kind == pskind.NodeKind.NdAdd or kind == pskind.NodeKind.NdSub or kind == pskind.NodeKind.NdMul or kind == pskind.NodeKind.NdDiv or kind == pskind.NodeKind.NdMod:
+        set t is calling infer_arith with s, node
+    else if kind == pskind.NodeKind.NdBitwiseOr or kind == pskind.NodeKind.NdBitwiseAnd or kind == pskind.NodeKind.NdBitwiseXor or kind == pskind.NodeKind.NdShl or kind == pskind.NodeKind.NdShr:
+        set t is calling infer_bit with s, node
+    else if kind == pskind.NodeKind.NdNeg or kind == pskind.NodeKind.NdBitNot or kind == pskind.NodeKind.NdLogNot:
+        set t is calling infer_unary with s, node
+    else if kind == pskind.NodeKind.NdRangeDotdot:
+        set t is calling infer_range with s, node
+    else if kind == pskind.NodeKind.NdSigilOf:
+        set t is calling types.ref_to with s->types, (calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1)
+    else if kind == pskind.NodeKind.NdEssenceOf:
+        var einner as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1
+        var ety as tk.SemaType is calling types.at with s->types, einner
+        if ety.kind == tk.SemaTypeKind.TkRef:
+            set t is ety.a
+        else:
+            set t is einner
+    else if kind == pskind.NodeKind.NdChrExpr:
+        set t is calling types.base with s->types, "string"
+    else if kind == pskind.NodeKind.NdOrdExpr:
+        set t is calling types.base with s->types, "int"
+    else if kind == pskind.NodeKind.NdBytesExpr:
+        var frozen_byte as int is calling types.frozen with s->types, (calling types.base with s->types, "byte")
+        set t is calling types.ref_to with s->types, frozen_byte
+    else if kind == pskind.NodeKind.NdSizeOf:
+        set t is calling types.base with s->types, "usize"
+    else if kind == pskind.NodeKind.NdTypeOf:
+        set t is calling types.base with s->types, "string"
+    else if kind == pskind.NodeKind.NdOrElse or kind == pskind.NodeKind.NdOrReturn or kind == pskind.NodeKind.NdOrBlock:
+        set t is calling infer_or with s, node, expected
+    else if kind == pskind.NodeKind.NdTryExpr:
+        var inner_try as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), expected
+        var it as tk.SemaType is calling types.at with s->types, inner_try
+        if it.kind == tk.SemaTypeKind.TkMaybe or it.kind == tk.SemaTypeKind.TkResult:
+            set t is it.a
+        else:
+            set t is inner_try
+    else if kind == pskind.NodeKind.NdForComp:
+        set t is calling infer_for_comp with s, node
+    else if kind == pskind.NodeKind.NdIfExpr or kind == pskind.NodeKind.NdWhenExpr:
+        set t is calling infer_if_expr with s, node, expected
+    else if kind == pskind.NodeKind.NdJudgeExpr or kind == pskind.NodeKind.NdJudgeOverExpr:
+        set t is calling state.call_judge with s, node, expected
+    else if kind == pskind.NodeKind.NdLambdaExpr or kind == pskind.NodeKind.NdLambdaNoParams:
+        set t is calling state.call_lambda with s, node
+    else if kind == pskind.NodeKind.NdWithInitExpr:
+        if expected >= 0:
+            set t is expected
+        else:
+            set t is 3
+    else if kind == pskind.NodeKind.NdDoExpr:
+        set t is calling infer_do with s, node, expected
+    else if kind == pskind.NodeKind.NdBanishExpr:
+        set t is 3
+    else:
+        # Constructo fuera del subconjunto modelado: conservar el tipo esperado
+        # para no rechazar código válido ni encadenar errores. La política y sus
+        # límites están documentados en `psc/docs/PARITY.md`.
+        if expected >= 0:
+            set t is expected
+        else:
+            set t is 1
+    calling ann.set_type with s->annotations, node, t
+    return t
+
+## `int` o `i64` según el literal.
+##
+## ## Memoria
+## Puede liberar el texto temporal.
+weave infer_int with s as ref to state.SemaState, node as int into int:
+    var txt as string is calling astutil.child_token_text with s->src, s->lex, s->ast, node, 0
+    defer banish txt
+    var v as maybe int is calling spark.parse_int with txt
+    if v.is_present:
+        var n as int is v.value
+        banish v
+        if n > 2147483647 or n < -2147483648:
+            return calling types.base with s->types, "i64"
+        return calling types.base with s->types, "int"
+    return calling types.base with s->types, "int"
+
+## `none` necesita un `maybe` esperado.
+##
+## ## Memoria
+## Puede emitir un error.
+weave infer_none with s as ref to state.SemaState, node as int, expected as int into int:
+    if expected >= 0:
+        var e as tk.SemaType is calling types.at with s->types, expected
+        if e.kind == tk.SemaTypeKind.TkMaybe:
+            return expected
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "'none' needs an explicit 'maybe T' context", "Annotate the variable or add a 'maybe T' return type.", ""
+    return 0
+
+## Referencia a un nombre.
+##
+## ## Memoria
+## O(1) promedio; puede emitir E0004.
+weave infer_var with s as ref to state.SemaState, node as int into int:
+    var txt as string is calling astutil.child_token_text with s->src, s->lex, s->ast, node, 0
+    defer banish txt
+    return calling infer_name with s, node, txt, node
+
+## Resuelve un nombre y anota el símbolo.
+##
+## ## Memoria
+## O(1) promedio.
+weave infer_name with s as ref to state.SemaState, node as int, name as string, at_node as int into int:
+    var sid as int is calling symbols.lookup_name with s->symbols, name
+    if sid >= 0:
+        var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+        calling ann.ann_set_symbol with s->annotations, node, sid
+        return sv.type
+    var tyid as int is calling symbols.lookup_type_name with s->symbols, name
+    if tyid >= 0:
+        return tyid
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, at_node), (calling astutil.end_of with s->ast, at_node), "undefined identifier '{name}'", "Check the spelling or declare it before use.", ""
+    return 0
+
+## `donum T` o `donum (T)`.
+##
+## ## Memoria
+## Puede emitir error.
+weave infer_donum with s as ref to state.SemaState, node as int, expected as int into int:
+    var child as int is calling astutil.node_child with s->ast, node, 0
+    if child >= 0:
+        var ctx as convert.TypeCtx is with types is s->types, symbols is s->symbols, names is s->names, bag is s->bag, src is s->src, lex is s->lex, ast is s->ast
+        return calling convert.convert with (sigil of ctx), child
+    if expected >= 0:
+        return expected
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "'donum' needs a type or an expected type", "Write 'donum T' or annotate the variable.", ""
+    return 0
+
+## Llamada.
+##
+## ## Memoria
+## Infiere target/args; no posee listas.
+weave infer_call with s as ref to state.SemaState, node as int, expected as int into int:
+    var target as int is calling astutil.node_child with s->ast, node, 0
+    var args as int is calling astutil.node_child with s->ast, node, 2
+    var sid as int is -1
+    var tname as string is ""
+    defer banish tname
+    if target < 0:
+        return 0
+    var tk2 as pskind.NodeKind is calling astutil.kind_of with s->ast, target
+    if tk2 == pskind.NodeKind.NdWithTarget:
+        return calling infer_with_call with s, node, target, expected
+    if tk2 != pskind.NodeKind.NdNormalTarget:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "invalid call target", "Use 'calling name', 'calling receiver.method' or 'calling .method'.", ""
+        return 0
+    var nm as int is calling astutil.token_child with s->ast, target, 0
+    if nm < 0:
+        return 0
+    set tname is calling astutil.token_text with s->src, s->lex, nm
+    var base_sid as int is calling symbols.lookup_name with s->symbols, tname
+    var base_type as int is -1
+    if base_sid >= 0:
+        var bsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, base_sid
+        set base_type is bsv.type
+    else:
+        set base_type is calling symbols.lookup_type_name with s->symbols, tname
+    var n as int is calling astutil.child_count with s->ast, target
+    if n <= 1:
+        # Función/module directo: `calling f`.
+        if base_sid < 0 and (tname == "ok_of" or tname == "err_of"):
+            return calling infer_result_ctor with s, node, tname, expected
+        if base_sid < 0 and s->symbols->has_includes:
+            calling infer_args_only with s, args
+            return 1
+        if base_sid < 0:
+            calling undefined_call with s, node, tname
+            return 0
+        set sid is base_sid
+    else:
+        # Cadena de accesos. El último es el nombre del método/llamada; los
+        # anteriores se aplican al receptor.
+        var last as int is calling astutil.node_child with s->ast, target, n - 1
+        if last < 0:
+            return 0
+        var lk as pskind.NodeKind is calling astutil.kind_of with s->ast, last
+        if lk != pskind.NodeKind.NdDotAccess and lk != pskind.NodeKind.NdArrowAccess:
+            return 0
+        var mtok as int is calling astutil.token_child with s->ast, last, 0
+        if mtok < 0:
+            return 0
+        var mname as string is calling astutil.token_text with s->src, s->lex, mtok
+        defer banish mname
+        var rcp as int is base_type
+        var base_import as int is -1
+        if base_sid >= 0:
+            var base_sym as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, base_sid
+            set rcp is base_sym.type
+            if base_sym.kind == sym.SemaSymbolKind.SkImport:
+                set base_import is base_sym.module_scope
+        var ai as int is 1
+        while ai < n - 1:
+            var op as int is calling astutil.node_child with s->ast, target, ai
+            if op >= 0:
+                if base_import >= 0 and rcp <= 0:
+                    # `mod.Type.method`: el primer acceso es un tipo del módulo.
+                    var ot as int is calling astutil.token_child with s->ast, op, 0
+                    if ot >= 0:
+                        var otxt as string is calling astutil.token_text with s->src, s->lex, ot
+                        defer banish otxt
+                        var oid as int is calling npool.intern with s->names, otxt
+                        var mobj as int is calling symbols.lookup_in_scope with s->symbols, base_import, oid
+                        if mobj >= 0:
+                            var msym as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, mobj
+                            if msym.kind == sym.SemaSymbolKind.SkType or msym.kind == sym.SemaSymbolKind.SkRune or msym.kind == sym.SemaSymbolKind.SkEcho or msym.kind == sym.SemaSymbolKind.SkOmen or msym.kind == sym.SemaSymbolKind.SkAlias or msym.kind == sym.SemaSymbolKind.SkSeal:
+                                set rcp is msym.type
+                    set ai is ai + 1
+                    continue
+                var next as int is calling access_op_type with s, rcp, op
+                if next <= 0:
+                    var opt as int is calling astutil.token_child with s->ast, op, 0
+                    if opt >= 0:
+                        var optxt as string is calling astutil.token_text with s->src, s->lex, opt
+                        defer banish optxt
+                        var rt_base as int is calling underlying_type with s, rcp
+                        var rtb as tk.SemaType is calling types.at with s->types, rt_base
+                        if rtb.kind == tk.SemaTypeKind.TkRef:
+                            set rt_base is rtb.a
+                        var oid2 as int is calling npool.intern with s->names, optxt
+                        var osid as int is calling symbols.lookup_method with s->symbols, rt_base, oid2
+                        if osid >= 0:
+                            var osym as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, osid
+                            var ofty as tk.SemaType is calling types.at with s->types, osym.type
+                            if ofty.kind == tk.SemaTypeKind.TkFn:
+                                var oinfo as types.SemaFnInfo is (s->types->fn_infos at ofty.a)
+                                set next is oinfo.return_type
+                        if next <= 0:
+                            set next is calling builtin_method with s, rcp, optxt, -1
+                set rcp is next
+            set ai is ai + 1
+        if base_import >= 0:
+            var mid0 as int is calling npool.intern with s->names, mname
+            set sid is calling symbols.lookup_in_scope with s->symbols, base_import, mid0
+        if rcp >= 0 and sid < 0:
+            var rty_pre as tk.SemaType is calling types.at with s->types, rcp
+            if rty_pre.kind == tk.SemaTypeKind.TkMaybe or rty_pre.kind == tk.SemaTypeKind.TkResult:
+                var bm0 as int is calling builtin_method with s, rcp, mname, expected
+                if bm0 > 0:
+                    calling infer_args_only with s, args
+                    return bm0
+            var recv_lookup as int is calling underlying_type with s, rcp
+            var rty as tk.SemaType is calling types.at with s->types, recv_lookup
+            if rty.kind == tk.SemaTypeKind.TkRef:
+                set recv_lookup is rty.a
+            var mid as int is calling npool.intern with s->names, mname
+            set sid is calling symbols.lookup_method with s->symbols, recv_lookup, mid
+            if sid < 0:
+                var bm as int is calling builtin_method with s, rcp, mname, expected
+                if bm > 0:
+                    calling infer_args_only with s, args
+                    return bm
+        if sid < 0:
+            # Fallback global: stage0 comparte el registro de funciones entre
+            # módulos; cubre helpers cualificados/importados y mantiene el
+            # comportamiento histórico sin duplicar exports.
+            set sid is calling symbols.lookup_name with s->symbols, mname
+        if sid < 0:
+            calling undefined_call with s, node, tname
+            return 0
+    var fsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+    calling ann.ann_set_symbol with s->annotations, node, sid
+    var ft as tk.SemaType is calling types.at with s->types, fsv.type
+    if ft.kind == tk.SemaTypeKind.TkRef:
+        var innerfn as tk.SemaType is calling types.at with s->types, ft.a
+        if innerfn.kind == tk.SemaTypeKind.TkFn:
+            set ft is innerfn
+    if ft.kind != tk.SemaTypeKind.TkFn:
+        return fsv.type
+    # Infiere argumentos y comprueba contra los parámetros.
+    var info as types.SemaFnInfo is (s->types->fn_infos at ft.a)
+    var i as int is 0
+    var nargs as int is 0
+    if args >= 0:
+        set nargs is calling astutil.child_count with s->ast, args
+    while i < nargs:
+        var arg as int is calling astutil.node_child with s->ast, args, i
+        if arg >= 0:
+            var ak as pskind.NodeKind is calling astutil.kind_of with s->ast, arg
+            var vnode as int is -1
+            var pindex as int is i
+            if ak == pskind.NodeKind.NdNamedArg:
+                var nt as int is calling astutil.token_child with s->ast, arg, 0
+                if nt >= 0:
+                    var ntxt as string is calling astutil.token_text with s->src, s->lex, nt
+                    defer banish ntxt
+                    set pindex is calling param_index with s, info, ntxt
+                set vnode is calling astutil.node_child with s->ast, arg, 1
+            else:
+                set vnode is calling astutil.node_child with s->ast, arg, 0
+            if pindex >= 0 and pindex < info.params_count:
+                var p as types.SemaFnParam is (s->types->fn_params at (info.params_first + pindex))
+                var got as int is calling infer with s, vnode, p.type
+                if not calling compat.compatible with s->types, got, p.type:
+                    # Las firmas C de `declare` se validan en el binding; el
+                    # checker no debe reinterpretar sus tipos ABI (function
+                    # pointers, `void *`, ...).
+                    if fsv.kind != sym.SemaSymbolKind.SkDeclare:
+                        calling type_mismatch with s, vnode, p.type, got
+        set i is i + 1
+    return info.return_type
+
+## Tipo de un método nativo de una colección/string.
+##
+## Devuelve `-1` si no es un método conocido. Se usa para no rechazar
+## `list.push`, `map.put`, etc. antes de que el registro de métodos builtin
+## esté completo.
+##
+## ## Memoria
+## O(1).
+weave builtin_method with s as ref to state.SemaState, recv as int, name as string, expected as int into int:
+    var rt as tk.SemaType is calling types.at with s->types, recv
+    if rt.kind == tk.SemaTypeKind.TkAlias or rt.kind == tk.SemaTypeKind.TkSeal:
+        return calling builtin_method with s, (calling underlying_type with s, recv), name, expected
+    var kind as tk.SemaTypeKind is rt.kind
+    if kind == tk.SemaTypeKind.TkRef:
+        return calling builtin_method with s, rt.a, name, expected
+    if kind == tk.SemaTypeKind.TkTypeParam:
+        return calling types.base with s->types, "int"
+    if kind == tk.SemaTypeKind.TkList:
+        if name == "push" or name == "clear" or name == "insert":
+            return 3
+        if name == "pop" or name == "at" or name == "last" or name == "first":
+            return rt.a
+        if name == "length" or name == "len" or name == "count":
+            return calling types.base with s->types, "int"
+        if name == "contains" or name == "is_empty":
+            return calling types.base with s->types, "bool"
+        if name == "size" or name == "len" or name == "length":
+            return calling types.base with s->types, "int"
+        if expected >= 0:
+            return expected
+        return 3
+    if kind == tk.SemaTypeKind.TkMap:
+        if name == "put" or name == "clear" or name == "insert" or name == "set":
+            return 3
+        if name == "remove" or name == "has_key" or name == "contains" or name == "has":
+            return calling types.base with s->types, "bool"
+        if name == "get_safe":
+            return calling types.maybe_of with s->types, rt.b
+        if name == "get" or name == "at" or name == "get_or":
+            return rt.b
+        if name == "keys":
+            return calling types.list_of with s->types, rt.a
+        if name == "values":
+            return calling types.list_of with s->types, rt.b
+        if name == "has" or name == "contains":
+            return calling types.base with s->types, "bool"
+        if name == "length" or name == "len" or name == "size":
+            return calling types.base with s->types, "int"
+        if name == "is_empty":
+            return calling types.base with s->types, "bool"
+        if expected >= 0:
+            return expected
+        return 3
+    if kind == tk.SemaTypeKind.TkMaybe:
+        if expected >= 0:
+            return expected
+        if name == "is_some" or name == "is_none":
+            return calling types.base with s->types, "bool"
+        if name == "unwrap" or name == "unwrap_or" or name == "unwrap_or_else" or name == "value_or" or name == "expect":
+            return rt.a
+        if name == "map" or name == "filter" or name == "and" or name == "or":
+            return recv
+        return rt.a
+    if kind == tk.SemaTypeKind.TkResult:
+        if expected >= 0:
+            return expected
+        if name == "is_ok" or name == "is_err":
+            return calling types.base with s->types, "bool"
+        if name == "unwrap" or name == "expect" or name == "value_or" or name == "unwrap_or" or name == "unwrap_or_else":
+            return rt.a
+        if name == "unwrap_err" or name == "expect_err":
+            return rt.b
+        if name == "map" or name == "map_err" or name == "and" or name == "or":
+            return recv
+        return rt.a
+    if kind == tk.SemaTypeKind.TkArray or kind == tk.SemaTypeKind.TkSlice:
+        if name == "length" or name == "len":
+            return calling types.base with s->types, "int"
+        if name == "at":
+            return rt.a
+        if expected >= 0:
+            return expected
+        return 3
+    if rt.kind == tk.SemaTypeKind.TkBase and calling compat.is_string with s->types, recv:
+        if name == "length" or name == "len":
+            return calling types.base with s->types, "int"
+        if name == "at":
+            return calling types.base with s->types, "char"
+        if name == "contains" or name == "is_empty":
+            return calling types.base with s->types, "bool"
+        if name == "starts_with" or name == "ends_with":
+            return calling types.base with s->types, "bool"
+        if name == "size" or name == "length" or name == "len":
+            return calling types.base with s->types, "int"
+        if expected >= 0:
+            return expected
+        return 3
+    return -1
+
+## Tipo activo de `with` desde el scope actual.
+##
+## ## Memoria
+## O(profundidad).
+weave active_with_type with s as ref to state.SemaState into int:
+    var cur as int is s->symbols->current
+    while cur >= 0:
+        var sc as scope.SemaScope is (s->symbols->scopes at cur)
+        if sc.with_type >= 0:
+            return sc.with_type
+        set cur is sc.parent
+    return -1
+
+## Llamada con target `.method` dentro de `with`.
+##
+## ## Memoria
+## Infiere args; no asigna.
+weave infer_with_call with s as ref to state.SemaState, node as int, target as int, expected as int into int:
+    var recv as int is calling active_with_type with s
+    var nm as int is calling astutil.token_child with s->ast, target, 0
+    if recv < 0 or nm < 0:
+        return 0
+    var txt as string is calling astutil.token_text with s->src, s->lex, nm
+    defer banish txt
+    var rty as tk.SemaType is calling types.at with s->types, recv
+    if rty.kind == tk.SemaTypeKind.TkRef:
+        set recv is rty.a
+    var mid as int is calling npool.intern with s->names, txt
+    var sid as int is calling symbols.lookup_method with s->symbols, recv, mid
+    var args as int is calling astutil.node_child with s->ast, node, 2
+    if sid >= 0:
+        var fsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+        var ft as tk.SemaType is calling types.at with s->types, fsv.type
+        if ft.kind == tk.SemaTypeKind.TkFn:
+            var info as types.SemaFnInfo is (s->types->fn_infos at ft.a)
+            calling infer_args_only with s, args
+            return info.return_type
+    var bm as int is calling builtin_method with s, recv, txt, expected
+    if bm > 0:
+        calling infer_args_only with s, args
+        return bm
+    return 0
+
+## Aplica un acceso intermedio a un tipo.
+##
+## ## Memoria
+## O(1)/campos.
+## Desenvuelve alias/seal hasta el tipo real.
+##
+## ## Memoria
+## O(profundidad); no asigna.
+weave underlying_type with s as ref to state.SemaState, id as int into int:
+    var cur as int is id
+    var ty as tk.SemaType is calling types.at with s->types, cur
+    while ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal:
+        set cur is ty.b
+        set ty is calling types.at with s->types, cur
+    return cur
+
+## Aplica un acceso intermedio a un tipo.
+weave access_op_type with s as ref to state.SemaState, base as int, op as int into int:
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, op
+    if k == pskind.NodeKind.NdAtAccess:
+        return calling compat.element_type with s->types, base
+    var nm as int is calling astutil.token_child with s->ast, op, 0
+    if nm < 0:
+        return 0
+    var txt as string is calling astutil.token_text with s->src, s->lex, nm
+    defer banish txt
+    var bt as int is base
+    if k == pskind.NodeKind.NdArrowAccess:
+        var bty as tk.SemaType is calling types.at with s->types, bt
+        if bty.kind == tk.SemaTypeKind.TkRef:
+            set bt is bty.a
+    return calling field_type with s, bt, txt
+
+## Infiere argumentos sin comprobar contra una firma.
+##
+## ## Memoria
+## O(n).
+weave infer_args_only with s as ref to state.SemaState, args as int into void:
+    if args < 0:
+        return
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, args
+    while i < n:
+        var arg as int is calling astutil.node_child with s->ast, args, i
+        if arg >= 0:
+            var v as int is -1
+            if (calling astutil.kind_of with s->ast, arg) == pskind.NodeKind.NdNamedArg:
+                set v is calling astutil.node_child with s->ast, arg, 1
+            else:
+                set v is calling astutil.node_child with s->ast, arg, 0
+            if v >= 0:
+                var ignored as int is calling infer with s, v, -1
+        set i is i + 1
+
+## Constructores `ok_of`/`err_of`.
+##
+## ## Memoria
+## O(1).
+weave infer_result_ctor with s as ref to state.SemaState, node as int, which as string, expected as int into int:
+    var args as int is calling astutil.node_child with s->ast, node, 2
+    var val as int is 3
+    if args >= 0:
+        var a0 as int is calling astutil.node_child with s->ast, args, 0
+        if a0 >= 0:
+            var vn as int is calling astutil.node_child with s->ast, a0, 0
+            if vn < 0:
+                set vn is a0
+            set val is calling infer with s, vn, -1
+    var err as int is 3
+    var ok as int is val
+    if expected >= 0:
+        var ex as tk.SemaType is calling types.at with s->types, expected
+        if ex.kind == tk.SemaTypeKind.TkResult:
+            set err is ex.b
+            if which == "err_of":
+                set ok is ex.a
+            if which == "ok_of" and ex.a == 3:
+                return expected
+    if which == "ok_of":
+        return calling types.result_of with s->types, val, err
+    return calling types.result_of with s->types, ok, val
+
+## Emite el error de una llamada inexistente.
+##
+## ## Memoria
+## Construye un mensaje temporal.
+weave undefined_call with s as ref to state.SemaState, node as int, name as string into void:
+    var msg as string is "undefined function '{name}'"
+    defer banish msg
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg, "Check the name or import the module that defines it.", ""
+
+## Índice de un parámetro por nombre.
+##
+## ## Memoria
+## O(n).
+weave param_index with s as ref to state.SemaState, info as types.SemaFnInfo, name as string into int:
+    var nid as int is calling npool.find with s->names, name
+    if nid < 0:
+        return -1
+    var i as int is 0
+    while i < info.params_count:
+        var p as types.SemaFnParam is (s->types->fn_params at (info.params_first + i))
+        if p.name == nid:
+            return i
+        set i is i + 1
+    return -1
+
+## Acceso `.field`.
+##
+## ## Memoria
+## O(campos).
+weave infer_field with s as ref to state.SemaState, node as int into int:
+    var base as int is calling astutil.node_child with s->ast, node, 0
+    var bt as int is 0
+    if base >= 0:
+        set bt is calling infer with s, base, -1
+    var nm as int is calling astutil.token_child with s->ast, node, 1
+    if nm < 0:
+        return 0
+    var txt as string is calling astutil.token_text with s->src, s->lex, nm
+    defer banish txt
+    if bt <= 0 and base >= 0:
+        # `import` member: `spark.PI`, `types.NIF_...`.
+        var bkind as pskind.NodeKind is calling astutil.kind_of with s->ast, base
+        if bkind == pskind.NodeKind.NdNormalTarget or bkind == pskind.NodeKind.NdVarRef:
+            var btok as int is calling astutil.token_child with s->ast, base, 0
+            if btok >= 0:
+                var btxt as string is calling astutil.token_text with s->src, s->lex, btok
+                defer banish btxt
+                var bid as int is calling symbols.lookup_name with s->symbols, btxt
+                if bid >= 0:
+                    var bsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, bid
+                    if bsv.kind == sym.SemaSymbolKind.SkImport:
+                        var mid as int is calling npool.intern with s->names, txt
+                        var member as int is calling symbols.lookup_in_scope with s->symbols, bsv.module_scope, mid
+                        if member >= 0:
+                            var mv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, member
+                            return mv.type
+    if bt <= 0:
+        return 0
+    return calling field_type with s, bt, txt
+
+## Acceso `->field`.
+##
+## ## Memoria
+## O(campos).
+weave infer_arrow with s as ref to state.SemaState, node as int into int:
+    var base as int is calling astutil.node_child with s->ast, node, 0
+    var bt as int is 0
+    if base >= 0:
+        set bt is calling infer with s, base, -1
+    var ty as tk.SemaType is calling types.at with s->types, bt
+    var target as int is bt
+    if ty.kind == tk.SemaTypeKind.TkRef:
+        set target is ty.a
+    var nm as int is calling astutil.token_child with s->ast, node, 1
+    if nm < 0 or target <= 0:
+        return 0
+    var txt as string is calling astutil.token_text with s->src, s->lex, nm
+    defer banish txt
+    return calling field_type with s, target, txt
+
+## Tipo de un campo de una runa/echo; error si no existe.
+##
+## ## Memoria
+## O(campos).
+weave field_type with s as ref to state.SemaState, type_id as int, name as string into int:
+    var type_id2 as int is calling underlying_type with s, type_id
+    var ty as tk.SemaType is calling types.at with s->types, type_id2
+    if name == "len" or name == "length":
+        if ty.kind == tk.SemaTypeKind.TkList or ty.kind == tk.SemaTypeKind.TkMap or ty.kind == tk.SemaTypeKind.TkArray or ty.kind == tk.SemaTypeKind.TkSlice or ty.kind == tk.SemaTypeKind.TkMaybe or ty.kind == tk.SemaTypeKind.TkResult:
+            return calling types.base with s->types, "int"
+        if ty.kind == tk.SemaTypeKind.TkBase and (calling compat.is_string with s->types, type_id):
+            return calling types.base with s->types, "int"
+    if ty.kind == tk.SemaTypeKind.TkAny:
+        return 1
+    if ty.kind == tk.SemaTypeKind.TkOmen:
+        var oi as types.SemaNominalInfo is (s->types->nominal_infos at ty.a)
+        var onid as int is calling npool.find with s->names, name
+        if onid >= 0:
+            var vi as int is 0
+            while vi < oi.variants_count:
+                var vv as types.SemaVariant is (s->types->variants at (oi.variants_first + vi))
+                if vv.name == onid:
+                    return type_id
+                set vi is vi + 1
+        return 0
+    if ty.kind == tk.SemaTypeKind.TkMaybe:
+        if name == "is_present":
+            return calling types.base with s->types, "bool"
+        if name == "value":
+            return ty.a
+        return 0
+    if ty.kind == tk.SemaTypeKind.TkResult:
+        if name == "is_ok" or name == "is_err":
+            return calling types.base with s->types, "bool"
+        if name == "value":
+            return ty.a
+        if name == "error":
+            return ty.b
+        return 0
+    if ty.kind != tk.SemaTypeKind.TkRune and ty.kind != tk.SemaTypeKind.TkEcho:
+        return 0
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at ty.a)
+    var nid as int is calling npool.find with s->names, name
+    if nid < 0:
+        return 0
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (s->types->fields at (info.fields_first + i))
+        if f.name == nid:
+            return f.type
+        set i is i + 1
+    return 0
+
+## Acceso `at`.
+##
+## ## Memoria
+## O(1).
+weave infer_at with s as ref to state.SemaState, node as int into int:
+    var base as int is calling astutil.node_child with s->ast, node, 0
+    var bt as int is calling infer with s, base, -1
+    var bty as tk.SemaType is calling types.at with s->types, bt
+    if bty.kind == tk.SemaTypeKind.TkAlias or bty.kind == tk.SemaTypeKind.TkSeal:
+        set bt is calling underlying_type with s, bt
+        set bty is calling types.at with s->types, bt
+    if bty.kind == tk.SemaTypeKind.TkRef:
+        var pointee as int is bty.a
+        var pty as tk.SemaType is calling types.at with s->types, pointee
+        if pty.kind == tk.SemaTypeKind.TkList or pty.kind == tk.SemaTypeKind.TkArray or pty.kind == tk.SemaTypeKind.TkSlice or pty.kind == tk.SemaTypeKind.TkMap:
+            set bt is pointee
+        else:
+            if pty.kind == tk.SemaTypeKind.TkFrozen:
+                return pty.a
+            return pointee
+    var btk as tk.SemaType is calling types.at with s->types, bt
+    var et as int is calling compat.element_type with s->types, bt
+    if btk.kind == tk.SemaTypeKind.TkMap:
+        set et is btk.b
+    if et < 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "type is not indexable", "Use a list, map, slice, array or string.", ""
+        return 0
+    return et
+
+## Cast `(expr to T)`.
+##
+## ## Memoria
+## Convierte el nodo tipo.
+weave infer_to with s as ref to state.SemaState, node as int into int:
+    var left as int is calling astutil.node_child with s->ast, node, 0
+    var rt as int is calling astutil.node_child with s->ast, node, 1
+    var ctx as convert.TypeCtx is with types is s->types, symbols is s->symbols, names is s->names, bag is s->bag, src is s->src, lex is s->lex, ast is s->ast
+    var target as int is calling convert.convert with (sigil of ctx), rt
+    var got as int is calling infer with s, left, target
+    if not calling compat.can_cast with s->types, got, target:
+        calling type_mismatch with s, left, target, got
+    return target
+
+## Lista vacía o de tipo homogéneo.
+##
+## ## Memoria
+## O(n).
+weave infer_list_lit with s as ref to state.SemaState, node as int, expected as int into int:
+    var elem as int is 0
+    if expected >= 0:
+        var e as tk.SemaType is calling types.at with s->types, expected
+        if e.kind == tk.SemaTypeKind.TkList:
+            set elem is e.a
+        else if e.kind == tk.SemaTypeKind.TkSlice:
+            set elem is e.a
+        else if e.kind == tk.SemaTypeKind.TkArray:
+            set elem is e.a
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        var c as int is calling astutil.node_child with s->ast, node, i
+        if c >= 0:
+            var got as int is calling infer with s, c, elem
+            if elem <= 0:
+                set elem is got
+        set i is i + 1
+    if elem <= 0:
+        set elem is calling types.base with s->types, "int"
+    if expected >= 0:
+        var e2 as tk.SemaType is calling types.at with s->types, expected
+        if e2.kind == tk.SemaTypeKind.TkArray:
+            return expected
+    return calling types.list_of with s->types, elem
+
+## Constructor `list of T`.
+##
+## ## Memoria
+## Convierte el tipo y devuelve `list of T`.
+weave infer_list_init with s as ref to state.SemaState, node as int, expected as int into int:
+    var tnode as int is calling astutil.node_child with s->ast, node, 0
+    var ctx as convert.TypeCtx is with types is s->types, symbols is s->symbols, names is s->names, bag is s->bag, src is s->src, lex is s->lex, ast is s->ast
+    var elem as int is calling convert.convert with (sigil of ctx), tnode
+    return calling types.list_of with s->types, elem
+
+## Constructor `map of K to V`.
+##
+## ## Memoria
+## Convierte ambos tipos.
+weave infer_map_init with s as ref to state.SemaState, node as int, expected as int into int:
+    var ctx as convert.TypeCtx is with types is s->types, symbols is s->symbols, names is s->names, bag is s->bag, src is s->src, lex is s->lex, ast is s->ast
+    var k as int is calling convert.convert with (sigil of ctx), (calling astutil.node_child with s->ast, node, 0)
+    var v as int is calling convert.convert with (sigil of ctx), (calling astutil.node_child with s->ast, node, 1)
+    return calling types.map_of with s->types, k, v
+
+## Constructor `array of T with size N`.
+##
+## ## Memoria
+## Convierte el tipo y el tamaño constante.
+weave infer_array_init with s as ref to state.SemaState, node as int, expected as int into int:
+    var ctx as convert.TypeCtx is with types is s->types, symbols is s->symbols, names is s->names, bag is s->bag, src is s->src, lex is s->lex, ast is s->ast
+    var elem as int is calling convert.convert with (sigil of ctx), (calling astutil.node_child with s->ast, node, 0)
+    return calling types.array_of with s->types, elem, -1
+
+## Literal de mapa.
+##
+## ## Memoria
+## Infiere claves/valores; vacío usa el expected.
+weave infer_map_lit with s as ref to state.SemaState, node as int, expected as int into int:
+    var kt as int is 0
+    var vt as int is 0
+    if expected >= 0:
+        var e as tk.SemaType is calling types.at with s->types, expected
+        if e.kind == tk.SemaTypeKind.TkMap:
+            set kt is e.a
+            set vt is e.b
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        var entry as int is calling astutil.node_child with s->ast, node, i
+        if entry >= 0:
+            var k as int is calling infer with s, (calling astutil.node_child with s->ast, entry, 0), kt
+            var v as int is calling infer with s, (calling astutil.node_child with s->ast, entry, 1), vt
+            if kt <= 0:
+                set kt is k
+            if vt <= 0:
+                set vt is v
+        set i is i + 1
+    if kt <= 0:
+        set kt is calling types.base with s->types, "string"
+    if vt <= 0:
+        set vt is calling types.base with s->types, "int"
+    return calling types.map_of with s->types, kt, vt
+
+## Inicialización de runa `Point with x is 1`.
+##
+## ## Memoria
+## O(campos).
+weave infer_struct_init with s as ref to state.SemaState, node as int into int:
+    var nm as int is calling astutil.token_child with s->ast, node, 0
+    if nm < 0:
+        return 0
+    var txt as string is calling astutil.token_text with s->src, s->lex, nm
+    defer banish txt
+    var ty as int is calling symbols.lookup_type_name with s->symbols, txt
+    if ty < 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "undefined type '{txt}'", "Check the rune name.", ""
+        return 0
+    return ty
+
+## `do:` como expresión de bloque.
+##
+## ## Memoria
+## Recorre statements; devuelve el tipo del último valor.
+weave infer_do with s as ref to state.SemaState, node as int, expected as int into int:
+    var n as int is calling astutil.child_count with s->ast, node
+    var i as int is 0
+    var last as int is -1
+    while i < n:
+        var c as int is calling astutil.node_child with s->ast, node, i
+        if c >= 0:
+            set last is c
+            if i < n - 1:
+                calling state.call_stmt with s, c
+        set i is i + 1
+    if last < 0:
+        return expected
+    var lk as pskind.NodeKind is calling astutil.kind_of with s->ast, last
+    if lk == pskind.NodeKind.NdStmt:
+        var inner as int is calling astutil.node_child with s->ast, last, 0
+        if inner >= 0 and (calling astutil.kind_of with s->ast, inner) == pskind.NodeKind.NdExprStmt:
+            return calling infer with s, (calling astutil.node_child with s->ast, inner, 0), expected
+        calling state.call_stmt with s, last
+        return expected
+    return calling infer with s, last, expected
+
+## `or else`/`or return`/`or:`.
+##
+## ## Memoria
+## Infiere el lado izquierdo y, si es maybe/result, devuelve su valor.
+weave infer_or with s as ref to state.SemaState, node as int, expected as int into int:
+    var left as int is calling astutil.node_child with s->ast, node, 0
+    var lt as int is calling infer with s, left, -1
+    var lty as tk.SemaType is calling types.at with s->types, lt
+    var inner as int is lt
+    if lty.kind == tk.SemaTypeKind.TkMaybe:
+        set inner is lty.a
+    else if lty.kind == tk.SemaTypeKind.TkResult:
+        set inner is lty.a
+    var right as int is calling astutil.node_child with s->ast, node, 1
+    if right >= 0:
+        var rt as int is calling infer with s, right, inner
+        if not calling compat.compatible with s->types, rt, inner:
+            calling type_mismatch with s, right, inner, rt
+        return rt
+    return inner
+
+## `for x in col then expr` como expresión de lista.
+##
+## ## Memoria
+## Entra/sale de un scope; devuelve `list of T`.
+weave infer_for_comp with s as ref to state.SemaState, node as int into int:
+    var nm as int is calling astutil.token_child with s->ast, node, 0
+    var coll as int is calling astutil.node_child with s->ast, node, 1
+    var body as int is calling astutil.node_child with s->ast, node, 3
+    var ct as int is calling infer with s, coll, -1
+    var et as int is calling compat.element_type with s->types, ct
+    var start as int is calling astutil.start_of with s->ast, node
+    var end as int is calling astutil.end_of with s->ast, node
+    calling symbols.push_scope with s->symbols, scope.SemaScopeKind.SgFor, start, end
+    if nm >= 0:
+        var txt as string is calling astutil.token_text with s->src, s->lex, nm
+        defer banish txt
+        var nid as int is calling npool.intern with s->names, txt
+        var sv as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", et, sym.SemaSymbolKind.SkLet
+        set sv.name is nid
+        set sv.c_name is nid
+        calling symbols.symbol_define with s->symbols, sv
+    var bt as int is calling infer with s, body, -1
+    calling symbols.pop_scope with s->symbols, end
+    return calling types.list_of with s->types, bt
+
+## `if`/`when` como expresión.
+##
+## ## Memoria
+## Infiere condición y ramas; no asigna.
+weave infer_if_expr with s as ref to state.SemaState, node as int, expected as int into int:
+    var cond as int is calling astutil.node_child with s->ast, node, 0
+    var then_node as int is calling astutil.node_child with s->ast, node, 1
+    var else_node as int is calling astutil.node_child with s->ast, node, 2
+    if cond >= 0:
+        var c as int is calling infer with s, cond, -1
+        if (calling astutil.kind_of with s->ast, node) == pskind.NodeKind.NdIfExpr and not (calling compat.is_bool with s->types, c):
+            calling type_mismatch with s, cond, 3, c
+    var t1 as int is calling infer with s, then_node, expected
+    var t2 as int is 0
+    if else_node >= 0:
+        set t2 is calling infer with s, else_node, expected
+    if t2 <= 0:
+        return t1
+    if calling compat.compatible with s->types, t1, t2:
+        return t1
+    if calling compat.compatible with s->types, t2, t1:
+        return t2
+    calling type_mismatch with s, else_node, t1, t2
+    return t1
+
+## Operadores booleanos.
+##
+## ## Memoria
+## O(1).
+weave infer_bool with s as ref to state.SemaState, node as int into int:
+    var l as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1
+    var r as int is calling infer with s, (calling astutil.node_child with s->ast, node, 1), -1
+    if not (calling compat.is_bool with s->types, l):
+        calling type_mismatch with s, (calling astutil.node_child with s->ast, node, 0), 3, l
+    if not (calling compat.is_bool with s->types, r):
+        calling type_mismatch with s, (calling astutil.node_child with s->ast, node, 1), 3, r
+    return calling types.base with s->types, "bool"
+
+## Comparaciones.
+##
+## ## Memoria
+## O(1).
+weave infer_compare with s as ref to state.SemaState, node as int into int:
+    var l as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1
+    var r as int is calling infer with s, (calling astutil.node_child with s->ast, node, 1), -1
+    if (not (calling compat.compatible with s->types, l, r)) and (not (calling compat.compatible with s->types, r, l)):
+        calling type_mismatch with s, node, l, r
+    return calling types.base with s->types, "bool"
+
+## Aritmética.
+##
+## ## Memoria
+## O(1).
+weave infer_arith with s as ref to state.SemaState, node as int into int:
+    var l as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1
+    var r as int is calling infer with s, (calling astutil.node_child with s->ast, node, 1), -1
+    var lt as tk.SemaType is calling types.at with s->types, l
+    var rt as tk.SemaType is calling types.at with s->types, r
+    if l == r or lt.kind == tk.SemaTypeKind.TkTypeParam or rt.kind == tk.SemaTypeKind.TkTypeParam or lt.kind == tk.SemaTypeKind.TkAny or rt.kind == tk.SemaTypeKind.TkAny or lt.kind == tk.SemaTypeKind.TkOpaque or rt.kind == tk.SemaTypeKind.TkOpaque:
+        return l
+    if (not (calling compat.is_numeric with s->types, l)) or (not (calling compat.is_numeric with s->types, r)):
+        calling type_mismatch with s, node, l, r
+        return 0
+    if (calling compat.is_float with s->types, l) or (calling compat.is_float with s->types, r):
+        return calling types.base with s->types, "float"
+    return l
+
+## Bitwise/shifts.
+##
+## ## Memoria
+## O(1).
+weave infer_bit with s as ref to state.SemaState, node as int into int:
+    var l as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1
+    var r as int is calling infer with s, (calling astutil.node_child with s->ast, node, 1), -1
+    var lt2 as tk.SemaType is calling types.at with s->types, l
+    var rt2 as tk.SemaType is calling types.at with s->types, r
+    if lt2.kind == tk.SemaTypeKind.TkTypeParam or rt2.kind == tk.SemaTypeKind.TkTypeParam:
+        return l
+    if (not (calling compat.is_int with s->types, l)) or (not (calling compat.is_int with s->types, r)):
+        calling type_mismatch with s, node, l, r
+        return 0
+    return l
+
+## Unarios.
+##
+## ## Memoria
+## O(1).
+weave infer_unary with s as ref to state.SemaState, node as int into int:
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    var inner as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1
+    if k == pskind.NodeKind.NdLogNot:
+        return calling types.base with s->types, "bool"
+    if k == pskind.NodeKind.NdBitNot:
+        return inner
+    return inner
+
+## Rangos.
+##
+## ## Memoria
+## O(1).
+weave infer_range with s as ref to state.SemaState, node as int into int:
+    var l as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1
+    var r as int is calling infer with s, (calling astutil.node_child with s->ast, node, 1), -1
+    return calling types.range_of with s->types, l
+
+## `sigil of`/`essence of`.
+##
+## ## Memoria
+## O(1).
+weave infer_pointer with s as ref to state.SemaState, node as int into int:
+    var inner as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1
+    return calling types.ref_to with s->types, inner
+
+## Emite un mismatch con tipos canónicos.
+##
+## ## Memoria
+## Construye dos strings temporales y los libera.
+weave type_mismatch with s as ref to state.SemaState, node as int, expected as int, got as int into void:
+    if expected <= 0 or got <= 0:
+        return
+    var et0 as tk.SemaType is calling types.at with s->types, expected
+    var gt0 as tk.SemaType is calling types.at with s->types, got
+    if et0.kind == tk.SemaTypeKind.TkFn or gt0.kind == tk.SemaTypeKind.TkFn or et0.kind == tk.SemaTypeKind.TkAny or gt0.kind == tk.SemaTypeKind.TkAny or et0.kind == tk.SemaTypeKind.TkTypeParam or gt0.kind == tk.SemaTypeKind.TkTypeParam:
+        return
+    var eid as int is calling canonical.canonical_name with s->types, expected
+    var gid as int is calling canonical.canonical_name with s->types, got
+    var en as string is calling npool.text with s->names, eid
+    var gn as string is calling npool.text with s->names, gid
+    var msg as string is "type mismatch: expected '{en}', got '{gn}'"
+    defer banish msg
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg, "Ensure the value type matches the expected type or use an explicit 'to' cast.", "PenguScript requires type safety and explicit conversions."

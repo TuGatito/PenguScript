@@ -1,0 +1,345 @@
+## psc/psource.pengu — `SourceFile`: bytes inmutables, índice de líneas y hash.
+##
+## `SourceFile` es la única copia del texto de un archivo dentro de PSC. Guarda
+## los bytes **sin BOM** (CRLF preservado), un índice de inicios de línea y el
+## SHA-256 de los bytes **originales** (BOM/CRLF incluidos).
+##
+## ## Convenciones
+## - `line` y `col` son 1-indexed.
+## - `col` es una columna de **byte**, no de codepoint. Coincide con
+##   `std.sourcemap` y con el lexer; el LSP convierte a UTF-16 en el borde.
+## - `\n` empieza una línea nueva. En un par `\r\n`, el `\r` sigue contando para
+##   los offsets, pero `line_text` lo excluye.
+## - Los offsets son relativos a `text` (después de quitar el BOM). Para obtener
+##   el offset en el archivo original: `offset + bom_len`.
+##
+## ## Ejemplo
+## ```pengu
+## import psc.source
+##
+## var f as SourceFile is calling SourceFile.from_text with "a.pengu", "hola\nmundo\n"
+## defer banish f
+## var p as sourcemap.Position is calling f.position_at with 6
+## # p.line == 2, p.col == 1
+## ```
+##
+## ## Memoria
+## `banish f` libera `path`, `text`, `line_starts` y `sha256`.
+
+import std.builder
+import std.digest
+import std.sourcemap
+import std.spark
+
+import psc.span as pspan
+
+## Primer byte de un BOM UTF-8.
+const SOURCE_BOM_0 as int is 0xEF
+
+## Segundo byte de un BOM UTF-8.
+const SOURCE_BOM_1 as int is 0xBB
+
+## Tercer byte de un BOM UTF-8.
+const SOURCE_BOM_2 as int is 0xBF
+
+## Byte de line feed.
+const SOURCE_LF as int is 10
+
+## Byte de carriage return.
+const SOURCE_CR as int is 13
+
+## Por qué falló una lectura de archivo.
+omen SourceErrorKind:
+    ## El archivo no se pudo leer (no existe, permisos, E/S).
+    SrcRead
+    ## La ruta no es utilizable como archivo.
+    SrcInvalidPath
+
+## Error de carga de un archivo. No es un diagnóstico léxico: no hay pspan.
+##
+## ## Memoria
+## `banish error` libera `path` y `message`.
+rune SourceError derive Nexus:
+    ## Categoría del fallo.
+    kind as SourceErrorKind
+    ## Ruta solicitada.
+    path as string
+    ## Mensaje legible.
+    message as string
+
+## Construye un `SourceError` con copias propias de `path` y `message`.
+##
+## ## Memoria
+## Devuelve un valor owned; liberar con `banish`.
+weave source_error with kind as SourceErrorKind, path as string, message as string into SourceError:
+    var p as string is "{path}"
+    var m as string is "{message}"
+    return with kind is kind, path is p, message is m
+
+## Convierte los 32 bytes de un SHA-256 a hex minúsculas.
+##
+## `std.digest.sha256_hex` usa `ord (raw at i)`, que en 3.0.3 asigna un string
+## por byte y filtra. Este helper usa `bytes of` y un builder, sin temporales.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave sha256_hex_of with raw_hash as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var raw_bytes as ref to frozen byte is bytes of raw_hash
+    var i as int is 0
+    var n as int is raw_hash length
+    while i < n:
+        var b as int is (raw_bytes at i) to int
+        var hi as int is (b >> 4) & 0x0F
+        var lo as int is b & 0x0F
+        calling sb.append_char with (calling nibble_char with hi)
+        calling sb.append_char with (calling nibble_char with lo)
+        set i is i + 1
+    return calling sb.finish
+
+## Carácter hex de un nibble (0-15).
+##
+## ## Memoria
+## O(1), no asigna.
+weave nibble_char with n as int into char:
+    if n < 10:
+        return (48 + n) to char
+    return (87 + n) to char
+
+## Un archivo fuente inmutable.
+##
+## ## Memoria
+## `banish file` libera `path`, `text`, `line_starts` y `sha256`.
+rune SourceFile derive Nexus:
+    ## Ruta lógica usada en diagnósticos (la que pasó el llamador).
+    path as string
+    ## Bytes sin BOM; CRLF preservado.
+    text as string
+    ## Offset del primer byte de cada línea. Siempre empieza en 0.
+    line_starts as list of int
+    ## SHA-256 hex de los bytes originales (incluye BOM y CRLF).
+    sha256 as string
+    ## Bytes de BOM eliminados al principio.
+    bom_len as int
+    ## Longitud original del archivo en bytes.
+    raw_len as int
+
+enchanting SourceFile:
+    ## Construye un `SourceFile` desde bytes crudos.
+    ##
+    ## Quita todos los BOM iniciales, conserva CRLF y calcula el SHA-256 de
+    ## `raw` (antes de quitar el BOM).
+    ##
+    ## ## Parámetros
+    ## - `path`: ruta lógica; se copia.
+    ## - `raw`: contenido binario; se copia.
+    ##
+    ## ## Memoria
+    ## Asigna `text`, `line_starts`, `sha256` y `path`. Liberar con `banish`.
+    weave ritual from_bytes with path as string, raw as string into SourceFile:
+        var n as int is raw length
+        var scan as int is 0
+        var rb as ref to frozen byte is bytes of raw
+        while scan + 2 < n:
+            if ((rb at scan) to int) != SOURCE_BOM_0:
+                break
+            if ((rb at (scan + 1)) to int) != SOURCE_BOM_1:
+                break
+            if ((rb at (scan + 2)) to int) != SOURCE_BOM_2:
+                break
+            set scan is scan + 3
+        var tlen as int is n - scan
+        var text as string is raw at scan to n
+        var raw_hash as string is calling digest.sha256_raw with raw
+        var hash as string is calling sha256_hex_of with raw_hash
+        banish raw_hash
+        var starts as list of int is list of int
+        calling starts.push with 0
+        var i as int is 0
+        var tb as ref to frozen byte is bytes of text
+        while i < tlen:
+            if ((tb at i) to int) == SOURCE_LF:
+                calling starts.push with i + 1
+            set i is i + 1
+        var p as string is "{path}"
+        return with path is p, text is text, line_starts is starts, sha256 is hash, bom_len is scan, raw_len is n
+
+    ## Alias de `from_bytes` para texto ya en memoria (LSP, tests).
+    ##
+    ## ## Memoria
+    ## Igual que `from_bytes`.
+    weave ritual from_text with path as string, text as string into SourceFile:
+        return calling SourceFile.from_bytes with path, text
+
+    # ------------------------------------------------------------------
+    # Consultas básicas
+    # ------------------------------------------------------------------
+
+    ## Ruta lógica del archivo (prestada).
+    weave get_path into string:
+        return self->path
+
+    ## Texto sin BOM (prestado).
+    weave get_text into string:
+        return self->text
+
+    ## Longitud del texto en bytes.
+    weave byte_len into int:
+        var t as string is self->text
+        return t length
+
+    ## Número de líneas. Un archivo vacío tiene una línea vacía.
+    weave line_count into int:
+        return self->line_starts.len
+
+    ## SHA-256 hex de los bytes originales (prestado).
+    weave get_sha256 into string:
+        return self->sha256
+
+    ## Bytes de BOM eliminados.
+    weave get_bom_len into int:
+        return self->bom_len
+
+    ## Longitud original del archivo.
+    weave get_raw_len into int:
+        return self->raw_len
+
+    ## Convierte un offset del texto sin BOM al offset del archivo original.
+    weave file_offset with offset as int into int:
+        return offset + self->bom_len
+
+    ## `true` cuando `offset` está en `[0, byte_len]`.
+    weave is_valid_offset with offset as int into bool:
+        return offset >= 0 and offset <= (calling self.byte_len)
+
+    # ------------------------------------------------------------------
+    # Offset <-> (line, col)
+    # ------------------------------------------------------------------
+
+    ## Convierte un offset de byte a `(line, col)` 1-indexed.
+    ##
+    ## Los offsets fuera de rango se clampan. `position_at(byte_len)` es la
+    ## posición justo después del último byte.
+    ##
+    ## ## Memoria
+    ## O(log líneas), no asigna.
+    weave position_at with offset as int into sourcemap.Position:
+        var off as int is offset
+        if off < 0:
+            set off is 0
+        var n as int is (calling self.byte_len)
+        if off > n:
+            set off is n
+        var lo as int is 0
+        var hi as int is self->line_starts.len - 1
+        while lo < hi:
+            var mid as int is (lo + hi + 1) / 2
+            if (self->line_starts at mid) <= off:
+                set lo is mid
+            else:
+                set hi is mid - 1
+        var start as int is self->line_starts at lo
+        return with line is (lo + 1), col is (off - start + 1)
+
+    ## Convierte `(line, col)` 1-indexed a un offset de byte.
+    ##
+    ## Panica si la posición no existe. Los usos internos de PSC prefieren
+    ## `span_at`, que clampa.
+    ##
+    ## ## Memoria
+    ## O(1), no asigna.
+    weave offset_of with line as int, col as int into int:
+        if line < 1 or line > self->line_starts.len:
+            calling spark.panic with "SourceFile.offset_of: line out of range"
+        if col < 1:
+            calling spark.panic with "SourceFile.offset_of: column must be >= 1"
+        var start as int is self->line_starts at (line - 1)
+        var off as int is start + col - 1
+        if line < self->line_starts.len:
+            var next_start as int is self->line_starts at line
+            if off >= next_start:
+                calling spark.panic with "SourceFile.offset_of: column past end of line"
+        else:
+            if off > (calling self.byte_len):
+                calling spark.panic with "SourceFile.offset_of: column past end of source"
+        return off
+
+    ## Texto de una línea (1-indexed), sin `\n` ni `\r\n`.
+    ##
+    ## ## Retorno
+    ## Un `string` owned; liberar con `banish`.
+    ##
+    ## ## Memoria
+    ## Asigna la longitud de la línea.
+    weave line_text with line as int into string:
+        if line < 1 or line > self->line_starts.len:
+            calling spark.panic with "SourceFile.line_text: line out of range"
+        var start as int is self->line_starts at (line - 1)
+        var end as int is calling self._line_end_offset with line
+        return self->text at start to end
+
+    ## Rango que cubre una línea sin su terminador.
+    ##
+    ## ## Memoria
+    ## Asigna un temporal para medir la línea; devuelve un valor.
+    weave line_span with line as int into pspan.ByteSpan:
+        var start as int is self->line_starts at (line - 1)
+        var end as int is calling self._line_end_offset with line
+        return with start is start, end is end
+
+    ## Posición del final del archivo.
+    ##
+    ## ## Memoria
+    ## O(log líneas), no asigna.
+    weave eof_position into sourcemap.Position:
+        return calling self.position_at with (calling self.byte_len)
+
+    # ------------------------------------------------------------------
+    # Spans y slicing
+    # ------------------------------------------------------------------
+
+    ## Convierte un `ByteSpan` en el `ByteSpan` normalizado del archivo.
+    ##
+    ## ## Memoria
+    ## O(1), no asigna.
+    weave span_at with start as int, end as int into pspan.ByteSpan:
+        var s as pspan.ByteSpan is with start is start, end is end
+        return calling pspan.span_clamp with s, (calling self.byte_len)
+
+    ## Copia el texto del pspan.
+    ##
+    ## ## Retorno
+    ## Un `string` owned; liberar con `banish`.
+    ##
+    ## ## Memoria
+    ## Asigna la longitud del pspan.
+    weave slice with s as pspan.ByteSpan into string:
+        var c as pspan.ByteSpan is calling pspan.span_clamp with s, (calling self.byte_len)
+        return self->text at c.start to c.end
+
+    ## Byte en `offset` como entero, o `-1` fuera de rango.
+    ##
+    ## ## Memoria
+    ## O(1), no asigna.
+    weave byte_at with offset as int into int:
+        var n as int is (calling self.byte_len)
+        if offset < 0 or offset >= n:
+            return -1
+        var raw as ref to frozen byte is bytes of self->text
+        return (raw at offset) to int
+
+    # ------------------------------------------------------------------
+    # Helpers privados
+    # ------------------------------------------------------------------
+
+    ## Offset del final del texto de una línea, sin `\n` ni `\r`.
+    weave _line_end_offset with line as int into int:
+        var start as int is self->line_starts at (line - 1)
+        var end as int is (calling self.byte_len)
+        if line < self->line_starts.len:
+            set end is (self->line_starts at line) - 1
+        if end > start:
+            if (calling self.byte_at with (end - 1)) == SOURCE_CR:
+                set end is end - 1
+        return end

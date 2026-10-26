@@ -1,0 +1,18 @@
+# psc-token-dump v1
+# file: tests/fixtures/bom.pengu
+# sha256: 922631b8065df02532c610752f3eda434f9e78cca5495234e6515bf5229e66a2
+# bytes: 34
+# lines: 3
+# columns: index	kind	lexeme	start	end	line	col	end_line	end_col	aux
+0	Keyword(weave)	weave	0	5	1	1	1	6	0
+1	Identifier	main	6	10	1	7	1	11	0
+2	Keyword(into)	into	11	15	1	12	1	16	0
+3	Identifier	int	16	19	1	17	1	20	0
+4	Colon	:	19	20	1	20	1	21	0
+5	Newline	\n    	20	25	1	21	2	5	4
+6	Indent		25	25	2	5	2	5	4
+7	Keyword(return)	return	25	31	2	5	2	11	0
+8	IntLit	0	32	33	2	12	2	13	10
+9	Newline	\n	33	34	2	13	3	1	0
+10	Dedent		34	34	3	1	3	1	0
+11	Eof		34	34	3	1	3	1	0

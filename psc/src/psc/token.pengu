@@ -1,0 +1,537 @@
+## psc/token.pengu — modelo de tokens y tabla de palabras reservadas.
+##
+## `Token` es POD: no guarda strings. El lexema se obtiene del `SourceFile` con
+## `token_span`; los literales usan tablas laterales indexadas por `aux`.
+##
+## ## Convenciones
+## - `start` es inclusivo y `end` exclusivo, en bytes de `SourceFile.text`.
+## - `line`/`col` son 1-indexed; `col` es columna de byte.
+## - `kw` solo tiene sentido cuando `kind == TokKeyword`; en el resto vale
+##   `KwNotKeyword`.
+##
+## ## Por qué los prefijos `Tok`/`Kw`
+## Los nombres de variantes de un `omen` son globales en todo el programa. Un
+## `omen` con variantes `Error`, `None` o `Read` colisiona con la stdlib. Los
+## prefijos `Tok*`, `Kw*`, `Lex*`, `Com*`, `Seg*` y `Src*` evitan esas
+## colisiones sin perder legibilidad.
+##
+## ## Memoria
+## `Token`, `KeywordEntry` y `ByteSpan` son valores puros. `KeywordTable` es
+## dueña de su lista; las palabras son literales estáticos.
+
+import psc.span as pspan
+
+## Categoría léxica de un token.
+##
+## Los keywords no tienen una variante por palabra: usan `TokKeyword` y
+## `Token.kw`. Así este enum queda pequeño y el parser compara `tok.kw`.
+omen TokenKind:
+    ## Fin de archivo.
+    TokEof
+    ## Salto de línea significativo; puede cubrir varias líneas en blanco.
+    TokNewline
+    ## Apertura de bloque.
+    TokIndent
+    ## Cierre de bloque.
+    TokDedent
+
+    ## Identificador ASCII.
+    TokIdentifier
+    ## Palabra reservada; el valor exacto está en `Token.kw`.
+    TokKeyword
+    ## Entero decimal/hex/bin/oct.
+    TokIntLit
+    ## Flotante.
+    TokFloatLit
+    ## String normal, raw o triple.
+    TokStringLit
+    ## Char literal.
+    TokCharLit
+    ## Cuerpo C de un `antiquus`.
+    TokAntiquusBody
+    ## Token de recuperación; el parser puede saltarlo.
+    TokError
+
+    ## `(`
+    TokLeftParen
+    ## `)`
+    TokRightParen
+    ## `[`
+    TokLeftBracket
+    ## `]`
+    TokRightBracket
+    ## `{`
+    TokLeftBrace
+    ## `}`
+    TokRightBrace
+
+    ## `,`
+    TokComma
+    ## `:`
+    TokColon
+    ## `;`
+    TokSemicolon
+    ## `.`
+    TokDot
+    ## `..`
+    TokDotDot
+    ## `...`
+    TokEllipsis
+    ## `->`
+    TokArrow
+    ## `@`
+    TokAt
+
+    ## `+`
+    TokPlus
+    ## `-`
+    TokMinus
+    ## `*`
+    TokStar
+    ## `/`
+    TokSlash
+    ## `%`
+    TokPercent
+    ## `&`
+    TokAmpersand
+    ## `|`
+    TokVerticalBar
+    ## `^`
+    TokCaret
+    ## `~`
+    TokTilde
+    ## `!` (solo aparece suelto en `!=`; suelto lo rechaza el parser)
+    TokBang
+
+    ## `=`
+    TokAssign
+    ## `==`
+    TokEqual
+    ## `!=`
+    TokNotEqual
+    ## `<`
+    TokLess
+    ## `<=`
+    TokLessOrEqual
+    ## `>`
+    TokGreater
+    ## `>=`
+    TokGreaterOrEqual
+    ## `<<`
+    TokShiftLeft
+    ## `>>`
+    TokShiftRight
+
+    ## `+=`
+    TokPlusAssign
+    ## `-=`
+    TokMinusAssign
+    ## `*=`
+    TokStarAssign
+    ## `/=`
+    TokSlashAssign
+    ## `%=`
+    TokPercentAssign
+    ## `&=`
+    TokAmpersandAssign
+    ## `|=`
+    TokVerticalBarAssign
+    ## `^=`
+    TokCaretAssign
+    ## `<<=`
+    TokShiftLeftAssign
+    ## `>>=`
+    TokShiftRightAssign
+
+## Palabra reservada. `KwNotKeyword` es el valor por defecto.
+##
+## Las palabras *soft* (`self`, `unsafe`, `over`, `frozen`, `inline`, `ritual`,
+## `do`, `type`, `size`, `main`, `ok`, `err`) no están aquí: el lexer las emite
+## como `TokIdentifier` y el parser las interpreta por contexto.
+omen KeywordKind:
+    ## El token no es un keyword.
+    KwNotKeyword
+
+    ## `alias`
+    KwAlias
+    ## `and`
+    KwAnd
+    ## `antiquus`
+    KwAntiquus
+    ## `as`
+    KwAs
+    ## `banish`
+    KwBanish
+    ## `bind`
+    KwBind
+    ## `break`
+    KwBreak
+    ## `bytes`
+    KwBytes
+    ## `calling`
+    KwCalling
+    ## `chr`
+    KwChr
+    ## `concept`
+    KwConcept
+    ## `const`
+    KwConst
+    ## `continue`
+    KwContinue
+    ## `cyclus`
+    KwCyclus
+    ## `declare`
+    KwDeclare
+    ## `defer`
+    KwDefer
+    ## `defined`
+    KwDefined
+    ## `derive`
+    KwDerive
+    ## `donum`
+    KwDonum
+    ## `echo`
+    KwEcho
+    ## `else`
+    KwElse
+    ## `enchanting`
+    KwEnchanting
+    ## `errdefer`
+    KwErrdefer
+    ## `error`
+    KwError
+    ## `essence`
+    KwEssence
+    ## `false`
+    KwFalse
+    ## `for`
+    KwFor
+    ## `from`
+    KwFrom
+    ## `if`
+    KwIf
+    ## `import`
+    KwImport
+    ## `in`
+    KwIn
+    ## `include`
+    KwInclude
+    ## `insignia`
+    KwInsignia
+    ## `into`
+    KwInto
+    ## `is`
+    KwIs
+    ## `judge`
+    KwJudge
+    ## `lambda`
+    KwLambda
+    ## `ldflag`
+    KwLdflag
+    ## `let`
+    KwLet
+    ## `link`
+    KwLink
+    ## `many`
+    KwMany
+    ## `maybe`
+    KwMaybe
+    ## `none`
+    KwNone
+    ## `not`
+    KwNot
+    ## `null`
+    KwNull
+    ## `of`
+    KwOf
+    ## `omen`
+    KwOmen
+    ## `or`
+    KwOr
+    ## `ord`
+    KwOrd
+    ## `return`
+    KwReturn
+    ## `rune`
+    KwRune
+    ## `seal`
+    KwSeal
+    ## `set`
+    KwSet
+    ## `shard`
+    KwShard
+    ## `sigil`
+    KwSigil
+    ## `some`
+    KwSome
+    ## `static`
+    KwStatic
+    ## `step`
+    KwStep
+    ## `test`
+    KwTest
+    ## `to`
+    KwTo
+    ## `transmute`
+    KwTransmute
+    ## `true`
+    KwTrue
+    ## `try`
+    KwTry
+    ## `unless`
+    KwUnless
+    ## `var`
+    KwVar
+    ## `weave`
+    KwWeave
+    ## `when`
+    KwWhen
+    ## `where`
+    KwWhere
+    ## `while`
+    KwWhile
+    ## `with`
+    KwWith
+
+    ## `type of` (token compuesto)
+    KwTypeOf
+    ## `size of` (token compuesto)
+    KwSizeOf
+
+## Un token léxico.
+##
+## ## Memoria
+## Valor puro: no tiene heap.
+rune Token derive Par:
+    ## Categoría.
+    kind as TokenKind
+    ## Keyword exacto cuando `kind == TokKeyword`; `KwNotKeyword` si no.
+    kw as KeywordKind
+    ## Offset inclusivo.
+    start as int
+    ## Offset exclusivo.
+    end as int
+    ## Línea 1-indexed del primer byte.
+    line as int
+    ## Columna de byte 1-indexed del primer byte.
+    col as int
+    ## Payload auxiliar; ver la tabla del contrato en `lexer_state.pengu`.
+    aux as int
+
+## Una entrada de la tabla de keywords.
+rune KeywordEntry derive Par:
+    ## Lexema en minúsculas.
+    word as string
+    ## Keyword asociado.
+    kind as KeywordKind
+    ## Primer byte del lexema (para descartar rápido).
+    first as int
+    ## Longitud del lexema.
+    len as int
+
+## Tabla de palabras reservadas.
+##
+## La búsqueda es lineal: 70 comparaciones de igualdad por identificador es
+## barato en C y evita depender del orden lexicográfico de `string` (que el
+## lenguaje no ofrece). Si el benchmark lo justifica, se añade un índice.
+##
+## ## Memoria
+## `banish table` libera `entries`; los `word` son literales estáticos.
+rune KeywordTable derive Nexus:
+    ## Entradas ordenadas alfabéticamente.
+    entries as list of KeywordEntry
+
+## Añade una entrada a la tabla calculando `first` y `len`.
+##
+## ## Memoria
+## Hace `push`; la palabra es un literal estático.
+weave add_keyword with t as ref to KeywordTable, word as string, k as KeywordKind into void:
+    var raw as ref to frozen byte is bytes of word
+    var first as int is 0
+    if word length > 0:
+        set first is (raw at 0) to int
+    var e as KeywordEntry is with word is word, kind is k, first is first, len is (word length)
+    calling t->entries.push with e
+
+## Construye la tabla de keywords completa.
+##
+## ## Memoria
+## Asigna una lista; liberar con `banish`.
+weave keyword_table_new into KeywordTable:
+    var t as KeywordTable is with entries is list of KeywordEntry
+    calling add_keyword with sigil of t, "alias", KwAlias
+    calling add_keyword with sigil of t, "and", KwAnd
+    calling add_keyword with sigil of t, "antiquus", KwAntiquus
+    calling add_keyword with sigil of t, "as", KwAs
+    calling add_keyword with sigil of t, "banish", KwBanish
+    calling add_keyword with sigil of t, "bind", KwBind
+    calling add_keyword with sigil of t, "break", KwBreak
+    calling add_keyword with sigil of t, "bytes", KwBytes
+    calling add_keyword with sigil of t, "calling", KwCalling
+    calling add_keyword with sigil of t, "chr", KwChr
+    calling add_keyword with sigil of t, "concept", KwConcept
+    calling add_keyword with sigil of t, "const", KwConst
+    calling add_keyword with sigil of t, "continue", KwContinue
+    calling add_keyword with sigil of t, "cyclus", KwCyclus
+    calling add_keyword with sigil of t, "declare", KwDeclare
+    calling add_keyword with sigil of t, "defer", KwDefer
+    calling add_keyword with sigil of t, "defined", KwDefined
+    calling add_keyword with sigil of t, "derive", KwDerive
+    calling add_keyword with sigil of t, "donum", KwDonum
+    calling add_keyword with sigil of t, "echo", KwEcho
+    calling add_keyword with sigil of t, "else", KwElse
+    calling add_keyword with sigil of t, "enchanting", KwEnchanting
+    calling add_keyword with sigil of t, "errdefer", KwErrdefer
+    calling add_keyword with sigil of t, "error", KwError
+    calling add_keyword with sigil of t, "essence", KwEssence
+    calling add_keyword with sigil of t, "false", KwFalse
+    calling add_keyword with sigil of t, "for", KwFor
+    calling add_keyword with sigil of t, "from", KwFrom
+    calling add_keyword with sigil of t, "if", KwIf
+    calling add_keyword with sigil of t, "import", KwImport
+    calling add_keyword with sigil of t, "in", KwIn
+    calling add_keyword with sigil of t, "include", KwInclude
+    calling add_keyword with sigil of t, "insignia", KwInsignia
+    calling add_keyword with sigil of t, "into", KwInto
+    calling add_keyword with sigil of t, "is", KwIs
+    calling add_keyword with sigil of t, "judge", KwJudge
+    calling add_keyword with sigil of t, "lambda", KwLambda
+    calling add_keyword with sigil of t, "ldflag", KwLdflag
+    calling add_keyword with sigil of t, "let", KwLet
+    calling add_keyword with sigil of t, "link", KwLink
+    calling add_keyword with sigil of t, "many", KwMany
+    calling add_keyword with sigil of t, "maybe", KwMaybe
+    calling add_keyword with sigil of t, "none", KwNone
+    calling add_keyword with sigil of t, "not", KwNot
+    calling add_keyword with sigil of t, "null", KwNull
+    calling add_keyword with sigil of t, "of", KwOf
+    calling add_keyword with sigil of t, "omen", KwOmen
+    calling add_keyword with sigil of t, "or", KwOr
+    calling add_keyword with sigil of t, "ord", KwOrd
+    calling add_keyword with sigil of t, "return", KwReturn
+    calling add_keyword with sigil of t, "rune", KwRune
+    calling add_keyword with sigil of t, "seal", KwSeal
+    calling add_keyword with sigil of t, "set", KwSet
+    calling add_keyword with sigil of t, "shard", KwShard
+    calling add_keyword with sigil of t, "sigil", KwSigil
+    calling add_keyword with sigil of t, "some", KwSome
+    calling add_keyword with sigil of t, "static", KwStatic
+    calling add_keyword with sigil of t, "step", KwStep
+    calling add_keyword with sigil of t, "test", KwTest
+    calling add_keyword with sigil of t, "to", KwTo
+    calling add_keyword with sigil of t, "transmute", KwTransmute
+    calling add_keyword with sigil of t, "true", KwTrue
+    calling add_keyword with sigil of t, "try", KwTry
+    calling add_keyword with sigil of t, "unless", KwUnless
+    calling add_keyword with sigil of t, "var", KwVar
+    calling add_keyword with sigil of t, "weave", KwWeave
+    calling add_keyword with sigil of t, "when", KwWhen
+    calling add_keyword with sigil of t, "where", KwWhere
+    calling add_keyword with sigil of t, "while", KwWhile
+    calling add_keyword with sigil of t, "with", KwWith
+    return t
+
+## Busca un keyword con búsqueda binaria.
+##
+## ## Retorno
+## `KwNotKeyword` si `word` no es una palabra reservada dura.
+##
+## ## Memoria
+## O(log n), no asigna.
+weave keyword_lookup with t as ref to KeywordTable, word as string into KeywordKind:
+    var i as int is 0
+    while i < t->entries.len:
+        var e as KeywordEntry is t->entries at i
+        if word == e.word:
+            return e.kind
+        set i is i + 1
+    return KwNotKeyword
+
+## Devuelve el lexema de un keyword, o `""` si no está en la tabla.
+##
+## ## Memoria
+## Devuelve un literal estático; no liberar.
+weave keyword_name with t as ref to KeywordTable, k as KeywordKind into string:
+    var i as int is 0
+    while i < t->entries.len:
+        var e as KeywordEntry is t->entries at i
+        if e.kind == k:
+            return e.word
+        set i is i + 1
+    return ""
+
+## Nombre estable de una categoría de token.
+##
+## ## Memoria
+## Devuelve un literal estático; no liberar.
+weave token_kind_name with k as TokenKind into string:
+    return judge k:
+        when TokEof -> "Eof"
+        when TokNewline -> "Newline"
+        when TokIndent -> "Indent"
+        when TokDedent -> "Dedent"
+        when TokIdentifier -> "Identifier"
+        when TokKeyword -> "Keyword"
+        when TokIntLit -> "IntLit"
+        when TokFloatLit -> "FloatLit"
+        when TokStringLit -> "StringLit"
+        when TokCharLit -> "CharLit"
+        when TokAntiquusBody -> "AntiquusBody"
+        when TokError -> "Error"
+        when TokLeftParen -> "LeftParen"
+        when TokRightParen -> "RightParen"
+        when TokLeftBracket -> "LeftBracket"
+        when TokRightBracket -> "RightBracket"
+        when TokLeftBrace -> "LeftBrace"
+        when TokRightBrace -> "RightBrace"
+        when TokComma -> "Comma"
+        when TokColon -> "Colon"
+        when TokSemicolon -> "Semicolon"
+        when TokDot -> "Dot"
+        when TokDotDot -> "DotDot"
+        when TokEllipsis -> "Ellipsis"
+        when TokArrow -> "Arrow"
+        when TokAt -> "At"
+        when TokPlus -> "Plus"
+        when TokMinus -> "Minus"
+        when TokStar -> "Star"
+        when TokSlash -> "Slash"
+        when TokPercent -> "Percent"
+        when TokAmpersand -> "Ampersand"
+        when TokVerticalBar -> "VerticalBar"
+        when TokCaret -> "Caret"
+        when TokTilde -> "Tilde"
+        when TokBang -> "Bang"
+        when TokAssign -> "Assign"
+        when TokEqual -> "Equal"
+        when TokNotEqual -> "NotEqual"
+        when TokLess -> "Less"
+        when TokLessOrEqual -> "LessOrEqual"
+        when TokGreater -> "Greater"
+        when TokGreaterOrEqual -> "GreaterOrEqual"
+        when TokShiftLeft -> "ShiftLeft"
+        when TokShiftRight -> "ShiftRight"
+        when TokPlusAssign -> "PlusAssign"
+        when TokMinusAssign -> "MinusAssign"
+        when TokStarAssign -> "StarAssign"
+        when TokSlashAssign -> "SlashAssign"
+        when TokPercentAssign -> "PercentAssign"
+        when TokAmpersandAssign -> "AmpersandAssign"
+        when TokVerticalBarAssign -> "VerticalBarAssign"
+        when TokCaretAssign -> "CaretAssign"
+        when TokShiftLeftAssign -> "ShiftLeftAssign"
+        when TokShiftRightAssign -> "ShiftRightAssign"
+
+## Rango de bytes de un token.
+##
+## ## Memoria
+## O(1), no asigna.
+weave token_span with t as Token into pspan.ByteSpan:
+    return with start is t.start, end is t.end
+
+## `true` cuando el token es un keyword concreto.
+##
+## ## Memoria
+## O(1), no asigna.
+weave is_kw with t as Token, k as KeywordKind into bool:
+    return t.kind == TokKeyword and t.kw == k

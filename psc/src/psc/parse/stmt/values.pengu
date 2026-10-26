@@ -1,0 +1,213 @@
+## psc/parse/stmt/values.pengu — constructos con valor.
+##
+## Implementa los hooks `PsHooks.value`, `when`, `do_block`, `with_init`,
+## `or_block` y `when_body`. Vive por encima de `stmt/core` y `expr/ops`; el
+## parser de expresiones lo llama a través de `PsHooks`, así no hay imports
+## cíclicos.
+##
+## ## Memoria
+## Construye nodos en el AST; no asigna strings salvo diagnósticos.
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.state as psstate
+import psc.parse.diagnostics as pdiag
+import psc.parse.expr.ops as pexpr
+import psc.parse.stmt.core as pstmt
+
+insignia psc_parse_value_
+
+## Hook `value`: `if`/`unless`/`while`/`for` en posición de valor.
+##
+## ## Memoria
+## Construye el nodo correspondiente.
+weave pvalues_parse_value with p as ref to PsParser into int:
+    if calling ps_check_kw with p, KwIf:
+        return calling pvalues_parse_if with p
+    if calling ps_check_kw with p, KwUnless:
+        return calling pstmt.pstmt_parse_unless with p
+    if calling ps_check_kw with p, KwWhile:
+        return calling pstmt.pstmt_parse_while with p
+    if calling ps_check_kw with p, KwFor:
+        return calling pvalues_parse_for with p
+    var off as int is calling ps_current_start with p
+    calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedExpression, ""
+    return calling ps_error_node with p, off, off
+
+## Parsea `if` como expresión (`then`) o como statement con bloque.
+##
+## ## Memoria
+## Construye `if_expr` o `if_stmt`.
+weave pvalues_parse_if with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwIf, "'if'"
+    # La forma de binding solo existe en el statement.
+    if calling ps_check_name_like with p:
+        if (calling ps_kind_ahead with p, 1) == TokKeyword:
+            if (calling ps_kw_at_offset with p, 1) == KwAs:
+                var cond as int is calling pstmt.pstmt_parse_if_cond with p
+                return calling pstmt.pstmt_parse_if_tail with p, start, cond
+    var cond2 as int is calling pexpr.pexpr_parse_expr with p
+    if calling ps_check_word with p, "then":
+        var ignored2 as bool is calling ps_accept_word with p, "then"
+        var then_value as int is calling pexpr.pexpr_parse_expr with p
+        var ignored3 as Token is calling ps_expect_kw with p, KwElse, "'else'"
+        var else_value as int is calling pexpr.pexpr_parse_expr with p
+        calling ps_begin_children with p
+        calling ps_add_child with p, cond2
+        calling ps_add_child with p, then_value
+        calling ps_add_child with p, else_value
+        return calling ps_finish_node with p, NodeKind.NdIfExpr, start, (calling pexpr.pexpr_end_of with p, else_value), 0
+    # Forma statement: envolver la condición ya parseada en `if_cond`.
+    calling ps_begin_children with p
+    calling ps_add_child with p, cond2
+    var ic as int is calling ps_finish_node with p, NodeKind.NdIfCond, (calling pexpr.pexpr_start_of with p, cond2), (calling pexpr.pexpr_end_of with p, cond2), 0
+    return calling pstmt.pstmt_parse_if_tail with p, start, ic
+
+## Parsea `for` como comprehension o como statement.
+##
+## ## Memoria
+## Construye `for_comp` o delega en `pstmt_parse_for`.
+weave pvalues_parse_for with p as ref to PsParser into int:
+    # Rango y forma con dos nombres: el statement de core.
+    if calling ps_check_name_like_at with p, 1:
+        var n2 as TokenKind is calling ps_kind_ahead with p, 2
+        if n2 == TokKeyword:
+            var nkw as KeywordKind is calling ps_kw_at_offset with p, 2
+            if nkw == KwFrom:
+                return calling pstmt.pstmt_parse_for with p
+        if n2 == TokComma:
+            return calling pstmt.pstmt_parse_for with p
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwFor, "'for'"
+    calling ps_begin_children with p
+    calling pvalues_add_name with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwIn, "'in'"
+    var iterable as int is calling pexpr.pexpr_parse_expr with p
+    calling ps_add_child with p, iterable
+    var has_cond as bool is false
+    if calling ps_check_kw with p, KwWhen:
+        var ignored3 as Token is calling ps_advance with p
+        var cond as int is calling pexpr.pexpr_parse_expr with p
+        calling ps_add_child with p, cond
+        set has_cond is true
+    if calling ps_check_word with p, "then":
+        if not has_cond:
+            calling ps_add_absent with p
+        var ignored4 as bool is calling ps_accept_word with p, "then"
+        var body as int is calling pexpr.pexpr_parse_expr with p
+        calling ps_add_child with p, body
+        return calling ps_finish_node with p, NodeKind.NdForComp, start, (calling pexpr.pexpr_end_of with p, body), 0
+    # Statement `for NAME in iterable:`.
+    if has_cond:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseUnexpectedToken, "'when' in a for statement"
+    var blk as int is calling pstmt.pstmt_parse_block with p
+    calling ps_add_child with p, blk
+    return calling ps_finish_node with p, NodeKind.NdForInStmt, start, (calling ps_previous_end with p), 0
+
+## Añade el nombre del loop al nodo en construcción.
+##
+## ## Memoria
+## O(1), no asigna.
+weave pvalues_add_name with p as ref to PsParser into void:
+    calling ps_add_name_like with p
+
+## Hook `when`: `when ... then ... else ...` o `when ...:` statement.
+##
+## ## Memoria
+## Construye `when_expr` o `when_stmt`.
+weave pvalues_parse_when with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWhen, "'when'"
+    var cond as int is calling pexpr.pexpr_parse_expr with p
+    if calling ps_check_word with p, "then":
+        var ignored2 as bool is calling ps_accept_word with p, "then"
+        var then_value as int is calling pexpr.pexpr_parse_expr with p
+        var ignored3 as Token is calling ps_expect_kw with p, KwElse, "'else'"
+        var else_value as int is calling pexpr.pexpr_parse_expr with p
+        calling ps_begin_children with p
+        calling ps_add_child with p, cond
+        calling ps_add_child with p, then_value
+        calling ps_add_child with p, else_value
+        return calling ps_finish_node with p, NodeKind.NdWhenExpr, start, (calling pexpr.pexpr_end_of with p, else_value), 0
+    var blk as int is calling pstmt.pstmt_parse_block with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, cond
+    calling ps_add_child with p, blk
+    if calling ps_check_kw with p, KwElse:
+        var eb as int is calling pstmt.pstmt_parse_when_else with p
+        calling ps_add_child with p, eb
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdWhenStmt, start, (calling ps_previous_end with p), 0
+
+## Hook `do_block`: `do:` como expresión.
+##
+## ## Memoria
+## Crea un nodo `do_expr` con `stmt` hijos.
+weave pvalues_parse_do with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as bool is calling ps_accept_word with p, "do"
+    var ignored2 as Token is calling ps_expect with p, TokColon, "':'"
+    calling ps_begin_children with p
+    calling pstmt.pstmt_parse_block_body_into with p
+    return calling ps_finish_node with p, NodeKind.NdDoExpr, start, (calling ps_previous_end with p), 0
+
+## Hook `with_init`: `with:` como expresión.
+##
+## ## Memoria
+## Crea un nodo `with_init_expr` con `stmt` hijos.
+weave pvalues_parse_with_init with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWith, "'with'"
+    var ignored2 as Token is calling ps_expect with p, TokColon, "':'"
+    calling ps_begin_children with p
+    calling pstmt.pstmt_parse_block_body_into with p
+    return calling ps_finish_node with p, NodeKind.NdWithInitExpr, start, (calling ps_previous_end with p), 0
+
+## Hook `or_block`: `or:` con el lado izquierdo ya parseado.
+##
+## El parser de expresiones ya consumió `or`; el `:` sigue siendo actual.
+##
+## ## Memoria
+## Crea un nodo `or_block`.
+weave pvalues_parse_or_block with p as ref to PsParser, left as int into int:
+    var start as int is calling pexpr.pexpr_start_of with p, left
+    calling ps_begin_children with p
+    calling ps_add_child with p, left
+    calling pstmt.pstmt_parse_block_into with p
+    return calling ps_finish_node with p, NodeKind.NdOrBlock, start, (calling ps_previous_end with p), 0
+
+## Hook `when_body`: cuerpo de una cláusula `when ... -> ...`.
+##
+## ## Memoria
+## Devuelve la expresión, o un `do_expr` con el bloque.
+weave pvalues_parse_when_body with p as ref to PsParser into int:
+    if calling ps_check with p, TokNewline:
+        if (calling ps_kind_ahead with p, 1) == TokIndent:
+            var start as int is calling ps_current_start with p
+            var ignored as Token is calling ps_advance with p
+            var ignored2 as Token is calling ps_expect with p, TokIndent, "indent"
+            calling ps_begin_children with p
+            var more as bool is true
+            while more:
+                calling ps_skip_newlines with p
+                if (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+                    set more is false
+                else:
+                    var before as int is p->pos
+                    var st as int is calling pstmt.pstmt_parse_stmt with p
+                    calling ps_add_child with p, st
+                    if p->pos == before:
+                        var forced as Token is calling ps_advance with p
+            if calling ps_check with p, TokDedent:
+                var ignored3 as Token is calling ps_advance with p
+            return calling ps_finish_node with p, NodeKind.NdDoExpr, start, (calling ps_previous_end with p), 0
+    var expr as int is calling pexpr.pexpr_parse_expr with p
+    if calling ps_check with p, TokNewline:
+        var ignored4 as Token is calling ps_advance with p
+    return expr

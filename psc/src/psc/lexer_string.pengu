@@ -1,0 +1,544 @@
+## psc/lexer_string.pengu — strings, raw strings, triples, chars e interpolación.
+##
+## La delimitación, el split en segmentos y la decodificación están separados:
+## el lexer guarda spans (sin asignar un string por literal) y F2/F4 piden el
+## valor con `decode_string` cuando lo necesitan.
+##
+## ## Reglas de delimitación
+## - `"..."`: cierra en la primera `"` no escapada y fuera de un grupo `{...}`
+##   equilibrado. Puede contener `\n` (stage0 también lo permite).
+## - `"""..."""`: cierra en el primer `"""`; los escapes no protegen el cierre.
+## - `r"..."`: cierra en la primera `"`; sin escapes ni interpolación.
+## - `r"""..."""`: cierra en el primer `"""`.
+## - `'...'`: exactamente una unidad entre comillas.
+##
+## ## Memoria
+## Las funciones `scan_*` añaden metadatos POD a `lx->result` y avanzan el
+## lexer. Las funciones `decode_*` viven en `lexer_decode.pengu` y devuelven un
+## `string` owned; el llamador hace `banish`.
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer_state as psstate
+
+## Escanea cualquier forma de string en la posición actual.
+##
+## ## Memoria
+## Añade un `StringInfo`, sus `StringPart` y un `Token`; no devuelve heap.
+weave scan_any with lx as ref to psstate.LexerState into void:
+    if (calling psstate.lex_peek with lx) == 114:
+        calling scan_raw with lx
+        return
+    if (calling psstate.lex_peek with lx) == 34:
+        if (calling psstate.lex_peek_at with lx, 1) == 34 and (calling psstate.lex_peek_at with lx, 2) == 34:
+            calling scan_string_generic with lx, false, true
+        else:
+            calling scan_string_generic with lx, false, false
+
+## Escanea un string normal que empieza en `"`.
+##
+## ## Memoria
+## Añade un `StringInfo`, sus `StringPart` y un `Token`; no devuelve heap.
+weave scan_double with lx as ref to psstate.LexerState into void:
+    calling scan_string_generic with lx, false, false
+
+## Escanea un raw string que empieza en `r"`.
+##
+## ## Memoria
+## Igual que `scan_double`.
+weave scan_raw with lx as ref to psstate.LexerState into void:
+    if (calling psstate.lex_peek_at with lx, 1) == 34:
+        if (calling psstate.lex_peek_at with lx, 2) == 34:
+            if (calling psstate.lex_peek_at with lx, 3) == 34:
+                calling scan_string_generic with lx, true, true
+                return
+    calling scan_string_generic with lx, true, false
+
+## Núcleo de escaneo de strings.
+##
+## ## Parámetros
+## - `lx`: estado.
+## - `raw`: no interpretar escapes ni interpolación.
+## - `triple`: usar `"""`.
+##
+## ## Memoria
+## Añade metadatos y token; no asigna strings.
+weave scan_string_generic with lx as ref to psstate.LexerState, raw as bool, triple as bool into void:
+    var start as int is lx->pos
+    var start_line as int is lx->line
+    var start_col as int is lx->pos - lx->line_start + 1
+    var open_len as int is 1
+    if triple:
+        set open_len is 3
+    if raw:
+        set open_len is open_len + 1
+    var content_start as int is start + open_len
+    var n as int is calling psstate.lex_source_len with lx
+    var close as int is -1
+    if triple:
+        set close is calling find_triple_close with lx, content_start, n
+    else if raw:
+        set close is calling find_byte with lx, content_start, n, 34
+    else:
+        set close is calling find_plain_close with lx, content_start, n
+    var content_end as int is close
+    var delim_len as int is 1
+    if triple:
+        set delim_len is 3
+    var token_end as int is close + delim_len
+    var unterminated as bool is false
+    if close < 0:
+        set unterminated is true
+        if triple:
+            set content_end is n
+            set token_end is n
+        else:
+            set content_end is calling find_line_end with lx, content_start, n
+            set token_end is content_end
+    if unterminated:
+        if triple:
+            calling psstate.lex_issue with lx, LexUnterminatedTripleString, start, token_end, ""
+        else if raw:
+            calling psstate.lex_issue with lx, LexUnterminatedRawString, start, token_end, ""
+        else:
+            calling psstate.lex_issue with lx, LexUnterminatedString, start, token_end, ""
+    var dedent as int is 0
+    if triple:
+        set dedent is calling compute_dedent with lx, content_start, content_end
+    var parts as list of StringPart is calling split_parts with lx, content_start, content_end, raw, triple
+    var has_interp as bool is false
+    var i as int is 0
+    while i < parts.len:
+        var p as StringPart is parts at i
+        if p.kind == SegInterp:
+            set has_interp is true
+        set i is i + 1
+    var part_start as int is lx->result.parts.len
+    set i is 0
+    while i < parts.len:
+        calling lx->result.parts.push with (parts at i)
+        set i is i + 1
+    banish parts
+    var info as StringInfo is with is_raw is raw, is_triple is triple, has_interp is has_interp, content_start is content_start, content_end is content_end, part_start is part_start, part_count is (lx->result.parts.len - part_start), dedent is dedent
+    var idx as int is lx->result.strings.len
+    calling lx->result.strings.push with info
+    calling psstate.lex_advance_to with lx, token_end
+    calling psstate.lex_emit_token with lx, TokStringLit, KwNotKeyword, start, token_end, start_line, start_col, idx
+
+## Busca la primera aparición de `needle` en `[from, limit)`.
+##
+## ## Memoria
+## O(limit - from), no asigna.
+weave find_byte with lx as ref to psstate.LexerState, from as int, limit as int, needle as int into int:
+    var i as int is from
+    while i < limit:
+        if (calling psstate.lex_byte_at with lx, i) == needle:
+            return i
+        set i is i + 1
+    return -1
+
+## Busca el primer `"""` en `[from, limit)`.
+##
+## ## Memoria
+## O(limit - from), no asigna.
+weave find_triple_close with lx as ref to psstate.LexerState, from as int, limit as int into int:
+    var i as int is from
+    while i + 2 < limit:
+        if (calling psstate.lex_byte_at with lx, i) == 34:
+            if (calling psstate.lex_byte_at with lx, i + 1) == 34:
+                if (calling psstate.lex_byte_at with lx, i + 2) == 34:
+                    return i
+        set i is i + 1
+    return -1
+
+## Busca el cierre de un string normal, respetando escapes e interpolación.
+##
+## ## Memoria
+## O(limit - from), no asigna.
+weave find_plain_close with lx as ref to psstate.LexerState, from as int, limit as int into int:
+    var i as int is from
+    while i < limit:
+        var b as int is calling psstate.lex_byte_at with lx, i
+        if b == 34:
+            return i
+        if b == 92:
+            set i is calling skip_escape_at with lx, i, limit
+            continue
+        if b == 123:
+            # stage0 solo reconoce una interpolación si el grupo `{...}` cierra
+            # en la misma línea. Un `{` suelto es texto literal: así `"{"` no
+            # se traga el resto del archivo buscando un `}` lejano.
+            var line_limit as int is calling find_line_end with lx, i, limit
+            var close as int is calling find_balanced with lx, i, line_limit
+            if close >= 0:
+                set i is close + 1
+                continue
+        set i is i + 1
+    return -1
+
+## Salta un escape desde `i` y devuelve el siguiente índice.
+##
+## ## Memoria
+## O(1), no asigna.
+weave skip_escape_at with lx as ref to psstate.LexerState, i as int, limit as int into int:
+    if i + 1 >= limit:
+        return limit
+    if (calling psstate.lex_byte_at with lx, i + 1) == 117 and i + 2 < limit:
+        if (calling psstate.lex_byte_at with lx, i + 2) == 123:
+            var j as int is i + 3
+            while j < limit:
+                if (calling psstate.lex_byte_at with lx, j) == 125:
+                    return j + 1
+                set j is j + 1
+            return i + 2
+    return i + 2
+
+## Busca el `}` que equilibra un `{` en `open`.
+##
+## Respeta strings `"..."`/`'...'` anidados y sus escapes.
+##
+## ## Memoria
+## O(limit - open), no asigna.
+weave find_balanced with lx as ref to psstate.LexerState, open as int, limit as int into int:
+    var depth as int is 1
+    var i as int is open + 1
+    var in_str as int is 0
+    while i < limit:
+        var b as int is calling psstate.lex_byte_at with lx, i
+        if in_str != 0:
+            if b == 92:
+                set i is i + 2
+                continue
+            if b == in_str:
+                set in_str is 0
+            set i is i + 1
+            continue
+        if b == 34 or b == 39:
+            set in_str is b
+            set i is i + 1
+            continue
+        if b == 123:
+            set depth is depth + 1
+            set i is i + 1
+            continue
+        if b == 125:
+            set depth is depth - 1
+            if depth == 0:
+                return i
+            set i is i + 1
+            continue
+        set i is i + 1
+    return -1
+
+## Índice del `\n` que termina la línea de `from`, o `limit`.
+##
+## ## Memoria
+## O(limit - from), no asigna.
+weave find_line_end with lx as ref to psstate.LexerState, from as int, limit as int into int:
+    var i as int is from
+    while i < limit:
+        if (calling psstate.lex_byte_at with lx, i) == 10:
+            return i
+        set i is i + 1
+    return limit
+
+## Calcula la indentación común de un triple.
+##
+## ## Memoria
+## O(content), no asigna.
+weave compute_dedent with lx as ref to psstate.LexerState, start as int, end as int into int:
+    var min_indent as int is -1
+    var i as int is start
+    while i < end:
+        var line_start as int is i
+        var j as int is i
+        while j < end:
+            if (calling psstate.lex_byte_at with lx, j) == 10:
+                break
+            set j is j + 1
+        var k as int is line_start
+        var indent as int is 0
+        while k < j:
+            var b as int is calling psstate.lex_byte_at with lx, k
+            if b == 32 or b == 9:
+                set indent is indent + 1
+                set k is k + 1
+            else:
+                break
+        if k < j:
+            if min_indent < 0 or indent < min_indent:
+                set min_indent is indent
+        set i is j + 1
+    if min_indent < 0:
+        return 0
+    return min_indent
+
+## Divide el contenido en segmentos de texto e interpolación.
+##
+## ## Memoria
+## Devuelve un `list of StringPart` owned; liberar con `banish`.
+weave split_parts with lx as ref to psstate.LexerState, start as int, end as int, raw as bool, triple as bool into list of StringPart:
+    var out as list of StringPart is list of StringPart
+    if raw:
+        if end > start:
+            calling out.push with (with kind is SegText, start is start, end is end)
+        return out
+    var i as int is start
+    var last as int is start
+    while i < end:
+        var b as int is calling psstate.lex_byte_at with lx, i
+        if b == 92:
+            set i is calling skip_escape_at with lx, i, end
+            continue
+        if b == 123:
+            var group_limit as int is end
+            if not triple:
+                set group_limit is calling find_line_end with lx, i, end
+            var close as int is calling find_balanced with lx, i, group_limit
+            if close >= 0:
+                if i > last:
+                    calling out.push with (with kind is SegText, start is last, end is i)
+                calling out.push with (with kind is SegInterp, start is i + 1, end is close)
+                set i is close + 1
+                set last is i
+                continue
+        set i is i + 1
+    if last < end:
+        calling out.push with (with kind is SegText, start is last, end is end)
+    return out
+
+# ----------------------------------------------------------------------------
+# Char literals
+# ----------------------------------------------------------------------------
+
+## Escanea un char literal que empieza en `'`.
+##
+## ## Memoria
+## Añade un `CharInfo` y un `Token`.
+weave scan_char with lx as ref to psstate.LexerState into void:
+    var start as int is lx->pos
+    var start_line as int is lx->line
+    var start_col as int is lx->pos - lx->line_start + 1
+    var n as int is calling psstate.lex_source_len with lx
+    var content_start as int is start + 1
+    calling psstate.lex_advance_to with lx, content_start
+    if content_start >= n:
+        calling psstate.lex_issue with lx, LexUnterminatedChar, start, n, ""
+        var info as CharInfo is with content_start is content_start, content_end is content_start, codepoint is -1, width is 0
+        var idx as int is lx->result.chars.len
+        calling lx->result.chars.push with info
+        calling psstate.lex_emit_token with lx, TokCharLit, KwNotKeyword, start, n, start_line, start_col, idx
+        return
+    if (calling psstate.lex_byte_at with lx, content_start) == 39:
+        # '' — vacío.
+        var line_end as int is calling find_line_end with lx, content_start, n
+        var close as int is calling find_byte with lx, content_start, line_end, 39
+        var token_end as int is content_start + 1
+        if close >= 0:
+            set token_end is close + 1
+        calling psstate.lex_issue with lx, LexInvalidCharLiteral, start, token_end, ""
+        var info as CharInfo is with content_start is content_start, content_end is content_start, codepoint is -1, width is 0
+        var idx as int is lx->result.chars.len
+        calling lx->result.chars.push with info
+        calling psstate.lex_advance_to with lx, token_end
+        calling psstate.lex_emit_token with lx, TokCharLit, KwNotKeyword, start, token_end, start_line, start_col, idx
+        return
+    var unit_end as int is calling scan_char_unit_end with lx, content_start, n
+    if unit_end > n:
+        set unit_end is n
+    var close_pos as int is unit_end
+    if close_pos < n:
+        if (calling psstate.lex_byte_at with lx, close_pos) == 39:
+            # Bien formado.
+            var cp as int is calling decode_char_codepoint with lx, content_start, unit_end
+            var info as CharInfo is with content_start is content_start, content_end is unit_end, codepoint is cp, width is (unit_end - content_start)
+            var idx as int is lx->result.chars.len
+            calling lx->result.chars.push with info
+            set close_pos is close_pos + 1
+            calling psstate.lex_advance_to with lx, close_pos
+            calling psstate.lex_emit_token with lx, TokCharLit, KwNotKeyword, start, close_pos, start_line, start_col, idx
+            return
+    # Mal formado: buscar un cierre en la línea para recuperar.
+    var line_end as int is calling find_line_end with lx, unit_end, n
+    var close2 as int is calling find_byte with lx, unit_end, line_end, 39
+    var token_end as int is unit_end
+    if close2 >= 0:
+        set token_end is close2 + 1
+    calling psstate.lex_issue with lx, LexInvalidCharLiteral, start, token_end, ""
+    var bad as CharInfo is with content_start is content_start, content_end is unit_end, codepoint is -1, width is (unit_end - content_start)
+    var bidx as int is lx->result.chars.len
+    calling lx->result.chars.push with bad
+    calling psstate.lex_advance_to with lx, token_end
+    calling psstate.lex_emit_token with lx, TokCharLit, KwNotKeyword, start, token_end, start_line, start_col, bidx
+
+## Calcula el final de la unidad de un char empezando en `from`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave scan_char_unit_end with lx as ref to psstate.LexerState, from as int, n as int into int:
+    var b as int is calling psstate.lex_byte_at with lx, from
+    if b == 92:
+        if from + 1 >= n:
+            return from + 1
+        var nxt as int is calling psstate.lex_byte_at with lx, from + 1
+        if nxt == 117:
+            if from + 2 < n and (calling psstate.lex_byte_at with lx, from + 2) == 123:
+                var j as int is from + 3
+                while j < n:
+                    if (calling psstate.lex_byte_at with lx, j) == 125:
+                        return j + 1
+                    set j is j + 1
+                return from + 2
+            if from + 5 < n:
+                return from + 6
+            return from + 2
+        if nxt == 120 or nxt == 88:
+            var j2 as int is from + 2
+            var count as int is 0
+            while j2 < n and count < 2:
+                if calling psstate.lex_is_hex_digit with (calling psstate.lex_byte_at with lx, j2):
+                    set count is count + 1
+                    set j2 is j2 + 1
+                else:
+                    break
+            if count > 0:
+                return j2
+            return from + 2
+        if nxt >= 48 and nxt <= 55:
+            var j3 as int is from + 1
+            var count3 as int is 0
+            while j3 < n and count3 < 3:
+                if calling psstate.is_octal_digit with (calling psstate.lex_byte_at with lx, j3):
+                    set count3 is count3 + 1
+                    set j3 is j3 + 1
+                else:
+                    break
+            return j3
+        return from + 2
+    return from + calling psstate.utf8_width with b
+
+## Decodifica el codepoint de un char `[start, end)`; `-1` si es inválido.
+##
+## ## Memoria
+## O(bytes), no asigna.
+weave decode_char_codepoint with lx as ref to psstate.LexerState, start as int, end as int into int:
+    if end <= start:
+        return -1
+    var b as int is calling psstate.lex_byte_at with lx, start
+    if b != 92:
+        return calling decode_utf8_at with lx, start, end
+    if start + 1 >= end:
+        return -1
+    var nxt as int is calling psstate.lex_byte_at with lx, start + 1
+    if nxt == 110:
+        return 10
+    if nxt == 114:
+        return 13
+    if nxt == 116:
+        return 9
+    if nxt == 98:
+        return 8
+    if nxt == 102:
+        return 12
+    if nxt == 118:
+        return 11
+    if nxt == 97:
+        return 7
+    if nxt == 92:
+        return 92
+    if nxt == 34:
+        return 34
+    if nxt == 39:
+        return 39
+    if nxt == 63:
+        return 63
+    if nxt == 120 or nxt == 88:
+        var v as int is 0
+        var j as int is start + 2
+        while j < end:
+            var d as int is calling hex_value with (calling psstate.lex_byte_at with lx, j)
+            if d < 0:
+                break
+            set v is v * 16 + d
+            set j is j + 1
+        if j > start + 2:
+            return v
+        return -1
+    if nxt == 117:
+        if start + 2 < end and (calling psstate.lex_byte_at with lx, start + 2) == 123:
+            var v2 as int is 0
+            var j2 as int is start + 3
+            var any as bool is false
+            while j2 < end:
+                var b2 as int is calling psstate.lex_byte_at with lx, j2
+                if b2 == 125:
+                    break
+                var d2 as int is calling hex_value with b2
+                if d2 < 0:
+                    return -1
+                set any is true
+                set v2 is v2 * 16 + d2
+                set j2 is j2 + 1
+            if any:
+                return v2
+            return -1
+        if start + 5 < end:
+            var v3 as int is 0
+            var k as int is start + 2
+            while k < start + 6:
+                var d3 as int is calling hex_value with (calling psstate.lex_byte_at with lx, k)
+                if d3 < 0:
+                    return -1
+                set v3 is v3 * 16 + d3
+                set k is k + 1
+            return v3
+        return -1
+    if nxt >= 48 and nxt <= 55:
+        var v4 as int is 0
+        var j4 as int is start + 1
+        while j4 < end:
+            var b4 as int is calling psstate.lex_byte_at with lx, j4
+            if b4 < 48 or b4 > 55:
+                break
+            set v4 is v4 * 8 + (b4 - 48)
+            set j4 is j4 + 1
+        return v4
+    return calling decode_utf8_at with lx, start + 1, end
+
+## Decodifica el primer codepoint UTF-8 de `[start, end)`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave decode_utf8_at with lx as ref to psstate.LexerState, start as int, end as int into int:
+    if start >= end:
+        return -1
+    var b0 as int is calling psstate.lex_byte_at with lx, start
+    if b0 < 0x80:
+        return b0
+    if (b0 & 0xE0) == 0xC0 and start + 1 < end:
+        var b1 as int is calling psstate.lex_byte_at with lx, start + 1
+        return ((b0 & 0x1F) << 6) | (b1 & 0x3F)
+    if (b0 & 0xF0) == 0xE0 and start + 2 < end:
+        var b1b as int is calling psstate.lex_byte_at with lx, start + 1
+        var b2b as int is calling psstate.lex_byte_at with lx, start + 2
+        return ((b0 & 0x0F) << 12) | ((b1b & 0x3F) << 6) | (b2b & 0x3F)
+    if (b0 & 0xF8) == 0xF0 and start + 3 < end:
+        var b1c as int is calling psstate.lex_byte_at with lx, start + 1
+        var b2c as int is calling psstate.lex_byte_at with lx, start + 2
+        var b3c as int is calling psstate.lex_byte_at with lx, start + 3
+        return ((b0 & 0x07) << 18) | ((b1c & 0x3F) << 12) | ((b2c & 0x3F) << 6) | (b3c & 0x3F)
+    return -1
+
+## Valor de un dígito hex, o `-1`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave hex_value with b as int into int:
+    if b >= 48 and b <= 57:
+        return b - 48
+    if b >= 65 and b <= 70:
+        return b - 55
+    if b >= 97 and b <= 102:
+        return b - 87
+    return -1

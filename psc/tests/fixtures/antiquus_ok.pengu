@@ -1,0 +1,7 @@
+antiquus add_one with x as int into int:
+    """
+return x + 1;
+"""
+
+weave main into int:
+    return calling add_one with 2

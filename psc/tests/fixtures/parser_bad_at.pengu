@@ -1,0 +1,3 @@
+weave f with xs as list of int, n as int into int:
+    set xs at n - 1 is 0
+    return 0

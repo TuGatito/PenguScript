@@ -1,0 +1,2 @@
+antiquus add_one with x as int into int:
+    var x as int is 1

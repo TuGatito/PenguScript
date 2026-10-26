@@ -1,0 +1,759 @@
+## psc/parse/state.pengu — estado, cursor, errores y construcción del AST.
+##
+## `PsParser` es el estado mutable de un parseo. Vive en la pila de la API
+## pública; no hay estado global. El AST se transfiere al `PsParseResult` y las
+## dos listas de trabajo (`child_stack`/`marks`) se liberan al terminar.
+##
+## ## Ganchos de módulos
+## La gramática es mutuamente recursiva (`if` es statement y expresión, un
+## bloque contiene statements, un statement contiene expresiones). Para poder
+## repartir el parser en carpetas sin imports cíclicos, `PsHooks` guarda
+## punteros a las funciones que cruzan esa frontera. La API los instala antes
+## de parsear. Cada hook tiene un stub que no debería ejecutarse nunca; si se
+## ejecuta, el parser falla de forma controlada.
+##
+## ## Memoria
+## `PsParser` presta `SourceFile`, `LexResult` y `DiagnosticBag`. Es dueño del
+## `PsAst` y de las dos listas de trabajo; `finish_parse` las libera.
+
+import std.diagnostic as diag
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer_state as psstate
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.diagnostics as pdiag
+
+insignia psc_parse_state_
+
+## Opciones de parseo.
+rune PsParseOptions derive Par, Nexus:
+    ## Profundidad máxima de expresiones/tipos/bloques.
+    max_depth as int
+    ## Número máximo de diagnósticos antes de parar.
+    max_errors as int
+    ## Parar en el primer error (oráculos y `--stop-after-first`).
+    stop_after_first as bool
+
+## Opciones por defecto.
+##
+## ## Memoria
+## Valor puro.
+weave ps_default_parse_options into PsParseOptions:
+    return with max_depth is 512, max_errors is 100, stop_after_first is false
+
+## Ganchos que el parser de expresiones usa para entrar en statements,
+## bloques y patrones.
+##
+## ## Memoria
+## Los punteros a función no tienen heap propio.
+rune PsHooks:
+    ## `if`/`unless`/`while`/`for` en posición de valor.
+    value as ref to weave with p as ref to PsParser into int
+    ## `when ... then ... else ...` o `when ...:` statement.
+    when as ref to weave with p as ref to PsParser into int
+    ## `judge ...` y `judge ... over ...`.
+    judge as ref to weave with p as ref to PsParser into int
+    ## `do:` como expresión de bloque.
+    do_block as ref to weave with p as ref to PsParser into int
+    ## `with:` como expresión de bloque.
+    with_init as ref to weave with p as ref to PsParser into int
+    ## `or:` de un `or_else_expr`; recibe el lado izquierdo ya parseado.
+    or_block as ref to weave with p as ref to PsParser, left as int into int
+    ## Cuerpo de una cláusula `when ... -> ...`.
+    when_body as ref to weave with p as ref to PsParser into int
+    ## Expresión completa (para átomos que contienen expresiones).
+    expr as ref to weave with p as ref to PsParser into int
+    ## Expresión de lista, sin `and`/`or` booleanos.
+    list_expr as ref to weave with p as ref to PsParser into int
+    ## Expresión de valor, admite `if`/`unless`/`while`/`for`.
+    value_expr as ref to weave with p as ref to PsParser into int
+    ## Expresión de lista de valor.
+    list_value_expr as ref to weave with p as ref to PsParser into int
+    ## Expresión sin cast (`expr_no_cast`).
+    expr_no_cast as ref to weave with p as ref to PsParser into int
+    ## Guarda de `when` (`guard_expr`).
+    guard_expr as ref to weave with p as ref to PsParser into int
+
+## Estado mutable de un parseo.
+##
+## ## Memoria
+## Sin destructor. `ast` se transfiere al `PsParseResult`; `child_stack` y
+## `marks` se liberan con `free_scratch`.
+rune PsParser:
+    ## Fuente; prestada.
+    src as ref to psource.SourceFile
+    ## Bag de diagnósticos; prestado.
+    bag as ref to diag.DiagnosticBag
+    ## Resultado léxico; prestado.
+    lex as ref to LexResult
+    ## Opciones.
+    opts as PsParseOptions
+    ## Índice del token actual.
+    pos as int
+    ## Profundidad actual.
+    depth as int
+    ## Profundidad de bloques.
+    block_depth as int
+    ## Número de errores emitidos.
+    errors as int
+    ## Modo pánico: no emitir cascadas hasta sincronizar.
+    panic as bool
+    ## Modo guarda: `->` no es acceso a campo dentro de una guarda de `when`.
+    guard_mode as bool
+    ## Parar el parseo (tope de errores o profundidad).
+    stop as bool
+    ## Último offset donde se emitió un error.
+    last_error_pos as int
+    ## Raíz del AST (`-1` hasta que se construye).
+    root as int
+    ## Arena del AST.
+    ast as PsAst
+    ## Pila de hijos en construcción (post-orden).
+    child_stack as list of int
+    ## Marcas de inicio de hijos por nodo.
+    marks as list of int
+    ## Ganchos a módulos.
+    hooks as PsHooks
+
+## Resultado de un parseo.
+##
+## ## Memoria
+## `banish result` libera `ast`. El llamador conserva `SourceFile` y
+## `LexResult` (el AST los referencia por índice).
+rune PsParseResult derive Nexus:
+    ## `true` si el parser no emitió ningún error.
+    ok as bool
+    ## Id del nodo raíz.
+    root as int
+    ## Arena del AST.
+    ast as PsAst
+    ## Errores emitidos.
+    error_count as int
+
+## Stubs de hooks. No deberían ejecutarse si la API instaló los reales.
+weave _no_value_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "value"
+
+weave _no_when_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "when"
+
+weave _no_judge_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "judge"
+
+weave _no_do_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "do_block"
+
+weave _no_with_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "with_init"
+
+weave _no_or_hook with p as ref to PsParser, left as int into int:
+    return calling _hook_missing with p, "or_block"
+
+weave _no_body_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "when_body"
+
+weave _no_expr_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "expr"
+
+weave _no_list_expr_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "list_expr"
+
+weave _no_value_expr_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "value_expr"
+
+weave _no_list_value_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "list_value_expr"
+
+weave _no_expr_no_cast_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "expr_no_cast"
+
+weave _no_guard_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "guard_expr"
+
+## Emite un error interno de gancho y devuelve el nodo `error`.
+##
+## ## Memoria
+## Crea un nodo `error`.
+weave _hook_missing with p as ref to PsParser, name as string into int:
+    var off as int is calling ps_current_start with p
+    calling ps_emit_issue with p, pdiag.ParseIssue.ParseUnexpectedToken, off, off, "internal parser hook '{name}'"
+    calling ps_begin_children with p
+    return calling ps_finish_node with p, NodeKind.NdError, off, off, 0
+
+## Construye un parser vacío.
+##
+## ## Memoria
+## Asigna las listas del AST y las dos de trabajo; liberar con
+## `free_scratch` + transferir/liberar `ast`.
+weave ps_parser_new with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag, lex as ref to LexResult, opts as PsParseOptions into PsParser:
+    var hooks as PsHooks is with value is (sigil of _no_value_hook), when is (sigil of _no_when_hook), judge is (sigil of _no_judge_hook), do_block is (sigil of _no_do_hook), with_init is (sigil of _no_with_hook), or_block is (sigil of _no_or_hook), when_body is (sigil of _no_body_hook), expr is (sigil of _no_expr_hook), list_expr is (sigil of _no_list_expr_hook), value_expr is (sigil of _no_value_expr_hook), list_value_expr is (sigil of _no_list_value_hook), expr_no_cast is (sigil of _no_expr_no_cast_hook), guard_expr is (sigil of _no_guard_hook)
+    return with src is src, bag is bag, lex is lex, opts is opts, pos is 0, depth is 0, block_depth is 0, errors is 0, panic is false, guard_mode is false, stop is false, last_error_pos is -1, root is -1, ast is (calling psast.ps_ast_new), child_stack is list of int, marks is list of int, hooks is hooks
+
+## Libera las listas de trabajo del parser.
+##
+## El AST **no** se libera aquí: se transfiere al `PsParseResult`.
+##
+## ## Memoria
+## Libera `child_stack` y `marks`.
+weave ps_free_scratch with p as ref to PsParser into void:
+    banish p->child_stack
+    banish p->marks
+
+# ---------------------------------------------------------------------------
+# Cursor de tokens
+# ---------------------------------------------------------------------------
+
+## Número de tokens.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_token_count with p as ref to PsParser into int:
+    return p->lex->tokens.len
+
+## Corrige el helper anterior: devuelve un EOF sintético sin tocar el AST.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_current_token with p as ref to PsParser into Token:
+    if p->pos < 0 or p->pos >= p->lex->tokens.len:
+        return with kind is TokEof, kw is KwNotKeyword, start is 0, end is 0, line is 1, col is 1, aux is 0
+    return p->lex->tokens at p->pos
+
+## Token a `offset` desde el actual, o EOF.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_peek_at with p as ref to PsParser, offset as int into Token:
+    var idx as int is p->pos + offset
+    if idx < 0 or idx >= p->lex->tokens.len:
+        return with kind is TokEof, kw is KwNotKeyword, start is 0, end is 0, line is 1, col is 1, aux is 0
+    return p->lex->tokens at idx
+
+## Tipo del token actual.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_kind_at with p as ref to PsParser into TokenKind:
+    var t as Token is calling ps_current_token with p
+    return t.kind
+
+## Tipo del token a `offset`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_kind_ahead with p as ref to PsParser, offset as int into TokenKind:
+    var t as Token is calling ps_peek_at with p, offset
+    return t.kind
+
+## Keyword del token actual (`KwNotKeyword` si no es keyword).
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_kw_at with p as ref to PsParser into KeywordKind:
+    var t as Token is calling ps_current_token with p
+    return t.kw
+
+## Keyword a `offset` desde el actual (`KwNotKeyword` si no es keyword).
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_kw_at_offset with p as ref to PsParser, offset as int into KeywordKind:
+    var t as Token is calling ps_peek_at with p, offset
+    if t.kind == TokKeyword:
+        return t.kw
+    return KwNotKeyword
+
+## Offset de inicio del token actual.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_current_start with p as ref to PsParser into int:
+    var t as Token is calling ps_current_token with p
+    return t.start
+
+## Offset de fin del token actual.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_current_end with p as ref to PsParser into int:
+    var t as Token is calling ps_current_token with p
+    return t.end
+
+## Offset de fin del último token consumido, o 0.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_previous_end with p as ref to PsParser into int:
+    if p->pos <= 0:
+        return 0
+    var t as Token is p->lex->tokens at (p->pos - 1)
+    return t.end
+
+## `true` si el token actual es de tipo `k`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_check with p as ref to PsParser, k as TokenKind into bool:
+    return (calling ps_kind_at with p) == k
+
+## `true` si el token actual es el keyword `k`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_check_kw with p as ref to PsParser, k as KeywordKind into bool:
+    var t as Token is calling ps_current_token with p
+    return t.kind == TokKeyword and t.kw == k
+
+## `true` si el token actual es el operador de `kind` con el lexema dado.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_check_lexeme with p as ref to PsParser, k as TokenKind, text as string into bool:
+    var t as Token is calling ps_current_token with p
+    if t.kind != k:
+        return false
+    var n as int is text length
+    if t.end - t.start != n:
+        return false
+    var raw as ref to frozen byte is bytes of text
+    var i as int is 0
+    while i < n:
+        if (calling ps_byte_at with p, t.start + i) != ((raw at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## Byte del fuente en `offset`, o `-1`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_byte_at with p as ref to PsParser, offset as int into int:
+    return calling p->src.byte_at with offset
+
+## `true` si el token actual es el identificador/soft keyword `word`.
+##
+## No asigna string: compara el rango del token con el literal.
+##
+## ## Memoria
+## O(len), no asigna.
+weave ps_check_word with p as ref to PsParser, word as string into bool:
+    var t as Token is calling ps_current_token with p
+    if t.kind != TokIdentifier:
+        return false
+    var n as int is word length
+    if t.end - t.start != n:
+        return false
+    var raw as ref to frozen byte is bytes of word
+    var i as int is 0
+    while i < n:
+        if (calling ps_byte_at with p, t.start + i) != ((raw at i) to int):
+            return false
+        set i is i + 1
+    return true
+## `true` si el token a `offset` es el identificador/soft keyword `word`.
+##
+## ## Memoria
+## O(len), no asigna.
+weave ps_word_at with p as ref to PsParser, offset as int, word as string into bool:
+    var t as Token is calling ps_peek_at with p, offset
+    if t.kind != TokIdentifier:
+        return false
+    var n as int is word length
+    if t.end - t.start != n:
+        return false
+    var raw as ref to frozen byte is bytes of word
+    var i as int is 0
+    while i < n:
+        if (calling ps_byte_at with p, t.start + i) != ((raw at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## `true` si el token actual puede usarse como nombre de campo.
+##
+## Stage0 usa un lexer contextual: después de `.`/`->` un keyword duro puede
+## ser un nombre de campo (`lex->antiquus`). PSC replica esa excepción solo en
+## posiciones de acceso, no en declaraciones.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_check_name_like with p as ref to PsParser into bool:
+    return calling ps_check_name_like_at with p, 0
+
+## `true` si el token a `offset` puede usarse como nombre.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_check_name_like_at with p as ref to PsParser, offset as int into bool:
+    var t as Token is calling ps_peek_at with p, offset
+    if t.kind == TokIdentifier:
+        return true
+    if t.kind == TokKeyword:
+        if t.kw == KwTypeOf or t.kw == KwSizeOf:
+            return false
+        return true
+    return false
+
+## Añade el token actual como nombre de campo, o emite un error.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_add_name_like with p as ref to PsParser into void:
+    if calling ps_check_name_like with p:
+        calling ps_add_token with p, p->pos
+        var ignored as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+
+## `true` si el token actual es el keyword `k` o el soft keyword `word`.
+##
+## ## Memoria
+## O(len), no asigna.
+weave ps_check_kw_or_word with p as ref to PsParser, k as KeywordKind, word as string into bool:
+    if calling ps_check_kw with p, k:
+        return true
+    return calling ps_check_word with p, word
+
+## Avanza un token y devuelve el token consumido.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_advance with p as ref to PsParser into Token:
+    var t as Token is calling ps_current_token with p
+    if p->pos < p->lex->tokens.len:
+        set p->pos is p->pos + 1
+    return t
+
+## Acepta el token actual si es de tipo `k`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_accept with p as ref to PsParser, k as TokenKind into bool:
+    if calling ps_check with p, k:
+        var ignored as Token is calling ps_advance with p
+        return true
+    return false
+
+## Acepta el token actual si es el keyword `k`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_accept_kw with p as ref to PsParser, k as KeywordKind into bool:
+    if calling ps_check_kw with p, k:
+        var ignored as Token is calling ps_advance with p
+        return true
+    return false
+
+## Acepta un soft keyword identificador.
+##
+## ## Memoria
+## O(len), no asigna.
+weave ps_accept_word with p as ref to PsParser, word as string into bool:
+    if calling ps_check_word with p, word:
+        var ignored as Token is calling ps_advance with p
+        return true
+    return false
+
+## Consume el token actual o emite `ExpectedToken`.
+##
+## Devuelve el token consumido o el actual sin consumir si falla.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_expect with p as ref to PsParser, k as TokenKind, detail as string into Token:
+    if calling ps_check with p, k:
+        return calling ps_advance with p
+    var off as int is calling ps_current_start with p
+    calling ps_emit_issue with p, pdiag.ParseIssue.ParseExpectedToken, off, off, detail
+    return calling ps_current_token with p
+
+## Consume el keyword actual o emite `ExpectedToken`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_expect_kw with p as ref to PsParser, k as KeywordKind, detail as string into Token:
+    if calling ps_check_kw with p, k:
+        return calling ps_advance with p
+    var off as int is calling ps_current_start with p
+    calling ps_emit_issue with p, pdiag.ParseIssue.ParseExpectedToken, off, off, detail
+    return calling ps_current_token with p
+
+## Salta tokens `TokError` del lexer. Sus diagnósticos ya están en el bag.
+##
+## ## Memoria
+## O(1) por token saltado.
+weave ps_skip_error_tokens with p as ref to PsParser into void:
+    while (calling ps_kind_at with p) == TokError:
+        var ignored as Token is calling ps_advance with p
+
+## Salta `NEWLINE` (y `TokError`) sin consumir `INDENT`/`DEDENT`.
+##
+## ## Memoria
+## O(1) por token saltado.
+weave ps_skip_newlines with p as ref to PsParser into void:
+    var more as bool is true
+    while more:
+        calling ps_skip_error_tokens with p
+        if (calling ps_kind_at with p) == TokNewline:
+            var ignored as Token is calling ps_advance with p
+        else:
+            set more is false
+
+## `true` si el token actual es un starter de declaración/statement.
+##
+## Se usa para sincronizar sin saltarse el inicio del siguiente constructo.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_is_stmt_starter with p as ref to PsParser into bool:
+    var t as Token is calling ps_current_token with p
+    if t.kind == TokIdentifier:
+        return false
+    if t.kind != TokKeyword:
+        return false
+    var k as KeywordKind is t.kw
+    return k == KwImport or k == KwInclude or k == KwLink or k == KwLdflag or k == KwInsignia or k == KwConst or k == KwVar or k == KwLet or k == KwStatic or k == KwSet or k == KwIf or k == KwUnless or k == KwWhile or k == KwFor or k == KwWhen or k == KwWith or k == KwDefer or k == KwErrdefer or k == KwBanish or k == KwReturn or k == KwBreak or k == KwContinue or k == KwRune or k == KwOmen or k == KwEcho or k == KwAlias or k == KwSeal or k == KwConcept or k == KwBind or k == KwWeave or k == KwEnchanting or k == KwDeclare or k == KwAntiquus or k == KwTest or (calling ps_check_word with p, "unsafe")
+
+# ---------------------------------------------------------------------------
+# Diagnósticos y recuperación
+# ---------------------------------------------------------------------------
+
+## Emite un issue y aplica el tope de errores.
+##
+## No duplica un error exactamente en el mismo offset.
+##
+## ## Memoria
+## El `DiagnosticBag` es dueño del diagnóstico.
+weave ps_emit_issue with p as ref to PsParser, issue as pdiag.ParseIssue, start as int, end as int, detail as string into void:
+    if p->stop:
+        return
+    var off as int is start
+    if off == p->last_error_pos and p->errors > 0:
+        return
+    set p->last_error_pos is off
+    set p->errors is p->errors + 1
+    calling pdiag.emit_parse_issue with p->bag, p->src, issue, start, end, detail
+    if p->errors >= p->opts.max_errors:
+        set p->stop is true
+    if p->opts.stop_after_first:
+        set p->stop is true
+
+## Emite un error en el token actual.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_emit_here with p as ref to PsParser, issue as pdiag.ParseIssue, detail as string into void:
+    var off as int is calling ps_current_start with p
+    calling ps_emit_issue with p, issue, off, off, detail
+
+## Entra en modo pánico y avanza hasta un separador.
+##
+## No consume `DEDENT` ni el starter del siguiente constructo.
+##
+## ## Memoria
+## O(tokens saltados).
+weave ps_synchronize with p as ref to PsParser into void:
+    set p->panic is false
+    var more as bool is true
+    while more:
+        if p->stop:
+            return
+        var k as TokenKind is calling ps_kind_at with p
+        if k == TokNewline:
+            var ignored as Token is calling ps_advance with p
+            return
+        if k == TokDedent or k == TokEof:
+            return
+        if calling ps_is_stmt_starter with p:
+            return
+        var skipped as Token is calling ps_advance with p
+
+## Exige fin de statement y sincroniza si falta.
+##
+## ## Memoria
+## Puede consumir el `NEWLINE`.
+weave ps_finish_statement with p as ref to PsParser into void:
+    calling ps_skip_error_tokens with p
+    if p->pos > 0:
+        var prev as Token is p->lex->tokens at (p->pos - 1)
+        if (prev.kind == TokDedent) or (prev.kind == TokNewline):
+            return
+    var k as TokenKind is calling ps_kind_at with p
+    if k == TokNewline:
+        var ignored as Token is calling ps_advance with p
+        return
+    if k == TokDedent or k == TokEof:
+        return
+    calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedNewline, ""
+    set p->panic is true
+    calling ps_synchronize with p
+
+## Pre-scan de delimitadores antes de parsear.
+##
+## Replica B7: rechaza el token 513 de `(`/`[`/`{` con posición exacta. Los
+## delimitadores dentro de strings/`antiquus` son un solo token, así que no
+## cuentan.
+##
+## ## Retorno
+## `false` si se superó el límite (ya emitió el diagnóstico).
+##
+## ## Memoria
+## O(tokens), no asigna.
+weave ps_pre_scan_depth with p as ref to PsParser into bool:
+    var depth as int is 0
+    var i as int is 0
+    while i < p->lex->tokens.len:
+        var t as Token is p->lex->tokens at i
+        if (t.kind == TokLeftParen) or (t.kind == TokLeftBracket) or (t.kind == TokLeftBrace):
+            set depth is depth + 1
+            if depth > p->opts.max_depth:
+                var detail as string is "{p->opts.max_depth}"
+                defer banish detail
+                calling ps_emit_issue with p, pdiag.ParseIssue.ParseMaxDepth, t.start, t.end, detail
+                set p->stop is true
+                return false
+        else if (t.kind == TokRightParen) or (t.kind == TokRightBracket) or (t.kind == TokRightBrace):
+            if depth > 0:
+                set depth is depth - 1
+        set i is i + 1
+    return true
+
+## Entra en un bloque.
+##
+## ## Retorno
+## `false` si se superó el límite (ya emitió el diagnóstico).
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_enter_block with p as ref to PsParser into bool:
+    set p->block_depth is p->block_depth + 1
+    if p->block_depth > p->opts.max_depth:
+        var detail as string is "{p->opts.max_depth}"
+        defer banish detail
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseMaxBlockDepth, detail
+        set p->stop is true
+        return false
+    return true
+
+## Sale de un bloque.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_leave_block with p as ref to PsParser into void:
+    if p->block_depth > 0:
+        set p->block_depth is p->block_depth - 1
+
+## Entra en un nivel de profundidad.
+##
+## ## Retorno
+## `false` si se superó el límite (ya emitió el diagnóstico).
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_enter_depth with p as ref to PsParser into bool:
+    set p->depth is p->depth + 1
+    if p->depth > p->opts.max_depth:
+        var detail as string is "{p->opts.max_depth}"
+        defer banish detail
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseMaxDepth, detail
+        set p->stop is true
+        return false
+    return true
+
+## Sale de un nivel de profundidad.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_leave_depth with p as ref to PsParser into void:
+    if p->depth > 0:
+        set p->depth is p->depth - 1
+
+# ---------------------------------------------------------------------------
+# Construcción del AST (post-orden con pila de trabajo)
+# ---------------------------------------------------------------------------
+
+## Empieza a acumular hijos para un nodo.
+##
+## ## Memoria
+## Hace `push` en `marks`.
+weave ps_begin_children with p as ref to PsParser into void:
+    calling p->marks.push with p->child_stack.len
+
+## Añade un nodo hijo.
+##
+## ## Memoria
+## Hace `push` en `child_stack`.
+weave ps_add_child with p as ref to PsParser, id as int into void:
+    calling p->child_stack.push with (calling psast.ps_enc_node with id)
+
+## Añade un token hijo.
+##
+## ## Memoria
+## Hace `push` en `child_stack`.
+weave ps_add_token with p as ref to PsParser, token_index as int into void:
+    calling p->child_stack.push with (calling psast.ps_enc_token with token_index)
+
+## Añade un hijo ausente (`None`).
+##
+## ## Memoria
+## Hace `push` en `child_stack`.
+weave ps_add_absent with p as ref to PsParser into void:
+    calling p->child_stack.push with 0
+
+## Cierra el nodo actual y lo añade al AST.
+##
+## Copia los hijos acumulados desde la última marca, los hace contiguos en
+## `ast.children`, crea el `PsNode` y limpia la pila de trabajo.
+##
+## ## Memoria
+## Hace `push` en `ast.nodes` y `ast.children`; no asigna por nodo.
+weave ps_finish_node with p as ref to PsParser, kind as NodeKind, start as int, end as int, aux as int into int:
+    var from as int is 0
+    if p->marks.len > 0:
+        set from is p->marks at (p->marks.len - 1)
+        calling p->marks.pop
+    var count as int is p->child_stack.len - from
+    var first as int is p->ast.children.len
+    var i as int is 0
+    while i < count:
+        calling p->ast.add_encoded_child with (p->child_stack at (from + i))
+        set i is i + 1
+    var id as int is calling p->ast.node_new with kind, start, end, first, count, aux
+    var j as int is 0
+    while j < count:
+        calling p->child_stack.pop
+        set j is j + 1
+    return id
+
+## Crea un nodo hoja con un token hijo.
+##
+## ## Memoria
+## Crea un nodo y un hijo.
+weave ps_leaf_token with p as ref to PsParser, kind as NodeKind, token_index as int, start as int, end as int into int:
+    calling ps_begin_children with p
+    calling ps_add_token with p, token_index
+    return calling ps_finish_node with p, kind, start, end, 0
+
+## Crea un nodo `error` de recuperación.
+##
+## ## Memoria
+## Crea un nodo sin hijos.
+weave ps_error_node with p as ref to PsParser, start as int, end as int into int:
+    calling ps_begin_children with p
+    return calling ps_finish_node with p, NodeKind.NdError, start, end, 0
+
+## Convierte un `PsParser` en `PsParseResult`, liberando la pila de trabajo.
+##
+## ## Memoria
+## Transfiere `ast`; libera `child_stack` y `marks`.
+weave ps_into_result with p as ref to PsParser, ok as bool into PsParseResult:
+    var root as int is p->root
+    if root < 0:
+        set root is calling ps_error_node with p, 0, (calling p->src.byte_len)
+    var res as PsParseResult is with ok is ok, root is root, ast is p->ast, error_count is p->errors
+    calling ps_free_scratch with p
+    return res

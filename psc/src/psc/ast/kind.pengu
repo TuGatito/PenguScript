@@ -1,0 +1,435 @@
+
+insignia psc_ast_kind_
+## psc/ast/kind.pengu — inventario de nodos del AST.
+##
+## Los nombres de las variantes son `Nd` + PascalCase; `ps_node_kind_name`
+## devuelve el nombre de la regla de stage0 que se usa en el dump.
+##
+## ## Memoria
+## `NodeKind` es un valor puro.
+omen NodeKind:
+    # --- Núcleo y archivo ---
+    NdStart
+    NdFile
+    NdTopStmt
+    NdStmt
+    NdBlock
+    NdError
+
+    # --- Declaraciones ---
+    NdImportStmt
+    NdDottedPath
+    NdIncludeStmt
+    NdLinkStmt
+    NdLdflagStmt
+    NdInsigniaStmt
+    NdAttributes
+    NdAttribute
+    NdAttributeArgs
+    NdConstDecl
+    NdVarDecl
+    NdLetDecl
+    NdVarNameList
+    NdStaticVarDecl
+    NdRuneDecl
+    NdEchoDecl
+    NdFieldDecl
+    NdCyclusKw
+    NdShardParams
+    NdShardParamRef
+    NdWhereClause
+    NdWhereBound
+    NdDeriveClause
+    NdOmenDecl
+    NdOmenVariant
+    NdOmenField
+    NdOmenStringKind
+    NdAliasDecl
+    NdSealDecl
+    NdConceptDecl
+    NdConceptMethod
+    NdBindDecl
+    NdWeaveDecl
+    NdWeaveModifier
+    NdParamList
+    NdParam
+    NdEnchantingDecl
+    NdAntiquusDecl
+    NdDeclareStmt
+    NdDeclareParams
+    NdTestDecl
+    NdWhenTopDecl
+    NdWhenTopElsePlain
+    NdWhenTopElseWhen
+
+    # --- Statements ---
+    NdSetStmt
+    NdCompoundSetStmt
+    NdSetTarget
+    NdWithTarget
+    NdNormalTarget
+    NdEssenceTarget
+    NdIfStmt
+    NdIfCond
+    NdIfCondBinding
+    NdUnlessStmt
+    NdWhileStmt
+    NdForRangeStmt
+    NdForInStmt
+    NdWhenStmt
+    NdWhenElsePlain
+    NdWhenElseWhen
+    NdElseBlock
+    NdWithStmt
+    NdUnsafeStmt
+    NdDeferStmt
+    NdErrdeferStmt
+    NdBanishStmt
+    NdReturnStmt
+    NdBreakStmt
+    NdContinueStmt
+    NdExprStmt
+    NdContinueSimple
+    NdBreakSimple
+    NdReturnSimple
+    NdSetSimple
+    NdCompoundSetSimple
+    NdSimpleStmt
+
+    # --- Control y patrones ---
+    NdOrElse
+    NdOrReturn
+    NdOrBlock
+    NdTryExpr
+    NdIfExpr
+    NdWhenExpr
+    NdJudgeExpr
+    NdJudgeOverExpr
+    NdForComp
+    NdWhenClause
+    NdWhenPattern
+    NdWhenVariant
+    NdWhenPayload
+    NdWhenField
+    NdFieldPattern
+    NdFieldTuple
+    NdWhenGuard
+    NdElseClause
+
+    # --- Operadores ---
+    NdBoolOr
+    NdBoolAnd
+    NdEq
+    NdNe
+    NdLt
+    NdLe
+    NdGt
+    NdGe
+    NdInExpr
+    NdNotInExpr
+    NdIsPresent
+    NdIsNotPresent
+    NdIsTrue
+    NdIsFalse
+    NdRangeDotdot
+    NdToExpr
+    NdBitwiseOr
+    NdBitwiseAnd
+    NdBitwiseXor
+    NdShl
+    NdShr
+    NdAdd
+    NdSub
+    NdMul
+    NdDiv
+    NdMod
+    NdBitNot
+    NdLogNot
+    NdNeg
+    NdSigilOf
+    NdEssenceOf
+    NdTransmute
+    NdSizeOf
+    NdTypeOf
+    NdSomeExpr
+    NdBanishExpr
+    NdOrdExpr
+    NdChrExpr
+    NdBytesExpr
+
+    # --- Llamadas, acceso y literales ---
+    NdCallingExpr
+    NdGenericArgs
+    NdArgList
+    NdPosArg
+    NdNamedArg
+    NdFieldAccess
+    NdArrowAccess
+    NdAtExpr
+    NdSliceAtExpr
+    NdLengthExpr
+    NdAtAccess
+    NdDotAccess
+    NdSliceRange
+    NdParenExpr
+    NdVarRef
+    NdSelfRef
+    NdIntLit
+    NdFloatLit
+    NdStringLit
+    NdCharLit
+    NdTrueLit
+    NdFalseLit
+    NdNullLit
+    NdMaybeNone
+    NdErrorLit
+    NdDonumExpr
+    NdDefinedExpr
+    NdStructInit
+    NdFieldInit
+    NdWithInitExpr
+    NdDoExpr
+    NdLambdaExpr
+    NdLambdaNoParams
+    NdLambdaParam
+    NdLambdaParamList
+    NdListInitExpr
+    NdMapInitExpr
+    NdArrayInitExpr
+    NdArrayLit
+    NdMapLit
+    NdMapEntry
+    NdFieldEntry
+    NdIndentLiteral
+    NdIndentArray
+    NdIndentRow
+    NdIndentEntries
+
+    # --- Tipos ---
+    NdTypeOrParam
+    NdRefType
+    NdFrozenType
+    NdFnType
+    NdFnParamList
+    NdFnParam
+    NdArrayType
+    NdSliceType
+    NdManyType
+    NdListType
+    NdMapType
+    NdMaybeType
+    NdResultType
+    NdOpaqueType
+    NdBaseType
+    NdCustomType
+    NdTupleType
+
+
+## Nombre de la regla de stage0 asociada a un nodo.
+##
+## ## Memoria
+## Devuelve un literal estático; no liberar.
+weave ps_node_kind_name with kind as NodeKind into string:
+    return judge kind:
+        when NdAdd -> "add"
+        when NdAliasDecl -> "alias_decl"
+        when NdAntiquusDecl -> "antiquus_decl"
+        when NdArgList -> "arg_list"
+        when NdArrayInitExpr -> "array_init_expr"
+        when NdArrayLit -> "array_lit"
+        when NdArrayType -> "array_type"
+        when NdArrowAccess -> "arrow_access"
+        when NdAtAccess -> "at_access"
+        when NdAtExpr -> "at_expr"
+        when NdAttribute -> "attribute"
+        when NdAttributeArgs -> "attribute_args"
+        when NdAttributes -> "attributes"
+        when NdBanishExpr -> "banish_expr"
+        when NdBanishStmt -> "banish_stmt"
+        when NdBaseType -> "base_type"
+        when NdBindDecl -> "bind_decl"
+        when NdBitNot -> "bit_not"
+        when NdBitwiseAnd -> "bitwise_and"
+        when NdBitwiseOr -> "bitwise_or"
+        when NdBitwiseXor -> "bitwise_xor"
+        when NdBlock -> "block"
+        when NdBoolAnd -> "bool_and"
+        when NdBoolOr -> "bool_or"
+        when NdBreakStmt -> "break_stmt"
+        when NdBytesExpr -> "bytes_expr"
+        when NdCallingExpr -> "calling_expr"
+        when NdCharLit -> "char_lit"
+        when NdChrExpr -> "chr_expr"
+        when NdCompoundSetStmt -> "compound_set_stmt"
+        when NdConceptDecl -> "concept_decl"
+        when NdConceptMethod -> "concept_method"
+        when NdConstDecl -> "const_decl"
+        when NdContinueStmt -> "continue_stmt"
+        when NdCustomType -> "custom_type"
+        when NdCyclusKw -> "cyclus_kw"
+        when NdDeclareParams -> "declare_params"
+        when NdDeclareStmt -> "declare_stmt"
+        when NdDeferStmt -> "defer_stmt"
+        when NdDefinedExpr -> "defined_expr"
+        when NdDeriveClause -> "derive_clause"
+        when NdDiv -> "div"
+        when NdDoExpr -> "do_expr"
+        when NdDonumExpr -> "donum_expr"
+        when NdDotAccess -> "dot_access"
+        when NdDottedPath -> "dotted_path"
+        when NdEchoDecl -> "echo_decl"
+        when NdElseBlock -> "else_block"
+        when NdElseClause -> "else_clause"
+        when NdEnchantingDecl -> "enchanting_decl"
+        when NdEq -> "eq"
+        when NdErrdeferStmt -> "errdefer_stmt"
+        when NdError -> "error"
+        when NdErrorLit -> "error_lit"
+        when NdEssenceOf -> "essence_of"
+        when NdEssenceTarget -> "essence_target"
+        when NdExprStmt -> "expr_stmt"
+        when NdFalseLit -> "false_lit"
+        when NdFieldAccess -> "field_access"
+        when NdFieldDecl -> "field_decl"
+        when NdFieldEntry -> "field_entry"
+        when NdFieldInit -> "field_init"
+        when NdFieldPattern -> "field_pattern"
+        when NdFieldTuple -> "field_tuple"
+        when NdFile -> "file"
+        when NdFloatLit -> "float_lit"
+        when NdFnParam -> "fn_param"
+        when NdFnParamList -> "fn_param_list"
+        when NdFnType -> "fn_type"
+        when NdForComp -> "for_comp"
+        when NdForInStmt -> "for_in_stmt"
+        when NdForRangeStmt -> "for_range_stmt"
+        when NdFrozenType -> "frozen_type"
+        when NdGe -> "ge"
+        when NdGenericArgs -> "generic_args"
+        when NdGt -> "gt"
+        when NdIfCond -> "if_cond"
+        when NdIfCondBinding -> "if_cond_binding"
+        when NdIfExpr -> "if_expr"
+        when NdIfStmt -> "if_stmt"
+        when NdImportStmt -> "import_stmt"
+        when NdInExpr -> "in_expr"
+        when NdIncludeStmt -> "include_stmt"
+        when NdIndentArray -> "indent_array"
+        when NdIndentEntries -> "indent_entries"
+        when NdIndentLiteral -> "indent_literal"
+        when NdIndentRow -> "indent_row"
+        when NdInsigniaStmt -> "insignia_stmt"
+        when NdIntLit -> "int_lit"
+        when NdIsFalse -> "is_false"
+        when NdIsNotPresent -> "is_not_present"
+        when NdIsPresent -> "is_present"
+        when NdIsTrue -> "is_true"
+        when NdJudgeExpr -> "judge_expr"
+        when NdJudgeOverExpr -> "judge_over_expr"
+        when NdLambdaExpr -> "lambda_expr"
+        when NdLambdaNoParams -> "lambda_no_params"
+        when NdLambdaParam -> "lambda_param"
+        when NdLambdaParamList -> "lambda_param_list"
+        when NdLdflagStmt -> "ldflag_stmt"
+        when NdLe -> "le"
+        when NdLengthExpr -> "length_expr"
+        when NdLetDecl -> "let_decl"
+        when NdLinkStmt -> "link_stmt"
+        when NdListInitExpr -> "list_init_expr"
+        when NdListType -> "list_type"
+        when NdLogNot -> "log_not"
+        when NdLt -> "lt"
+        when NdManyType -> "many_type"
+        when NdMapEntry -> "map_entry"
+        when NdMapInitExpr -> "map_init_expr"
+        when NdMapLit -> "map_lit"
+        when NdMapType -> "map_type"
+        when NdMaybeNone -> "maybe_none"
+        when NdMaybeType -> "maybe_type"
+        when NdMod -> "mod"
+        when NdMul -> "mul"
+        when NdNamedArg -> "named_arg"
+        when NdNe -> "ne"
+        when NdNeg -> "neg"
+        when NdNormalTarget -> "normal_target"
+        when NdNotInExpr -> "not_in_expr"
+        when NdNullLit -> "null_lit"
+        when NdOmenDecl -> "omen_decl"
+        when NdOmenField -> "omen_field"
+        when NdOmenStringKind -> "omen_string_kind"
+        when NdOmenVariant -> "omen_variant"
+        when NdOpaqueType -> "opaque_type"
+        when NdOrBlock -> "or_block"
+        when NdOrElse -> "or_else"
+        when NdOrReturn -> "or_return"
+        when NdOrdExpr -> "ord_expr"
+        when NdParam -> "param"
+        when NdParamList -> "param_list"
+        when NdParenExpr -> "paren_expr"
+        when NdPosArg -> "pos_arg"
+        when NdRangeDotdot -> "range_dotdot"
+        when NdRefType -> "ref_type"
+        when NdResultType -> "result_type"
+        when NdReturnStmt -> "return_stmt"
+        when NdRuneDecl -> "rune_decl"
+        when NdSealDecl -> "seal_decl"
+        when NdSelfRef -> "self_ref"
+        when NdSetStmt -> "set_stmt"
+        when NdSetTarget -> "set_target"
+        when NdShardParamRef -> "shard_param_ref"
+        when NdShardParams -> "shard_params"
+        when NdShl -> "shl"
+        when NdShr -> "shr"
+        when NdSigilOf -> "sigil_of"
+        when NdSizeOf -> "size_of"
+        when NdSliceAtExpr -> "slice_at_expr"
+        when NdSliceRange -> "slice_range"
+        when NdSliceType -> "slice_type"
+        when NdSomeExpr -> "some_expr"
+        when NdStart -> "start"
+        when NdStaticVarDecl -> "static_var_decl"
+        when NdStmt -> "stmt"
+        when NdStringLit -> "string_lit"
+        when NdStructInit -> "struct_init"
+        when NdSub -> "sub"
+        when NdTestDecl -> "test_decl"
+        when NdToExpr -> "to_expr"
+        when NdTopStmt -> "top_stmt"
+        when NdTransmute -> "transmute"
+        when NdTrueLit -> "true_lit"
+        when NdTryExpr -> "try_expr"
+        when NdTupleType -> "tuple_type"
+        when NdTypeOf -> "type_of"
+        when NdTypeOrParam -> "type_or_param"
+        when NdUnlessStmt -> "unless_stmt"
+        when NdUnsafeStmt -> "unsafe_stmt"
+        when NdVarDecl -> "var_decl"
+        when NdVarNameList -> "var_name_list"
+        when NdVarRef -> "var_ref"
+        when NdWeaveDecl -> "weave_decl"
+        when NdWeaveModifier -> "weave_modifier"
+        when NdWhenClause -> "when_clause"
+        when NdWhenElsePlain -> "when_else_plain"
+        when NdWhenElseWhen -> "when_else_when"
+        when NdWhenExpr -> "when_expr"
+        when NdWhenField -> "when_field"
+        when NdWhenGuard -> "when_guard"
+        when NdWhenPattern -> "when_pattern"
+        when NdWhenPayload -> "when_payload"
+        when NdWhenStmt -> "when_stmt"
+        when NdWhenTopDecl -> "when_top_decl"
+        when NdWhenTopElsePlain -> "when_top_else_plain"
+        when NdWhenTopElseWhen -> "when_top_else_when"
+        when NdWhenVariant -> "when_variant"
+        when NdWhereBound -> "where_bound"
+        when NdWhereClause -> "where_clause"
+        when NdWhileStmt -> "while_stmt"
+        when NdWithInitExpr -> "with_init_expr"
+        when NdWithStmt -> "with_stmt"
+        when NdWithTarget -> "with_target"
+        when NdContinueSimple -> "continue_simple"
+        when NdBreakSimple -> "break_simple"
+        when NdReturnSimple -> "return_simple"
+        when NdSetSimple -> "set_simple"
+        when NdCompoundSetSimple -> "compound_set_simple"
+        when NdSimpleStmt -> "simple_stmt"

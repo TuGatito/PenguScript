@@ -1,0 +1,197 @@
+## psc/lexer_comment.pengu — comentarios de línea, doc e bloques `##`.
+##
+## Los comentarios no entran en la lista de tokens: se guardan como trivia con
+## sus spans. F7 (doc) y F8 (hover) podrán reconstruir el texto sin volver a
+## lexar.
+##
+## ## Regla del bloque doc
+## Un `##` aislado abre un bloque si la línea no tiene más contenido, la línea
+## anterior no empieza por `#` y la siguiente tampoco. El bloque cierra en una
+## línea `##` o `## ... ##`, o consume el resto del archivo si no cierra. Es
+## exactamente la regla de `PenguParser._strip_comments`: hay 54 archivos del
+## corpus que dependen de ella.
+##
+## ## Memoria
+## `scan_comment` solo hace `push` de valores POD y avanza el lexer.
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer_state as psstate
+
+## Escanea un comentario que empieza en `#`.
+##
+## ## Memoria
+## Añade un `Comment` POD; no asigna strings.
+weave scan_comment with lx as ref to psstate.LexerState into void:
+    var start as int is lx->pos
+    var line as int is lx->line
+    var col as int is lx->pos - lx->line_start + 1
+    var line_end as int is calling line_end_at with lx, lx->line_start
+    if (calling psstate.lex_peek_at with lx, 1) == 35:
+        var rest_start as int is start + 2
+        var only_ws as bool is calling only_blanks with lx, rest_start, line_end
+        var prev_c as bool is calling previous_line_is_comment with lx, lx->line_start
+        var next_start as int is calling next_line_start with lx, line_end
+        var next_c as bool is false
+        if next_start >= 0:
+            set next_c is calling line_starts_with_hash with lx, next_start
+        if only_ws and (not prev_c) and (not next_c):
+            var close_end as int is calling find_doc_block_end with lx, next_start
+            var closed as bool is (close_end >= 0)
+            var end as int is close_end
+            if end < 0:
+                set end is (calling psstate.lex_source_len with lx)
+            var c as Comment is with kind is ComDocBlock, start is start, end is end, line is line, col is col, closed is closed
+            calling lx->result.comments.push with c
+            calling psstate.lex_advance_to with lx, end
+            return
+        var inline_closed as bool is calling doc_line_closed with lx, rest_start, line_end
+        var dc as Comment is with kind is ComDoc, start is start, end is line_end, line is line, col is col, closed is inline_closed
+        calling lx->result.comments.push with dc
+        calling psstate.lex_advance_to with lx, line_end
+        return
+    var lc as Comment is with kind is ComLine, start is start, end is line_end, line is line, col is col, closed is true
+    calling lx->result.comments.push with lc
+    calling psstate.lex_advance_to with lx, line_end
+
+## Fin de la línea que contiene `start`, sin `\n` ni `\r`.
+##
+## ## Memoria
+## O(longitud de línea), no asigna.
+weave line_end_at with lx as ref to psstate.LexerState, start as int into int:
+    var n as int is calling psstate.lex_source_len with lx
+    var i as int is start
+    while i < n:
+        if (calling psstate.lex_byte_at with lx, i) == 10:
+            break
+        set i is i + 1
+    if i > start:
+        if (calling psstate.lex_byte_at with lx, i - 1) == 13:
+            return i - 1
+    return i
+
+## `true` si `[start, end)` solo tiene espacios/tabs.
+##
+## ## Memoria
+## O(n), no asigna.
+weave only_blanks with lx as ref to psstate.LexerState, start as int, end as int into bool:
+    var i as int is start
+    while i < end:
+        var b as int is calling psstate.lex_byte_at with lx, i
+        if b != 32 and b != 9:
+            return false
+        set i is i + 1
+    return true
+
+## `true` si la línea anterior a `line_start` empieza por `#` tras blanks.
+##
+## ## Memoria
+## O(longitud de la línea anterior), no asigna.
+weave previous_line_is_comment with lx as ref to psstate.LexerState, line_start as int into bool:
+    if line_start <= 0:
+        return false
+    var i as int is line_start - 2
+    while i >= 0:
+        if (calling psstate.lex_byte_at with lx, i) == 10:
+            break
+        set i is i - 1
+    var start as int is i + 1
+    return calling line_starts_with_hash with lx, start
+
+## `true` si la línea que empieza en `start` empieza por `#`.
+##
+## ## Memoria
+## O(blanks iniciales), no asigna.
+weave line_starts_with_hash with lx as ref to psstate.LexerState, start as int into bool:
+    var n as int is calling psstate.lex_source_len with lx
+    var i as int is start
+    while i < n:
+        var b as int is calling psstate.lex_byte_at with lx, i
+        if b == 32 or b == 9:
+            set i is i + 1
+        else:
+            return b == 35
+    return false
+
+## Offset del inicio de la línea siguiente, o `-1` en EOF.
+##
+## ## Memoria
+## O(1), no asigna.
+weave next_line_start with lx as ref to psstate.LexerState, line_end as int into int:
+    var n as int is calling psstate.lex_source_len with lx
+    if line_end >= n:
+        return -1
+    if (calling psstate.lex_byte_at with lx, line_end) == 13:
+        if line_end + 1 >= n:
+            return -1
+        return line_end + 2
+    return line_end + 1
+
+## Busca la línea de cierre de un bloque doc que empieza en `next_start`.
+##
+## ## Retorno
+## Offset del final de la línea de cierre, o `-1` si no cierra.
+##
+## ## Memoria
+## O(archivo), no asigna.
+weave find_doc_block_end with lx as ref to psstate.LexerState, next_start as int into int:
+    var n as int is calling psstate.lex_source_len with lx
+    var i as int is next_start
+    if i < 0:
+        return -1
+    while i < n:
+        var le as int is calling line_end_at with lx, i
+        if calling is_doc_close_line with lx, i, le:
+            return le
+        var nl as int is calling next_line_start with lx, le
+        if nl < 0:
+            return -1
+        set i is nl
+    return -1
+
+## `true` si la línea `[start, end)` es `##` o empieza/termina en `##`.
+##
+## ## Memoria
+## O(longitud), no asigna.
+weave is_doc_close_line with lx as ref to psstate.LexerState, start as int, end as int into bool:
+    var a as int is start
+    var b as int is end
+    while a < b:
+        var c as int is calling psstate.lex_byte_at with lx, a
+        if c == 32 or c == 9:
+            set a is a + 1
+        else:
+            break
+    while b > a:
+        var c2 as int is calling psstate.lex_byte_at with lx, b - 1
+        if c2 == 32 or c2 == 9:
+            set b is b - 1
+        else:
+            break
+    var width as int is b - a
+    if width == 2:
+        return (calling psstate.lex_byte_at with lx, a) == 35 and (calling psstate.lex_byte_at with lx, a + 1) == 35
+    if width > 2:
+        if (calling psstate.lex_byte_at with lx, a) != 35 or (calling psstate.lex_byte_at with lx, a + 1) != 35:
+            return false
+        if (calling psstate.lex_byte_at with lx, b - 1) != 35 or (calling psstate.lex_byte_at with lx, b - 2) != 35:
+            return false
+        return true
+    return false
+
+## `true` si una línea doc termina en `##` (forma `## texto ##`).
+##
+## ## Memoria
+## O(1), no asigna.
+weave doc_line_closed with lx as ref to psstate.LexerState, rest_start as int, line_end as int into bool:
+    var b as int is line_end
+    while b > rest_start:
+        var c as int is calling psstate.lex_byte_at with lx, b - 1
+        if c == 32 or c == 9:
+            set b is b - 1
+        else:
+            break
+    if b - rest_start < 2:
+        return false
+    return (calling psstate.lex_byte_at with lx, b - 1) == 35 and (calling psstate.lex_byte_at with lx, b - 2) == 35

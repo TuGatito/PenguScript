@@ -1,0 +1,790 @@
+## psc/sema/check/collect.pengu — recolección de declaraciones top-level.
+##
+## Pass 1 de F3: registra imports/insignia/includes, tipos, firmas, consts y
+## tests. Los cuerpos se validan en `body.pengu`. El collector no infiere
+## expresiones salvo los valores de `const` y los tipos declarados.
+##
+## ## Memoria
+## Presta `SemaState`; los símbolos/tipos viven en las tablas del programa.
+
+import std.builder
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.types.convert as convert
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.scope as scope
+import psc.sema.state as state
+import psc.sema.modules.program as program
+import psc.sema.modules.loader as loader
+import psc.sema.ast as astutil
+import psc.sema.infer.core as infer
+import psc.sema.check.body as body
+import psc.sema.diagnostics as sdiag
+import psc.sema.modules.resolver as resolver
+import std.compass
+
+insignia sema_collect_
+
+## Rango de parámetros recién añadidos.
+##
+## ## Memoria
+## POD.
+rune ParamRange:
+    ## Primer índice en `fn_params`.
+    first as int
+    ## Número de parámetros.
+    count as int
+
+## Recorre el archivo y recolecta las declaraciones.
+##
+## ## Memoria
+## Puede emitir diagnósticos; no posee listas.
+weave collect_module with s as ref to state.SemaState into void:
+    calling predeclare_types with s
+    # El root de F2 es `start`; su hijo 0 es `file`.
+    var file as int is calling astutil.node_child with s->ast, s->module->parse.root, 0
+    if file < 0:
+        set file is 0
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, file
+    while i < n:
+        var top as int is calling astutil.node_child with s->ast, file, i
+        if top >= 0:
+            calling collect_top with s, top
+        set i is i + 1
+
+## Predeclara nombres de tipos para permitir referencias hacia delante.
+##
+## ## Memoria
+## Añade tipos al registro y `module->type_ids`.
+weave predeclare_types with s as ref to state.SemaState into void:
+    var file as int is calling astutil.node_child with s->ast, s->module->parse.root, 0
+    if file < 0:
+        return
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, file
+    while i < n:
+        var top as int is calling astutil.node_child with s->ast, file, i
+        if top >= 0:
+            var stmt as int is top
+            if (calling astutil.kind_of with s->ast, stmt) == pskind.NodeKind.NdTopStmt:
+                set stmt is calling astutil.node_child with s->ast, stmt, 0
+            if stmt >= 0:
+                var k as pskind.NodeKind is calling astutil.kind_of with s->ast, stmt
+                if k == pskind.NodeKind.NdRuneDecl or k == pskind.NodeKind.NdEchoDecl or k == pskind.NodeKind.NdOmenDecl or k == pskind.NodeKind.NdConceptDecl:
+                    var nm as int is calling decl_name with s, stmt
+                    var nk as tk.SemaNominalKind is tk.SemaNominalKind.NkRune
+                    var sk as sym.SemaSymbolKind is sym.SemaSymbolKind.SkRune
+                    if k == pskind.NodeKind.NdEchoDecl:
+                        set nk is tk.SemaNominalKind.NkEcho
+                        set sk is sym.SemaSymbolKind.SkEcho
+                    else if k == pskind.NodeKind.NdOmenDecl:
+                        set nk is tk.SemaNominalKind.NkOmen
+                        set sk is sym.SemaSymbolKind.SkOmen
+                    else if k == pskind.NodeKind.NdConceptDecl:
+                        set nk is tk.SemaNominalKind.NkConcept
+                        set sk is sym.SemaSymbolKind.SkConcept
+                    if nm >= 0 and not (calling s->module->type_ids.has with stmt):
+                        var ty as int is calling new_nominal with s, nk, nm, nm, true
+                        calling register_type with s, sk, nm, ty
+                        calling s->module->type_ids.put with stmt, ty
+        set i is i + 1
+
+## Recolecta un `top_stmt` (o un `stmt`/declaración directa).
+##
+## ## Memoria
+## Puede emitir diagnósticos.
+weave collect_top with s as ref to state.SemaState, node as int into void:
+    var n as int is node
+    var guard as int is 0
+    while guard < 8:
+        var k as pskind.NodeKind is calling astutil.kind_of with s->ast, n
+        if k == pskind.NodeKind.NdTopStmt or k == pskind.NodeKind.NdStmt:
+            var c as int is calling astutil.node_child with s->ast, n, 0
+            if c < 0:
+                return
+            set n is c
+            set guard is guard + 1
+        else:
+            set guard is 8
+    var kind as pskind.NodeKind is calling astutil.kind_of with s->ast, n
+    if kind == pskind.NodeKind.NdImportStmt:
+        calling collect_import with s, n
+        return
+    if kind == pskind.NodeKind.NdIncludeStmt or kind == pskind.NodeKind.NdLinkStmt or kind == pskind.NodeKind.NdLdflagStmt:
+        calling collect_link with s, n, kind
+        return
+    if kind == pskind.NodeKind.NdInsigniaStmt:
+        calling collect_insignia with s, n
+        return
+    if kind == pskind.NodeKind.NdConstDecl:
+        calling collect_const with s, n
+        return
+    if kind == pskind.NodeKind.NdVarDecl or kind == pskind.NodeKind.NdLetDecl or kind == pskind.NodeKind.NdStaticVarDecl:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_VAR_TOP_LEVEL, (calling astutil.start_of with s->ast, n), (calling astutil.end_of with s->ast, n), "top-level 'var'/'let' is not allowed", "Use 'const', or move the declaration inside a function.", "PenguScript forbids mutable global state."
+        return
+    if kind == pskind.NodeKind.NdRuneDecl:
+        calling collect_record with s, n, sym.SemaSymbolKind.SkRune
+        return
+    if kind == pskind.NodeKind.NdEchoDecl:
+        calling collect_record with s, n, sym.SemaSymbolKind.SkEcho
+        return
+    if kind == pskind.NodeKind.NdOmenDecl:
+        calling collect_omen with s, n
+        return
+    if kind == pskind.NodeKind.NdAliasDecl:
+        calling collect_alias with s, n, false
+        return
+    if kind == pskind.NodeKind.NdSealDecl:
+        calling collect_alias with s, n, true
+        return
+    if kind == pskind.NodeKind.NdConceptDecl:
+        calling collect_concept with s, n
+        return
+    if kind == pskind.NodeKind.NdBindDecl:
+        return
+    if kind == pskind.NodeKind.NdWeaveDecl:
+        calling collect_weave with s, n, false
+        return
+    if kind == pskind.NodeKind.NdDeclareStmt:
+        calling collect_weave with s, n, true
+        return
+    if kind == pskind.NodeKind.NdAntiquusDecl:
+        calling collect_weave with s, n, true
+        return
+    if kind == pskind.NodeKind.NdEnchantingDecl:
+        calling collect_enchanting with s, n
+        return
+    if kind == pskind.NodeKind.NdTestDecl:
+        calling collect_test with s, n
+        return
+    if kind == pskind.NodeKind.NdWhenTopDecl:
+        calling collect_when_top with s, n
+        return
+
+## Registra un `import` en el módulo actual.
+##
+## ## Memoria
+## Puede emitir diagnósticos; no posee el módulo destino.
+weave collect_import with s as ref to state.SemaState, node as int into void:
+    var path_node as int is calling astutil.node_child with s->ast, node, 0
+    if path_node < 0:
+        return
+    var dot as string is calling collect_dotted_text with s, path_node
+    defer banish dot
+    var from_dir as string is calling compass.cp_dirname with s->module->path
+    defer banish from_dir
+    var hit as string is calling resolver.find_module with s->opts, dot, from_dir
+    if hit == "":
+        banish hit
+        return
+    var target_id as int is calling program.module_id with s->program, hit
+    banish hit
+    if target_id < 0:
+        return
+    var target as loader.SemaModule is (s->program->modules at target_id)
+    var alias as int is calling import_alias with s, node, dot
+    if alias < 0:
+        return
+    var sv as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", 0, sym.SemaSymbolKind.SkImport
+    set sv.name is alias
+    set sv.c_name is alias
+    set sv.module_scope is target.scope
+    calling symbols.symbol_define with s->symbols, sv
+
+## Alias de un import (explícito o último componente).
+##
+## ## Memoria
+## Devuelve un `NameId`.
+weave import_alias with s as ref to state.SemaState, node as int, dot as string into int:
+    var at as int is calling astutil.token_child with s->ast, node, 1
+    if at >= 0:
+        var txt as string is calling astutil.token_text with s->src, s->lex, at
+        defer banish txt
+        return calling npool.intern with s->names, txt
+    var last as int is 0
+    var i as int is 0
+    var n as int is dot length
+    while i < n:
+        if (dot at i) == ".":
+            set last is i + 1
+        set i is i + 1
+    var txt2 as string is calling collect_substring with dot, last, n
+    defer banish txt2
+    return calling npool.intern with s->names, txt2
+
+## Texto de un `dotted_path`.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave collect_dotted_text with s as ref to state.SemaState, node as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        if i > 0:
+            calling sb.append with "."
+        var txt as string is calling astutil.child_token_text with s->src, s->lex, s->ast, node, i
+        calling sb.append with txt
+        banish txt
+        set i is i + 1
+    return calling sb.finish
+
+## Substring con copia owned.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave collect_substring with s as string, start as int, end as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is start
+    while i < end:
+        calling sb.append with (s at i)
+        set i is i + 1
+    return calling sb.finish
+
+## Evalúa una condición `when` top-level sencilla.
+##
+## ## Memoria
+## O(1); no asigna.
+weave when_truth with s as ref to state.SemaState, node as int into bool:
+    if node < 0:
+        return true
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    if k == pskind.NodeKind.NdTrueLit:
+        return true
+    if k == pskind.NodeKind.NdFalseLit:
+        return false
+    if k == pskind.NodeKind.NdLogNot:
+        var c as int is calling astutil.node_child with s->ast, node, 0
+        return not (calling when_truth with s, c)
+    if k == pskind.NodeKind.NdVarRef:
+        var txt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
+        defer banish txt
+        if txt == "wasm":
+            return s->opts->wasm_target != "" or calling define_has with s, "wasm"
+        if txt == "main":
+            return s->opts->is_main
+        if txt == "debug":
+            return s->opts->is_debug
+        if txt == "os":
+            return true
+        if txt == "arch":
+            return true
+        return calling define_has with s, txt
+    if k == pskind.NodeKind.NdDefinedExpr:
+        var dtxt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
+        defer banish dtxt
+        return calling define_has with s, dtxt
+    return true
+
+## ¿`-D name` está definido?
+##
+## ## Memoria
+## O(defines).
+weave define_has with s as ref to state.SemaState, name as string into bool:
+    var i as int is 0
+    while i < s->opts->defines.len:
+        var d as string is (s->opts->defines at i)
+        if d == name:
+            return true
+        set i is i + 1
+    return false
+
+## Recolecta la rama activa de un `when` top-level.
+##
+## ## Memoria
+## Recorre top_stmts; no asigna.
+weave collect_when_top with s as ref to state.SemaState, node as int into void:
+    var cond as int is calling astutil.node_child with s->ast, node, 0
+    var active as bool is calling when_truth with s, cond
+    var i as int is 1
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        var c as int is calling astutil.node_child with s->ast, node, i
+        if c >= 0:
+            var ck as pskind.NodeKind is calling astutil.kind_of with s->ast, c
+            if ck == pskind.NodeKind.NdTopStmt or ck == pskind.NodeKind.NdStmt:
+                if active:
+                    calling collect_top with s, c
+            else if ck == pskind.NodeKind.NdWhenTopElsePlain:
+                if not active:
+                    var j as int is 0
+                    var en as int is calling astutil.child_count with s->ast, c
+                    while j < en:
+                        var e as int is calling astutil.node_child with s->ast, c, j
+                        if e >= 0:
+                            calling collect_top with s, e
+                        set j is j + 1
+            else if ck == pskind.NodeKind.NdWhenTopElseWhen:
+                if not active:
+                    calling collect_when_top with s, c
+        set i is i + 1
+
+## `include`, `link`, `ldflag`.
+##
+## ## Memoria
+## Copia el string del token a la lista del programa.
+weave collect_link with s as ref to state.SemaState, node as int, kind as pskind.NodeKind into void:
+    var txt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
+    # El token incluye comillas; se quitan.
+    var val as string is calling unquote with txt
+    banish txt
+    defer banish val
+    if val == "":
+        return
+    if kind == pskind.NodeKind.NdIncludeStmt:
+        calling s->symbols->includes.push with (calling npool.copy_string with val)
+        set s->symbols->has_includes is true
+    else if kind == pskind.NodeKind.NdLinkStmt:
+        calling s->symbols->links.push with (calling npool.copy_string with val)
+    else:
+        calling s->symbols->ldflags.push with (calling npool.copy_string with val)
+
+## Quita comillas dobles de un string.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave unquote with s as string into string:
+    var n as int is s length
+    if n >= 2 and (s at 0) == "\"" and (s at (n - 1)) == "\"":
+        var i as int is 1
+        var sb as StringBuilder is calling StringBuilder.new
+        defer banish sb
+        while i < n - 1:
+            calling sb.append with (s at i)
+            set i is i + 1
+        return calling sb.finish
+    return "{s}"
+
+## `insignia NAME`.
+##
+## ## Memoria
+## Interna el nombre y lo guarda.
+weave collect_insignia with s as ref to state.SemaState, node as int into void:
+    var txt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
+    defer banish txt
+    var nid as int is calling npool.intern with s->names, txt
+    if s->module->insignia >= 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MULTIPLE_INSIGNIA, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "multiple 'insignia' directives not allowed", "Only one 'insignia' per module.", ""
+        return
+    set s->module->insignia is nid
+    set s->symbols->insignia is nid
+
+## Busca el primer token hijo (el nombre de la declaración).
+##
+## ## Memoria
+## O(n hijos), no asigna.
+weave collect_name_slot with s as ref to state.SemaState, node as int into int:
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        if (calling astutil.token_child with s->ast, node, i) >= 0:
+            return i
+        set i is i + 1
+    return -1
+
+## Nombre de la declaración como `NameId` (`-1` si falta).
+##
+## ## Memoria
+## Interna el texto.
+weave decl_name with s as ref to state.SemaState, node as int into int:
+    var slot as int is calling collect_name_slot with s, node
+    if slot < 0:
+        return -1
+    var txt as string is calling astutil.child_token_text with s->src, s->lex, s->ast, node, slot
+    defer banish txt
+    return calling npool.intern with s->names, txt
+
+## Nombre de la declaración como string.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave decl_name_text with s as ref to state.SemaState, node as int into string:
+    var slot as int is calling collect_name_slot with s, node
+    if slot < 0:
+        return ""
+    return calling astutil.child_token_text with s->src, s->lex, s->ast, node, slot
+
+## Contexto de conversión de tipos.
+##
+## ## Memoria
+## Valor puro de referencias.
+weave collect_type_ctx with s as ref to state.SemaState into convert.TypeCtx:
+    return with types is s->types, symbols is s->symbols, names is s->names, bag is s->bag, src is s->src, lex is s->lex, ast is s->ast
+
+## Crea una info nominal y su `TypeId`.
+##
+## ## Memoria
+## Añade a la tabla y al registro.
+weave new_nominal with s as ref to state.SemaState, kind as tk.SemaNominalKind, name as int, cname as int, public as bool into int:
+    var flags as int is 0
+    if public:
+        set flags is flags | types.NIF_PUBLIC
+    var info as types.SemaNominalInfo is with kind is kind, base_name is name, c_name is cname, module is s->module->id, flags is flags, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, attrs_node is -1
+    return calling types.named_type with s->types, info
+
+## Registra un tipo en los mapas y el scope.
+##
+## ## Memoria
+## Añade símbolo.
+weave register_type with s as ref to state.SemaState, kind as sym.SemaSymbolKind, name as int, type_id as int into void:
+    calling symbols.symbol_define_type with s->symbols, kind, name, type_id
+
+## `rune`/`echo`.
+##
+## ## Memoria
+## Añade tipo, campos y símbolo.
+weave collect_record with s as ref to state.SemaState, node as int, sk as sym.SemaSymbolKind into void:
+    var name as int is calling decl_name with s, node
+    var name_txt as string is calling astutil.child_token_text with s->src, s->lex, s->ast, node, (calling collect_name_slot with s, node)
+    defer banish name_txt
+    var nk as tk.SemaNominalKind is tk.SemaNominalKind.NkRune
+    if sk == sym.SemaSymbolKind.SkEcho:
+        set nk is tk.SemaNominalKind.NkEcho
+    var ty as int is -1
+    if calling s->module->type_ids.has with node:
+        set ty is calling s->module->type_ids.get with node
+    else:
+        set ty is calling new_nominal with s, nk, name, name, true
+        calling s->module->type_ids.put with node, ty
+    var info_idx as int is (calling types.at with s->types, ty).a
+    var skind0 as sym.SemaSymbolKind is sym.SemaSymbolKind.SkRune
+    if sk == sym.SemaSymbolKind.SkEcho:
+        set skind0 is sym.SemaSymbolKind.SkEcho
+    # El tipo debe ser visible antes de convertir sus campos (recursión).
+    calling register_type with s, skind0, name, ty
+    var fields_first as int is s->types->fields.len
+    var field_count as int is 0
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        var c as int is calling astutil.node_child with s->ast, node, i
+        if c >= 0 and (calling astutil.kind_of with s->ast, c) == pskind.NodeKind.NdFieldDecl:
+            var fname_slot as int is calling first_token_slot_after_attrs with s, c
+            if fname_slot >= 0:
+                var fname_txt as string is calling astutil.child_token_text with s->src, s->lex, s->ast, c, fname_slot
+                defer banish fname_txt
+                var fname as int is calling npool.intern with s->names, fname_txt
+                var ftype as int is 0
+                var fty_slot as int is fname_slot + 1
+                if fty_slot < calling astutil.child_count with s->ast, c:
+                    var ftn as int is calling astutil.node_child with s->ast, c, fty_slot
+                    if ftn >= 0:
+                        var ctx as convert.TypeCtx is calling collect_type_ctx with s
+                        set ftype is calling convert.convert with (sigil of ctx), ftn
+                var fld as types.SemaField is with name is fname, type is ftype, flags is 0, attrs_node is -1
+                calling types.add_field with s->types, fld
+                set field_count is field_count + 1
+        set i is i + 1
+    calling types.set_nominal_fields with s->types, info_idx, fields_first, field_count
+    var skind as sym.SemaSymbolKind is sym.SemaSymbolKind.SkRune
+    if sk == sym.SemaSymbolKind.SkEcho:
+        set skind is sym.SemaSymbolKind.SkEcho
+    if not (calling s->module->type_ids.has with node):
+        calling register_type with s, skind, name, ty
+
+## Primer token tras los atributos de un `field_decl`.
+##
+## ## Memoria
+## O(n).
+weave first_token_slot_after_attrs with s as ref to state.SemaState, node as int into int:
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        var c as int is calling astutil.node_child with s->ast, node, i
+        if c >= 0:
+            var k as pskind.NodeKind is calling astutil.kind_of with s->ast, c
+            if k == pskind.NodeKind.NdAttributes:
+                set i is i + 1
+                continue
+        if (calling astutil.token_child with s->ast, node, i) >= 0:
+            return i
+        set i is i + 1
+    return -1
+
+## `omen`.
+##
+## ## Memoria
+## Añade tipo/variantes.
+weave collect_omen with s as ref to state.SemaState, node as int into void:
+    var name as int is calling decl_name with s, node
+    var ty as int is -1
+    if calling s->module->type_ids.has with node:
+        set ty is calling s->module->type_ids.get with node
+    else:
+        set ty is calling new_nominal with s, tk.SemaNominalKind.NkOmen, name, name, true
+        calling s->module->type_ids.put with node, ty
+        calling register_type with s, sym.SemaSymbolKind.SkOmen, name, ty
+    var info_idx as int is (calling types.at with s->types, ty).a
+    var first as int is s->types->variants.len
+    var count as int is 0
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        var c as int is calling astutil.node_child with s->ast, node, i
+        if c >= 0 and (calling astutil.kind_of with s->ast, c) == pskind.NodeKind.NdOmenVariant:
+            var vs as int is calling astutil.token_child with s->ast, c, 0
+            if vs >= 0:
+                var vtxt as string is calling astutil.token_text with s->src, s->lex, vs
+                defer banish vtxt
+                var vname as int is calling npool.intern with s->names, vtxt
+                var pfirst as int is s->types->fields.len
+                var pcount as int is 0
+                var ci as int is 2
+                var cn as int is calling astutil.child_count with s->ast, c
+                while ci < cn:
+                    var of as int is calling astutil.node_child with s->ast, c, ci
+                    if of >= 0 and (calling astutil.kind_of with s->ast, of) == pskind.NodeKind.NdOmenField:
+                        var oft as int is calling astutil.token_child with s->ast, of, 0
+                        var ofty as int is 0
+                        var oftn as int is calling astutil.node_child with s->ast, of, 1
+                        if oftn >= 0:
+                            var ofctx as convert.TypeCtx is calling collect_type_ctx with s
+                            set ofty is calling convert.convert with (sigil of ofctx), oftn
+                        if oft >= 0:
+                            var oftxt as string is calling astutil.token_text with s->src, s->lex, oft
+                            defer banish oftxt
+                            var ofnid as int is calling npool.intern with s->names, oftxt
+                            var ofld as types.SemaField is with name is ofnid, type is ofty, flags is 0, attrs_node is -1
+                            calling types.add_field with s->types, ofld
+                            set pcount is pcount + 1
+                    set ci is ci + 1
+                var varnt as types.SemaVariant is with name is vname, value_i is 0, value_s is -1, payload_first is pfirst, payload_count is pcount, flags is 0
+                calling types.add_variant with s->types, varnt
+                # Las variantes son valores del omen y se usan como identificadores
+                # (`KwAlias`, `JsonValue.Null`, ...). Se registran en el scope.
+                var vsym as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", ty, sym.SemaSymbolKind.SkConst
+                set vsym.name is vname
+                set vsym.c_name is vname
+                calling symbols.symbol_define_in with s->symbols, 0, vsym
+                set count is count + 1
+        set i is i + 1
+    calling types.set_nominal_variants with s->types, info_idx, first, count
+
+## `alias`/`seal`.
+##
+## ## Memoria
+## Añade tipo/símbolo.
+weave collect_alias with s as ref to state.SemaState, node as int, is_seal as bool into void:
+    var name as int is calling decl_name with s, node
+    var ty_node as int is -1
+    var n as int is calling astutil.child_count with s->ast, node
+    if is_seal:
+        set ty_node is calling astutil.node_child with s->ast, node, 1
+    else:
+        set ty_node is calling astutil.node_child with s->ast, node, n - 1
+    var ctx as convert.TypeCtx is calling collect_type_ctx with s
+    var target as int is calling convert.convert with (sigil of ctx), ty_node
+    var nk as tk.SemaNominalKind is tk.SemaNominalKind.NkAlias
+    if is_seal:
+        set nk is tk.SemaNominalKind.NkSeal
+    var info as types.SemaNominalInfo is with kind is nk, base_name is name, c_name is name, module is s->module->id, flags is types.NIF_PUBLIC, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, attrs_node is -1
+    var ty as int is calling types.named_with_target with s->types, info, target
+    var sk as sym.SemaSymbolKind is sym.SemaSymbolKind.SkAlias
+    if is_seal:
+        set sk is sym.SemaSymbolKind.SkSeal
+    calling register_type with s, sk, name, ty
+
+## `concept`.
+##
+## ## Memoria
+## Añade tipo/símbolo y métodos.
+weave collect_concept with s as ref to state.SemaState, node as int into void:
+    var name as int is calling decl_name with s, node
+    var ty as int is -1
+    if calling s->module->type_ids.has with node:
+        set ty is calling s->module->type_ids.get with node
+    else:
+        set ty is calling new_nominal with s, tk.SemaNominalKind.NkConcept, name, name, true
+        calling s->module->type_ids.put with node, ty
+        calling register_type with s, sym.SemaSymbolKind.SkConcept, name, ty
+    var info_idx as int is (calling types.at with s->types, ty).a
+    var first as int is s->types->concept_methods.len
+    var count as int is 0
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        var c as int is calling astutil.node_child with s->ast, node, i
+        if c >= 0 and (calling astutil.kind_of with s->ast, c) == pskind.NodeKind.NdConceptMethod:
+            var mslot as int is calling astutil.token_child with s->ast, c, 0
+            if mslot >= 0:
+                var mtxt as string is calling astutil.token_text with s->src, s->lex, mslot
+                defer banish mtxt
+                var mname as int is calling npool.intern with s->names, mtxt
+                var cm as types.SemaConceptMethod is with name is mname, fn_type is 0, flags is types.CM_REQUIRED
+                calling types.add_concept_method with s->types, cm
+                set count is count + 1
+        set i is i + 1
+    # Los métodos de concepto no tienen rango propio; se guardan en la tabla.
+
+## `const NAME [as T] is value`.
+##
+## ## Memoria
+## Añade un símbolo y un valor constante POD.
+weave collect_const with s as ref to state.SemaState, node as int into void:
+    var name as int is calling decl_name with s, node
+    var type_node as int is calling astutil.node_child with s->ast, node, 1
+    var value_node as int is calling astutil.node_child with s->ast, node, 2
+    var ty as int is 0
+    if type_node >= 0:
+        var ctx as convert.TypeCtx is calling collect_type_ctx with s
+        set ty is calling convert.convert with (sigil of ctx), type_node
+    if ty <= 0:
+        set ty is calling infer.infer with s, value_node, -1
+    var cv as sym.SemaConst is with kind is sym.SemaConstKind.CkNone, i is 0, f is 0.0, b is false, name is -1
+    calling symbols.symbol_define_const with s->symbols, name, ty, cv
+
+## `true` si `s` empieza por `prefix`.
+##
+## ## Memoria
+## O(prefix); no asigna.
+weave starts_with_text with s as string, prefix as string into bool:
+    var n as int is s length
+    var m as int is prefix length
+    if m > n:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of prefix
+    var i as int is 0
+    while i < m:
+        if ((sb at i) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## ¿Un nodo `attributes` contiene `name`?
+##
+## ## Memoria
+## O(n); strings temporales liberados.
+weave has_attribute with s as ref to state.SemaState, attrs as int, name as string into bool:
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, attrs
+    while i < n:
+        var a as int is calling astutil.node_child with s->ast, attrs, i
+        if a >= 0:
+            var t as int is calling astutil.token_child with s->ast, a, 0
+            if t >= 0:
+                var txt as string is calling astutil.token_text with s->src, s->lex, t
+                defer banish txt
+                if txt == "@{name}" or txt == name:
+                    return true
+        set i is i + 1
+    return false
+
+## `weave`/`declare`/`antiquus`.
+##
+## ## Memoria
+## Añade FnType/símbolo; `check` valida el cuerpo.
+weave collect_weave with s as ref to state.SemaState, node as int, no_body as bool into void:
+    var name as int is calling decl_name with s, node
+    var slot as int is calling collect_name_slot with s, node
+    var params_slot as int is slot + 2
+    var ret_slot as int is slot + 3
+    var pr as ParamRange is with first is 0, count is 0
+    if params_slot < calling astutil.child_count with s->ast, node:
+        var pnode as int is calling astutil.node_child with s->ast, node, params_slot
+        if pnode >= 0:
+            calling collect_params with s, pnode, (sigil of pr)
+    var ret as int is 3
+    if ret_slot < calling astutil.child_count with s->ast, node:
+        var rnode as int is calling astutil.node_child with s->ast, node, ret_slot
+        if rnode >= 0:
+            var ctx as convert.TypeCtx is calling collect_type_ctx with s
+            set ret is calling convert.convert with (sigil of ctx), rnode
+    var info as types.SemaFnInfo is with params_first is pr.first, params_count is pr.count, return_type is ret, tparams_first is 0, tparams_count is 0, flags is 0, attrs_node is -1
+    var ft as int is calling types.fn_type with s->types, info
+    var sid as int is calling symbols.symbol_define_function with s->symbols, name, ft
+    var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+    if no_body:
+        set sv.kind is sym.SemaSymbolKind.SkDeclare
+    else:
+        set sv.kind is sym.SemaSymbolKind.SkWeave
+    calling symbols.symbol_set with s->symbols, sid, sv
+
+## Recolecta params de una lista.
+##
+## ## Memoria
+## Añade `SemaFnParam` y actualiza `first/count` por referencia.
+weave collect_params with s as ref to state.SemaState, pnode as int, out as ref to ParamRange into void:
+    set out->first is s->types->fn_params.len
+    set out->count is 0
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, pnode
+    while i < n:
+        var p as int is calling astutil.node_child with s->ast, pnode, i
+        if p >= 0 and (calling astutil.kind_of with s->ast, p) == pskind.NodeKind.NdParam:
+            var pname as int is -1
+            var ps as int is calling astutil.token_child with s->ast, p, 0
+            if ps >= 0:
+                var ptxt as string is calling astutil.token_text with s->src, s->lex, ps
+                defer banish ptxt
+                set pname is calling npool.intern with s->names, ptxt
+            var pty as int is 0
+            var ptn as int is calling astutil.node_child with s->ast, p, 1
+            if ptn >= 0:
+                var ctx as convert.TypeCtx is calling collect_type_ctx with s
+                set pty is calling convert.convert with (sigil of ctx), ptn
+            var fp as types.SemaFnParam is with name is pname, type is pty, flags is 0, default_node is -1
+            calling types.add_fn_param with s->types, fp
+            set out->count is out->count + 1
+        set i is i + 1
+
+## `enchanting`.
+##
+## ## Memoria
+## Añade métodos al registro.
+weave collect_enchanting with s as ref to state.SemaState, node as int into void:
+    var recv_node as int is calling astutil.node_child with s->ast, node, 0
+    var ctx as convert.TypeCtx is calling collect_type_ctx with s
+    var recv as int is 0
+    if recv_node >= 0:
+        set recv is calling convert.convert with (sigil of ctx), recv_node
+    var i as int is 1
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        var m as int is calling astutil.node_child with s->ast, node, i
+        if m >= 0 and (calling astutil.kind_of with s->ast, m) == pskind.NodeKind.NdWeaveDecl:
+            var mname as int is calling decl_name with s, m
+            # Firma simple: params/ret en las mismas posiciones que weave.
+            var slot as int is calling collect_name_slot with s, m
+            var params_slot as int is slot + 2
+            var ret_slot as int is slot + 3
+            var pr2 as ParamRange is with first is 0, count is 0
+            if params_slot < calling astutil.child_count with s->ast, m:
+                var pn as int is calling astutil.node_child with s->ast, m, params_slot
+                if pn >= 0:
+                    calling collect_params with s, pn, (sigil of pr2)
+            var ret as int is 3
+            if ret_slot < calling astutil.child_count with s->ast, m:
+                var rn as int is calling astutil.node_child with s->ast, m, ret_slot
+                if rn >= 0:
+                    set ret is calling convert.convert with (sigil of ctx), rn
+            var info as types.SemaFnInfo is with params_first is pr2.first, params_count is pr2.count, return_type is ret, tparams_first is 0, tparams_count is 0, flags is types.FN_METHOD, attrs_node is -1
+            var ft as int is calling types.fn_type with s->types, info
+            calling symbols.symbol_define_method with s->symbols, recv, mname, ft
+            var mtext2 as string is calling npool.text with s->names, mname
+            if not (calling starts_with_text with mtext2, "get_"):
+                var gtext2 as string is "get_{mtext2}"
+                defer banish gtext2
+                var gid2 as int is calling npool.intern with s->names, gtext2
+                if (calling symbols.lookup_method with s->symbols, recv, gid2) < 0:
+                    calling symbols.symbol_define_method with s->symbols, recv, gid2, ft
+        set i is i + 1
+
+## `test "nombre":`.
+##
+## ## Memoria
+## Añade un símbolo de test.
+weave collect_test with s as ref to state.SemaState, node as int into void:
+    var name as int is calling decl_name with s, node
+    var symv as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", 3, sym.SemaSymbolKind.SkTest
+    set symv.name is name
+    set symv.c_name is name
+    calling symbols.symbol_define with s->symbols, symv

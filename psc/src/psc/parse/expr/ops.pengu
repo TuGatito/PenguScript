@@ -1,0 +1,682 @@
+## psc/parse/expr/ops.pengu — precedencia, operadores, llamadas y postfix.
+##
+## Implementa la cadena de precedencia de `LANGUAGE.md` §6.1 tal como la
+## gramática real de stage0:
+##
+## ```text
+## or else / or return / or:  →  try  →  if/when/judge/for  →  or  →  and
+##   →  comparaciones  →  .. / to  →  |  →  &  →  ^  →  << >>  →  + -  →  * / %
+##   →  unarios  →  calling/postfix  →  átomos
+## ```
+##
+## `list_expr` corta antes de `or`/`and` booleanos: así `calling f with a and b`
+## se agrupa como `(calling f with a) and b`, igual que stage0, y F3 lo rechaza
+## con `E0005`.
+##
+## ## Memoria
+## Construye nodos en el AST; no asigna strings salvo diagnósticos.
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.state as psstate
+import psc.parse.diagnostics as pdiag
+import psc.parse.types as ptypes
+import psc.parse.expr.atoms as patoms
+import psc.parse.expr.calls as pcalls
+import psc.parse.expr.util as putil
+
+insignia psc_parse_expr_
+
+## Pide una expresión completa al hook.
+##
+## ## Memoria
+## O(1), no asigna.
+weave pexpr_nested_expr with p as ref to PsParser into int:
+    var fn as ref to weave with p as ref to PsParser into int is p->hooks.expr
+    return calling fn with p
+
+## Pide una expresión de lista al hook.
+##
+## ## Memoria
+## O(1), no asigna.
+weave pexpr_nested_list with p as ref to PsParser into int:
+    var fn as ref to weave with p as ref to PsParser into int is p->hooks.list_expr
+    return calling fn with p
+
+## Pide una expresión de lista de valor al hook.
+##
+## ## Memoria
+## O(1), no asigna.
+weave pexpr_nested_list_value with p as ref to PsParser into int:
+    var fn as ref to weave with p as ref to PsParser into int is p->hooks.list_value_expr
+    return calling fn with p
+
+# ---------------------------------------------------------------------------
+# Puntos de entrada
+# ---------------------------------------------------------------------------
+
+## Parsea `expr`.
+##
+## ## Memoria
+## Construye el AST.
+weave pexpr_parse_expr with p as ref to PsParser into int:
+    return calling pexpr_parse_or_else with p
+
+## Parsea `list_expr` (sin `and`/`or` booleanos).
+##
+## ## Memoria
+## Construye el AST.
+weave pexpr_parse_list_expr with p as ref to PsParser into int:
+    return calling pexpr_parse_list_or_else with p
+
+## Parsea `value_expr`: `if`/`unless`/`while`/`for` o `expr`.
+##
+## ## Memoria
+## Construye el AST.
+weave pexpr_parse_value_expr with p as ref to PsParser into int:
+    if calling ps_check_kw with p, KwIf:
+        var fn as ref to weave with p as ref to PsParser into int is p->hooks.value
+        return calling fn with p
+    if calling ps_check_kw with p, KwUnless:
+        var fn2 as ref to weave with p as ref to PsParser into int is p->hooks.value
+        return calling fn2 with p
+    if calling ps_check_kw with p, KwWhile:
+        var fn3 as ref to weave with p as ref to PsParser into int is p->hooks.value
+        return calling fn3 with p
+    if calling ps_check_kw with p, KwFor:
+        var fn4 as ref to weave with p as ref to PsParser into int is p->hooks.value
+        return calling fn4 with p
+    return calling pexpr_parse_expr with p
+
+## Parsea `list_value_expr`: como `value_expr` pero con `list_expr`.
+##
+## ## Memoria
+## Construye el AST.
+weave pexpr_parse_list_value_expr with p as ref to PsParser into int:
+    if calling ps_check_kw with p, KwIf:
+        var fn as ref to weave with p as ref to PsParser into int is p->hooks.value
+        return calling fn with p
+    if calling ps_check_kw with p, KwUnless:
+        var fn2 as ref to weave with p as ref to PsParser into int is p->hooks.value
+        return calling fn2 with p
+    if calling ps_check_kw with p, KwWhile:
+        var fn3 as ref to weave with p as ref to PsParser into int is p->hooks.value
+        return calling fn3 with p
+    if calling ps_check_kw with p, KwFor:
+        var fn4 as ref to weave with p as ref to PsParser into int is p->hooks.value
+        return calling fn4 with p
+    return calling pexpr_parse_list_expr with p
+
+## Parsea `list_or_else_expr` (sin `and`/`or` booleanos).
+##
+## ## Memoria
+## Construye el AST.
+weave pexpr_parse_list_or_else with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_list_try with p
+    var more as bool is true
+    while more:
+        if calling ps_check_kw with p, KwOr:
+            var nxt as TokenKind is calling ps_kind_ahead with p, 1
+            if nxt == TokKeyword:
+                var nkw as KeywordKind is calling ps_kw_at_offset with p, 1
+                if nkw == KwElse:
+                    var opi as int is p->pos
+                    var ignored as Token is calling ps_advance with p
+                    var ignored2 as Token is calling ps_expect_kw with p, KwElse, "'else'"
+                    var right as int is calling pexpr_parse_list_try with p
+                    set left is calling putil.pexpr_binary with p, NodeKind.NdOrElse, left, opi, right
+                else if nkw == KwReturn:
+                    var opi2 as int is p->pos
+                    var ignored3 as Token is calling ps_advance with p
+                    var ignored4 as Token is calling ps_expect_kw with p, KwReturn, "'return'"
+                    var right2 as int is calling pexpr_parse_list_try with p
+                    set left is calling putil.pexpr_binary with p, NodeKind.NdOrReturn, left, opi2, right2
+                else:
+                    set more is false
+            else if nxt == TokColon:
+                var ignored5 as Token is calling ps_advance with p
+                var fn as ref to weave with p as ref to PsParser, left as int into int is p->hooks.or_block
+                set left is calling fn with p, left
+            else:
+                set more is false
+        else:
+            set more is false
+    return left
+
+## Parsea `list_try_expr`.
+##
+## ## Memoria
+## Construye el AST.
+weave pexpr_parse_list_try with p as ref to PsParser into int:
+    if calling ps_check_kw with p, KwTry:
+        var start as int is calling ps_current_start with p
+        var opi as int is p->pos
+        var ignored as Token is calling ps_advance with p
+        var inner as int is calling pexpr_parse_list_try with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdTryExpr, inner, opi, start
+    if calling ps_check_kw with p, KwIf:
+        var fn as ref to weave with p as ref to PsParser into int is p->hooks.value
+        return calling fn with p
+    if calling ps_check_kw with p, KwWhen:
+        var fn2 as ref to weave with p as ref to PsParser into int is p->hooks.when
+        return calling fn2 with p
+    if calling ps_check_kw with p, KwJudge:
+        var fn3 as ref to weave with p as ref to PsParser into int is p->hooks.judge
+        return calling fn3 with p
+    if calling ps_check_kw with p, KwFor:
+        var fn4 as ref to weave with p as ref to PsParser into int is p->hooks.value
+        return calling fn4 with p
+    return calling pexpr_parse_comparison with p
+
+# ---------------------------------------------------------------------------
+# or else / or return / or: / try
+# ---------------------------------------------------------------------------
+
+## Parsea `or else`, `or return` y `or:`.
+##
+## ## Memoria
+## Construye el nodo correspondiente.
+weave pexpr_parse_or_else with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_try with p
+    var more as bool is true
+    while more:
+        if calling ps_check_kw with p, KwOr:
+            var nxt as TokenKind is calling ps_kind_ahead with p, 1
+            if nxt == TokKeyword:
+                var nkw as KeywordKind is calling ps_kw_at_offset with p, 1
+                if nkw == KwElse:
+                    var opi as int is p->pos
+                    var ignored as Token is calling ps_advance with p
+                    var ignored2 as Token is calling ps_expect_kw with p, KwElse, "'else'"
+                    var right as int is calling pexpr_parse_try with p
+                    set left is calling putil.pexpr_binary with p, NodeKind.NdOrElse, left, opi, right
+                else if nkw == KwReturn:
+                    var opi2 as int is p->pos
+                    var ignored3 as Token is calling ps_advance with p
+                    var ignored4 as Token is calling ps_expect_kw with p, KwReturn, "'return'"
+                    var right2 as int is calling pexpr_parse_try with p
+                    set left is calling putil.pexpr_binary with p, NodeKind.NdOrReturn, left, opi2, right2
+                else:
+                    set more is false
+            else if nxt == TokColon:
+                var ignored5 as Token is calling ps_advance with p
+                var fn as ref to weave with p as ref to PsParser, left as int into int is p->hooks.or_block
+                set left is calling fn with p, left
+            else:
+                set more is false
+        else:
+            set more is false
+    return left
+
+## Parsea `try expr`.
+##
+## ## Memoria
+## Construye un nodo `try_expr`.
+weave pexpr_parse_try with p as ref to PsParser into int:
+    if calling ps_check_kw with p, KwTry:
+        var start as int is calling ps_current_start with p
+        var opi as int is p->pos
+        var ignored as Token is calling ps_advance with p
+        var inner as int is calling pexpr_parse_try with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdTryExpr, inner, opi, start
+    if calling ps_check_kw with p, KwIf:
+        var fn as ref to weave with p as ref to PsParser into int is p->hooks.value
+        return calling fn with p
+    if calling ps_check_kw with p, KwWhen:
+        var fn2 as ref to weave with p as ref to PsParser into int is p->hooks.when
+        return calling fn2 with p
+    if calling ps_check_kw with p, KwJudge:
+        var fn3 as ref to weave with p as ref to PsParser into int is p->hooks.judge
+        return calling fn3 with p
+    if calling ps_check_kw with p, KwFor:
+        var fn4 as ref to weave with p as ref to PsParser into int is p->hooks.value
+        return calling fn4 with p
+    return calling pexpr_parse_bool_or with p
+
+# ---------------------------------------------------------------------------
+# Booleanos
+# ---------------------------------------------------------------------------
+
+## Parsea `bool_or_expr`.
+##
+## ## Memoria
+## Construye nodos `bool_or`.
+weave pexpr_parse_bool_or with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_bool_and with p
+    var more as bool is true
+    while more:
+        if calling ps_check_kw with p, KwOr:
+            var nxt as TokenKind is calling ps_kind_ahead with p, 1
+            if nxt == TokKeyword:
+                var nkw as KeywordKind is calling ps_kw_at_offset with p, 1
+                if nkw == KwElse or nkw == KwReturn:
+                    set more is false
+                else:
+                    var opi as int is p->pos
+                    var ignored as Token is calling ps_advance with p
+                    var right as int is calling pexpr_parse_bool_and with p
+                    set left is calling putil.pexpr_binary with p, NodeKind.NdBoolOr, left, opi, right
+            else if nxt == TokColon:
+                set more is false
+            else:
+                var opi2 as int is p->pos
+                var ignored2 as Token is calling ps_advance with p
+                var right2 as int is calling pexpr_parse_bool_and with p
+                set left is calling putil.pexpr_binary with p, NodeKind.NdBoolOr, left, opi2, right2
+        else:
+            set more is false
+    return left
+
+## Parsea `bool_and_expr`.
+##
+## ## Memoria
+## Construye nodos `bool_and`.
+weave pexpr_parse_bool_and with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_comparison with p
+    var more as bool is true
+    while more:
+        if calling ps_check_kw with p, KwAnd:
+            var opi as int is p->pos
+            var ignored as Token is calling ps_advance with p
+            var right as int is calling pexpr_parse_comparison with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdBoolAnd, left, opi, right
+        else:
+            set more is false
+    return left
+
+# ---------------------------------------------------------------------------
+# Comparaciones y rango
+# ---------------------------------------------------------------------------
+
+## Parsea comparaciones, `is present/true/false` e `in`.
+##
+## ## Memoria
+## Construye el nodo correspondiente.
+weave pexpr_parse_comparison with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_range with p
+    var more as bool is true
+    while more:
+        var k as TokenKind is calling ps_kind_at with p
+        if k == TokEqual:
+            set left is calling pexpr_binary_op with p, NodeKind.NdEq, left
+        else if k == TokNotEqual:
+            set left is calling pexpr_binary_op with p, NodeKind.NdNe, left
+        else if k == TokLess:
+            set left is calling pexpr_binary_op with p, NodeKind.NdLt, left
+        else if k == TokLessOrEqual:
+            set left is calling pexpr_binary_op with p, NodeKind.NdLe, left
+        else if k == TokGreater:
+            set left is calling pexpr_binary_op with p, NodeKind.NdGt, left
+        else if k == TokGreaterOrEqual:
+            set left is calling pexpr_binary_op with p, NodeKind.NdGe, left
+        else if k == TokKeyword:
+            var kw as KeywordKind is calling ps_kw_at with p
+            if kw == KwIs:
+                if calling ps_word_at with p, 1, "present":
+                    var opi as int is p->pos
+                    var ignored as Token is calling ps_advance with p
+                    var ignored2 as bool is calling ps_accept_word with p, "present"
+                    set left is calling putil.pexpr_unary_node with p, NodeKind.NdIsPresent, left, opi, (calling putil.pexpr_start_of with p, left)
+                else if (calling ps_kw_at_offset with p, 1) == KwNot:
+                    if calling ps_word_at with p, 2, "present":
+                        var opi2 as int is p->pos
+                        var ignored3 as Token is calling ps_advance with p
+                        var ignored4 as Token is calling ps_expect_kw with p, KwNot, "'not'"
+                        var ignored5 as bool is calling ps_accept_word with p, "present"
+                        set left is calling putil.pexpr_unary_node with p, NodeKind.NdIsNotPresent, left, opi2, (calling putil.pexpr_start_of with p, left)
+                    else:
+                        set more is false
+                else if (calling ps_kw_at_offset with p, 1) == KwTrue:
+                    var opi3 as int is p->pos
+                    var ignored6 as Token is calling ps_advance with p
+                    var ignored7 as Token is calling ps_expect_kw with p, KwTrue, "'true'"
+                    set left is calling putil.pexpr_unary_node with p, NodeKind.NdIsTrue, left, opi3, (calling putil.pexpr_start_of with p, left)
+                else if (calling ps_kw_at_offset with p, 1) == KwFalse:
+                    var opi4 as int is p->pos
+                    var ignored8 as Token is calling ps_advance with p
+                    var ignored9 as Token is calling ps_expect_kw with p, KwFalse, "'false'"
+                    set left is calling putil.pexpr_unary_node with p, NodeKind.NdIsFalse, left, opi4, (calling putil.pexpr_start_of with p, left)
+                else:
+                    set more is false
+            else if kw == KwIn:
+                var opi5 as int is p->pos
+                var ignored10 as Token is calling ps_advance with p
+                var right as int is calling pexpr_parse_range with p
+                set left is calling putil.pexpr_binary with p, NodeKind.NdInExpr, left, opi5, right
+            else if kw == KwNot:
+                if (calling ps_kw_at_offset with p, 1) == KwIn:
+                    var opi6 as int is p->pos
+                    var ignored11 as Token is calling ps_advance with p
+                    var ignored12 as Token is calling ps_expect_kw with p, KwIn, "'in'"
+                    var right2 as int is calling pexpr_parse_range with p
+                    set left is calling putil.pexpr_binary with p, NodeKind.NdNotInExpr, left, opi6, right2
+                else:
+                    set more is false
+            else:
+                set more is false
+        else:
+            set more is false
+    return left
+
+## Construye un binario consumiendo el operador actual.
+##
+## ## Memoria
+## Crea el nodo y avanza.
+weave pexpr_binary_op with p as ref to PsParser, kind as NodeKind, left as int into int:
+    var opi as int is p->pos
+    var ignored as Token is calling ps_advance with p
+    var right as int is calling pexpr_parse_bit_or with p
+    return calling putil.pexpr_binary with p, kind, left, opi, right
+
+## Parsea `..` y `to`.
+##
+## ## Memoria
+## Construye `range_dotdot` o `to_expr`.
+weave pexpr_parse_range with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_bit_or with p
+    if calling ps_check with p, TokDotDot:
+        var opi as int is p->pos
+        var ignored as Token is calling ps_advance with p
+        var right as int is calling pexpr_parse_bit_or with p
+        var start as int is calling putil.pexpr_start_of with p, left
+        var end as int is calling putil.pexpr_end_of with p, right
+        calling ps_begin_children with p
+        calling ps_add_child with p, left
+        calling ps_add_token with p, opi
+        calling ps_add_child with p, right
+        return calling ps_finish_node with p, NodeKind.NdRangeDotdot, start, end, opi
+    if calling ps_check_kw with p, KwTo:
+        var opi2 as int is p->pos
+        var ignored2 as Token is calling ps_advance with p
+        var right2 as int is calling pexpr_parse_bit_or with p
+        return calling putil.pexpr_binary with p, NodeKind.NdToExpr, left, opi2, right2
+    return left
+
+# ---------------------------------------------------------------------------
+# Bitwise, shifts y aritmética
+# ---------------------------------------------------------------------------
+
+## Parsea `|`.
+##
+## ## Memoria
+## Construye `bitwise_or`.
+weave pexpr_parse_bit_or with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_bit_and with p
+    while calling ps_check with p, TokVerticalBar:
+        var opi as int is p->pos
+        var ignored as Token is calling ps_advance with p
+        var right as int is calling pexpr_parse_bit_and with p
+        set left is calling putil.pexpr_binary with p, NodeKind.NdBitwiseOr, left, opi, right
+    return left
+
+## Parsea `&`.
+##
+## ## Memoria
+## Construye `bitwise_and`.
+weave pexpr_parse_bit_and with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_bit_xor with p
+    while calling ps_check with p, TokAmpersand:
+        var opi as int is p->pos
+        var ignored as Token is calling ps_advance with p
+        var right as int is calling pexpr_parse_bit_xor with p
+        set left is calling putil.pexpr_binary with p, NodeKind.NdBitwiseAnd, left, opi, right
+    return left
+
+## Parsea `^`.
+##
+## ## Memoria
+## Construye `bitwise_xor`.
+weave pexpr_parse_bit_xor with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_shift with p
+    while calling ps_check with p, TokCaret:
+        var opi as int is p->pos
+        var ignored as Token is calling ps_advance with p
+        var right as int is calling pexpr_parse_shift with p
+        set left is calling putil.pexpr_binary with p, NodeKind.NdBitwiseXor, left, opi, right
+    return left
+
+## Parsea `<<` y `>>`.
+##
+## ## Memoria
+## Construye `shl`/`shr`.
+weave pexpr_parse_shift with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_add with p
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokShiftLeft:
+            var opi as int is p->pos
+            var ignored as Token is calling ps_advance with p
+            var right as int is calling pexpr_parse_add with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdShl, left, opi, right
+        else if calling ps_check with p, TokShiftRight:
+            var opi2 as int is p->pos
+            var ignored2 as Token is calling ps_advance with p
+            var right2 as int is calling pexpr_parse_add with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdShr, left, opi2, right2
+        else:
+            set more is false
+    return left
+
+## Parsea `+` y `-`.
+##
+## ## Memoria
+## Construye `add`/`sub`.
+weave pexpr_parse_add with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_mul with p
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokPlus:
+            var opi as int is p->pos
+            var ignored as Token is calling ps_advance with p
+            var right as int is calling pexpr_parse_mul with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdAdd, left, opi, right
+        else if calling ps_check with p, TokMinus:
+            var opi2 as int is p->pos
+            var ignored2 as Token is calling ps_advance with p
+            var right2 as int is calling pexpr_parse_mul with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdSub, left, opi2, right2
+        else:
+            set more is false
+    return left
+
+## Parsea `*`, `/` y `%`.
+##
+## ## Memoria
+## Construye `mul`/`div`/`mod`.
+weave pexpr_parse_mul with p as ref to PsParser into int:
+    var left as int is calling pcalls.pexpr_parse_unary with p
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokStar:
+            var opi as int is p->pos
+            var ignored as Token is calling ps_advance with p
+            var right as int is calling pcalls.pexpr_parse_unary with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdMul, left, opi, right
+        else if calling ps_check with p, TokSlash:
+            var opi2 as int is p->pos
+            var ignored2 as Token is calling ps_advance with p
+            var right2 as int is calling pcalls.pexpr_parse_unary with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdDiv, left, opi2, right2
+        else if calling ps_check with p, TokPercent:
+            var opi3 as int is p->pos
+            var ignored3 as Token is calling ps_advance with p
+            var right3 as int is calling pcalls.pexpr_parse_unary with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdMod, left, opi3, right3
+        else:
+            set more is false
+    return left
+
+# ---------------------------------------------------------------------------
+# expr_no_cast y guard
+# ---------------------------------------------------------------------------
+
+## Parsea `expr_no_cast`.
+##
+## ## Memoria
+## Construye comparaciones y operadores sin `to`/`is`/`in`.
+weave pexpr_parse_expr_no_cast with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_logic_or_no_cast with p
+    var more as bool is true
+    while more:
+        var k as TokenKind is calling ps_kind_at with p
+        if k == TokEqual:
+            var opi as int is p->pos
+            var ignored as Token is calling ps_advance with p
+            var right as int is calling pexpr_parse_logic_or_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdEq, left, opi, right
+        else if k == TokNotEqual:
+            var opi2 as int is p->pos
+            var ignored2 as Token is calling ps_advance with p
+            var right2 as int is calling pexpr_parse_logic_or_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdNe, left, opi2, right2
+        else if k == TokLess:
+            var opi3 as int is p->pos
+            var ignored3 as Token is calling ps_advance with p
+            var right3 as int is calling pexpr_parse_logic_or_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdLt, left, opi3, right3
+        else if k == TokLessOrEqual:
+            var opi4 as int is p->pos
+            var ignored4 as Token is calling ps_advance with p
+            var right4 as int is calling pexpr_parse_logic_or_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdLe, left, opi4, right4
+        else if k == TokGreater:
+            var opi5 as int is p->pos
+            var ignored5 as Token is calling ps_advance with p
+            var right5 as int is calling pexpr_parse_logic_or_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdGt, left, opi5, right5
+        else if k == TokGreaterOrEqual:
+            var opi6 as int is p->pos
+            var ignored6 as Token is calling ps_advance with p
+            var right6 as int is calling pexpr_parse_logic_or_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdGe, left, opi6, right6
+        else:
+            set more is false
+    return left
+
+## Nivel `|` de `expr_no_cast`.
+##
+## ## Memoria
+## Construye `bitwise_or`.
+weave pexpr_parse_logic_or_no_cast with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_logic_and_no_cast with p
+    while calling ps_check with p, TokVerticalBar:
+        var opi as int is p->pos
+        var ignored as Token is calling ps_advance with p
+        var right as int is calling pexpr_parse_logic_and_no_cast with p
+        set left is calling putil.pexpr_binary with p, NodeKind.NdBitwiseOr, left, opi, right
+    return left
+
+## Nivel `&` de `expr_no_cast`.
+##
+## ## Memoria
+## Construye `bitwise_and`.
+weave pexpr_parse_logic_and_no_cast with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_xor_no_cast with p
+    while calling ps_check with p, TokAmpersand:
+        var opi as int is p->pos
+        var ignored as Token is calling ps_advance with p
+        var right as int is calling pexpr_parse_xor_no_cast with p
+        set left is calling putil.pexpr_binary with p, NodeKind.NdBitwiseAnd, left, opi, right
+    return left
+
+## Nivel `^` de `expr_no_cast`.
+##
+## ## Memoria
+## Construye `bitwise_xor`.
+weave pexpr_parse_xor_no_cast with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_shift_no_cast with p
+    while calling ps_check with p, TokCaret:
+        var opi as int is p->pos
+        var ignored as Token is calling ps_advance with p
+        var right as int is calling pexpr_parse_shift_no_cast with p
+        set left is calling putil.pexpr_binary with p, NodeKind.NdBitwiseXor, left, opi, right
+    return left
+
+## Nivel `<<`/`>>` de `expr_no_cast`.
+##
+## ## Memoria
+## Construye `shl`/`shr`.
+weave pexpr_parse_shift_no_cast with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_add_no_cast with p
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokShiftLeft:
+            var opi as int is p->pos
+            var ignored as Token is calling ps_advance with p
+            var right as int is calling pexpr_parse_add_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdShl, left, opi, right
+        else if calling ps_check with p, TokShiftRight:
+            var opi2 as int is p->pos
+            var ignored2 as Token is calling ps_advance with p
+            var right2 as int is calling pexpr_parse_add_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdShr, left, opi2, right2
+        else:
+            set more is false
+    return left
+
+## Nivel `+`/`-` de `expr_no_cast`.
+##
+## ## Memoria
+## Construye `add`/`sub`.
+weave pexpr_parse_add_no_cast with p as ref to PsParser into int:
+    var left as int is calling pexpr_parse_mul_no_cast with p
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokPlus:
+            var opi as int is p->pos
+            var ignored as Token is calling ps_advance with p
+            var right as int is calling pexpr_parse_mul_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdAdd, left, opi, right
+        else if calling ps_check with p, TokMinus:
+            var opi2 as int is p->pos
+            var ignored2 as Token is calling ps_advance with p
+            var right2 as int is calling pexpr_parse_mul_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdSub, left, opi2, right2
+        else:
+            set more is false
+    return left
+
+## Nivel `*`/`/`/`%` de `expr_no_cast`.
+##
+## ## Memoria
+## Construye `mul`/`div`/`mod`.
+weave pexpr_parse_mul_no_cast with p as ref to PsParser into int:
+    var left as int is calling pcalls.pexpr_parse_unary_no_cast with p
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokStar:
+            var opi as int is p->pos
+            var ignored as Token is calling ps_advance with p
+            var right as int is calling pcalls.pexpr_parse_unary_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdMul, left, opi, right
+        else if calling ps_check with p, TokSlash:
+            var opi2 as int is p->pos
+            var ignored2 as Token is calling ps_advance with p
+            var right2 as int is calling pcalls.pexpr_parse_unary_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdDiv, left, opi2, right2
+        else if calling ps_check with p, TokPercent:
+            var opi3 as int is p->pos
+            var ignored3 as Token is calling ps_advance with p
+            var right3 as int is calling pcalls.pexpr_parse_unary_no_cast with p
+            set left is calling putil.pexpr_binary with p, NodeKind.NdMod, left, opi3, right3
+        else:
+            set more is false
+    return left
+
+## Parsea una guarda de `when`.
+##
+## Usa la misma jerarquía que una expresión; la gramática de guardas es un
+## subconjunto, pero aceptar de más aquí no cambia el AST de los casos válidos.
+##
+## ## Memoria
+## Construye el AST.
+weave pexpr_parse_guard_expr with p as ref to PsParser into int:
+    var previous as bool is p->guard_mode
+    set p->guard_mode is true
+    var result as int is calling pexpr_parse_bool_or with p
+    set p->guard_mode is previous
+    return result

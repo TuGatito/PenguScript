@@ -1,0 +1,212 @@
+## psc/lexer_indent.pengu — post-lexer de `NEWLINE`/`INDENT`/`DEDENT`.
+##
+## Replica el `Indenter` de Lark:
+## - `tab_width = 2`;
+## - los `NEWLINE` dentro de `()`, `[]` o `{}` se descartan y no generan
+##   indentación;
+## - la indentación de un `NEWLINE` es la de su última línea (la que empieza el
+##   siguiente token);
+## - al EOF se cierran todos los niveles.
+##
+## A diferencia de stage0, un dedent inconsistente no aborta: se emite `E0000`
+## y se recuerda el nuevo nivel para no repetir el error en cada línea.
+##
+## ## Memoria
+## `apply` construye una lista nueva y libera la lista de entrada. Devuelve una
+## lista owned; liberar con `banish`.
+
+import std.diagnostic as diag
+import std.sourcemap
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer_state as psstate
+import psc.diagnostics as psdiag
+
+## Aplica la pasada de indentación.
+##
+## ## Memoria
+## Libera `tokens` y devuelve una lista nueva; el llamador la libera.
+weave lex_indent_apply with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag, tokens as list of Token, opts as LexOptions into list of Token:
+    if opts.warn_mixed_indentation:
+        calling lex_indent_warn_mixed_indentation with src, bag
+    var out as list of Token is list of Token
+    var stack as list of int is list of int
+    calling stack.push with 0
+    var brackets as list of int is list of int
+    var i as int is 0
+    while i < tokens.len:
+        var t as Token is tokens at i
+        if t.kind == TokNewline:
+            if brackets.len > 0:
+                set i is i + 1
+                continue
+            calling out.push with t
+            var indent as int is t.aux
+            var top as int is stack at (stack.len - 1)
+            if indent > top:
+                calling stack.push with indent
+                if opts.keep_indent_tokens:
+                    calling lex_indent_emit_zero with src, sigil of out, TokIndent, t.end, indent
+            else if indent < top:
+                while indent < (stack at (stack.len - 1)):
+                    calling stack.pop
+                    if opts.keep_indent_tokens:
+                        calling lex_indent_emit_zero with src, sigil of out, TokDedent, t.end, 0
+                var now as int is stack at (stack.len - 1)
+                if indent != now:
+                    var detail as string is "{indent} (expected {now})"
+                    calling lex_indent_emit_issue_at with src, bag, LexIndentMismatch, t.end, t.end, detail
+                    banish detail
+                    calling stack.push with indent
+                    if opts.keep_indent_tokens:
+                        calling lex_indent_emit_zero with src, sigil of out, TokIndent, t.end, indent
+            set i is i + 1
+            continue
+        if calling lex_indent_is_open with t.kind:
+            calling brackets.push with t.start
+        else if calling lex_indent_is_close with t.kind:
+            if brackets.len == 0:
+                var d1 as string is calling lex_indent_closing_char with t.kind
+                calling lex_indent_emit_issue_at with src, bag, LexUnmatchedCloseBracket, t.start, t.end, d1
+                banish d1
+            else:
+                calling brackets.pop
+        calling out.push with t
+        set i is i + 1
+    var eof as sourcemap.Position is calling src.eof_position
+    var eof_off as int is calling src.byte_len
+    while stack.len > 1:
+        calling stack.pop
+        if opts.keep_indent_tokens:
+            calling lex_indent_emit_zero_at with src, sigil of out, TokDedent, eof_off, eof.line, eof.col, 0
+    var b as int is 0
+    while b < brackets.len:
+        var st as int is brackets at b
+        var ch as string is calling lex_indent_opening_char_at with src, st
+        calling lex_indent_emit_issue_at with src, bag, LexUnclosedBracket, st, st + 1, ch
+        banish ch
+        set b is b + 1
+    calling lex_indent_emit_zero_at with src, sigil of out, TokEof, eof_off, eof.line, eof.col, 0
+    banish stack
+    banish brackets
+    banish tokens
+    return out
+
+## Emite un token de ancho cero en `offset`.
+##
+## ## Memoria
+## `push` de un valor POD; no asigna.
+weave lex_indent_emit_zero with src as ref to psource.SourceFile, out as ref to list of Token, kind as TokenKind, offset as int, width as int into void:
+    var p as sourcemap.Position is calling src.position_at with offset
+    calling lex_indent_emit_zero_at with src, out, kind, offset, p.line, p.col, width
+
+## Emite un token de ancho cero con posición explícita.
+##
+## ## Memoria
+## `push` de un valor POD; no asigna.
+weave lex_indent_emit_zero_at with src as ref to psource.SourceFile, out as ref to list of Token, kind as TokenKind, offset as int, line as int, col as int, width as int into void:
+    var t as Token is with kind is kind, kw is KwNotKeyword, start is offset, end is offset, line is line, col is col, aux is width
+    calling out.push with t
+
+## `true` si `k` abre un delimitador.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_indent_is_open with k as TokenKind into bool:
+    return k == TokLeftParen or k == TokLeftBracket or k == TokLeftBrace
+
+## `true` si `k` cierra un delimitador.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_indent_is_close with k as TokenKind into bool:
+    return k == TokRightParen or k == TokRightBracket or k == TokRightBrace
+
+## Carácter de cierre para el diagnóstico.
+##
+## ## Memoria
+## Devuelve un literal estático; no liberar.
+weave lex_indent_closing_char with k as TokenKind into string:
+    if k == TokRightParen:
+        return ")"
+    if k == TokRightBracket:
+        return "]"
+    return "}"
+
+## Carácter de apertura en `offset`.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave lex_indent_opening_char_at with src as ref to psource.SourceFile, offset as int into string:
+    var b as int is calling src.byte_at with offset
+    if b == 40:
+        return "("
+    if b == 91:
+        return "["
+    if b == 123:
+        return "{"
+    return "?"
+
+## Emite un issue en `[start, end)`.
+##
+## ## Memoria
+## Asigna el diagnóstico; el bag pasa a ser dueño.
+weave lex_indent_emit_issue_at with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag, problem as LexIssue, start as int, end as int, detail as string into void:
+    var s as pspan.ByteSpan is with start is start, end is end
+    calling psdiag.emit_issue with bag, src, problem, s, detail
+
+## Emite `W0005` si se mezclan tabs y espacios en la indentación.
+##
+## ## Memoria
+## Recorre el fuente sin asignar; emite un diagnóstico como máximo.
+weave lex_indent_warn_mixed_indentation with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag into void:
+    var n as int is calling src.byte_len
+    var i as int is 0
+    var line as int is 1
+    var tab_line as int is 0
+    var space_line as int is 0
+    var tab_off as int is 0
+    var space_off as int is 0
+    while i <= n:
+        var line_start as int is i
+        var j as int is i
+        while j < n and (calling src.byte_at with j) != 10:
+            set j is j + 1
+        var has_tab as bool is false
+        var has_space as bool is false
+        var k as int is line_start
+        while k < j:
+            var b as int is calling src.byte_at with k
+            if b == 32:
+                set has_space is true
+            else if b == 9:
+                set has_tab is true
+            else:
+                break
+            set k is k + 1
+        var is_comment as bool is false
+        if k < j:
+            if (calling src.byte_at with k) == 35:
+                set is_comment is true
+        var lex_is_blank as bool is (k >= j)
+        if not lex_is_blank and not is_comment:
+            if has_tab and tab_line == 0:
+                set tab_line is line
+                set tab_off is line_start
+            if has_space and space_line == 0:
+                set space_line is line
+                set space_off is line_start
+        if j >= n:
+            break
+        set i is j + 1
+        set line is line + 1
+    if tab_line > 0 and space_line > 0:
+        var detail as string is "line {tab_line} uses tabs, line {space_line} uses spaces"
+        defer banish detail
+        var off as int is tab_off
+        if space_line > tab_line:
+            set off is space_off
+        var s as pspan.ByteSpan is with start is off, end is off
+        calling lex_indent_emit_issue_at with src, bag, LexMixedIndentation, off, off, detail

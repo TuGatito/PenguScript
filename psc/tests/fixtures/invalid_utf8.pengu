@@ -1,0 +1,3 @@
+weave main into int:
+    var s as string is "ÿ"
+    return 0

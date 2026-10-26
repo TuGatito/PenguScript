@@ -1,0 +1,11 @@
+error[E0000]: unmatched ')'
+  --> tests/fixtures/unmatched_bracket.pengu:2:22
+  |
+1 | weave main into int:
+2 |     var x as int is 1)
+  |                      ^
+3 |     return x
+  |
+   = note: The parser will also recover from this position.
+   = help: Remove the closing delimiter or add its opening one.
+

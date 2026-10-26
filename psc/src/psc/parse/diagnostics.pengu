@@ -1,0 +1,169 @@
+## psc/parse/diagnostics.pengu — diagnósticos sintácticos de F2.
+##
+## Todos los errores de sintaxis comparten el código `E0000`, igual que
+## stage0. Lo que cambia es el mensaje, el `help` y el `note`, que aquí son
+## específicos para que un humano sepa qué corregir.
+##
+## ## Memoria
+## `parse_issue_message` devuelve un `string` owned. Los `help`/`note` son
+## literales estáticos. `emit_parse_issue` copia lo que necesita el
+## `DiagnosticBag` y libera el mensaje.
+
+import std.diagnostic as diag
+
+import psc.span as pspan
+import psc.source as psource
+import psc.diagnostics as psdiag
+
+insignia psc_parse_diag_
+
+## Código público de todos los errores sintácticos.
+const PSC_E_SYNTAX as string is "E0000"
+
+## Cada problema que puede detectar el parser.
+omen ParseIssue:
+    ## Falta un token concreto; `detail` dice cuál.
+    ParseExpectedToken
+    ## El token actual no puede empezar la construcción.
+    ParseUnexpectedToken
+    ## Se esperaba una expresión.
+    ParseExpectedExpression
+    ## Se esperaba un tipo.
+    ParseExpectedType
+    ## Se esperaba un nombre.
+    ParseExpectedName
+    ## Falta el `NEWLINE` de fin de statement.
+    ParseExpectedNewline
+    ## Falta el `INDENT` de un bloque.
+    ParseExpectedIndent
+    ## Falta el `DEDENT` de un bloque.
+    ParseExpectedDedent
+    ## Un bloque `:` no tiene ningún statement.
+    ParseEmptyBlock
+    ## Varios statements en una línea sin separador.
+    ParseMultipleStatements
+    ## `and` usado como separador donde ya no lo es.
+    ParseLegacyAndSeparator
+    ## `set xs at n - 1 is v`: el índice necesita paréntesis.
+    ParseAtIndexPrecedence
+    ## Demasiados delimitadores/expresiones anidadas.
+    ParseMaxDepth
+    ## Demasiados bloques anidados.
+    ParseMaxBlockDepth
+    ## El target de un `set` no es asignable.
+    ParseInvalidSetTarget
+    ## El target de un `calling` no es válido.
+    ParseInvalidCallTarget
+    ## Atributo mal formado.
+    ParseInvalidAttribute
+    ## Lista de `declare` mal formada.
+    ParseInvalidDeclareParams
+    ## Cláusula `when` mal formada.
+    ParseInvalidWhenClause
+    ## Tipo mal formado.
+    ParseInvalidType
+    ## Fin de archivo inesperado.
+    ParseUnexpectedEof
+
+## Mensaje principal de un issue.
+##
+## `detail` se interpola solo en los issues que lo necesitan. El resultado es
+## owned; el llamador lo libera.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave parse_issue_message with issue as ParseIssue, detail as string into string:
+    var msg as string is judge issue:
+        when ParseExpectedToken -> "expected {detail}"
+        when ParseUnexpectedToken -> "unexpected {detail}"
+        when ParseExpectedExpression -> "expected an expression"
+        when ParseExpectedType -> "expected a type"
+        when ParseExpectedName -> "expected a name"
+        when ParseExpectedNewline -> "expected a newline after the statement"
+        when ParseExpectedIndent -> "expected an indented block"
+        when ParseExpectedDedent -> "expected the end of the block"
+        when ParseEmptyBlock -> "a block must contain at least one statement"
+        when ParseMultipleStatements -> "Syntax error: multiple statements on a single line require a newline delimiter"
+        when ParseLegacyAndSeparator -> "'and' is no longer a separator: use ',' (offending 'and' at {detail})"
+        when ParseAtIndexPrecedence -> "The index after 'at' binds tighter than '{detail}': parenthesise the index expression"
+        when ParseMaxDepth -> "Source nesting exceeds the maximum supported depth ({detail})"
+        when ParseMaxBlockDepth -> "Block nesting exceeds the maximum supported depth ({detail})"
+        when ParseInvalidSetTarget -> "invalid assignment target"
+        when ParseInvalidCallTarget -> "invalid call target"
+        when ParseInvalidAttribute -> "invalid attribute"
+        when ParseInvalidDeclareParams -> "invalid declare parameter list"
+        when ParseInvalidWhenClause -> "invalid 'when' clause"
+        when ParseInvalidType -> "invalid type"
+        when ParseUnexpectedEof -> "unexpected end of file"
+    return msg
+
+## Texto de ayuda del issue ("" si no tiene).
+##
+## ## Memoria
+## Devuelve un literal estático; no liberar.
+weave parse_issue_help with issue as ParseIssue into string:
+    return judge issue:
+        when ParseExpectedToken -> "Check the syntax around this position (see LANGUAGE.md / CHEATSHEET.md)."
+        when ParseUnexpectedToken -> "Check the syntax around this position (see LANGUAGE.md / CHEATSHEET.md)."
+        when ParseExpectedExpression -> "Write an expression after the operator or keyword."
+        when ParseExpectedType -> "Write a type such as 'int', 'list of T' or 'ref to T'."
+        when ParseExpectedName -> "Write an identifier."
+        when ParseExpectedNewline -> "Put one statement per line, or use ':' for a single-line block."
+        when ParseExpectedIndent -> "Indent the block one level (four spaces) after the ':'."
+        when ParseExpectedDedent -> "Check the indentation; the block never returned to the outer level."
+        when ParseEmptyBlock -> "Add a statement, or use 'do:' for an empty body."
+        when ParseMultipleStatements -> "Put each declaration or statement on its own line."
+        when ParseLegacyAndSeparator -> "Since 0.10.0 'and' is the boolean operator (short-circuit). Separate arguments, parameters and struct fields with ',' — e.g. 'calling f with 1, 2', 'weave g with x as int, y as int', 'with x is 1, y is 2'. ('map of K to V' still uses 'to'.)"
+        when ParseAtIndexPrecedence -> "Write 'set xs at (n - 1) is v' when the index is computed."
+        when ParseMaxDepth -> "Split the expression into named intermediate values, or reduce the number of nested blocks."
+        when ParseMaxBlockDepth -> "Flatten the block structure or split it into helper weaves."
+        when ParseInvalidSetTarget -> "Assign to a name, a field, an index or 'essence of' a pointer."
+        when ParseInvalidCallTarget -> "Write 'calling name', 'calling module.name' or 'calling .method'."
+        when ParseInvalidAttribute -> "Use '@name' or '@name(arg, ...)'."
+        when ParseInvalidDeclareParams -> "Use 'name as type' entries, optionally ending with '...'."
+        when ParseInvalidWhenClause -> "Write 'when <pattern> [with <payload>] [if <guard>] -> <body>'."
+        when ParseInvalidType -> "Check the type spelling."
+        when ParseUnexpectedEof -> "Close the construct before the end of the file."
+
+## Nota adicional del issue ("" si no tiene).
+##
+## ## Memoria
+## Devuelve un literal estático; no liberar.
+weave parse_issue_note with issue as ParseIssue into string:
+    return judge issue:
+        when ParseExpectedToken -> "PenguScript is indentation-sensitive: statements in a block must be indented consistently."
+        when ParseUnexpectedToken -> "PenguScript parses blocks by indentation; argument, parameter and field lists use ','."
+        when ParseExpectedExpression -> ""
+        when ParseExpectedType -> ""
+        when ParseExpectedName -> "PenguScript identifiers are ASCII-only."
+        when ParseExpectedNewline -> "A single-line block ('if c: return 0') is the only place where two statements share a line."
+        when ParseExpectedIndent -> "A ':' that ends a line must be followed by an indented block."
+        when ParseExpectedDedent -> ""
+        when ParseEmptyBlock -> ""
+        when ParseMultipleStatements -> ""
+        when ParseLegacyAndSeparator -> "The old 'and' list separator was removed in 0.10.0; see the CHANGELOG migration notes."
+        when ParseAtIndexPrecedence -> "'at' is a postfix operator, like '.field' or 'length': it takes a single atom as its index."
+        when ParseMaxDepth -> "The parser, checker and C backend are recursive; the limit protects them from a stack overflow."
+        when ParseMaxBlockDepth -> "Deeply nested blocks exceed the recursive front-end limit."
+        when ParseInvalidSetTarget -> ""
+        when ParseInvalidCallTarget -> ""
+        when ParseInvalidAttribute -> ""
+        when ParseInvalidDeclareParams -> ""
+        when ParseInvalidWhenClause -> ""
+        when ParseInvalidType -> ""
+        when ParseUnexpectedEof -> ""
+
+## Emite el diagnóstico de un issue en `[start, end)`.
+##
+## `detail` es prestado. El mensaje se construye y se libera aquí; el
+## `DiagnosticBag` pasa a ser dueño del `Span` y de las copias internas.
+##
+## ## Memoria
+## Asigna el mensaje y el diagnóstico; liberar el bag al final.
+weave emit_parse_issue with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, issue as ParseIssue, start as int, end as int, detail as string into void:
+    var s as pspan.ByteSpan is with start is start, end is end
+    var msg as string is calling parse_issue_message with issue, detail
+    defer banish msg
+    var help as string is calling parse_issue_help with issue
+    var note as string is calling parse_issue_note with issue
+    calling psdiag.emit_error with bag, src, PSC_E_SYNTAX, msg, s, help, note

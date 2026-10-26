@@ -1,0 +1,328 @@
+## psc/sema/types/canonical.pengu — nombres canónicos y mangled.
+##
+## `canonical_name` produce lo que `type of` y los diagnósticos muestran al
+## usuario (`list of int`, `ref to Point`, `byte`). `mangled_name` produce la
+## identidad C estable que usará F4 y las claves de instancia.
+##
+## Ambos se calculan una vez por `TypeId` y se guardan como `NameId` en las
+## cachés de `SemaTypeTable`.
+##
+## ## Memoria
+## Devuelve un `NameId`; el texto vive en el `NamePool` del programa.
+
+import std.builder
+
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+
+insignia sema_type_canonical_
+
+## Nombre canónico de un tipo, internado.
+##
+## ## Memoria
+## Puede construir un string temporal y añadir una entrada al pool/caché.
+weave canonical_name with t as ref to types.SemaTypeTable, id as int into int:
+    if id < 0 or id >= t->types.len:
+        return calling npool.intern with t->names, "<error>"
+    var cached as int is (t->canonical_cache at id)
+    if cached >= 0:
+        return cached
+    var ty as tk.SemaType is (t->types at id)
+    var text as string is calling build_canonical with t, ty
+    defer banish text
+    var nid as int is calling npool.intern with t->names, text
+    set t->canonical_cache at (id) is nid
+    return nid
+
+## Texto canónico de un tipo.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave build_canonical with t as ref to types.SemaTypeTable, ty as tk.SemaType into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    judge ty.kind:
+        when TkAny -> calling sb.append with "any"
+        when TkNull -> calling sb.append with "null"
+        when TkVoid -> calling sb.append with "void"
+        when TkOpaque -> calling sb.append with "opaque"
+        when TkError -> calling sb.append with "<error>"
+        when TkCVarArgs -> calling sb.append with "..."
+        when TkBase -> calling sb.append with (calling display_base with t, ty.name)
+        when TkRef ->
+            calling sb.append with "ref to "
+            calling append_type with (sigil of sb), t, ty.a
+        when TkFrozen ->
+            calling sb.append with "frozen "
+            calling append_type with (sigil of sb), t, ty.a
+        when TkArray ->
+            calling sb.append with "array of "
+            calling append_type with (sigil of sb), t, ty.a
+            calling sb.append with " with size "
+            calling sb.append_int with ty.b
+        when TkSlice ->
+            calling sb.append with "slice of "
+            calling append_type with (sigil of sb), t, ty.a
+        when TkMany ->
+            calling sb.append with "many "
+            calling append_type with (sigil of sb), t, ty.a
+        when TkList ->
+            calling sb.append with "list of "
+            calling append_type with (sigil of sb), t, ty.a
+        when TkMap ->
+            calling sb.append with "map of "
+            calling append_type with (sigil of sb), t, ty.a
+            calling sb.append with " to "
+            calling append_type with (sigil of sb), t, ty.b
+        when TkMaybe ->
+            calling sb.append with "maybe "
+            calling append_type with (sigil of sb), t, ty.a
+        when TkResult ->
+            calling sb.append with "result of "
+            calling append_type with (sigil of sb), t, ty.a
+            calling sb.append with " to "
+            calling append_type with (sigil of sb), t, ty.b
+        when TkTuple ->
+            calling sb.append with "("
+            var i as int is 0
+            while i < ty.count:
+                if i > 0:
+                    calling sb.append with ", "
+                calling append_type with (sigil of sb), t, (t->type_children at (ty.first + i))
+                set i is i + 1
+            calling sb.append with ")"
+        when TkRange ->
+            calling sb.append with "range of "
+            calling append_type with (sigil of sb), t, ty.a
+        when TkFn ->
+            calling append_fn with (sigil of sb), t, ty.a
+        when TkRune ->
+            calling append_nominal with (sigil of sb), t, ty
+        when TkEcho ->
+            calling append_nominal with (sigil of sb), t, ty
+        when TkOmen ->
+            calling append_nominal with (sigil of sb), t, ty
+        when TkAlias ->
+            calling append_nominal with (sigil of sb), t, ty
+        when TkSeal ->
+            calling append_nominal with (sigil of sb), t, ty
+        when TkConcept ->
+            calling append_nominal with (sigil of sb), t, ty
+        when TkTypeParam ->
+            var p as types.SemaTypeParamInfo is (t->tparams at ty.a)
+            calling sb.append with (calling npool.text with t->names, p.name)
+    return calling sb.finish
+
+## Texto de un primitivo con los overrides de `type of`.
+##
+## ## Memoria
+## Devuelve un literal o un préstamo del pool.
+weave display_base with t as ref to types.SemaTypeTable, nid as int into string:
+    var s as string is calling npool.text with t->names, nid
+    if s == "u8":
+        return "byte"
+    if s == "usize":
+        return "size_t"
+    return s
+
+## Añade un tipo por id al builder.
+##
+## ## Memoria
+## Construye el nombre canónico (puede internarlo).
+weave append_type with sb as ref to StringBuilder, t as ref to types.SemaTypeTable, id as int into void:
+    var nid as int is calling canonical_name with t, id
+    calling sb.append with (calling npool.text with t->names, nid)
+
+## Añade una firma de función.
+##
+## ## Memoria
+## Construye el texto; no libera nada más.
+weave append_fn with sb as ref to StringBuilder, t as ref to types.SemaTypeTable, info_idx as int into void:
+    var info as types.SemaFnInfo is (t->fn_infos at info_idx)
+    calling sb.append with "weave with "
+    var i as int is 0
+    while i < info.params_count:
+        if i > 0:
+            calling sb.append with ", "
+        var p as types.SemaFnParam is (t->fn_params at (info.params_first + i))
+        if p.name >= 0:
+            calling sb.append with (calling npool.text with t->names, p.name)
+            calling sb.append with " as "
+        calling append_type with sb, t, p.type
+        set i is i + 1
+    calling sb.append with " into "
+    calling append_type with sb, t, info.return_type
+
+## Añade un tipo nominal y, si tiene argumentos, `of ...`.
+##
+## ## Memoria
+## Construye el texto; no libera nada más.
+weave append_nominal with sb as ref to StringBuilder, t as ref to types.SemaTypeTable, ty as tk.SemaType into void:
+    var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
+    var local as string is calling npool.text with t->names, info.base_name
+    calling sb.append with local
+    # Los type args de una especialización se guardan en `type_children` del
+    # tipo. El template genérico no tiene args y muestra solo su nombre.
+    if ty.count > 0:
+        calling sb.append with " of "
+        var i as int is 0
+        while i < ty.count:
+            if i > 0:
+                calling sb.append with ", "
+            calling append_type with sb, t, (t->type_children at (ty.first + i))
+            set i is i + 1
+
+## Nombre mangled de un tipo, internado.
+##
+## ## Memoria
+## Puede construir un string temporal y añadir una entrada al pool/caché.
+weave mangled_name with t as ref to types.SemaTypeTable, id as int into int:
+    if id < 0 or id >= t->types.len:
+        return calling npool.intern with t->names, "void"
+    var cached as int is (t->mangled_cache at id)
+    if cached >= 0:
+        return cached
+    var ty as tk.SemaType is (t->types at id)
+    var text as string is calling build_mangled with t, ty
+    defer banish text
+    var nid as int is calling npool.intern with t->names, text
+    set t->mangled_cache at (id) is nid
+    return nid
+
+## Construye el nombre mangled.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave build_mangled with t as ref to types.SemaTypeTable, ty as tk.SemaType into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    judge ty.kind:
+        when TkAny -> calling sb.append with "any"
+        when TkNull -> calling sb.append with "null"
+        when TkVoid -> calling sb.append with "void"
+        when TkOpaque -> calling sb.append with "opaque"
+        when TkError -> calling sb.append with "error"
+        when TkCVarArgs -> calling sb.append with "cvarargs"
+        when TkBase -> calling sb.append with (calling npool.text with t->names, ty.name)
+        when TkRef ->
+            calling sb.append with "ref_"
+            calling append_mangled with (sigil of sb), t, ty.a
+        when TkFrozen ->
+            calling sb.append with "frozen_"
+            calling append_mangled with (sigil of sb), t, ty.a
+        when TkArray ->
+            calling sb.append with "arr_{ty.b}_"
+            calling append_mangled with (sigil of sb), t, ty.a
+        when TkSlice ->
+            calling sb.append with "slice_"
+            calling append_mangled with (sigil of sb), t, ty.a
+        when TkMany ->
+            calling sb.append with "many_"
+            calling append_mangled with (sigil of sb), t, ty.a
+        when TkList ->
+            calling sb.append with "list_"
+            calling append_mangled with (sigil of sb), t, ty.a
+        when TkMap ->
+            calling sb.append with "map_"
+            calling append_mangled with (sigil of sb), t, ty.a
+            calling sb.append with "_"
+            calling append_mangled with (sigil of sb), t, ty.b
+        when TkMaybe ->
+            calling sb.append with "maybe_"
+            calling append_mangled with (sigil of sb), t, ty.a
+        when TkResult ->
+            calling sb.append with "result_"
+            calling append_mangled with (sigil of sb), t, ty.a
+            calling sb.append with "_"
+            calling append_mangled with (sigil of sb), t, ty.b
+        when TkTuple ->
+            calling sb.append with "tup"
+            var i as int is 0
+            while i < ty.count:
+                calling sb.append with "_"
+                calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
+                set i is i + 1
+        when TkRange ->
+            calling sb.append with "range_"
+            calling append_mangled with (sigil of sb), t, ty.a
+        when TkFn ->
+            calling sb.append with "fn"
+        when TkRune ->
+            var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
+            calling sb.append with (calling npool.text with t->names, info.c_name)
+            if ty.count > 0:
+                calling sb.append with "_"
+                var i as int is 0
+                while i < ty.count:
+                    if i > 0:
+                        calling sb.append with "_"
+                    calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
+                    set i is i + 1
+        when TkEcho ->
+            var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
+            calling sb.append with (calling npool.text with t->names, info.c_name)
+            if ty.count > 0:
+                calling sb.append with "_"
+                var i as int is 0
+                while i < ty.count:
+                    if i > 0:
+                        calling sb.append with "_"
+                    calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
+                    set i is i + 1
+        when TkOmen ->
+            var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
+            calling sb.append with (calling npool.text with t->names, info.c_name)
+            if ty.count > 0:
+                calling sb.append with "_"
+                var i as int is 0
+                while i < ty.count:
+                    if i > 0:
+                        calling sb.append with "_"
+                    calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
+                    set i is i + 1
+        when TkAlias ->
+            var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
+            calling sb.append with (calling npool.text with t->names, info.c_name)
+            if ty.count > 0:
+                calling sb.append with "_"
+                var i as int is 0
+                while i < ty.count:
+                    if i > 0:
+                        calling sb.append with "_"
+                    calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
+                    set i is i + 1
+        when TkSeal ->
+            var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
+            calling sb.append with (calling npool.text with t->names, info.c_name)
+            if ty.count > 0:
+                calling sb.append with "_"
+                var i as int is 0
+                while i < ty.count:
+                    if i > 0:
+                        calling sb.append with "_"
+                    calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
+                    set i is i + 1
+        when TkConcept ->
+            var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
+            calling sb.append with (calling npool.text with t->names, info.c_name)
+            if ty.count > 0:
+                calling sb.append with "_"
+                var i as int is 0
+                while i < ty.count:
+                    if i > 0:
+                        calling sb.append with "_"
+                    calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
+                    set i is i + 1
+        when TkTypeParam ->
+            var p as types.SemaTypeParamInfo is (t->tparams at ty.a)
+            calling sb.append with (calling npool.text with t->names, p.name)
+    return calling sb.finish
+
+## Añade el mangled de un tipo al builder.
+##
+## ## Memoria
+## Construye el nombre (puede internarlo).
+weave append_mangled with sb as ref to StringBuilder, t as ref to types.SemaTypeTable, id as int into void:
+    var nid as int is calling mangled_name with t, id
+    calling sb.append with (calling npool.text with t->names, nid)

@@ -1,0 +1,57 @@
+import std.spark as sp
+include "stdio.h"
+link "m"
+ldflag "-lm"
+insignia demo_
+
+const LIMIT as int is 10
+
+alias Numbers shard T as list of T
+seal Ratio as float
+
+rune Point cyclus derive Par:
+    x as int
+    y as int
+    next as ref to Point
+
+omen Shape:
+    Empty
+    Circle with radius as int
+    Rect with width as int, height as int
+    Tagged is 7
+
+echo Flags:
+    ready as bool
+
+concept Sized shard T:
+    weave size_of_it into int
+
+bind int with Sized:
+    weave size_of_it into int:
+        return 4
+
+weave add with a as int, b as int into int:
+    return a + b
+
+enchanting Point:
+    weave ritual origin into Point:
+        return with x is 0, y is 0
+    weave sum into int:
+        return self->x + self->y
+
+declare puts with s as string into int
+
+antiquus raw_add with a as int, b as int into int:
+    """
+    return a + b;
+    """
+
+test "add works":
+    let r is calling add with 1, 2
+    if r != 3:
+        calling spark.panic with "bad add"
+
+when defined(DEBUG):
+    const MODE as int is 1
+else:
+    const MODE as int is 0

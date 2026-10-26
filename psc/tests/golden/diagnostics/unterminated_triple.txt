@@ -1,0 +1,12 @@
+error[E0000]: unterminated triple-quoted string literal
+  --> tests/fixtures/unterminated_triple.pengu:2:24
+  |
+1 | weave main into int:
+2 |     var s as string is """hola
+  |                        ^^^^^^^
+3 |     return 0
+4 | 
+  |
+   = note: Triple-quoted strings end at the first '"""'.
+   = help: Add a closing '"""' for the literal.
+

@@ -1,0 +1,6 @@
+import psc.sema.types.table as types
+weave f with x as int into bool:
+    return (x & types.NIF_STRING_VALUED) != 0
+
+weave main into int:
+    return 0

@@ -1,0 +1,35 @@
+# psc-token-dump v1
+# file: tests/fixtures/antiquus_ok.pengu
+# sha256: 3ba8b07f4d752c264303e6d3076bf9bbb2b7abf600a066294d79cda8e27981d9
+# bytes: 123
+# lines: 8
+# columns: index	kind	lexeme	start	end	line	col	end_line	end_col	aux
+0	Keyword(antiquus)	antiquus	0	8	1	1	1	9	0
+1	Identifier	add_one	9	16	1	10	1	17	0
+2	Keyword(with)	with	17	21	1	18	1	22	0
+3	Identifier	x	22	23	1	23	1	24	0
+4	Keyword(as)	as	24	26	1	25	1	27	0
+5	Identifier	int	27	30	1	28	1	31	0
+6	Keyword(into)	into	31	35	1	32	1	36	0
+7	Identifier	int	36	39	1	37	1	40	0
+8	Colon	:	39	40	1	40	1	41	0
+9	Newline	\n    	40	45	1	41	2	5	4
+10	Indent		45	45	2	5	2	5	4
+11	AntiquusBody	<antiquus>	48	62	2	8	3	14	0
+12	Newline	\n	67	68	5	1	6	1	0
+13	Dedent		68	68	6	1	6	1	0
+14	Keyword(weave)	weave	68	73	6	1	6	6	0
+15	Identifier	main	74	78	6	7	6	11	0
+16	Keyword(into)	into	79	83	6	12	6	16	0
+17	Identifier	int	84	87	6	17	6	20	0
+18	Colon	:	87	88	6	20	6	21	0
+19	Newline	\n    	88	93	6	21	7	5	4
+20	Indent		93	93	7	5	7	5	4
+21	Keyword(return)	return	93	99	7	5	7	11	0
+22	Keyword(calling)	calling	100	107	7	12	7	19	0
+23	Identifier	add_one	108	115	7	20	7	27	0
+24	Keyword(with)	with	116	120	7	28	7	32	0
+25	IntLit	2	121	122	7	33	7	34	10
+26	Newline	\n	122	123	7	34	8	1	0
+27	Dedent		123	123	8	1	8	1	0
+28	Eof		123	123	8	1	8	1	0

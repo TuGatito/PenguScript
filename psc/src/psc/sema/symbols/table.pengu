@@ -1,0 +1,582 @@
+## psc/sema/symbols/table.pengu — tabla de símbolos, scopes y registros.
+##
+## Es el equivalente de `SymbolTable` de stage0, pero con IDs enteros y mapas
+## indexados por `NameId`. El checker entra y sale de scopes; el colector
+## registra tipos, funciones, métodos, consts, genéricos e imports.
+##
+## ## Memoria
+## `SemaSymbols` es dueño de `symbols`, `scopes`, `templates`, `instances`,
+## `const_values`, sus mapas y sus listas de strings. `free_symbols` lo libera
+## todo. El `NamePool` y la tabla de tipos son prestados y viven más.
+
+
+import std.builder
+
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.scope as scope
+
+insignia sema_symbols_
+
+## Tabla de símbolos completa.
+##
+## ## Memoria
+## Sin `derive Nexus`: los mapas de cada scope y las listas de strings se
+## liberan explícitamente en `free_symbols`.
+rune SemaSymbols:
+    ## Pool prestado.
+    names as ref to npool.NamePool
+    ## Tabla de tipos prestada.
+    types as ref to types.SemaTypeTable
+    ## Símbolos en orden de creación.
+    symbols as list of sym.SemaSymbol
+    ## Scopes en orden de creación; el 0 es el global.
+    scopes as list of scope.SemaScope
+    ## Scope actual.
+    current as int
+    ## Registros por `NameId`.
+    runes as map of int to int
+    echos as map of int to int
+    omens as map of int to int
+    aliases as map of int to int
+    seals as map of int to int
+    concepts as map of int to int
+    functions as map of int to int
+    consts as map of int to int
+    methods as map of int to int
+    mutating_methods as map of int to int
+    generic_runes as map of int to int
+    generic_echos as map of int to int
+    generic_omens as map of int to int
+    generic_aliases as map of int to int
+    generic_concepts as map of int to int
+    generic_functions as map of int to int
+    generic_methods as map of int to int
+    generic_owner as map of int to int
+    bind_owner as map of int to int
+    primitive_owner as map of int to int
+    shard_bounds as map of int to int
+    ## Plantillas genéricas.
+    templates as list of sym.SemaTemplate
+    ## Instancias monomorfizadas.
+    instances as list of sym.SemaInstance
+    ## Claves de instancias (NameId compuesto).
+    instance_keys as map of int to int
+    ## Args de instancia, aplanados.
+    instance_args as list of int
+    ## Valores constantes.
+    const_values as list of sym.SemaConst
+    ## Bounds de símbolos, aplanados (`NameId`).
+    symbol_bounds as list of int
+    ## Tipos registrados por módulo: clave compuesta -> TypeId.
+    module_type_keys as map of int to int
+    ## `NameId -> TypeId` para `module_type_keys`.
+    module_types as map of int to int
+    ## Includes/links/ldflags/imports en orden.
+    includes as list of string
+    links as list of string
+    ldflags as list of string
+    imports as list of string
+    ## Orden topológico de módulos (IDs de módulo).
+    import_order as list of int
+    ## Grafo de imports: `module id -> lista de destinos` (índice en listas).
+    import_graph as list of int
+    ## `true` si el módulo usa `include`.
+    has_includes as bool
+    ## `insignia` del módulo actual.
+    insignia as int
+    ## Módulo actual (`-1` fuera de módulo).
+    current_module as int
+
+## Crea la tabla y registra builtins.
+##
+## ## Memoria
+## Asigna listas/mapas; `free_symbols` los libera.
+weave new_symbols with t as ref to types.SemaTypeTable, pool as ref to npool.NamePool into SemaSymbols:
+    var s as SemaSymbols is with names is pool, types is t, symbols is list of sym.SemaSymbol, scopes is list of scope.SemaScope, current is -1, runes is map of int to int, echos is map of int to int, omens is map of int to int, aliases is map of int to int, seals is map of int to int, concepts is map of int to int, functions is map of int to int, consts is map of int to int, methods is map of int to int, mutating_methods is map of int to int, generic_runes is map of int to int, generic_echos is map of int to int, generic_omens is map of int to int, generic_aliases is map of int to int, generic_concepts is map of int to int, generic_functions is map of int to int, generic_methods is map of int to int, generic_owner is map of int to int, bind_owner is map of int to int, primitive_owner is map of int to int, shard_bounds is map of int to int, templates is list of sym.SemaTemplate, instances is list of sym.SemaInstance, instance_keys is map of int to int, instance_args is list of int, const_values is list of sym.SemaConst, symbol_bounds is list of int, module_type_keys is map of int to int, module_types is map of int to int, includes is list of string, links is list of string, ldflags is list of string, imports is list of string, import_order is list of int, import_graph is list of int, has_includes is false, insignia is -1, current_module is -1
+    calling new_global_scope with (sigil of s)
+    calling init_builtins with (sigil of s)
+    return s
+
+## Libera la tabla completa.
+##
+## ## Memoria
+## Libera mapas de scopes, listas y strings; no libera el pool ni los tipos.
+weave free_symbols with s as ref to SemaSymbols into void:
+    var i as int is 0
+    while i < s->scopes.len:
+        var sc as scope.SemaScope is (s->scopes at i)
+        calling scope.free_scope with (sigil of sc)
+        set i is i + 1
+    banish s->scopes
+    banish s->symbols
+    banish s->runes
+    banish s->echos
+    banish s->omens
+    banish s->aliases
+    banish s->seals
+    banish s->concepts
+    banish s->functions
+    banish s->consts
+    banish s->methods
+    banish s->mutating_methods
+    banish s->generic_runes
+    banish s->generic_echos
+    banish s->generic_omens
+    banish s->generic_aliases
+    banish s->generic_concepts
+    banish s->generic_functions
+    banish s->generic_methods
+    banish s->generic_owner
+    banish s->bind_owner
+    banish s->primitive_owner
+    banish s->shard_bounds
+    banish s->templates
+    banish s->instances
+    banish s->instance_keys
+    banish s->instance_args
+    banish s->const_values
+    banish s->symbol_bounds
+    banish s->module_type_keys
+    banish s->module_types
+    calling free_strings with s->includes
+    calling free_strings with s->links
+    calling free_strings with s->ldflags
+    calling free_strings with s->imports
+    banish s->import_order
+    banish s->import_graph
+
+## Libera una lista de strings owned.
+##
+## ## Memoria
+## Libera cada elemento y la lista.
+weave free_strings with xs as list of string into void:
+    var i as int is 0
+    while i < xs.len:
+        banish xs at (i)
+        set i is i + 1
+    banish xs
+
+# ---------------------------------------------------------------------------
+# Scopes
+# ---------------------------------------------------------------------------
+
+## Crea el scope global y lo activa.
+##
+## ## Memoria
+## Añade un scope a la lista.
+weave new_global_scope with s as ref to SemaSymbols into void:
+    var g as scope.SemaScope is calling scope.new_scope with scope.SemaScopeKind.SgGlobal, -1, 0, 9999999
+    calling s->scopes.push with g
+    set s->current is 0
+
+## Entra en un scope hijo.
+##
+## Hereda `in_loop`, `in_or_block`, `return_type`, `enchanting_type` y
+## `is_ritual` del padre si no se especifican.
+##
+## ## Memoria
+## Añade un scope; liberar con `pop_scope`.
+weave push_scope with s as ref to SemaSymbols, kind as scope.SemaScopeKind, start_line as int, end_line as int into int:
+    var parent as int is s->current
+    var p as scope.SemaScope is (s->scopes at parent)
+    var child as scope.SemaScope is calling scope.new_scope with kind, parent, start_line, end_line
+    set child.return_type is p.return_type
+    set child.enchanting_type is p.enchanting_type
+    set child.in_loop is p.in_loop
+    set child.in_or_block is p.in_or_block
+    set child.is_ritual is p.is_ritual
+    if kind == scope.SemaScopeKind.SgLambda:
+        set child.in_loop is false
+        set child.return_type is -1
+        set child.enchanting_type is -1
+    if kind == scope.SemaScopeKind.SgEnchanting:
+        set child.in_loop is p.in_loop
+    var idx as int is s->scopes.len
+    calling s->scopes.push with child
+    set s->current is idx
+    return idx
+
+## Sale del scope actual.
+##
+## ## Memoria
+## Ajusta `end_line`; no libera nada.
+weave pop_scope with s as ref to SemaSymbols, end_line as int into void:
+    var cur as int is s->current
+    if cur <= 0:
+        return
+    var sc as scope.SemaScope is (s->scopes at cur)
+    if end_line > 0:
+        set sc.end_line is end_line
+    set s->scopes at (cur) is sc
+    set s->current is sc.parent
+
+## Scope actual.
+##
+## ## Memoria
+## Copia POD.
+weave current_scope with s as ref to SemaSymbols into scope.SemaScope:
+    return (s->scopes at s->current)
+
+## Lookup por `NameId` desde el scope actual.
+##
+## ## Memoria
+## O(profundidad de scopes).
+weave lookup with s as ref to SemaSymbols, name as int into int:
+    var cur as int is s->current
+    while cur >= 0:
+        var sc as scope.SemaScope is (s->scopes at cur)
+        var found as int is calling scope.scope_lookup_local with (sigil of sc), name
+        if found >= 0:
+            return found
+        set cur is sc.parent
+    # Desde 3.0 los módulos tienen scopes propios; stage0 también resolvía
+    # funciones/consts importadas desde el registro global. Mantener ese
+    # fallback permite que `is_error` y helpers de std se usen sin cualificar.
+    if calling s->functions.has with name:
+        return calling s->functions.get with name
+    if calling s->consts.has with name:
+        return calling s->consts.get with name
+    return -1
+
+## Lookup por string.
+##
+## ## Memoria
+## Busca el nombre en el pool; si no existe no asigna.
+weave lookup_name with s as ref to SemaSymbols, name as string into int:
+    var id as int is calling npool.find with s->names, name
+    if id < 0:
+        return -1
+    return calling lookup with s, id
+
+## Lookup local por `NameId`.
+##
+## ## Memoria
+## O(1).
+weave symbol_lookup_local with s as ref to SemaSymbols, name as int into int:
+    var sc as scope.SemaScope is (s->scopes at s->current)
+    return calling scope.scope_lookup_local with (sigil of sc), name
+
+## Define un símbolo en el scope actual.
+##
+## ## Memoria
+## Añade a `symbols` y al mapa del scope.
+weave symbol_define with s as ref to SemaSymbols, symbol as sym.SemaSymbol into int:
+    var id as int is s->symbols.len
+    calling s->symbols.push with symbol
+    var sc as scope.SemaScope is (s->scopes at s->current)
+    calling scope.scope_define with (sigil of sc), symbol.name, id
+    set s->scopes at (s->current) is sc
+    return id
+
+## Añade un símbolo sin ligarlo a un scope (métodos).
+##
+## ## Memoria
+## Hace `push` en `symbols`.
+weave add_symbol with s as ref to SemaSymbols, symbol as sym.SemaSymbol into int:
+    var id as int is s->symbols.len
+    calling s->symbols.push with symbol
+    return id
+
+## Define un símbolo en un scope concreto.
+##
+## ## Memoria
+## Añade a `symbols`.
+weave symbol_define_in with s as ref to SemaSymbols, scope_id as int, symbol as sym.SemaSymbol into int:
+    var id as int is s->symbols.len
+    calling s->symbols.push with symbol
+    var sc as scope.SemaScope is (s->scopes at scope_id)
+    calling scope.scope_define with (sigil of sc), symbol.name, id
+    set s->scopes at (scope_id) is sc
+    return id
+
+## Crea un símbolo con defaults.
+##
+## ## Memoria
+## Devuelve un POD; no asigna.
+weave make_symbol with names as ref to npool.NamePool, name as string, type_id as int, kind as sym.SemaSymbolKind into sym.SemaSymbol:
+    var nid as int is calling npool.intern with names, name
+    return with name is nid, type is type_id, kind is kind, flags is 0, c_name is nid, module is -1, line is 0, col is 0, attrs_node is -1, doc is -1, const_id is -1, bounds_first is 0, bounds_count is 0, module_scope is -1
+
+# ---------------------------------------------------------------------------
+# Registros
+# ---------------------------------------------------------------------------
+
+## Registra un tipo nominal por nombre.
+##
+## ## Memoria
+## O(1) promedio.
+weave symbol_define_type with s as ref to SemaSymbols, kind as sym.SemaSymbolKind, name as int, type_id as int into int:
+    var symv as sym.SemaSymbol is calling make_symbol with s->names, "", type_id, kind
+    set symv.name is name
+    set symv.c_name is name
+    if kind == sym.SemaSymbolKind.SkRune:
+        calling s->runes.put with name, type_id
+    else if kind == sym.SemaSymbolKind.SkEcho:
+        calling s->echos.put with name, type_id
+    else if kind == sym.SemaSymbolKind.SkOmen:
+        calling s->omens.put with name, type_id
+    else if kind == sym.SemaSymbolKind.SkAlias:
+        calling s->aliases.put with name, type_id
+    else if kind == sym.SemaSymbolKind.SkSeal:
+        calling s->seals.put with name, type_id
+    else if kind == sym.SemaSymbolKind.SkConcept:
+        calling s->concepts.put with name, type_id
+    return calling symbol_define with s, symv
+
+## Lookup de tipo por `NameId`.
+##
+## ## Memoria
+## O(1) promedio.
+weave lookup_type with s as ref to SemaSymbols, name as int into int:
+    if calling s->aliases.has with name:
+        return calling s->aliases.get with name
+    if calling s->seals.has with name:
+        return calling s->seals.get with name
+    if calling s->concepts.has with name:
+        return calling s->concepts.get with name
+    if calling s->runes.has with name:
+        return calling s->runes.get with name
+    if calling s->echos.has with name:
+        return calling s->echos.get with name
+    if calling s->omens.has with name:
+        return calling s->omens.get with name
+    var sid as int is calling lookup with s, name
+    if sid >= 0:
+        var sv as sym.SemaSymbol is (s->symbols at sid)
+        if sv.kind == sym.SemaSymbolKind.SkType or sv.kind == sym.SemaSymbolKind.SkRune or sv.kind == sym.SemaSymbolKind.SkEcho or sv.kind == sym.SemaSymbolKind.SkOmen or sv.kind == sym.SemaSymbolKind.SkAlias or sv.kind == sym.SemaSymbolKind.SkSeal or sv.kind == sym.SemaSymbolKind.SkConcept:
+            return sv.type
+    return -1
+
+## Lookup local en un scope concreto.
+##
+## ## Memoria
+## O(1) promedio.
+weave lookup_in_scope with s as ref to SemaSymbols, scope_id as int, name as int into int:
+    if scope_id < 0 or scope_id >= s->scopes.len:
+        return -1
+    var sc as scope.SemaScope is (s->scopes at scope_id)
+    return calling scope.scope_lookup_local with (sigil of sc), name
+
+## Lookup de tipo por string.
+##
+## ## Memoria
+## Busca en el pool.
+weave lookup_type_name with s as ref to SemaSymbols, name as string into int:
+    # `mod.Type`: resolver el alias y buscar en el scope del módulo.
+    var last_dot as int is -1
+    var i as int is 0
+    var n as int is name length
+    while i < n:
+        if (name at i) == ".":
+            set last_dot is i
+        set i is i + 1
+    if last_dot > 0:
+        var alias as string is calling symbol_substring with name, 0, last_dot
+        defer banish alias
+        var tid as int is calling npool.find with s->names, alias
+        if tid >= 0:
+            var imp as int is calling lookup with s, tid
+            if imp >= 0:
+                var sv as sym.SemaSymbol is (s->symbols at imp)
+                if sv.kind == sym.SemaSymbolKind.SkImport:
+                    var last as string is calling symbol_substring with name, last_dot + 1, n
+                    defer banish last
+                    var lid as int is calling npool.find with s->names, last
+                    if lid >= 0:
+                        var local as int is calling lookup_in_scope with s, sv.module_scope, lid
+                        if local >= 0:
+                            var lv as sym.SemaSymbol is (s->symbols at local)
+                            return lv.type
+    var id as int is calling npool.find with s->names, name
+    if id < 0:
+        return -1
+    return calling lookup_type with s, id
+
+## Substring con copia owned.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave symbol_substring with s as string, start as int, end as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is start
+    while i < end:
+        calling sb.append with (s at i)
+        set i is i + 1
+    return calling sb.finish
+
+## Registra una función en el scope actual y en `functions`.
+##
+## ## Memoria
+## Añade símbolo/mapa.
+weave symbol_define_function with s as ref to SemaSymbols, name as int, fn_type as int into int:
+    var symv as sym.SemaSymbol is calling make_symbol with s->names, "", fn_type, sym.SemaSymbolKind.SkWeave
+    set symv.name is name
+    set symv.c_name is name
+    var id as int is calling symbol_define with s, symv
+    calling s->functions.put with name, id
+    return id
+
+## Lookup de función por `NameId`.
+##
+## ## Memoria
+## O(1).
+weave lookup_function with s as ref to SemaSymbols, name as int into int:
+    if calling s->functions.has with name:
+        return calling s->functions.get with name
+    return -1
+
+## Registra una constante.
+##
+## ## Memoria
+## Añade símbolo y mapa.
+weave symbol_define_const with s as ref to SemaSymbols, name as int, type_id as int, value as sym.SemaConst into int:
+    var cid as int is s->const_values.len
+    calling s->const_values.push with value
+    var symv as sym.SemaSymbol is calling make_symbol with s->names, "", type_id, sym.SemaSymbolKind.SkConst
+    set symv.name is name
+    set symv.c_name is name
+    set symv.const_id is cid
+    var id as int is calling symbol_define with s, symv
+    calling s->consts.put with name, id
+    return id
+
+## Lookup de constante.
+##
+## ## Memoria
+## O(1).
+weave lookup_const with s as ref to SemaSymbols, name as int into int:
+    if calling s->consts.has with name:
+        return calling s->consts.get with name
+    return -1
+
+## Construye una clave `recv \x1f method` y la interna.
+##
+## ## Memoria
+## Devuelve un `NameId`; el string temporal se libera.
+weave method_key with s as ref to SemaSymbols, receiver as int, method as int into int:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append_int with receiver
+    calling sb.append with "\x1f"
+    calling sb.append_int with method
+    var key as string is calling sb.finish
+    defer banish key
+    return calling npool.intern with s->names, key
+
+## Registra un método.
+##
+## ## Memoria
+## Añade símbolo y mapa.
+weave symbol_define_method with s as ref to SemaSymbols, receiver as int, method as int, fn_type as int into int:
+    var symv as sym.SemaSymbol is calling make_symbol with s->names, "", fn_type, sym.SemaSymbolKind.SkWeave
+    set symv.name is method
+    set symv.c_name is method
+    var id as int is calling add_symbol with s, symv
+    var key as int is calling method_key with s, receiver, method
+    calling s->methods.put with key, id
+    # Fallback solo para receptores que son parámetros de tipo. Los métodos de
+    # un receptor concreto (Vec4, f64, ...) deben resolverse por `methods` y no
+    # pisar el fallback genérico con el último `get_*` registrado.
+    var rty as tk.SemaType is calling types.at with s->types, receiver
+    if rty.kind == tk.SemaTypeKind.TkTypeParam:
+        calling s->generic_methods.put with method, id
+    return id
+
+## Lookup de método.
+##
+## ## Memoria
+## O(1).
+weave lookup_method with s as ref to SemaSymbols, receiver as int, method as int into int:
+    var key as int is calling method_key with s, receiver, method
+    if calling s->methods.has with key:
+        return calling s->methods.get with key
+    if calling s->generic_methods.has with method:
+        return calling s->generic_methods.get with method
+    return -1
+
+## `true` si el nombre está en el pool.
+##
+## ## Memoria
+## O(1).
+weave has_name with s as ref to SemaSymbols, name as int into bool:
+    return calling npool.has_id with s->names, name
+
+## Texto de un `NameId`.
+##
+## ## Memoria
+## Préstamo.
+weave name_text with s as ref to SemaSymbols, name as int into string:
+    return calling npool.text with s->names, name
+
+## `NameId` de un símbolo.
+##
+## ## Memoria
+## Copia POD.
+weave symbol_at with s as ref to SemaSymbols, id as int into sym.SemaSymbol:
+    if id < 0 or id >= s->symbols.len:
+        return calling make_symbol with s->names, "", 0, sym.SemaSymbolKind.SkVar
+    return (s->symbols at id)
+
+## Actualiza un símbolo tras crearlo.
+##
+## ## Memoria
+## O(1).
+weave symbol_set with s as ref to SemaSymbols, id as int, v as sym.SemaSymbol into void:
+    set s->symbols at (id) is v
+
+# ---------------------------------------------------------------------------
+# Builtins
+# ---------------------------------------------------------------------------
+
+## Registra primitivos, `print` y conceptos builtin.
+##
+## ## Memoria
+## Añade símbolos y tipos a la tabla prestada.
+weave init_builtins with s as ref to SemaSymbols into void:
+    calling builtin_type with s, "int", "int"
+    calling builtin_type with s, "i32", "i32"
+    calling builtin_type with s, "i64", "i64"
+    calling builtin_type with s, "u32", "u32"
+    calling builtin_type with s, "u64", "u64"
+    calling builtin_type with s, "i16", "i16"
+    calling builtin_type with s, "u16", "u16"
+    calling builtin_type with s, "i8", "i8"
+    calling builtin_type with s, "u8", "u8"
+    calling builtin_type with s, "byte", "u8"
+    calling builtin_type with s, "usize", "usize"
+    calling builtin_type with s, "isize", "isize"
+    calling builtin_type with s, "float", "float"
+    calling builtin_type with s, "f32", "float"
+    calling builtin_type with s, "f64", "f64"
+    calling builtin_type with s, "double", "f64"
+    calling builtin_type with s, "bool", "bool"
+    calling builtin_type with s, "string", "string"
+    calling builtin_type with s, "char", "char"
+    calling builtin_type with s, "void", "void"
+    calling builtin_type with s, "opaque", "opaque"
+    # `print` acepta cualquier valor y devuelve void.
+    var any_t as int is 1
+    var void_t as int is 3
+    var pname as int is calling npool.intern with s->names, "val"
+    var p0 as types.SemaFnParam is with name is pname, type is any_t, flags is 0, default_node is -1
+    var pi as int is calling types.add_fn_param with s->types, p0
+    var info as types.SemaFnInfo is with params_first is pi, params_count is 1, return_type is void_t, tparams_first is 0, tparams_count is 0, flags is 0, attrs_node is -1
+    var ft as int is calling types.fn_type with s->types, info
+    var pid as int is calling npool.intern with s->names, "print"
+    calling symbol_define_function with s, pid, ft
+
+## Registra un tipo primitivo y su símbolo.
+##
+## ## Memoria
+## Añade un símbolo por alias; el `TypeId` se comparte.
+weave builtin_type with s as ref to SemaSymbols, spelled as string, canonical as string into void:
+    var t as int is calling types.base with s->types, canonical
+    var nid as int is calling npool.intern with s->names, spelled
+    var symv as sym.SemaSymbol is calling make_symbol with s->names, "", t, sym.SemaSymbolKind.SkType
+    set symv.name is nid
+    set symv.c_name is nid
+    calling symbol_define with s, symv

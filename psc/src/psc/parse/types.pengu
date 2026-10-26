@@ -1,0 +1,500 @@
+## psc/parse/types.pengu — parser de tipos.
+##
+## Replica `?type` de la gramática de stage0. No necesita expresiones: los
+## tamaños de `array` son `INT`/`NAME` y los parámetros de `fn` no tienen
+## valores por defecto. Por eso este módulo está por debajo de expresiones y
+## declaraciones en el DAG de imports.
+##
+## ## Memoria
+## Construye nodos en `PsParser.ast`; no asigna strings salvo diagnósticos.
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.state as psstate
+import psc.parse.diagnostics as pdiag
+
+insignia psc_parse_type_
+
+## Parsea un tipo.
+##
+## ## Memoria
+## Crea nodos en el AST del parser.
+weave ptype_parse_type with p as ref to PsParser into int:
+    if not (calling ps_enter_depth with p):
+        var off as int is calling ps_current_start with p
+        return calling ps_error_node with p, off, off
+    defer calling ps_leave_depth with p
+    if calling ps_check_word with p, "ref":
+        return calling ptype_parse_ref with p
+    if calling ps_check_word with p, "frozen":
+        return calling ptype_parse_frozen with p
+    if calling ps_check_kw with p, KwWeave:
+        return calling ptype_parse_fn with p
+    if calling ps_check_word with p, "array":
+        return calling ptype_parse_array with p
+    if calling ps_check_word with p, "slice":
+        return calling ptype_parse_slice with p
+    if calling ps_check_kw with p, KwMany:
+        return calling ptype_parse_many with p
+    if calling ps_check_word with p, "list":
+        return calling ptype_parse_list with p
+    if calling ps_check_word with p, "map":
+        return calling ptype_parse_map with p
+    if calling ps_check_kw with p, KwMaybe:
+        return calling ptype_parse_maybe with p
+    if calling ps_check_word with p, "result":
+        return calling ptype_parse_result with p
+    if calling ps_check_word with p, "opaque":
+        return calling ptype_parse_opaque with p
+    if calling ps_check with p, TokLeftParen:
+        return calling ptype_parse_paren with p
+    if calling ps_check_name_like with p:
+        if calling ptype_is_base_word with p:
+            return calling ptype_parse_base with p
+        return calling ptype_parse_custom with p
+    var off2 as int is calling ps_current_start with p
+    calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedType, ""
+    return calling ps_error_node with p, off2, off2
+
+## Parsea un `type_or_param`: `shard T` o un tipo.
+##
+## ## Memoria
+## Crea nodos en el AST.
+weave ptype_parse_type_or_param with p as ref to PsParser into int:
+    if calling ps_check_kw with p, KwShard:
+        return calling ptype_parse_shard_ref with p
+    var start as int is calling ps_current_start with p
+    var ty as int is calling ptype_parse_type with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, ty
+    var n as PsNode is calling p->ast.node_at with ty
+    return calling ps_finish_node with p, NodeKind.NdTypeOrParam, start, n.end, 0
+
+## Parsea `ref to T`.
+##
+## ## Memoria
+## Crea un nodo `ref_type`.
+weave ptype_parse_ref with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as bool is calling ps_accept_word with p, "ref"
+    var ignored2 as Token is calling ps_expect_kw with p, KwTo, "'to'"
+    calling ps_begin_children with p
+    var inner as int is calling ptype_parse_type with p
+    calling ps_add_child with p, inner
+    return calling ps_finish_node with p, NodeKind.NdRefType, start, (calling ps_previous_end with p), 0
+
+## Parsea `frozen T`.
+##
+## ## Memoria
+## Crea un nodo `frozen_type`.
+weave ptype_parse_frozen with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    calling ps_begin_children with p
+    var inner as int is calling ptype_parse_type with p
+    calling ps_add_child with p, inner
+    return calling ps_finish_node with p, NodeKind.NdFrozenType, start, (calling ps_previous_end with p), 0
+
+## Parsea un tipo función `weave [with ...] [into T]`.
+##
+## ## Memoria
+## Crea un nodo `fn_type`.
+weave ptype_parse_fn with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWeave, "'weave'"
+    calling ps_begin_children with p
+    if calling ps_check_kw with p, KwWith:
+        var params as int is calling ptype_parse_fn_params with p
+        calling ps_add_child with p, params
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwInto:
+        var ignored2 as Token is calling ps_advance with p
+        var ret as int is calling ptype_parse_type with p
+        calling ps_add_child with p, ret
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdFnType, start, (calling ps_previous_end with p), 0
+
+## Parsea `with fn_param (,|and fn_param)*`.
+##
+## ## Memoria
+## Crea un nodo `fn_param_list`.
+weave ptype_parse_fn_params with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWith, "'with'"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        var param as int is calling ptype_parse_fn_param with p
+        calling ps_add_child with p, param
+        if calling ps_check with p, TokComma:
+            var ignored2 as Token is calling ps_advance with p
+        else if calling ps_check_kw with p, KwAnd:
+            var ignored3 as Token is calling ps_advance with p
+        else:
+            set more is false
+    return calling ps_finish_node with p, NodeKind.NdFnParamList, start, (calling ps_previous_end with p), 0
+
+## Parsea `[NAME as] type`.
+##
+## ## Memoria
+## Crea un nodo `fn_param`.
+weave ptype_parse_fn_param with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    if calling ps_check with p, TokIdentifier:
+        if (calling ps_kind_ahead with p, 1) == TokKeyword:
+            if (calling ps_kw_at_offset with p, 1) == KwAs:
+                calling ps_add_token with p, p->pos
+                var ignored as Token is calling ps_advance with p
+                var ignored2 as Token is calling ps_expect_kw with p, KwAs, "'as'"
+            else:
+                calling ps_add_absent with p
+        else:
+            calling ps_add_absent with p
+    else:
+        calling ps_add_absent with p
+    var ty as int is calling ptype_parse_type with p
+    calling ps_add_child with p, ty
+    return calling ps_finish_node with p, NodeKind.NdFnParam, start, (calling ps_previous_end with p), 0
+
+## Parsea `array of T [with size (INT|NAME)]`.
+##
+## ## Memoria
+## Crea un nodo `array_type`.
+weave ptype_parse_array with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+    calling ps_begin_children with p
+    var elem as int is calling ptype_parse_type with p
+    calling ps_add_child with p, elem
+    if calling ps_check_kw with p, KwWith:
+        var ignored3 as Token is calling ps_advance with p
+        if calling ps_check_word with p, "size":
+            var ignored4 as Token is calling ps_advance with p
+            if (calling ps_check with p, TokIntLit) or (calling ps_check with p, TokIdentifier):
+                calling ps_add_token with p, p->pos
+                var ignored5 as Token is calling ps_advance with p
+            else:
+                calling ps_add_absent with p
+        else:
+            calling ps_add_absent with p
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdArrayType, start, (calling ps_previous_end with p), 0
+
+## Parsea `slice of T`.
+##
+## ## Memoria
+## Crea un nodo `slice_type`.
+weave ptype_parse_slice with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+    calling ps_begin_children with p
+    var inner as int is calling ptype_parse_type_or_param with p
+    calling ps_add_child with p, inner
+    return calling ps_finish_node with p, NodeKind.NdSliceType, start, (calling ps_previous_end with p), 0
+
+## Parsea `many T`.
+##
+## ## Memoria
+## Crea un nodo `many_type`.
+weave ptype_parse_many with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwMany, "'many'"
+    calling ps_begin_children with p
+    var inner as int is calling ptype_parse_type_or_param with p
+    calling ps_add_child with p, inner
+    return calling ps_finish_node with p, NodeKind.NdManyType, start, (calling ps_previous_end with p), 0
+
+## Parsea `list of T`.
+##
+## ## Memoria
+## Crea un nodo `list_type`.
+weave ptype_parse_list with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+    calling ps_begin_children with p
+    var inner as int is calling ptype_parse_type_or_param with p
+    calling ps_add_child with p, inner
+    return calling ps_finish_node with p, NodeKind.NdListType, start, (calling ps_previous_end with p), 0
+
+## Parsea `map of K to V`.
+##
+## ## Memoria
+## Crea un nodo `map_type`.
+weave ptype_parse_map with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+    calling ps_begin_children with p
+    var key as int is calling ptype_parse_type_or_param with p
+    calling ps_add_child with p, key
+    var ignored3 as Token is calling ps_expect_kw with p, KwTo, "'to'"
+    var val as int is calling ptype_parse_type_or_param with p
+    calling ps_add_child with p, val
+    return calling ps_finish_node with p, NodeKind.NdMapType, start, (calling ps_previous_end with p), 0
+
+## Parsea `maybe T`.
+##
+## ## Memoria
+## Crea un nodo `maybe_type`.
+weave ptype_parse_maybe with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwMaybe, "'maybe'"
+    calling ps_begin_children with p
+    var inner as int is calling ptype_parse_type_or_param with p
+    calling ps_add_child with p, inner
+    return calling ps_finish_node with p, NodeKind.NdMaybeType, start, (calling ps_previous_end with p), 0
+
+## Parsea `result of T [to E]`.
+##
+## ## Memoria
+## Crea un nodo `result_type`.
+weave ptype_parse_result with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+    calling ps_begin_children with p
+    var ok as int is calling ptype_parse_type_or_param with p
+    calling ps_add_child with p, ok
+    if calling ps_check_kw with p, KwTo:
+        var ignored3 as Token is calling ps_advance with p
+        var err as int is calling ptype_parse_type_or_param with p
+        calling ps_add_child with p, err
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdResultType, start, (calling ps_previous_end with p), 0
+
+## Parsea `opaque`.
+##
+## ## Memoria
+## Crea un nodo `opaque_type` con el token.
+weave ptype_parse_opaque with p as ref to PsParser into int:
+    var ti as int is p->pos
+    var start as int is calling ps_current_start with p
+    var ignored as bool is calling ps_accept_word with p, "opaque"
+    return calling ps_leaf_token with p, NodeKind.NdOpaqueType, ti, start, (calling ps_previous_end with p)
+
+## Parsea un tipo base (`int`, `float`, ...).
+##
+## ## Memoria
+## Crea un nodo `base_type` con el token.
+weave ptype_parse_base with p as ref to PsParser into int:
+    var ti as int is p->pos
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    return calling ps_leaf_token with p, NodeKind.NdBaseType, ti, start, (calling ps_previous_end with p)
+
+## Parsea un tipo cualificado/genérico.
+##
+## ## Memoria
+## Crea un nodo `custom_type`.
+weave ptype_parse_custom with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    var path as int is calling ptype_parse_dotted_path with p
+    calling ps_add_child with p, path
+    if calling ps_check_kw with p, KwOf:
+        var ignored as Token is calling ps_advance with p
+        var more as bool is true
+        while more:
+            var arg as int is calling ptype_parse_type with p
+            calling ps_add_child with p, arg
+            if calling ps_check with p, TokComma:
+                var ignored2 as Token is calling ps_advance with p
+            else if calling ps_check_kw with p, KwAnd:
+                var ignored3 as Token is calling ps_advance with p
+            else:
+                set more is false
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdCustomType, start, (calling ps_previous_end with p), 0
+
+## Parsea `NAME (. NAME)*`.
+##
+## ## Memoria
+## Crea un nodo `dotted_path`.
+weave ptype_parse_dotted_path with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    if calling ps_check_name_like with p:
+        calling ps_add_name_like with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokDot:
+            var ignored2 as Token is calling ps_advance with p
+            if calling ps_check_name_like with p:
+                calling ps_add_name_like with p
+            else:
+                calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+                set more is false
+        else:
+            set more is false
+    return calling ps_finish_node with p, NodeKind.NdDottedPath, start, (calling ps_previous_end with p), 0
+
+## Parsea `(` type ["," type...] `)`.
+##
+## Un solo tipo entre paréntesis se devuelve tal cual; dos o más forman
+## `tuple_type`, como en la gramática.
+##
+## ## Memoria
+## Crea un nodo `tuple_type` si hay más de un tipo.
+weave ptype_parse_paren with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect with p, TokLeftParen, "'('"
+    var first as int is calling ptype_parse_type with p
+    if calling ps_check with p, TokComma:
+        calling ps_begin_children with p
+        calling ps_add_child with p, first
+        var more as bool is true
+        while more:
+            if calling ps_check with p, TokComma:
+                var ignored2 as Token is calling ps_advance with p
+                var item as int is calling ptype_parse_type with p
+                calling ps_add_child with p, item
+            else:
+                set more is false
+        var ignored3 as Token is calling ps_expect with p, TokRightParen, "')'"
+        return calling ps_finish_node with p, NodeKind.NdTupleType, start, (calling ps_previous_end with p), 0
+    var ignored4 as Token is calling ps_expect with p, TokRightParen, "')'"
+    return first
+
+## Parsea `shard NAME` como tipo/parámetro.
+##
+## ## Memoria
+## Crea un nodo `shard_param_ref`.
+weave ptype_parse_shard_ref with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwShard, "'shard'"
+    calling ps_begin_children with p
+    if calling ps_check with p, TokIdentifier:
+        calling ps_add_token with p, p->pos
+        var ignored2 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    return calling ps_finish_node with p, NodeKind.NdShardParamRef, start, (calling ps_previous_end with p), 0
+
+## Parsea `shard NAME (,|and NAME)* [where ...]`.
+##
+## ## Memoria
+## Crea un nodo `shard_params`.
+weave ptype_parse_shard_params with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwShard, "'shard'"
+    calling ps_begin_children with p
+    if calling ps_check with p, TokIdentifier:
+        calling ps_add_token with p, p->pos
+        var ignored2 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokComma:
+            var ignored3 as Token is calling ps_advance with p
+            if calling ps_check with p, TokIdentifier:
+                calling ps_add_token with p, p->pos
+                var ignored4 as Token is calling ps_advance with p
+            else:
+                calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+        else if calling ps_check_kw with p, KwAnd:
+            var ignored5 as Token is calling ps_advance with p
+            if calling ps_check with p, TokIdentifier:
+                calling ps_add_token with p, p->pos
+                var ignored6 as Token is calling ps_advance with p
+            else:
+                calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+        else:
+            set more is false
+    if calling ps_check_kw with p, KwWhere:
+        var wc as int is calling ptype_parse_where_clause with p
+        calling ps_add_child with p, wc
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdShardParams, start, (calling ps_previous_end with p), 0
+
+## Parsea `where bound (,|and bound)*`.
+##
+## ## Memoria
+## Crea un nodo `where_clause`.
+weave ptype_parse_where_clause with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWhere, "'where'"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        var bound as int is calling ptype_parse_where_bound with p
+        calling ps_add_child with p, bound
+        if calling ps_check with p, TokComma:
+            var ignored2 as Token is calling ps_advance with p
+        else if calling ps_check_kw with p, KwAnd:
+            var ignored3 as Token is calling ps_advance with p
+        else:
+            set more is false
+    return calling ps_finish_node with p, NodeKind.NdWhereClause, start, (calling ps_previous_end with p), 0
+
+## Parsea `(NAME | type) ":" custom_type`.
+##
+## ## Memoria
+## Crea un nodo `where_bound`.
+weave ptype_parse_where_bound with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    if calling ps_check with p, TokIdentifier:
+        if (calling ps_kind_ahead with p, 1) == TokColon:
+            calling ps_add_token with p, p->pos
+            var ignored as Token is calling ps_advance with p
+        else:
+            var ty as int is calling ptype_parse_type with p
+            calling ps_add_child with p, ty
+    else:
+        var ty2 as int is calling ptype_parse_type with p
+        calling ps_add_child with p, ty2
+    var ignored2 as Token is calling ps_expect with p, TokColon, "':'"
+    var bound as int is calling ptype_parse_custom_after_start with p
+    calling ps_add_child with p, bound
+    return calling ps_finish_node with p, NodeKind.NdWhereBound, start, (calling ps_previous_end with p), 0
+
+## Parsea un `custom_type` sin volver a comprobar el inicio.
+##
+## ## Memoria
+## Crea un nodo `custom_type`.
+weave ptype_parse_custom_after_start with p as ref to PsParser into int:
+    return calling ptype_parse_custom with p
+
+## Parsea `derive A (,|and B)*`.
+##
+## ## Memoria
+## Crea un nodo `derive_clause`.
+weave ptype_parse_derive_clause with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwDerive, "'derive'"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        var item as int is calling ptype_parse_custom with p
+        calling ps_add_child with p, item
+        if calling ps_check with p, TokComma:
+            var ignored2 as Token is calling ps_advance with p
+        else if calling ps_check_kw with p, KwAnd:
+            var ignored3 as Token is calling ps_advance with p
+        else:
+            set more is false
+    return calling ps_finish_node with p, NodeKind.NdDeriveClause, start, (calling ps_previous_end with p), 0
+
+## `true` si el identificador actual es un tipo base.
+##
+## ## Memoria
+## O(nombres), no asigna.
+weave ptype_is_base_word with p as ref to PsParser into bool:
+    return (calling ps_check_word with p, "int") or (calling ps_check_word with p, "i32") or (calling ps_check_word with p, "i64") or (calling ps_check_word with p, "float") or (calling ps_check_word with p, "f32") or (calling ps_check_word with p, "f64") or (calling ps_check_word with p, "bool") or (calling ps_check_word with p, "string") or (calling ps_check_word with p, "void") or (calling ps_check_word with p, "char") or (calling ps_check_word with p, "byte") or (calling ps_check_word with p, "u8") or (calling ps_check_word with p, "i8") or (calling ps_check_word with p, "u16") or (calling ps_check_word with p, "i16") or (calling ps_check_word with p, "u32") or (calling ps_check_word with p, "u64") or (calling ps_check_word with p, "int8") or (calling ps_check_word with p, "uint8") or (calling ps_check_word with p, "int16") or (calling ps_check_word with p, "uint16") or (calling ps_check_word with p, "int32") or (calling ps_check_word with p, "uint32") or (calling ps_check_word with p, "int64") or (calling ps_check_word with p, "uint64") or (calling ps_check_word with p, "usize") or (calling ps_check_word with p, "isize") or (calling ps_check_word with p, "size_t") or (calling ps_check_word with p, "short") or (calling ps_check_word with p, "ushort") or (calling ps_check_word with p, "long") or (calling ps_check_word with p, "ulong") or (calling ps_check_word with p, "double") or (calling ps_check_word with p, "int8_t") or (calling ps_check_word with p, "uint8_t") or (calling ps_check_word with p, "int16_t") or (calling ps_check_word with p, "uint16_t") or (calling ps_check_word with p, "int32_t") or (calling ps_check_word with p, "uint32_t") or (calling ps_check_word with p, "int64_t") or (calling ps_check_word with p, "uint64_t") or (calling ps_check_word with p, "uint")

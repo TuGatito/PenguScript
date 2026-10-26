@@ -1,0 +1,31 @@
+weave f with xs as list of int, p as ref to Point into int:
+    let a is 1 + 2 * 3
+    let b is (1 + 2) * 3
+    let c is not (a > b) and (a != 0 or b == 0)
+    let d is xs at 0
+    let e is xs at (1 + 1)
+    let g is xs at 0 to 2
+    let h is p->x
+    let i is calling math.max with a, b
+    let j is calling raw.get_trim.get_lower.replace with " ", "-"
+    let k is with x is 1, y is 2
+    let l is with:
+        set .x is 1
+        set .y is 2
+    let m is do:
+        let t is a + b
+        t
+    let n is a or else b
+    let o is maybe none
+    let q is donum Point
+    let r is type of p
+    let s is size of Point
+    let u is transmute p to ref to void
+    let v is lambda x as int into x + 1
+    let w is [1, 2, 3]
+    let z is {"a": 1, "b": 2}
+    judge a:
+        when 1 | 2 -> 1
+        when 3 -> 2
+        else -> 0
+    return a

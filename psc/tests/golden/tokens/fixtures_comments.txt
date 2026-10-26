@@ -1,0 +1,32 @@
+# psc-token-dump v1
+# file: tests/fixtures/comments.pengu
+# sha256: 3516bd258b446ce95a0df47aaac8c3792efb3b39a505e34bfd39a0f6fe2ee506
+# bytes: 150
+# lines: 12
+# columns: index	kind	lexeme	start	end	line	col	end_line	end_col	aux
+0	Newline	\n## one-line doc\n\n##\nmulti-line doc\nstill doc\n##\n	14	63	1	15	8	1	0
+1	Keyword(weave)	weave	63	68	8	1	8	6	0
+2	Identifier	main	69	73	8	7	8	11	0
+3	Keyword(into)	into	74	78	8	12	8	16	0
+4	Identifier	int	79	82	8	17	8	20	0
+5	Colon	:	82	83	8	20	8	21	0
+6	Newline	\n    # inner\n    	83	100	8	21	10	5	4
+7	Indent		100	100	10	5	10	5	4
+8	Keyword(var)	var	100	103	10	5	10	8	0
+9	Identifier	s	104	105	10	9	10	10	0
+10	Keyword(as)	as	106	108	10	11	10	13	0
+11	Identifier	string	109	115	10	14	10	20	0
+12	Keyword(is)	is	116	118	10	21	10	23	0
+13	StringLit	"# not a comment"	119	136	10	24	10	41	0
+14	Newline	\n    	136	141	10	41	11	5	4
+15	Keyword(return)	return	141	147	11	5	11	11	0
+16	IntLit	0	148	149	11	12	11	13	10
+17	Newline	\n	149	150	11	13	12	1	0
+18	Dedent		150	150	12	1	12	1	0
+19	Eof		150	150	12	1	12	1	0
+# comments
+# columns: index	kind	start	end	line	col	closed
+0	Line	0	14	1	1	true
+1	Doc	15	30	2	1	false
+2	DocBlock	32	62	4	1	true
+3	Line	88	95	9	5	true

@@ -1,0 +1,130 @@
+## psc/sema/diagnostics.pengu — fachada de diagnósticos semánticos.
+##
+## F3 no reimplementa el renderizador: usa el `DiagnosticBag` de
+## `std.diagnostic` y las mismas convenciones de `psc/diagnostics.pengu`.
+## Cada emisión recibe el `SourceFile` del módulo, de modo que un bag compartido
+## por varios módulos conserva el archivo correcto en `Span.file`.
+##
+## Los códigos son constantes `CODE_*` para que el checker no escriba literales
+## dispersos. `SEMA_ERRORS.md` documenta cada uno.
+##
+## ## Memoria
+## `emit_error`/`emit_warning` copian lo que el bag necesita; los mensajes
+## temporales los libera el llamador.
+
+import std.diagnostic as diag
+
+import psc.span as pspan
+import psc.source as psource
+import psc.diagnostics as psdiag
+
+insignia sema_diag_
+
+# ---------------------------------------------------------------------------
+# Códigos semánticos
+# ---------------------------------------------------------------------------
+
+const CODE_SYNTAX as string is "E0000"
+const CODE_CONST_IN_WEAVE as string is "E0001"
+const CODE_VAR_TOP_LEVEL as string is "E0002"
+const CODE_SELF_DOT as string is "E0003"
+const CODE_UNDEFINED as string is "E0004"
+const CODE_TYPE_MISMATCH as string is "E0005"
+const CODE_MUTABILITY as string is "E0006"
+const CODE_CONTROL_FLOW as string is "E0007"
+const CODE_MEMORY_OP as string is "E0008"
+const CODE_WITH_TARGET as string is "E0009"
+const CODE_BUILDER as string is "E0014"
+const CODE_ARRAY_UNKNOWN as string is "E0015"
+const CODE_GENERIC_ARGS as string is "E0021"
+const CODE_TYPE_PARAM_OUTSIDE as string is "E0022"
+const CODE_MANY_MULTIPLE as string is "E0023"
+const CODE_MANY_NOT_LAST as string is "E0024"
+const CODE_MULTIPLE_INSIGNIA as string is "E0026"
+const CODE_OMEN_DUP as string is "E0027"
+const CODE_OMEN_PAYLOAD_VALUE as string is "E0028"
+const CODE_OMEN_CONST as string is "E0029"
+const CODE_CONCEPT_SIG as string is "E0030"
+const CODE_CONCEPT_MISSING as string is "E0031"
+const CODE_CONCEPT_BOUND as string is "E0032"
+const CODE_RITUAL_SELF as string is "E0033"
+const CODE_RITUAL_CALL as string is "E0034"
+const CODE_C_NAME as string is "E0035"
+const CODE_C_NAME_KIND as string is "E0036"
+const CODE_C_NAME_DUP as string is "E0037"
+const CODE_C_NAME_RESERVED as string is "E0038"
+const CODE_C_NAME_FIELD as string is "E0039"
+const CODE_ARRAY_SIZE as string is "E0041"
+const CODE_RANGE as string is "E0042"
+const CODE_PRIVATE as string is "E0043"
+const CODE_JUDGE_EXHAUSTIVE as string is "E0044"
+const CODE_PRIMITIVE_METHOD as string is "E0047"
+const CODE_INFINITE_SIZE as string is "E0050"
+const CODE_CONCEPT_DUP as string is "E0052"
+const CODE_ATTRIBUTE as string is "E0056"
+const CODE_CHAR_RANGE as string is "E0057"
+const CODE_STATIC_PLACEMENT as string is "E0063"
+const CODE_TEST_NAME as string is "E0064"
+const CODE_C_FIELD_COLLISION as string is "E0065"
+const CODE_MUTATES_EXPR as string is "E0066"
+const CODE_MUTATES_ATTR as string is "E0067"
+const CODE_MUTATES_GETTER as string is "E0068"
+const CODE_DUP_LABEL as string is "E0069"
+const CODE_DUP_TYPE as string is "E0070"
+
+const WARN_TRANSMUTE as string is "W0001"
+const WARN_ECHO_ACCESS as string is "W0002"
+const WARN_UNREACHABLE as string is "W0004"
+const WARN_SHADOW as string is "W0005"
+const WARN_DEPRECATED as string is "W0006"
+const WARN_UNSAFE as string is "W0007"
+const WARN_RANGE as string is "W0013"
+
+## Emite un error en `[start, end)` de `src`.
+##
+## `message`, `help` y `note` son prestados; `psdiag.sema_emit_error` copia lo que
+## necesita. El bag pasa a ser dueño del diagnóstico.
+##
+## ## Memoria
+## Asigna el diagnóstico; liberar el bag al final.
+weave sema_emit_error with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, code as string, start as int, end as int, message as string, help as string, note as string into void:
+    var sp as pspan.ByteSpan is with start is start, end is end
+    calling psdiag.emit_error with bag, src, code, message, sp, help, note
+
+## Emite un error sobre un nodo del AST.
+##
+## ## Memoria
+## O(1); no asigna aparte del diagnóstico.
+weave node_error with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, code as string, node_start as int, node_end as int, message as string, help as string, note as string into void:
+    var e as int is node_end
+    if e < node_start:
+        set e is node_start
+    calling sema_emit_error with bag, src, code, node_start, e, message, help, note
+
+## Emite un warning en `[start, end)`.
+##
+## `psdiag.sema_emit_warning` no acepta `note`; el código y el span son los datos
+## estables que compara el oráculo.
+##
+## ## Memoria
+## Asigna el diagnóstico; liberar el bag al final.
+weave sema_emit_warning with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, code as string, start as int, end as int, message as string, help as string into void:
+    var sp as pspan.ByteSpan is with start is start, end is end
+    calling psdiag.emit_warning with bag, src, code, message, sp, help
+
+## Emite un warning sobre un nodo.
+##
+## ## Memoria
+## O(1); no asigna aparte del diagnóstico.
+weave node_warning with bag as ref to diag.DiagnosticBag, src as ref to psource.SourceFile, code as string, node_start as int, node_end as int, message as string, help as string into void:
+    var e as int is node_end
+    if e < node_start:
+        set e is node_start
+    calling sema_emit_warning with bag, src, code, node_start, e, message, help
+
+## Código de `E0057` para un char fuera del rango seguro de C.
+##
+## ## Memoria
+## Devuelve un literal; no asigna.
+weave char_range_message with codepoint as int into string:
+    return "char literal U+{codepoint} cannot be represented in a C char; use a string or a wider integer"

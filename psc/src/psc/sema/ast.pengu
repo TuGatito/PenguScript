@@ -1,0 +1,128 @@
+## psc/sema/ast.pengu — acceso de solo lectura al AST de F2.
+##
+## El checker no conoce la codificación de hijos: estas funciones devuelven IDs
+## de nodo (`-1` si el hijo es token/ausente) o índices de token (`-1` si es
+## nodo/ausente). El texto de un token se copia porque `SourceFile.slice`
+## devuelve un string owned; el llamador lo libera.
+##
+## ## Memoria
+## `token_text` devuelve un string owned; el resto es POD o un préstamo.
+
+import psc.ast.node as psast
+import psc.ast.kind as pskind
+import psc.token as pstoken
+import psc.source as psource
+import psc.lexer_state as psstate
+import psc.span as pspan
+
+insignia sema_ast_
+
+## Tipo de un nodo.
+##
+## ## Memoria
+## O(1).
+weave kind_of with ast as ref to psast.PsAst, id as int into pskind.NodeKind:
+    return (ast->nodes at id).kind
+
+## Inicio de byte.
+##
+## ## Memoria
+## O(1).
+weave start_of with ast as ref to psast.PsAst, id as int into int:
+    return (ast->nodes at id).start
+
+## Fin de byte.
+##
+## ## Memoria
+## O(1).
+weave end_of with ast as ref to psast.PsAst, id as int into int:
+    return (ast->nodes at id).end
+
+## Número de hijos.
+##
+## ## Memoria
+## O(1).
+weave child_count with ast as ref to psast.PsAst, id as int into int:
+    return (ast->nodes at id).child_count
+
+## Hijo codificado.
+##
+## ## Memoria
+## O(1).
+weave ast_child_at with ast as ref to psast.PsAst, id as int, slot as int into int:
+    var n as psast.PsNode is (ast->nodes at id)
+    if slot < 0 or slot >= n.child_count:
+        return 0
+    return (ast->children at (n.first_child + slot))
+
+## ID de nodo hijo, o `-1`.
+##
+## ## Memoria
+## O(1).
+weave node_child with ast as ref to psast.PsAst, id as int, slot as int into int:
+    return calling psast.ps_child_node_id with (calling ast_child_at with ast, id, slot)
+
+## Índice de token hijo, o `-1`.
+##
+## ## Memoria
+## O(1).
+weave token_child with ast as ref to psast.PsAst, id as int, slot as int into int:
+    return calling psast.ps_child_token_id with (calling ast_child_at with ast, id, slot)
+
+## `true` si el hijo está ausente (`0`).
+##
+## ## Memoria
+## O(1).
+weave is_absent with ast as ref to psast.PsAst, id as int, slot as int into bool:
+    return (calling ast_child_at with ast, id, slot) == 0
+
+## Texto de un token por índice.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave token_text with src as ref to psource.SourceFile, lex as ref to psstate.LexResult, idx as int into string:
+    if idx < 0 or idx >= lex->tokens.len:
+        return ""
+    var t as pstoken.Token is (lex->tokens at idx)
+    var sp as pspan.ByteSpan is with start is t.start, end is t.end
+    return calling src.slice with sp
+
+## Texto del token hijo `slot`.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave child_token_text with src as ref to psource.SourceFile, lex as ref to psstate.LexResult, ast as ref to psast.PsAst, id as int, slot as int into string:
+    return calling token_text with src, lex, (calling token_child with ast, id, slot)
+
+## Texto del primer token hijo.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave first_token_text with src as ref to psource.SourceFile, lex as ref to psstate.LexResult, ast as ref to psast.PsAst, id as int into string:
+    return calling child_token_text with src, lex, ast, id, 0
+
+## `true` si el nodo tiene un hijo en `slot`.
+##
+## ## Memoria
+## O(1).
+weave has_child with ast as ref to psast.PsAst, id as int, slot as int into bool:
+    return (calling child_count with ast, id) > slot
+
+## Tipo de token de un hijo.
+##
+## ## Memoria
+## O(1).
+weave child_token_kind with lex as ref to psstate.LexResult, ast as ref to psast.PsAst, id as int, slot as int into pstoken.TokenKind:
+    var idx as int is calling token_child with ast, id, slot
+    if idx < 0:
+        return pstoken.TokenKind.TokEof
+    return (lex->tokens at idx).kind
+
+## Token completo de un índice.
+##
+## ## Memoria
+## Copia POD.
+weave token_at with lex as ref to psstate.LexResult, idx as int into pstoken.Token:
+    if idx < 0 or idx >= lex->tokens.len:
+        return (lex->tokens at 0)
+    return (lex->tokens at idx)

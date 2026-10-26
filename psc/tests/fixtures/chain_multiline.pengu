@@ -1,0 +1,6 @@
+weave f with raw as int into int:
+    var x as int is calling raw
+        .trim
+        .lower
+        .replace with " ", "-"
+    return x

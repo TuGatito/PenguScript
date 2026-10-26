@@ -1,0 +1,146 @@
+## psc/session.pengu — sesión de compilación para F1.
+##
+## `Session` es dueña de un `SourceFile`, su `DiagnosticBag`, la tabla de
+## keywords y las opciones. `Session.open` devuelve siempre una sesión; si el
+## archivo no se pudo leer, `ok` es `false` y `error` explica por qué. Así el
+## CLI no necesita mover un `Session` fuera de un `result` (el lenguaje no tiene
+## move semantics) y no hay que copiar sus listas.
+##
+## ## Memoria
+## `banish session` libera source, diagnostics, keywords y error.
+
+import std.archivum
+import std.diagnostic as diag
+import std.lingua
+import std.sourcemap
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+import psc.diagnostics as psdiag
+import psc.lexer_state as psstate
+import psc.lexer as pslexer
+
+## Una sesión de lexación.
+##
+## ## Memoria
+## `banish session` libera todos los campos con heap.
+rune Session derive Nexus:
+    ## `false` si `open` falló.
+    ok as bool
+    ## Error de carga cuando `ok == false`.
+    error as SourceError
+    ## Fuente cargado (vacío si falló).
+    source as SourceFile
+    ## Diagnósticos acumulados.
+    diagnostics as diag.DiagnosticBag
+    ## Tabla de keywords.
+    keywords as KeywordTable
+    ## Opciones de lexación.
+    options as LexOptions
+
+## Abre un archivo desde disco.
+##
+## ## Memoria
+## Devuelve una sesión owned; liberar con `banish`.
+weave open with path as string, options as LexOptions into Session:
+    var m as maybe string is calling archivum.read_bytes with path
+    if not m.is_present:
+        var empty as SourceFile is calling SourceFile.from_text with path, ""
+        var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+        var kw as KeywordTable is calling pstoken.keyword_table_new
+        var err as SourceError is calling psource.source_error with SourceErrorKind.SrcRead, path, "cannot read source file"
+        return with ok is false, error is err, source is empty, diagnostics is bag, keywords is kw, options is options
+    var raw as string is m.value
+    var f as SourceFile is calling SourceFile.from_text with path, raw
+    banish m
+    var bag2 as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+    calling bag2.add_source with path, (calling f.get_text)
+    var kw2 as KeywordTable is calling pstoken.keyword_table_new
+    var empty_err as SourceError is calling psource.source_error with SourceErrorKind.SrcRead, "", ""
+    calling validate_utf8 with sigil of f, sigil of bag2
+    return with ok is true, error is empty_err, source is f, diagnostics is bag2, keywords is kw2, options is options
+
+## Abre una sesión desde texto ya en memoria (LSP/tests).
+##
+## ## Memoria
+## Devuelve una sesión owned; liberar con `banish`.
+weave open_text with path as string, text as string, options as LexOptions into Session:
+    var f as SourceFile is calling SourceFile.from_text with path, text
+    var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+    calling bag.add_source with path, (calling f.get_text)
+    var kw as KeywordTable is calling pstoken.keyword_table_new
+    var empty_err as SourceError is calling psource.source_error with SourceErrorKind.SrcRead, "", ""
+    calling validate_utf8 with sigil of f, sigil of bag
+    return with ok is true, error is empty_err, source is f, diagnostics is bag, keywords is kw, options is options
+
+## Registra `E0000` si el fuente no es UTF-8 válido.
+##
+## ## Memoria
+## Añade como máximo un diagnóstico.
+weave validate_utf8 with f as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag into void:
+    var r as result of void to LinguaError is calling lingua.validate with (calling f.get_text)
+    if not r.is_ok:
+        var err as LinguaError is r.error
+        var off as int is calling lingua_error_offset with err
+        var s as pspan.ByteSpan is with start is off, end is off
+        var detail as string is "byte {off}"
+        defer banish detail
+        calling psdiag.emit_issue with bag, f, LexInvalidUtf8, s, detail
+    banish r
+
+## Offset de un `LinguaError`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lingua_error_offset with err as LinguaError into int:
+    return judge err:
+        when InvalidByte with offset -> offset
+        when TruncatedSequence with offset -> offset
+        when OverlongEncoding with offset -> offset
+        when SurrogateCodepoint with offset -> offset
+        when CodepointOutOfRange with offset -> offset
+        when IndexOutOfRange with index -> index
+
+enchanting Session:
+    ## Lexa el fuente de la sesión.
+    ##
+    ## ## Memoria
+    ## Devuelve un `LexResult` owned; el llamador lo libera.
+    weave lex into LexResult:
+        return calling pslexer.lex with sigil of self->source, sigil of self->diagnostics, sigil of self->keywords, self->options
+
+    ## `true` si hay errores.
+    ##
+    ## ## Memoria
+    ## O(1), no asigna.
+    weave has_errors into bool:
+        return calling self->diagnostics.has_errors
+
+    ## Renderiza los diagnósticos sin color.
+    ##
+    ## ## Memoria
+    ## Devuelve un `string` owned; liberar con `banish`.
+    weave render_plain into string:
+        return calling self->diagnostics.render_plain
+
+    ## Renderiza los diagnósticos con ANSI.
+    ##
+    ## ## Memoria
+    ## Devuelve un `string` owned; liberar con `banish`.
+    weave render_colored into string:
+        return calling self->diagnostics.render_colored
+
+    ## Renderiza los diagnósticos forzando ANSI.
+    ##
+    ## ## Memoria
+    ## Devuelve un `string` owned; liberar con `banish`.
+    weave render_forced into string:
+        return calling psdiag.render_forced with sigil of self->diagnostics
+
+    ## Renderiza los diagnósticos como JSON LSP.
+    ##
+    ## ## Memoria
+    ## Devuelve un `string` owned; liberar con `banish`.
+    weave render_json into string:
+        return calling self->diagnostics.render_json

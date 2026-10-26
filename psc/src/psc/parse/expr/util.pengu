@@ -1,0 +1,57 @@
+## psc/parse/expr/util.pengu — helpers de nodos y spans para expresiones.
+##
+## ## Memoria
+## Construye nodos en el AST; no asigna strings.
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.state as psstate
+
+insignia psc_parse_expr_util_
+
+## Inicio de un nodo, o el inicio del token actual si el nodo no existe.
+##
+## ## Memoria
+## O(1), no asigna.
+weave pexpr_start_of with p as ref to PsParser, id as int into int:
+    if id < 0:
+        return calling ps_current_start with p
+    var n as PsNode is calling p->ast.node_at with id
+    return n.start
+
+## Fin de un nodo, o el fin del token anterior si el nodo no existe.
+##
+## ## Memoria
+## O(1), no asigna.
+weave pexpr_end_of with p as ref to PsParser, id as int into int:
+    if id < 0:
+        return calling ps_previous_end with p
+    var n as PsNode is calling p->ast.node_at with id
+    return n.end
+
+## Construye un nodo binario con dos hijos.
+##
+## ## Memoria
+## Crea un nodo `kind` con `left` y `right`.
+weave pexpr_binary with p as ref to PsParser, kind as NodeKind, left as int, op_index as int, right as int into int:
+    var start as int is calling pexpr_start_of with p, left
+    var end as int is calling pexpr_end_of with p, right
+    calling ps_begin_children with p
+    calling ps_add_child with p, left
+    calling ps_add_child with p, right
+    return calling ps_finish_node with p, kind, start, end, op_index
+
+## Construye un nodo unario.
+##
+## ## Memoria
+## Crea un nodo `kind` con un hijo.
+weave pexpr_unary_node with p as ref to PsParser, kind as NodeKind, child as int, op_index as int, start as int into int:
+    var end as int is calling pexpr_end_of with p, child
+    calling ps_begin_children with p
+    calling ps_add_child with p, child
+    return calling ps_finish_node with p, kind, start, end, op_index
+

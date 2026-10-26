@@ -1,0 +1,11 @@
+error[E0059]: Antiquus 'noop' has an empty C body
+  --> tests/fixtures/antiquus_empty.pengu:2:5
+  |
+1 | antiquus noop with x as int into void:
+2 |     """
+  |     ^^^
+3 | """
+  |
+   = note: An antiquus with no C produces an empty function body.
+   = help: Add the C statements that the antiquus should emit.
+

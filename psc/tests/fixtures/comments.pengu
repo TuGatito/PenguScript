@@ -1,0 +1,11 @@
+# line comment
+## one-line doc
+
+##
+multi-line doc
+still doc
+##
+weave main into int:
+    # inner
+    var s as string is "# not a comment"
+    return 0

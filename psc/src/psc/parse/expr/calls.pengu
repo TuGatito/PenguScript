@@ -1,0 +1,402 @@
+## psc/parse/expr/calls.pengu — unarios, `calling`, postfix y argumentos.
+##
+## ## Memoria
+## Construye nodos en el AST; no asigna strings salvo diagnósticos.
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.state as psstate
+import psc.parse.diagnostics as pdiag
+import psc.parse.types as ptypes
+import psc.parse.expr.atoms as patoms
+import psc.parse.expr.util as putil
+
+insignia psc_parse_expr_calls_
+
+## Pide una expresión de lista de valor al hook.
+##
+## ## Memoria
+## O(1), no asigna.
+weave pexpr_nested_list_value with p as ref to PsParser into int:
+    var fn as ref to weave with p as ref to PsParser into int is p->hooks.list_value_expr
+    return calling fn with p
+
+# ---------------------------------------------------------------------------
+# Unarios
+# ---------------------------------------------------------------------------
+
+## Parsea un unario completo.
+##
+## ## Memoria
+## Construye el nodo correspondiente.
+weave pexpr_parse_unary with p as ref to PsParser into int:
+    if not (calling ps_enter_depth with p):
+        var off as int is calling ps_current_start with p
+        return calling ps_error_node with p, off, off
+    defer calling ps_leave_depth with p
+    if calling ps_check with p, TokTilde:
+        var start as int is calling ps_current_start with p
+        var opi as int is p->pos
+        var ignored as Token is calling ps_advance with p
+        var child as int is calling pexpr_parse_unary with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdBitNot, child, opi, start
+    if calling ps_check_kw with p, KwNot:
+        var start2 as int is calling ps_current_start with p
+        var opi2 as int is p->pos
+        var ignored2 as Token is calling ps_advance with p
+        var child2 as int is calling pexpr_parse_unary with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdLogNot, child2, opi2, start2
+    if calling ps_check with p, TokMinus:
+        var start3 as int is calling ps_current_start with p
+        var opi3 as int is p->pos
+        var ignored3 as Token is calling ps_advance with p
+        var child3 as int is calling pexpr_parse_unary with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdNeg, child3, opi3, start3
+    if calling ps_check_kw with p, KwSigil:
+        var start4 as int is calling ps_current_start with p
+        var opi4 as int is p->pos
+        var ignored4 as Token is calling ps_advance with p
+        var ignored5 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+        var child4 as int is calling pexpr_parse_unary with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdSigilOf, child4, opi4, start4
+    if calling ps_check_kw with p, KwEssence:
+        var start5 as int is calling ps_current_start with p
+        var opi5 as int is p->pos
+        var ignored6 as Token is calling ps_advance with p
+        var ignored7 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+        var child5 as int is calling pexpr_parse_unary with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdEssenceOf, child5, opi5, start5
+    if calling ps_check_kw with p, KwTransmute:
+        return calling pexpr_parse_transmute with p
+    if calling ps_check_kw with p, KwSizeOf:
+        var start6 as int is calling ps_current_start with p
+        var opi6 as int is p->pos
+        var ignored8 as Token is calling ps_advance with p
+        var ty as int is calling ptypes.ptype_parse_type with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdSizeOf, ty, opi6, start6
+    if calling ps_check_kw with p, KwTypeOf:
+        var start7 as int is calling ps_current_start with p
+        var opi7 as int is p->pos
+        var ignored9 as Token is calling ps_advance with p
+        var child6 as int is calling pexpr_parse_unary with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdTypeOf, child6, opi7, start7
+    if calling ps_check_kw with p, KwBanish:
+        var start8 as int is calling ps_current_start with p
+        var opi8 as int is p->pos
+        var ignored10 as Token is calling ps_advance with p
+        var child7 as int is calling pexpr_parse_unary with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdBanishExpr, child7, opi8, start8
+    if calling ps_check_kw with p, KwSome:
+        var start9 as int is calling ps_current_start with p
+        var opi9 as int is p->pos
+        var ignored11 as Token is calling ps_advance with p
+        var child8 as int is calling pexpr_parse_unary with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdSomeExpr, child8, opi9, start9
+    if calling ps_check_kw with p, KwOrd:
+        var start10 as int is calling ps_current_start with p
+        var opi10 as int is p->pos
+        var ignored12 as Token is calling ps_advance with p
+        var child9 as int is calling pexpr_parse_unary with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdOrdExpr, child9, opi10, start10
+    if calling ps_check_kw with p, KwChr:
+        var start11 as int is calling ps_current_start with p
+        var opi11 as int is p->pos
+        var ignored13 as Token is calling ps_advance with p
+        var child10 as int is calling pexpr_parse_unary with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdChrExpr, child10, opi11, start11
+    if calling ps_check_kw with p, KwBytes:
+        var start12 as int is calling ps_current_start with p
+        var opi12 as int is p->pos
+        var ignored14 as Token is calling ps_advance with p
+        var ignored15 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+        var child11 as int is calling pexpr_parse_unary with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdBytesExpr, child11, opi12, start12
+    if calling ps_check_kw with p, KwCalling:
+        return calling pexpr_parse_calling with p
+    return calling pexpr_parse_postfix with p
+
+## Parsea `transmute expr to TYPE`.
+##
+## ## Memoria
+## Construye un nodo `transmute`.
+weave pexpr_parse_transmute with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var opi as int is p->pos
+    var ignored as Token is calling ps_expect_kw with p, KwTransmute, "'transmute'"
+    var value as int is calling pexpr_parse_unary_no_cast with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwTo, "'to'"
+    var ty as int is calling ptypes.ptype_parse_type with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, value
+    calling ps_add_child with p, ty
+    return calling ps_finish_node with p, NodeKind.NdTransmute, start, (calling putil.pexpr_end_of with p, ty), opi
+
+## Parsea un unario sin casts (`unary_no_cast`).
+##
+## ## Memoria
+## Construye el nodo correspondiente.
+weave pexpr_parse_unary_no_cast with p as ref to PsParser into int:
+    if not (calling ps_enter_depth with p):
+        var off as int is calling ps_current_start with p
+        return calling ps_error_node with p, off, off
+    defer calling ps_leave_depth with p
+    if calling ps_check with p, TokTilde:
+        var start as int is calling ps_current_start with p
+        var opi as int is p->pos
+        var ignored as Token is calling ps_advance with p
+        var child as int is calling pexpr_parse_unary_no_cast with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdBitNot, child, opi, start
+    if calling ps_check_kw with p, KwNot:
+        var start2 as int is calling ps_current_start with p
+        var opi2 as int is p->pos
+        var ignored2 as Token is calling ps_advance with p
+        var child2 as int is calling pexpr_parse_unary_no_cast with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdLogNot, child2, opi2, start2
+    if calling ps_check with p, TokMinus:
+        var start3 as int is calling ps_current_start with p
+        var opi3 as int is p->pos
+        var ignored3 as Token is calling ps_advance with p
+        var child3 as int is calling pexpr_parse_unary_no_cast with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdNeg, child3, opi3, start3
+    if calling ps_check_kw with p, KwSigil:
+        var start4 as int is calling ps_current_start with p
+        var opi4 as int is p->pos
+        var ignored4 as Token is calling ps_advance with p
+        var ignored5 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+        var child4 as int is calling pexpr_parse_unary_no_cast with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdSigilOf, child4, opi4, start4
+    if calling ps_check_kw with p, KwEssence:
+        var start5 as int is calling ps_current_start with p
+        var opi5 as int is p->pos
+        var ignored6 as Token is calling ps_advance with p
+        var ignored7 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+        var child5 as int is calling pexpr_parse_unary_no_cast with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdEssenceOf, child5, opi5, start5
+    if calling ps_check_kw with p, KwCalling:
+        return calling pexpr_parse_calling with p
+    return calling pexpr_parse_postfix_no_cast with p
+
+# ---------------------------------------------------------------------------
+# Postfix y llamadas
+# ---------------------------------------------------------------------------
+
+## Parsea postfix con casts (`postfix`).
+##
+## ## Memoria
+## Construye nodos `field_access`, `arrow_access`, `at_expr`,
+## `slice_at_expr` y `length_expr`.
+weave pexpr_parse_postfix with p as ref to PsParser into int:
+    var base as int is calling patoms.patom_parse_primary with p
+    return calling pexpr_postfix_tail with p, base
+
+## Parsea postfix sin casts.
+##
+## ## Memoria
+## Igual que `pexpr_parse_postfix`.
+weave pexpr_parse_postfix_no_cast with p as ref to PsParser into int:
+    var base as int is calling patoms.patom_parse_primary with p
+    return calling pexpr_postfix_tail with p, base
+
+## Bucle común de postfix.
+##
+## ## Memoria
+## Construye los nodos de acceso.
+weave pexpr_postfix_tail with p as ref to PsParser, base as int into int:
+    var current_id as int is base
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokDot:
+            var start as int is calling putil.pexpr_start_of with p, current_id
+            var ignored as Token is calling ps_advance with p
+            calling ps_begin_children with p
+            calling ps_add_child with p, current_id
+            calling ps_add_name_like with p
+            set current_id is calling ps_finish_node with p, NodeKind.NdFieldAccess, start, (calling ps_previous_end with p), 0
+        else if (calling ps_check with p, TokArrow) and (not p->guard_mode):
+            var start2 as int is calling putil.pexpr_start_of with p, current_id
+            var ignored3 as Token is calling ps_advance with p
+            calling ps_begin_children with p
+            calling ps_add_child with p, current_id
+            calling ps_add_name_like with p
+            set current_id is calling ps_finish_node with p, NodeKind.NdArrowAccess, start2, (calling ps_previous_end with p), 0
+        else if calling ps_check_word with p, "at":
+            var start3 as int is calling putil.pexpr_start_of with p, current_id
+            var ignored5 as bool is calling ps_accept_word with p, "at"
+            var first as int is calling pexpr_parse_unary_no_cast with p
+            if calling ps_check_kw with p, KwTo:
+                var sr as int is calling pexpr_parse_slice_range with p, first
+                calling ps_begin_children with p
+                calling ps_add_child with p, current_id
+                calling ps_add_child with p, sr
+                set current_id is calling ps_finish_node with p, NodeKind.NdSliceAtExpr, start3, (calling putil.pexpr_end_of with p, sr), 0
+            else:
+                calling ps_begin_children with p
+                calling ps_add_child with p, current_id
+                calling ps_add_child with p, first
+                set current_id is calling ps_finish_node with p, NodeKind.NdAtExpr, start3, (calling putil.pexpr_end_of with p, first), 0
+        else if calling ps_check_word with p, "length":
+            var start4 as int is calling putil.pexpr_start_of with p, current_id
+            var ignored6 as Token is calling ps_advance with p
+            calling ps_begin_children with p
+            calling ps_add_child with p, current_id
+            set current_id is calling ps_finish_node with p, NodeKind.NdLengthExpr, start4, (calling ps_previous_end with p), 0
+        else:
+            set more is false
+    return current_id
+
+## Parsea el `to` de un slice (`first to second`).
+##
+## ## Memoria
+## Construye un nodo `slice_range`.
+weave pexpr_parse_slice_range with p as ref to PsParser, first as int into int:
+    var start as int is calling putil.pexpr_start_of with p, first
+    var ignored as Token is calling ps_expect_kw with p, KwTo, "'to'"
+    var second as int is calling pexpr_parse_unary_no_cast with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, first
+    calling ps_add_child with p, second
+    return calling ps_finish_node with p, NodeKind.NdSliceRange, start, (calling putil.pexpr_end_of with p, second), 0
+
+## Parsea `calling target [of types] [with args]`.
+##
+## ## Memoria
+## Construye un nodo `calling_expr`.
+weave pexpr_parse_calling with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwCalling, "'calling'"
+    calling ps_begin_children with p
+    if calling ps_check with p, TokDot:
+        var target as int is calling pexpr_parse_with_target with p
+        calling ps_add_child with p, target
+    else:
+        var target2 as int is calling pexpr_parse_normal_target with p
+        calling ps_add_child with p, target2
+    if calling ps_check_kw with p, KwOf:
+        var args as int is calling pexpr_parse_generic_args with p
+        calling ps_add_child with p, args
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwWith:
+        var args2 as int is calling pexpr_parse_arg_list with p
+        calling ps_add_child with p, args2
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdCallingExpr, start, (calling ps_previous_end with p), 0
+
+## Parsea `NAME/self` seguido de accesos.
+##
+## ## Memoria
+## Construye un nodo `normal_target`.
+weave pexpr_parse_normal_target with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    calling ps_add_name_like with p
+    calling pexpr_parse_access_ops with p
+    return calling ps_finish_node with p, NodeKind.NdNormalTarget, start, (calling ps_previous_end with p), 0
+
+## Parsea `. NAME` seguido de accesos (`with_target`).
+##
+## ## Memoria
+## Construye un nodo `with_target`.
+weave pexpr_parse_with_target with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    var ignored as Token is calling ps_expect with p, TokDot, "'.'"
+    calling ps_add_name_like with p
+    calling pexpr_parse_access_ops with p
+    return calling ps_finish_node with p, NodeKind.NdWithTarget, start, (calling ps_previous_end with p), 0
+
+## Añade accesos `.`, `->` y `at` al nodo actual.
+##
+## ## Memoria
+## Añade hijos al nodo en construcción.
+weave pexpr_parse_access_ops with p as ref to PsParser into void:
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokDot:
+            var start as int is calling ps_current_start with p
+            var ignored as Token is calling ps_advance with p
+            calling ps_begin_children with p
+            calling ps_add_name_like with p
+            var op as int is calling ps_finish_node with p, NodeKind.NdDotAccess, start, (calling ps_previous_end with p), 0
+            calling ps_add_child with p, op
+        else if calling ps_check with p, TokArrow:
+            var start2 as int is calling ps_current_start with p
+            var ignored3 as Token is calling ps_advance with p
+            calling ps_begin_children with p
+            calling ps_add_name_like with p
+            var op2 as int is calling ps_finish_node with p, NodeKind.NdArrowAccess, start2, (calling ps_previous_end with p), 0
+            calling ps_add_child with p, op2
+        else if calling ps_check_word with p, "at":
+            var start3 as int is calling ps_current_start with p
+            var ignored5 as bool is calling ps_accept_word with p, "at"
+            calling ps_begin_children with p
+            var index as int is calling patoms.patom_parse_primary with p
+            calling ps_add_child with p, index
+            var op3 as int is calling ps_finish_node with p, NodeKind.NdAtAccess, start3, (calling putil.pexpr_end_of with p, index), 0
+            calling ps_add_child with p, op3
+        else:
+            set more is false
+
+## Parsea `of type (,|and type)*`.
+##
+## ## Memoria
+## Construye un nodo `generic_args`.
+weave pexpr_parse_generic_args with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwOf, "'of'"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        var ty as int is calling ptypes.ptype_parse_type with p
+        calling ps_add_child with p, ty
+        if calling ps_check with p, TokComma:
+            var ignored2 as Token is calling ps_advance with p
+        else if calling ps_check_kw with p, KwAnd:
+            var ignored3 as Token is calling ps_advance with p
+        else:
+            set more is false
+    return calling ps_finish_node with p, NodeKind.NdGenericArgs, start, (calling ps_previous_end with p), 0
+
+## Parsea `with arg (, arg)*`.
+##
+## ## Memoria
+## Construye un nodo `arg_list`.
+weave pexpr_parse_arg_list with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWith, "'with'"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        var arg as int is calling pexpr_parse_arg with p
+        calling ps_add_child with p, arg
+        if calling ps_check with p, TokComma:
+            var ignored2 as Token is calling ps_advance with p
+        else:
+            set more is false
+    return calling ps_finish_node with p, NodeKind.NdArgList, start, (calling ps_previous_end with p), 0
+
+## Parsea un argumento posicional o nombrado.
+##
+## ## Memoria
+## Construye `pos_arg` o `named_arg`.
+weave pexpr_parse_arg with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    if calling ps_check_name_like with p:
+        if (calling ps_kind_ahead with p, 1) == TokKeyword:
+            if (calling ps_kw_at_offset with p, 1) == KwIs:
+                calling ps_begin_children with p
+                calling ps_add_name_like with p
+                var ignored2 as Token is calling ps_expect_kw with p, KwIs, "'is'"
+                var value as int is calling pexpr_nested_list_value with p
+                calling ps_add_child with p, value
+                return calling ps_finish_node with p, NodeKind.NdNamedArg, start, (calling putil.pexpr_end_of with p, value), 0
+    calling ps_begin_children with p
+    var value2 as int is calling pexpr_nested_list_value with p
+    calling ps_add_child with p, value2
+    return calling ps_finish_node with p, NodeKind.NdPosArg, start, (calling putil.pexpr_end_of with p, value2), 0
+

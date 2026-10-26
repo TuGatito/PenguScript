@@ -1,0 +1,10 @@
+error[E0059]: Antiquus 'add_one' has no triple-quoted C body
+  --> tests/fixtures/antiquus_missing.pengu:2:5
+  |
+1 | antiquus add_one with x as int into int:
+2 |     var x as int is 1
+  |     ^
+  |
+   = note: The body is emitted literally into the generated C.
+   = help: Write the C body as '"""..."""' or 'r"""..."""'.
+

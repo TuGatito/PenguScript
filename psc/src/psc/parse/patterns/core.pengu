@@ -1,0 +1,207 @@
+## psc/parse/patterns/core.pengu — patrones de `judge`/`when`.
+##
+## Un `when_clause` es `when <patrón> [with <payload>] [if <guarda>] -> <body>`.
+## Los patrones se representan como en stage0: los literales simples quedan
+## como tokens, los nombres cualificados como `when_variant`, y `maybe none`
+## como un `when_variant` vacío (la forma que produce Lark).
+##
+## ## Memoria
+## Construye nodos en el AST; no asigna strings salvo diagnósticos.
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.state as psstate
+import psc.parse.diagnostics as pdiag
+import psc.parse.expr.ops as pexpr
+
+insignia psc_parse_pattern_
+
+## Parsea una cláusula `when ...`.
+##
+## ## Memoria
+## Crea un nodo `when_clause`.
+weave ppat_parse_when_clause with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWhen, "'when'"
+    calling ps_begin_children with p
+    var pattern as int is calling ppat_parse_pattern with p
+    calling ps_add_child with p, pattern
+    if calling ps_check_kw with p, KwWith:
+        calling ps_add_child with p, (calling ppat_parse_payload with p)
+    else:
+        calling ps_add_absent with p
+    if calling ps_check_kw with p, KwIf:
+        calling ps_add_child with p, (calling ppat_parse_guard with p)
+    else if calling ps_check_kw with p, KwWhen:
+        calling ps_add_child with p, (calling ppat_parse_guard with p)
+    else:
+        calling ps_add_absent with p
+    var ignored2 as Token is calling ps_expect with p, TokArrow, "'->'"
+    var fn as ref to weave with p as ref to PsParser into int is p->hooks.when_body
+    var body as int is calling fn with p
+    calling ps_add_child with p, body
+    return calling ps_finish_node with p, NodeKind.NdWhenClause, start, (calling pexpr.pexpr_end_of with p, body), 0
+
+## Parsea un patrón completo, con alternativas `|`.
+##
+## ## Memoria
+## Crea un nodo `when_pattern`.
+weave ppat_parse_pattern with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    calling ppat_add_variant with p
+    var more as bool is true
+    while more:
+        if calling ps_check with p, TokVerticalBar:
+            calling ps_add_token with p, p->pos
+            var ignored as Token is calling ps_advance with p
+            calling ppat_add_variant with p
+        else:
+            set more is false
+    return calling ps_finish_node with p, NodeKind.NdWhenPattern, start, (calling ps_previous_end with p), 0
+
+## Añade una variante al patrón en construcción.
+##
+## ## Memoria
+## Añade un token o un nodo `when_variant`.
+weave ppat_add_variant with p as ref to PsParser into void:
+    var k as TokenKind is calling ps_kind_at with p
+    if k == TokIntLit or k == TokFloatLit or k == TokStringLit or k == TokCharLit:
+        calling ps_add_token with p, p->pos
+        var ignored as Token is calling ps_advance with p
+        return
+    if k == TokKeyword:
+        if (calling ps_check_kw with p, KwTrue) or (calling ps_check_kw with p, KwFalse):
+            var start as int is calling ps_current_start with p
+            if calling ps_check_kw with p, KwTrue:
+                var ignored2 as Token is calling ps_advance with p
+                calling ps_add_child with p, (calling ppat_finish_empty with p, NodeKind.NdTrueLit, start)
+            else:
+                var ignored3 as Token is calling ps_advance with p
+                calling ps_add_child with p, (calling ppat_finish_empty with p, NodeKind.NdFalseLit, start)
+            return
+        if calling ps_check_kw with p, KwMaybe:
+            var start2 as int is calling ps_current_start with p
+            var ignored4 as Token is calling ps_advance with p
+            var ignored5 as Token is calling ps_expect_kw with p, KwNone, "'none'"
+            calling ps_add_child with p, (calling ppat_finish_empty with p, NodeKind.NdWhenVariant, start2)
+            return
+    if calling ps_check_name_like with p:
+        var start3 as int is calling ps_current_start with p
+        if (calling ps_kind_ahead with p, 1) == TokDot:
+            calling ps_begin_children with p
+            calling ps_add_name_like with p
+            var more as bool is true
+            while more:
+                if calling ps_check with p, TokDot:
+                    var ignored7 as Token is calling ps_advance with p
+                    if calling ps_check_name_like with p:
+                        calling ps_add_name_like with p
+                    else:
+                        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+                        set more is false
+                else:
+                    set more is false
+            var variant as int is calling ps_finish_node with p, NodeKind.NdWhenVariant, start3, (calling ps_previous_end with p), 0
+            calling ps_add_child with p, variant
+        else:
+            calling ps_add_name_like with p
+        return
+    calling ps_emit_here with p, pdiag.ParseIssue.ParseInvalidWhenClause, ""
+    var err as int is calling ps_error_node with p, (calling ps_current_start with p), (calling ps_current_start with p)
+    calling ps_add_child with p, err
+
+## Cierra un nodo vacío en `start`.
+##
+## ## Memoria
+## Crea un nodo sin hijos.
+weave ppat_finish_empty with p as ref to PsParser, kind as NodeKind, start as int into int:
+    calling ps_begin_children with p
+    return calling ps_finish_node with p, kind, start, start, 0
+
+## Parsea `with field, field...`.
+##
+## ## Memoria
+## Crea un nodo `when_payload`.
+weave ppat_parse_payload with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWith, "'with'"
+    calling ps_begin_children with p
+    var more as bool is true
+    while more:
+        var field as int is calling ppat_parse_when_field with p
+        calling ps_add_child with p, field
+        if calling ps_check with p, TokComma:
+            var ignored2 as Token is calling ps_advance with p
+        else if calling ps_check_kw with p, KwAnd:
+            var ignored3 as Token is calling ps_advance with p
+        else:
+            set more is false
+    return calling ps_finish_node with p, NodeKind.NdWhenPayload, start, (calling ps_previous_end with p), 0
+
+## Parsea `NAME [as pattern]`.
+##
+## ## Memoria
+## Crea un nodo `when_field`.
+weave ppat_parse_when_field with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    calling ps_add_name_like with p
+    if calling ps_check_kw with p, KwAs:
+        var ignored2 as Token is calling ps_advance with p
+        calling ps_add_child with p, (calling ppat_parse_field_pattern with p)
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdWhenField, start, (calling ps_previous_end with p), 0
+
+## Parsea un patrón de campo: tupla o estado cualificado.
+##
+## ## Memoria
+## Crea `field_tuple` o `field_pattern`.
+weave ppat_parse_field_pattern with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    if calling ps_check with p, TokLeftParen:
+        var ignored as Token is calling ps_advance with p
+        calling ps_begin_children with p
+        var more as bool is true
+        while more:
+            calling ps_add_name_like with p
+            if calling ps_check with p, TokComma:
+                var ignored3 as Token is calling ps_advance with p
+            else:
+                set more is false
+        var ignored4 as Token is calling ps_expect with p, TokRightParen, "')'"
+        var tuple as int is calling ps_finish_node with p, NodeKind.NdFieldTuple, start, (calling ps_previous_end with p), 0
+        calling ps_begin_children with p
+        calling ps_add_child with p, tuple
+        return calling ps_finish_node with p, NodeKind.NdFieldPattern, start, (calling ps_previous_end with p), 0
+    calling ps_begin_children with p
+    calling ps_add_name_like with p
+    var more2 as bool is true
+    while more2:
+        if calling ps_check with p, TokDot:
+            var ignored6 as Token is calling ps_advance with p
+            if calling ps_check_name_like with p:
+                calling ps_add_name_like with p
+            else:
+                calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+                set more2 is false
+        else:
+            set more2 is false
+    return calling ps_finish_node with p, NodeKind.NdFieldPattern, start, (calling ps_previous_end with p), 0
+
+## Parsea una guarda `if expr` / `when expr`.
+##
+## ## Memoria
+## Crea un nodo `when_guard`.
+weave ppat_parse_guard with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_advance with p
+    calling ps_begin_children with p
+    var cond as int is calling pexpr.pexpr_parse_guard_expr with p
+    calling ps_add_child with p, cond
+    return calling ps_finish_node with p, NodeKind.NdWhenGuard, start, (calling pexpr.pexpr_end_of with p, cond), 0

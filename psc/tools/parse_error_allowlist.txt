@@ -1,0 +1,7 @@
+# Divergencias deliberadas del oráculo de errores.
+#
+# unexpected_eof: F1 emite E0000 "unclosed '('" en el `(` (una mejora de
+# recuperación del lexer) antes de que el parser llegue al final de línea;
+# stage0 no valida el delimitador y falla con la nueva línea. El código es
+# E0000 en ambos; la posición del primer diagnóstico difiere por diseño de F1.
+unexpected_eof

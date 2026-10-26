@@ -1,0 +1,243 @@
+## Tests unitarios de F2. Se ejecutan con:
+##   pengu run tests/parser_unit.pengu --no-cache
+import std.spark
+import std.ward
+import std.archivum
+import std.builder
+import std.diagnostic as diag
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer as pslexer
+import psc.ast.dump as psdump
+import psc.ast.kind as pskind
+import psc.parse.state as psstate
+import psc.parse.api as psapi
+
+rune ParseFixture derive Nexus:
+    src as SourceFile
+    bag as DiagnosticBag
+    kw as KeywordTable
+    lex as LexResult
+    pr as PsParseResult
+
+weave make_fixture with text as string into ParseFixture:
+    var f as SourceFile is calling SourceFile.from_text with "t.pengu", text
+    var bag as DiagnosticBag is calling DiagnosticBag.new
+    calling bag.add_source with "t.pengu", (calling f.get_text)
+    var kw as KeywordTable is calling pstoken.keyword_table_new
+    var lopt as LexOptions is calling default_lex_options
+    var lex as LexResult is calling pslexer.lex with sigil of f, sigil of bag, sigil of kw, lopt
+    var popt as PsParseOptions is calling ps_default_parse_options
+    var pr as PsParseResult is calling psapi.ps_parse_file with sigil of f, sigil of bag, sigil of lex, popt
+    return with src is f, bag is bag, kw is kw, lex is lex, pr is pr
+
+weave make_file_fixture with path as string into ParseFixture:
+    var m as maybe string is calling archivum.read_bytes with path
+    if not m.is_present:
+        calling spark.panic with "missing fixture {path}"
+    var raw as string is m.value
+    var fx as ParseFixture is calling make_fixture with raw
+    banish raw
+    return fx
+
+weave first_top with fx as ref to ParseFixture into int:
+    var ast as ref to PsAst is sigil of fx->pr.ast
+    var file as int is calling ast.child_node_of with fx->pr.root, 0
+    if file < 0:
+        calling spark.panic with "no file node"
+    var top as int is calling ast.child_node_of with file, 0
+    if top < 0:
+        calling spark.panic with "no top_stmt node"
+    return top
+
+weave first_decl with fx as ref to ParseFixture into int:
+    var ast as ref to PsAst is sigil of fx->pr.ast
+    var top as int is calling first_top with fx
+    return calling ast.child_node_of with top, 0
+
+weave expect_ok with fx as ref to ParseFixture into void:
+    if not fx->pr.ok:
+        var msg as string is calling fx->bag.render_plain
+        defer banish msg
+        calling spark.panic with "parse failed:\n{msg}"
+    if calling fx->bag.has_errors:
+        calling spark.panic with "unexpected diagnostics"
+
+weave expect_kind with fx as ref to ParseFixture, id as int, expected as NodeKind into void:
+    if id < 0:
+        calling spark.panic with "missing node"
+    var got as NodeKind is calling fx->pr.ast.kind_of with id
+    if got != expected:
+        var msg as string is "expected {calling pskind.ps_node_kind_name with expected}, got {calling pskind.ps_node_kind_name with got}"
+        calling spark.panic with msg
+
+weave has_code with fx as ref to ParseFixture, code as string into bool:
+    var i as int is 0
+    while i < fx->bag.items.len:
+        var d as Diagnostic is fx->bag.items at i
+        if d.code == code:
+            return true
+        set i is i + 1
+    return false
+
+weave test_empty_file into void:
+    var fx as ParseFixture is calling make_fixture with ""
+    defer banish fx
+    calling expect_ok with sigil of fx
+    calling expect_kind with sigil of fx, fx.pr.root, NodeKind.NdStart
+    var ast as ref to PsAst is sigil of fx.pr.ast
+    var file as int is calling ast.child_node_of with fx.pr.root, 0
+    calling expect_kind with sigil of fx, file, NodeKind.NdFile
+    calling ward.assert_eq_int with (calling ast.child_count_of with file), 0
+
+weave test_weave into void:
+    var fx as ParseFixture is calling make_fixture with "weave main into int:\n    return 0\n"
+    defer banish fx
+    calling expect_ok with sigil of fx
+    var decl as int is calling first_decl with sigil of fx
+    calling expect_kind with sigil of fx, decl, NodeKind.NdWeaveDecl
+    var ast as ref to PsAst is sigil of fx.pr.ast
+    var body as int is calling ast.child_node_of with decl, 5
+    calling expect_kind with sigil of fx, body, NodeKind.NdStmt
+
+weave test_precedence into void:
+    var fx as ParseFixture is calling make_fixture with "weave f into int:\n    return 1 + 2 * 3\n"
+    defer banish fx
+    calling expect_ok with sigil of fx
+    var decl as int is calling first_decl with sigil of fx
+    var ast as ref to PsAst is sigil of fx.pr.ast
+    var body as int is calling ast.child_node_of with decl, 5
+    var ret as int is calling ast.child_node_of with body, 0
+    var add as int is calling ast.child_node_of with ret, 0
+    calling expect_kind with sigil of fx, add, NodeKind.NdAdd
+    var mul as int is calling ast.child_node_of with add, 1
+    calling expect_kind with sigil of fx, mul, NodeKind.NdMul
+
+weave test_chain into void:
+    var fx as ParseFixture is calling make_file_fixture with "tests/fixtures/chain_multiline.pengu"
+    defer banish fx
+    calling expect_ok with sigil of fx
+    var decl as int is calling first_decl with sigil of fx
+    var ast as ref to PsAst is sigil of fx.pr.ast
+    var body as int is calling ast.child_node_of with decl, 5
+    var var_decl as int is calling ast.child_node_of with body, 0
+    var call as int is calling ast.child_node_of with var_decl, 2
+    calling expect_kind with sigil of fx, call, NodeKind.NdCallingExpr
+    var target as int is calling ast.child_node_of with call, 0
+    calling expect_kind with sigil of fx, target, NodeKind.NdNormalTarget
+    calling ward.assert_eq_int with (calling ast.child_count_of with target), 4
+
+weave test_short_struct into void:
+    var fx as ParseFixture is calling make_fixture with "weave f into int:\n    return with a, b\n"
+    defer banish fx
+    calling expect_ok with sigil of fx
+    var decl as int is calling first_decl with sigil of fx
+    var ast as ref to PsAst is sigil of fx.pr.ast
+    var body as int is calling ast.child_node_of with decl, 5
+    var ret as int is calling ast.child_node_of with body, 0
+    var init as int is calling ast.child_node_of with ret, 0
+    calling expect_kind with sigil of fx, init, NodeKind.NdStructInit
+    calling ward.assert_eq_int with (calling ast.child_count_of with init), 2
+
+weave test_judge into void:
+    var fx as ParseFixture is calling make_file_fixture with "tests/fixtures/parser_expr.pengu"
+    defer banish fx
+    calling expect_ok with sigil of fx
+
+weave test_decls into void:
+    var fx as ParseFixture is calling make_file_fixture with "tests/fixtures/parser_decls.pengu"
+    defer banish fx
+    calling expect_ok with sigil of fx
+    var ast as ref to PsAst is sigil of fx.pr.ast
+    var file as int is calling ast.child_node_of with fx.pr.root, 0
+    calling ward.assert_gt_int with (calling ast.child_count_of with file), 10
+
+weave test_multi_statement_error into void:
+    var fx as ParseFixture is calling make_fixture with "weave f into int:\n    var x is 1 var y is 2\n    return 0\n"
+    defer banish fx
+    if fx.pr.ok:
+        calling spark.panic with "expected a parse error"
+    if not (calling has_code with sigil of fx, "E0000"):
+        calling spark.panic with "expected E0000"
+
+weave test_legacy_and_error into void:
+    var fx as ParseFixture is calling make_fixture with "weave f with a as int and b as int into int:\n    return a\n"
+    defer banish fx
+    if fx.pr.ok:
+        calling spark.panic with "expected a parse error"
+    if not (calling has_code with sigil of fx, "E0000"):
+        calling spark.panic with "expected E0000"
+
+weave test_at_error into void:
+    var fx as ParseFixture is calling make_fixture with "weave f with xs as list of int, n as int into int:\n    set xs at n - 1 is 0\n"
+    defer banish fx
+    if fx.pr.ok:
+        calling spark.panic with "expected a parse error"
+    if not (calling has_code with sigil of fx, "E0000"):
+        calling spark.panic with "expected E0000"
+
+weave test_depth into void:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "weave f into int:\n    return "
+    var i as int is 0
+    while i < 520:
+        calling sb.append_char with (40 to char)
+        set i is i + 1
+    calling sb.append with "1"
+    set i is 0
+    while i < 520:
+        calling sb.append_char with (41 to char)
+        set i is i + 1
+    calling sb.append with "\n"
+    var text as string is calling sb.finish
+    defer banish text
+    var fx as ParseFixture is calling make_fixture with text
+    defer banish fx
+    if fx.pr.ok:
+        calling spark.panic with "expected depth error"
+    if not (calling has_code with sigil of fx, "E0000"):
+        calling spark.panic with "expected E0000"
+
+weave test_antiquus into void:
+    var fx as ParseFixture is calling make_fixture with "antiquus raw_add with a as int into int:\n    \"\"\"\n    return a;\n    \"\"\"\n"
+    defer banish fx
+    calling expect_ok with sigil of fx
+    var decl as int is calling first_decl with sigil of fx
+    calling expect_kind with sigil of fx, decl, NodeKind.NdAntiquusDecl
+
+weave test_determinism into void:
+    var fx as ParseFixture is calling make_file_fixture with "tests/fixtures/parser_expr.pengu"
+    defer banish fx
+    var a as string is calling psdump.ps_ast_dump_body with sigil of fx.src, sigil of fx.lex, sigil of fx.pr.ast, fx.pr.root
+    defer banish a
+    var b as string is calling psdump.ps_ast_dump_body with sigil of fx.src, sigil of fx.lex, sigil of fx.pr.ast, fx.pr.root
+    defer banish b
+    calling ward.assert_eq_string with a, b
+
+weave test_interpolation into void:
+    var r as InterpParseResult is calling psapi.ps_parse_interpolation_expr with "1 + 2"
+    defer banish r
+    if not r.ok:
+        calling spark.panic with "interpolation parse failed"
+    var k as NodeKind is calling r.ast.kind_of with r.root
+    if k != NodeKind.NdAdd:
+        calling spark.panic with "interpolation root is not add"
+
+weave main into int:
+    calling test_empty_file
+    calling test_weave
+    calling test_precedence
+    calling test_chain
+    calling test_short_struct
+    calling test_judge
+    calling test_decls
+    calling test_multi_statement_error
+    calling test_legacy_and_error
+    calling test_at_error
+    calling test_depth
+    calling test_antiquus
+    calling test_determinism
+    calling test_interpolation
+    calling spark.println with "OK parser_unit"
+    return 0

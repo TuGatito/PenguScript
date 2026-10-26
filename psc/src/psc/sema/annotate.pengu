@@ -1,0 +1,142 @@
+## psc/sema/annotate.pengu — anotaciones semánticas por nodo del AST.
+##
+## `SemaAnnotations.items[node_id]` guarda el tipo inferido, el símbolo
+## resuelto y un payload auxiliar. F4 consume esta tabla en vez de volver a
+## inferir. Las anotaciones se inicializan a `-1` y se rellenan on demand.
+##
+## ## Memoria
+## `SemaAnnotations` es dueño de la lista; `free_annotations` la libera.
+
+import psc.ast.node as psast
+
+insignia sema_annotate_
+
+## Hay tipo válido en `type_id`.
+const ANN_HAS_TYPE as int is 1 << 0
+## Hay símbolo resuelto en `symbol_id`.
+const ANN_HAS_SYMBOL as int is 1 << 1
+## Llamada a método `@mutates` reescrita a statement.
+const ANN_MUTATING_CALL as int is 1 << 2
+## `type_id`/`aux` describen una tupla.
+const ANN_TUPLE as int is 1 << 3
+## Es un valor de función/lambda.
+const ANN_FN_VALUE as int is 1 << 4
+## El nodo es el target de un `banish`.
+const ANN_BANISH as int is 1 << 5
+## El nodo ya pasó el chequeo de `judge`.
+const ANN_JUDGE_CHECKED as int is 1 << 6
+## `aux` es el `NameId` del C name resuelto.
+const ANN_C_NAME as int is 1 << 7
+## `aux` es el `TypeId` del binding `maybe`.
+const ANN_BIND_MAYBE as int is 1 << 8
+## `aux` es el `TypeId` del elemento del binding.
+const ANN_BIND_ELEM as int is 1 << 9
+
+## Anotación POD.
+rune SemaAnnotation:
+    ## Tipo inferido (`-1` sin anotar).
+    type_id as int
+    ## Símbolo resuelto (`-1` si no).
+    symbol_id as int
+    ## Payload auxiliar según flags.
+    aux as int
+    ## Bits `ANN_*`.
+    flags as int
+
+## Tabla de anotaciones.
+##
+## ## Memoria
+## Dueña de `items`.
+rune SemaAnnotations:
+    ## Una entrada por nodo del AST.
+    items as list of SemaAnnotation
+
+## Crea una tabla con una entrada por nodo.
+##
+## ## Memoria
+## Asigna la lista; liberar con `free_annotations`.
+weave new_annotations with ast as ref to psast.PsAst into SemaAnnotations:
+    var items as list of SemaAnnotation is list of SemaAnnotation
+    var i as int is 0
+    while i < ast->nodes.len:
+        var a as SemaAnnotation is with type_id is -1, symbol_id is -1, aux is 0, flags is 0
+        calling items.push with a
+        set i is i + 1
+    return with items is items
+
+## Libera la tabla.
+##
+## ## Memoria
+## Libera la lista.
+weave free_annotations with a as ref to SemaAnnotations into void:
+    banish a->items
+
+## Obtiene la anotación de un nodo.
+##
+## ## Memoria
+## Copia POD.
+weave get with a as ref to SemaAnnotations, node as int into SemaAnnotation:
+    if node < 0 or node >= a->items.len:
+        return with type_id is -1, symbol_id is -1, aux is 0, flags is 0
+    return (a->items at node)
+
+## Guarda una anotación.
+##
+## ## Memoria
+## O(1).
+weave set with a as ref to SemaAnnotations, node as int, v as SemaAnnotation into void:
+    if node < 0 or node >= a->items.len:
+        return
+    set a->items at (node) is v
+
+## Marca el tipo de un nodo.
+##
+## ## Memoria
+## O(1).
+weave set_type with a as ref to SemaAnnotations, node as int, type_id as int into void:
+    var v as SemaAnnotation is calling get with a, node
+    set v.type_id is type_id
+    set v.flags is v.flags | ANN_HAS_TYPE
+    calling set with a, node, v
+
+## Tipo de un nodo (`-1` si no).
+##
+## ## Memoria
+## O(1).
+weave type_of with a as ref to SemaAnnotations, node as int into int:
+    return (calling get with a, node).type_id
+
+## Marca el símbolo resuelto de un nodo.
+##
+## ## Memoria
+## O(1).
+weave ann_set_symbol with a as ref to SemaAnnotations, node as int, symbol as int into void:
+    var v as SemaAnnotation is calling get with a, node
+    set v.symbol_id is symbol
+    set v.flags is v.flags | ANN_HAS_SYMBOL
+    calling set with a, node, v
+
+## Símbolo de un nodo (`-1` si no).
+##
+## ## Memoria
+## O(1).
+weave symbol_of with a as ref to SemaAnnotations, node as int into int:
+    return (calling get with a, node).symbol_id
+
+## Marca un flag.
+##
+## ## Memoria
+## O(1).
+weave add_flag with a as ref to SemaAnnotations, node as int, flag as int into void:
+    var v as SemaAnnotation is calling get with a, node
+    set v.flags is v.flags | flag
+    calling set with a, node, v
+
+## Guarda el auxiliar.
+##
+## ## Memoria
+## O(1).
+weave set_aux with a as ref to SemaAnnotations, node as int, aux as int into void:
+    var v as SemaAnnotation is calling get with a, node
+    set v.aux is aux
+    calling set with a, node, v

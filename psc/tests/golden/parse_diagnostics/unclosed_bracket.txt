@@ -1,0 +1,22 @@
+error[E0000]: unclosed '('
+  --> tests/fixtures/unclosed_bracket.pengu:2:21
+  |
+1 | weave main into int:
+2 |     var x as int is (1 + 2
+  |                     ^
+3 |     return x
+  |
+   = note: The indentation pass reports it at EOF.
+   = help: Close the delimiter before the end of the file.
+
+error[E0000]: expected ')'
+  --> tests/fixtures/unclosed_bracket.pengu:3:5
+  |
+1 | weave main into int:
+2 |     var x as int is (1 + 2
+3 |     return x
+  |     ^
+  |
+   = note: PenguScript is indentation-sensitive: statements in a block must be indented consistently.
+   = help: Check the syntax around this position (see LANGUAGE.md / CHEATSHEET.md).
+

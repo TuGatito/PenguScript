@@ -1,0 +1,225 @@
+## psc/lexer_antiquus.pengu — reconocimiento nativo de cuerpos `antiquus`.
+##
+## Un `antiquus` declara una función cuyo cuerpo es C literal delimitado por
+## `"""` o `r"""`. El cuerpo se guarda como span y `decode_antiquus` aplica la
+## dedent; el lexer no reescribe el texto.
+##
+## ## Reglas (réplica de `_extract_antiquus_bodies`)
+## - La apertura debe ser el primer contenido de la línea siguiente a la
+##   cabecera (se admiten líneas en blanco).
+## - Cuerpo de una línea: `"""C"""`.
+## - Cuerpo multilínea: termina en la primera línea cuyo contenido recortado es
+##   exactamente `"""`.
+## - Se quitan las líneas en blanco finales y la indentación común.
+##
+## ## Memoria
+## `scan_body` añade un `AntiquusInfo` POD y un token; no asigna strings.
+
+import std.sourcemap
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer_state as psstate
+
+## Intenta escanear el cuerpo de un `antiquus` en la posición actual.
+##
+## Se llama justo después del `NEWLINE` que sigue al `:` de la cabecera.
+##
+## ## Retorno
+## `true` si consumió un cuerpo (aunque esté vacío o falte el cierre).
+##
+## ## Memoria
+## Añade metadatos y token; no asigna strings.
+weave scan_body with lx as ref to psstate.LexerState into bool:
+    if not lx->antiquus_colon:
+        return false
+    var nm as string is calling antiquus_name with lx
+    defer banish nm
+    var n as int is calling psstate.lex_source_len with lx
+    if lx->pos >= n:
+        calling psstate.lex_issue with lx, LexAntiquusMissingBody, lx->pos, lx->pos, nm
+        return false
+    var is_raw as bool is false
+    var open_len as int is 3
+    if (calling psstate.lex_byte_at with lx, lx->pos) == 114:
+        if lx->pos + 3 < n:
+            if (calling psstate.lex_byte_at with lx, lx->pos + 1) == 34 and (calling psstate.lex_byte_at with lx, lx->pos + 2) == 34 and (calling psstate.lex_byte_at with lx, lx->pos + 3) == 34:
+                set is_raw is true
+                set open_len is 4
+            else:
+                calling psstate.lex_issue with lx, LexAntiquusMissingBody, lx->pos, lx->pos, nm
+                return false
+        else:
+            calling psstate.lex_issue with lx, LexAntiquusMissingBody, lx->pos, lx->pos, nm
+            return false
+    else:
+        if lx->pos + 2 >= n:
+            calling psstate.lex_issue with lx, LexAntiquusMissingBody, lx->pos, lx->pos, nm
+            return false
+        if (calling psstate.lex_byte_at with lx, lx->pos) != 34 or (calling psstate.lex_byte_at with lx, lx->pos + 1) != 34 or (calling psstate.lex_byte_at with lx, lx->pos + 2) != 34:
+            calling psstate.lex_issue with lx, LexAntiquusMissingBody, lx->pos, lx->pos, nm
+            return false
+    var body_start as int is lx->pos + open_len
+    var line_end as int is calling line_end_at with lx, body_start
+    var inline_close as int is calling find_triple with lx, body_start, line_end
+    var body_end as int is 0
+    var closing_end as int is 0
+    if inline_close >= 0:
+        set body_end is inline_close
+        set closing_end is inline_close + 3
+    else:
+        var scan as int is body_start
+        var found as bool is false
+        while scan < n:
+            var le as int is calling line_end_at with lx, scan
+            if calling is_close_line with lx, scan, le:
+                set body_end is scan
+                if body_end > body_start:
+                    if (calling psstate.lex_byte_at with lx, body_end - 1) == 10:
+                        set body_end is body_end - 1
+                        if body_end > body_start and (calling psstate.lex_byte_at with lx, body_end - 1) == 13:
+                            set body_end is body_end - 1
+                set closing_end is le
+                if closing_end < n and (calling psstate.lex_byte_at with lx, le) == 10:
+                    set closing_end is le + 1
+                set found is true
+                break
+            var nl as int is calling next_line_start with lx, le
+            if nl < 0:
+                break
+            set scan is nl
+        if not found:
+            set body_end is n
+            set closing_end is n
+            calling psstate.lex_issue with lx, LexAntiquusMissingBody, lx->pos, n, nm
+    var indent as int is calling compute_indent with lx, body_start, body_end
+    var empty as bool is calling body_is_empty with lx, body_start, body_end
+    if empty:
+        calling psstate.lex_issue with lx, LexAntiquusEmptyBody, lx->pos, body_start, nm
+    var info as AntiquusInfo is with body_start is body_start, body_end is body_end, indent is indent, is_raw is is_raw, empty is empty
+    var idx as int is lx->result.antiquus.len
+    calling lx->result.antiquus.push with info
+    var pos_info as sourcemap.Position is calling lx->src.position_at with body_start
+    calling psstate.lex_emit_token with lx, TokAntiquusBody, KwNotKeyword, body_start, body_end, pos_info.line, pos_info.col, idx
+    calling psstate.lex_advance_to with lx, closing_end
+    return true
+
+## Nombre de la declaración `antiquus` para diagnósticos.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave antiquus_name with lx as ref to psstate.LexerState into string:
+    if lx->antiquus_name_start < 0 or lx->antiquus_name_end <= lx->antiquus_name_start:
+        return "<antiquus>"
+    return calling psstate.lex_slice_abs with lx, lx->antiquus_name_start, lx->antiquus_name_end
+
+## Fin de la línea de `start`, sin `\n` ni `\r`.
+##
+## ## Memoria
+## O(longitud), no asigna.
+weave line_end_at with lx as ref to psstate.LexerState, start as int into int:
+    var n as int is calling psstate.lex_source_len with lx
+    var i as int is start
+    while i < n:
+        if (calling psstate.lex_byte_at with lx, i) == 10:
+            break
+        set i is i + 1
+    if i > start:
+        if (calling psstate.lex_byte_at with lx, i - 1) == 13:
+            return i - 1
+    return i
+
+## Inicio de la línea siguiente, o `-1`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave next_line_start with lx as ref to psstate.LexerState, line_end as int into int:
+    var n as int is calling psstate.lex_source_len with lx
+    if line_end >= n:
+        return -1
+    if (calling psstate.lex_byte_at with lx, line_end) == 13:
+        if line_end + 1 >= n:
+            return -1
+        return line_end + 2
+    return line_end + 1
+
+## Primer `"""` en `[from, limit)`, o `-1`.
+##
+## ## Memoria
+## O(limit - from), no asigna.
+weave find_triple with lx as ref to psstate.LexerState, from as int, limit as int into int:
+    var i as int is from
+    while i + 2 < limit:
+        if (calling psstate.lex_byte_at with lx, i) == 34:
+            if (calling psstate.lex_byte_at with lx, i + 1) == 34:
+                if (calling psstate.lex_byte_at with lx, i + 2) == 34:
+                    return i
+        set i is i + 1
+    return -1
+
+## `true` si la línea `[start, end)` es exactamente `"""` tras blanks.
+##
+## ## Memoria
+## O(longitud), no asigna.
+weave is_close_line with lx as ref to psstate.LexerState, start as int, end as int into bool:
+    var a as int is start
+    var b as int is end
+    while a < b:
+        var c as int is calling psstate.lex_byte_at with lx, a
+        if c == 32 or c == 9:
+            set a is a + 1
+        else:
+            break
+    while b > a:
+        var c2 as int is calling psstate.lex_byte_at with lx, b - 1
+        if c2 == 32 or c2 == 9:
+            set b is b - 1
+        else:
+            break
+    if b - a != 3:
+        return false
+    return (calling psstate.lex_byte_at with lx, a) == 34 and (calling psstate.lex_byte_at with lx, a + 1) == 34 and (calling psstate.lex_byte_at with lx, a + 2) == 34
+
+## Indentación común de las líneas no vacías del cuerpo.
+##
+## ## Memoria
+## O(body), no asigna.
+weave compute_indent with lx as ref to psstate.LexerState, start as int, end as int into int:
+    var min_indent as int is -1
+    var i as int is start
+    while i < end:
+        var j as int is i
+        while j < end:
+            if (calling psstate.lex_byte_at with lx, j) == 10:
+                break
+            set j is j + 1
+        var k as int is i
+        var indent as int is 0
+        while k < j:
+            var b as int is calling psstate.lex_byte_at with lx, k
+            if b == 32 or b == 9:
+                set indent is indent + 1
+                set k is k + 1
+            else:
+                break
+        if k < j:
+            if min_indent < 0 or indent < min_indent:
+                set min_indent is indent
+        set i is j + 1
+    if min_indent < 0:
+        return 0
+    return min_indent
+
+## `true` si el cuerpo solo contiene blanks.
+##
+## ## Memoria
+## O(body), no asigna.
+weave body_is_empty with lx as ref to psstate.LexerState, start as int, end as int into bool:
+    var i as int is start
+    while i < end:
+        var b as int is calling psstate.lex_byte_at with lx, i
+        if b != 32 and b != 9 and b != 10 and b != 13:
+            return false
+        set i is i + 1
+    return true

@@ -1,0 +1,93 @@
+## psc/span.pengu — rangos de bytes half-open.
+##
+## Un `ByteSpan` es el tipo mínimo que comparten tokens, literales y
+## diagnósticos: `[start, end)` medido en bytes sobre `SourceFile.text`.
+## No tiene heap y se copia por valor.
+##
+## ## Ejemplo
+## ```pengu
+## var s as ByteSpan is with start is 3, end is 8
+## calling spark.println_int with (calling span_len with s)   # 5
+## ```
+##
+## ## Memoria
+## Todos los helpers devuelven valores puros; ninguno asigna ni libera.
+
+## Un rango de bytes half-open `[start, end)`.
+##
+## ## Memoria
+## Valor puro: no tiene heap.
+rune ByteSpan derive Par:
+    ## Offset inclusivo del primer byte.
+    start as int
+    ## Offset exclusivo del byte siguiente al último.
+    end as int
+
+## Longitud en bytes del rango.
+##
+## ## Retorno
+## `end - start`; puede ser `0`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave span_len with s as ByteSpan into int:
+    return s.end - s.start
+
+## `true` cuando el rango no cubre ningún byte.
+##
+## ## Memoria
+## O(1), no asigna.
+weave span_is_empty with s as ByteSpan into bool:
+    return s.end <= s.start
+
+## `true` cuando `offset` cae en `[start, end)`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave span_contains with s as ByteSpan, offset as int into bool:
+    return offset >= s.start and offset < s.end
+
+## Une dos rangos en el menor rango que contiene a ambos.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_span_merge with a as ByteSpan, b as ByteSpan into ByteSpan:
+    var start as int is a.start
+    var end as int is a.end
+    if b.start < start:
+        set start is b.start
+    if b.end > end:
+        set end is b.end
+    return with start is start, end is end
+
+## Normaliza un rango: clampa a `[0, limit]` y lo ordena.
+##
+## Un span construido por un token de recuperación puede venir invertido o
+## fuera de rango; este helper garantiza que `SourceFile.span_at` y
+## `std.diagnostic.span_from_positions` nunca reciban posiciones inválidas.
+##
+## ## Parámetros
+## - `s`: rango de entrada.
+## - `limit`: longitud máxima permitida (normalmente `SourceFile.byte_len`).
+##
+## ## Retorno
+## Un rango con `0 <= start <= end <= limit`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave span_clamp with s as ByteSpan, limit as int into ByteSpan:
+    var start as int is s.start
+    var end as int is s.end
+    if start < 0:
+        set start is 0
+    if end < 0:
+        set end is 0
+    if start > limit:
+        set start is limit
+    if end > limit:
+        set end is limit
+    if end < start:
+        var tmp as int is start
+        set start is end
+        set end is tmp
+    return with start is start, end is end

@@ -1,0 +1,11 @@
+error[E0000]: unexpected character '$'
+  --> tests/fixtures/unknown_char.pengu:2:23
+  |
+1 | weave main into int:
+2 |     var x as int is 1 $ 2
+  |                       ^
+3 |     return x
+  |
+   = note: PenguScript identifiers are ASCII-only.
+   = help: Remove the character or move it inside a string.
+

@@ -1,0 +1,118 @@
+## psc/parse/api.pengu — API pública del parser de F2.
+##
+## Instala los hooks entre módulos y expone `parse_file`/`parse_expr`. El
+## llamador conserva `SourceFile` y `LexResult`; el `PsParseResult` es dueño
+## del AST.
+##
+## ## Memoria
+## `ps_parse_file` no libera `src`, `bag` ni `lex`. El resultado se libera con
+## `banish result`.
+
+import std.diagnostic as diag
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer as pslexer
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.state as psstate
+import psc.parse.diagnostics as pdiag
+import psc.parse.expr.ops as pexpr
+import psc.parse.stmt.core as pstmt
+import psc.parse.stmt.values as pvalues
+import psc.parse.patterns.judge as pjudge
+import psc.parse.decl.core as pdecl
+
+insignia psc_parse_api_
+
+## Resultado de parsear una expresión de interpolación.
+##
+## ## Memoria
+## `banish result` libera `source`, `lex`, `diagnostics` y `ast`.
+rune InterpParseResult derive Nexus:
+    ## Fuente sintético `<interp>`.
+    source as SourceFile
+    ## Tokens de la expresión.
+    lex as LexResult
+    ## Diagnósticos de lexer + parser.
+    diagnostics as diag.DiagnosticBag
+    ## AST.
+    ast as PsAst
+    ## Raíz.
+    root as int
+    ## `true` si no hubo errores.
+    ok as bool
+
+## Parsea una expresión de interpolación aislada.
+##
+## Las posiciones son relativas al texto de la expresión, como en stage0.
+##
+## ## Memoria
+## Devuelve un bundle owned; liberar con `banish`.
+weave ps_parse_interpolation_expr with text as string into InterpParseResult:
+    var src as SourceFile is calling SourceFile.from_text with "<interp>", text
+    var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+    calling bag.add_source with "<interp>", (calling src.get_text)
+    var kw as KeywordTable is calling pstoken.keyword_table_new
+    var lopt as LexOptions is calling default_lex_options
+    var lex as LexResult is calling pslexer.lex with sigil of src, sigil of bag, sigil of kw, lopt
+    banish kw
+    var popt as PsParseOptions is calling ps_default_parse_options
+    var pr as PsParseResult is calling ps_parse_expr with sigil of src, sigil of bag, sigil of lex, popt
+    var out as InterpParseResult is with source is src, lex is lex, diagnostics is bag, ast is pr.ast, root is pr.root, ok is pr.ok
+    return out
+
+## Instala todos los hooks en un parser recién creado.
+##
+## ## Memoria
+## Asigna punteros a función; no tiene heap.
+weave ps_install_hooks with p as ref to PsParser into void:
+    set p->hooks.value is (sigil of pvalues.pvalues_parse_value)
+    set p->hooks.when is (sigil of pvalues.pvalues_parse_when)
+    set p->hooks.judge is (sigil of pjudge.ppatj_parse_judge)
+    set p->hooks.do_block is (sigil of pvalues.pvalues_parse_do)
+    set p->hooks.with_init is (sigil of pvalues.pvalues_parse_with_init)
+    set p->hooks.or_block is (sigil of pvalues.pvalues_parse_or_block)
+    set p->hooks.when_body is (sigil of pvalues.pvalues_parse_when_body)
+    set p->hooks.expr is (sigil of pexpr.pexpr_parse_expr)
+    set p->hooks.list_expr is (sigil of pexpr.pexpr_parse_list_expr)
+    set p->hooks.value_expr is (sigil of pexpr.pexpr_parse_value_expr)
+    set p->hooks.list_value_expr is (sigil of pexpr.pexpr_parse_list_value_expr)
+    set p->hooks.expr_no_cast is (sigil of pexpr.pexpr_parse_expr_no_cast)
+    set p->hooks.guard_expr is (sigil of pexpr.pexpr_parse_guard_expr)
+
+## Parsea un archivo completo.
+##
+## ## Memoria
+## Devuelve un `PsParseResult` owned; `src` y `lex` siguen siendo del llamador.
+weave ps_parse_file with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag, lex as ref to LexResult, opts as PsParseOptions into PsParseResult:
+    var p as PsParser is calling ps_parser_new with src, bag, lex, opts
+    calling ps_install_hooks with sigil of p
+    if not (calling ps_pre_scan_depth with sigil of p):
+        set p.root is (calling ps_error_node with sigil of p, 0, (calling src.byte_len))
+        return calling ps_into_result with sigil of p, false
+    var root as int is calling pdecl.pdecl_parse_file with sigil of p
+    set p.root is root
+    var ok as bool is p.errors == 0
+    return calling ps_into_result with sigil of p, ok
+
+## Parsea el fuente completo como una expresión (`start = expr`).
+##
+## ## Memoria
+## Devuelve un `PsParseResult` owned; `src` y `lex` siguen siendo del llamador.
+weave ps_parse_expr with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag, lex as ref to LexResult, opts as PsParseOptions into PsParseResult:
+    var p as PsParser is calling ps_parser_new with src, bag, lex, opts
+    calling ps_install_hooks with sigil of p
+    if not (calling ps_pre_scan_depth with sigil of p):
+        set p.root is (calling ps_error_node with sigil of p, 0, (calling src.byte_len))
+        return calling ps_into_result with sigil of p, false
+    calling ps_skip_newlines with sigil of p
+    var root as int is calling pexpr.pexpr_parse_expr with sigil of p
+    set p.root is root
+    calling ps_skip_newlines with sigil of p
+    if not (calling ps_check with sigil of p, TokEof):
+        calling ps_emit_here with sigil of p, pdiag.ParseIssue.ParseUnexpectedToken, "trailing tokens"
+    var ok as bool is p.errors == 0
+    return calling ps_into_result with sigil of p, ok

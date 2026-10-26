@@ -1,0 +1,25 @@
+# psc-token-dump v1
+# file: tests/fixtures/crlf.pengu
+# sha256: 7a18fcb0908b574f0f7587b1b6cc1c8a1e4121a923eeab963b58b72928e3e07f
+# bytes: 59
+# lines: 4
+# columns: index	kind	lexeme	start	end	line	col	end_line	end_col	aux
+0	Keyword(weave)	weave	0	5	1	1	1	6	0
+1	Identifier	main	6	10	1	7	1	11	0
+2	Keyword(into)	into	11	15	1	12	1	16	0
+3	Identifier	int	16	19	1	17	1	20	0
+4	Colon	:	19	20	1	20	1	21	0
+5	Newline	\r\n    	20	26	1	21	2	5	4
+6	Indent		26	26	2	5	2	5	4
+7	Keyword(var)	var	26	29	2	5	2	8	0
+8	Identifier	x	30	31	2	9	2	10	0
+9	Keyword(as)	as	32	34	2	11	2	13	0
+10	Identifier	int	35	38	2	14	2	17	0
+11	Keyword(is)	is	39	41	2	18	2	20	0
+12	IntLit	1	42	43	2	21	2	22	10
+13	Newline	\r\n    	43	49	2	22	3	5	4
+14	Keyword(return)	return	49	55	3	5	3	11	0
+15	Identifier	x	56	57	3	12	3	13	0
+16	Newline	\r\n	57	59	3	13	4	1	0
+17	Dedent		59	59	4	1	4	1	0
+18	Eof		59	59	4	1	4	1	0

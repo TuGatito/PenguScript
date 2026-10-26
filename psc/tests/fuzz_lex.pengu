@@ -1,0 +1,53 @@
+## Fuzz determinista del pslexer. Uso:
+##   pengu run tests/fuzz_lex.pengu --no-cache -- 1000000
+##
+## Genera bytes pseudoaleatorios (incluidos NUL, UTF-8 inválido, comillas,
+## llaves, tabs y saltos) y comprueba que `lex` nunca hace panic y siempre
+## produce al menos un pstoken. No valida la semántica: solo robustez.
+import std.spark
+import std.rites
+import std.builder
+import std.diagnostic as diag
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer as pslexer
+
+weave main into int:
+    var iterations as int is 10000
+    if calling rites.get_argc >= 2:
+        var a as string is calling rites.get_argv with 1
+        var parsed as maybe int is calling spark.parse_int with a
+        if parsed.is_present:
+            set iterations is parsed.value
+        banish a
+    var state as u64 is 0x9E3779B97F4A7C15
+    var i as int is 0
+    while i < iterations:
+        set state is state * 6364136223846793005 + 1442695040888963407
+        var length as int is ((state >> 33) % 513) to int
+        var sb as StringBuilder is calling StringBuilder.new
+        var j as int is 0
+        while j < length:
+            set state is state * 6364136223846793005 + 1442695040888963407
+            var b as int is ((state >> 17) & 0xFF) to int
+            calling sb.append_char with (b to char)
+            set j is j + 1
+        var raw as string is calling sb.finish
+        banish sb
+        var f as SourceFile is calling SourceFile.from_text with "fuzz.pengu", raw
+        var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+        var kw as KeywordTable is calling pstoken.keyword_table_new
+        var opts as LexOptions is calling default_lex_options
+        var r as LexResult is calling pslexer.lex with sigil of f, sigil of bag, sigil of kw, opts
+        if r.tokens.len == 0:
+            calling spark.panic with "lexer returned no tokens"
+        banish r
+        banish kw
+        banish bag
+        banish f
+        banish raw
+        set i is i + 1
+        if i % 100000 == 0:
+            calling spark.println with "fuzz: {i}"
+    calling spark.println with "fuzz ok: {iterations}"
+    return 0

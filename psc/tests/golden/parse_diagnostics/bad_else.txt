@@ -1,0 +1,32 @@
+error[E0000]: unexpected else
+  --> tests/fixtures/parser_bad_else.pengu:2:10
+  |
+1 | weave f into int:
+2 |     else:
+  |          ^
+3 |         return 0
+  |
+   = note: PenguScript parses blocks by indentation; argument, parameter and field lists use ','.
+   = help: Check the syntax around this position (see LANGUAGE.md / CHEATSHEET.md).
+
+error[E0000]: expected an expression
+  --> tests/fixtures/parser_bad_else.pengu:3:9
+  |
+1 | weave f into int:
+2 |     else:
+3 |         return 0
+  |         ^
+  |
+   = help: Write an expression after the operator or keyword.
+
+error[E0000]: unexpected 
+  --> tests/fixtures/parser_bad_else.pengu:4:1
+  |
+2 |     else:
+3 |         return 0
+4 | 
+  | ^
+  |
+   = note: PenguScript parses blocks by indentation; argument, parameter and field lists use ','.
+   = help: Check the syntax around this position (see LANGUAGE.md / CHEATSHEET.md).
+

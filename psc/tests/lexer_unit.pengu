@@ -1,0 +1,322 @@
+## Tests unitarios de F1. Se ejecutan con:
+##   pengu run tests/lexer_unit.pengu --no-cache
+import std.spark
+import std.ward
+import std.archivum
+import std.diagnostic as diag
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer as pslexer
+import psc.lexer_decode as psldec
+import psc.token_dump as psdump
+
+rune LexFixture derive Nexus:
+    src as SourceFile
+    bag as diag.DiagnosticBag
+    kw as KeywordTable
+    res as LexResult
+
+weave make_fixture with text as string into LexFixture:
+    var f as SourceFile is calling SourceFile.from_text with "t.pengu", text
+    var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+    calling bag.add_source with "t.pengu", (calling f.get_text)
+    var kw as KeywordTable is calling pstoken.keyword_table_new
+    var opts as LexOptions is calling default_lex_options
+    var r as LexResult is calling pslexer.lex with sigil of f, sigil of bag, sigil of kw, opts
+    return with src is f, bag is bag, kw is kw, res is r
+
+weave make_file_fixture with path as string into LexFixture:
+    var m as maybe string is calling archivum.read_bytes with path
+    if not m.is_present:
+        calling spark.panic with "missing fixture {path}"
+    var raw as string is m.value
+    var f as SourceFile is calling SourceFile.from_text with path, raw
+    banish raw
+    var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+    calling bag.add_source with path, (calling f.get_text)
+    var kw as KeywordTable is calling pstoken.keyword_table_new
+    var opts as LexOptions is calling default_lex_options
+    var r as LexResult is calling pslexer.lex with sigil of f, sigil of bag, sigil of kw, opts
+    return with src is f, bag is bag, kw is kw, res is r
+
+weave kind_at with fx as ref to LexFixture, i as int into TokenKind:
+    var t as Token is fx->res.tokens at i
+    return t.kind
+
+weave lex_at with fx as ref to LexFixture, i as int into string:
+    var t as Token is fx->res.tokens at i
+    return calling fx->src.slice with (calling pstoken.token_span with t)
+
+weave aux_at with fx as ref to LexFixture, i as int into int:
+    var t as Token is fx->res.tokens at i
+    return t.aux
+
+weave expect_kind with fx as ref to LexFixture, i as int, k as TokenKind into void:
+    var got as TokenKind is calling kind_at with fx, i
+    if got != k:
+        var msg as string is "token {i}: expected {calling pstoken.token_kind_name with k}, got {calling pstoken.token_kind_name with got}"
+        calling spark.panic with msg
+
+weave expect_lex with fx as ref to LexFixture, i as int, expected as string into void:
+    var got as string is calling lex_at with fx, i
+    defer banish got
+    calling ward.assert_eq_string with got, expected
+
+weave has_code with fx as ref to LexFixture, code as string into bool:
+    var i as int is 0
+    while i < fx->bag.items.len:
+        var d as diag.Diagnostic is fx->bag.items at i
+        if d.code == code:
+            return true
+        set i is i + 1
+    return false
+
+weave count_kind with fx as ref to LexFixture, k as TokenKind into int:
+    var n as int is 0
+    var i as int is 0
+    while i < fx->res.tokens.len:
+        var t as Token is fx->res.tokens at i
+        if t.kind == k:
+            set n is n + 1
+        set i is i + 1
+    return n
+
+weave test_basic into void:
+    var fx as LexFixture is calling make_fixture with r"""weave main into int:
+    return 0
+"""
+    defer banish fx
+    calling expect_kind with sigil of fx, 0, TokKeyword
+    calling expect_lex with sigil of fx, 0, "weave"
+    calling expect_kind with sigil of fx, 1, TokIdentifier
+    calling expect_kind with sigil of fx, 2, TokKeyword
+    calling expect_kind with sigil of fx, 3, TokIdentifier
+    calling expect_kind with sigil of fx, 4, TokColon
+    calling expect_kind with sigil of fx, 5, TokNewline
+    calling expect_kind with sigil of fx, 6, TokIndent
+    calling expect_kind with sigil of fx, 7, TokKeyword
+    calling expect_kind with sigil of fx, 8, TokIntLit
+    calling expect_kind with sigil of fx, 10, TokDedent
+    calling expect_kind with sigil of fx, 11, TokEof
+    if calling has_code with sigil of fx, "E0000":
+        calling spark.panic with "unexpected diagnostic"
+
+weave test_operators into void:
+    var fx as LexFixture is calling make_fixture with r"""weave f into int:
+    return 1 << 2 >= 3 != 4
+"""
+    defer banish fx
+    calling expect_kind with sigil of fx, 8, TokIntLit
+    calling expect_kind with sigil of fx, 9, TokShiftLeft
+    calling expect_kind with sigil of fx, 11, TokGreaterOrEqual
+    calling expect_kind with sigil of fx, 13, TokNotEqual
+    calling expect_kind with sigil of fx, 14, TokIntLit
+
+weave test_numbers into void:
+    var fx as LexFixture is calling make_fixture with r"""weave f into int:
+    return 0x1_f + 0b101 + 0o77 + 1_000 + 1.5 + 2e3
+"""
+    defer banish fx
+    var ints as int is calling count_kind with sigil of fx, TokIntLit
+    var floats as int is calling count_kind with sigil of fx, TokFloatLit
+    calling ward.assert_eq_int with ints, 4
+    calling ward.assert_eq_int with floats, 2
+    calling ward.assert_eq_int with (calling aux_at with sigil of fx, 8), 16
+    calling ward.assert_eq_int with (calling aux_at with sigil of fx, 10), 2
+    calling ward.assert_eq_int with (calling aux_at with sigil of fx, 12), 8
+    calling ward.assert_eq_int with (calling aux_at with sigil of fx, 14), 10
+
+weave test_strings into void:
+    var fx as LexFixture is calling make_file_fixture with "tests/fixtures/strings.pengu"
+    defer banish fx
+    calling ward.assert_eq_int with fx.res.strings.len, 5
+    calling ward.assert_eq_int with fx.res.chars.len, 1
+    var a as StringInfo is fx.res.strings at 0
+    var av as string is calling psldec.decode_string with sigil of fx.src, a, fx.res.parts
+    defer banish av
+    calling ward.assert_eq_string with av, "a\nb"
+    var b as StringInfo is fx.res.strings at 1
+    var bv as string is calling psldec.decode_string with sigil of fx.src, b, fx.res.parts
+    defer banish bv
+    calling ward.assert_eq_string with bv, "aAb"
+    var c as StringInfo is fx.res.strings at 2
+    var cv as string is calling psldec.decode_string with sigil of fx.src, c, fx.res.parts
+    defer banish cv
+    calling ward.assert_eq_string with cv, "a\\nb"
+    var d as StringInfo is fx.res.strings at 3
+    var dv as string is calling psldec.decode_string with sigil of fx.src, d, fx.res.parts
+    defer banish dv
+    calling ward.assert_eq_string with dv, "x\ny\n"
+    var e as StringInfo is fx.res.strings at 4
+    calling ward.assert_true with e.has_interp
+    var ev as string is calling psldec.decode_string with sigil of fx.src, e, fx.res.parts
+    defer banish ev
+    calling ward.assert_eq_string with ev, "ab"
+    var ch as CharInfo is fx.res.chars at 0
+    calling ward.assert_eq_int with ch.codepoint, 65
+
+
+weave test_triple_interp into void:
+    var fx as LexFixture is calling make_file_fixture with "tests/fixtures/triple_interp.pengu"
+    defer banish fx
+    var info as StringInfo is fx.res.strings at 0
+    calling ward.assert_true with info.has_interp
+    var v as string is calling psldec.decode_string with sigil of fx.src, info, fx.res.parts
+    defer banish v
+    calling ward.assert_eq_string with v, "ab\nc\n"
+
+weave test_raw_triple into void:
+    var fx as LexFixture is calling make_file_fixture with "tests/fixtures/raw_triple.pengu"
+    defer banish fx
+    var info as StringInfo is fx.res.strings at 0
+    calling ward.assert_true with info.is_raw
+    calling ward.assert_true with info.is_triple
+    var v as string is calling psldec.decode_string with sigil of fx.src, info, fx.res.parts
+    defer banish v
+    calling ward.assert_eq_string with v, r"raw \n {x}"
+
+weave test_comments into void:
+    var fx as LexFixture is calling make_file_fixture with "tests/fixtures/comments.pengu"
+    defer banish fx
+    calling ward.assert_eq_int with fx.res.comments.len, 4
+    var block as Comment is fx.res.comments at 2
+    if block.kind != ComDocBlock:
+        calling spark.panic with "expected DocBlock at index 2"
+    calling ward.assert_true with block.closed
+    if calling has_code with sigil of fx, "E0000":
+        calling spark.panic with "doc block leaked into tokens"
+
+
+weave test_comment_eof into void:
+    var fx as LexFixture is calling make_file_fixture with "tests/fixtures/comment_eof.pengu"
+    defer banish fx
+    calling ward.assert_false with (calling has_code with sigil of fx, "E0000")
+    calling ward.assert_eq_int with fx.res.comments.len, 1
+
+weave test_indent into void:
+    var fx as LexFixture is calling make_fixture with r"""weave f into int:
+    if true:
+        return 1
+    return 0
+"""
+    defer banish fx
+    calling ward.assert_eq_int with (calling count_kind with sigil of fx, TokIndent), 2
+    calling ward.assert_eq_int with (calling count_kind with sigil of fx, TokDedent), 2
+
+weave test_mixed_warning into void:
+    var fx as LexFixture is calling make_file_fixture with "tests/fixtures/mixed_indent.pengu"
+    defer banish fx
+    calling ward.assert_true with (calling has_code with sigil of fx, "W0005")
+    calling ward.assert_false with (calling has_code with sigil of fx, "E0000")
+
+weave test_errors into void:
+    var a as LexFixture is calling make_file_fixture with "tests/fixtures/unterminated_string.pengu"
+    calling ward.assert_true with (calling has_code with sigil of a, "E0000")
+    banish a
+    var b as LexFixture is calling make_file_fixture with "tests/fixtures/unterminated_triple.pengu"
+    calling ward.assert_true with (calling has_code with sigil of b, "E0000")
+    banish b
+    var c as LexFixture is calling make_file_fixture with "tests/fixtures/invalid_char.pengu"
+    calling ward.assert_true with (calling has_code with sigil of c, "E0000")
+    banish c
+    var d as LexFixture is calling make_file_fixture with "tests/fixtures/indent_bad.pengu"
+    calling ward.assert_true with (calling has_code with sigil of d, "E0000")
+    banish d
+    var e as LexFixture is calling make_file_fixture with "tests/fixtures/unclosed_bracket.pengu"
+    calling ward.assert_true with (calling has_code with sigil of e, "E0000")
+    banish e
+    var f as LexFixture is calling make_file_fixture with "tests/fixtures/unmatched_bracket.pengu"
+    calling ward.assert_true with (calling has_code with sigil of f, "E0000")
+    banish f
+    var g as LexFixture is calling make_file_fixture with "tests/fixtures/unknown_char.pengu"
+    calling ward.assert_true with (calling has_code with sigil of g, "E0000")
+    banish g
+
+weave test_antiquus into void:
+    var fx as LexFixture is calling make_file_fixture with "tests/fixtures/antiquus_ok.pengu"
+    defer banish fx
+    calling ward.assert_eq_int with fx.res.antiquus.len, 1
+    var info as AntiquusInfo is fx.res.antiquus at 0
+    var body as string is calling psldec.decode_antiquus with sigil of fx.src, info
+    defer banish body
+    calling ward.assert_eq_string with body, "return x + 1;"
+    var a as LexFixture is calling make_file_fixture with "tests/fixtures/antiquus_missing.pengu"
+    calling ward.assert_true with (calling has_code with sigil of a, "E0059")
+    banish a
+    var b as LexFixture is calling make_file_fixture with "tests/fixtures/antiquus_empty.pengu"
+    calling ward.assert_true with (calling has_code with sigil of b, "E0059")
+    banish b
+
+weave test_bom_crlf into void:
+    var bom as string is "\xEF\xBB\xBFweave main into int:\n    return 0\n"
+    var fx as LexFixture is calling make_fixture with bom
+    defer banish fx
+    calling ward.assert_eq_int with (calling fx.src.get_bom_len), 3
+    calling expect_kind with sigil of fx, 0, TokKeyword
+    calling ward.assert_eq_int with (fx.res.tokens at 0).col, 1
+    var crlf as string is "weave main into int:\r\n    return 0\r\n"
+    var cy as LexFixture is calling make_fixture with crlf
+    defer banish cy
+    calling ward.assert_eq_int with (calling cy.src.line_count), 3
+    var line1 as string is calling cy.src.line_text with 1
+    calling ward.assert_eq_string with line1, "weave main into int:"
+    banish line1
+    var abc as LexFixture is calling make_fixture with "abc"
+    defer banish abc
+    calling ward.assert_eq_string with (calling abc.src.get_sha256), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
+weave test_unicode_columns into void:
+    var src_text as string is "weave f into int:\n    var s as string is \"\xC3\xB1\"\n    return 0\n"
+    var fx as LexFixture is calling make_fixture with src_text
+    defer banish fx
+    var i as int is 0
+    var found as bool is false
+    while i < fx.res.tokens.len:
+        var t as Token is fx.res.tokens at i
+        if t.kind == TokKeyword and t.kw == KwReturn:
+            set found is true
+            calling ward.assert_eq_int with t.col, 5
+        set i is i + 1
+    calling ward.assert_true with found
+
+weave test_determinism into void:
+    var fx as LexFixture is calling make_file_fixture with "tests/fixtures/strings.pengu"
+    defer banish fx
+    var a as string is calling psdump.dump with sigil of fx.src, sigil of fx.res, sigil of fx.kw, true
+    defer banish a
+    var b as string is calling psdump.dump with sigil of fx.src, sigil of fx.res, sigil of fx.kw, true
+    defer banish b
+    calling ward.assert_eq_string with a, b
+
+weave main into int:
+    calling test_basic
+    calling spark.println with "OK basic"
+    calling test_operators
+    calling spark.println with "OK operators"
+    calling test_numbers
+    calling spark.println with "OK numbers"
+    calling test_strings
+    calling spark.println with "OK strings"
+    calling test_triple_interp
+    calling spark.println with "OK triple interp"
+    calling test_raw_triple
+    calling spark.println with "OK raw triple"
+    calling test_comments
+    calling spark.println with "OK comments"
+    calling test_comment_eof
+    calling spark.println with "OK comment eof"
+    calling test_indent
+    calling spark.println with "OK indent"
+    calling test_mixed_warning
+    calling spark.println with "OK mixed"
+    calling test_errors
+    calling spark.println with "OK errors"
+    calling test_antiquus
+    calling spark.println with "OK antiquus"
+    calling test_bom_crlf
+    calling spark.println with "OK bom/crlf"
+    calling test_unicode_columns
+    calling spark.println with "OK unicode"
+    calling test_determinism
+    calling spark.println with "OK determinism"
+    return 0

@@ -1,0 +1,72 @@
+## Lexa todo el corpus compartido y los módulos de PSC. Falla si algún archivo
+## válido produce un diagnóstico de error.
+##
+##   pengu run tests/lexer_corpus.pengu --no-cache
+import std.spark
+import std.archivum
+import std.diagnostic as diag
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer as pslexer
+
+weave contains with s as string, needle as string into bool:
+    var n as int is s length
+    var m as int is needle length
+    if m == 0 or m > n:
+        return false
+    var i as int is 0
+    while i <= n - m:
+        var part as string is s at i to (i + m)
+        var eq as bool is part == needle
+        banish part
+        if eq:
+            return true
+        set i is i + 1
+    return false
+
+weave check_dir with root as string into int:
+    var files as list of string is calling archivum.list_files_recursive with root
+    var bad as int is 0
+    var total as int is 0
+    var tokens as int is 0
+    var i as int is 0
+    while i < files.len:
+        var path as string is files at i
+        var n as int is path length
+        var is_pengu as bool is false
+        if n >= 6:
+            if (path at (n - 6) to n) == ".pengu":
+                set is_pengu is true
+        if is_pengu and not (calling contains with path, "/fixtures/"):
+            var rawm as maybe string is calling archivum.read_bytes with path
+            if rawm.is_present:
+                var raw as string is rawm.value
+                var f as SourceFile is calling SourceFile.from_text with path, raw
+                banish raw
+                var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+                var kw as KeywordTable is calling pstoken.keyword_table_new
+                var opts as LexOptions is calling default_lex_options
+                var r as LexResult is calling pslexer.lex with sigil of f, sigil of bag, sigil of kw, opts
+                set total is total + 1
+                set tokens is tokens + r.tokens.len
+                if calling bag.has_errors:
+                    set bad is bad + 1
+                    calling spark.println with "ERR {path} ({bag.error_count})"
+                    var msg as string is calling bag.render_plain
+                    calling spark.print with msg
+                    banish msg
+                banish r
+                banish kw
+                banish bag
+                banish f
+        banish path
+        set i is i + 1
+    banish files
+    calling spark.println with "corpus {root}: files={total} tokens={tokens} bad={bad}"
+    return bad
+
+weave main into int:
+    var b1 as int is calling check_dir with "src"
+    var b2 as int is calling check_dir with "../std"
+    var b3 as int is calling check_dir with "../tests"
+    return b1 + b2 + b3

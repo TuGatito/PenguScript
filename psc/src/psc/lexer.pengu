@@ -1,0 +1,540 @@
+## psc/lexer.pengu — lexer principal de PSC.
+##
+## Una pasada iterativa sobre `SourceFile.text` produce tokens significativos,
+## comentarios (trivia) y tablas laterales de literales. La indentación se
+## aplica después con `lexer_indent`.
+##
+## ## Orden de decisión en el bucle
+## 1. espacio/tab; 2. newline; 3. comentario; 4. string/raw; 5. char;
+## 6. palabra; 7. número; 8. operador; 9. desconocido.
+##
+## ## Memoria
+## `lex` devuelve un `LexResult` owned. El estado interno no sobrevive a la
+## llamada.
+
+import std.diagnostic as diag
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+import psc.diagnostics as psdiag
+import psc.lexer_state as psstate
+import psc.lexer_string as pslstr
+import psc.lexer_comment as pslcom
+import psc.lexer_antiquus as pslant
+import psc.lexer_indent as pslind
+
+## Lexa un archivo completo.
+##
+## ## Memoria
+## Devuelve un `LexResult` owned; liberar con `banish`.
+weave lex with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag, keywords as ref to pstoken.KeywordTable, opts as LexOptions into LexResult:
+    var lx as LexerState is calling psstate.new_lexer_state with src, bag, keywords, opts
+    var n as int is calling psstate.lex_source_len with sigil of lx
+    while lx.pos < n:
+        var b as int is calling psstate.lex_peek with sigil of lx
+        if b == 32 or b == 9:
+            calling psstate.lex_advance with sigil of lx
+            continue
+        if b == 10 or (b == 13 and (calling psstate.lex_peek_at with sigil of lx, 1) == 10):
+            calling scan_newline with sigil of lx
+            if lx.antiquus_colon:
+                var consumed as bool is calling pslant.scan_body with sigil of lx
+                set lx.pending_antiquus is false
+                set lx.antiquus_colon is false
+                set lx.antiquus_name_start is -1
+                set lx.antiquus_name_end is -1
+            else if lx.pending_antiquus:
+                # `antiquus` usado como nombre de campo o variable: no es una
+                # cabecera y no debe arrastrar el estado a la línea siguiente.
+                set lx.pending_antiquus is false
+                set lx.antiquus_name_start is -1
+                set lx.antiquus_name_end is -1
+            continue
+        if b == 35:
+            calling pslcom.scan_comment with sigil of lx
+            continue
+        if b == 34 or (b == 114 and (calling psstate.lex_peek_at with sigil of lx, 1) == 34):
+            calling pslstr.scan_any with sigil of lx
+            continue
+        if b == 39:
+            calling pslstr.scan_char with sigil of lx
+            continue
+        if calling psstate.lex_is_letter with b:
+            calling scan_word with sigil of lx
+            continue
+        if calling psstate.lex_is_digit with b:
+            calling scan_number with sigil of lx
+            continue
+        if calling scan_operator with sigil of lx:
+            continue
+        calling scan_unknown with sigil of lx
+    calling lex_finish with sigil of lx
+    var result as LexResult is lx.result
+    var indented as list of Token is calling pslind.lex_indent_apply with src, bag, result.tokens, opts
+    set result.tokens is indented
+    return result
+
+## `true` si el `\n` actual va seguido inmediatamente de una línea `.`/`->`.
+##
+## Replica `_merge_chain_continuations` de stage0: solo pliega si la línea
+## siguiente empieza por `.` o `->` sin líneas en blanco ni comentarios de por
+## medio. La comprobación se hace después del `\n` y de los espacios/tabs.
+##
+## ## Memoria
+## Avanza la posición hasta el operador si hay continuación; no asigna.
+weave chain_continuation_ahead with lx as ref to psstate.LexerState into bool:
+    var b as int is calling psstate.lex_peek with lx
+    if b == 13:
+        if (calling psstate.lex_peek_at with lx, 1) == 10:
+            var j as int is lx->pos + 2
+            var n as int is calling psstate.lex_source_len with lx
+            while j < n:
+                var c as int is calling psstate.lex_byte_at with lx, j
+                if c == 32 or c == 9:
+                    set j is j + 1
+                else:
+                    break
+            if j < n:
+                var first as int is calling psstate.lex_byte_at with lx, j
+                if first == 46:
+                    calling psstate.lex_advance_to with lx, j
+                    return true
+                if first == 45:
+                    if (calling psstate.lex_byte_at with lx, j + 1) == 62:
+                        calling psstate.lex_advance_to with lx, j
+                        return true
+        return false
+    if b != 10:
+        return false
+    var j2 as int is lx->pos + 1
+    var n2 as int is calling psstate.lex_source_len with lx
+    while j2 < n2:
+        var c2 as int is calling psstate.lex_byte_at with lx, j2
+        if c2 == 32 or c2 == 9:
+            set j2 is j2 + 1
+        else:
+            break
+    if j2 >= n2:
+        return false
+    var first2 as int is calling psstate.lex_byte_at with lx, j2
+    if first2 == 46:
+        calling psstate.lex_advance_to with lx, j2
+        return true
+    if first2 == 45:
+        if (calling psstate.lex_byte_at with lx, j2 + 1) == 62:
+            calling psstate.lex_advance_to with lx, j2
+            return true
+    return false
+
+## Consume un run de `NEWLINE` + indentación + líneas de solo comentario.
+##
+## ## Memoria
+## Añade un `TokNewline`; los comentarios se añaden como trivia.
+weave scan_newline with lx as ref to psstate.LexerState into void:
+    var start as int is lx->pos
+    var start_line as int is lx->line
+    var start_col as int is lx->pos - lx->line_start + 1
+    if lx->opts.fold_chain_continuations:
+        if calling chain_continuation_ahead with lx:
+            return
+    var indent as int is 0
+    var more as bool is true
+    while more:
+        if (calling psstate.lex_peek with lx) == 13:
+            calling psstate.lex_advance with lx
+        if (calling psstate.lex_peek with lx) == 10:
+            calling psstate.lex_advance with lx
+        else:
+            break
+        var spaces as int is 0
+        var tabs as int is 0
+        while (calling psstate.lex_peek with lx) == 32 or (calling psstate.lex_peek with lx) == 9:
+            if (calling psstate.lex_peek with lx) == 32:
+                set spaces is spaces + 1
+            else:
+                set tabs is tabs + 1
+            calling psstate.lex_advance with lx
+        set indent is spaces + tabs * lx->opts.tab_width
+        var p as int is calling psstate.lex_peek with lx
+        if p == 35:
+            calling pslcom.scan_comment with lx
+            var q as int is calling psstate.lex_peek with lx
+            if q == -1:
+                set more is false
+            else if q == 10 or (q == 13 and (calling psstate.lex_peek_at with lx, 1) == 10):
+                set more is true
+            else:
+                set more is false
+        else if p == 10 or (p == 13 and (calling psstate.lex_peek_at with lx, 1) == 10):
+            set more is true
+        else:
+            set more is false
+    if lx->pos >= (calling psstate.lex_source_len with lx):
+        set indent is 0
+    calling psstate.lex_emit_token with lx, TokNewline, KwNotKeyword, start, lx->pos, start_line, start_col, indent
+
+## Añade el NEWLINE sintético de EOF si hace falta.
+##
+## ## Memoria
+## Puede añadir un token POD.
+weave lex_finish with lx as ref to psstate.LexerState into void:
+    if not calling psstate.last_is_newline with lx:
+        calling psstate.lex_emit_token with lx, TokNewline, KwNotKeyword, lx->pos, lx->pos, lx->line, (lx->pos - lx->line_start + 1), 0
+
+## Escanea una palabra: keyword, identificador o compuesto `type of`/`size of`.
+##
+## No asigna un string por palabra: compara rangos de bytes contra la tabla.
+##
+## ## Memoria
+## No asigna.
+weave scan_word with lx as ref to psstate.LexerState into void:
+    var start as int is lx->pos
+    var start_line as int is lx->line
+    var start_col as int is lx->pos - lx->line_start + 1
+    while calling psstate.is_word_byte with (calling psstate.lex_peek with lx):
+        calling psstate.lex_advance with lx
+    var end as int is lx->pos
+    if calling range_equals with lx, start, end, "type":
+        if calling try_compound_of with lx, start, start_line, start_col:
+            return
+    if calling range_equals with lx, start, end, "size":
+        if calling try_compound_of with lx, start, start_line, start_col:
+            return
+    var k as KeywordKind is calling keyword_range with lx, start, end
+    if k == KwAntiquus:
+        set lx->pending_antiquus is true
+        set lx->antiquus_colon is false
+        set lx->antiquus_name_start is -1
+        set lx->antiquus_name_end is -1
+        calling psstate.lex_emit_token with lx, TokKeyword, k, start, end, start_line, start_col, 0
+        return
+    if lx->pending_antiquus and lx->antiquus_name_start < 0:
+        set lx->antiquus_name_start is start
+        set lx->antiquus_name_end is end
+    if k == KwNotKeyword:
+        calling psstate.lex_emit_token with lx, TokIdentifier, KwNotKeyword, start, end, start_line, start_col, 0
+    else:
+        calling psstate.lex_emit_token with lx, TokKeyword, k, start, end, start_line, start_col, 0
+
+## Compara `[start, end)` con un literal ASCII.
+##
+## ## Memoria
+## O(len), no asigna.
+weave range_equals with lx as ref to psstate.LexerState, start as int, end as int, word as string into bool:
+    if end - start != word length:
+        return false
+    var raw as ref to frozen byte is bytes of word
+    var i as int is 0
+    while i < word length:
+        if (calling psstate.lex_byte_at with lx, start + i) != ((raw at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## Busca un keyword comparando el rango de bytes, sin materializar el lexema.
+##
+## ## Memoria
+## O(entradas), no asigna.
+weave keyword_range with lx as ref to psstate.LexerState, start as int, end as int into KeywordKind:
+    var n as int is end - start
+    if n == 0:
+        return KwNotKeyword
+    var first as int is calling psstate.lex_byte_at with lx, start
+    var i as int is 0
+    while i < lx->keywords->entries.len:
+        var e as KeywordEntry is lx->keywords->entries at i
+        if e.len == n and e.first == first:
+            if calling range_equals with lx, start, end, e.word:
+                return e.kind
+        set i is i + 1
+    return KwNotKeyword
+
+## Intenta reconocer `type of` o `size of` y emitir el token compuesto.
+##
+## El llamador ya consumió la primera palabra. Solo avanza si la secuencia
+## coincide; si no, deja la posición intacta.
+##
+## ## Retorno
+## `true` si emitió un token compuesto.
+##
+## ## Memoria
+## No asigna.
+weave try_compound_of with lx as ref to psstate.LexerState, word_start as int, start_line as int, start_col as int into bool:
+    var off as int is 0
+    while (calling psstate.lex_peek_at with lx, off) == 32 or (calling psstate.lex_peek_at with lx, off) == 9:
+        set off is off + 1
+    if (calling psstate.lex_peek_at with lx, off) != 111:
+        return false
+    if (calling psstate.lex_peek_at with lx, off + 1) != 102:
+        return false
+    var after as int is calling psstate.lex_peek_at with lx, off + 2
+    if calling psstate.is_word_byte with after:
+        return false
+    var kind as KeywordKind is KwTypeOf
+    var first as int is calling psstate.lex_byte_at with lx, word_start
+    if first == 115:
+        set kind is KwSizeOf
+    calling psstate.lex_advance_to with lx, lx->pos + off + 2
+    calling psstate.lex_emit_token with lx, TokKeyword, kind, word_start, lx->pos, start_line, start_col, 0
+    return true
+
+## Escanea un número según la gramática de stage0.
+##
+## ## Memoria
+## No asigna.
+weave scan_number with lx as ref to psstate.LexerState into void:
+    var start as int is lx->pos
+    var start_line as int is lx->line
+    var start_col as int is lx->pos - lx->line_start + 1
+    var base as int is 10
+    var is_float as bool is false
+    if (calling psstate.lex_peek with lx) == 48:
+        var p2 as int is calling psstate.lex_peek_at with lx, 1
+        if p2 == 120 or p2 == 88:
+            if calling consume_prefixed with lx, 16:
+                set base is 16
+                calling psstate.lex_emit_token with lx, TokIntLit, KwNotKeyword, start, lx->pos, start_line, start_col, base
+                return
+        else if p2 == 111 or p2 == 79:
+            if calling consume_prefixed with lx, 8:
+                set base is 8
+                calling psstate.lex_emit_token with lx, TokIntLit, KwNotKeyword, start, lx->pos, start_line, start_col, base
+                return
+        else if p2 == 98 or p2 == 66:
+            if calling consume_prefixed with lx, 2:
+                set base is 2
+                calling psstate.lex_emit_token with lx, TokIntLit, KwNotKeyword, start, lx->pos, start_line, start_col, base
+                return
+    while (calling psstate.lex_is_digit with (calling psstate.lex_peek with lx)) or (calling psstate.lex_peek with lx) == 95:
+        calling psstate.lex_advance with lx
+    if (calling psstate.lex_peek with lx) == 46 and calling psstate.lex_is_digit with (calling psstate.lex_peek_at with lx, 1):
+        set is_float is true
+        calling psstate.lex_advance with lx
+        while (calling psstate.lex_is_digit with (calling psstate.lex_peek with lx)) or (calling psstate.lex_peek with lx) == 95:
+            calling psstate.lex_advance with lx
+    if (calling psstate.lex_peek with lx) == 101 or (calling psstate.lex_peek with lx) == 69:
+        var sign_off as int is 1
+        if (calling psstate.lex_peek_at with lx, 1) == 43 or (calling psstate.lex_peek_at with lx, 1) == 45:
+            set sign_off is 2
+        if calling psstate.lex_is_digit with (calling psstate.lex_peek_at with lx, sign_off):
+            set is_float is true
+            calling psstate.lex_advance with lx
+            if sign_off == 2:
+                calling psstate.lex_advance with lx
+            while (calling psstate.lex_is_digit with (calling psstate.lex_peek with lx)) or (calling psstate.lex_peek with lx) == 95:
+                calling psstate.lex_advance with lx
+    if is_float:
+        calling psstate.lex_emit_token with lx, TokFloatLit, KwNotKeyword, start, lx->pos, start_line, start_col, 0
+    else:
+        calling psstate.lex_emit_token with lx, TokIntLit, KwNotKeyword, start, lx->pos, start_line, start_col, 10
+
+## Consume `0x`/`0o`/`0b` y los dígitos del prefijo.
+##
+## ## Retorno
+## `false` si no hay ningún dígito/underscore tras el prefijo (el llamador debe
+## tratar el `0` como decimal y dejar el prefijo para el siguiente token).
+##
+## ## Memoria
+## No asigna.
+weave consume_prefixed with lx as ref to psstate.LexerState, base as int into bool:
+    var after_prefix as int is lx->pos + 2
+    var n as int is calling psstate.lex_source_len with lx
+    if after_prefix >= n:
+        return false
+    var first as int is calling psstate.lex_byte_at with lx, after_prefix
+    if (calling digit_for_base with first, base) == false:
+        if first != 95:
+            return false
+    calling psstate.lex_advance with lx
+    calling psstate.lex_advance with lx
+    while (calling psstate.is_word_byte with (calling psstate.lex_peek with lx)) or ((calling psstate.lex_peek with lx) == 95):
+        var b as int is calling psstate.lex_peek with lx
+        if b == 95:
+            calling psstate.lex_advance with lx
+            continue
+        if calling digit_for_base with b, base:
+            calling psstate.lex_advance with lx
+            continue
+        break
+    return true
+
+## `true` si `b` es un dígito válido en `base`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave digit_for_base with b as int, base as int into bool:
+    if base == 2:
+        return calling psstate.is_binary_digit with b
+    if base == 8:
+        return calling psstate.is_octal_digit with b
+    if base == 16:
+        return calling psstate.lex_is_hex_digit with b
+    return calling psstate.lex_is_digit with b
+
+## Intenta escanear un operador o delimitador.
+##
+## ## Retorno
+## `true` si emitió un pstoken.
+##
+## ## Memoria
+## No asigna.
+weave scan_operator with lx as ref to psstate.LexerState into bool:
+    var start as int is lx->pos
+    var line as int is lx->line
+    var col as int is lx->pos - lx->line_start + 1
+    if calling lex_match_at with lx, "<<=":
+        return calling emit_op with lx, TokShiftLeftAssign, start, 3, line, col
+    if calling lex_match_at with lx, ">>=":
+        return calling emit_op with lx, TokShiftRightAssign, start, 3, line, col
+    if calling lex_match_at with lx, "...":
+        return calling emit_op with lx, TokEllipsis, start, 3, line, col
+    if calling lex_match_at with lx, "->":
+        return calling emit_op with lx, TokArrow, start, 2, line, col
+    if calling lex_match_at with lx, "..":
+        return calling emit_op with lx, TokDotDot, start, 2, line, col
+    if calling lex_match_at with lx, "+=":
+        return calling emit_op with lx, TokPlusAssign, start, 2, line, col
+    if calling lex_match_at with lx, "-=":
+        return calling emit_op with lx, TokMinusAssign, start, 2, line, col
+    if calling lex_match_at with lx, "*=":
+        return calling emit_op with lx, TokStarAssign, start, 2, line, col
+    if calling lex_match_at with lx, "/=":
+        return calling emit_op with lx, TokSlashAssign, start, 2, line, col
+    if calling lex_match_at with lx, "%=":
+        return calling emit_op with lx, TokPercentAssign, start, 2, line, col
+    if calling lex_match_at with lx, "&=":
+        return calling emit_op with lx, TokAmpersandAssign, start, 2, line, col
+    if calling lex_match_at with lx, "|=":
+        return calling emit_op with lx, TokVerticalBarAssign, start, 2, line, col
+    if calling lex_match_at with lx, "^=":
+        return calling emit_op with lx, TokCaretAssign, start, 2, line, col
+    if calling lex_match_at with lx, "<<":
+        return calling emit_op with lx, TokShiftLeft, start, 2, line, col
+    if calling lex_match_at with lx, ">>":
+        return calling emit_op with lx, TokShiftRight, start, 2, line, col
+    if calling lex_match_at with lx, "<=":
+        return calling emit_op with lx, TokLessOrEqual, start, 2, line, col
+    if calling lex_match_at with lx, ">=":
+        return calling emit_op with lx, TokGreaterOrEqual, start, 2, line, col
+    if calling lex_match_at with lx, "==":
+        return calling emit_op with lx, TokEqual, start, 2, line, col
+    if calling lex_match_at with lx, "!=":
+        return calling emit_op with lx, TokNotEqual, start, 2, line, col
+    var b as int is calling psstate.lex_peek with lx
+    if b == 64:
+        return calling emit_op with lx, TokAt, start, 1, line, col
+    if b == 43:
+        return calling emit_op with lx, TokPlus, start, 1, line, col
+    if b == 45:
+        return calling emit_op with lx, TokMinus, start, 1, line, col
+    if b == 42:
+        return calling emit_op with lx, TokStar, start, 1, line, col
+    if b == 47:
+        return calling emit_op with lx, TokSlash, start, 1, line, col
+    if b == 37:
+        return calling emit_op with lx, TokPercent, start, 1, line, col
+    if b == 38:
+        return calling emit_op with lx, TokAmpersand, start, 1, line, col
+    if b == 124:
+        return calling emit_op with lx, TokVerticalBar, start, 1, line, col
+    if b == 94:
+        return calling emit_op with lx, TokCaret, start, 1, line, col
+    if b == 126:
+        return calling emit_op with lx, TokTilde, start, 1, line, col
+    if b == 60:
+        return calling emit_op with lx, TokLess, start, 1, line, col
+    if b == 62:
+        return calling emit_op with lx, TokGreater, start, 1, line, col
+    if b == 61:
+        return calling emit_op with lx, TokAssign, start, 1, line, col
+    if b == 33:
+        return calling emit_op with lx, TokBang, start, 1, line, col
+    if b == 46:
+        return calling emit_op with lx, TokDot, start, 1, line, col
+    if b == 44:
+        return calling emit_op with lx, TokComma, start, 1, line, col
+    if b == 58:
+        return calling emit_colon with lx, start, line, col
+    if b == 59:
+        return calling emit_op with lx, TokSemicolon, start, 1, line, col
+    if b == 40:
+        return calling emit_op with lx, TokLeftParen, start, 1, line, col
+    if b == 41:
+        return calling emit_op with lx, TokRightParen, start, 1, line, col
+    if b == 91:
+        return calling emit_op with lx, TokLeftBracket, start, 1, line, col
+    if b == 93:
+        return calling emit_op with lx, TokRightBracket, start, 1, line, col
+    if b == 123:
+        return calling emit_op with lx, TokLeftBrace, start, 1, line, col
+    if b == 125:
+        return calling emit_op with lx, TokRightBrace, start, 1, line, col
+    return false
+
+## Emite un operador de `len` bytes.
+##
+## ## Memoria
+## No asigna (salvo el token POD).
+weave emit_op with lx as ref to psstate.LexerState, kind as TokenKind, start as int, len as int, line as int, col as int into bool:
+    calling psstate.lex_advance_to with lx, start + len
+    calling psstate.lex_emit_token with lx, kind, KwNotKeyword, start, start + len, line, col, 0
+    return true
+
+## Emite un `:` y marca la cabecera `antiquus` si corresponde.
+##
+## ## Memoria
+## No asigna.
+weave emit_colon with lx as ref to psstate.LexerState, start as int, line as int, col as int into bool:
+    if lx->pending_antiquus:
+        set lx->antiquus_colon is true
+    calling psstate.lex_advance_to with lx, start + 1
+    calling psstate.lex_emit_token with lx, TokColon, KwNotKeyword, start, start + 1, line, col, 0
+    return true
+
+## `true` si `needle` coincide en la posición actual.
+##
+## ## Memoria
+## O(len), no asigna.
+weave lex_match_at with lx as ref to psstate.LexerState, needle as string into bool:
+    var n as int is needle length
+    var i as int is 0
+    while i < n:
+        if (calling psstate.lex_peek_at with lx, i) != (calling byte_of with needle, i):
+            return false
+        set i is i + 1
+    return true
+
+## Byte de un string en `i`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave byte_of with s as string, i as int into int:
+    var raw as ref to frozen byte is bytes of s
+    return (raw at i) to int
+
+## Recupera de un byte/codepoint desconocido.
+##
+## ## Memoria
+## Añade un `TokError` y un diagnóstico; no deja heap.
+weave scan_unknown with lx as ref to psstate.LexerState into void:
+    var start as int is lx->pos
+    var line as int is lx->line
+    var col as int is lx->pos - lx->line_start + 1
+    var b as int is calling psstate.lex_peek with lx
+    if b == 0xEF:
+        if (calling psstate.lex_peek_at with lx, 1) == 0xBB and (calling psstate.lex_peek_at with lx, 2) == 0xBF:
+            calling psstate.lex_issue with lx, LexUnexpectedBom, start, start + 3, ""
+            calling psstate.lex_advance_to with lx, start + 3
+            calling psstate.lex_emit_token with lx, TokError, KwNotKeyword, start, start + 3, line, col, 0
+            return
+    var detail as string is ""
+    if b >= 32 and b <= 126:
+        var c as char is (b to char)
+        set detail is "{c}"
+    else:
+        set detail is "byte {b}"
+    defer banish detail
+    calling psstate.lex_issue with lx, LexUnknownCharacter, start, start + 1, detail
+    calling psstate.lex_advance_codepoint with lx
+    calling psstate.lex_emit_token with lx, TokError, KwNotKeyword, start, lx->pos, line, col, 0

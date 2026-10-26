@@ -1,0 +1,25 @@
+# psc-token-dump v1
+# file: tests/fixtures/triple_interp.pengu
+# sha256: a261b4878dd37e85a023012b02a96b936afbeaa9f51eabb37076a4edd047aa12
+# bytes: 81
+# lines: 7
+# columns: index	kind	lexeme	start	end	line	col	end_line	end_col	aux
+0	Keyword(weave)	weave	0	5	1	1	1	6	0
+1	Identifier	main	6	10	1	7	1	11	0
+2	Keyword(into)	into	11	15	1	12	1	16	0
+3	Identifier	int	16	19	1	17	1	20	0
+4	Colon	:	19	20	1	20	1	21	0
+5	Newline	\n    	20	25	1	21	2	5	4
+6	Indent		25	25	2	5	2	5	4
+7	Keyword(var)	var	25	28	2	5	2	8	0
+8	Identifier	d	29	30	2	9	2	10	0
+9	Keyword(as)	as	31	33	2	11	2	13	0
+10	Identifier	string	34	40	2	14	2	20	0
+11	Keyword(is)	is	41	43	2	21	2	23	0
+12	StringLit	"""\n  a{1 + 2}b\n  c\n"""	44	67	2	24	5	4	0
+13	Newline	\n    	67	72	5	4	6	5	4
+14	Keyword(return)	return	72	78	6	5	6	11	0
+15	IntLit	0	79	80	6	12	6	13	10
+16	Newline	\n	80	81	6	13	7	1	0
+17	Dedent		81	81	7	1	7	1	0
+18	Eof		81	81	7	1	7	1	0

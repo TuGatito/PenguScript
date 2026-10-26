@@ -1,0 +1,73 @@
+## psc/sema/options.pengu — opciones de una comprobación semántica.
+##
+## Las opciones son inmutables durante el chequeo. Los strings son owned por el
+## `SemaProgram`; el llamador puede liberar su copia después de `check_*`.
+
+insignia sema_options_
+
+## Opciones de proyecto que necesita F3.
+##
+## `std_dirs` se consulta en orden; si está vacío se usa `<base_dir>/std`.
+rune SemaOptions:
+    ## Directorio raíz del proyecto.
+    base_dir as string
+    ## Subdirectorio de fuentes (`src` por defecto).
+    src_dir as string
+    ## Subdirectorio de bindings (`lib` por defecto).
+    lib_dir as string
+    ## Directorios extra de stdlib; prestados/owned por el llamador.
+    std_dirs as list of string
+    ## `-D NAME` / `-D NAME=valor`.
+    defines as list of string
+    ## SO de compilación (`linux`, `windows`, `macos`, ...).
+    os_name as string
+    ## Arquitectura (`x64`, `arm64`, ...).
+    arch as string
+    ## Compilador C (`gcc`, `clang`, `msvc`).
+    compiler as string
+    ## Target wasm (`""` nativo, `wasi`, `emscripten`).
+    wasm_target as string
+    ## `true` para compilar el módulo entry como `main`.
+    is_main as bool
+    ## `true` para `debug`.
+    is_debug as bool
+    ## `--deny-deprecated`: W0006 se convierte en error de salida.
+    deny_deprecated as bool
+    ## Máximo de errores antes de parar.
+    max_errors as int
+    ## Parar en el primer error.
+    stop_after_first as bool
+    ## `true` para incluir cuerpos `antiquus` en el dump (no chequeados).
+    include_antiquus as bool
+
+## Opciones por defecto para un archivo.
+##
+## `base_dir` se copia; el resto son literales.
+##
+## ## Memoria
+## Devuelve strings owned; el llamador los libera con `free_options`.
+weave default_options with base_dir as string into SemaOptions:
+    return with base_dir is base_dir, src_dir is "src", lib_dir is "lib", std_dirs is list of string, defines is list of string, os_name is "linux", arch is "x64", compiler is "gcc", wasm_target is "", is_main is true, is_debug is false, deny_deprecated is false, max_errors is 100, stop_after_first is false, include_antiquus is false
+
+## Libera las opciones.
+##
+## ## Memoria
+## Libera cada string y las dos listas.
+weave free_options with opts as ref to SemaOptions into void:
+    banish opts->base_dir
+    banish opts->src_dir
+    banish opts->lib_dir
+    var i as int is 0
+    while i < opts->std_dirs.len:
+        banish opts->std_dirs at (i)
+        set i is i + 1
+    banish opts->std_dirs
+    set i is 0
+    while i < opts->defines.len:
+        banish opts->defines at (i)
+        set i is i + 1
+    banish opts->defines
+    banish opts->os_name
+    banish opts->arch
+    banish opts->compiler
+    banish opts->wasm_target

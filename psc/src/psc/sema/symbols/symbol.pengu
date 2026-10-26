@@ -1,0 +1,181 @@
+## psc/sema/symbols/symbol.pengu — símbolos y valores constantes.
+##
+## `SemaSymbol` es un registro POD en `SemaSymbols.symbols`. Los nombres son
+## `NameId`; los tipos, `TypeId`. Todo lo que un símbolo posee (doc, attrs,
+## valor constante) es un índice a otra tabla del programa.
+##
+## ## Memoria
+## Los símbolos son POD; las tablas que los contienen se liberan en bloque desde
+## `SemaProgram`.
+
+insignia sema_symbol_
+
+## Clase de un símbolo.
+omen SemaSymbolKind:
+    ## Variable local mutable.
+    SkVar
+    ## Binding local inmutable.
+    SkLet
+    ## Constante top-level.
+    SkConst
+    ## Parámetro de función/método.
+    SkParam
+    ## `static var` local.
+    SkStaticVar
+    ## `weave` de PenguScript.
+    SkWeave
+    ## `declare` externo.
+    SkDeclare
+    ## Tipo integrado o alias de tipo.
+    SkType
+    ## `rune`.
+    SkRune
+    ## `echo`.
+    SkEcho
+    ## `omen`.
+    SkOmen
+    ## `alias`.
+    SkAlias
+    ## `seal`.
+    SkSeal
+    ## `concept`.
+    SkConcept
+    ## Módulo importado.
+    SkImport
+    ## Constante `#define` visible por `include`.
+    SkCDefine
+    ## Bloque `test`.
+    SkTest
+
+## Bits de `SemaSymbol.flags`.
+const SYM_MUTABLE as int is 1 << 0
+const SYM_PUBLIC as int is 1 << 1
+const SYM_STATIC as int is 1 << 2
+const SYM_RITUAL as int is 1 << 3
+const SYM_INLINE as int is 1 << 4
+const SYM_ANTIQUUS as int is 1 << 5
+const SYM_SELF_VALUE as int is 1 << 6
+const SYM_DEFINED_IN_C as int is 1 << 7
+const SYM_MUTATING as int is 1 << 8
+const SYM_HAS_DOC as int is 1 << 9
+const SYM_NO_RETURN as int is 1 << 10
+const SYM_EXPORT as int is 1 << 11
+
+## Clase de valor constante.
+omen SemaConstKind:
+    ## No es una constante evaluable.
+    CkNone
+    ## Entero (`i`).
+    CkInt
+    ## Float (`f`).
+    CkFloat
+    ## Bool (`b`).
+    CkBool
+    ## String (`name`).
+    CkString
+    ## Char (`i` = codepoint).
+    CkChar
+    ## Nombre canónico de tipo (`name`), para `type of`.
+    CkTypeName
+
+## Valor constante POD.
+rune SemaConst:
+    ## Clase.
+    kind as SemaConstKind
+    ## Entero/codepoint.
+    i as i64
+    ## Float.
+    f as f64
+    ## Bool.
+    b as bool
+    ## `NameId` para string/type name.
+    name as int
+
+## Símbolo resuelto.
+rune SemaSymbol:
+    ## `NameId`.
+    name as int
+    ## `TypeId`.
+    type as int
+    ## Clase.
+    kind as SemaSymbolKind
+    ## Bits `SYM_*`.
+    flags as int
+    ## `NameId` del nombre C efectivo.
+    c_name as int
+    ## Módulo que lo declara (`-1` para builtins).
+    module as int
+    ## Línea 1-indexed.
+    line as int
+    ## Columna 1-indexed (byte).
+    col as int
+    ## Nodo de atributos del AST (`-1` si no).
+    attrs_node as int
+    ## `NameId` del doc comment (`-1` si no).
+    doc as int
+    ## Índice en `SemaSymbols.consts_values` (`-1` si no).
+    const_id as int
+    ## Primer bound en `SemaSymbols.bounds`.
+    bounds_first as int
+    ## Número de bounds.
+    bounds_count as int
+    ## Scope del módulo para `SkImport` (`-1` si no).
+    module_scope as int
+
+## Plantilla genérica registrada.
+rune SemaTemplate:
+    ## Nombre lógico.
+    name as int
+    ## Módulo dueño.
+    owner as int
+    ## Nodo AST de la declaración.
+    node as int
+    ## Primer type param en `templates`/`tparams` de la tabla de tipos.
+    params_first as int
+    ## Número de type params.
+    params_count as int
+    ## `SkRune`, `SkEcho`, `SkOmen`, `SkAlias`, `SkFunction`, ...
+    kind as SemaSymbolKind
+
+## Instancia monomorfizada.
+rune SemaInstance:
+    ## `internal`/`fn`/`method`/`rune`/`echo`/`omen`/`alias`.
+    kind as SemaSymbolKind
+    ## Nodo de la plantilla en el AST.
+    template_node as int
+    ## Símbolo de la plantilla (`-1` si es un tipo).
+    template_symbol as int
+    ## Primer type arg en `type_args`.
+    args_first as int
+    ## Número de type args.
+    args_count as int
+    ## Receptor (métodos; `-1` si no).
+    receiver as int
+    ## `TypeId` especializado.
+    type as int
+    ## Bits de flags.
+    flags as int
+
+## Nombre de una clase de símbolo para dumps.
+##
+## ## Memoria
+## Devuelve un literal.
+weave symbol_kind_name with kind as SemaSymbolKind into string:
+    return judge kind:
+        when SkVar -> "var"
+        when SkLet -> "let"
+        when SkConst -> "const"
+        when SkParam -> "param"
+        when SkStaticVar -> "static_var"
+        when SkWeave -> "weave"
+        when SkDeclare -> "declare"
+        when SkType -> "type"
+        when SkRune -> "rune"
+        when SkEcho -> "echo"
+        when SkOmen -> "omen"
+        when SkAlias -> "alias"
+        when SkSeal -> "seal"
+        when SkConcept -> "concept"
+        when SkImport -> "import"
+        when SkCDefine -> "c_define"
+        when SkTest -> "test"

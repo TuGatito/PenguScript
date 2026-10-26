@@ -1,0 +1,10 @@
+error[E0000]: Syntax error: multiple statements on a single line require a newline delimiter
+  --> tests/fixtures/parser_bad_multi.pengu:2:16
+  |
+1 | weave f into int:
+2 |     var x is 1 var y is 2
+  |                ^
+3 |     return 0
+  |
+   = help: Put each declaration or statement on its own line.
+

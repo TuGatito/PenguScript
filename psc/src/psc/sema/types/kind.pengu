@@ -1,0 +1,168 @@
+## psc/sema/types/kind.pengu — vocabulario del modelo de tipos.
+##
+## Un tipo es un `SemaType` plano en una `SemaTypeTable`; su identidad es el
+## índice (`TypeId`). Los hijos variables (una tupla, los argumentos de un tipo
+## genérico) viven en `type_children` con `first/count`; los metadatos nominales
+## y de función viven en tablas laterales. Este archivo solo contiene el
+## vocabulario y el registro POD, sin lógica, para que `table.pengu` y
+## `compat.pengu` puedan importarlo sin ciclos.
+##
+## ## Memoria
+## `SemaType` es POD: no posee strings ni listas. `name` es un `NameId` del
+## pool del programa.
+
+insignia sema_type_kind_
+
+## Variante del modelo de tipos.
+##
+## `TkError` es el tipo veneno de recuperación: compatible con todo para no
+## generar cascadas después del primer error. `TkVoid`/`TkOpaque`/`TkAny`/
+## `TkNull`/`TkCVarArgs` son singletons creados por `table.pengu`.
+omen SemaTypeKind:
+    ## `any`, el tipo que acepta cualquier valor.
+    TkAny
+    ## `null`, el literal nulo.
+    TkNull
+    ## `void`, ausencia de valor.
+    TkVoid
+    ## `opaque`, puntero opaco de bindings C.
+    TkOpaque
+    ## Tipo veneno de recuperación.
+    TkError
+    ## Primitivo escalar; `name` guarda el nombre canónico.
+    TkBase
+    ## `ref to T`; `a` es `T`.
+    TkRef
+    ## `frozen T`; `a` es `T`.
+    TkFrozen
+    ## `array of T with size N`; `a` = T, `b` = N (`-1` desconocido).
+    TkArray
+    ## `slice of T`; `a` = T.
+    TkSlice
+    ## `many T` (parámetro variádico); `a` = T.
+    TkMany
+    ## `list of T`; `a` = T.
+    TkList
+    ## `map of K to V`; `a` = K, `b` = V.
+    TkMap
+    ## `maybe T`; `a` = T.
+    TkMaybe
+    ## `result of T to E`; `a` = T, `b` = E.
+    TkResult
+    ## Tupla; los elementos están en `type_children[first..first+count)`.
+    TkTuple
+    ## Rango interno de `for`; `a` = tipo del elemento.
+    TkRange
+    ## `...` de una firma `declare`/`fn`; no es un valor.
+    TkCVarArgs
+    ## Tipo función; `a` = índice en `fn_infos`.
+    TkFn
+    ## Runa; `a` = índice en `nominal_infos`.
+    TkRune
+    ## Echo; `a` = índice en `nominal_infos`.
+    TkEcho
+    ## Omen; `a` = índice en `nominal_infos`.
+    TkOmen
+    ## Alias; `a` = índice en `nominal_infos` (el target está en `b`).
+    TkAlias
+    ## Seal; `a` = índice en `nominal_infos` (el subyacente en `b`).
+    TkSeal
+    ## Concepto; `a` = índice en `nominal_infos`.
+    TkConcept
+    ## Parámetro de tipo; `a` = índice en `tparams`.
+    TkTypeParam
+
+## Clase nominal de una declaración de tipo.
+omen SemaNominalKind:
+    ## `rune`.
+    NkRune
+    ## `echo`.
+    NkEcho
+    ## `omen`.
+    NkOmen
+    ## `alias`.
+    NkAlias
+    ## `seal`.
+    NkSeal
+    ## `concept`.
+    NkConcept
+
+## Registro POD de un tipo.
+##
+## El significado de `name/a/b/c/first/count` depende de `kind`; `table.pengu`
+## documenta cada constructor y es la única puerta de creación.
+rune SemaType:
+    ## Variante.
+    kind as SemaTypeKind
+    ## `NameId` del nombre base/nominal/parámetro; `-1` si no aplica.
+    name as int
+    ## Payload principal (target, elemento, clave, info, ...).
+    a as int
+    ## Segundo payload (valor, error, tamaño, ...).
+    b as int
+    ## Tercer payload/flags específico.
+    c as int
+    ## Primer índice en `type_children` para tuplas/argumentos.
+    first as int
+    ## Número de hijos en `type_children`.
+    count as int
+
+## Etiqueta estable para dumps y diagnósticos.
+##
+## ## Memoria
+## Devuelve un literal; no asigna.
+weave type_kind_name with kind as SemaTypeKind into string:
+    return judge kind:
+        when TkAny -> "any"
+        when TkNull -> "null"
+        when TkVoid -> "void"
+        when TkOpaque -> "opaque"
+        when TkError -> "error"
+        when TkBase -> "base"
+        when TkRef -> "ref"
+        when TkFrozen -> "frozen"
+        when TkArray -> "array"
+        when TkSlice -> "slice"
+        when TkMany -> "many"
+        when TkList -> "list"
+        when TkMap -> "map"
+        when TkMaybe -> "maybe"
+        when TkResult -> "result"
+        when TkTuple -> "tuple"
+        when TkRange -> "range"
+        when TkCVarArgs -> "cvarargs"
+        when TkFn -> "fn"
+        when TkRune -> "rune"
+        when TkEcho -> "echo"
+        when TkOmen -> "omen"
+        when TkAlias -> "alias"
+        when TkSeal -> "seal"
+        when TkConcept -> "concept"
+        when TkTypeParam -> "typeparam"
+        else -> "unknown"
+
+## Etiqueta estable de una clase nominal.
+##
+## ## Memoria
+## Devuelve un literal; no asigna.
+weave nominal_kind_name with kind as SemaNominalKind into string:
+    return judge kind:
+        when NkRune -> "rune"
+        when NkEcho -> "echo"
+        when NkOmen -> "omen"
+        when NkAlias -> "alias"
+        when NkSeal -> "seal"
+        when NkConcept -> "concept"
+
+## Tipo de tipo que corresponde a una clase nominal.
+##
+## ## Memoria
+## Devuelve un literal; no asigna.
+weave nominal_type_kind with kind as SemaNominalKind into SemaTypeKind:
+    return judge kind:
+        when NkRune -> SemaTypeKind.TkRune
+        when NkEcho -> SemaTypeKind.TkEcho
+        when NkOmen -> SemaTypeKind.TkOmen
+        when NkAlias -> SemaTypeKind.TkAlias
+        when NkSeal -> SemaTypeKind.TkSeal
+        when NkConcept -> SemaTypeKind.TkConcept

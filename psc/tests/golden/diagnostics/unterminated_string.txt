@@ -1,0 +1,11 @@
+error[E0000]: unterminated string literal
+  --> tests/fixtures/unterminated_string.pengu:2:24
+  |
+1 | weave main into int:
+2 |     var s as string is "hola
+  |                        ^^^^^
+3 |     return 0
+  |
+   = note: A string literal must close on the same source file.
+   = help: Add a closing '"' before the end of the line.
+

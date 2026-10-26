@@ -1,0 +1,682 @@
+## psc/sema/types/table.pengu — tabla plana de tipos con interning.
+##
+## Un `TypeId` es un índice en `SemaTypeTable.types`. Los tipos compuestos
+## guardan IDs de hijos y los metadatos nominales/función viven en tablas
+## laterales con `first/count`. La identidad estructural se consigue internando
+## cada constructor con una clave canónica: dos construcciones equivalentes
+## devuelven el mismo `TypeId`.
+##
+## ## Por qué una tabla y no `ref to SemaType`
+## Los payloads de un `omen` de PenguScript se construyen completos; una runa o
+## una función necesita rellenar campos y métodos después de crear el tipo. La
+## tabla permite crear el tipo nominal primero y mutar su `SemaNominalInfo`,
+## mantiene IDs deterministas y hace que `banish` sea una operación de listas
+## planas, sin recorrer un grafo de punteros.
+##
+## ## Memoria
+## `SemaTypeTable` presta el `NamePool`; es dueño de todas las listas y del mapa
+## `intern`. `free_table` libera todo. Los `TypeId` dejan de ser válidos.
+
+import std.builder
+
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+
+insignia sema_type_table_
+
+## Información mutable de una runa/echo/omen/alias/seal/concepto.
+rune SemaNominalInfo:
+    ## Clase nominal.
+    kind as tk.SemaNominalKind
+    ## `NameId` del nombre lógico local (`Point`).
+    base_name as int
+    ## `NameId` del nombre C efectivo (puede llevar `insignia`/módulo).
+    c_name as int
+    ## Índice del módulo que la declara (`-1` para builtins).
+    module as int
+    ## Bits de flags (`NIF_*`).
+    flags as int
+    ## Primer campo en `fields`.
+    fields_first as int
+    ## Número de campos.
+    fields_count as int
+    ## Primera variante en `variants` (omen).
+    variants_first as int
+    ## Número de variantes.
+    variants_count as int
+    ## Primer type param en `tparams`.
+    tparams_first as int
+    ## Número de type params.
+    tparams_count as int
+    ## Primera derivación en `derived`.
+    derived_first as int
+    ## Número de derivaciones.
+    derived_count as int
+    ## Nodo de atributos del AST (`-1` si no).
+    attrs_node as int
+
+## Campo de una runa/echo o payload de una variante.
+rune SemaField:
+    ## `NameId` del campo.
+    name as int
+    ## `TypeId`.
+    type as int
+    ## Bits `FIELD_*`.
+    flags as int
+    ## Nodo de atributos del AST.
+    attrs_node as int
+
+## Variante de un `omen`.
+rune SemaVariant:
+    ## `NameId` de la variante.
+    name as int
+    ## Valor entero (si `flags` lo indica).
+    value_i as int
+    ## `NameId` del valor string (si aplica).
+    value_s as int
+    ## Primer payload en `fields`.
+    payload_first as int
+    ## Número de campos de payload.
+    payload_count as int
+    ## Bits `VAR_*`.
+    flags as int
+
+## Parámetro de tipo de una declaración genérica.
+rune SemaTypeParamInfo:
+    ## `NameId` del parámetro (`T`).
+    name as int
+    ## Primer bound en `bounds`.
+    bounds_first as int
+    ## Número de bounds.
+    bounds_count as int
+    ## Bits `TP_*`.
+    flags as int
+
+## Parámetro de una función.
+rune SemaFnParam:
+    ## `NameId` (`-1` si no tiene nombre).
+    name as int
+    ## `TypeId`.
+    type as int
+    ## Bits `PARAM_*`.
+    flags as int
+    ## Nodo AST del default (`-1` si no).
+    default_node as int
+
+## Firma de una función o método.
+rune SemaFnInfo:
+    ## Primer parámetro en `fn_params`.
+    params_first as int
+    ## Número de parámetros.
+    params_count as int
+    ## `TypeId` de retorno.
+    return_type as int
+    ## Primer type param en `tparams`.
+    tparams_first as int
+    ## Número de type params.
+    tparams_count as int
+    ## Bits `FN_*`.
+    flags as int
+    ## Nodo de atributos del AST.
+    attrs_node as int
+
+## Método requerido por un concepto.
+rune SemaConceptMethod:
+    ## `NameId` del método.
+    name as int
+    ## `TypeId` de su firma (`TkFn`).
+    fn_type as int
+    ## Bits `CM_*`.
+    flags as int
+
+# Flags públicos de las tablas laterales. Se documentan aquí para que F4 no
+# dependa de números mágicos.
+const NIF_CYCLUS as int is 1 << 0
+const NIF_ALGEBRAIC as int is 1 << 1
+const NIF_STRING_VALUED as int is 1 << 2
+const NIF_PUBLIC as int is 1 << 3
+const NIF_AUTO_DONUM as int is 1 << 4
+const NIF_OPAQUE as int is 1 << 5
+const NIF_SEALED as int is 1 << 6
+const NIF_DERIVED as int is 1 << 7
+
+const FIELD_READONLY as int is 1 << 0
+const FIELD_PRIVATE as int is 1 << 1
+const FIELD_ALIGNED as int is 1 << 2
+const FIELD_PACKED as int is 1 << 3
+
+const VAR_HAS_INT as int is 1 << 0
+const VAR_HAS_STRING as int is 1 << 1
+const VAR_PRIVATE as int is 1 << 2
+
+const TP_BOUNDED as int is 1 << 0
+const TP_SHARD as int is 1 << 1
+
+const PARAM_HAS_DEFAULT as int is 1 << 0
+const PARAM_MANY as int is 1 << 1
+const PARAM_SELF as int is 1 << 2
+
+const FN_GENERIC as int is 1 << 0
+const FN_RITUAL as int is 1 << 1
+const FN_SELF_VALUE as int is 1 << 2
+const FN_MUTATES as int is 1 << 3
+const FN_ANTIQUUS as int is 1 << 4
+const FN_DECLARE as int is 1 << 5
+const FN_METHOD as int is 1 << 6
+const FN_VARIADIC as int is 1 << 7
+
+const CM_REQUIRED as int is 1 << 0
+
+## Tabla de tipos y metadatos.
+##
+## ## Memoria
+## Dueña de todas las listas y del mapa `intern`; `free_table` las libera.
+rune SemaTypeTable:
+    ## Pool prestado.
+    names as ref to npool.NamePool
+    ## Registros de tipos; el índice es el `TypeId`.
+    types as list of tk.SemaType
+    ## Hijos de tuplas/type args.
+    type_children as list of int
+    ## Metadatos nominales.
+    nominal_infos as list of SemaNominalInfo
+    ## Firmas de función.
+    fn_infos as list of SemaFnInfo
+    ## Campos y payloads.
+    fields as list of SemaField
+    ## Variantes de omen.
+    variants as list of SemaVariant
+    ## Type params.
+    tparams as list of SemaTypeParamInfo
+    ## Bounds: `NameId` de conceptos.
+    bounds as list of int
+    ## Derivaciones: `NameId` de conceptos.
+    derived as list of int
+    ## Métodos de conceptos.
+    concept_methods as list of SemaConceptMethod
+    ## Parámetros de función.
+    fn_params as list of SemaFnParam
+    ## Cache `NameId -> TypeId` de parámetros de tipo.
+    tparam_cache as map of int to int
+    ## `clave canónica -> TypeId`.
+    intern as map of string to int
+    ## Copias owned de las claves del mapa (el mapa no libera el buffer de un
+    ## key string; esta lista es su dueña).
+    intern_keys as list of string
+    ## Cache de nombres canónicos (`NameId` por `TypeId`; `-1` sin calcular).
+    canonical_cache as list of int
+    ## Cache de nombres mangled.
+    mangled_cache as list of int
+
+# ---------------------------------------------------------------------------
+# Creación y liberación
+# ---------------------------------------------------------------------------
+
+## Crea la tabla y preinterna los singletons y primitivos habituales.
+##
+## ## Memoria
+## Asigna listas/mapa y el pool prestado debe vivir más que la tabla.
+weave new_table with pool as ref to npool.NamePool into SemaTypeTable:
+    var t as SemaTypeTable is with names is pool, types is list of tk.SemaType, type_children is list of int, nominal_infos is list of SemaNominalInfo, fn_infos is list of SemaFnInfo, fields is list of SemaField, variants is list of SemaVariant, tparams is list of SemaTypeParamInfo, bounds is list of int, derived is list of int, concept_methods is list of SemaConceptMethod, fn_params is list of SemaFnParam, tparam_cache is map of int to int, intern is map of string to int, intern_keys is list of string, canonical_cache is list of int, mangled_cache is list of int
+    calling _add_singleton with (sigil of t), tk.SemaTypeKind.TkError
+    calling _add_singleton with (sigil of t), tk.SemaTypeKind.TkAny
+    calling _add_singleton with (sigil of t), tk.SemaTypeKind.TkNull
+    calling _add_singleton with (sigil of t), tk.SemaTypeKind.TkVoid
+    calling _add_singleton with (sigil of t), tk.SemaTypeKind.TkOpaque
+    calling _add_singleton with (sigil of t), tk.SemaTypeKind.TkCVarArgs
+    var i as int is 0
+    while i < 15:
+        if i == 0:
+            calling base with (sigil of t), "int"
+        else if i == 1:
+            calling base with (sigil of t), "i64"
+        else if i == 2:
+            calling base with (sigil of t), "u32"
+        else if i == 3:
+            calling base with (sigil of t), "u64"
+        else if i == 4:
+            calling base with (sigil of t), "i16"
+        else if i == 5:
+            calling base with (sigil of t), "u16"
+        else if i == 6:
+            calling base with (sigil of t), "i8"
+        else if i == 7:
+            calling base with (sigil of t), "u8"
+        else if i == 8:
+            calling base with (sigil of t), "usize"
+        else if i == 9:
+            calling base with (sigil of t), "isize"
+        else if i == 10:
+            calling base with (sigil of t), "float"
+        else if i == 11:
+            calling base with (sigil of t), "f64"
+        else if i == 12:
+            calling base with (sigil of t), "bool"
+        else if i == 13:
+            calling base with (sigil of t), "string"
+        else:
+            calling base with (sigil of t), "char"
+        set i is i + 1
+    return t
+
+## Añade un singleton y lo interna.
+##
+## ## Memoria
+## O(1); añade una entrada a `types` y una clave al mapa.
+weave _add_singleton with t as ref to SemaTypeTable, kind as tk.SemaTypeKind into int:
+    var ty as tk.SemaType is with kind is kind, name is -1, a is 0, b is 0, c is 0, first is 0, count is 0
+    return calling intern_type with t, ty
+
+## Libera la tabla.
+##
+## ## Memoria
+## Libera listas y el mapa de interning; el `NamePool` lo libera su dueño.
+weave free_table with t as ref to SemaTypeTable into void:
+    banish t->types
+    banish t->type_children
+    banish t->nominal_infos
+    banish t->fn_infos
+    banish t->fields
+    banish t->variants
+    banish t->tparams
+    banish t->bounds
+    banish t->derived
+    banish t->concept_methods
+    banish t->fn_params
+    var ik as int is 0
+    while ik < t->intern_keys.len:
+        banish t->intern_keys at (ik)
+        set ik is ik + 1
+    banish t->intern_keys
+    banish t->intern
+    banish t->canonical_cache
+    banish t->mangled_cache
+
+# ---------------------------------------------------------------------------
+# Acceso
+# ---------------------------------------------------------------------------
+
+## Devuelve el registro de un `TypeId`; `TkError` si es inválido.
+##
+## ## Memoria
+## Copia POD; no asigna.
+weave at with t as ref to SemaTypeTable, id as int into tk.SemaType:
+    if id < 0 or id >= t->types.len:
+        return (t->types at 0)
+    return (t->types at id)
+
+## `true` si el id existe.
+##
+## ## Memoria
+## O(1), no asigna.
+weave valid with t as ref to SemaTypeTable, id as int into bool:
+    return id >= 0 and id < t->types.len
+
+## Número de tipos.
+##
+## ## Memoria
+## O(1), no asigna.
+weave type_count with t as ref to SemaTypeTable into int:
+    return t->types.len
+
+## Hijo `i` de un tipo con `first/count`; `-1` si no existe.
+##
+## ## Memoria
+## O(1), no asigna.
+weave type_child_at with t as ref to SemaTypeTable, id as int, i as int into int:
+    var ty as tk.SemaType is calling at with t, id
+    if i < 0 or i >= ty.count:
+        return -1
+    return (t->type_children at (ty.first + i))
+
+## Nombre canónico de un primitivo (alias → canónico).
+##
+## ## Memoria
+## Devuelve un literal prestado; no asigna.
+weave canonical_primitive with s as string into string:
+    if s == "int" or s == "i32" or s == "int32" or s == "int32_t":
+        return "int"
+    if s == "i64" or s == "int64" or s == "int64_t" or s == "long":
+        return "i64"
+    if s == "u32" or s == "uint32" or s == "uint32_t" or s == "uint":
+        return "u32"
+    if s == "u64" or s == "uint64" or s == "uint64_t" or s == "ulong":
+        return "u64"
+    if s == "i16" or s == "int16" or s == "int16_t" or s == "short":
+        return "i16"
+    if s == "u16" or s == "uint16" or s == "uint16_t" or s == "ushort":
+        return "u16"
+    if s == "i8" or s == "int8" or s == "int8_t":
+        return "i8"
+    if s == "u8" or s == "uint8" or s == "uint8_t" or s == "byte":
+        return "u8"
+    if s == "usize" or s == "size_t":
+        return "usize"
+    if s == "isize" or s == "intptr_t" or s == "uintptr_t" or s == "ptrdiff_t":
+        return "isize"
+    if s == "float" or s == "f32":
+        return "float"
+    if s == "f64" or s == "double":
+        return "f64"
+    return s
+
+## Crea/interna un primitivo.
+##
+## ## Memoria
+## O(1) amortizado; puede añadir nombre/tipo.
+weave base with t as ref to SemaTypeTable, spelled as string into int:
+    if spelled == "void":
+        return 3
+    if spelled == "opaque":
+        return 4
+    if spelled == "any" or spelled == "Any":
+        return 1
+    if spelled == "null":
+        return 2
+    var canonical as string is calling canonical_primitive with spelled
+    var nid as int is calling npool.intern with t->names, canonical
+    var ty as tk.SemaType is with kind is tk.SemaTypeKind.TkBase, name is nid, a is 0, b is 0, c is 0, first is 0, count is 0
+    return calling intern_type with t, ty
+
+## Interna un tipo estructural y devuelve su id.
+##
+## ## Memoria
+## Puede añadir una entrada a `types`, `type_children` y `intern`.
+weave intern_type with t as ref to SemaTypeTable, ty as tk.SemaType into int:
+    var key as string is calling key_of with t, ty
+    defer banish key
+    if calling t->intern.has with key:
+        return calling t->intern.get with key
+    var id as int is t->types.len
+    calling t->types.push with ty
+    calling t->canonical_cache.push with -1
+    calling t->mangled_cache.push with -1
+    var stored as string is calling npool.copy_string with key
+    calling t->intern_keys.push with stored
+    calling t->intern.put with stored, id
+    return id
+
+## Construye la clave canónica de un tipo.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave key_of with t as ref to SemaTypeTable, ty as tk.SemaType into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with (calling tk.type_kind_name with ty.kind)
+    calling sb.append with ":"
+    calling sb.append_int with ty.name
+    calling sb.append with ":"
+    calling sb.append_int with ty.a
+    calling sb.append with ":"
+    calling sb.append_int with ty.b
+    calling sb.append with ":"
+    calling sb.append_int with ty.c
+    calling sb.append with ":"
+    calling sb.append_int with ty.count
+    var i as int is 0
+    while i < ty.count:
+        calling sb.append with ","
+        calling sb.append_int with (t->type_children at (ty.first + i))
+        set i is i + 1
+    return calling sb.finish
+
+# ---------------------------------------------------------------------------
+# Constructores compuestos
+# ---------------------------------------------------------------------------
+
+## `ref to target`.
+##
+## ## Memoria
+## O(1) amortizado.
+weave ref_to with t as ref to SemaTypeTable, target as int into int:
+    return calling _unary with t, tk.SemaTypeKind.TkRef, target
+
+## `frozen target`.
+##
+## ## Memoria
+## O(1) amortizado.
+weave frozen with t as ref to SemaTypeTable, target as int into int:
+    return calling _unary with t, tk.SemaTypeKind.TkFrozen, target
+
+## `slice of target`.
+##
+## ## Memoria
+## O(1) amortizado.
+weave slice_of with t as ref to SemaTypeTable, target as int into int:
+    return calling _unary with t, tk.SemaTypeKind.TkSlice, target
+
+## `many target`.
+##
+## ## Memoria
+## O(1) amortizado.
+weave many_of with t as ref to SemaTypeTable, target as int into int:
+    return calling _unary with t, tk.SemaTypeKind.TkMany, target
+
+## `list of target`.
+##
+## ## Memoria
+## O(1) amortizado.
+weave list_of with t as ref to SemaTypeTable, target as int into int:
+    return calling _unary with t, tk.SemaTypeKind.TkList, target
+
+## `maybe target`.
+##
+## ## Memoria
+## O(1) amortizado.
+weave maybe_of with t as ref to SemaTypeTable, target as int into int:
+    return calling _unary with t, tk.SemaTypeKind.TkMaybe, target
+
+## `range of target` (interno).
+##
+## ## Memoria
+## O(1) amortizado.
+weave range_of with t as ref to SemaTypeTable, target as int into int:
+    return calling _unary with t, tk.SemaTypeKind.TkRange, target
+
+## Constructor de un tipo con un solo hijo.
+##
+## ## Memoria
+## O(1) amortizado.
+weave _unary with t as ref to SemaTypeTable, kind as tk.SemaTypeKind, target as int into int:
+    var ty as tk.SemaType is with kind is kind, name is -1, a is target, b is 0, c is 0, first is 0, count is 0
+    return calling intern_type with t, ty
+
+## `array of elem with size N`; `size < 0` significa desconocido.
+##
+## ## Memoria
+## O(1) amortizado.
+weave array_of with t as ref to SemaTypeTable, elem as int, size as int into int:
+    var ty as tk.SemaType is with kind is tk.SemaTypeKind.TkArray, name is -1, a is elem, b is size, c is 0, first is 0, count is 0
+    return calling intern_type with t, ty
+
+## `map of key to value`.
+##
+## ## Memoria
+## O(1) amortizado.
+weave map_of with t as ref to SemaTypeTable, key as int, value as int into int:
+    var ty as tk.SemaType is with kind is tk.SemaTypeKind.TkMap, name is -1, a is key, b is value, c is 0, first is 0, count is 0
+    return calling intern_type with t, ty
+
+## `result of ok to err`.
+##
+## ## Memoria
+## O(1) amortizado.
+weave result_of with t as ref to SemaTypeTable, ok as int, err as int into int:
+    var ty as tk.SemaType is with kind is tk.SemaTypeKind.TkResult, name is -1, a is ok, b is err, c is 0, first is 0, count is 0
+    return calling intern_type with t, ty
+
+## Tupla de `ids`.
+##
+## ## Memoria
+## Añade los hijos y el tipo; el llamador conserva la lista `ids`.
+weave tuple_of with t as ref to SemaTypeTable, ids as list of int into int:
+    var first as int is t->type_children.len
+    var i as int is 0
+    while i < ids.len:
+        calling t->type_children.push with (ids at i)
+        set i is i + 1
+    var ty as tk.SemaType is with kind is tk.SemaTypeKind.TkTuple, name is -1, a is 0, b is 0, c is 0, first is first, count is ids.len
+    return calling intern_type with t, ty
+
+## Tipo nominal a partir de una `SemaNominalInfo`.
+##
+## ## Memoria
+## Añade la info y el tipo; devuelve el `TypeId`.
+weave named_type with t as ref to SemaTypeTable, info as SemaNominalInfo into int:
+    var idx as int is t->nominal_infos.len
+    calling t->nominal_infos.push with info
+    var ty as tk.SemaType is with kind is (calling tk.nominal_type_kind with info.kind), name is info.base_name, a is idx, b is info.module, c is 0, first is 0, count is 0
+    return calling intern_type with t, ty
+
+## Tipo alias/seal con target en `b`.
+##
+## ## Memoria
+## Añade la info y el tipo; devuelve el `TypeId`.
+weave named_with_target with t as ref to SemaTypeTable, info as SemaNominalInfo, target as int into int:
+    var idx as int is t->nominal_infos.len
+    calling t->nominal_infos.push with info
+    var ty as tk.SemaType is with kind is (calling tk.nominal_type_kind with info.kind), name is info.base_name, a is idx, b is target, c is 0, first is 0, count is 0
+    return calling intern_type with t, ty
+
+## Tipo función.
+##
+## ## Memoria
+## Añade la firma y el tipo; devuelve el `TypeId`.
+weave fn_type with t as ref to SemaTypeTable, info as SemaFnInfo into int:
+    var idx as int is t->fn_infos.len
+    calling t->fn_infos.push with info
+    var ty as tk.SemaType is with kind is tk.SemaTypeKind.TkFn, name is -1, a is idx, b is 0, c is 0, first is 0, count is 0
+    return calling intern_type with t, ty
+
+## Tipo parámetro a partir de su info.
+##
+## ## Memoria
+## Añade la info y el tipo; devuelve el `TypeId`.
+weave type_param_type with t as ref to SemaTypeTable, info as SemaTypeParamInfo into int:
+    if calling t->tparam_cache.has with info.name:
+        return calling t->tparam_cache.get with info.name
+    var idx as int is t->tparams.len
+    calling t->tparams.push with info
+    var nid as int is info.name
+    var ty as tk.SemaType is with kind is tk.SemaTypeKind.TkTypeParam, name is nid, a is idx, b is 0, c is 0, first is 0, count is 0
+    var tid as int is calling intern_type with t, ty
+    calling t->tparam_cache.put with nid, tid
+    return tid
+
+## Añade un campo y devuelve su índice.
+##
+## ## Memoria
+## `push`; el campo es POD.
+weave add_field with t as ref to SemaTypeTable, f as SemaField into int:
+    var idx as int is t->fields.len
+    calling t->fields.push with f
+    return idx
+
+## Añade una variante y devuelve su índice.
+##
+## ## Memoria
+## `push`; la variante es POD.
+weave add_variant with t as ref to SemaTypeTable, v as SemaVariant into int:
+    var idx as int is t->variants.len
+    calling t->variants.push with v
+    return idx
+
+## Añade un type param y devuelve su índice.
+##
+## ## Memoria
+## `push`; la info es POD.
+weave add_tparam with t as ref to SemaTypeTable, p as SemaTypeParamInfo into int:
+    var idx as int is t->tparams.len
+    calling t->tparams.push with p
+    return idx
+
+## Añade un parámetro de función y devuelve su índice.
+##
+## ## Memoria
+## `push`; el parámetro es POD.
+weave add_fn_param with t as ref to SemaTypeTable, p as SemaFnParam into int:
+    var idx as int is t->fn_params.len
+    calling t->fn_params.push with p
+    return idx
+
+## Añade un bound de concepto (`NameId`) y devuelve su índice.
+##
+## ## Memoria
+## `push`; es un int.
+weave add_bound with t as ref to SemaTypeTable, concept as int into int:
+    var idx as int is t->bounds.len
+    calling t->bounds.push with concept
+    return idx
+
+## Añade una derivación de concepto y devuelve su índice.
+##
+## ## Memoria
+## `push`; es un int.
+weave add_derived with t as ref to SemaTypeTable, concept as int into int:
+    var idx as int is t->derived.len
+    calling t->derived.push with concept
+    return idx
+
+## Añade un método de concepto y devuelve su índice.
+##
+## ## Memoria
+## `push`; es POD.
+weave add_concept_method with t as ref to SemaTypeTable, m as SemaConceptMethod into int:
+    var idx as int is t->concept_methods.len
+    calling t->concept_methods.push with m
+    return idx
+
+## Actualiza el rango de campos de una info nominal ya creada.
+##
+## ## Memoria
+## O(1); no asigna.
+weave set_nominal_fields with t as ref to SemaTypeTable, info_idx as int, first as int, count as int into void:
+    var info as SemaNominalInfo is (t->nominal_infos at info_idx)
+    set info.fields_first is first
+    set info.fields_count is count
+    set t->nominal_infos at (info_idx) is info
+
+## Actualiza el rango de variantes de una info nominal ya creada.
+##
+## ## Memoria
+## O(1); no asigna.
+weave set_nominal_variants with t as ref to SemaTypeTable, info_idx as int, first as int, count as int into void:
+    var info as SemaNominalInfo is (t->nominal_infos at info_idx)
+    set info.variants_first is first
+    set info.variants_count is count
+    set t->nominal_infos at (info_idx) is info
+
+## Actualiza el rango de type params de una info nominal.
+##
+## ## Memoria
+## O(1); no asigna.
+weave set_nominal_tparams with t as ref to SemaTypeTable, info_idx as int, first as int, count as int into void:
+    var info as SemaNominalInfo is (t->nominal_infos at info_idx)
+    set info.tparams_first is first
+    set info.tparams_count is count
+    set t->nominal_infos at (info_idx) is info
+
+## Actualiza el rango de derivaciones de una info nominal.
+##
+## ## Memoria
+## O(1); no asigna.
+weave set_nominal_derived with t as ref to SemaTypeTable, info_idx as int, first as int, count as int into void:
+    var info as SemaNominalInfo is (t->nominal_infos at info_idx)
+    set info.derived_first is first
+    set info.derived_count is count
+    set t->nominal_infos at (info_idx) is info
+
+## `true` si el tipo es un primitivo.
+##
+## ## Memoria
+## O(1), no asigna.
+weave is_base with t as ref to SemaTypeTable, id as int into bool:
+    return (calling at with t, id).kind == tk.SemaTypeKind.TkBase
+
+## `true` si el tipo es `TkError`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave is_error with t as ref to SemaTypeTable, id as int into bool:
+    return id <= 0 or (calling at with t, id).kind == tk.SemaTypeKind.TkError

@@ -1,0 +1,226 @@
+## psc/ast/node.pengu — arena plana del AST.
+##
+## El AST guarda nodos POD en `nodes` y una lista plana de hijos en `children`.
+## Cada hijo se codifica en un entero para no necesitar un `PsNode` por token:
+##
+## | Valor | Significado |
+## |---:|---|
+## | `0` | hijo ausente (`None` de stage0) |
+## | `> 0` | nodo `id = valor - 1` |
+## | `< 0` | token `id = -valor - 1` |
+##
+## Los nodos se crean en **post-orden** (hijos antes que el padre). Así los
+## hijos de un nodo son siempre contiguos en `children`, sin obligar a
+## reservar un `list` por nodo. El parser usa una pila de trabajo
+## (`Parser.child_stack`/`Parser.marks`) para agruparlos.
+##
+## ## Memoria
+## `banish ast` libera `nodes`, `children` y `labels`. Los `PsNode` y
+## `PsLoopLabel` son valores puros.
+
+import psc.ast.kind as pskind
+import psc.span as pspan
+
+insignia psc_ast_node_
+
+## Un nodo del AST.
+##
+## `start`/`end` son offsets de byte half-open. `first_child`/`child_count`
+## indexan `PsAst.children`. `aux` es un payload por tipo de nodo (por ejemplo,
+## el token del operador en un nodo binario); `0` cuando no aplica.
+##
+## ## Memoria
+## Valor puro: no tiene heap.
+rune PsNode derive Par:
+    ## Regla de stage0 que representa.
+    kind as NodeKind
+    ## Offset inclusivo del primer byte.
+    start as int
+    ## Offset exclusivo del último byte.
+    end as int
+    ## Índice del primer hijo en `PsAst.children`.
+    first_child as int
+    ## Número de hijos; puede ser 0.
+    child_count as int
+    ## Payload auxiliar del tipo de nodo.
+    aux as int
+
+## Etiqueta de un loop (`outer: for ...`).
+##
+## ## Memoria
+## Valor puro.
+rune PsLoopLabel derive Par:
+    ## Id del nodo `for_*`/`while`.
+    node as int
+    ## Índice del token de la etiqueta.
+    token as int
+
+## Arena del AST.
+##
+## ## Memoria
+## `banish ast` libera las tres listas.
+rune PsAst derive Nexus:
+    ## Nodos en orden de creación (post-orden).
+    nodes as list of PsNode
+    ## Hijos codificados como enteros.
+    children as list of int
+    ## Etiquetas de loops.
+    labels as list of PsLoopLabel
+
+## Construye un AST vacío.
+##
+## ## Memoria
+## Asigna las tres listas; liberar con `banish`.
+weave ps_ast_new into PsAst:
+    return with nodes is list of PsNode, children is list of int, labels is list of PsLoopLabel
+
+## Codifica un id de nodo como hijo.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_enc_node with id as int into int:
+    return id + 1
+
+## Codifica un índice de token como hijo.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_enc_token with id as int into int:
+    return 0 - (id + 1)
+
+## `true` si el hijo codificado referencia un nodo.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_child_is_node with c as int into bool:
+    return c > 0
+
+## `true` si el hijo codificado referencia un token.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_child_is_token with c as int into bool:
+    return c < 0
+
+## Id de nodo de un hijo codificado, o `-1` si no es nodo.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_child_node_id with c as int into int:
+    if c > 0:
+        return c - 1
+    return -1
+
+## Índice de token de un hijo codificado, o `-1` si no es token.
+##
+## ## Memoria
+## O(1), no asigna.
+weave ps_child_token_id with c as int into int:
+    if c < 0:
+        return (0 - c) - 1
+    return -1
+
+enchanting PsAst:
+    ## Número de nodos.
+    weave node_count into int:
+        return self->nodes.len
+
+    ## Número de hijos almacenados.
+    weave child_total into int:
+        return self->children.len
+
+    ## Crea un nodo con un rango de hijos ya copiado en `children`.
+    ##
+    ## El parser no llama a esto directamente: usa
+    ## `Parser.finish_node`, que copia la pila de trabajo.
+    ##
+    ## ## Memoria
+    ## Hace `push` en `nodes`; no asigna por nodo.
+    weave node_new with kind as NodeKind, start as int, end as int, first_child as int, child_count as int, aux as int into int:
+        var id as int is self->nodes.len
+        var n as PsNode is with kind is kind, start is start, end is end, first_child is first_child, child_count is child_count, aux is aux
+        calling self->nodes.push with n
+        return id
+
+    ## Añade un hijo ya codificado al final de `children`.
+    ##
+    ## ## Memoria
+    ## Hace `push`; no asigna por hijo.
+    weave add_encoded_child with c as int into void:
+        calling self->children.push with c
+
+    ## Devuelve el nodo `id`.
+    ##
+    ## ## Memoria
+    ## Devuelve una copia POD; no asigna.
+    weave node_at with id as int into PsNode:
+        return self->nodes at id
+
+    ## Tipo de un nodo.
+    ##
+    ## ## Memoria
+    ## O(1), no asigna.
+    weave kind_of with id as int into NodeKind:
+        var n as PsNode is self->nodes at id
+        return n.kind
+
+    ## Span de un nodo.
+    ##
+    ## ## Memoria
+    ## Devuelve una copia POD; no asigna.
+    weave span_of with id as int into pspan.ByteSpan:
+        var n as PsNode is self->nodes at id
+        return with start is n.start, end is n.end
+
+    ## Número de hijos de un nodo.
+    ##
+    ## ## Memoria
+    ## O(1), no asigna.
+    weave child_count_of with id as int into int:
+        var n as PsNode is self->nodes at id
+        return n.child_count
+
+    ## Hijo codificado en una posición, o `0` si está fuera de rango.
+    ##
+    ## ## Memoria
+    ## O(1), no asigna.
+    weave child_of with id as int, slot as int into int:
+        var n as PsNode is self->nodes at id
+        if slot < 0 or slot >= n.child_count:
+            return 0
+        return self->children at (n.first_child + slot)
+
+    ## Id de nodo de un hijo, o `-1` si es token/ausente.
+    ##
+    ## ## Memoria
+    ## O(1), no asigna.
+    weave child_node_of with id as int, slot as int into int:
+        return calling ps_child_node_id with (calling self.child_of with id, slot)
+
+    ## Índice de token de un hijo, o `-1` si es nodo/ausente.
+    ##
+    ## ## Memoria
+    ## O(1), no asigna.
+    weave child_token_of with id as int, slot as int into int:
+        return calling ps_child_token_id with (calling self.child_of with id, slot)
+
+    ## Añade una etiqueta de loop.
+    ##
+    ## ## Memoria
+    ## Hace `push` en `labels`.
+    weave add_label with node as int, token as int into void:
+        var l as PsLoopLabel is with node is node, token is token
+        calling self->labels.push with l
+
+    ## Token de la etiqueta de un nodo, o `-1` si no tiene.
+    ##
+    ## ## Memoria
+    ## Búsqueda lineal; los labels son raros.
+    weave label_of with node as int into int:
+        var i as int is 0
+        while i < self->labels.len:
+            var l as PsLoopLabel is self->labels at i
+            if l.node == node:
+                return l.token
+            set i is i + 1
+        return -1

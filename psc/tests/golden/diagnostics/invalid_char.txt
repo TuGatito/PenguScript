@@ -1,0 +1,11 @@
+error[E0000]: invalid character literal
+  --> tests/fixtures/invalid_char.pengu:2:22
+  |
+1 | weave main into int:
+2 |     var c as char is 'ab'
+  |                      ^^^^
+3 |     return 0
+  |
+   = note: Examples: 'a', '\n', '\x41', '\u{1F427}'.
+   = help: Write exactly one character or one escape between the quotes.
+

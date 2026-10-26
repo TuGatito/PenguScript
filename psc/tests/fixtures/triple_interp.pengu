@@ -1,0 +1,6 @@
+weave main into int:
+    var d as string is """
+  a{1 + 2}b
+  c
+"""
+    return 0

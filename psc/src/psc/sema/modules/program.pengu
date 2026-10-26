@@ -1,0 +1,293 @@
+## psc/sema/modules/program.pengu — programa completo: módulos, orden y tablas.
+##
+## `SemaProgram` posee las tablas y los módulos cargados. El descubrimiento es
+## DFS: un import se carga antes que su importador y se registra en `order`.
+## Los ciclos se detectan con la pila `visiting`.
+##
+## ## Memoria
+## `free_program` libera módulos, tablas, pool, bag y opciones.
+
+import std.builder
+import std.compass
+import std.diagnostic as diag
+import std.memoria
+
+import psc.sema.names as npool
+import psc.sema.types.table as types
+import psc.sema.symbols.table as symbols
+import psc.sema.symbols.scope as scope
+import psc.sema.options as sopts
+import psc.sema.modules.loader as loader
+import psc.sema.modules.resolver as resolver
+import psc.sema.ast as astutil
+import psc.sema.diagnostics as sdiag
+import psc.ast.kind as pskind
+
+insignia sema_program_
+
+## Programa semántico.
+##
+## ## Memoria
+## Sin `derive Nexus`; `free_program` libera en orden seguro.
+rune SemaProgram:
+    ## Opciones.
+    options as sopts.SemaOptions
+    ## Pool de nombres.
+    names as npool.NamePool
+    ## Tabla de tipos.
+    types as types.SemaTypeTable
+    ## Tabla de símbolos.
+    symbols as symbols.SemaSymbols
+    ## Diagnósticos.
+    diagnostics as diag.DiagnosticBag
+    ## Módulos en orden de carga.
+    modules as list of loader.SemaModule
+    ## `path -> module id`.
+    by_path as map of string to int
+    ## Orden topológico (dependencias primero).
+    order as list of int
+    ## Módulo entry (`-1` si no).
+    root as int
+
+## Crea un programa vacío.
+##
+## ## Memoria
+## Inicializa tablas; liberar con `free_program`.
+weave new_program with options as sopts.SemaOptions into ref to SemaProgram:
+    var p as ref to SemaProgram is calling memoria.alloc of SemaProgram
+    set p->options is options
+    set p->names is calling npool.new_pool
+    set p->types is calling types.new_table with (sigil of p->names)
+    set p->symbols is calling symbols.new_symbols with (sigil of p->types), (sigil of p->names)
+    set p->diagnostics is calling diag.DiagnosticBag.new
+    set p->modules is list of loader.SemaModule
+    set p->by_path is map of string to int
+    set p->order is list of int
+    set p->root is -1
+    return p
+
+## Libera el programa completo.
+##
+## ## Memoria
+## Módulos, tablas, pool, bag y opciones.
+weave free_program with p as ref to SemaProgram into void:
+    var i as int is 0
+    while i < p->modules.len:
+        var m as loader.SemaModule is (p->modules at i)
+        calling loader.free_module with (sigil of m)
+        set i is i + 1
+    banish p->modules
+    banish p->by_path
+    banish p->order
+    calling symbols.free_symbols with (sigil of p->symbols)
+    calling types.free_table with (sigil of p->types)
+    calling npool.free_pool with (sigil of p->names)
+    banish p->diagnostics
+    calling sopts.free_options with (sigil of p->options)
+    banish p
+
+## Busca un módulo ya cargado.
+##
+## ## Memoria
+## O(1) promedio.
+weave module_id with p as ref to SemaProgram, path as string into int:
+    if calling p->by_path.has with path:
+        return calling p->by_path.get with path
+    return -1
+
+## Descubre un módulo y sus imports.
+##
+## `depth` es la profundidad de import. `visiting` es la pila de paths.
+##
+## ## Memoria
+## Añade módulos; liberar con `free_program`.
+weave discover with p as ref to SemaProgram, path as string, is_entry as bool, depth as int, visiting as ref to list of string, vcount as int into int:
+    var existing as int is calling module_id with p, path
+    if existing >= 0:
+        return existing
+    var is_std as bool is calling path_is_std with path
+    var m as loader.SemaModule is calling loader.load_module with path, (sigil of p->diagnostics), is_entry, is_std, depth
+    var id as int is p->modules.len
+    set m.id is id
+    calling p->modules.push with m
+    calling p->by_path.put with m.path, id
+    # Carga el binding C companion (`foo.d.pengu`) después de conocer el id
+    # padre; sus declaraciones se recolectan en el scope del padre.
+    if not (calling ends_with_path with path, ".d.pengu"):
+        var comp as string is calling companion_path with path
+        if comp != "":
+            if calling archivum.is_file with comp:
+                var cid as int is calling discover with p, comp, false, depth, visiting, vcount
+                if cid >= 0:
+                    var cm as loader.SemaModule is (p->modules at cid)
+                    set cm.companion_for is id
+                    set p->modules at (cid) is cm
+            banish comp
+    if is_entry:
+        set p->root is id
+    if not m.ok:
+        calling p->order.push with id
+        return id
+    calling discover_imports_of with p, m, depth, visiting, vcount
+    return id
+
+## Descubre los imports de un módulo ya cargado y lo añade al orden.
+##
+## Se usa tanto para archivos (`discover`) como para texto en memoria
+## (`check_text`, stdin), que no existe en disco.
+##
+## ## Memoria
+## Añade módulos; liberar con `free_program`.
+weave discover_imports_of with p as ref to SemaProgram, m as loader.SemaModule, depth as int, visiting as ref to list of string, vcount as int into void:
+    var imports as list of string is list of string
+    var inodes as list of int is list of int
+    calling scan_imports with p, m, (sigil of imports), (sigil of inodes)
+    var i as int is 0
+    while i < imports.len:
+        var dot as string is (imports at i)
+        var from_dir as string is calling compass.cp_dirname with m.path
+        defer banish from_dir
+        var hit as string is calling resolver.find_module with (sigil of p->options), dot, from_dir
+        if hit == "":
+            var node as int is (inodes at i)
+            var msg as string is "cannot resolve imported module '{dot}'"
+            defer banish msg
+            calling sdiag.node_error with (sigil of p->diagnostics), (sigil of m.source), sdiag.CODE_UNDEFINED, (calling astutil.start_of with (sigil of m.parse.ast), node), (calling astutil.end_of with (sigil of m.parse.ast), node), msg, "Check the path and the project's src/lib directories.", ""
+            banish dot
+        else:
+            if calling visiting_has with visiting, hit, vcount:
+                var node2 as int is (inodes at i)
+                var msg2 as string is "circular dependency in imports: '{hit}'"
+                defer banish msg2
+                calling sdiag.node_error with (sigil of p->diagnostics), (sigil of m.source), sdiag.CODE_UNDEFINED, (calling astutil.start_of with (sigil of m.parse.ast), node2), (calling astutil.end_of with (sigil of m.parse.ast), node2), msg2, "Break the import cycle.", ""
+                banish hit
+            else:
+                calling visiting->push with hit
+                var child as int is calling discover with p, hit, false, depth + 1, visiting, vcount + 1
+                calling visiting->pop
+                banish hit
+            banish dot
+        set i is i + 1
+    banish imports
+    banish inodes
+    calling p->order.push with m.id
+
+## ¿Termina `s` con `suffix`?
+##
+## ## Memoria
+## O(suffix); no asigna.
+weave ends_with_path with s as string, suffix as string into bool:
+    var n as int is s length
+    var m as int is suffix length
+    if m > n:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of suffix
+    var i as int is 0
+    while i < m:
+        if ((sb at (n - m + i)) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## Path del binding companion `.d.pengu`, o `""`.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave companion_path with path as string into string:
+    var n as int is path length
+    if n < 6:
+        return ""
+    var base as string is ""
+    var keep as int is n - 6
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    while i < keep:
+        calling sb.append with (path at i)
+        set i is i + 1
+    calling sb.append with ".d.pengu"
+    return calling sb.finish
+
+## ¿El path está en la pila de ciclos?
+##
+## ## Memoria
+## O(n).
+weave visiting_has with visiting as ref to list of string, path as string, count as int into bool:
+    var i as int is 0
+    while i < count:
+        if (visiting at i) == path:
+            return true
+        set i is i + 1
+    return false
+
+## `true` si el path contiene un componente `std`.
+##
+## ## Memoria
+## O(n).
+weave path_is_std with path as string into bool:
+    var i as int is 0
+    var n as int is path length
+    while i + 3 < n:
+        if (path at i) == "/" and (path at (i + 1)) == "s" and (path at (i + 2)) == "t" and (path at (i + 3)) == "d":
+            if i + 4 == n or (path at (i + 4)) == "/":
+                return true
+        set i is i + 1
+    return false
+
+## Recoge los imports de un módulo.
+##
+## ## Memoria
+## Añade strings/nodos owned a las listas del llamador.
+weave scan_imports with p as ref to SemaProgram, m as loader.SemaModule, out as ref to list of string, nodes as ref to list of int into void:
+    var file as int is calling astutil.node_child with (sigil of m.parse.ast), m.parse.root, 0
+    if file < 0:
+        return
+    var i as int is 0
+    var n as int is calling astutil.child_count with (sigil of m.parse.ast), file
+    while i < n:
+        var top as int is calling astutil.node_child with (sigil of m.parse.ast), file, i
+        if top >= 0:
+            var stmt as int is top
+            if (calling astutil.kind_of with (sigil of m.parse.ast), stmt) == pskind.NodeKind.NdTopStmt:
+                set stmt is calling astutil.node_child with (sigil of m.parse.ast), stmt, 0
+            if stmt >= 0 and (calling astutil.kind_of with (sigil of m.parse.ast), stmt) == pskind.NodeKind.NdImportStmt:
+                var path_node as int is calling astutil.node_child with (sigil of m.parse.ast), stmt, 0
+                if path_node >= 0:
+                    var dot as string is calling program_dotted_text with m, path_node
+                    calling out.push with dot
+                    calling nodes.push with stmt
+        set i is i + 1
+
+## Texto de un `dotted_path`.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave program_dotted_text with m as loader.SemaModule, node as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    var n as int is calling astutil.child_count with (sigil of m.parse.ast), node
+    while i < n:
+        if i > 0:
+            calling sb.append with "."
+        var txt as string is calling astutil.child_token_text with (sigil of m.source), (sigil of m.lex), (sigil of m.parse.ast), node, i
+        calling sb.append with txt
+        banish txt
+        set i is i + 1
+    return calling sb.finish
+
+## Crea un scope global por módulo, hijo del scope global de builtins.
+##
+## ## Memoria
+## Añade scopes; el scope 0 sigue siendo el global de builtins.
+weave create_module_scopes with p as ref to SemaProgram into void:
+    var i as int is 0
+    while i < p->modules.len:
+        var m as loader.SemaModule is (p->modules at i)
+        var g as scope.SemaScope is calling scope.new_scope with scope.SemaScopeKind.SgGlobal, 0, 0, 9999999
+        var sid as int is p->symbols.scopes.len
+        calling p->symbols.scopes.push with g
+        set m.scope is sid
+        set p->modules at (i) is m
+        set i is i + 1

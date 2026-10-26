@@ -1,0 +1,135 @@
+## psc/sema/symbols/scope.pengu — scopes léxicos.
+##
+## Cada scope guarda un mapa `NameId -> SymbolId`. Usar `NameId` como clave
+## evita copiar strings y hace que el lookup sea un entero. Los scopes se
+## apilan en `SemaSymbols`; este módulo solo conoce la estructura y las
+## operaciones puras de un scope.
+##
+## ## Memoria
+## Cada `SemaScope` posee sus dos mapas. `SemaSymbols.free` los libera.
+
+insignia sema_scope_
+
+## Clase de scope.
+omen SemaScopeKind:
+    ## Scope global del programa.
+    SgGlobal
+    ## Cuerpo de una función.
+    SgWeave
+    ## Cuerpo de `enchanting`.
+    SgEnchanting
+    ## Cuerpo de una lambda.
+    SgLambda
+    ## Bloque de `if`/`unless`.
+    SgIf
+    ## Bloque de `while`.
+    SgWhile
+    ## Bloque de `for`.
+    SgFor
+    ## Bloque `with target:`.
+    SgWith
+    ## Bloque `or:`.
+    SgOrBlock
+    ## Bloque genérico.
+    SgBlock
+    ## Bloque `test`.
+    SgTest
+
+## Scope léxico.
+##
+## ## Memoria
+## Sin destructor; `free_scope` libera los mapas.
+rune SemaScope:
+    ## Índice del scope padre (`-1` en global).
+    parent as int
+    ## Clase.
+    kind as SemaScopeKind
+    ## `NameId -> SymbolId`.
+    bindings as map of int to int
+    ## Tipo del target de `with` (`-1` si no).
+    with_type as int
+    ## `with` acepta `set`/métodos mutables.
+    with_mutable as bool
+    ## `NameId` del nombre del target de `with`.
+    with_target as int
+    ## Tipo de `enchanting` (`-1` si no).
+    enchanting_type as int
+    ## Tipo de retorno de la función (`-1` si no).
+    return_type as int
+    ## `true` dentro de un loop.
+    in_loop as bool
+    ## `true` dentro de `or:`.
+    in_or_block as bool
+    ## `true` dentro de un método ritual.
+    is_ritual as bool
+    ## Primera línea del scope.
+    start_line as int
+    ## Última línea del scope.
+    end_line as int
+    ## `NameId` del label del loop (`-1` si no).
+    loop_label as int
+    ## Labels de loops anidados visibles: `NameId -> label id`.
+    loop_labels as map of int to int
+
+## Crea un scope.
+##
+## ## Memoria
+## Asigna dos mapas; liberar con `free_scope`.
+weave new_scope with kind as SemaScopeKind, parent as int, start_line as int, end_line as int into SemaScope:
+    return with parent is parent, kind is kind, bindings is map of int to int, with_type is -1, with_mutable is false, with_target is -1, enchanting_type is -1, return_type is -1, in_loop is false, in_or_block is false, is_ritual is false, start_line is start_line, end_line is end_line, loop_label is -1, loop_labels is map of int to int
+
+## Libera los mapas del scope.
+##
+## ## Memoria
+## Libera `bindings` y `loop_labels`.
+weave free_scope with s as ref to SemaScope into void:
+    banish s->bindings
+    banish s->loop_labels
+
+## Define un símbolo en el scope.
+##
+## Si el nombre ya existe, el último gana (stage0 hace lo mismo en locales).
+##
+## ## Memoria
+## O(1) promedio; el mapa copia la cabecera del int.
+weave scope_define with s as ref to SemaScope, name as int, symbol as int into void:
+    calling s->bindings.put with name, symbol
+
+## Lookup local.
+##
+## ## Memoria
+## O(1) promedio; no asigna.
+weave scope_lookup_local with s as ref to SemaScope, name as int into int:
+    if calling s->bindings.has with name:
+        return calling s->bindings.get with name
+    return -1
+
+## ¿Existe el nombre en este scope?
+##
+## ## Memoria
+## O(1) promedio.
+weave has_local with s as ref to SemaScope, name as int into bool:
+    return calling s->bindings.has with name
+
+## Número de nombres locales.
+##
+## ## Memoria
+## O(1).
+weave local_count with s as ref to SemaScope into int:
+    return s->bindings.len
+
+## Define un label de loop.
+##
+## ## Memoria
+## O(1) promedio.
+weave define_label with s as ref to SemaScope, name as int, label_id as int into void:
+    calling s->loop_labels.put with name, label_id
+
+## Lookup de label local.
+##
+## ## Memoria
+## O(1) promedio.
+weave lookup_label with s as ref to SemaScope, name as int into int:
+    if calling s->loop_labels.has with name:
+        return calling s->loop_labels.get with name
+    return -1

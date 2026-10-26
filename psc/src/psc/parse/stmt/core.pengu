@@ -1,0 +1,887 @@
+## psc/parse/stmt/core.pengu — statements, bloques y control de flujo.
+##
+## Cubre `stmt` y `block` de la gramática. Los constructos que pueden usarse
+## como valor (`if`, `when`, `for`, `while`) también se implementan aquí; el
+## hook `PsHooks.value` los reutiliza desde `stmt/values.pengu`.
+##
+## ## Memoria
+## Construye nodos en el AST; no asigna strings salvo diagnósticos.
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.state as psstate
+import psc.parse.diagnostics as pdiag
+import psc.parse.types as ptypes
+import psc.parse.expr.ops as pexpr
+import psc.parse.expr.atoms as patoms
+
+insignia psc_parse_stmt_
+
+# ---------------------------------------------------------------------------
+# Bloques y listas de statements
+# ---------------------------------------------------------------------------
+
+## Parsea el cuerpo de un bloque y añade sus `stmt` al nodo en construcción.
+##
+## ## Retorno
+## Número de statements parseados.
+##
+## ## Memoria
+## O(statements del bloque).
+weave pstmt_parse_block_members with p as ref to PsParser into int:
+    var count as int is 0
+    if calling ps_check with p, TokNewline:
+        var ignored2 as Token is calling ps_advance with p
+        var ignored3 as Token is calling ps_expect with p, TokIndent, "indent"
+        var more as bool is true
+        while more:
+            calling ps_skip_newlines with p
+            if (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+                set more is false
+            else:
+                var before as int is p->pos
+                var st as int is calling pstmt_parse_stmt with p
+                calling ps_add_child with p, st
+                set count is count + 1
+                calling pstmt_check_multiple with p
+                if p->pos == before:
+                    var forced as Token is calling ps_advance with p
+        if count == 0:
+            calling ps_emit_here with p, pdiag.ParseIssue.ParseEmptyBlock, ""
+        if calling ps_check with p, TokDedent:
+            var ignored4 as Token is calling ps_advance with p
+        else:
+            calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedDedent, ""
+    else:
+        var simple as int is calling pstmt_parse_simple_stmt with p
+        calling ps_add_child with p, simple
+        calling ps_finish_statement with p
+        set count is 1
+    return count
+
+## Parsea `":"` + bloque.
+##
+## ## Memoria
+## Crea un nodo `block` con `stmt` hijos.
+weave pstmt_parse_block with p as ref to PsParser into int:
+    var ignored as Token is calling ps_expect with p, TokColon, "':'"
+    if not (calling ps_enter_block with p):
+        var off as int is calling ps_current_start with p
+        return calling ps_error_node with p, off, off
+    defer calling ps_leave_block with p
+    return calling pstmt_parse_block_body with p
+
+## Parsea `":"` + bloque añadiendo los `stmt` directamente al nodo actual.
+##
+## Se usa en `weave`, `test`, `with_stmt`, `do:`, `with:` y `or:`.
+##
+## ## Memoria
+## No crea nodo `block`; añade los `stmt` al nodo en construcción.
+weave pstmt_parse_block_into with p as ref to PsParser into void:
+    var ignored as Token is calling ps_expect with p, TokColon, "':'"
+    if not (calling ps_enter_block with p):
+        return
+    defer calling ps_leave_block with p
+    var ignored2 as int is calling pstmt_parse_block_members with p
+
+## Parsea el cuerpo de un bloque cuando el `:` ya se consumió.
+##
+## ## Memoria
+## Crea un nodo `block` con `stmt` hijos.
+weave pstmt_parse_block_body with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    var ignored as int is calling pstmt_parse_block_members with p
+    return calling ps_finish_node with p, NodeKind.NdBlock, start, (calling ps_previous_end with p), 0
+
+## Parsea el cuerpo de un bloque (sin nodo `block`) cuando el `:` ya se consumió.
+##
+## ## Memoria
+## Añade los `stmt` al nodo en construcción.
+weave pstmt_parse_block_body_into with p as ref to PsParser into void:
+    if not (calling ps_enter_block with p):
+        return
+    defer calling ps_leave_block with p
+    var ignored as int is calling pstmt_parse_block_members with p
+
+## Comprueba la regla de stage0 de “varios statements en una línea”.
+##
+## Se aplica a los starters duros `var`/`let`/`set`/`const`/`static`.
+##
+## ## Memoria
+## No asigna.
+weave pstmt_check_multiple with p as ref to PsParser into void:
+    calling ps_skip_error_tokens with p
+    if p->pos <= 0:
+        return
+    var k as TokenKind is calling ps_kind_at with p
+    if k != TokKeyword:
+        return
+    var kw as KeywordKind is calling ps_kw_at with p
+    if not (kw == KwVar or kw == KwLet or kw == KwSet or kw == KwConst or kw == KwStatic):
+        return
+    var cur as Token is calling ps_current_token with p
+    var prev as Token is p->lex->tokens at (p->pos - 1)
+    if (prev.kind == TokDedent) or (prev.kind == TokIndent) or (prev.kind == TokNewline):
+        return
+    if cur.line != prev.line:
+        return
+    if prev.kind == TokColon or prev.kind == TokSemicolon:
+        return
+    if prev.kind == TokKeyword:
+        if prev.kw == KwDefer or prev.kw == KwErrdefer or prev.kw == KwStatic:
+            return
+    calling ps_emit_here with p, pdiag.ParseIssue.ParseMultipleStatements, ""
+
+# ---------------------------------------------------------------------------
+# Statements
+# ---------------------------------------------------------------------------
+
+## Envuelve en `expr_stmt` un constructo que se usó como expresión.
+##
+## `if ... then ...` y `for ... then ...` producen `if_expr`/`for_comp`; en
+## posición de statement stage0 los envuelve en `expr_stmt`.
+##
+## ## Memoria
+## Crea un nodo `expr_stmt` si hace falta.
+weave pstmt_wrap_if_expr with p as ref to PsParser, start as int, inner as int into int:
+    var k as NodeKind is calling p->ast.kind_of with inner
+    if (k == NodeKind.NdIfExpr) or (k == NodeKind.NdForComp) or (k == NodeKind.NdWhenExpr):
+        calling ps_begin_children with p
+        calling ps_add_child with p, inner
+        return calling ps_finish_node with p, NodeKind.NdExprStmt, start, (calling pexpr.pexpr_end_of with p, inner), 0
+    return inner
+
+## Parsea un `stmt` completo y lo envuelve en el nodo `stmt`.
+##
+## ## Memoria
+## Crea un nodo `stmt`.
+weave pstmt_parse_stmt with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var inner as int is calling pstmt_parse_stmt_inner with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, inner
+    return calling ps_finish_node with p, NodeKind.NdStmt, start, (calling pexpr.pexpr_end_of with p, inner), 0
+
+## Despacha un statement sin envolverlo en `stmt`.
+##
+## ## Memoria
+## Construye el nodo del statement.
+weave pstmt_parse_stmt_inner with p as ref to PsParser into int:
+    if calling ps_check_kw with p, KwElse:
+        var start_else as int is calling ps_current_start with p
+        var ignored_else as Token is calling ps_advance with p
+        if calling ps_check with p, TokColon:
+            var ignored_colon as Token is calling ps_advance with p
+        var off_else as int is calling ps_current_start with p
+        calling ps_emit_issue with p, pdiag.ParseIssue.ParseUnexpectedToken, off_else, off_else, "else"
+        calling ps_synchronize with p
+        return calling ps_error_node with p, start_else, off_else
+    if calling ps_check_kw with p, KwVar:
+        return calling pstmt_parse_var with p
+    if calling ps_check_kw with p, KwLet:
+        return calling pstmt_parse_let with p
+    if calling ps_check_kw with p, KwConst:
+        return calling pstmt_parse_const with p
+    if calling ps_check_kw with p, KwStatic:
+        return calling pstmt_parse_static_var with p
+    if calling ps_check_kw with p, KwSet:
+        return calling pstmt_parse_set with p
+    if calling ps_check_kw with p, KwIf:
+        var fn_if as ref to weave with p as ref to PsParser into int is p->hooks.value
+        var start_if as int is calling ps_current_start with p
+        var inner_if as int is calling fn_if with p
+        return calling pstmt_wrap_if_expr with p, start_if, inner_if
+    if calling ps_check_kw with p, KwUnless:
+        return calling pstmt_parse_unless with p
+    if calling ps_check_kw with p, KwWhile:
+        return calling pstmt_parse_while with p
+    if calling ps_check_kw with p, KwFor:
+        var fn_for as ref to weave with p as ref to PsParser into int is p->hooks.value
+        var start_for as int is calling ps_current_start with p
+        var inner_for as int is calling fn_for with p
+        return calling pstmt_wrap_if_expr with p, start_for, inner_for
+    if calling ps_check_kw with p, KwWhen:
+        var fn_when as ref to weave with p as ref to PsParser into int is p->hooks.when
+        var start_when as int is calling ps_current_start with p
+        var inner_when as int is calling fn_when with p
+        return calling pstmt_wrap_if_expr with p, start_when, inner_when
+    if calling ps_check_kw with p, KwWith:
+        if (calling ps_kind_ahead with p, 1) == TokColon:
+            var fn_with as ref to weave with p as ref to PsParser into int is p->hooks.with_init
+            var start_with as int is calling ps_current_start with p
+            var inner_with as int is calling fn_with with p
+            calling ps_begin_children with p
+            calling ps_add_child with p, inner_with
+            return calling ps_finish_node with p, NodeKind.NdExprStmt, start_with, (calling pexpr.pexpr_end_of with p, inner_with), 0
+        return calling pstmt_parse_with_stmt with p
+    if calling ps_check_word with p, "unsafe":
+        return calling pstmt_parse_unsafe with p
+    if calling ps_check_kw with p, KwDefer:
+        return calling pstmt_parse_defer with p, NodeKind.NdDeferStmt
+    if calling ps_check_kw with p, KwErrdefer:
+        return calling pstmt_parse_defer with p, NodeKind.NdErrdeferStmt
+    if calling ps_check_kw with p, KwBanish:
+        return calling pstmt_parse_banish with p
+    if calling ps_check_kw with p, KwReturn:
+        return calling pstmt_parse_return with p
+    if calling ps_check_kw with p, KwBreak:
+        return calling pstmt_parse_break_continue with p, NodeKind.NdBreakStmt
+    if calling ps_check_kw with p, KwContinue:
+        return calling pstmt_parse_break_continue with p, NodeKind.NdContinueStmt
+    if calling ps_check_name_like with p:
+        if (calling ps_kind_ahead with p, 1) == TokColon:
+            var n2 as TokenKind is calling ps_kind_ahead with p, 2
+            if n2 == TokKeyword:
+                var nkw as KeywordKind is calling ps_kw_at_offset with p, 2
+                if nkw == KwFor or nkw == KwWhile:
+                    return calling pstmt_parse_labeled_loop with p
+    return calling pstmt_parse_expr_stmt with p
+
+# ---------------------------------------------------------------------------
+# Declaraciones locales
+# ---------------------------------------------------------------------------
+
+## Parsea un valor de declaración: `indent_literal`, `with:` o `value_expr`.
+##
+## ## Memoria
+## Construye el nodo del valor.
+weave pstmt_parse_decl_value with p as ref to PsParser into int:
+    if calling ps_check with p, TokColon:
+        return calling patoms.patom_parse_indent_literal with p
+    if calling ps_check with p, TokNewline:
+        if (calling ps_kind_ahead with p, 1) == TokIndent:
+            return calling patoms.patom_parse_indent_literal with p
+    return calling pexpr.pexpr_parse_value_expr with p
+
+## Parsea `var NAME [as T] (is value | with:)`.
+##
+## ## Memoria
+## Crea un nodo `var_decl`.
+weave pstmt_parse_var with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwVar, "'var'"
+    calling ps_begin_children with p
+    calling pstmt_add_name with p, "variable name"
+    calling pstmt_add_optional_type with p
+    calling pstmt_parse_initializer_into with p
+    return calling ps_finish_node with p, NodeKind.NdVarDecl, start, (calling ps_previous_end with p), 0
+
+## Parsea `let nombres [as T] (is value | with:)`.
+##
+## ## Memoria
+## Crea un nodo `let_decl`.
+weave pstmt_parse_let with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwLet, "'let'"
+    calling ps_begin_children with p
+    var names as int is calling pstmt_parse_var_names with p
+    calling ps_add_child with p, names
+    calling pstmt_add_optional_type with p
+    calling pstmt_parse_initializer_into with p
+    return calling ps_finish_node with p, NodeKind.NdLetDecl, start, (calling ps_previous_end with p), 0
+
+## Parsea `const NAME [as T] is value`.
+##
+## ## Memoria
+## Crea un nodo `const_decl`.
+weave pstmt_parse_const with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwConst, "'const'"
+    calling ps_begin_children with p
+    calling pstmt_add_name with p, "constant name"
+    calling pstmt_add_optional_type with p
+    var ignored2 as Token is calling ps_expect_kw with p, KwIs, "'is'"
+    var value as int is calling pstmt_parse_decl_value with p
+    calling ps_add_child with p, value
+    return calling ps_finish_node with p, NodeKind.NdConstDecl, start, (calling ps_previous_end with p), 0
+
+## Parsea `static var NAME [as T] (is value | with:)`.
+##
+## ## Memoria
+## Crea un nodo `static_var_decl`.
+weave pstmt_parse_static_var with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwStatic, "'static'"
+    var ignored2 as Token is calling ps_expect_kw with p, KwVar, "'var'"
+    calling ps_begin_children with p
+    calling pstmt_add_name with p, "variable name"
+    calling pstmt_add_optional_type with p
+    calling pstmt_parse_initializer_into with p
+    return calling ps_finish_node with p, NodeKind.NdStaticVarDecl, start, (calling ps_previous_end with p), 0
+
+## Añade el nombre actual al nodo en construcción.
+##
+## ## Memoria
+## O(1), no asigna.
+weave pstmt_add_name with p as ref to PsParser, what as string into void:
+    calling ps_add_name_like with p
+
+## Añade `as type` o un hijo ausente.
+##
+## ## Memoria
+## Crea el nodo de tipo si existe.
+weave pstmt_add_optional_type with p as ref to PsParser into void:
+    if calling ps_check_kw with p, KwAs:
+        var ignored as Token is calling ps_advance with p
+        var ty as int is calling ptypes.ptype_parse_type with p
+        calling ps_add_child with p, ty
+    else:
+        calling ps_add_absent with p
+
+## Añade el inicializador (`is value` o `with:`) al nodo actual.
+##
+## ## Memoria
+## Construye el valor.
+weave pstmt_parse_initializer_into with p as ref to PsParser into void:
+    if calling ps_check_kw with p, KwIs:
+        var ignored as Token is calling ps_advance with p
+        var value as int is calling pstmt_parse_decl_value with p
+        calling ps_add_child with p, value
+        return
+    if calling ps_check_kw with p, KwWith:
+        if (calling ps_kind_ahead with p, 1) == TokColon:
+            var fn as ref to weave with p as ref to PsParser into int is p->hooks.with_init
+            var value2 as int is calling fn with p
+            calling ps_add_child with p, value2
+            return
+    calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedToken, "'is'"
+    calling ps_add_child with p, (calling ps_error_node with p, (calling ps_current_start with p), (calling ps_current_start with p))
+
+## Parsea la lista de nombres de un `let`.
+##
+## Acepta `a, b` y `(a, b)`, como la gramática.
+##
+## ## Memoria
+## Crea un nodo `var_name_list`.
+weave pstmt_parse_var_names with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    calling ps_begin_children with p
+    var paren as bool is false
+    if calling ps_check with p, TokLeftParen:
+        var ignored as Token is calling ps_advance with p
+        set paren is true
+    var more as bool is true
+    while more:
+        calling ps_add_name_like with p
+        if calling ps_check with p, TokComma:
+            var ignored3 as Token is calling ps_advance with p
+        else:
+            set more is false
+    if paren:
+        var ignored4 as Token is calling ps_expect with p, TokRightParen, "')'"
+    return calling ps_finish_node with p, NodeKind.NdVarNameList, start, (calling ps_previous_end with p), 0
+
+# ---------------------------------------------------------------------------
+# set
+# ---------------------------------------------------------------------------
+
+## Detecta `set xs at n - 1 is v` y emite el diagnóstico específico de stage0.
+##
+## ## Memoria
+## Construye y libera el detalle; el bag es dueño del diagnóstico.
+weave pstmt_check_at_target with p as ref to PsParser, target as int into void:
+    var k as TokenKind is calling ps_kind_at with p
+    if not ((k == TokPlus) or (k == TokMinus) or (k == TokStar) or (k == TokSlash) or (k == TokPercent)):
+        return
+    var n as PsNode is calling p->ast.node_at with target
+    if n.child_count == 0:
+        return
+    var last as int is calling p->ast.child_node_of with target, (n.child_count - 1)
+    if last < 0:
+        return
+    if (calling p->ast.kind_of with last) != NodeKind.NdAtAccess:
+        return
+    var detail as string is calling pstmt_token_text with p
+    defer banish detail
+    var off as int is calling ps_current_start with p
+    calling ps_emit_issue with p, pdiag.ParseIssue.ParseAtIndexPrecedence, off, (calling ps_current_end with p), detail
+    var more as bool is true
+    while more:
+        var kk as TokenKind is calling ps_kind_at with p
+        if (kk == TokNewline) or (kk == TokDedent) or (kk == TokEof):
+            set more is false
+        else if calling ps_check_kw with p, KwIs:
+            set more is false
+        else:
+            var skipped as Token is calling ps_advance with p
+
+## Texto del token actual.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave pstmt_token_text with p as ref to PsParser into string:
+    var t as Token is calling ps_current_token with p
+    var sp as pspan.ByteSpan is calling pstoken.token_span with t
+    return calling p->src.slice with sp
+
+## Parsea `set target is value` o `set target OP value`.
+##
+## ## Memoria
+## Crea `set_stmt` o `compound_set_stmt`.
+weave pstmt_parse_set with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwSet, "'set'"
+    var raw_target as int is calling pstmt_parse_set_target with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, raw_target
+    var target as int is calling ps_finish_node with p, NodeKind.NdSetTarget, (calling pexpr.pexpr_start_of with p, raw_target), (calling pexpr.pexpr_end_of with p, raw_target), 0
+    calling pstmt_check_at_target with p, raw_target
+    if calling ps_check_kw with p, KwIs:
+        var ignored2 as Token is calling ps_advance with p
+        calling ps_begin_children with p
+        calling ps_add_child with p, target
+        var value as int is calling pexpr.pexpr_parse_value_expr with p
+        calling ps_add_child with p, value
+        return calling ps_finish_node with p, NodeKind.NdSetStmt, start, (calling pexpr.pexpr_end_of with p, value), 0
+    var opk as TokenKind is calling ps_kind_at with p
+    if (opk == TokPlusAssign) or (opk == TokMinusAssign) or (opk == TokStarAssign) or (opk == TokSlashAssign) or (opk == TokPercentAssign) or (opk == TokAmpersandAssign) or (opk == TokVerticalBarAssign) or (opk == TokCaretAssign) or (opk == TokShiftLeftAssign) or (opk == TokShiftRightAssign):
+        var opi as int is p->pos
+        var ignored3 as Token is calling ps_advance with p
+        calling ps_begin_children with p
+        calling ps_add_child with p, target
+        calling ps_add_token with p, opi
+        var value2 as int is calling pexpr.pexpr_parse_expr with p
+        calling ps_add_child with p, value2
+        return calling ps_finish_node with p, NodeKind.NdCompoundSetStmt, start, (calling pexpr.pexpr_end_of with p, value2), opi
+    calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedToken, "'is'"
+    calling ps_begin_children with p
+    calling ps_add_child with p, target
+    calling ps_add_child with p, (calling ps_error_node with p, (calling ps_current_start with p), (calling ps_current_start with p))
+    return calling ps_finish_node with p, NodeKind.NdSetStmt, start, (calling ps_previous_end with p), 0
+
+## Parsea el target de un `set`.
+##
+## ## Memoria
+## Crea `with_target`, `normal_target` o `essence_target`.
+weave pstmt_parse_set_target with p as ref to PsParser into int:
+    if calling ps_check with p, TokDot:
+        return calling pexpr.pexpr_parse_with_target with p
+    if calling ps_check_kw with p, KwEssence:
+        var start as int is calling ps_current_start with p
+        var ignored as Token is calling ps_advance with p
+        var ignored2 as Token is calling ps_expect_kw with p, KwOf, "'of'"
+        calling ps_begin_children with p
+        var inner as int is calling pexpr.pexpr_parse_unary with p
+        calling ps_add_child with p, inner
+        return calling ps_finish_node with p, NodeKind.NdEssenceTarget, start, (calling pexpr.pexpr_end_of with p, inner), 0
+    return calling pexpr.pexpr_parse_normal_target with p
+
+# ---------------------------------------------------------------------------
+# Control de flujo
+# ---------------------------------------------------------------------------
+
+## Parsea la condición de un `if`, incluyendo la forma de binding.
+##
+## ## Memoria
+## Crea `if_cond` o `if_cond_binding`.
+weave pstmt_parse_if_cond with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    if calling ps_check_name_like with p:
+        if (calling ps_kind_ahead with p, 1) == TokKeyword:
+            if (calling ps_kw_at_offset with p, 1) == KwAs:
+                calling ps_begin_children with p
+                calling ps_add_name_like with p
+                var ignored2 as Token is calling ps_expect_kw with p, KwAs, "'as'"
+                var ty as int is calling ptypes.ptype_parse_type with p
+                calling ps_add_child with p, ty
+                var ignored3 as Token is calling ps_expect_kw with p, KwIs, "'is'"
+                var value as int is calling pexpr.pexpr_parse_expr with p
+                calling ps_add_child with p, value
+                return calling ps_finish_node with p, NodeKind.NdIfCondBinding, start, (calling pexpr.pexpr_end_of with p, value), 0
+    calling ps_begin_children with p
+    var cond as int is calling pexpr.pexpr_parse_expr with p
+    calling ps_add_child with p, cond
+    return calling ps_finish_node with p, NodeKind.NdIfCond, start, (calling pexpr.pexpr_end_of with p, cond), 0
+
+## Parsea un `if` completo.
+##
+## ## Memoria
+## Crea un nodo `if_stmt`.
+weave pstmt_parse_if with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwIf, "'if'"
+    var cond as int is calling pstmt_parse_if_cond with p
+    return calling pstmt_parse_if_tail with p, start, cond
+
+## Termina un `if` después de la condición.
+##
+## ## Memoria
+## Crea `if_stmt` y opcionalmente `else_block`.
+weave pstmt_parse_if_tail with p as ref to PsParser, start as int, cond as int into int:
+    var block as int is calling pstmt_parse_block with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, cond
+    calling ps_add_child with p, block
+    if calling ps_check_kw with p, KwElse:
+        var eb as int is calling pstmt_parse_else_block with p
+        calling ps_add_child with p, eb
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdIfStmt, start, (calling ps_previous_end with p), 0
+
+## Parsea `else ...`.
+##
+## ## Memoria
+## Crea un nodo `else_block`.
+weave pstmt_parse_else_block with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwElse, "'else'"
+    if calling ps_check_kw with p, KwIf:
+        calling ps_begin_children with p
+        var nested as int is calling pstmt_parse_if with p
+        calling ps_add_child with p, nested
+        return calling ps_finish_node with p, NodeKind.NdElseBlock, start, (calling pexpr.pexpr_end_of with p, nested), 0
+    var ignored2 as Token is calling ps_expect with p, TokColon, "':'"
+    calling ps_begin_children with p
+    if calling ps_check with p, TokNewline:
+        var ignored3 as Token is calling ps_advance with p
+        var ignored4 as Token is calling ps_expect with p, TokIndent, "indent"
+        var more as bool is true
+        while more:
+            calling ps_skip_newlines with p
+            if (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+                set more is false
+            else:
+                var before as int is p->pos
+                var st as int is calling pstmt_parse_stmt with p
+                calling ps_add_child with p, st
+                calling pstmt_check_multiple with p
+                if p->pos == before:
+                    var forced as Token is calling ps_advance with p
+        if calling ps_check with p, TokDedent:
+            var ignored5 as Token is calling ps_advance with p
+        else:
+            calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedDedent, ""
+    else:
+        var simple as int is calling pstmt_parse_simple_stmt with p
+        calling ps_add_child with p, simple
+        calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdElseBlock, start, (calling ps_previous_end with p), 0
+
+## Parsea un `unless`.
+##
+## ## Memoria
+## Crea un nodo `unless_stmt`.
+weave pstmt_parse_unless with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwUnless, "'unless'"
+    var cond as int is calling pexpr.pexpr_parse_expr with p
+    var block as int is calling pstmt_parse_block with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, cond
+    calling ps_add_child with p, block
+    if calling ps_check_kw with p, KwElse:
+        var eb as int is calling pstmt_parse_else_block with p
+        calling ps_add_child with p, eb
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdUnlessStmt, start, (calling ps_previous_end with p), 0
+
+## Parsea un `while`.
+##
+## ## Memoria
+## Crea un nodo `while_stmt`.
+weave pstmt_parse_while with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWhile, "'while'"
+    var cond as int is calling pexpr.pexpr_parse_expr with p
+    var block as int is calling pstmt_parse_block with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, cond
+    calling ps_add_child with p, block
+    return calling ps_finish_node with p, NodeKind.NdWhileStmt, start, (calling ps_previous_end with p), 0
+
+## Parsea un `for` de rango o de colección.
+##
+## ## Memoria
+## Crea `for_range_stmt` o `for_in_stmt`.
+weave pstmt_parse_for with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwFor, "'for'"
+    calling ps_begin_children with p
+    calling pstmt_add_name with p, "loop variable"
+    var name1 as int is 0
+    if calling ps_check_kw with p, KwFrom:
+        var ignored2 as Token is calling ps_advance with p
+        var from as int is calling pexpr.pexpr_parse_expr_no_cast with p
+        calling ps_add_child with p, from
+        var ignored3 as Token is calling ps_expect_kw with p, KwTo, "'to'"
+        var to as int is calling pexpr.pexpr_parse_expr_no_cast with p
+        calling ps_add_child with p, to
+        if calling ps_check_kw with p, KwStep:
+            var ignored4 as Token is calling ps_advance with p
+            var step as int is calling pexpr.pexpr_parse_expr_no_cast with p
+            calling ps_add_child with p, step
+        else:
+            calling ps_add_absent with p
+        var block as int is calling pstmt_parse_block with p
+        calling ps_add_child with p, block
+        return calling ps_finish_node with p, NodeKind.NdForRangeStmt, start, (calling pexpr.pexpr_end_of with p, block), 0
+    if calling ps_check with p, TokComma:
+        var ignored5 as Token is calling ps_advance with p
+        if calling ps_check with p, TokIdentifier:
+            calling ps_add_token with p, p->pos
+            var ignored6 as Token is calling ps_advance with p
+        else:
+            calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    var ignored7 as Token is calling ps_expect_kw with p, KwIn, "'in'"
+    var iterable as int is calling pexpr.pexpr_parse_expr with p
+    calling ps_add_child with p, iterable
+    var block2 as int is calling pstmt_parse_block with p
+    calling ps_add_child with p, block2
+    return calling ps_finish_node with p, NodeKind.NdForInStmt, start, (calling pexpr.pexpr_end_of with p, block2), 0
+
+## Parsea un `when` statement y su `else`.
+##
+## ## Memoria
+## Crea `when_stmt` y `when_else_plain`/`when_else_when`.
+weave pstmt_parse_when_stmt with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWhen, "'when'"
+    var cond as int is calling pexpr.pexpr_parse_expr with p
+    var blk as int is calling pstmt_parse_block with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, cond
+    calling ps_add_child with p, blk
+    if calling ps_check_kw with p, KwElse:
+        var eb as int is calling pstmt_parse_when_else with p
+        calling ps_add_child with p, eb
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdWhenStmt, start, (calling ps_previous_end with p), 0
+
+## Parsea el `else` de un `when` statement.
+##
+## ## Memoria
+## Crea `when_else_plain` o `when_else_when`.
+weave pstmt_parse_when_else with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwElse, "'else'"
+    if calling ps_check_kw with p, KwWhen:
+        calling ps_begin_children with p
+        var nested as int is calling pstmt_parse_when_stmt with p
+        calling ps_add_child with p, nested
+        return calling ps_finish_node with p, NodeKind.NdWhenElseWhen, start, (calling pexpr.pexpr_end_of with p, nested), 0
+    var ignored2 as Token is calling ps_expect with p, TokColon, "':'"
+    calling ps_begin_children with p
+    if calling ps_check with p, TokNewline:
+        var ignored3 as Token is calling ps_advance with p
+        var ignored4 as Token is calling ps_expect with p, TokIndent, "indent"
+        var more as bool is true
+        while more:
+            calling ps_skip_newlines with p
+            if (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+                set more is false
+            else:
+                var before as int is p->pos
+                var st as int is calling pstmt_parse_stmt with p
+                calling ps_add_child with p, st
+                calling pstmt_check_multiple with p
+                if p->pos == before:
+                    var forced as Token is calling ps_advance with p
+        if calling ps_check with p, TokDedent:
+            var ignored5 as Token is calling ps_advance with p
+        else:
+            calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedDedent, ""
+    else:
+        var simple as int is calling pstmt_parse_simple_stmt with p
+        calling ps_add_child with p, simple
+        calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdWhenElsePlain, start, (calling ps_previous_end with p), 0
+
+## Parsea `with target:` como statement.
+##
+## ## Memoria
+## Crea `with_stmt` con `stmt` hijos.
+weave pstmt_parse_with_stmt with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwWith, "'with'"
+    var target as int is calling pexpr.pexpr_parse_expr with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, target
+    calling pstmt_parse_block_into with p
+    return calling ps_finish_node with p, NodeKind.NdWithStmt, start, (calling ps_previous_end with p), 0
+
+## Parsea `unsafe:`.
+##
+## ## Memoria
+## Crea `unsafe_stmt`.
+weave pstmt_parse_unsafe with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as bool is calling ps_accept_word with p, "unsafe"
+    var block as int is calling pstmt_parse_block with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, block
+    return calling ps_finish_node with p, NodeKind.NdUnsafeStmt, start, (calling pexpr.pexpr_end_of with p, block), 0
+
+## Parsea `defer`/`errdefer`.
+##
+## ## Memoria
+## Crea `defer_stmt`/`errdefer_stmt`.
+weave pstmt_parse_defer with p as ref to PsParser, kind as NodeKind into int:
+    var start as int is calling ps_current_start with p
+    if kind == NodeKind.NdDeferStmt:
+        var ignored as Token is calling ps_expect_kw with p, KwDefer, "'defer'"
+    else:
+        var ignored2 as Token is calling ps_expect_kw with p, KwErrdefer, "'errdefer'"
+    calling ps_begin_children with p
+    if calling ps_check with p, TokColon:
+        var block as int is calling pstmt_parse_block with p
+        calling ps_add_child with p, block
+    else:
+        var expr as int is calling pexpr.pexpr_parse_expr with p
+        calling ps_add_child with p, expr
+        calling ps_finish_statement with p
+    return calling ps_finish_node with p, kind, start, (calling ps_previous_end with p), 0
+
+## Parsea `banish expr`.
+##
+## ## Memoria
+## Crea `banish_stmt`.
+weave pstmt_parse_banish with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwBanish, "'banish'"
+    var expr as int is calling pexpr.pexpr_parse_unary with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, expr
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdBanishStmt, start, (calling pexpr.pexpr_end_of with p, expr), 0
+
+## Parsea `return [v, ...]`.
+##
+## ## Memoria
+## Crea `return_stmt`.
+weave pstmt_parse_return with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwReturn, "'return'"
+    calling ps_begin_children with p
+    if (calling ps_check with p, TokNewline) or (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+        calling ps_add_absent with p
+    else:
+        var more as bool is true
+        while more:
+            var value as int is calling pexpr.pexpr_parse_value_expr with p
+            calling ps_add_child with p, value
+            if calling ps_check with p, TokComma:
+                var ignored2 as Token is calling ps_advance with p
+            else:
+                set more is false
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdReturnStmt, start, (calling ps_previous_end with p), 0
+
+## Parsea `break [label]` / `continue [label]`.
+##
+## ## Memoria
+## Crea `break_stmt`/`continue_stmt`.
+weave pstmt_parse_break_continue with p as ref to PsParser, kind as NodeKind into int:
+    var start as int is calling ps_current_start with p
+    if kind == NodeKind.NdBreakStmt:
+        var ignored as Token is calling ps_expect_kw with p, KwBreak, "'break'"
+    else:
+        var ignored2 as Token is calling ps_expect_kw with p, KwContinue, "'continue'"
+    calling ps_begin_children with p
+    if calling ps_check_name_like with p:
+        calling ps_add_name_like with p
+    else:
+        calling ps_add_absent with p
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, kind, start, (calling ps_previous_end with p), 0
+
+## Parsea `label: for/while`.
+##
+## ## Memoria
+## Crea el nodo del loop y registra la etiqueta en `PsAst.labels`.
+weave pstmt_parse_labeled_loop with p as ref to PsParser into int:
+    var label_token as int is p->pos
+    var ignored as Token is calling ps_advance with p
+    var ignored2 as Token is calling ps_expect with p, TokColon, "':'"
+    if calling ps_check_kw with p, KwFor:
+        var loop as int is calling pstmt_parse_for with p
+        calling p->ast.add_label with loop, label_token
+        return loop
+    var loop2 as int is calling pstmt_parse_while with p
+    calling p->ast.add_label with loop2, label_token
+    return loop2
+
+## Parsea una expresión como statement.
+##
+## ## Memoria
+## Crea `expr_stmt`.
+weave pstmt_parse_expr_stmt with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var expr as int is calling pexpr.pexpr_parse_expr with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, expr
+    calling ps_finish_statement with p
+    return calling ps_finish_node with p, NodeKind.NdExprStmt, start, (calling pexpr.pexpr_end_of with p, expr), 0
+
+# ---------------------------------------------------------------------------
+# Statements de una línea
+# ---------------------------------------------------------------------------
+
+## Parsea un `simple_stmt` de un bloque de una línea.
+##
+## ## Memoria
+## Crea `continue_simple`, `break_simple`, `return_simple`, `set_simple`,
+## `compound_set_simple` o `simple_stmt`.
+weave pstmt_parse_simple_stmt with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    if calling ps_check_kw with p, KwContinue:
+        var ignored as Token is calling ps_advance with p
+        calling ps_begin_children with p
+        calling pstmt_add_optional_label with p
+        return calling ps_finish_node with p, NodeKind.NdContinueSimple, start, (calling ps_previous_end with p), 0
+    if calling ps_check_kw with p, KwBreak:
+        var ignored2 as Token is calling ps_advance with p
+        calling ps_begin_children with p
+        calling pstmt_add_optional_label with p
+        return calling ps_finish_node with p, NodeKind.NdBreakSimple, start, (calling ps_previous_end with p), 0
+    if calling ps_check_kw with p, KwReturn:
+        var ignored3 as Token is calling ps_advance with p
+        calling ps_begin_children with p
+        if (calling ps_check with p, TokNewline) or (calling ps_check with p, TokDedent) or (calling ps_check with p, TokEof):
+            calling ps_add_absent with p
+        else:
+            var value as int is calling pexpr.pexpr_parse_expr with p
+            calling ps_add_child with p, value
+        return calling ps_finish_node with p, NodeKind.NdReturnSimple, start, (calling ps_previous_end with p), 0
+    if calling ps_check_kw with p, KwSet:
+        var ignored4 as Token is calling ps_advance with p
+        var raw_target2 as int is calling pstmt_parse_set_target with p
+        calling ps_begin_children with p
+        calling ps_add_child with p, raw_target2
+        var target as int is calling ps_finish_node with p, NodeKind.NdSetTarget, (calling pexpr.pexpr_start_of with p, raw_target2), (calling pexpr.pexpr_end_of with p, raw_target2), 0
+        if calling ps_check_kw with p, KwIs:
+            var ignored5 as Token is calling ps_advance with p
+            calling ps_begin_children with p
+            calling ps_add_child with p, target
+            var value2 as int is calling pexpr.pexpr_parse_expr with p
+            calling ps_add_child with p, value2
+            return calling ps_finish_node with p, NodeKind.NdSetSimple, start, (calling pexpr.pexpr_end_of with p, value2), 0
+        var opi as int is p->pos
+        var ignored6 as Token is calling ps_advance with p
+        calling ps_begin_children with p
+        calling ps_add_child with p, target
+        calling ps_add_token with p, opi
+        var value3 as int is calling pexpr.pexpr_parse_expr with p
+        calling ps_add_child with p, value3
+        return calling ps_finish_node with p, NodeKind.NdCompoundSetSimple, start, (calling pexpr.pexpr_end_of with p, value3), opi
+    var expr as int is calling pexpr.pexpr_parse_expr with p
+    calling ps_begin_children with p
+    calling ps_add_child with p, expr
+    return calling ps_finish_node with p, NodeKind.NdSimpleStmt, start, (calling pexpr.pexpr_end_of with p, expr), 0
+
+## Añade un label opcional o `None`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave pstmt_add_optional_label with p as ref to PsParser into void:
+    if calling ps_check_name_like with p:
+        calling ps_add_name_like with p
+    else:
+        calling ps_add_absent with p

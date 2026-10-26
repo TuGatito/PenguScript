@@ -1,0 +1,27 @@
+start
+  file
+    top_stmt
+      import_stmt
+        dotted_path
+          "std"
+          "spark"
+        _
+    top_stmt
+      weave_decl
+        attributes
+        "main"
+        _
+        _
+        base_type
+          "int"
+        stmt
+          var_decl
+            "x"
+            base_type
+              "int"
+            int_lit
+              "1"
+        stmt
+          return_stmt
+            var_ref
+              "x"

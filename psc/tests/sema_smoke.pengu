@@ -1,0 +1,120 @@
+## Smoke test de CP0: names + tabla de tipos.
+##
+## Comprueba interning, singletons, primitivos y constructores compuestos.
+## No es el test final de F3; sirve para validar el contrato antes del checker.
+
+import std.spark
+
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.types.canonical as canonical
+import psc.sema.types.compat as compat
+import psc.sema.symbols.table as symbols
+import psc.sema.symbols.symbol as sym
+import psc.sema.options as sopts
+import psc.sema.modules.resolver as resolver
+import psc.sema.types.convert as convert
+import psc.sema.annotate as annotate
+import psc.sema.state as sema_state
+import psc.sema.infer.core as infer
+import psc.sema.check.collect as collect
+
+weave main into int:
+    var pool as npool.NamePool is calling npool.new_pool
+    defer calling npool.free_pool with (sigil of pool)
+
+    var t as types.SemaTypeTable is calling types.new_table with (sigil of pool)
+    defer calling types.free_table with (sigil of t)
+
+    var opts as sopts.SemaOptions is calling sopts.default_options with "."
+    defer calling sopts.free_options with (sigil of opts)
+    var found as string is calling resolver.find_module with (sigil of opts), "psc.sema.names", ""
+    if found == "":
+        calling spark.println with "resolver failed"
+        return 30
+    calling spark.println with "resolver: {found}"
+    banish found
+
+    var syms as symbols.SemaSymbols is calling symbols.new_symbols with (sigil of t), (sigil of pool)
+    defer calling symbols.free_symbols with (sigil of syms)
+
+    var int_sym as int is calling symbols.lookup_name with (sigil of syms), "int"
+    if int_sym < 0:
+        calling spark.println with "missing builtin int"
+        return 20
+    var int_symv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of syms), int_sym
+    var int_ty as int is int_symv.type
+    var int_ty2 as int is calling symbols.lookup_type_name with (sigil of syms), "i32"
+    if int_ty != int_ty2:
+        calling spark.println with "builtin type lookup mismatch"
+        return 21
+
+    if (calling types.type_count with (sigil of t)) != 22:
+        calling spark.println with "expected 22 builtins, got {(calling types.type_count with (sigil of t))}"
+        return 1
+
+    var int_t as int is calling types.base with (sigil of t), "int32_t"
+    var int_t2 as int is calling types.base with (sigil of t), "i32"
+    if int_t != int_t2:
+        calling spark.println with "alias interning failed"
+        return 2
+
+    var list_t as int is calling types.list_of with (sigil of t), int_t
+    var list_t2 as int is calling types.list_of with (sigil of t), int_t
+    if list_t != list_t2:
+        calling spark.println with "list interning failed"
+        return 3
+
+    var ref_t as int is calling types.ref_to with (sigil of t), list_t
+    var string_t as int is calling types.base with (sigil of t), "string"
+    var ids as list of int is list of int
+    calling ids.push with int_t
+    calling ids.push with string_t
+    var tup_t as int is calling types.tuple_of with (sigil of t), ids
+    banish ids
+
+    var info as tk.SemaType is calling types.at with (sigil of t), tup_t
+    if info.kind != tk.SemaTypeKind.TkTuple:
+        calling spark.println with "tuple kind failed"
+        return 4
+    if info.count != 2:
+        calling spark.println with "tuple arity failed"
+        return 5
+    if (calling types.type_child_at with (sigil of t), tup_t, 0) != int_t:
+        calling spark.println with "tuple child 0 failed"
+        return 6
+    if (calling types.type_child_at with (sigil of t), tup_t, 1) != string_t:
+        calling spark.println with "tuple child 1 failed"
+        return 7
+
+    if not calling compat.compatible with (sigil of t), int_t, int_t2:
+        calling spark.println with "int aliases incompatible"
+        return 12
+    if calling compat.compatible with (sigil of t), (calling types.base with (sigil of t), "string"), int_t:
+        calling spark.println with "string compat with int"
+        return 13
+    if not calling compat.compatible with (sigil of t), list_t, list_t:
+        calling spark.println with "list self compat failed"
+        return 14
+    if not calling compat.can_cast with (sigil of t), int_t, (calling types.base with (sigil of t), "float"):
+        calling spark.println with "int->float cast failed"
+        return 15
+    var cn as int is calling canonical.canonical_name with (sigil of t), list_t
+    if (calling npool.text with (sigil of pool), cn) != "list of int":
+        calling spark.println with "canonical list failed: {(calling npool.text with (sigil of pool), cn)}"
+        return 10
+    var mn as int is calling canonical.mangled_name with (sigil of t), list_t
+    if (calling npool.text with (sigil of pool), mn) != "list_int":
+        calling spark.println with "mangled list failed: {(calling npool.text with (sigil of pool), mn)}"
+        return 11
+    var ref_info as tk.SemaType is calling types.at with (sigil of t), ref_t
+    if ref_info.kind != tk.SemaTypeKind.TkRef or ref_info.a != list_t:
+        calling spark.println with "ref payload failed"
+        return 8
+    if (calling types.type_count with (sigil of t)) != 25:
+        calling spark.println with "expected 25 final types, got {(calling types.type_count with (sigil of t))}"
+        return 9
+
+    calling spark.println with "sema smoke ok: types=25"
+    return 0

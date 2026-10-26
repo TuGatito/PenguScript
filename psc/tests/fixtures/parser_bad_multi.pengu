@@ -1,0 +1,3 @@
+weave f into int:
+    var x is 1 var y is 2
+    return 0

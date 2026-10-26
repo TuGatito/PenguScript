@@ -1,0 +1,50 @@
+## Benchmark de parseo: genera ~3 MB válidos y mide MB/s y nodos/s.
+##   pengu run tests/bench_parse.pengu --no-cache --profile release
+import std.spark
+import std.builder
+import std.chronicle
+import std.diagnostic as diag
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer as pslexer
+import psc.parse.state as psstate
+import psc.parse.api as psapi
+
+weave main into int:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    while i < 20000:
+        calling sb.append with "weave f{i} with a as int into int:\n"
+        calling sb.append with "    var x as int is a + 1 * 2\n"
+        calling sb.append with "    if x > 10 and x != 3:\n"
+        calling sb.append with "        return x + 1\n"
+        calling sb.append with "    return x\n"
+        set i is i + 1
+    var text as string is calling sb.finish
+    defer banish text
+    var f as SourceFile is calling SourceFile.from_text with "bench_parse.pengu", text
+    defer banish f
+    var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+    defer banish bag
+    var kw as KeywordTable is calling pstoken.keyword_table_new
+    defer banish kw
+    var lopts as LexOptions is calling default_lex_options
+    var lex as LexResult is calling pslexer.lex with sigil of f, sigil of bag, sigil of kw, lopts
+    defer banish lex
+    var popts as PsParseOptions is calling ps_default_parse_options
+    var sw as chronicle.Stopwatch is calling chronicle.Stopwatch.new
+    var pr as PsParseResult is calling psapi.ps_parse_file with sigil of f, sigil of bag, sigil of lex, popts
+    var ms as int is calling sw.elapsed_ms
+    var nbytes as int is calling f.byte_len
+    var nodes as int is calling pr.ast.node_count
+    var tokens as int is lex.tokens.len
+    var secs as float is calling sw.elapsed_sec
+    var mbs as float is 0.0
+    if secs > 0.0:
+        var bf as float is (nbytes to float)
+        set mbs is bf / 1048576.0 / secs
+    calling spark.println with "bytes={nbytes} tokens={tokens} nodes={nodes} ms={ms} MB/s={mbs}"
+    calling spark.println_int with bag.items.len
+    banish pr
+    return 0

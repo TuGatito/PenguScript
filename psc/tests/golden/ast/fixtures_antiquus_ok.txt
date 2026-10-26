@@ -1,0 +1,34 @@
+start
+  file
+    top_stmt
+      antiquus_decl
+        attributes
+        "add_one"
+        _
+        param_list
+          param
+            "x"
+            base_type
+              "int"
+            _
+        base_type
+          "int"
+        "return x + 1;"
+    top_stmt
+      weave_decl
+        attributes
+        "main"
+        _
+        _
+        base_type
+          "int"
+        stmt
+          return_stmt
+            calling_expr
+              normal_target
+                "add_one"
+              _
+              arg_list
+                pos_arg
+                  int_lit
+                    "2"

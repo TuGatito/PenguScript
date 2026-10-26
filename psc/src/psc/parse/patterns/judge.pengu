@@ -1,0 +1,82 @@
+## psc/parse/patterns/judge.pengu — `judge` y `judge over`.
+##
+## Implementa el hook `PsHooks.judge`. Reutiliza los patrones de
+## `patterns/core.pengu` y el hook `when_body` para los cuerpos.
+##
+## ## Memoria
+## Construye nodos en el AST.
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.parse.state as psstate
+import psc.parse.diagnostics as pdiag
+import psc.parse.expr.ops as pexpr
+import psc.parse.patterns.core as ppat
+
+insignia psc_parse_judge_
+
+## Parsea `judge expr [: | over NAME :] cláusulas [else -> body]`.
+##
+## ## Memoria
+## Crea `judge_expr` o `judge_over_expr`.
+weave ppatj_parse_judge with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwJudge, "'judge'"
+    var subject as int is calling pexpr.pexpr_parse_expr with p
+    var over_token as int is -1
+    if calling ps_check_word with p, "over":
+        var ignored2 as Token is calling ps_advance with p
+        if calling ps_check with p, TokIdentifier:
+            set over_token is p->pos
+            var ignored3 as Token is calling ps_advance with p
+        else:
+            calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedName, ""
+    var ignored4 as Token is calling ps_expect with p, TokColon, "':'"
+    var ignored5 as Token is calling ps_expect with p, TokNewline, "newline"
+    var ignored6 as Token is calling ps_expect with p, TokIndent, "indent"
+    calling ps_begin_children with p
+    calling ps_add_child with p, subject
+    if over_token >= 0:
+        calling ps_add_token with p, over_token
+    var count as int is 0
+    var more as bool is true
+    while more:
+        calling ps_skip_newlines with p
+        if calling ps_check_kw with p, KwWhen:
+            var clause as int is calling ppat.ppat_parse_when_clause with p
+            calling ps_add_child with p, clause
+            set count is count + 1
+        else:
+            set more is false
+    if count == 0:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseInvalidWhenClause, ""
+    if calling ps_check_kw with p, KwElse:
+        var ec as int is calling ppatj_parse_else_clause with p
+        calling ps_add_child with p, ec
+    else:
+        calling ps_add_absent with p
+    if calling ps_check with p, TokDedent:
+        var ignored7 as Token is calling ps_advance with p
+    else:
+        calling ps_emit_here with p, pdiag.ParseIssue.ParseExpectedDedent, ""
+    if over_token >= 0:
+        return calling ps_finish_node with p, NodeKind.NdJudgeOverExpr, start, (calling ps_previous_end with p), 0
+    return calling ps_finish_node with p, NodeKind.NdJudgeExpr, start, (calling ps_previous_end with p), 0
+
+## Parsea `else -> body` de un `judge`.
+##
+## ## Memoria
+## Crea un nodo `else_clause`.
+weave ppatj_parse_else_clause with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect_kw with p, KwElse, "'else'"
+    var ignored2 as Token is calling ps_expect with p, TokArrow, "'->'"
+    calling ps_begin_children with p
+    var fn as ref to weave with p as ref to PsParser into int is p->hooks.when_body
+    var body as int is calling fn with p
+    calling ps_add_child with p, body
+    return calling ps_finish_node with p, NodeKind.NdElseClause, start, (calling pexpr.pexpr_end_of with p, body), 0

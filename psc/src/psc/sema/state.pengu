@@ -1,0 +1,206 @@
+## psc/sema/state.pengu — estado compartido del checker y la inferencia.
+##
+## `SemaState` no posee recursos: presta el módulo cargado, las tablas y el bag.
+## Los hooks rompen la recursión checker ↔ inferencia sin imports cíclicos.
+##
+## ## Memoria
+## Todos los campos `ref` son prestados. El dueño es `SemaProgram`/el llamador.
+
+import std.diagnostic as diag
+
+import psc.source as psource
+import psc.lexer_state as psstate
+import psc.ast.node as psast
+import psc.sema.names as names
+import psc.sema.types.table as types
+import psc.sema.symbols.table as symbols
+import psc.sema.annotate as ann
+import psc.sema.options as opts
+import psc.sema.modules.loader as loader
+import psc.sema.modules.program as program
+
+insignia sema_state_
+
+## Hooks entre checker e inferencia.
+##
+## ## Memoria
+## Punteros a función; sin heap.
+rune SemaHooks:
+    ## Infiere una expresión con un tipo esperado (`-1` = ninguno).
+    infer_expr as ref to weave with s as ref to SemaState, node as int, expected as int into int
+    ## Chequea un statement.
+    check_stmt as ref to weave with s as ref to SemaState, node as int into void
+    ## Chequea un bloque y devuelve su tipo de valor.
+    check_block_value as ref to weave with s as ref to SemaState, node as int, expected as int into int
+    ## Chequea una lambda.
+    check_lambda as ref to weave with s as ref to SemaState, node as int into int
+    ## Chequea un `judge`.
+    check_judge as ref to weave with s as ref to SemaState, node as int, expected as int into int
+    ## Chequea un `with:` builder.
+    check_with as ref to weave with s as ref to SemaState, node as int, expected as int into int
+
+## Estado de un módulo en chequeo.
+##
+## ## Memoria
+## Sin destructor; todas las referencias son prestadas.
+rune SemaState:
+    ## Programa que contiene el módulo.
+    program as ref to program.SemaProgram
+    ## Módulo cargado.
+    module as ref to loader.SemaModule
+    ## Fuente.
+    src as ref to psource.SourceFile
+    ## Tokens.
+    lex as ref to psstate.LexResult
+    ## AST.
+    ast as ref to psast.PsAst
+    ## Tabla de tipos.
+    types as ref to types.SemaTypeTable
+    ## Tabla de símbolos.
+    symbols as ref to symbols.SemaSymbols
+    ## Pool de nombres.
+    names as ref to names.NamePool
+    ## Bag compartido.
+    bag as ref to diag.DiagnosticBag
+    ## Opciones.
+    opts as ref to opts.SemaOptions
+    ## Anotaciones del módulo.
+    annotations as ref to ann.SemaAnnotations
+    ## Hooks instalados.
+    hooks as SemaHooks
+    ## Número de errores emitidos por sema.
+    errors as int
+    ## Tope de errores.
+    max_errors as int
+    ## Parar en el primero.
+    stop_after_first as bool
+    ## `true` si el chequeo debe detenerse.
+    stop as bool
+
+## Stub de inferencia.
+##
+## ## Memoria
+## No asigna.
+weave _no_infer with s as ref to SemaState, node as int, expected as int into int:
+    return 0
+
+## Stub de statement.
+##
+## ## Memoria
+## No asigna.
+weave _no_stmt with s as ref to SemaState, node as int into void:
+    return
+
+## Stub de bloque.
+##
+## ## Memoria
+## No asigna.
+weave _no_block with s as ref to SemaState, node as int, expected as int into int:
+    return 0
+
+## Stub de lambda.
+##
+## ## Memoria
+## No asigna.
+weave _no_lambda with s as ref to SemaState, node as int into int:
+    return 0
+
+## Stub de judge.
+##
+## ## Memoria
+## No asigna.
+weave _no_judge with s as ref to SemaState, node as int, expected as int into int:
+    return 0
+
+## Stub de with.
+##
+## ## Memoria
+## No asigna.
+weave _no_with with s as ref to SemaState, node as int, expected as int into int:
+    return 0
+
+## Crea los hooks por defecto.
+##
+## ## Memoria
+## Valor puro de punteros.
+weave default_hooks into SemaHooks:
+    return with infer_expr is (sigil of _no_infer), check_stmt is (sigil of _no_stmt), check_block_value is (sigil of _no_block), check_lambda is (sigil of _no_lambda), check_judge is (sigil of _no_judge), check_with is (sigil of _no_with)
+
+## Instala los hooks reales.
+##
+## ## Memoria
+## Asigna punteros; no tiene heap.
+weave install_hooks with s as ref to SemaState, h as SemaHooks into void:
+    set s->hooks is h
+
+## `true` si ya hay que parar.
+##
+## ## Memoria
+## O(1).
+weave should_stop with s as ref to SemaState into bool:
+    if s->stop:
+        return true
+    if s->stop_after_first and s->errors > 0:
+        set s->stop is true
+        return true
+    if s->errors >= s->max_errors:
+        set s->stop is true
+        return true
+    return false
+
+## Marca un error y decide si parar.
+##
+## ## Memoria
+## O(1).
+weave note_error with s as ref to SemaState into void:
+    set s->errors is s->errors + 1
+    if s->stop_after_first or s->errors >= s->max_errors:
+        set s->stop is true
+
+## Llama al hook de inferencia.
+##
+## ## Memoria
+## O(1); no asigna.
+weave call_infer with s as ref to SemaState, node as int, expected as int into int:
+    var fn as ref to weave with st as ref to SemaState, n as int, e as int into int is s->hooks.infer_expr
+    return calling fn with s, node, expected
+
+## Llama al hook de statement.
+##
+## ## Memoria
+## O(1).
+weave call_stmt with s as ref to SemaState, node as int into void:
+    var fn as ref to weave with st as ref to SemaState, n as int into void is s->hooks.check_stmt
+    calling fn with s, node
+
+## Llama al hook de bloque-valor.
+##
+## ## Memoria
+## O(1).
+weave call_block with s as ref to SemaState, node as int, expected as int into int:
+    var fn as ref to weave with st as ref to SemaState, n as int, e as int into int is s->hooks.check_block_value
+    return calling fn with s, node, expected
+
+## Llama al hook de lambda.
+##
+## ## Memoria
+## O(1).
+weave call_lambda with s as ref to SemaState, node as int into int:
+    var fn as ref to weave with st as ref to SemaState, n as int into int is s->hooks.check_lambda
+    return calling fn with s, node
+
+## Llama al hook de judge.
+##
+## ## Memoria
+## O(1).
+weave call_judge with s as ref to SemaState, node as int, expected as int into int:
+    var fn as ref to weave with st as ref to SemaState, n as int, e as int into int is s->hooks.check_judge
+    return calling fn with s, node, expected
+
+## Llama al hook de `with:`.
+##
+## ## Memoria
+## O(1).
+weave call_with with s as ref to SemaState, node as int, expected as int into int:
+    var fn as ref to weave with st as ref to SemaState, n as int, e as int into int is s->hooks.check_with
+    return calling fn with s, node, expected

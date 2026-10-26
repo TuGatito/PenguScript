@@ -1,0 +1,478 @@
+## psc/lexer_decode.pengu — decodificación demand-driven de literales.
+##
+## El lexer guarda spans; estas funciones materializan el valor cuando el parser
+## o el codegen lo necesitan. Incluye escapes, dedent de triples, UTF-8 e
+## `antiquus`.
+##
+## ## Memoria
+## Las funciones `decode_*` devuelven un `string` owned; el llamador hace
+## `banish`.
+
+import std.builder
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer_state as psstate
+import psc.lexer_string as psstring
+
+# ----------------------------------------------------------------------------
+# Decodificación (demand-driven)
+# ----------------------------------------------------------------------------
+
+## Decodifica un string literal completo.
+##
+## Para literales con interpolación devuelve **solo los segmentos de texto**
+## concatenados (las expresiones las evalúa el código generado). Los tests de
+## F1 usan literales sin interpolación para comparar bytes.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave decode_string with src as ref to psource.SourceFile, info as StringInfo, parts as list of StringPart into string:
+    if info.has_interp:
+        return calling decode_text_parts with src, info, parts
+    var s as pspan.ByteSpan is with start is info.content_start, end is info.content_end
+    var raw as string is calling src.slice with s
+    defer banish raw
+    if info.is_triple:
+        var dedented as string is calling dedent_content with raw, info.dedent
+        defer banish dedented
+        return calling decode_text with dedented, info.is_raw
+    return calling decode_text with raw, info.is_raw
+
+## Decodifica solo los segmentos de texto de un string con interpolación.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave decode_text_parts with src as ref to psource.SourceFile, info as StringInfo, parts as list of StringPart into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    while i < info.part_count:
+        var p as StringPart is parts at (info.part_start + i)
+        if p.kind == SegText:
+            var part_text as string is calling decode_part with src, p, info.is_raw, info.is_triple, info.dedent, info.content_start
+            calling sb.append with part_text
+            banish part_text
+        set i is i + 1
+    return calling sb.finish
+
+## Decodifica un `StringPart` de texto.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave decode_part with src as ref to psource.SourceFile, p as StringPart, is_raw as bool, is_triple as bool, dedent as int, content_start as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is p.start
+    var at_line_start as bool is (i == content_start)
+    if i > 0:
+        if (calling src.byte_at with (i - 1)) == 10:
+            set at_line_start is true
+    while i < p.end:
+        if is_triple and at_line_start:
+            var skipped as int is 0
+            while i < p.end and skipped < dedent:
+                var b as int is calling src.byte_at with i
+                if b == 32 or b == 9:
+                    set i is i + 1
+                    set skipped is skipped + 1
+                else:
+                    break
+        if i >= p.end:
+            break
+        var b as int is calling src.byte_at with i
+        if is_triple and at_line_start and i == content_start and (b == 10 or b == 13):
+            if b == 13 and i + 1 < p.end and (calling src.byte_at with (i + 1)) == 10:
+                set i is i + 2
+            else:
+                set i is i + 1
+            set at_line_start is true
+            continue
+        if is_raw:
+            calling append_byte_char with sigil of sb, b
+            if b == 10:
+                set at_line_start is true
+            else:
+                set at_line_start is false
+            set i is i + 1
+            continue
+        if b == 92:
+            var consumed as int is calling decode_escape_into with src, i, p.end, sigil of sb
+            if consumed <= 0:
+                calling append_byte_char with sigil of sb, 92
+                set i is i + 1
+            else:
+                set i is i + consumed
+            set at_line_start is false
+            continue
+        calling append_byte_char with sigil of sb, b
+        if b == 10:
+            set at_line_start is true
+        else:
+            set at_line_start is false
+        set i is i + 1
+    return calling sb.finish
+
+## Añade un byte al builder como char.
+##
+## ## Memoria
+## O(1); el builder crece si hace falta.
+weave append_byte_char with sb as ref to StringBuilder, b as int into void:
+    calling sb.append_char with (b to char)
+
+## Decodifica escapes de un texto completo sin interpolación.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave decode_text with text as string, is_raw as bool into string:
+    if is_raw:
+        return "{text}"
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var raw as ref to frozen byte is bytes of text
+    var n as int is text length
+    var i as int is 0
+    while i < n:
+        var b as int is (raw at i) to int
+        if b == 92 and i + 1 < n:
+            var consumed as int is calling decode_escape_bytes_into with raw, i, n, sigil of sb
+            if consumed > 0:
+                set i is i + consumed
+                continue
+            calling append_byte_char with sigil of sb, 92
+            set i is i + 1
+            continue
+        calling append_byte_char with sigil of sb, b
+        set i is i + 1
+    return calling sb.finish
+
+## Decodifica un escape desde `i` en un string, añadiendo bytes al builder.
+##
+## ## Retorno
+## Bytes consumidos (>=1), o `0` si no es un escape.
+##
+## ## Memoria
+## O(1), no asigna (salvo el builder).
+weave decode_escape_into with src as ref to psource.SourceFile, i as int, limit as int, sb as ref to StringBuilder into int:
+    if i + 1 >= limit:
+        return 0
+    var nxt as int is calling src.byte_at with (i + 1)
+    if nxt == 110:
+        calling append_byte_char with sb, 10
+        return 2
+    if nxt == 114:
+        calling append_byte_char with sb, 13
+        return 2
+    if nxt == 116:
+        calling append_byte_char with sb, 9
+        return 2
+    if nxt == 98:
+        calling append_byte_char with sb, 8
+        return 2
+    if nxt == 102:
+        calling append_byte_char with sb, 12
+        return 2
+    if nxt == 118:
+        calling append_byte_char with sb, 11
+        return 2
+    if nxt == 97:
+        calling append_byte_char with sb, 7
+        return 2
+    if nxt == 92:
+        calling append_byte_char with sb, 92
+        return 2
+    if nxt == 34:
+        calling append_byte_char with sb, 34
+        return 2
+    if nxt == 39:
+        calling append_byte_char with sb, 39
+        return 2
+    if nxt == 63:
+        calling append_byte_char with sb, 63
+        return 2
+    if nxt == 120 or nxt == 88:
+        var v as int is 0
+        var j as int is i + 2
+        var count as int is 0
+        while j < limit and count < 2:
+            var d as int is calling hex_value with (calling src.byte_at with j)
+            if d < 0:
+                break
+            set v is v * 16 + d
+            set count is count + 1
+            set j is j + 1
+        if count > 0:
+            calling append_byte_char with sb, v
+            return j - i
+        return 0
+    if nxt == 117:
+        if i + 2 < limit and (calling src.byte_at with (i + 2)) == 123:
+            var v2 as int is 0
+            var j2 as int is i + 3
+            var any as bool is false
+            while j2 < limit:
+                var b2 as int is calling src.byte_at with j2
+                if b2 == 125:
+                    break
+                var d2 as int is calling hex_value with b2
+                if d2 < 0:
+                    return 0
+                set any is true
+                set v2 is v2 * 16 + d2
+                set j2 is j2 + 1
+            if any and j2 < limit:
+                if calling append_codepoint with sb, v2:
+                    return j2 + 1 - i
+            return 0
+        if i + 5 < limit:
+            var v3 as int is 0
+            var k as int is i + 2
+            while k < i + 6:
+                var d3 as int is calling hex_value with (calling src.byte_at with k)
+                if d3 < 0:
+                    return 0
+                set v3 is v3 * 16 + d3
+                set k is k + 1
+            if calling append_codepoint with sb, v3:
+                return 6
+            return 0
+        return 0
+    if nxt >= 48 and nxt <= 55:
+        var v4 as int is 0
+        var j4 as int is i + 1
+        var count4 as int is 0
+        while j4 < limit and count4 < 3:
+            var b4 as int is calling src.byte_at with j4
+            if b4 < 48 or b4 > 55:
+                break
+            set v4 is v4 * 8 + (b4 - 48)
+            set count4 is count4 + 1
+            set j4 is j4 + 1
+        calling append_byte_char with sb, (v4 & 0xFF)
+        return j4 - i
+    return 0
+
+## Igual que `decode_escape_into`, sobre un buffer prestado.
+##
+## ## Memoria
+## O(1), no asigna.
+weave decode_escape_bytes_into with raw as ref to frozen byte, i as int, limit as int, sb as ref to StringBuilder into int:
+    if i + 1 >= limit:
+        return 0
+    var nxt as int is (raw at (i + 1)) to int
+    if nxt == 110:
+        calling append_byte_char with sb, 10
+        return 2
+    if nxt == 114:
+        calling append_byte_char with sb, 13
+        return 2
+    if nxt == 116:
+        calling append_byte_char with sb, 9
+        return 2
+    if nxt == 98:
+        calling append_byte_char with sb, 8
+        return 2
+    if nxt == 102:
+        calling append_byte_char with sb, 12
+        return 2
+    if nxt == 118:
+        calling append_byte_char with sb, 11
+        return 2
+    if nxt == 97:
+        calling append_byte_char with sb, 7
+        return 2
+    if nxt == 92:
+        calling append_byte_char with sb, 92
+        return 2
+    if nxt == 34:
+        calling append_byte_char with sb, 34
+        return 2
+    if nxt == 39:
+        calling append_byte_char with sb, 39
+        return 2
+    if nxt == 63:
+        calling append_byte_char with sb, 63
+        return 2
+    if nxt == 120 or nxt == 88:
+        var v as int is 0
+        var j as int is i + 2
+        var count as int is 0
+        while j < limit and count < 2:
+            var d as int is calling hex_value with ((raw at j) to int)
+            if d < 0:
+                break
+            set v is v * 16 + d
+            set count is count + 1
+            set j is j + 1
+        if count > 0:
+            calling append_byte_char with sb, v
+            return j - i
+        return 0
+    if nxt == 117:
+        if i + 2 < limit and ((raw at (i + 2)) to int) == 123:
+            var v2 as int is 0
+            var j2 as int is i + 3
+            var any as bool is false
+            while j2 < limit:
+                var b2 as int is (raw at j2) to int
+                if b2 == 125:
+                    break
+                var d2 as int is calling hex_value with b2
+                if d2 < 0:
+                    return 0
+                set any is true
+                set v2 is v2 * 16 + d2
+                set j2 is j2 + 1
+            if any and j2 < limit:
+                if calling append_codepoint with sb, v2:
+                    return j2 + 1 - i
+            return 0
+        if i + 5 < limit:
+            var v3 as int is 0
+            var k as int is i + 2
+            while k < i + 6:
+                var d3 as int is calling hex_value with ((raw at k) to int)
+                if d3 < 0:
+                    return 0
+                set v3 is v3 * 16 + d3
+                set k is k + 1
+            if calling append_codepoint with sb, v3:
+                return 6
+            return 0
+        return 0
+    if nxt >= 48 and nxt <= 55:
+        var v4 as int is 0
+        var j4 as int is i + 1
+        var count4 as int is 0
+        while j4 < limit and count4 < 3:
+            var b4 as int is (raw at j4) to int
+            if b4 < 48 or b4 > 55:
+                break
+            set v4 is v4 * 8 + (b4 - 48)
+            set count4 is count4 + 1
+            set j4 is j4 + 1
+        calling append_byte_char with sb, (v4 & 0xFF)
+        return j4 - i
+    return 0
+
+## Añade un codepoint como UTF-8. Ignora valores fuera de rango o surrogates.
+##
+## ## Memoria
+## O(1), no asigna.
+weave append_codepoint with sb as ref to StringBuilder, cp as int into bool:
+    if cp < 0 or cp > 0x10FFFF:
+        return false
+    if cp >= 0xD800 and cp <= 0xDFFF:
+        return false
+    if cp <= 0x7F:
+        calling append_byte_char with sb, cp
+        return true
+    if cp <= 0x7FF:
+        calling append_byte_char with sb, (0xC0 | (cp >> 6))
+        calling append_byte_char with sb, (0x80 | (cp & 0x3F))
+        return true
+    if cp <= 0xFFFF:
+        calling append_byte_char with sb, (0xE0 | (cp >> 12))
+        calling append_byte_char with sb, (0x80 | ((cp >> 6) & 0x3F))
+        calling append_byte_char with sb, (0x80 | (cp & 0x3F))
+        return true
+    calling append_byte_char with sb, (0xF0 | (cp >> 18))
+    calling append_byte_char with sb, (0x80 | ((cp >> 12) & 0x3F))
+    calling append_byte_char with sb, (0x80 | ((cp >> 6) & 0x3F))
+    calling append_byte_char with sb, (0x80 | (cp & 0x3F))
+    return true
+
+## Aplica la dedent de un triple a un contenido completo.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave dedent_content with text as string, dedent as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var raw as ref to frozen byte is bytes of text
+    var n as int is text length
+    var i as int is 0
+    if n >= 2:
+        if ((raw at 0) to int) == 13 and ((raw at 1) to int) == 10:
+            set i is 2
+    else if n >= 1:
+        if ((raw at 0) to int) == 10:
+            set i is 1
+    if n >= 1:
+        if i == 0 and ((raw at 0) to int) == 10:
+            set i is 1
+    var at_line_start as bool is true
+    while i < n:
+        if at_line_start:
+            var skipped as int is 0
+            while i < n and skipped < dedent:
+                var b as int is (raw at i) to int
+                if b == 32 or b == 9:
+                    set i is i + 1
+                    set skipped is skipped + 1
+                else:
+                    break
+            set at_line_start is false
+            if i >= n:
+                break
+        var b2 as int is (raw at i) to int
+        calling append_byte_char with sigil of sb, b2
+        if b2 == 10:
+            set at_line_start is true
+        set i is i + 1
+    # Quita una línea final vacía si la hay, como extract_string_parts.
+    var out as string is calling sb.finish
+    var out_len as int is out length
+    if out_len > 0:
+        if (calling src_last_byte with out) == 10:
+            var k as int is out_len - 2
+            var only_ws as bool is true
+            while k >= 0:
+                var c as int is calling src_byte_of with out, k
+                if c == 10:
+                    break
+                if c != 32 and c != 9:
+                    set only_ws is false
+                    break
+                set k is k - 1
+            if only_ws:
+                var trimmed as string is out at 0 to (out_len - 1)
+                banish out
+                return trimmed
+    return out
+
+## Byte de un string en `i`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave src_byte_of with s as string, i as int into int:
+    var raw as ref to frozen byte is bytes of s
+    return (raw at i) to int
+
+## Último byte de un string.
+##
+## ## Memoria
+## O(1), no asigna.
+weave src_last_byte with s as string into int:
+    var n as int is s length
+    if n == 0:
+        return -1
+    return calling src_byte_of with s, n - 1
+
+## Decodifica un cuerpo `antiquus` (C literal, sin escapes).
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave decode_antiquus with src as ref to psource.SourceFile, info as AntiquusInfo into string:
+    var s as pspan.ByteSpan is with start is info.body_start, end is info.body_end
+    var raw as string is calling src.slice with s
+    defer banish raw
+    return calling dedent_content with raw, info.indent
+
+## Decodifica un `StringPart` de texto por separado (API para F2/F4).
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave decode_string_part with src as ref to psource.SourceFile, p as StringPart, is_raw as bool, is_triple as bool, dedent as int, content_start as int into string:
+    return calling decode_part with src, p, is_raw, is_triple, dedent, content_start

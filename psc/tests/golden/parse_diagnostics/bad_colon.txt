@@ -1,0 +1,10 @@
+error[E0000]: expected ':'
+  --> tests/fixtures/parser_bad_colon.pengu:1:17
+  |
+1 | weave f into int
+  |                 ^
+2 |     return 0
+  |
+   = note: PenguScript is indentation-sensitive: statements in a block must be indented consistently.
+   = help: Check the syntax around this position (see LANGUAGE.md / CHEATSHEET.md).
+

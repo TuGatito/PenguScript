@@ -1,0 +1,11 @@
+error[E0000]: unclosed '('
+  --> tests/fixtures/unclosed_bracket.pengu:2:21
+  |
+1 | weave main into int:
+2 |     var x as int is (1 + 2
+  |                     ^
+3 |     return x
+  |
+   = note: The indentation pass reports it at EOF.
+   = help: Close the delimiter before the end of the file.
+

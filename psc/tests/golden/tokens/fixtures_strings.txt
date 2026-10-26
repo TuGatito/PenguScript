@@ -1,0 +1,60 @@
+# psc-token-dump v1
+# file: tests/fixtures/strings.pengu
+# sha256: 88661f4507cb2d57f66cc698ab72f2ff38cd810b886e8b83b8f18f1deb3d3af0
+# bytes: 226
+# lines: 12
+# columns: index	kind	lexeme	start	end	line	col	end_line	end_col	aux
+0	Keyword(weave)	weave	0	5	1	1	1	6	0
+1	Identifier	main	6	10	1	7	1	11	0
+2	Keyword(into)	into	11	15	1	12	1	16	0
+3	Identifier	int	16	19	1	17	1	20	0
+4	Colon	:	19	20	1	20	1	21	0
+5	Newline	\n    	20	25	1	21	2	5	4
+6	Indent		25	25	2	5	2	5	4
+7	Keyword(var)	var	25	28	2	5	2	8	0
+8	Identifier	a	29	30	2	9	2	10	0
+9	Keyword(as)	as	31	33	2	11	2	13	0
+10	Identifier	string	34	40	2	14	2	20	0
+11	Keyword(is)	is	41	43	2	21	2	23	0
+12	StringLit	"a\\nb"	44	50	2	24	2	30	0
+13	Newline	\n    	50	55	2	30	3	5	4
+14	Keyword(var)	var	55	58	3	5	3	8	0
+15	Identifier	b	59	60	3	9	3	10	0
+16	Keyword(as)	as	61	63	3	11	3	13	0
+17	Identifier	string	64	70	3	14	3	20	0
+18	Keyword(is)	is	71	73	3	21	3	23	0
+19	StringLit	"a\\x41b"	74	82	3	24	3	32	1
+20	Newline	\n    	82	87	3	32	4	5	4
+21	Keyword(var)	var	87	90	4	5	4	8	0
+22	Identifier	c	91	92	4	9	4	10	0
+23	Keyword(as)	as	93	95	4	11	4	13	0
+24	Identifier	string	96	102	4	14	4	20	0
+25	Keyword(is)	is	103	105	4	21	4	23	0
+26	StringLit	r"a\\nb"	106	113	4	24	4	31	2
+27	Newline	\n    	113	118	4	31	5	5	4
+28	Keyword(var)	var	118	121	5	5	5	8	0
+29	Identifier	d	122	123	5	9	5	10	0
+30	Keyword(as)	as	124	126	5	11	5	13	0
+31	Identifier	string	127	133	5	14	5	20	0
+32	Keyword(is)	is	134	136	5	21	5	23	0
+33	StringLit	"""\n  x\n  y\n"""	137	152	5	24	8	4	3
+34	Newline	\n    	152	157	8	4	9	5	4
+35	Keyword(var)	var	157	160	9	5	9	8	0
+36	Identifier	e	161	162	9	9	9	10	0
+37	Keyword(as)	as	163	165	9	11	9	13	0
+38	Identifier	string	166	172	9	14	9	20	0
+39	Keyword(is)	is	173	175	9	21	9	23	0
+40	StringLit	"a{1 + 2}b"	176	187	9	24	9	35	4
+41	Newline	\n    	187	192	9	35	10	5	4
+42	Keyword(var)	var	192	195	10	5	10	8	0
+43	Identifier	f	196	197	10	9	10	10	0
+44	Keyword(as)	as	198	200	10	11	10	13	0
+45	Identifier	char	201	205	10	14	10	18	0
+46	Keyword(is)	is	206	208	10	19	10	21	0
+47	CharLit	'A'	209	212	10	22	10	25	0
+48	Newline	\n    	212	217	10	25	11	5	4
+49	Keyword(return)	return	217	223	11	5	11	11	0
+50	IntLit	0	224	225	11	12	11	13	10
+51	Newline	\n	225	226	11	13	12	1	0
+52	Dedent		226	226	12	1	12	1	0
+53	Eof		226	226	12	1	12	1	0

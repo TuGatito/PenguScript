@@ -1,0 +1,11 @@
+weave main into int:
+    var a as string is "a\nb"
+    var b as string is "a\x41b"
+    var c as string is r"a\nb"
+    var d as string is """
+  x
+  y
+"""
+    var e as string is "a{1 + 2}b"
+    var f as char is 'A'
+    return 0

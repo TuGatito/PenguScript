@@ -1,0 +1,4 @@
+weave f into int:
+    if true:
+        return 1
+      return 2

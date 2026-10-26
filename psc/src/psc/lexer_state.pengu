@@ -1,0 +1,415 @@
+## psc/lexer_state.pengu — estado compartido del lexer y artefactos de salida.
+##
+## Los módulos `lexer*.pengu` comparten este estado mutable. `LexerState` solo
+## vive durante una llamada a `lex`; no es global ni se guarda en `Session`.
+##
+## ## Contrato de `Token.aux`
+##
+## | `Token.kind` | `aux` |
+## |---|---|
+## | `TokNewline` | ancho de indentación de la última línea del run |
+## | `TokKeyword` | `0` (el keyword está en `tok.kw`) |
+## | `TokIntLit` / `TokFloatLit` | base `2/8/10/16`; `0` = float |
+## | `TokStringLit` | índice en `LexResult.strings` |
+## | `TokCharLit` | índice en `LexResult.chars` |
+## | `TokAntiquusBody` | índice en `LexResult.antiquus` |
+## | `TokError` | reservado (`0` en el MVP) |
+## | resto | `0` |
+##
+## ## Memoria
+## `LexerState` no tiene destructor: al terminar, `result` se transfiere por
+## valor al llamador. Si se añade un camino de salida anticipada, debe liberar
+## `result` explícitamente.
+
+import std.diagnostic as diag
+import std.sourcemap
+
+import psc.span as pspan
+import psc.source as psource
+import psc.token as pstoken
+import psc.diagnostics as psdiag
+
+## Opciones de lexación.
+rune LexOptions derive Par, Nexus:
+    ## Guardar comentarios como trivia.
+    keep_comments as bool
+    ## Emitir tokens `TokIndent`/`TokDedent` (además de `TokNewline`).
+    keep_indent_tokens as bool
+    ## Emitir `W0005` si se mezclan tabs y espacios.
+    warn_mixed_indentation as bool
+    ## Columnas que cuenta un tab (stage0 usa 2).
+    tab_width as int
+    ## Profundidad máxima de interpolación anidada.
+    max_interp_depth as int
+    ## Plegar líneas de continuación de cadena (`.`/`->`) como stage0.
+    fold_chain_continuations as bool
+
+## Opciones por defecto (las de stage0 salvo `max_interp_depth`).
+##
+## ## Memoria
+## Valor puro.
+weave default_lex_options into LexOptions:
+    return with keep_comments is true, keep_indent_tokens is true, warn_mixed_indentation is true, tab_width is 2, max_interp_depth is 64, fold_chain_continuations is true
+
+## Tipo de comentario capturado como trivia.
+omen CommentKind:
+    ## `# ...`
+    ComLine
+    ## `## ...` de una línea
+    ComDoc
+    ## Bloque `##` ... `##`
+    ComDocBlock
+
+## Un comentario. No entra en la lista de tokens.
+##
+## ## Memoria
+## Valor puro: solo offsets y flags.
+rune Comment derive Par:
+    ## Tipo de comentario.
+    kind as CommentKind
+    ## Offset inclusivo del `#`.
+    start as int
+    ## Offset exclusivo del final del comentario (sin el `\n`).
+    end as int
+    ## Línea del `#`.
+    line as int
+    ## Columna del `#`.
+    col as int
+    ## `true` si un bloque doc encontró su línea de cierre.
+    closed as bool
+
+## Tipo de segmento de un string.
+omen StringPartKind:
+    ## Texto literal (escapes sin decodificar).
+    SegText
+    ## Expresión de interpolación; los offsets excluyen las llaves.
+    SegInterp
+
+## Un segmento de un string.
+##
+## ## Memoria
+## Valor puro.
+rune StringPart derive Par:
+    ## Tipo.
+    kind as StringPartKind
+    ## Offset absoluto inclusivo.
+    start as int
+    ## Offset absoluto exclusivo.
+    end as int
+
+## Metadatos de un string literal.
+##
+## `content_start`/`content_end` excluyen las comillas. `dedent` es la
+## indentación común que hay que quitar al decodificar un triple (0 si no es
+## triple). `part_start`/`part_count` indexan `LexResult.parts`.
+##
+## ## Memoria
+## Valor puro.
+rune StringInfo derive Par:
+    ## El literal es `r"..."` o `r"""..."""`.
+    is_raw as bool
+    ## El literal usa `"""`.
+    is_triple as bool
+    ## Hay al menos una interpolación.
+    has_interp as bool
+    ## Offset del primer byte de contenido.
+    content_start as int
+    ## Offset del byte siguiente al contenido.
+    content_end as int
+    ## Índice del primer `StringPart`.
+    part_start as int
+    ## Número de `StringPart`.
+    part_count as int
+    ## Indentación común de un triple (0 si no es triple).
+    dedent as int
+
+## Metadatos de un char literal.
+##
+## ## Memoria
+## Valor puro.
+rune CharInfo derive Par:
+    ## Offset del contenido (sin comillas).
+    content_start as int
+    ## Offset del byte siguiente al contenido.
+    content_end as int
+    ## Codepoint decodificado, o `-1` si el literal es inválido.
+    codepoint as int
+    ## Bytes que ocupa el char en el fuente.
+    width as int
+
+## Metadatos de un cuerpo `antiquus`.
+##
+## ## Memoria
+## Valor puro.
+rune AntiquusInfo derive Par:
+    ## Offset del primer byte del cuerpo (sin comillas).
+    body_start as int
+    ## Offset del byte siguiente al cuerpo.
+    body_end as int
+    ## Indentación común a eliminar.
+    indent as int
+    ## El cuerpo usó `r"""`.
+    is_raw as bool
+    ## El cuerpo está vacío o solo tiene espacios.
+    empty as bool
+
+## Resultado completo de una lexación.
+##
+## ## Memoria
+## `banish result` libera las listas. Todos los elementos son POD.
+rune LexResult derive Nexus:
+    ## Tokens significativos, incluidos `Newline`/`Indent`/`Dedent`/`Eof`.
+    tokens as list of Token
+    ## Comentarios capturados.
+    comments as list of Comment
+    ## Metadatos de strings.
+    strings as list of StringInfo
+    ## Segmentos de strings.
+    parts as list of StringPart
+    ## Metadatos de chars.
+    chars as list of CharInfo
+    ## Cuerpos `antiquus`.
+    antiquus as list of AntiquusInfo
+
+## Estado mutable de una lexación.
+##
+## ## Memoria
+## Sin destructor: `result` se transfiere al terminar.
+rune LexerState:
+    ## Archivo fuente; prestado.
+    src as ref to psource.SourceFile
+    ## Bag de diagnósticos; prestado.
+    bag as ref to diag.DiagnosticBag
+    ## Tabla de keywords; prestada.
+    keywords as ref to pstoken.KeywordTable
+    ## Opciones.
+    opts as LexOptions
+    ## Offset actual.
+    pos as int
+    ## Línea actual (1-indexed).
+    line as int
+    ## Offset del primer byte de la línea actual.
+    line_start as int
+    ## Se vio un `antiquus` y se espera su `:`.
+    pending_antiquus as bool
+    ## Se cerró la cabecera `antiquus` con `:`.
+    antiquus_colon as bool
+    ## Inicio del nombre de la declaración `antiquus` (-1 si no hay).
+    antiquus_name_start as int
+    ## Fin del nombre de la declaración `antiquus` (-1 si no hay).
+    antiquus_name_end as int
+    ## Artefactos acumulados.
+    result as LexResult
+
+## Construye un estado vacío.
+##
+## ## Memoria
+## Asigna las seis listas de `result`; liberar con `banish result`.
+weave new_lexer_state with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag, keywords as ref to pstoken.KeywordTable, opts as LexOptions into LexerState:
+    return with src is src, bag is bag, keywords is keywords, opts is opts, pos is 0, line is 1, line_start is 0, pending_antiquus is false, antiquus_colon is false, antiquus_name_start is -1, antiquus_name_end is -1, result is with tokens is list of Token, comments is list of Comment, strings is list of StringInfo, parts is list of StringPart, chars is list of CharInfo, antiquus is list of AntiquusInfo
+
+## Longitud total del fuente.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_source_len with lx as ref to LexerState into int:
+    return calling lx->src.byte_len
+
+## Byte en `offset`, o `-1` fuera de rango.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_byte_at with lx as ref to LexerState, offset as int into int:
+    return calling lx->src.byte_at with offset
+
+## Byte actual, o `-1` en EOF.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_peek with lx as ref to LexerState into int:
+    return calling lex_byte_at with lx, lx->pos
+
+## Byte a `offset` desde la posición actual, o `-1`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_peek_at with lx as ref to LexerState, offset as int into int:
+    return calling lex_byte_at with lx, lx->pos + offset
+
+## Avanza un byte, actualizando línea y `line_start`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_advance with lx as ref to LexerState into void:
+    var n as int is calling lex_source_len with lx
+    if lx->pos >= n:
+        return
+    var b as int is calling lex_byte_at with lx, lx->pos
+    set lx->pos is lx->pos + 1
+    if b == 10:
+        set lx->line is lx->line + 1
+        set lx->line_start is lx->pos
+
+## Avanza hasta `new_pos` (exclusivo).
+##
+## ## Memoria
+## O(bytes recorridos), no asigna.
+weave lex_advance_to with lx as ref to LexerState, new_pos as int into void:
+    var target as int is new_pos
+    var n as int is calling lex_source_len with lx
+    if target > n:
+        set target is n
+    while lx->pos < target:
+        calling lex_advance with lx
+
+## Avanza un codepoint UTF-8 (1–4 bytes) para recuperación.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_advance_codepoint with lx as ref to LexerState into void:
+    var b as int is calling lex_peek with lx
+    var width as int is 1
+    if b >= 0x80:
+        if (b & 0xE0) == 0xC0:
+            set width is 2
+        else if (b & 0xF0) == 0xE0:
+            set width is 3
+        else if (b & 0xF8) == 0xF0:
+            set width is 4
+    calling lex_advance_to with lx, lx->pos + width
+
+## Columna de byte actual, 1-indexed.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_current_col with lx as ref to LexerState into int:
+    return lx->pos - lx->line_start + 1
+
+## Añade un token con posición explícita.
+##
+## ## Memoria
+## Hace `push` en la lista; el token es POD.
+weave lex_emit_token with lx as ref to LexerState, kind as TokenKind, kw as KeywordKind, start as int, end as int, line as int, col as int, aux as int into void:
+    var t as Token is with kind is kind, kw is kw, start is start, end is end, line is line, col is col, aux is aux
+    calling lx->result.tokens.push with t
+
+## Añade un token que empieza en la posición actual.
+##
+## ## Memoria
+## Hace `push` en la lista; el token es POD.
+weave lex_emit_here with lx as ref to LexerState, kind as TokenKind, kw as KeywordKind, start as int, end as int, aux as int into void:
+    calling lex_emit_token with lx, kind, kw, start, end, lx->line, (lx->pos - lx->line_start + 1), aux
+
+## Emite el diagnóstico de un `LexIssue` en `[start, end)`.
+##
+## `detail` es prestado. `emit_issue` construye y libera el mensaje.
+##
+## ## Memoria
+## Asigna el diagnóstico; el bag pasa a ser dueño.
+weave lex_issue with lx as ref to LexerState, problem as LexIssue, start as int, end as int, detail as string into void:
+    var s as pspan.ByteSpan is with start is start, end is end
+    calling psdiag.emit_issue with lx->bag, lx->src, problem, s, detail
+
+## Copia el texto `[start, end)` del fuente.
+##
+## ## Memoria
+## Devuelve un `string` owned; liberar con `banish`.
+weave lex_slice_abs with lx as ref to LexerState, start as int, end as int into string:
+    var s as pspan.ByteSpan is with start is start, end is end
+    return calling lx->src.slice with s
+
+## `true` si `b` es una letra ASCII.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_is_letter with b as int into bool:
+    return (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 95
+
+## `true` si `b` es un dígito ASCII.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_is_digit with b as int into bool:
+    return b >= 48 and b <= 57
+
+## `true` si `b` es una letra o dígito ASCII (o `_`).
+##
+## ## Memoria
+## O(1), no asigna.
+weave is_word_byte with b as int into bool:
+    return (calling lex_is_letter with b) or (calling lex_is_digit with b)
+
+## `true` si `b` es un dígito hexadecimal.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_is_hex_digit with b as int into bool:
+    return (calling lex_is_digit with b) or (b >= 65 and b <= 70) or (b >= 97 and b <= 102)
+
+## `true` si `b` es un dígito octal.
+##
+## ## Memoria
+## O(1), no asigna.
+weave is_octal_digit with b as int into bool:
+    return b >= 48 and b <= 55
+
+## `true` si `b` es un dígito binario.
+##
+## ## Memoria
+## O(1), no asigna.
+weave is_binary_digit with b as int into bool:
+    return b == 48 or b == 49
+
+## `true` si `b` es espacio o tab.
+##
+## ## Memoria
+## O(1), no asigna.
+weave lex_is_blank with b as int into bool:
+    return b == 32 or b == 9
+
+## `true` si `b` es un fin de línea (`\n` o `\r\n`).
+##
+## ## Memoria
+## O(1), no asigna.
+weave is_newline_at with lx as ref to LexerState, offset as int into bool:
+    var b as int is calling lex_byte_at with lx, offset
+    if b == 10:
+        return true
+    if b == 13:
+        return (calling lex_byte_at with lx, offset + 1) == 10
+    return false
+
+## Longitud de un codepoint UTF-8 que empieza en `b` (1–4).
+##
+## ## Memoria
+## O(1), no asigna.
+weave utf8_width with b as int into int:
+    if b < 0x80:
+        return 1
+    if (b & 0xE0) == 0xC0:
+        return 2
+    if (b & 0xF0) == 0xE0:
+        return 3
+    if (b & 0xF8) == 0xF0:
+        return 4
+    return 1
+
+## Último token emitido, o un `TokEof` sintético si aún no hay.
+##
+## ## Memoria
+## O(1), no asigna.
+weave last_kind with lx as ref to LexerState into TokenKind:
+    if lx->result.tokens.len == 0:
+        return TokEof
+    var t as Token is lx->result.tokens at (lx->result.tokens.len - 1)
+    return t.kind
+
+## `true` si el último token es un `TokNewline`.
+##
+## ## Memoria
+## O(1), no asigna.
+weave last_is_newline with lx as ref to LexerState into bool:
+    if lx->result.tokens.len == 0:
+        return false
+    var t as Token is lx->result.tokens at (lx->result.tokens.len - 1)
+    return t.kind == TokNewline

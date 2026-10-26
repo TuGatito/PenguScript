@@ -1,0 +1,63 @@
+## Parsea todo el corpus compartido y los módulos de PSC.
+##
+##   pengu run tests/parser_corpus.pengu --no-cache
+import std.spark
+import std.archivum
+import std.diagnostic as diag
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer as pslexer
+import psc.parse.state as psstate
+import psc.parse.api as psapi
+
+weave is_pengu with path as string into bool:
+    var n as int is path length
+    if n < 6:
+        return false
+    return (path at (n - 6) to n) == ".pengu"
+
+weave check_dir with root as string into int:
+    var files as list of string is calling archivum.list_files_recursive with root
+    var bad as int is 0
+    var total as int is 0
+    var nodes as int is 0
+    var i as int is 0
+    while i < files.len:
+        var path as string is files at i
+        if calling is_pengu with path:
+            var rawm as maybe string is calling archivum.read_bytes with path
+            if rawm.is_present:
+                var raw as string is rawm.value
+                var f as SourceFile is calling SourceFile.from_text with path, raw
+                banish raw
+                var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+                calling bag.add_source with path, (calling f.get_text)
+                var kw as KeywordTable is calling pstoken.keyword_table_new
+                var lopt as LexOptions is calling default_lex_options
+                var lex as LexResult is calling pslexer.lex with sigil of f, sigil of bag, sigil of kw, lopt
+                var popt as PsParseOptions is calling ps_default_parse_options
+                var pr as PsParseResult is calling psapi.ps_parse_file with sigil of f, sigil of bag, sigil of lex, popt
+                set total is total + 1
+                set nodes is nodes + (calling pr.ast.node_count)
+                if (not pr.ok) or (calling bag.has_errors):
+                    set bad is bad + 1
+                    calling spark.println with "ERR {path} ok={pr.ok} errors={pr.error_count}"
+                    var msg as string is calling bag.render_plain
+                    calling spark.print with msg
+                    banish msg
+                banish pr
+                banish lex
+                banish kw
+                banish bag
+                banish f
+            banish path
+        set i is i + 1
+    banish files
+    calling spark.println with "corpus {root}: files={total} nodes={nodes} bad={bad}"
+    return bad
+
+weave main into int:
+    var b1 as int is calling check_dir with "src"
+    var b2 as int is calling check_dir with "../std"
+    var b3 as int is calling check_dir with "../tests"
+    return b1 + b2 + b3

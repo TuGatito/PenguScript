@@ -1,0 +1,7 @@
+# Divergencias deliberadas del AST de F2.
+#
+# std/compressus.pengu: stage0 aplica _expand_short_struct_inits sobre
+# `calling _le32 with data, at` dentro de un struct-init y convierte `at` en
+# `named_arg` (bug de stage0). PSC parsea el `pos_arg` correcto. La semántica
+# es la misma (el nombre coincide con el parámetro), pero el árbol difiere.
+std/compressus.pengu

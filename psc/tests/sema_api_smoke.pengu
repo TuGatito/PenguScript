@@ -1,0 +1,28 @@
+## Smoke de la API F3: validación de retorno.
+import std.spark
+
+import psc.sema.options as sopts
+import psc.sema.api as sema_api
+
+weave main into int:
+    var opts as sopts.SemaOptions is calling sopts.default_options with "."
+    var r1 as sema_api.SemaResult is calling sema_api.check_text with "ok.pengu", "weave main into int:\n    return 0\n", opts
+    if not r1.ok:
+        calling spark.println with "valid source rejected: errors={r1.program->diagnostics.error_count}"
+        calling sema_api.free_result with (sigil of r1)
+        return 1
+    calling sema_api.free_result with (sigil of r1)
+
+    var opts2 as sopts.SemaOptions is calling sopts.default_options with "."
+    var r2 as sema_api.SemaResult is calling sema_api.check_text with "bad.pengu", "weave main into int:\n    return \"x\"\n", opts2
+    if r2.ok:
+        calling spark.println with "invalid source accepted"
+        calling sema_api.free_result with (sigil of r2)
+        return 2
+    if r2.program->diagnostics.error_count != 1:
+        calling spark.println with "expected one error, got {r2.program->diagnostics.error_count}"
+        calling sema_api.free_result with (sigil of r2)
+        return 3
+    calling sema_api.free_result with (sigil of r2)
+    calling spark.println with "api smoke ok"
+    return 0
