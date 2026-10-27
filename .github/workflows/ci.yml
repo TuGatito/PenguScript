@@ -91,6 +91,9 @@ jobs:
       - name: F5 driver acceptance
         run: python -m pytest -q tests/psc/test_f5_acceptance.py
 
+      - name: F6 CLI acceptance
+        run: python -m pytest -q tests/psc/test_f6_cli.py
+
       - name: ASan/UBSan self-compile smoke
         run: |
           psc/build/psc emit-c psc/src/main.pengu --out=/tmp/psc_asan.c

@@ -376,7 +376,7 @@ weave run_run with args as list of string into int:
 ## Libera opciones, resultado y bundle.
 weave run_expand with args as list of string into int:
     var o as driver.BuildOptions is calling driver.default_options
-    set o.check_only is true
+    set o.bundle_only is true
     var path as string is ""
     var out as string is ""
     var i as int is 2

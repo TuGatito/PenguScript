@@ -141,6 +141,11 @@ weave create_project with name as string, template as string, out_type as string
         banish proj
         banish cwd
         return 2
+    if template != "exe" and template != "cli" and template != "pengu-lib" and template != "cbind":
+        calling spark.eprintln with "psc init: invalid template"
+        banish proj
+        banish cwd
+        return 2
     var safe as string is calling safe_name with name
     var src_sub as string is "src"
     var entry as string is "src/main.pengu"
@@ -234,6 +239,11 @@ weave run_init with args as list of string into int:
         calling print_init_help
         calling cliargs.free_parse_result with (sigil of pr)
         return 0
+    var fmt as string is calling cliargs.value with (sigil of pr.args), "--format"
+    if fmt length > 0 and fmt != "toml":
+        calling spark.eprintln with "psc init: only pengu.toml is supported in F6"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
     if pr.args.positionals.len != 1:
         calling spark.eprintln with "psc init: expected exactly one project name"
         calling print_init_help
@@ -304,6 +314,11 @@ weave run_new with args as list of string into int:
         calling print_new_help
         calling cliargs.free_parse_result with (sigil of pr)
         return 0
+    var fmt2 as string is calling cliargs.value with (sigil of pr.args), "--format"
+    if fmt2 length > 0 and fmt2 != "toml":
+        calling spark.eprintln with "psc new: only pengu.toml is supported in F6"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
     if pr.args.positionals.len != 2:
         calling spark.eprintln with "psc new: expected TEMPLATE and NAME"
         calling print_new_help

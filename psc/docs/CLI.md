@@ -1,0 +1,122 @@
+# `psc` — CLI F6
+
+`psc` es el compilador y driver de PenguScript. Esta página resume la
+superficie estable de F6.
+
+## Comandos
+
+```text
+psc lex | parse | ast | check | emit-c
+psc build | run | expand
+psc init | new | clean | doctor | metadata | tree
+psc test | watch | eval | time
+psc fmt | doc | assets
+psc gc | benchmark | selftest
+psc version | help
+```
+
+Los comandos de fases posteriores existen y fallan con un mensaje explícito:
+
+```text
+psc add/remove/upgrade/verify/vendor/update   F9
+psc lsp                                      F8
+psc bind                                     F10
+psc build --target                           F11
+```
+
+## Build
+
+```bash
+psc build [TARGET] [opciones]
+```
+
+- `TARGET`: archivo `.pengu` o directorio de proyecto (default: cwd).
+- `--profile=debug|release|small`, `--cc`, `--out`/`-o`, `--entry`/`-e`.
+- `-D NAME[=VALUE]` repetible.
+- `--test`, `--strict-c99`, `--release-unsafe`, `--verbose`, `--json`.
+- Tipos de salida del manifiesto: `exe`, `c`, `obj`, `static`, `shared`.
+
+`psc run` compila y ejecuta; propaga el exit code y acepta `-- args...`.
+`psc expand` emite el bundle C sin invocar `cc`.
+`psc check` de proyecto valida checker + codegen sin escribir bundle.
+
+## Caché
+
+`run` y `eval` usan una caché content-addressed:
+
+```bash
+psc run script.pengu
+psc run script.pengu --no-cache
+psc run script.pengu --clear-cache
+psc gc --all
+```
+
+Ubicación: `PSC_CACHE_DIR`, `$XDG_CACHE_HOME/pengu/psc`, `~/.cache/pengu/psc`
+o `/tmp/pengu-psc-cache`. `psc gc --all` la vacía.
+
+## Proyecto
+
+```bash
+psc init my_app
+psc init my_lib --template pengu-lib
+psc new cli my_cli
+psc clean --dry-run
+psc metadata
+psc tree
+psc doctor --json
+```
+
+`init/new` escriben `pengu.toml` (TOML canónico). `pengu.yaml`/`pengu.json`
+no se aceptan en F6.
+
+## Tests y desarrollo
+
+```bash
+psc test
+psc test --watch
+psc fmt src/
+psc fmt --check src/
+psc fmt --stdin < file.pengu
+psc doc
+psc assets --list
+psc assets
+psc watch src/main.pengu
+psc eval "1 + 2"
+psc time src/main.pengu
+```
+
+`psc benchmark` y `psc selftest` son **dev-only** y requieren el checkout y
+Python; no forman parte del camino de build de usuario.
+
+## Assets
+
+El manifiesto configura:
+
+```toml
+[assets]
+dir = "assets"
+module = "arca"
+embed = true
+exclude = ["*.tmp"]
+```
+
+`psc assets` genera `src/<module>.pengu`, `build/<module>_assets.h` y
+`build/<module>_assets.c`; `build` los incluye y enlaza automáticamente.
+
+## JSON
+
+`--json` emite JSON Lines estable con `schema_version: 1` para
+`build`, `test`, `doctor` y `gc`. Los errores van a stderr.
+
+## Variables
+
+- `PENGU_STD_DIR`, `PENGU_LIB_DIR`, `PENGU_INCLUDE_DIR`.
+- `PSC_CC` / `PENGU_CC` para el compilador C.
+- `PSC_CACHE_DIR` para la caché.
+- `NO_COLOR`.
+
+## Exit codes
+
+- `0` éxito.
+- `1` error de compilación/check/tests.
+- `2` uso incorrecto, flag desconocido o comando de fase posterior.

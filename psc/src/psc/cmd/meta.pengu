@@ -153,6 +153,7 @@ weave run_metadata with args as list of string into int:
     calling sb.append with "],"
     calling jkey with (sigil of sb), "dependencies"
     calling sb.append with r"{}"
+    calling sb.append with "}"
     var out as string is calling sb.finish
     calling spark.println with out
     banish out

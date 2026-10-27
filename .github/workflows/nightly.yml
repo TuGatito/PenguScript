@@ -374,6 +374,9 @@ jobs:
           PSC_BOOTSTRAP: '1'
         run: python -m pytest -q tests/psc/test_f5_bootstrap.py
 
+      - name: F6 CLI acceptance
+        run: python -m pytest -q tests/psc/test_f6_cli.py
+
   bench:
     name: Benchmarks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
