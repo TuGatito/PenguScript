@@ -27,17 +27,16 @@
 | Inlay hints | tipo inferido básico para `var/let ... is <literal>` |
 | Code actions | acción “Format document” |
 | On-type | `:` inserta salto e indentación |
-| Tests | `test_f8_lsp.py` + `test_f8_features.py` (3 tests) |
+| Tests | `test_f8_lsp.py` + `test_f8_features.py` (4 tests) |
 | Bootstrap | punto fijo OK; gcc/clang/TCC READY |
 
 ## Pendiente
 
-1. Diagnósticos UTF-16 verificados (hecho); faltan pruebas con CJK/emoji variados.
-2. Caches/índice de workspace y paridad fina de semantic/inlay/actions/on-type.
-3. Caches/índice de workspace (hoy escaneo en cada request).
-4. Paridad con `pengu_lsp`; ñ/CJK/emoji; 1 000 didChange; ASan.
-5. VS Code smoke, CI y docs completos.
-6. Metadatos F3 (`module/line/col`) para navegación semántica precisa.
+1. Caches/índice de workspace (hoy se escanea en cada request).
+2. Paridad fina de semantic/inlay/actions/on-type con `pengu_lsp`.
+3. ñ/CJK/emoji variados y 1 000 `didChange` bajo ASan.
+4. VS Code smoke y CI/docs completos.
+5. Metadatos F3 (`module/line/col`) para navegación semántica precisa.
 
 ## Evidencia
 

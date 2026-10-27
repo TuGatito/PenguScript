@@ -2504,7 +2504,18 @@ never *found* the project root, and module search never looked at the manifest's
 
 `v2.1.1` was published on schedule, but the three commits that followed it —
 WebAssembly support, the branch-condition cleanup and the Linux CI fix — were
-never released: their entries sat under `## [Unreleased] — FASE 7 (F7): Herramientas de desarrollo
+never released: their entries sat under `## [Unreleased] — FASE 8 (F8): LSP nativo
+
+- `psc lsp --stdio` y `psc lsp --tcp` con framing `Content-Length`.
+- Lifecycle JSON-RPC, documentos full-sync, URI y UTF-16.
+- Diagnósticos con `publishDiagnostics` (columnas UTF-16).
+- Hover, definition/implementation, completion, references/highlight.
+- Document/workspace symbols, folding, formatting, rename/prepareRename.
+- Signature help, code lens, semantic tokens léxicos, inlay hints.
+- Code actions y on-type formatting.
+- Tests de cable stdio/TCP y features.
+
+## [Unreleased] — FASE 7 (F7): Herramientas de desarrollo
 
 - `psc fmt` con paridad byte a byte de stage0 (323/323), `.pengufmt.toml`
   ascendente, CRLF/BOM, `--check`/`--stdin`/`--diff` y escritura atómica.
