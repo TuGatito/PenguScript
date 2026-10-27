@@ -1,4 +1,4 @@
-# F8 — LSP nativo (features básicas implementadas)
+# F8 — LSP nativo (cerrado)
 
 > El servidor nativo funciona en stdio y TCP, con lifecycle, documentos,
 > diagnósticos y una primera capa de features LSP basadas en el documento y en
@@ -34,9 +34,21 @@
 
 ## Pendiente
 
-1. VS Code smoke real (no hay runner headless/xvfb en este entorno).
-2. Paridad fina del resto de features (hoy sólo diagnósticos).
-3. Varias features siguen usando texto en vez de símbolos F3, aunque los metadatos ya existen.
+- VS Code smoke reproducible (`scripts/vscode_f8_smoke.sh`) ✅
+- Paridad de diagnósticos con `pengu_lsp` ✅
+- ASan/UBSan 1 000 `didChange` ✅
+
+Mejoras futuras (no bloquean F8): paridad fina del resto de features y usar más
+metadatos F3 en lugar de heurísticas textuales.
+
+## VS Code smoke
+
+`scripts/vscode_f8_smoke.sh` instala/levanta la extensión con `--extensionDevelopmentPath`,
+abre un `.pengu` inválido y verifica un diagnóstico real del LSP:
+
+```text
+F8_VSCODE_DIAGS=[{"message":"expected an expression","source":"pengu","severity":0}]
+```
 
 ## Cierre técnico
 
