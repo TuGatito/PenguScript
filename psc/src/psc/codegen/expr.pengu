@@ -2687,7 +2687,7 @@ weave interp_expr with c as ref to context.CgContext, content as string into str
                 var base_end as int is 0
                 while base_end < inner length:
                     var bc as string is inner at base_end to (base_end + 1)
-                    if bc == "." or bc == "-":
+                    if bc == "." or bc == "-" or bc == " ":
                         banish bc
                         break
                     banish bc
@@ -2705,6 +2705,20 @@ weave interp_expr with c as ref to context.CgContext, content as string into str
                     var cur_ty as int is bty
                     var pos as int is base_end
                     while pos < inner length:
+                        if inner at pos to (pos + 1) == " ":
+                            var wstart as int is pos + 1
+                            var wend as int is wstart
+                            while wend < inner length and (inner at wend to (wend + 1)) != " " and (inner at wend to (wend + 1)) != ".":
+                                set wend is wend + 1
+                            var wlen as string is inner at wstart to wend
+                            if wlen == "length" or wlen == "len":
+                                calling esb.append with ".len"
+                                set cur_ty is calling types.base with (sigil of c->program->types), "int"
+                                set pos is wend
+                                banish wlen
+                                continue
+                            banish wlen
+                            break
                         var sep as string is inner at pos to (pos + 1)
                         var adv as int is 1
                         if sep == "-" and pos + 1 < inner length and (inner at (pos + 1) to (pos + 2)) == ">":

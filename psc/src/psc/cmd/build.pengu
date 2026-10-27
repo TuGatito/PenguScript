@@ -1,6 +1,7 @@
 ## psc/cmd/build.pengu — comandos `build`, `run` y `expand` de F5.
 
 import std.archivum
+import std.digest
 import psc.cache.cache as cache
 import psc.os.proc as proc
 import std.builder
@@ -12,6 +13,19 @@ import psc.driver.build as driver
 import psc.sema.names as npool
 
 insignia psc_cmd_build_
+
+## Identidad del compilador para la caché de scripts.
+##
+## ## Memoria
+## Devuelve string owned.
+weave compiler_identity with path as string into string:
+    var b as maybe string is calling archivum.read_bytes with path
+    if b.is_present:
+        var h as string is calling digest.sha256_raw with b.value
+        banish b
+        return h
+    banish b
+    return calling copy_path with path
 
 ## `true` si `s` empieza por `prefix`.
 ##
@@ -275,6 +289,8 @@ weave run_check_project with path as string into int:
 ## Libera opciones, resultado y args del hijo.
 weave run_run with args as list of string into int:
     var o as driver.BuildOptions is calling driver.default_options
+    var prog as string is args at 0
+    set o.compiler_path is calling copy_path with prog
     var path as string is ""
     var child as list of string is list of string
     var after as bool is false
@@ -335,7 +351,10 @@ weave run_run with args as list of string into int:
         if txtm.is_present:
             var parts as list of string is list of string
             calling parts.push with txtm.value
-            calling parts.push with "psc-0.6.0"
+            calling parts.push with "psc-0.8.0"
+            var chid as string is calling compiler_identity with o.compiler_path
+            calling parts.push with chid
+            banish chid
             calling parts.push with o.profile
             calling parts.push with o.cc
             calling parts.push with "run"
@@ -386,7 +405,10 @@ weave run_run with args as list of string into int:
         if txt2.is_present:
             var parts2 as list of string is list of string
             calling parts2.push with txt2.value
-            calling parts2.push with "psc-0.6.0"
+            calling parts2.push with "psc-0.8.0"
+            var chid2 as string is calling compiler_identity with o.compiler_path
+            calling parts2.push with chid2
+            banish chid2
             calling parts2.push with o.profile
             calling parts2.push with o.cc
             calling parts2.push with "run"
