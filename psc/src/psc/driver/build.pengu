@@ -6,6 +6,7 @@ import std.archivum
 import std.builder
 import std.compass
 import std.diagnostic as diag
+import std.digest
 import std.rites
 import std.spark
 
@@ -409,7 +410,13 @@ weave build with o as BuildOptions into BuildResult:
     var ck as string is ""
     var cparts as list of string is list of string
     if (not o.no_cache) and (not o.ephemeral) and (not o.check_only) and (not o.bundle_only) and man.output != "c":
-        calling cparts.push with (calling copy with o.compiler_path)
+        var cbytes as maybe string is calling archivum.read_bytes with o.compiler_path
+        if cbytes.is_present:
+            var chash as string is calling digest.sha256_raw with cbytes.value
+            calling cparts.push with chash
+        else:
+            calling cparts.push with (calling copy with o.compiler_path)
+        banish cbytes
         calling cparts.push with "psc-0.6.0"
         calling cparts.push with (calling copy with o.profile)
         calling cparts.push with (calling copy with o.cc)
