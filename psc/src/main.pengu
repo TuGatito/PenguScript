@@ -363,6 +363,7 @@ weave run_check with args as list of string into int:
     var force_color as bool is false
     var no_color as bool is false
     var path as string is ""
+    var extra as list of string is list of string
     var i as int is 2
     while i < args.len:
         var a as string is args at i
@@ -412,10 +413,9 @@ weave run_check with args as list of string into int:
             return 2
         else:
             if path length > 0:
-                calling spark.eprintln with "psc check: only one input file is supported"
-                calling sopts.free_options with (sigil of opts)
-                return 2
-            set path is a
+                calling extra.push with a
+            else:
+                set path is a
         set i is i + 1
     var abs_path as string is calling compass.cp_absolute with path
     var is_proj as bool is false
@@ -440,7 +440,20 @@ weave run_check with args as list of string into int:
         var r1 as sema_api.SemaResult is calling sema_api.check_text with "<stdin>", text, opts
         return calling report_check with r1, json_diags, force_color, no_color
     var r2 as sema_api.SemaResult is calling sema_api.check_file with path, opts
-    return calling report_check with r2, json_diags, force_color, no_color
+    var code as int is calling report_check with r2, json_diags, force_color, no_color
+    var ei as int is 0
+    while ei < extra.len:
+        var hargs as list of string is list of string
+        calling hargs.push with (args at 0)
+        calling hargs.push with "check"
+        calling hargs.push with (extra at ei)
+        var hc as int is calling dispatch with hargs
+        banish hargs
+        if hc != 0:
+            set code is 1
+        set ei is ei + 1
+    banish extra
+    return code
 
 ## Implementa `psc emit-c`: F3 + codegen, sin compilador C.
 ##
