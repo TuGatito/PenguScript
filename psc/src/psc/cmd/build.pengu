@@ -116,6 +116,9 @@ weave run_build with args as list of string into int:
     calling sf.push with "--no-pch"
     calling sf.push with "--locked"
     calling sf.push with "--frozen"
+    calling sf.push with "--no-cache"
+    calling sf.push with "--clear-cache"
+    calling sf.push with "--ephemeral"
     calling sf.push with "--keep"
     calling sf.push with "--help"
     calling sf.push with "-h"
@@ -131,6 +134,11 @@ weave run_build with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 0
     var o as driver.BuildOptions is calling driver.default_options
+    var prog as string is args at 0
+    set o.compiler_path is calling copy_path with prog
+    set o.no_cache is calling cliargs.enabled with (sigil of pr.args), "--no-cache"
+    set o.clear_cache is calling cliargs.enabled with (sigil of pr.args), "--clear-cache"
+    set o.ephemeral is calling cliargs.enabled with (sigil of pr.args), "--ephemeral"
     var prof as string is calling cliargs.value with (sigil of pr.args), "--profile"
     if prof length == 0:
         set prof is calling cliargs.value with (sigil of pr.args), "-p"

@@ -42,7 +42,7 @@ psc build [TARGET] [opciones]
 
 ## Caché
 
-`run` y `eval` usan una caché content-addressed:
+`run`, `eval` y los builds de proyecto usan una caché content-addressed:
 
 ```bash
 psc run script.pengu

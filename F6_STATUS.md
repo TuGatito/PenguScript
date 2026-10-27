@@ -14,7 +14,7 @@
 | `run` | script/proyecto, `--` args, cache de scripts, exit code real, paths con espacios |
 | `check` | archivo y proyecto; el proyecto ya **no** escribe bundle |
 | `expand` | bundle-only restaurado |
-| Caché | content-addressed para `run` de scripts, `PSC_CACHE_DIR`, `--no-cache`, `--clear-cache`, `--ephemeral`, `gc --all` |
+| Caché | content-addressed para `run` de scripts y builds de proyecto, `PSC_CACHE_DIR`, `--no-cache`, `--clear-cache`, `--ephemeral`, `gc --all` |
 | Proyecto | `init`, `new`, `clean`, `doctor`, `metadata`, `tree` |
 | Tests/dev | `test` (runner de proyecto, fallo -> exit 1, `--json` JSONL), `watch`, `eval`, `time`, `benchmark`/`selftest` dev-only |
 | Herramientas | `fmt` (unidad detectada, reindentación, `--check`/`--stdin`/`--diff`), `doc` (Markdown), `assets` (embed, list, C/header/interface) |
@@ -37,7 +37,7 @@ preflight gcc/clang/TCC: READY
    `.pengufmt.toml`; ya detecta unidad, reindenta y muestra diff por línea).
 2. **Doc**: búsqueda HTML y extracción de firmas/tipos como `pengu_doc`.
 3. **Assets**: `embed=false` (disk), `exclude`, `.incbin` para assets grandes.
-4. **Caché de proyectos** (no sólo scripts) y `gc --max-age`.
+4. **`gc --max-age`** (la caché ya cubre builds de proyecto).
 5. **Multi-file `check`** y `--json` de check completo.
 6. **Proceso sin shell**: hoy `psc/os/shell` cita de forma segura, pero sigue
    usando `system()`; falta `posix_spawn`.

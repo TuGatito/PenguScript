@@ -14,6 +14,7 @@ import psc.sema.options as sopts
 import psc.sema.api as sema_api
 import psc.codegen.api as cgapi
 import psc.codegen.options as cgopt
+import psc.cache.cache as cache
 import psc.driver.manifest as manifest
 import psc.os.shell as shell
 import psc.driver.paths as paths
@@ -44,6 +45,10 @@ rune BuildOptions:
     prune_native as bool
     dce_scope_user as bool
     pch as bool
+    compiler_path as string
+    no_cache as bool
+    clear_cache as bool
+    ephemeral as bool
     defines as list of string
 
 ## Resultado de un build.
@@ -131,7 +136,7 @@ weave find_manifest_root with start as string into string:
 ## ## Memoria
 ## Strings owned; liberar con `free_options`.
 weave default_options into BuildOptions:
-    return with target is "", profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, defines is list of string
+    return with target is "", profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, defines is list of string
 
 ## Libera opciones.
 ##
@@ -142,6 +147,7 @@ weave free_options with o as ref to BuildOptions into void:
     banish o->profile
     banish o->cc
     banish o->out_path
+    banish o->compiler_path
     var oi as int is 0
     while oi < o->defines.len:
         banish o->defines at oi
@@ -163,6 +169,8 @@ weave free_result with r as ref to BuildResult into void:
 ## Devuelve BuildResult owned; liberar con `free_result`.
 weave build with o as BuildOptions into BuildResult:
     var cwd as string is calling current_dir
+    if o.clear_cache:
+        var cache_ignored as int is calling cache.clear
     var target as string is calling copy with o.target
     var start as string is calling copy with cwd
     var is_file as bool is false
@@ -397,6 +405,84 @@ weave build with o as BuildOptions into BuildResult:
     if adir length > 0:
         calling archivum.create_dir with adir, true
     banish adir
+    var ck as string is ""
+    var cparts as list of string is list of string
+    if (not o.no_cache) and (not o.ephemeral) and (not o.check_only) and (not o.bundle_only) and man.output != "c":
+        calling cparts.push with (calling copy with o.compiler_path)
+        calling cparts.push with "psc-0.6.0"
+        calling cparts.push with (calling copy with o.profile)
+        calling cparts.push with (calling copy with o.cc)
+        calling cparts.push with (calling copy with man.output)
+        calling cparts.push with "test"
+        if o.is_test:
+            calling cparts.push with "1"
+        else:
+            calling cparts.push with "0"
+        if o.test_json:
+            calling cparts.push with "json"
+        else:
+            calling cparts.push with "plain"
+        if o.strict_c99:
+            calling cparts.push with "strict"
+        if o.release_unsafe:
+            calling cparts.push with "unsafe"
+        if o.no_dce:
+            calling cparts.push with "nodce"
+        if o.dce_scope_user:
+            calling cparts.push with "userdce"
+        if o.prune_types:
+            calling cparts.push with "prunetypes"
+        if o.prune_native:
+            calling cparts.push with "prunenative"
+        if o.no_line_markers:
+            calling cparts.push with "nolines"
+        var mdi as int is 0
+        while mdi < man.defines.len:
+            calling cparts.push with (calling copy with (man.defines at mdi))
+            set mdi is mdi + 1
+        var dfi as int is 0
+        while dfi < o.defines.len:
+            calling cparts.push with (calling copy with (o.defines at dfi))
+            set dfi is dfi + 1
+        var mi as int is 0
+        while mi < sr.program->modules.len:
+            var mm as loader.SemaModule is (sr.program->modules at mi)
+            calling cparts.push with (calling copy with mm.source.path)
+            calling cparts.push with (calling copy with mm.source.text)
+            set mi is mi + 1
+        set ck is calling cache.key with cparts
+        var hit as string is calling cache.get with ck
+        if hit length > 0:
+            var cok as bool is calling archivum.copy_file with hit, artifact, true
+            if cok:
+                var cargsx as list of string is list of string
+                calling cargsx.push with "+x"
+                calling cargsx.push with (calling copy with artifact)
+                var chcmd as string is calling shell.join with "chmod", cargsx
+                var chx as int is calling rites.exec with chcmd, list of string
+                banish chcmd
+                calling free_strings with cargsx
+                banish hit
+                banish ck
+                var hci2 as int is 0
+                while hci2 < cparts.len:
+                    banish cparts at hci2
+                    set hci2 is hci2 + 1
+                banish cparts
+                banish cwd
+                banish target
+                banish start
+                banish root
+                banish entry
+                banish build_dir
+                banish bundle
+                calling cgapi.free_result with (sigil of cr)
+                calling sema_api.free_result with (sigil of sr)
+                calling manifest.free_manifest with (sigil of man)
+                calling paths.free_paths with (sigil of p)
+                calling toolchain.free_toolchain with (sigil of tc)
+                return with ok is true, error is "", artifact is artifact, bundle_path is bundle
+            banish hit
     var objpath as string is calling copy with artifact
     if out_kind == "static":
         banish objpath
@@ -498,6 +584,14 @@ weave build with o as BuildOptions into BuildResult:
             calling paths.free_paths with (sigil of p)
             calling toolchain.free_toolchain with (sigil of tc)
             return with ok is false, error is (calling copy with "ar failed"), artifact is "", bundle_path is ""
+    if ck length > 0:
+        var storedx as bool is calling cache.put with ck, artifact
+    banish ck
+    var cpi as int is 0
+    while cpi < cparts.len:
+        banish cparts at cpi
+        set cpi is cpi + 1
+    banish cparts
     banish cwd
     banish target
     banish start
