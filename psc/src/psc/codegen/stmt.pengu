@@ -399,6 +399,7 @@ weave emit_if with c as ref to context.CgContext, node as int, ast as ref to psa
         if eb >= 0:
             calling emit.line with (sigil of c->emitter), "} else {"
             calling emit.indent_more with (sigil of c->emitter)
+            calling begin_scope with c, false
             var ej as int is 0
             var ecount as int is calling astutil.child_count with ast, els
             while ej < ecount:
@@ -407,10 +408,9 @@ weave emit_if with c as ref to context.CgContext, node as int, ast as ref to psa
                     if (calling astutil.kind_of with ast, ech) == pskind.NodeKind.NdBlock:
                         calling emit_block with c, ech
                     else:
-                        calling begin_scope with c, false
                         calling emit_stmt with c, ech
-                        calling end_scope with c
                 set ej is ej + 1
+            calling end_scope with c
             calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
 

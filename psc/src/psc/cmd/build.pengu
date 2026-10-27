@@ -206,14 +206,9 @@ weave run_run with args as list of string into int:
         banish child
         return 1
     var art as string is r.artifact
-    var pr as rites.ProcessResult is calling rites.run_capture_all with art, child
-    calling spark.print with pr.stdout
-    calling spark.eprint with pr.stderr
-    var code as int is pr.code
+    var code as int is calling rites.exec with art, child
     if code < 0:
         set code is 1
-    banish pr.stdout
-    banish pr.stderr
     calling driver.free_result with (sigil of r)
     calling driver.free_options with (sigil of o)
     var ci2 as int is 0

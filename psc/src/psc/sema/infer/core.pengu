@@ -543,7 +543,8 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                     if ucount == 1:
                         set sid is ulast
             # Fallback global para módulos cualificados (`mod.fn`).
-            set sid is calling symbols.lookup_name with s->symbols, mname
+            if sid < 0:
+                set sid is calling symbols.lookup_name with s->symbols, mname
             if sid < 0:
                 var mfid as int is calling npool.find with s->names, mname
                 if mfid >= 0:

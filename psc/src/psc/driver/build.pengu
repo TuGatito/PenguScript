@@ -362,15 +362,9 @@ weave build with o as BuildOptions into BuildResult:
         calling spark.eprintln with vmsg
         banish vmsg
         banish cmdline
-    var pr as rites.ProcessResult is calling rites.run_capture_all with tc.cc, args
-    if pr.code != 0:
-        var eout as string is pr.stderr
-        if eout length == 0:
-            set eout is pr.stdout
-        calling spark.eprint with eout
-        banish eout
-        banish pr.stdout
-        banish pr.stderr
+    var cc_code as int is calling rites.exec with tc.cc, args
+    if cc_code != 0:
+        calling spark.eprintln with "C compiler failed"
         banish cwd
         banish target
         banish start
@@ -386,8 +380,6 @@ weave build with o as BuildOptions into BuildResult:
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is false, error is (calling copy with "C compilation failed"), artifact is "", bundle_path is ""
-    banish pr.stdout
-    banish pr.stderr
     banish cwd
     banish target
     banish start

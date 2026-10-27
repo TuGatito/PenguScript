@@ -8,6 +8,7 @@ import std.builder
 
 import psc.ast.kind as pskind
 import psc.ast.node as psast
+import psc.lexer_decode as psdecode
 import psc.sema.ast as astutil
 import psc.sema.modules.loader as loader
 import psc.sema.types.kind as tk
@@ -2480,9 +2481,11 @@ weave c_string_expr with c as ref to context.CgContext, raw as string into strin
         var resc as string is calling emit.escape_c with content
         defer banish resc
         return "pengu_string_from_cstr(\"{resc}\")"
-    if calling has_interp with content:
-        return calling interp_expr with c, content
-    var esc as string is calling escape_c_lit with content
+    var decoded as string is calling psdecode.decode_text with content, false
+    defer banish decoded
+    if calling has_interp with decoded:
+        return calling interp_expr with c, decoded
+    var esc as string is calling emit.escape_c with decoded
     defer banish esc
     return "pengu_string_from_cstr(\"{esc}\")"
 
