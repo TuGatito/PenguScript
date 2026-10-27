@@ -54,6 +54,25 @@ weave find_root with start as string into string:
     banish d
     return ""
 
+## `true` si `name` coincide con un patrón de exclusión simple.
+##
+## ## Memoria
+## O(patrones).
+weave excluded with patterns as list of string, name as string into bool:
+    for p in patterns:
+        if p == name:
+            return true
+        if p length > 1 and (p at 0 to 1) == "*":
+            var suf as string is p at 1 to (p length)
+            var match as bool is false
+            if suf length <= name length:
+                if (name at (name length - suf length) to name length) == suf:
+                    set match is true
+            banish suf
+            if match:
+                return true
+    return false
+
 ## Identificador C seguro.
 ##
 ## ## Memoria
@@ -192,7 +211,8 @@ weave run_assets with args as list of string into int:
     for f in files:
         var relm as maybe string is calling compass.cp_relative_to with f, adir
         if relm.is_present:
-            calling names.push with (calling copy with relm.value)
+            if not (calling excluded with man.assets_exclude, relm.value):
+                calling names.push with (calling copy with relm.value)
         banish relm
         banish f
     banish files
