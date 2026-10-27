@@ -16,12 +16,12 @@
 | `expand` | bundle-only restaurado |
 | Caché | content-addressed para `run` de scripts, `PSC_CACHE_DIR`, `--no-cache`, `--clear-cache`, `--ephemeral`, `gc --all` |
 | Proyecto | `init`, `new`, `clean`, `doctor`, `metadata`, `tree` |
-| Tests/dev | `test` (runner de proyecto, fallo -> exit 1), `watch`, `eval`, `time`, `benchmark`/`selftest` dev-only |
-| Herramientas | `fmt` (conservador, `--check`, `--stdin`, `--diff` parcial), `doc` (Markdown), `assets` (embed, list, C/header/interface) |
+| Tests/dev | `test` (runner de proyecto, fallo -> exit 1, `--json` JSONL), `watch`, `eval`, `time`, `benchmark`/`selftest` dev-only |
+| Herramientas | `fmt` (unidad detectada, reindentación, `--check`/`--stdin`/`--diff`), `doc` (Markdown), `assets` (embed, list, C/header/interface) |
 | Stubs | `add/remove/upgrade/verify/vendor/update` -> F9; `lsp` -> F8; `bind` -> F10 |
 | Deuda F5 | paths liberados sin UAF, autodetección desde cwd, `check` puro, versión 0.6.0, quoting de argv |
 | Bootstrap | stage1→stage4 con C idéntico; TCC verde |
-| Tests | F1–F4 43 passed, F5 2, F6 4; CI `psc-cli`; ASan/UBSan smoke |
+| Tests | F1–F4 43 passed, F5 2, F6 4 (incluye `test --json`); CI `psc-cli`; ASan/UBSan smoke |
 
 ## Evidencia
 
@@ -33,16 +33,15 @@ preflight gcc/clang/TCC: READY
 
 ## Pendiente para “F6 completo” según el plan
 
-1. **Formatter con paridad stage0 completa** (detección de unidad, espaciado
-   `is/as/into`, `--diff` real, `.pengufmt.toml`).
+1. **Formatter con paridad stage0 completa** (espaciado `is/as/into`,
+   `.pengufmt.toml`; ya detecta unidad, reindenta y muestra diff por línea).
 2. **Doc**: búsqueda HTML y extracción de firmas/tipos como `pengu_doc`.
 3. **Assets**: `embed=false` (disk), `exclude`, `.incbin` para assets grandes.
 4. **Caché de proyectos** (no sólo scripts) y `gc --max-age`.
-5. **`test --json`** por test (el runner C actual sólo resume al final).
-6. **Multi-file `check`** y `--json` de build/check completos.
-7. **Proceso sin shell**: hoy `psc/os/shell` cita de forma segura, pero sigue
+5. **Multi-file `check`** y `--json` de check completo.
+6. **Proceso sin shell**: hoy `psc/os/shell` cita de forma segura, pero sigue
    usando `system()`; falta `posix_spawn`.
-8. Endurecer CI/nightly con F6 completo y corpus.
+7. Endurecer CI/nightly con F6 completo y corpus.
 
 ## Reproducir
 
