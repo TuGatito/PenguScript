@@ -1,0 +1,121 @@
+## psc/lsp/transport.pengu — framing LSP sobre stdio o TCP.
+
+import std.builder
+import std.io
+import std.jsonrpc as rpc
+import std.net
+import std.spark
+
+import psc.sema.names as npool
+
+insignia psc_lsp_transport_
+
+## Transporte activo.
+rune Transport:
+    ## `true` para TCP; `false` para stdio.
+    tcp as bool
+    ## Socket TCP (fd -1 en stdio).
+    sock as net.Socket
+
+## Crea un transporte stdio.
+weave stdio into Transport:
+    return with tcp is false, sock is (with fd is (0 - 1))
+
+## Crea un transporte TCP.
+weave tcp_with with sock as net.Socket into Transport:
+    return with tcp is true, sock is sock
+
+## Copia owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Lee exactamente `n` bytes.
+weave read_exact with t as ref to Transport, n as int into maybe string:
+    if n <= 0:
+        return some ""
+    if t->tcp:
+        return calling net.read_exact with (sigil of t->sock), n
+    return calling io.read_stdin_exact with n
+
+## Lee una línea (sin `\r\n`).
+weave read_line with t as ref to Transport into maybe string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    while true:
+        var one as maybe string is calling read_exact with t, 1
+        if not one.is_present:
+            banish one
+            return (maybe none)
+        if one.value length == 0:
+            banish one
+            return (maybe none)
+        var ch as string is one.value at 0 to 1
+        banish one
+        if ch == "\n":
+            banish ch
+            break
+        if ch != "\r":
+            calling sb.append with ch
+        banish ch
+    return some (calling sb.finish)
+
+## Lee un frame LSP completo (body).
+##
+## Devuelve `none` en EOF; body owned.
+weave read_frame with t as ref to Transport into maybe string:
+    var length as int is -1
+    while true:
+        var line as maybe string is calling read_line with t
+        if not line.is_present:
+            banish line
+            return (maybe none)
+        if line.value length == 0:
+            banish line
+            break
+        if calling starts_with with line.value, "Content-Length:":
+            var raw as string is line.value at 15 to (line.value length)
+            var pm as maybe int is calling spark.parse_int with raw
+            if pm.is_present:
+                set length is pm.value
+            banish pm
+            banish raw
+        banish line
+    if length < 0:
+        return (maybe none)
+    return calling read_exact with t, length
+
+## Envía un body con framing y flush.
+weave write_frame with t as ref to Transport, body as string into bool:
+    var header as string is "Content-Length: {body length}\r\n\r\n"
+    var full as string is "{header}{body}"
+    var ok as bool is false
+    if t->tcp:
+        var n as int is calling net.write with (sigil of t->sock), full
+        set ok is n == (full length)
+    else:
+        set ok is calling io.write_stdout with full
+        calling io.flush_stdout
+    banish full
+    banish header
+    return ok
+
+## Cierra el socket TCP.
+weave close with t as ref to Transport into void:
+    if t->tcp:
+        calling net.close with (sigil of t->sock)
+
+## `true` si `s` empieza por `p`.
+weave starts_with with s as string, p as string into bool:
+    var n as int is s length
+    var m as int is p length
+    if m > n:
+        return false
+    return (s at 0 to m) == p
+
+## `true` si `s` termina en `p`.
+weave ends_with with s as string, p as string into bool:
+    var n as int is s length
+    var m as int is p length
+    if m > n:
+        return false
+    return (s at (n - m) to n) == p

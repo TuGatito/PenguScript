@@ -68,7 +68,7 @@ weave generate_bundle_c with c as ref to context.CgContext into string:
             var lf as catalog.CgFunction is (c->catalog.functions at li)
             calling live_mod.put with lf.module, lf.module
         set li is li + 1
-    var inc_mod as map of int to int is map of int to int
+    var inc_mod as map of string to int is map of string to int
     var ii as int is 0
     while ii < c->catalog.includes.len:
         var inc as catalog.CgInclude is (c->catalog.includes at ii)
@@ -78,8 +78,8 @@ weave generate_bundle_c with c as ref to context.CgContext into string:
             var pid as int is calling dce.parent_module with c, im
             if pid >= 0:
                 set inc_live is calling live_mod.has with pid
-        if inc_live and not (calling inc_mod.has with inc.module):
-            calling inc_mod.put with inc.module, inc.module
+        if inc_live and not (calling inc_mod.has with inc.text):
+            calling inc_mod.put with inc.text, inc.module
             var iline as string is ""
             if inc.text length > 0 and ((inc.text at 0) == "<" or (inc.text at 0) == "\""):
                 set iline is "#include {inc.text}"

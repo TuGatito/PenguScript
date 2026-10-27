@@ -47,6 +47,7 @@ import psc.cmd.eval as cmd_eval
 import psc.cmd.time as cmd_time
 import psc.cmd.watch as cmd_watch
 import psc.cmd.gc as cmd_gc
+import psc.cmd.lsp as cmd_lsp
 import psc.cmd.fmt as cmd_fmt
 import psc.cmd.doc as cmd_doc
 import psc.cmd.assets as cmd_assets
@@ -138,10 +139,7 @@ weave dispatch with args as list of string into int:
             return 0
         return calling cmd_stubs.run_deps with cmd
     if cmd == "lsp":
-        if args.len > 2 and (args at 2) == "--help":
-            calling spark.println with "psc lsp arrives in F8 (language server)."
-            return 0
-        return calling cmd_stubs.run_lsp
+        return calling cmd_lsp.run_lsp with args
     if cmd == "bind":
         if args.len > 2 and (args at 2) == "--help":
             calling spark.println with "psc bind arrives in F10 (C bindings)."

@@ -1,0 +1,396 @@
+## psc/lsp/server.pengu — servidor LSP mínimo (lifecycle + diagnósticos).
+
+import std.builder
+import std.rites
+import std.chronicle
+import std.archivum
+import std.diagnostic as diag
+import std.json as json
+import std.jsonrpc as rpc
+import std.scrolls
+import std.spark
+
+import psc.lsp.positions as lpos
+import psc.lsp.transport as transport
+import psc.lsp.uri as luri
+import psc.sema.api as sema_api
+import psc.sema.names as npool
+import psc.sema.options as sopts
+
+insignia psc_lsp_server_
+
+## Documento abierto.
+rune Document:
+    text as string
+    version as int
+
+## Estado del servidor.
+rune State:
+    tr as transport.Transport
+    docs as map of string to Document
+    root as string
+    exe as string
+    initialized as bool
+    shutdown as bool
+
+## Copia owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Copia un id JSON-RPC.
+weave copy_id with id as rpc.JsonRpcId into rpc.JsonRpcId:
+    var out as rpc.JsonRpcId is with Number is 0
+    judge id:
+        when Number with value ->
+            set out is with Number is value
+        when String with value ->
+            set out is with String is (calling copy with value)
+    return out
+
+## Envía un mensaje.
+weave send_msg with st as ref to State, msg as rpc.JsonRpcMessage into bool:
+    var wire as string is calling rpc.encode_message with msg
+    defer banish wire
+    return calling transport.write_frame with (sigil of st->tr), wire
+
+## Envía error de método.
+weave send_method_error with st as ref to State, id as rpc.JsonRpcId, method as string into void:
+    var err as rpc.JsonRpcError is calling rpc.error_method_not_found with method
+    var out as rpc.JsonRpcMessage is calling rpc.response_error with (calling copy_id with id), err
+    var ok as bool is calling send_msg with st, out
+    banish out
+
+## Número de severidad LSP.
+weave severity_num with sev as diag.Severity into int:
+    if sev == diag.Severity.Error:
+        return 1
+    if sev == diag.Severity.Warning:
+        return 2
+    if sev == diag.Severity.Info:
+        return 3
+    return 4
+
+## Primer span de un diagnóstico.
+weave main_span with d as diag.Diagnostic into maybe diag.Span:
+    for lb in d.labels:
+        if lb.primary:
+            return some lb.span
+    if d.labels.len > 0:
+        return some ((d.labels at 0).span)
+    return (maybe none)
+
+## Construye un diagnóstico LSP.
+weave diag_json with text as string, d as diag.Diagnostic into JsonValue:
+    var o as JsonValue is calling JsonValue.empty_object
+    var msp as maybe diag.Span is calling main_span with d
+    var start as int is 0
+    var end as int is 0
+    if msp.is_present:
+        set start is msp.value.start_byte
+        set end is msp.value.end_byte
+    calling o.put_json with "range", (calling lpos.range_json with text, start, end)
+    calling o.put_json with "severity", (calling JsonValue.int_val with ((calling severity_num with d.severity) to i64))
+    if d.code length > 0:
+        calling o.put_json with "code", (calling JsonValue.string_val with (calling copy with d.code))
+    calling o.put_json with "source", (calling JsonValue.string_val with (calling copy with "psc"))
+    calling o.put_json with "message", (calling JsonValue.string_val with (calling copy with d.message))
+    return o
+
+## Publica diagnósticos para un documento.
+## Extrae un int de un objeto.
+weave jint with v as JsonValue, key as string, dflt as int into int:
+    var f as maybe JsonValue is calling v.get with key
+    if f.is_present:
+        var fv as JsonValue is f.value
+        var i as maybe i64 is calling fv.as_int
+        banish f
+        if i.is_present:
+            return (i.value to int)
+        banish i
+    banish f
+    return dflt
+
+## Extrae un string de un objeto.
+weave jstr with v as JsonValue, key as string into string:
+    var f as maybe JsonValue is calling v.get with key
+    if f.is_present:
+        var fv as JsonValue is f.value
+        var s as maybe string is calling fv.as_string
+        banish f
+        if s.is_present:
+            var out as string is calling copy with s.value
+            banish s
+            return out
+        banish s
+    banish f
+    return ""
+
+## Convierte un diagnóstico de `psc check --diagnostics=json` a LSP.
+weave subprocess_diag with text as string, o as JsonValue into JsonValue:
+    var rng as maybe JsonValue is calling o.get with "range"
+    var out as JsonValue is calling JsonValue.empty_object
+    if rng.is_present:
+        var rv as JsonValue is rng.value
+        var st as maybe JsonValue is calling rv.get with "start"
+        var en as maybe JsonValue is calling rv.get with "end"
+        var sl as int is 0
+        var sc as int is 0
+        var el as int is 0
+        var ec as int is 0
+        if st.is_present:
+            set sl is calling jint with st.value, "line", 0
+            set sc is calling jint with st.value, "character", 0
+        if en.is_present:
+            set el is calling jint with en.value, "line", sl
+            set ec is calling jint with en.value, "character", sc
+        banish en
+        banish st
+        var so as int is (calling lpos.line_start with text, sl) + sc
+        var eo as int is (calling lpos.line_start with text, el) + ec
+        calling out.put_json with "range", (calling lpos.range_json with text, so, eo)
+        banish rng
+    else:
+        banish rng
+        calling out.put_json with "range", (calling lpos.range_json with text, 0, 0)
+    calling out.put_json with "severity", (calling JsonValue.int_val with ((calling jint with o, "severity", 1) to i64))
+    var code as string is calling jstr with o, "code"
+    if code length > 0:
+        calling out.put_json with "code", (calling JsonValue.string_val with (calling copy with code))
+    banish code
+    calling out.put_json with "source", (calling JsonValue.string_val with (calling copy with "psc"))
+    var msg as string is calling jstr with o, "message"
+    calling out.put_json with "message", (calling JsonValue.string_val with (calling copy with msg))
+    banish msg
+    return out
+
+## Publica diagnósticos usando `psc check` en un proceso hijo.
+##
+## Aísla el checker del estado del servidor (F8.0); una versión nativa in-process
+## llega en F8.1 cuando el ownership de `check_text` esté auditado.
+weave publish with st as ref to State, document_uri as string, text as string, version as int into void:
+    var tmp as string is "/tmp/psc-lsp-{calling chronicle.now_ms}.pengu"
+    var arr as JsonValue is calling JsonValue.empty_array
+    if calling archivum.write_text with tmp, text:
+        var cargs as list of string is list of string
+        calling cargs.push with (calling copy with "check")
+        calling cargs.push with (calling copy with tmp)
+        calling cargs.push with (calling copy with "--diagnostics=json")
+        var prc as rites.ProcessResult is calling rites.run_capture_all with st->exe, cargs
+        if prc.code == 0 or prc.code == 1:
+            var jp as result of JsonValue to JsonError is calling json.parse with prc.stdout
+            if jp.is_ok:
+                var jv as JsonValue is jp.value
+                var arrv as maybe list of JsonValue is calling jv.as_array
+                if arrv.is_present:
+                    for item in arrv.value:
+                        calling arr.push_json with (calling subprocess_diag with text, item)
+                    calling json.free_values with arrv.value
+                banish arrv
+                banish jp.value
+            banish jp
+        banish prc.stdout
+        banish prc.stderr
+        banish cargs
+        var ign as bool is calling archivum.delete_file with tmp
+    banish tmp
+    var params as JsonValue is calling JsonValue.empty_object
+    calling params.put_json with "uri", (calling JsonValue.string_val with (calling copy with document_uri))
+    calling params.put_json with "version", (calling JsonValue.int_val with (version to i64))
+    calling params.put_json with "diagnostics", arr
+    var note as rpc.JsonRpcMessage is calling rpc.notification with "textDocument/publishDiagnostics", (some params)
+    var ok as bool is calling send_msg with st, note
+    banish note
+
+## Respuesta initialize.
+weave initialize_result into JsonValue:
+    var cap as JsonValue is calling JsonValue.empty_object
+    calling cap.put_json with "textDocumentSync", (calling JsonValue.int_val with 1)
+    calling cap.put_json with "hoverProvider", (calling JsonValue.bool_val with true)
+    calling cap.put_json with "definitionProvider", (calling JsonValue.bool_val with true)
+    var completion as JsonValue is calling JsonValue.empty_object
+    var triggers as JsonValue is calling JsonValue.empty_array
+    calling triggers.push_json with (calling JsonValue.string_val with (calling copy with "."))
+    calling triggers.push_json with (calling JsonValue.string_val with (calling copy with ":"))
+    calling completion.put_json with "triggerCharacters", triggers
+    calling cap.put_json with "completionProvider", completion
+    var out as JsonValue is calling JsonValue.empty_object
+    calling out.put_json with "capabilities", cap
+    var info as JsonValue is calling JsonValue.empty_object
+    calling info.put_json with "name", (calling JsonValue.string_val with (calling copy with "psc"))
+    calling info.put_json with "version", (calling JsonValue.string_val with (calling copy with "0.8.0 (F8)"))
+    calling out.put_json with "serverInfo", info
+    return out
+
+## Responde initialize.
+weave handle_initialize with st as ref to State, id as rpc.JsonRpcId, params as maybe JsonValue into void:
+    var res as JsonValue is calling initialize_result
+    var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), res
+    var ok as bool is calling send_msg with st, out
+    banish out
+    set st->initialized is true
+
+## Responde shutdown.
+weave handle_shutdown with st as ref to State, id as rpc.JsonRpcId into void:
+    set st->shutdown is true
+    var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), (calling JsonValue.null_value)
+    var ok as bool is calling send_msg with st, out
+    banish out
+
+## Obtiene un string de un objeto.
+weave field_string with v as JsonValue, key as string into string:
+    var f as maybe JsonValue is calling v.get with key
+    if f.is_present:
+        var fv as JsonValue is f.value
+        var s as maybe string is calling fv.as_string
+        banish f
+        if s.is_present:
+            var out as string is calling copy with s.value
+            banish s
+            return out
+        banish s
+    banish f
+    return ""
+
+## Obtiene un int de un objeto.
+weave field_int with v as JsonValue, key as string, dflt as int into int:
+    var f as maybe JsonValue is calling v.get with key
+    if f.is_present:
+        var fv2 as JsonValue is f.value
+        var i as maybe i64 is calling fv2.as_int
+        banish f
+        if i.is_present:
+            return (i.value to int)
+        banish i
+    banish f
+    return dflt
+
+## didOpen.
+weave did_open with st as ref to State, params as JsonValue into void:
+    var td as maybe JsonValue is calling params.get with "textDocument"
+    if not td.is_present:
+        banish td
+        return
+    var u as string is calling field_string with td.value, "uri"
+    var text as string is calling field_string with td.value, "text"
+    var ver as int is calling field_int with td.value, "version", 0
+    banish td
+    var doc as Document is with text is (calling copy with text), version is ver
+    calling st->docs.put with (calling copy with u), doc
+    calling publish with st, u, text, ver
+    banish text
+    banish u
+
+## didChange (full sync).
+weave did_change with st as ref to State, params as JsonValue into void:
+    var td as maybe JsonValue is calling params.get with "textDocument"
+    if not td.is_present:
+        banish td
+        return
+    var u as string is calling field_string with td.value, "uri"
+    var ver as int is calling field_int with td.value, "version", 0
+    banish td
+    var cget as maybe JsonValue is calling params.get with "contentChanges"
+    if not cget.is_present:
+        banish cget
+        banish u
+        return
+    var cgv as JsonValue is cget.value
+    var changes as maybe list of JsonValue is calling cgv.as_array
+    banish cget
+    if changes.is_present:
+        if changes.value.len > 0:
+            var text as string is calling field_string with (changes.value at 0), "text"
+            if calling st->docs.has with u:
+                var old as Document is (st->docs at u)
+                banish old.text
+            var doc as Document is with text is (calling copy with text), version is ver
+            calling st->docs.put with (calling copy with u), doc
+            banish text
+        calling json.free_values with changes.value
+    banish changes
+    banish u
+
+## didClose.
+weave did_close with st as ref to State, params as JsonValue into void:
+    var td as maybe JsonValue is calling params.get with "textDocument"
+    if not td.is_present:
+        banish td
+        return
+    var u as string is calling field_string with td.value, "uri"
+    banish td
+    if calling st->docs.has with u:
+        var old as Document is (st->docs at u)
+        banish old.text
+    var ignr as bool is calling st->docs.remove with u
+    var arr as JsonValue is calling JsonValue.empty_array
+    var p2 as JsonValue is calling JsonValue.empty_object
+    calling p2.put_json with "uri", (calling JsonValue.string_val with (calling copy with u))
+    calling p2.put_json with "diagnostics", arr
+    var note as rpc.JsonRpcMessage is calling rpc.notification with "textDocument/publishDiagnostics", (some p2)
+    var ok as bool is calling send_msg with st, note
+    banish note
+    banish u
+
+## Dispatch de request.
+weave handle_request with st as ref to State, id as rpc.JsonRpcId, method as string, params as maybe JsonValue into void:
+    if method == "initialize":
+        calling handle_initialize with st, id, params
+    else if method == "shutdown":
+        calling handle_shutdown with st, id
+    else:
+        calling send_method_error with st, id, method
+
+## Dispatch de notification.
+weave handle_notification with st as ref to State, method as string, params as maybe JsonValue into void:
+    if method == "initialized":
+        return
+    if method == "exit":
+        set st->shutdown is true
+        return
+    if params.is_present:
+        if method == "textDocument/didOpen":
+            calling did_open with st, params.value
+        else if method == "textDocument/didChange":
+            calling did_change with st, params.value
+        else if method == "textDocument/didClose":
+            calling did_close with st, params.value
+
+## Bucle principal.
+weave run_with with tr as transport.Transport, root as string, exe as string into int:
+    var st as State is with tr is tr, docs is map of string to Document, root is root, exe is exe, initialized is false, shutdown is false
+    while true:
+        var body as maybe string is calling transport.read_frame with (sigil of st.tr)
+        if not body.is_present:
+            banish body
+            break
+        var fixed as string is calling scrolls.replace_all with body.value, r""""params":null""", r""""params":{}"""
+        var fixed2 as string is calling scrolls.replace_all with fixed, r""""params": null""", r""""params":{}"""
+        banish fixed
+        var pr as result of rpc.JsonRpcMessage to rpc.JsonRpcParseError is calling rpc.parse_message with fixed2
+        banish fixed2
+        banish body
+        if not pr.is_ok:
+            var pid as rpc.JsonRpcId is with Number is 0
+            var out as rpc.JsonRpcMessage is calling rpc.response_error with pid, (calling rpc.error_parse)
+            var okp as bool is calling send_msg with (sigil of st), out
+            banish out
+            banish pr
+            continue
+        var msg as rpc.JsonRpcMessage is pr.value
+        var ignored as int is judge msg:
+            when RpcRequest with id, method, params ->
+                calling handle_request with (sigil of st), id, method, params
+                0
+            when Notification with method, params ->
+                calling handle_notification with (sigil of st), method, params
+                0
+            when ResponseOk with id, result ->
+                0
+            when ResponseError with id, err ->
+                0
+        banish msg
+    var code as int is 1
+    if st.shutdown:
+        set code is 0
+    calling transport.close with (sigil of st.tr)
+    return code

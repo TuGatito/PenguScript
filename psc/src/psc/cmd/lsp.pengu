@@ -1,0 +1,108 @@
+## psc/cmd/lsp.pengu — `psc lsp` (F8).
+
+include "sys/socket.h"
+include "netdb.h"
+include "unistd.h"
+include "errno.h"
+
+import std.net
+import std.rites
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.lsp.server as lsp
+import psc.lsp.transport as transport
+import psc.sema.names as npool
+
+insignia psc_cmd_lsp_
+
+## Ayuda.
+weave print_help into void:
+    calling spark.println with "Usage: psc lsp [--stdio|--tcp] [--host=HOST] [--port=PORT]"
+    calling spark.println with "  --stdio        LSP over stdin/stdout (default)"
+    calling spark.println with "  --tcp          LSP over TCP (one client)"
+    calling spark.println with "  --host=HOST    bind host (default 127.0.0.1)"
+    calling spark.println with "  --port=PORT    bind port (default 2087)"
+    calling spark.println with "  --help"
+
+## Copia owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Implementa `psc lsp`.
+weave run_lsp with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--host"
+    calling vf.push with "--port"
+    var sf as list of string is list of string
+    calling sf.push with "--stdio"
+    calling sf.push with "--tcp"
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling print_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var cwd as maybe string is calling rites.getcwd
+    var root as string is "."
+    if cwd.is_present:
+        banish root
+        set root is calling copy with cwd.value
+    banish cwd
+    var tcp as bool is calling cliargs.enabled with (sigil of pr.args), "--tcp"
+    if tcp:
+        var hraw as string is calling cliargs.value with (sigil of pr.args), "--host"
+        var host as string is calling copy with hraw
+        if host length == 0:
+            banish host
+            set host is calling copy with "127.0.0.1"
+        var port as int is 2087
+        var ps as string is calling cliargs.value with (sigil of pr.args), "--port"
+        if ps length > 0:
+            var pm as maybe int is calling spark.parse_int with ps
+            if pm.is_present:
+                set port is pm.value
+            banish pm
+        var lr as result of net.Socket to string is calling net.listen with host, port
+        if not lr.is_ok:
+            var e2 as string is lr.error
+            var msg as string is "psc lsp: cannot listen on {host}:{port}: {e2}"
+            calling spark.eprintln with msg
+            banish msg
+            banish e2
+            banish lr
+            banish host
+            banish root
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 1
+        var server as net.Socket is lr.value
+        var ar as result of net.Socket to string is calling net.accept with (sigil of server)
+        calling net.close with (sigil of server)
+        if not ar.is_ok:
+            var e3 as string is ar.error
+            var msg2 as string is "psc lsp: accept failed: {e3}"
+            calling spark.eprintln with msg2
+            banish msg2
+            banish e3
+            banish ar
+            banish host
+            banish root
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 1
+        var tr as transport.Transport is calling transport.tcp_with with ar.value
+        var code as int is calling lsp.run_with with tr, root, (args at 0)
+        banish host
+        banish root
+        calling cliargs.free_parse_result with (sigil of pr)
+        return code
+    var tr2 as transport.Transport is calling transport.stdio
+    var code2 as int is calling lsp.run_with with tr2, root, (args at 0)
+    banish root
+    calling cliargs.free_parse_result with (sigil of pr)
+    return code2

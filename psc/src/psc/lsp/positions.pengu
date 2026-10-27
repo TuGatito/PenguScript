@@ -1,0 +1,96 @@
+## psc/lsp/positions.pengu — offsets de byte <-> (línea, UTF-16).
+
+import std.json
+
+insignia psc_lsp_positions_
+
+## Cuenta code units UTF-16 de un string.
+weave utf16_len with s as string into int:
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    var n as int is 0
+    while i < s length:
+        var c as int is ((b at i) to int)
+        var extra as int is 0
+        if c < 128:
+            set extra is 1
+        else if c < 224:
+            set extra is 2
+        else if c < 240:
+            set extra is 3
+        else:
+            set extra is 4
+        if extra == 4:
+            set n is n + 2
+        else:
+            set n is n + 1
+        set i is i + extra
+    return n
+
+## Inicio de byte de una línea 0-indexed.
+weave line_start with text as string, line as int into int:
+    var b as ref to frozen byte is bytes of text
+    var l as int is 0
+    var i as int is 0
+    while i < text length:
+        if l >= line:
+            return i
+        if ((b at i) to int) == 10:
+            set l is l + 1
+        set i is i + 1
+    return text length
+
+## Posición LSP (0-indexed) de un offset de byte.
+weave position_json with text as string, off as int into JsonValue:
+    var b as ref to frozen byte is bytes of text
+    var line as int is 0
+    var ls as int is 0
+    var i as int is 0
+    var limit as int is off
+    if limit > text length:
+        set limit is text length
+    while i < limit:
+        if ((b at i) to int) == 10:
+            set line is line + 1
+            set ls is i + 1
+        set i is i + 1
+    var prefix as string is text at ls to limit
+    var ch as int is calling utf16_len with prefix
+    banish prefix
+    var o as JsonValue is calling JsonValue.empty_object
+    calling o.put_json with "line", (calling JsonValue.int_val with (line to i64))
+    calling o.put_json with "character", (calling JsonValue.int_val with (ch to i64))
+    return o
+
+## Range LSP de un span de bytes.
+weave range_json with text as string, start as int, end as int into JsonValue:
+    var o as JsonValue is calling JsonValue.empty_object
+    calling o.put_json with "start", (calling position_json with text, start)
+    calling o.put_json with "end", (calling position_json with text, end)
+    return o
+
+## Offset de byte de una posición LSP (0-indexed, UTF-16).
+weave offset_at with text as string, line as int, character as int into int:
+    var ls as int is calling line_start with text, line
+    var b as ref to frozen byte is bytes of text
+    var i as int is ls
+    var units as int is 0
+    while i < text length and units < character:
+        var c as int is ((b at i) to int)
+        var extra as int is 0
+        if c < 128:
+            set extra is 1
+        else if c < 224:
+            set extra is 2
+        else if c < 240:
+            set extra is 3
+        else:
+            set extra is 4
+        if extra == 4:
+            set units is units + 2
+        else:
+            set units is units + 1
+        set i is i + extra
+        if ((b at (i - 1)) to int) == 10:
+            break
+    return i

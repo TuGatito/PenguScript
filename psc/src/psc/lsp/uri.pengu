@@ -1,0 +1,99 @@
+## psc/lsp/uri.pengu — file:// <-> path.
+
+import std.builder
+import std.compass
+import psc.sema.names as npool
+
+insignia psc_lsp_uri_
+
+## Copia owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Hex de un nibble.
+weave hexd with n as int into char:
+    if n < 10:
+        return ((48 + n) to char)
+    return ((55 + n) to char)
+
+## `true` si un byte es seguro sin percent-encoding.
+weave safe with c as int into bool:
+    return (c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 45 or c == 46 or c == 95 or c == 126 or c == 47
+
+## Convierte un path a `file://...`.
+##
+## ## Memoria
+## Devuelve string owned.
+weave path_to_uri with path as string into string:
+    var abs as string is calling compass.cp_absolute with path
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "file://"
+    if abs length > 0 and (abs at 0 to 1) != "/":
+        calling sb.append with "/"
+    var b as ref to frozen byte is bytes of abs
+    var i as int is 0
+    while i < abs length:
+        var c as int is ((b at i) to int)
+        if calling safe with c:
+            calling sb.append_char with (c to char)
+        else:
+            calling sb.append_char with '%'
+            calling sb.append_char with (calling hexd with (c / 16))
+            calling sb.append_char with (calling hexd with (c % 16))
+        set i is i + 1
+    banish abs
+    return calling sb.finish
+
+## Convierte `file://...` a path.
+##
+## ## Memoria
+## Devuelve string owned.
+weave uri_to_path with uri as string into string:
+    var rest as string is uri
+    if calling starts_with with uri, "file://":
+        set rest is uri at 7 to (uri length)
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var b as ref to frozen byte is bytes of rest
+    var i as int is 0
+    while i < rest length:
+        var c as int is ((b at i) to int)
+        if c == 37 and i + 2 < rest length:
+            var h1 as int is calling hexv with ((b at (i + 1)) to int)
+            var h2 as int is calling hexv with ((b at (i + 2)) to int)
+            if h1 >= 0 and h2 >= 0:
+                calling sb.append_char with ((h1 * 16 + h2) to char)
+                set i is i + 3
+                continue
+        calling sb.append_char with (c to char)
+        set i is i + 1
+    var out as string is calling sb.finish
+    if out length >= 3:
+        var c0 as string is out at 0 to 1
+        var c2 as string is out at 2 to 3
+        if c0 == "/" and c2 == ":":
+            var o2 as string is out at 1 to (out length)
+            banish out
+            set out is o2
+        banish c2
+        banish c0
+    return out
+
+## Valor hex o -1.
+weave hexv with c as int into int:
+    if c >= 48 and c <= 57:
+        return c - 48
+    if c >= 65 and c <= 70:
+        return c - 55
+    if c >= 97 and c <= 102:
+        return c - 87
+    return -1
+
+## `true` si `s` empieza por `p`.
+weave starts_with with s as string, p as string into bool:
+    var n as int is s length
+    var m as int is p length
+    if m > n:
+        return false
+    return (s at 0 to m) == p
