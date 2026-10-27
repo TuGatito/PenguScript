@@ -14,7 +14,17 @@
 | Documentos | `didOpen`, `didChange` full-sync, `didClose` |
 | URI | `file://` <-> path, percent-encoding, drive letter |
 | UTF-16 | conversión byte <-> línea/character UTF-16 |
-| Diagnósticos | notificación `publishDiagnostics` vacía estable; el análisis con contenido queda pendiente |
+| Diagnósticos | `psc check --diagnostics=json` en subproceso y `publishDiagnostics` con contenido; falta convertir columnas a UTF-16 |
+| Hover | firma/línea de declaración |
+| Definition / implementation | definición por declaración; implementation delega en definition |
+| Completion | keywords + identificadores del documento |
+| References / highlight | ocurrencias del identificador |
+| Symbols | documentSymbol y workspace/symbol |
+| Folding | bloques por indentación |
+| Formatting | `psc fmt --stdin` vía F7 |
+| Rename | prepareRename + WorkspaceEdit |
+| Signature help | parámetros desde la firma textual |
+| Code lens | `Run` para `main`, `Run test` para tests |
 | Build | `psc 0.8.0 (F8)`; bootstrap estable |
 | Tests | `tests/psc/test_f8_lsp.py`: lifecycle stdio + TCP |
 | C includes | deduplicación por texto, no por módulo; `netdb.h`/`unistd.h` llegan al bundle |
