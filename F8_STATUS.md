@@ -28,13 +28,13 @@
 | Caches | workspace symbols se indexan una vez y se invalidan al editar |
 | Code actions | acción “Format document” |
 | On-type | `:` inserta salto e indentación |
-| Tests | `test_f8_lsp.py` + `test_f8_features.py` + `test_f8_stress.py` (5 tests; 1 000 didChange) |
+| Tests | LSP + features + stress + interpolación/caché (6 archivos; 15 tests) |
 | Bootstrap | punto fijo OK; gcc/clang/TCC READY |
 | Stress | 1 000 didChange (sin cambios) OK |
 
 ## Pendiente
 
-1. ASan específico del LSP con 1 000 `didChange` (el binario ASan no completó el handshake en esta sesión).
+1. **ASan LSP**: con el fix de `{x length}` el handshake O1 ya emite `Content-Length` correcto, pero `didOpen` todavía cae bajo ASan; O0 completa handshake y falla el subproceso de diagnósticos por `exe` vacío. Hay que aislar ese UB.
 2. VS Code smoke (no hay runner headless disponible).
 3. Paridad fina con `pengu_lsp` y features todavía heurísticas.
 4. Algunas features siguen usando texto en vez de símbolos F3, aunque los metadatos ya existen.
