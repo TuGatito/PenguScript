@@ -1,4 +1,4 @@
-# F7 — Herramientas de desarrollo (cerrado)
+# F7 — Herramientas de desarrollo (núcleo implementado)
 
 > Base: F6. F7 convierte las herramientas MVP en paritarias, incrementales y
 > con procesos nativos.
@@ -30,6 +30,11 @@ bootstrap: punto fijo OK
 preflight gcc/clang/TCC: READY
 psc version: psc 0.7.0 (F7)
 ```
+
+## Pendiente para cerrar F7
+- `doc` basado en símbolos F3 (hoy extrae firmas de declaraciones).
+- `test --watch`.
+- Casos históricos de benchmark que el frontend F4 aún no compila.
 
 ## Notas
 
