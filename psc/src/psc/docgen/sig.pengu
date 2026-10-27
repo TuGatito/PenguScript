@@ -1,0 +1,167 @@
+## psc/docgen/sig.pengu — firmas y docs desde símbolos F3.
+##
+## Se usa como enriquecimiento del render textual: el nombre de la declaración
+## se busca en la tabla de símbolos y, si existe, la firma y el doc salen del
+## checker (tipos resueltos, defaults, genéricos).
+
+import std.builder
+
+import psc.sema.modules.program as program
+import psc.sema.names as npool
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.table as symbols
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+
+insignia psc_docgen_sig_
+
+## `NameId` de un texto.
+weave nid_of with p as ref to program.SemaProgram, name as string into int:
+    return calling npool.find with (sigil of p->names), name
+
+## Símbolo por nombre (`-1` si no).
+weave symbol_of with p as ref to program.SemaProgram, name as string into int:
+    var nid as int is calling nid_of with p, name
+    if nid < 0:
+        return -1
+    return calling symbols.lookup with (sigil of p->symbols), nid
+
+## Texto de un `NameId` (prestado).
+weave nt with p as ref to program.SemaProgram, id as int into string:
+    return calling npool.text with (sigil of p->names), id
+
+## Renderiza un tipo.
+weave type_into with tt as ref to types.SemaTypeTable, p as ref to program.SemaProgram, id as int, sb as ref to StringBuilder into void:
+    if not calling types.valid with tt, id:
+        calling sb.append with "void"
+        return
+    var ty as tk.SemaType is calling types.at with tt, id
+    if ty.kind == tk.SemaTypeKind.TkAny:
+        calling sb.append with "any"
+    else if ty.kind == tk.SemaTypeKind.TkNull:
+        calling sb.append with "null"
+    else if ty.kind == tk.SemaTypeKind.TkVoid:
+        calling sb.append with "void"
+    else if ty.kind == tk.SemaTypeKind.TkOpaque:
+        calling sb.append with "opaque"
+    else if ty.kind == tk.SemaTypeKind.TkError:
+        calling sb.append with "?"
+    else if ty.kind == tk.SemaTypeKind.TkBase or ty.kind == tk.SemaTypeKind.TkTypeParam or ty.kind == tk.SemaTypeKind.TkRune or ty.kind == tk.SemaTypeKind.TkEcho or ty.kind == tk.SemaTypeKind.TkOmen or ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal or ty.kind == tk.SemaTypeKind.TkConcept:
+        calling sb.append with (calling nt with p, ty.name)
+    else if ty.kind == tk.SemaTypeKind.TkRef:
+        calling sb.append with "ref to "
+        calling type_into with tt, p, ty.a, sb
+    else if ty.kind == tk.SemaTypeKind.TkFrozen:
+        calling sb.append with "frozen "
+        calling type_into with tt, p, ty.a, sb
+    else if ty.kind == tk.SemaTypeKind.TkArray:
+        calling sb.append with "array of "
+        calling type_into with tt, p, ty.a, sb
+        if ty.b >= 0:
+            calling sb.append with " with "
+            calling sb.append_int with ty.b
+    else if ty.kind == tk.SemaTypeKind.TkSlice:
+        calling sb.append with "slice of "
+        calling type_into with tt, p, ty.a, sb
+    else if ty.kind == tk.SemaTypeKind.TkMany:
+        calling sb.append with "many "
+        calling type_into with tt, p, ty.a, sb
+    else if ty.kind == tk.SemaTypeKind.TkList:
+        calling sb.append with "list of "
+        calling type_into with tt, p, ty.a, sb
+    else if ty.kind == tk.SemaTypeKind.TkMap:
+        calling sb.append with "map of "
+        calling type_into with tt, p, ty.a, sb
+        calling sb.append with " to "
+        calling type_into with tt, p, ty.b, sb
+    else if ty.kind == tk.SemaTypeKind.TkMaybe:
+        calling sb.append with "maybe "
+        calling type_into with tt, p, ty.a, sb
+    else if ty.kind == tk.SemaTypeKind.TkResult:
+        calling sb.append with "result of "
+        calling type_into with tt, p, ty.a, sb
+        calling sb.append with " to "
+        calling type_into with tt, p, ty.b, sb
+    else if ty.kind == tk.SemaTypeKind.TkTuple:
+        calling sb.append with "("
+        var i as int is 0
+        while i < ty.count:
+            if i > 0:
+                calling sb.append with ", "
+            var c as int is calling types.type_child_at with tt, id, i
+            calling type_into with tt, p, c, sb
+            set i is i + 1
+        calling sb.append with ")"
+    else if ty.kind == tk.SemaTypeKind.TkRange:
+        calling sb.append with "range of "
+        calling type_into with tt, p, ty.a, sb
+    else if ty.kind == tk.SemaTypeKind.TkFn:
+        if ty.a >= 0 and ty.a < tt->fn_infos.len:
+            var fi as types.SemaFnInfo is (tt->fn_infos at ty.a)
+            calling sb.append with "weave with "
+            var pi as int is 0
+            while pi < fi.params_count:
+                if pi > 0:
+                    calling sb.append with ", "
+                var fp as types.SemaFnParam is (tt->fn_params at (fi.params_first + pi))
+                if fp.name >= 0:
+                    calling sb.append with (calling nt with p, fp.name)
+                    calling sb.append with ": "
+                calling type_into with tt, p, fp.type, sb
+                set pi is pi + 1
+            calling sb.append with " into "
+            calling type_into with tt, p, fi.return_type, sb
+        else:
+            calling sb.append with "weave"
+    else:
+        calling sb.append with "opaque"
+
+## Firma resuelta para un nombre; `""` si no es símbolo documentable.
+weave signature_for with p as ref to program.SemaProgram, name as string into string:
+    var sid as int is calling symbol_of with p, name
+    if sid < 0 or sid >= p->symbols.symbols.len:
+        return ""
+    var si as sym.SemaSymbol is (p->symbols.symbols at sid)
+    if not (si.kind == sym.SemaSymbolKind.SkWeave or si.kind == sym.SemaSymbolKind.SkDeclare or si.kind == sym.SemaSymbolKind.SkConst):
+        return ""
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var disp as string is calling nt with p, si.name
+    if si.kind == sym.SemaSymbolKind.SkConst:
+        calling sb.append with "**"
+        calling sb.append with disp
+        calling sb.append with "** : "
+        calling type_into with (sigil of p->types), p, si.type, (sigil of sb)
+        return calling sb.finish
+    var ty as tk.SemaType is calling types.at with (sigil of p->types), si.type
+    calling sb.append with "**"
+    calling sb.append with disp
+    calling sb.append with "**("
+    if ty.kind == tk.SemaTypeKind.TkFn and ty.a >= 0 and ty.a < p->types.fn_infos.len:
+        var fi as types.SemaFnInfo is (p->types.fn_infos at ty.a)
+        var pi as int is 0
+        while pi < fi.params_count:
+            if pi > 0:
+                calling sb.append with ", "
+            var fp as types.SemaFnParam is (p->types.fn_params at (fi.params_first + pi))
+            if fp.name >= 0:
+                calling sb.append with (calling nt with p, fp.name)
+                calling sb.append with ": "
+            calling type_into with (sigil of p->types), p, fp.type, (sigil of sb)
+            set pi is pi + 1
+        calling sb.append with ") -> "
+        calling type_into with (sigil of p->types), p, fi.return_type, (sigil of sb)
+    else:
+        calling sb.append with ") -> "
+        calling type_into with (sigil of p->types), p, si.type, (sigil of sb)
+    return calling sb.finish
+
+## Doc comment resuelto para un nombre (prestado; `""` si no).
+weave doc_for with p as ref to program.SemaProgram, name as string into string:
+    var sid as int is calling symbol_of with p, name
+    if sid < 0 or sid >= p->symbols.symbols.len:
+        return ""
+    var si as sym.SemaSymbol is (p->symbols.symbols at sid)
+    if si.doc < 0:
+        return ""
+    return calling nt with p, si.doc

@@ -1,5 +1,9 @@
 ## psc/cmd/test.pengu — `psc test`.
 
+import std.archivum
+import std.builder
+import std.chronicle
+import std.compass
 import std.rites
 import std.spark
 
@@ -24,6 +28,33 @@ weave print_help into void:
     calling spark.println with "  --verbose"
     calling spark.println with "  --help"
 
+## Huella de un archivo/directorio.
+weave fingerprint with path as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var abs as string is calling compass.cp_absolute with path
+    var files as list of string is list of string
+    if calling archivum.is_dir with abs:
+        set files is calling archivum.find_files with abs, true
+    else:
+        calling files.push with (calling copy with abs)
+    for f in files:
+        calling sb.append with f
+        var mt as maybe float is calling archivum.modified_time with f
+        if mt.is_present:
+            calling sb.append with ":"
+            calling sb.append_float with mt.value
+        banish mt
+        var sz as maybe int is calling archivum.file_size with f
+        if sz.is_present:
+            calling sb.append with ":"
+            calling sb.append_int with sz.value
+        banish sz
+        banish f
+    banish files
+    banish abs
+    return calling sb.finish
+
 ## Implementa `psc test`.
 ##
 ## ## Memoria
@@ -46,6 +77,29 @@ weave run_test with args as list of string into int:
         return 2
     if calling cliargs.enabled with (sigil of pr.args), "help":
         calling print_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    if calling cliargs.enabled with (sigil of pr.args), "--watch":
+        var childargs as list of string is list of string
+        for a in args:
+            if a != "--watch":
+                calling childargs.push with (calling copy with a)
+        var target as string is "."
+        if pr.args.positionals.len > 0:
+            set target is (pr.args.positionals at 0)
+        var fp0 as string is calling fingerprint with target
+        while true:
+            var rc as int is calling proc.run_argv with childargs
+            while true:
+                calling chronicle.sleep_ms with 300
+                var fp1 as string is calling fingerprint with target
+                if fp1 != fp0:
+                    banish fp0
+                    set fp0 is fp1
+                    break
+                banish fp1
+        banish fp0
+        banish childargs
         calling cliargs.free_parse_result with (sigil of pr)
         return 0
     var o as driver.BuildOptions is calling driver.default_options
