@@ -62,6 +62,74 @@ weave triple_count with line as string into int:
             set i is i + 1
     return n
 
+## Configuración de formato.
+##
+## ## Memoria
+## POD.
+rune FmtConfig:
+    width as int
+    tabs as bool
+    blank as int
+
+## Carga `.pengufmt.toml` (claves planas `indent`, `tabs`, `blank_lines_max`).
+##
+## ## Memoria
+## Devuelve POD; no retiene.
+weave load_config with path as string into FmtConfig:
+    var c as FmtConfig is with width is 4, tabs is false, blank is 2
+    var p as string is path
+    if p length == 0:
+        set p is ".pengufmt.toml"
+    if calling archivum.is_dir with p:
+        var p2 as string is "{p}/.pengufmt.toml"
+        set p is p2
+    var t as maybe string is calling archivum.read_text with p
+    if t.is_present:
+        var ttext as string is t.value
+        var lines as list of string is calling ttext.split with "\n"
+        for line in lines:
+            var tline as string is line at 0 to (line length)
+            var eq as int is 0
+            while eq < tline length and (tline at eq to (eq + 1)) != "=":
+                set eq is eq + 1
+            if eq < tline length:
+                var k as string is tline at 0 to eq
+                var v as string is tline at (eq + 1) to (tline length)
+                # trim simple
+                var kb as ref to frozen byte is bytes of k
+                var ke as int is k length
+                while ke > 0 and (((kb at (ke - 1)) to int) == 32 or ((kb at (ke - 1)) to int) == 9):
+                    set ke is ke - 1
+                set k is k at 0 to ke
+                var vb as ref to frozen byte is bytes of v
+                var vs as int is 0
+                while vs < v length and (((vb at vs) to int) == 32 or ((vb at vs) to int) == 9):
+                    set vs is vs + 1
+                set v is v at vs to (v length)
+                if k == "indent" or k == "tab_size":
+                    var pm as maybe int is calling spark.parse_int with v
+                    if pm.is_present and pm.value > 0:
+                        set c.width is pm.value
+                    banish pm
+                else if k == "tabs" or k == "insert_spaces":
+                    if v == "true":
+                        set c.tabs is true
+                    else if v == "false":
+                        set c.tabs is false
+                    else if k == "insert_spaces" and v == "false":
+                        set c.tabs is true
+                else if k == "blank_lines_max":
+                    var pn as maybe int is calling spark.parse_int with v
+                    if pn.is_present and pn.value >= 0:
+                        set c.blank is pn.value
+                    banish pn
+                banish k
+                banish v
+            banish tline
+        banish lines
+    banish t
+    return c
+
 ## Detecta la unidad de indentación del fuente.
 ##
 ## ## Memoria
@@ -191,9 +259,9 @@ weave format_text with text as string, width as int, tabs as bool, blank_max as 
 ##
 ## ## Memoria
 ## Libera texto.
-weave run_stdin with width as int, tabs as bool, check_only as bool into int:
+weave run_stdin with width as int, tabs as bool, blank_max as int, check_only as bool into int:
     var text as string is calling io.read_stdin_all
-    var fmt as string is calling format_text with text, width, tabs, 2
+    var fmt as string is calling format_text with text, width, tabs, blank_max
     if check_only:
         var same as bool is fmt == text
         banish fmt
@@ -237,6 +305,11 @@ weave run_fmt with args as list of string into int:
     var tabs as bool is calling cliargs.enabled with (sigil of pr.args), "--tabs"
     var verbose as bool is calling cliargs.enabled with (sigil of pr.args), "--verbose"
     var width as int is 4
+    var cfgp as string is calling cliargs.value with (sigil of pr.args), "--config"
+    var cfg as FmtConfig is calling load_config with cfgp
+    set width is cfg.width
+    if cfg.tabs:
+        set tabs is true
     var ins as string is calling cliargs.value with (sigil of pr.args), "--indent"
     if ins length > 0:
         var pm as maybe int is calling spark.parse_int with ins
@@ -244,7 +317,7 @@ weave run_fmt with args as list of string into int:
             set width is pm.value
         banish pm
     if calling cliargs.enabled with (sigil of pr.args), "--stdin":
-        var rc as int is calling run_stdin with width, tabs, check_only
+        var rc as int is calling run_stdin with width, tabs, cfg.blank, check_only
         calling cliargs.free_parse_result with (sigil of pr)
         return rc
     var changed as int is 0
@@ -267,7 +340,7 @@ weave run_fmt with args as list of string into int:
             var txtm as maybe string is calling archivum.read_text with f
             if txtm.is_present:
                 var original as string is txtm.value
-                var fmt as string is calling format_text with original, width, tabs, 2
+                var fmt as string is calling format_text with original, width, tabs, cfg.blank
                 if fmt != original:
                     set changed is changed + 1
                     if verbose or check_only:

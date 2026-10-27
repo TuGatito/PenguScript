@@ -33,8 +33,8 @@ preflight gcc/clang/TCC: READY
 
 ## Pendiente para “F6 completo” según el plan
 
-1. **Formatter con paridad stage0 completa** (espaciado `is/as/into`,
-   `.pengufmt.toml`; ya detecta unidad, reindenta y muestra diff por línea).
+1. **Formatter**: espaciado `is/as/into` (ya detecta unidad, reindenta, lee
+   `.pengufmt.toml` y muestra diff por línea).
 2. **Doc**: búsqueda HTML y extracción de firmas/tipos como `pengu_doc`.
 3. **Assets**: `.incbin` para assets grandes (embed/disk y exclude ya
    implementados).
