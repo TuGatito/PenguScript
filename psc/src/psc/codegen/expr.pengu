@@ -2586,36 +2586,59 @@ weave interp_expr with c as ref to context.CgContext, content as string into str
                     calling args.append with ", "
                 var expr_c as string is ""
                 var arg_ty as int is -1
-                var dotp as int is -1
-                var ii as int is 0
-                while ii < inner length:
-                    if (inner at ii) == ".":
-                        set dotp is ii
+                var base_end as int is 0
+                while base_end < inner length:
+                    var bc as string is inner at base_end to (base_end + 1)
+                    if bc == "." or bc == "-":
+                        banish bc
                         break
-                    set ii is ii + 1
-                if dotp >= 0:
-                    var base_s as string is inner at 0 to dotp
-                    var rest as string is inner at (dotp + 1) to (inner length)
-                    var bnid as int is calling npool.intern with (sigil of c->program->names), base_s
+                    banish bc
+                    set base_end is base_end + 1
+                var base_s as string is inner at 0 to base_end
+                var bnid as int is calling npool.intern with (sigil of c->program->names), base_s
+                var blc as int is calling context.local_c_name with c, bnid
+                if blc >= 0:
                     var bty as int is calling context.local_type with c, bnid
-                    var blc as int is calling context.local_c_name with c, bnid
-                    if blc >= 0:
-                        set expr_c is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), blc)
-                        set arg_ty is bty
-                        var fld as string is rest
-                        var fnid as int is calling npool.intern with (sigil of c->program->names), fld
-                        var fty as int is calling nominal_field_type with c, bty, fnid
-                        var fns as string is fld
-                        set expr_c is "{expr_c}.{fns}"
-                        set arg_ty is fty
-                    banish rest
-                    banish base_s
-                else:
-                    var nid as int is calling npool.intern with (sigil of c->program->names), inner
-                    var lc as int is calling context.local_c_name with c, nid
-                    if lc >= 0:
-                        set expr_c is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), lc)
-                        set arg_ty is calling context.local_type with c, nid
+                    var esb as StringBuilder is calling StringBuilder.new
+                    defer banish esb
+                    var bcn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), blc)
+                    calling esb.append with bcn
+                    banish bcn
+                    var cur_ty as int is bty
+                    var pos as int is base_end
+                    while pos < inner length:
+                        var sep as string is inner at pos to (pos + 1)
+                        var adv as int is 1
+                        if sep == "-" and pos + 1 < inner length and (inner at (pos + 1) to (pos + 2)) == ">":
+                            banish sep
+                            set sep is "->"
+                            set adv is 2
+                        var seg_start as int is pos + adv
+                        var seg_end as int is seg_start
+                        while seg_end < inner length:
+                            var sc as string is inner at seg_end to (seg_end + 1)
+                            if sc == "." or sc == "-":
+                                banish sc
+                                break
+                            banish sc
+                            set seg_end is seg_end + 1
+                        var seg as string is inner at seg_start to seg_end
+                        calling esb.append with sep
+                        if seg == "len" or seg == "length":
+                            calling esb.append with seg
+                            set cur_ty is calling types.base with (sigil of c->program->types), "int"
+                        else:
+                            var sfid as int is calling npool.intern with (sigil of c->program->names), seg
+                            var sfty as int is calling nominal_field_type with c, cur_ty, sfid
+                            calling esb.append with seg
+                            if sfty >= 0:
+                                set cur_ty is sfty
+                        banish seg
+                        banish sep
+                        set pos is seg_end
+                    set expr_c is calling esb.finish
+                    set arg_ty is cur_ty
+                banish base_s
                 if expr_c == "":
                     calling fmt.append with "%s"
                     calling args.append with "pengu_string_from_cstr(\"\")"

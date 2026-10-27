@@ -70,7 +70,7 @@ weave choose_cc with override as string, configured as string into string:
     if t.is_present:
         return t.value
     banish t
-    return ""
+    return calling copy with "gcc"
 
 ## Añade un directorio de include si existe.
 ##

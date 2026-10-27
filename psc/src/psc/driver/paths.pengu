@@ -29,7 +29,8 @@ rune Paths:
 ## ## Memoria
 ## Devuelve un string owned o `""`.
 weave find_repo_root with base_dir as string into string:
-    var d as string is calling compass.cp_normalize with base_dir
+    var normalized as string is calling compass.cp_normalize with base_dir
+    var d as string is calling npool.copy_string with normalized
     var i as int is 0
     while i < 8:
         var std_dir as string is "{d}/std"
@@ -37,7 +38,7 @@ weave find_repo_root with base_dir as string into string:
         if (calling archivum.is_dir with std_dir) and (calling archivum.is_dir with lib_dir):
             banish std_dir
             banish lib_dir
-            return d
+            return calling npool.copy_string with d
         banish std_dir
         banish lib_dir
         var parent as string is calling compass.cp_dirname with d
@@ -45,10 +46,8 @@ weave find_repo_root with base_dir as string into string:
             banish parent
             banish d
             return ""
-        banish d
         set d is parent
         set i is i + 1
-    banish d
     return ""
 
 ## Primer archivo existente de una lista.
@@ -97,8 +96,11 @@ weave find_paths with base_dir as string into Paths:
     if repo length == 0:
         var cw as maybe string is calling rites.getcwd
         if cw.is_present:
-            set repo is calling find_repo_root with cw.value
-        banish cw
+            var rr as string is calling find_repo_root with cw.value
+            banish repo
+            set repo is "{rr}"
+            banish rr
+        # cw se mantiene vivo: cp_normalize/find_repo_root pueden devolver vistas.
     var archive as string is ""
     var include as string is ""
     var stdc as string is ""

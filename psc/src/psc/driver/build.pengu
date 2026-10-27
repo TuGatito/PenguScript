@@ -97,23 +97,22 @@ weave current_dir into string:
 ## ## Memoria
 ## Devuelve string owned o `""`.
 weave find_manifest_root with start as string into string:
-    var d as string is calling compass.cp_normalize with start
+    var normalized as string is calling compass.cp_normalize with start
+    var d as string is calling copy with normalized
     var i as int is 0
     while i < 8:
         var f as string is "{d}/pengu.toml"
         if calling archivum.is_file with f:
             banish f
-            return d
+            return calling npool.copy_string with d
         banish f
         var parent as string is calling compass.cp_dirname with d
         if parent == d:
             banish parent
             banish d
             return ""
-        banish d
         set d is parent
         set i is i + 1
-    banish d
     return ""
 
 ## Opciones por defecto.

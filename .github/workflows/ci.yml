@@ -57,6 +57,47 @@ jobs:
           python pengu_project.py selftest --smoke
 
   # ----------------------------------------------------------------------
+  # F5: PSC compila PSC y el driver usa gcc/clang/TCC.
+  # ----------------------------------------------------------------------
+  psc-selfhost:
+    name: PSC self-host (gcc + clang + TCC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install TCC
+        run: sudo apt-get update && sudo apt-get install -y tcc
+
+      - name: Build PSC stage1 with stage0
+        run: |
+          cd psc
+          python ../pengu_project.py build
+
+      - name: Self-compile preflight (gcc, clang, TCC)
+        run: |
+          python psc/tools/selfhost_preflight.py --psc psc/build/psc --smoke
+          python psc/tools/selfhost_preflight.py --psc psc/build/psc --cc clang --smoke
+          python psc/tools/selfhost_preflight.py --psc psc/build/psc --cc "$(command -v tcc)" --smoke
+
+      - name: F5 driver acceptance
+        run: python -m pytest -q tests/psc/test_f5_acceptance.py
+
+      - name: ASan/UBSan self-compile smoke
+        run: |
+          psc/build/psc emit-c psc/src/main.pengu --out=/tmp/psc_asan.c
+          gcc -std=c11 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer             -I build/include -I . -I std_c /tmp/psc_asan.c             build/lib/libpengu_runtime.a -lm -lpthread -ldl -o /tmp/psc_asan
+          ASAN_OPTIONS=detect_leaks=0 /tmp/psc_asan version
+
+  # ----------------------------------------------------------------------
   # The real matrix: Linux / Windows / macOS.
   #   * setup-pengu builds the runtime (cached).
   #   * fmt and ruff gate the standard library and undefined names.

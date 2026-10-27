@@ -206,7 +206,10 @@ weave run_run with args as list of string into int:
         banish child
         return 1
     var art as string is r.artifact
-    var code as int is calling rites.exec with art, child
+    var raw_code as int is calling rites.exec with art, child
+    var code as int is raw_code
+    if raw_code > 255:
+        set code is (raw_code / 256) % 256
     if code < 0:
         set code is 1
     calling driver.free_result with (sigil of r)

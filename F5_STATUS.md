@@ -1,56 +1,38 @@
 # F5 — estado de implementación
 
-> Actualizado durante la sesión de implementación. Este archivo es un
-> **reporte de estado**, no el plan aprobado (`PLAN_F5_DRIVER.md`).
-
 ## Completado y verificado
 
 | Área | Estado |
 |---|---|
-| F5a self-compile gate | `psc emit-c psc/src/main.pengu` compila con **gcc, clang y TCC** sin errores (`-Wall -Wextra -Werror` con gcc) |
-| Smoke | El binario resultante responde `version`, `check` y `build` |
-| F1–F4 | Suites verdes (43 passed, 5 skipped; goldens actualizados) |
-| Driver | `psc build`, `psc run`, `psc expand` para archivo y proyecto |
-| Manifiesto | `pengu.toml` (project/build/profiles) con `std.toml` |
-| Runtime | Descubrimiento de `libpengu_runtime.a`, `pengu_runtime.h`, `std/`, `std_c/` |
-| Compiladores | gcc, clang y TCC probados con `psc build` |
-| Bootstrap etapa 1 | stage1 compila PSC → **stage2** correctamente |
+| F5a self-compile | `psc emit-c psc/src/main.pengu` compila con **gcc, clang y TCC**; `-Wall -Wextra -Werror` con gcc |
+| Driver | `psc build`, `psc run`, `psc expand` para archivo y proyecto; `run` propaga el exit code |
+| Manifiesto | `pengu.toml` (`project`, `build`, `profiles`) vía `std.toml` |
+| Rutas/toolchain | runtime/header/std/std_c; `PENGU_*`; gcc/clang/TCC; `--cc`, `--out`, perfiles |
+| Bootstrap | **stage1 → stage2 → stage3 → stage4 con punto fijo**: el C de stage3 y stage4 es byte-idéntico |
+| TCC | preflight y driver probados con TCC; obligatorio en el gate Linux |
+| Tests | F1–F4 (43 passed), `test_f5_acceptance.py`, `test_f5_bootstrap.py` (`PSC_BOOTSTRAP=1`) |
+| ASan/UBSan | smoke de self-compile con `-fsanitize=address,undefined` |
+| CI | job `psc-selfhost` (gcc/clang/TCC + driver) y nightly `psc-bootstrap` |
+| Docs | `docs/selfhost/BOOTSTRAP.md`, `psc/docs/DRIVER.md` |
 
-## Bloqueo actual (honesto)
+## Reproducir
 
-El **checker de stage2 ya funciona**: `stage2 check psc/src/main.pengu` y los
-imports cualificados (`foo.hi`, `spark.println`) pasan. El bloqueo se movió a la
-**generación de C de stage2** al construir stage3:
-
-- `arena_arena_alloc_inst` colisiona entre instanciaciones genéricas de tipos
-  distintos (`JsonEntry` vs `JsonValue`).
-- Algunas interpolaciones de campos/`p->campo` siguen emitiendo argumentos
-  vacíos (`%s` con `pengu_string_from_cstr("")`).
-- Returns sin valor / expresiones vacías en `std.diagnostic` y `std/arena`.
-
-Stage2 compila PSC y genera C sintácticamente mucho más cerca de stage1, pero
-todavía no produce un bundle C compilable para stage3. Por eso:
-
-- `stage1` (construido por stage0) es correcto y se auto-compila.
-- `stage2` (construido por stage1) **se construye y ya checkea PSC**, pero su
-  codegen no completa stage3.
-- El **punto fijo stage2 == stage3** no se ha alcanzado.
-
-## Qué falta para cerrar F5
-
-1. Corregir el codegen de stage2: nombres únicos de instanciaciones genéricas,
-   interpolación de campos/accesos `->` y returns/expresiones vacías.
-2. Reconstruir stage1 → stage2 → stage3 y comparar el C normalizado.
-3. Ejecutar el corpus 66 con el driver (no con el runner de F4) y ASan.
-4. Añadir tests F5 y `docs/selfhost/BOOTSTRAP.md`.
+```bash
+cd psc
+python ../pengu_project.py build          # stage1 con stage0
+cd ..
+python psc/tools/bootstrap.py            # stage2 → stage3 → stage4; punto fijo
+python psc/tools/selfhost_preflight.py --psc psc/build/psc --smoke
+python -m pytest -q tests/psc/test_f1_acceptance.py tests/psc/test_f2_acceptance.py \
+  tests/psc/test_f3_acceptance.py tests/psc/test_f4_acceptance.py tests/psc/test_f5_acceptance.py
+PSC_BOOTSTRAP=1 python -m pytest -q tests/psc/test_f5_bootstrap.py
+```
 
 ## Notas de implementación
 
-- `psc/tools/selfhost_preflight.py` es la métrica objetiva de F5a.
-- `psc/src/psc/driver/{paths,manifest,toolchain,build}.pengu` y
-  `psc/src/psc/cmd/build.pengu` son el driver.
-- Cambios de F5a: identidad canónica de módulos, declaradores de punteros a
-  función, scopes de `defer`, evaluación comptime, `to string`, consts
-  cualificadas, igualdad de strings, listas literales, indexación con `ref`,
-  nombres C por módulo y defaults de `judge`.
-- TCC es obligatorio en el gate y funciona con el driver y con el auto-compilado.
+- Interpolación de campos anidados (`a.b.c`, `a->b`) y llaves literales.
+- Evaluación de consts en codegen como fallback del bootstrap.
+- `defer` comparte scope en bloques `else`; decodificación de escapes en strings.
+- Instanciaciones genéricas con nombre único (`_instN`).
+- El driver acepta `PENGU_STD_DIR`, `PENGU_LIB_DIR` y `PENGU_INCLUDE_DIR` para
+  instalaciones fuera del checkout.

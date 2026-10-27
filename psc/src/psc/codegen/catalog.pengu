@@ -416,8 +416,138 @@ weave add_const with p as ref to program.SemaProgram, c as ref to CgCatalog, m a
             banish full
         banish cpref
     var value as sym.SemaConst is (p->symbols.const_values at sv.const_id)
+    if value.kind == sym.SemaConstKind.CkNone:
+        var vnode as int is calling astutil.node_child with ast, node, 2
+        set value is calling const_fallback with p, m, vnode
     var cc as CgConst is with name is name, type_id is sv.type, c_name is cname, module is m.id, value is value
     calling c->consts.push with cc
+
+## Entero de un token decimal/hex.
+##
+## ## Memoria
+## No asigna.
+weave parse_int_text with t as string into i64:
+    var b as ref to frozen byte is bytes of t
+    var i as int is 0
+    var neg as bool is false
+    if t length > 0 and ((b at 0) to int) == 45:
+        set neg is true
+        set i is 1
+    var base as i64 is 10
+    if i + 1 < t length and ((b at i) to int) == 48 and (((b at (i + 1)) to int) == 120 or ((b at (i + 1)) to int) == 88):
+        set base is 16
+        set i is i + 2
+    var v as i64 is 0
+    while i < t length:
+        var code as int is ((b at i) to int)
+        if code == 95:
+            set i is i + 1
+            continue
+        var d as int is -1
+        if code >= 48 and code <= 57:
+            set d is code - 48
+        else if code >= 97 and code <= 102:
+            set d is code - 87
+        else if code >= 65 and code <= 70:
+            set d is code - 55
+        if d >= 0:
+            set v is v * base + (d to i64)
+        set i is i + 1
+    if neg:
+        set v is -v
+    return v
+
+## Evalúa constantes si F3 no guardó el valor (bootstrap stage2).
+##
+## ## Memoria
+## Devuelve POD; strings se internan.
+weave const_fallback with p as ref to program.SemaProgram, m as loader.SemaModule, node as int into sym.SemaConst:
+    var cv as sym.SemaConst is with kind is sym.SemaConstKind.CkNone, i is 0, f is 0.0, b is false, name is -1
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    if node < 0:
+        return cv
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdParenExpr:
+        return calling const_fallback with p, m, (calling astutil.node_child with ast, node, 0)
+    if k == pskind.NodeKind.NdTrueLit:
+        set cv.kind is sym.SemaConstKind.CkBool
+        set cv.b is true
+        return cv
+    if k == pskind.NodeKind.NdFalseLit:
+        set cv.kind is sym.SemaConstKind.CkBool
+        return cv
+    if k == pskind.NodeKind.NdIntLit:
+        var it as string is calling astutil.child_token_text with (sigil of m.source), (sigil of m.lex), ast, node, 0
+        set cv.kind is sym.SemaConstKind.CkInt
+        set cv.i is calling parse_int_text with it
+        banish it
+        return cv
+    if k == pskind.NodeKind.NdStringLit:
+        var st as string is calling astutil.child_token_text with (sigil of m.source), (sigil of m.lex), ast, node, 0
+        if st length >= 2:
+            var inner as string is st at 1 to (st length - 1)
+            set cv.kind is sym.SemaConstKind.CkString
+            set cv.name is calling npool.intern with (sigil of p->names), inner
+            banish inner
+        banish st
+        return cv
+    if k == pskind.NodeKind.NdNeg or k == pskind.NodeKind.NdBitNot:
+        var iv as sym.SemaConst is calling const_fallback with p, m, (calling astutil.node_child with ast, node, 0)
+        if iv.kind == sym.SemaConstKind.CkInt:
+            if k == pskind.NodeKind.NdNeg:
+                set iv.i is 0 - iv.i
+            else:
+                set iv.i is ~iv.i
+        return iv
+    if k == pskind.NodeKind.NdVarRef:
+        var vt as string is calling astutil.child_token_text with (sigil of m.source), (sigil of m.lex), ast, node, 0
+        var vid as int is calling npool.intern with (sigil of p->names), vt
+        banish vt
+        var sid as int is calling symbols.lookup_in_scope with (sigil of p->symbols), (calling module_scope with p, m), vid
+        if sid < 0:
+            set sid is calling symbols.lookup_name with (sigil of p->symbols), (calling npool.text with (sigil of p->names), vid)
+        if sid >= 0:
+            var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of p->symbols), sid
+            if sv.kind == sym.SemaSymbolKind.SkConst and sv.const_id >= 0:
+                return (p->symbols.const_values at sv.const_id)
+        return cv
+    if k == pskind.NodeKind.NdAdd or k == pskind.NodeKind.NdSub or k == pskind.NodeKind.NdMul or k == pskind.NodeKind.NdDiv or k == pskind.NodeKind.NdMod or k == pskind.NodeKind.NdShl or k == pskind.NodeKind.NdShr or k == pskind.NodeKind.NdBitwiseAnd or k == pskind.NodeKind.NdBitwiseOr or k == pskind.NodeKind.NdBitwiseXor:
+        var lv as sym.SemaConst is calling const_fallback with p, m, (calling astutil.node_child with ast, node, 0)
+        var rv as sym.SemaConst is calling const_fallback with p, m, (calling astutil.node_child with ast, node, 1)
+        if lv.kind == sym.SemaConstKind.CkInt and rv.kind == sym.SemaConstKind.CkInt:
+            set cv.kind is sym.SemaConstKind.CkInt
+            if k == pskind.NodeKind.NdAdd:
+                set cv.i is lv.i + rv.i
+            else if k == pskind.NodeKind.NdSub:
+                set cv.i is lv.i - rv.i
+            else if k == pskind.NodeKind.NdMul:
+                set cv.i is lv.i * rv.i
+            else if k == pskind.NodeKind.NdDiv and rv.i != 0:
+                set cv.i is lv.i / rv.i
+            else if k == pskind.NodeKind.NdMod and rv.i != 0:
+                set cv.i is lv.i % rv.i
+            else if k == pskind.NodeKind.NdBitwiseAnd:
+                set cv.i is lv.i & rv.i
+            else if k == pskind.NodeKind.NdBitwiseOr:
+                set cv.i is lv.i | rv.i
+            else if k == pskind.NodeKind.NdBitwiseXor:
+                set cv.i is lv.i ^ rv.i
+            else if k == pskind.NodeKind.NdShl:
+                var mul as i64 is 1
+                var sh as i64 is 0
+                while sh < rv.i:
+                    set mul is mul * 2
+                    set sh is sh + 1
+                set cv.i is lv.i * mul
+            else if k == pskind.NodeKind.NdShr:
+                var div as i64 is 1
+                var sh2 as i64 is 0
+                while sh2 < rv.i:
+                    set div is div * 2
+                    set sh2 is sh2 + 1
+                set cv.i is lv.i / div
+        return cv
+    return cv
 
 ## Registra un tipo de un módulo.
 ##

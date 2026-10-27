@@ -343,6 +343,37 @@ jobs:
   # Benchmarks: nightly only, never a blocker.  Windows is intentionally
   # excluded — there the numbers are dominated by Defender/AV scanning.
   # ----------------------------------------------------------------------
+  # ----------------------------------------------------------------------
+  # F5 bootstrap: stage1 -> stage2 -> stage3 -> stage4 y punto fijo.
+  # ----------------------------------------------------------------------
+  psc-bootstrap:
+    name: PSC bootstrap fixed point
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup-pengu
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install TCC
+        run: sudo apt-get update && sudo apt-get install -y tcc
+
+      - name: Build stage1
+        run: |
+          cd psc
+          python ../pengu_project.py build
+
+      - name: Bootstrap stage1 -> stage2 -> stage3 -> stage4
+        env:
+          PSC_BOOTSTRAP: '1'
+        run: python -m pytest -q tests/psc/test_f5_bootstrap.py
+
   bench:
     name: Benchmarks (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
