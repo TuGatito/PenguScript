@@ -28,16 +28,21 @@
 | Caches | workspace symbols se indexan una vez y se invalidan al editar |
 | Code actions | acción “Format document” |
 | On-type | `:` inserta salto e indentación |
-| Tests | LSP + features + stress + interpolación/caché + paridad Python (8 archivos; 17 tests) |
+| Tests | LSP + features + stress + interpolación/caché + paridad Python (8 archivos; 16 tests) |
 | Bootstrap | punto fijo OK; gcc/clang/TCC READY |
 | Stress | 1 000 didChange (sin cambios) OK, también bajo ASan/UBSan O1 |
 
 ## Pendiente
 
-1. VS Code smoke (no hay runner headless disponible).
-2. Paridad fina con `pengu_lsp` y features todavía heurísticas.
-3. Caches de documentos/import graph más finos.
-4. Algunas features siguen usando texto en vez de símbolos F3, aunque los metadatos ya existen.
+1. VS Code smoke real (no hay runner headless/xvfb en este entorno).
+2. Paridad fina del resto de features (hoy sólo diagnósticos).
+3. Varias features siguen usando texto en vez de símbolos F3, aunque los metadatos ya existen.
+
+## Cierre técnico
+
+- ASan/UBSan LSP: initialize + didOpen + 1 000 didChange, exit 0.
+- Paridad de diagnósticos contra `pengu_lsp`: código, severidad y rango inicial.
+- F8 tests: 16.
 
 ## Evidencia
 
