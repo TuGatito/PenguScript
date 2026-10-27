@@ -225,7 +225,7 @@ weave build with o as BuildOptions into BuildResult:
         calling manifest.free_manifest with (sigil of man)
         return with ok is false, error is emsg2, artifact is "", bundle_path is ""
     var p as paths.Paths is calling paths.find_paths with base
-    if not p.ok:
+    if not p.ok and not o.check_only:
         var perr as string is p.error
         banish cwd
         banish target

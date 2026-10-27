@@ -43,6 +43,9 @@ def test_f6_init_build_run_test_clean(tmp_path: Path) -> None:
     b = run(["build", "."], proj, tmp_path)
     assert b.returncode == 0, b.stderr
     assert subprocess.run([str(proj / "build" / "demo")]).returncode == 7
+    assert list((tmp_path / "cache").glob("*/app")), "project build must populate the cache"
+    b2 = run(["build", "."], proj, tmp_path)
+    assert b2.returncode == 0, b2.stderr
 
     t = run(["test", "."], proj, tmp_path)
     assert t.returncode == 0, t.stderr
