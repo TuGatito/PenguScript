@@ -45,7 +45,7 @@ weave run_gc with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 0
     var all as bool is calling cliargs.enabled with (sigil of pr.args), "--all"
-    var json as bool is calling cliargs.enabled with (sigil of pr.args), "--json"
+    var as_json as bool is calling cliargs.enabled with (sigil of pr.args), "--json"
     var before as int is calling cache.size
     var removed as int is 0
     if all:
@@ -73,7 +73,7 @@ weave run_gc with args as list of string into int:
         banish dirs
         banish root
     var after as int is calling cache.size
-    if json:
+    if as_json:
         var sb as StringBuilder is calling StringBuilder.new
         defer banish sb
         calling sb.append with "{"

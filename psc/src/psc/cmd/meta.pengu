@@ -208,8 +208,8 @@ weave run_tree with args as list of string into int:
         banish cwd
         calling cliargs.free_parse_result with (sigil of pr)
         return 1
-    var json as bool is calling cliargs.enabled with (sigil of pr.args), "--json"
-    if json:
+    var as_json as bool is calling cliargs.enabled with (sigil of pr.args), "--json"
+    if as_json:
         var tsb as StringBuilder is calling StringBuilder.new
         defer banish tsb
         calling tsb.append with "{"
