@@ -28,7 +28,7 @@
 | Caches | workspace symbols se indexan una vez y se invalidan al editar |
 | Code actions | acción “Format document” |
 | On-type | `:` inserta salto e indentación |
-| Tests | LSP + features + stress + interpolación/caché (7 archivos; 16 tests) |
+| Tests | LSP + features + stress + interpolación/caché + paridad Python (8 archivos; 17 tests) |
 | Bootstrap | punto fijo OK; gcc/clang/TCC READY |
 | Stress | 1 000 didChange (sin cambios) OK, también bajo ASan/UBSan O1 |
 
