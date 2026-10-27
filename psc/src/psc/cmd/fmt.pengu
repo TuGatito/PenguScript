@@ -111,13 +111,16 @@ weave load_config with path as string into FmtConfig:
                     if pm.is_present and pm.value > 0:
                         set c.width is pm.value
                     banish pm
-                else if k == "tabs" or k == "insert_spaces":
+                else if k == "tabs":
                     if v == "true":
                         set c.tabs is true
                     else if v == "false":
                         set c.tabs is false
-                    else if k == "insert_spaces" and v == "false":
+                else if k == "insert_spaces":
+                    if v == "false":
                         set c.tabs is true
+                    else if v == "true":
+                        set c.tabs is false
                 else if k == "blank_lines_max":
                     var pn as maybe int is calling spark.parse_int with v
                     if pn.is_present and pn.value >= 0:
@@ -171,25 +174,19 @@ weave detect_unit with lines as list of string, fallback as int into int:
 ## ## Memoria
 ## Devuelve string owned.
 weave normalize_code with s as string into string:
-    var sb as StringBuilder is calling StringBuilder.new
-    defer banish sb
+    var chars as list of char is list of char
     var b as ref to frozen byte is bytes of s
     var i as int is 0
     var in_str as bool is false
     var quote as int is 0
     var raw as bool is false
-    var last_space as bool is false
     while i < s length:
         var c as int is ((b at i) to int)
         if in_str:
-            var one as string is s at i to (i + 1)
-            calling sb.append with one
-            banish one
+            calling chars.push with (c to char)
             if c == 92 and not raw and i + 1 < s length:
                 set i is i + 1
-                var esc as string is s at i to (i + 1)
-                calling sb.append with esc
-                banish esc
+                calling chars.push with (((b at i) to int) to char)
             else if c == quote:
                 set in_str is false
             set i is i + 1
@@ -198,27 +195,16 @@ weave normalize_code with s as string into string:
             set in_str is true
             set quote is c
             set raw is i > 0 and (((b at (i - 1)) to int) == 114)
-            var q as string is s at i to (i + 1)
-            calling sb.append with q
-            banish q
-            set last_space is false
+            calling chars.push with (c to char)
             set i is i + 1
             continue
         if c == 35:
-            var rest as string is s at i to (s length)
-            calling sb.append with rest
-            banish rest
-            set i is s length
-            continue
-        if c == 32 or c == 9:
-            if not last_space:
-                calling sb.append_char with ' '
-                set last_space is true
-            set i is i + 1
+            while i < s length:
+                calling chars.push with (((b at i) to int) to char)
+                set i is i + 1
             continue
         if c == 44:
-            calling sb.append with ","
-            set last_space is false
+            calling chars.push with (44 to char)
             set i is i + 1
             while i < s length:
                 var nc as int is ((b at i) to int)
@@ -226,14 +212,47 @@ weave normalize_code with s as string into string:
                     set i is i + 1
                 else:
                     break
-            calling sb.append_char with ' '
-            set last_space is true
+            calling chars.push with (32 to char)
             continue
-        var one2 as string is s at i to (i + 1)
-        calling sb.append with one2
-        banish one2
-        set last_space is false
+        # is/as/into rodeados de whitespace
+        var word_len as int is 0
+        if c == 105 and i + 1 < s length and ((b at (i + 1)) to int) == 115:
+            set word_len is 2
+        else if c == 97 and i + 1 < s length and ((b at (i + 1)) to int) == 115:
+            set word_len is 2
+        else if c == 105 and i + 3 < s length and ((b at (i + 1)) to int) == 110 and ((b at (i + 2)) to int) == 116 and ((b at (i + 3)) to int) == 111:
+            set word_len is 4
+        if word_len > 0:
+            var before_ws as bool is i > 0 and (((b at (i - 1)) to int) == 32 or ((b at (i - 1)) to int) == 9)
+            var after_ws as bool is i + word_len < s length and (((b at (i + word_len)) to int) == 32 or ((b at (i + word_len)) to int) == 9)
+            if before_ws and after_ws:
+                while chars.len > 0:
+                    var lastc as char is (chars at (chars.len - 1))
+                    if (lastc to int) == 32 or (lastc to int) == 9:
+                        var ignored as char is calling chars.pop
+                    else:
+                        break
+                calling chars.push with (32 to char)
+                var wi as int is 0
+                while wi < word_len:
+                    calling chars.push with (((b at (i + wi)) to int) to char)
+                    set wi is wi + 1
+                calling chars.push with (32 to char)
+                set i is i + word_len
+                while i < s length:
+                    var nc2 as int is ((b at i) to int)
+                    if nc2 == 32 or nc2 == 9:
+                        set i is i + 1
+                    else:
+                        break
+                continue
+        calling chars.push with (c to char)
         set i is i + 1
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    for ch in chars:
+        calling sb.append_char with ch
+    banish chars
     return calling sb.finish
 
 ## Convierte la indentación de una línea.
@@ -243,27 +262,31 @@ weave normalize_code with s as string into string:
 weave indent_line with line as string, source_unit as int, width as int, tabs as bool into string:
     var b as ref to frozen byte is bytes of line
     var i as int is 0
-    var col as int is 0
+    var spaces as int is 0
+    var tabsn as int is 0
     while i < line length:
         var c as int is ((b at i) to int)
         if c == 32:
-            set col is col + 1
+            set spaces is spaces + 1
             set i is i + 1
         else if c == 9:
-            set col is col + width - (col % width)
+            set tabsn is tabsn + 1
             set i is i + 1
         else:
             break
-    var level as int is col / source_unit
+    var level as int is 0
+    if tabsn > 0:
+        set level is tabsn
+    else:
+        set level is spaces / source_unit
     if level < 0:
         set level is 0
     var rest as string is line at i to (line length)
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     if tabs:
-        var nt as int is level
         var ti as int is 0
-        while ti < nt:
+        while ti < level:
             calling sb.append_char with '\t'
             set ti is ti + 1
     else:
@@ -286,6 +309,9 @@ weave indent_line with line as string, source_unit as int, width as int, tabs as
 ## Devuelve string owned.
 weave format_text with text as string, width as int, tabs as bool, blank_max as int into string:
     var lines as list of string is calling text.split with "\n"
+    if calling ends_with with text, "\n":
+        if lines.len > 0 and (lines at (lines.len - 1)) length == 0:
+            var dropped as string is calling lines.pop
     var out as StringBuilder is calling StringBuilder.new
     defer banish out
     var in_triple as bool is false
@@ -313,8 +339,7 @@ weave format_text with text as string, width as int, tabs as bool, blank_max as 
         var trimmed as string is line at 0 to end
         var is_blank as bool is trimmed length == 0
         if is_blank:
-            var tail_empty as bool is i == (lines.len - 1) and (calling ends_with with text, "\n")
-            if not tail_empty and blanks < blank_max:
+            if blanks < blank_max:
                 calling out.append with "\n"
                 set blanks is blanks + 1
         else:
@@ -328,6 +353,12 @@ weave format_text with text as string, width as int, tabs as bool, blank_max as 
         banish trimmed
         set i is i + 1
     var res as string is calling out.finish
+    if not (calling ends_with with text, "\n"):
+        if res length > 0 and calling ends_with with res, "\n":
+            var cut as int is res length - 1
+            var r2 as string is res at 0 to cut
+            banish res
+            set res is r2
     return res
 
 ## Formatea stdin.
