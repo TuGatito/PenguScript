@@ -141,6 +141,7 @@ weave run_doc with args as list of string into int:
     calling vf.push with "--entry"
     calling vf.push with "--config"
     var sf as list of string is list of string
+    calling sf.push with "--html"
     calling sf.push with "--help"
     var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
     if not pr.ok:
@@ -191,12 +192,14 @@ weave run_doc with args as list of string into int:
     var src as string is "{root}/{man.src_dir}"
     var found as list of string is calling archivum.find_files with src, true
     var count as int is 0
+    var mods as list of string is list of string
     for f in found:
         if calling ends_with with f, ".pengu":
             var md as string is calling render_file with f
             var nm as string is calling basename_no_ext with f
             var target as string is "{out}/{nm}.md"
             calling archivum.write_text with target, md
+            calling mods.push with (calling copy with nm)
             banish target
             banish nm
             banish md
@@ -208,6 +211,29 @@ weave run_doc with args as list of string into int:
     calling archivum.write_text with ipath, idx
     banish ipath
     banish idx
+    if calling cliargs.enabled with (sigil of pr.args), "--html":
+        var hb as StringBuilder is calling StringBuilder.new
+        defer banish hb
+        calling hb.append with "<!doctype html><meta charset=\"utf-8\"><title>API "
+        calling hb.append with man.name
+        calling hb.append with "</title><h1>API "
+        calling hb.append with man.name
+        calling hb.append with "</h1><input id=q placeholder=\"filtrar…\"><ul id=l>"
+        for mn in mods:
+            calling hb.append with "<li><a href=\""
+            calling hb.append with mn
+            calling hb.append with ".md\">"
+            calling hb.append with mn
+            calling hb.append with "</a></li>"
+            banish mn
+        calling hb.append with "</ul>"
+        calling hb.append with r"<script>q.oninput=()=>{for(const li of l.children)li.style.display=li.textContent.includes(q.value)?'':'none'}</script>"
+        var htext as string is calling hb.finish
+        var hpath as string is "{out}/index.html"
+        calling archivum.write_text with hpath, htext
+        banish hpath
+        banish htext
+    banish mods
     var msg as string is "Generated {count} module(s) in {out}"
     calling spark.println with msg
     banish msg
