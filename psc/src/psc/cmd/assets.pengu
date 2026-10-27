@@ -1,0 +1,350 @@
+## psc/cmd/assets.pengu — `psc assets` (embed/disk, F6).
+
+import std.archivum
+import std.builder
+import std.compass
+import std.rites
+import std.scrolls
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.driver.manifest as manifest
+import psc.sema.names as npool
+
+insignia psc_cmd_assets_
+
+## Ayuda.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "Usage: psc assets [--list] [--force]"
+    calling spark.println with "  --list    list assets"
+    calling spark.println with "  --force   regenerate"
+    calling spark.println with "  --help"
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Busca el manifiesto.
+##
+## ## Memoria
+## Devuelve string owned o `""`.
+weave find_root with start as string into string:
+    var d as string is calling compass.cp_absolute with start
+    var i as int is 0
+    while i < 8:
+        var f as string is "{d}/pengu.toml"
+        if calling archivum.is_file with f:
+            banish f
+            return calling copy with d
+        banish f
+        var parent as string is calling compass.cp_dirname with d
+        if parent == d:
+            banish parent
+            banish d
+            return ""
+        banish d
+        set d is parent
+        set i is i + 1
+    banish d
+    return ""
+
+## Identificador C seguro.
+##
+## ## Memoria
+## Devuelve string owned.
+weave safe with s as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < s length:
+        var c as int is ((b at i) to int)
+        if (c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95:
+            var one as string is s at i to (i + 1)
+            calling sb.append with one
+            banish one
+        else:
+            calling sb.append with "_"
+        set i is i + 1
+    return calling sb.finish
+
+## Carácter hex.
+##
+## ## Memoria
+## Devuelve char.
+weave hexc with n as int into char:
+    if n < 10:
+        return ((48 + n) to char)
+    return ((55 + n) to char)
+
+## Emite una lista de bytes como array C.
+##
+## ## Memoria
+## No retiene.
+weave emit_bytes with sb as ref to StringBuilder, data as string, ident as string into void:
+    calling sb.append with "static const unsigned char "
+    calling sb.append with ident
+    calling sb.append with r"[] = {"
+    calling sb.append with "\n"
+    var b as ref to frozen byte is bytes of data
+    var i as int is 0
+    while i < data length:
+        if i % 16 == 0:
+            calling sb.append with "  "
+        var v as int is ((b at i) to int)
+        calling sb.append with "0x"
+        calling sb.append_char with (calling hexc with (v / 16))
+        calling sb.append_char with (calling hexc with (v % 16))
+        calling sb.append with ","
+        if i % 16 == 15:
+            calling sb.append with "\n"
+        else:
+            calling sb.append with " "
+        set i is i + 1
+    calling sb.append with "0x00,\n"
+    calling sb.append with r"};"
+    calling sb.append with "\n"
+    calling sb.append with "static const size_t "
+    calling sb.append with ident
+    calling sb.append with "_SIZE = sizeof("
+    calling sb.append with ident
+    calling sb.append with ") - 1;\n"
+
+## Escapa un nombre para C string.
+##
+## ## Memoria
+## No retiene.
+weave cstr with sb as ref to StringBuilder, s as string into void:
+    calling sb.append_char with '"'
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < s length:
+        var c as int is ((b at i) to int)
+        if c == 34:
+            calling sb.append with "\\\""
+        else if c == 92:
+            calling sb.append with "\\\\"
+        else:
+            var one as string is s at i to (i + 1)
+            calling sb.append with one
+            banish one
+        set i is i + 1
+    calling sb.append_char with '"'
+
+## Implementa `psc assets`.
+##
+## ## Memoria
+## Libera temporales.
+weave run_assets with args as list of string into int:
+    var sf as list of string is list of string
+    calling sf.push with "--list"
+    calling sf.push with "--force"
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "--help":
+        calling print_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var cwd as maybe string is calling rites.getcwd
+    if not cwd.is_present:
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var root as string is calling find_root with cwd.value
+    banish cwd
+    if root length == 0:
+        calling spark.eprintln with "psc assets: no pengu.toml found"
+        banish root
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var man as manifest.Manifest is calling manifest.load_manifest with root, "debug"
+    if not man.ok:
+        var e2 as string is man.error
+        calling spark.eprintln with e2
+        calling manifest.free_manifest with (sigil of man)
+        banish root
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var adir as string is "{root}/{man.assets_dir}"
+    if not calling archivum.is_dir with adir:
+        var m0 as string is "Assets directory not found: {adir}"
+        calling spark.println with m0
+        banish m0
+        banish adir
+        calling manifest.free_manifest with (sigil of man)
+        banish root
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var files as list of string is calling archivum.find_files with adir, true
+    var names as list of string is list of string
+    for f in files:
+        var relm as maybe string is calling compass.cp_relative_to with f, adir
+        if relm.is_present:
+            calling names.push with (calling copy with relm.value)
+        banish relm
+        banish f
+    banish files
+    if calling cliargs.enabled with (sigil of pr.args), "--list":
+        var h as string is "Assets for {man.name} ({names.len}, module {man.assets_module})"
+        calling spark.println with h
+        banish h
+        for n in names:
+            var p as string is "{adir}/{n}"
+            var sz as maybe int is calling archivum.file_size with p
+            var size as int is 0
+            if sz.is_present:
+                set size is sz.value
+            banish sz
+            var line as string is "  {n} ({size} bytes)"
+            calling spark.println with line
+            banish line
+            banish p
+            banish n
+        banish names
+        banish adir
+        calling manifest.free_manifest with (sigil of man)
+        banish root
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    # Generar interfaz y C.
+    var src as string is "{root}/{man.src_dir}"
+    var bdir as string is "{root}/{man.build_dir}"
+    calling archivum.create_dir with src, true
+    calling archivum.create_dir with bdir, true
+    var isb as StringBuilder is calling StringBuilder.new
+    defer banish isb
+    calling isb.append with "## @generated — auto-generated by `psc assets`. DO NOT EDIT.\n\n"
+    calling isb.append with "include \""
+    calling isb.append with man.assets_module
+    calling isb.append with "_assets.h\"\n\n"
+    for n in names:
+        var sn as string is calling safe with n
+        calling isb.append with "const ASSET_"
+        calling isb.append with sn
+        calling isb.append with " as string is "
+        calling isb.append_char with '"'
+        calling isb.append with n
+        calling isb.append_char with '"'
+        calling isb.append with "\n"
+        banish sn
+    calling isb.append with "\ndeclare _"
+    calling isb.append with man.assets_module
+    calling isb.append with "_count into int\n"
+    calling isb.append with "declare _"
+    calling isb.append with man.assets_module
+    calling isb.append with "_name with index as int into ref to char\n"
+    calling isb.append with "declare _"
+    calling isb.append with man.assets_module
+    calling isb.append with "_data with name as ref to frozen char into ref to frozen void\n"
+    calling isb.append with "declare _"
+    calling isb.append with man.assets_module
+    calling isb.append with "_size with name as ref to frozen char into usize\n"
+    calling isb.append with "declare _"
+    calling isb.append with man.assets_module
+    calling isb.append with "_string with name as ref to frozen char into string\n"
+    var iface as string is calling isb.finish
+    var ipath as string is "{src}/{man.assets_module}.pengu"
+    calling archivum.write_text with ipath, iface
+    banish ipath
+    banish iface
+    # Header C.
+    var hb as StringBuilder is calling StringBuilder.new
+    defer banish hb
+    calling hb.append with "/* Auto-generated by psc assets */\n#ifndef "
+    calling hb.append with man.assets_module
+    calling hb.append with "_ASSETS_H\n#define "
+    calling hb.append with man.assets_module
+    calling hb.append with "_ASSETS_H\n#include <stddef.h>\n#include \"pengu_runtime.h\"\n"
+    calling hb.append with "int _"
+    calling hb.append with man.assets_module
+    calling hb.append with "_count(void);\nchar* _"
+    calling hb.append with man.assets_module
+    calling hb.append with "_name(int index);\nconst void* _"
+    calling hb.append with man.assets_module
+    calling hb.append with "_data(const char* name);\nsize_t _"
+    calling hb.append with man.assets_module
+    calling hb.append with "_size(const char* name);\nPenguString _"
+    calling hb.append with man.assets_module
+    calling hb.append with "_string(const char* name);\n#endif\n"
+    var htext as string is calling hb.finish
+    var hpath as string is "{bdir}/{man.assets_module}_assets.h"
+    calling archivum.write_text with hpath, htext
+    banish hpath
+    banish htext
+    # C source.
+    var defs as StringBuilder is calling StringBuilder.new
+    defer banish defs
+    var ent as StringBuilder is calling StringBuilder.new
+    defer banish ent
+    for n in names:
+        var p as string is "{adir}/{n}"
+        var bm as maybe string is calling archivum.read_bytes with p
+        var sn2 as string is calling safe with n
+        var ident as string is "_{man.assets_module}_{sn2}"
+        banish sn2
+        if bm.is_present:
+            calling emit_bytes with (sigil of defs), bm.value, ident
+            calling ent.append with r"  {"
+            calling cstr with (sigil of ent), n
+            calling ent.append with ", "
+            calling ent.append with ident
+            calling ent.append with ", "
+            calling ent.append with ident
+            calling ent.append with r"_SIZE},"
+            calling ent.append with "\n"
+        banish bm
+        banish p
+        banish ident
+    var entries as string is calling ent.finish
+    var ctmpl as string is r"""/* Auto-generated by psc assets */
+#include "__MOD___assets.h"
+#include <string.h>
+__DEFS__
+typedef struct { const char* name; const void* data; size_t size; } PAEntry;
+static const PAEntry __MOD___assets[] = {
+__ENTRIES__};
+int __MOD___count(void) { return __COUNT__; }
+char* __MOD___name(int i) { if (i < 0 || i >= __COUNT__) return (char*)0; return (char*)__MOD___assets[i].name; }
+const void* __MOD___data(const char* n) { if (!n) return (const void*)0; for (int i=0;i<__COUNT__;i++) if (strcmp(__MOD___assets[i].name,n)==0) return __MOD___assets[i].data; return (const void*)0; }
+size_t __MOD___size(const char* n) { const void* p=__MOD___data(n); if(!p) return 0; for (int i=0;i<__COUNT__;i++) if (strcmp(__MOD___assets[i].name,n)==0) return __MOD___assets[i].size; return 0; }
+PenguString __MOD___string(const char* n) { const void* p=__MOD___data(n); if(!p) return pengu_string_from_cstr(""); size_t z=__MOD___size(n); PenguString s; s.data=(char*)pengu_sigil_alloc((int64_t)z+1); if(!s.data){s.len=0;s.is_owned=1;return s;} if(z) memcpy(s.data,p,z); s.data[z]=0; s.len=(int)z; s.is_owned=1; return s; }
+"""
+    var c1 as string is calling scrolls.replace_all with ctmpl, "__MOD__", man.assets_module
+    var c2 as string is calling scrolls.replace_all with c1, "__ENTRIES__", entries
+    var cnts as string is "{names.len}"
+    var dtext as string is calling defs.finish
+    var c3 as string is calling scrolls.replace_all with c2, "__COUNT__", cnts
+    var c4 as string is calling scrolls.replace_all with c3, "__DEFS__", dtext
+    var ctext as string is c4
+    banish dtext
+    banish c3
+    banish c2
+    banish c1
+    banish entries
+    var cpath as string is "{bdir}/{man.assets_module}_assets.c"
+    calling archivum.write_text with cpath, ctext
+    banish cpath
+    banish ctext
+    var msg as string is "Generated {names.len} asset(s) for module {man.assets_module}"
+    calling spark.println with msg
+    banish msg
+    banish names
+    banish bdir
+    banish src
+    banish adir
+    calling manifest.free_manifest with (sigil of man)
+    banish root
+    calling cliargs.free_parse_result with (sigil of pr)
+    return 0

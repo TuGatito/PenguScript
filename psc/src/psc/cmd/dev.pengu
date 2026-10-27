@@ -1,0 +1,127 @@
+## psc/cmd/dev.pengu — comandos dev-only: `benchmark` y `selftest`.
+##
+## No forman parte del camino de build de usuario; requieren el checkout y
+## Python (el harness histórico vive en benches/ y tests/).
+
+import std.archivum
+import std.compass
+import std.rites
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.sema.names as npool
+
+insignia psc_cmd_dev_
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## `true` si existe `path`.
+##
+## ## Memoria
+## no asigna.
+weave exists with path as string into bool:
+    return calling archivum.exists with path
+
+## Implementa `psc benchmark`.
+##
+## ## Memoria
+## Libera ParseResult.
+weave run_benchmark with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--repeat"
+    calling vf.push with "--csv"
+    calling vf.push with "--only"
+    var sf as list of string is list of string
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "--help":
+        calling spark.println with "Usage: psc benchmark [--repeat=N] [--csv=PATH] [--only=NAME]"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var cwd as maybe string is calling rites.getcwd
+    if not cwd.is_present:
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var script as string is "{cwd.value}/benches/run_bench.py"
+    if not calling exists with script:
+        calling spark.eprintln with "psc benchmark: benches/run_bench.py not found (source checkout only)"
+        banish script
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var cargs as list of string is list of string
+    calling cargs.push with script
+    var rep as string is calling cliargs.value with (sigil of pr.args), "--repeat"
+    if rep length > 0:
+        calling cargs.push with "--repeat"
+        calling cargs.push with (calling copy with rep)
+    var csv as string is calling cliargs.value with (sigil of pr.args), "--csv"
+    if csv length > 0:
+        calling cargs.push with "--csv"
+        calling cargs.push with (calling copy with csv)
+    var only as string is calling cliargs.value with (sigil of pr.args), "--only"
+    if only length > 0:
+        calling cargs.push with "--only"
+        calling cargs.push with (calling copy with only)
+    var raw as int is calling rites.exec with "python3", cargs
+    var code as int is raw
+    if raw > 255:
+        set code is (raw / 256) % 256
+    var i as int is 0
+    while i < cargs.len:
+        banish cargs at i
+        set i is i + 1
+    banish cargs
+    banish script
+    banish cwd
+    calling cliargs.free_parse_result with (sigil of pr)
+    return code
+
+## Implementa `psc selftest`.
+##
+## ## Memoria
+## Libera ParseResult.
+weave run_selftest with args as list of string into int:
+    var sf as list of string is list of string
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "--help":
+        calling spark.println with "Usage: psc selftest [pytest args...] (source checkout only)"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var cargs as list of string is list of string
+    calling cargs.push with "-m"
+    calling cargs.push with "pytest"
+    var i as int is 0
+    while i < pr.args.positionals.len:
+        calling cargs.push with (calling copy with (pr.args.positionals at i))
+        set i is i + 1
+    var raw as int is calling rites.exec with "python3", cargs
+    var code as int is raw
+    if raw > 255:
+        set code is (raw / 256) % 256
+    var j as int is 0
+    while j < cargs.len:
+        banish cargs at j
+        set j is j + 1
+    banish cargs
+    calling cliargs.free_parse_result with (sigil of pr)
+    return code

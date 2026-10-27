@@ -110,6 +110,7 @@ weave parse with argv as list of string, start as int, value_flags as list of st
                 set has_value is true
             if name == "--help" or name == "-h":
                 calling a.switches.put with (calling copy with "help"), true
+                calling a.switches.put with (calling copy with "--help"), true
                 set i is i + 1
                 continue
             if calling has_str with switch_flags, name:
@@ -126,8 +127,6 @@ weave parse with argv as list of string, start as int, value_flags as list of st
                     if i + 1 >= argv.len:
                         var emsg as string is "missing value for '{name}'"
                         calling free_parsed with (sigil of a)
-                        banish name
-                        banish value
                         return with ok is false, error is emsg, args is calling empty_args
                     set value is (argv at (i + 1))
                     set i is i + 1
@@ -138,14 +137,10 @@ weave parse with argv as list of string, start as int, value_flags as list of st
                         var old as string is calling a.values.get with name
                         banish old
                     calling a.values.put with (calling copy with name), (calling copy with value)
-                banish name
-                banish value
                 set i is i + 1
                 continue
             var uerr as string is "unknown option '{tok}'"
             calling free_parsed with (sigil of a)
-            banish name
-            banish value
             return with ok is false, error is uerr, args is calling empty_args
         calling a.positionals.push with (calling copy with tok)
         set i is i + 1

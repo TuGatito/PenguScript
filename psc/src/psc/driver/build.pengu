@@ -35,6 +35,7 @@ rune BuildOptions:
     is_library as bool
     is_test as bool
     bundle_only as bool
+    check_only as bool
     defines as list of string
 
 ## Resultado de un build.
@@ -122,7 +123,7 @@ weave find_manifest_root with start as string into string:
 ## ## Memoria
 ## Strings owned; liberar con `free_options`.
 weave default_options into BuildOptions:
-    return with target is "", profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, bundle_only is false, defines is list of string
+    return with target is "", profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, bundle_only is false, check_only is false, defines is list of string
 
 ## Libera opciones.
 ##
@@ -221,7 +222,7 @@ weave build with o as BuildOptions into BuildResult:
         var pdbg as string is "paths: archive={p.runtime_archive} include={p.runtime_include} stds={p.std_dirs.len} incs={tc.include_dirs.len} libs={tc.lib_dirs.len}"
         calling spark.eprintln with pdbg
         banish pdbg
-    if not tc.ok:
+    if not tc.ok and not o.check_only:
         var terr as string is tc.error
         banish cwd
         banish target
@@ -271,9 +272,20 @@ weave build with o as BuildOptions into BuildResult:
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is false, error is (calling copy with "semantic errors"), artifact is "", bundle_path is ""
+    if o.check_only:
+        banish cwd
+        banish target
+        banish start
+        banish root
+        banish entry
+        calling sema_api.free_result with (sigil of sr)
+        calling manifest.free_manifest with (sigil of man)
+        calling paths.free_paths with (sigil of p)
+        calling toolchain.free_toolchain with (sigil of tc)
+        return with ok is true, error is "", artifact is "", bundle_path is ""
     var cgo as cgopt.CgOptions is calling cgopt.default_options with (calling copy with base)
     set cgo.entry_file is (calling copy with entry)
-    set cgo.is_library is o.is_library
+    set cgo.is_library is o.is_library or (man.output != "exe" and man.output != "c")
     set cgo.is_test is o.is_test
     set cgo.line_markers is true
     set cgo.strict_c99 is o.strict_c99
@@ -348,6 +360,7 @@ weave build with o as BuildOptions into BuildResult:
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is true, error is "", artifact is bundle, bundle_path is (calling copy with bundle)
     var artifact as string is ""
+    var out_kind as string is man.output
     var out_name as string is man.output_name
     if is_file:
         var stem as string is calling compass.cp_stem with entry
@@ -357,29 +370,64 @@ weave build with o as BuildOptions into BuildResult:
     if o.out_path length > 0:
         set artifact is calling compass.cp_absolute with o.out_path
     else:
-        set artifact is "{build_dir}/{out_name}"
+        if out_kind == "obj":
+            set artifact is "{build_dir}/{out_name}.o"
+        else if out_kind == "static":
+            set artifact is "{build_dir}/lib{out_name}.a"
+        else if out_kind == "shared":
+            set artifact is "{build_dir}/lib{out_name}.so"
+        else:
+            set artifact is "{build_dir}/{out_name}"
     var adir as string is calling compass.cp_dirname with artifact
     if adir length > 0:
         calling archivum.create_dir with adir, true
     banish adir
+    var objpath as string is calling copy with artifact
+    if out_kind == "static":
+        banish objpath
+        set objpath is "{build_dir}/{out_name}.o"
     var args as list of string is list of string
     for f in tc.cflags:
         calling args.push with (calling copy with f)
     for inc in tc.include_dirs:
         calling args.push with "-I{inc}"
     calling args.push with (calling copy with bundle)
-    for ld in tc.lib_dirs:
-        calling args.push with "-L{ld}"
-    for lk in tc.links:
-        if lk == "pengu_runtime" or lk == "libpengu_runtime":
-            calling args.push with "-lpengu_runtime"
-        else:
-            calling args.push with "-l{lk}"
-    calling args.push with "-lm"
-    calling args.push with "-pthread"
-    calling args.push with "-ldl"
+    var glue as list of string is list of string
+    var cdir as string is "{base}/{man.c_dir}"
+    var cfiles as list of string is calling archivum.find_files with cdir, false
+    for cf in cfiles:
+        if (calling ends_with with cf, ".c"):
+            calling glue.push with (calling copy with cf)
+        banish cf
+    banish cfiles
+    var bfiles as list of string is calling archivum.find_files with build_dir, false
+    for bf in bfiles:
+        if calling ends_with with bf, "_assets.c":
+            calling glue.push with (calling copy with bf)
+        banish bf
+    banish bfiles
+    if out_kind != "obj" and out_kind != "static":
+        for gf in glue:
+            calling args.push with (calling copy with gf)
+    if out_kind == "obj" or out_kind == "static":
+        calling args.push with "-c"
+        calling args.push with "-fPIC"
+    if out_kind == "shared":
+        calling args.push with "-shared"
+        calling args.push with "-fPIC"
+    if out_kind == "exe":
+        for ld in tc.lib_dirs:
+            calling args.push with "-L{ld}"
+        for lk in tc.links:
+            if lk == "pengu_runtime" or lk == "libpengu_runtime":
+                calling args.push with "-lpengu_runtime"
+            else:
+                calling args.push with "-l{lk}"
+        calling args.push with "-lm"
+        calling args.push with "-pthread"
+        calling args.push with "-ldl"
     calling args.push with "-o"
-    calling args.push with (calling copy with artifact)
+    calling args.push with (calling copy with objpath)
     if o.verbose:
         var cmdline as string is tc.cc
         for a in args:
@@ -399,6 +447,7 @@ weave build with o as BuildOptions into BuildResult:
         banish build_dir
         banish bundle
         banish artifact
+        calling free_strings with glue
         calling free_strings with args
         calling cgapi.free_result with (sigil of cr)
         calling sema_api.free_result with (sigil of sr)
@@ -406,12 +455,40 @@ weave build with o as BuildOptions into BuildResult:
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is false, error is (calling copy with "C compilation failed"), artifact is "", bundle_path is ""
+    if out_kind == "static":
+        var ar_args as list of string is list of string
+        calling ar_args.push with "rcs"
+        calling ar_args.push with (calling copy with artifact)
+        calling ar_args.push with (calling copy with objpath)
+        var ar_code as int is calling rites.exec with "ar", ar_args
+        calling free_strings with ar_args
+        if ar_code != 0:
+            calling spark.eprintln with "ar failed"
+            banish objpath
+            banish cwd
+            banish target
+            banish start
+            banish root
+            banish entry
+            banish build_dir
+            banish bundle
+            banish artifact
+            calling free_strings with glue
+            calling free_strings with args
+            calling cgapi.free_result with (sigil of cr)
+            calling sema_api.free_result with (sigil of sr)
+            calling manifest.free_manifest with (sigil of man)
+            calling paths.free_paths with (sigil of p)
+            calling toolchain.free_toolchain with (sigil of tc)
+            return with ok is false, error is (calling copy with "ar failed"), artifact is "", bundle_path is ""
     banish cwd
     banish target
     banish start
     banish root
     banish entry
     banish build_dir
+    banish objpath
+    calling free_strings with glue
     calling free_strings with args
     calling cgapi.free_result with (sigil of cr)
     calling sema_api.free_result with (sigil of sr)

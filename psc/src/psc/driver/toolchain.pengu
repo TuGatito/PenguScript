@@ -116,6 +116,12 @@ weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, cc_ov
     var inc1 as string is "{m->base_dir}/include"
     calling add_inc with (sigil of incs), inc1
     banish inc1
+    var incb as string is "{m->base_dir}/{m->build_dir}"
+    calling add_inc with (sigil of incs), incb
+    banish incb
+    var incc as string is "{m->base_dir}/{m->c_dir}"
+    calling add_inc with (sigil of incs), incc
+    banish incc
     calling add_inc with (sigil of incs), p->runtime_include
     calling add_inc with (sigil of incs), p->std_c_dir
     for d in m->include_dirs:

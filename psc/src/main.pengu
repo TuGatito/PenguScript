@@ -48,6 +48,8 @@ import psc.cmd.watch as cmd_watch
 import psc.cmd.gc as cmd_gc
 import psc.cmd.fmt as cmd_fmt
 import psc.cmd.doc as cmd_doc
+import psc.cmd.assets as cmd_assets
+import psc.cmd.dev as cmd_dev
 
 
 ## Punto de entrada.
@@ -123,6 +125,12 @@ weave dispatch with args as list of string into int:
         return calling cmd_fmt.run_fmt with args
     if cmd == "doc":
         return calling cmd_doc.run_doc with args
+    if cmd == "assets":
+        return calling cmd_assets.run_assets with args
+    if cmd == "benchmark":
+        return calling cmd_dev.run_benchmark with args
+    if cmd == "selftest":
+        return calling cmd_dev.run_selftest with args
     var msg as string is "psc: unknown command '{cmd}'"
     calling spark.eprintln with msg
     banish msg
@@ -604,6 +612,9 @@ weave print_help into void:
     calling spark.println with "  psc gc [--all]"
     calling spark.println with "  psc fmt [PATHS] [options]"
     calling spark.println with "  psc doc [--output=DIR]"
+    calling spark.println with "  psc assets [--list]"
+    calling spark.println with "  psc benchmark [options]"
+    calling spark.println with "  psc selftest [args]"
     calling spark.println with "  psc tree [--json]"
     calling spark.println with "  psc add"
     calling spark.println with "  psc remove"
