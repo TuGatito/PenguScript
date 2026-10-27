@@ -166,6 +166,76 @@ weave detect_unit with lines as list of string, fallback as int into int:
         return fallback
     return unit
 
+## Normaliza espacios en código (nunca dentro de strings).
+##
+## ## Memoria
+## Devuelve string owned.
+weave normalize_code with s as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    var in_str as bool is false
+    var quote as int is 0
+    var raw as bool is false
+    var last_space as bool is false
+    while i < s length:
+        var c as int is ((b at i) to int)
+        if in_str:
+            var one as string is s at i to (i + 1)
+            calling sb.append with one
+            banish one
+            if c == 92 and not raw and i + 1 < s length:
+                set i is i + 1
+                var esc as string is s at i to (i + 1)
+                calling sb.append with esc
+                banish esc
+            else if c == quote:
+                set in_str is false
+            set i is i + 1
+            continue
+        if c == 34 or c == 39:
+            set in_str is true
+            set quote is c
+            set raw is i > 0 and (((b at (i - 1)) to int) == 114)
+            var q as string is s at i to (i + 1)
+            calling sb.append with q
+            banish q
+            set last_space is false
+            set i is i + 1
+            continue
+        if c == 35:
+            var rest as string is s at i to (s length)
+            calling sb.append with rest
+            banish rest
+            set i is s length
+            continue
+        if c == 32 or c == 9:
+            if not last_space:
+                calling sb.append_char with ' '
+                set last_space is true
+            set i is i + 1
+            continue
+        if c == 44:
+            calling sb.append with ","
+            set last_space is false
+            set i is i + 1
+            while i < s length:
+                var nc as int is ((b at i) to int)
+                if nc == 32 or nc == 9:
+                    set i is i + 1
+                else:
+                    break
+            calling sb.append_char with ' '
+            set last_space is true
+            continue
+        var one2 as string is s at i to (i + 1)
+        calling sb.append with one2
+        banish one2
+        set last_space is false
+        set i is i + 1
+    return calling sb.finish
+
 ## Convierte la indentación de una línea.
 ##
 ## ## Memoria
@@ -201,7 +271,12 @@ weave indent_line with line as string, source_unit as int, width as int, tabs as
         while si < level * width:
             calling sb.append_char with ' '
             set si is si + 1
-    calling sb.append with rest
+    if rest length > 0 and (rest at 0 to 1) != "#":
+        var norm as string is calling normalize_code with rest
+        calling sb.append with norm
+        banish norm
+    else:
+        calling sb.append with rest
     banish rest
     return calling sb.finish
 

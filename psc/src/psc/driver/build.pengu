@@ -17,7 +17,6 @@ import psc.codegen.api as cgapi
 import psc.codegen.options as cgopt
 import psc.cache.cache as cache
 import psc.driver.manifest as manifest
-import psc.os.shell as shell
 import psc.os.proc as proc
 import psc.driver.paths as paths
 import psc.driver.toolchain as toolchain

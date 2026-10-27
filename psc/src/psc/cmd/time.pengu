@@ -6,7 +6,6 @@ import std.spark
 
 import psc.cli.args as cliargs
 import psc.driver.build as driver
-import psc.os.shell as shell
 import psc.os.proc as proc
 import psc.sema.names as npool
 
