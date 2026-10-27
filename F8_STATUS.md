@@ -25,18 +25,19 @@
 | Code lens | Run / Run test |
 | Semantic tokens | léxico simple: keywords/identificadores/literales/números/comentarios |
 | Inlay hints | tipo inferido básico para `var/let ... is <literal>` |
+| Caches | workspace symbols se indexan una vez y se invalidan al editar |
 | Code actions | acción “Format document” |
 | On-type | `:` inserta salto e indentación |
 | Tests | `test_f8_lsp.py` + `test_f8_features.py` + `test_f8_stress.py` (5 tests; 1 000 didChange) |
 | Bootstrap | punto fijo OK; gcc/clang/TCC READY |
+| Stress | 1 000 didChange (sin cambios) OK |
 
 ## Pendiente
 
-1. Caches/índice de workspace (hoy se escanea en cada request).
-2. Paridad fina de semantic/inlay/actions/on-type con `pengu_lsp`.
-3. ñ/CJK/emoji variados y 1 000 `didChange` bajo ASan.
-4. VS Code smoke y CI/docs completos.
-5. Metadatos F3 (`module/line/col`) para navegación semántica precisa.
+1. ASan específico del LSP con 1 000 `didChange` (el binario ASan no completó el handshake en esta sesión).
+2. VS Code smoke (no hay runner headless disponible).
+3. Paridad fina con `pengu_lsp` y features todavía heurísticas.
+4. Algunas features siguen usando texto en vez de símbolos F3, aunque los metadatos ya existen.
 
 ## Evidencia
 
