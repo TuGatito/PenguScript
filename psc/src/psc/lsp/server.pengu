@@ -178,32 +178,24 @@ weave subprocess_diag with text as string, o as JsonValue into JsonValue:
 ## Aísla el checker del estado del servidor (F8.0); una versión nativa in-process
 ## llega en F8.1 cuando el ownership de `check_text` esté auditado.
 weave publish with st as ref to State, document_uri as string, text as string, version as int into void:
-    var stamp as string is "{calling chronicle.now_ms}-{calling rites.getpid}"
-    var tmp as string is "/tmp/psc-lsp-{stamp}.pengu"
-    var out as string is "/tmp/psc-lsp-{stamp}.out"
-    var errf as string is "/tmp/psc-lsp-{stamp}.err"
+    var base as string is calling copy with st->root
+    if base length == 0:
+        set base is "."
+    var opts as sopts.SemaOptions is calling sopts.default_options with (calling copy with base)
+    banish base
+    var path as string is calling luri.uri_to_path with document_uri
+    var sr as sema_api.SemaResult is calling sema_api.check_text with path, text, opts
+    banish path
+    var jtext as string is calling sr.program->diagnostics.render_json_utf16
+    var jp as result of JsonValue to JsonError is calling json.parse with jtext
+    banish jtext
     var diagnostics as JsonValue is calling JsonValue.empty_array
-    if calling archivum.write_text with tmp, text:
-        var cmd as string is "{st->exe} check {tmp} --diagnostics=json-utf16 > {out} 2> {errf}"
-        var code as int is calling rites.exec with cmd, list of string
-        banish cmd
-        var et as maybe string is calling archivum.read_text with errf
-        if et.is_present:
-            var jp as result of JsonValue to JsonError is calling json.parse with et.value
-            if jp.is_ok:
-                var jv as JsonValue is jp.value
-                if calling jv.is_array:
-                    banish diagnostics
-                    set diagnostics is jv
-                else:
-                    banish jv
-            banish et
-        var d1 as bool is calling archivum.delete_file with tmp
-        var d2 as bool is calling archivum.delete_file with out
-        var d3 as bool is calling archivum.delete_file with errf
-    banish tmp
-    banish out
-    banish errf
+    if jp.is_ok:
+        var jv0 as JsonValue is jp.value
+        if calling jv0.is_array:
+            set diagnostics is jv0
+        else:
+            banish jv0
     var params as JsonValue is calling JsonValue.empty_object
     calling params.put_json with "uri", (calling JsonValue.string_val with (calling copy with document_uri))
     calling params.put_json with "version", (calling JsonValue.int_val with (version to i64))

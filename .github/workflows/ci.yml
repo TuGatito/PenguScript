@@ -98,7 +98,7 @@ jobs:
         run: python -m pytest -q tests/psc/test_f7_tools.py
 
       - name: F8 LSP acceptance
-        run: python -m pytest -q tests/psc/test_f8_lsp.py tests/psc/test_f8_features.py
+        run: python -m pytest -q tests/psc/test_f8_lsp.py tests/psc/test_f8_features.py tests/psc/test_f8_stress.py tests/psc/test_f8_interp_cache.py
 
       - name: F7 fmt parity (stage0)
         run: python psc/tools/parity_tools.py --only fmt --path std --path psc/src

@@ -12,7 +12,7 @@
 | Lifecycle | initialize/initialized/shutdown/exit; ids number/string |
 | Documentos | didOpen/didChange full-sync/didClose |
 | URI/UTF-16 | módulos `uri` y `positions`; hover/definitions usan UTF-16 |
-| Diagnósticos | `psc check --diagnostics=json-utf16`; `publishDiagnostics` con columnas UTF-16 |
+| Diagnósticos | in-process con `sema_api.check_text` + `render_json_utf16`; sin subproceso |
 | Hover | firma/línea de declaración |
 | Definition / implementation | definition por declaración; implementation delega |
 | Completion | keywords + identificadores |
@@ -28,15 +28,15 @@
 | Caches | workspace symbols se indexan una vez y se invalidan al editar |
 | Code actions | acción “Format document” |
 | On-type | `:` inserta salto e indentación |
-| Tests | LSP + features + stress + interpolación/caché (6 archivos; 15 tests) |
+| Tests | LSP + features + stress + interpolación/caché (7 archivos; 16 tests) |
 | Bootstrap | punto fijo OK; gcc/clang/TCC READY |
-| Stress | 1 000 didChange (sin cambios) OK |
+| Stress | 1 000 didChange (sin cambios) OK, también bajo ASan/UBSan O1 |
 
 ## Pendiente
 
-1. **ASan LSP**: con el fix de `{x length}` el handshake O1 ya emite `Content-Length` correcto, pero `didOpen` todavía cae bajo ASan; O0 completa handshake y falla el subproceso de diagnósticos por `exe` vacío. Hay que aislar ese UB.
-2. VS Code smoke (no hay runner headless disponible).
-3. Paridad fina con `pengu_lsp` y features todavía heurísticas.
+1. VS Code smoke (no hay runner headless disponible).
+2. Paridad fina con `pengu_lsp` y features todavía heurísticas.
+3. Caches de documentos/import graph más finos.
 4. Algunas features siguen usando texto en vez de símbolos F3, aunque los metadatos ya existen.
 
 ## Evidencia
