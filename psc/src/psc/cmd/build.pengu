@@ -396,12 +396,12 @@ weave run_run with args as list of string into int:
             banish ck2
             banish parts2
         banish txt2
-    var run_argv as list of string is list of string
-    calling run_argv.push with (calling copy with art)
+    var rargv as list of string is list of string
+    calling rargv.push with (calling copy with art)
     for rc in child:
-        calling run_argv.push with rc
-    var raw_code as int is calling proc.run_argv with run_argv
-    banish run_argv
+        calling rargv.push with rc
+    var raw_code as int is calling proc.run_argv with rargv
+    banish rargv
     var code as int is raw_code
     if raw_code > 255:
         set code is (raw_code / 256) % 256
