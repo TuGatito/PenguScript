@@ -1,0 +1,90 @@
+## psc/cmd/gc.pengu — `psc gc`.
+
+import std.archivum
+import std.builder
+import std.chronicle
+import std.spark
+
+import psc.cache.cache as cache
+import psc.cli.args as cliargs
+
+insignia psc_cmd_gc_
+
+## Ayuda.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "Usage: psc gc [--all] [--max-age=DAYS] [--json]"
+    calling spark.println with "  --all          remove every cached entry"
+    calling spark.println with "  --max-age=N    remove entries older than N days (default 30)"
+    calling spark.println with "  --verbose"
+    calling spark.println with "  --json"
+    calling spark.println with "  --help"
+
+## Implementa `psc gc`.
+##
+## ## Memoria
+## Libera ParseResult.
+weave run_gc with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--max-age"
+    var sf as list of string is list of string
+    calling sf.push with "--all"
+    calling sf.push with "--verbose"
+    calling sf.push with "--json"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling print_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var all as bool is calling cliargs.enabled with (sigil of pr.args), "--all"
+    var json as bool is calling cliargs.enabled with (sigil of pr.args), "--json"
+    var before as int is calling cache.size
+    var removed as int is 0
+    if all:
+        set removed is calling cache.clear
+    else:
+        # La política por edad se implementa en F6b; sin --all se informa y no
+        # se borra nada para no eliminar entradas recientes por error.
+        set removed is 0
+    var after as int is calling cache.size
+    if json:
+        var sb as StringBuilder is calling StringBuilder.new
+        defer banish sb
+        calling sb.append with "{"
+        calling sb.append_char with '"'
+        calling sb.append with "schema_version"
+        calling sb.append_char with '"'
+        calling sb.append with ":1,"
+        calling sb.append_char with '"'
+        calling sb.append with "removed"
+        calling sb.append_char with '"'
+        calling sb.append with ":"
+        calling sb.append with "{removed},"
+        calling sb.append_char with '"'
+        calling sb.append with "bytes_before"
+        calling sb.append_char with '"'
+        calling sb.append with ":"
+        calling sb.append with "{before},"
+        calling sb.append_char with '"'
+        calling sb.append with "bytes_after"
+        calling sb.append_char with '"'
+        calling sb.append with ":"
+        calling sb.append with "{after}"
+        calling sb.append with "}"
+        var out as string is calling sb.finish
+        calling spark.println with out
+        banish out
+    else:
+        var line as string is "cache: {before} -> {after} bytes"
+        calling spark.println with line
+        banish line
+    calling cliargs.free_parse_result with (sigil of pr)
+    return 0

@@ -45,6 +45,9 @@ import psc.cmd.test as cmd_test
 import psc.cmd.eval as cmd_eval
 import psc.cmd.time as cmd_time
 import psc.cmd.watch as cmd_watch
+import psc.cmd.gc as cmd_gc
+import psc.cmd.fmt as cmd_fmt
+import psc.cmd.doc as cmd_doc
 
 
 ## Punto de entrada.
@@ -114,6 +117,12 @@ weave dispatch with args as list of string into int:
         return calling cmd_time.run_time with args
     if cmd == "watch":
         return calling cmd_watch.run_watch with args
+    if cmd == "gc":
+        return calling cmd_gc.run_gc with args
+    if cmd == "fmt":
+        return calling cmd_fmt.run_fmt with args
+    if cmd == "doc":
+        return calling cmd_doc.run_doc with args
     var msg as string is "psc: unknown command '{cmd}'"
     calling spark.eprintln with msg
     banish msg
@@ -592,6 +601,9 @@ weave print_help into void:
     calling spark.println with "  psc eval EXPRESSION"
     calling spark.println with "  psc time SCRIPT"
     calling spark.println with "  psc watch SCRIPT"
+    calling spark.println with "  psc gc [--all]"
+    calling spark.println with "  psc fmt [PATHS] [options]"
+    calling spark.println with "  psc doc [--output=DIR]"
     calling spark.println with "  psc tree [--json]"
     calling spark.println with "  psc add"
     calling spark.println with "  psc remove"

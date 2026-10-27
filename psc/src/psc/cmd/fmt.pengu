@@ -1,0 +1,264 @@
+## psc/cmd/fmt.pengu — `psc fmt` (formato conservador F6).
+##
+## Normaliza indentación, espacios finales, saltos y líneas en blanco. No
+## reinterpreta strings, triples ni bloques `antiquus`; las líneas dentro de un
+## triple se dejan intactas.
+
+import std.archivum
+import std.builder
+import std.io
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.sema.names as npool
+
+insignia psc_cmd_fmt_
+
+## Ayuda.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "Usage: psc fmt [PATHS...] [options]"
+    calling spark.println with "  --check       no escribir; exit 1 si cambiaría"
+    calling spark.println with "  --diff        mostrar diferencias"
+    calling spark.println with "  --stdin       leer stdin y escribir stdout"
+    calling spark.println with "  --indent=N    espacios por nivel (default 4)"
+    calling spark.println with "  --tabs        indentar con tabs"
+    calling spark.println with "  --verbose"
+    calling spark.println with "  --help"
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## `true` si `s` termina en `suffix`.
+##
+## ## Memoria
+## O(suffix).
+weave ends_with with s as string, suffix as string into bool:
+    var n as int is s length
+    var m as int is suffix length
+    if m > n:
+        return false
+    return (s at (n - m) to n) == suffix
+
+## `true` si la línea abre/cierra un triple string.
+##
+## ## Memoria
+## O(1).
+weave triple_count with line as string into int:
+    var b as ref to frozen byte is bytes of line
+    var i as int is 0
+    var n as int is 0
+    while i + 2 < line length:
+        if ((b at i) to int) == 34 and ((b at (i + 1)) to int) == 34 and ((b at (i + 2)) to int) == 34:
+            set n is n + 1
+            set i is i + 3
+        else:
+            set i is i + 1
+    return n
+
+## Convierte la indentación de una línea.
+##
+## ## Memoria
+## Devuelve string owned.
+weave indent_line with line as string, width as int, tabs as bool into string:
+    var b as ref to frozen byte is bytes of line
+    var i as int is 0
+    var col as int is 0
+    while i < line length:
+        var c as int is ((b at i) to int)
+        if c == 32:
+            set col is col + 1
+            set i is i + 1
+        else if c == 9:
+            set col is col + width - (col % width)
+            set i is i + 1
+        else:
+            break
+    var rest as string is line at i to (line length)
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    if tabs:
+        var nt as int is col / width
+        var ti as int is 0
+        while ti < nt:
+            calling sb.append_char with '\t'
+            set ti is ti + 1
+    else:
+        var si as int is 0
+        while si < col:
+            calling sb.append_char with ' '
+            set si is si + 1
+    calling sb.append with rest
+    banish rest
+    return calling sb.finish
+
+## Formatea texto.
+##
+## ## Memoria
+## Devuelve string owned.
+weave format_text with text as string, width as int, tabs as bool, blank_max as int into string:
+    var lines as list of string is calling text.split with "\n"
+    var out as StringBuilder is calling StringBuilder.new
+    defer banish out
+    var in_triple as bool is false
+    var blanks as int is 0
+    var i as int is 0
+    while i < lines.len:
+        var line as string is (lines at i)
+        if in_triple:
+            calling out.append with line
+            calling out.append with "\n"
+            if (calling triple_count with line) % 2 == 1:
+                set in_triple is false
+            set i is i + 1
+            continue
+        # Quitar espacios/tabs finales.
+        var end as int is line length
+        var lb as ref to frozen byte is bytes of line
+        while end > 0:
+            var c as int is ((lb at (end - 1)) to int)
+            if c == 32 or c == 9:
+                set end is end - 1
+            else:
+                break
+        var trimmed as string is line at 0 to end
+        var is_blank as bool is trimmed length == 0
+        if is_blank:
+            var tail_empty as bool is i == (lines.len - 1) and (calling ends_with with text, "\n")
+            if not tail_empty and blanks < blank_max:
+                calling out.append with "\n"
+                set blanks is blanks + 1
+        else:
+            set blanks is 0
+            var ind as string is calling indent_line with trimmed, width, tabs
+            calling out.append with ind
+            calling out.append with "\n"
+            banish ind
+        if (calling triple_count with trimmed) % 2 == 1:
+            set in_triple is true
+        banish trimmed
+        set i is i + 1
+    var res as string is calling out.finish
+    return res
+
+## Formatea stdin.
+##
+## ## Memoria
+## Libera texto.
+weave run_stdin with width as int, tabs as bool, check_only as bool into int:
+    var text as string is calling io.read_stdin_all
+    var fmt as string is calling format_text with text, width, tabs, 2
+    if check_only:
+        var same as bool is fmt == text
+        banish fmt
+        banish text
+        if same:
+            return 0
+        return 1
+    calling spark.print with fmt
+    banish fmt
+    banish text
+    return 0
+
+## Implementa `psc fmt`.
+##
+## ## Memoria
+## Libera ParseResult.
+weave run_fmt with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--indent"
+    calling vf.push with "--config"
+    var sf as list of string is list of string
+    calling sf.push with "--check"
+    calling sf.push with "--diff"
+    calling sf.push with "--stdin"
+    calling sf.push with "--tabs"
+    calling sf.push with "--verbose"
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "--help":
+        calling print_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var check_only as bool is calling cliargs.enabled with (sigil of pr.args), "--check"
+    var diff as bool is calling cliargs.enabled with (sigil of pr.args), "--diff"
+    var tabs as bool is calling cliargs.enabled with (sigil of pr.args), "--tabs"
+    var verbose as bool is calling cliargs.enabled with (sigil of pr.args), "--verbose"
+    var width as int is 4
+    var ins as string is calling cliargs.value with (sigil of pr.args), "--indent"
+    if ins length > 0:
+        var pm as maybe int is calling spark.parse_int with ins
+        if pm.is_present and pm.value > 0:
+            set width is pm.value
+        banish pm
+    if calling cliargs.enabled with (sigil of pr.args), "--stdin":
+        var rc as int is calling run_stdin with width, tabs, check_only
+        calling cliargs.free_parse_result with (sigil of pr)
+        return rc
+    var changed as int is 0
+    var pi as int is 0
+    while pi < pr.args.positionals.len:
+        var p as string is (pr.args.positionals at pi)
+        var files as list of string is list of string
+        if calling archivum.is_dir with p:
+            var found as list of string is calling archivum.find_files with p, true
+            for f in found:
+                if calling ends_with with f, ".pengu":
+                    calling files.push with (calling copy with f)
+                banish f
+            banish found
+        else:
+            calling files.push with (calling copy with p)
+        var fi as int is 0
+        while fi < files.len:
+            var f as string is (files at fi)
+            var txtm as maybe string is calling archivum.read_text with f
+            if txtm.is_present:
+                var original as string is txtm.value
+                var fmt as string is calling format_text with original, width, tabs, 2
+                if fmt != original:
+                    set changed is changed + 1
+                    if verbose or check_only:
+                        var m as string is "would format {f}"
+                        calling spark.println with m
+                        banish m
+                    if diff:
+                        var d1 as string is "--- {f}"
+                        calling spark.println with d1
+                        banish d1
+                    if not check_only and not diff:
+                        var ok as bool is calling archivum.write_text with f, fmt
+                        if verbose:
+                            var m2 as string is "formatted {f}"
+                            calling spark.println with m2
+                            banish m2
+                banish fmt
+            banish txtm
+            banish f
+            set fi is fi + 1
+        banish files
+        set pi is pi + 1
+    if check_only:
+        var m as string is "{changed} file(s) would be reformatted."
+        calling spark.println with m
+        banish m
+    else:
+        var m as string is "{changed} file(s) formatted."
+        calling spark.println with m
+        banish m
+    calling cliargs.free_parse_result with (sigil of pr)
+    if check_only and changed > 0:
+        return 1
+    return 0

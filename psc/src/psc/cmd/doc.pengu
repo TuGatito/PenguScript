@@ -1,0 +1,220 @@
+## psc/cmd/doc.pengu — `psc doc` (Markdown básico F6).
+
+import std.archivum
+import std.builder
+import std.compass
+import std.rites
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.driver.manifest as manifest
+import psc.sema.names as npool
+
+insignia psc_cmd_doc_
+
+## Ayuda.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "Usage: psc doc [--output=DIR] [--entry=PATH]"
+    calling spark.println with "  --output=DIR   output directory (default: docs/api)"
+    calling spark.println with "  --entry=PATH   override entry"
+    calling spark.println with "  --help"
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Busca el manifiesto.
+##
+## ## Memoria
+## Devuelve string owned o `""`.
+weave find_root with start as string into string:
+    var d as string is calling compass.cp_absolute with start
+    var i as int is 0
+    while i < 8:
+        var f as string is "{d}/pengu.toml"
+        if calling archivum.is_file with f:
+            banish f
+            return calling copy with d
+        banish f
+        var parent as string is calling compass.cp_dirname with d
+        if parent == d:
+            banish parent
+            banish d
+            return ""
+        banish d
+        set d is parent
+        set i is i + 1
+    banish d
+    return ""
+
+## `true` si `s` empieza por `p`.
+##
+## ## Memoria
+## O(p).
+weave starts_with with s as string, p as string into bool:
+    var n as int is s length
+    var m as int is p length
+    if m > n:
+        return false
+    return (s at 0 to m) == p
+
+## `true` si `s` termina en `p`.
+##
+## ## Memoria
+## O(p).
+weave ends_with with s as string, p as string into bool:
+    var n as int is s length
+    var m as int is p length
+    if m > n:
+        return false
+    return (s at (n - m) to n) == p
+
+## Renderiza un archivo a Markdown.
+##
+## ## Memoria
+## Devuelve string owned.
+weave render_file with path as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var mn as string is calling basename_no_ext with path
+    calling sb.append with "# "
+    calling sb.append with mn
+    calling sb.append with "\n\n"
+    var txt as maybe string is calling archivum.read_text with path
+    if txt.is_present:
+        var ttext as string is txt.value
+        var lines as list of string is calling ttext.split with "\n"
+        var docs as list of string is list of string
+        var pi as int is 0
+        while pi < lines.len:
+            var line as string is (lines at pi)
+            if calling starts_with with line, "##":
+                var d as string is line at 2 to (line length)
+                calling docs.push with (calling copy with d)
+            else if (calling starts_with with line, "weave ") or (calling starts_with with line, "rune ") or (calling starts_with with line, "echo ") or (calling starts_with with line, "const ") or (calling starts_with with line, "test "):
+                calling sb.append with "## `"
+                calling sb.append with line
+                calling sb.append with "`\n\n"
+                for d in docs:
+                    calling sb.append with d
+                    calling sb.append with "\n"
+                calling sb.append with "\n"
+                for d in docs:
+                    banish d
+                set docs is list of string
+            else if line length > 0:
+                for d in docs:
+                    banish d
+                set docs is list of string
+            set pi is pi + 1
+        for d in docs:
+            banish d
+        banish docs
+    banish txt
+    return calling sb.finish
+
+## Basename sin extensión.
+##
+## ## Memoria
+## Devuelve string owned.
+weave basename_no_ext with path as string into string:
+    var b as string is calling compass.cp_basename with path
+    defer banish b
+    if calling ends_with with b, ".pengu":
+        var cut as int is b length - 6
+        return calling copy with (b at 0 to cut)
+    return calling copy with b
+
+## Implementa `psc doc`.
+##
+## ## Memoria
+## Libera ParseResult.
+weave run_doc with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--output"
+    calling vf.push with "--entry"
+    calling vf.push with "--config"
+    var sf as list of string is list of string
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "--help":
+        calling print_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var cwd as maybe string is calling rites.getcwd
+    if not cwd.is_present:
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var start as string is cwd.value
+    var cfg as string is calling cliargs.value with (sigil of pr.args), "--config"
+    if cfg length > 0:
+        set start is cfg
+    var root as string is calling find_root with start
+    if root length == 0:
+        calling spark.eprintln with "psc doc: no pengu.toml found"
+        banish root
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var man as manifest.Manifest is calling manifest.load_manifest with root, "debug"
+    if not man.ok:
+        var e2 as string is man.error
+        calling spark.eprintln with e2
+        calling manifest.free_manifest with (sigil of man)
+        banish root
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var out as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--output")
+    if out length == 0:
+        set out is "{root}/docs/api"
+    if not calling archivum.create_dir with out, true:
+        calling spark.eprintln with "psc doc: cannot create output directory"
+        calling manifest.free_manifest with (sigil of man)
+        banish root
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var src as string is "{root}/{man.src_dir}"
+    var found as list of string is calling archivum.find_files with src, true
+    var count as int is 0
+    for f in found:
+        if calling ends_with with f, ".pengu":
+            var md as string is calling render_file with f
+            var nm as string is calling basename_no_ext with f
+            var target as string is "{out}/{nm}.md"
+            calling archivum.write_text with target, md
+            banish target
+            banish nm
+            banish md
+            set count is count + 1
+        banish f
+    banish found
+    var idx as string is "# API — {man.name}\n\nGenerated by `psc doc`.\n"
+    var ipath as string is "{out}/README.md"
+    calling archivum.write_text with ipath, idx
+    banish ipath
+    banish idx
+    var msg as string is "Generated {count} module(s) in {out}"
+    calling spark.println with msg
+    banish msg
+    calling manifest.free_manifest with (sigil of man)
+    banish src
+    banish out
+    banish root
+    banish cwd
+    calling cliargs.free_parse_result with (sigil of pr)
+    return 0

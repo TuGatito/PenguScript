@@ -1,0 +1,122 @@
+## psc/cache/cache.pengu — caché content-addressed del CLI (F6).
+##
+## La clave cubre el contenido del script, el compilador y las flags. La
+## entrada se escribe de forma atómica dentro de `<root>/<key>/`.
+
+import std.archivum
+import std.builder
+import std.digest
+import std.rites
+
+import psc.sema.names as npool
+
+insignia psc_cache_
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Raíz de la caché.
+##
+## ## Memoria
+## Devuelve string owned.
+weave root into string:
+    var e as maybe string is calling rites.getenv with "PSC_CACHE_DIR"
+    if e.is_present:
+        var r as string is calling copy with e.value
+        banish e
+        return r
+    banish e
+    var x as maybe string is calling rites.getenv with "XDG_CACHE_HOME"
+    if x.is_present:
+        var r2 as string is "{x.value}/pengu/psc"
+        banish x
+        return r2
+    banish x
+    var h as maybe string is calling rites.getenv with "HOME"
+    if h.is_present:
+        var r3 as string is "{h.value}/.cache/pengu/psc"
+        banish h
+        return r3
+    banish h
+    return "/tmp/pengu-psc-cache"
+
+## Hash de una lista de partes.
+##
+## ## Memoria
+## Devuelve string owned.
+weave key with parts as list of string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    for p in parts:
+        calling sb.append with p
+        calling sb.append with "\x1f"
+    var text as string is calling sb.finish
+    var h as string is calling digest.sha256_hex with text
+    banish text
+    return h
+
+## Entrada existente para `k`, o `""`.
+##
+## ## Memoria
+## Devuelve string owned o `""`.
+weave get with k as string into string:
+    var r as string is calling root
+    var p as string is "{r}/{k}/app"
+    banish r
+    if calling archivum.is_file with p:
+        return p
+    banish p
+    return ""
+
+## Guarda un artefacto.
+##
+## ## Memoria
+## Copia el artefacto y libera temporales.
+weave put with k as string, artifact as string into bool:
+    var r as string is calling root
+    var d as string is "{r}/{k}"
+    var p as string is "{d}/app"
+    var ok as bool is false
+    if calling archivum.create_dir with d, true:
+        if calling archivum.copy_file with artifact, p, true:
+            var cargs as list of string is list of string
+            calling cargs.push with "+x"
+            calling cargs.push with p
+            var ignored as int is calling rites.exec with "chmod", cargs
+            banish cargs
+            set ok is true
+    banish p
+    banish d
+    banish r
+    return ok
+
+## Borra toda la caché.
+##
+## ## Memoria
+## Libera la raíz.
+weave clear into int:
+    var r as string is calling root
+    var ok as int is 0
+    if calling archivum.is_dir with r:
+        if calling archivum.remove_dir with r, true:
+            set ok is 1
+    banish r
+    return ok
+
+## Tamaño aproximado de la caché.
+##
+## ## Memoria
+## Devuelve bytes o 0.
+weave size into int:
+    var r as string is calling root
+    var s as maybe int is calling archivum.dir_size with r, true
+    var n as int is 0
+    if s.is_present:
+        set n is s.value
+    banish s
+    banish r
+    return n

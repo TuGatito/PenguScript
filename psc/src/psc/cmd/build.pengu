@@ -1,6 +1,7 @@
 ## psc/cmd/build.pengu — comandos `build`, `run` y `expand` de F5.
 
 import std.archivum
+import psc.cache.cache as cache
 import std.builder
 import std.rites
 import std.spark
@@ -242,6 +243,9 @@ weave run_run with args as list of string into int:
     var path as string is ""
     var child as list of string is list of string
     var after as bool is false
+    var no_cache as bool is false
+    var clear_cache as bool is false
+    var ephemeral as bool is false
     var i as int is 2
     while i < args.len:
         var a as string is args at i
@@ -255,6 +259,12 @@ weave run_run with args as list of string into int:
             set o.strict_c99 is true
         else if a == "--release-unsafe":
             set o.release_unsafe is true
+        else if a == "--no-cache":
+            set no_cache is true
+        else if a == "--clear-cache":
+            set clear_cache is true
+        else if a == "--ephemeral":
+            set ephemeral is true
         else if a == "--help" or a == "-h":
             calling print_run_help
             calling driver.free_options with (sigil of o)
@@ -283,6 +293,39 @@ weave run_run with args as list of string into int:
         set i is i + 1
     banish o.target
     set o.target is calling copy_path with path
+    if clear_cache:
+        var ignored as int is calling cache.clear
+    if path length > 0 and (calling archivum.is_file with path) and not no_cache and not ephemeral and not o.is_test:
+        var txtm as maybe string is calling archivum.read_text with path
+        if txtm.is_present:
+            var parts as list of string is list of string
+            calling parts.push with txtm.value
+            calling parts.push with "psc-0.6.0"
+            calling parts.push with o.profile
+            calling parts.push with o.cc
+            calling parts.push with "run"
+            var ck as string is calling cache.key with parts
+            var hit as string is calling cache.get with ck
+            if hit length > 0:
+                var hraw as int is calling rites.exec with hit, child
+                var hcode as int is hraw
+                if hraw > 255:
+                    set hcode is (hraw / 256) % 256
+                banish hit
+                banish ck
+                banish parts
+                banish txtm
+                calling driver.free_options with (sigil of o)
+                var hci as int is 0
+                while hci < child.len:
+                    banish child at hci
+                    set hci is hci + 1
+                banish child
+                return hcode
+            banish hit
+            banish ck
+            banish parts
+        banish txtm
     var r as driver.BuildResult is calling driver.build with o
     if not r.ok:
         var err as string is r.error
@@ -298,6 +341,20 @@ weave run_run with args as list of string into int:
         banish child
         return 1
     var art as string is r.artifact
+    if path length > 0 and (calling archivum.is_file with path) and not no_cache and not ephemeral and not o.is_test:
+        var txt2 as maybe string is calling archivum.read_text with path
+        if txt2.is_present:
+            var parts2 as list of string is list of string
+            calling parts2.push with txt2.value
+            calling parts2.push with "psc-0.6.0"
+            calling parts2.push with o.profile
+            calling parts2.push with o.cc
+            calling parts2.push with "run"
+            var ck2 as string is calling cache.key with parts2
+            var stored as bool is calling cache.put with ck2, art
+            banish ck2
+            banish parts2
+        banish txt2
     var raw_code as int is calling rites.exec with art, child
     var code as int is raw_code
     if raw_code > 255:
