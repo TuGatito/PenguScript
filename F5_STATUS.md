@@ -26,10 +26,12 @@ psc: undefined function 'foo'   # calling foo.hi
 psc: undefined function 'spark' # calling spark.println
 ```
 
-Los imports se cargan y el alias existe en la tabla de símbolos (se verificó
-con trazas), pero la resolución del miembro del módulo (`foo.hi`) no lo
-encuentra en el scope del módulo destino. Es un problema de **enlace de scopes
-en el F3 compilado por PSC**, no de sintaxis ni de carga de módulos. Por eso:
+Los imports se cargan, el alias existe en la tabla de símbolos y la función
+importada también se recolecta (se verificó con trazas). La traza final muestra
+que, en el F3 compilado por PSC, el nombre del método (`mname`) llega **vacío**
+para `foo.hi`/`spark.println`; por eso no se puede resolver el miembro. El
+problema está en la lectura del token del `dot_access` del AST en stage2 (no en
+la carga de módulos ni en la sintaxis). Por eso:
 
 - `stage1` (construido por stage0) es correcto y se auto-compila.
 - `stage2` (construido por stage1) **se construye**, pero no puede compilar
