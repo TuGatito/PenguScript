@@ -126,11 +126,11 @@ weave check_text with path as string, text as string, options as sopts.SemaOptio
     var opts as sopts.SemaOptions is options
     calling configure_options with path, (sigil of opts)
     var p as ref to program.SemaProgram is calling program.new_program with opts
-    var m as loader.SemaModule is calling loader.load_text with path, text, (sigil of p->diagnostics), true, true, false, 0
+    var m as loader.SemaModule is calling loader.load_text with path, path, text, (sigil of p->diagnostics), true, true, false, 0
     var id as int is p->modules.len
     set m.id is id
     calling p->modules.push with m
-    calling p->by_path.put with m.path, id
+    calling p->by_path.put with m.canonical_path, id
     set p->root is id
     var visiting as list of string is list of string
     defer banish visiting

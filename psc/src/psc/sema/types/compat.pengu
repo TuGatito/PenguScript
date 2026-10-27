@@ -9,7 +9,7 @@
 
 import psc.sema.names as npool
 import psc.sema.types.kind as tk
-import psc.sema.types.canonical as canonical
+import psc.sema.types.canonical as canon
 import psc.sema.types.table as types
 
 insignia sema_type_compat_
@@ -22,8 +22,8 @@ weave compatible with t as ref to types.SemaTypeTable, a as int, b as int into b
     if a == b:
         return true
     if a > 0 and b > 0:
-        var ca as int is calling canonical.canonical_name with t, a
-        var cb as int is calling canonical.canonical_name with t, b
+        var ca as int is calling canon.canonical_name with t, a
+        var cb as int is calling canon.canonical_name with t, b
         if ca == cb:
             return true
     if (calling is_error with t, a) or (calling is_error with t, b):

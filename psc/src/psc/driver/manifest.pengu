@@ -1,0 +1,181 @@
+## psc/driver/manifest.pengu — lectura del subconjunto TOML de `pengu.toml`.
+##
+## F5 no implementa dependencias ni assets; los rechaza con un error claro.
+
+import std.archivum
+import std.compass
+import std.toml as toml
+
+import psc.sema.names as npool
+
+insignia psc_driver_manifest_
+
+## Manifiesto resuelto.
+##
+## ## Memoria
+## Todos los strings/listas son owned; liberar con `free_manifest`.
+rune Manifest:
+    found as bool
+    ok as bool
+    error as string
+    base_dir as string
+    name as string
+    version as string
+    entry as string
+    output as string
+    output_name as string
+    src_dir as string
+    lib_dir as string
+    include_dir as string
+    c_dir as string
+    build_dir as string
+    links as list of string
+    lib_dirs as list of string
+    include_dirs as list of string
+    cflags as list of string
+    ldflags as list of string
+    defines as list of string
+    cc as string
+    strict_c99 as bool
+
+## Copia owned de un string.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Copia una lista de strings.
+##
+## ## Memoria
+## Devuelve lista owned con copias.
+weave copy_list with xs as list of string into list of string:
+    var out as list of string is list of string
+    for s in xs:
+        calling out.push with (calling copy with s)
+    return out
+
+## Libera una lista de strings owned.
+##
+## ## Memoria
+## Libera elementos y lista.
+weave free_strings with xs as list of string into void:
+    var i as int is 0
+    while i < xs.len:
+        banish xs at i
+        set i is i + 1
+    banish xs
+
+## Stem de un path (sin extensión).
+##
+## ## Memoria
+## Devuelve string owned.
+weave stem_of with path as string into string:
+    var base as string is calling compass.cp_basename with path
+    defer banish base
+    return calling compass.cp_stem with base
+
+## Valor de texto, o `fallback` si la clave no existe.
+##
+## ## Memoria
+## Devuelve string owned.
+weave text_or with entries as list of toml.TomlEntry, key as string, fallback as string into string:
+    if calling toml.has with entries, key:
+        return calling toml.get with entries, key
+    return calling copy with fallback
+
+## Manifiesto por defecto para un archivo suelto.
+##
+## ## Memoria
+## Devuelve Manifest owned.
+weave default_manifest with base_dir as string, entry as string into Manifest:
+    var st as string is calling stem_of with entry
+    var name as string is calling copy with st
+    var out as string is st
+    return with found is false, ok is true, error is "", base_dir is (calling copy with base_dir), name is name, version is (calling copy with "0.1.0"), entry is (calling copy with entry), output is (calling copy with "exe"), output_name is out, src_dir is (calling copy with "."), lib_dir is (calling copy with "lib"), include_dir is (calling copy with "include"), c_dir is (calling copy with "c"), build_dir is (calling copy with "build"), links is list of string, lib_dirs is list of string, include_dirs is list of string, cflags is list of string, ldflags is list of string, defines is list of string, cc is "", strict_c99 is false
+
+## Carga `pengu.toml` desde `base_dir`.
+##
+## `profile` puede ser `debug` o `release`. Si el archivo no existe,
+## `found=false` y se devuelven defaults.
+##
+## ## Memoria
+## Devuelve Manifest owned.
+weave load_manifest with base_dir as string, profile as string into Manifest:
+    var path as string is "{base_dir}/pengu.toml"
+    if not calling archivum.is_file with path:
+        banish path
+        return calling default_manifest with base_dir, "src/main.pengu"
+    var data as maybe string is calling archivum.read_text with path
+    if not data.is_present:
+        banish path
+        var rerr as string is "cannot read pengu.toml"
+        return with found is true, ok is false, error is rerr, base_dir is (calling copy with base_dir), name is "", version is "", entry is "", output is "", output_name is "", src_dir is "", lib_dir is "", include_dir is "", c_dir is "", build_dir is "", links is list of string, lib_dirs is list of string, include_dirs is list of string, cflags is list of string, ldflags is list of string, defines is list of string, cc is "", strict_c99 is false
+    var text as string is data.value
+    var r as result of list of toml.TomlEntry to string is calling toml.parse with text
+    banish text
+    defer banish path
+    if not r.is_ok:
+        var err as string is r.error
+        var emsg as string is "invalid pengu.toml: {err}"
+        banish err
+        return with found is true, ok is false, error is emsg, base_dir is (calling copy with base_dir), name is "", version is "", entry is "", output is "", output_name is "", src_dir is "", lib_dir is "", include_dir is "", c_dir is "", build_dir is "", links is list of string, lib_dirs is list of string, include_dirs is list of string, cflags is list of string, ldflags is list of string, defines is list of string, cc is "", strict_c99 is false
+    var entries as list of toml.TomlEntry is r.value
+    var name as string is calling text_or with entries, "project.name", "app"
+    var version as string is calling text_or with entries, "project.version", "0.1.0"
+    var entry as string is calling text_or with entries, "project.entry", "src/main.pengu"
+    var output as string is calling text_or with entries, "project.output", "exe"
+    var output_name as string is calling text_or with entries, "project.output_name", name
+    var src_dir as string is calling text_or with entries, "build.src_dir", "src"
+    var lib_dir as string is calling text_or with entries, "build.lib_dir", "lib"
+    var include_dir as string is calling text_or with entries, "build.include_dir", "include"
+    var c_dir as string is calling text_or with entries, "build.c_dir", "c"
+    var build_dir as string is calling text_or with entries, "build.build_dir", "build"
+    var cc as string is calling text_or with entries, "build.cc", ""
+    var strict as bool is calling toml.get_bool with entries, "build.strict_c99", false
+    var links as list of string is calling toml.get_array with entries, "build.links"
+    var lib_dirs as list of string is calling toml.get_array with entries, "build.lib_dirs"
+    var include_dirs as list of string is calling toml.get_array with entries, "build.include_dirs"
+    var cflags as list of string is calling toml.get_array with entries, "build.cflags"
+    var ldflags as list of string is calling toml.get_array with entries, "build.ldflags"
+    var defines as list of string is calling toml.get_array with entries, "build.defines"
+    var pflags as list of string is calling toml.get_array with entries, "profiles.{profile}.cflags"
+    var pdefs as list of string is calling toml.get_array with entries, "profiles.{profile}.defines"
+    for p in pflags:
+        calling cflags.push with (calling copy with p)
+    for d in pdefs:
+        calling defines.push with (calling copy with d)
+    calling free_strings with pflags
+    calling free_strings with pdefs
+    var bad as string is ""
+    if output != "exe" and output != "c":
+        set bad is "output '{output}' is not supported in F5 (use exe or c)"
+    if calling toml.has with entries, "dependencies":
+        set bad is "dependencies are not supported in F5 (planned F9)"
+    calling toml.free_entries with entries
+    return with found is true, ok is (bad length == 0), error is bad, base_dir is (calling copy with base_dir), name is name, version is version, entry is entry, output is output, output_name is output_name, src_dir is src_dir, lib_dir is lib_dir, include_dir is include_dir, c_dir is c_dir, build_dir is build_dir, links is links, lib_dirs is lib_dirs, include_dirs is include_dirs, cflags is cflags, ldflags is ldflags, defines is defines, cc is cc, strict_c99 is strict
+
+## Libera un manifiesto.
+##
+## ## Memoria
+## Libera todos los campos.
+weave free_manifest with m as ref to Manifest into void:
+    banish m->error
+    banish m->base_dir
+    banish m->name
+    banish m->version
+    banish m->entry
+    banish m->output
+    banish m->output_name
+    banish m->src_dir
+    banish m->lib_dir
+    banish m->include_dir
+    banish m->c_dir
+    banish m->build_dir
+    calling free_strings with m->links
+    calling free_strings with m->lib_dirs
+    calling free_strings with m->include_dirs
+    calling free_strings with m->cflags
+    calling free_strings with m->ldflags
+    calling free_strings with m->defines
+    banish m->cc

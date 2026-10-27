@@ -19,6 +19,8 @@ import psc.source as psource
 import psc.token as pstoken
 import psc.lexer_state as psstate
 
+insignia psc_lexer_comment_
+
 ## Escanea un comentario que empieza en `#`.
 ##
 ## ## Memoria

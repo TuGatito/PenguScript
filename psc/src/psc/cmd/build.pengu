@@ -1,0 +1,312 @@
+## psc/cmd/build.pengu — comandos `build`, `run` y `expand` de F5.
+
+import std.archivum
+import std.rites
+import std.spark
+
+import psc.driver.build as driver
+import psc.sema.names as npool
+
+insignia psc_cmd_build_
+
+## `true` si `s` empieza por `prefix`.
+##
+## ## Memoria
+## O(prefix); no asigna.
+weave starts_with with s as string, prefix as string into bool:
+    var n as int is s length
+    var m as int is prefix length
+    if m > n:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of prefix
+    var i as int is 0
+    while i < m:
+        if ((sb at i) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## `true` si `s` empieza por `-`.
+##
+## ## Memoria
+## O(1).
+weave starts_dash with s as string into bool:
+    if s length == 0:
+        return false
+    var b as ref to frozen byte is bytes of s
+    return ((b at 0) to int) == 45
+
+## Ayuda de `build`.
+##
+## ## Memoria
+## No asigna.
+weave print_build_help into void:
+    calling spark.println with "Usage: psc build [TARGET] [options]"
+    calling spark.println with "  TARGET                  .pengu file or project directory (default: cwd)"
+    calling spark.println with "  --profile=debug|release"
+    calling spark.println with "  --cc=NAME               C compiler (default: gcc/cc)"
+    calling spark.println with "  --out=PATH              artifact path"
+    calling spark.println with "  --strict-c99            portable C99"
+    calling spark.println with "  --release-unsafe        disable bounds/overflow checks"
+    calling spark.println with "  --verbose               print the cc command"
+    calling spark.println with "  --help"
+
+## Ayuda de `run`.
+##
+## ## Memoria
+## No asigna.
+weave print_run_help into void:
+    calling spark.println with "Usage: psc run [TARGET] [-- args...]"
+    calling spark.println with "  TARGET                  .pengu file or project directory (default: cwd)"
+    calling spark.println with "  --profile=debug|release"
+    calling spark.println with "  --cc=NAME"
+    calling spark.println with "  --verbose"
+    calling spark.println with "  --help"
+
+## Ayuda de `expand`.
+##
+## ## Memoria
+## No asigna.
+weave print_expand_help into void:
+    calling spark.println with "Usage: psc expand [TARGET] [options]"
+    calling spark.println with "  --out=PATH              write the bundle to PATH (default: stdout)"
+    calling spark.println with "  --library               emit no main wrapper"
+    calling spark.println with "  --cc=NAME"
+    calling spark.println with "  --strict-c99"
+    calling spark.println with "  --release-unsafe"
+    calling spark.println with "  --help"
+
+## Implementa `psc build`.
+##
+## ## Memoria
+## Libera opciones y resultado.
+weave run_build with args as list of string into int:
+    var o as driver.BuildOptions is calling driver.default_options
+    var path as string is ""
+    var i as int is 2
+    while i < args.len:
+        var a as string is args at i
+        if a == "--verbose":
+            set o.verbose is true
+        else if a == "--strict-c99":
+            set o.strict_c99 is true
+        else if a == "--release-unsafe":
+            set o.release_unsafe is true
+        else if a == "--help" or a == "-h":
+            calling print_build_help
+            calling driver.free_options with (sigil of o)
+            return 0
+        else if calling starts_with with a, "--profile=":
+            var v as string is a at 10 to (a length)
+            banish o.profile
+            set o.profile is v
+        else if calling starts_with with a, "--cc=":
+            var vc as string is a at 5 to (a length)
+            banish o.cc
+            set o.cc is vc
+        else if calling starts_with with a, "--out=":
+            var vo as string is a at 6 to (a length)
+            banish o.out_path
+            set o.out_path is vo
+        else if calling starts_dash with a:
+            var u as string is "psc build: unknown option '{a}'"
+            calling spark.eprintln with u
+            banish u
+            calling print_build_help
+            calling driver.free_options with (sigil of o)
+            return 2
+        else:
+            if path length > 0:
+                calling spark.eprintln with "psc build: only one target is supported"
+                calling driver.free_options with (sigil of o)
+                return 2
+            set path is a
+        set i is i + 1
+    banish o.target
+    set o.target is calling copy_path with path
+    var r as driver.BuildResult is calling driver.build with o
+    if not r.ok:
+        var err as string is r.error
+        var emsg as string is "psc build: {err}"
+        calling spark.eprintln with emsg
+        banish emsg
+        calling driver.free_result with (sigil of r)
+        calling driver.free_options with (sigil of o)
+        return 1
+    var msg as string is "Finished -> {r.artifact}"
+    calling spark.println with msg
+    banish msg
+    calling driver.free_result with (sigil of r)
+    calling driver.free_options with (sigil of o)
+    return 0
+
+## Implementa `psc run`.
+##
+## ## Memoria
+## Libera opciones, resultado y args del hijo.
+weave run_run with args as list of string into int:
+    var o as driver.BuildOptions is calling driver.default_options
+    var path as string is ""
+    var child as list of string is list of string
+    var after as bool is false
+    var i as int is 2
+    while i < args.len:
+        var a as string is args at i
+        if after:
+            calling child.push with (calling copy_path with a)
+        else if a == "--":
+            set after is true
+        else if a == "--verbose":
+            set o.verbose is true
+        else if a == "--strict-c99":
+            set o.strict_c99 is true
+        else if a == "--release-unsafe":
+            set o.release_unsafe is true
+        else if a == "--help" or a == "-h":
+            calling print_run_help
+            calling driver.free_options with (sigil of o)
+            return 0
+        else if calling starts_with with a, "--profile=":
+            var v as string is a at 10 to (a length)
+            banish o.profile
+            set o.profile is v
+        else if calling starts_with with a, "--cc=":
+            var vc as string is a at 5 to (a length)
+            banish o.cc
+            set o.cc is vc
+        else if calling starts_dash with a:
+            var u as string is "psc run: unknown option '{a}'"
+            calling spark.eprintln with u
+            banish u
+            calling print_run_help
+            calling driver.free_options with (sigil of o)
+            return 2
+        else:
+            if path length > 0:
+                calling spark.eprintln with "psc run: only one target is supported before --"
+                calling driver.free_options with (sigil of o)
+                return 2
+            set path is a
+        set i is i + 1
+    banish o.target
+    set o.target is calling copy_path with path
+    var r as driver.BuildResult is calling driver.build with o
+    if not r.ok:
+        var err as string is r.error
+        var emsg as string is "psc run: {err}"
+        calling spark.eprintln with emsg
+        banish emsg
+        calling driver.free_result with (sigil of r)
+        calling driver.free_options with (sigil of o)
+        var ci as int is 0
+        while ci < child.len:
+            banish child at ci
+            set ci is ci + 1
+        banish child
+        return 1
+    var art as string is r.artifact
+    var pr as rites.ProcessResult is calling rites.run_capture_all with art, child
+    calling spark.print with pr.stdout
+    calling spark.eprint with pr.stderr
+    var code as int is pr.code
+    if code < 0:
+        set code is 1
+    banish pr.stdout
+    banish pr.stderr
+    calling driver.free_result with (sigil of r)
+    calling driver.free_options with (sigil of o)
+    var ci2 as int is 0
+    while ci2 < child.len:
+        banish child at ci2
+        set ci2 is ci2 + 1
+    banish child
+    return code
+
+## Implementa `psc expand`.
+##
+## ## Memoria
+## Libera opciones, resultado y bundle.
+weave run_expand with args as list of string into int:
+    var o as driver.BuildOptions is calling driver.default_options
+    set o.bundle_only is true
+    var path as string is ""
+    var out as string is ""
+    var i as int is 2
+    while i < args.len:
+        var a as string is args at i
+        if a == "--library":
+            set o.is_library is true
+        else if a == "--strict-c99":
+            set o.strict_c99 is true
+        else if a == "--release-unsafe":
+            set o.release_unsafe is true
+        else if a == "--help" or a == "-h":
+            calling print_expand_help
+            calling driver.free_options with (sigil of o)
+            return 0
+        else if calling starts_with with a, "--out=":
+            var ov as string is a at 6 to (a length)
+            banish out
+            set out is ov
+        else if calling starts_with with a, "--cc=":
+            var vc as string is a at 5 to (a length)
+            banish o.cc
+            set o.cc is vc
+        else if calling starts_dash with a:
+            var u as string is "psc expand: unknown option '{a}'"
+            calling spark.eprintln with u
+            banish u
+            calling print_expand_help
+            calling driver.free_options with (sigil of o)
+            return 2
+        else:
+            if path length > 0:
+                calling spark.eprintln with "psc expand: only one target is supported"
+                calling driver.free_options with (sigil of o)
+                return 2
+            set path is a
+        set i is i + 1
+    banish o.target
+    set o.target is calling copy_path with path
+    var r as driver.BuildResult is calling driver.build with o
+    if not r.ok:
+        var err as string is r.error
+        var emsg as string is "psc expand: {err}"
+        calling spark.eprintln with emsg
+        banish emsg
+        calling driver.free_result with (sigil of r)
+        calling driver.free_options with (sigil of o)
+        return 1
+    var text as maybe string is calling archivum.read_text with r.artifact
+    if not text.is_present:
+        calling spark.eprintln with "psc expand: cannot read bundle"
+        banish text
+        calling driver.free_result with (sigil of r)
+        calling driver.free_options with (sigil of o)
+        return 2
+    if out length > 0:
+        if not calling archivum.write_text with out, text.value:
+            calling spark.eprintln with "psc expand: cannot write output"
+            banish text
+            banish out
+            calling driver.free_result with (sigil of r)
+            calling driver.free_options with (sigil of o)
+            return 2
+        var msg as string is "wrote {out}"
+        calling spark.eprintln with msg
+        banish msg
+    else:
+        calling spark.print with text.value
+    banish text
+    banish out
+    calling driver.free_result with (sigil of r)
+    calling driver.free_options with (sigil of o)
+    return 0
+
+## Copia owned de un path.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy_path with s as string into string:
+    return calling npool.copy_string with s

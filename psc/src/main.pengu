@@ -35,6 +35,8 @@ import psc.sema.options as sopts
 import psc.sema.api as sema_api
 import psc.codegen.api as cgapi
 import psc.codegen.options as cgopt
+import psc.cmd.build as cmd_build
+
 
 ## Punto de entrada.
 weave main into int:
@@ -71,6 +73,12 @@ weave dispatch with args as list of string into int:
         return calling run_check with args
     if cmd == "emit-c":
         return calling run_emit_c with args
+    if cmd == "build":
+        return calling cmd_build.run_build with args
+    if cmd == "run":
+        return calling cmd_build.run_run with args
+    if cmd == "expand":
+        return calling cmd_build.run_expand with args
     var msg as string is "psc: unknown command '{cmd}'"
     calling spark.eprintln with msg
     banish msg
@@ -534,6 +542,9 @@ weave print_help into void:
     calling spark.println with "  psc parse --stdin [options]"
     calling spark.println with "  psc check <file> [options]"
     calling spark.println with "  psc emit-c <file> [options]"
+    calling spark.println with "  psc build [TARGET] [options]"
+    calling spark.println with "  psc run [TARGET] [-- args]"
+    calling spark.println with "  psc expand [TARGET] [options]"
     calling spark.println with "  psc version"
 
 ## Ayuda de `lex`.

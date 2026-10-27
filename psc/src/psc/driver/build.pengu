@@ -1,0 +1,403 @@
+## psc/driver/build.pengu — driver mínimo: F3 + F4 + cc + link.
+##
+## F5 no cachea, no resuelve dependencias y sólo soporta `pengu.toml` TOML.
+
+import std.archivum
+import std.builder
+import std.compass
+import std.diagnostic as diag
+import std.rites
+import std.spark
+
+import psc.sema.names as npool
+import psc.sema.options as sopts
+import psc.sema.api as sema_api
+import psc.codegen.api as cgapi
+import psc.codegen.options as cgopt
+import psc.driver.manifest as manifest
+import psc.driver.paths as paths
+import psc.driver.toolchain as toolchain
+
+insignia psc_driver_build_
+
+## Opciones de build.
+##
+## ## Memoria
+## Strings owned; liberar con `free_options`.
+rune BuildOptions:
+    target as string
+    profile as string
+    cc as string
+    out_path as string
+    verbose as bool
+    strict_c99 as bool
+    release_unsafe as bool
+    is_library as bool
+    bundle_only as bool
+
+## Resultado de un build.
+##
+## ## Memoria
+## Strings owned; liberar con `free_result`.
+rune BuildResult:
+    ok as bool
+    error as string
+    artifact as string
+    bundle_path as string
+
+## Copia un string.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Libera una lista de strings owned.
+##
+## ## Memoria
+## Libera elementos y lista.
+weave free_strings with xs as list of string into void:
+    var i as int is 0
+    while i < xs.len:
+        banish xs at i
+        set i is i + 1
+    banish xs
+
+## `true` si `s` termina en `suffix`.
+##
+## ## Memoria
+## O(suffix); no asigna.
+weave ends_with with s as string, suffix as string into bool:
+    var n as int is s length
+    var m as int is suffix length
+    if m > n:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of suffix
+    var i as int is 0
+    while i < m:
+        if ((sb at (n - m + i)) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## Directorio actual.
+##
+## ## Memoria
+## Devuelve string owned.
+weave current_dir into string:
+    var d as maybe string is calling rites.getcwd
+    if d.is_present:
+        return d.value
+    banish d
+    return "."
+
+## Busca el directorio con `pengu.toml` subiendo desde `start`.
+##
+## ## Memoria
+## Devuelve string owned o `""`.
+weave find_manifest_root with start as string into string:
+    var d as string is calling compass.cp_normalize with start
+    var i as int is 0
+    while i < 8:
+        var f as string is "{d}/pengu.toml"
+        if calling archivum.is_file with f:
+            banish f
+            return d
+        banish f
+        var parent as string is calling compass.cp_dirname with d
+        if parent == d:
+            banish parent
+            banish d
+            return ""
+        banish d
+        set d is parent
+        set i is i + 1
+    banish d
+    return ""
+
+## Opciones por defecto.
+##
+## ## Memoria
+## Strings owned; liberar con `free_options`.
+weave default_options into BuildOptions:
+    return with target is "", profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, bundle_only is false
+
+## Libera opciones.
+##
+## ## Memoria
+## Libera strings.
+weave free_options with o as ref to BuildOptions into void:
+    banish o->target
+    banish o->profile
+    banish o->cc
+    banish o->out_path
+
+## Libera un resultado.
+##
+## ## Memoria
+## Libera strings.
+weave free_result with r as ref to BuildResult into void:
+    banish r->error
+    banish r->artifact
+    banish r->bundle_path
+
+## Construye un proyecto o un archivo.
+##
+## ## Memoria
+## Devuelve BuildResult owned; liberar con `free_result`.
+weave build with o as BuildOptions into BuildResult:
+    var cwd as string is calling current_dir
+    var target as string is calling copy with o.target
+    var start as string is calling copy with cwd
+    var is_file as bool is false
+    if target length > 0:
+        if (calling ends_with with target, ".pengu") or (calling archivum.is_file with target):
+            set is_file is true
+            var td as string is calling compass.cp_dirname with target
+            banish start
+            set start is td
+        else:
+            var ts as string is calling copy with target
+            banish start
+            set start is ts
+    var root as string is calling find_manifest_root with start
+    var base as string is root
+    var man as manifest.Manifest is calling manifest.default_manifest with start, "main.pengu"
+    if root length == 0:
+        set base is start
+    if root length > 0:
+        calling manifest.free_manifest with (sigil of man)
+        set man is calling manifest.load_manifest with root, o.profile
+        set base is man.base_dir
+    else if not is_file:
+        banish cwd
+        banish target
+        banish start
+        banish root
+        return with ok is false, error is (calling copy with "no pengu.toml found; pass a file or a project directory"), artifact is "", bundle_path is ""
+    if not man.ok:
+        var emsg as string is man.error
+        banish cwd
+        banish target
+        banish start
+        banish root
+        return with ok is false, error is emsg, artifact is "", bundle_path is ""
+    var entry as string is ""
+    if is_file:
+        set entry is calling compass.cp_absolute with target
+    else:
+        var e0 as string is "{base}/{man.entry}"
+        set entry is calling compass.cp_absolute with e0
+        banish e0
+    if not calling archivum.is_file with entry:
+        var emsg2 as string is "entry file not found: {entry}"
+        banish cwd
+        banish target
+        banish start
+        banish root
+        banish entry
+        calling manifest.free_manifest with (sigil of man)
+        return with ok is false, error is emsg2, artifact is "", bundle_path is ""
+    var p as paths.Paths is calling paths.find_paths with base
+    if not p.ok:
+        var perr as string is p.error
+        banish cwd
+        banish target
+        banish start
+        banish root
+        banish entry
+        calling manifest.free_manifest with (sigil of man)
+        calling paths.free_paths with (sigil of p)
+        return with ok is false, error is perr, artifact is "", bundle_path is ""
+    var tc as toolchain.Toolchain is calling toolchain.resolve with (sigil of man), (sigil of p), o.cc, o.profile, o.strict_c99, o.release_unsafe
+    if o.verbose:
+        var pdbg as string is "paths: archive={p.runtime_archive} include={p.runtime_include} stds={p.std_dirs.len} incs={tc.include_dirs.len} libs={tc.lib_dirs.len}"
+        calling spark.eprintln with pdbg
+        banish pdbg
+    if not tc.ok:
+        var terr as string is tc.error
+        banish cwd
+        banish target
+        banish start
+        banish root
+        banish entry
+        calling manifest.free_manifest with (sigil of man)
+        calling paths.free_paths with (sigil of p)
+        calling toolchain.free_toolchain with (sigil of tc)
+        return with ok is false, error is terr, artifact is "", bundle_path is ""
+    # F3: opciones propias, sin compartir ownership con Manifest/Paths.
+    var so as sopts.SemaOptions is calling sopts.default_options with (calling copy with base)
+    banish so.src_dir
+    set so.src_dir is (calling copy with man.src_dir)
+    banish so.lib_dir
+    set so.lib_dir is (calling copy with man.lib_dir)
+    var si as int is 0
+    while si < p.std_dirs.len:
+        calling so.std_dirs.push with (calling copy with (p.std_dirs at si))
+        set si is si + 1
+    var di as int is 0
+    while di < man.defines.len:
+        calling so.defines.push with (calling copy with (man.defines at di))
+        set di is di + 1
+    var ccn as string is calling compass.cp_basename with tc.cc
+    banish so.compiler
+    set so.compiler is (calling copy with ccn)
+    banish ccn
+    var sr as sema_api.SemaResult is calling sema_api.check_file with entry, so
+    var bag_ref as ref to diag.DiagnosticBag is (sigil of sr.program->diagnostics)
+    var bag_v as diag.DiagnosticBag is sr.program->diagnostics
+    if not sr.ok or bag_ref->error_count > 0:
+        var rendered as string is calling bag_v.render_plain
+        calling spark.eprint with rendered
+        banish rendered
+        banish cwd
+        banish target
+        banish start
+        banish root
+        banish entry
+        calling sema_api.free_result with (sigil of sr)
+        calling manifest.free_manifest with (sigil of man)
+        calling paths.free_paths with (sigil of p)
+        calling toolchain.free_toolchain with (sigil of tc)
+        return with ok is false, error is (calling copy with "semantic errors"), artifact is "", bundle_path is ""
+    var cgo as cgopt.CgOptions is calling cgopt.default_options with (calling copy with base)
+    set cgo.entry_file is (calling copy with entry)
+    set cgo.is_library is o.is_library
+    set cgo.line_markers is true
+    set cgo.strict_c99 is o.strict_c99
+    set cgo.release_unsafe is o.release_unsafe
+    set cgo.target_compiler is (calling copy with (calling compass.cp_basename with tc.cc))
+    set cgo.defines is man.defines
+    var cr is calling cgapi.generate_c with sr.program, cgo
+    if not cr.ok:
+        calling spark.eprintln with "code generation failed"
+        banish cwd
+        banish target
+        banish start
+        banish root
+        banish entry
+        calling cgapi.free_result with (sigil of cr)
+        calling sema_api.free_result with (sigil of sr)
+        calling manifest.free_manifest with (sigil of man)
+        calling paths.free_paths with (sigil of p)
+        calling toolchain.free_toolchain with (sigil of tc)
+        return with ok is false, error is (calling copy with "code generation failed"), artifact is "", bundle_path is ""
+    var build_dir as string is "{base}/{man.build_dir}"
+    if not calling archivum.create_dir with build_dir, true:
+        var bderr as string is "cannot create build directory: {build_dir}"
+        banish cwd
+        banish target
+        banish start
+        banish root
+        banish entry
+        banish build_dir
+        calling cgapi.free_result with (sigil of cr)
+        calling sema_api.free_result with (sigil of sr)
+        calling manifest.free_manifest with (sigil of man)
+        calling paths.free_paths with (sigil of p)
+        calling toolchain.free_toolchain with (sigil of tc)
+        return with ok is false, error is bderr, artifact is "", bundle_path is ""
+    var bundle as string is "{build_dir}/bundle.c"
+    if not calling archivum.write_text with bundle, cr.bundle:
+        var wberr as string is "cannot write bundle: {bundle}"
+        banish cwd
+        banish target
+        banish start
+        banish root
+        banish entry
+        banish build_dir
+        banish bundle
+        calling cgapi.free_result with (sigil of cr)
+        calling sema_api.free_result with (sigil of sr)
+        calling manifest.free_manifest with (sigil of man)
+        calling paths.free_paths with (sigil of p)
+        calling toolchain.free_toolchain with (sigil of tc)
+        return with ok is false, error is wberr, artifact is "", bundle_path is ""
+    if o.bundle_only or man.output == "c":
+        banish cwd
+        banish target
+        banish start
+        banish root
+        banish entry
+        banish build_dir
+        calling cgapi.free_result with (sigil of cr)
+        calling sema_api.free_result with (sigil of sr)
+        calling manifest.free_manifest with (sigil of man)
+        calling paths.free_paths with (sigil of p)
+        calling toolchain.free_toolchain with (sigil of tc)
+        return with ok is true, error is "", artifact is bundle, bundle_path is (calling copy with bundle)
+    var artifact as string is ""
+    if o.out_path length > 0:
+        set artifact is calling compass.cp_absolute with o.out_path
+    else:
+        set artifact is "{build_dir}/{man.output_name}"
+    var adir as string is calling compass.cp_dirname with artifact
+    if adir length > 0:
+        calling archivum.create_dir with adir, true
+    banish adir
+    var args as list of string is list of string
+    for f in tc.cflags:
+        calling args.push with (calling copy with f)
+    for inc in tc.include_dirs:
+        calling args.push with "-I{inc}"
+    calling args.push with (calling copy with bundle)
+    for ld in tc.lib_dirs:
+        calling args.push with "-L{ld}"
+    for lk in tc.links:
+        if lk == "pengu_runtime" or lk == "libpengu_runtime":
+            calling args.push with "-lpengu_runtime"
+        else:
+            calling args.push with "-l{lk}"
+    calling args.push with "-lm"
+    calling args.push with "-pthread"
+    calling args.push with "-ldl"
+    calling args.push with "-o"
+    calling args.push with (calling copy with artifact)
+    if o.verbose:
+        var cmdline as string is tc.cc
+        for a in args:
+            set cmdline is "{cmdline} {a}"
+        var vmsg as string is "cc: {cmdline}"
+        calling spark.eprintln with vmsg
+        banish vmsg
+        banish cmdline
+    var pr as rites.ProcessResult is calling rites.run_capture_all with tc.cc, args
+    if pr.code != 0:
+        var eout as string is pr.stderr
+        if eout length == 0:
+            set eout is pr.stdout
+        calling spark.eprint with eout
+        banish eout
+        banish pr.stdout
+        banish pr.stderr
+        banish cwd
+        banish target
+        banish start
+        banish root
+        banish entry
+        banish build_dir
+        banish bundle
+        banish artifact
+        calling free_strings with args
+        calling cgapi.free_result with (sigil of cr)
+        calling sema_api.free_result with (sigil of sr)
+        calling manifest.free_manifest with (sigil of man)
+        calling paths.free_paths with (sigil of p)
+        calling toolchain.free_toolchain with (sigil of tc)
+        return with ok is false, error is (calling copy with "C compilation failed"), artifact is "", bundle_path is ""
+    banish pr.stdout
+    banish pr.stderr
+    banish cwd
+    banish target
+    banish start
+    banish root
+    banish entry
+    banish build_dir
+    calling free_strings with args
+    calling cgapi.free_result with (sigil of cr)
+    calling sema_api.free_result with (sigil of sr)
+    calling manifest.free_manifest with (sigil of man)
+    calling paths.free_paths with (sigil of p)
+    calling toolchain.free_toolchain with (sigil of tc)
+    return with ok is true, error is "", artifact is artifact, bundle_path is bundle

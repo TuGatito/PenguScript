@@ -86,35 +86,74 @@ weave free_program with p as ref to SemaProgram into void:
     calling sopts.free_options with (sigil of p->options)
     banish p
 
+## Ruta canónica (identidad) de un módulo.
+##
+## Absolutiza y normaliza para que el mismo archivo no entre dos veces con
+## grafías distintas (relativa vs absoluta, `./`, `..`, separadores).
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave canonical_path with p as ref to SemaProgram, path as string into string:
+    if path length == 0:
+        return ""
+    var abs as string is calling compass.cp_absolute with path
+    defer banish abs
+    return calling compass.cp_normalize with abs
+
+## Ruta de display de un módulo: relativa a `base_dir` si es posible.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave display_path with p as ref to SemaProgram, canonical as string into string:
+    if (p->options.base_dir length) == 0:
+        return calling npool.copy_string with canonical
+    var rel as maybe string is calling compass.cp_relative_to with canonical, p->options.base_dir
+    if rel.is_present:
+        if (rel.value length) > 0:
+            return rel.value
+        banish rel
+        return calling npool.copy_string with canonical
+    banish rel
+    return calling npool.copy_string with canonical
+
 ## Busca un módulo ya cargado.
 ##
 ## ## Memoria
 ## O(1) promedio.
 weave module_id with p as ref to SemaProgram, path as string into int:
-    if calling p->by_path.has with path:
-        return calling p->by_path.get with path
+    if path length == 0:
+        return -1
+    var canon as string is calling canonical_path with p, path
+    defer banish canon
+    if calling p->by_path.has with canon:
+        return calling p->by_path.get with canon
     return -1
 
 ## Descubre un módulo y sus imports.
 ##
-## `depth` es la profundidad de import. `visiting` es la pila de paths.
+## `depth` es la profundidad de import. `visiting` es la pila de paths
+## canónicos.
 ##
 ## ## Memoria
 ## Añade módulos; liberar con `free_program`.
 weave discover with p as ref to SemaProgram, path as string, is_entry as bool, depth as int, visiting as ref to list of string, vcount as int into int:
-    var existing as int is calling module_id with p, path
+    var canon as string is calling canonical_path with p, path
+    defer banish canon
+    var existing as int is calling module_id with p, canon
     if existing >= 0:
         return existing
-    var is_std as bool is calling path_is_std with path
-    var m as loader.SemaModule is calling loader.load_module with path, (sigil of p->diagnostics), is_entry, is_std, depth
+    var display as string is calling display_path with p, canon
+    defer banish display
+    var is_std as bool is calling path_is_std with canon
+    var m as loader.SemaModule is calling loader.load_module with canon, display, (sigil of p->diagnostics), is_entry, is_std, depth
     var id as int is p->modules.len
     set m.id is id
     calling p->modules.push with m
-    calling p->by_path.put with m.path, id
+    calling p->by_path.put with m.canonical_path, id
     # Carga el binding C companion (`foo.d.pengu`) después de conocer el id
     # padre; sus declaraciones se recolectan en el scope del padre.
-    if not (calling ends_with_path with path, ".d.pengu"):
-        var comp as string is calling companion_path with path
+    if not (calling ends_with_path with canon, ".d.pengu"):
+        var comp as string is calling companion_path with canon
         if comp != "":
             if calling archivum.is_file with comp:
                 var cid as int is calling discover with p, comp, false, depth, visiting, vcount
@@ -145,7 +184,7 @@ weave discover_imports_of with p as ref to SemaProgram, m as loader.SemaModule, 
     var i as int is 0
     while i < imports.len:
         var dot as string is (imports at i)
-        var from_dir as string is calling compass.cp_dirname with m.path
+        var from_dir as string is calling compass.cp_dirname with m.canonical_path
         defer banish from_dir
         var hit as string is calling resolver.find_module with (sigil of p->options), dot, from_dir
         if hit == "":
@@ -155,17 +194,19 @@ weave discover_imports_of with p as ref to SemaProgram, m as loader.SemaModule, 
             calling sdiag.node_error with (sigil of p->diagnostics), (sigil of m.source), sdiag.CODE_UNDEFINED, (calling astutil.start_of with (sigil of m.parse.ast), node), (calling astutil.end_of with (sigil of m.parse.ast), node), msg, "Check the path and the project's src/lib directories.", ""
             banish dot
         else:
-            if calling visiting_has with visiting, hit, vcount:
+            var hit_canon as string is calling canonical_path with p, hit
+            if calling visiting_has with visiting, hit_canon, vcount:
                 var node2 as int is (inodes at i)
                 var msg2 as string is "circular dependency in imports: '{hit}'"
                 defer banish msg2
                 calling sdiag.node_error with (sigil of p->diagnostics), (sigil of m.source), sdiag.CODE_UNDEFINED, (calling astutil.start_of with (sigil of m.parse.ast), node2), (calling astutil.end_of with (sigil of m.parse.ast), node2), msg2, "Break the import cycle.", ""
-                banish hit
+                banish hit_canon
             else:
-                calling visiting->push with hit
-                var child as int is calling discover with p, hit, false, depth + 1, visiting, vcount + 1
+                calling visiting->push with hit_canon
+                var child as int is calling discover with p, hit_canon, false, depth + 1, visiting, vcount + 1
                 calling visiting->pop
-                banish hit
+                banish hit_canon
+            banish hit
             banish dot
         set i is i + 1
     banish imports

@@ -15,7 +15,7 @@ import psc.sema.types.kind as tk
 import psc.sema.types.table as types
 import psc.sema.types.compat as compat
 import psc.sema.types.convert as convert
-import psc.sema.types.canonical as canonical
+import psc.sema.types.canonical as canon
 import psc.sema.symbols.symbol as sym
 import psc.sema.symbols.scope as scope
 import psc.sema.state as state
@@ -509,8 +509,8 @@ weave check_return with s as ref to state.SemaState, node as int into void:
         else:
             set got is calling state.call_infer with s, e, expected
         if not (calling compat.compatible with s->types, got, expected):
-            var en as int is calling canonical.canonical_name with s->types, expected
-            var gn as int is calling canonical.canonical_name with s->types, got
+            var en as int is calling canon.canonical_name with s->types, expected
+            var gn as int is calling canon.canonical_name with s->types, got
             var etext as string is calling npool.text with s->names, en
             var gtext as string is calling npool.text with s->names, gn
             var msg as string is "return value of type '{gtext}' does not match '{etext}'"
@@ -1128,8 +1128,8 @@ weave mismatch with s as ref to state.SemaState, node as int, expected as int, g
     var gt0 as tk.SemaType is calling types.at with s->types, got
     if et0.kind == tk.SemaTypeKind.TkFn or gt0.kind == tk.SemaTypeKind.TkFn or et0.kind == tk.SemaTypeKind.TkAny or gt0.kind == tk.SemaTypeKind.TkAny or et0.kind == tk.SemaTypeKind.TkTypeParam or gt0.kind == tk.SemaTypeKind.TkTypeParam:
         return
-    var eid as int is calling canonical.canonical_name with s->types, expected
-    var gid as int is calling canonical.canonical_name with s->types, got
+    var eid as int is calling canon.canonical_name with s->types, expected
+    var gid as int is calling canon.canonical_name with s->types, got
     var en as string is calling npool.text with s->names, eid
     var gn as string is calling npool.text with s->names, gid
     var msg as string is "type mismatch: expected '{en}', got '{gn}'"

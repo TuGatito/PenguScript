@@ -717,6 +717,65 @@ weave const_literal with s as ref to state.SemaState, node as int into sym.SemaC
             banish ch
         banish rawc
         return cv
+    if k == pskind.NodeKind.NdParenExpr:
+        return calling const_literal with s, (calling astutil.node_child with s->ast, node, 0)
+    if k == pskind.NodeKind.NdNeg:
+        var negv as sym.SemaConst is calling const_literal with s, (calling astutil.node_child with s->ast, node, 0)
+        if negv.kind == sym.SemaConstKind.CkInt:
+            set negv.i is 0 - negv.i
+        return negv
+    if k == pskind.NodeKind.NdBitNot:
+        var bnv as sym.SemaConst is calling const_literal with s, (calling astutil.node_child with s->ast, node, 0)
+        if bnv.kind == sym.SemaConstKind.CkInt:
+            set bnv.i is ~bnv.i
+        return bnv
+    if k == pskind.NodeKind.NdVarRef:
+        var rtxt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
+        var rsid as int is calling symbols.lookup_name with s->symbols, rtxt
+        banish rtxt
+        if rsid >= 0:
+            var rsv as sym.SemaSymbol is (s->symbols->symbols at rsid)
+            if rsv.kind == sym.SemaSymbolKind.SkConst and rsv.const_id >= 0:
+                return (s->symbols->const_values at rsv.const_id)
+        return cv
+    if k == pskind.NodeKind.NdShl or k == pskind.NodeKind.NdShr or k == pskind.NodeKind.NdBitwiseAnd or k == pskind.NodeKind.NdBitwiseOr or k == pskind.NodeKind.NdBitwiseXor or k == pskind.NodeKind.NdAdd or k == pskind.NodeKind.NdSub or k == pskind.NodeKind.NdMul or k == pskind.NodeKind.NdDiv or k == pskind.NodeKind.NdMod:
+        var lv as sym.SemaConst is calling const_literal with s, (calling astutil.node_child with s->ast, node, 0)
+        var rv as sym.SemaConst is calling const_literal with s, (calling astutil.node_child with s->ast, node, 1)
+        if lv.kind == sym.SemaConstKind.CkInt and rv.kind == sym.SemaConstKind.CkInt:
+            set cv.kind is sym.SemaConstKind.CkInt
+            if k == pskind.NodeKind.NdShl:
+                var mul2 as i64 is 1
+                var shl as i64 is 0
+                while shl < rv.i:
+                    set mul2 is mul2 * 2
+                    set shl is shl + 1
+                if rv.i >= 0:
+                    set cv.i is lv.i * mul2
+            else if k == pskind.NodeKind.NdShr:
+                var div2 as i64 is 2
+                var sh as i64 is 0
+                while sh < rv.i:
+                    set div2 is div2 * 2
+                    set sh is sh + 1
+                if rv.i >= 0:
+                    set cv.i is lv.i / div2
+            else if k == pskind.NodeKind.NdBitwiseAnd:
+                set cv.i is lv.i & rv.i
+            else if k == pskind.NodeKind.NdBitwiseOr:
+                set cv.i is lv.i | rv.i
+            else if k == pskind.NodeKind.NdBitwiseXor:
+                set cv.i is lv.i ^ rv.i
+            else if k == pskind.NodeKind.NdAdd:
+                set cv.i is lv.i + rv.i
+            else if k == pskind.NodeKind.NdSub:
+                set cv.i is lv.i - rv.i
+            else if k == pskind.NodeKind.NdMul:
+                set cv.i is lv.i * rv.i
+            else if k == pskind.NodeKind.NdDiv and rv.i != 0:
+                set cv.i is lv.i / rv.i
+            else if k == pskind.NodeKind.NdMod and rv.i != 0:
+                set cv.i is lv.i % rv.i
+        return cv
     if k != pskind.NodeKind.NdIntLit:
         return cv
     var text as string is calling astutil.child_token_text with s->src, s->lex, s->ast, node, 0

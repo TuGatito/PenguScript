@@ -15,6 +15,9 @@ import psc.sema.symbols.symbol as sym
 import psc.sema.types.table as types
 import psc.sema.symbols.table as symbols
 
+import psc.codegen.options as cgopts
+import psc.codegen.comptime as ctime
+
 insignia psc_codegen_catalog_
 
 ## Función declarada en un módulo.
@@ -171,6 +174,50 @@ weave decl_name with p as ref to program.SemaProgram, ast as ref to psast.PsAst,
     defer banish txt
     return calling npool.intern with (sigil of p->names), txt
 
+## Prefijo C de funciones/consts de un módulo.
+##
+## Usa `insignia` si existe; si no, deriva del path (`lexer_`, `sema_api_`,
+## `spark_`, `main_`) para evitar colisiones con locales y entre módulos.
+##
+## ## Memoria
+## Devuelve string owned; liberar con `banish`.
+weave module_fn_prefix with p as ref to program.SemaProgram, m as loader.SemaModule into string:
+    if m.insignia >= 0:
+        return calling npool.copy_string with (calling npool.text with (sigil of p->names), m.insignia)
+    var path as string is m.path
+    var n as int is path length
+    if n == 0:
+        return ""
+    var last as int is -1
+    var prev as int is -1
+    var i as int is 0
+    while i < n:
+        if (path at i) == "/":
+            set prev is last
+            set last is i
+        set i is i + 1
+    var stem as string is ""
+    if last >= 0:
+        set stem is path at (last + 1) to n
+    else:
+        set stem is path at 0 to n
+    var sl as int is stem length
+    if sl > 6 and (stem at (sl - 6) to sl) == ".pengu":
+        var st2 as string is stem at 0 to (sl - 6)
+        banish stem
+        set stem is st2
+    var parent as string is ""
+    if last >= 0 and prev >= 0:
+        set parent is path at (prev + 1) to last
+    var out as string is ""
+    if parent == "psc" or parent == "std" or parent == "src" or parent == "":
+        set out is "{stem}_"
+    else:
+        set out is "{parent}_{stem}_"
+    banish stem
+    banish parent
+    return out
+
 ## Registra una función si su símbolo F3 existe.
 ##
 ## ## Memoria
@@ -203,12 +250,14 @@ weave add_function with p as ref to program.SemaProgram, c as ref to CgCatalog, 
         set cname is calling npool.intern with (sigil of p->names), "pengu_time"
     else if is_antiquus:
         set cname is sv.name
-    else if not is_declare and (sv.flags & sym.SYM_EXPORT) == 0 and m.insignia >= 0:
+    else if not is_declare and (sv.flags & sym.SYM_EXPORT) == 0:
         # Prefijo de módulo para evitar colisiones globales (`spark_println`).
-        var ins as string is calling npool.text with (sigil of p->names), m.insignia
-        var full as string is "{ins}{ntext}"
-        set cname is calling npool.intern with (sigil of p->names), full
-        banish full
+        var pref as string is calling module_fn_prefix with p, m
+        if pref != "":
+            var full as string is "{pref}{ntext}"
+            set cname is calling npool.intern with (sigil of p->names), full
+            banish full
+        banish pref
     var tps as list of int is list of int
     var ai2 as int is 0
     var an2 as int is calling astutil.child_count with ast, node
@@ -358,6 +407,14 @@ weave add_const with p as ref to program.SemaProgram, c as ref to CgCatalog, m a
     var cname as int is sv.c_name
     if cname < 0:
         set cname is sv.name
+    if (sv.flags & sym.SYM_EXPORT) == 0:
+        var cpref as string is calling module_fn_prefix with p, m
+        if cpref != "":
+            var ntext as string is calling npool.text with (sigil of p->names), sv.name
+            var full as string is "{cpref}{ntext}"
+            set cname is calling npool.intern with (sigil of p->names), full
+            banish full
+        banish cpref
     var value as sym.SemaConst is (p->symbols.const_values at sv.const_id)
     var cc as CgConst is with name is name, type_id is sv.type, c_name is cname, module is m.id, value is value
     calling c->consts.push with cc
@@ -379,11 +436,68 @@ weave add_type with p as ref to program.SemaProgram, c as ref to CgCatalog, m as
     calling c->types.push with t
     calling c->by_type.put with tid, idx
 
+## Registra un nodo top-level (o una rama viva de `when`).
+##
+## ## Memoria
+## Añade al catálogo; los strings de include son owned por el AST.
+weave collect_top_node with p as ref to program.SemaProgram, c as ref to CgCatalog, m as loader.SemaModule, o as cgopts.CgOptions, node0 as int into void:
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var node as int is node0
+    if node < 0:
+        return
+    if (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdTopStmt:
+        set node is calling astutil.node_child with ast, node, 0
+    if node < 0:
+        return
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdWhenTopDecl:
+        var cond as int is calling astutil.node_child with ast, node, 0
+        var body as int is calling astutil.node_child with ast, node, 1
+        var els as int is calling astutil.node_child with ast, node, 2
+        var v as int is calling ctime.evaluate with o, m, cond
+        if v < 0:
+            return
+        if v == 1:
+            calling collect_top_node with p, c, m, o, body
+            return
+        if els < 0:
+            return
+        var ek as pskind.NodeKind is calling astutil.kind_of with ast, els
+        if ek == pskind.NodeKind.NdWhenTopElseWhen:
+            calling collect_top_node with p, c, m, o, (calling astutil.node_child with ast, els, 0)
+            return
+        calling collect_top_node with p, c, m, o, (calling astutil.node_child with ast, els, 0)
+        return
+    if k == pskind.NodeKind.NdWeaveDecl:
+        calling add_function with p, c, m, node, false, false
+    else if k == pskind.NodeKind.NdDeclareStmt:
+        calling add_function with p, c, m, node, true, false
+    else if k == pskind.NodeKind.NdAntiquusDecl:
+        calling add_function with p, c, m, node, true, true
+    else if k == pskind.NodeKind.NdRuneDecl or k == pskind.NodeKind.NdEchoDecl:
+        calling add_type with p, c, m, node, true, false
+    else if k == pskind.NodeKind.NdOmenDecl:
+        calling add_type with p, c, m, node, false, true
+    else if k == pskind.NodeKind.NdAliasDecl or k == pskind.NodeKind.NdSealDecl:
+        calling add_type with p, c, m, node, false, false
+    else if k == pskind.NodeKind.NdEnchantingDecl:
+        calling collect_enchanting with p, c, m, node
+    else if k == pskind.NodeKind.NdConstDecl:
+        calling add_const with p, c, m, node
+    else if k == pskind.NodeKind.NdIncludeStmt:
+        var it as int is calling astutil.token_child with ast, node, 0
+        if it >= 0:
+            var itxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), it
+            var ci as CgInclude is with text is itxt, module is m.id
+            calling c->includes.push with ci
+
 ## Recorre un módulo y registra sus funciones top-level.
+##
+## `o` son las opciones de codegen para resolver `when` comptime.
 ##
 ## ## Memoria
 ## Añade al catálogo.
-weave collect_module with p as ref to program.SemaProgram, c as ref to CgCatalog, m as loader.SemaModule into void:
+weave collect_module with p as ref to program.SemaProgram, c as ref to CgCatalog, m as loader.SemaModule, o as cgopts.CgOptions into void:
     if not m.ok:
         return
     var ast as ref to psast.PsAst is (sigil of m.parse.ast)
@@ -395,45 +509,19 @@ weave collect_module with p as ref to program.SemaProgram, c as ref to CgCatalog
     while i < n:
         var top as int is calling astutil.node_child with ast, file, i
         if top >= 0:
-            var node as int is top
-            if (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdTopStmt:
-                set node is calling astutil.node_child with ast, node, 0
-            if node >= 0:
-                var k as pskind.NodeKind is calling astutil.kind_of with ast, node
-                if k == pskind.NodeKind.NdWeaveDecl:
-                    calling add_function with p, c, m, node, false, false
-                else if k == pskind.NodeKind.NdDeclareStmt:
-                    calling add_function with p, c, m, node, true, false
-                else if k == pskind.NodeKind.NdAntiquusDecl:
-                    calling add_function with p, c, m, node, true, true
-                else if k == pskind.NodeKind.NdRuneDecl or k == pskind.NodeKind.NdEchoDecl:
-                    calling add_type with p, c, m, node, true, false
-                else if k == pskind.NodeKind.NdOmenDecl:
-                    calling add_type with p, c, m, node, false, true
-                else if k == pskind.NodeKind.NdAliasDecl or k == pskind.NodeKind.NdSealDecl:
-                    calling add_type with p, c, m, node, false, false
-                else if k == pskind.NodeKind.NdEnchantingDecl:
-                    calling collect_enchanting with p, c, m, node
-                else if k == pskind.NodeKind.NdConstDecl:
-                    calling add_const with p, c, m, node
-                else if k == pskind.NodeKind.NdIncludeStmt:
-                    var it as int is calling astutil.token_child with ast, node, 0
-                    if it >= 0:
-                        var itxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), it
-                        var ci as CgInclude is with text is itxt, module is m.id
-                        calling c->includes.push with ci
+            calling collect_top_node with p, c, m, o, top
         set i is i + 1
 
 ## Construye el catálogo completo en orden topológico.
 ##
 ## ## Memoria
 ## Recorre todos los módulos; no libera el programa.
-weave catalog_collect with p as ref to program.SemaProgram into CgCatalog:
+weave catalog_collect with p as ref to program.SemaProgram, o as cgopts.CgOptions into CgCatalog:
     var c as CgCatalog is calling new_catalog
     var i as int is 0
     while i < p->order.len:
         var mid as int is (p->order at i)
         var m as loader.SemaModule is (p->modules at mid)
-        calling collect_module with p, (sigil of c), m
+        calling collect_module with p, (sigil of c), m, o
         set i is i + 1
     return c

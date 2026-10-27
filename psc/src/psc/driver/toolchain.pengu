@@ -1,0 +1,157 @@
+## psc/driver/toolchain.pengu — cc, flags e includes/links.
+
+import std.archivum
+import std.compass
+import std.rites
+
+import psc.sema.names as npool
+import psc.driver.manifest as manifest
+import psc.driver.paths as paths
+
+insignia psc_driver_toolchain_
+
+## Toolchain resuelto.
+##
+## ## Memoria
+## Strings/listas owned; liberar con `free_toolchain`.
+rune Toolchain:
+    ok as bool
+    error as string
+    cc as string
+    cflags as list of string
+    include_dirs as list of string
+    lib_dirs as list of string
+    links as list of string
+
+## Copia un string.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Libera una lista de strings owned.
+##
+## ## Memoria
+## Libera elementos y lista.
+weave free_strings with xs as list of string into void:
+    var i as int is 0
+    while i < xs.len:
+        banish xs at i
+        set i is i + 1
+    banish xs
+
+## Elige un compilador.
+##
+## ## Memoria
+## Devuelve string owned o `""`.
+weave choose_cc with override as string, configured as string into string:
+    if override length > 0:
+        return calling copy with override
+    if configured length > 0:
+        return calling copy with configured
+    var e as maybe string is calling rites.getenv with "PSC_CC"
+    if e.is_present:
+        return e.value
+    banish e
+    var e2 as maybe string is calling rites.getenv with "PENGU_CC"
+    if e2.is_present:
+        return e2.value
+    banish e2
+    var g as maybe string is calling rites.which with "gcc"
+    if g.is_present:
+        return g.value
+    banish g
+    var c as maybe string is calling rites.which with "clang"
+    if c.is_present:
+        return c.value
+    banish c
+    var t as maybe string is calling rites.which with "tcc"
+    if t.is_present:
+        return t.value
+    banish t
+    return ""
+
+## Añade un directorio de include si existe.
+##
+## ## Memoria
+## Añade una copia owned a la lista.
+weave add_inc with xs as ref to list of string, dir as string into void:
+    if dir length > 0 and calling archivum.is_dir with dir:
+        calling xs.push with (calling copy with dir)
+
+## Añade un directorio de librerías si existe.
+##
+## ## Memoria
+## Añade una copia owned a la lista.
+weave add_lib with xs as ref to list of string, dir as string into void:
+    if dir length > 0 and calling archivum.is_dir with dir:
+        calling xs.push with (calling copy with dir)
+
+## Resuelve cc/flags.
+##
+## ## Memoria
+## Resultado owned; liberar con `free_toolchain`.
+weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, cc_override as string, profile as string, strict as bool, release_unsafe as bool into Toolchain:
+    var cc as string is calling choose_cc with cc_override, m->cc
+    if cc length == 0:
+        return with ok is false, error is "no C compiler found (use --cc or PSC_CC)", cc is "", cflags is list of string, include_dirs is list of string, lib_dirs is list of string, links is list of string
+    var cflags as list of string is list of string
+    calling cflags.push with "-std=c11"
+    calling cflags.push with "-Wall"
+    for f in m->cflags:
+        calling cflags.push with (calling copy with f)
+    for d in m->defines:
+        var df as string is "-D{d}"
+        calling cflags.push with df
+    if strict:
+        calling cflags.push with "-pedantic"
+    if release_unsafe:
+        calling cflags.push with "-DPENGU_BOUNDS_CHECK=0"
+        calling cflags.push with "-DPENGU_OVERFLOW_CHECK=0"
+    var incs as list of string is list of string
+    var inc0 as string is "{m->base_dir}/{m->include_dir}"
+    calling add_inc with (sigil of incs), inc0
+    banish inc0
+    var inc1 as string is "{m->base_dir}/include"
+    calling add_inc with (sigil of incs), inc1
+    banish inc1
+    calling add_inc with (sigil of incs), p->runtime_include
+    calling add_inc with (sigil of incs), p->std_c_dir
+    for d in m->include_dirs:
+        var di as string is "{m->base_dir}/{d}"
+        calling add_inc with (sigil of incs), di
+        banish di
+    var libs as list of string is list of string
+    var rdir as string is calling compass.cp_dirname with p->runtime_archive
+    calling add_lib with (sigil of libs), rdir
+    banish rdir
+    var lib0 as string is "{m->base_dir}/lib"
+    calling add_lib with (sigil of libs), lib0
+    banish lib0
+    for d in m->lib_dirs:
+        var li as string is "{m->base_dir}/{d}"
+        calling add_lib with (sigil of libs), li
+        banish li
+    var links as list of string is list of string
+    for l in m->links:
+        calling links.push with (calling copy with l)
+    var has_runtime as bool is false
+    for l in links:
+        if l == "pengu_runtime" or l == "libpengu_runtime":
+            set has_runtime is true
+    if not has_runtime:
+        calling links.push with (calling copy with "pengu_runtime")
+    return with ok is true, error is "", cc is cc, cflags is cflags, include_dirs is incs, lib_dirs is libs, links is links
+
+## Libera un toolchain.
+##
+## ## Memoria
+## Libera strings/listas.
+weave free_toolchain with t as ref to Toolchain into void:
+    banish t->error
+    banish t->cc
+    calling free_strings with t->cflags
+    calling free_strings with t->include_dirs
+    calling free_strings with t->lib_dirs
+    calling free_strings with t->links

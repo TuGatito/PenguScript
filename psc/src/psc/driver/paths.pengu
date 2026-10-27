@@ -1,0 +1,191 @@
+## psc/driver/paths.pengu — localización del runtime, std y build dir.
+##
+## El driver nunca asume el layout del checkout: busca en variables de
+## entorno, en el proyecto, en el checkout y en el prefijo FHS.
+
+import std.archivum
+import std.compass
+import std.rites
+
+import psc.sema.names as npool
+
+insignia psc_driver_paths_
+
+## Rutas del toolchain para un proyecto.
+##
+## ## Memoria
+## Todos los strings/listas son owned; liberar con `free_paths`.
+rune Paths:
+    ok as bool
+    error as string
+    repo_root as string
+    runtime_archive as string
+    runtime_include as string
+    std_c_dir as string
+    std_dirs as list of string
+
+## Busca el checkout subiendo desde `base_dir`.
+##
+## ## Memoria
+## Devuelve un string owned o `""`.
+weave find_repo_root with base_dir as string into string:
+    var d as string is calling compass.cp_normalize with base_dir
+    var i as int is 0
+    while i < 8:
+        var std_dir as string is "{d}/std"
+        var lib_dir as string is "{d}/build/lib"
+        if (calling archivum.is_dir with std_dir) and (calling archivum.is_dir with lib_dir):
+            banish std_dir
+            banish lib_dir
+            return d
+        banish std_dir
+        banish lib_dir
+        var parent as string is calling compass.cp_dirname with d
+        if parent == d:
+            banish parent
+            banish d
+            return ""
+        banish d
+        set d is parent
+        set i is i + 1
+    banish d
+    return ""
+
+## Primer archivo existente de una lista.
+##
+## ## Memoria
+## Devuelve string owned o `""`; no libera la lista.
+weave first_file with xs as list of string into string:
+    var i as int is 0
+    while i < xs.len:
+        var p as string is (xs at i)
+        if calling archivum.is_file with p:
+            return calling npool.copy_string with p
+        set i is i + 1
+    return ""
+
+## Primer directorio existente de una lista.
+##
+## ## Memoria
+## Devuelve string owned o `""`; no libera la lista.
+weave first_dir with xs as list of string into string:
+    var i as int is 0
+    while i < xs.len:
+        var p as string is (xs at i)
+        if calling archivum.is_dir with p:
+            return calling npool.copy_string with p
+        set i is i + 1
+    return ""
+
+## Lee una variable de entorno o `""`.
+##
+## ## Memoria
+## Devuelve string owned.
+weave env_or_empty with name as string into string:
+    var v as maybe string is calling rites.getenv with name
+    if v.is_present:
+        return v.value
+    banish v
+    return ""
+
+## Resuelve las rutas del runtime.
+##
+## ## Memoria
+## Resultado owned; liberar con `free_paths`.
+weave find_paths with base_dir as string into Paths:
+    var repo as string is calling find_repo_root with base_dir
+    if repo length == 0:
+        var cw as maybe string is calling rites.getcwd
+        if cw.is_present:
+            set repo is calling find_repo_root with cw.value
+        banish cw
+    var archive as string is ""
+    var include as string is ""
+    var stdc as string is ""
+    var stds as list of string is list of string
+    var err as string is ""
+    var env_archive as string is calling env_or_empty with "PENGU_RUNTIME_ARCHIVE"
+    var env_lib as string is calling env_or_empty with "PENGU_LIB_DIR"
+    var env_inc as string is calling env_or_empty with "PENGU_INCLUDE_DIR"
+    var env_std as string is calling env_or_empty with "PENGU_STD_DIR"
+    if env_archive length > 0:
+        if calling archivum.is_file with env_archive:
+            set archive is env_archive
+        else:
+            banish env_archive
+    else:
+        banish env_archive
+    if archive length == 0 and env_lib length > 0:
+        var cand as string is "{env_lib}/libpengu_runtime.a"
+        if calling archivum.is_file with cand:
+            set archive is cand
+        else:
+            banish cand
+    if repo length > 0:
+        if archive length == 0:
+            var cands as list of string is list of string
+            calling cands.push with "{repo}/build/lib/libpengu_runtime.a"
+            calling cands.push with "{repo}/runtime/lib/libpengu_runtime.a"
+            set archive is calling first_file with cands
+            calling free_strings with cands
+        if include length == 0:
+            var incs as list of string is list of string
+            calling incs.push with "{repo}/build/include"
+            calling incs.push with "{repo}/runtime/include"
+            calling incs.push with repo
+            set include is calling first_dir with incs
+            calling free_strings with incs
+        if stdc length == 0:
+            var sc as string is "{repo}/std_c"
+            if calling archivum.is_dir with sc:
+                set stdc is sc
+            else:
+                banish sc
+        var st as string is "{repo}/std"
+        if calling archivum.is_dir with st:
+            calling stds.push with st
+        else:
+            banish st
+    if env_inc length > 0:
+        if include length == 0 and calling archivum.is_dir with env_inc:
+            set include is env_inc
+        else:
+            banish env_inc
+    else:
+        banish env_inc
+    if env_std length > 0:
+        if calling archivum.is_dir with env_std:
+            calling stds.push with env_std
+        else:
+            banish env_std
+    banish env_lib
+    if archive length == 0:
+        set err is "cannot find libpengu_runtime.a (set PENGU_LIB_DIR or run python build_runtime.py)"
+    else if include length == 0:
+        set err is "cannot find pengu_runtime.h (set PENGU_INCLUDE_DIR or run python build_runtime.py)"
+    else if stds.len == 0:
+        set err is "cannot find the std/ directory (set PENGU_STD_DIR)"
+    return with ok is err length == 0, error is err, repo_root is repo, runtime_archive is archive, runtime_include is include, std_c_dir is stdc, std_dirs is stds
+
+## Libera rutas.
+##
+## ## Memoria
+## Libera cada string y lista.
+weave free_paths with p as ref to Paths into void:
+    banish p->error
+    banish p->repo_root
+    banish p->runtime_archive
+    banish p->runtime_include
+    banish p->std_c_dir
+    calling free_strings with p->std_dirs
+
+## Libera una lista de strings owned.
+##
+## ## Memoria
+## Libera elementos y la lista.
+weave free_strings with xs as list of string into void:
+    var i as int is 0
+    while i < xs.len:
+        banish xs at i
+        set i is i + 1
+    banish xs

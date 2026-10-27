@@ -8,7 +8,7 @@ import std.spark
 import psc.sema.names as npool
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
-import psc.sema.types.canonical as canonical
+import psc.sema.types.canonical as canon
 import psc.sema.types.compat as compat
 import psc.sema.symbols.table as symbols
 import psc.sema.symbols.symbol as sym
@@ -99,11 +99,11 @@ weave main into int:
     if not calling compat.can_cast with (sigil of t), int_t, (calling types.base with (sigil of t), "float"):
         calling spark.println with "int->float cast failed"
         return 15
-    var cn as int is calling canonical.canonical_name with (sigil of t), list_t
+    var cn as int is calling canon.canonical_name with (sigil of t), list_t
     if (calling npool.text with (sigil of pool), cn) != "list of i32":
         calling spark.println with "canonical list failed: {(calling npool.text with (sigil of pool), cn)}"
         return 10
-    var mn as int is calling canonical.mangled_name with (sigil of t), list_t
+    var mn as int is calling canon.mangled_name with (sigil of t), list_t
     if (calling npool.text with (sigil of pool), mn) != "list_i32":
         calling spark.println with "mangled list failed: {(calling npool.text with (sigil of pool), mn)}"
         return 11

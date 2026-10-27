@@ -29,6 +29,16 @@ insignia psc_codegen_function_
 ##
 ## ## Memoria
 ## Devuelve string owned.
+## `true` si un nodo es un tipo (para funciones sin param_list).
+##
+## ## Memoria
+## O(1).
+weave is_type_node_fn with ast as ref to psast.PsAst, node as int into bool:
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdTypeOrParam or k == pskind.NodeKind.NdRefType or k == pskind.NodeKind.NdFrozenType or k == pskind.NodeKind.NdFnType or k == pskind.NodeKind.NdArrayType or k == pskind.NodeKind.NdSliceType or k == pskind.NodeKind.NdManyType or k == pskind.NodeKind.NdListType or k == pskind.NodeKind.NdMapType or k == pskind.NodeKind.NdMaybeType or k == pskind.NodeKind.NdResultType or k == pskind.NodeKind.NdOpaqueType or k == pskind.NodeKind.NdBaseType or k == pskind.NodeKind.NdCustomType or k == pskind.NodeKind.NdTupleType:
+        return true
+    return false
+
 weave signature_spec with c as ref to context.CgContext, f as catalog.CgFunction into string:
     var m as loader.SemaModule is (c->program->modules at f.module)
     var ast as ref to psast.PsAst is (sigil of m.parse.ast)
@@ -50,6 +60,13 @@ weave signature_spec with c as ref to context.CgContext, f as catalog.CgFunction
             else if body < 0 and params >= 0 and ret < 0:
                 set ret is ch
         set i is i + 1
+    if ret < 0:
+        var rj as int is 0
+        while rj < n:
+            var rc as int is calling astutil.node_child with ast, f.node, rj
+            if rc >= 0 and calling is_type_node_fn with ast, rc:
+                set ret is rc
+            set rj is rj + 1
     if ret >= 0:
         var rt as string is calling tast.c_type_ast with c, m, ret
         calling sb.append with rt
@@ -339,10 +356,7 @@ weave emit_function with c as ref to context.CgContext, f as catalog.CgFunction 
     banish c->current_fn
     set c->current_fn is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.c_name)
     calling context.clear_locals with c
-    var dz as int is c->defers.len
-    while dz > 0:
-        var di as int is calling c->defers.pop
-        set dz is dz - 1
+    calling context.clear_scopes with c
     # Parámetros locales.
     var i as int is 0
     while i < info.params_count:
@@ -360,6 +374,7 @@ weave emit_function with c as ref to context.CgContext, f as catalog.CgFunction 
     var ast as ref to psast.PsAst is (sigil of m.parse.ast)
     calling scan_local_names with c, m, ast, f.node
     var slot as int is calling body_start with ast, f.node
+    calling stmtgen.begin_scope with c, false
     var bi as int is slot
     var bn as int is calling astutil.child_count with ast, f.node
     while bi < bn:
@@ -367,7 +382,7 @@ weave emit_function with c as ref to context.CgContext, f as catalog.CgFunction 
         if b >= 0:
             calling stmtgen.emit_stmt with c, b
         set bi is bi + 1
-    calling stmtgen.emit_pending_defers with c
+    calling stmtgen.end_scope with c
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
     calling emit.blank with (sigil of c->emitter)

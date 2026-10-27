@@ -29,7 +29,7 @@ weave main into int:
     defer banish bag
 
     var src as string is "weave main into int:\n    return \"x\"\n"
-    var m as loader.SemaModule is calling loader.load_text with "t.pengu", src, (sigil of bag), true, true, false, 0
+    var m as loader.SemaModule is calling loader.load_text with "t.pengu", "t.pengu", src, (sigil of bag), true, true, false, 0
     if not m.ok:
         calling spark.println with "parse failed"
         return 1

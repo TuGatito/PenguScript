@@ -134,3 +134,6 @@ CToPenguTest/
 # PyInstaller release staging
 pyinstaller_work/
 scratch/benches/results/*.csv
+
+# PSC F5 bootstrap artifacts (local only)
+psc/build/bootstrap/

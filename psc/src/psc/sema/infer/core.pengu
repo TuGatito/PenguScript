@@ -22,7 +22,7 @@ import psc.sema.types.kind as tk
 import psc.sema.types.table as types
 import psc.sema.types.compat as compat
 import psc.sema.types.convert as convert
-import psc.sema.types.canonical as canonical
+import psc.sema.types.canonical as canon
 import psc.sema.symbols.table as symbols
 import psc.sema.symbols.symbol as sym
 import psc.sema.symbols.scope as scope
@@ -273,12 +273,9 @@ weave infer_int with s as ref to state.SemaState, node as int into int:
     defer banish txt
     var v as maybe int is calling spark.parse_int with txt
     if v.is_present:
-        var n as int is v.value
         banish v
-        if n > 2147483647 or n < -2147483648:
-            return calling types.base with s->types, "i64"
         return calling types.base with s->types, "int"
-    return calling types.base with s->types, "int"
+    return calling types.base with s->types, "i64"
 
 ## `none` necesita un `maybe` esperado.
 ##
@@ -402,6 +399,15 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
         return 0
     set tname is calling astutil.token_text with s->src, s->lex, nm
     var base_sid as int is calling symbols.lookup_name with s->symbols, tname
+    if base_sid < 0:
+        var sfi as int is 0
+        while sfi < s->symbols->symbols.len:
+            var sfs as sym.SemaSymbol is (s->symbols->symbols at sfi)
+            if sfs.kind == sym.SemaSymbolKind.SkImport:
+                var sft as string is calling npool.text with s->names, sfs.name
+                if sft == tname:
+                    set base_sid is sfi
+            set sfi is sfi + 1
     var base_type as int is -1
     if base_sid >= 0:
         var bsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, base_sid
@@ -524,6 +530,19 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                 return 0
             # Fallback global para módulos cualificados (`mod.fn`).
             set sid is calling symbols.lookup_name with s->symbols, mname
+            if sid < 0:
+                var mfid as int is calling npool.find with s->names, mname
+                if mfid >= 0:
+                    var gfi as int is 0
+                    var gcount as int is 0
+                    while gfi < s->symbols->symbols.len:
+                        var gfs as sym.SemaSymbol is (s->symbols->symbols at gfi)
+                        if gfs.name == mfid and (gfs.kind == sym.SemaSymbolKind.SkWeave or gfs.kind == sym.SemaSymbolKind.SkDeclare):
+                            set sid is gfi
+                            set gcount is gcount + 1
+                        set gfi is gfi + 1
+                    if gcount > 1:
+                        set sid is -1
         if sid < 0:
             calling undefined_call with s, node, tname
             return 0
@@ -1408,8 +1427,8 @@ weave type_mismatch with s as ref to state.SemaState, node as int, expected as i
     var gt0 as tk.SemaType is calling types.at with s->types, got
     if et0.kind == tk.SemaTypeKind.TkFn or gt0.kind == tk.SemaTypeKind.TkFn or et0.kind == tk.SemaTypeKind.TkAny or gt0.kind == tk.SemaTypeKind.TkAny or et0.kind == tk.SemaTypeKind.TkTypeParam or gt0.kind == tk.SemaTypeKind.TkTypeParam:
         return
-    var eid as int is calling canonical.canonical_name with s->types, expected
-    var gid as int is calling canonical.canonical_name with s->types, got
+    var eid as int is calling canon.canonical_name with s->types, expected
+    var gid as int is calling canon.canonical_name with s->types, got
     var en as string is calling npool.text with s->names, eid
     var gn as string is calling npool.text with s->names, gid
     var msg as string is "type mismatch: expected '{en}', got '{gn}'"

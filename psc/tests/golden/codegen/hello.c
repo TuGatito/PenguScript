@@ -25,23 +25,24 @@ static int (*const _pengu_abi_pin)(void) = pengu_abi_version;
 
 
 
-int32_t add(int32_t a, int32_t b);
+int32_t hello_add(int32_t a, int32_t b);
 int32_t pengu_main(void);
 
 
-#line 1 "tests/psc/fixtures/f4/hello.pengu"
-int32_t add(int32_t a, int32_t b) {
+#line 1 "hello.pengu"
+int32_t hello_add(int32_t a, int32_t b) {
     (void)a;
     (void)b;
-    #line 2 "tests/psc/fixtures/f4/hello.pengu"
+    #line 2 "hello.pengu"
     return (a + b);
 }
 
-#line 4 "tests/psc/fixtures/f4/hello.pengu"
+#line 4 "hello.pengu"
 int32_t pengu_main(void) {
-    #line 5 "tests/psc/fixtures/f4/hello.pengu"
-    int32_t x = add(2, 3);
-    #line 6 "tests/psc/fixtures/f4/hello.pengu"
+    #line 5 "hello.pengu"
+    int32_t x = hello_add(2, 3);
+    (void)x;
+    #line 6 "hello.pengu"
     return x;
 }
 

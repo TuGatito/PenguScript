@@ -29,6 +29,10 @@ weave c_type with ns as ref to names.CgNames, id as int into string:
     if t.kind == tk.SemaTypeKind.TkBase:
         return calling base_c_type with ns, t.name
     if t.kind == tk.SemaTypeKind.TkRef:
+        if t.a > 0:
+            var inner_ty as tk.SemaType is calling types.at with ns->types, t.a
+            if inner_ty.kind == tk.SemaTypeKind.TkFn:
+                return calling fn_c_type with ns, inner_ty.a
         var inner as string is calling c_type with ns, t.a
         defer banish inner
         if inner == "void":
@@ -71,6 +75,45 @@ weave c_type with ns as ref to names.CgNames, id as int into string:
             return calling c_type with ns, (calling ns->subst.get with t.name)
         return "void*"
     return "void*"
+
+## Declarador C de un nombre con el tipo `ct`.
+##
+## Si `ct` contiene el hueco `(*)` de un puntero a función, el nombre se inserta
+## ahí (`int32_t (*value)(PsParser*)`); en otro caso se usa `tipo nombre`.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave declare with ct as string, name as string into string:
+    var n as int is ct length
+    var i as int is 0
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    while i < n:
+        if i + 2 < n:
+            var three as string is ct at i to (i + 3)
+            if three == "(*)":
+                banish three
+                calling sb.append with "(*"
+                calling sb.append with name
+                calling sb.append with ")"
+                set i is i + 3
+            else:
+                banish three
+                var one as string is ct at i to (i + 1)
+                calling sb.append with one
+                banish one
+                set i is i + 1
+        else:
+            var one2 as string is ct at i to (i + 1)
+            calling sb.append with one2
+            banish one2
+            set i is i + 1
+    var body as string is calling sb.finish
+    if body == ct:
+        var out as string is "{ct} {name}"
+        banish body
+        return out
+    return body
 
 ## Tipo C de un primitivo canónico.
 ##

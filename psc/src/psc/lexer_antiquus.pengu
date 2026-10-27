@@ -22,6 +22,8 @@ import psc.source as psource
 import psc.token as pstoken
 import psc.lexer_state as psstate
 
+insignia psc_lexer_antiquus_
+
 ## Intenta escanear el cuerpo de un `antiquus` en la posición actual.
 ##
 ## Se llama justo después del `NEWLINE` que sigue al `:` de la cabecera.

@@ -32,6 +32,8 @@ insignia sema_loader_
 rune SemaModule:
     ## Ruta lógica usada en diagnósticos.
     path as string
+    ## Ruta canónica de sistema (identidad del módulo); dueño.
+    canonical_path as string
     ## Fuente; dueño.
     source as psource.SourceFile
     ## Buffer crudo que `source.text` referencia; dueño real.
@@ -72,32 +74,40 @@ weave free_module with m as ref to SemaModule into void:
     banish m->lex
     banish m->source_text
     banish m->source
+    banish m->canonical_path
     banish m->path
 
 ## Carga un archivo desde disco.
+##
+## `path` es la ruta de sistema (canónica, la que se lee). `display` es la ruta
+## que se guarda en el módulo y se usa en `#line`/diagnósticos; puede ser
+## relativa al proyecto.
 ##
 ## Si la lectura falla, emite `E0004` y devuelve un módulo vacío con `ok=false`.
 ##
 ## ## Memoria
 ## Devuelve un módulo owned; liberar con `free_module`.
-weave load_module with path as string, bag as ref to diag.DiagnosticBag, is_entry as bool, is_std as bool, depth as int into SemaModule:
+weave load_module with path as string, display as string, bag as ref to diag.DiagnosticBag, is_entry as bool, is_std as bool, depth as int into SemaModule:
     var m as maybe string is calling archivum.read_text with path
     if not m.is_present:
-        return calling empty_module with path, bag, false, is_entry, is_std, depth
+        return calling empty_module with path, display, bag, false, is_entry, is_std, depth
     var text as string is calling npool.copy_string with m.value
     defer banish text
     banish m
-    return calling load_text with path, text, bag, true, is_entry, is_std, depth
+    return calling load_text with path, display, text, bag, true, is_entry, is_std, depth
 
 ## Carga un módulo desde texto (para tests/LSP).
 ##
+## `path` es la ruta de sistema; `display` la ruta lógica (diagnósticos/`#line`).
+##
 ## ## Memoria
 ## Devuelve un módulo owned; liberar con `free_module`.
-weave load_text with path as string, text as string, bag as ref to diag.DiagnosticBag, readable as bool, is_entry as bool, is_std as bool, depth as int into SemaModule:
-    var owned_path as string is calling npool.copy_string with path
+weave load_text with path as string, display as string, text as string, bag as ref to diag.DiagnosticBag, readable as bool, is_entry as bool, is_std as bool, depth as int into SemaModule:
+    var owned_path as string is calling npool.copy_string with display
+    var owned_canon as string is calling npool.copy_string with path
     var owned_text as string is calling npool.copy_string with text
     var src as psource.SourceFile is calling SourceFile.from_text with owned_path, owned_text
-    calling bag.add_source with path, (calling src.get_text)
+    calling bag.add_source with display, (calling src.get_text)
     var kw as pstoken.KeywordTable is calling pstoken.keyword_table_new
     var lopt as psstate.LexOptions is calling psstate.default_lex_options
     var lex as psstate.LexResult is calling pslexer.lex with (sigil of src), bag, (sigil of kw), lopt
@@ -105,19 +115,19 @@ weave load_text with path as string, text as string, bag as ref to diag.Diagnost
     var popt as pstate.PsParseOptions is calling pstate.ps_default_parse_options
     var parse as pstate.PsParseResult is calling papi.ps_parse_file with (sigil of src), bag, (sigil of lex), popt
     var notes as ann.SemaAnnotations is calling ann.new_annotations with (sigil of parse.ast)
-    return with path is owned_path, source is src, source_text is owned_text, lex is lex, parse is parse, ok is (readable and parse.ok), id is -1, is_entry is is_entry, is_std is is_std, insignia is -1, depth is depth, annotations is notes, scope is -1, type_ids is map of int to int, companion_for is -1
+    return with path is owned_path, canonical_path is owned_canon, source is src, source_text is owned_text, lex is lex, parse is parse, ok is (readable and parse.ok), id is -1, is_entry is is_entry, is_std is is_std, insignia is -1, depth is depth, annotations is notes, scope is -1, type_ids is map of int to int, companion_for is -1
 
 ## Módulo vacío para una lectura fallida.
 ##
 ## ## Memoria
 ## Igual que `load_text` pero sin texto; emite E0004.
-weave empty_module with path as string, bag as ref to diag.DiagnosticBag, readable as bool, is_entry as bool, is_std as bool, depth as int into SemaModule:
+weave empty_module with path as string, display as string, bag as ref to diag.DiagnosticBag, readable as bool, is_entry as bool, is_std as bool, depth as int into SemaModule:
     var msg as string is "cannot read module '{path}'"
     defer banish msg
-    var empty as psource.SourceFile is calling empty_source with path
+    var empty as psource.SourceFile is calling empty_source with display
     calling sdiag.node_error with bag, (sigil of empty), sdiag.CODE_UNDEFINED, 0, 0, msg, "Check the path and the project's src/lib directories.", "The module could not be opened."
     banish empty
-    return calling load_text with path, "", bag, false, is_entry, is_std, depth
+    return calling load_text with path, display, "", bag, false, is_entry, is_std, depth
 
 ## Fuente vacía auxiliar para emitir un diagnóstico de lectura.
 ##

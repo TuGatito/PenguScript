@@ -48,8 +48,10 @@ weave emit_one with c as ref to context.CgContext, module_id as int, node as int
     set c->current_module is module_id
     set c->return_type is -1
     calling context.clear_locals with c
+    calling context.clear_scopes with c
     calling emit.line with (sigil of c->emitter), "static void pengu_test_{index}(void) {"
     calling emit.indent_more with (sigil of c->emitter)
+    calling stmtgen.begin_scope with c, false
     var bi as int is 1
     var bn as int is calling astutil.child_count with ast, node
     while bi < bn:
@@ -60,7 +62,7 @@ weave emit_one with c as ref to context.CgContext, module_id as int, node as int
             else:
                 calling stmtgen.emit_stmt with c, body
         set bi is bi + 1
-    calling stmtgen.emit_pending_defers with c
+    calling stmtgen.end_scope with c
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
     set c->current_module is oldm

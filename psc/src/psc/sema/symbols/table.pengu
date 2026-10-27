@@ -249,9 +249,21 @@ weave lookup with s as ref to SemaSymbols, name as int into int:
 ## Busca el nombre en el pool; si no existe no asigna.
 weave lookup_name with s as ref to SemaSymbols, name as string into int:
     var id as int is calling npool.find with s->names, name
-    if id < 0:
-        return -1
-    return calling lookup with s, id
+    if id >= 0:
+        var found as int is calling lookup with s, id
+        if found >= 0:
+            return found
+    # Fallback para alias de import en scopes cuyo padre no se enlazó
+    # correctamente (bootstrap stage2); los imports son globales al módulo.
+    var i as int is 0
+    while i < s->symbols.len:
+        var sv as sym.SemaSymbol is (s->symbols at i)
+        if sv.kind == sym.SemaSymbolKind.SkImport:
+            var svn as string is calling npool.text with s->names, sv.name
+            if svn == name:
+                return i
+        set i is i + 1
+    return -1
 
 ## Lookup local por `NameId`.
 ##

@@ -1,0 +1,173 @@
+## psc/codegen/comptime.pengu — evaluación de `when` en codegen.
+##
+## F3 comprueba ambas ramas; F4 debe emitir sólo la viva. Este módulo evalúa
+## las condiciones comptime que el driver conoce (`os`, `arch`, `compiler`,
+## `defined`, `debug` y booleanos). Devuelve `-1` si no sabe evaluarlas.
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.sema.ast as astutil
+import psc.sema.modules.loader as loader
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+
+import psc.codegen.options as opts
+
+insignia psc_codegen_comptime_
+
+## `true` si `name` está en `defines` (`NAME` o `NAME=value`).
+##
+## ## Memoria
+## O(defines).
+weave is_defined with o as opts.CgOptions, name as string into bool:
+    var i as int is 0
+    while i < o.defines.len:
+        var d as string is (o.defines at i)
+        if d == name:
+            return true
+        if (d length) > (name length):
+            var pref as string is d at 0 to (name length)
+            if pref == name and (d at (name length)) == "=":
+                banish pref
+                return true
+            banish pref
+        set i is i + 1
+    return false
+
+## Texto sin comillas de un `string_lit`.
+##
+## ## Memoria
+## Devuelve string owned.
+weave unquote with m as loader.SemaModule, node as int into string:
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var t as int is calling astutil.token_child with ast, node, 0
+    if t < 0:
+        return ""
+    var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), t
+    var n as int is txt length
+    if n >= 2:
+        var inner as string is txt at 1 to (n - 1)
+        banish txt
+        return inner
+    return txt
+
+## Texto de un `var_ref`.
+##
+## ## Memoria
+## Devuelve string owned.
+weave var_name with m as loader.SemaModule, node as int into string:
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var t as int is calling astutil.token_child with ast, node, 0
+    if t < 0:
+        return ""
+    return calling astutil.token_text with (sigil of m.source), (sigil of m.lex), t
+
+## Valor de un `var_ref` comptime (`os`, `arch`, `compiler`), o "".
+##
+## ## Memoria
+## Devuelve string owned.
+weave option_value with o as opts.CgOptions, name as string into string:
+    if name == "os":
+        return calling npool.copy_string with o.os_name
+    if name == "arch":
+        return calling npool.copy_string with o.arch
+    if name == "compiler":
+        return calling npool.copy_string with o.compiler
+    return ""
+
+## Evalúa una condición comptime.
+##
+## Devuelve 1 (true), 0 (false) o -1 (desconocido).
+##
+## ## Memoria
+## Strings temporales liberados.
+weave evaluate with o as opts.CgOptions, m as loader.SemaModule, node as int into int:
+    if node < 0:
+        return -1
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdTrueLit:
+        return 1
+    if k == pskind.NodeKind.NdFalseLit:
+        return 0
+    if k == pskind.NodeKind.NdLogNot:
+        var v as int is calling evaluate with o, m, (calling astutil.node_child with ast, node, 0)
+        if v < 0:
+            return -1
+        if v == 0:
+            return 1
+        return 0
+    if k == pskind.NodeKind.NdBoolAnd:
+        var a as int is calling evaluate with o, m, (calling astutil.node_child with ast, node, 0)
+        if a == 0:
+            return 0
+        var b as int is calling evaluate with o, m, (calling astutil.node_child with ast, node, 1)
+        if a < 0 or b < 0:
+            return -1
+        if b == 0:
+            return 0
+        return 1
+    if k == pskind.NodeKind.NdBoolOr:
+        var a2 as int is calling evaluate with o, m, (calling astutil.node_child with ast, node, 0)
+        if a2 == 1:
+            return 1
+        var b2 as int is calling evaluate with o, m, (calling astutil.node_child with ast, node, 1)
+        if a2 < 0 or b2 < 0:
+            return -1
+        if b2 == 1:
+            return 1
+        return 0
+    if k == pskind.NodeKind.NdDefinedExpr:
+        var dt as int is calling astutil.token_child with ast, node, 0
+        if dt < 0:
+            return -1
+        var dn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), dt
+        var yes as bool is calling is_defined with o, dn
+        banish dn
+        if yes:
+            return 1
+        return 0
+    if k == pskind.NodeKind.NdEq or k == pskind.NodeKind.NdNe:
+        var l as int is calling astutil.node_child with ast, node, 0
+        var r as int is calling astutil.node_child with ast, node, 1
+        if l < 0 or r < 0:
+            return -1
+        var lk as pskind.NodeKind is calling astutil.kind_of with ast, l
+        var rk as pskind.NodeKind is calling astutil.kind_of with ast, r
+        var ln as string is ""
+        var rn as string is ""
+        var lv as string is ""
+        var rv as string is ""
+        if lk == pskind.NodeKind.NdVarRef:
+            set ln is calling var_name with m, l
+            set lv is calling option_value with o, ln
+        else if lk == pskind.NodeKind.NdStringLit:
+            set lv is calling unquote with m, l
+        if rk == pskind.NodeKind.NdVarRef:
+            set rn is calling var_name with m, r
+            set rv is calling option_value with o, rn
+        else if rk == pskind.NodeKind.NdStringLit:
+            set rv is calling unquote with m, r
+        defer banish ln
+        defer banish rn
+        defer banish lv
+        defer banish rv
+        if (lv length) == 0 or (rv length) == 0:
+            return -1
+        var eq as bool is lv == rv
+        if k == pskind.NodeKind.NdNe:
+            if eq:
+                return 0
+            return 1
+        if eq:
+            return 1
+        return 0
+    if k == pskind.NodeKind.NdVarRef:
+        var vn as string is calling var_name with m, node
+        defer banish vn
+        if vn == "debug":
+            if o.debug:
+                return 1
+            return 0
+        return -1
+    return -1
