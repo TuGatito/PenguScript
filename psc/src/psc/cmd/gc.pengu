@@ -51,9 +51,27 @@ weave run_gc with args as list of string into int:
     if all:
         set removed is calling cache.clear
     else:
-        # La política por edad se implementa en F6b; sin --all se informa y no
-        # se borra nada para no eliminar entradas recientes por error.
-        set removed is 0
+        var days as int is 30
+        var ma as string is calling cliargs.value with (sigil of pr.args), "--max-age"
+        if ma length > 0:
+            var pm as maybe int is calling spark.parse_int with ma
+            if pm.is_present and pm.value >= 0:
+                set days is pm.value
+            banish pm
+        var root as string is calling cache.root
+        var dirs as list of string is calling archivum.find_dirs with root, false
+        var nows as int is (calling chronicle.now_ms) / 1000
+        var cutoff as int is nows - days * 86400
+        for d in dirs:
+            var mt as maybe float is calling archivum.modified_time with d
+            if mt.is_present:
+                if (mt.value to int) < cutoff:
+                    if calling archivum.remove_dir with d, true:
+                        set removed is removed + 1
+            banish mt
+            banish d
+        banish dirs
+        banish root
     var after as int is calling cache.size
     if json:
         var sb as StringBuilder is calling StringBuilder.new
