@@ -4,12 +4,15 @@
 ## Python (el harness histórico vive en benches/ y tests/).
 
 import std.archivum
+import std.builder
+import std.chronicle
 import std.compass
 import std.rites
 import std.spark
 import psc.os.proc as proc
 
 import psc.cli.args as cliargs
+import psc.driver.build as driver
 import psc.sema.names as npool
 
 insignia psc_cmd_dev_
@@ -36,7 +39,6 @@ weave python_bin with cwd as string into string:
     var e as maybe string is calling rites.getenv with "PSC_PYTHON"
     if e.is_present:
         var r as string is calling copy with e.value
-        banish e
         return r
     banish e
     var v as string is "{cwd}/.venv/bin/python"
@@ -45,26 +47,101 @@ weave python_bin with cwd as string into string:
     banish v
     return "python3"
 
-## Implementa `psc benchmark`.
+## Medida de un caso.
+rune BenchRow:
+    name as string
+    status as string
+    build_ms as int
+    run_ms as int
+    size as int
+
+## Ejecuta un caso nativo.
 ##
 ## ## Memoria
-## Libera ParseResult.
+## Libera build/options.
+weave run_case with name as string, cwd as string, compiler as string, repeat as int, warmup as int into BenchRow:
+    var src as string is "{cwd}/benches/{name}.pengu"
+    var empty as BenchRow is with name is (calling copy with name), status is "missing", build_ms is 0, run_ms is 0, size is 0
+    if not calling archivum.is_file with src:
+        banish src
+        return empty
+    var out as string is "{cwd}/build/bench/{name}"
+    calling archivum.create_dir with "{cwd}/build/bench", true
+    var o as driver.BuildOptions is calling driver.default_options
+    banish o.target
+    set o.target is calling copy with src
+    banish o.profile
+    set o.profile is calling copy with "release"
+    banish o.out_path
+    set o.out_path is calling copy with out
+    banish o.compiler_path
+    set o.compiler_path is calling copy with compiler
+    var t0 as int is calling chronicle.now_ms
+    var r as driver.BuildResult is calling driver.build with o
+    var bms as int is (calling chronicle.now_ms) - t0
+    if not r.ok:
+        var e as string is r.error
+        calling driver.free_result with (sigil of r)
+        calling driver.free_options with (sigil of o)
+        banish src
+        banish out
+        return with name is (calling copy with name), status is "build-failed", build_ms is bms, run_ms is 0, size is 0
+    var art as string is calling copy with r.artifact
+    var sz as maybe int is calling archivum.file_size with art
+    var size as int is 0
+    if sz.is_present:
+        set size is sz.value
+    banish sz
+    var argv as list of string is list of string
+    calling argv.push with art
+    var wi as int is 0
+    while wi < warmup:
+        var wc as int is calling proc.run_argv_quiet with argv
+        set wi is wi + 1
+    var best as int is 0
+    var ri as int is 0
+    var failed as bool is false
+    while ri < repeat:
+        var t1 as int is calling chronicle.now_ms
+        var rc as int is calling proc.run_argv_quiet with argv
+        var dt as int is (calling chronicle.now_ms) - t1
+        if rc != 0:
+            set failed is true
+        if dt > 0 and (best == 0 or dt < best):
+            set best is dt
+        set ri is ri + 1
+    banish argv
+    banish art
+    banish src
+    banish out
+    calling driver.free_result with (sigil of r)
+    calling driver.free_options with (sigil of o)
+    var st as string is "ok"
+    if failed:
+        set st is "run-failed"
+    return with name is (calling copy with name), status is st, build_ms is bms, run_ms is best, size is size
+
+## Implementa `psc benchmark` (nativo PSC, sin Python).
+##
+## ## Memoria
+## Libera ParseResult y filas.
 weave run_benchmark with args as list of string into int:
     var vf as list of string is list of string
     calling vf.push with "--repeat"
+    calling vf.push with "--warmup"
     calling vf.push with "--csv"
     calling vf.push with "--only"
     var sf as list of string is list of string
+    calling sf.push with "--json"
     calling sf.push with "--help"
     var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
-        banish e
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     if calling cliargs.enabled with (sigil of pr.args), "--help":
-        calling spark.println with "Usage: psc benchmark [--repeat=N] [--csv=PATH] [--only=NAME]"
+        calling spark.println with "Usage: psc benchmark [--repeat=N] [--warmup=N] [--csv=PATH] [--json] [--only=NAME]"
         calling cliargs.free_parse_result with (sigil of pr)
         return 0
     var cwd as maybe string is calling rites.getcwd
@@ -72,47 +149,98 @@ weave run_benchmark with args as list of string into int:
         banish cwd
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
-    var script as string is "{cwd.value}/benches/run_bench.py"
-    if not calling exists with script:
-        calling spark.eprintln with "psc benchmark: benches/run_bench.py not found (source checkout only)"
-        banish script
-        banish cwd
-        calling cliargs.free_parse_result with (sigil of pr)
-        return 1
-    var cargs as list of string is list of string
-    calling cargs.push with script
-    var rep as string is calling cliargs.value with (sigil of pr.args), "--repeat"
-    if rep length > 0:
-        calling cargs.push with "--repeat"
-        calling cargs.push with (calling copy with rep)
-    var csv as string is calling cliargs.value with (sigil of pr.args), "--csv"
-    if csv length > 0:
-        calling cargs.push with "--csv"
-        calling cargs.push with (calling copy with csv)
+    var repeat as int is 3
+    var rp as string is calling cliargs.value with (sigil of pr.args), "--repeat"
+    if rp length > 0:
+        var pm as maybe int is calling spark.parse_int with rp
+        if pm.is_present and pm.value > 0:
+            set repeat is pm.value
+        banish pm
+    var warmup as int is 1
+    var wp as string is calling cliargs.value with (sigil of pr.args), "--warmup"
+    if wp length > 0:
+        var wm as maybe int is calling spark.parse_int with wp
+        if wm.is_present and wm.value >= 0:
+            set warmup is wm.value
+        banish wm
     var only as string is calling cliargs.value with (sigil of pr.args), "--only"
-    if only length > 0:
-        calling cargs.push with "--only"
-        calling cargs.push with (calling copy with only)
-    var py as string is calling python_bin with cwd.value
-    var pargv as list of string is list of string
-    calling pargv.push with (calling copy with py)
-    for pa in cargs:
-        calling pargv.push with pa
-    var raw as int is calling proc.run_argv with pargv
-    banish pargv
-    var code as int is raw
-    if raw > 255:
-        set code is (raw / 256) % 256
-    banish py
-    var i as int is 0
-    while i < cargs.len:
-        banish cargs at i
-        set i is i + 1
-    banish cargs
-    banish script
+    var cases as list of string is list of string
+    calling cases.push with "f7_arith"
+    calling cases.push with "f7_fib"
+    calling cases.push with "hello_world"
+    calling cases.push with "fib_40"
+    calling cases.push with "string_ops"
+    calling cases.push with "list_ops"
+    calling cases.push with "primitive_methods"
+    calling cases.push with "stdlib_ops"
+    calling cases.push with "scrolls_ops"
+    calling cases.push with "atlas_ops"
+    calling cases.push with "cipher_ops"
+    calling cases.push with "loom_ops"
+    calling cases.push with "arithmancy_ops"
+    var rows as list of BenchRow is list of BenchRow
+    for c in cases:
+        if only length == 0 or c == only:
+            var row as BenchRow is calling run_case with c, cwd.value, (args at 0), repeat, warmup
+            calling rows.push with row
+    var as_json as bool is calling cliargs.enabled with (sigil of pr.args), "--json"
+    var csv as string is calling cliargs.value with (sigil of pr.args), "--csv"
+    if as_json:
+        var jb as StringBuilder is calling StringBuilder.new
+        defer banish jb
+        calling jb.append with "{\"schema_version\":1,\"cases\":["
+        var ji as int is 0
+        for row in rows:
+            if ji > 0:
+                calling jb.append with ","
+            calling jb.append with "{\"name\":\""
+            calling jb.append with row.name
+            calling jb.append with "\",\"status\":\""
+            calling jb.append with row.status
+            calling jb.append with "\",\"build_ms\":"
+            calling jb.append_int with row.build_ms
+            calling jb.append with ",\"run_ms\":"
+            calling jb.append_int with row.run_ms
+            calling jb.append with ",\"size\":"
+            calling jb.append_int with row.size
+            calling jb.append with "}"
+            set ji is ji + 1
+        calling jb.append with "]}"
+        var jt as string is calling jb.finish
+        calling spark.println with jt
+        banish jt
+    else:
+        calling spark.println with "case                 status       build_ms  run_ms  size"
+        for row in rows:
+            var line as string is "{row.name} {row.status} {row.build_ms} {row.run_ms} {row.size}"
+            calling spark.println with line
+            banish line
+    if csv length > 0:
+        var cb as StringBuilder is calling StringBuilder.new
+        defer banish cb
+        calling cb.append with "name,status,build_ms,run_ms,size\n"
+        for row in rows:
+            calling cb.append with row.name
+            calling cb.append with ","
+            calling cb.append with row.status
+            calling cb.append with ","
+            calling cb.append_int with row.build_ms
+            calling cb.append with ","
+            calling cb.append_int with row.run_ms
+            calling cb.append with ","
+            calling cb.append_int with row.size
+            calling cb.append with "\n"
+        var ct as string is calling cb.finish
+        calling archivum.write_text with csv, ct
+        banish ct
+    for row in rows:
+        banish row.name
+        banish row.status
+    banish rows
+    banish cases
     banish cwd
     calling cliargs.free_parse_result with (sigil of pr)
-    return code
+    return 0
 
 ## Implementa `psc selftest`.
 ##
@@ -125,7 +253,6 @@ weave run_selftest with args as list of string into int:
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
-        banish e
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     if calling cliargs.enabled with (sigil of pr.args), "--help":

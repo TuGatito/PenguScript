@@ -5,6 +5,7 @@
 ## triple se dejan intactas.
 
 import std.archivum
+import std.compass
 import std.builder
 import std.io
 import std.spark
@@ -77,12 +78,34 @@ rune FmtConfig:
 ## Devuelve POD; no retiene.
 weave load_config with path as string into FmtConfig:
     var c as FmtConfig is with width is 4, tabs is false, blank is 2
-    var p as string is path
-    if p length == 0:
-        set p is ".pengufmt.toml"
-    if calling archivum.is_dir with p:
-        var p2 as string is "{p}/.pengufmt.toml"
-        set p is p2
+    var dir as string is calling copy with path
+    if dir length == 0:
+        var cw as maybe string is calling archivum.getcwd
+        if cw.is_present:
+            banish dir
+            set dir is calling copy with cw.value
+        banish cw
+    if dir length == 0:
+        set dir is "."
+    if calling archivum.is_file with dir:
+        var dn as string is calling compass.cp_dirname with dir
+        banish dir
+        set dir is dn
+    var p as string is "{dir}/.pengufmt.toml"
+    var steps as int is 0
+    while steps < 8:
+        if calling archivum.is_file with p:
+            break
+        var par as string is calling compass.cp_dirname with dir
+        if par == dir:
+            banish par
+            break
+        banish par
+        banish dir
+        set dir is par
+        banish p
+        set p is "{dir}/.pengufmt.toml"
+        set steps is steps + 1
     var t as maybe string is calling archivum.read_text with p
     if t.is_present:
         var ttext as string is t.value
@@ -95,7 +118,6 @@ weave load_config with path as string into FmtConfig:
             if eq < tline length:
                 var k as string is tline at 0 to eq
                 var v as string is tline at (eq + 1) to (tline length)
-                # trim simple
                 var kb as ref to frozen byte is bytes of k
                 var ke as int is k length
                 while ke > 0 and (((kb at (ke - 1)) to int) == 32 or ((kb at (ke - 1)) to int) == 9):
@@ -106,7 +128,7 @@ weave load_config with path as string into FmtConfig:
                 while vs < v length and (((vb at vs) to int) == 32 or ((vb at vs) to int) == 9):
                     set vs is vs + 1
                 set v is v at vs to (v length)
-                if k == "indent" or k == "tab_size":
+                if k == "indent" or k == "tab_size" or k == "indent_size" or k == "indent_width":
                     var pm as maybe int is calling spark.parse_int with v
                     if pm.is_present and pm.value > 0:
                         set c.width is pm.value
@@ -131,6 +153,8 @@ weave load_config with path as string into FmtConfig:
             banish tline
         banish lines
     banish t
+    banish p
+    banish dir
     return c
 
 ## Detecta la unidad de indentación del fuente.

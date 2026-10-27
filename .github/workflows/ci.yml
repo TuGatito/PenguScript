@@ -94,6 +94,12 @@ jobs:
       - name: F6 CLI acceptance
         run: python -m pytest -q tests/psc/test_f6_cli.py
 
+      - name: F7 tools acceptance
+        run: python -m pytest -q tests/psc/test_f7_tools.py
+
+      - name: F7 fmt parity (stage0)
+        run: python psc/tools/parity_tools.py --only fmt --path std --path psc/src
+
       - name: ASan/UBSan self-compile smoke
         run: |
           psc/build/psc emit-c psc/src/main.pengu --out=/tmp/psc_asan.c

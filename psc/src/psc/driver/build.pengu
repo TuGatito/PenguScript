@@ -170,6 +170,7 @@ weave free_result with r as ref to BuildResult into void:
 ## Devuelve BuildResult owned; liberar con `free_result`.
 weave build with o as BuildOptions into BuildResult:
     var cwd as string is calling current_dir
+    var is_project as bool is false
     if o.clear_cache:
         var cache_ignored as int is calling cache.clear
     var target as string is calling copy with o.target
@@ -188,6 +189,7 @@ weave build with o as BuildOptions into BuildResult:
             banish start
             set start is ts
     var root as string is calling find_manifest_root with start
+    set is_project is calling archivum.is_dir with target
     var base as string is root
     var man as manifest.Manifest is calling manifest.default_manifest with start, "main.pengu"
     if root length == 0:
@@ -500,19 +502,20 @@ weave build with o as BuildOptions into BuildResult:
         calling args.push with "-I{inc}"
     calling args.push with (calling copy with bundle)
     var glue as list of string is list of string
-    var cdir as string is "{base}/{man.c_dir}"
-    var cfiles as list of string is calling archivum.find_files with cdir, false
-    for cf in cfiles:
-        if (calling ends_with with cf, ".c"):
-            calling glue.push with (calling copy with cf)
-        banish cf
-    banish cfiles
-    var bfiles as list of string is calling archivum.find_files with build_dir, false
-    for bf in bfiles:
-        if calling ends_with with bf, "_assets.c":
-            calling glue.push with (calling copy with bf)
-        banish bf
-    banish bfiles
+    if is_project:
+        var cdir as string is "{base}/{man.c_dir}"
+        var cfiles as list of string is calling archivum.find_files with cdir, false
+        for cf in cfiles:
+            if (calling ends_with with cf, ".c"):
+                calling glue.push with (calling copy with cf)
+            banish cf
+        banish cfiles
+        var bfiles as list of string is calling archivum.find_files with build_dir, false
+        for bf in bfiles:
+            if calling ends_with with bf, "_assets.c":
+                calling glue.push with (calling copy with bf)
+            banish bf
+        banish bfiles
     if out_kind != "obj" and out_kind != "static":
         for gf in glue:
             calling args.push with (calling copy with gf)

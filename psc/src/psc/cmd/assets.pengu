@@ -3,6 +3,7 @@
 import std.archivum
 import std.builder
 import std.compass
+import std.digest
 import std.rites
 import std.scrolls
 import std.spark
@@ -216,6 +217,61 @@ weave run_assets with args as list of string into int:
         banish relm
         banish f
     banish files
+    var bdir0 as string is "{root}/{man.build_dir}"
+    var hb0 as StringBuilder is calling StringBuilder.new
+    defer banish hb0
+    calling hb0.append with man.assets_module
+    if man.assets_embed:
+        calling hb0.append with ":embed"
+    else:
+        calling hb0.append with ":disk"
+    for n in names:
+        calling hb0.append with "|"
+        calling hb0.append with n
+        var fp0 as string is "{adir}/{n}"
+        var mt0 as maybe float is calling archivum.modified_time with fp0
+        if mt0.is_present:
+            calling hb0.append_float with mt0.value
+        banish mt0
+        var sz0 as maybe int is calling archivum.file_size with fp0
+        if sz0.is_present:
+            calling hb0.append_int with sz0.value
+        banish sz0
+        banish fp0
+    var hinput as string is calling hb0.finish
+    var ahash as string is calling digest.sha256_raw with hinput
+    banish hinput
+    var hpath0 as string is "{bdir0}/{man.assets_module}_assets.hash"
+    var oldh as maybe string is calling archivum.read_text with hpath0
+    var uptodate as bool is false
+    if oldh.is_present:
+        if oldh.value == ahash:
+            var c0 as string is "{bdir0}/{man.assets_module}_assets.c"
+            var h0 as string is "{bdir0}/{man.assets_module}_assets.h"
+            if calling archivum.is_file with c0:
+                if calling archivum.is_file with h0:
+                    set uptodate is true
+            banish h0
+            banish c0
+    banish oldh
+    if (not calling cliargs.enabled with (sigil of pr.args), "--force") and (not calling cliargs.enabled with (sigil of pr.args), "--list") and uptodate:
+        var mu as string is "Assets up to date ({names.len}, module {man.assets_module})"
+        calling spark.println with mu
+        banish mu
+        banish hpath0
+        banish ahash
+        banish bdir0
+        banish adir
+        var ni0 as int is 0
+        while ni0 < names.len:
+            banish names at ni0
+            set ni0 is ni0 + 1
+        banish names
+        calling manifest.free_manifest with (sigil of man)
+        banish root
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    banish hpath0
     if calling cliargs.enabled with (sigil of pr.args), "--list":
         var h as string is "Assets for {man.name} ({names.len}, module {man.assets_module})"
         calling spark.println with h
@@ -234,6 +290,8 @@ weave run_assets with args as list of string into int:
             banish n
         banish names
         banish adir
+        banish ahash
+        banish bdir0
         calling manifest.free_manifest with (sigil of man)
         banish root
         calling cliargs.free_parse_result with (sigil of pr)
@@ -457,6 +515,11 @@ PenguString __MOD___string(const char* n) {
     var msg as string is "Generated {names.len} asset(s) for module {man.assets_module}"
     calling spark.println with msg
     banish msg
+    var hpath1 as string is "{bdir0}/{man.assets_module}_assets.hash"
+    calling archivum.write_text with hpath1, ahash
+    banish hpath1
+    banish ahash
+    banish bdir0
     banish names
     banish bdir
     banish src

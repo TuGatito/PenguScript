@@ -1,7 +1,12 @@
-## psc/cmd/watch.pengu — `psc watch` (polling portátil).
+## psc/cmd/watch.pengu — `psc watch` (polling portátil F7).
+##
+## Observa el entry, todos los `.pengu` de su proyecto y `pengu.toml`, y
+## reinicia el hijo cuando cambia la huella (mtime+tamaño). Sin inotify.
 
 import std.archivum
+import std.builder
 import std.chronicle
+import std.compass
 import std.rites
 import std.spark
 
@@ -13,27 +18,102 @@ import psc.sema.names as npool
 insignia psc_cmd_watch_
 
 ## Ayuda.
-##
-## ## Memoria
-## No asigna.
 weave print_help into void:
-    calling spark.println with "Usage: psc watch SCRIPT [--cc=NAME] [-- args...]"
-    calling spark.println with "  --cc=NAME"
-    calling spark.println with "  --keep"
+    calling spark.println with "Usage: psc watch SCRIPT [options] [-- args...]"
+    calling spark.println with "  --cc=NAME        C compiler"
+    calling spark.println with "  --interval=MS    polling interval (default 300)"
+    calling spark.println with "  --once           run once and exit"
+    calling spark.println with "  --clear          clear the screen between runs"
     calling spark.println with "  --help"
 
 ## Copia owned.
-##
-## ## Memoria
-## Devuelve string owned.
 weave copy with s as string into string:
     return calling npool.copy_string with s
 
-## Compila y ejecuta una vez.
+## `true` si `s` termina en `p`.
+weave ends_with with s as string, p as string into bool:
+    var n as int is s length
+    var m as int is p length
+    if m > n:
+        return false
+    return (s at (n - m) to n) == p
+
+## Recolecta `.pengu` del proyecto y el manifiesto.
 ##
 ## ## Memoria
-## Libera todo.
-weave run_once with script as string, cc as string, child as list of string into int:
+## `out` es prestado; los paths se copian.
+weave collect_paths with script as string, out as list of string into void:
+    var abs as string is calling compass.cp_absolute with script
+    calling out.push with (calling copy with abs)
+    var d as string is calling copy with abs
+    if calling archivum.is_file with abs:
+        var dn as string is calling compass.cp_dirname with abs
+        banish d
+        set d is dn
+    var files as list of string is calling archivum.find_files with d, true
+    for f in files:
+        if calling ends_with with f, ".pengu":
+            var dup as bool is false
+            for e in out:
+                if e == f:
+                    set dup is true
+            if not dup:
+                calling out.push with (calling copy with f)
+        banish f
+    banish files
+    # manifiesto del proyecto, si existe
+    var probe as string is calling copy with d
+    var ui as int is 0
+    while ui < 8:
+        var mf as string is "{probe}/pengu.toml"
+        if calling archivum.is_file with mf:
+            calling out.push with mf
+            banish probe
+            banish d
+            banish abs
+            return
+        banish mf
+        var par as string is calling compass.cp_dirname with probe
+        if par == probe:
+            banish par
+            banish probe
+            banish d
+            banish abs
+            return
+        banish probe
+        set probe is par
+        set ui is ui + 1
+    banish probe
+    banish d
+    banish abs
+
+## Huella de mtime+tamaño.
+##
+## ## Memoria
+## Devuelve string owned.
+weave fingerprint with paths as list of string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    for p in paths:
+        calling sb.append with p
+        var mt as maybe float is calling archivum.modified_time with p
+        if mt.is_present:
+            calling sb.append with ":"
+            calling sb.append_float with mt.value
+        banish mt
+        var sz as maybe int is calling archivum.file_size with p
+        if sz.is_present:
+            calling sb.append with ":"
+            calling sb.append_int with sz.value
+        banish sz
+        calling sb.append with ";"
+    return calling sb.finish
+
+## Compila y lanza el hijo; devuelve PID (0 si falla).
+##
+## ## Memoria
+## Libera build result/options.
+weave build_and_spawn with script as string, cc as string, child as list of string, verbose as bool into int:
     var o as driver.BuildOptions is calling driver.default_options
     banish o.target
     set o.target is calling copy with script
@@ -46,40 +126,38 @@ weave run_once with script as string, cc as string, child as list of string into
         var m as string is "psc watch: {e}"
         calling spark.eprintln with m
         banish m
-        banish e
         calling driver.free_result with (sigil of r)
         calling driver.free_options with (sigil of o)
-        return 1
-    var art as string is r.artifact
-    var wargv as list of string is list of string
-    calling wargv.push with (calling copy with art)
-    for wc in child:
-        calling wargv.push with wc
-    var raw as int is calling proc.run_argv with wargv
-    banish wargv
-    var code as int is raw
-    if raw > 255:
-        set code is (raw / 256) % 256
-    if code < 0:
-        set code is 1
+        return 0
+    var art as string is calling copy with r.artifact
+    var argv as list of string is list of string
+    calling argv.push with art
+    for c in child:
+        calling argv.push with c
+    var pid as int is calling proc.spawn_argv with argv
+    banish argv
+    if verbose:
+        var m2 as string is "psc watch: running {art} (pid {pid})"
+        calling spark.println with m2
+        banish m2
+    banish art
     calling driver.free_result with (sigil of r)
     calling driver.free_options with (sigil of o)
-    return code
+    return pid
 
 ## Implementa `psc watch`.
-##
-## ## Memoria
-## Libera opciones.
 weave run_watch with args as list of string into int:
     var vf as list of string is list of string
     calling vf.push with "--cc"
+    calling vf.push with "--interval"
     var sf as list of string is list of string
-    calling sf.push with "--keep"
+    calling sf.push with "--once"
+    calling sf.push with "--clear"
+    calling sf.push with "--help"
     var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
-        banish e
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     if calling cliargs.enabled with (sigil of pr.args), "help":
@@ -97,25 +175,77 @@ weave run_watch with args as list of string into int:
         calling child.push with (calling copy with (pr.args.positionals at ai))
         set ai is ai + 1
     var cc as string is calling cliargs.value with (sigil of pr.args), "--cc"
-    var last as maybe float is calling archivum.modified_time with script
-    var lastv as float is 0.0
-    if last.is_present:
-        set lastv is last.value
-    banish last
-    var code as int is calling run_once with script, cc, child
-    while true:
-        calling chronicle.sleep_ms with 300
-        var now as maybe float is calling archivum.modified_time with script
-        if now.is_present:
-            if now.value != lastv:
-                set lastv is now.value
-                set code is calling run_once with script, cc, child
-        banish now
-    banish script
-    var ci as int is 0
-    while ci < child.len:
-        banish child at ci
-        set ci is ci + 1
+    var interval as int is 300
+    var ivs as string is calling cliargs.value with (sigil of pr.args), "--interval"
+    if ivs length > 0:
+        var pm as maybe int is calling spark.parse_int with ivs
+        if pm.is_present and pm.value >= 50:
+            set interval is pm.value
+        banish pm
+    var once as bool is calling cliargs.enabled with (sigil of pr.args), "--once"
+    var clear as bool is calling cliargs.enabled with (sigil of pr.args), "--clear"
+    var paths as list of string is list of string
+    calling collect_paths with script, paths
+    var fp as string is calling fingerprint with paths
+    var pid as int is 0
+    var code as int is 0
+    if once:
+        var argv as list of string is list of string
+        # build once and wait
+        var o as driver.BuildOptions is calling driver.default_options
+        banish o.target
+        set o.target is calling copy with script
+        if cc length > 0:
+            banish o.cc
+            set o.cc is calling copy with cc
+        var r as driver.BuildResult is calling driver.build with o
+        if not r.ok:
+            var e as string is r.error
+            var m as string is "psc watch: {e}"
+            calling spark.eprintln with m
+            banish m
+            calling driver.free_result with (sigil of r)
+            calling driver.free_options with (sigil of o)
+            banish fp
+            banish paths
+            banish child
+            banish script
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 1
+        calling argv.push with (calling copy with r.artifact)
+        for c in child:
+            calling argv.push with c
+        set code is calling proc.run_argv with argv
+        banish argv
+        calling driver.free_result with (sigil of r)
+        calling driver.free_options with (sigil of o)
+    else:
+        set pid is calling build_and_spawn with script, cc, child, clear
+        while true:
+            calling chronicle.sleep_ms with interval
+            var nfp as string is calling fingerprint with paths
+            if nfp != fp:
+                banish fp
+                set fp is nfp
+                if clear:
+                    calling spark.print with "\x1b[2J\x1b[H"
+                if pid > 0:
+                    var dead as bool is calling proc.terminate with pid
+                    var wc as int is calling proc.wait_pid with pid
+                set pid is calling build_and_spawn with script, cc, child, clear
+            else:
+                banish nfp
+                if pid > 0:
+                    var alive as bool is calling proc.pid_alive with pid
+                    if not alive:
+                        set pid is 0
+    banish fp
+    var pi as int is 0
+    while pi < paths.len:
+        banish paths at pi
+        set pi is pi + 1
+    banish paths
     banish child
+    banish script
     calling cliargs.free_parse_result with (sigil of pr)
     return code

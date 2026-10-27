@@ -3,6 +3,7 @@
 import std.archivum
 import std.builder
 import std.compass
+import std.scrolls
 import std.rites
 import std.spark
 
@@ -75,17 +76,94 @@ weave ends_with with s as string, p as string into bool:
         return false
     return (s at (n - m) to n) == p
 
+## `true` si `line` declara un símbolo documentable.
+weave is_decl with line as string into bool:
+    return (calling starts_with with line, "weave ") or (calling starts_with with line, "rune ") or (calling starts_with with line, "echo ") or (calling starts_with with line, "omen ") or (calling starts_with with line, "alias ") or (calling starts_with with line, "seal ") or (calling starts_with with line, "concept ") or (calling starts_with with line, "const ")
+
+## Firma legible de una declaración.
+##
+## ## Memoria
+## Devuelve string owned.
+weave signature_of with line as string into string:
+    var t as string is line
+    # quitar ':' final
+    if calling ends_with with t, ":":
+        var cut as int is t length - 1
+        var t2 as string is t at 0 to cut
+        banish t
+        set t is t2
+    if calling starts_with with t, "weave ":
+        var body as string is t at 6 to (t length)
+        var wi as int is 0
+        var wname as string is body
+        var with_i as int is -1
+        var into_i as int is -1
+        while wi < body length:
+            if with_i < 0 and wi + 6 <= body length and (body at wi to (wi + 6)) == " with ":
+                set with_i is wi
+                set wi is wi + 5
+            else if wi + 6 <= body length and (body at wi to (wi + 6)) == " into ":
+                set into_i is wi
+                set wi is wi + 5
+            set wi is wi + 1
+        if with_i >= 0:
+            set wname is body at 0 to with_i
+        else if into_i >= 0:
+            set wname is body at 0 to into_i
+        var ret as string is "void"
+        if into_i >= 0:
+            set ret is body at (into_i + 6) to (body length)
+        var params as string is ""
+        if with_i >= 0:
+            if into_i >= 0:
+                set params is body at (with_i + 6) to into_i
+            else:
+                set params is body at (with_i + 6) to (body length)
+        var params2 as string is calling scrolls.replace_all with params, " as ", ": "
+        var sig as string is "**{wname}**({params2}) -> {ret}"
+        banish ret
+        banish params
+        banish params2
+        banish wname
+        banish body
+        banish t
+        return sig
+    var sp as int is 0
+    while sp < t length and (t at sp to (sp + 1)) != " ":
+        set sp is sp + 1
+    if sp < t length:
+        var rest as string is t at (sp + 1) to (t length)
+        var nm as string is rest
+        var q as int is 0
+        while q < rest length:
+            var ch as string is rest at q to (q + 1)
+            if ch == " " or ch == ":" or ch == "(" or ch == "=":
+                set nm is rest at 0 to q
+                break
+            set q is q + 1
+        var sig2 as string is "**{nm}**"
+        banish nm
+        banish rest
+        banish t
+        return sig2
+    banish t
+    return "**?**"
+
 ## Renderiza un archivo a Markdown.
 ##
 ## ## Memoria
 ## Devuelve string owned.
-weave render_file with path as string into string:
+weave render_file with path as string, rel as string into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     var mn as string is calling basename_no_ext with path
     calling sb.append with "# "
     calling sb.append with mn
-    calling sb.append with "\n\n"
+    calling sb.append with "\n\n> Source: `"
+    calling sb.append with rel
+    calling sb.append with "`\n\n---\n\n"
+    banish mn
+    var kind_word as string is "symbol"
     var txt as maybe string is calling archivum.read_text with path
     if txt.is_present:
         var ttext as string is txt.value
@@ -94,28 +172,70 @@ weave render_file with path as string into string:
         var pi as int is 0
         while pi < lines.len:
             var line as string is (lines at pi)
-            if calling starts_with with line, "##":
-                var d as string is line at 2 to (line length)
-                calling docs.push with (calling copy with d)
-            else if (calling starts_with with line, "weave ") or (calling starts_with with line, "rune ") or (calling starts_with with line, "echo ") or (calling starts_with with line, "const ") or (calling starts_with with line, "test "):
-                calling sb.append with "## `"
-                calling sb.append with line
-                calling sb.append with "`\n\n"
-                for d in docs:
-                    calling sb.append with d
+            var trimmed as string is line
+            # trim
+            var tb as ref to frozen byte is bytes of trimmed
+            var ts as int is 0
+            var te as int is trimmed length
+            while ts < te and (((tb at ts) to int) == 32 or ((tb at ts) to int) == 9):
+                set ts is ts + 1
+            while te > ts and (((tb at (te - 1)) to int) == 32 or ((tb at (te - 1)) to int) == 9):
+                set te is te - 1
+            if ts > 0 or te < trimmed length:
+                var tr2 as string is trimmed at ts to te
+                banish trimmed
+                set trimmed is tr2
+            if calling starts_with with trimmed, "##":
+                var d as string is trimmed at 2 to (trimmed length)
+                calling docs.push with d
+            else if calling is_decl with trimmed:
+                var sig as string is calling signature_of with trimmed
+                var nm as string is calling basename_no_ext with path
+                # heading: nombre simple
+                var hname as string is sig
+                var hs as int is 0
+                var he as int is sig length
+                while hs < he and (sig at hs to (hs + 1)) != "*":
+                    set hs is hs + 1
+                # extraer entre ** y **
+                var nstart as int is hs + 2
+                var ne as int is nstart
+                while ne < he and (sig at ne to (ne + 1)) != "*":
+                    set ne is ne + 1
+                if ne > nstart:
+                    var hn as string is sig at nstart to ne
+                    set hname is hn
+                calling sb.append with "### `"
+                calling sb.append with hname
+                calling sb.append with "`\n\n> "
+                calling sb.append with sig
+                calling sb.append with "\n\n"
+                if docs.len == 0:
+                    calling sb.append with "_Undocumented function._\n\n"
+                else:
+                    for d in docs:
+                        calling sb.append with d
+                        calling sb.append with "\n"
                     calling sb.append with "\n"
-                calling sb.append with "\n"
                 for d in docs:
                     banish d
                 set docs is list of string
-            else if line length > 0:
+                banish hname
+                banish sig
+                banish nm
+                banish trimmed
+                set pi is pi + 1
+                continue
+            else if trimmed length > 0 and not (calling starts_with with trimmed, "#"):
                 for d in docs:
                     banish d
                 set docs is list of string
+            banish trimmed
             set pi is pi + 1
         for d in docs:
             banish d
         banish docs
+        banish lines
     banish txt
     return calling sb.finish
 
@@ -130,6 +250,30 @@ weave basename_no_ext with path as string into string:
         var cut as int is b length - 6
         return calling copy with (b at 0 to cut)
     return calling copy with b
+
+## Nombre de página documental a partir del path relativo.
+##
+## ## Memoria
+## Devuelve string owned.
+weave doc_name with rel as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var b as ref to frozen byte is bytes of rel
+    var i as int is 0
+    while i < rel length:
+        var c as int is ((b at i) to int)
+        if c == 47 or c == 92:
+            calling sb.append with "_"
+        else:
+            calling sb.append_char with (c to char)
+        set i is i + 1
+    var full as string is calling sb.finish
+    if calling ends_with with full, ".pengu":
+        var cut as int is full length - 6
+        var o2 as string is full at 0 to cut
+        banish full
+        return o2
+    return full
 
 ## Implementa `psc doc`.
 ##
@@ -195,10 +339,23 @@ weave run_doc with args as list of string into int:
     var mods as list of string is list of string
     for f in found:
         if calling ends_with with f, ".pengu":
-            var md as string is calling render_file with f
-            var nm as string is calling basename_no_ext with f
+            var relm as maybe string is calling compass.cp_relative_to with f, root
+            var rel as string is calling copy with f
+            if relm.is_present:
+                banish rel
+                set rel is calling copy with relm.value
+            banish relm
+            var md as string is calling render_file with f, rel
+            var nm as string is calling doc_name with rel
+            banish rel
             var target as string is "{out}/{nm}.md"
             calling archivum.write_text with target, md
+            var legacy as string is calling basename_no_ext with f
+            if legacy != nm:
+                var lpath as string is "{out}/{legacy}.md"
+                calling archivum.write_text with lpath, md
+                banish lpath
+            banish legacy
             calling mods.push with (calling copy with nm)
             banish target
             banish nm

@@ -1,0 +1,9 @@
+# F7 native benchmark: recursive Fibonacci.
+weave fib with n as int into int:
+    if n < 2:
+        return n
+    return (calling fib with n - 1) + (calling fib with n - 2)
+
+weave main into int:
+    var r as int is calling fib with 30
+    return r - r

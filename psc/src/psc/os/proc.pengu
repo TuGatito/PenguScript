@@ -62,3 +62,110 @@ return 128 + PSC_WTERMSIG(st);
 return -1;
 #endif
 """
+
+## Lanza un argv sin esperar y devuelve el PID (0 si falla).
+##
+## ## Memoria
+## Los strings de `argv` son prestados.
+antiquus spawn_argv with argv as list of string into int:
+    r"""
+#if defined(_WIN32)
+(void)argv;
+return 0;
+#else
+extern int fork(void);
+extern int execvp(const char *, char *const[]);
+extern void _exit(int);
+if (argv.len <= 0) return 0;
+char **v = (char **)malloc(((size_t)argv.len + 1) * sizeof(char *));
+if (!v) return 0;
+for (int i = 0; i < argv.len; i++) {
+    PenguString *s = (PenguString *)pengu_list_at(&argv, i);
+    v[i] = (s && s->data) ? s->data : (char *)"";
+}
+v[argv.len] = NULL;
+int pid = fork();
+if (pid < 0) { free(v); return 0; }
+if (pid == 0) { execvp(v[0], v); _exit(127); }
+free(v);
+return pid;
+#endif
+"""
+
+## Espera bloqueante por un PID; devuelve el exit code.
+antiquus wait_pid with pid as int into int:
+    r"""
+#if defined(_WIN32)
+(void)pid;
+return -1;
+#else
+extern int waitpid(int, int *, int);
+#define PSC_WIFEXITED2(st) (((st) & 0x7f) == 0)
+#define PSC_WEXITSTATUS2(st) (((st) & 0xff00) >> 8)
+int st = 0;
+while (waitpid(pid, &st, 0) < 0) return -1;
+if (PSC_WIFEXITED2(st)) return PSC_WEXITSTATUS2(st);
+return -1;
+#endif
+"""
+
+## `true` si el PID sigue vivo (reap no bloqueante).
+antiquus pid_alive with pid as int into bool:
+    r"""
+#if defined(_WIN32)
+(void)pid;
+return false;
+#else
+extern int waitpid(int, int *, int);
+int st = 0;
+int r = waitpid(pid, &st, 1);
+return r == 0;
+#endif
+"""
+
+## Termina un PID (SIGTERM), sin esperar.
+antiquus terminate with pid as int into bool:
+    r"""
+#if defined(_WIN32)
+(void)pid;
+return false;
+#else
+extern int kill(int, int);
+return kill(pid, 15) == 0;
+#endif
+"""
+
+## Ejecuta un argv descartando stdout/stderr (benchmarks).
+antiquus run_argv_quiet with argv as list of string into int:
+    r"""
+#if defined(_WIN32)
+(void)argv;
+return -1;
+#else
+extern int fork(void);
+extern int waitpid(int, int *, int);
+extern int execvp(const char *, char *const[]);
+extern void _exit(int);
+extern FILE *freopen(const char *, const char *, FILE *);
+if (argv.len <= 0) return -1;
+char **v = (char **)malloc(((size_t)argv.len + 1) * sizeof(char *));
+if (!v) return -1;
+for (int i = 0; i < argv.len; i++) {
+    PenguString *s = (PenguString *)pengu_list_at(&argv, i);
+    v[i] = (s && s->data) ? s->data : (char *)"";
+}
+v[argv.len] = NULL;
+int pid = fork();
+if (pid < 0) { free(v); return -1; }
+if (pid == 0) {
+    freopen("/dev/null", "w", stdout);
+    freopen("/dev/null", "w", stderr);
+    execvp(v[0], v);
+    _exit(127);
+}
+free(v);
+int st = 0;
+while (waitpid(pid, &st, 0) < 0) return -1;
+return (((st) & 0x7f) == 0) ? (((st) & 0xff00) >> 8) : -1;
+#endif
+"""
