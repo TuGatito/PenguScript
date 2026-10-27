@@ -1,58 +1,45 @@
-# F8 — LSP (núcleo implementado)
+# F8 — LSP nativo (features básicas implementadas)
 
-> Estado real: transporte, ciclo de vida, TCP/stdio, documentos, URI/UTF-16 y
-> framing están implementados y probados. La inteligencia LSP (diagnósticos
-> completos, completion, hover, navegación, symbols, etc.) sigue pendiente.
+> El servidor nativo funciona en stdio y TCP, con lifecycle, documentos,
+> diagnósticos y una primera capa de features LSP basadas en el documento y en
+> `psc check`. No es paridad completa con `pengu_lsp`.
 
 ## Completado
 
 | Área | Estado |
 |---|---|
-| `psc lsp` | comando real, ya no stub |
-| Transporte | stdio y TCP (`--tcp --host --port`), framing `Content-Length`, flush |
-| Lifecycle | `initialize`, `initialized`, `shutdown`, `exit`, ids number/string, método desconocido |
-| Documentos | `didOpen`, `didChange` full-sync, `didClose` |
-| URI | `file://` <-> path, percent-encoding, drive letter |
-| UTF-16 | conversión byte <-> línea/character UTF-16 |
-| Diagnósticos | `psc check --diagnostics=json` en subproceso y `publishDiagnostics` con contenido; falta convertir columnas a UTF-16 |
+| Transporte | stdio + TCP (`--tcp --host --port`), framing, flush |
+| Lifecycle | initialize/initialized/shutdown/exit; ids number/string |
+| Documentos | didOpen/didChange full-sync/didClose |
+| URI/UTF-16 | módulos `uri` y `positions`; hover/definitions usan UTF-16 |
+| Diagnósticos | `psc check --diagnostics=json` en subproceso; `publishDiagnostics` con contenido (columnas byte; falta UTF-16) |
 | Hover | firma/línea de declaración |
-| Definition / implementation | definición por declaración; implementation delega en definition |
-| Completion | keywords + identificadores del documento |
+| Definition / implementation | definition por declaración; implementation delega |
+| Completion | keywords + identificadores |
 | References / highlight | ocurrencias del identificador |
-| Symbols | documentSymbol y workspace/symbol |
+| Symbols | documentSymbol, workspace/symbol |
 | Folding | bloques por indentación |
-| Formatting | `psc fmt --stdin` vía F7 |
+| Formatting | `psc fmt --stdin` (F7) |
 | Rename | prepareRename + WorkspaceEdit |
 | Signature help | parámetros desde la firma textual |
-| Code lens | `Run` para `main`, `Run test` para tests |
-| Build | `psc 0.8.0 (F8)`; bootstrap estable |
-| Tests | `tests/psc/test_f8_lsp.py`: lifecycle stdio + TCP |
-| C includes | deduplicación por texto, no por módulo; `netdb.h`/`unistd.h` llegan al bundle |
+| Code lens | Run / Run test |
+| Tests | `test_f8_lsp.py` + `test_f8_features.py` (3 tests) |
+| Bootstrap | punto fijo OK; gcc/clang/TCC READY |
+
+## Pendiente
+
+1. Diagnósticos con columnas UTF-16 (hoy `psc check` usa bytes).
+2. Semantic tokens, inlay hints, code actions, on-type formatting.
+3. Caches/índice de workspace (hoy escaneo en cada request).
+4. Paridad con `pengu_lsp`; ñ/CJK/emoji; 1 000 didChange; ASan.
+5. VS Code smoke, CI y docs completos.
+6. Metadatos F3 (`module/line/col`) para navegación semántica precisa.
 
 ## Evidencia
 
 ```text
-F8 LSP wire tests: 2 passed
+tests/psc/test_f8_lsp.py + test_f8_features.py: 3 passed
 bootstrap: punto fijo OK
-psc lsp --help: OK
+preflight gcc/clang/TCC: READY
 psc lsp --tcp: initialize/shutdown/exit OK
 ```
-
-## Pendiente para cerrar F8
-
-1. Diagnósticos con contenido real (hoy se publica `[]`; falta integrar
-   `psc check` sin corromper el heap y validar UTF-16).
-2. Completion, hover, signature help.
-3. Definition, implementation, references, highlight.
-4. Document/workspace symbols, folding.
-5. Semantic tokens, inlay hints, code lens.
-6. Code actions, prepareRename/rename.
-7. Formatting/on-type.
-8. Caches/índice de workspace e invalidación.
-9. Paridad con `pengu_lsp`, UTF-16 ñ/CJK/emoji, 1 000 didChange, ASan.
-10. VS Code smoke y docs/CI completos.
-
-## Nota
-
-Las capacidades anunciadas se limitan a `textDocumentSync=1` hasta que cada
-feature esté implementada; no se anuncia paridad falsa.
