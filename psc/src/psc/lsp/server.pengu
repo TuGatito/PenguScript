@@ -30,6 +30,8 @@ rune State:
     docs as map of string to Document
     root as string
     exe as string
+    ws_cache as JsonValue
+    ws_ready as bool
     initialized as bool
     shutdown as bool
 
@@ -330,6 +332,7 @@ weave did_open with st as ref to State, params as JsonValue into void:
     banish td
     var doc as Document is with text is (calling copy with text), version is ver
     calling st->docs.put with (calling copy with u), doc
+    set st->ws_ready is false
     calling publish with st, u, text, ver
     banish text
     banish u
@@ -364,6 +367,7 @@ weave did_change with st as ref to State, params as JsonValue into void:
             if changed:
                 var doc as Document is with text is (calling copy with text), version is ver
                 calling st->docs.put with (calling copy with u), doc
+                set st->ws_ready is false
                 calling publish with st, u, text, ver
             banish text
         calling json.free_values with changes.value
@@ -995,25 +999,26 @@ weave handle_signature with st as ref to State, id as rpc.JsonRpcId, params as J
 ## Workspace symbols por escaneo de texto.
 weave handle_workspace_symbols with st as ref to State, id as rpc.JsonRpcId, params as JsonValue into void:
     var query as string is calling field_string with params, "query"
-    var arr as JsonValue is calling JsonValue.empty_array
-    var files as list of string is calling archivum.find_files with st->root, true
-    var count as int is 0
-    for f in files:
-        if count < 200 and calling scrolls.contains with f, ".pengu":
-            var t as maybe string is calling archivum.read_text with f
-            if t.is_present:
-                var text as string is calling copy with t.value
-                banish t
-                var b as ref to frozen byte is bytes of text
-                var start as int is 0
-                while start <= text length and count < 200:
-                    var end as int is start
-                    while end < text length and ((b at end) to int) != 10:
-                        set end is end + 1
-                    var line as string is text at start to end
-                    var nm as string is calling decl_name_line with line
-                    if nm length > 0:
-                        if query length == 0 or calling scrolls.contains with nm, query:
+    if not st->ws_ready:
+        banish st->ws_cache
+        var all as JsonValue is calling JsonValue.empty_array
+        var files as list of string is calling archivum.find_files with st->root, true
+        var count as int is 0
+        for f in files:
+            if count < 500 and calling scrolls.contains with f, ".pengu":
+                var t as maybe string is calling archivum.read_text with f
+                if t.is_present:
+                    var text as string is calling copy with t.value
+                    banish t
+                    var b as ref to frozen byte is bytes of text
+                    var start as int is 0
+                    while start <= text length and count < 500:
+                        var end as int is start
+                        while end < text length and ((b at end) to int) != 10:
+                            set end is end + 1
+                        var line as string is text at start to end
+                        var nm as string is calling decl_name_line with line
+                        if nm length > 0:
                             var loc as JsonValue is calling JsonValue.empty_object
                             calling loc.put_json with "uri", (calling JsonValue.string_val with (calling luri.path_to_uri with f))
                             calling loc.put_json with "range", (calling lpos.range_json with text, start, start)
@@ -1021,17 +1026,31 @@ weave handle_workspace_symbols with st as ref to State, id as rpc.JsonRpcId, par
                             calling item.put_json with "name", (calling JsonValue.string_val with (calling copy with nm))
                             calling item.put_json with "kind", (calling JsonValue.int_val with 12)
                             calling item.put_json with "location", loc
-                            calling arr.push_json with item
+                            calling all.push_json with item
                             set count is count + 1
-                        banish nm
-                    banish line
-                    if end >= text length:
-                        break
-                    set start is end + 1
-                banish text
-        banish f
+                            banish nm
+                        banish line
+                        if end >= text length:
+                            break
+                        set start is end + 1
+                    banish text
+            banish f
+        banish files
+        set st->ws_cache is all
+        set st->ws_ready is true
+    var items as maybe list of JsonValue is calling st->ws_cache.as_array
+    var arr as JsonValue is calling JsonValue.empty_array
+    if items.is_present:
+        for item in items.value:
+            var nm2 as string is calling jstr with item, "name"
+            if query length == 0 or calling scrolls.contains with nm2, query:
+                calling arr.push_json with item
+            else:
+                banish item
+            banish nm2
+        banish items.value
+    banish items
     banish query
-    banish files
     var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), arr
     var ok as bool is calling send_msg with st, out
     banish out
@@ -1444,7 +1463,7 @@ weave handle_notification with st as ref to State, method as string, params as m
 
 ## Bucle principal.
 weave run_with with tr as transport.Transport, root as string, exe as string into int:
-    var st as State is with tr is tr, docs is map of string to Document, root is root, exe is exe, initialized is false, shutdown is false
+    var st as State is with tr is tr, docs is map of string to Document, root is root, exe is exe, ws_cache is (calling JsonValue.empty_array), ws_ready is false, initialized is false, shutdown is false
     while true:
         var body as maybe string is calling transport.read_frame with (sigil of st.tr)
         if not body.is_present:
