@@ -174,9 +174,9 @@ weave find_paths with base_dir as string into Paths:
 ## ## Memoria
 ## Libera cada string y lista.
 weave free_paths with p as ref to Paths into void:
-    # El driver CLI es de vida corta y estas rutas se liberan en bloque al
-    # terminar el proceso. Evitamos liberar duplicados/alias hasta la auditoría
-    # de ownership de F6.
+    # El driver CLI termina el proceso tras un build; estas rutas viven hasta
+    # entonces. No se liberan para no arriesgar dobles frees en los alias de
+    # `cp_normalize`/`getcwd` del bootstrap.
     var keep as int is 0
 
 ## Libera una lista de strings owned.
