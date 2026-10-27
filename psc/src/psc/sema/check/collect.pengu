@@ -91,7 +91,7 @@ weave predeclare_types with s as ref to state.SemaState into void:
                         set sk is sym.SemaSymbolKind.SkConcept
                     if nm >= 0 and not (calling s->module->type_ids.has with stmt):
                         var ty as int is calling new_nominal with s, nk, nm, nm, true
-                        calling register_type with s, sk, nm, ty
+                        calling register_type with s, sk, nm, ty, stmt
                         calling s->module->type_ids.put with stmt, ty
         set i is i + 1
 
@@ -443,12 +443,71 @@ weave new_nominal with s as ref to state.SemaState, kind as tk.SemaNominalKind, 
     var info as types.SemaNominalInfo is with kind is kind, base_name is name, c_name is cname, module is s->module->id, flags is flags, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, attrs_node is -1
     return calling types.named_type with s->types, info
 
+## Recorta espacios de una línea.
+weave trim_text with s as string into string:
+    var b as ref to frozen byte is bytes of s
+    var a as int is 0
+    var e as int is s length
+    while a < e and (((b at a) to int) == 32 or ((b at a) to int) == 9):
+        set a is a + 1
+    while e > a and (((b at (e - 1)) to int) == 32 or ((b at (e - 1)) to int) == 9):
+        set e is e - 1
+    return s at a to e
+
+## Asigna módulo, línea, columna y doc a un símbolo top-level.
+weave tag_decl with s as ref to state.SemaState, id as int, node as int into void:
+    if id < 0:
+        return
+    var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, id
+    var off as int is calling astutil.start_of with s->ast, node
+    var ps as sourcemap.Position is calling s->src->position_at with off
+    set sv.line is ps.line
+    set sv.col is ps.col
+    set sv.module is s->module->id
+    # doc comments inmediatamente encima
+    var lines as list of string is calling s->src->text.split with "\n"
+    var li as int is ps.line - 2
+    var docs as list of string is list of string
+    while li >= 0:
+        var line as string is (lines at li)
+        var tr as string is calling trim_text with line
+        if calling starts_with with tr, "##":
+            var d as string is tr at 2 to (tr length)
+            calling docs.push with d
+        else:
+            banish tr
+            break
+        banish tr
+        banish line
+        set li is li - 1
+    if docs.len > 0:
+        var sb as StringBuilder is calling StringBuilder.new
+        var di as int is docs.len - 1
+        while di >= 0:
+            calling sb.append with (docs at di)
+            if di > 0:
+                calling sb.append with "\n"
+            set di is di - 1
+        var dtxt as string is calling sb.finish
+        var nid as int is calling npool.intern with s->names, dtxt
+        set sv.doc is nid
+        banish dtxt
+        banish sb
+    var di2 as int is 0
+    while di2 < docs.len:
+        banish docs at di2
+        set di2 is di2 + 1
+    banish docs
+    banish lines
+    calling symbols.symbol_set with s->symbols, id, sv
+
 ## Registra un tipo en los mapas y el scope.
 ##
 ## ## Memoria
 ## Añade símbolo.
-weave register_type with s as ref to state.SemaState, kind as sym.SemaSymbolKind, name as int, type_id as int into void:
-    calling symbols.symbol_define_type with s->symbols, kind, name, type_id
+weave register_type with s as ref to state.SemaState, kind as sym.SemaSymbolKind, name as int, type_id as int, node as int into void:
+    var sid as int is calling symbols.symbol_define_type with s->symbols, kind, name, type_id
+    calling tag_decl with s, sid, node
 
 ## `rune`/`echo`.
 ##
@@ -472,7 +531,7 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
     if sk == sym.SemaSymbolKind.SkEcho:
         set skind0 is sym.SemaSymbolKind.SkEcho
     # El tipo debe ser visible antes de convertir sus campos (recursión).
-    calling register_type with s, skind0, name, ty
+    calling register_type with s, skind0, name, ty, node
     var fields_first as int is s->types->fields.len
     var field_count as int is 0
     var i as int is 0
@@ -538,7 +597,7 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
     if sk == sym.SemaSymbolKind.SkEcho:
         set skind is sym.SemaSymbolKind.SkEcho
     if not (calling s->module->type_ids.has with node):
-        calling register_type with s, skind, name, ty
+        calling register_type with s, skind, name, ty, node
 
 ## Primer token tras los atributos de un `field_decl`.
 ##
@@ -571,7 +630,7 @@ weave collect_omen with s as ref to state.SemaState, node as int into void:
     else:
         set ty is calling new_nominal with s, tk.SemaNominalKind.NkOmen, name, name, true
         calling s->module->type_ids.put with node, ty
-        calling register_type with s, sym.SemaSymbolKind.SkOmen, name, ty
+        calling register_type with s, sym.SemaSymbolKind.SkOmen, name, ty, node
     var info_idx as int is (calling types.at with s->types, ty).a
     var first as int is s->types->variants.len
     var count as int is 0
@@ -640,7 +699,7 @@ weave collect_alias with s as ref to state.SemaState, node as int, is_seal as bo
     var sk as sym.SemaSymbolKind is sym.SemaSymbolKind.SkAlias
     if is_seal:
         set sk is sym.SemaSymbolKind.SkSeal
-    calling register_type with s, sk, name, ty
+    calling register_type with s, sk, name, ty, node
 
 ## `concept`.
 ##
@@ -654,7 +713,7 @@ weave collect_concept with s as ref to state.SemaState, node as int into void:
     else:
         set ty is calling new_nominal with s, tk.SemaNominalKind.NkConcept, name, name, true
         calling s->module->type_ids.put with node, ty
-        calling register_type with s, sym.SemaSymbolKind.SkConcept, name, ty
+        calling register_type with s, sym.SemaSymbolKind.SkConcept, name, ty, node
     var info_idx as int is (calling types.at with s->types, ty).a
     var first as int is s->types->concept_methods.len
     var count as int is 0
@@ -824,7 +883,8 @@ weave collect_const with s as ref to state.SemaState, node as int into void:
     if ty <= 0:
         set ty is calling infer.infer with s, value_node, -1
     var cv as sym.SemaConst is calling const_literal with s, value_node
-    calling symbols.symbol_define_const with s->symbols, name, ty, cv
+    var cid as int is calling symbols.symbol_define_const with s->symbols, name, ty, cv
+    calling tag_decl with s, cid, node
 
 ## `true` si `s` empieza por `prefix`.
 ##
