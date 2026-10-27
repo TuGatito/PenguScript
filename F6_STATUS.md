@@ -17,7 +17,7 @@
 | Caché | content-addressed para `run` de scripts y builds de proyecto, hash del compilador, `PSC_CACHE_DIR`, `--no-cache`, `--clear-cache`, `--ephemeral`, `gc --all/--max-age` |
 | Proyecto | `init`, `new`, `clean`, `doctor`, `metadata`, `tree` |
 | Tests/dev | `test` (runner de proyecto, fallo -> exit 1, `--json` JSONL), `watch`, `eval`, `time`, `benchmark`/`selftest` dev-only |
-| Herramientas | `fmt` (unidad detectada, reindentación, `--check`/`--stdin`/`--diff`), `doc` (Markdown), `assets` (embed, exclude, list, C/header/interface) |
+| Herramientas | `fmt` (unidad detectada, reindentación, `--check`/`--stdin`/`--diff`), `doc` (Markdown), `assets` (embed/disk, exclude, list, C/header/interface) |
 | Stubs | `add/remove/upgrade/verify/vendor/update` -> F9; `lsp` -> F8; `bind` -> F10 |
 | Deuda F5 | paths liberados sin UAF, autodetección desde cwd, `check` puro, versión 0.6.0, argv sin shell (`fork/execvp/waitpid`) |
 | Bootstrap | stage1→stage4 con C idéntico; TCC verde |
@@ -36,8 +36,8 @@ preflight gcc/clang/TCC: READY
 1. **Formatter con paridad stage0 completa** (espaciado `is/as/into`,
    `.pengufmt.toml`; ya detecta unidad, reindenta y muestra diff por línea).
 2. **Doc**: búsqueda HTML y extracción de firmas/tipos como `pengu_doc`.
-3. **Assets**: `embed=false` (disk) e `.incbin` para assets grandes (exclude ya
-   implementado).
+3. **Assets**: `.incbin` para assets grandes (embed/disk y exclude ya
+   implementados).
 4. **Multi-file `check`** y `--json` de check completo.
 5. Endurecer CI/nightly con F6 completo y corpus.
 
