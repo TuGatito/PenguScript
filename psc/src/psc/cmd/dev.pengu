@@ -7,6 +7,7 @@ import std.archivum
 import std.compass
 import std.rites
 import std.spark
+import psc.os.proc as proc
 
 import psc.cli.args as cliargs
 import psc.sema.names as npool
@@ -93,7 +94,12 @@ weave run_benchmark with args as list of string into int:
         calling cargs.push with "--only"
         calling cargs.push with (calling copy with only)
     var py as string is calling python_bin with cwd.value
-    var raw as int is calling rites.exec with py, cargs
+    var pargv as list of string is list of string
+    calling pargv.push with (calling copy with py)
+    for pa in cargs:
+        calling pargv.push with pa
+    var raw as int is calling proc.run_argv with pargv
+    banish pargv
     var code as int is raw
     if raw > 255:
         set code is (raw / 256) % 256
@@ -139,7 +145,12 @@ weave run_selftest with args as list of string into int:
     while i < pr.args.positionals.len:
         calling cargs.push with (calling copy with (pr.args.positionals at i))
         set i is i + 1
-    var raw as int is calling rites.exec with py2, cargs
+    var sargv as list of string is list of string
+    calling sargv.push with (calling copy with py2)
+    for sa in cargs:
+        calling sargv.push with sa
+    var raw as int is calling proc.run_argv with sargv
+    banish sargv
     var code as int is raw
     if raw > 255:
         set code is (raw / 256) % 256

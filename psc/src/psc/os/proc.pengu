@@ -1,0 +1,64 @@
+## psc/os/proc.pengu — ejecución de argv sin shell.
+##
+## POSIX: fork + execvp + waitpid. El hijo hereda stdin/stdout/stderr, así que
+## `psc run` conserva la interactividad y los argumentos nunca pasan por `sh`.
+
+insignia psc_os_proc_
+
+## Ejecuta un argv y devuelve el exit code (o 128+señal).
+##
+## ## Memoria
+## Los strings de `argv` son prestados.
+antiquus run_argv with argv as list of string into int:
+    r"""
+#if defined(_WIN32)
+(void)argv;
+return -1;
+#else
+extern int fork(void);
+extern int waitpid(int, int *, int);
+extern int execvp(const char *, char *const[]);
+extern void _exit(int);
+#define PSC_WIFEXITED(st) (((st) & 0x7f) == 0)
+#define PSC_WEXITSTATUS(st) (((st) & 0xff00) >> 8)
+#define PSC_WIFSIGNALED(st) ((((st) & 0x7f) != 0) && (((st) & 0x7f) != 0x7f))
+#define PSC_WTERMSIG(st) ((st) & 0x7f)
+if (argv.len <= 0)
+return -1;
+char **v = (char **)malloc(((size_t)argv.len + 1) * sizeof(char *));
+if (!v)
+return -1;
+for (int i = 0; i < argv.len; i++)
+{
+PenguString *s = (PenguString *)pengu_list_at(&argv, i);
+v[i] = (s && s->data) ? s->data : (char *)"";
+}
+v[argv.len] = NULL;
+int pid = fork();
+if (pid < 0)
+{
+free(v);
+return -1;
+}
+if (pid == 0)
+{
+execvp(v[0], v);
+_exit(127);
+}
+int st = 0;
+while (waitpid(pid, &st, 0) < 0)
+{
+if (errno != EINTR)
+{
+free(v);
+return -1;
+}
+}
+free(v);
+if (PSC_WIFEXITED(st))
+return PSC_WEXITSTATUS(st);
+if (PSC_WIFSIGNALED(st))
+return 128 + PSC_WTERMSIG(st);
+return -1;
+#endif
+"""

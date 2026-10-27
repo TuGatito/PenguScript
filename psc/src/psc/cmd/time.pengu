@@ -7,6 +7,7 @@ import std.spark
 import psc.cli.args as cliargs
 import psc.driver.build as driver
 import psc.os.shell as shell
+import psc.os.proc as proc
 import psc.sema.names as npool
 
 insignia psc_cmd_time_
@@ -85,9 +86,12 @@ weave run_time with args as list of string into int:
         return 1
     var art as string is r.artifact
     var t2 as float is calling chronicle.monotonic
-    var tcmd as string is calling shell.join with art, child
-    var raw as int is calling rites.exec with tcmd, list of string
-    banish tcmd
+    var targv as list of string is list of string
+    calling targv.push with (calling copy with art)
+    for tc in child:
+        calling targv.push with tc
+    var raw as int is calling proc.run_argv with targv
+    banish targv
     var t3 as float is calling chronicle.monotonic
     var code as int is raw
     if raw > 255:

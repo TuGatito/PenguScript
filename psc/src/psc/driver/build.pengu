@@ -17,6 +17,7 @@ import psc.codegen.options as cgopt
 import psc.cache.cache as cache
 import psc.driver.manifest as manifest
 import psc.os.shell as shell
+import psc.os.proc as proc
 import psc.driver.paths as paths
 import psc.driver.toolchain as toolchain
 
@@ -456,11 +457,10 @@ weave build with o as BuildOptions into BuildResult:
             var cok as bool is calling archivum.copy_file with hit, artifact, true
             if cok:
                 var cargsx as list of string is list of string
+                calling cargsx.push with "chmod"
                 calling cargsx.push with "+x"
                 calling cargsx.push with (calling copy with artifact)
-                var chcmd as string is calling shell.join with "chmod", cargsx
-                var chx as int is calling rites.exec with chcmd, list of string
-                banish chcmd
+                var chx as int is calling proc.run_argv with cargsx
                 calling free_strings with cargsx
                 banish hit
                 banish ck
@@ -537,9 +537,12 @@ weave build with o as BuildOptions into BuildResult:
         calling spark.eprintln with vmsg
         banish vmsg
         banish cmdline
-    var cc_cmd as string is calling shell.join with tc.cc, args
-    var cc_code as int is calling rites.exec with cc_cmd, list of string
-    banish cc_cmd
+    var cc_argv as list of string is list of string
+    calling cc_argv.push with (calling copy with tc.cc)
+    for ca in args:
+        calling cc_argv.push with ca
+    var cc_code as int is calling proc.run_argv with cc_argv
+    banish cc_argv
     if cc_code != 0:
         calling spark.eprintln with "C compiler failed"
         banish cwd
@@ -560,10 +563,11 @@ weave build with o as BuildOptions into BuildResult:
         return with ok is false, error is (calling copy with "C compilation failed"), artifact is "", bundle_path is ""
     if out_kind == "static":
         var ar_args as list of string is list of string
+        calling ar_args.push with "ar"
         calling ar_args.push with "rcs"
         calling ar_args.push with (calling copy with artifact)
         calling ar_args.push with (calling copy with objpath)
-        var ar_code as int is calling rites.exec with "ar", ar_args
+        var ar_code as int is calling proc.run_argv with ar_args
         calling free_strings with ar_args
         if ar_code != 0:
             calling spark.eprintln with "ar failed"

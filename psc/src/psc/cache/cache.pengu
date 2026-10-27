@@ -8,6 +8,7 @@ import std.builder
 import std.digest
 import std.rites
 
+import psc.os.proc as proc
 import psc.sema.names as npool
 
 insignia psc_cache_
@@ -84,9 +85,14 @@ weave put with k as string, artifact as string into bool:
     if calling archivum.create_dir with d, true:
         if calling archivum.copy_file with artifact, p, true:
             var cargs as list of string is list of string
+            calling cargs.push with "chmod"
             calling cargs.push with "+x"
-            calling cargs.push with p
-            var ignored as int is calling rites.exec with "chmod", cargs
+            calling cargs.push with (calling copy with p)
+            var ignored as int is calling proc.run_argv with cargs
+            var cfi as int is 0
+            while cfi < cargs.len:
+                banish cargs at cfi
+                set cfi is cfi + 1
             banish cargs
             set ok is true
     banish p

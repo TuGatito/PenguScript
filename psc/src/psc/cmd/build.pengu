@@ -3,6 +3,7 @@
 import std.archivum
 import psc.cache.cache as cache
 import psc.os.shell as shell
+import psc.os.proc as proc
 import std.builder
 import std.rites
 import std.spark
@@ -342,9 +343,12 @@ weave run_run with args as list of string into int:
             var ck as string is calling cache.key with parts
             var hit as string is calling cache.get with ck
             if hit length > 0:
-                var hcmd as string is calling shell.join with hit, child
-                var hraw as int is calling rites.exec with hcmd, list of string
-                banish hcmd
+                var hargv as list of string is list of string
+                calling hargv.push with (calling copy with hit)
+                for hc in child:
+                    calling hargv.push with hc
+                var hraw as int is calling proc.run_argv with hargv
+                banish hargv
                 var hcode as int is hraw
                 if hraw > 255:
                     set hcode is (hraw / 256) % 256
@@ -392,9 +396,12 @@ weave run_run with args as list of string into int:
             banish ck2
             banish parts2
         banish txt2
-    var run_cmd as string is calling shell.join with art, child
-    var raw_code as int is calling rites.exec with run_cmd, list of string
-    banish run_cmd
+    var run_argv as list of string is list of string
+    calling run_argv.push with (calling copy with art)
+    for rc in child:
+        calling run_argv.push with rc
+    var raw_code as int is calling proc.run_argv with run_argv
+    banish run_argv
     var code as int is raw_code
     if raw_code > 255:
         set code is (raw_code / 256) % 256
