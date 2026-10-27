@@ -1445,6 +1445,15 @@ weave handle_notification with st as ref to State, method as string, params as m
     if method == "exit":
         set st->shutdown is true
         return
+    if method == "workspace/didChangeWatchedFiles":
+        set st->ws_ready is false
+        return
+    if method == "workspace/didChangeConfiguration":
+        return
+    if method == "$/cancelRequest":
+        return
+    if method == "textDocument/didSave":
+        return
     if params.is_present:
         if method == "textDocument/didOpen":
             calling did_open with st, params.value
