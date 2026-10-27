@@ -1142,6 +1142,82 @@ weave _lsp_range with span as Span into JsonValue:
     calling o.put_json with "end", (calling _lsp_position with span.end_line, span.end_col)
     return o
 
+## Cuenta code units UTF-16 de un prefijo.
+weave _utf16_len with s as string into int:
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    var n as int is 0
+    while i < s length:
+        var c as int is ((b at i) to int)
+        var w as int is 1
+        if c < 128:
+            set w is 1
+        else if c < 224:
+            set w is 2
+        else if c < 240:
+            set w is 3
+        else:
+            set w is 4
+        if w == 4:
+            set n is n + 2
+        else:
+            set n is n + 1
+        set i is i + w
+    return n
+
+## Offset de byte de una línea 1-indexed.
+weave _line_start with text as string, line as int into int:
+    var b as ref to frozen byte is bytes of text
+    var l as int is 1
+    var i as int is 0
+    while i < text length and l < line:
+        if ((b at i) to int) == 10:
+            set l is l + 1
+        set i is i + 1
+    return i
+
+## Posición UTF-16 de un span.
+weave _lsp_position_u16 with text as string, line as int, col as int into JsonValue:
+    var ls as int is calling _line_start with text, line
+    var off as int is ls + col - 1
+    if off > text length:
+        set off is text length
+    var prefix as string is text at ls to off
+    var units as int is calling _utf16_len with prefix
+    banish prefix
+    var o as JsonValue is calling JsonValue.empty_object
+    var l0 as int is line - 1
+    if l0 < 0:
+        set l0 is 0
+    calling o.put_json with "line", (calling JsonValue.int_val with (l0 to i64))
+    calling o.put_json with "character", (calling JsonValue.int_val with (units to i64))
+    return o
+
+## Range UTF-16 de un span.
+weave _lsp_range_u16 with text as string, span as Span into JsonValue:
+    var o as JsonValue is calling JsonValue.empty_object
+    calling o.put_json with "start", (calling _lsp_position_u16 with text, span.start_line, span.start_col)
+    calling o.put_json with "end", (calling _lsp_position_u16 with text, span.end_line, span.end_col)
+    return o
+
+## Diagnóstico LSP con posiciones UTF-16.
+weave _lsp_diagnostic_u16 with sources as map of string to string, d as Diagnostic into JsonValue:
+    var o as JsonValue is calling JsonValue.empty_object
+    var main_span as Span is calling _main_span with d
+    var txt as string is ""
+    if calling sources.has with main_span.file:
+        set txt is sources at main_span.file
+    calling o.put_json with "range", (calling _lsp_range_u16 with txt, main_span)
+    calling o.put_json with "severity", (calling JsonValue.int_val with ((calling severity_number with d.severity) to i64))
+    if (d.code length) > 0:
+        var code_copy as string is "{d.code}"
+        calling o.put_json with "code", (calling JsonValue.string_val with code_copy)
+    var source_copy as string is "pengu"
+    calling o.put_json with "source", (calling JsonValue.string_val with source_copy)
+    var msg_copy as string is "{d.message}"
+    calling o.put_json with "message", (calling JsonValue.string_val with msg_copy)
+    return o
+
 ## Builds an LSP `Location` object.
 ##
 ## ## Parámetros
@@ -1223,6 +1299,15 @@ enchanting DiagnosticBag:
         var arr as JsonValue is calling JsonValue.empty_array
         for d in self->items:
             calling arr.push_json with (calling _lsp_diagnostic with d)
+        var text as string is calling json.stringify with arr
+        banish arr
+        return text
+
+    ## Como `render_json`, pero `character` en UTF-16.
+    weave render_json_utf16 into string:
+        var arr as JsonValue is calling JsonValue.empty_array
+        for d in self->items:
+            calling arr.push_json with (calling _lsp_diagnostic_u16 with self->_sources, d)
         var text as string is calling json.stringify with arr
         banish arr
         return text

@@ -85,3 +85,31 @@ def test_f8_hover_definition_symbols_completion_and_diagnostics() -> None:
     p.stdin.flush()
     p.stdin.close()
     assert p.wait(timeout=10) == 0
+
+
+def test_f8_diagnostics_use_utf16_columns() -> None:
+    p = subprocess.Popen(
+        [str(PSC), "lsp", "--stdio"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, env=env(),
+    )
+    assert p.stdin and p.stdout
+    p.stdin.write(frame({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}}}))
+    p.stdin.flush()
+    recv(p.stdout)
+    text = 'weave main into int:\n    var s as string is "😀" +\n'
+    p.stdin.write(frame({
+        "jsonrpc": "2.0", "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": "file:///tmp/psc-f8-emoji.pengu", "languageId": "pengu", "version": 1, "text": text}},
+    }))
+    p.stdin.flush()
+    note = recv(p.stdout)
+    diags = note["params"]["diagnostics"]
+    assert diags, "expected a syntax diagnostic"
+    assert diags[0]["range"]["start"]["character"] == 29
+    p.stdin.write(frame({"jsonrpc": "2.0", "id": 2, "method": "shutdown", "params": None}))
+    p.stdin.flush()
+    recv(p.stdout)
+    p.stdin.write(frame({"jsonrpc": "2.0", "method": "exit"}))
+    p.stdin.flush()
+    p.stdin.close()
+    assert p.wait(timeout=10) == 0

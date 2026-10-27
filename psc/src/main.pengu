@@ -181,6 +181,7 @@ weave run_lex with args as list of string into int:
     var check_only as bool is false
     var comments as bool is false
     var json_diags as bool is false
+    var json_u16 as bool is false
     var force_color as bool is false
     var no_color as bool is false
     var path as string is ""
@@ -197,6 +198,10 @@ weave run_lex with args as list of string into int:
             set opts.keep_indent_tokens is false
         else if a == "--diagnostics=json":
             set json_diags is true
+            set json_u16 is false
+        else if a == "--diagnostics=json-utf16":
+            set json_diags is true
+            set json_u16 is true
         else if a == "--diagnostics=plain":
             set json_diags is false
         else if a == "--color":
@@ -367,6 +372,7 @@ weave run_check with args as list of string into int:
     var opts as sopts.SemaOptions is calling sopts.default_options with "."
     var use_stdin as bool is false
     var json_diags as bool is false
+    var json_u16 as bool is false
     var force_color as bool is false
     var no_color as bool is false
     var path as string is ""
@@ -378,6 +384,10 @@ weave run_check with args as list of string into int:
             set use_stdin is true
         else if a == "--diagnostics=json":
             set json_diags is true
+            set json_u16 is false
+        else if a == "--diagnostics=json-utf16":
+            set json_diags is true
+            set json_u16 is true
         else if a == "--diagnostics=plain":
             set json_diags is false
         else if a == "--color":
@@ -445,9 +455,9 @@ weave run_check with args as list of string into int:
         var text as string is calling io.read_stdin_all
         defer banish text
         var r1 as sema_api.SemaResult is calling sema_api.check_text with "<stdin>", text, opts
-        return calling report_check with r1, json_diags, force_color, no_color
+        return calling report_check with r1, json_diags, json_u16, force_color, no_color
     var r2 as sema_api.SemaResult is calling sema_api.check_file with path, opts
-    var code as int is calling report_check with r2, json_diags, force_color, no_color
+    var code as int is calling report_check with r2, json_diags, json_u16, force_color, no_color
     var ei as int is 0
     while ei < extra.len:
         var hargs as list of string is list of string
@@ -526,7 +536,7 @@ weave run_emit_c with args as list of string into int:
         return 2
     var r as sema_api.SemaResult is calling sema_api.check_file with path, opts
     if not r.ok:
-        var ignored as int is calling report_check with r, false, false, true
+        var ignored as int is calling report_check with r, false, false, false, true
         return 1
     if r.program->modules.len > 0:
         set cgp.base_dir is r.program->options.base_dir
@@ -559,11 +569,13 @@ weave run_emit_c with args as list of string into int:
 ##
 ## ## Memoria
 ## Libera el programa del resultado.
-weave report_check with result as sema_api.SemaResult, json_diags as bool, force_color as bool, no_color as bool into int:
+weave report_check with result as sema_api.SemaResult, json_diags as bool, json_u16 as bool, force_color as bool, no_color as bool into int:
     var bag_ref as ref to diag.DiagnosticBag is (sigil of result.program->diagnostics)
     if bag_ref->error_count > 0 or bag_ref->warning_count > 0:
         var rendered as string is ""
-        if json_diags:
+        if json_diags and json_u16:
+            set rendered is calling bag_ref.render_json_utf16
+        else if json_diags:
             set rendered is calling bag_ref.render_json
         else if force_color and not no_color:
             set rendered is calling bag_ref.render_colored
@@ -609,7 +621,7 @@ weave print_parse_help into void:
     calling spark.println with "  --no-header             omit the AST dump header"
     calling spark.println with "  --max-errors=N          stop after N errors (default 100)"
     calling spark.println with "  --stop-after-first      stop at the first syntax error"
-    calling spark.println with "  --diagnostics=plain|json"
+    calling spark.println with "  --diagnostics=plain|json|json-utf16"
     calling spark.println with "  --color / --no-color"
     calling spark.println with "  --quiet                 suppress the banner (none by default)"
     calling spark.println with "  --help"
@@ -689,7 +701,7 @@ weave print_help into void:
 weave print_check_help into void:
     calling spark.println with "Usage: psc check <file> [options]"
     calling spark.println with "  --stdin                 read source from stdin"
-    calling spark.println with "  --diagnostics=plain|json"
+    calling spark.println with "  --diagnostics=plain|json|json-utf16"
     calling spark.println with "  --color / --no-color"
     calling spark.println with "  --max-errors=N          stop after N errors (default 100)"
     calling spark.println with "  --stop-after-first      stop at the first semantic error"
@@ -730,7 +742,7 @@ weave print_lex_help into void:
     calling spark.println with "  --check                 only diagnostics, no token dump"
     calling spark.println with "  --comments              include comment trivia in the dump"
     calling spark.println with "  --no-indent             omit INDENT/DEDENT tokens"
-    calling spark.println with "  --diagnostics=plain|json"
+    calling spark.println with "  --diagnostics=plain|json|json-utf16"
     calling spark.println with "  --color / --no-color"
     calling spark.println with "  --quiet                 suppress the banner (none by default)"
     calling spark.println with "  --help"

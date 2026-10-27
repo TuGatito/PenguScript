@@ -12,7 +12,7 @@
 | Lifecycle | initialize/initialized/shutdown/exit; ids number/string |
 | Documentos | didOpen/didChange full-sync/didClose |
 | URI/UTF-16 | módulos `uri` y `positions`; hover/definitions usan UTF-16 |
-| Diagnósticos | `psc check --diagnostics=json` en subproceso; `publishDiagnostics` con contenido (columnas byte; falta UTF-16) |
+| Diagnósticos | `psc check --diagnostics=json-utf16`; `publishDiagnostics` con columnas UTF-16 |
 | Hover | firma/línea de declaración |
 | Definition / implementation | definition por declaración; implementation delega |
 | Completion | keywords + identificadores |
@@ -30,7 +30,7 @@
 
 ## Pendiente
 
-1. Diagnósticos con columnas UTF-16 (hoy `psc check` usa bytes).
+1. Diagnósticos UTF-16 verificados (hecho); faltan pruebas con CJK/emoji variados.
 2. Code actions y on-type formatting (inlay hints y semantic tokens ya hay una versión básica).
 3. Caches/índice de workspace (hoy escaneo en cada request).
 4. Paridad con `pengu_lsp`; ñ/CJK/emoji; 1 000 didChange; ASan.
