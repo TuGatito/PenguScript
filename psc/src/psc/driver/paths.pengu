@@ -134,7 +134,7 @@ weave find_paths with base_dir as string into Paths:
             var incs as list of string is list of string
             calling incs.push with "{repo}/build/include"
             calling incs.push with "{repo}/runtime/include"
-            calling incs.push with repo
+            calling incs.push with (calling npool.copy_string with repo)
             set include is calling first_dir with incs
             calling free_strings with incs
         if stdc length == 0:
@@ -174,10 +174,12 @@ weave find_paths with base_dir as string into Paths:
 ## ## Memoria
 ## Libera cada string y lista.
 weave free_paths with p as ref to Paths into void:
-    # El driver CLI termina el proceso tras un build; estas rutas viven hasta
-    # entonces. No se liberan para no arriesgar dobles frees en los alias de
-    # `cp_normalize`/`getcwd` del bootstrap.
-    var keep as int is 0
+    banish p->error
+    banish p->repo_root
+    banish p->runtime_archive
+    banish p->runtime_include
+    banish p->std_c_dir
+    calling free_strings with p->std_dirs
 
 ## Libera una lista de strings owned.
 ##

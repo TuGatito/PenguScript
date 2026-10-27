@@ -115,8 +115,27 @@ weave run_doctor with args as list of string into int:
     if tcc.is_present:
         calling check_line with as_json, "tcc", true, tcc.value
     else:
-        calling check_line with as_json, "tcc", false, "not found (required for the Linux gate)"
-        set bad is bad + 1
+        var cw2 as maybe string is calling rites.getcwd
+        var found_tcc as string is ""
+        if cw2.is_present:
+            var c1 as string is "{cw2.value}/build/tcc-dist/tcc-dist/bin/tcc"
+            if calling archivum.is_file with c1:
+                set found_tcc is c1
+            else:
+                banish c1
+            if found_tcc length == 0:
+                var c2 as string is "{cw2.value}/build/tcc-dev/tinycc-src/tcc"
+                if calling archivum.is_file with c2:
+                    set found_tcc is c2
+                else:
+                    banish c2
+        banish cw2
+        if found_tcc length > 0:
+            calling check_line with as_json, "tcc", true, found_tcc
+            banish found_tcc
+        else:
+            calling check_line with as_json, "tcc", false, "not found (required for the Linux gate)"
+            set bad is bad + 1
     banish tcc
     # Runtime/std
     if p.ok:
