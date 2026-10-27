@@ -80,7 +80,11 @@ psc fmt --stdin < file.pengu
 psc doc
 psc assets --list
 psc assets
-psc watch src/main.pengu
+psc watch src/main.pengu --once
+psc watch src/main.pengu --interval=300
+psc doc --html
+psc benchmark --only=f7_arith --repeat=3 --json
+psc selftest --smoke
 psc eval "1 + 2"
 psc time src/main.pengu
 ```
@@ -100,8 +104,10 @@ embed = true
 exclude = ["*.tmp"]
 ```
 
-`psc assets` genera `src/<module>.pengu`, `build/<module>_assets.h` y
-`build/<module>_assets.c`; `build` los incluye y enlaza automáticamente.
+`psc assets` genera `src/<module>.pengu`, `build/<module>_assets.h`,
+`build/<module>_assets.c` y un hash incremental; `build` los incluye y enlaza.
+Usa arrays C o `.incbin` para assets >= `PENGU_ASSETS_INCBIN_THRESHOLD`
+(default 1 MB); TCC usa el fallback portable.
 
 ## JSON
 

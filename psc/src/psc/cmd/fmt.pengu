@@ -404,6 +404,21 @@ weave run_stdin with width as int, tabs as bool, blank_max as int, check_only as
     banish text
     return 0
 
+## Escritura atómica (tmp + rename).
+##
+## ## Memoria
+## Libera temporales.
+weave write_atomic with path as string, text as string into bool:
+    var tmp as string is "{path}.psc-tmp"
+    if not calling archivum.write_text with tmp, text:
+        banish tmp
+        return false
+    var ok as bool is calling archivum.move_file with tmp, path, true
+    if not ok:
+        var ign as bool is calling archivum.delete_file with tmp
+    banish tmp
+    return ok
+
 ## Implementa `psc fmt`.
 ##
 ## ## Memoria
@@ -505,7 +520,7 @@ weave run_fmt with args as list of string into int:
                         banish newl
                         banish oldl
                     if not check_only and not diff:
-                        var ok as bool is calling archivum.write_text with f, fmt
+                        var ok as bool is calling write_atomic with f, fmt
                         if verbose:
                             var m2 as string is "formatted {f}"
                             calling spark.println with m2

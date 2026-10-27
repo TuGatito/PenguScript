@@ -130,11 +130,11 @@ weave emit_bytes with sb as ref to StringBuilder, data as string, ident as strin
     calling sb.append with "0x00,\n"
     calling sb.append with r"};"
     calling sb.append with "\n"
-    calling sb.append with "static const size_t "
+    calling sb.append with "#define "
     calling sb.append with ident
-    calling sb.append with "_SIZE = sizeof("
+    calling sb.append with "_SIZE (sizeof("
     calling sb.append with ident
-    calling sb.append with ") - 1;\n"
+    calling sb.append with ") - 1)\n"
 
 ## Escapa un nombre para C string.
 ##
@@ -218,9 +218,19 @@ weave run_assets with args as list of string into int:
         banish f
     banish files
     var bdir0 as string is "{root}/{man.build_dir}"
+    var threshold as int is 1000000
+    var the as maybe string is calling rites.getenv with "PENGU_ASSETS_INCBIN_THRESHOLD"
+    if the.is_present:
+        var tp as maybe int is calling spark.parse_int with the.value
+        if tp.is_present and tp.value >= 0:
+            set threshold is tp.value
+        banish tp
+    banish the
     var hb0 as StringBuilder is calling StringBuilder.new
     defer banish hb0
     calling hb0.append with man.assets_module
+    calling hb0.append with ":incbin="
+    calling hb0.append_int with threshold
     if man.assets_embed:
         calling hb0.append with ":embed"
     else:
@@ -373,7 +383,50 @@ weave run_assets with args as list of string into int:
         var ident as string is "_{man.assets_module}_{sn2}"
         banish sn2
         if bm.is_present:
-            calling emit_bytes with (sigil of defs), bm.value, ident
+            if threshold > 0 and (bm.value length) >= threshold:
+                var relp as string is calling copy with adir
+                var relm2 as maybe string is calling compass.cp_relative_to with adir, bdir
+                if relm2.is_present:
+                    banish relp
+                    set relp is calling copy with relm2.value
+                banish relm2
+                var ipath2 as string is "{relp}/{n}"
+                var ib as StringBuilder is calling StringBuilder.new
+                defer banish ib
+                calling ib.append with r"""#if defined(__GNUC__) && !defined(__TINYC__)
+__asm__(
+".section .rodata\n"
+".global __IDENT__\n"
+"__IDENT__:\n"
+".incbin \"__PATH__\"\n"
+".byte 0\n"
+".previous\n"
+);
+extern const unsigned char __IDENT__[];
+#define __IDENT___SIZE (__SIZE__)
+#else
+"""
+                var fb as StringBuilder is calling StringBuilder.new
+                calling emit_bytes with (sigil of fb), bm.value, ident
+                var fbt as string is calling fb.finish
+                calling ib.append with "\n"
+                calling ib.append with fbt
+                banish fbt
+                var ib2 as string is calling ib.finish
+                var ix1 as string is calling scrolls.replace_all with ib2, "__IDENT__", ident
+                var ix2 as string is calling scrolls.replace_all with ix1, "__PATH__", ipath2
+                var szs as string is "{bm.value length}"
+                var ix3 as string is calling scrolls.replace_all with ix2, "__SIZE__", szs
+                calling defs.append with ix3
+                calling defs.append with "#endif\n"
+                banish ix3
+                banish ix2
+                banish ix1
+                banish ib2
+                banish ipath2
+                banish relp
+            else:
+                calling emit_bytes with (sigil of defs), bm.value, ident
             calling ent.append with r"  {"
             calling cstr with (sigil of ent), n
             calling ent.append with ", "

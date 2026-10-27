@@ -2504,7 +2504,23 @@ never *found* the project root, and module search never looked at the manifest's
 
 `v2.1.1` was published on schedule, but the three commits that followed it —
 WebAssembly support, the branch-condition cleanup and the Linux CI fix — were
-never released: their entries sat under `## [Unreleased] — …`, so
+never released: their entries sat under `## [Unreleased] — FASE 7 (F7): Herramientas de desarrollo
+
+- `psc fmt` con paridad byte a byte de stage0 (323/323), `.pengufmt.toml`
+  ascendente, CRLF/BOM, `--check`/`--stdin`/`--diff` y escritura atómica.
+- `psc doc` con firmas, Markdown estable, páginas `src_*.md`, alias legacy y
+  `--html` con búsqueda.
+- `psc assets` incremental (hash), embed/disk, `exclude` y `.incbin` con
+  fallback portable (TCC).
+- `psc watch` con polling de proyecto/manifiesto, `--once`, `--interval`,
+  `--clear` y kill del hijo.
+- `psc benchmark` nativo (sin Python) con `--repeat`/`--warmup`/`--only`,
+  CSV/JSON y casos `benches/f7_*`.
+- `psc selftest --smoke` (dev-only).
+- `psc/os/proc` con spawn/wait/kill/quiet; versión `psc 0.7.0 (F7)`.
+- CI: tests F7 y paridad fmt; bootstrap y preflight gcc/clang/TCC verdes.
+
+## [Unreleased] — …`, so
 `scripts/release_version.py` kept resolving the *first released* heading, still
 `[2.1.1]`. `ci.yml`'s `auto-tag` job found `v2.1.1` already present, wrote
 `created=false`, skipped the `workflow_dispatch` of `release.yml` and published

@@ -248,6 +248,7 @@ weave run_benchmark with args as list of string into int:
 ## Libera ParseResult.
 weave run_selftest with args as list of string into int:
     var sf as list of string is list of string
+    calling sf.push with "--smoke"
     calling sf.push with "--help"
     var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
     if not pr.ok:
@@ -256,7 +257,7 @@ weave run_selftest with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     if calling cliargs.enabled with (sigil of pr.args), "--help":
-        calling spark.println with "Usage: psc selftest [pytest args...] (source checkout only)"
+        calling spark.println with "Usage: psc selftest [--smoke] [pytest args...] (source checkout only)"
         calling cliargs.free_parse_result with (sigil of pr)
         return 0
     var cwd2 as maybe string is calling rites.getcwd
@@ -272,6 +273,10 @@ weave run_selftest with args as list of string into int:
     while i < pr.args.positionals.len:
         calling cargs.push with (calling copy with (pr.args.positionals at i))
         set i is i + 1
+    if calling cliargs.enabled with (sigil of pr.args), "--smoke":
+        if pr.args.positionals.len == 0:
+            calling cargs.push with (calling copy with "tests/psc/test_f6_cli.py")
+            calling cargs.push with (calling copy with "tests/psc/test_f7_tools.py")
     var sargv as list of string is list of string
     calling sargv.push with (calling copy with py2)
     for sa in cargs:
