@@ -226,7 +226,7 @@ weave generate_bundle_c with c as ref to context.CgContext into string:
     # Modo --test: runner propio, sin main normal.
     if c->options.is_test:
         var nt as int is calling testgen.emit_all with c
-        calling testgen.emit_main with c, nt
+        calling testgen.emit_main with c, nt, c->options.test_json
         return calling emit.finish with (sigil of c->emitter)
     # Entry wrapper.
     var has_main as bool is false

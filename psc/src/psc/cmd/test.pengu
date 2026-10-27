@@ -65,6 +65,7 @@ weave run_test with args as list of string into int:
         banish o.target
         set o.target is calling copy with (pr.args.positionals at 0)
     set o.is_test is true
+    set o.test_json is calling cliargs.enabled with (sigil of pr.args), "--json"
     set o.verbose is calling cliargs.enabled with (sigil of pr.args), "--verbose"
     var r as driver.BuildResult is calling driver.build with o
     if not r.ok:

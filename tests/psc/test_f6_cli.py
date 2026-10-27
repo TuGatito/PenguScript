@@ -47,6 +47,9 @@ def test_f6_init_build_run_test_clean(tmp_path: Path) -> None:
     t = run(["test", "."], proj, tmp_path)
     assert t.returncode == 0, t.stderr
     assert "All 1 test(s) passed." in t.stdout
+    tj = run(["test", ".", "--json"], proj, tmp_path)
+    assert tj.returncode == 0, tj.stderr
+    assert '"event":"summary"' in tj.stdout
 
     r2 = run(["run", "."], proj, tmp_path)
     assert r2.returncode == 7

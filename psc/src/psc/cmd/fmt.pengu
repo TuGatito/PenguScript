@@ -62,11 +62,47 @@ weave triple_count with line as string into int:
             set i is i + 1
     return n
 
+## Detecta la unidad de indentación del fuente.
+##
+## ## Memoria
+## O(n).
+weave detect_unit with lines as list of string, fallback as int into int:
+    var unit as int is 0
+    var in_tri as bool is false
+    for line in lines:
+        if in_tri:
+            if (calling triple_count with line) % 2 == 1:
+                set in_tri is false
+            continue
+        if line length == 0:
+            continue
+        var b as ref to frozen byte is bytes of line
+        var lead as int is 0
+        var i as int is 0
+        while i < line length:
+            var c as int is ((b at i) to int)
+            if c == 32:
+                set lead is lead + 1
+                set i is i + 1
+            else if c == 9:
+                return 1
+            else:
+                break
+        if lead > 0 and (unit == 0 or lead < unit):
+            set unit is lead
+        var stripped as string is line at i to (line length)
+        if (calling triple_count with stripped) % 2 == 1:
+            set in_tri is true
+        banish stripped
+    if unit == 0:
+        return fallback
+    return unit
+
 ## Convierte la indentación de una línea.
 ##
 ## ## Memoria
 ## Devuelve string owned.
-weave indent_line with line as string, width as int, tabs as bool into string:
+weave indent_line with line as string, source_unit as int, width as int, tabs as bool into string:
     var b as ref to frozen byte is bytes of line
     var i as int is 0
     var col as int is 0
@@ -80,18 +116,21 @@ weave indent_line with line as string, width as int, tabs as bool into string:
             set i is i + 1
         else:
             break
+    var level as int is col / source_unit
+    if level < 0:
+        set level is 0
     var rest as string is line at i to (line length)
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     if tabs:
-        var nt as int is col / width
+        var nt as int is level
         var ti as int is 0
         while ti < nt:
             calling sb.append_char with '\t'
             set ti is ti + 1
     else:
         var si as int is 0
-        while si < col:
+        while si < level * width:
             calling sb.append_char with ' '
             set si is si + 1
     calling sb.append with rest
@@ -107,6 +146,7 @@ weave format_text with text as string, width as int, tabs as bool, blank_max as 
     var out as StringBuilder is calling StringBuilder.new
     defer banish out
     var in_triple as bool is false
+    var source_unit as int is calling detect_unit with lines, width
     var blanks as int is 0
     var i as int is 0
     while i < lines.len:
@@ -136,7 +176,7 @@ weave format_text with text as string, width as int, tabs as bool, blank_max as 
                 set blanks is blanks + 1
         else:
             set blanks is 0
-            var ind as string is calling indent_line with trimmed, width, tabs
+            var ind as string is calling indent_line with trimmed, source_unit, width, tabs
             calling out.append with ind
             calling out.append with "\n"
             banish ind
@@ -238,6 +278,29 @@ weave run_fmt with args as list of string into int:
                         var d1 as string is "--- {f}"
                         calling spark.println with d1
                         banish d1
+                        var oldl as list of string is calling original.split with "\n"
+                        var newl as list of string is calling fmt.split with "\n"
+                        var di as int is 0
+                        var dn as int is oldl.len
+                        if newl.len > dn:
+                            set dn is newl.len
+                        while di < dn:
+                            var ov as string is ""
+                            var nv as string is ""
+                            if di < oldl.len:
+                                set ov is (oldl at di)
+                            if di < newl.len:
+                                set nv is (newl at di)
+                            if ov != nv:
+                                var lm as string is "- {ov}"
+                                calling spark.println with lm
+                                banish lm
+                                var pm as string is "+ {nv}"
+                                calling spark.println with pm
+                                banish pm
+                            set di is di + 1
+                        banish newl
+                        banish oldl
                     if not check_only and not diff:
                         var ok as bool is calling archivum.write_text with f, fmt
                         if verbose:

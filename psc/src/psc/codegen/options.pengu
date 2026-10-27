@@ -14,6 +14,8 @@ rune CgOptions:
     entry_file as string
     ## Emitir la sección de tests y su entry.
     is_test as bool
+    ## Emitir el runner de tests en JSON Lines.
+    test_json as bool
     ## Emitir una biblioteca sin `main`.
     is_library as bool
     ## DCE de std/lib.
@@ -48,7 +50,7 @@ rune CgOptions:
 ## ## Memoria
 ## Devuelve strings prestados; no asigna.
 weave default_options with base_dir as string into CgOptions:
-    return with base_dir is base_dir, entry_file is "", is_test is false, is_library is false, dce is true, dce_scope_user is false, prune_types is false, prune_native is false, line_markers is true, strict_c99 is false, target_compiler is "gcc", release_unsafe is false, debug is false, os_name is "linux", arch is "x64", compiler is "gcc", defines is list of string
+    return with base_dir is base_dir, entry_file is "", is_test is false, test_json is false, is_library is false, dce is true, dce_scope_user is false, prune_types is false, prune_native is false, line_markers is true, strict_c99 is false, target_compiler is "gcc", release_unsafe is false, debug is false, os_name is "linux", arch is "x64", compiler is "gcc", defines is list of string
 
 ## Estadísticas de emisión.
 rune CgStats:

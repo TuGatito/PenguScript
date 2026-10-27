@@ -4,6 +4,7 @@
 ## `main` que los ejecuta en orden. No usa el runner JSON de stage0; F5 puede
 ## añadir selección por argumentos encima de este contrato estable.
 
+import std.builder
 import psc.ast.kind as pskind
 import psc.ast.node as psast
 import psc.sema.ast as astutil
@@ -91,19 +92,36 @@ weave emit_one with c as ref to context.CgContext, module_id as int, node as int
 ##
 ## ## Memoria
 ## Strings temporales liberados.
-weave emit_main with c as ref to context.CgContext, count as int into void:
+weave emit_main with c as ref to context.CgContext, count as int, as_json as bool into void:
     calling emit.line with (sigil of c->emitter), "int main(int argc, char** argv) {"
     calling emit.indent_more with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "pengu_init(argc, argv);"
     calling emit.line with (sigil of c->emitter), "pengu_install_crash_handler();"
+    var jsb as StringBuilder is calling StringBuilder.new
+    defer banish jsb
     var i as int is 0
     while i < count:
+        if as_json:
+            calling jsb.append with r"""printf("{\"schema_version\":1,\"event\":\"test\",\"name\":\"test_"""
+            calling jsb.append_int with i
+            calling jsb.append with r"""\",\"status\":\"pass\"}\n");"""
+            var jl as string is calling jsb.finish
+            calling emit.line with (sigil of c->emitter), jl
+            banish jl
         calling emit.line with (sigil of c->emitter), "pengu_test_{i}();"
         set i is i + 1
-    if count == 0:
-        calling emit.line with (sigil of c->emitter), "printf(\"No tests to run.\\n\");"
+    if as_json:
+        calling jsb.append with r"""printf("{\"schema_version\":1,\"event\":\"summary\",\"passed\":"""
+        calling jsb.append_int with count
+        calling jsb.append with r""",\"failed\":0}\n");"""
+        var jl2 as string is calling jsb.finish
+        calling emit.line with (sigil of c->emitter), jl2
+        banish jl2
     else:
-        calling emit.line with (sigil of c->emitter), "printf(\"All {count} test(s) passed.\\n\");"
+        if count == 0:
+            calling emit.line with (sigil of c->emitter), "printf(\"No tests to run.\\n\");"
+        else:
+            calling emit.line with (sigil of c->emitter), "printf(\"All {count} test(s) passed.\\n\");"
     calling emit.line with (sigil of c->emitter), "fflush(stdout);"
     calling emit.line with (sigil of c->emitter), "fflush(stderr);"
     calling emit.line with (sigil of c->emitter), "return 0;"
