@@ -15,6 +15,7 @@ import psc.sema.api as sema_api
 import psc.codegen.api as cgapi
 import psc.codegen.options as cgopt
 import psc.driver.manifest as manifest
+import psc.os.shell as shell
 import psc.driver.paths as paths
 import psc.driver.toolchain as toolchain
 
@@ -167,7 +168,9 @@ weave build with o as BuildOptions into BuildResult:
     if target length > 0:
         if (calling ends_with with target, ".pengu") or (calling archivum.is_file with target):
             set is_file is true
-            var td as string is calling compass.cp_dirname with target
+            var tabs as string is calling compass.cp_absolute with target
+            var td as string is calling compass.cp_dirname with tabs
+            banish tabs
             banish start
             set start is td
         else:
@@ -446,7 +449,9 @@ weave build with o as BuildOptions into BuildResult:
         calling spark.eprintln with vmsg
         banish vmsg
         banish cmdline
-    var cc_code as int is calling rites.exec with tc.cc, args
+    var cc_cmd as string is calling shell.join with tc.cc, args
+    var cc_code as int is calling rites.exec with cc_cmd, list of string
+    banish cc_cmd
     if cc_code != 0:
         calling spark.eprintln with "C compiler failed"
         banish cwd

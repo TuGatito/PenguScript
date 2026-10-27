@@ -7,6 +7,7 @@ import std.spark
 
 import psc.cli.args as cliargs
 import psc.driver.build as driver
+import psc.os.shell as shell
 import psc.sema.names as npool
 
 insignia psc_cmd_eval_
@@ -112,7 +113,9 @@ weave run_eval with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 1
     var art as string is r.artifact
-    var raw as int is calling rites.exec with art, list of string
+    var ecmd as string is calling shell.join with art, list of string
+    var raw as int is calling rites.exec with ecmd, list of string
+    banish ecmd
     var code as int is raw
     if raw > 255:
         set code is (raw / 256) % 256

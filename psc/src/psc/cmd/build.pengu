@@ -2,6 +2,7 @@
 
 import std.archivum
 import psc.cache.cache as cache
+import psc.os.shell as shell
 import std.builder
 import std.rites
 import std.spark
@@ -333,7 +334,9 @@ weave run_run with args as list of string into int:
             var ck as string is calling cache.key with parts
             var hit as string is calling cache.get with ck
             if hit length > 0:
-                var hraw as int is calling rites.exec with hit, child
+                var hcmd as string is calling shell.join with hit, child
+                var hraw as int is calling rites.exec with hcmd, list of string
+                banish hcmd
                 var hcode as int is hraw
                 if hraw > 255:
                     set hcode is (hraw / 256) % 256
@@ -381,7 +384,9 @@ weave run_run with args as list of string into int:
             banish ck2
             banish parts2
         banish txt2
-    var raw_code as int is calling rites.exec with art, child
+    var run_cmd as string is calling shell.join with art, child
+    var raw_code as int is calling rites.exec with run_cmd, list of string
+    banish run_cmd
     var code as int is raw_code
     if raw_code > 255:
         set code is (raw_code / 256) % 256

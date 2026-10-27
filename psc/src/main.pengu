@@ -72,11 +72,37 @@ weave dispatch with args as list of string into int:
     if args.len < 2:
         calling print_help
         return 2
+    var gstart as int is 1
+    while gstart < args.len:
+        var ga as string is args at gstart
+        if ga == "--no-color" or ga == "--quiet" or ga == "-q":
+            set gstart is gstart + 1
+        else:
+            break
+    if gstart > 1:
+        var sargs as list of string is list of string
+        calling sargs.push with (args at 0)
+        var gi as int is gstart
+        while gi < args.len:
+            calling sargs.push with (args at gi)
+            set gi is gi + 1
+        var gc as int is calling dispatch with sargs
+        banish sargs
+        return gc
     var cmd as string is args at 1
     if cmd == "version" or cmd == "--version" or cmd == "-V":
         calling spark.println with "psc 0.6.0 (F6)"
         return 0
     if cmd == "help" or cmd == "--help" or cmd == "-h":
+        if cmd == "help" and args.len >= 3:
+            var sub as string is args at 2
+            var hargs as list of string is list of string
+            calling hargs.push with (args at 0)
+            calling hargs.push with sub
+            calling hargs.push with "--help"
+            var hc as int is calling dispatch with hargs
+            banish hargs
+            return hc
         calling print_help
         return 0
     if cmd == "lex":

@@ -7,6 +7,7 @@ import std.spark
 
 import psc.cli.args as cliargs
 import psc.driver.build as driver
+import psc.os.shell as shell
 import psc.sema.names as npool
 
 insignia psc_cmd_watch_
@@ -50,7 +51,9 @@ weave run_once with script as string, cc as string, child as list of string into
         calling driver.free_options with (sigil of o)
         return 1
     var art as string is r.artifact
-    var raw as int is calling rites.exec with art, child
+    var wcmd as string is calling shell.join with art, child
+    var raw as int is calling rites.exec with wcmd, list of string
+    banish wcmd
     var code as int is raw
     if raw > 255:
         set code is (raw / 256) % 256
