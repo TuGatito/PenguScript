@@ -528,6 +528,20 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
             if n > 1 and base_import < 0 and base_sid >= 0:
                 calling undefined_call with s, node, method_text
                 return 0
+            if sid < 0:
+                var ufid as int is calling npool.find with s->names, mname
+                if ufid >= 0:
+                    var ufi as int is 0
+                    var ucount as int is 0
+                    var ulast as int is -1
+                    while ufi < s->symbols->symbols.len:
+                        var ufs as sym.SemaSymbol is (s->symbols->symbols at ufi)
+                        if ufs.name == ufid and (ufs.kind == sym.SemaSymbolKind.SkWeave or ufs.kind == sym.SemaSymbolKind.SkDeclare):
+                            set ulast is ufi
+                            set ucount is ucount + 1
+                        set ufi is ufi + 1
+                    if ucount == 1:
+                        set sid is ulast
             # Fallback global para módulos cualificados (`mod.fn`).
             set sid is calling symbols.lookup_name with s->symbols, mname
             if sid < 0:

@@ -172,12 +172,10 @@ weave find_paths with base_dir as string into Paths:
 ## ## Memoria
 ## Libera cada string y lista.
 weave free_paths with p as ref to Paths into void:
-    banish p->error
-    banish p->repo_root
-    banish p->runtime_archive
-    banish p->runtime_include
-    banish p->std_c_dir
-    calling free_strings with p->std_dirs
+    # El driver CLI es de vida corta y estas rutas se liberan en bloque al
+    # terminar el proceso. Evitamos liberar duplicados/alias hasta la auditoría
+    # de ownership de F6.
+    var keep as int is 0
 
 ## Libera una lista de strings owned.
 ##
