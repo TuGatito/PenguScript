@@ -141,6 +141,28 @@ weave run_build with args as list of string into int:
     calling driver.free_options with (sigil of o)
     return 0
 
+## Implementa `psc check` sobre un proyecto.
+##
+## ## Memoria
+## Libera opciones y resultado.
+weave run_check_project with path as string into int:
+    var o as driver.BuildOptions is calling driver.default_options
+    set o.bundle_only is true
+    banish o.target
+    set o.target is calling copy_path with path
+    var r as driver.BuildResult is calling driver.build with o
+    if not r.ok:
+        var err as string is r.error
+        var emsg as string is "psc check: {err}"
+        calling spark.eprintln with emsg
+        banish emsg
+        calling driver.free_result with (sigil of r)
+        calling driver.free_options with (sigil of o)
+        return 1
+    calling driver.free_result with (sigil of r)
+    calling driver.free_options with (sigil of o)
+    return 0
+
 ## Implementa `psc run`.
 ##
 ## ## Memoria

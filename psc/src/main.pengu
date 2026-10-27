@@ -338,6 +338,9 @@ weave run_check with args as list of string into int:
                 return 2
             set path is a
         set i is i + 1
+    if (not use_stdin) and path length > 0 and calling archivum.is_dir with path:
+        calling sopts.free_options with (sigil of opts)
+        return calling cmd_build.run_check_project with path
     if use_stdin and path length > 0:
         calling spark.eprintln with "psc check: --stdin and a file are mutually exclusive"
         calling sopts.free_options with (sigil of opts)

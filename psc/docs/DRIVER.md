@@ -38,6 +38,7 @@ psc build . --cc=tcc --out=app      # compilador y salida explícitos
 psc build . --profile=release --verbose
 psc run . -- arg1 arg2              # compila y ejecuta; propaga el exit code
 psc expand . --out=bundle.c         # sólo C, sin invocar cc
+psc check .                         # checker + codegen del proyecto (sin cc)
 ```
 
 Opciones: `--profile=debug|release`, `--cc=NAME`, `--out=PATH`,
