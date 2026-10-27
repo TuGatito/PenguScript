@@ -1,0 +1,223 @@
+## psc/cli/args.pengu — parser de argv compartido.
+##
+## Acepta `--flag`, `--flag=value`, `--flag value`, flags cortas y `--`.
+## Cada comando declara qué flags consumen valor, cuáles son switches y cuáles
+## se acumulan (`-D`).
+
+import psc.sema.names as npool
+
+insignia psc_cli_args_
+
+## Argumentos ya parseados.
+##
+## ## Memoria
+## Strings propios; liberar con `free_parsed`.
+rune ParsedArgs:
+    values as map of string to string
+    switches as map of string to bool
+    lists as map of string to list of string
+    positionals as list of string
+
+## Resultado del parser.
+##
+## ## Memoria
+## `args` y `error` propios; liberar con `free_parse_result`.
+rune ParseResult:
+    ok as bool
+    error as string
+    args as ParsedArgs
+
+## Argumentos vacíos.
+##
+## ## Memoria
+## Mapas/listas propios.
+weave empty_args into ParsedArgs:
+    return with values is map of string to string, switches is map of string to bool, lists is map of string to list of string, positionals is list of string
+
+## Copia un string.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## `true` si `xs` contiene `s`.
+##
+## ## Memoria
+## O(n).
+weave has_str with xs as list of string, s as string into bool:
+    var i as int is 0
+    while i < xs.len:
+        if (xs at i) == s:
+            return true
+        set i is i + 1
+    return false
+
+## Añade una lista vacía para `key` si no existe.
+##
+## ## Memoria
+## No asigna si ya existe.
+weave ensure_list with a as ref to ParsedArgs, key as string into void:
+    if not (calling a->lists.has with key):
+        calling a->lists.put with (calling copy with key), list of string
+
+## Añade un valor repetible.
+##
+## ## Memoria
+## Copia el valor.
+weave add_list with a as ref to ParsedArgs, key as string, value as string into void:
+    calling ensure_list with a, key
+    var xs as list of string is calling a->lists.get with key
+    calling xs.push with (calling copy with value)
+    calling a->lists.put with (calling copy with key), xs
+
+## Parser principal.
+##
+## `value_flags`: flags que consumen el siguiente argv o `=`.
+## `switch_flags`: flags booleanas.
+## `list_flags`: flags repetibles que consumen valor.
+##
+## ## Memoria
+## Devuelve ParseResult owned.
+weave parse with argv as list of string, start as int, value_flags as list of string, switch_flags as list of string, list_flags as list of string into ParseResult:
+    var a as ParsedArgs is calling empty_args
+    var i as int is start
+    var after as bool is false
+    while i < argv.len:
+        var tok as string is (argv at i)
+        if after:
+            calling a.positionals.push with (calling copy with tok)
+            set i is i + 1
+            continue
+        if tok == "--":
+            set after is true
+            set i is i + 1
+            continue
+        if tok length > 1 and (tok at 0 to 1) == "-":
+            var name as string is tok
+            var value as string is ""
+            var has_value as bool is false
+            var eq as int is -1
+            var j as int is 1
+            while j < tok length:
+                if (tok at j to (j + 1)) == "=":
+                    set eq is j
+                    break
+                set j is j + 1
+            if eq >= 0:
+                set name is tok at 0 to eq
+                set value is tok at (eq + 1) to (tok length)
+                set has_value is true
+            if name == "--help" or name == "-h":
+                calling a.switches.put with (calling copy with "help"), true
+                set i is i + 1
+                continue
+            if calling has_str with switch_flags, name:
+                calling a.switches.put with (calling copy with name), true
+                set i is i + 1
+                continue
+            var is_value as bool is false
+            if calling has_str with value_flags, name:
+                set is_value is true
+            if calling has_str with list_flags, name:
+                set is_value is true
+            if is_value:
+                if not has_value:
+                    if i + 1 >= argv.len:
+                        var emsg as string is "missing value for '{name}'"
+                        calling free_parsed with (sigil of a)
+                        banish name
+                        banish value
+                        return with ok is false, error is emsg, args is calling empty_args
+                    set value is (argv at (i + 1))
+                    set i is i + 1
+                if calling has_str with list_flags, name:
+                    calling add_list with (sigil of a), name, value
+                else:
+                    if calling a.values.has with name:
+                        var old as string is calling a.values.get with name
+                        banish old
+                    calling a.values.put with (calling copy with name), (calling copy with value)
+                banish name
+                banish value
+                set i is i + 1
+                continue
+            var uerr as string is "unknown option '{tok}'"
+            calling free_parsed with (sigil of a)
+            banish name
+            banish value
+            return with ok is false, error is uerr, args is calling empty_args
+        calling a.positionals.push with (calling copy with tok)
+        set i is i + 1
+    return with ok is true, error is "", args is a
+
+## Valor de un flag, o `""`.
+##
+## ## Memoria
+## Devuelve string prestado.
+weave value with a as ref to ParsedArgs, key as string into string:
+    if calling a->values.has with key:
+        return calling a->values.get with key
+    return ""
+
+## `true` si el switch está activo.
+##
+## ## Memoria
+## O(1).
+weave enabled with a as ref to ParsedArgs, key as string into bool:
+    if calling a->switches.has with key:
+        return calling a->switches.get with key
+    return false
+
+## Lista de un flag repetible (prestada).
+##
+## ## Memoria
+## Devuelve lista prestada; puede estar vacía.
+weave list with a as ref to ParsedArgs, key as string into list of string:
+    if calling a->lists.has with key:
+        return calling a->lists.get with key
+    return list of string
+
+## Primer posicional o `""`.
+##
+## ## Memoria
+## Devuelve string prestado.
+weave first_positional with a as ref to ParsedArgs into string:
+    if a->positionals.len > 0:
+        return (a->positionals at 0)
+    return ""
+
+## Libera argumentos.
+##
+## ## Memoria
+## Libera valores, listas y posicionales.
+weave free_parsed with a as ref to ParsedArgs into void:
+    for k in a->values:
+        var v as string is (a->values at k)
+        banish v
+    banish a->values
+    banish a->switches
+    var lv as list of list of string is list of list of string
+    for k in a->lists:
+        calling lv.push with (a->lists at k)
+    banish a->lists
+    for xs in lv:
+        var xi as int is 0
+        while xi < xs.len:
+            banish xs at xi
+            set xi is xi + 1
+        banish xs
+    banish lv
+    var pi as int is 0
+    while pi < a->positionals.len:
+        banish a->positionals at pi
+        set pi is pi + 1
+    banish a->positionals
+
+## Libera un resultado.
+##
+## ## Memoria
+## Libera args/error.
+weave free_parse_result with r as ref to ParseResult into void:
+    banish r->error
+    calling free_parsed with (sigil of r->args)

@@ -1,0 +1,115 @@
+## psc/cmd/watch.pengu — `psc watch` (polling portátil).
+
+import std.archivum
+import std.chronicle
+import std.rites
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.driver.build as driver
+import psc.sema.names as npool
+
+insignia psc_cmd_watch_
+
+## Ayuda.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "Usage: psc watch SCRIPT [--cc=NAME] [-- args...]"
+    calling spark.println with "  --cc=NAME"
+    calling spark.println with "  --keep"
+    calling spark.println with "  --help"
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Compila y ejecuta una vez.
+##
+## ## Memoria
+## Libera todo.
+weave run_once with script as string, cc as string, child as list of string into int:
+    var o as driver.BuildOptions is calling driver.default_options
+    banish o.target
+    set o.target is calling copy with script
+    if cc length > 0:
+        banish o.cc
+        set o.cc is calling copy with cc
+    var r as driver.BuildResult is calling driver.build with o
+    if not r.ok:
+        var e as string is r.error
+        var m as string is "psc watch: {e}"
+        calling spark.eprintln with m
+        banish m
+        banish e
+        calling driver.free_result with (sigil of r)
+        calling driver.free_options with (sigil of o)
+        return 1
+    var art as string is r.artifact
+    var raw as int is calling rites.exec with art, child
+    var code as int is raw
+    if raw > 255:
+        set code is (raw / 256) % 256
+    if code < 0:
+        set code is 1
+    calling driver.free_result with (sigil of r)
+    calling driver.free_options with (sigil of o)
+    return code
+
+## Implementa `psc watch`.
+##
+## ## Memoria
+## Libera opciones.
+weave run_watch with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--cc"
+    var sf as list of string is list of string
+    calling sf.push with "--keep"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling print_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    if pr.args.positionals.len == 0:
+        calling spark.eprintln with "psc watch: missing script"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var script as string is calling copy with (pr.args.positionals at 0)
+    var child as list of string is list of string
+    var ai as int is 1
+    while ai < pr.args.positionals.len:
+        calling child.push with (calling copy with (pr.args.positionals at ai))
+        set ai is ai + 1
+    var cc as string is calling cliargs.value with (sigil of pr.args), "--cc"
+    var last as maybe float is calling archivum.modified_time with script
+    var lastv as float is 0.0
+    if last.is_present:
+        set lastv is last.value
+    banish last
+    var code as int is calling run_once with script, cc, child
+    while true:
+        calling chronicle.sleep_ms with 300
+        var now as maybe float is calling archivum.modified_time with script
+        if now.is_present:
+            if now.value != lastv:
+                set lastv is now.value
+                set code is calling run_once with script, cc, child
+        banish now
+    banish script
+    var ci as int is 0
+    while ci < child.len:
+        banish child at ci
+        set ci is ci + 1
+    banish child
+    calling cliargs.free_parse_result with (sigil of pr)
+    return code

@@ -1,0 +1,42 @@
+## psc/cmd/stubs.pengu — comandos de fases posteriores.
+
+import std.spark
+
+insignia psc_cmd_stubs_
+
+## Imprime un error de fase y devuelve 2.
+##
+## ## Memoria
+## No retiene.
+weave not_yet with cmd as string, phase as string into int:
+    var s as string is "psc {cmd}: not available until {phase}"
+    calling spark.eprintln with s
+    banish s
+    var h as string is "  See PLAN_F6_CLI.md / the issue tracker for the roadmap."
+    calling spark.eprintln with h
+    banish h
+    return 2
+
+## Stubs de dependencias (F9).
+##
+## ## Memoria
+## No retiene.
+weave run_deps with cmd as string into int:
+    return calling not_yet with cmd, "F9 (package manager)"
+
+## Stubs de LSP/bind/cross (F8/F10/F11).
+##
+## ## Memoria
+## No retiene.
+weave run_lsp into int:
+    return calling not_yet with "lsp", "F8 (language server)"
+
+## ## Memoria
+## No retiene.
+weave run_bind into int:
+    return calling not_yet with "bind", "F10 (C bindings)"
+
+## ## Memoria
+## No retiene.
+weave run_target into int:
+    return calling not_yet with "build --target", "F11 (cross-compilation)"

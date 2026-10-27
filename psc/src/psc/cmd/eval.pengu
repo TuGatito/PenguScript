@@ -1,0 +1,129 @@
+## psc/cmd/eval.pengu — `psc eval`.
+
+import std.archivum
+import std.builder
+import std.rites
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.driver.build as driver
+import psc.sema.names as npool
+
+insignia psc_cmd_eval_
+
+## Ayuda.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "Usage: psc eval EXPRESSION [--cc=NAME]"
+    calling spark.println with "  --cc=NAME"
+    calling spark.println with "  --no-cache"
+    calling spark.println with "  --help"
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Implementa `psc eval`.
+##
+## ## Memoria
+## Libera opciones y temporales.
+weave run_eval with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--cc"
+    var sf as list of string is list of string
+    calling sf.push with "--no-cache"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling print_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    if pr.args.positionals.len != 1:
+        calling spark.eprintln with "psc eval: expected exactly one expression"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var expr as string is calling copy with (pr.args.positionals at 0)
+    var base as string is "/tmp"
+    var tmp as maybe string is calling rites.getenv with "TMPDIR"
+    if tmp.is_present:
+        set base is tmp.value
+    banish tmp
+    var pid as int is calling rites.getpid
+    var dir as string is "{base}/psc_eval_{pid}"
+    if not calling archivum.create_dir with dir, true:
+        calling spark.eprintln with "psc eval: cannot create temporary directory"
+        banish dir
+        banish base
+        banish expr
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "import std.spark\n\nweave main into int:\n    var __value is "
+    calling sb.append with expr
+    calling sb.append with "\n    calling spark.println with "
+    calling sb.append_char with '"'
+    calling sb.append with r"{__value}"
+    calling sb.append_char with '"'
+    calling sb.append with "\n    return 0\n"
+    var text as string is calling sb.finish
+    var path as string is "{dir}/eval.pengu"
+    if not calling archivum.write_text with path, text:
+        calling spark.eprintln with "psc eval: cannot write temporary script"
+        banish text
+        banish path
+        banish dir
+        banish base
+        banish expr
+        calling cliargs.free_parse_result with (sigil of pr)
+        calling archivum.remove_dir with dir, true
+        return 2
+    banish text
+    var o as driver.BuildOptions is calling driver.default_options
+    banish o.target
+    set o.target is calling copy with path
+    var cc as string is calling cliargs.value with (sigil of pr.args), "--cc"
+    if cc length > 0:
+        banish o.cc
+        set o.cc is calling copy with cc
+    var r as driver.BuildResult is calling driver.build with o
+    if not r.ok:
+        var e2 as string is r.error
+        var m as string is "psc eval: {e2}"
+        calling spark.eprintln with m
+        banish m
+        calling driver.free_result with (sigil of r)
+        calling driver.free_options with (sigil of o)
+        banish path
+        calling archivum.remove_dir with dir, true
+        banish dir
+        banish base
+        banish expr
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var art as string is r.artifact
+    var raw as int is calling rites.exec with art, list of string
+    var code as int is raw
+    if raw > 255:
+        set code is (raw / 256) % 256
+    if code < 0:
+        set code is 1
+    calling driver.free_result with (sigil of r)
+    calling driver.free_options with (sigil of o)
+    banish path
+    calling archivum.remove_dir with dir, true
+    banish dir
+    banish base
+    banish expr
+    calling cliargs.free_parse_result with (sigil of pr)
+    return code

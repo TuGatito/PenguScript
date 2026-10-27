@@ -94,6 +94,24 @@ weave default_manifest with base_dir as string, entry as string into Manifest:
     var out as string is st
     return with found is false, ok is true, error is "", base_dir is (calling copy with base_dir), name is name, version is (calling copy with "0.1.0"), entry is (calling copy with entry), output is (calling copy with "exe"), output_name is out, src_dir is (calling copy with "."), lib_dir is (calling copy with "lib"), include_dir is (calling copy with "include"), c_dir is (calling copy with "c"), build_dir is (calling copy with "build"), links is list of string, lib_dirs is list of string, include_dirs is list of string, cflags is list of string, ldflags is list of string, defines is list of string, cc is "", strict_c99 is false
 
+## `true` si `s` empieza por `prefix`.
+##
+## ## Memoria
+## O(prefix).
+weave starts_with with s as string, prefix as string into bool:
+    var n as int is s length
+    var m as int is prefix length
+    if m > n:
+        return false
+    var b as ref to frozen byte is bytes of s
+    var p as ref to frozen byte is bytes of prefix
+    var i as int is 0
+    while i < m:
+        if ((b at i) to int) != ((p at i) to int):
+            return false
+        set i is i + 1
+    return true
+
 ## Carga `pengu.toml` desde `base_dir`.
 ##
 ## `profile` puede ser `debug` o `release`. Si el archivo no existe,
@@ -150,7 +168,11 @@ weave load_manifest with base_dir as string, profile as string into Manifest:
     var bad as string is ""
     if output != "exe" and output != "c":
         set bad is "output '{output}' is not supported in F5 (use exe or c)"
-    if calling toml.has with entries, "dependencies":
+    var has_deps as bool is false
+    for e in entries:
+        if calling starts_with with e.key, "dependencies.":
+            set has_deps is true
+    if has_deps:
         set bad is "dependencies are not supported in F5 (planned F9)"
     calling toml.free_entries with entries
     return with found is true, ok is (bad length == 0), error is bad, base_dir is (calling copy with base_dir), name is name, version is version, entry is entry, output is output, output_name is output_name, src_dir is src_dir, lib_dir is lib_dir, include_dir is include_dir, c_dir is c_dir, build_dir is build_dir, links is links, lib_dirs is lib_dirs, include_dirs is include_dirs, cflags is cflags, ldflags is ldflags, defines is defines, cc is cc, strict_c99 is strict

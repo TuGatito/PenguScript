@@ -16,6 +16,22 @@ import psc.codegen.stmt as stmtgen
 
 insignia psc_codegen_testgen_
 
+## `true` si `s` contiene `needle`.
+##
+## ## Memoria
+## O(n*m).
+weave contains with s as string, needle as string into bool:
+    var n as int is s length
+    var m as int is needle length
+    if m == 0 or m > n:
+        return false
+    var i as int is 0
+    while i + m <= n:
+        if (s at i to (i + m)) == needle:
+            return true
+        set i is i + 1
+    return false
+
 ## Emite todos los tests; devuelve cuántos hay.
 ##
 ## ## Memoria
@@ -25,6 +41,9 @@ weave emit_all with c as ref to context.CgContext into int:
     var mi as int is 0
     while mi < c->program->modules.len:
         var m as loader.SemaModule is (c->program->modules at mi)
+        if calling contains with m.source.path, "/std/":
+            set mi is mi + 1
+            continue
         var ast as ref to psast.PsAst is (sigil of m.parse.ast)
         var ni as int is 0
         while ni < ast->nodes.len:

@@ -657,6 +657,28 @@ weave binary_expr with c as ref to context.CgContext, node as int, ast as ref to
                 if op == "==":
                     return "(memcmp(&({l}), &({r}), sizeof({l})) == 0)"
                 return "(memcmp(&({l}), &({r}), sizeof({l})) != 0)"
+    if op == "+":
+        var ln1 as int is calling astutil.node_child with ast, node, 0
+        var rn1 as int is calling astutil.node_child with ast, node, 1
+        var lt1 as int is calling guess_type with c, ln1, ast
+        var rt1 as int is calling guess_type with c, rn1, ast
+        var str_add as bool is false
+        if lt1 >= 0:
+            var ltt as tk.SemaType is calling types.at with (sigil of c->program->types), lt1
+            if ltt.kind == tk.SemaTypeKind.TkBase:
+                var lnn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), ltt.name)
+                if lnn == "string":
+                    set str_add is true
+                banish lnn
+        if not str_add and rt1 >= 0:
+            var rtt as tk.SemaType is calling types.at with (sigil of c->program->types), rt1
+            if rtt.kind == tk.SemaTypeKind.TkBase:
+                var rnn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), rtt.name)
+                if rnn == "string":
+                    set str_add is true
+                banish rnn
+        if str_add:
+            return "pengu_string_concat({l}, {r})"
     return "({l} {op} {r})"
 
 ## Último token de un subárbol (el nombre del método en un target).
@@ -1377,6 +1399,82 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
     if rt < 0:
         set rt is 1
     var stt0 as tk.SemaType is calling types.at with (sigil of c->program->types), st
+    if stt0.kind == tk.SemaTypeKind.TkBase:
+        var sbnm as string is calling npool.text with (sigil of c->program->names), stt0.name
+        if sbnm == "string":
+            var mstr as loader.SemaModule is (c->program->modules at c->current_module)
+            var ssub as string is calling emit_expr with c, subj
+            defer banish ssub
+            var srct as string is calling ctype.c_type with (sigil of c->names), rt
+            defer banish srct
+            var sjt as string is calling emit.temp with (sigil of c->emitter), "_js"
+            var sjr as string is calling emit.temp with (sigil of c->emitter), "_jo"
+            defer banish sjt
+            defer banish sjr
+            var jsb as StringBuilder is calling StringBuilder.new
+            defer banish jsb
+            calling jsb.append with "__extension__(({ PenguString "
+            calling jsb.append with sjt
+            calling jsb.append with " = "
+            calling jsb.append with ssub
+            calling jsb.append with "; "
+            calling jsb.append with srct
+            calling jsb.append with " "
+            calling jsb.append with sjr
+            calling jsb.append with r" = {0}; "
+            var firsts as bool is true
+            var has_elses as bool is false
+            var si as int is 0
+            var sn as int is calling astutil.child_count with ast, node
+            while si < sn:
+                var scl as int is calling astutil.node_child with ast, node, si
+                if scl >= 0:
+                    var sck as pskind.NodeKind is calling astutil.kind_of with ast, scl
+                    if sck == pskind.NodeKind.NdWhenClause:
+                        var spn as int is calling astutil.node_child with ast, scl, 0
+                        var sbd as int is calling astutil.node_child with ast, scl, 3
+                        if sbd < 0:
+                            set sbd is calling astutil.node_child with ast, scl, 2
+                        if spn >= 0 and sbd >= 0:
+                            var spt as int is calling astutil.token_child with ast, spn, 0
+                            if spt >= 0:
+                                var sptx as string is calling astutil.token_text with (sigil of mstr.source), (sigil of mstr.lex), spt
+                                var sbv as string is calling emit_expr with c, sbd
+                                if firsts:
+                                    calling jsb.append with "if (pengu_string_equal("
+                                    set firsts is false
+                                else:
+                                    calling jsb.append with "else if (pengu_string_equal("
+                                calling jsb.append with sjt
+                                calling jsb.append with ", pengu_string_from_cstr("
+                                calling jsb.append with sptx
+                                calling jsb.append with "))) { "
+                                calling jsb.append with sjr
+                                calling jsb.append with " = "
+                                calling jsb.append with sbv
+                                calling jsb.append with "; } "
+                                banish sbv
+                                banish sptx
+                    else if sck == pskind.NodeKind.NdElseClause:
+                        var sbe as int is calling astutil.node_child with ast, scl, 0
+                        if sbe < 0:
+                            set sbe is scl
+                        var sbv2 as string is calling emit_expr with c, sbe
+                        if firsts:
+                            calling jsb.append with "{ "
+                        else:
+                            calling jsb.append with "else { "
+                        calling jsb.append with sjr
+                        calling jsb.append with " = "
+                        calling jsb.append with sbv2
+                        calling jsb.append with "; } "
+                        set has_elses is true
+                        set firsts is false
+                        banish sbv2
+                set si is si + 1
+            calling jsb.append with sjr
+            calling jsb.append with r"; }))"
+            return calling jsb.finish
     if stt0.kind != tk.SemaTypeKind.TkOmen or not (calling omen_has_layout with c, st):
         var m0 as loader.SemaModule is (c->program->modules at c->current_module)
         var ci0 as int is 0

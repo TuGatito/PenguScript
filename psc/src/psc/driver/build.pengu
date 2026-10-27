@@ -33,7 +33,9 @@ rune BuildOptions:
     strict_c99 as bool
     release_unsafe as bool
     is_library as bool
+    is_test as bool
     bundle_only as bool
+    defines as list of string
 
 ## Resultado de un build.
 ##
@@ -120,7 +122,7 @@ weave find_manifest_root with start as string into string:
 ## ## Memoria
 ## Strings owned; liberar con `free_options`.
 weave default_options into BuildOptions:
-    return with target is "", profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, bundle_only is false
+    return with target is "", profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, bundle_only is false, defines is list of string
 
 ## Libera opciones.
 ##
@@ -131,6 +133,11 @@ weave free_options with o as ref to BuildOptions into void:
     banish o->profile
     banish o->cc
     banish o->out_path
+    var oi as int is 0
+    while oi < o->defines.len:
+        banish o->defines at oi
+        set oi is oi + 1
+    banish o->defines
 
 ## Libera un resultado.
 ##
@@ -239,6 +246,10 @@ weave build with o as BuildOptions into BuildResult:
     while di < man.defines.len:
         calling so.defines.push with (calling copy with (man.defines at di))
         set di is di + 1
+    var doi as int is 0
+    while doi < o.defines.len:
+        calling so.defines.push with (calling copy with (o.defines at doi))
+        set doi is doi + 1
     var ccn as string is calling compass.cp_basename with tc.cc
     banish so.compiler
     set so.compiler is (calling copy with ccn)
@@ -263,11 +274,21 @@ weave build with o as BuildOptions into BuildResult:
     var cgo as cgopt.CgOptions is calling cgopt.default_options with (calling copy with base)
     set cgo.entry_file is (calling copy with entry)
     set cgo.is_library is o.is_library
+    set cgo.is_test is o.is_test
     set cgo.line_markers is true
     set cgo.strict_c99 is o.strict_c99
     set cgo.release_unsafe is o.release_unsafe
     set cgo.target_compiler is (calling copy with (calling compass.cp_basename with tc.cc))
-    set cgo.defines is man.defines
+    var all_defs as list of string is list of string
+    var adi as int is 0
+    while adi < man.defines.len:
+        calling all_defs.push with (calling copy with (man.defines at adi))
+        set adi is adi + 1
+    var ado as int is 0
+    while ado < o.defines.len:
+        calling all_defs.push with (calling copy with (o.defines at ado))
+        set ado is ado + 1
+    set cgo.defines is all_defs
     var cr is calling cgapi.generate_c with sr.program, cgo
     if not cr.ok:
         calling spark.eprintln with "code generation failed"
@@ -327,10 +348,16 @@ weave build with o as BuildOptions into BuildResult:
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is true, error is "", artifact is bundle, bundle_path is (calling copy with bundle)
     var artifact as string is ""
+    var out_name as string is man.output_name
+    if is_file:
+        var stem as string is calling compass.cp_stem with entry
+        set out_name is stem
+    if o.is_test:
+        set out_name is "{out_name}_test"
     if o.out_path length > 0:
         set artifact is calling compass.cp_absolute with o.out_path
     else:
-        set artifact is "{build_dir}/{man.output_name}"
+        set artifact is "{build_dir}/{out_name}"
     var adir as string is calling compass.cp_dirname with artifact
     if adir length > 0:
         calling archivum.create_dir with adir, true

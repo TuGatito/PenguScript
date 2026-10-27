@@ -1,9 +1,11 @@
 ## psc/cmd/build.pengu — comandos `build`, `run` y `expand` de F5.
 
 import std.archivum
+import std.builder
 import std.rites
 import std.spark
 
+import psc.cli.args as cliargs
 import psc.driver.build as driver
 import psc.sema.names as npool
 
@@ -82,49 +84,79 @@ weave print_expand_help into void:
 ## ## Memoria
 ## Libera opciones y resultado.
 weave run_build with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--profile"
+    calling vf.push with "-p"
+    calling vf.push with "--cc"
+    calling vf.push with "--out"
+    calling vf.push with "-o"
+    calling vf.push with "--entry"
+    calling vf.push with "-e"
+    calling vf.push with "--config"
+    calling vf.push with "-c"
+    var lf as list of string is list of string
+    calling lf.push with "--define"
+    calling lf.push with "-D"
+    var sf as list of string is list of string
+    calling sf.push with "--verbose"
+    calling sf.push with "--strict-c99"
+    calling sf.push with "--release-unsafe"
+    calling sf.push with "--test"
+    calling sf.push with "--json"
+    calling sf.push with "--keep"
+    calling sf.push with "--help"
+    calling sf.push with "-h"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, lf
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if (calling cliargs.enabled with (sigil of pr.args), "--help") or (calling cliargs.enabled with (sigil of pr.args), "-h"):
+        calling print_build_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
     var o as driver.BuildOptions is calling driver.default_options
-    var path as string is ""
-    var i as int is 2
-    while i < args.len:
-        var a as string is args at i
-        if a == "--verbose":
-            set o.verbose is true
-        else if a == "--strict-c99":
-            set o.strict_c99 is true
-        else if a == "--release-unsafe":
-            set o.release_unsafe is true
-        else if a == "--help" or a == "-h":
-            calling print_build_help
-            calling driver.free_options with (sigil of o)
-            return 0
-        else if calling starts_with with a, "--profile=":
-            var v as string is a at 10 to (a length)
-            banish o.profile
-            set o.profile is v
-        else if calling starts_with with a, "--cc=":
-            var vc as string is a at 5 to (a length)
-            banish o.cc
-            set o.cc is vc
-        else if calling starts_with with a, "--out=":
-            var vo as string is a at 6 to (a length)
-            banish o.out_path
-            set o.out_path is vo
-        else if calling starts_dash with a:
-            var u as string is "psc build: unknown option '{a}'"
-            calling spark.eprintln with u
-            banish u
-            calling print_build_help
-            calling driver.free_options with (sigil of o)
-            return 2
-        else:
-            if path length > 0:
-                calling spark.eprintln with "psc build: only one target is supported"
-                calling driver.free_options with (sigil of o)
-                return 2
-            set path is a
-        set i is i + 1
+    var prof as string is calling cliargs.value with (sigil of pr.args), "--profile"
+    if prof length == 0:
+        set prof is calling cliargs.value with (sigil of pr.args), "-p"
+    if prof length > 0:
+        banish o.profile
+        set o.profile is calling copy_path with prof
+    var cc as string is calling cliargs.value with (sigil of pr.args), "--cc"
+    if cc length > 0:
+        banish o.cc
+        set o.cc is calling copy_path with cc
+    var out as string is calling cliargs.value with (sigil of pr.args), "--out"
+    if out length == 0:
+        set out is calling cliargs.value with (sigil of pr.args), "-o"
+    if out length > 0:
+        banish o.out_path
+        set o.out_path is calling copy_path with out
+    var ent as string is calling cliargs.value with (sigil of pr.args), "--entry"
+    if ent length == 0:
+        set ent is calling cliargs.value with (sigil of pr.args), "-e"
+    var target as string is calling cliargs.first_positional with (sigil of pr.args)
+    if ent length > 0:
+        set target is ent
+    var cfg as string is calling cliargs.value with (sigil of pr.args), "--config"
+    if cfg length > 0:
+        set target is cfg
     banish o.target
-    set o.target is calling copy_path with path
+    set o.target is calling copy_path with target
+    set o.verbose is calling cliargs.enabled with (sigil of pr.args), "--verbose"
+    set o.strict_c99 is calling cliargs.enabled with (sigil of pr.args), "--strict-c99"
+    set o.release_unsafe is calling cliargs.enabled with (sigil of pr.args), "--release-unsafe"
+    set o.is_test is calling cliargs.enabled with (sigil of pr.args), "--test"
+    var defs as list of string is calling cliargs.list with (sigil of pr.args), "--define"
+    if defs.len == 0:
+        set defs is calling cliargs.list with (sigil of pr.args), "-D"
+    var di as int is 0
+    while di < defs.len:
+        calling o.defines.push with (calling copy_path with (defs at di))
+        set di is di + 1
+    var want_json as bool is calling cliargs.enabled with (sigil of pr.args), "--json"
     var r as driver.BuildResult is calling driver.build with o
     if not r.ok:
         var err as string is r.error
@@ -133,12 +165,50 @@ weave run_build with args as list of string into int:
         banish emsg
         calling driver.free_result with (sigil of r)
         calling driver.free_options with (sigil of o)
+        calling cliargs.free_parse_result with (sigil of pr)
         return 1
-    var msg as string is "Finished -> {r.artifact}"
-    calling spark.println with msg
-    banish msg
+    if want_json:
+        var jsb as StringBuilder is calling StringBuilder.new
+        defer banish jsb
+        calling jsb.append with "{"
+        calling jsb.append_char with '"'
+        calling jsb.append with "schema_version"
+        calling jsb.append_char with '"'
+        calling jsb.append with ":1,"
+        calling jsb.append_char with '"'
+        calling jsb.append with "event"
+        calling jsb.append_char with '"'
+        calling jsb.append with ":"
+        calling jsb.append_char with '"'
+        calling jsb.append with "done"
+        calling jsb.append_char with '"'
+        calling jsb.append with ","
+        calling jsb.append_char with '"'
+        calling jsb.append with "status"
+        calling jsb.append_char with '"'
+        calling jsb.append with ":"
+        calling jsb.append_char with '"'
+        calling jsb.append with "ok"
+        calling jsb.append_char with '"'
+        calling jsb.append with ","
+        calling jsb.append_char with '"'
+        calling jsb.append with "artifact"
+        calling jsb.append_char with '"'
+        calling jsb.append with ":"
+        calling jsb.append_char with '"'
+        calling jsb.append with r.artifact
+        calling jsb.append_char with '"'
+        calling jsb.append with "}"
+        var js as string is calling jsb.finish
+        calling spark.println with js
+        banish js
+    else:
+        var msg as string is "Finished -> {r.artifact}"
+        calling spark.println with msg
+        banish msg
     calling driver.free_result with (sigil of r)
     calling driver.free_options with (sigil of o)
+    calling cliargs.free_parse_result with (sigil of pr)
     return 0
 
 ## Implementa `psc check` sobre un proyecto.

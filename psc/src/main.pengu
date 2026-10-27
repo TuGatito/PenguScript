@@ -36,6 +36,15 @@ import psc.sema.api as sema_api
 import psc.codegen.api as cgapi
 import psc.codegen.options as cgopt
 import psc.cmd.build as cmd_build
+import psc.cmd.init as cmd_init
+import psc.cmd.clean as cmd_clean
+import psc.cmd.doctor as cmd_doctor
+import psc.cmd.meta as cmd_meta
+import psc.cmd.stubs as cmd_stubs
+import psc.cmd.test as cmd_test
+import psc.cmd.eval as cmd_eval
+import psc.cmd.time as cmd_time
+import psc.cmd.watch as cmd_watch
 
 
 ## Punto de entrada.
@@ -60,7 +69,7 @@ weave dispatch with args as list of string into int:
         return 2
     var cmd as string is args at 1
     if cmd == "version" or cmd == "--version" or cmd == "-V":
-        calling spark.println with "psc 0.3.0 (F3)"
+        calling spark.println with "psc 0.6.0 (F6)"
         return 0
     if cmd == "help" or cmd == "--help" or cmd == "-h":
         calling print_help
@@ -79,6 +88,32 @@ weave dispatch with args as list of string into int:
         return calling cmd_build.run_run with args
     if cmd == "expand":
         return calling cmd_build.run_expand with args
+    if cmd == "init":
+        return calling cmd_init.run_init with args
+    if cmd == "new":
+        return calling cmd_init.run_new with args
+    if cmd == "clean":
+        return calling cmd_clean.run_clean with args
+    if cmd == "doctor":
+        return calling cmd_doctor.run_doctor with args
+    if cmd == "metadata":
+        return calling cmd_meta.run_metadata with args
+    if cmd == "tree":
+        return calling cmd_meta.run_tree with args
+    if cmd == "add" or cmd == "remove" or cmd == "upgrade" or cmd == "verify" or cmd == "vendor" or cmd == "update":
+        return calling cmd_stubs.run_deps with cmd
+    if cmd == "lsp":
+        return calling cmd_stubs.run_lsp
+    if cmd == "bind":
+        return calling cmd_stubs.run_bind
+    if cmd == "test":
+        return calling cmd_test.run_test with args
+    if cmd == "eval":
+        return calling cmd_eval.run_eval with args
+    if cmd == "time":
+        return calling cmd_time.run_time with args
+    if cmd == "watch":
+        return calling cmd_watch.run_watch with args
     var msg as string is "psc: unknown command '{cmd}'"
     calling spark.eprintln with msg
     banish msg
@@ -548,6 +583,24 @@ weave print_help into void:
     calling spark.println with "  psc build [TARGET] [options]"
     calling spark.println with "  psc run [TARGET] [-- args]"
     calling spark.println with "  psc expand [TARGET] [options]"
+    calling spark.println with "  psc init <name> [options]"
+    calling spark.println with "  psc new <template> <name> [options]"
+    calling spark.println with "  psc clean [TARGET] [--dry-run]"
+    calling spark.println with "  psc doctor [--json]"
+    calling spark.println with "  psc metadata [--json]"
+    calling spark.println with "  psc test [TARGET] [options]"
+    calling spark.println with "  psc eval EXPRESSION"
+    calling spark.println with "  psc time SCRIPT"
+    calling spark.println with "  psc watch SCRIPT"
+    calling spark.println with "  psc tree [--json]"
+    calling spark.println with "  psc add"
+    calling spark.println with "  psc remove"
+    calling spark.println with "  psc upgrade"
+    calling spark.println with "  psc verify"
+    calling spark.println with "  psc vendor"
+    calling spark.println with "  psc update"
+    calling spark.println with "  psc lsp"
+    calling spark.println with "  psc bind"
     calling spark.println with "  psc version"
 
 ## Ayuda de `lex`.

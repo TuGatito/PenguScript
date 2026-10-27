@@ -1,0 +1,233 @@
+## psc/cmd/meta.pengu — `psc metadata` y `psc tree`.
+
+import std.archivum
+import std.builder
+import std.compass
+import std.rites
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.driver.manifest as manifest
+import psc.sema.names as npool
+
+insignia psc_cmd_meta_
+
+## Ayuda.
+##
+## ## Memoria
+## No asigna.
+weave print_help with name as string into void:
+    var s as string is "Usage: psc {name} [--config=PATH] [--json]"
+    calling spark.println with s
+    banish s
+    calling spark.println with "  --help"
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Busca `pengu.toml`.
+##
+## ## Memoria
+## Devuelve string owned o `""`.
+weave find_root with start as string into string:
+    var d as string is calling compass.cp_absolute with start
+    var i as int is 0
+    while i < 8:
+        var f as string is "{d}/pengu.toml"
+        if calling archivum.is_file with f:
+            banish f
+            return calling copy with d
+        banish f
+        var parent as string is calling compass.cp_dirname with d
+        if parent == d:
+            banish parent
+            banish d
+            return ""
+        banish d
+        set d is parent
+        set i is i + 1
+    banish d
+    return ""
+
+## Añade una cadena JSON.
+##
+## ## Memoria
+## No retiene.
+weave jstr with sb as ref to StringBuilder, s as string into void:
+    calling sb.append_char with '"'
+    calling sb.append with s
+    calling sb.append_char with '"'
+
+## Añade `"key":` a un builder JSON.
+##
+## ## Memoria
+## No retiene.
+weave jkey with sb as ref to StringBuilder, s as string into void:
+    calling sb.append_char with '"'
+    calling sb.append with s
+    calling sb.append_char with '"'
+    calling sb.append with ":"
+
+## Implementa `psc metadata`.
+##
+## ## Memoria
+## Libera resultado.
+weave run_metadata with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--config"
+    var sf as list of string is list of string
+    calling sf.push with "--json"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling print_help with "metadata"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var cwd as maybe string is calling rites.getcwd
+    if not cwd.is_present:
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var start as string is cwd.value
+    var cfg as string is calling cliargs.value with (sigil of pr.args), "--config"
+    if cfg length > 0:
+        set start is cfg
+    var root as string is calling find_root with start
+    if root length == 0:
+        calling spark.eprintln with "psc metadata: no pengu.toml found"
+        banish root
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var man as manifest.Manifest is calling manifest.load_manifest with root, "debug"
+    if not man.ok:
+        var e2 as string is man.error
+        calling spark.eprintln with e2
+        calling manifest.free_manifest with (sigil of man)
+        banish root
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "{"
+    calling jkey with (sigil of sb), "schema_version"
+    calling sb.append with "1,"
+    calling jkey with (sigil of sb), "name"
+    calling jstr with (sigil of sb), man.name
+    calling sb.append with ","
+    calling jkey with (sigil of sb), "version"
+    calling jstr with (sigil of sb), man.version
+    calling sb.append with ","
+    calling jkey with (sigil of sb), "entry"
+    calling jstr with (sigil of sb), man.entry
+    calling sb.append with ","
+    calling jkey with (sigil of sb), "output"
+    calling jstr with (sigil of sb), man.output
+    calling sb.append with ","
+    calling jkey with (sigil of sb), "output_name"
+    calling jstr with (sigil of sb), man.output_name
+    calling sb.append with ","
+    calling jkey with (sigil of sb), "profiles"
+    calling sb.append with "["
+    calling sb.append_char with '"'
+    calling sb.append with "debug"
+    calling sb.append_char with '"'
+    calling sb.append with ","
+    calling sb.append_char with '"'
+    calling sb.append with "release"
+    calling sb.append_char with '"'
+    calling sb.append with ","
+    calling sb.append_char with '"'
+    calling sb.append with "small"
+    calling sb.append_char with '"'
+    calling sb.append with "],"
+    calling jkey with (sigil of sb), "dependencies"
+    calling sb.append with r"{}"
+    var out as string is calling sb.finish
+    calling spark.println with out
+    banish out
+    calling manifest.free_manifest with (sigil of man)
+    banish root
+    banish cwd
+    calling cliargs.free_parse_result with (sigil of pr)
+    return 0
+
+## Implementa `psc tree`.
+##
+## ## Memoria
+## Libera resultado.
+weave run_tree with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--config"
+    var sf as list of string is list of string
+    calling sf.push with "--json"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling print_help with "tree"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var cwd as maybe string is calling rites.getcwd
+    if not cwd.is_present:
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var start as string is cwd.value
+    var cfg as string is calling cliargs.value with (sigil of pr.args), "--config"
+    if cfg length > 0:
+        set start is cfg
+    var root as string is calling find_root with start
+    if root length == 0:
+        calling spark.eprintln with "psc tree: no pengu.toml found"
+        banish root
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var man as manifest.Manifest is calling manifest.load_manifest with root, "debug"
+    if not man.ok:
+        var e2 as string is man.error
+        calling spark.eprintln with e2
+        calling manifest.free_manifest with (sigil of man)
+        banish root
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var json as bool is calling cliargs.enabled with (sigil of pr.args), "--json"
+    if json:
+        var tsb as StringBuilder is calling StringBuilder.new
+        defer banish tsb
+        calling tsb.append with "{"
+        calling jkey with (sigil of tsb), "schema_version"
+        calling tsb.append with "1,"
+        calling jkey with (sigil of tsb), "name"
+        calling jstr with (sigil of tsb), man.name
+        calling tsb.append with ","
+        calling jkey with (sigil of tsb), "dependencies"
+        calling tsb.append with "[]}"
+        var out as string is calling tsb.finish
+        calling spark.println with out
+        banish out
+    else:
+        var line as string is "{man.name} (no dependencies)"
+        calling spark.println with line
+        banish line
+    calling manifest.free_manifest with (sigil of man)
+    banish root
+    banish cwd
+    calling cliargs.free_parse_result with (sigil of pr)
+    return 0

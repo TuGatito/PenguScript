@@ -1,0 +1,332 @@
+## psc/cmd/init.pengu — `psc init` y `psc new` (plantillas de proyecto F6).
+
+import std.archivum
+import std.builder
+import std.rites
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.sema.names as npool
+
+insignia psc_cmd_init_
+
+## Ayuda de `init`.
+##
+## ## Memoria
+## No asigna.
+weave print_init_help into void:
+    calling spark.println with "Usage: psc init NAME [options]"
+    calling spark.println with "  --type=exe|c|obj|static|shared"
+    calling spark.println with "  --template=exe|cli|pengu-lib|cbind"
+    calling spark.println with "  --links=a,b        native libraries to link"
+    calling spark.println with "  --cc=NAME          C compiler"
+    calling spark.println with "  --output-name=NAME artifact base name"
+    calling spark.println with "  --force            write into a non-empty directory"
+    calling spark.println with "  --help"
+
+## Ayuda de `new`.
+##
+## ## Memoria
+## No asigna.
+weave print_new_help into void:
+    calling spark.println with "Usage: psc new TEMPLATE NAME [options]"
+    calling spark.println with "  TEMPLATE: exe | cli | pengu-lib | cbind"
+    calling spark.println with "  --links=a,b"
+    calling spark.println with "  --cc=NAME"
+    calling spark.println with "  --output-name=NAME"
+    calling spark.println with "  --force"
+    calling spark.println with "  --help"
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Nombre seguro para un identificador C/PenguScript.
+##
+## ## Memoria
+## Devuelve string owned.
+weave safe_name with s as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < s length:
+        var c as int is ((b at i) to int)
+        if (c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95:
+            var one as string is s at i to (i + 1)
+            calling sb.append with one
+            banish one
+        else:
+            calling sb.append with "_"
+        set i is i + 1
+    return calling sb.finish
+
+## Lista de links desde `a,b`.
+##
+## ## Memoria
+## Devuelve lista owned.
+weave split_links with s as string into list of string:
+    var out as list of string is list of string
+    if s length == 0:
+        return out
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < s length:
+        var c as string is s at i to (i + 1)
+        if c == ",":
+            var item as string is calling sb.finish
+            if item length > 0:
+                calling out.push with item
+            else:
+                banish item
+        else:
+            calling sb.append with c
+        banish c
+        set i is i + 1
+    var last as string is calling sb.finish
+    if last length > 0:
+        calling out.push with last
+    else:
+        banish last
+    return out
+
+## Render TOML de una lista de strings.
+##
+## ## Memoria
+## Devuelve string owned.
+weave toml_list with xs as list of string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "["
+    var i as int is 0
+    while i < xs.len:
+        if i > 0:
+            calling sb.append with ", "
+        calling sb.append with "\""
+        calling sb.append with (xs at i)
+        calling sb.append with "\""
+        set i is i + 1
+    calling sb.append with "]"
+    return calling sb.finish
+
+## Crea un proyecto.
+##
+## ## Memoria
+## Libera argumentos y strings temporales.
+weave create_project with name as string, template as string, out_type as string, links as list of string, cc as string, out_name as string, force as bool into int:
+    var cwd as maybe string is calling rites.getcwd
+    if not cwd.is_present:
+        calling spark.eprintln with "psc init: cannot determine current directory"
+        banish cwd
+        return 2
+    var proj as string is "{cwd.value}/{name}"
+    if calling archivum.exists with proj:
+        if not calling archivum.is_dir with proj:
+            calling spark.eprintln with "psc init: target exists and is not a directory"
+            banish proj
+            banish cwd
+            return 2
+        if (not (calling archivum.is_empty_dir with proj)) and (not force):
+            calling spark.eprintln with "psc init: directory exists and is not empty (use --force)"
+            banish proj
+            banish cwd
+            return 2
+    if not calling archivum.create_dir with proj, true:
+        calling spark.eprintln with "psc init: cannot create project directory"
+        banish proj
+        banish cwd
+        return 2
+    var safe as string is calling safe_name with name
+    var src_sub as string is "src"
+    var entry as string is "src/main.pengu"
+    var output as string is out_type
+    if template == "pengu-lib":
+        set src_sub is "pengu"
+        set entry is "pengu/{safe}.pengu"
+        if output == "exe":
+            set output is "static"
+    else if template == "cbind":
+        set src_sub is "pengu"
+        set entry is "pengu/{safe}.d.pengu"
+        if output == "exe":
+            set output is "c"
+    var src_dir as string is "{proj}/{src_sub}"
+    calling archivum.create_dir with src_dir, true
+    if template == "exe" or template == "cli":
+        calling archivum.create_dir with "{proj}/lib", true
+        calling archivum.create_dir with "{proj}/include", true
+        calling archivum.create_dir with "{proj}/c", true
+        calling archivum.create_dir with "{proj}/assets", true
+    var src_path as string is "{proj}/{entry}"
+    var src_text as string is ""
+    if template == "pengu-lib":
+        set src_text is "## {name}: biblioteca PenguScript.\n\nweave {safe}_hello into int:\n    return 0\n"
+    else if template == "cbind":
+        set src_text is "## {name}: binding C generado por F6.\n\ninsignia {safe}_\n\ndeclare {safe}_example with x as int into int\n"
+    else:
+        set src_text is "import std.spark\n\nweave main into int:\n    calling spark.println with \"hola desde {name}\"\n    return 0\n"
+    if not calling archivum.write_text with src_path, src_text:
+        calling spark.eprintln with "psc init: cannot write entry"
+        banish src_text
+        banish src_path
+        banish src_dir
+        banish proj
+        banish cwd
+        banish safe
+        return 2
+    banish src_text
+    banish src_path
+    banish src_dir
+    var links_t as string is calling toml_list with links
+    var manifest as string is "[project]\nname = \"{name}\"\nversion = \"0.1.0\"\nentry = \"{entry}\"\noutput = \"{output}\"\noutput_name = \"{out_name}\"\n\n[build]\nsrc_dir = \"{src_sub}\"\nlib_dir = \"lib\"\ninclude_dir = \"include\"\nc_dir = \"c\"\nbuild_dir = \"build\"\nincludes = []\nlinks = {links_t}\nlib_dirs = []\ninclude_dirs = []\ncflags = [\"-Wall\", \"-std=c11\"]\nldflags = []\ndefines = []\ncc = \"{cc}\"\n\n[assets]\ndir = \"assets\"\nmodule = \"arca\"\nembed = true\n\n[dependencies]\n\n[profiles.debug]\ncflags = [\"-g\", \"-O0\", \"-Wall\"]\ndefines = [\"DEBUG\"]\n\n[profiles.release]\ncflags = [\"-O3\", \"-DNDEBUG\", \"-ffunction-sections\", \"-fdata-sections\"]\ndefines = [\"NDEBUG\"]\n\n[profiles.small]\ncflags = [\"-Os\", \"-DNDEBUG\", \"-ffunction-sections\", \"-fdata-sections\"]\ndefines = [\"NDEBUG\", \"PENGU_SIZE_OPT\"]\n"
+    var mpath as string is "{proj}/pengu.toml"
+    if not calling archivum.write_text with mpath, manifest:
+        calling spark.eprintln with "psc init: cannot write pengu.toml"
+        banish manifest
+        banish links_t
+        banish mpath
+        banish proj
+        banish cwd
+        banish safe
+        return 2
+    banish manifest
+    banish links_t
+    banish mpath
+    var gitignore as string is "build/\n"
+    var gpath as string is "{proj}/.gitignore"
+    calling archivum.write_text with gpath, gitignore
+    banish gpath
+    var msg as string is "Created {name} ({template}, {output}) at {proj}"
+    calling spark.println with msg
+    banish msg
+    banish proj
+    banish cwd
+    banish safe
+    return 0
+
+## Implementa `psc init`.
+##
+## ## Memoria
+## Libera ParseResult y links.
+weave run_init with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--type"
+    calling vf.push with "--template"
+    calling vf.push with "--links"
+    calling vf.push with "--cc"
+    calling vf.push with "--output-name"
+    calling vf.push with "--format"
+    var sf as list of string is list of string
+    calling sf.push with "--force"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var emsg as string is pr.error
+        calling spark.eprintln with emsg
+        banish emsg
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling print_init_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    if pr.args.positionals.len != 1:
+        calling spark.eprintln with "psc init: expected exactly one project name"
+        calling print_init_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var name as string is calling copy with (pr.args.positionals at 0)
+    var tpl as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--template")
+    if tpl length == 0:
+        set tpl is "exe"
+    var typ as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--type")
+    if typ length == 0:
+        set typ is "exe"
+    if typ != "exe" and typ != "c" and typ != "obj" and typ != "static" and typ != "shared":
+        calling spark.eprintln with "psc init: invalid --type (exe|c|obj|static|shared)"
+        banish name
+        banish tpl
+        banish typ
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if tpl != "exe" and tpl != "cli" and tpl != "pengu-lib" and tpl != "cbind":
+        calling spark.eprintln with "psc init: invalid --template (exe|cli|pengu-lib|cbind)"
+        banish name
+        banish tpl
+        banish typ
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var links as list of string is calling split_links with (calling cliargs.value with (sigil of pr.args), "--links")
+    var cc as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--cc")
+    if cc length == 0:
+        set cc is "gcc"
+    var onm as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--output-name")
+    if onm length == 0:
+        set onm is calling copy with name
+    var code as int is calling create_project with name, tpl, typ, links, cc, onm, (calling cliargs.enabled with (sigil of pr.args), "force")
+    var li as int is 0
+    while li < links.len:
+        banish links at li
+        set li is li + 1
+    banish links
+    banish onm
+    banish cc
+    banish typ
+    banish tpl
+    banish name
+    calling cliargs.free_parse_result with (sigil of pr)
+    return code
+
+## Implementa `psc new`.
+##
+## ## Memoria
+## Libera ParseResult.
+weave run_new with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--links"
+    calling vf.push with "--cc"
+    calling vf.push with "--output-name"
+    calling vf.push with "--format"
+    var sf as list of string is list of string
+    calling sf.push with "--force"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var emsg as string is pr.error
+        calling spark.eprintln with emsg
+        banish emsg
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling print_new_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    if pr.args.positionals.len != 2:
+        calling spark.eprintln with "psc new: expected TEMPLATE and NAME"
+        calling print_new_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var tpl as string is calling copy with (pr.args.positionals at 0)
+    var name as string is calling copy with (pr.args.positionals at 1)
+    var links as list of string is calling split_links with (calling cliargs.value with (sigil of pr.args), "--links")
+    var cc as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--cc")
+    if cc length == 0:
+        set cc is "gcc"
+    var onm as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--output-name")
+    if onm length == 0:
+        set onm is calling copy with name
+    var code as int is calling create_project with name, tpl, "exe", links, cc, onm, (calling cliargs.enabled with (sigil of pr.args), "force")
+    var li as int is 0
+    while li < links.len:
+        banish links at li
+        set li is li + 1
+    banish links
+    banish onm
+    banish cc
+    banish name
+    banish tpl
+    calling cliargs.free_parse_result with (sigil of pr)
+    return code

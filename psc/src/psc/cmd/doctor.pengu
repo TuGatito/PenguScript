@@ -1,0 +1,136 @@
+## psc/cmd/doctor.pengu — `psc doctor`.
+
+import std.archivum
+import std.builder
+import std.rites
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.driver.paths as paths
+import psc.sema.names as npool
+
+insignia psc_cmd_doctor_
+
+## Ayuda.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "Usage: psc doctor [--json]"
+    calling spark.println with "  --json   machine-readable report"
+    calling spark.println with "  --help"
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Imprime o acumula un check.
+##
+## ## Memoria
+## No retiene strings.
+weave check_line with as_json as bool, name as string, ok as bool, detail as string into void:
+    if as_json:
+        var st as string is "false"
+        if ok:
+            set st is "true"
+        var sb as StringBuilder is calling StringBuilder.new
+        defer banish sb
+        calling sb.append with "{"
+        calling sb.append_char with '"'
+        calling sb.append with "name"
+        calling sb.append_char with '"'
+        calling sb.append with ":"
+        calling sb.append_char with '"'
+        calling sb.append with name
+        calling sb.append_char with '"'
+        calling sb.append with ","
+        calling sb.append_char with '"'
+        calling sb.append with "ok"
+        calling sb.append_char with '"'
+        calling sb.append with ":"
+        calling sb.append with st
+        calling sb.append with ","
+        calling sb.append_char with '"'
+        calling sb.append with "detail"
+        calling sb.append_char with '"'
+        calling sb.append with ":"
+        calling sb.append_char with '"'
+        calling sb.append with detail
+        calling sb.append_char with '"'
+        calling sb.append with "}"
+        var out as string is calling sb.finish
+        calling spark.println with out
+        banish out
+    else:
+        var mark as string is "FAIL"
+        if ok:
+            set mark is "ok"
+        var s2 as string is "[{mark}] {name}: {detail}"
+        calling spark.println with s2
+        banish s2
+
+## Implementa `psc doctor`.
+##
+## ## Memoria
+## Libera ParseResult y Paths.
+weave run_doctor with args as list of string into int:
+    var sf as list of string is list of string
+    calling sf.push with "--json"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling print_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var as_json as bool is calling cliargs.enabled with (sigil of pr.args), "--json"
+    var cwd as maybe string is calling rites.getcwd
+    var base as string is "."
+    if cwd.is_present:
+        set base is cwd.value
+    var p as paths.Paths is calling paths.find_paths with base
+    var bad as int is 0
+    # Compiladores
+    var gcc as maybe string is calling rites.which with "gcc"
+    if gcc.is_present:
+        calling check_line with as_json, "gcc", true, gcc.value
+    else:
+        calling check_line with as_json, "gcc", false, "not found"
+        set bad is bad + 1
+    banish gcc
+    var clang as maybe string is calling rites.which with "clang"
+    if clang.is_present:
+        calling check_line with as_json, "clang", true, clang.value
+    else:
+        calling check_line with as_json, "clang", false, "not found (optional)"
+    banish clang
+    var tcc as maybe string is calling rites.which with "tcc"
+    if tcc.is_present:
+        calling check_line with as_json, "tcc", true, tcc.value
+    else:
+        calling check_line with as_json, "tcc", false, "not found (required for the Linux gate)"
+        set bad is bad + 1
+    banish tcc
+    # Runtime/std
+    if p.ok:
+        calling check_line with as_json, "runtime-archive", true, p.runtime_archive
+        calling check_line with as_json, "runtime-header", true, p.runtime_include
+        calling check_line with as_json, "std", true, "found"
+    else:
+        var pe as string is p.error
+        calling check_line with as_json, "paths", false, pe
+        banish pe
+        set bad is bad + 1
+    calling paths.free_paths with (sigil of p)
+    banish cwd
+    calling cliargs.free_parse_result with (sigil of pr)
+    if bad == 0:
+        return 0
+    return 1

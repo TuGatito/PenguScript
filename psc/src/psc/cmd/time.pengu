@@ -1,0 +1,108 @@
+## psc/cmd/time.pengu — `psc time`.
+
+import std.chronicle
+import std.rites
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.driver.build as driver
+import psc.sema.names as npool
+
+insignia psc_cmd_time_
+
+## Ayuda.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "Usage: psc time SCRIPT [--cc=NAME] [-- args...]"
+    calling spark.println with "  --cc=NAME"
+    calling spark.println with "  --json"
+    calling spark.println with "  --help"
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Implementa `psc time`.
+##
+## ## Memoria
+## Libera opciones/resultado.
+weave run_time with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--cc"
+    var sf as list of string is list of string
+    calling sf.push with "--json"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling print_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    if pr.args.positionals.len == 0:
+        calling spark.eprintln with "psc time: missing script"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var script as string is calling copy with (pr.args.positionals at 0)
+    var child as list of string is list of string
+    var ai as int is 1
+    while ai < pr.args.positionals.len:
+        calling child.push with (calling copy with (pr.args.positionals at ai))
+        set ai is ai + 1
+    var o as driver.BuildOptions is calling driver.default_options
+    banish o.target
+    set o.target is calling copy with script
+    var cc as string is calling cliargs.value with (sigil of pr.args), "--cc"
+    if cc length > 0:
+        banish o.cc
+        set o.cc is calling copy with cc
+    var t0 as float is calling chronicle.monotonic
+    var r as driver.BuildResult is calling driver.build with o
+    var t1 as float is calling chronicle.monotonic
+    if not r.ok:
+        var e2 as string is r.error
+        var m as string is "psc time: {e2}"
+        calling spark.eprintln with m
+        banish m
+        calling driver.free_result with (sigil of r)
+        calling driver.free_options with (sigil of o)
+        banish script
+        var ci as int is 0
+        while ci < child.len:
+            banish child at ci
+            set ci is ci + 1
+        banish child
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var art as string is r.artifact
+    var t2 as float is calling chronicle.monotonic
+    var raw as int is calling rites.exec with art, child
+    var t3 as float is calling chronicle.monotonic
+    var code as int is raw
+    if raw > 255:
+        set code is (raw / 256) % 256
+    if code < 0:
+        set code is 1
+    var bms as float is (t1 - t0) * 1000.0
+    var rms as float is (t3 - t2) * 1000.0
+    var line as string is "build {bms} ms, run {rms} ms"
+    calling spark.println with line
+    banish line
+    calling driver.free_result with (sigil of r)
+    calling driver.free_options with (sigil of o)
+    banish script
+    var ci2 as int is 0
+    while ci2 < child.len:
+        banish child at ci2
+        set ci2 is ci2 + 1
+    banish child
+    calling cliargs.free_parse_result with (sigil of pr)
+    return code

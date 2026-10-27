@@ -1,0 +1,174 @@
+## psc/cmd/clean.pengu — `psc clean`.
+
+import std.archivum
+import std.compass
+import std.rites
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.driver.manifest as manifest
+import psc.sema.names as npool
+
+insignia psc_cmd_clean_
+
+## Ayuda.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "Usage: psc clean [TARGET] [--dry-run]"
+    calling spark.println with "  TARGET      project directory or .pengu file (default: cwd)"
+    calling spark.println with "  --dry-run   show what would be removed"
+    calling spark.println with "  --config=PATH"
+    calling spark.println with "  --help"
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Busca `pengu.toml` subiendo desde `start`.
+##
+## ## Memoria
+## Devuelve string owned o `""`.
+weave find_root with start as string into string:
+    var d as string is calling compass.cp_absolute with start
+    var i as int is 0
+    while i < 8:
+        var f as string is "{d}/pengu.toml"
+        if calling archivum.is_file with f:
+            banish f
+            return calling copy with d
+        banish f
+        var parent as string is calling compass.cp_dirname with d
+        if parent == d:
+            banish parent
+            banish d
+            return ""
+        banish d
+        set d is parent
+        set i is i + 1
+    banish d
+    return ""
+
+## `true` si `path` está dentro de `base`.
+##
+## ## Memoria
+## O(n).
+weave inside with path as string, base as string into bool:
+    if path == base:
+        return false
+    var n as int is path length
+    var m as int is base length
+    if n <= m:
+        return false
+    if (path at 0 to m) != base:
+        return false
+    return (path at m to (m + 1)) == "/"
+
+## Implementa `psc clean`.
+##
+## ## Memoria
+## Libera argumentos y rutas.
+weave run_clean with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--config"
+    var sf as list of string is list of string
+    calling sf.push with "--dry-run"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling print_help
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var target as string is calling cliargs.first_positional with (sigil of pr.args)
+    var cfg as string is calling cliargs.value with (sigil of pr.args), "--config"
+    if cfg length > 0:
+        set target is cfg
+    var cwd as maybe string is calling rites.getcwd
+    if not cwd.is_present:
+        calling spark.eprintln with "psc clean: cannot determine current directory"
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var start as string is cwd.value
+    if target length > 0:
+        if calling archivum.is_file with target:
+            set start is calling compass.cp_dirname with target
+        else:
+            set start is calling compass.cp_absolute with target
+    var root as string is calling find_root with start
+    if root length == 0:
+        calling spark.eprintln with "psc clean: no pengu.toml found"
+        if start != cwd.value:
+            banish start
+        banish root
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var man as manifest.Manifest is calling manifest.load_manifest with root, "debug"
+    if not man.ok:
+        var e2 as string is man.error
+        calling spark.eprintln with e2
+        calling manifest.free_manifest with (sigil of man)
+        banish root
+        if start != cwd.value:
+            banish start
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    if man.build_dir length == 0 or man.build_dir == "." or man.build_dir == ".." or (man.build_dir at 0 to 1) == "/":
+        calling spark.eprintln with "psc clean: unsafe build_dir"
+        calling manifest.free_manifest with (sigil of man)
+        banish root
+        if start != cwd.value:
+            banish start
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var bdir as string is "{root}/{man.build_dir}"
+    if not calling inside with bdir, root:
+        calling spark.eprintln with "psc clean: build dir escapes project"
+        banish bdir
+        calling manifest.free_manifest with (sigil of man)
+        banish root
+        if start != cwd.value:
+            banish start
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var dry as bool is calling cliargs.enabled with (sigil of pr.args), "--dry-run"
+    if dry:
+        var m as string is "Would remove {bdir}"
+        calling spark.println with m
+        banish m
+    else:
+        if calling archivum.is_dir with bdir:
+            if not calling archivum.remove_dir with bdir, true:
+                calling spark.eprintln with "psc clean: cannot remove build directory"
+                banish bdir
+                calling manifest.free_manifest with (sigil of man)
+                banish root
+                if start != cwd.value:
+                    banish start
+                banish cwd
+                calling cliargs.free_parse_result with (sigil of pr)
+                return 1
+        var m2 as string is "Removed {bdir}"
+        calling spark.println with m2
+        banish m2
+    banish bdir
+    calling manifest.free_manifest with (sigil of man)
+    banish root
+    if start != cwd.value:
+        banish start
+    banish cwd
+    calling cliargs.free_parse_result with (sigil of pr)
+    return 0
