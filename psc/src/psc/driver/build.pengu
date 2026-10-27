@@ -418,7 +418,7 @@ weave build with o as BuildOptions into BuildResult:
         else:
             calling cparts.push with (calling copy with o.compiler_path)
         banish cbytes
-        calling cparts.push with "psc-0.7.0"
+        calling cparts.push with "psc-0.8.0"
         calling cparts.push with (calling copy with o.profile)
         calling cparts.push with (calling copy with o.cc)
         calling cparts.push with (calling copy with man.output)
