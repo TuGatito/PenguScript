@@ -225,6 +225,22 @@ weave initialize_result into JsonValue:
     calling cap.put_json with "workspaceSymbolProvider", (calling JsonValue.bool_val with true)
     var cl as JsonValue is calling JsonValue.empty_object
     calling cap.put_json with "codeLensProvider", cl
+    var stp as JsonValue is calling JsonValue.empty_object
+    var legend as JsonValue is calling JsonValue.empty_object
+    var ttypes as JsonValue is calling JsonValue.empty_array
+    calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "keyword"))
+    calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "type"))
+    calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "function"))
+    calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "variable"))
+    calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "string"))
+    calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "number"))
+    calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "comment"))
+    var mods as JsonValue is calling JsonValue.empty_array
+    calling legend.put_json with "tokenTypes", ttypes
+    calling legend.put_json with "tokenModifiers", mods
+    calling stp.put_json with "legend", legend
+    calling stp.put_json with "full", (calling JsonValue.bool_val with true)
+    calling cap.put_json with "semanticTokensProvider", stp
     var sh as JsonValue is calling JsonValue.empty_object
     var shc as JsonValue is calling JsonValue.empty_array
     calling shc.push_json with (calling JsonValue.string_val with (calling copy with "("))
@@ -1052,6 +1068,132 @@ weave handle_code_lens with st as ref to State, id as rpc.JsonRpcId, params as J
     var ok as bool is calling send_msg with st, out
     banish out
 
+## ¿Palabra clave?
+weave is_keyword with w as string into bool:
+    var kws as list of string is list of string
+    calling kws.push with "weave"
+    calling kws.push with "rune"
+    calling kws.push with "echo"
+    calling kws.push with "omen"
+    calling kws.push with "alias"
+    calling kws.push with "seal"
+    calling kws.push with "concept"
+    calling kws.push with "const"
+    calling kws.push with "var"
+    calling kws.push with "let"
+    calling kws.push with "if"
+    calling kws.push with "else"
+    calling kws.push with "while"
+    calling kws.push with "for"
+    calling kws.push with "return"
+    calling kws.push with "calling"
+    calling kws.push with "with"
+    calling kws.push with "into"
+    calling kws.push with "as"
+    calling kws.push with "is"
+    calling kws.push with "test"
+    calling kws.push with "import"
+    var hit as bool is false
+    for k in kws:
+        if k == w:
+            set hit is true
+    for k in kws:
+        banish k
+    banish kws
+    return hit
+
+## Estado de tokens.
+rune TokState:
+    pl as int
+    pc as int
+
+## Añade un token semántico.
+weave push_token with arr as ref to JsonValue, ts as ref to TokState, line as int, ch as int, ln as int, ty as int into void:
+    var dl as int is line - ts->pl
+    var ds as int is ch
+    if dl == 0:
+        set ds is ch - ts->pc
+    calling arr.push_json with (calling JsonValue.int_val with (dl to i64))
+    calling arr.push_json with (calling JsonValue.int_val with (ds to i64))
+    calling arr.push_json with (calling JsonValue.int_val with (ln to i64))
+    calling arr.push_json with (calling JsonValue.int_val with (ty to i64))
+    calling arr.push_json with (calling JsonValue.int_val with 0)
+    set ts->pl is line
+    set ts->pc is ch
+
+## Semantic tokens (léxico simple).
+weave handle_semantic with st as ref to State, id as rpc.JsonRpcId, params as JsonValue into void:
+    var td as maybe JsonValue is calling params.get with "textDocument"
+    var u as string is ""
+    if td.is_present:
+        set u is calling field_string with td.value, "uri"
+    banish td
+    var text as string is calling doc_text with st, u
+    var data as JsonValue is calling JsonValue.empty_array
+    var b as ref to frozen byte is bytes of text
+    var line as int is 0
+    var start as int is 0
+    var ts as TokState is with pl is 0, pc is 0
+    while start <= text length:
+        var end as int is start
+        while end < text length and ((b at end) to int) != 10:
+            set end is end + 1
+        var ltext as string is text at start to end
+        var lb as ref to frozen byte is bytes of ltext
+        var i as int is 0
+        while i < ltext length:
+            var c as int is ((lb at i) to int)
+            if c == 35:
+                var comment as string is ltext at i to (ltext length)
+                var clen as int is calling lpos.utf16_len with comment
+                calling push_token with (sigil of data), (sigil of ts), line, i, clen, 6
+                banish comment
+                set i is ltext length
+            else if c == 34 or c == 39:
+                var q as int is i
+                set i is i + 1
+                while i < ltext length and ((lb at i) to int) != q:
+                    if ((lb at i) to int) == 92:
+                        set i is i + 1
+                    set i is i + 1
+                if i < ltext length:
+                    set i is i + 1
+                var lit as string is ltext at q to i
+                var llen as int is calling lpos.utf16_len with lit
+                calling push_token with (sigil of data), (sigil of ts), line, q, llen, 4
+                banish lit
+            else if calling is_word with c:
+                var s0 as int is i
+                while i < ltext length and calling is_word with ((lb at i) to int):
+                    set i is i + 1
+                var w as string is ltext at s0 to i
+                var ty as int is 3
+                if calling is_keyword with w:
+                    set ty is 0
+                var wlen as int is calling lpos.utf16_len with w
+                calling push_token with (sigil of data), (sigil of ts), line, s0, wlen, ty
+                banish w
+            else if c >= 48 and c <= 57:
+                var s1 as int is i
+                while i < ltext length and (((lb at i) to int) >= 48 and ((lb at i) to int) <= 57):
+                    set i is i + 1
+                var nlen as int is i - s1
+                calling push_token with (sigil of data), (sigil of ts), line, s1, nlen, 5
+            else:
+                set i is i + 1
+        banish ltext
+        if end >= text length:
+            break
+        set start is end + 1
+        set line is line + 1
+    banish text
+    banish u
+    var res as JsonValue is calling JsonValue.empty_object
+    calling res.put_json with "data", data
+    var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), res
+    var ok as bool is calling send_msg with st, out
+    banish out
+
 ## Dispatch de request.
 weave handle_request with st as ref to State, id as rpc.JsonRpcId, method as string, params as maybe JsonValue into void:
     if method == "initialize":
@@ -1126,6 +1268,11 @@ weave handle_request with st as ref to State, id as rpc.JsonRpcId, method as str
     else if method == "textDocument/codeLens":
         if params.is_present:
             calling handle_code_lens with st, id, params.value
+        else:
+            calling send_method_error with st, id, method
+    else if method == "textDocument/semanticTokens/full":
+        if params.is_present:
+            calling handle_semantic with st, id, params.value
         else:
             calling send_method_error with st, id, method
     else:

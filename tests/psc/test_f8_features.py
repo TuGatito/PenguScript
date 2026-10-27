@@ -73,10 +73,14 @@ def test_f8_hover_definition_symbols_completion_and_diagnostics() -> None:
     completions = req(5, "textDocument/completion", {"textDocument": {"uri": uri}, "position": {"line": 4, "character": 4}})
     assert any(c["label"] == "weave" for c in completions)
     assert any(c["label"] == "add" for c in completions)
+    sem = req(6, "textDocument/semanticTokens/full", {"textDocument": {"uri": uri}})
+    assert len(sem["data"]) >= 5 and len(sem["data"]) % 5 == 0
+    fold = req(7, "textDocument/foldingRange", {"textDocument": {"uri": uri}})
+    assert isinstance(fold, list)
 
-    p.stdin.write(frame({"jsonrpc": "2.0", "id": 6, "method": "shutdown", "params": None}))
+    p.stdin.write(frame({"jsonrpc": "2.0", "id": 8, "method": "shutdown", "params": None}))
     p.stdin.flush()
-    assert recv(p.stdout)["id"] == 6
+    assert recv(p.stdout)["id"] == 8
     p.stdin.write(frame({"jsonrpc": "2.0", "method": "exit"}))
     p.stdin.flush()
     p.stdin.close()

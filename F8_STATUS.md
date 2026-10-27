@@ -23,13 +23,14 @@
 | Rename | prepareRename + WorkspaceEdit |
 | Signature help | parámetros desde la firma textual |
 | Code lens | Run / Run test |
+| Semantic tokens | léxico simple: keywords/identificadores/literales/números/comentarios |
 | Tests | `test_f8_lsp.py` + `test_f8_features.py` (3 tests) |
 | Bootstrap | punto fijo OK; gcc/clang/TCC READY |
 
 ## Pendiente
 
 1. Diagnósticos con columnas UTF-16 (hoy `psc check` usa bytes).
-2. Semantic tokens, inlay hints, code actions, on-type formatting.
+2. Inlay hints, code actions, on-type formatting (semantic tokens ya hay una versión léxica).
 3. Caches/índice de workspace (hoy escaneo en cada request).
 4. Paridad con `pengu_lsp`; ñ/CJK/emoji; 1 000 didChange; ASan.
 5. VS Code smoke, CI y docs completos.
