@@ -33,6 +33,14 @@ rune State:
     initialized as bool
     shutdown as bool
 
+## `true` si `s` empieza por `p`.
+weave starts_with with s as string, p as string into bool:
+    var n as int is s length
+    var m as int is p length
+    if m > n:
+        return false
+    return (s at 0 to m) == p
+
 ## Copia owned.
 weave copy with s as string into string:
     return calling npool.copy_string with s
