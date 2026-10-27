@@ -120,6 +120,10 @@ weave escape_c with s as string into string:
             var lo as int is code % 16
             calling append_hex_digit with (sigil of sb), hi
             calling append_hex_digit with (sigil of sb), lo
+            if i + 1 < n:
+                var nb as int is ((b at (i + 1)) to int)
+                if (nb >= 48 and nb <= 57) or (nb >= 65 and nb <= 70) or (nb >= 97 and nb <= 102):
+                    calling sb.append with "\"\""
         else:
             var one as string is s at i
             calling sb.append with one

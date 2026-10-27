@@ -133,10 +133,19 @@ weave dispatch with args as list of string into int:
     if cmd == "tree":
         return calling cmd_meta.run_tree with args
     if cmd == "add" or cmd == "remove" or cmd == "upgrade" or cmd == "verify" or cmd == "vendor" or cmd == "update":
+        if args.len > 2 and (args at 2) == "--help":
+            calling spark.println with "These commands arrive in F9 (package manager)."
+            return 0
         return calling cmd_stubs.run_deps with cmd
     if cmd == "lsp":
+        if args.len > 2 and (args at 2) == "--help":
+            calling spark.println with "psc lsp arrives in F8 (language server)."
+            return 0
         return calling cmd_stubs.run_lsp
     if cmd == "bind":
+        if args.len > 2 and (args at 2) == "--help":
+            calling spark.println with "psc bind arrives in F10 (C bindings)."
+            return 0
         return calling cmd_stubs.run_bind
     if cmd == "test":
         return calling cmd_test.run_test with args
