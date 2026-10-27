@@ -2498,6 +2498,9 @@ weave has_interp with s as string into bool:
     var i as int is 0
     while i < s length:
         if ((b at i) to int) == 123:
+            if i + 1 < s length and ((b at (i + 1)) to int) == 123:
+                set i is i + 2
+                continue
             return true
         set i is i + 1
     return false
@@ -2564,6 +2567,14 @@ weave interp_expr with c as ref to context.CgContext, content as string into str
     var nargs as int is 0
     while i < n:
         var code as int is ((b at i) to int)
+        if code == 123 and i + 1 < n and ((b at (i + 1)) to int) == 123:
+            calling fmt.append with "{{"
+            set i is i + 2
+            continue
+        if code == 125 and i + 1 < n and ((b at (i + 1)) to int) == 125:
+            calling fmt.append with "}}"
+            set i is i + 2
+            continue
         if code == 123 and i + 1 < n:
             var j as int is i + 1
             while j < n and ((b at j) to int) != 125:
