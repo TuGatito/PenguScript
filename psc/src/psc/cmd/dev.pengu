@@ -27,6 +27,23 @@ weave copy with s as string into string:
 weave exists with path as string into bool:
     return calling archivum.exists with path
 
+## Intérprete Python del checkout o `PSC_PYTHON`.
+##
+## ## Memoria
+## Devuelve string owned.
+weave python_bin with cwd as string into string:
+    var e as maybe string is calling rites.getenv with "PSC_PYTHON"
+    if e.is_present:
+        var r as string is calling copy with e.value
+        banish e
+        return r
+    banish e
+    var v as string is "{cwd}/.venv/bin/python"
+    if calling archivum.is_file with v:
+        return v
+    banish v
+    return "python3"
+
 ## Implementa `psc benchmark`.
 ##
 ## ## Memoria
@@ -75,10 +92,12 @@ weave run_benchmark with args as list of string into int:
     if only length > 0:
         calling cargs.push with "--only"
         calling cargs.push with (calling copy with only)
-    var raw as int is calling rites.exec with "python3", cargs
+    var py as string is calling python_bin with cwd.value
+    var raw as int is calling rites.exec with py, cargs
     var code as int is raw
     if raw > 255:
         set code is (raw / 256) % 256
+    banish py
     var i as int is 0
     while i < cargs.len:
         banish cargs at i
@@ -107,6 +126,12 @@ weave run_selftest with args as list of string into int:
         calling spark.println with "Usage: psc selftest [pytest args...] (source checkout only)"
         calling cliargs.free_parse_result with (sigil of pr)
         return 0
+    var cwd2 as maybe string is calling rites.getcwd
+    var py2 as string is "python3"
+    if cwd2.is_present:
+        banish py2
+        set py2 is calling python_bin with cwd2.value
+        banish cwd2
     var cargs as list of string is list of string
     calling cargs.push with "-m"
     calling cargs.push with "pytest"
@@ -114,7 +139,7 @@ weave run_selftest with args as list of string into int:
     while i < pr.args.positionals.len:
         calling cargs.push with (calling copy with (pr.args.positionals at i))
         set i is i + 1
-    var raw as int is calling rites.exec with "python3", cargs
+    var raw as int is calling rites.exec with py2, cargs
     var code as int is raw
     if raw > 255:
         set code is (raw / 256) % 256
@@ -123,5 +148,6 @@ weave run_selftest with args as list of string into int:
         banish cargs at j
         set j is j + 1
     banish cargs
+    banish py2
     calling cliargs.free_parse_result with (sigil of pr)
     return code

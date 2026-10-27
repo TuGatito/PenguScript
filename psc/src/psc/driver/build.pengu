@@ -36,6 +36,12 @@ rune BuildOptions:
     is_test as bool
     bundle_only as bool
     check_only as bool
+    no_dce as bool
+    prune_types as bool
+    no_line_markers as bool
+    prune_native as bool
+    dce_scope_user as bool
+    pch as bool
     defines as list of string
 
 ## Resultado de un build.
@@ -123,7 +129,7 @@ weave find_manifest_root with start as string into string:
 ## ## Memoria
 ## Strings owned; liberar con `free_options`.
 weave default_options into BuildOptions:
-    return with target is "", profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, bundle_only is false, check_only is false, defines is list of string
+    return with target is "", profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, defines is list of string
 
 ## Libera opciones.
 ##
@@ -287,7 +293,11 @@ weave build with o as BuildOptions into BuildResult:
     set cgo.entry_file is (calling copy with entry)
     set cgo.is_library is o.is_library or (man.output != "exe" and man.output != "c")
     set cgo.is_test is o.is_test
-    set cgo.line_markers is true
+    set cgo.line_markers is not o.no_line_markers
+    set cgo.dce is not o.no_dce
+    set cgo.prune_types is o.prune_types
+    set cgo.prune_native is o.prune_native
+    set cgo.dce_scope_user is o.dce_scope_user
     set cgo.strict_c99 is o.strict_c99
     set cgo.release_unsafe is o.release_unsafe
     set cgo.target_compiler is (calling copy with (calling compass.cp_basename with tc.cc))

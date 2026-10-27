@@ -82,6 +82,8 @@ weave run_test with args as list of string into int:
         set code is (raw / 256) % 256
     if code < 0:
         set code is 1
+    if code != 0 and code != 2:
+        set code is 1
     calling driver.free_result with (sigil of r)
     calling driver.free_options with (sigil of o)
     calling cliargs.free_parse_result with (sigil of pr)

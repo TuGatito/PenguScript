@@ -95,6 +95,8 @@ weave run_build with args as list of string into int:
     calling vf.push with "-e"
     calling vf.push with "--config"
     calling vf.push with "-c"
+    calling vf.push with "--dce-scope"
+    calling vf.push with "--target"
     var lf as list of string is list of string
     calling lf.push with "--define"
     calling lf.push with "-D"
@@ -104,6 +106,15 @@ weave run_build with args as list of string into int:
     calling sf.push with "--release-unsafe"
     calling sf.push with "--test"
     calling sf.push with "--json"
+    calling sf.push with "--no-dce"
+    calling sf.push with "--prune-types"
+    calling sf.push with "--no-line-markers"
+    calling sf.push with "--prune-native"
+    calling sf.push with "--tree-shake-user"
+    calling sf.push with "--pch"
+    calling sf.push with "--no-pch"
+    calling sf.push with "--locked"
+    calling sf.push with "--frozen"
     calling sf.push with "--keep"
     calling sf.push with "--help"
     calling sf.push with "-h"
@@ -150,6 +161,21 @@ weave run_build with args as list of string into int:
     set o.strict_c99 is calling cliargs.enabled with (sigil of pr.args), "--strict-c99"
     set o.release_unsafe is calling cliargs.enabled with (sigil of pr.args), "--release-unsafe"
     set o.is_test is calling cliargs.enabled with (sigil of pr.args), "--test"
+    set o.no_dce is calling cliargs.enabled with (sigil of pr.args), "--no-dce"
+    set o.prune_types is calling cliargs.enabled with (sigil of pr.args), "--prune-types"
+    set o.no_line_markers is calling cliargs.enabled with (sigil of pr.args), "--no-line-markers"
+    set o.prune_native is calling cliargs.enabled with (sigil of pr.args), "--prune-native"
+    set o.dce_scope_user is calling cliargs.enabled with (sigil of pr.args), "--tree-shake-user"
+    set o.pch is calling cliargs.enabled with (sigil of pr.args), "--pch"
+    var dscope as string is calling cliargs.value with (sigil of pr.args), "--dce-scope"
+    if dscope == "user":
+        set o.dce_scope_user is true
+    var tgt as string is calling cliargs.value with (sigil of pr.args), "--target"
+    if tgt length > 0:
+        calling spark.eprintln with "psc build: --target is not available until F11 (cross-compilation)"
+        calling driver.free_options with (sigil of o)
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
     var defs as list of string is calling cliargs.list with (sigil of pr.args), "--define"
     if defs.len == 0:
         set defs is calling cliargs.list with (sigil of pr.args), "-D"
