@@ -14,7 +14,7 @@
 | Documentos | `didOpen`, `didChange` full-sync, `didClose` |
 | URI | `file://` <-> path, percent-encoding, drive letter |
 | UTF-16 | conversión byte <-> línea/character UTF-16 |
-| Diagnósticos | publicación vía `psc check --diagnostics=json` en subproceso; JSON-RPC notification |
+| Diagnósticos | notificación `publishDiagnostics` vacía estable; el análisis con contenido queda pendiente |
 | Build | `psc 0.8.0 (F8)`; bootstrap estable |
 | Tests | `tests/psc/test_f8_lsp.py`: lifecycle stdio + TCP |
 | C includes | deduplicación por texto, no por módulo; `netdb.h`/`unistd.h` llegan al bundle |
@@ -30,8 +30,8 @@ psc lsp --tcp: initialize/shutdown/exit OK
 
 ## Pendiente para cerrar F8
 
-1. Diagnósticos in-process o subprocess verificados con errores reales (hoy el
-   pipeline responde, pero falta validar el contenido y UTF-16 del rango).
+1. Diagnósticos con contenido real (hoy se publica `[]`; falta integrar
+   `psc check` sin corromper el heap y validar UTF-16).
 2. Completion, hover, signature help.
 3. Definition, implementation, references, highlight.
 4. Document/workspace symbols, folding.

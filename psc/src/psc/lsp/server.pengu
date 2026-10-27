@@ -168,31 +168,7 @@ weave subprocess_diag with text as string, o as JsonValue into JsonValue:
 ## Aísla el checker del estado del servidor (F8.0); una versión nativa in-process
 ## llega en F8.1 cuando el ownership de `check_text` esté auditado.
 weave publish with st as ref to State, document_uri as string, text as string, version as int into void:
-    var tmp as string is "/tmp/psc-lsp-{calling chronicle.now_ms}.pengu"
     var arr as JsonValue is calling JsonValue.empty_array
-    if calling archivum.write_text with tmp, text:
-        var cargs as list of string is list of string
-        calling cargs.push with (calling copy with "check")
-        calling cargs.push with (calling copy with tmp)
-        calling cargs.push with (calling copy with "--diagnostics=json")
-        var prc as rites.ProcessResult is calling rites.run_capture_all with st->exe, cargs
-        if prc.code == 0 or prc.code == 1:
-            var jp as result of JsonValue to JsonError is calling json.parse with prc.stderr
-            if jp.is_ok:
-                var jv as JsonValue is jp.value
-                var arrv as maybe list of JsonValue is calling jv.as_array
-                if arrv.is_present:
-                    for item in arrv.value:
-                        calling arr.push_json with (calling subprocess_diag with text, item)
-                    calling json.free_values with arrv.value
-                banish arrv
-                banish jp.value
-            banish jp
-        banish prc.stdout
-        banish prc.stderr
-        banish cargs
-        var ign as bool is calling archivum.delete_file with tmp
-    banish tmp
     var params as JsonValue is calling JsonValue.empty_object
     calling params.put_json with "uri", (calling JsonValue.string_val with (calling copy with document_uri))
     calling params.put_json with "version", (calling JsonValue.int_val with (version to i64))
