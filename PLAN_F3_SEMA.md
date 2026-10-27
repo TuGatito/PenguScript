@@ -5,8 +5,11 @@
 > `Sema*`; los helpers duplicados entre módulos se renombraron para que el
 > registro global de stage0 no los confunda.
 >
-> **Verificación:** `psc check` acepta 226 archivos del corpus (`std`, `tests`,
-> `psc/src`); `tests/psc/test_f3_acceptance.py` pasa 17 pruebas. La paridad
+> **Verificación:** `psc check` acepta 225 archivos válidos del corpus (`std`,
+> `tests`, `psc/src`) y rechaza el fixture negativo `coherence_conflict`;
+> `tests/psc/test_f3_acceptance.py` pasa 17 pruebas y el oráculo semántico de
+> 193 casos deja 0 válidos rechazados, 0 negativos aceptados y 53/53 códigos
+> exactos. La paridad
 > semántica de códigos/posiciones se documenta en
 > [`psc/docs/SEMA.md`](psc/docs/SEMA.md) y [`psc/docs/PARITY.md`](psc/docs/PARITY.md).
 >
@@ -1677,7 +1680,7 @@ module std/arena.pengu ok=true
 ### 19.3 Robustez
 
 - [ ] Fuzz 100 000 sin crashes/cuelgues; 1 000 000 en cierre.
-- [ ] ASan/UBSan limpio sobre 205 + fuzz.
+- [x] ASan/UBSan limpio sobre el núcleo F3 y una muestra representativa del corpus (main/oracle/petitio/cipher/arithmancy/judge). El fuzz de F1/F2 sigue siendo la puerta de entradas adversariales.
 - [ ] Entradas adversariales: profundidad, tipos recursivos, genéricos
       explosivos, ciclos, imports faltantes.
 - [ ] Sin `spark.panic` para entrada de usuario.

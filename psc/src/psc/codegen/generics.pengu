@@ -1,0 +1,227 @@
+## psc/codegen/generics.pengu — especialización de funciones genéricas.
+##
+## F3 reconoce los `shard` pero no materializa instancias. F4 crea una función
+## C por cada combinación de argumentos de tipo que aparece en una llamada
+## explícita (`f of T`). La sustitución se guarda en `CgNames.subst`.
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.sema.ast as astutil
+import psc.sema.modules.loader as loader
+import psc.sema.names as npool
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.table as symbols
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.annotate as ann
+
+import psc.codegen.context as context
+import psc.codegen.catalog as catalog
+import psc.codegen.type_ast as tast
+import psc.codegen.emit as emit
+
+insignia psc_codegen_generics_
+
+## Busca una especialización existente.
+##
+## ## Memoria
+## O(funciones).
+weave find_spec with c as ref to context.CgContext, sid as int, args as list of int into int:
+    var i as int is 0
+    while i < c->catalog.functions.len:
+        var f as catalog.CgFunction is (c->catalog.functions at i)
+        if f.is_spec and f.symbol == sid and f.spec_args.len == args.len:
+            var same as bool is true
+            var j as int is 0
+            while j < args.len:
+                if (f.spec_args at j) != (args at j):
+                    set same is false
+                set j is j + 1
+            if same:
+                return i
+        set i is i + 1
+    return -1
+
+## Añade una especialización de una función genérica.
+##
+## ## Memoria
+## Añade al catálogo; no posee strings.
+weave add_spec with c as ref to context.CgContext, base_idx as int, args as list of int into int:
+    var base as catalog.CgFunction is (c->catalog.functions at base_idx)
+    var ex as int is calling find_spec with c, base.symbol, args
+    if ex >= 0:
+        return ex
+    var bname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), base.c_name)
+    var cname as string is "{bname}_inst{c->catalog.functions.len}"
+    banish bname
+    var cid as int is calling npool.intern with (sigil of c->program->names), cname
+    banish cname
+    var tps as list of int is list of int
+    var i as int is 0
+    while i < base.tparams.len:
+        calling tps.push with (base.tparams at i)
+        set i is i + 1
+    var sargs as list of int is list of int
+    set i is 0
+    while i < args.len:
+        calling sargs.push with (args at i)
+        set i is i + 1
+    var f as catalog.CgFunction is with name is base.name, symbol is base.symbol, node is base.node, module is base.module, is_declare is false, is_antiquus is false, is_method is base.is_method, recv_type is base.recv_type, self_value is base.self_value, is_ritual is base.is_ritual, tparams is tps, spec_args is sargs, is_generic is true, is_spec is true, is_main is false, c_name is cid
+    calling c->catalog.functions.push with f
+    return c->catalog.functions.len - 1
+
+## Unifica un tipo formal con uno actual y anota los parámetros.
+##
+## ## Memoria
+## No asigna; usa el mapa prestado.
+weave unify with c as ref to context.CgContext, formal as int, actual as int, subst as ref to map of int to int into void:
+    if formal <= 0 or actual <= 0:
+        return
+    var ft as tk.SemaType is calling types.at with (sigil of c->program->types), formal
+    var at as tk.SemaType is calling types.at with (sigil of c->program->types), actual
+    if ft.kind == tk.SemaTypeKind.TkTypeParam:
+        calling subst.put with ft.name, actual
+        return
+    if ft.kind == tk.SemaTypeKind.TkRef or ft.kind == tk.SemaTypeKind.TkFrozen or ft.kind == tk.SemaTypeKind.TkArray or ft.kind == tk.SemaTypeKind.TkList or ft.kind == tk.SemaTypeKind.TkSlice or ft.kind == tk.SemaTypeKind.TkMaybe:
+        calling unify with c, ft.a, at.a, subst
+        return
+    if ft.kind == tk.SemaTypeKind.TkResult:
+        calling unify with c, ft.a, at.a, subst
+        calling unify with c, ft.b, at.b, subst
+        return
+    if ft.kind == tk.SemaTypeKind.TkMap:
+        calling unify with c, ft.a, at.a, subst
+        calling unify with c, ft.b, at.b, subst
+        return
+
+## Infiere los argumentos de tipo de una llamada genérica.
+##
+## ## Memoria
+## Devuelve una lista owned; vacía si no se puede inferir.
+weave infer_from_actual with c as ref to context.CgContext, base_idx as int, actuals as list of int into list of int:
+    var out as list of int is list of int
+    var bf as catalog.CgFunction is (c->catalog.functions at base_idx)
+    if not bf.is_generic or bf.tparams.len == 0:
+        return out
+    var subst as map of int to int is map of int to int
+    var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), bf.symbol
+    var ft as tk.SemaType is calling types.at with (sigil of c->program->types), sv.type
+    if ft.kind != tk.SemaTypeKind.TkFn:
+        banish subst
+        return out
+    var info as types.SemaFnInfo is (c->program->types.fn_infos at ft.a)
+    var pi as int is 0
+    while pi < info.params_count and pi < actuals.len:
+        var p as types.SemaFnParam is (c->program->types.fn_params at (info.params_first + pi))
+        calling unify with c, p.type, (actuals at pi), (sigil of subst)
+        set pi is pi + 1
+    var ti as int is 0
+    while ti < bf.tparams.len:
+        var tp as int is (bf.tparams at ti)
+        if (calling subst.has with tp):
+            calling out.push with (calling subst.get with tp)
+        set ti is ti + 1
+    banish subst
+    return out
+
+## Recorre un nodo buscando llamadas genéricas explícitas.
+##
+## ## Memoria
+## Recursión sobre el AST.
+weave scan with c as ref to context.CgContext, m as loader.SemaModule, node as int into void:
+    if node < 0:
+        return
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    if (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdCallingExpr:
+        var gargs as int is calling astutil.node_child with ast, node, 1
+        var target as int is calling astutil.node_child with ast, node, 0
+        if target >= 0:
+            var last as int is calling expr_last_token with ast, target
+            if last >= 0:
+                var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), last
+                var nid as int is calling npool.intern with (sigil of c->program->names), txt
+                banish txt
+                if calling c->catalog.by_name.has with nid:
+                    var bi as int is calling c->catalog.by_name.get with nid
+                    var bf as catalog.CgFunction is (c->catalog.functions at bi)
+                    if bf.is_generic:
+                        var is_explicit as bool is gargs >= 0 and (calling astutil.kind_of with ast, gargs) == pskind.NodeKind.NdGenericArgs
+                        if is_explicit:
+                            var args as list of int is list of int
+                            var ai as int is 0
+                            var an as int is calling astutil.child_count with ast, gargs
+                            while ai < an:
+                                var atn as int is calling astutil.node_child with ast, gargs, ai
+                                if atn >= 0:
+                                    var tid as int is calling tast.from_ast with c, m, atn
+                                    if tid > 0:
+                                        calling args.push with tid
+                                set ai is ai + 1
+                            if args.len == bf.tparams.len:
+                                var ig1 as int is calling add_spec with c, bi, args
+                            banish args
+                        else:
+                            var bmod as loader.SemaModule is (c->program->modules at bf.module)
+                            if not (bmod.is_std or ((bmod.path length) >= 4 and (bmod.path at 0 to 4) == "std/")):
+                                var actuals as list of int is list of int
+                                var argn as int is calling astutil.node_child with ast, node, 2
+                                if argn >= 0:
+                                    var ac as int is calling astutil.child_count with ast, argn
+                                    var a2 as int is 0
+                                    while a2 < ac:
+                                        var an2 as int is calling astutil.node_child with ast, argn, a2
+                                        if an2 >= 0:
+                                            var av2 as int is an2
+                                            if (calling astutil.kind_of with ast, an2) == pskind.NodeKind.NdPosArg:
+                                                set av2 is calling astutil.node_child with ast, an2, 0
+                                            if av2 >= 0:
+                                                var aty2 as int is calling ann.type_of with (sigil of m.annotations), av2
+                                                if aty2 > 0:
+                                                    calling actuals.push with aty2
+                                        set a2 is a2 + 1
+                                var inf as list of int is calling infer_from_actual with c, bi, actuals
+                                if inf.len == bf.tparams.len and inf.len > 0:
+                                    var ig2 as int is calling add_spec with c, bi, inf
+                                banish inf
+                                banish actuals
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            calling scan with c, m, ch
+        set i is i + 1
+
+## Último token de un target (sin depender de expr para evitar ciclos).
+##
+## ## Memoria
+## O(nodos).
+weave expr_last_token with ast as ref to psast.PsAst, node as int into int:
+    if node < 0:
+        return -1
+    var n as int is calling astutil.child_count with ast, node
+    var i as int is n - 1
+    while i >= 0:
+        var t as int is calling astutil.token_child with ast, node, i
+        if t >= 0:
+            return t
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            var got as int is calling expr_last_token with ast, ch
+            if got >= 0:
+                return got
+        set i is i - 1
+    return -1
+
+## Especializa todas las llamadas genéricas del catálogo.
+##
+## ## Memoria
+## Añade funciones al catálogo.
+weave specialize_all with c as ref to context.CgContext into void:
+    var i as int is 0
+    while i < c->catalog.functions.len:
+        var f as catalog.CgFunction is (c->catalog.functions at i)
+        if not f.is_declare:
+            var m as loader.SemaModule is (c->program->modules at f.module)
+            calling scan with c, m, f.node
+        set i is i + 1

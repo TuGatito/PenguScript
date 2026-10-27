@@ -126,3 +126,48 @@ weave token_at with lex as ref to psstate.LexResult, idx as int into pstoken.Tok
     if idx < 0 or idx >= lex->tokens.len:
         return (lex->tokens at 0)
     return (lex->tokens at idx)
+
+## Token del label de loop del nodo, o `-1`.
+##
+## ## Memoria
+## O(labels); no asigna.
+weave loop_label_token with ast as ref to psast.PsAst, id as int into int:
+    var i as int is 0
+    while i < ast->labels.len:
+        var l as psast.PsLoopLabel is (ast->labels at i)
+        if l.node == id:
+            return l.token
+        set i is i + 1
+    return -1
+
+## ¿Hay algún loop con el label `name` en el AST?
+##
+## ## Memoria
+## O(labels); copia el texto para comparar.
+weave label_text_exists with src as ref to psource.SourceFile, lex as ref to psstate.LexResult, ast as ref to psast.PsAst, name as string into bool:
+    var i as int is 0
+    while i < ast->labels.len:
+        var l as psast.PsLoopLabel is (ast->labels at i)
+        var txt as string is calling token_text with src, lex, l.token
+        defer banish txt
+        if txt == name:
+            return true
+        set i is i + 1
+    return false
+
+## ¿Hay un loop con label `name` cuyo token cae en `[start,end)`?
+##
+## ## Memoria
+## O(labels); copia el texto para comparar.
+weave label_text_in_range with src as ref to psource.SourceFile, lex as ref to psstate.LexResult, ast as ref to psast.PsAst, name as string, start as int, end as int into bool:
+    var i as int is 0
+    while i < ast->labels.len:
+        var l as psast.PsLoopLabel is (ast->labels at i)
+        var t as pstoken.Token is calling token_at with lex, l.token
+        if t.start >= start and t.start < end:
+            var txt as string is calling token_text with src, lex, l.token
+            defer banish txt
+            if txt == name:
+                return true
+        set i is i + 1
+    return false

@@ -1,0 +1,6 @@
+weave add with a as int, b as int into int:
+    return a + b
+
+weave main into int:
+    var x as int is calling add with 2, 3
+    return x

@@ -1074,19 +1074,19 @@ class PenguChecker:
                 for type_name, type_value in registry.items():
                     if type_name in scope_names or type_name.startswith("_"):
                         continue
+                    if type_name in sub_checker.symbols.synthetic_type_names:
+                        continue
                     exports.append((type_name, Symbol(
                         name=type_name, type=type_value, kind=reg_kind, is_public=True,
                         file_path=abs_file,
                         c_name=getattr(type_value, "c_name", None) or type_name,
                     )))
-            for alias_name, alias_type in sub_checker.symbols.aliases.items():
-                if alias_name in scope_names or alias_name.startswith("_"):
-                    continue
-                exports.append((alias_name, Symbol(
-                    name=alias_name, type=AliasType(alias_name, alias_type), kind="alias",
-                    is_public=True, file_path=abs_file, c_name=alias_name,
-                )))
-
+            # Los alias **declarados** ya están en `global_scope` (ver
+            # `_collect_top_level`). No se recorren los alias del registro:
+            # ese registro también contiene claves sintéticas de imports
+            # (`convert_ByteSpan`, `parse_api_...`) que se acumulan de forma
+            # combinatoria y convertían los exports de un módulo en cientos de
+            # miles de entradas. Reexportarlas no aporta nombres utilizables.
             bundle = _ModuleExports(
                 file_path=abs_file,
                 exports=exports,
@@ -1302,7 +1302,13 @@ class PenguChecker:
                                         (f"{bind_name}_{sname}", eff_c_name)
                                     )
                                 if sym.kind == "rune" and isinstance(sym.type, RuneType):
+                                    # La clave cualificada `mod_Type` sirve para
+                                    # resolver `mod.Type`, pero es sintética: no
+                                    # se reexporta (generaría nombres
+                                    # combinatorios como
+                                    # `convert_parse_api_...`).
                                     self.symbols.runes[f"{bind_name}_{sname}"] = sym.type
+                                    self.symbols.synthetic_type_names.add(f"{bind_name}_{sname}")
                                     self.symbols.runes[eff_c_name] = sym.type
                                     self.symbols.imported_names.update(
                                         (f"{bind_name}_{sname}", eff_c_name)
@@ -1323,7 +1329,12 @@ class PenguChecker:
                                     self.symbols.imported_names.update(
                                         (f"{bind_name}_{sname}", eff_c_name, sname)
                                     )
-                                    self.symbols.global_scope.define(sym)
+                                    # El alias queda en el `mod_scope` del
+                                    # importador; no se define en el scope
+                                    # global. Hacerlo acumulaba claves
+                                    # sintéticas de imports transitivos en
+                                    # `global_scope` y explotaba los exports
+                                    # (cientos de miles de nombres).
                             for gname, ginfo in mod_symbols.generic_functions.items():
                                 self.symbols.generic_functions[gname] = ginfo
                                 owner = mod_symbols.generic_function_owner.get(gname)

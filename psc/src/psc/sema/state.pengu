@@ -76,6 +76,8 @@ rune SemaState:
     stop_after_first as bool
     ## `true` si el chequeo debe detenerse.
     stop as bool
+    ## `true` mientras se infiere un `expr_stmt` (permite métodos @mutates).
+    allow_mutating as bool
 
 ## Stub de inferencia.
 ##

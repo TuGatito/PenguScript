@@ -147,6 +147,7 @@ weave collect_top with s as ref to state.SemaState, node as int into void:
         calling collect_concept with s, n
         return
     if kind == pskind.NodeKind.NdBindDecl:
+        calling collect_bind with s, n
         return
     if kind == pskind.NodeKind.NdWeaveDecl:
         calling collect_weave with s, n, false
@@ -211,8 +212,10 @@ weave import_alias with s as ref to state.SemaState, node as int, dot as string 
     var i as int is 0
     var n as int is dot length
     while i < n:
-        if (dot at i) == ".":
+        var ch as string is dot at i
+        if ch == ".":
             set last is i + 1
+        banish ch
         set i is i + 1
     var txt2 as string is calling collect_substring with dot, last, n
     defer banish txt2
@@ -245,7 +248,9 @@ weave collect_substring with s as string, start as int, end as int into string:
     defer banish sb
     var i as int is start
     while i < end:
-        calling sb.append with (s at i)
+        var ch as string is s at i
+        calling sb.append with ch
+        banish ch
         set i is i + 1
     return calling sb.finish
 
@@ -353,14 +358,22 @@ weave collect_link with s as ref to state.SemaState, node as int, kind as pskind
 ## Devuelve un string owned.
 weave unquote with s as string into string:
     var n as int is s length
-    if n >= 2 and (s at 0) == "\"" and (s at (n - 1)) == "\"":
-        var i as int is 1
-        var sb as StringBuilder is calling StringBuilder.new
-        defer banish sb
-        while i < n - 1:
-            calling sb.append with (s at i)
-            set i is i + 1
-        return calling sb.finish
+    if n >= 2:
+        var q0 as string is s at 0
+        var q1 as string is s at (n - 1)
+        var quoted as bool is q0 == "\"" and q1 == "\""
+        banish q0
+        banish q1
+        if quoted:
+            var i as int is 1
+            var sb as StringBuilder is calling StringBuilder.new
+            defer banish sb
+            while i < n - 1:
+                var ch as string is s at i
+                calling sb.append with ch
+                banish ch
+                set i is i + 1
+            return calling sb.finish
     return "{s}"
 
 ## `insignia NAME`.
@@ -484,6 +497,43 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
                 set field_count is field_count + 1
         set i is i + 1
     calling types.set_nominal_fields with s->types, info_idx, fields_first, field_count
+    # Conceptos derivados (`derive Nexus, Par`).
+    var dfirst as int is s->types->derived.len
+    var dcount as int is 0
+    var di as int is 0
+    while di < n:
+        var dc as int is calling astutil.node_child with s->ast, node, di
+        if dc >= 0 and (calling astutil.kind_of with s->ast, dc) == pskind.NodeKind.NdDeriveClause:
+            var dj as int is 0
+            var dn as int is calling astutil.child_count with s->ast, dc
+            while dj < dn:
+                var dt as int is calling astutil.node_child with s->ast, dc, dj
+                if dt >= 0:
+                    var dctx as convert.TypeCtx is calling collect_type_ctx with s
+                    var did as int is calling convert.convert with (sigil of dctx), dt
+                    if did > 0:
+                        var dty2 as tk.SemaType is calling types.at with s->types, did
+                        var dname as string is calling npool.text with s->names, dty2.name
+                        if dname == "Real":
+                            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, dt), (calling astutil.end_of with s->ast, dt), "concept 'Real' cannot be derived", "Implement Real explicitly or derive Nexus/Par/Ordo.", ""
+                        else:
+                            calling types.add_derived with s->types, did
+                            set dcount is dcount + 1
+                set dj is dj + 1
+        set di is di + 1
+    var dinfo as types.SemaNominalInfo is (s->types->nominal_infos at info_idx)
+    set dinfo.derived_first is dfirst
+    set dinfo.derived_count is dcount
+    var tpc as int is 0
+    var ti as int is 0
+    while ti < n:
+        var tc as int is calling astutil.node_child with s->ast, node, ti
+        if tc >= 0 and (calling astutil.kind_of with s->ast, tc) == pskind.NodeKind.NdShardParams:
+            set tpc is calling astutil.child_count with s->ast, tc
+        set ti is ti + 1
+    set dinfo.tparams_first is 0
+    set dinfo.tparams_count is tpc
+    set s->types->nominal_infos at (info_idx) is dinfo
     var skind as sym.SemaSymbolKind is sym.SemaSymbolKind.SkRune
     if sk == sym.SemaSymbolKind.SkEcho:
         set skind is sym.SemaSymbolKind.SkEcho
@@ -627,6 +677,82 @@ weave collect_concept with s as ref to state.SemaState, node as int into void:
 ## `const NAME [as T] is value`.
 ##
 ## ## Memoria
+## Evalúa un literal constante simple.
+##
+## F3 sólo necesita valores para `const` de módulo; las expresiones complejas
+## se dejan en `CkNone` y las resolverá el codegen/inferencia cuando exista el
+## plegado completo. Aquí se cubren enteros (decimal/hex), bool, string y char,
+## que son la mayoría de constantes de std.
+##
+## ## Memoria
+## El string se interna en el pool; no asigna listas.
+weave const_literal with s as ref to state.SemaState, node as int into sym.SemaConst:
+    var cv as sym.SemaConst is with kind is sym.SemaConstKind.CkNone, i is 0, f is 0.0, b is false, name is -1
+    if node < 0:
+        return cv
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    if k == pskind.NodeKind.NdTrueLit:
+        set cv.kind is sym.SemaConstKind.CkBool
+        set cv.b is true
+        return cv
+    if k == pskind.NodeKind.NdFalseLit:
+        set cv.kind is sym.SemaConstKind.CkBool
+        return cv
+    if k == pskind.NodeKind.NdStringLit:
+        var raw as string is calling astutil.child_token_text with s->src, s->lex, s->ast, node, 0
+        if raw length >= 2:
+            var content as string is raw at 1 to (raw length - 1)
+            set cv.kind is sym.SemaConstKind.CkString
+            set cv.name is calling npool.intern with s->names, content
+            banish content
+        banish raw
+        return cv
+    if k == pskind.NodeKind.NdCharLit:
+        var rawc as string is calling astutil.child_token_text with s->src, s->lex, s->ast, node, 0
+        if rawc length >= 3:
+            var ch as string is rawc at 1 to 2
+            var b as ref to frozen byte is bytes of ch
+            set cv.kind is sym.SemaConstKind.CkChar
+            set cv.i is ((b at 0) to i64)
+            banish ch
+        banish rawc
+        return cv
+    if k != pskind.NodeKind.NdIntLit:
+        return cv
+    var text as string is calling astutil.child_token_text with s->src, s->lex, s->ast, node, 0
+    var b2 as ref to frozen byte is bytes of text
+    var i as int is 0
+    var neg as bool is false
+    if text length > 0 and ((b2 at 0) to int) == 45:
+        set neg is true
+        set i is 1
+    var base as i64 is 10
+    if i + 1 < text length and ((b2 at i) to int) == 48 and (((b2 at (i + 1)) to int) == 120 or ((b2 at (i + 1)) to int) == 88):
+        set base is 16
+        set i is i + 2
+    var v as i64 is 0
+    while i < text length:
+        var code as int is ((b2 at i) to int)
+        if code == 95:
+            set i is i + 1
+            continue
+        var d as int is -1
+        if code >= 48 and code <= 57:
+            set d is code - 48
+        else if code >= 97 and code <= 102:
+            set d is code - 87
+        else if code >= 65 and code <= 70:
+            set d is code - 55
+        if d >= 0:
+            set v is v * base + (d to i64)
+        set i is i + 1
+    if neg:
+        set v is -v
+    set cv.kind is sym.SemaConstKind.CkInt
+    set cv.i is v
+    banish text
+    return cv
+
 ## Añade un símbolo y un valor constante POD.
 weave collect_const with s as ref to state.SemaState, node as int into void:
     var name as int is calling decl_name with s, node
@@ -638,7 +764,7 @@ weave collect_const with s as ref to state.SemaState, node as int into void:
         set ty is calling convert.convert with (sigil of ctx), type_node
     if ty <= 0:
         set ty is calling infer.infer with s, value_node, -1
-    var cv as sym.SemaConst is with kind is sym.SemaConstKind.CkNone, i is 0, f is 0.0, b is false, name is -1
+    var cv as sym.SemaConst is calling const_literal with s, value_node
     calling symbols.symbol_define_const with s->symbols, name, ty, cv
 
 ## `true` si `s` empieza por `prefix`.
@@ -684,6 +810,7 @@ weave has_attribute with s as ref to state.SemaState, attrs as int, name as stri
 ## Añade FnType/símbolo; `check` valida el cuerpo.
 weave collect_weave with s as ref to state.SemaState, node as int, no_body as bool into void:
     var name as int is calling decl_name with s, node
+    calling reject_free_mutates with s, node
     var slot as int is calling collect_name_slot with s, node
     var params_slot as int is slot + 2
     var ret_slot as int is slot + 3
@@ -698,9 +825,20 @@ weave collect_weave with s as ref to state.SemaState, node as int, no_body as bo
         if rnode >= 0:
             var ctx as convert.TypeCtx is calling collect_type_ctx with s
             set ret is calling convert.convert with (sigil of ctx), rnode
+    var br as ParamRange is with first is 0, count is 0
+    var shard_node as int is calling astutil.node_child with s->ast, node, 2
+    if shard_node >= 0:
+        var shi as int is 0
+        var shn as int is calling astutil.child_count with s->ast, shard_node
+        while shi < shn:
+            var shc as int is calling astutil.node_child with s->ast, shard_node, shi
+            if shc >= 0 and (calling astutil.kind_of with s->ast, shc) == pskind.NodeKind.NdWhereClause:
+                set br is calling collect_bounds with s, shc
+            set shi is shi + 1
     var info as types.SemaFnInfo is with params_first is pr.first, params_count is pr.count, return_type is ret, tparams_first is 0, tparams_count is 0, flags is 0, attrs_node is -1
     var ft as int is calling types.fn_type with s->types, info
     var sid as int is calling symbols.symbol_define_function with s->symbols, name, ft
+    calling apply_bounds with s, sid, br
     var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
     if no_body:
         set sv.kind is sym.SemaSymbolKind.SkDeclare
@@ -736,6 +874,220 @@ weave collect_params with s as ref to state.SemaState, pnode as int, out as ref 
             set out->count is out->count + 1
         set i is i + 1
 
+## Nodo `attribute` llamado `name`, o `-1`.
+##
+## ## Memoria
+## O(attrs).
+weave find_attribute with s as ref to state.SemaState, attrs as int, name as string into int:
+    if attrs < 0:
+        return -1
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, attrs
+    while i < n:
+        var a as int is calling astutil.node_child with s->ast, attrs, i
+        if a >= 0:
+            var t as int is calling astutil.token_child with s->ast, a, 0
+            if t >= 0:
+                var txt as string is calling astutil.token_text with s->src, s->lex, t
+                defer banish txt
+                if txt == name:
+                    return a
+        set i is i + 1
+    return -1
+
+## Valida `@mutates` en un método.
+##
+## Reglas stage0: sin argumentos; retorno `void` o el tipo receptor.
+##
+## ## Memoria
+## Puede emitir diagnósticos; no posee recursos.
+weave check_mutates_method with s as ref to state.SemaState, m as int, recv as int, ft as int into void:
+    var attrs as int is calling astutil.node_child with s->ast, m, 0
+    var a as int is calling find_attribute with s, attrs, "mutates"
+    if a < 0:
+        return
+    var start as int is calling astutil.start_of with s->ast, a
+    var end as int is calling astutil.end_of with s->ast, a
+    var args as int is calling astutil.node_child with s->ast, a, 1
+    if args >= 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTATES_ATTR, start, end, "@mutates does not take arguments", "Write @mutates.", ""
+        return
+    var fy as tk.SemaType is calling types.at with s->types, ft
+    if fy.kind == tk.SemaTypeKind.TkFn:
+        var info as types.SemaFnInfo is (s->types->fn_infos at fy.a)
+        if info.return_type != 3 and info.return_type != recv:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTATES_ATTR, start, end, "@mutates must return void or the receiver type", "Return void or the mutated value.", ""
+        # Una mutación en sitio ('set self/...') debe ser un procedimiento void.
+        if info.return_type != 3:
+            var fun_found as bool is calling tree_has_set with s, m
+            if fun_found:
+                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTATES_ATTR, start, end, "@mutates with an in-place set must return void", "Return void when mutating in place.", ""
+
+## Rechaza `@mutates` en una función libre/declare.
+##
+## ## Memoria
+## O(attrs).
+weave reject_free_mutates with s as ref to state.SemaState, m as int into void:
+    var attrs as int is calling astutil.node_child with s->ast, m, 0
+    var a as int is calling find_attribute with s, attrs, "mutates"
+    if a >= 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTATES_ATTR, (calling astutil.start_of with s->ast, a), (calling astutil.end_of with s->ast, a), "@mutates is only valid on enchanting/bind methods", "Move the method into an enchanting block.", ""
+
+## Firma de un método de `enchanting`/`bind` (params y retorno).
+##
+## ## Memoria
+## Añade fn_params y fn_info; devuelve el `TypeId`.
+weave collect_method_sig with s as ref to state.SemaState, m as int into int:
+    var slot as int is calling collect_name_slot with s, m
+    var params_slot as int is slot + 2
+    var ret_slot as int is slot + 3
+    var pr2 as ParamRange is with first is 0, count is 0
+    if params_slot < calling astutil.child_count with s->ast, m:
+        var pn as int is calling astutil.node_child with s->ast, m, params_slot
+        if pn >= 0:
+            calling collect_params with s, pn, (sigil of pr2)
+    var ret as int is 3
+    if ret_slot < calling astutil.child_count with s->ast, m:
+        var rn as int is calling astutil.node_child with s->ast, m, ret_slot
+        if rn >= 0:
+            var ctx as convert.TypeCtx is calling collect_type_ctx with s
+            set ret is calling convert.convert with (sigil of ctx), rn
+    var info as types.SemaFnInfo is with params_first is pr2.first, params_count is pr2.count, return_type is ret, tparams_first is 0, tparams_count is 0, flags is types.FN_METHOD, attrs_node is -1
+    return calling types.fn_type with s->types, info
+
+## Recoge los bounds de un `where_clause` en `types.bounds`.
+##
+## ## Memoria
+## Añade TypeIds de concepto; devuelve `first/count`.
+weave collect_bounds with s as ref to state.SemaState, where_node as int into ParamRange:
+    var out as ParamRange is with first is s->types->bounds.len, count is 0
+    if where_node < 0:
+        return out
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, where_node
+    while i < n:
+        var wb as int is calling astutil.node_child with s->ast, where_node, i
+        if wb >= 0 and (calling astutil.kind_of with s->ast, wb) == pskind.NodeKind.NdWhereBound:
+            var cnode as int is calling astutil.node_child with s->ast, wb, 1
+            if cnode >= 0:
+                var ctx as convert.TypeCtx is calling collect_type_ctx with s
+                var cid as int is calling convert.convert with (sigil of ctx), cnode
+                if cid > 0:
+                    calling types.add_bound with s->types, cid
+                    set out.count is out.count + 1
+        set i is i + 1
+    return out
+
+## Aplica bounds a un símbolo ya definido.
+##
+## ## Memoria
+## O(1).
+weave apply_bounds with s as ref to state.SemaState, sid as int, br as ParamRange into void:
+    if br.count <= 0 or sid < 0:
+        return
+    var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+    set sv.bounds_first is br.first
+    set sv.bounds_count is br.count
+    calling symbols.symbol_set with s->symbols, sid, sv
+
+## Rechaza métodos duplicados sobre un primitivo (coherencia).
+##
+## ## Memoria
+## O(1); puede emitir diagnósticos.
+weave reject_duplicate_primitive with s as ref to state.SemaState, recv as int, mname as int, m as int into void:
+    var rt as tk.SemaType is calling types.at with s->types, recv
+    if rt.kind != tk.SemaTypeKind.TkBase:
+        return
+    if (calling symbols.lookup_method_exact with s->symbols, recv, mname) >= 0:
+        var mtext as string is calling npool.text with s->names, mname
+        var msg as string is "duplicate method '{mtext}' on primitive type"
+        defer banish msg
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_PRIMITIVE_METHOD, (calling astutil.start_of with s->ast, m), (calling astutil.end_of with s->ast, m), msg, "Remove or rename the duplicate implementation.", ""
+
+## Marca un método como `@mutates` en el símbolo.
+##
+## ## Memoria
+## O(1).
+weave mark_mutating with s as ref to state.SemaState, m as int, sid as int into void:
+    var attrs as int is calling astutil.node_child with s->ast, m, 0
+    if (calling find_attribute with s, attrs, "mutates") >= 0:
+        var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+        set sv.flags is sv.flags | sym.SYM_MUTATING
+        calling symbols.symbol_set with s->symbols, sid, sv
+
+## ¿El subárbol contiene `self`?
+##
+## ## Memoria
+## O(nodos).
+weave tree_has_self with s as ref to state.SemaState, node as int into bool:
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    if k == pskind.NodeKind.NdSelfRef:
+        return true
+    if k == pskind.NodeKind.NdNormalTarget:
+        var t as int is calling astutil.token_child with s->ast, node, 0
+        if t >= 0:
+            var txt as string is calling astutil.token_text with s->src, s->lex, t
+            defer banish txt
+            if txt == "self":
+                return true
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        var c as int is calling astutil.node_child with s->ast, node, i
+        if c >= 0 and calling tree_has_self with s, c:
+            return true
+        set i is i + 1
+    return false
+
+## ¿Hay un `set` sobre `self`/sus campos en el subárbol?
+##
+## Los `set` de locales no cuentan para `@mutates`.
+##
+## ## Memoria
+## O(nodos).
+weave tree_has_set with s as ref to state.SemaState, node as int into bool:
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    if k == pskind.NodeKind.NdSetStmt or k == pskind.NodeKind.NdCompoundSetStmt:
+        var tgt as int is calling astutil.node_child with s->ast, node, 0
+        if tgt >= 0 and calling tree_has_self with s, tgt:
+            return true
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        var c as int is calling astutil.node_child with s->ast, node, i
+        if c >= 0 and calling tree_has_set with s, c:
+            return true
+        set i is i + 1
+    return false
+
+## ¿Existe un método de concepto con ese nombre?
+##
+## ## Memoria
+## O(métodos de concepto).
+weave concept_method_exists with s as ref to state.SemaState, name as int into bool:
+    var i as int is 0
+    while i < s->types->concept_methods.len:
+        var m as types.SemaConceptMethod is (s->types->concept_methods at i)
+        if m.name == name:
+            return true
+        set i is i + 1
+    return false
+
+## Registra el alias puro `get_<metodo>` si no existe.
+##
+## ## Memoria
+## O(1); no asigna el nombre si ya existe.
+weave define_get_alias with s as ref to state.SemaState, recv as int, mname as int, ft as int, br as ParamRange into void:
+    var mtext as string is calling npool.text with s->names, mname
+    if calling starts_with_text with mtext, "get_":
+        return
+    var gtext as string is "get_{mtext}"
+    defer banish gtext
+    var gid as int is calling npool.intern with s->names, gtext
+    if (calling symbols.lookup_method_exact with s->symbols, recv, gid) < 0:
+        var gsid as int is calling symbols.symbol_define_method with s->symbols, recv, gid, ft
+        calling apply_bounds with s, gsid, br
+
 ## `enchanting`.
 ##
 ## ## Memoria
@@ -746,36 +1098,59 @@ weave collect_enchanting with s as ref to state.SemaState, node as int into void
     var recv as int is 0
     if recv_node >= 0:
         set recv is calling convert.convert with (sigil of ctx), recv_node
+    var br as ParamRange is with first is 0, count is 0
+    var wi as int is 1
+    var wn as int is calling astutil.child_count with s->ast, node
+    while wi < wn:
+        var wc as int is calling astutil.node_child with s->ast, node, wi
+        if wc >= 0 and (calling astutil.kind_of with s->ast, wc) == pskind.NodeKind.NdWhereClause:
+            set br is calling collect_bounds with s, wc
+        set wi is wi + 1
     var i as int is 1
     var n as int is calling astutil.child_count with s->ast, node
     while i < n:
         var m as int is calling astutil.node_child with s->ast, node, i
         if m >= 0 and (calling astutil.kind_of with s->ast, m) == pskind.NodeKind.NdWeaveDecl:
             var mname as int is calling decl_name with s, m
-            # Firma simple: params/ret en las mismas posiciones que weave.
-            var slot as int is calling collect_name_slot with s, m
-            var params_slot as int is slot + 2
-            var ret_slot as int is slot + 3
-            var pr2 as ParamRange is with first is 0, count is 0
-            if params_slot < calling astutil.child_count with s->ast, m:
-                var pn as int is calling astutil.node_child with s->ast, m, params_slot
-                if pn >= 0:
-                    calling collect_params with s, pn, (sigil of pr2)
-            var ret as int is 3
-            if ret_slot < calling astutil.child_count with s->ast, m:
-                var rn as int is calling astutil.node_child with s->ast, m, ret_slot
-                if rn >= 0:
-                    set ret is calling convert.convert with (sigil of ctx), rn
-            var info as types.SemaFnInfo is with params_first is pr2.first, params_count is pr2.count, return_type is ret, tparams_first is 0, tparams_count is 0, flags is types.FN_METHOD, attrs_node is -1
-            var ft as int is calling types.fn_type with s->types, info
-            calling symbols.symbol_define_method with s->symbols, recv, mname, ft
-            var mtext2 as string is calling npool.text with s->names, mname
-            if not (calling starts_with_text with mtext2, "get_"):
-                var gtext2 as string is "get_{mtext2}"
-                defer banish gtext2
-                var gid2 as int is calling npool.intern with s->names, gtext2
-                if (calling symbols.lookup_method with s->symbols, recv, gid2) < 0:
-                    calling symbols.symbol_define_method with s->symbols, recv, gid2, ft
+            var ft as int is calling collect_method_sig with s, m
+            calling check_mutates_method with s, m, recv, ft
+            calling reject_duplicate_primitive with s, recv, mname, m
+            var msid as int is calling symbols.symbol_define_method with s->symbols, recv, mname, ft
+            calling mark_mutating with s, m, msid
+            calling apply_bounds with s, msid, br
+            calling define_get_alias with s, recv, mname, ft, br
+        set i is i + 1
+
+## `bind Tipo with Concepto:`: registra las implementaciones de método.
+##
+## ## Memoria
+## Añade métodos al registro del tipo receptor.
+weave collect_bind with s as ref to state.SemaState, node as int into void:
+    var recv_node as int is calling astutil.node_child with s->ast, node, 0
+    var ctx as convert.TypeCtx is calling collect_type_ctx with s
+    var recv as int is 0
+    if recv_node >= 0:
+        set recv is calling convert.convert with (sigil of ctx), recv_node
+    var i as int is 2
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        var m as int is calling astutil.node_child with s->ast, node, i
+        if m >= 0 and (calling astutil.kind_of with s->ast, m) == pskind.NodeKind.NdWeaveDecl:
+            var mname as int is calling decl_name with s, m
+            if not (calling concept_method_exists with s, mname):
+                var bmsg as string is "method is not declared by the bound concept"
+                defer banish bmsg
+                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, m), (calling astutil.end_of with s->ast, m), bmsg, "Implement only the concept's methods.", ""
+            var battrs as int is calling astutil.node_child with s->ast, m, 0
+            if (calling find_attribute with s, battrs, "mutates") >= 0:
+                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTATES_ATTR, (calling astutil.start_of with s->ast, m), (calling astutil.end_of with s->ast, m), "@mutates is not allowed in bind", "Use a pure method.", ""
+            var ft as int is calling collect_method_sig with s, m
+            calling check_mutates_method with s, m, recv, ft
+            calling reject_duplicate_primitive with s, recv, mname, m
+            var bsid2 as int is calling symbols.symbol_define_method with s->symbols, recv, mname, ft
+            calling mark_mutating with s, m, bsid2
+            var empty_br as ParamRange is with first is 0, count is 0
+            calling define_get_alias with s, recv, mname, ft, empty_br
         set i is i + 1
 
 ## `test "nombre":`.

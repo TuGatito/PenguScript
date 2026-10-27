@@ -1,0 +1,166 @@
+## psc/codegen/emit.pengu — escritor C de bajo nivel.
+##
+## Centraliza indentación, temporales, literales C y el `StringBuilder` de
+## salida. Ningún otro módulo concatena C a mano en bucles grandes.
+
+import std.builder
+
+insignia psc_codegen_emit_
+
+## Emisor de C.
+##
+## ## Memoria
+## Dueño del `StringBuilder`; `finish` transfiere el string.
+rune CgEmitter:
+    ## Acumulador de salida.
+    sb as StringBuilder
+    ## Nivel de indentación actual.
+    indent as int
+    ## Contador de temporales.
+    temps as int
+
+## Crea un emisor.
+##
+## ## Memoria
+## Asigna el builder; liberar con `free` o transferir con `finish`.
+weave new_emitter into CgEmitter:
+    return with sb is calling StringBuilder.new, indent is 0, temps is 0
+
+## Libera un emisor no finalizado.
+##
+## ## Memoria
+## Libera el builder.
+weave emit_free with e as ref to CgEmitter into void:
+    banish e->sb
+
+## Escribe una línea con la indentación actual.
+##
+## ## Memoria
+## No asigna salvo el builder.
+weave line with e as ref to CgEmitter, text as string into void:
+    var i as int is 0
+    while i < e->indent:
+        calling e->sb.append with "    "
+        set i is i + 1
+    calling e->sb.append with text
+    calling e->sb.append with "\n"
+
+## Escribe una línea vacía.
+##
+## ## Memoria
+## O(1).
+weave blank with e as ref to CgEmitter into void:
+    calling e->sb.append with "\n"
+
+## Escribe texto crudo.
+##
+## ## Memoria
+## O(n).
+weave raw with e as ref to CgEmitter, text as string into void:
+    calling e->sb.append with text
+
+## Aumenta la indentación.
+##
+## ## Memoria
+## O(1).
+weave indent_more with e as ref to CgEmitter into void:
+    set e->indent is e->indent + 1
+
+## Reduce la indentación.
+##
+## ## Memoria
+## O(1).
+weave indent_less with e as ref to CgEmitter into void:
+    if e->indent > 0:
+        set e->indent is e->indent - 1
+
+## Genera un nombre temporal único.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave temp with e as ref to CgEmitter, prefix as string into string:
+    var n as int is e->temps
+    set e->temps is n + 1
+    return "{prefix}{n}"
+
+## Finaliza y transfiere el bundle.
+##
+## ## Memoria
+## El emisor queda vacío; el llamador libera el string.
+weave finish with e as ref to CgEmitter into string:
+    return calling e->sb.finish
+
+## Escapa un string de PenguScript como literal C.
+##
+## Devuelve el contenido **sin** comillas; el llamador añade `"..."`.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave escape_c with s as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    var n as int is s length
+    while i < n:
+        var code as int is ((b at i) to int)
+        if code == 34:
+            calling sb.append with "\\\""
+        else if code == 92:
+            calling sb.append with "\\\\"
+        else if code == 10:
+            calling sb.append with "\\n"
+        else if code == 13:
+            calling sb.append with "\\r"
+        else if code == 9:
+            calling sb.append with "\\t"
+        else if code < 32 or code >= 127:
+            calling sb.append with "\\x"
+            var hi as int is code / 16
+            var lo as int is code % 16
+            calling append_hex_digit with (sigil of sb), hi
+            calling append_hex_digit with (sigil of sb), lo
+        else:
+            var one as string is s at i
+            calling sb.append with one
+            banish one
+        set i is i + 1
+    return calling sb.finish
+
+## Añade un dígito hexadecimal minúscula al builder.
+##
+## ## Memoria
+## Presta el builder; no asigna.
+weave append_hex_digit with sb as ref to StringBuilder, d as int into void:
+    if d == 10:
+        calling sb.append with "a"
+    else if d == 11:
+        calling sb.append with "b"
+    else if d == 12:
+        calling sb.append with "c"
+    else if d == 13:
+        calling sb.append with "d"
+    else if d == 14:
+        calling sb.append with "e"
+    else if d == 15:
+        calling sb.append with "f"
+    else if d == 0:
+        calling sb.append with "0"
+    else if d == 1:
+        calling sb.append with "1"
+    else if d == 2:
+        calling sb.append with "2"
+    else if d == 3:
+        calling sb.append with "3"
+    else if d == 4:
+        calling sb.append with "4"
+    else if d == 5:
+        calling sb.append with "5"
+    else if d == 6:
+        calling sb.append with "6"
+    else if d == 7:
+        calling sb.append with "7"
+    else if d == 8:
+        calling sb.append with "8"
+    else:
+        calling sb.append with "9"

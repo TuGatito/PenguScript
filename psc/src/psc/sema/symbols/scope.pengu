@@ -70,13 +70,17 @@ rune SemaScope:
     loop_label as int
     ## Labels de loops anidados visibles: `NameId -> label id`.
     loop_labels as map of int to int
+    ## Primer bound de concepto visible (`types.bounds`).
+    bounds_first as int
+    ## Número de bounds visibles.
+    bounds_count as int
 
 ## Crea un scope.
 ##
 ## ## Memoria
 ## Asigna dos mapas; liberar con `free_scope`.
 weave new_scope with kind as SemaScopeKind, parent as int, start_line as int, end_line as int into SemaScope:
-    return with parent is parent, kind is kind, bindings is map of int to int, with_type is -1, with_mutable is false, with_target is -1, enchanting_type is -1, return_type is -1, in_loop is false, in_or_block is false, is_ritual is false, start_line is start_line, end_line is end_line, loop_label is -1, loop_labels is map of int to int
+    return with parent is parent, kind is kind, bindings is map of int to int, with_type is -1, with_mutable is false, with_target is -1, enchanting_type is -1, return_type is -1, in_loop is false, in_or_block is false, is_ritual is false, start_line is start_line, end_line is end_line, loop_label is -1, loop_labels is map of int to int, bounds_first is 0, bounds_count is 0
 
 ## Libera los mapas del scope.
 ##

@@ -1,0 +1,5 @@
+weave unused into int:
+    return 99
+
+weave main into int:
+    return 0

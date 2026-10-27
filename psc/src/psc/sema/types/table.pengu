@@ -289,6 +289,7 @@ weave free_table with t as ref to SemaTypeTable into void:
         set ik is ik + 1
     banish t->intern_keys
     banish t->intern
+    banish t->tparam_cache
     banish t->canonical_cache
     banish t->mangled_cache
 
@@ -334,8 +335,10 @@ weave type_child_at with t as ref to SemaTypeTable, id as int, i as int into int
 ## ## Memoria
 ## Devuelve un literal prestado; no asigna.
 weave canonical_primitive with s as string into string:
-    if s == "int" or s == "i32" or s == "int32" or s == "int32_t":
+    if s == "int":
         return "int"
+    if s == "i32" or s == "int32" or s == "int32_t":
+        return "i32"
     if s == "i64" or s == "int64" or s == "int64_t" or s == "long":
         return "i64"
     if s == "u32" or s == "uint32" or s == "uint32_t" or s == "uint":
@@ -354,8 +357,10 @@ weave canonical_primitive with s as string into string:
         return "usize"
     if s == "isize" or s == "intptr_t" or s == "uintptr_t" or s == "ptrdiff_t":
         return "isize"
-    if s == "float" or s == "f32":
+    if s == "float":
         return "float"
+    if s == "f32":
+        return "f32"
     if s == "f64" or s == "double":
         return "f64"
     return s

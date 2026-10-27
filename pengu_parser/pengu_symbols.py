@@ -195,6 +195,8 @@ class SymbolTable:
         #: list: `import std.loom` used to add every `loom_*` function/type to
         #: each keystroke's completion, thousands of irrelevant items.
         self.imported_names: Set[str] = set()
+        #: Claves sintéticas de imports (`mod_Type`) que no deben exportarse.
+        self.synthetic_type_names: Set[str] = set()
 
         # Generic templates: name -> (type_params, AST node)
         self.generic_runes: Dict[str, Tuple[List[str], Any]] = {}

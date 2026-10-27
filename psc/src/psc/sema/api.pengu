@@ -73,8 +73,9 @@ weave configure_options with path as string, opts as ref to sopts.SemaOptions in
         set opts->base_dir is d
     var parent as string is calling compass.cp_dirname with opts->base_dir
     defer banish parent
-    var std_path as string is calling compass.cp_join with (calling std_parts with parent)
-    # `std_parts` crea una lista; se libera aquí.
+    var parts as list of string is calling std_parts with parent
+    defer banish parts
+    var std_path as string is calling compass.cp_join with parts
     defer banish std_path
     if calling archivum.is_dir with std_path:
         calling opts->std_dirs.push with (calling npool.copy_string with std_path)
@@ -153,7 +154,7 @@ weave check_bodies with p as ref to program.SemaProgram into void:
             var pm as loader.SemaModule is (p->modules at m.companion_for)
             set use_scope is pm.scope
         set p->symbols.current is use_scope
-        var st as state.SemaState is with program is p, module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of p->types), symbols is (sigil of p->symbols), names is (sigil of p->names), bag is (sigil of p->diagnostics), opts is (sigil of p->options), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is p->options.max_errors, stop_after_first is p->options.stop_after_first, stop is false
+        var st as state.SemaState is with program is p, module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of p->types), symbols is (sigil of p->symbols), names is (sigil of p->names), bag is (sigil of p->diagnostics), opts is (sigil of p->options), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is p->options.max_errors, stop_after_first is p->options.stop_after_first, stop is false, allow_mutating is false
         calling checker.install with (sigil of st)
         calling checker.check_module_bodies with (sigil of st)
         set p->modules at (id) is m
@@ -174,7 +175,7 @@ weave collect_all with p as ref to program.SemaProgram into void:
             var pm as loader.SemaModule is (p->modules at m.companion_for)
             set use_scope is pm.scope
         set p->symbols.current is use_scope
-        var st as state.SemaState is with program is p, module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of p->types), symbols is (sigil of p->symbols), names is (sigil of p->names), bag is (sigil of p->diagnostics), opts is (sigil of p->options), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is p->options.max_errors, stop_after_first is p->options.stop_after_first, stop is false
+        var st as state.SemaState is with program is p, module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of p->types), symbols is (sigil of p->symbols), names is (sigil of p->names), bag is (sigil of p->diagnostics), opts is (sigil of p->options), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is p->options.max_errors, stop_after_first is p->options.stop_after_first, stop is false, allow_mutating is false
         calling checker.install with (sigil of st)
         calling collect.collect_module with (sigil of st)
         set st.errors is st.errors

@@ -30,6 +30,8 @@ import psc.sema.ast as astutil
 import psc.sema.state as state
 import psc.sema.annotate as ann
 import psc.sema.diagnostics as sdiag
+import psc.parse.api as parse_api
+import psc.span as pspan
 
 insignia sema_infer_
 
@@ -49,6 +51,7 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
     else if kind == pskind.NodeKind.NdFloatLit:
         set t is calling types.base with s->types, "float"
     else if kind == pskind.NodeKind.NdStringLit:
+        calling check_string_literal with s, node
         set t is calling types.base with s->types, "string"
     else if kind == pskind.NodeKind.NdCharLit:
         set t is calling types.base with s->types, "char"
@@ -84,7 +87,15 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
     else if kind == pskind.NodeKind.NdSliceAtExpr:
         var sbase as int is calling astutil.node_child with s->ast, node, 0
         if sbase >= 0:
-            set t is calling infer with s, sbase, -1
+            var bty as int is calling infer with s, sbase, -1
+            var bsty as tk.SemaType is calling types.at with s->types, bty
+            if bsty.kind == tk.SemaTypeKind.TkBase and (calling compat.is_string with s->types, bty):
+                set t is bty
+            else:
+                var elem as int is calling compat.element_type with s->types, bty
+                if bsty.kind == tk.SemaTypeKind.TkMap:
+                    set elem is bsty.b
+                set t is calling types.slice_of with s->types, elem
         else:
             set t is 0
     else if kind == pskind.NodeKind.NdLengthExpr:
@@ -132,6 +143,18 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
     else if kind == pskind.NodeKind.NdChrExpr:
         set t is calling types.base with s->types, "string"
     else if kind == pskind.NodeKind.NdOrdExpr:
+        var ordn as int is calling astutil.node_child with s->ast, node, 0
+        if ordn >= 0:
+            var ogot as int is calling infer with s, ordn, -1
+            var oty as tk.SemaType is calling types.at with s->types, ogot
+            var chid as int is calling types.base with s->types, "char"
+            var okord as bool is false
+            if oty.kind == tk.SemaTypeKind.TkBase:
+                var oname as string is calling npool.text with s->names, oty.name
+                if oname == "char" or oname == "string":
+                    set okord is true
+            if not okord:
+                calling type_mismatch with s, ordn, chid, ogot
         set t is calling types.base with s->types, "int"
     else if kind == pskind.NodeKind.NdBytesExpr:
         var frozen_byte as int is calling types.frozen with s->types, (calling types.base with s->types, "byte")
@@ -139,6 +162,9 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
     else if kind == pskind.NodeKind.NdSizeOf:
         set t is calling types.base with s->types, "usize"
     else if kind == pskind.NodeKind.NdTypeOf:
+        var tof as int is calling astutil.node_child with s->ast, node, 0
+        if tof >= 0:
+            var ignored_tof as int is calling infer with s, tof, -1
         set t is calling types.base with s->types, "string"
     else if kind == pskind.NodeKind.NdOrElse or kind == pskind.NodeKind.NdOrReturn or kind == pskind.NodeKind.NdOrBlock:
         set t is calling infer_or with s, node, expected
@@ -176,6 +202,67 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
             set t is 1
     calling ann.set_type with s->annotations, node, t
     return t
+
+## Comprueba las interpolaciones de un literal string en el scope actual.
+##
+## ## Memoria
+## Parsea/infiere AST temporal; libera bundle, bag y anotaciones.
+weave check_string_literal with s as ref to state.SemaState, node as int into void:
+    if s->lex->strings.len == 0:
+        return
+    var ns as int is calling astutil.start_of with s->ast, node
+    var ne as int is calling astutil.end_of with s->ast, node
+    var i as int is 0
+    while i < s->lex->strings.len:
+        var si as psstate.StringInfo is (s->lex->strings at i)
+        if si.has_interp and si.content_start >= ns and si.content_end <= ne:
+            var j as int is 0
+            while j < si.part_count:
+                var part as psstate.StringPart is (s->lex->parts at (si.part_start + j))
+                if part.kind == SegInterp:
+                    var sp as pspan.ByteSpan is with start is part.start, end is part.end
+                    var txt as string is calling s->src.slice with sp
+                    defer banish txt
+                    var r as parse_api.InterpParseResult is calling parse_api.ps_parse_interpolation_expr with txt
+                    if (not r.ok) or r.diagnostics.error_count > 0:
+                        if r.diagnostics.error_count > 0:
+                            var d as diag.Diagnostic is (r.diagnostics.items at 0)
+                            var msg as string is "invalid interpolation expression: {d.message}"
+                            defer banish msg
+                            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_INTERP_PARSE, part.start, part.end, msg, "Fix the expression inside the braces.", ""
+                        banish r
+                    else:
+                        var tmp_bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+                        var tmp_ann as ann.SemaAnnotations is calling ann.new_annotations with (sigil of r.ast)
+                        var old_src as ref to psource.SourceFile is s->src
+                        var old_lex as ref to psstate.LexResult is s->lex
+                        var old_ast as ref to psast.PsAst is s->ast
+                        var old_bag as ref to diag.DiagnosticBag is s->bag
+                        var old_ann as ref to ann.SemaAnnotations is s->annotations
+                        set s->src is (sigil of r.source)
+                        set s->lex is (sigil of r.lex)
+                        set s->ast is (sigil of r.ast)
+                        set s->bag is (sigil of tmp_bag)
+                        set s->annotations is (sigil of tmp_ann)
+                        var ignored as int is calling infer with s, r.root, -1
+                        set s->src is old_src
+                        set s->lex is old_lex
+                        set s->ast is old_ast
+                        set s->bag is old_bag
+                        set s->annotations is old_ann
+                        if tmp_bag.error_count > 0:
+                            var d2 as diag.Diagnostic is (tmp_bag.items at 0)
+                            var msg2 as string is "invalid interpolation expression: {d2.message}"
+                            defer banish msg2
+                            var icode as string is sdiag.CODE_INTERP_PARSE
+                            if d2.code == sdiag.CODE_MUTATES_EXPR:
+                                set icode is sdiag.CODE_MUTATES_EXPR
+                            calling sdiag.node_error with s->bag, s->src, icode, part.start, part.end, msg2, "Fix the expression inside the braces.", ""
+                        calling ann.free_annotations with (sigil of tmp_ann)
+                        banish tmp_bag
+                        banish r
+                set j is j + 1
+        set i is i + 1
 
 ## `int` o `i64` según el literal.
 ##
@@ -238,11 +325,56 @@ weave infer_donum with s as ref to state.SemaState, node as int, expected as int
     var child as int is calling astutil.node_child with s->ast, node, 0
     if child >= 0:
         var ctx as convert.TypeCtx is with types is s->types, symbols is s->symbols, names is s->names, bag is s->bag, src is s->src, lex is s->lex, ast is s->ast
-        return calling convert.convert with (sigil of ctx), child
+        var dt as int is calling convert.convert with (sigil of ctx), child
+        var dty as tk.SemaType is calling types.at with s->types, dt
+        var dunum_ok as bool is true
+        if dty.kind == tk.SemaTypeKind.TkResult or dty.kind == tk.SemaTypeKind.TkTuple:
+            set dunum_ok is false
+        if dty.kind == tk.SemaTypeKind.TkRune:
+            var rinfo as types.SemaNominalInfo is (s->types->nominal_infos at dty.a)
+            var rname as string is calling npool.text with s->names, rinfo.base_name
+            if rinfo.tparams_count > 0 and not (calling scope_has_donum with s) and not (calling starts_with_fn with rname):
+                set dunum_ok is false
+        if not dunum_ok:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CONCEPT_OPERATOR, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "type has no default 'donum' value", "Add a 'Donum' bound or use a ritual constructor.", ""
+            return 0
+        return dt
     if expected >= 0:
         return expected
     calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "'donum' needs a type or an expected type", "Write 'donum T' or annotate the variable.", ""
     return 0
+
+## ¿El nombre parece un tipo de función (`Fn1`, `Fn2`, ...)?
+##
+## ## Memoria
+## O(1).
+weave starts_with_fn with s as string into bool:
+    if s length < 2:
+        return false
+    var fb as ref to frozen byte is bytes of s
+    if ((fb at 0) to int) != 70:
+        return false
+    return ((fb at 1) to int) == 110
+
+## ¿El scope actual tiene un bound `Donum`?
+##
+## ## Memoria
+## O(profundidad * bounds).
+weave scope_has_donum with s as ref to state.SemaState into bool:
+    var cur as int is s->symbols->current
+    while cur >= 0:
+        var sc as scope.SemaScope is (s->symbols->scopes at cur)
+        var i as int is 0
+        while i < sc.bounds_count:
+            var cid as int is (s->types->bounds at (sc.bounds_first + i))
+            var cty as tk.SemaType is calling types.at with s->types, cid
+            var cnid as int is cty.name
+            var ctext as string is calling npool.text with s->names, cnid
+            if ctext == "Donum":
+                return true
+            set i is i + 1
+        set cur is sc.parent
+    return false
 
 ## Llamada.
 ##
@@ -252,8 +384,11 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
     var target as int is calling astutil.node_child with s->ast, node, 0
     var args as int is calling astutil.node_child with s->ast, node, 2
     var sid as int is -1
+    var recv_bounds as int is -1
     var tname as string is ""
     defer banish tname
+    var method_text as string is ""
+    defer banish method_text
     if target < 0:
         return 0
     var tk2 as pskind.NodeKind is calling astutil.kind_of with s->ast, target
@@ -299,6 +434,7 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
             return 0
         var mname as string is calling astutil.token_text with s->src, s->lex, mtok
         defer banish mname
+        set method_text is calling npool.copy_string with mname
         var rcp as int is base_type
         var base_import as int is -1
         if base_sid >= 0:
@@ -356,6 +492,7 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                 if bm0 > 0:
                     calling infer_args_only with s, args
                     return bm0
+            set recv_bounds is rcp
             var recv_lookup as int is calling underlying_type with s, rcp
             var rty as tk.SemaType is calling types.at with s->types, recv_lookup
             if rty.kind == tk.SemaTypeKind.TkRef:
@@ -363,19 +500,55 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
             var mid as int is calling npool.intern with s->names, mname
             set sid is calling symbols.lookup_method with s->symbols, recv_lookup, mid
             if sid < 0:
+                var rbase as tk.SemaType is calling types.at with s->types, recv_lookup
+                if rbase.kind == tk.SemaTypeKind.TkBase:
+                    var rname as string is calling npool.text with s->names, rbase.name
+                    var alt as string is ""
+                    if rname == "f32":
+                        set alt is "float"
+                    else if rname == "i32":
+                        set alt is "int"
+                    if alt != "":
+                        var altid as int is calling types.base with s->types, alt
+                        set sid is calling symbols.lookup_method with s->symbols, altid, mid
+            if sid < 0:
                 var bm as int is calling builtin_method with s, rcp, mname, expected
                 if bm > 0:
                     calling infer_args_only with s, args
                     return bm
         if sid < 0:
-            # Fallback global: stage0 comparte el registro de funciones entre
-            # módulos; cubre helpers cualificados/importados y mantiene el
-            # comportamiento histórico sin duplicar exports.
+            # Una llamada `receptor.metodo` sólo puede resolver métodos (o
+            # builtins de contenedor); no cae al registro global de funciones.
+            if n > 1 and base_import < 0 and base_sid >= 0:
+                calling undefined_call with s, node, method_text
+                return 0
+            # Fallback global para módulos cualificados (`mod.fn`).
             set sid is calling symbols.lookup_name with s->symbols, mname
         if sid < 0:
             calling undefined_call with s, node, tname
             return 0
     var fsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+    if (fsv.flags & sym.SYM_MUTATING) != 0 and not s->allow_mutating:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTATES_EXPR, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "mutating method used as an expression", "Call it as a statement, or use the pure get_* form.", ""
+        return 0
+    if recv_bounds >= 0 and fsv.bounds_count > 0:
+        var bi as int is 0
+        var ok_bounds as bool is true
+        while bi < fsv.bounds_count:
+            if not (calling compat.concept_satisfied with s->types, recv_bounds, (s->types->bounds at (fsv.bounds_first + bi))):
+                set ok_bounds is false
+            set bi is bi + 1
+        if not ok_bounds:
+            var is_get as bool is false
+            if method_text length >= 4:
+                var gb as ref to frozen byte is bytes of method_text
+                if ((gb at 0) to int) == 103 and ((gb at 1) to int) == 101 and ((gb at 2) to int) == 116 and ((gb at 3) to int) == 95:
+                    set is_get is true
+            if (fsv.flags & sym.SYM_MUTATING) != 0 or is_get:
+                calling undefined_call with s, node, method_text
+            else:
+                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "method receiver does not satisfy its concept bound", "Use a receiver that implements the concept.", ""
+            return 0
     calling ann.ann_set_symbol with s->annotations, node, sid
     var ft as tk.SemaType is calling types.at with s->types, fsv.type
     if ft.kind == tk.SemaTypeKind.TkRef:
@@ -388,6 +561,7 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
     var info as types.SemaFnInfo is (s->types->fn_infos at ft.a)
     var i as int is 0
     var nargs as int is 0
+    var first_arg_type as int is -1
     if args >= 0:
         set nargs is calling astutil.child_count with s->ast, args
     while i < nargs:
@@ -414,7 +588,17 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                     # pointers, `void *`, ...).
                     if fsv.kind != sym.SemaSymbolKind.SkDeclare:
                         calling type_mismatch with s, vnode, p.type, got
+                if i == 0:
+                    set first_arg_type is got
         set i is i + 1
+    if recv_bounds < 0 and fsv.bounds_count > 0 and first_arg_type > 0:
+        var bj as int is 0
+        while bj < fsv.bounds_count:
+            if not (calling compat.concept_satisfied with s->types, first_arg_type, (s->types->bounds at (fsv.bounds_first + bj))):
+                var bmsg as string is "type does not satisfy concept bound"
+                defer banish bmsg
+                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CONCEPT_BOUND, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), bmsg, "Add the required concept implementation or change the bound.", ""
+            set bj is bj + 1
     return info.return_type
 
 ## Tipo de un método nativo de una colección/string.
@@ -559,6 +743,57 @@ weave infer_with_call with s as ref to state.SemaState, node as int, target as i
         return bm
     return 0
 
+## ¿El concepto `c` concede `op`?
+##
+## ## Memoria
+## O(1).
+weave concept_grants with c as string, op as string into bool:
+    if op == "add" or op == "sub" or op == "mul" or op == "div" or op == "neg":
+        return c == "Num" or c == "Integrum" or c == "Real"
+    if op == "mod" or op == "band" or op == "bor" or op == "bxor" or op == "shl" or op == "shr" or op == "bnot":
+        return c == "Integrum"
+    if op == "eq" or op == "ne":
+        return c == "Num" or c == "Integrum" or c == "Real" or c == "Par"
+    if op == "lt" or op == "le" or op == "gt" or op == "ge":
+        return c == "Integrum" or c == "Real" or c == "Ordo"
+    return true
+
+## ¿El scope actual concede `op` a un `TypeParam`?
+##
+## Devuelve `true` si no hay bounds (no se puede decidir aquí).
+##
+## ## Memoria
+## O(profundidad * bounds).
+weave bound_operator_ok with s as ref to state.SemaState, op as string into bool:
+    var cur as int is s->symbols->current
+    while cur >= 0:
+        var sc as scope.SemaScope is (s->symbols->scopes at cur)
+        if sc.bounds_count > 0:
+            var i as int is 0
+            while i < sc.bounds_count:
+                var cid as int is (s->types->bounds at (sc.bounds_first + i))
+                var cty as tk.SemaType is calling types.at with s->types, cid
+                var cnid as int is cty.name
+                if cnid < 0 and cty.a >= 0 and cty.a < s->types->nominal_infos.len:
+                    var cinfo as types.SemaNominalInfo is (s->types->nominal_infos at cty.a)
+                    set cnid is cinfo.base_name
+                var ctext as string is calling npool.text with s->names, cnid
+                if calling concept_grants with ctext, op:
+                    return true
+                set i is i + 1
+            return false
+        set cur is sc.parent
+    return true
+
+## Reporta un operador no concedido por el bound actual.
+##
+## ## Memoria
+## O(1).
+weave operator_bound_error with s as ref to state.SemaState, node as int, op as string into void:
+    var msg as string is "operator '{op}' is not granted by the concept bound"
+    defer banish msg
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CONCEPT_OPERATOR, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg, "Use a concept that grants this operator or avoid it in the generic body.", ""
+
 ## Aplica un acceso intermedio a un tipo.
 ##
 ## ## Memoria
@@ -637,6 +872,14 @@ weave infer_result_ctor with s as ref to state.SemaState, node as int, which as 
                 set ok is ex.a
             if which == "ok_of" and ex.a == 3:
                 return expected
+            if which == "ok_of":
+                if not (calling compat.compatible with s->types, val, ex.a):
+                    calling type_mismatch with s, node, ex.a, val
+                    return expected
+            if which == "err_of":
+                if not (calling compat.compatible with s->types, val, ex.b):
+                    calling type_mismatch with s, node, ex.b, val
+                    return expected
     if which == "ok_of":
         return calling types.result_of with s->types, val, err
     return calling types.result_of with s->types, ok, val
@@ -711,6 +954,9 @@ weave infer_arrow with s as ref to state.SemaState, node as int into int:
     if base >= 0:
         set bt is calling infer with s, base, -1
     var ty as tk.SemaType is calling types.at with s->types, bt
+    var base_kind as pskind.NodeKind is calling astutil.kind_of with s->ast, base
+    if base_kind == pskind.NodeKind.NdSelfRef and (ty.kind == tk.SemaTypeKind.TkBase or ty.kind == tk.SemaTypeKind.TkTypeParam):
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_SELF_DOT, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "'self' of a primitive is a value, not a reference", "Use `self.field` only on a rune/echo or a ref.", ""
     var target as int is bt
     if ty.kind == tk.SemaTypeKind.TkRef:
         set target is ty.a
@@ -1040,6 +1286,23 @@ weave infer_bool with s as ref to state.SemaState, node as int into int:
 weave infer_compare with s as ref to state.SemaState, node as int into int:
     var l as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1
     var r as int is calling infer with s, (calling astutil.node_child with s->ast, node, 1), -1
+    var lt as tk.SemaType is calling types.at with s->types, l
+    var rt as tk.SemaType is calling types.at with s->types, r
+    if lt.kind == tk.SemaTypeKind.TkTypeParam or rt.kind == tk.SemaTypeKind.TkTypeParam:
+        var cop as string is "eq"
+        var ck as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+        if ck == pskind.NodeKind.NdNe:
+            set cop is "ne"
+        else if ck == pskind.NodeKind.NdLt:
+            set cop is "lt"
+        else if ck == pskind.NodeKind.NdLe:
+            set cop is "le"
+        else if ck == pskind.NodeKind.NdGt:
+            set cop is "gt"
+        else if ck == pskind.NodeKind.NdGe:
+            set cop is "ge"
+        if not (calling bound_operator_ok with s, cop):
+            calling operator_bound_error with s, node, cop
     if (not (calling compat.compatible with s->types, l, r)) and (not (calling compat.compatible with s->types, r, l)):
         calling type_mismatch with s, node, l, r
     return calling types.base with s->types, "bool"
@@ -1053,7 +1316,21 @@ weave infer_arith with s as ref to state.SemaState, node as int into int:
     var r as int is calling infer with s, (calling astutil.node_child with s->ast, node, 1), -1
     var lt as tk.SemaType is calling types.at with s->types, l
     var rt as tk.SemaType is calling types.at with s->types, r
-    if l == r or lt.kind == tk.SemaTypeKind.TkTypeParam or rt.kind == tk.SemaTypeKind.TkTypeParam or lt.kind == tk.SemaTypeKind.TkAny or rt.kind == tk.SemaTypeKind.TkAny or lt.kind == tk.SemaTypeKind.TkOpaque or rt.kind == tk.SemaTypeKind.TkOpaque:
+    if lt.kind == tk.SemaTypeKind.TkTypeParam or rt.kind == tk.SemaTypeKind.TkTypeParam:
+        var op as string is "add"
+        var ak as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+        if ak == pskind.NodeKind.NdSub:
+            set op is "sub"
+        else if ak == pskind.NodeKind.NdMul:
+            set op is "mul"
+        else if ak == pskind.NodeKind.NdDiv:
+            set op is "div"
+        else if ak == pskind.NodeKind.NdMod:
+            set op is "mod"
+        if not (calling bound_operator_ok with s, op):
+            calling operator_bound_error with s, node, op
+        return l
+    if l == r or lt.kind == tk.SemaTypeKind.TkAny or rt.kind == tk.SemaTypeKind.TkAny or lt.kind == tk.SemaTypeKind.TkOpaque or rt.kind == tk.SemaTypeKind.TkOpaque:
         return l
     if (not (calling compat.is_numeric with s->types, l)) or (not (calling compat.is_numeric with s->types, r)):
         calling type_mismatch with s, node, l, r
@@ -1072,6 +1349,18 @@ weave infer_bit with s as ref to state.SemaState, node as int into int:
     var lt2 as tk.SemaType is calling types.at with s->types, l
     var rt2 as tk.SemaType is calling types.at with s->types, r
     if lt2.kind == tk.SemaTypeKind.TkTypeParam or rt2.kind == tk.SemaTypeKind.TkTypeParam:
+        var bop as string is "band"
+        var bk as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+        if bk == pskind.NodeKind.NdBitwiseOr:
+            set bop is "bor"
+        else if bk == pskind.NodeKind.NdBitwiseXor:
+            set bop is "bxor"
+        else if bk == pskind.NodeKind.NdShl:
+            set bop is "shl"
+        else if bk == pskind.NodeKind.NdShr:
+            set bop is "shr"
+        if not (calling bound_operator_ok with s, bop):
+            calling operator_bound_error with s, node, bop
         return l
     if (not (calling compat.is_int with s->types, l)) or (not (calling compat.is_int with s->types, r)):
         calling type_mismatch with s, node, l, r

@@ -1,0 +1,306 @@
+## psc/codegen/types.pengu — definiciones C de runas, ecos, omens y alias.
+##
+## La tabla de tipos de F3 ya contiene campos/variantes; este módulo sólo
+## decide el orden y el texto C.
+
+import std.builder
+
+import psc.ast.kind as pskind
+import psc.sema.ast as astutil
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.names as npool
+import psc.sema.symbols.symbol as sym
+
+import psc.codegen.context as context
+import psc.codegen.catalog as catalog
+import psc.codegen.ctype as ctype
+import psc.codegen.emit as emit
+
+insignia psc_codegen_types_
+
+## Nombre C owned de un tipo del catálogo.
+##
+## ## Memoria
+## Devuelve string owned.
+weave type_name with c as ref to context.CgContext, t as catalog.CgType into string:
+    return calling ctype.c_type with (sigil of c->names), t.type_id
+
+## Emite la definición de un tipo tupla usado en el programa.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_tuple with c as ref to context.CgContext, id as int into void:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), id
+    var name as string is calling ctype.tuple_c_name with (sigil of c->names), id
+    defer banish name
+    calling emit.line with (sigil of c->emitter), "typedef struct {name} {name};"
+    calling emit.line with (sigil of c->emitter), "struct {name} {"
+    calling emit.indent_more with (sigil of c->emitter)
+    var labels as list of string is list of string
+    calling labels.push with "first"
+    calling labels.push with "second"
+    calling labels.push with "third"
+    calling labels.push with "fourth"
+    calling labels.push with "fifth"
+    var i as int is 0
+    while i < t.count:
+        var cid as int is (c->program->types.type_children at (t.first + i))
+        var ct as string is calling ctype.c_type with (sigil of c->names), cid
+        defer banish ct
+        var lbl as string is "field{i}"
+        if i < labels.len:
+            set lbl is (labels at i)
+        calling emit.line with (sigil of c->emitter), "{ct} {lbl};"
+        set i is i + 1
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "};"
+    banish labels
+
+## Emite una constante de módulo.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_const with c as ref to context.CgContext, k as catalog.CgConst into void:
+    var cname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), k.c_name)
+    defer banish cname
+    var text as string is ""
+    if k.value.kind == sym.SemaConstKind.CkString:
+        var sv as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), k.value.name)
+        defer banish sv
+        var esc as string is calling emit.escape_c with sv
+        defer banish esc
+        set text is "pengu_string_from_cstr(\"{esc}\")"
+    else if k.value.kind == sym.SemaConstKind.CkBool:
+        if k.value.b:
+            set text is "true"
+        else:
+            set text is "false"
+    else if k.value.kind == sym.SemaConstKind.CkFloat:
+        set text is "{k.value.f}"
+    else:
+        set text is "{k.value.i}"
+    calling emit.line with (sigil of c->emitter), "#define {cname} {text}"
+
+## Emite la declaración adelantada de un tipo.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_forward with c as ref to context.CgContext, t as catalog.CgType into void:
+    var ty as tk.SemaType is calling types.at with (sigil of c->program->types), t.type_id
+    var cname as string is calling type_name with c, t
+    defer banish cname
+    if t.is_struct:
+        calling emit.line with (sigil of c->emitter), "struct {cname};"
+        calling emit.line with (sigil of c->emitter), "typedef struct {cname} {cname};"
+        return
+    if t.is_omen:
+        var info as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
+        var has_payload as bool is false
+        var pi as int is 0
+        while pi < info.variants_count:
+            var pv as types.SemaVariant is (c->program->types.variants at (info.variants_first + pi))
+            if pv.payload_count > 0:
+                set has_payload is true
+            set pi is pi + 1
+        var sb as StringBuilder is calling StringBuilder.new
+        defer banish sb
+        if has_payload:
+            calling sb.append with "typedef enum {cname}_Tag {"
+            var i as int is 0
+            while i < info.variants_count:
+                var v as types.SemaVariant is (c->program->types.variants at (info.variants_first + i))
+                var vn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), v.name)
+                defer banish vn
+                if i > 0:
+                    calling sb.append with ","
+                calling sb.append with " {cname}_{vn}"
+                set i is i + 1
+            calling sb.append with "} {cname}_Tag;"
+            var line1 as string is calling sb.finish
+            calling emit.line with (sigil of c->emitter), line1
+            banish line1
+            calling emit.line with (sigil of c->emitter), "struct {cname};"
+            calling emit.line with (sigil of c->emitter), "typedef struct {cname} {cname};"
+        else:
+            calling sb.append with "typedef enum {cname} {"
+            var i2 as int is 0
+            while i2 < info.variants_count:
+                var v2 as types.SemaVariant is (c->program->types.variants at (info.variants_first + i2))
+                var vn2 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), v2.name)
+                defer banish vn2
+                if i2 > 0:
+                    calling sb.append with ","
+                calling sb.append with " {cname}_{vn2} = {i2}"
+                set i2 is i2 + 1
+            calling sb.append with "} {cname};"
+            var line2 as string is calling sb.finish
+            calling emit.line with (sigil of c->emitter), line2
+            banish line2
+        return
+    # Aliases/seals: declaración de typedef sobre el target.
+    var target as string is calling ctype.c_type with (sigil of c->names), ty.b
+    defer banish target
+    calling emit.line with (sigil of c->emitter), "typedef {target} {cname};"
+
+## Emite el clon superficial de un tipo.
+##
+## Los helpers derivados (`Nexus`/`Imago`) llaman `_pengu_clone_T` desde
+## antiquus; el codegen debe declararlo antes de esos bloques.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_clone with c as ref to context.CgContext, t as catalog.CgType into void:
+    var cname as string is calling type_name with c, t
+    defer banish cname
+    calling emit.line with (sigil of c->emitter), "static inline void _pengu_clone_{cname}({cname}* out, const {cname}* v) {"
+    calling emit.indent_more with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "*out = *v;"
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"
+
+## Emite el cleanup derivado de un rune/echo.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_cleanup with c as ref to context.CgContext, t as catalog.CgType into void:
+    if not t.is_struct and not t.is_omen:
+        return
+    var ty as tk.SemaType is calling types.at with (sigil of c->program->types), t.type_id
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
+    var cname as string is calling type_name with c, t
+    defer banish cname
+    calling emit.line with (sigil of c->emitter), "static inline void _pengu_cleanup_{cname}({cname}* p) {"
+    calling emit.indent_more with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "(void)p;"
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (c->program->types.fields at (info.fields_first + i))
+        var fname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.name)
+        defer banish fname
+        var ft as tk.SemaType is calling types.at with (sigil of c->program->types), f.type
+        if ft.kind == tk.SemaTypeKind.TkBase:
+            var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), ft.name)
+            defer banish bn
+            if bn == "string":
+                calling emit.line with (sigil of c->emitter), "pengu_banish_string(&(p->{fname}));"
+        else if ft.kind == tk.SemaTypeKind.TkList:
+            calling emit.line with (sigil of c->emitter), "pengu_banish_list(&(p->{fname}));"
+        else if ft.kind == tk.SemaTypeKind.TkMap:
+            calling emit.line with (sigil of c->emitter), "pengu_banish_map(&(p->{fname}));"
+        set i is i + 1
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"
+
+## Emite la definición struct/enum de un tipo.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_definition with c as ref to context.CgContext, t as catalog.CgType into void:
+    var ty as tk.SemaType is calling types.at with (sigil of c->program->types), t.type_id
+    var cname as string is calling type_name with c, t
+    defer banish cname
+    if t.is_omen:
+        var oi as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
+        var payload as bool is false
+        var pj as int is 0
+        while pj < oi.variants_count:
+            var pv2 as types.SemaVariant is (c->program->types.variants at (oi.variants_first + pj))
+            if pv2.payload_count > 0:
+                set payload is true
+            set pj is pj + 1
+        if not payload:
+            return
+        calling emit.line with (sigil of c->emitter), "struct {cname} {"
+        calling emit.indent_more with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "{cname}_Tag tag;"
+        calling emit.line with (sigil of c->emitter), "union {"
+        calling emit.indent_more with (sigil of c->emitter)
+        var vi as int is 0
+        while vi < oi.variants_count:
+            var vv as types.SemaVariant is (c->program->types.variants at (oi.variants_first + vi))
+            if vv.payload_count > 0:
+                var vn3 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), vv.name)
+                defer banish vn3
+                calling emit.line with (sigil of c->emitter), "struct {"
+                calling emit.indent_more with (sigil of c->emitter)
+                var fi as int is 0
+                while fi < vv.payload_count:
+                    var f as types.SemaField is (c->program->types.fields at (vv.payload_first + fi))
+                    var ft as string is calling ctype.c_type with (sigil of c->names), f.type
+                    defer banish ft
+                    var fn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.name)
+                    defer banish fn
+                    calling emit.line with (sigil of c->emitter), "{ft} {fn};"
+                    set fi is fi + 1
+                calling emit.indent_less with (sigil of c->emitter)
+                calling emit.line with (sigil of c->emitter), "} {vn3};"
+            set vi is vi + 1
+        calling emit.indent_less with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "} data;"
+        calling emit.indent_less with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "};"
+        return
+    if t.is_omen:
+        var oi2 as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
+        var hasp as bool is false
+        var pj2 as int is 0
+        while pj2 < oi2.variants_count:
+            var pv3 as types.SemaVariant is (c->program->types.variants at (oi2.variants_first + pj2))
+            if pv3.payload_count > 0:
+                set hasp is true
+            set pj2 is pj2 + 1
+        if not hasp:
+            return
+        calling emit.line with (sigil of c->emitter), "static inline void _pengu_cleanup_{cname}({cname}* p) {"
+        calling emit.indent_more with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "(void)p;"
+        calling emit.line with (sigil of c->emitter), "switch (p->tag) {"
+        var vi2 as int is 0
+        while vi2 < oi2.variants_count:
+            var vv2 as types.SemaVariant is (c->program->types.variants at (oi2.variants_first + vi2))
+            if vv2.payload_count > 0:
+                var vnn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), vv2.name)
+                defer banish vnn
+                calling emit.line with (sigil of c->emitter), "case {cname}_{vnn}: {"
+                calling emit.indent_more with (sigil of c->emitter)
+                var fi3 as int is 0
+                while fi3 < vv2.payload_count:
+                    var ff as types.SemaField is (c->program->types.fields at (vv2.payload_first + fi3))
+                    var ffn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), ff.name)
+                    defer banish ffn
+                    var fft as tk.SemaType is calling types.at with (sigil of c->program->types), ff.type
+                    if fft.kind == tk.SemaTypeKind.TkBase:
+                        var fbn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), fft.name)
+                        if fbn == "string":
+                            calling emit.line with (sigil of c->emitter), "pengu_banish_string(&(p->data.{vnn}.{ffn}));"
+                        banish fbn
+                    else if fft.kind == tk.SemaTypeKind.TkList:
+                        calling emit.line with (sigil of c->emitter), "pengu_banish_list(&(p->data.{vnn}.{ffn}));"
+                    else if fft.kind == tk.SemaTypeKind.TkMap:
+                        calling emit.line with (sigil of c->emitter), "pengu_banish_map(&(p->data.{vnn}.{ffn}));"
+                    set fi3 is fi3 + 1
+                calling emit.line with (sigil of c->emitter), "} break;"
+                calling emit.indent_less with (sigil of c->emitter)
+            set vi2 is vi2 + 1
+        calling emit.line with (sigil of c->emitter), "default: break;"
+        calling emit.line with (sigil of c->emitter), "}"
+        calling emit.indent_less with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "}"
+        return
+    if not t.is_struct:
+        return
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
+    calling emit.line with (sigil of c->emitter), "struct {cname} {"
+    calling emit.indent_more with (sigil of c->emitter)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (c->program->types.fields at (info.fields_first + i))
+        var ftxt as string is calling ctype.c_type with (sigil of c->names), f.type
+        defer banish ftxt
+        var fname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.name)
+        defer banish fname
+        calling emit.line with (sigil of c->emitter), "{ftxt} {fname};"
+        set i is i + 1
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "};"

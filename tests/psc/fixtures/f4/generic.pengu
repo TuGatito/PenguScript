@@ -1,0 +1,6 @@
+weave id shard T with x as T into T:
+    return x
+
+weave main into int:
+    var x as int is 7
+    return calling id with x

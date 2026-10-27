@@ -1,0 +1,5 @@
+weave apply with f as weave with x as int into int into int:
+    return calling f with 3
+
+weave main into int:
+    return calling apply with (lambda x as int into x + 1)

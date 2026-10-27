@@ -17,6 +17,7 @@
 ## ejecución se libera con `banish` antes de volver.
 
 import std.io
+import std.archivum
 import std.diagnostic as diag
 import std.rites
 import std.spark
@@ -32,6 +33,8 @@ import psc.parse.api as psapi
 
 import psc.sema.options as sopts
 import psc.sema.api as sema_api
+import psc.codegen.api as cgapi
+import psc.codegen.options as cgopt
 
 ## Punto de entrada.
 weave main into int:
@@ -66,6 +69,8 @@ weave dispatch with args as list of string into int:
         return calling run_parse with args
     if cmd == "check":
         return calling run_check with args
+    if cmd == "emit-c":
+        return calling run_emit_c with args
     var msg as string is "psc: unknown command '{cmd}'"
     calling spark.eprintln with msg
     banish msg
@@ -342,6 +347,99 @@ weave run_check with args as list of string into int:
     var r2 as sema_api.SemaResult is calling sema_api.check_file with path, opts
     return calling report_check with r2, json_diags, force_color, no_color
 
+## Implementa `psc emit-c`: F3 + codegen, sin compilador C.
+##
+## ## Memoria
+## Libera programa y bundle; las opciones las libera el programa.
+weave run_emit_c with args as list of string into int:
+    var opts as sopts.SemaOptions is calling sopts.default_options with "."
+    var out_path as string is ""
+    var to_stdout as bool is false
+    var path as string is ""
+    var cgp as CgOptions is calling cgopt.default_options with "."
+    var i as int is 2
+    while i < args.len:
+        var a as string is args at i
+        if a == "--stdout":
+            set to_stdout is true
+        else if a == "--test":
+            set cgp.is_test is true
+        else if a == "--library":
+            set cgp.is_library is true
+        else if a == "--no-dce":
+            set cgp.dce is false
+        else if a == "--prune-types":
+            set cgp.prune_types is true
+        else if a == "--dce-scope=user" or a == "--tree-shake-user":
+            set cgp.dce_scope_user is true
+        else if a == "--prune-native":
+            set cgp.prune_native is true
+        else if a == "--no-line-markers":
+            set cgp.line_markers is false
+        else if a == "--strict-c99":
+            set cgp.strict_c99 is true
+        else if a == "--release-unsafe":
+            set cgp.release_unsafe is true
+        else if a == "--debug":
+            set cgp.debug is true
+        else if calling starts_with with a, "--target-compiler=":
+            set cgp.target_compiler is a at 18 to (a length)
+        else if calling starts_with with a, "--out=":
+            set out_path is a at 6 to (a length)
+        else if a == "--help" or a == "-h":
+            calling print_emit_c_help
+            calling sopts.free_options with (sigil of opts)
+            return 0
+        else if calling starts_dash with a:
+            var unknown as string is "psc emit-c: unknown option '{a}'"
+            calling spark.eprintln with unknown
+            banish unknown
+            calling print_emit_c_help
+            calling sopts.free_options with (sigil of opts)
+            return 2
+        else:
+            if path length > 0:
+                calling spark.eprintln with "psc emit-c: only one input file is supported"
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            set path is a
+        set i is i + 1
+    if path length == 0:
+        calling spark.eprintln with "psc emit-c: missing input file"
+        calling print_emit_c_help
+        calling sopts.free_options with (sigil of opts)
+        return 2
+    var r as sema_api.SemaResult is calling sema_api.check_file with path, opts
+    if not r.ok:
+        var ignored as int is calling report_check with r, false, false, true
+        return 1
+    if r.program->modules.len > 0:
+        set cgp.base_dir is r.program->options.base_dir
+    set cgp.entry_file is path
+    var cr is calling cgapi.generate_c with r.program, cgp
+    if not cr.ok:
+        calling spark.eprintln with "psc emit-c: code generation failed"
+        calling cgapi.free_result with (sigil of cr)
+        calling sema_api.free_result with (sigil of r)
+        return 1
+    if to_stdout or out_path length == 0:
+        calling spark.print with cr.bundle
+    else:
+        if calling archivum.write_text with out_path, cr.bundle:
+            var smsg as string is "wrote {out_path} ({cr.stats.lines} lines, {cr.stats.bytes} bytes, {cr.stats.includes} includes)"
+            calling spark.eprintln with smsg
+            banish smsg
+        else:
+            var emsg as string is "psc emit-c: cannot write '{out_path}'"
+            calling spark.eprintln with emsg
+            banish emsg
+            calling cgapi.free_result with (sigil of cr)
+            calling sema_api.free_result with (sigil of r)
+            return 2
+    calling cgapi.free_result with (sigil of cr)
+    calling sema_api.free_result with (sigil of r)
+    return 0
+
 ## Renderiza y libera un resultado; devuelve el exit code.
 ##
 ## ## Memoria
@@ -435,6 +533,7 @@ weave print_help into void:
     calling spark.println with "  psc parse <file> [options]"
     calling spark.println with "  psc parse --stdin [options]"
     calling spark.println with "  psc check <file> [options]"
+    calling spark.println with "  psc emit-c <file> [options]"
     calling spark.println with "  psc version"
 
 ## Ayuda de `lex`.
@@ -456,6 +555,27 @@ weave print_check_help into void:
     calling spark.println with "  --src-dir=DIR           source directory (default 'src')"
     calling spark.println with "  --lib-dir=DIR           bindings directory (default 'lib')"
     calling spark.println with "  --deny-deprecated       treat W0006 as a failure"
+    calling spark.println with "  --help"
+
+## Ayuda de `emit-c`.
+##
+## ## Memoria
+## No asigna.
+weave print_emit_c_help into void:
+    calling spark.println with "Usage: psc emit-c <file> [options]"
+    calling spark.println with "  --out=FILE              write bundle.c to FILE"
+    calling spark.println with "  --stdout                write the bundle to stdout (default)"
+    calling spark.println with "  --test                  emit the integrated test runner"
+    calling spark.println with "  --library               emit no main wrapper"
+    calling spark.println with "  --no-dce                disable dead-code elimination"
+    calling spark.println with "  --prune-types           prune unused types/consts"
+    calling spark.println with "  --dce-scope=user        also prune project weaves"
+    calling spark.println with "  --prune-native          prune unused includes/links"
+    calling spark.println with "  --no-line-markers       omit #line directives"
+    calling spark.println with "  --strict-c99            portable C99 (no GNU extensions)"
+    calling spark.println with "  --target-compiler=NAME  gcc|clang|tcc|msvc"
+    calling spark.println with "  --release-unsafe        disable bounds/overflow checks"
+    calling spark.println with "  --debug                 debug profile"
     calling spark.println with "  --help"
 
 ## Ayuda de `lex`.

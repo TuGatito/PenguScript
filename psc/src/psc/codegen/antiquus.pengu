@@ -1,0 +1,108 @@
+## psc/codegen/antiquus.pengu — bloques C crudos (`antiquus`).
+##
+## F3 guarda el cuerpo como un literal de string en el AST. El codegen lo
+## decodifica y lo emite tal cual, sin reinterpretarlo.
+
+import std.builder
+
+import psc.ast.node as psast
+import psc.sema.ast as astutil
+import psc.sema.modules.loader as loader
+
+import psc.codegen.context as context
+import psc.codegen.catalog as catalog
+import psc.codegen.emit as emit
+import psc.codegen.function as funcgen
+
+insignia psc_codegen_antiquus_
+
+## Decodifica escapes de un literal PenguScript ya sin comillas.
+##
+## ## Memoria
+## Devuelve string owned.
+weave decode with raw as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var b as ref to frozen byte is bytes of raw
+    var i as int is 0
+    while i < raw length:
+        var code as int is ((b at i) to int)
+        if code == 92 and i + 1 < raw length:
+            set i is i + 1
+            var nx as int is ((b at i) to int)
+            if nx == 110:
+                calling sb.append with "\n"
+            else if nx == 116:
+                calling sb.append with "\t"
+            else if nx == 114:
+                calling sb.append with "\r"
+            else if nx == 34:
+                calling sb.append with "\\\""
+            else if nx == 92:
+                calling sb.append with "\\\\"
+            else:
+                var one as string is raw at i
+                calling sb.append with one
+                banish one
+        else:
+            var one2 as string is raw at i
+            calling sb.append with one2
+            banish one2
+        set i is i + 1
+    return calling sb.finish
+
+## Texto C crudo de una declaración antiquus.
+##
+## El lexer entrega un token de cuerpo crudo; se quitan los delimitadores
+## (`r"""`, `"""`, `"` o `'`) pero **no** se decodifican escapes: el cuerpo es C
+## literal y un `\n` dentro de `fputc('\n', ...)` debe seguir siendo `\n`.
+##
+## ## Memoria
+## Devuelve string owned.
+weave body_of with c as ref to context.CgContext, f as catalog.CgFunction into string:
+    var m as loader.SemaModule is (c->program->modules at f.module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var last as int is -1
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, f.node
+    while i < n:
+        var t as int is calling astutil.token_child with ast, f.node, i
+        if t >= 0:
+            set last is t
+        set i is i + 1
+    if last < 0:
+        return ""
+    var raw as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), last
+    if raw length < 2:
+        return raw
+    var b as ref to frozen byte is bytes of raw
+    var start as int is 0
+    var finish as int is raw length
+    if raw length >= 4 and ((b at 0) to int) == 114 and ((b at 1) to int) == 34 and ((b at 2) to int) == 34 and ((b at 3) to int) == 34:
+        set start is 4
+        set finish is raw length - 3
+    else if raw length >= 3 and ((b at 0) to int) == 34 and ((b at 1) to int) == 34 and ((b at 2) to int) == 34:
+        set start is 3
+        set finish is raw length - 3
+    else if ((b at 0) to int) == 34 or ((b at 0) to int) == 39:
+        set start is 1
+        if ((b at (raw length - 1)) to int) == ((b at 0) to int):
+            set finish is raw length - 1
+    if finish <= start:
+        return ""
+    return raw at start to finish
+
+## Emite el cuerpo crudo.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_body with c as ref to context.CgContext, f as catalog.CgFunction into void:
+    var code as string is calling body_of with c, f
+    defer banish code
+    var sig as string is calling funcgen.signature with c, f
+    defer banish sig
+    calling emit.line with (sigil of c->emitter), "{sig} {"
+    calling emit.raw with (sigil of c->emitter), code
+    if code length == 0 or (code at (code length - 1)) != "\n":
+        calling emit.raw with (sigil of c->emitter), "\n"
+    calling emit.line with (sigil of c->emitter), "}"

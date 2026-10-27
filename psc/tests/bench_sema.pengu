@@ -1,0 +1,35 @@
+## Benchmark de F3: genera un módulo sintético y mide declaraciones/segundo.
+##   pengu run tests/bench_sema.pengu --no-cache --profile release
+import std.spark
+import std.builder
+import std.chronicle
+import psc.sema.options as sopts
+import psc.sema.api as sema_api
+
+weave main into int:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    while i < 2000:
+        calling sb.append with "weave f{i} with a as int, b as int into int:\n"
+        calling sb.append with "    var x as int is a + b\n"
+        calling sb.append with "    if x > 10 and x != 3:\n"
+        calling sb.append with "        return x + 1\n"
+        calling sb.append with "    return x\n"
+        set i is i + 1
+    var text as string is calling sb.finish
+    defer banish text
+    var opts as sopts.SemaOptions is calling sopts.default_options with "."
+    var sw as chronicle.Stopwatch is calling chronicle.Stopwatch.new
+    var r as sema_api.SemaResult is calling sema_api.check_text with "bench_sema.pengu", text, opts
+    var ms as int is calling sw.elapsed_ms
+    var secs as float is calling sw.elapsed_sec
+    var nbytes as int is text length
+    var funcs as int is 2000
+    var per_sec as float is 0.0
+    if secs > 0.0:
+        var ff as float is (funcs to float)
+        set per_sec is ff / secs
+    calling spark.println with "bytes={nbytes} funcs={funcs} ms={ms} funcs/s={per_sec} errors={r.program->diagnostics.error_count}"
+    calling sema_api.free_result with (sigil of r)
+    return 0

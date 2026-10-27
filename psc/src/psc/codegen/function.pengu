@@ -1,0 +1,420 @@
+## psc/codegen/function.pengu — firmas y cuerpos de funciones.
+##
+## Usa la firma resuelta por F3 (`SemaFnInfo`) y el AST sólo para nombres de
+## parámetros y statements.
+
+import std.builder
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.sema.ast as astutil
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.table as symbols
+import psc.sema.modules.loader as loader
+import psc.sema.names as npool
+
+import psc.codegen.context as context
+import psc.codegen.catalog as catalog
+import psc.codegen.ctype as ctype
+import psc.codegen.emit as emit
+import psc.codegen.stmt as stmtgen
+import psc.codegen.type_ast as tast
+import psc.codegen.origin as origin
+
+insignia psc_codegen_function_
+
+## Firma C de una especialización genérica, construida desde el AST.
+##
+## ## Memoria
+## Devuelve string owned.
+weave signature_spec with c as ref to context.CgContext, f as catalog.CgFunction into string:
+    var m as loader.SemaModule is (c->program->modules at f.module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var params as int is -1
+    var ret as int is -1
+    var body as int is -1
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, f.node
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, f.node, i
+        if ch >= 0:
+            var ck as pskind.NodeKind is calling astutil.kind_of with ast, ch
+            if ck == pskind.NodeKind.NdParamList:
+                set params is ch
+            else if ck == pskind.NodeKind.NdStmt and body < 0:
+                set body is i
+            else if body < 0 and params >= 0 and ret < 0:
+                set ret is ch
+        set i is i + 1
+    if ret >= 0:
+        var rt as string is calling tast.c_type_ast with c, m, ret
+        calling sb.append with rt
+        banish rt
+    else:
+        calling sb.append with "void"
+    calling sb.append with " "
+    var cname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.c_name)
+    defer banish cname
+    calling sb.append with cname
+    calling sb.append with "("
+    var wrote as bool is false
+    if f.is_method and not f.is_ritual:
+        var rct as string is calling ctype.c_type with (sigil of c->names), f.recv_type
+        defer banish rct
+        if f.self_value:
+            calling sb.append with "{rct} self"
+        else:
+            calling sb.append with "{rct}* self"
+        set wrote is true
+    if params >= 0:
+        var pi as int is 0
+        var pn as int is calling astutil.child_count with ast, params
+        while pi < pn:
+            var pnode as int is calling astutil.node_child with ast, params, pi
+            if pnode >= 0 and (calling astutil.kind_of with ast, pnode) == pskind.NodeKind.NdParam:
+                var pt as int is calling astutil.token_child with ast, pnode, 0
+                var pty as int is calling astutil.node_child with ast, pnode, 1
+                if pt >= 0 and pty >= 0:
+                    if wrote:
+                        calling sb.append with ", "
+                    var pct as string is calling tast.c_type_ast with c, m, pty
+                    calling sb.append with pct
+                    banish pct
+                    calling sb.append with " "
+                    var pname as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pt
+                    calling sb.append with pname
+                    banish pname
+                    set wrote is true
+            set pi is pi + 1
+    if not wrote:
+        calling sb.append with "void"
+    calling sb.append with ")"
+    return calling sb.finish
+
+## Declarador de un parámetro de tipo función, con su nombre.
+##
+## ## Memoria
+## Strings owned.
+weave fn_decl_with_name with c as ref to context.CgContext, m as loader.SemaModule, type_node as int, name as string into string:
+    var raw as string is calling tast.c_type_ast with c, m, type_node
+    defer banish raw
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    var n as int is raw length
+    var rb as ref to frozen byte is bytes of raw
+    while i < n:
+        if i + 2 < n and ((rb at i) to int) == 40 and ((rb at i + 1) to int) == 42 and ((rb at i + 2) to int) == 41:
+            calling sb.append with "(*"
+            calling sb.append with name
+            calling sb.append with ")"
+            set i is i + 3
+        else:
+            var one as string is raw at i to (i + 1)
+            calling sb.append with one
+            banish one
+            set i is i + 1
+    return calling sb.finish
+
+## Inserta un nombre en un declarador de puntero a función (`T (*)(...)`).
+##
+## ## Memoria
+## Strings owned.
+weave name_fn_declarator with raw as string, name as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var i as int is 0
+    var n as int is raw length
+    var rb as ref to frozen byte is bytes of raw
+    var found as bool is false
+    while i < n:
+        if i + 2 < n and ((rb at i) to int) == 40 and ((rb at i + 1) to int) == 42 and ((rb at i + 2) to int) == 41:
+            calling sb.append with "(*"
+            calling sb.append with name
+            calling sb.append with ")"
+            set i is i + 3
+            set found is true
+        else:
+            var one as string is raw at i to (i + 1)
+            calling sb.append with one
+            banish one
+            set i is i + 1
+    return calling sb.finish
+
+## ¿El declarador contiene `(*)`?
+##
+## ## Memoria
+## O(n).
+weave has_fn_slot with raw as string into bool:
+    var i as int is 0
+    var n as int is raw length
+    while i + 2 < n:
+        if (raw at i to (i + 3)) == "(*)":
+            return true
+        set i is i + 1
+    return false
+
+## Declarador C de un parámetro `fn_type` del AST.
+##
+## ## Memoria
+## Strings owned.
+weave ast_fn_param_decl with c as ref to context.CgContext, m as loader.SemaModule, type_node as int, name as string into string:
+    var astx as ref to psast.PsAst is (sigil of m.parse.ast)
+    var retn as int is -1
+    var plist as int is -1
+    var i as int is 0
+    var n as int is calling astutil.child_count with astx, type_node
+    while i < n:
+        var ch as int is calling astutil.node_child with astx, type_node, i
+        if ch >= 0:
+            if (calling astutil.kind_of with astx, ch) == pskind.NodeKind.NdFnParamList:
+                set plist is ch
+            else:
+                set retn is ch
+        set i is i + 1
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    if retn >= 0:
+        var rt as string is calling tast.c_type_ast with c, m, retn
+        calling sb.append with rt
+        banish rt
+    else:
+        calling sb.append with "void"
+    calling sb.append with " (*"
+    calling sb.append with name
+    calling sb.append with ")("
+    if plist < 0:
+        calling sb.append with "void"
+    else:
+        var pi as int is 0
+        var pn as int is calling astutil.child_count with astx, plist
+        var wrote as bool is false
+        while pi < pn:
+            var pnode as int is calling astutil.node_child with astx, plist, pi
+            if pnode >= 0:
+                var pty as int is calling astutil.node_child with astx, pnode, 1
+                if pty >= 0:
+                    if wrote:
+                        calling sb.append with ", "
+                    var pct as string is calling tast.c_type_ast with c, m, pty
+                    calling sb.append with pct
+                    banish pct
+                    set wrote is true
+            set pi is pi + 1
+        if not wrote:
+            calling sb.append with "void"
+    calling sb.append with ")"
+    return calling sb.finish
+
+## Firma C de una función (sin `;`).
+##
+## ## Memoria
+## Devuelve string owned.
+weave signature with c as ref to context.CgContext, f as catalog.CgFunction into string:
+    var m as loader.SemaModule is (c->program->modules at f.module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    calling context.set_subst with c, f
+    if f.is_spec:
+        return calling signature_spec with c, f
+    var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), f.symbol
+    var ft as tk.SemaType is calling types.at with (sigil of c->program->types), sv.type
+    if ft.kind != tk.SemaTypeKind.TkFn:
+        return "void"
+    var info as types.SemaFnInfo is (c->program->types.fn_infos at ft.a)
+    var ret as string is calling ctype.c_type with (sigil of c->names), info.return_type
+    defer banish ret
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with ret
+    calling sb.append with " "
+    var cname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.c_name)
+    defer banish cname
+    calling sb.append with cname
+    calling sb.append with "("
+    var wrote_any as bool is false
+    if f.is_method and not f.is_ritual:
+        var recv_ct as string is calling ctype.c_type with (sigil of c->names), f.recv_type
+        defer banish recv_ct
+        if f.self_value:
+            calling sb.append with "{recv_ct} self"
+        else:
+            calling sb.append with "{recv_ct}* self"
+        set wrote_any is true
+    if info.params_count == 0 and not wrote_any:
+        calling sb.append with "void"
+    else:
+        var i as int is 0
+        while i < info.params_count:
+            if i > 0 or wrote_any:
+                calling sb.append with ", "
+            var p as types.SemaFnParam is (c->program->types.fn_params at (info.params_first + i))
+            var pn as string is calling pname_for with c, f, i
+            var pct as string is calling ctype.c_type with (sigil of c->names), p.type
+            var params0 as int is -1
+            var si as int is 0
+            var sn as int is calling astutil.child_count with ast, f.node
+            while si < sn:
+                var sch as int is calling astutil.node_child with ast, f.node, si
+                if sch >= 0 and (calling astutil.kind_of with ast, sch) == pskind.NodeKind.NdParamList:
+                    set params0 is sch
+                set si is si + 1
+            var ast_fn as bool is false
+            if params0 >= 0:
+                var spn as int is calling astutil.node_child with ast, params0, i
+                if spn >= 0:
+                    var styp as int is calling astutil.node_child with ast, spn, 1
+                    if styp >= 0 and (calling astutil.kind_of with ast, styp) == pskind.NodeKind.NdFnType:
+                        banish pct
+                        set pct is calling ast_fn_param_decl with c, m, styp, pn
+                        set ast_fn is true
+            if ast_fn:
+                calling sb.append with pct
+            else if calling has_fn_slot with pct:
+                var pnamed as string is calling name_fn_declarator with pct, pn
+                calling sb.append with pnamed
+                banish pnamed
+            else:
+                calling sb.append with pct
+                calling sb.append with " "
+                calling sb.append with pn
+            banish pct
+            banish pn
+            set i is i + 1
+    calling sb.append with ")"
+    return calling sb.finish
+
+## Nombre de parámetro i de una función (AST o generado).
+##
+## ## Memoria
+## Devuelve string owned.
+weave pname_for with c as ref to context.CgContext, f as catalog.CgFunction, i as int into string:
+    var m as loader.SemaModule is (c->program->modules at f.module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var slot as int is -1
+    var j as int is 0
+    var n as int is calling astutil.child_count with ast, f.node
+    while j < n:
+        var ch as int is calling astutil.node_child with ast, f.node, j
+        if ch >= 0 and (calling astutil.kind_of with ast, ch) == pskind.NodeKind.NdParamList:
+            set slot is ch
+        set j is j + 1
+    if slot >= 0:
+        var p as int is calling astutil.node_child with ast, slot, i
+        if p >= 0:
+            var t as int is calling astutil.token_child with ast, p, 0
+            if t >= 0:
+                return calling astutil.token_text with (sigil of m.source), (sigil of m.lex), t
+    return "arg{i}"
+
+## Emite la definición de una función.
+##
+## ## Memoria
+## Abre/cierra contexto/local scope.
+weave emit_function with c as ref to context.CgContext, f as catalog.CgFunction into void:
+    if f.is_generic and not f.is_spec:
+        return
+    calling context.set_subst with c, f
+    set c->current_module is f.module
+    var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), f.symbol
+    var ft as tk.SemaType is calling types.at with (sigil of c->program->types), sv.type
+    if ft.kind != tk.SemaTypeKind.TkFn:
+        return
+    var info as types.SemaFnInfo is (c->program->types.fn_infos at ft.a)
+    var sig as string is calling signature with c, f
+    defer banish sig
+    if f.is_declare:
+        calling emit.line with (sigil of c->emitter), "extern {sig};"
+        return
+    var m0 as loader.SemaModule is (c->program->modules at f.module)
+    calling origin.marker with c, m0, f.node
+    calling emit.line with (sigil of c->emitter), "{sig} {"
+    calling emit.indent_more with (sigil of c->emitter)
+    set c->return_type is info.return_type
+    set c->self_type is f.recv_type
+    set c->self_value is f.self_value
+    banish c->current_fn
+    set c->current_fn is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.c_name)
+    calling context.clear_locals with c
+    var dz as int is c->defers.len
+    while dz > 0:
+        var di as int is calling c->defers.pop
+        set dz is dz - 1
+    # Parámetros locales.
+    var i as int is 0
+    while i < info.params_count:
+        var p as types.SemaFnParam is (c->program->types.fn_params at (info.params_first + i))
+        var pn as string is calling pname_for with c, f, i
+        var pid as int is calling npool.intern with (sigil of c->program->names), pn
+        banish pn
+        calling context.add_local with c, pid, p.type, pid
+        var pn2 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), pid)
+        calling emit.line with (sigil of c->emitter), "(void){pn2};"
+        banish pn2
+        set i is i + 1
+    # Cuerpo desde el slot posterior al retorno.
+    var m as loader.SemaModule is (c->program->modules at f.module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    calling scan_local_names with c, m, ast, f.node
+    var slot as int is calling body_start with ast, f.node
+    var bi as int is slot
+    var bn as int is calling astutil.child_count with ast, f.node
+    while bi < bn:
+        var b as int is calling astutil.node_child with ast, f.node, bi
+        if b >= 0:
+            calling stmtgen.emit_stmt with c, b
+        set bi is bi + 1
+    calling stmtgen.emit_pending_defers with c
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"
+    calling emit.blank with (sigil of c->emitter)
+
+## Registra nombres locales declarados en el cuerpo antes de emitirlo.
+##
+## F3 no siempre anota el `var_ref` de un local de tipo omen; pre-registrar el
+## nombre evita que se confunda con una variante global.
+##
+## ## Memoria
+## Añade locales al contexto.
+weave scan_local_names with c as ref to context.CgContext, m as loader.SemaModule, ast as ref to psast.PsAst, node as int into void:
+    if node < 0:
+        return
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdVarDecl or k == pskind.NodeKind.NdLetDecl:
+        var t as int is calling astutil.token_child with ast, node, 0
+        if t < 0:
+            var vn as int is calling astutil.node_child with ast, node, 0
+            if vn >= 0:
+                set t is calling astutil.token_child with ast, vn, 0
+        if t >= 0:
+            var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), t
+            var nid as int is calling npool.intern with (sigil of c->program->names), txt
+            banish txt
+            if (calling context.local_c_name with c, nid) < 0:
+                calling context.add_local with c, nid, -1, nid
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            calling scan_local_names with c, m, ast, ch
+        set i is i + 1
+
+## Slot del primer statement del cuerpo.
+##
+## ## Memoria
+## O(nodos).
+weave body_start with ast as ref to psast.PsAst, node as int into int:
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var c as int is calling astutil.node_child with ast, node, i
+        if c >= 0:
+            var k as pskind.NodeKind is calling astutil.kind_of with ast, c
+            if k == pskind.NodeKind.NdStmt:
+                return i
+        set i is i + 1
+    return n

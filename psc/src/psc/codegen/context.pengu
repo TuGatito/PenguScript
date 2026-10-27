@@ -1,0 +1,148 @@
+## psc/codegen/context.pengu — estado de una emisión C.
+##
+## El contexto presta el `SemaProgram`; es dueño del nombre table, catálogo,
+## emisor y scopes C. No muta F3.
+
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.table as symbols
+import psc.sema.modules.program as program
+import psc.ast.kind as pskind
+import psc.sema.ast as astutil
+
+import psc.codegen.options as opts
+import psc.codegen.names as names
+import psc.codegen.catalog as catalog
+import psc.codegen.emit as emit
+
+insignia psc_codegen_context_
+
+## Binding local C.
+rune CgLocal:
+    ## `NameId` lógico.
+    name as int
+    ## `TypeId`.
+    type as int
+    ## Nombre C (`NameId` en el pool).
+    c_name as int
+
+## Lambda descubierta en el AST.
+rune CgLambda:
+    ## Módulo dueño.
+    module as int
+    ## Nodo `lambda_expr`.
+    node as int
+
+## Contexto de emisión.
+##
+## ## Memoria
+## Dueño de names/catalog/emitter/locales; liberar con `free`.
+rune CgContext:
+    ## Programa F3 prestado.
+    program as ref to program.SemaProgram
+    ## Opciones prestadas.
+    options as opts.CgOptions
+    ## Nombres C.
+    names as names.CgNames
+    ## Catálogo de funciones.
+    catalog as catalog.CgCatalog
+    ## Emisor.
+    emitter as emit.CgEmitter
+    ## Locales del cuerpo actual.
+    locals as list of CgLocal
+    ## `defer` pendientes del cuerpo actual (nodos AST).
+    defers as list of int
+    ## `TypeId` de retorno actual (`-1` fuera).
+    return_type as int
+    ## Módulo actual (`-1` fuera).
+    current_module as int
+    ## Nombre C de la función actual (owned).
+    current_fn as string
+    ## Tipo `self` actual (`-1` si no).
+    self_type as int
+    ## `true` si `self` es valor.
+    self_value as bool
+    ## Lambdas descubiertas (para emitir funciones C).
+    lambdas as list of CgLambda
+    ## Errores internos de codegen.
+    errors as int
+
+## Crea un contexto para un programa.
+##
+## ## Memoria
+## Asigna tablas/emisor; liberar con `free`.
+weave new_context with p as ref to program.SemaProgram, o as opts.CgOptions into CgContext:
+    var ns as names.CgNames is calling names.new_names with (sigil of p->names), (sigil of p->types)
+    var cat as catalog.CgCatalog is calling catalog.catalog_collect with p
+    return with program is p, options is o, names is ns, catalog is cat, emitter is calling emit.new_emitter, locals is list of CgLocal, defers is list of int, return_type is -1, current_module is -1, current_fn is "", self_type is -1, self_value is false, lambdas is list of CgLambda, errors is 0
+
+## Libera el contexto.
+##
+## ## Memoria
+## Libera nombres, catálogo, emisor y locals.
+weave context_free with c as ref to CgContext into void:
+    calling names.names_free with (sigil of c->names)
+    calling catalog.catalog_free with (sigil of c->catalog)
+    calling emit.emit_free with (sigil of c->emitter)
+    banish c->locals
+    banish c->lambdas
+    banish c->defers
+    banish c->current_fn
+
+## Fija la sustitución de type params de una función.
+##
+## ## Memoria
+## Vacía el mapa anterior.
+weave set_subst with c as ref to CgContext, f as catalog.CgFunction into void:
+    banish c->names.subst
+    set c->names.subst is map of int to int
+    var i as int is 0
+    while i < f.tparams.len and i < f.spec_args.len:
+        calling c->names.subst.put with (f.tparams at i), (f.spec_args at i)
+        set i is i + 1
+
+## Añade un local al scope C actual.
+##
+## ## Memoria
+## Añade a `locals`; el nombre C es un `NameId`.
+weave add_local with c as ref to CgContext, name as int, type_id as int, c_name as int into void:
+    var l as CgLocal is with name is name, type is type_id, c_name is c_name
+    calling c->locals.push with l
+
+## Busca el tipo de un local.
+##
+## ## Memoria
+## O(n); scopes pequeños.
+weave local_type with c as ref to CgContext, name as int into int:
+    var i as int is c->locals.len - 1
+    while i >= 0:
+        var l as CgLocal is (c->locals at i)
+        if l.name == name:
+            return l.type
+        set i is i - 1
+    return -1
+
+## Busca el nombre C de un local.
+##
+## ## Memoria
+## O(n).
+weave local_c_name with c as ref to CgContext, name as int into int:
+    var i as int is c->locals.len - 1
+    while i >= 0:
+        var l as CgLocal is (c->locals at i)
+        if l.name == name:
+            return l.c_name
+        set i is i - 1
+    return -1
+
+## Vacía los locales (fin de función).
+##
+## ## Memoria
+## O(1).
+weave clear_locals with c as ref to CgContext into void:
+    var n as int is c->locals.len
+    while n > 0:
+        var ignored as CgLocal is calling c->locals.pop
+        set n is n - 1

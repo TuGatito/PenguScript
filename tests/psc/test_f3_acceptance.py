@@ -20,6 +20,10 @@ ROOT = Path(__file__).resolve().parents[2]
 PSC = ROOT / "psc"
 BIN = PSC / "build" / ("psc.exe" if os.name == "nt" else "psc")
 
+NEGATIVE = {
+    "tests/compiler/fixtures/primitives/coherence_conflict.pengu",
+}
+
 CURATED = [
     "psc/src/main.pengu",
     "psc/src/psc/sema/api.pengu",
@@ -100,7 +104,7 @@ def test_f3_cli_stdin_json(psc_binary):
     "source,code",
     [
         ("weave main into int:\n    return missing\n", "E0004"),
-        ('weave f into int:\n    return "x"\n', "E0005"),
+        ('weave f into int:\n    return "x"\n', "E0020"),
         ("weave main into int:\n    let x as int is 1\n    set x is 2\n    return x\n", "E0006"),
     ],
 )
@@ -110,6 +114,20 @@ def test_f3_error_codes(psc_binary, source, code):
     assert proc.returncode == 1
     payload = json.loads(proc.stderr)
     assert any(d["code"] == code for d in payload), payload
+
+
+@pytest.mark.skipif(
+    os.environ.get("PSC_SEMA_ORACLE") != "1",
+    reason="set PSC_SEMA_ORACLE=1 to run the stage0 semantic oracle",
+)
+def test_f3_stage0_semantic_oracle(psc_binary):
+    proc = _run(
+        [sys.executable, PSC / "tools" / "lark_sema_oracle.py", "--psc", psc_binary],
+        cwd=ROOT,
+        timeout=900,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "valid_rejected=0" in proc.stdout, proc.stdout
 
 
 @pytest.mark.skipif(
@@ -124,6 +142,11 @@ def test_f3_full_corpus(psc_binary):
     for path in files:
         proc = _run([psc_binary, "check", "--no-color", "--max-errors=1", str(path)],
                     timeout=600)
-        if proc.returncode != 0:
-            failures.append(f"{path.relative_to(ROOT)}: {proc.stderr.splitlines()[:1]}")
+        rel = str(path.relative_to(ROOT))
+        expected = 1 if rel in NEGATIVE else 0
+        if proc.returncode != expected:
+            failures.append(
+                f"{rel}: rc={proc.returncode} expected={expected} "
+                f"{proc.stderr.splitlines()[:1]}"
+            )
     assert not failures, "\n".join(failures)

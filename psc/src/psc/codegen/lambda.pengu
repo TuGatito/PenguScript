@@ -1,0 +1,174 @@
+## psc/codegen/lambda.pengu — funciones C para lambdas sin captura.
+##
+## Las lambdas de PenguScript no capturan; se emiten como funciones `static`
+## de nivel superior con un nombre estable derivado de (módulo, nodo).
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.sema.ast as astutil
+import psc.sema.modules.loader as loader
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+
+import psc.codegen.context as context
+import psc.codegen.ctype as ctype
+import psc.codegen.emit as emit
+import psc.codegen.expr as expr
+import psc.codegen.type_ast as tast
+
+insignia psc_codegen_lambda_
+
+## Nombre C estable de una lambda.
+##
+## ## Memoria
+## Devuelve string owned.
+weave lambda_name with module_id as int, node as int into string:
+    return "_pengu_lambda_{module_id}_{node}"
+
+## Recorre un nodo y registra lambdas.
+##
+## ## Memoria
+## Añade a `c->lambdas`.
+weave scan with c as ref to context.CgContext, module_id as int, ast as ref to psast.PsAst, node as int into void:
+    if node < 0:
+        return
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdLambdaExpr or k == pskind.NodeKind.NdLambdaNoParams:
+        calling c->lambdas.push with with module is module_id, node is node
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            calling scan with c, module_id, ast, ch
+        set i is i + 1
+
+## Descubre todas las lambdas del programa.
+##
+## ## Memoria
+## Añade a `c->lambdas`.
+weave collect_lambdas with c as ref to context.CgContext into void:
+    var mi as int is 0
+    while mi < c->program->modules.len:
+        var m as loader.SemaModule is (c->program->modules at mi)
+        if m.is_std or ((m.path length) >= 4 and (m.path at 0 to 4) == "std/"):
+            set mi is mi + 1
+            continue
+        var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+        var ni as int is 0
+        while ni < ast->nodes.len:
+            var k as pskind.NodeKind is calling astutil.kind_of with ast, ni
+            if k == pskind.NodeKind.NdLambdaExpr or k == pskind.NodeKind.NdLambdaNoParams:
+                calling c->lambdas.push with with module is mi, node is ni
+            set ni is ni + 1
+        set mi is mi + 1
+
+## Firma C de una lambda.
+##
+## ## Memoria
+## Strings owned.
+weave signature with c as ref to context.CgContext, lam as context.CgLambda into string:
+    var oldm as int is c->current_module
+    set c->current_module is lam.module
+    var ft as int is calling expr.node_type with c, lam.node
+    if ft < 0:
+        return ""
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ft
+    if t.kind != tk.SemaTypeKind.TkFn:
+        return ""
+    var info as types.SemaFnInfo is (c->program->types.fn_infos at t.a)
+    var ret as string is calling ctype.c_type with (sigil of c->names), info.return_type
+    var nm as string is calling lambda_name with lam.module, lam.node
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "static "
+    calling sb.append with ret
+    calling sb.append with " "
+    calling sb.append with nm
+    calling sb.append with "("
+    var pi as int is 0
+    while pi < info.params_count:
+        var p as types.SemaFnParam is (c->program->types.fn_params at (info.params_first + pi))
+        if pi > 0:
+            calling sb.append with ", "
+        var pt as string is calling ctype.c_type with (sigil of c->names), p.type
+        var pn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), p.name)
+        calling sb.append with "{pt} {pn}"
+        banish pt
+        banish pn
+        set pi is pi + 1
+    calling sb.append with ")"
+    banish ret
+    banish nm
+    return calling sb.finish
+
+## Emite el prototipo de una lambda.
+##
+## ## Memoria
+## Strings owned.
+weave emit_prototype with c as ref to context.CgContext, lam as context.CgLambda into void:
+    var sig as string is calling signature with c, lam
+    defer banish sig
+    if sig != "":
+        calling emit.line with (sigil of c->emitter), "{sig};"
+
+## Emite el cuerpo de una lambda.
+##
+## ## Memoria
+## Restaura el contexto del cuerpo anterior.
+weave emit_body with c as ref to context.CgContext, lam as context.CgLambda into void:
+    var sig as string is calling signature with c, lam
+    defer banish sig
+    if sig == "":
+        return
+    var ft as int is calling expr.node_type with c, lam.node
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ft
+    var info as types.SemaFnInfo is (c->program->types.fn_infos at t.a)
+    var old_module as int is c->current_module
+    var old_ret as int is c->return_type
+    set c->current_module is lam.module
+    set c->return_type is info.return_type
+    calling context.clear_locals with c
+    var m as loader.SemaModule is (c->program->modules at lam.module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var params as int is -1
+    var body as int is -1
+    var n as int is calling astutil.child_count with ast, lam.node
+    var i as int is 0
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, lam.node, i
+        if ch >= 0:
+            var ck as pskind.NodeKind is calling astutil.kind_of with ast, ch
+            if ck == pskind.NodeKind.NdLambdaParamList:
+                set params is ch
+            else if body < 0:
+                set body is ch
+        set i is i + 1
+    if params >= 0:
+        var pn as int is calling astutil.child_count with ast, params
+        var pi as int is 0
+        while pi < pn:
+            var lp as int is calling astutil.node_child with ast, params, pi
+            if lp >= 0:
+                var nt as int is calling astutil.token_child with ast, lp, 0
+                if nt >= 0:
+                    var nm as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), nt
+                    var nid as int is calling npool.intern with (sigil of c->program->names), nm
+                    banish nm
+                    var pty as int is -1
+                    var tn as int is calling astutil.node_child with ast, lp, 1
+                    if tn >= 0:
+                        set pty is calling tast.type_from_ast with c, m, tn
+                    calling context.add_local with c, nid, pty, nid
+            set pi is pi + 1
+    calling emit.line with (sigil of c->emitter), "{sig} {"
+    calling emit.indent_more with (sigil of c->emitter)
+    if body >= 0:
+        var v as string is calling expr.emit_expr_as with c, body, info.return_type
+        calling emit.line with (sigil of c->emitter), "return {v};"
+        banish v
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"
+    set c->current_module is old_module
+    set c->return_type is old_ret

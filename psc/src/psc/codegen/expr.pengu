@@ -1,0 +1,2283 @@
+## psc/codegen/expr.pengu — expresiones C (núcleo inicial).
+##
+## La primera entrega cubre literales, variables locales, aritmética, unarios,
+## comparaciones y llamadas directas. Las subfases posteriores añaden el resto
+## sin cambiar la interfaz `emit_expr`.
+
+import std.builder
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.sema.ast as astutil
+import psc.sema.modules.loader as loader
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.table as symbols
+import psc.sema.annotate as ann
+import psc.sema.names as npool
+
+import psc.codegen.context as context
+import psc.codegen.ctype as ctype
+import psc.codegen.names as names
+import psc.codegen.emit as emit
+import psc.codegen.catalog as catalog
+import psc.codegen.type_ast as tast
+import psc.codegen.generics as generics
+
+insignia psc_codegen_expr_
+
+## Tipo anotado de un nodo.
+##
+## ## Memoria
+## O(1).
+weave node_type with c as ref to context.CgContext, node as int into int:
+    if c->current_module < 0 or node < 0:
+        return -1
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    return calling ann.type_of with (sigil of m.annotations), node
+
+## Emite una expresión como string C owned.
+##
+## ## Memoria
+## Devuelve un string owned; el llamador lo libera con `banish`.
+weave emit_expr with c as ref to context.CgContext, node as int into string:
+    if node < 0:
+        return "0"
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdIntLit or k == pskind.NodeKind.NdFloatLit or k == pskind.NodeKind.NdCharLit:
+        return calling astutil.child_token_text with (sigil of m.source), (sigil of m.lex), ast, node, 0
+    if k == pskind.NodeKind.NdTrueLit:
+        return "true"
+    if k == pskind.NodeKind.NdFalseLit:
+        return "false"
+    if k == pskind.NodeKind.NdNullLit:
+        return "NULL"
+    if k == pskind.NodeKind.NdMaybeNone:
+        return "pengu_maybe_none()"
+    if k == pskind.NodeKind.NdStringLit:
+        var raw as string is calling astutil.child_token_text with (sigil of m.source), (sigil of m.lex), ast, node, 0
+        defer banish raw
+        return calling c_string_expr with c, raw
+    if k == pskind.NodeKind.NdVarRef or k == pskind.NodeKind.NdSelfRef:
+        var txt as string is calling astutil.first_token_text with (sigil of m.source), (sigil of m.lex), ast, node
+        defer banish txt
+        if k == pskind.NodeKind.NdSelfRef:
+            return "self"
+        var nid as int is calling npool.intern with (sigil of c->program->names), txt
+        var lc as int is calling context.local_c_name with c, nid
+        if lc >= 0:
+            return calling npool.copy_string with (calling npool.text with (sigil of c->program->names), lc)
+        var sid as int is calling symbols.lookup_name with (sigil of c->program->symbols), txt
+        if sid >= 0:
+            var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), sid
+            if sv.kind == sym.SemaSymbolKind.SkConst and sv.type >= 0:
+                var st0 as tk.SemaType is calling types.at with (sigil of c->program->types), sv.type
+                if st0.kind == tk.SemaTypeKind.TkOmen:
+                    var on as string is calling ctype.c_type with (sigil of c->names), sv.type
+                    defer banish on
+                    var vn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sv.name)
+                    defer banish vn
+                    if calling omen_has_layout with c, sv.type:
+                        var osb as StringBuilder is calling StringBuilder.new
+                        defer banish osb
+                        calling osb.append with "("
+                        calling osb.append with on
+                        calling osb.append with "){.tag = "
+                        calling osb.append with on
+                        calling osb.append with "_"
+                        calling osb.append with vn
+                        calling osb.append with "}"
+                        return calling osb.finish
+                    return "{on}_{vn}"
+            return calling names.function_name with (sigil of c->names), sv
+        return calling npool.copy_string with txt
+    if k == pskind.NodeKind.NdParenExpr:
+        var inner as string is calling emit_expr with c, (calling astutil.node_child with ast, node, 0)
+        defer banish inner
+        return "({inner})"
+    if k == pskind.NodeKind.NdNeg:
+        var v as string is calling emit_expr with c, (calling astutil.node_child with ast, node, 0)
+        defer banish v
+        return "(-{v})"
+    if k == pskind.NodeKind.NdLogNot:
+        var v2 as string is calling emit_expr with c, (calling astutil.node_child with ast, node, 0)
+        defer banish v2
+        return "(!{v2})"
+    if k == pskind.NodeKind.NdBitNot:
+        var v3 as string is calling emit_expr with c, (calling astutil.node_child with ast, node, 0)
+        defer banish v3
+        return "(~{v3})"
+    if k == pskind.NodeKind.NdAdd or k == pskind.NodeKind.NdSub or k == pskind.NodeKind.NdMul or k == pskind.NodeKind.NdDiv or k == pskind.NodeKind.NdMod or k == pskind.NodeKind.NdBitwiseAnd or k == pskind.NodeKind.NdBitwiseOr or k == pskind.NodeKind.NdBitwiseXor or k == pskind.NodeKind.NdShl or k == pskind.NodeKind.NdShr:
+        return calling binary_expr with c, node, ast
+    if k == pskind.NodeKind.NdEq or k == pskind.NodeKind.NdNe or k == pskind.NodeKind.NdLt or k == pskind.NodeKind.NdLe or k == pskind.NodeKind.NdGt or k == pskind.NodeKind.NdGe:
+        return calling binary_expr with c, node, ast
+    if k == pskind.NodeKind.NdBoolAnd or k == pskind.NodeKind.NdBoolOr:
+        return calling binary_expr with c, node, ast
+    if k == pskind.NodeKind.NdCallingExpr:
+        return calling call_expr with c, node, ast
+    if k == pskind.NodeKind.NdEssenceOf:
+        var eo as int is calling astutil.node_child with ast, node, 0
+        var eov as string is calling emit_expr with c, eo
+        defer banish eov
+        return "(*( {eov}))"
+    if k == pskind.NodeKind.NdBytesExpr:
+        var bb as int is calling astutil.node_child with ast, node, 0
+        var bv as string is calling emit_expr with c, bb
+        defer banish bv
+        return "((const uint8_t*)(({bv}).data))"
+    if k == pskind.NodeKind.NdSigilOf:
+        var sb2 as int is calling astutil.node_child with ast, node, 0
+        var sv2 as string is calling emit_expr with c, sb2
+        defer banish sv2
+        return "(&({sv2}))"
+    if k == pskind.NodeKind.NdToExpr:
+        var tv as int is calling astutil.node_child with ast, node, 0
+        var tvx as string is calling emit_expr with c, tv
+        defer banish tvx
+        var tnode as int is calling astutil.node_child with ast, node, 1
+        var tct as string is ""
+        if tnode >= 0 and (calling astutil.kind_of with ast, tnode) == pskind.NodeKind.NdVarRef:
+            var ttok as int is calling astutil.token_child with ast, tnode, 0
+            if ttok >= 0:
+                var ttxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ttok
+                var tnid as int is calling npool.intern with (sigil of c->program->names), ttxt
+                banish ttxt
+                set tct is calling ctype.base_c_type with (sigil of c->names), tnid
+        else:
+            var tt2 as int is calling tast.from_ast with c, m, tnode
+            if tt2 >= 0:
+                set tct is calling ctype.c_type with (sigil of c->names), tt2
+        defer banish tct
+        if tct == "":
+            return tvx
+        return "(({tct})({tvx}))"
+    if k == pskind.NodeKind.NdSizeOf:
+        var stn as int is calling astutil.node_child with ast, node, 0
+        var sty as int is calling tast.from_ast with c, m, stn
+        if sty >= 0:
+            var sct as string is calling ctype.c_type with (sigil of c->names), sty
+            defer banish sct
+            return "((size_t)sizeof({sct}))"
+        return "((size_t)sizeof(void*))"
+    if k == pskind.NodeKind.NdSliceAtExpr:
+        var sb0 as int is calling astutil.node_child with ast, node, 0
+        var rg as int is calling astutil.node_child with ast, node, 1
+        var bs0 as string is calling emit_expr with c, sb0
+        defer banish bs0
+        if rg >= 0:
+            var lo0 as int is calling astutil.node_child with ast, rg, 0
+            var hi0 as int is calling astutil.node_child with ast, rg, 1
+            var lot as string is calling emit_expr with c, lo0
+            defer banish lot
+            var hit as string is calling emit_expr with c, hi0
+            defer banish hit
+            var bt0x as int is calling node_type with c, sb0
+            if bt0x >= 0:
+                var btx as tk.SemaType is calling types.at with (sigil of c->program->types), bt0x
+                if btx.kind == tk.SemaTypeKind.TkArray:
+                    var asb0 as StringBuilder is calling StringBuilder.new
+                    defer banish asb0
+                    calling asb0.append with "(PenguSlice){.data = (void*)(&("
+                    calling asb0.append with bs0
+                    calling asb0.append with ")[0]), .elem_size = sizeof("
+                    calling asb0.append with bs0
+                    calling asb0.append with "[0]), .len = (int)(("
+                    calling asb0.append with hit
+                    calling asb0.append with ") - ("
+                    calling asb0.append with lot
+                    calling asb0.append with "))}"
+                    return calling asb0.finish
+                if btx.kind == tk.SemaTypeKind.TkSlice:
+                    return "pengu_slice_sub(&({bs0}), (int)({lot}), (int)({hit}))"
+                if btx.kind == tk.SemaTypeKind.TkList:
+                    var let0 as string is calling ctype.c_type with (sigil of c->names), btx.a
+                    var lret as string is "pengu_slice_new(pengu_list_at(&({bs0}), (int)({lot})), sizeof({let0}), (int)(({hit}) - ({lot})))"
+                    banish let0
+                    return lret
+            return "pengu_string_substring({bs0}, (int)({lot}), (int)({hit}))"
+        return bs0
+    if k == pskind.NodeKind.NdLambdaExpr or k == pskind.NodeKind.NdLambdaNoParams:
+        return "_pengu_lambda_{c->current_module}_{node}"
+    if k == pskind.NodeKind.NdIsPresent or k == pskind.NodeKind.NdIsNotPresent:
+        var ip as int is calling astutil.node_child with ast, node, 0
+        var ipv as string is calling emit_expr with c, ip
+        defer banish ipv
+        var ipty as int is calling node_type with c, ip
+        var ipfield as string is "is_present"
+        if ipty >= 0:
+            var ipt as tk.SemaType is calling types.at with (sigil of c->program->types), ipty
+            if ipt.kind == tk.SemaTypeKind.TkResult:
+                set ipfield is "is_ok"
+        if k == pskind.NodeKind.NdIsNotPresent:
+            return "(!({ipv}).{ipfield})"
+        return "(({ipv}).{ipfield})"
+    if k == pskind.NodeKind.NdIsTrue or k == pskind.NodeKind.NdIsFalse:
+        var it as int is calling astutil.node_child with ast, node, 0
+        var itv as string is calling emit_expr with c, it
+        defer banish itv
+        if k == pskind.NodeKind.NdIsFalse:
+            return "(!({itv}))"
+        return "({itv})"
+    if k == pskind.NodeKind.NdChrExpr:
+        var cv as int is calling astutil.node_child with ast, node, 0
+        var cvv as string is calling emit_expr with c, cv
+        defer banish cvv
+        return "pengu_string_from_char((char)({cvv}))"
+    if k == pskind.NodeKind.NdOrdExpr:
+        var ov as int is calling astutil.node_child with ast, node, 0
+        var ovv as string is calling emit_expr with c, ov
+        defer banish ovv
+        var ot as int is calling node_type with c, ov
+        if ot >= 0:
+            var oty as tk.SemaType is calling types.at with (sigil of c->program->types), ot
+            if oty.kind == tk.SemaTypeKind.TkBase:
+                var obn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), oty.name)
+                if obn != "string":
+                    banish obn
+                    return "((int32_t)({ovv}))"
+                banish obn
+        return "((int32_t)(({ovv}).data ? (unsigned char)({ovv}).data[0] : 0))"
+    if k == pskind.NodeKind.NdOrElse:
+        var ol as int is calling astutil.node_child with ast, node, 0
+        var orr as int is calling astutil.node_child with ast, node, 1
+        var olt as int is calling node_type with c, ol
+        if olt < 0 and ol >= 0 and (calling astutil.kind_of with ast, ol) == pskind.NodeKind.NdVarRef:
+            var otok as int is calling astutil.token_child with ast, ol, 0
+            if otok >= 0:
+                var otxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), otok
+                var onid as int is calling npool.intern with (sigil of c->program->names), otxt
+                banish otxt
+                set olt is calling context.local_type with c, onid
+        var olv as string is calling emit_expr with c, ol
+        defer banish olv
+        var orv as string is calling emit_expr_as with c, orr, olt
+        defer banish orv
+        if olt >= 0:
+            var ott as tk.SemaType is calling types.at with (sigil of c->program->types), olt
+            if ott.kind == tk.SemaTypeKind.TkMaybe or ott.kind == tk.SemaTypeKind.TkResult:
+                var payx as int is ott.a
+                var pctx as string is calling ctype.c_type with (sigil of c->names), payx
+                var tmp as string is calling emit.temp with (sigil of c->emitter), "_or"
+                var osb as StringBuilder is calling StringBuilder.new
+                defer banish osb
+                calling osb.append with "__extension__(({ "
+                calling osb.append with (calling ctype.c_type with (sigil of c->names), olt)
+                calling osb.append with " "
+                calling osb.append with tmp
+                calling osb.append with " = "
+                calling osb.append with olv
+                calling osb.append with "; "
+                if ott.kind == tk.SemaTypeKind.TkMaybe:
+                    calling osb.append with "{tmp}.is_present ? (*( "
+                else:
+                    calling osb.append with "{tmp}.is_ok ? (*( "
+                calling osb.append with pctx
+                calling osb.append with "*)"
+                if ott.kind == tk.SemaTypeKind.TkMaybe:
+                    calling osb.append with "{tmp}.value) : ("
+                else:
+                    calling osb.append with "{tmp}.ok_val) : ("
+                calling osb.append with orv
+                calling osb.append with "); }))"
+                banish pctx
+                return calling osb.finish
+        return "({olv} ? {olv} : {orv})"
+    if k == pskind.NodeKind.NdJudgeExpr:
+        return calling judge_expr_c with c, node, ast, -1
+    if k == pskind.NodeKind.NdAtExpr:
+        return calling at_expr with c, node, ast
+    if k == pskind.NodeKind.NdLengthExpr:
+        var lb as int is calling astutil.node_child with ast, node, 0
+        var lv as string is calling emit_expr with c, lb
+        defer banish lv
+        return "((int32_t)({lv}).len)"
+    if k == pskind.NodeKind.NdFieldAccess:
+        return calling field_access_expr with c, node, ast, false
+    if k == pskind.NodeKind.NdArrowAccess:
+        return calling field_access_expr with c, node, ast, true
+    if k == pskind.NodeKind.NdArrayLit:
+        return calling array_lit_expr with c, node, ast, calling node_type with c, node
+    if k == pskind.NodeKind.NdListInitExpr:
+        return calling list_init_expr with c, node, ast, -1
+    if k == pskind.NodeKind.NdStructInit:
+        return calling struct_init_expr with c, node, ast, calling node_type with c, node
+    if k == pskind.NodeKind.NdSomeExpr:
+        return calling some_expr_c with c, node, ast, -1
+    return "0"
+
+## Emite una expresión con un tipo esperado (para struct init sin anotación).
+##
+## ## Memoria
+## Devuelve string owned.
+## Emite un literal de lista `[a, b, ...]` como `PenguList`.
+##
+## ## Memoria
+## Strings owned.
+weave list_literal_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, ty as int into string:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var et as string is calling ctype.c_type with (sigil of c->names), t.a
+    defer banish et
+    var n as int is calling astutil.child_count with ast, node
+    var lt as string is calling emit.temp with (sigil of c->emitter), "_list"
+    var vt as string is calling emit.temp with (sigil of c->emitter), "_lv"
+    defer banish lt
+    defer banish vt
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "__extension__(({ PenguList "
+    calling sb.append with lt
+    calling sb.append with " = pengu_list_new(sizeof("
+    calling sb.append with et
+    calling sb.append with "), "
+    calling sb.append with "{n}"
+    calling sb.append with "); "
+    calling sb.append with et
+    calling sb.append with " "
+    calling sb.append with vt
+    calling sb.append with "; "
+    var i as int is 0
+    while i < n:
+        var el as int is calling astutil.node_child with ast, node, i
+        if el >= 0:
+            var ev as string is calling emit_expr_as with c, el, t.a
+            calling sb.append with vt
+            calling sb.append with " = "
+            calling sb.append with ev
+            calling sb.append with "; pengu_list_push(&"
+            calling sb.append with lt
+            calling sb.append with ", &"
+            calling sb.append with vt
+            calling sb.append with "); "
+            banish ev
+        set i is i + 1
+    calling sb.append with lt
+    calling sb.append with "; }))"
+    return calling sb.finish
+
+weave emit_expr_as with c as ref to context.CgContext, node as int, expected as int into string:
+    if node < 0:
+        return "0"
+    var m0 as loader.SemaModule is (c->program->modules at c->current_module)
+    var mt0 as ref to psast.PsAst is (sigil of m0.parse.ast)
+    if expected >= 0 and (calling astutil.kind_of with mt0, node) == pskind.NodeKind.NdCallingExpr:
+        var tgt0 as int is calling astutil.node_child with mt0, node, 0
+        var lt0 as int is calling last_token_deep with mt0, tgt0
+        if lt0 >= 0:
+            var cn0 as string is calling astutil.token_text with (sigil of m0.source), (sigil of m0.lex), lt0
+            if cn0 == "ok_of" or cn0 == "err_of" or cn0 == "some":
+                var iok as bool is cn0 == "ok_of"
+                var imay as bool is cn0 == "some"
+                banish cn0
+                return calling result_ctor with c, node, mt0, iok, imay, expected
+            banish cn0
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdCallingExpr:
+        var ct0 as int is calling astutil.node_child with ast, node, 0
+        var cl as int is calling last_token_deep with ast, ct0
+        if cl >= 0:
+            var cnm as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), cl
+            if cnm == "ok_of" or cnm == "err_of" or cnm == "some":
+                var iok as bool is cnm == "ok_of"
+                var imay as bool is cnm == "some"
+                banish cnm
+                return calling result_ctor with c, node, ast, iok, imay, expected
+            banish cnm
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdJudgeExpr:
+        return calling judge_expr_c with c, node, ast, expected
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdParenExpr:
+        var pin as int is calling astutil.node_child with ast, node, 0
+        return calling emit_expr_as with c, pin, expected
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdVarRef:
+        var et1 as tk.SemaType is calling types.at with (sigil of c->program->types), expected
+        if et1.kind == tk.SemaTypeKind.TkOmen:
+            var vt as int is calling astutil.token_child with ast, node, 0
+            if vt >= 0:
+                var vtxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), vt
+                var vid as int is calling npool.intern with (sigil of c->program->names), vtxt
+                banish vtxt
+                if (calling context.local_c_name with c, vid) >= 0:
+                    return calling emit_expr with c, node
+                var pfirst as int is calling omen_first_payload with c, expected, vid
+                var on2 as string is calling ctype.c_type with (sigil of c->names), expected
+                defer banish on2
+                var vtx2 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), vid)
+                defer banish vtx2
+                if calling omen_has_layout with c, expected:
+                    var obsb as StringBuilder is calling StringBuilder.new
+                    defer banish obsb
+                    calling obsb.append with "("
+                    calling obsb.append with on2
+                    calling obsb.append with "){.tag = "
+                    calling obsb.append with on2
+                    calling obsb.append with "_"
+                    calling obsb.append with vtx2
+                    calling obsb.append with "}"
+                    return calling obsb.finish
+                return "{on2}_{vtx2}"
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdSomeExpr:
+        return calling some_expr_c with c, node, ast, expected
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdStructInit:
+        var et0 as tk.SemaType is calling types.at with (sigil of c->program->types), expected
+        if et0.kind == tk.SemaTypeKind.TkOmen:
+            return calling omen_init_expr with c, node, ast, expected
+        return calling struct_init_expr with c, node, ast, expected
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdListType:
+        var lt0 as tk.SemaType is calling types.at with (sigil of c->program->types), expected
+        if lt0.kind == tk.SemaTypeKind.TkList:
+            var et0 as string is calling ctype.c_type with (sigil of c->names), lt0.a
+            var ln0 as string is "pengu_list_new(sizeof({et0}), 4)"
+            banish et0
+            return ln0
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdMapType:
+        var mt0 as tk.SemaType is calling types.at with (sigil of c->program->types), expected
+        if mt0.kind == tk.SemaTypeKind.TkMap:
+            var kt0 as string is calling ctype.c_type with (sigil of c->names), mt0.a
+            var vt0 as string is calling ctype.c_type with (sigil of c->names), mt0.b
+            var mnew as string is "pengu_map_new(sizeof({kt0}), sizeof({vt0}))"
+            banish kt0
+            banish vt0
+            return mnew
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdMapInitExpr or (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdMapLit:
+        var mt1 as tk.SemaType is calling types.at with (sigil of c->program->types), expected
+        if mt1.kind == tk.SemaTypeKind.TkMap:
+            var kt1 as string is calling ctype.c_type with (sigil of c->names), mt1.a
+            var vt1 as string is calling ctype.c_type with (sigil of c->names), mt1.b
+            var mnew2 as string is "pengu_map_new(sizeof({kt1}), sizeof({vt1}))"
+            banish kt1
+            banish vt1
+            return mnew2
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdIndentLiteral:
+        return calling indent_init_expr with c, node, ast, expected
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdWithInitExpr:
+        return calling with_init_expr with c, node, ast, expected
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdListInitExpr:
+        return calling list_init_expr with c, node, ast, expected
+    if expected >= 0 and ((calling astutil.kind_of with ast, node) == pskind.NodeKind.NdArrayLit):
+        var elt0 as tk.SemaType is calling types.at with (sigil of c->program->types), expected
+        if elt0.kind == tk.SemaTypeKind.TkList:
+            return calling list_literal_expr with c, node, ast, expected
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdArrayLit:
+        return calling array_lit_expr with c, node, ast, expected
+    return calling emit_expr with c, node
+
+## Emite una operación binaria.
+##
+## ## Memoria
+## Strings owned.
+weave binary_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
+    var l as string is calling emit_expr with c, (calling astutil.node_child with ast, node, 0)
+    defer banish l
+    var r as string is calling emit_expr with c, (calling astutil.node_child with ast, node, 1)
+    defer banish r
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    var op as string is "?"
+    if k == pskind.NodeKind.NdAdd:
+        set op is "+"
+    else if k == pskind.NodeKind.NdSub:
+        set op is "-"
+    else if k == pskind.NodeKind.NdMul:
+        set op is "*"
+    else if k == pskind.NodeKind.NdDiv:
+        set op is "/"
+    else if k == pskind.NodeKind.NdMod:
+        set op is "%"
+    else if k == pskind.NodeKind.NdBitwiseAnd:
+        set op is "&"
+    else if k == pskind.NodeKind.NdBitwiseOr:
+        set op is "|"
+    else if k == pskind.NodeKind.NdBitwiseXor:
+        set op is "^"
+    else if k == pskind.NodeKind.NdShl:
+        set op is "<<"
+    else if k == pskind.NodeKind.NdShr:
+        set op is ">>"
+    else if k == pskind.NodeKind.NdEq:
+        set op is "=="
+    else if k == pskind.NodeKind.NdNe:
+        set op is "!="
+    else if k == pskind.NodeKind.NdLt:
+        set op is "<"
+    else if k == pskind.NodeKind.NdLe:
+        set op is "<="
+    else if k == pskind.NodeKind.NdGt:
+        set op is ">"
+    else if k == pskind.NodeKind.NdGe:
+        set op is ">="
+    else if k == pskind.NodeKind.NdBoolAnd:
+        set op is "&&"
+    else if k == pskind.NodeKind.NdBoolOr:
+        set op is "||"
+    if op == "==" or op == "!=":
+        var lnode0 as int is calling astutil.node_child with ast, node, 0
+        var rnode0 as int is calling astutil.node_child with ast, node, 1
+        var salt as bool is false
+        if lnode0 >= 0 and (calling astutil.kind_of with ast, lnode0) == pskind.NodeKind.NdStringLit:
+            set salt is true
+        if rnode0 >= 0 and (calling astutil.kind_of with ast, rnode0) == pskind.NodeKind.NdStringLit:
+            set salt is true
+        if salt:
+            if op == "==":
+                return "pengu_string_equal({l}, {r})"
+            return "(!pengu_string_equal({l}, {r}))"
+        var lt0 as int is calling node_type with c, (calling astutil.node_child with ast, node, 0)
+        if lt0 >= 0:
+            var lt1 as tk.SemaType is calling types.at with (sigil of c->program->types), lt0
+            if lt1.kind == tk.SemaTypeKind.TkBase:
+                var lbn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), lt1.name)
+                defer banish lbn
+                if lbn == "string":
+                    if op == "==":
+                        return "pengu_string_equal({l}, {r})"
+                    return "(!pengu_string_equal({l}, {r}))"
+            if lt1.kind == tk.SemaTypeKind.TkRune or lt1.kind == tk.SemaTypeKind.TkEcho or (lt1.kind == tk.SemaTypeKind.TkOmen and calling omen_has_layout with c, lt0):
+                if op == "==":
+                    return "(memcmp(&({l}), &({r}), sizeof({l})) == 0)"
+                return "(memcmp(&({l}), &({r}), sizeof({l})) != 0)"
+    return "({l} {op} {r})"
+
+## Último token de un subárbol (el nombre del método en un target).
+##
+## ## Memoria
+## O(nodos).
+weave last_token_deep with ast as ref to psast.PsAst, node as int into int:
+    if node < 0:
+        return -1
+    var n as int is calling astutil.child_count with ast, node
+    var i as int is n - 1
+    while i >= 0:
+        var t as int is calling astutil.token_child with ast, node, i
+        if t >= 0:
+            return t
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            var got as int is calling last_token_deep with ast, ch
+            if got >= 0:
+                return got
+        set i is i - 1
+    return -1
+
+## Emite `some expr` con boxing en heap.
+##
+## ## Memoria
+## Strings owned.
+weave some_expr_c with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, wanted as int into string:
+    var rt as int is calling node_type with c, node
+    if wanted > 0:
+        var wt0 as tk.SemaType is calling types.at with (sigil of c->program->types), wanted
+        if wt0.kind == tk.SemaTypeKind.TkResult or wt0.kind == tk.SemaTypeKind.TkMaybe:
+            set rt is wanted
+    if rt < 0:
+        set rt is wanted
+    if rt < 0:
+        return "0"
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), rt
+    if t.kind != tk.SemaTypeKind.TkMaybe and wanted > 0:
+        set rt is wanted
+        set t is calling types.at with (sigil of c->program->types), rt
+    var payx as int is t.a
+    if t.kind != tk.SemaTypeKind.TkMaybe:
+        set payx is -1
+    if payx <= 0:
+        var an0 as int is calling astutil.node_child with ast, node, 0
+        set payx is calling node_type with c, an0
+    if payx <= 0:
+        set payx is calling types.base with (sigil of c->program->types), "int"
+    var pt as string is calling ctype.c_type with (sigil of c->names), payx
+    defer banish pt
+    var an as int is calling astutil.node_child with ast, node, 0
+    var av as string is calling emit_expr with c, an
+    defer banish av
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "__extension__(({ "
+    calling sb.append with pt
+    calling sb.append with " _p = "
+    calling sb.append with av
+    calling sb.append with "; "
+    calling sb.append with pt
+    calling sb.append with "* _h = ("
+    calling sb.append with pt
+    calling sb.append with "*)malloc(sizeof("
+    calling sb.append with pt
+    calling sb.append with ")); if (!_h) abort(); *_h = _p; PenguMaybe _r = pengu_maybe_some(_h); _r; }))"
+    return calling sb.finish
+
+## Constructores intrínsecos `ok_of`, `err_of` y `some`.
+##
+## ## Memoria
+## Devuelve una statement-expression owned.
+weave result_ctor with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, is_ok as bool, is_maybe as bool, wanted as int into string:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var rt as int is calling node_type with c, node
+    if wanted > 0:
+        var wt0 as tk.SemaType is calling types.at with (sigil of c->program->types), wanted
+        if wt0.kind == tk.SemaTypeKind.TkResult or wt0.kind == tk.SemaTypeKind.TkMaybe:
+            set rt is wanted
+    if rt < 0:
+        set rt is wanted
+    if rt < 0:
+        return "0"
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), rt
+    if not is_maybe and t.kind == tk.SemaTypeKind.TkResult:
+        var vpay as int is t.a
+        if is_ok and vpay > 0:
+            var vpt as tk.SemaType is calling types.at with (sigil of c->program->types), vpay
+            if vpt.kind == tk.SemaTypeKind.TkVoid:
+                return "pengu_result_ok(NULL)"
+    var pay as int is -1
+    if is_maybe and t.kind == tk.SemaTypeKind.TkMaybe:
+        set pay is t.a
+    else if not is_maybe and t.kind == tk.SemaTypeKind.TkResult:
+        if is_ok:
+            set pay is t.a
+        else:
+            set pay is t.b
+    var args as int is calling astutil.node_child with ast, node, 2
+    if args < 0:
+        return "0"
+    var avn as int is calling astutil.node_child with ast, args, 0
+    if avn < 0:
+        return "0"
+    if (calling astutil.kind_of with ast, avn) == pskind.NodeKind.NdPosArg:
+        set avn is calling astutil.node_child with ast, avn, 0
+    if (calling astutil.kind_of with ast, avn) == pskind.NodeKind.NdParenExpr:
+        set avn is calling astutil.node_child with ast, avn, 0
+    if pay < 0 or (pay >= 0 and ((calling types.at with (sigil of c->program->types), pay).kind == tk.SemaTypeKind.TkError or (calling types.at with (sigil of c->program->types), pay).kind == tk.SemaTypeKind.TkAny or (calling types.at with (sigil of c->program->types), pay).kind == tk.SemaTypeKind.TkOpaque)):
+        var aty as int is calling node_type with c, avn
+        if aty >= 0:
+            set pay is aty
+            var atk as tk.SemaTypeKind is (calling types.at with (sigil of c->program->types), aty).kind
+            if atk == tk.SemaTypeKind.TkAny or atk == tk.SemaTypeKind.TkError:
+                set pay is -1
+    if (calling astutil.kind_of with ast, avn) == pskind.NodeKind.NdStructInit:
+        var vf as int is calling astutil.node_child with ast, avn, 0
+        if vf >= 0:
+            var vt0 as int is calling astutil.token_child with ast, vf, 0
+            if vt0 >= 0:
+                var vtxt0 as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), vt0
+                var vnid0 as int is calling npool.intern with (sigil of c->program->names), vtxt0
+                var vsid as int is calling symbols.lookup_name with (sigil of c->program->symbols), vtxt0
+                if vsid < 0:
+                    set vsid is calling symbols.lookup_in_scope with (sigil of c->program->symbols), 0, vnid0
+                if vsid < 0:
+                    var ssi as int is 0
+                    while ssi < c->program->symbols.symbols.len:
+                        var ssym as sym.SemaSymbol is (c->program->symbols.symbols at ssi)
+                        if ssym.name == vnid0 and ssym.type >= 0:
+                            var sst as tk.SemaType is calling types.at with (sigil of c->program->types), ssym.type
+                            if sst.kind == tk.SemaTypeKind.TkOmen:
+                                set vsid is ssi
+                        set ssi is ssi + 1
+                if vsid >= 0:
+                    var vsym as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), vsid
+                    set pay is vsym.type
+                banish vtxt0
+    if pay < 0:
+        return "0"
+    var pt as string is calling ctype.c_type with (sigil of c->names), pay
+    defer banish pt
+    var av as string is calling emit_expr_as with c, avn, pay
+    defer banish av
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "__extension__(({ "
+    calling sb.append with pt
+    calling sb.append with " _p = "
+    calling sb.append with av
+    calling sb.append with "; "
+    calling sb.append with pt
+    calling sb.append with "* _h = ("
+    calling sb.append with pt
+    calling sb.append with "*)malloc(sizeof("
+    calling sb.append with pt
+    calling sb.append with ")); if (!_h) abort(); *_h = _p; "
+    if is_maybe:
+        calling sb.append with "PenguMaybe _r = pengu_maybe_some(_h); _r; }))"
+    else if is_ok:
+        calling sb.append with "PenguResult _r = pengu_result_ok(_h); _r; }))"
+    else:
+        calling sb.append with "PenguResult _r = pengu_result_err(_h); _r; }))"
+    return calling sb.finish
+
+## Emite una llamada.
+##
+## Usa la anotación de símbolo de F3 (resuelve `mod.fn` y métodos); si falta,
+## cae al último token del target y al catálogo por nombre.
+##
+## ## Memoria
+## Strings owned; no posee args.
+weave call_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var ctor_t as int is calling astutil.node_child with ast, node, 0
+    var ctor_last as int is calling last_token_deep with ast, ctor_t
+    if ctor_last >= 0:
+        var ctor_name as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ctor_last
+        if ctor_name == "ok_of" or ctor_name == "err_of" or ctor_name == "some":
+            var isok as bool is ctor_name == "ok_of"
+            var ismay as bool is ctor_name == "some"
+            banish ctor_name
+            return calling result_ctor with c, node, ast, isok, ismay, -1
+        banish ctor_name
+    var cname as string is ""
+    var method_name as string is ""
+    var fslot as int is -1
+    var sid as int is calling ann.symbol_of with (sigil of m.annotations), node
+    if sid >= 0:
+        if calling c->catalog.by_symbol.has with sid:
+            var fi as int is calling c->catalog.by_symbol.get with sid
+            set fslot is fi
+            var ff as catalog.CgFunction is (c->catalog.functions at fi)
+            set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), ff.c_name)
+        else:
+            var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), sid
+            set cname is calling names.function_name with (sigil of c->names), sv
+    if cname == "":
+        var target as int is calling astutil.node_child with ast, node, 0
+        var last as int is -1
+        if target >= 0:
+            set last is calling last_token_deep with ast, target
+        if last >= 0:
+            var lname as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), last
+            banish cname
+            set cname is lname
+            set method_name is calling npool.copy_string with lname
+            var nid as int is calling npool.intern with (sigil of c->program->names), lname
+            # Llamada cualificada `mod.fn`: resolver por módulo, no por método.
+            var qbase_tok as int is calling astutil.token_child with ast, target, 0
+            if qbase_tok >= 0:
+                var qtxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), qbase_tok
+                var qsid as int is calling symbols.lookup_name with (sigil of c->program->symbols), qtxt
+                banish qtxt
+                if qsid >= 0:
+                    var qsv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), qsid
+                    if qsv.kind == sym.SemaSymbolKind.SkImport:
+                        var qmid as int is -1
+                        var qmi as int is 0
+                        while qmi < c->program->modules.len:
+                            var qmm as loader.SemaModule is (c->program->modules at qmi)
+                            if qmm.scope == qsv.module_scope:
+                                set qmid is qmi
+                            set qmi is qmi + 1
+                        if qmid >= 0:
+                            var qfi as int is 0
+                            while qfi < c->catalog.functions.len:
+                                var qf as catalog.CgFunction is (c->catalog.functions at qfi)
+                                if qf.module == qmid and qf.name == nid:
+                                    set fslot is qfi
+                                    banish cname
+                                    set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), qf.c_name)
+                                set qfi is qfi + 1
+                            if fslot >= 0:
+                                set last is -2
+            # Método sobre un receptor: buscar `Tipo_metodo` en el catálogo.
+            var rtarget as int is calling astutil.node_child with ast, node, 0
+            var rtt0 is calling resolve_target with c, rtarget, ast, true
+            if rtt0.type_id >= 0:
+                var rctype as string is calling ctype.c_type with (sigil of c->names), rtt0.type_id
+                var mfull as string is "{rctype}_{lname}"
+                var sfi as int is 0
+                while sfi < c->catalog.functions.len:
+                    var sff as catalog.CgFunction is (c->catalog.functions at sfi)
+                    var sfn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sff.c_name)
+                    if sfn == mfull:
+                        set fslot is sfi
+                        banish cname
+                        set cname is sfn
+                        set sfn is ""
+                    banish sfn
+                    set sfi is sfi + 1
+                banish rctype
+                banish mfull
+            banish rtt0.text
+            if fslot >= 0:
+                set last is -2
+            if last >= 0 and calling c->catalog.by_name.has with nid:
+                var fslot0 as int is calling c->catalog.by_name.get with nid
+                set fslot is fslot0
+                var f0 as catalog.CgFunction is (c->catalog.functions at fslot0)
+                banish cname
+                set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f0.c_name)
+            else if fslot < 0:
+                var lcopy as string is calling npool.copy_string with lname
+                banish cname
+                set cname is lcopy
+    var gargs as int is calling astutil.node_child with ast, node, 1
+    if gargs >= 0 and (calling astutil.kind_of with ast, gargs) == pskind.NodeKind.NdGenericArgs:
+        var tnode_g as int is calling astutil.node_child with ast, node, 0
+        var ltok_g as int is calling last_token_deep with ast, tnode_g
+        var base_i as int is fslot
+        if ltok_g >= 0:
+            var ltxt_g as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ltok_g
+            var lnid_g as int is calling npool.intern with (sigil of c->program->names), ltxt_g
+            banish ltxt_g
+            if calling c->catalog.by_name.has with lnid_g:
+                set base_i is calling c->catalog.by_name.get with lnid_g
+        if base_i >= 0:
+            var bf as catalog.CgFunction is (c->catalog.functions at base_i)
+            var args as list of int is list of int
+            var ai as int is 0
+            var an as int is calling astutil.child_count with ast, gargs
+            while ai < an:
+                var atn as int is calling astutil.node_child with ast, gargs, ai
+                if atn >= 0:
+                    var tid as int is calling tast.from_ast with c, m, atn
+                    if tid > 0:
+                        calling args.push with tid
+                set ai is ai + 1
+            if bf.is_generic and args.len == bf.tparams.len:
+                var si as int is calling generics.find_spec with c, bf.symbol, args
+                if si < 0:
+                    set si is calling generics.add_spec with c, base_i, args
+                set fslot is si
+                var sf as catalog.CgFunction is (c->catalog.functions at si)
+                banish cname
+                set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sf.c_name)
+            banish args
+    # Genéricas sin `of T`: resolver la instancia ya creada por el prepass.
+    var explicit_g as bool is gargs >= 0 and (calling astutil.kind_of with ast, gargs) == pskind.NodeKind.NdGenericArgs
+    if fslot >= 0 and not explicit_g:
+        var bfg as catalog.CgFunction is (c->catalog.functions at fslot)
+        if bfg.is_generic:
+            var actuals as list of int is list of int
+            var argm0 as int is calling astutil.node_child with ast, node, 2
+            if argm0 >= 0:
+                var ac0 as int is calling astutil.child_count with ast, argm0
+                var a0 as int is 0
+                while a0 < ac0:
+                    var an0 as int is calling astutil.node_child with ast, argm0, a0
+                    if an0 >= 0:
+                        var av0 as int is an0
+                        if (calling astutil.kind_of with ast, an0) == pskind.NodeKind.NdPosArg:
+                            set av0 is calling astutil.node_child with ast, an0, 0
+                        if av0 >= 0:
+                            var aty0 as int is calling node_type with c, av0
+                            if aty0 > 0:
+                                calling actuals.push with aty0
+                    set a0 is a0 + 1
+            var inf0 as list of int is calling generics.infer_from_actual with c, fslot, actuals
+            if inf0.len == bfg.tparams.len and inf0.len > 0:
+                var si0 as int is calling generics.find_spec with c, bfg.symbol, inf0
+                if si0 >= 0:
+                    set fslot is si0
+                    var sf0 as catalog.CgFunction is (c->catalog.functions at si0)
+                    banish cname
+                    set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sf0.c_name)
+            banish inf0
+            banish actuals
+    # Corrige llamadas `mod.fn` aunque F3 ya haya anotado un nombre poco preciso.
+    var qtn as int is calling astutil.node_child with ast, node, 0
+    if qtn >= 0 and not (gargs >= 0 and (calling astutil.kind_of with ast, gargs) == pskind.NodeKind.NdGenericArgs):
+        var qtok0 as int is calling astutil.token_child with ast, qtn, 0
+        var qlast as int is calling last_token_deep with ast, qtn
+        if qtok0 >= 0 and qlast >= 0:
+            var qbs as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), qtok0
+            var qsid0 as int is calling symbols.lookup_name with (sigil of c->program->symbols), qbs
+            if qsid0 < 0:
+                set qsid0 is calling symbols.lookup_in_scope with (sigil of c->program->symbols), m.scope, (calling npool.intern with (sigil of c->program->names), qbs)
+            banish qbs
+            if qsid0 >= 0:
+                var qsv0 as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), qsid0
+                if true:
+                    var qmid0 as int is -1
+                    var qmi0 as int is 0
+                    while qmi0 < c->program->modules.len:
+                        var qmm0 as loader.SemaModule is (c->program->modules at qmi0)
+                        if qmm0.scope == qsv0.module_scope:
+                            set qmid0 is qmi0
+                        set qmi0 is qmi0 + 1
+                    if qmid0 < 0:
+                        var qbt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), qtok0
+                        var qsuf as string is "/{qbt}.pengu"
+                        var qmj as int is 0
+                        while qmj < c->program->modules.len:
+                            var qmmj as loader.SemaModule is (c->program->modules at qmj)
+                            if (qmmj.path length) >= (qsuf length):
+                                if (qmmj.path at ((qmmj.path length) - (qsuf length)) to (qmmj.path length)) == qsuf:
+                                    set qmid0 is qmj
+                            set qmj is qmj + 1
+                        banish qsuf
+                        banish qbt
+                    if qmid0 >= 0:
+                        var qln as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), qlast
+                        var qlnid as int is calling npool.intern with (sigil of c->program->names), qln
+                        banish qln
+                        var qfi0 as int is 0
+                        while qfi0 < c->catalog.functions.len:
+                            var qf0 as catalog.CgFunction is (c->catalog.functions at qfi0)
+                            var qcn0 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), qf0.c_name)
+                            var qtail as string is "_{qln}"
+                            var qmatch as bool is qf0.name == qlnid
+                            if not qmatch and (qcn0 length) >= (qtail length):
+                                if (qcn0 at ((qcn0 length) - (qtail length)) to (qcn0 length)) == qtail:
+                                    set qmatch is true
+                            if qcn0 == qln:
+                                set qmatch is true
+                            if (qcn0 length) >= 2 and (qcn0 at 0 to 1) == "_":
+                                if (qcn0 at 1 to (qcn0 length)) == qln:
+                                    set qmatch is true
+                            banish qtail
+                            banish qcn0
+                            if qf0.module == qmid0 and qmatch:
+                                set fslot is qfi0
+                                banish cname
+                                set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), qf0.c_name)
+                            set qfi0 is qfi0 + 1
+    # Alias privado `_fn` llamado como `fn`.
+    if cname != "":
+        var direct as bool is false
+        var ctest as string is calling npool.copy_string with cname
+        var uj as int is 0
+        while uj < c->catalog.functions.len:
+            var uf as catalog.CgFunction is (c->catalog.functions at uj)
+            var ucn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), uf.c_name)
+            if ucn == ctest and not uf.is_declare and (not uf.is_generic or uf.is_spec):
+                set direct is true
+            banish ucn
+            set uj is uj + 1
+        if not direct:
+            var utry as string is "_{ctest}"
+            var uj2 as int is 0
+            while uj2 < c->catalog.functions.len:
+                var uf2 as catalog.CgFunction is (c->catalog.functions at uj2)
+                var ucn2 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), uf2.c_name)
+                var unl as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), uf2.name)
+                var unls as string is calling npool.copy_string with unl
+                if (unl length) >= 2 and (unl at 0 to 1) == "_":
+                    var unlt as string is unl at 1 to (unl length)
+                    banish unls
+                    set unls is unlt
+                if ucn2 == utry or unls == ctest:
+                    set fslot is uj2
+                    banish cname
+                    set cname is calling npool.copy_string with ucn2
+                banish unls
+                banish unl
+                banish ucn2
+                set uj2 is uj2 + 1
+            banish utry
+        banish ctest
+    if explicit_g and fslot >= 0:
+        var sfe as catalog.CgFunction is (c->catalog.functions at fslot)
+        banish cname
+        set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sfe.c_name)
+    if cname == "":
+        return "0"
+    # Métodos de contenedores que stage0 baja a helpers del runtime.
+    var tgt_node as int is calling astutil.node_child with ast, node, 0
+    if method_name == "" and tgt_node >= 0:
+        var lt0 as int is calling last_token_deep with ast, tgt_node
+        if lt0 >= 0:
+            var lns as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), lt0
+            set method_name is lns
+    var tgt as CgTarget is calling resolve_target with c, tgt_node, ast, true
+    defer banish tgt.text
+    if tgt.type_id >= 0:
+        var tt as tk.SemaType is calling types.at with (sigil of c->program->types), tgt.type_id
+        var tct0 as string is calling ctype.c_type with (sigil of c->names), tgt.type_id
+        defer banish tct0
+        var is_map_recv as bool is tt.kind == tk.SemaTypeKind.TkMap or tct0 == "PenguMap"
+        var ref_map as bool is false
+        if tt.kind == tk.SemaTypeKind.TkRef:
+            var rt0 as string is calling ctype.c_type with (sigil of c->names), tt.a
+            if rt0 == "PenguMap":
+                set ref_map is true
+            banish rt0
+        if (is_map_recv or ref_map) and (method_name == "put" or method_name == "get" or method_name == "has" or method_name == "remove" or method_name == "contains"):
+            var mt as tk.SemaType is tt
+            if ref_map:
+                set mt is calling types.at with (sigil of c->program->types), tt.a
+            var mrecv as string is "&({tgt.text})"
+            if ref_map:
+                set mrecv is tgt.text
+            var argm as int is calling astutil.node_child with ast, node, 2
+            if argm >= 0:
+                var karg as int is calling astutil.node_child with ast, argm, 0
+                if karg >= 0 and (calling astutil.kind_of with ast, karg) == pskind.NodeKind.NdPosArg:
+                    set karg is calling astutil.node_child with ast, karg, 0
+                var kt as string is calling ctype.c_type with (sigil of c->names), mt.a
+                var vts as string is calling ctype.c_type with (sigil of c->names), mt.b
+                var kz as string is calling emit_expr_as with c, karg, mt.a
+                var msb as StringBuilder is calling StringBuilder.new
+                defer banish msb
+                if method_name == "put":
+                    var varg as int is calling astutil.node_child with ast, argm, 1
+                    if varg >= 0 and (calling astutil.kind_of with ast, varg) == pskind.NodeKind.NdPosArg:
+                        set varg is calling astutil.node_child with ast, varg, 0
+                    var vz as string is calling emit_expr_as with c, varg, mt.b
+                    calling msb.append with "__extension__(({ "
+                    calling msb.append with kt
+                    calling msb.append with " _k = "
+                    calling msb.append with kz
+                    calling msb.append with "; "
+                    calling msb.append with vts
+                    calling msb.append with " _v = "
+                    calling msb.append with vz
+                    calling msb.append with "; pengu_map_put({mrecv}, &_k, &_v); }))"
+                else:
+                    calling msb.append with "__extension__(({ "
+                    calling msb.append with kt
+                    calling msb.append with " _k = "
+                    calling msb.append with kz
+                    calling msb.append with "; "
+                    if method_name == "has" or method_name == "contains":
+                        calling msb.append with "pengu_map_contains({mrecv}, &_k); }))"
+                    else if method_name == "remove":
+                        calling msb.append with "pengu_map_remove({mrecv}, &_k); }))"
+                    else:
+                        calling msb.append with "(*( "
+                        calling msb.append with vts
+                        calling msb.append with "*)pengu_map_get({mrecv}, &_k)); }))"
+                banish kt
+                banish vts
+                banish kz
+                return calling msb.finish
+        if tt.kind == tk.SemaTypeKind.TkList and method_name == "push":
+            var argn as int is calling astutil.node_child with ast, node, 2
+            if argn >= 0:
+                var farg as int is calling astutil.node_child with ast, argn, 0
+                if farg >= 0 and (calling astutil.kind_of with ast, farg) == pskind.NodeKind.NdPosArg:
+                    set farg is calling astutil.node_child with ast, farg, 0
+                if farg >= 0:
+                    var et as string is calling ctype.c_type with (sigil of c->names), tt.a
+                    var av as string is calling emit_expr_as with c, farg, tt.a
+                    defer banish av
+                    defer banish et
+                    var psb2 as StringBuilder is calling StringBuilder.new
+                    defer banish psb2
+                    calling psb2.append with "__extension__(({ "
+                    calling psb2.append with et
+                    calling psb2.append with " _push_tmp = "
+                    calling psb2.append with av
+                    calling psb2.append with "; pengu_list_push(&("
+                    calling psb2.append with tgt.text
+                    calling psb2.append with "), &_push_tmp); }))"
+                    return calling psb2.finish
+        if tt.kind == tk.SemaTypeKind.TkList and (method_name == "pop" or method_name == "clear"):
+            if method_name == "pop":
+                var et as string is calling ctype.c_type with (sigil of c->names), tt.a
+                defer banish et
+                var psb as StringBuilder is calling StringBuilder.new
+                defer banish psb
+                calling psb.append with "(*( "
+                calling psb.append with et
+                calling psb.append with "*)pengu_list_pop_val(&("
+                calling psb.append with tgt.text
+                calling psb.append with ")))"
+                return calling psb.finish
+            return "pengu_list_clear(&({tgt.text}))"
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with cname
+    banish cname
+    calling sb.append with "("
+    var wrote_recv as bool is false
+    if fslot >= 0:
+        var fm as catalog.CgFunction is (c->catalog.functions at fslot)
+        if fm.is_method:
+            if not fm.is_ritual:
+                var target0 as int is calling astutil.node_child with ast, node, 0
+                var recv as string is calling method_receiver with c, target0, ast, fm.self_value, fm.recv_type
+                calling sb.append with recv
+                banish recv
+                set wrote_recv is true
+    var args as int is calling astutil.node_child with ast, node, 2
+    if args >= 0:
+        var i as int is 0
+        var n as int is calling astutil.child_count with ast, args
+        while i < n:
+            if i > 0 or wrote_recv:
+                calling sb.append with ", "
+            var arg as int is calling astutil.node_child with ast, args, i
+            if arg >= 0:
+                var v as int is arg
+                if (calling astutil.kind_of with ast, arg) == pskind.NodeKind.NdPosArg:
+                    set v is calling astutil.node_child with ast, arg, 0
+                var a as string is calling emit_expr with c, v
+                calling sb.append with a
+                banish a
+            set i is i + 1
+    calling sb.append with ")"
+    return calling sb.finish
+
+## Tipo de un campo de payload de una variante de omen.
+##
+## ## Memoria
+## O(variantes/campos).
+weave omen_payload_field_type with c as ref to context.CgContext, oty as int, vname as int, fname as int into int:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), oty
+    if t.kind != tk.SemaTypeKind.TkOmen:
+        return -1
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    var i as int is 0
+    while i < info.variants_count:
+        var v as types.SemaVariant is (c->program->types.variants at (info.variants_first + i))
+        if v.name == vname:
+            var j as int is 0
+            while j < v.payload_count:
+                var f as types.SemaField is (c->program->types.fields at (v.payload_first + j))
+                if f.name == fname:
+                    return f.type
+                set j is j + 1
+        set i is i + 1
+    return -1
+
+## Emite un `judge` sobre un omen.
+##
+## ## Memoria
+## Strings owned; los payloads se añaden al scope C.
+weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, wanted as int into string:
+    var subj as int is calling astutil.node_child with ast, node, 0
+    var st as int is calling node_type with c, subj
+    var rt as int is calling node_type with c, node
+    if rt < 0:
+        set rt is wanted
+    if rt < 0:
+        set rt is 1
+    var stt0 as tk.SemaType is calling types.at with (sigil of c->program->types), st
+    if stt0.kind != tk.SemaTypeKind.TkOmen:
+        var m0 as loader.SemaModule is (c->program->modules at c->current_module)
+        var sub0 as string is calling emit_expr with c, subj
+        defer banish sub0
+        var sbn as StringBuilder is calling StringBuilder.new
+        defer banish sbn
+        var jt0 as string is calling emit.temp with (sigil of c->emitter), "_ji"
+        var jr0 as string is calling emit.temp with (sigil of c->emitter), "_jx"
+        defer banish jt0
+        defer banish jr0
+        calling sbn.append with "__extension__(({ int64_t "
+        calling sbn.append with jt0
+        calling sbn.append with " = (int64_t)("
+        calling sbn.append with sub0
+        calling sbn.append with "); int32_t "
+        calling sbn.append with jr0
+        calling sbn.append with " = 0; switch ("
+        calling sbn.append with jt0
+        calling sbn.append with ") "
+        calling sbn.append with r"{"
+        var ii0 as int is 0
+        var nn0 as int is calling astutil.child_count with ast, node
+        while ii0 < nn0:
+            var cl0 as int is calling astutil.node_child with ast, node, ii0
+            if cl0 >= 0:
+                var ck0 as pskind.NodeKind is calling astutil.kind_of with ast, cl0
+                if ck0 == pskind.NodeKind.NdWhenClause:
+                    var pn0 as int is calling astutil.node_child with ast, cl0, 0
+                    var bd0 as int is calling astutil.node_child with ast, cl0, 3
+                    if bd0 < 0:
+                        set bd0 is calling astutil.node_child with ast, cl0, 2
+                    if pn0 >= 0 and bd0 >= 0:
+                        var ptok as int is calling astutil.token_child with ast, pn0, 0
+                        if ptok >= 0:
+                            var ptx as string is calling astutil.token_text with (sigil of m0.source), (sigil of m0.lex), ptok
+                            var bv0 as string is calling emit_expr with c, bd0
+                            calling sbn.append with "case {ptx}: {jr0} = {bv0}; break; "
+                            banish bv0
+                            banish ptx
+                else if ck0 == pskind.NodeKind.NdElseClause:
+                    var bd1 as int is calling astutil.node_child with ast, cl0, 0
+                    if bd1 < 0:
+                        set bd1 is cl0
+                    var bv1 as string is calling emit_expr with c, bd1
+                    calling sbn.append with "default: {jr0} = {bv1}; break; "
+                    banish bv1
+            set ii0 is ii0 + 1
+        calling sbn.append with r"}"
+        calling sbn.append with " "
+        calling sbn.append with jr0
+        calling sbn.append with r"; }))"
+        return calling sbn.finish
+    var sct as string is calling ctype.c_type with (sigil of c->names), st
+    var rct as string is calling ctype.c_type with (sigil of c->names), rt
+    defer banish sct
+    defer banish rct
+    var sub as string is calling emit_expr with c, subj
+    defer banish sub
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var stmp as string is calling emit.temp with (sigil of c->emitter), "_j"
+    var rtmp as string is calling emit.temp with (sigil of c->emitter), "_jr"
+    defer banish stmp
+    defer banish rtmp
+    calling sb.append with "__extension__(({ "
+    calling sb.append with sct
+    calling sb.append with " {stmp} = "
+    calling sb.append with sub
+    calling sb.append with "; "
+    calling sb.append with rct
+    calling sb.append with " {rtmp} = "
+    calling sb.append with r"{0}"
+    var has_layout as bool is calling omen_has_layout with c, st
+    if has_layout:
+        calling sb.append with "; switch ({stmp}.tag) {"
+    else:
+        calling sb.append with "; switch ({stmp}) {"
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var cl as int is calling astutil.node_child with ast, node, i
+        if cl >= 0 and (calling astutil.kind_of with ast, cl) == pskind.NodeKind.NdWhenClause:
+            var pat as int is calling astutil.node_child with ast, cl, 0
+            var payload as int is calling astutil.node_child with ast, cl, 1
+            var body as int is calling astutil.node_child with ast, cl, 3
+            if body < 0:
+                set body is calling astutil.node_child with ast, cl, 2
+            if pat >= 0 and body >= 0:
+                var pv as int is calling astutil.token_child with ast, pat, 0
+                if pv >= 0:
+                    var m as loader.SemaModule is (c->program->modules at c->current_module)
+                    var pvt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pv
+                    calling sb.append with "case {sct}_{pvt}: {"
+                    if payload >= 0:
+                        var pn as int is calling astutil.child_count with ast, payload
+                        var pi as int is 0
+                        while pi < pn:
+                            var pf as int is calling astutil.node_child with ast, payload, pi
+                            if pf >= 0:
+                                var pft as int is calling astutil.token_child with ast, pf, 0
+                                if pft >= 0:
+                                    var pfn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pft
+                                    var pfnid0 as int is calling npool.intern with (sigil of c->program->names), pfn
+                                    var pvnt as int is calling npool.intern with (sigil of c->program->names), pvt
+                                    var pty as int is calling omen_payload_field_type with c, st, pvnt, pfnid0
+                                    if pty < 0:
+                                        set pty is 1
+                                    var pct as string is calling ctype.c_type with (sigil of c->names), pty
+                                    calling sb.append with "{pct} {pfn} = {stmp}.data.{pvt}.{pfn}; "
+                                    var pnid as int is calling npool.intern with (sigil of c->program->names), pfn
+                                    calling context.add_local with c, pnid, pty, pnid
+                                    banish pct
+                                    banish pfn
+                            set pi is pi + 1
+                    var bv as string is calling emit_expr with c, body
+                    calling sb.append with "{rtmp} = "
+                    calling sb.append with bv
+                    calling sb.append with "; break; } "
+                    banish bv
+                    banish pvt
+        set i is i + 1
+    calling sb.append with "default: break; } {rtmp}; }))"
+    return calling sb.finish
+
+## Infiere el tipo de un `base at index` sin anotación F3.
+##
+## ## Memoria
+## O(1).
+weave infer_at_type with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into int:
+    var base as int is calling astutil.node_child with ast, node, 0
+    var bt as int is calling node_type with c, base
+    if bt < 0 and base >= 0 and (calling astutil.kind_of with ast, base) == pskind.NodeKind.NdVarRef:
+        var m as loader.SemaModule is (c->program->modules at c->current_module)
+        var t0 as int is calling astutil.token_child with ast, base, 0
+        if t0 >= 0:
+            var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), t0
+            var nid as int is calling npool.intern with (sigil of c->program->names), txt
+            banish txt
+            set bt is calling context.local_type with c, nid
+    if bt < 0:
+        return -1
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), bt
+    if t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkArray or t.kind == tk.SemaTypeKind.TkRef:
+        return t.a
+    return -1
+
+## Emite una indexación `base at index`.
+##
+## ## Memoria
+## Strings owned.
+weave at_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var base as int is calling astutil.node_child with ast, node, 0
+    var idx as int is calling astutil.node_child with ast, node, 1
+    var bt as int is calling node_type with c, base
+    if bt < 0 and base >= 0 and (calling astutil.kind_of with ast, base) == pskind.NodeKind.NdVarRef:
+        var btok as int is calling astutil.token_child with ast, base, 0
+        if btok >= 0:
+            var btxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), btok
+            var bnid as int is calling npool.intern with (sigil of c->program->names), btxt
+            banish btxt
+            set bt is calling context.local_type with c, bnid
+    var bs as string is calling emit_expr with c, base
+    defer banish bs
+    var ix as string is calling emit_expr with c, idx
+    defer banish ix
+    if bt >= 0:
+        var t as tk.SemaType is calling types.at with (sigil of c->program->types), bt
+        if t.kind == tk.SemaTypeKind.TkSlice:
+            var set as string is calling ctype.c_type with (sigil of c->names), t.a
+            var ssb as StringBuilder is calling StringBuilder.new
+            defer banish ssb
+            calling ssb.append with "(*( "
+            calling ssb.append with set
+            calling ssb.append with "*)pengu_slice_at(&("
+            calling ssb.append with bs
+            calling ssb.append with "), (int)("
+            calling ssb.append with ix
+            calling ssb.append with ")))"
+            banish set
+            return calling ssb.finish
+        if t.kind == tk.SemaTypeKind.TkList:
+            var et as string is calling ctype.c_type with (sigil of c->names), t.a
+            defer banish et
+            var asb as StringBuilder is calling StringBuilder.new
+            defer banish asb
+            calling asb.append with "(*( "
+            calling asb.append with et
+            calling asb.append with "*)pengu_list_at(&("
+            calling asb.append with bs
+            calling asb.append with "), (int)("
+            calling asb.append with ix
+            calling asb.append with ")))"
+            return calling asb.finish
+        if t.kind == tk.SemaTypeKind.TkMap:
+            var kt as string is calling ctype.c_type with (sigil of c->names), t.a
+            var vt as string is calling ctype.c_type with (sigil of c->names), t.b
+            var msb as StringBuilder is calling StringBuilder.new
+            defer banish msb
+            calling msb.append with "__extension__(({ "
+            calling msb.append with kt
+            calling msb.append with " _k = "
+            calling msb.append with ix
+            calling msb.append with "; (*( "
+            calling msb.append with vt
+            calling msb.append with "*)pengu_map_get(&("
+            calling msb.append with bs
+            calling msb.append with "), &_k)); }))"
+            banish kt
+            banish vt
+            return calling msb.finish
+        if t.kind == tk.SemaTypeKind.TkBase:
+            var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
+            defer banish bn
+            if bn == "string":
+                return "pengu_string_char_at({bs}, (int)({ix}))"
+    return "({bs})[{ix}]"
+
+## Target resuelto de una llamada: texto C y tipo.
+rune CgTarget:
+    ## Texto C owned.
+    text as string
+    ## `TypeId` del receptor.
+    type_id as int
+
+## Tipo de un campo nominal.
+##
+## ## Memoria
+## O(campos).
+weave cg_field_type with c as ref to context.CgContext, ty as int, fname as int into int:
+    if ty < 0:
+        return -1
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    while t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen:
+        set t is calling types.at with (sigil of c->program->types), t.a
+    if t.kind != tk.SemaTypeKind.TkRune and t.kind != tk.SemaTypeKind.TkEcho:
+        return -1
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (c->program->types.fields at (info.fields_first + i))
+        if f.name == fname:
+            return f.type
+        set i is i + 1
+    return -1
+
+## Resuelve un target de llamada y devuelve el receptor (sin el método).
+##
+## ## Memoria
+## Devuelve un `CgTarget` owned; liberar `text` con `banish`.
+weave resolve_target with c as ref to context.CgContext, target as int, ast as ref to psast.PsAst, skip_method as bool into CgTarget:
+    if target < 0:
+        return with text is "NULL", type_id is -1
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var n as int is calling astutil.child_count with ast, target
+    if n <= 0:
+        return with text is "NULL", type_id is -1
+    var tok as int is calling astutil.token_child with ast, target, 0
+    if tok < 0:
+        return with text is "NULL", type_id is -1
+    var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), tok
+    var ty as int is -1
+    var base as string is ""
+    if txt == "self":
+        set base is "self"
+        set ty is c->self_type
+    else:
+        var nid as int is calling npool.intern with (sigil of c->program->names), txt
+        set ty is calling context.local_type with c, nid
+        var lc as int is calling context.local_c_name with c, nid
+        if lc >= 0:
+            set base is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), lc)
+        else:
+            set base is calling npool.copy_string with txt
+    banish txt
+    var i as int is 1
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, target, i
+        if ch >= 0:
+            var ck as pskind.NodeKind is calling astutil.kind_of with ast, ch
+            var is_method as bool is skip_method and (i == n - 1) and (ck == pskind.NodeKind.NdDotAccess or ck == pskind.NodeKind.NdArrowAccess)
+            if not is_method:
+                if ck == pskind.NodeKind.NdAtAccess:
+                    var ixnode as int is calling astutil.node_child with ast, ch, 0
+                    var ixt as string is calling emit_expr with c, ixnode
+                    var it0 as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+                    if it0.kind == tk.SemaTypeKind.TkList:
+                        var el as string is calling ctype.c_type with (sigil of c->names), it0.a
+                        var nxtl as string is "(*( {el}*)pengu_list_at(&({base}), (int)({ixt})))"
+                        banish el
+                        banish ixt
+                        banish base
+                        set base is nxtl
+                        set ty is it0.a
+                    else:
+                        var nxt2 as string is "{base}[{ixt}]"
+                        banish ixt
+                        banish base
+                        set base is nxt2
+                        if it0.kind == tk.SemaTypeKind.TkRef or it0.kind == tk.SemaTypeKind.TkArray or it0.kind == tk.SemaTypeKind.TkSlice:
+                            set ty is it0.a
+                else:
+                    var ft as int is calling astutil.token_child with ast, ch, 0
+                    if ft >= 0:
+                        var fld as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
+                        var fid as int is calling npool.intern with (sigil of c->program->names), fld
+                        set ty is calling cg_field_type with c, ty, fid
+                        var sep as string is "."
+                        if ck == pskind.NodeKind.NdArrowAccess:
+                            set sep is "->"
+                        var nxt as string is "{base}{sep}{fld}"
+                        banish base
+                        banish fld
+                        set base is nxt
+        set i is i + 1
+    return with text is base, type_id is ty
+
+## Texto C del receptor de una llamada a método.
+##
+## El target de una llamada es un `normal_target` con un token base y una
+## secuencia de accesos (`arrow_access`, `dot_access`). El último acceso es el
+## nombre del método; el resto forma el receptor (`self->_blocks`).
+##
+## ## Memoria
+## Devuelve string owned.
+weave method_receiver with c as ref to context.CgContext, target as int, ast as ref to psast.PsAst, self_value as bool, recv_type as int into string:
+    var rt as CgTarget is calling resolve_target with c, target, ast, true
+    defer banish rt.text
+    if self_value or rt.text == "self":
+        return calling npool.copy_string with rt.text
+    if rt.type_id >= 0:
+        var t as tk.SemaType is calling types.at with (sigil of c->program->types), rt.type_id
+        if t.kind == tk.SemaTypeKind.TkRef and t.a == recv_type:
+            return calling npool.copy_string with rt.text
+    return "&({rt.text})"
+
+## Texto de una ruta cualificada (`mod.Type`) en un target de acceso.
+##
+## ## Memoria
+## Devuelve string owned.
+weave dotted_path_text with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
+    if node < 0:
+        return ""
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdVarRef:
+        var t as int is calling astutil.token_child with ast, node, 0
+        if t >= 0:
+            return calling astutil.token_text with (sigil of m.source), (sigil of m.lex), t
+        return ""
+    if k == pskind.NodeKind.NdFieldAccess:
+        var b as int is calling astutil.node_child with ast, node, 0
+        var ft as int is calling astutil.token_child with ast, node, 1
+        var bp as string is calling dotted_path_text with c, b, ast
+        defer banish bp
+        if ft >= 0:
+            var fn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
+            defer banish fn
+            return "{bp}.{fn}"
+        return bp
+    return ""
+
+## Emite un acceso a campo o una variante de omen.
+##
+## ## Memoria
+## Strings owned.
+weave field_access_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, arrow as bool into string:
+    var base as int is calling astutil.node_child with ast, node, 0
+    var ft as int is calling astutil.token_child with ast, node, 1
+    if ft < 0:
+        return "0"
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var fname as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
+    defer banish fname
+    var asid as int is calling ann.symbol_of with (sigil of m.annotations), node
+    if asid >= 0:
+        var asv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), asid
+        if asv.type >= 0:
+            var ast0 as tk.SemaType is calling types.at with (sigil of c->program->types), asv.type
+            if ast0.kind == tk.SemaTypeKind.TkOmen:
+                var aon as string is calling ctype.c_type with (sigil of c->names), asv.type
+                var avn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), asv.name)
+                defer banish aon
+                defer banish avn
+                return "{aon}_{avn}"
+    var bt0 as int is calling node_type with c, base
+    if bt0 < 0 and base >= 0 and (calling astutil.kind_of with ast, base) == pskind.NodeKind.NdVarRef:
+        var btok as int is calling astutil.token_child with ast, base, 0
+        if btok >= 0:
+            var btxt0 as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), btok
+            var bnid0 as int is calling npool.intern with (sigil of c->program->names), btxt0
+            banish btxt0
+            set bt0 is calling context.local_type with c, bnid0
+    if bt0 >= 0:
+        var bt1 as tk.SemaType is calling types.at with (sigil of c->program->types), bt0
+        if fname == "length" and (bt1.kind == tk.SemaTypeKind.TkSlice or bt1.kind == tk.SemaTypeKind.TkArray or bt1.kind == tk.SemaTypeKind.TkList or (bt1.kind == tk.SemaTypeKind.TkBase and (calling types.at with (sigil of c->program->types), bt0).kind == tk.SemaTypeKind.TkBase)):
+            var bl as string is calling emit_expr with c, base
+            defer banish bl
+            if bt1.kind == tk.SemaTypeKind.TkSlice:
+                return "pengu_slice_len(&({bl}))"
+            return "({bl}).len"
+        if bt1.kind == tk.SemaTypeKind.TkTuple and (fname == "0" or fname == "1" or fname == "2" or fname == "3"):
+            var bt0s as string is calling emit_expr with c, base
+            defer banish bt0s
+            var lab as string is "first"
+            if fname == "1":
+                set lab is "second"
+            else if fname == "2":
+                set lab is "third"
+            else if fname == "3":
+                set lab is "fourth"
+            return "{bt0s}.{lab}"
+        if bt1.kind == tk.SemaTypeKind.TkMaybe and fname == "value":
+            var bm as string is calling emit_expr with c, base
+            defer banish bm
+            var pm as string is calling ctype.c_type with (sigil of c->names), bt1.a
+            defer banish pm
+            return "(*( {pm}*)(({bm}).value))"
+        if bt1.kind == tk.SemaTypeKind.TkResult and (fname == "value" or fname == "error"):
+            var b0 as string is calling emit_expr with c, base
+            defer banish b0
+            var pay0 as int is bt1.a
+            if fname == "error":
+                set pay0 is bt1.b
+            var pct0 as string is calling ctype.c_type with (sigil of c->names), pay0
+            defer banish pct0
+            if fname == "value":
+                return "(*( {pct0}*)(({b0}).ok_val))"
+            return "(*( {pct0}*)(({b0}).err_val))"
+    var bty0 as int is calling node_type with c, base
+    if bty0 >= 0:
+        var bty1 as tk.SemaType is calling types.at with (sigil of c->program->types), bty0
+        if bty1.kind == tk.SemaTypeKind.TkOmen:
+            var bot as string is calling ctype.c_type with (sigil of c->names), bty0
+            defer banish bot
+            return "{bot}_{fname}"
+    var qpath as string is calling dotted_path_text with c, base, ast
+    defer banish qpath
+    if qpath != "":
+        var csuf as string is "/{qpath}.pengu"
+        var cmid as int is -1
+        var cmi as int is 0
+        while cmi < c->program->modules.len:
+            var cmm as loader.SemaModule is (c->program->modules at cmi)
+            if (cmm.path length) >= (csuf length):
+                if (cmm.path at ((cmm.path length) - (csuf length)) to (cmm.path length)) == csuf:
+                    set cmid is cmi
+            set cmi is cmi + 1
+        banish csuf
+        if cmid >= 0:
+            var cfnid as int is calling npool.intern with (sigil of c->program->names), fname
+            var cci as int is 0
+            while cci < c->catalog.consts.len:
+                var cc0 as catalog.CgConst is (c->catalog.consts at cci)
+                if cc0.module == cmid and cc0.name == cfnid:
+                    var ccn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), cc0.c_name)
+                    return ccn
+                set cci is cci + 1
+    if qpath != "":
+        var qfull as string is "{qpath}.{fname}"
+        var qtid as int is calling symbols.lookup_type_name with (sigil of c->program->symbols), qfull
+        var qtest as string is calling npool.copy_string with qfull
+        while qtid < 0:
+            var dlast as int is -1
+            var qi as int is 0
+            while qi < qtest length:
+                if (qtest at qi) == ".":
+                    set dlast is qi
+                set qi is qi + 1
+            if dlast < 0:
+                break
+            var nxtq as string is qtest at 0 to dlast
+            banish qtest
+            set qtest is nxtq
+            set qtid is calling symbols.lookup_type_name with (sigil of c->program->symbols), qtest
+        banish qtest
+        if qtid < 0:
+            var cstart as int is 0
+            var cend as int is 0
+            while cend <= qfull length:
+                if cend == qfull length or (qfull at cend) == ".":
+                    if cend > cstart:
+                        var comp as string is qfull at cstart to cend
+                        var cid0 as int is calling symbols.lookup_type_name with (sigil of c->program->symbols), comp
+                        if cid0 >= 0:
+                            var ct0 as tk.SemaType is calling types.at with (sigil of c->program->types), cid0
+                            if ct0.kind == tk.SemaTypeKind.TkOmen:
+                                set qtid is cid0
+                        banish comp
+                    set cstart is cend + 1
+                set cend is cend + 1
+        banish qfull
+        if qtid >= 0:
+            var qt as tk.SemaType is calling types.at with (sigil of c->program->types), qtid
+            if qt.kind == tk.SemaTypeKind.TkOmen:
+                var tn0 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), qt.name)
+                defer banish tn0
+                if tn0 == fname:
+                    return "0"
+                var qon as string is calling ctype.c_type with (sigil of c->names), qtid
+                defer banish qon
+                return "{qon}_{fname}"
+    var nt as int is calling node_type with c, node
+    var nty as tk.SemaType is calling types.at with (sigil of c->program->types), nt
+    # `Color.Green`: el base es el nombre de un omen.
+    if base >= 0 and (calling astutil.kind_of with ast, base) == pskind.NodeKind.NdVarRef:
+        var btxt as string is calling astutil.first_token_text with (sigil of m.source), (sigil of m.lex), ast, base
+        defer banish btxt
+        var tid as int is calling symbols.lookup_type_name with (sigil of c->program->symbols), btxt
+        if tid >= 0 and (nty.kind == tk.SemaTypeKind.TkOmen or (calling types.at with (sigil of c->program->types), tid).kind == tk.SemaTypeKind.TkOmen):
+            var tname as string is calling ctype.c_type with (sigil of c->names), tid
+            defer banish tname
+            return "{tname}_{fname}"
+    var b as string is calling emit_expr with c, base
+    defer banish b
+    if arrow:
+        return "{b}->{fname}"
+    if (calling astutil.kind_of with ast, base) == pskind.NodeKind.NdSelfRef and not c->self_value:
+        return "{b}->{fname}"
+    return "{b}.{fname}"
+
+## Emite un literal de array `(Tipo[N]){...}`.
+##
+## ## Memoria
+## Strings owned.
+weave array_lit_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, wanted as int into string:
+    var ty as int is wanted
+    if ty < 0:
+        set ty is calling node_type with c, node
+    var elem as string is "void*"
+    var n as int is 0
+    if ty >= 0:
+        var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+        if t.kind == tk.SemaTypeKind.TkArray:
+            var et as string is calling ctype.c_type with (sigil of c->names), t.a
+            banish elem
+            set elem is et
+            set n is t.b
+    if n <= 0:
+        set n is calling astutil.child_count with ast, node
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "({elem}[{n}]){"
+    var i as int is 0
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            if i > 0:
+                calling sb.append with ", "
+            var av as string is calling emit_expr with c, ch
+            calling sb.append with av
+            banish av
+        set i is i + 1
+    calling sb.append with "}"
+    banish elem
+    return calling sb.finish
+
+## Emite una lista vacía o con elementos.
+##
+## ## Memoria
+## Strings owned.
+weave list_init_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, wanted as int into string:
+    var ty as int is wanted
+    if ty <= 1:
+        set ty is calling node_type with c, node
+    if ty <= 1:
+        var m0 as loader.SemaModule is (c->program->modules at c->current_module)
+        var c0 as int is calling astutil.node_child with ast, node, 0
+        if c0 >= 0:
+            var et0 as int is calling tast.from_ast with c, m0, c0
+            if et0 > 0:
+                set ty is calling types.list_of with (sigil of c->program->types), et0
+            else:
+                var ect0 as string is calling tast.c_type_ast with c, m0, c0
+                var lret0 as string is "pengu_list_new(sizeof({ect0}), 4)"
+                banish ect0
+                return lret0
+    if ty <= 1:
+        return "pengu_list_new(1, 4)"
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind != tk.SemaTypeKind.TkList:
+        var m1 as loader.SemaModule is (c->program->modules at c->current_module)
+        var cc0 as int is calling astutil.node_child with ast, node, 0
+        if cc0 >= 0:
+            var ect1 as string is calling tast.c_type_ast with c, m1, cc0
+            var lr1 as string is "pengu_list_new(sizeof({ect1}), 4)"
+            banish ect1
+            return lr1
+        return "pengu_list_new(1, 4)"
+    var elem as string is calling ctype.c_type with (sigil of c->names), t.a
+    defer banish elem
+    return "pengu_list_new(sizeof({elem}), 4)"
+
+## `true` si el omen usa representación tag+union.
+##
+## ## Memoria
+## O(variantes).
+weave omen_has_layout with c as ref to context.CgContext, ty as int into bool:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind != tk.SemaTypeKind.TkOmen:
+        return false
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    var i as int is 0
+    while i < info.variants_count:
+        var v as types.SemaVariant is (c->program->types.variants at (info.variants_first + i))
+        if v.payload_count > 0:
+            return true
+        set i is i + 1
+    return false
+
+## `true` si una variante de omen tiene payload.
+##
+## ## Memoria
+## O(variantes).
+weave omen_variant_has_payload with c as ref to context.CgContext, ty as int, vname as int into bool:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind != tk.SemaTypeKind.TkOmen:
+        return false
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    var i as int is 0
+    while i < info.variants_count:
+        var v as types.SemaVariant is (c->program->types.variants at (info.variants_first + i))
+        if v.name == vname:
+            return v.payload_count > 0
+        set i is i + 1
+    return false
+
+## Primer campo de payload de una variante.
+##
+## ## Memoria
+## O(variantes).
+weave omen_first_payload with c as ref to context.CgContext, ty as int, vname as int into int:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind != tk.SemaTypeKind.TkOmen:
+        return -1
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    var i as int is 0
+    while i < info.variants_count:
+        var v as types.SemaVariant is (c->program->types.variants at (info.variants_first + i))
+        if v.name == vname and v.payload_count > 0:
+            var f as types.SemaField is (c->program->types.fields at v.payload_first)
+            return f.name
+        set i is i + 1
+    return -1
+
+## Inicializador de un payload de omen con varios campos.
+##
+## ## Memoria
+## Strings owned.
+weave payload_struct with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "{"
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    var first as bool is true
+    while i < n:
+        var fi as int is calling astutil.node_child with ast, node, i
+        if fi >= 0:
+            var ft as int is calling astutil.token_child with ast, fi, 0
+            var fv as int is calling astutil.node_child with ast, fi, 1
+            if ft >= 0 and fv >= 0:
+                var fn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
+                defer banish fn
+                var av as string is calling emit_expr with c, fv
+                defer banish av
+                if not first:
+                    calling sb.append with ", "
+                calling sb.append with ".{fn} = {av}"
+                set first is false
+        set i is i + 1
+    calling sb.append with "}"
+    return calling sb.finish
+
+## Emite los campos de un payload anidado, ignorando el nombre de la variante.
+##
+## ## Memoria
+## Devuelve string owned.
+weave payload_fields with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, skip as string into string:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "{"
+    var first as bool is true
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            if (calling astutil.kind_of with ast, ch) == pskind.NodeKind.NdFieldInit:
+                var ft as int is calling astutil.token_child with ast, ch, 0
+                var fv as int is calling astutil.node_child with ast, ch, 1
+                if ft >= 0 and fv >= 0:
+                    var fn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
+                    if fn != skip:
+                        var av as string is calling emit_expr with c, fv
+                        if not first:
+                            calling sb.append with ", "
+                        calling sb.append with ".{fn} = {av}"
+                        set first is false
+                        banish av
+                    banish fn
+            var sub as string is calling payload_fields with c, ch, ast, skip
+            if sub != r"{}":
+                var body as string is sub at 1 to (sub length - 1)
+                if not first:
+                    calling sb.append with ", "
+                calling sb.append with body
+                set first is false
+                banish body
+            banish sub
+        set i is i + 1
+    calling sb.append with "}"
+    return calling sb.finish
+
+## Emite una variante de omen con payload.
+##
+## ## Memoria
+## Strings owned.
+weave omen_init_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, ty as int into string:
+    var ct as string is calling ctype.c_type with (sigil of c->names), ty
+    defer banish ct
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "({ct}){.tag = "
+    var fi as int is calling astutil.node_child with ast, node, 0
+    if fi < 0:
+        calling sb.append with "0}"
+        return calling sb.finish
+    var nt as int is calling astutil.token_child with ast, fi, 0
+    if nt < 0:
+        calling sb.append with "0}"
+        return calling sb.finish
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var vn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), nt
+    defer banish vn
+    var vnid2 as int is calling npool.intern with (sigil of c->program->names), vn
+    if (calling omen_first_payload with c, ty, vnid2) < 0:
+        calling sb.append with "{ct}_{vn}}"
+        return calling sb.finish
+    calling sb.append with "{ct}_{vn}, .data.{vn} = {"
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var fnode as int is calling astutil.node_child with ast, node, i
+        if fnode >= 0:
+            var ft as int is calling astutil.token_child with ast, fnode, 0
+            var fv as int is calling astutil.node_child with ast, fnode, 1
+            if ft >= 0 and fv >= 0:
+                var fn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
+                defer banish fn
+                var fnid as int is calling npool.intern with (sigil of c->program->names), fn
+                var is_nested as bool is (calling astutil.kind_of with ast, fv) == pskind.NodeKind.NdStructInit
+                var pfield as int is calling omen_first_payload with c, ty, fnid
+                if not is_nested and pfield >= 0:
+                    banish fn
+                    set fn is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), pfield)
+                var av as string is ""
+                if is_nested:
+                    set av is calling payload_fields with c, fv, ast, fn
+                else:
+                    var fvty as int is pfield
+                    if fvty < 0:
+                        var fk0 as pskind.NodeKind is calling astutil.kind_of with ast, fv
+                        if fk0 == pskind.NodeKind.NdListType or fk0 == pskind.NodeKind.NdMapType:
+                            set fvty is calling tast.from_ast with c, m, fv
+                    if fvty >= 0:
+                        set av is calling emit_expr_as with c, fv, fvty
+                    else:
+                        set av is calling emit_expr with c, fv
+                defer banish av
+                if i > 0:
+                    calling sb.append with ", "
+                if is_nested:
+                    var inner_av as string is av at 1 to (av length - 1)
+                    calling sb.append with inner_av
+                    banish inner_av
+                else:
+                    calling sb.append with ".{fn} = {av}"
+        set i is i + 1
+    calling sb.append with "}}"
+    return calling sb.finish
+
+## Emite `Tipo with: set .campo is valor ...`.
+##
+## ## Memoria
+## Strings owned.
+weave with_init_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, ty as int into string:
+    var ct as string is calling ctype.c_type with (sigil of c->names), ty
+    defer banish ct
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "({ct}){"
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var st as int is calling astutil.node_child with ast, node, i
+        if st >= 0:
+            var inner as int is st
+            if (calling astutil.kind_of with ast, st) == pskind.NodeKind.NdStmt:
+                set inner is calling astutil.node_child with ast, st, 0
+            if inner >= 0 and (calling astutil.kind_of with ast, inner) == pskind.NodeKind.NdSetStmt:
+                var tgt as int is calling astutil.node_child with ast, inner, 0
+                var val as int is calling astutil.node_child with ast, inner, 1
+                if tgt >= 0 and val >= 0:
+                    var wt as int is calling astutil.node_child with ast, tgt, 0
+                    var ft as int is calling astutil.token_child with ast, wt, 0
+                    if ft >= 0:
+                        var fn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
+                        var av as string is calling emit_expr with c, val
+                        if i > 0:
+                            calling sb.append with ", "
+                        calling sb.append with ".{fn} = {av}"
+                        banish av
+                        banish fn
+        set i is i + 1
+    calling sb.append with "}"
+    return calling sb.finish
+
+## Emite `Tipo is:` con `campo is valor` (bloque indentado).
+##
+## ## Memoria
+## Strings owned.
+weave indent_init_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, ty as int into string:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var ct as string is calling ctype.c_type with (sigil of c->names), ty
+    defer banish ct
+    var st as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "({ct}){"
+    var entries as int is node
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    if n > 0:
+        var c0 as int is calling astutil.node_child with ast, node, 0
+        if c0 >= 0 and (calling astutil.kind_of with ast, c0) == pskind.NodeKind.NdIndentEntries:
+            set entries is c0
+            set n is calling astutil.child_count with ast, c0
+    var first as bool is true
+    while i < n:
+        var fe as int is calling astutil.node_child with ast, entries, i
+        if fe >= 0 and (calling astutil.kind_of with ast, fe) == pskind.NodeKind.NdFieldEntry:
+            var ft as int is calling astutil.token_child with ast, fe, 0
+            var fv as int is calling astutil.node_child with ast, fe, 1
+            if ft >= 0 and fv >= 0:
+                var fn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
+                var fty as int is -1
+                var info as types.SemaNominalInfo is (c->program->types.nominal_infos at st.a)
+                var fi as int is 0
+                while fi < info.fields_count:
+                    var sf as types.SemaField is (c->program->types.fields at (info.fields_first + fi))
+                    var fnid as int is calling npool.intern with (sigil of c->program->names), fn
+                    if sf.name == fnid:
+                        set fty is sf.type
+                    set fi is fi + 1
+                var av as string is ""
+                if fty >= 0:
+                    set av is calling emit_expr_as with c, fv, fty
+                else:
+                    set av is calling emit_expr with c, fv
+                if not first:
+                    calling sb.append with ", "
+                calling sb.append with ".{fn} = {av}"
+                set first is false
+                banish av
+                banish fn
+        set i is i + 1
+    calling sb.append with "}"
+    return calling sb.finish
+
+## Emite una inicialización de rune/echo.
+##
+## ## Memoria
+## Strings owned.
+weave struct_init_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, wanted as int into string:
+    var ty as int is wanted
+    if ty < 0:
+        set ty is calling node_type with c, node
+    var ct as string is calling ctype.c_type with (sigil of c->names), ty
+    defer banish ct
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "({ct}){"
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var fi as int is calling astutil.node_child with ast, node, i
+        if fi >= 0:
+            var nt as int is calling astutil.token_child with ast, fi, 0
+            var vn as int is calling astutil.node_child with ast, fi, 1
+            if nt >= 0 and vn >= 0:
+                var m as loader.SemaModule is (c->program->modules at c->current_module)
+                var fn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), nt
+                defer banish fn
+                var fty as int is -1
+                if ty >= 0:
+                    var stt as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+                    if stt.kind == tk.SemaTypeKind.TkRune or stt.kind == tk.SemaTypeKind.TkEcho:
+                        var sinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at stt.a)
+                        var fi2 as int is 0
+                        while fi2 < sinfo.fields_count:
+                            var sf2 as types.SemaField is (c->program->types.fields at (sinfo.fields_first + fi2))
+                            var fnid2 as int is calling npool.intern with (sigil of c->program->names), fn
+                            if sf2.name == fnid2:
+                                set fty is sf2.type
+                            set fi2 is fi2 + 1
+                var val as string is ""
+                if fty >= 0:
+                    set val is calling emit_expr_as with c, vn, fty
+                else:
+                    set val is calling emit_expr with c, vn
+                defer banish val
+                if i > 0:
+                    calling sb.append with ", "
+                calling sb.append with ".{fn} = {val}"
+        set i is i + 1
+    calling sb.append with "}"
+    return calling sb.finish
+
+## Escapa un literal preservando los escapes que C ya entiende.
+##
+## ## Memoria
+## Devuelve string owned.
+weave escape_c_lit with s as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < s length:
+        var code as int is ((b at i) to int)
+        if code == 92 and i + 1 < s length:
+            # Preserva `\xNN`, `\n`, `\\`, `\"`, etc. como escape C.
+            calling sb.append with "\\"
+            set i is i + 1
+            var nx as string is s at i
+            calling sb.append with nx
+            banish nx
+        else if code == 34:
+            calling sb.append with "\\\""
+        else if code == 10:
+            calling sb.append with "\\n"
+        else if code == 9:
+            calling sb.append with "\\t"
+        else if code < 32 or code >= 127:
+            var hi as int is code / 16
+            var lo as int is code % 16
+            calling sb.append with "\\x"
+            calling emit.append_hex_digit with (sigil of sb), hi
+            calling emit.append_hex_digit with (sigil of sb), lo
+            if i + 1 < s length:
+                var nb as int is ((b at (i + 1)) to int)
+                if (nb >= 48 and nb <= 57) or (nb >= 65 and nb <= 70) or (nb >= 97 and nb <= 102):
+                    calling sb.append with "\"\""
+        else:
+            var one as string is s at i
+            calling sb.append with one
+            banish one
+        set i is i + 1
+    return calling sb.finish
+
+## Convierte un literal PenguScript completo (con comillas) en C.
+##
+## Los literales con `{expr}` simples (identificadores locales) se emiten con
+## `pengu_string_format_ex`; el resto se conserva como texto. La subfase de
+## interpolación completa añadirá expresiones arbitrarias y `(chr N)`.
+##
+## ## Memoria
+## Devuelve string owned.
+weave c_string_expr with c as ref to context.CgContext, raw as string into string:
+    var n as int is raw length
+    if n < 2:
+        return "pengu_string_from_cstr(\"\")"
+    var is_raw as bool is false
+    var start as int is 1
+    var finish as int is n - 1
+    var bb as ref to frozen byte is bytes of raw
+    if ((bb at 0) to int) == 114:
+        set is_raw is true
+        if n >= 8 and ((bb at 1) to int) == 34 and ((bb at 2) to int) == 34 and ((bb at 3) to int) == 34:
+            set start is 4
+            set finish is n - 3
+        else:
+            set start is 2
+            set finish is n - 1
+    var content as string is raw at start to finish
+    defer banish content
+    if is_raw:
+        var resc as string is calling emit.escape_c with content
+        defer banish resc
+        return "pengu_string_from_cstr(\"{resc}\")"
+    if calling has_interp with content:
+        return calling interp_expr with c, content
+    var esc as string is calling escape_c_lit with content
+    defer banish esc
+    return "pengu_string_from_cstr(\"{esc}\")"
+
+## `true` si el contenido tiene una interpolación simple.
+##
+## ## Memoria
+## O(n).
+weave has_interp with s as string into bool:
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < s length:
+        if ((b at i) to int) == 123:
+            return true
+        set i is i + 1
+    return false
+
+## Emite una interpolación simple.
+##
+## ## Memoria
+## Strings owned; args se construyen en un builder.
+## Añade un valor a `fmt`/`args` de interpolación según su tipo.
+##
+## ## Memoria
+## O(1) strings owned.
+weave append_interp_value with c as ref to context.CgContext, fmt as ref to StringBuilder, args as ref to StringBuilder, expr as string, ty as int into void:
+    if ty >= 0:
+        var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+        if t.kind == tk.SemaTypeKind.TkBase:
+            var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
+            defer banish bn
+            if bn == "string":
+                calling fmt.append with "%.*s"
+                calling args.append with "(int){expr}.len"
+                calling args.append with ", "
+                calling args.append with "{expr}.data"
+                return
+            if bn == "float" or bn == "f32" or bn == "f64" or bn == "double":
+                calling fmt.append with "%g"
+                calling args.append with "((double)({expr}))"
+                return
+            if bn == "bool":
+                calling fmt.append with "%s"
+                calling args.append with "(({expr}) ? \"true\" : \"false\")"
+                return
+            calling fmt.append with "%d"
+            calling args.append with "((int32_t)({expr}))"
+            return
+    calling fmt.append with "%s"
+    calling args.append with "pengu_string_from_cstr(\"\")"
+
+## Campo nominal de un tipo por nombre.
+##
+## ## Memoria
+## O(campos).
+weave nominal_field_type with c as ref to context.CgContext, ty as int, fname as int into int:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind != tk.SemaTypeKind.TkRune and t.kind != tk.SemaTypeKind.TkEcho:
+        return -1
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (c->program->types.fields at (info.fields_first + i))
+        if f.name == fname:
+            return f.type
+        set i is i + 1
+    return -1
+
+weave interp_expr with c as ref to context.CgContext, content as string into string:
+    var fmt as StringBuilder is calling StringBuilder.new
+    defer banish fmt
+    var args as StringBuilder is calling StringBuilder.new
+    defer banish args
+    var b as ref to frozen byte is bytes of content
+    var i as int is 0
+    var n as int is content length
+    var nargs as int is 0
+    while i < n:
+        var code as int is ((b at i) to int)
+        if code == 123 and i + 1 < n:
+            var j as int is i + 1
+            while j < n and ((b at j) to int) != 125:
+                set j is j + 1
+            if j < n:
+                var inner as string is content at (i + 1) to j
+                defer banish inner
+                if nargs > 0:
+                    calling args.append with ", "
+                var expr_c as string is ""
+                var arg_ty as int is -1
+                var dotp as int is -1
+                var ii as int is 0
+                while ii < inner length:
+                    if (inner at ii) == ".":
+                        set dotp is ii
+                        break
+                    set ii is ii + 1
+                if dotp >= 0:
+                    var base_s as string is inner at 0 to dotp
+                    var rest as string is inner at (dotp + 1) to (inner length)
+                    var bnid as int is calling npool.intern with (sigil of c->program->names), base_s
+                    var bty as int is calling context.local_type with c, bnid
+                    var blc as int is calling context.local_c_name with c, bnid
+                    if blc >= 0:
+                        set expr_c is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), blc)
+                        set arg_ty is bty
+                        var fld as string is rest
+                        var fnid as int is calling npool.intern with (sigil of c->program->names), fld
+                        var fty as int is calling nominal_field_type with c, bty, fnid
+                        var fns as string is fld
+                        set expr_c is "{expr_c}.{fns}"
+                        set arg_ty is fty
+                    banish rest
+                    banish base_s
+                else:
+                    var nid as int is calling npool.intern with (sigil of c->program->names), inner
+                    var lc as int is calling context.local_c_name with c, nid
+                    if lc >= 0:
+                        set expr_c is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), lc)
+                        set arg_ty is calling context.local_type with c, nid
+                if expr_c == "":
+                    calling fmt.append with "%s"
+                    calling args.append with "pengu_string_from_cstr(\"\")"
+                else:
+                    calling append_interp_value with c, (sigil of fmt), (sigil of args), expr_c, arg_ty
+                banish expr_c
+                set nargs is nargs + 1
+                set i is j + 1
+                continue
+        if code == 37:
+            calling fmt.append with "%%"
+        else:
+            var one as string is content at i to (i + 1)
+            defer banish one
+            if ((b at i) to int) == 123:
+                calling fmt.append with "{{"
+            else:
+                calling fmt.append with one
+        set i is i + 1
+    var fmt_text as string is calling fmt.finish
+    defer banish fmt_text
+    var escfmt as string is calling emit.escape_c with fmt_text
+    defer banish escfmt
+    var argtext as string is calling args.finish
+    defer banish argtext
+    if argtext == "":
+        return "pengu_string_from_cstr(\"{escfmt}\")"
+    return "pengu_string_format_ex(\"{escfmt}\", {argtext})"

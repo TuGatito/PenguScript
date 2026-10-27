@@ -33,7 +33,6 @@ weave main into int:
     if found == "":
         calling spark.println with "resolver failed"
         return 30
-    calling spark.println with "resolver: {found}"
     banish found
 
     var syms as symbols.SemaSymbols is calling symbols.new_symbols with (sigil of t), (sigil of pool)
@@ -45,13 +44,13 @@ weave main into int:
         return 20
     var int_symv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of syms), int_sym
     var int_ty as int is int_symv.type
-    var int_ty2 as int is calling symbols.lookup_type_name with (sigil of syms), "i32"
+    var int_ty2 as int is calling symbols.lookup_type_name with (sigil of syms), "int"
     if int_ty != int_ty2:
         calling spark.println with "builtin type lookup mismatch"
         return 21
 
-    if (calling types.type_count with (sigil of t)) != 22:
-        calling spark.println with "expected 22 builtins, got {(calling types.type_count with (sigil of t))}"
+    if (calling types.type_count with (sigil of t)) != 34:
+        calling spark.println with "expected 34 builtins, got {(calling types.type_count with (sigil of t))}"
         return 1
 
     var int_t as int is calling types.base with (sigil of t), "int32_t"
@@ -101,20 +100,20 @@ weave main into int:
         calling spark.println with "int->float cast failed"
         return 15
     var cn as int is calling canonical.canonical_name with (sigil of t), list_t
-    if (calling npool.text with (sigil of pool), cn) != "list of int":
+    if (calling npool.text with (sigil of pool), cn) != "list of i32":
         calling spark.println with "canonical list failed: {(calling npool.text with (sigil of pool), cn)}"
         return 10
     var mn as int is calling canonical.mangled_name with (sigil of t), list_t
-    if (calling npool.text with (sigil of pool), mn) != "list_int":
+    if (calling npool.text with (sigil of pool), mn) != "list_i32":
         calling spark.println with "mangled list failed: {(calling npool.text with (sigil of pool), mn)}"
         return 11
     var ref_info as tk.SemaType is calling types.at with (sigil of t), ref_t
     if ref_info.kind != tk.SemaTypeKind.TkRef or ref_info.a != list_t:
         calling spark.println with "ref payload failed"
         return 8
-    if (calling types.type_count with (sigil of t)) != 25:
-        calling spark.println with "expected 25 final types, got {(calling types.type_count with (sigil of t))}"
+    if (calling types.type_count with (sigil of t)) != 37:
+        calling spark.println with "expected 37 final types, got {(calling types.type_count with (sigil of t))}"
         return 9
 
-    calling spark.println with "sema smoke ok: types=25"
+    calling spark.println with "sema smoke ok: types=37"
     return 0

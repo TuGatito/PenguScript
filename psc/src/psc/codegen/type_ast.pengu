@@ -1,0 +1,108 @@
+## psc/codegen/type_ast.pengu — conversión de un nodo de tipo AST a `TypeId`.
+##
+## Vive fuera de `stmt`/`expr` para que ambos puedan usarla sin ciclos.
+
+import psc.sema.types.convert as convert
+import psc.sema.modules.loader as loader
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.sema.ast as astutil
+import psc.sema.names as npool
+
+import psc.sema.symbols.table as symbols
+
+import psc.codegen.context as context
+import psc.codegen.ctype as ctype
+
+insignia psc_codegen_type_ast_
+
+## Convierte un nodo de tipo AST usando el estado de F3.
+##
+## ## Memoria
+## Puede añadir diagnósticos F3; no posee strings.
+weave from_ast with c as ref to context.CgContext, m as loader.SemaModule, node as int into int:
+    if node < 0:
+        return -1
+    # Un type param (`T`) no está en la tabla F3; se resuelve por sustitución.
+    var k as pskind.NodeKind is calling astutil.kind_of with (sigil of m.parse.ast), node
+    if k == pskind.NodeKind.NdVarRef:
+        var tok as int is calling astutil.token_child with (sigil of m.parse.ast), node, 0
+        if tok >= 0:
+            var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), tok
+            var nid as int is calling npool.intern with (sigil of c->program->names), txt
+            banish txt
+            if calling c->names.subst.has with nid:
+                return calling c->names.subst.get with nid
+    var ctx as convert.TypeCtx is with types is (sigil of c->program->types), symbols is (sigil of c->program->symbols), names is (sigil of c->program->names), bag is (sigil of c->program->diagnostics), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast)
+    return calling convert.convert with (sigil of ctx), node
+
+## Tipo C de un nodo de tipo, resolviendo type params por sustitución.
+##
+## A diferencia de `from_ast`, no depende de que F3 tenga registrados los
+## type params del `shard`; construye refs/base/nominales directamente.
+##
+## ## Memoria
+## Devuelve string owned.
+weave c_type_ast with c as ref to context.CgContext, m as loader.SemaModule, node as int into string:
+    if node < 0:
+        return "void"
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdRefType or k == pskind.NodeKind.NdFrozenType:
+        var ch as int is calling astutil.node_child with ast, node, 0
+        var inner as string is calling c_type_ast with c, m, ch
+        if k == pskind.NodeKind.NdFrozenType:
+            var cf as string is "const {inner}"
+            banish inner
+            return cf
+        if inner == "void":
+            return "void*"
+        var cp as string is "{inner}*"
+        banish inner
+        return cp
+    if k == pskind.NodeKind.NdBaseType:
+        var bt as int is calling astutil.token_child with ast, node, 0
+        if bt >= 0:
+            var btxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), bt
+            var bnid as int is calling npool.intern with (sigil of c->program->names), btxt
+            banish btxt
+            return calling ctype.base_c_type with (sigil of c->names), bnid
+        return "void"
+    if k == pskind.NodeKind.NdCustomType or k == pskind.NodeKind.NdVarRef:
+        var tt as int is calling deep_token with ast, node
+        if tt >= 0:
+            var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), tt
+            var nid as int is calling npool.intern with (sigil of c->program->names), txt
+            defer banish txt
+            if calling c->names.subst.has with nid:
+                return calling ctype.c_type with (sigil of c->names), (calling c->names.subst.get with nid)
+            var tid as int is calling symbols.lookup_type_name with (sigil of c->program->symbols), txt
+            if tid >= 0:
+                return calling ctype.c_type with (sigil of c->names), tid
+            var ncopy as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), nid)
+            return ncopy
+        return "void"
+    var tid2 as int is calling from_ast with c, m, node
+    if tid2 >= 0:
+        return calling ctype.c_type with (sigil of c->names), tid2
+    return "void"
+
+## Primer token de un tipo compuesto.
+##
+## ## Memoria
+## O(nodos).
+weave deep_token with ast as ref to psast.PsAst, node as int into int:
+    var t as int is calling astutil.token_child with ast, node, 0
+    if t >= 0:
+        return t
+    var n as int is calling astutil.child_count with ast, node
+    var i as int is 0
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            var got as int is calling deep_token with ast, ch
+            if got >= 0:
+                return got
+        set i is i + 1
+    return -1

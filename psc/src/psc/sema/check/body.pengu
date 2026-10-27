@@ -21,6 +21,7 @@ import psc.sema.symbols.scope as scope
 import psc.sema.state as state
 import psc.sema.ast as astutil
 import psc.sema.infer.core as infer
+import psc.sema.annotate as ann
 import psc.sema.diagnostics as sdiag
 
 insignia sema_body_
@@ -140,10 +141,36 @@ weave check_block_value with s as ref to state.SemaState, node as int, expected 
     calling check_stmt with s, node
     return 3
 
+## Aplica los bounds de un símbolo al scope actual.
+##
+## ## Memoria
+## O(1); no asigna.
+weave apply_symbol_bounds with s as ref to state.SemaState, sid as int into void:
+    var sc as scope.SemaScope is (s->symbols->scopes at s->symbols->current)
+    if sid >= 0:
+        var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+        set sc.bounds_first is sv.bounds_first
+        set sc.bounds_count is sv.bounds_count
+    else:
+        set sc.bounds_first is 0
+        set sc.bounds_count is 0
+    set s->symbols->scopes at (s->symbols->current) is sc
+
+## Texto del nombre de una declaración.
+##
+## ## Memoria
+## Devuelve string owned.
+weave decl_text with s as ref to state.SemaState, node as int into string:
+    var slot as int is calling body_name_slot with s, node
+    if slot < 0:
+        return ""
+    return calling astutil.child_token_text with s->src, s->lex, s->ast, node, slot
+
 ## Chequea los cuerpos de un módulo ya recolectado.
 ##
 ## ## Memoria
 ## Presta el estado; los scopes se abren/cierran.
+## Comprueba declaraciones y cuerpos de un módulo.
 weave check_module_bodies with s as ref to state.SemaState into void:
     var file as int is calling astutil.node_child with s->ast, s->module->parse.root, 0
     if file < 0:
@@ -159,7 +186,12 @@ weave check_module_bodies with s as ref to state.SemaState into void:
             if stmt >= 0:
                 var k as pskind.NodeKind is calling astutil.kind_of with s->ast, stmt
                 if k == pskind.NodeKind.NdWeaveDecl:
+                    var fname as string is calling decl_text with s, stmt
+                    defer banish fname
+                    var fsid as int is calling symbols.lookup_name with s->symbols, fname
+                    calling apply_symbol_bounds with s, fsid
                     calling check_weave_body with s, stmt
+                    calling apply_symbol_bounds with s, -1
                 else if k == pskind.NodeKind.NdEnchantingDecl:
                     var recv_node as int is calling astutil.node_child with s->ast, stmt, 0
                     var recv_t as int is 0
@@ -175,13 +207,21 @@ weave check_module_bodies with s as ref to state.SemaState into void:
                     set self_sym.name is self_name
                     set self_sym.c_name is self_name
                     set self_sym.flags is self_sym.flags | sym.SYM_MUTABLE
+                    if rty_self.kind == tk.SemaTypeKind.TkBase or rty_self.kind == tk.SemaTypeKind.TkTypeParam:
+                        set self_sym.flags is self_sym.flags | sym.SYM_SELF_VALUE
                     var self_id as int is calling symbols.symbol_define with s->symbols, self_sym
                     var j as int is 1
                     var m as int is calling astutil.child_count with s->ast, stmt
                     while j < m:
                         var meth as int is calling astutil.node_child with s->ast, stmt, j
                         if meth >= 0 and (calling astutil.kind_of with s->ast, meth) == pskind.NodeKind.NdWeaveDecl:
+                            var mtext as string is calling decl_text with s, meth
+                            defer banish mtext
+                            var mnid as int is calling npool.intern with s->names, mtext
+                            var msid as int is calling symbols.lookup_method with s->symbols, recv_t, mnid
+                            calling apply_symbol_bounds with s, msid
                             calling check_weave_body with s, meth
+                            calling apply_symbol_bounds with s, -1
                         set j is j + 1
                 else if k == pskind.NodeKind.NdTestDecl:
                     var tj as int is 1
@@ -215,7 +255,9 @@ weave check_stmt with s as ref to state.SemaState, node as int into void:
     if k == pskind.NodeKind.NdExprStmt:
         var e as int is calling astutil.node_child with s->ast, node, 0
         if e >= 0:
+            set s->allow_mutating is true
             var ignored as int is calling state.call_infer with s, e, -1
+            set s->allow_mutating is false
         return
     if k == pskind.NodeKind.NdSetStmt:
         calling check_set with s, node, false
@@ -245,9 +287,25 @@ weave check_stmt with s as ref to state.SemaState, node as int into void:
     if k == pskind.NodeKind.NdBanishStmt:
         var e3 as int is calling astutil.node_child with s->ast, node, 0
         if e3 >= 0:
-            var ignored3 as int is calling state.call_infer with s, e3, -1
+            var bt as int is calling state.call_infer with s, e3, -1
+            var bty as tk.SemaType is calling types.at with s->types, bt
+            if bty.kind == tk.SemaTypeKind.TkRune or bty.kind == tk.SemaTypeKind.TkEcho:
+                var has_nexus as bool is false
+                if bty.a >= 0 and bty.a < s->types->nominal_infos.len:
+                    var bi as types.SemaNominalInfo is (s->types->nominal_infos at bty.a)
+                    var di as int is 0
+                    while di < bi.derived_count:
+                        var did as int is (s->types->derived at (bi.derived_first + di))
+                        var dty as tk.SemaType is calling types.at with s->types, did
+                        var dn as string is calling npool.text with s->names, dty.name
+                        if dn == "Nexus":
+                            set has_nexus is true
+                        set di is di + 1
+                if not has_nexus:
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, e3), (calling astutil.end_of with s->ast, e3), "banish requires an owned/derive Nexus value", "Use a rune with 'derive Nexus' or avoid banish.", ""
         return
     if k == pskind.NodeKind.NdBreakStmt or k == pskind.NodeKind.NdContinueStmt:
+        calling check_break with s, node
         return
     if k == pskind.NodeKind.NdTestDecl:
         var b2 as int is calling astutil.node_child with s->ast, node, (calling astutil.child_count with s->ast, node) - 1
@@ -418,6 +476,9 @@ weave check_mutable_target with s as ref to state.SemaState, node as int into vo
             var sid as int is calling symbols.lookup_name with s->symbols, txt
             if sid >= 0:
                 var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+                if (sv.flags & sym.SYM_SELF_VALUE) != 0:
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTABILITY, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "cannot assign to primitive 'self'", "Use a local copy or mutate through a ref.", ""
+                    return
                 if (sv.flags & sym.SYM_MUTABLE) == 0 and sv.kind != sym.SemaSymbolKind.SkParam:
                     calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTABILITY, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "cannot assign to immutable '{txt}'", "Declare it with 'var' or use a mutable parameter.", "'let' bindings and consts are immutable."
         return
@@ -448,15 +509,118 @@ weave check_return with s as ref to state.SemaState, node as int into void:
         else:
             set got is calling state.call_infer with s, e, expected
         if not (calling compat.compatible with s->types, got, expected):
-            calling mismatch with s, e, expected, got
+            var en as int is calling canonical.canonical_name with s->types, expected
+            var gn as int is calling canonical.canonical_name with s->types, got
+            var etext as string is calling npool.text with s->names, en
+            var gtext as string is calling npool.text with s->names, gn
+            var msg as string is "return value of type '{gtext}' does not match '{etext}'"
+            defer banish msg
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_RETURN_TYPE, (calling astutil.start_of with s->ast, e), (calling astutil.end_of with s->ast, e), msg, "Return a value of the declared type or change the signature.", ""
 
 ## Control de flujo.
 ##
 ## ## Memoria
 ## Recurre a bloques.
+## Entra en el scope de un loop y registra su label.
+##
+## ## Memoria
+## Push de scope; liberar con `end_loop`.
+weave begin_loop with s as ref to state.SemaState, node as int into void:
+    var start as int is calling astutil.start_of with s->ast, node
+    var end as int is calling astutil.end_of with s->ast, node
+    calling symbols.push_scope with s->symbols, scope.SemaScopeKind.SgFor, start, end
+    var sc as scope.SemaScope is (s->symbols->scopes at s->symbols->current)
+    set sc.in_loop is true
+    set s->symbols->scopes at (s->symbols->current) is sc
+    var lt as int is calling astutil.loop_label_token with s->ast, node
+    if lt >= 0:
+        var txt as string is calling astutil.token_text with s->src, s->lex, lt
+        defer banish txt
+        var nid as int is calling npool.intern with s->names, txt
+        if calling find_loop_label with s, nid:
+            var msg as string is "duplicate loop label '{txt}'"
+            defer banish msg
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_DUP_LABEL, start, end, msg, "Rename one of the labels.", ""
+        set sc.loop_label is nid
+        calling scope.define_label with (sigil of sc), nid, nid
+
+## Sale del scope del loop.
+##
+## ## Memoria
+## Pop de scope.
+weave end_loop with s as ref to state.SemaState, node as int into void:
+    calling symbols.pop_scope with s->symbols, calling astutil.end_of with s->ast, node
+
+## ¿Hay un loop visible o un label concreto?
+##
+## ## Memoria
+## O(profundidad).
+weave loop_visible with s as ref to state.SemaState into bool:
+    var cur as int is s->symbols->current
+    while cur >= 0:
+        var sc as scope.SemaScope is (s->symbols->scopes at cur)
+        if sc.kind == scope.SemaScopeKind.SgLambda or sc.kind == scope.SemaScopeKind.SgWeave or sc.kind == scope.SemaScopeKind.SgEnchanting:
+            return false
+        if sc.in_loop:
+            return true
+        set cur is sc.parent
+    return false
+
+## Busca un label de loop visible.
+##
+## ## Memoria
+## O(profundidad).
+weave find_loop_label with s as ref to state.SemaState, nid as int into bool:
+    var cur as int is s->symbols->current
+    while cur >= 0:
+        var sc as scope.SemaScope is (s->symbols->scopes at cur)
+        if sc.kind == scope.SemaScopeKind.SgLambda or sc.kind == scope.SemaScopeKind.SgWeave or sc.kind == scope.SemaScopeKind.SgEnchanting:
+            return false
+        if (calling scope.lookup_label with (sigil of sc), nid) >= 0:
+            return true
+        set cur is sc.parent
+    return false
+
+## Comprueba `break`/`continue` y su label.
+##
+## ## Memoria
+## O(profundidad); puede emitir diagnósticos.
+weave check_break with s as ref to state.SemaState, node as int into void:
+    var lt as int is calling astutil.token_child with s->ast, node, 0
+    if lt >= 0:
+        var txt as string is calling astutil.token_text with s->src, s->lex, lt
+        defer banish txt
+        var nid as int is calling npool.intern with s->names, txt
+        if not (calling find_loop_label with s, nid):
+            var fstart as int is 0
+            var fend as int is 999999999
+            var curf as int is s->symbols->current
+            while curf >= 0:
+                var fsc as scope.SemaScope is (s->symbols->scopes at curf)
+                if fsc.kind == scope.SemaScopeKind.SgWeave or fsc.kind == scope.SemaScopeKind.SgEnchanting or fsc.kind == scope.SemaScopeKind.SgLambda:
+                    set fstart is fsc.start_line
+                    set fend is fsc.end_line
+                    set curf is -1
+                else:
+                    set curf is fsc.parent
+            var msg as string is "loop label '{txt}' is not in scope"
+            defer banish msg
+            var lcode as string is sdiag.CODE_UNDEFINED
+            if calling astutil.label_text_in_range with s->src, s->lex, s->ast, txt, fstart, fend:
+                set lcode is sdiag.CODE_CONTROL_FLOW
+            calling sdiag.node_error with s->bag, s->src, lcode, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg, "Define the label on an enclosing loop.", ""
+    else:
+        if not (calling loop_visible with s):
+            var msg2 as string is "break/continue outside a loop"
+            defer banish msg2
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CONTROL_FLOW, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg2, "Use it inside while/for.", ""
+
+## Entra en el scope de un loop y registra su label.
+
 weave check_control with s as ref to state.SemaState, node as int into void:
     var kk as pskind.NodeKind is calling astutil.kind_of with s->ast, node
     if kk == pskind.NodeKind.NdForInStmt:
+        calling begin_loop with s, node
         var nm as int is calling astutil.token_child with s->ast, node, 0
         var coll as int is calling astutil.node_child with s->ast, node, 1
         var et as int is 0
@@ -474,8 +638,10 @@ weave check_control with s as ref to state.SemaState, node as int into void:
         var b as int is calling astutil.node_child with s->ast, node, (calling astutil.child_count with s->ast, node) - 1
         if b >= 0:
             calling check_block with s, b
+        calling end_loop with s, node
         return
     if kk == pskind.NodeKind.NdForRangeStmt:
+        calling begin_loop with s, node
         var nm2 as int is calling astutil.token_child with s->ast, node, 0
         if nm2 >= 0:
             var txt2 as string is calling astutil.token_text with s->src, s->lex, nm2
@@ -488,7 +654,11 @@ weave check_control with s as ref to state.SemaState, node as int into void:
         var b2 as int is calling astutil.node_child with s->ast, node, (calling astutil.child_count with s->ast, node) - 1
         if b2 >= 0:
             calling check_block with s, b2
+        calling end_loop with s, node
         return
+    var is_while as bool is kk == pskind.NodeKind.NdWhileStmt
+    if is_while:
+        calling begin_loop with s, node
     var i as int is 0
     var n as int is calling astutil.child_count with s->ast, node
     while i < n:
@@ -529,6 +699,8 @@ weave check_control with s as ref to state.SemaState, node as int into void:
                     if bty > 0 and not (calling compat.compatible with s->types, eff, bty):
                         calling mismatch with s, bexpr, bty, bgot
         set i is i + 1
+    if is_while:
+        calling end_loop with s, node
 
 ## `with target:` statement.
 ##
@@ -555,8 +727,12 @@ weave check_with_stmt with s as ref to state.SemaState, node as int into void:
 ## ## Memoria
 ## O(1).
 weave check_lambda with s as ref to state.SemaState, node as int into int:
-    var params as int is calling astutil.node_child with s->ast, node, 0
-    var body as int is calling astutil.node_child with s->ast, node, 1
+    var lk as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    var params as int is -1
+    var body as int is calling astutil.node_child with s->ast, node, 0
+    if lk == pskind.NodeKind.NdLambdaExpr:
+        set params is calling astutil.node_child with s->ast, node, 0
+        set body is calling astutil.node_child with s->ast, node, 1
     var start as int is calling astutil.start_of with s->ast, node
     var end as int is calling astutil.end_of with s->ast, node
     calling symbols.push_scope with s->symbols, scope.SemaScopeKind.SgLambda, start, end
@@ -597,6 +773,87 @@ weave check_lambda with s as ref to state.SemaState, node as int into int:
     var info as types.SemaFnInfo is with params_first is first, params_count is count, return_type is ret, tparams_first is 0, tparams_count is 0, flags is 0, attrs_node is -1
     return calling types.fn_type with s->types, info
 
+## ¿El omen tiene una variante con ese nombre?
+##
+## ## Memoria
+## O(variantes).
+weave variant_has_name with s as ref to state.SemaState, omen_info as int, vname as int into bool:
+    var oi as types.SemaNominalInfo is (s->types->nominal_infos at omen_info)
+    var i as int is 0
+    while i < oi.variants_count:
+        var vv as types.SemaVariant is (s->types->variants at (oi.variants_first + i))
+        if vv.name == vname:
+            return true
+        set i is i + 1
+    return false
+
+## ¿La variante `vname` tiene un campo `fname`?
+##
+## ## Memoria
+## O(variantes * campos).
+weave variant_has_field with s as ref to state.SemaState, omen_info as int, vname as int, fname as int into bool:
+    var oi as types.SemaNominalInfo is (s->types->nominal_infos at omen_info)
+    var vi as int is 0
+    while vi < oi.variants_count:
+        var vv as types.SemaVariant is (s->types->variants at (oi.variants_first + vi))
+        if vv.name == vname:
+            var fi as int is 0
+            while fi < vv.payload_count:
+                var ff as types.SemaField is (s->types->fields at (vv.payload_first + fi))
+                if ff.name == fname:
+                    return true
+                set fi is fi + 1
+        set vi is vi + 1
+    return false
+
+## Añade a `covered` las variantes del patrón `when A | B | ...`.
+##
+## ## Memoria
+## O(tokens); no asigna.
+weave add_covered_pattern with s as ref to state.SemaState, pat as int, covered as ref to list of int into void:
+    if pat < 0:
+        return
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, pat
+    while i < n:
+        var vtok as int is calling astutil.token_child with s->ast, pat, i
+        if vtok >= 0:
+            var txt as string is calling astutil.token_text with s->src, s->lex, vtok
+            if txt != "|":
+                var nid as int is calling npool.intern with s->names, txt
+                if not (calling contains_int with covered, nid):
+                    calling covered->push with nid
+            banish txt
+        else:
+            var pn as int is calling astutil.node_child with s->ast, pat, i
+            if pn >= 0:
+                var pk as pskind.NodeKind is calling astutil.kind_of with s->ast, pn
+                var t2 as int is -1
+                if pk == pskind.NodeKind.NdFieldAccess or pk == pskind.NodeKind.NdWhenVariant:
+                    set t2 is calling astutil.token_child with s->ast, pn, 1
+                else:
+                    set t2 is calling astutil.token_child with s->ast, pn, 0
+                if t2 >= 0:
+                    var txt2 as string is calling astutil.token_text with s->src, s->lex, t2
+                    var nid2 as int is calling npool.intern with s->names, txt2
+                    banish txt2
+                    if not (calling contains_int with covered, nid2):
+                        calling covered->push with nid2
+        set i is i + 1
+
+## ¿La lista de ints contiene `v`?
+##
+## ## Memoria
+## O(n).
+weave contains_int with xs as ref to list of int, v as int into bool:
+    var i as int is 0
+    var n as int is calling xs.len
+    while i < n:
+        if (xs at i) == v:
+            return true
+        set i is i + 1
+    return false
+
 ## `judge`: comprueba condiciones, payloads y ramas; devuelve el tipo común.
 ##
 ## ## Memoria
@@ -604,9 +861,11 @@ weave check_lambda with s as ref to state.SemaState, node as int into int:
 weave check_judge with s as ref to state.SemaState, node as int, expected as int into int:
     var cond as int is calling astutil.node_child with s->ast, node, 0
     var cond_t as int is -1
+    var scrut_t as int is -1
     var omen_info as int is -1
     if cond >= 0:
         set cond_t is calling state.call_infer with s, cond, -1
+        set scrut_t is cond_t
         var cty as tk.SemaType is calling types.at with s->types, cond_t
         if cty.kind == tk.SemaTypeKind.TkOmen:
             set omen_info is cty.a
@@ -614,7 +873,32 @@ weave check_judge with s as ref to state.SemaState, node as int, expected as int
             var aty as tk.SemaType is calling types.at with s->types, cty.b
             if aty.kind == tk.SemaTypeKind.TkOmen:
                 set omen_info is aty.a
+        if (calling astutil.kind_of with s->ast, node) == pskind.NodeKind.NdJudgeOverExpr:
+            var cst as tk.SemaType is calling types.at with s->types, cond_t
+            if cst.kind == tk.SemaTypeKind.TkRef:
+                set scrut_t is cst.a
+            if cst.kind == tk.SemaTypeKind.TkFrozen:
+                set scrut_t is cst.a
+            var cst2 as tk.SemaType is calling types.at with s->types, scrut_t
+            if cst2.kind == tk.SemaTypeKind.TkRef or cst2.kind == tk.SemaTypeKind.TkFrozen:
+                set scrut_t is cst2.a
+            var oft as int is calling astutil.token_child with s->ast, node, 1
+            if oft >= 0:
+                var offtxt as string is calling astutil.token_text with s->src, s->lex, oft
+                defer banish offtxt
+                var offt as int is calling field_type with s, scrut_t, offtxt
+                if offt > 0:
+                    var offty as tk.SemaType is calling types.at with s->types, offt
+                    if offty.kind == tk.SemaTypeKind.TkOmen:
+                        set omen_info is offty.a
+                else:
+                    var omsg as string is "judge over field '{offtxt}' does not exist"
+                    defer banish omsg
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), omsg, "Use a field of the judged value.", ""
     var result as int is -1
+    var has_else as bool is false
+    var covered as list of int is list of int
+    defer banish covered
     var i as int is 1
     var n as int is calling astutil.child_count with s->ast, node
     while i < n:
@@ -622,6 +906,8 @@ weave check_judge with s as ref to state.SemaState, node as int, expected as int
         if cl >= 0:
             var bk as pskind.NodeKind is calling astutil.kind_of with s->ast, cl
             if bk == pskind.NodeKind.NdWhenClause:
+                var pat0 as int is calling astutil.node_child with s->ast, cl, 0
+                calling add_covered_pattern with s, pat0, (sigil of covered)
                 var payload as int is calling astutil.node_child with s->ast, cl, 1
                 if payload >= 0 and (calling astutil.kind_of with s->ast, payload) == pskind.NodeKind.NdWhenPayload:
                     var variant_fields_first as int is 0
@@ -632,7 +918,10 @@ weave check_judge with s as ref to state.SemaState, node as int, expected as int
                         if vtok < 0:
                             var pnode2 as int is calling astutil.node_child with s->ast, pat, 0
                             if pnode2 >= 0:
-                                if (calling astutil.kind_of with s->ast, pnode2) == pskind.NodeKind.NdFieldAccess:
+                                var pk2 as pskind.NodeKind is calling astutil.kind_of with s->ast, pnode2
+                                if pk2 == pskind.NodeKind.NdFieldAccess:
+                                    set vtok is calling astutil.token_child with s->ast, pnode2, 1
+                                else if pk2 == pskind.NodeKind.NdWhenVariant:
                                     set vtok is calling astutil.token_child with s->ast, pnode2, 1
                                 else:
                                     set vtok is calling astutil.token_child with s->ast, pnode2, 0
@@ -640,6 +929,8 @@ weave check_judge with s as ref to state.SemaState, node as int, expected as int
                             var vtxt as string is calling astutil.token_text with s->src, s->lex, vtok
                             defer banish vtxt
                             var vnid as int is calling npool.intern with s->names, vtxt
+                            if not (calling contains_int with (sigil of covered), vnid):
+                                calling covered.push with vnid
                             var oi as types.SemaNominalInfo is (s->types->nominal_infos at omen_info)
                             var vi2 as int is 0
                             while vi2 < oi.variants_count:
@@ -660,12 +951,38 @@ weave check_judge with s as ref to state.SemaState, node as int, expected as int
                             defer banish ptxt
                             var pid2 as int is calling npool.intern with s->names, ptxt
                             var pty2 as int is 1
+                            var field_found as bool is false
                             var pi2 as int is 0
                             while pi2 < variant_fields_count:
                                 var vf as types.SemaField is (s->types->fields at (variant_fields_first + pi2))
                                 if vf.name == pid2:
                                     set pty2 is vf.type
+                                    set field_found is true
                                 set pi2 is pi2 + 1
+                            if not field_found and scrut_t >= 0:
+                                var sfld as int is calling field_type with s, scrut_t, ptxt
+                                if sfld > 0:
+                                    set pty2 is sfld
+                                    set field_found is true
+                            # Alternativas: `A | B with x` exige que x exista en A y B.
+                            if omen_info >= 0 and variant_fields_count > 0:
+                                var patc as int is calling astutil.child_count with s->ast, pat
+                                if patc > 1:
+                                    var ai2 as int is 0
+                                    while ai2 < patc:
+                                        var at2 as int is calling astutil.token_child with s->ast, pat, ai2
+                                        if at2 >= 0:
+                                            var atxt as string is calling astutil.token_text with s->src, s->lex, at2
+                                            defer banish atxt
+                                            if atxt != "|":
+                                                var anid as int is calling npool.intern with s->names, atxt
+                                                if not (calling variant_has_field with s, omen_info, anid, pid2):
+                                                    set field_found is false
+                                        set ai2 is ai2 + 1
+                            if not field_found:
+                                var fmsg as string is "variant has no payload field '{ptxt}'"
+                                defer banish fmsg
+                                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, pf), (calling astutil.end_of with s->ast, pf), fmsg, "Use one of the variant's payload fields.", ""
                             var psv as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", pty2, sym.SemaSymbolKind.SkLet
                             set psv.name is pid2
                             set psv.c_name is pid2
@@ -673,9 +990,53 @@ weave check_judge with s as ref to state.SemaState, node as int, expected as int
                             # `with pair as (n, flag)`: desestructura el payload.
                             var fpat as int is calling astutil.node_child with s->ast, pf, 1
                             if fpat >= 0 and (calling astutil.kind_of with s->ast, fpat) == pskind.NodeKind.NdFieldPattern:
+                                var ptok2 as int is calling astutil.token_child with s->ast, fpat, 0
+                                if ptok2 >= 0:
+                                    var ptxt2 as string is calling astutil.token_text with s->src, s->lex, ptok2
+                                    defer banish ptxt2
+                                    var pty4 as tk.SemaType is calling types.at with s->types, pty2
+                                    if ptxt2 == "none" or ptxt2 == "some":
+                                        if pty4.kind != tk.SemaTypeKind.TkMaybe:
+                                            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, fpat), (calling astutil.end_of with s->ast, fpat), "pattern requires a maybe payload", "Use 'some'/'none' only with maybe.", ""
+                                    else if pty4.kind == tk.SemaTypeKind.TkMaybe:
+                                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, fpat), (calling astutil.end_of with s->ast, fpat), "maybe payload pattern must be 'some' or 'none'", "Use 'as some' or 'as none'.", ""
+                                    else:
+                                        var fb as ref to frozen byte is bytes of ptxt2
+                                        var fcode as int is ((fb at 0) to int)
+                                        if fcode >= 65 and fcode <= 90:
+                                            if pty4.kind == tk.SemaTypeKind.TkBase:
+                                                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, fpat), (calling astutil.end_of with s->ast, fpat), "variant pattern does not match payload type", "Use a pattern of the payload's omen type.", ""
+                                            else if pty4.kind == tk.SemaTypeKind.TkRune or pty4.kind == tk.SemaTypeKind.TkEcho:
+                                                var kinfo as types.SemaNominalInfo is (s->types->nominal_infos at pty4.a)
+                                                var kname as int is calling npool.intern with s->names, "kind"
+                                                var kfield as int is -1
+                                                var kfi as int is 0
+                                                while kfi < kinfo.fields_count:
+                                                    var kf as types.SemaField is (s->types->fields at (kinfo.fields_first + kfi))
+                                                    if kf.name == kname:
+                                                        set kfield is kf.type
+                                                    set kfi is kfi + 1
+                                                var badp as bool is false
+                                                if kfield < 0:
+                                                    set badp is true
+                                                else:
+                                                    var kfty as tk.SemaType is calling types.at with s->types, kfield
+                                                    if kfty.kind != tk.SemaTypeKind.TkOmen:
+                                                        set badp is true
+                                                    else:
+                                                        var pnid as int is calling npool.intern with s->names, ptxt2
+                                                        if not (calling variant_has_name with s, kfty.a, pnid):
+                                                            set badp is true
+                                                if badp:
+                                                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, fpat), (calling astutil.end_of with s->ast, fpat), "nested pattern needs a matching 'kind' field", "Nested patterns follow the rune's kind discriminant.", ""
                                 var ftup as int is calling astutil.node_child with s->ast, fpat, 0
                                 if ftup >= 0 and (calling astutil.kind_of with s->ast, ftup) == pskind.NodeKind.NdFieldTuple:
                                     var pty3 as tk.SemaType is calling types.at with s->types, pty2
+                                    var tn0 as int is calling astutil.child_count with s->ast, ftup
+                                    if pty3.kind != tk.SemaTypeKind.TkTuple or pty3.count != tn0:
+                                        var tmsg as string is "tuple pattern does not match payload type"
+                                        defer banish tmsg
+                                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, ftup), (calling astutil.end_of with s->ast, ftup), tmsg, "Match the tuple arity and field types.", ""
                                     var ti as int is 0
                                     var tn as int is calling astutil.child_count with s->ast, ftup
                                     while ti < tn:
@@ -701,12 +1062,27 @@ weave check_judge with s as ref to state.SemaState, node as int, expected as int
                     else if not calling compat.compatible with s->types, bt, result and not calling compat.compatible with s->types, result, bt:
                         calling mismatch with s, body, result, bt
             else if bk == pskind.NodeKind.NdElseClause:
+                set has_else is true
                 var body2 as int is calling astutil.node_child with s->ast, cl, 0
                 if body2 >= 0:
                     var bt2 as int is calling state.call_block with s, body2, expected
                     if result < 0:
                         set result is bt2
         set i is i + 1
+    if omen_info >= 0 and not has_else:
+        var oi2 as types.SemaNominalInfo is (s->types->nominal_infos at omen_info)
+        var vi3 as int is 0
+        var missing as int is -1
+        while vi3 < oi2.variants_count:
+            var vv3 as types.SemaVariant is (s->types->variants at (oi2.variants_first + vi3))
+            if not (calling contains_int with (sigil of covered), vv3.name):
+                set missing is vv3.name
+            set vi3 is vi3 + 1
+        if missing >= 0:
+            var mtext as string is calling npool.text with s->names, missing
+            var emsg as string is "judge is not exhaustive; missing variant '{mtext}'"
+            defer banish emsg
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JUDGE_EXHAUSTIVE, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), emsg, "Add the missing when branch or an else.", ""
     if result < 0:
         set result is expected
     if result < 0:

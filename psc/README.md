@@ -36,6 +36,16 @@ del compilador descrita en
     lambdas, `with`, `do`, contenedores, `maybe`/`result` y métodos nativos.
   - `SemaAnnotations` por nodo para F4; diagnósticos `E0004`–`E0022`.
   - CLI `psc check` (stdin, JSON, límites) y API `check_file`/`check_text`.
+- **F4 — codegen C (completo).**
+  - `psc emit-c`: bundle C11 con ABI pin, entry wrapper y `#line`.
+  - Tipos/runas/ecos/omens/alias, funciones, `declare` y `antiquus`.
+  - Expresiones y control básicos, struct init, campos, interpolación simple
+    de identificadores y DCE conservadora de std.
+  - Tests `tests/psc/test_f4_acceptance.py`; plan en
+    [`docs/CODEGEN.md`](docs/CODEGEN.md); arquitectura y matriz de pruebas en
+    [`docs/CODEGEN.md`](docs/CODEGEN.md).
+  - Pendiente: métodos/genéricos, ownership (`defer`/`banish`), contenedores,
+    `judge`/`with`/`or`, `--test`, DCE exacta y matriz completa de C.
 
 Resultados medidos en este árbol:
 
@@ -43,7 +53,10 @@ Resultados medidos en este árbol:
 |---|---|
 | Suite `tests/psc` F1/F2 con `PSC_PARITY=1` | 12 passed (5 F1 + 7 F2) |
 | Suite `tests/psc/test_f3_acceptance.py` | 17 passed |
-| Corpus F3 (`std`, `tests`, `psc/src`) | 226 archivos, `bad=0` |
+| Corpus F3 (`std`, `tests`, `psc/src`) | 225 válidos aceptados + 1 negativo (`coherence_conflict`) rechazado |
+| Oráculo semántico F3 (193 casos) | 0 válidos rechazados, 0 negativos aceptados, 53/53 códigos |
+| ASan/UBSan F3 | limpio en `main`, `oracle`, `petitio`, `cipher`, `arithmancy` y fixtures `judge` |
+| Benchmark F3 Release | 2 000 funciones / 262 890 B en 78 ms (~25 600 funcs/s) |
 | Oracle de tokens F1 | `files=175 failures=0` |
 | Corpus F2 | 205 archivos, `bad=0` |
 | Oráculo AST F2 | `exact=204 allowed=1 diverged=0` |
@@ -128,11 +141,18 @@ cd psc
 ../.venv/bin/python tools/run_f1_checks.py --update-golden
 ../.venv/bin/python tools/run_f2_checks.py --update-golden
 
+# F3: benchmark
+../.venv/bin/python ../pengu_project.py run tests/bench_sema.pengu \
+    --no-cache --profile release
+
 # F3: smokes y corpus
 ../.venv/bin/python ../pengu_project.py run tests/sema_smoke.pengu --no-cache
 ../.venv/bin/python ../pengu_project.py run tests/sema_api_smoke.pengu --no-cache
 ../.venv/bin/python ../pengu_project.py run tests/sema_check_smoke.pengu --no-cache
 (cd .. && .venv/bin/python -m pytest -q tests/psc/test_f3_acceptance.py)
+# Oráculo semántico stage0 (opcional)
+(cd .. && PSC_SEMA_ORACLE=1 .venv/bin/python -m pytest -q \
+    tests/psc/test_f3_acceptance.py -k stage0_semantic)
 
 # Fuzz del parser (10 000 por defecto)
 ../.venv/bin/python ../pengu_project.py run tests/fuzz_parse.pengu --no-cache -- 1000000
@@ -217,6 +237,7 @@ psc/tools/                           oráculos/golden (dev-only)
 
 ## Documentación
 
+- [`docs/CODEGEN.md`](docs/CODEGEN.md): codegen C F4 completo (arquitectura, estado y pruebas).
 - [`docs/SEMA.md`](docs/SEMA.md): pipeline semántico, tipos, símbolos y checker.
 - [`docs/TYPES.md`](docs/TYPES.md): modelo de tipos, interning y compatibilidad.
 - [`docs/MODULES.md`](docs/MODULES.md): imports, bindings C y `when`.

@@ -1,0 +1,6 @@
+weave write_it with s as string into int:
+    return s length
+
+weave main into int:
+    var n as int is 7
+    return calling write_it with "value={n}"

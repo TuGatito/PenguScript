@@ -1,0 +1,714 @@
+## psc/codegen/stmt.pengu — statements C.
+##
+## CP0 cubre returns, declaraciones locales, bloques y expresiones-statement.
+## El resto de statements se añade por subfases manteniendo `emit_stmt`.
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.sema.ast as astutil
+import psc.sema.types.convert as convert
+import psc.sema.types.kind as tk
+import psc.sema.names as npool
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.table as symbols
+import psc.sema.modules.loader as loader
+import psc.sema.types.table as types
+
+import psc.codegen.context as context
+import psc.codegen.ctype as ctype
+import psc.codegen.emit as emit
+import psc.codegen.expr as expr
+import psc.codegen.origin as origin
+import psc.codegen.type_ast as tast
+
+insignia psc_codegen_stmt_
+
+## Convierte un nodo de tipo AST a `TypeId`.
+##
+## ## Memoria
+## Puede añadir diagnósticos F3; no posee strings.
+weave type_from_ast with c as ref to context.CgContext, m as loader.SemaModule, node as int into int:
+    return calling tast.from_ast with c, m, node
+
+## Emite un bloque de statements.
+##
+## ## Memoria
+## Strings owned en cada línea.
+weave emit_block with c as ref to context.CgContext, block as int into void:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, block
+    while i < n:
+        var s as int is calling astutil.node_child with ast, block, i
+        if s >= 0:
+            calling emit_stmt with c, s
+        set i is i + 1
+
+## Emite un statement.
+##
+## ## Memoria
+## No posee el AST; libera strings temporales.
+weave emit_stmt with c as ref to context.CgContext, node as int into void:
+    if node < 0:
+        return
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdStmt:
+        var inner as int is calling astutil.node_child with ast, node, 0
+        calling emit_stmt with c, inner
+        return
+    calling origin.marker with c, m, node
+    if k == pskind.NodeKind.NdBlock:
+        calling emit.line with (sigil of c->emitter), "{"
+        calling emit.indent_more with (sigil of c->emitter)
+        calling emit_block with c, node
+        calling emit.indent_less with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "}"
+        return
+    if k == pskind.NodeKind.NdReturnStmt:
+        var e as int is calling astutil.node_child with ast, node, 0
+        if e >= 0:
+            var rcnt as int is calling astutil.child_count with ast, node
+            if rcnt > 1 and c->return_type >= 0:
+                var rtt as tk.SemaType is calling types.at with (sigil of c->program->types), c->return_type
+                if rtt.kind == tk.SemaTypeKind.TkTuple:
+                    var tsb as StringBuilder is calling StringBuilder.new
+                    defer banish tsb
+                    var tct0 as string is calling ctype.c_type with (sigil of c->names), c->return_type
+                    defer banish tct0
+                    calling tsb.append with "({tct0}){"
+                    var ti0 as int is 0
+                    while ti0 < rcnt:
+                        var te as int is calling astutil.node_child with ast, node, ti0
+                        if te >= 0:
+                            var tv as string is calling expr.emit_expr with c, te
+                            var lbl0 as string is "first"
+                            if ti0 == 1:
+                                set lbl0 is "second"
+                            else if ti0 == 2:
+                                set lbl0 is "third"
+                            else if ti0 > 2:
+                                set lbl0 is "field{ti0}"
+                            if ti0 > 0:
+                                calling tsb.append with ", "
+                            calling tsb.append with ".{lbl0} = {tv}"
+                            banish tv
+                        set ti0 is ti0 + 1
+                    calling tsb.append with "}"
+                    var tval as string is calling tsb.finish
+                    defer banish tval
+                    calling emit_pending_defers with c
+                    calling emit.line with (sigil of c->emitter), "return {tval};"
+                    return
+            var v as string is ""
+            if c->return_type >= 0 and (calling astutil.kind_of with ast, e) == pskind.NodeKind.NdVarRef:
+                var rt as tk.SemaType is calling types.at with (sigil of c->program->types), c->return_type
+                if rt.kind == tk.SemaTypeKind.TkOmen:
+                    var vtok as int is calling astutil.token_child with ast, e, 0
+                    if vtok >= 0:
+                        var vtxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), vtok
+                        var vid2 as int is calling npool.intern with (sigil of c->program->names), vtxt
+                        if (calling context.local_c_name with c, vid2) >= 0:
+                            set vid2 is -1
+                        if vid2 >= 0:
+                            var pf as int is calling expr.omen_first_payload with c, c->return_type, vid2
+                            var otyp as string is calling ctype.c_type with (sigil of c->names), c->return_type
+                            var ov as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), vid2)
+                            var obsb as StringBuilder is calling StringBuilder.new
+                            defer banish obsb
+                            if calling expr.omen_has_layout with c, c->return_type:
+                                calling obsb.append with "("
+                                calling obsb.append with otyp
+                                calling obsb.append with "){.tag = "
+                                calling obsb.append with otyp
+                                calling obsb.append with "_"
+                                calling obsb.append with ov
+                                calling obsb.append with "}"
+                            else:
+                                calling obsb.append with otyp
+                                calling obsb.append with "_"
+                                calling obsb.append with ov
+                            set v is calling obsb.finish
+                            banish otyp
+                            banish ov
+                            banish vtxt
+            if v == "":
+                set v is calling expr.emit_expr_as with c, e, c->return_type
+            defer banish v
+            if c->defers.len > 0 and c->return_type >= 0:
+                var rct as string is calling ctype.c_type with (sigil of c->names), c->return_type
+                defer banish rct
+                var rtmp as string is calling emit.temp with (sigil of c->emitter), "_ret"
+                defer banish rtmp
+                calling emit.line with (sigil of c->emitter), "{rct} {rtmp} = {v};"
+                calling emit_pending_defers with c
+                calling emit.line with (sigil of c->emitter), "return {rtmp};"
+                return
+            calling emit_pending_defers with c
+            calling emit.line with (sigil of c->emitter), "return {v};"
+        else:
+            calling emit_pending_defers with c
+            calling emit.line with (sigil of c->emitter), "return;"
+        return
+    if k == pskind.NodeKind.NdVarDecl or k == pskind.NodeKind.NdLetDecl or k == pskind.NodeKind.NdStaticVarDecl:
+        calling emit_local with c, node, ast
+        return
+    if k == pskind.NodeKind.NdBanishExpr or k == pskind.NodeKind.NdBanishStmt:
+        calling emit_defer with c, node
+        return
+    if k == pskind.NodeKind.NdDeferStmt:
+        var d as int is calling astutil.node_child with ast, node, 0
+        if d >= 0:
+            calling c->defers.push with d
+        return
+    if k == pskind.NodeKind.NdSetStmt:
+        var tgt as int is calling astutil.node_child with ast, node, 0
+        var valn as int is calling astutil.node_child with ast, node, 1
+        if tgt >= 0 and valn >= 0:
+            var ttxt as string is calling target_text with c, tgt, ast
+            defer banish ttxt
+            var ti_node as int is tgt
+            if (calling astutil.kind_of with ast, tgt) == pskind.NodeKind.NdSetTarget:
+                set ti_node is calling astutil.node_child with ast, tgt, 0
+            var ti0 as expr.CgTarget is calling expr.resolve_target with c, ti_node, ast, false
+            defer banish ti0.text
+            var vtxt as string is ""
+            if ti0.type_id >= 0:
+                set vtxt is calling expr.emit_expr_as with c, valn, ti0.type_id
+            else:
+                set vtxt is calling expr.emit_expr with c, valn
+            defer banish vtxt
+            calling emit.line with (sigil of c->emitter), "{ttxt} = {vtxt};"
+        return
+    if k == pskind.NodeKind.NdBreakStmt or k == pskind.NodeKind.NdBreakSimple:
+        calling emit.line with (sigil of c->emitter), "break;"
+        return
+    if k == pskind.NodeKind.NdContinueStmt or k == pskind.NodeKind.NdContinueSimple:
+        calling emit.line with (sigil of c->emitter), "continue;"
+        return
+    if k == pskind.NodeKind.NdIfStmt or k == pskind.NodeKind.NdUnlessStmt:
+        calling emit_if with c, node, ast, k == pskind.NodeKind.NdUnlessStmt
+        return
+    if k == pskind.NodeKind.NdForInStmt:
+        calling emit_for_in with c, node, ast
+        return
+    if k == pskind.NodeKind.NdWhileStmt:
+        var cond as int is calling astutil.node_child with ast, node, 0
+        var body as int is calling astutil.node_child with ast, node, 1
+        if cond >= 0 and body >= 0:
+            var cv as string is calling expr.emit_expr with c, cond
+            defer banish cv
+            calling emit.line with (sigil of c->emitter), "while ({cv}) {"
+            calling emit.indent_more with (sigil of c->emitter)
+            calling emit_block with c, body
+            calling emit.indent_less with (sigil of c->emitter)
+            calling emit.line with (sigil of c->emitter), "}"
+        return
+    if k == pskind.NodeKind.NdExprStmt:
+        var e2 as int is calling astutil.node_child with ast, node, 0
+        if e2 >= 0:
+            if (calling astutil.kind_of with ast, e2) == pskind.NodeKind.NdBanishExpr:
+                calling emit_defer with c, e2
+            else if (calling astutil.kind_of with ast, e2) == pskind.NodeKind.NdJudgeExpr:
+                calling emit_judge_stmt with c, e2, ast
+            else:
+                var v2 as string is calling expr.emit_expr with c, e2
+                defer banish v2
+                calling emit.line with (sigil of c->emitter), "{v2};"
+        return
+    # Fallback: una expresión-statement sin tipo.
+    var v3 as string is calling expr.emit_expr with c, node
+    defer banish v3
+    calling emit.line with (sigil of c->emitter), "{v3};"
+
+## Emite un `for var in start to end`.
+##
+## ## Memoria
+## Strings owned.
+weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into void:
+    var name_tok as int is calling astutil.token_child with ast, node, 0
+    var range as int is calling astutil.node_child with ast, node, 1
+    var body as int is calling astutil.node_child with ast, node, 2
+    if name_tok < 0 or range < 0 or body < 0:
+        return
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var ntxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), name_tok
+    defer banish ntxt
+    var nid as int is calling npool.intern with (sigil of c->program->names), ntxt
+    var cn as string is calling npool.copy_string with ntxt
+    defer banish cn
+    var rk as pskind.NodeKind is calling astutil.kind_of with ast, range
+    if rk == pskind.NodeKind.NdToExpr:
+        var lo as int is calling astutil.node_child with ast, range, 0
+        var hi as int is calling astutil.node_child with ast, range, 1
+        var lo_t as string is calling expr.emit_expr with c, lo
+        defer banish lo_t
+        var hi_t as string is calling expr.emit_expr with c, hi
+        defer banish hi_t
+        calling emit.line with (sigil of c->emitter), "for (int32_t {cn} = {lo_t}; {cn} < {hi_t}; {cn}++) {"
+        calling emit.indent_more with (sigil of c->emitter)
+        calling context.add_local with c, nid, 1, nid
+        calling emit_block with c, body
+        calling emit.indent_less with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "}"
+        return
+    # Iteración sobre lista.
+    var lt as int is calling expr.node_type with c, range
+    if lt < 0:
+        return
+    var lty as tk.SemaType is calling types.at with (sigil of c->program->types), lt
+    if lty.kind != tk.SemaTypeKind.TkList:
+        return
+    var et as string is calling ctype.c_type with (sigil of c->names), lty.a
+    defer banish et
+    var lexpr as string is calling expr.emit_expr with c, range
+    defer banish lexpr
+    var tmp as string is calling emit.temp with (sigil of c->emitter), "_lst"
+    defer banish tmp
+    var idxt as string is calling emit.temp with (sigil of c->emitter), "_li"
+    defer banish idxt
+    calling emit.line with (sigil of c->emitter), "PenguList {tmp} = {lexpr};"
+    calling emit.line with (sigil of c->emitter), "for (int {idxt} = 0; {idxt} < {tmp}.len; {idxt}++) {"
+    calling emit.indent_more with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "{et} {cn} = (*( {et}*)pengu_list_at(&{tmp}, {idxt}));"
+    calling context.add_local with c, nid, lty.a, nid
+    calling emit_block with c, body
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"
+
+## Emite un `if`/`unless`.
+##
+## ## Memoria
+## Strings owned.
+weave emit_if with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, negate as bool into void:
+    var cond_node as int is calling astutil.node_child with ast, node, 0
+    var body as int is calling astutil.node_child with ast, node, 1
+    if cond_node < 0 or body < 0:
+        return
+    var cond as int is cond_node
+    if (calling astutil.kind_of with ast, cond_node) == pskind.NodeKind.NdIfCond:
+        set cond is calling astutil.node_child with ast, cond_node, 0
+    var cv as string is calling expr.emit_expr with c, cond
+    defer banish cv
+    var wrapped as bool is false
+    if (cv length) >= 2 and (cv at 0 to 1) == "(" and (cv at ((cv length) - 1) to (cv length)) == ")":
+        set wrapped is true
+    if negate:
+        if wrapped:
+            calling emit.line with (sigil of c->emitter), "if (!{cv}) {"
+        else:
+            calling emit.line with (sigil of c->emitter), "if (!({cv})) {"
+    else:
+        if wrapped:
+            calling emit.line with (sigil of c->emitter), "if {cv} {"
+        else:
+            calling emit.line with (sigil of c->emitter), "if ({cv}) {"
+    calling emit.indent_more with (sigil of c->emitter)
+    calling emit_block with c, body
+    calling emit.indent_less with (sigil of c->emitter)
+    var els as int is calling astutil.node_child with ast, node, 2
+    if els >= 0:
+        var eb as int is calling astutil.node_child with ast, els, 0
+        if eb >= 0 and (calling astutil.kind_of with ast, eb) == pskind.NodeKind.NdIfStmt:
+            calling emit.line with (sigil of c->emitter), "} else "
+            calling emit_if with c, eb, ast, false
+            return
+        if eb >= 0:
+            calling emit.line with (sigil of c->emitter), "} else {"
+            calling emit.indent_more with (sigil of c->emitter)
+            var ej as int is 0
+            var ecount as int is calling astutil.child_count with ast, els
+            while ej < ecount:
+                var ech as int is calling astutil.node_child with ast, els, ej
+                if ech >= 0:
+                    if (calling astutil.kind_of with ast, ech) == pskind.NodeKind.NdBlock:
+                        calling emit_block with c, ech
+                    else:
+                        calling emit_stmt with c, ech
+                set ej is ej + 1
+            calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"
+
+## Texto C de un target de asignación simple.
+##
+## ## Memoria
+## Devuelve string owned.
+weave target_text with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdSetTarget:
+        return calling target_text with c, (calling astutil.node_child with ast, node, 0), ast
+    if k == pskind.NodeKind.NdNormalTarget:
+        var rt is calling expr.resolve_target with c, node, ast, false
+        return rt.text
+    if k == pskind.NodeKind.NdEssenceTarget:
+        var en as int is calling astutil.node_child with ast, node, 0
+        var et as string is calling expr.emit_expr with c, en
+        defer banish et
+        return "(*( {et}))"
+    return "0"
+
+## Emite y vacía los `defer` pendientes en orden LIFO.
+##
+## ## Memoria
+## Vacía la lista; los nodos son del AST.
+weave emit_pending_defers with c as ref to context.CgContext into void:
+    var i as int is c->defers.len - 1
+    while i >= 0:
+        calling emit_defer with c, (c->defers at i)
+        set i is i - 1
+    var n as int is c->defers.len
+    while n > 0:
+        var ignored as int is calling c->defers.pop
+        set n is n - 1
+
+## Emite un `defer` pendiente.
+##
+## ## Memoria
+## Strings owned.
+weave emit_defer with c as ref to context.CgContext, node as int into void:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdBanishExpr or k == pskind.NodeKind.NdBanishStmt:
+        var v as int is calling astutil.node_child with ast, node, 0
+        var vn as string is calling expr.emit_expr with c, v
+        defer banish vn
+        var ty as int is calling expr.node_type with c, v
+        if ty < 0 and v >= 0 and (calling astutil.kind_of with ast, v) == pskind.NodeKind.NdVarRef:
+            var vt as int is calling astutil.token_child with ast, v, 0
+            if vt >= 0:
+                var vtxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), vt
+                var vnid as int is calling npool.intern with (sigil of c->program->names), vtxt
+                set ty is calling context.local_type with c, vnid
+                banish vtxt
+        if ty >= 0:
+            var t is calling types.at with (sigil of c->program->types), ty
+            if t.kind == tk.SemaTypeKind.TkBase:
+                var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
+                defer banish bn
+                if bn == "string":
+                    calling emit.line with (sigil of c->emitter), "pengu_banish_string(&({vn}));"
+                else:
+                    var noop as int is 0
+            else if t.kind == tk.SemaTypeKind.TkList:
+                calling emit.line with (sigil of c->emitter), "pengu_banish_list(&({vn}));"
+            else if t.kind == tk.SemaTypeKind.TkMap:
+                calling emit.line with (sigil of c->emitter), "pengu_banish_map(&({vn}));"
+            else if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho:
+                var ct as string is calling ctype.c_type with (sigil of c->names), ty
+                defer banish ct
+                calling emit.line with (sigil of c->emitter), "_pengu_cleanup_{ct}(&({vn}));"
+        return
+    var call as string is calling expr.emit_expr with c, node
+    defer banish call
+    calling emit.line with (sigil of c->emitter), "{call};"
+
+## Emite `let (a, b) is expr` para una tupla.
+##
+## ## Memoria
+## Strings owned.
+weave emit_destructure with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, vlist as int into void:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var vn as int is -1
+    var ci as int is 1
+    var cn as int is calling astutil.child_count with ast, node
+    while ci < cn:
+        var ch as int is calling astutil.node_child with ast, node, ci
+        if ch >= 0 and not (calling is_type_node with ast, ch):
+            set vn is ch
+        set ci is ci + 1
+    if vn < 0:
+        return
+    var vt as int is calling expr.node_type with c, vn
+    if vt < 0:
+        return
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), vt
+    if t.kind != tk.SemaTypeKind.TkTuple:
+        return
+    var val as string is calling expr.emit_expr with c, vn
+    defer banish val
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, vlist
+    while i < n and i < t.count:
+        var tok as int is calling astutil.token_child with ast, vlist, i
+        if tok >= 0:
+            var nm as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), tok
+            var cid as int is (c->program->types.type_children at (t.first + i))
+            var ct as string is calling ctype.c_type with (sigil of c->names), cid
+            var lab as string is "first"
+            if i == 1:
+                set lab is "second"
+            else if i == 2:
+                set lab is "third"
+            var nid as int is calling npool.intern with (sigil of c->program->names), nm
+            calling emit.line with (sigil of c->emitter), "{ct} {nm} = ({val}).{lab};"
+            calling context.add_local with c, nid, cid, nid
+            banish ct
+            banish nm
+        set i is i + 1
+
+## Token del nombre de una declaración (`var` directo o `let` con lista).
+##
+## ## Memoria
+## O(nodos).
+weave decl_token with ast as ref to psast.PsAst, node as int into int:
+    var t as int is calling astutil.token_child with ast, node, 0
+    if t >= 0:
+        return t
+    var vn as int is calling astutil.node_child with ast, node, 0
+    if vn >= 0:
+        var t2 as int is calling astutil.token_child with ast, vn, 0
+        if t2 >= 0:
+            return t2
+    return -1
+
+## ¿Un nodo es un nodo de tipo?
+##
+## ## Memoria
+## O(1).
+weave is_type_node with ast as ref to psast.PsAst, node as int into bool:
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    return k == pskind.NodeKind.NdBaseType or k == pskind.NodeKind.NdCustomType or k == pskind.NodeKind.NdRefType or k == pskind.NodeKind.NdFrozenType or k == pskind.NodeKind.NdArrayType or k == pskind.NodeKind.NdListType or k == pskind.NodeKind.NdMaybeType or k == pskind.NodeKind.NdResultType or k == pskind.NodeKind.NdMapType or k == pskind.NodeKind.NdSliceType or k == pskind.NodeKind.NdFrozenType or k == pskind.NodeKind.NdFnType or k == pskind.NodeKind.NdTupleType or k == pskind.NodeKind.NdOpaqueType
+
+## Emite un `judge` usado como statement: ejecuta las ramas y efectos.
+##
+## ## Memoria
+## Strings owned.
+weave emit_judge_stmt with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into void:
+    var subj as int is calling astutil.node_child with ast, node, 0
+    var st as int is calling expr.node_type with c, subj
+    var sct as string is calling ctype.c_type with (sigil of c->names), st
+    defer banish sct
+    var sub as string is calling expr.emit_expr with c, subj
+    defer banish sub
+    var stmp as string is calling emit.temp with (sigil of c->emitter), "_js"
+    calling emit.line with (sigil of c->emitter), "{sct} {stmp} = {sub};"
+    var stt as tk.SemaType is calling types.at with (sigil of c->program->types), st
+    if stt.kind == tk.SemaTypeKind.TkOmen and (calling expr.omen_has_layout with c, st):
+        calling emit.line with (sigil of c->emitter), "switch ({stmp}.tag) {"
+    else:
+        calling emit.line with (sigil of c->emitter), "switch ({stmp}) {"
+    calling emit.indent_more with (sigil of c->emitter)
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var cl as int is calling astutil.node_child with ast, node, i
+        if cl >= 0:
+            var ck as pskind.NodeKind is calling astutil.kind_of with ast, cl
+            if ck == pskind.NodeKind.NdWhenClause:
+                var pat as int is calling astutil.node_child with ast, cl, 0
+                var payload as int is calling astutil.node_child with ast, cl, 1
+                var body as int is calling astutil.node_child with ast, cl, 3
+                if body < 0:
+                    set body is calling astutil.node_child with ast, cl, 2
+                if pat >= 0 and body >= 0:
+                    var pv as int is calling astutil.token_child with ast, pat, 0
+                    if pv >= 0:
+                        var pvt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pv
+                        calling emit.line with (sigil of c->emitter), "case {sct}_{pvt}: {"
+                        calling emit.indent_more with (sigil of c->emitter)
+                        if payload >= 0:
+                            var pn as int is calling astutil.child_count with ast, payload
+                            var pi as int is 0
+                            while pi < pn:
+                                var pf as int is calling astutil.node_child with ast, payload, pi
+                                if pf >= 0:
+                                    var pft as int is calling astutil.token_child with ast, pf, 0
+                                    if pft >= 0:
+                                        var pfn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pft
+                                        var pfnid as int is calling npool.intern with (sigil of c->program->names), pfn
+                                        var pvnt as int is calling npool.intern with (sigil of c->program->names), pvt
+                                        var pty as int is calling expr.omen_payload_field_type with c, st, pvnt, pfnid
+                                        if pty < 0:
+                                            set pty is 1
+                                        var pct as string is calling ctype.c_type with (sigil of c->names), pty
+                                        calling emit.line with (sigil of c->emitter), "{pct} {pfn} = {stmp}.data.{pvt}.{pfn};"
+                                        calling context.add_local with c, pfnid, pty, pfnid
+                                        banish pct
+                                        banish pfn
+                                set pi is pi + 1
+                        calling emit_block with c, body
+                        calling emit.line with (sigil of c->emitter), "break;"
+                        calling emit.indent_less with (sigil of c->emitter)
+                        calling emit.line with (sigil of c->emitter), "}"
+                        banish pvt
+            else if ck == pskind.NodeKind.NdElseClause:
+                calling emit.line with (sigil of c->emitter), "default: {"
+                calling emit.indent_more with (sigil of c->emitter)
+                var eb as int is calling astutil.node_child with ast, cl, 0
+                if eb >= 0:
+                    if (calling astutil.kind_of with ast, eb) == pskind.NodeKind.NdBlock:
+                        calling emit_block with c, eb
+                    else:
+                        calling emit_stmt with c, eb
+                calling emit.line with (sigil of c->emitter), "break;"
+                calling emit.indent_less with (sigil of c->emitter)
+                calling emit.line with (sigil of c->emitter), "}"
+        set i is i + 1
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"
+
+## Emite un `judge` cuyo cuerpo es un bloque, dejando el valor en un temporal.
+##
+## Se usa desde `emit_local` para no crear un ciclo `expr` -> `stmt`.
+##
+## ## Memoria
+## Strings owned.
+weave emit_judge_block_value with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, rt as int into string:
+    var subj as int is calling astutil.node_child with ast, node, 0
+    var st as int is calling expr.node_type with c, subj
+    var sct as string is calling ctype.c_type with (sigil of c->names), st
+    var rct as string is calling ctype.c_type with (sigil of c->names), rt
+    defer banish sct
+    defer banish rct
+    var sub as string is calling expr.emit_expr with c, subj
+    defer banish sub
+    var stmp as string is calling emit.temp with (sigil of c->emitter), "_jb"
+    var rtmp as string is calling emit.temp with (sigil of c->emitter), "_jv"
+    defer banish stmp
+    calling emit.line with (sigil of c->emitter), "{sct} {stmp} = {sub};"
+    calling emit.line with (sigil of c->emitter), "{rct} {rtmp};"
+    calling emit.line with (sigil of c->emitter), "memset(&{rtmp}, 0, sizeof({rtmp}));"
+    calling emit.line with (sigil of c->emitter), "switch ({stmp}.tag) {"
+    calling emit.indent_more with (sigil of c->emitter)
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var cl as int is calling astutil.node_child with ast, node, i
+        if cl >= 0 and (calling astutil.kind_of with ast, cl) == pskind.NodeKind.NdWhenClause:
+            var pat as int is calling astutil.node_child with ast, cl, 0
+            var payload as int is calling astutil.node_child with ast, cl, 1
+            var body as int is calling astutil.node_child with ast, cl, 3
+            if body < 0:
+                set body is calling astutil.node_child with ast, cl, 2
+            if pat >= 0 and body >= 0:
+                var pv as int is calling astutil.token_child with ast, pat, 0
+                if pv >= 0:
+                    var pvt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pv
+                    calling emit.line with (sigil of c->emitter), "case {sct}_{pvt}: {"
+                    calling emit.indent_more with (sigil of c->emitter)
+                    if payload >= 0:
+                        var pn as int is calling astutil.child_count with ast, payload
+                        var pi as int is 0
+                        while pi < pn:
+                            var pf as int is calling astutil.node_child with ast, payload, pi
+                            if pf >= 0:
+                                var pft as int is calling astutil.token_child with ast, pf, 0
+                                if pft >= 0:
+                                    var pfn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pft
+                                    var pfnid as int is calling npool.intern with (sigil of c->program->names), pfn
+                                    var pvnt as int is calling npool.intern with (sigil of c->program->names), pvt
+                                    var pty as int is calling expr.omen_payload_field_type with c, st, pvnt, pfnid
+                                    if pty < 0:
+                                        set pty is 1
+                                    var pct as string is calling ctype.c_type with (sigil of c->names), pty
+                                    calling emit.line with (sigil of c->emitter), "{pct} {pfn} = {stmp}.data.{pvt}.{pfn};"
+                                    calling context.add_local with c, pfnid, pty, pfnid
+                                    banish pct
+                                    banish pfn
+                            set pi is pi + 1
+                    if (calling astutil.kind_of with ast, body) == pskind.NodeKind.NdBlock or (calling astutil.kind_of with ast, body) == pskind.NodeKind.NdDoExpr:
+                        var bj as int is 0
+                        var bn as int is calling astutil.child_count with ast, body
+                        while bj < bn:
+                            var bs as int is calling astutil.node_child with ast, body, bj
+                            if bs >= 0:
+                                if bj == bn - 1:
+                                    var inner as int is bs
+                                    if (calling astutil.kind_of with ast, bs) == pskind.NodeKind.NdStmt:
+                                        set inner is calling astutil.node_child with ast, bs, 0
+                                    if inner >= 0 and (calling astutil.kind_of with ast, inner) == pskind.NodeKind.NdExprStmt:
+                                        var ev as int is calling astutil.node_child with ast, inner, 0
+                                        var evs as string is calling expr.emit_expr with c, ev
+                                        calling emit.line with (sigil of c->emitter), "{rtmp} = {evs};"
+                                        banish evs
+                                    else:
+                                        calling emit_stmt with c, bs
+                                else:
+                                    calling emit_stmt with c, bs
+                            set bj is bj + 1
+                    else:
+                        var evs as string is calling expr.emit_expr with c, body
+                        calling emit.line with (sigil of c->emitter), "{rtmp} = {evs};"
+                        banish evs
+                    calling emit.line with (sigil of c->emitter), "break;"
+                    calling emit.indent_less with (sigil of c->emitter)
+                    calling emit.line with (sigil of c->emitter), "}"
+                    banish pvt
+        set i is i + 1
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"
+    return rtmp
+
+## Emite una declaración local.
+##
+## ## Memoria
+## Añade el local al contexto.
+weave emit_local with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into void:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var vlist as int is calling astutil.node_child with ast, node, 0
+    if vlist >= 0 and (calling astutil.kind_of with ast, vlist) == pskind.NodeKind.NdVarNameList and (calling astutil.child_count with ast, vlist) > 1:
+        calling emit_destructure with c, node, ast, vlist
+        return
+    var name_tok as int is calling decl_token with ast, node
+    if name_tok < 0:
+        return
+    var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), name_tok
+    defer banish txt
+    var nid as int is calling npool.intern with (sigil of c->program->names), txt
+    var ty as int is -1
+    var vn as int is -1
+    var ci as int is 1
+    var child_n as int is calling astutil.child_count with ast, node
+    while ci < child_n:
+        var ch as int is calling astutil.node_child with ast, node, ci
+        if ch >= 0:
+            if ty < 0 and (calling is_type_node with ast, ch):
+                set ty is calling type_from_ast with c, m, ch
+            else if vn < 0 and not (calling is_type_node with ast, ch):
+                set vn is ch
+        set ci is ci + 1
+    if ty < 0 and vn >= 0:
+        set ty is calling expr.node_type with c, vn
+    if ty < 0 and vn >= 0 and (calling astutil.kind_of with ast, vn) == pskind.NodeKind.NdAtExpr:
+        set ty is calling expr.infer_at_type with c, vn, ast
+    if ty < 0:
+        set ty is 1
+    var ct as string is calling ctype.c_type with (sigil of c->names), ty
+    defer banish ct
+    var cn as string is calling npool.copy_string with txt
+    defer banish cn
+    var jvn as int is vn
+    while jvn >= 0 and (calling astutil.kind_of with ast, jvn) == pskind.NodeKind.NdParenExpr:
+        set jvn is calling astutil.node_child with ast, jvn, 0
+    if jvn >= 0 and (calling astutil.kind_of with ast, jvn) == pskind.NodeKind.NdJudgeExpr:
+        calling emit.line with (sigil of c->emitter), "{ct} {cn};"
+        var jtmp as string is calling emit_judge_block_value with c, jvn, ast, ty
+        calling emit.line with (sigil of c->emitter), "{cn} = {jtmp};"
+        banish jtmp
+        calling context.add_local with c, nid, ty, nid
+        return
+    if vn >= 0:
+        var val as string is calling expr.emit_expr_as with c, vn, ty
+        defer banish val
+        calling emit.line with (sigil of c->emitter), "{ct} {cn} = {val};"
+    else:
+        calling emit.line with (sigil of c->emitter), "{ct} {cn};"
+    calling context.add_local with c, nid, ty, nid
+
+## Primer slot de token de un nodo.
+##
+## ## Memoria
+## O(nodos).
+weave token_slot with ast as ref to psast.PsAst, node as int into int:
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        if (calling astutil.token_child with ast, node, i) >= 0:
+            return i
+        set i is i + 1
+    return -1

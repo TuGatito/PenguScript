@@ -1,0 +1,37 @@
+## psc/codegen/origin.pengu — line markers y mapa de origen.
+##
+## F4 emite `#line` para que gcc/clang/MSVC señalen el `.pengu`. El origin map
+## completo se añadirá en F4l; este módulo centraliza el cálculo de línea.
+
+import psc.sema.ast as astutil
+import psc.sema.modules.loader as loader
+
+import psc.codegen.context as context
+import psc.codegen.emit as emit
+
+insignia psc_codegen_origin_
+
+## Línea 1-indexed de un nodo.
+##
+## ## Memoria
+## O(nodos).
+weave line_of with m as loader.SemaModule, node as int into int:
+    if node < 0:
+        return 1
+    var off as int is calling astutil.start_of with (sigil of m.parse.ast), node
+    var pos is calling m.source.position_at with off
+    return pos.line
+
+## Emite `#line` para un nodo si está activado.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave marker with c as ref to context.CgContext, m as loader.SemaModule, node as int into void:
+    if not c->options.line_markers:
+        return
+    var line as int is calling line_of with m, node
+    var path as string is calling emit.escape_c with m.source.path
+    defer banish path
+    var txt as string is "#line {line} \"{path}\""
+    calling emit.line with (sigil of c->emitter), txt
+    banish txt

@@ -33,7 +33,7 @@ weave main into int:
     if not m.ok:
         calling spark.println with "parse failed"
         return 1
-    var st as state.SemaState is with module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of t), symbols is (sigil of syms), names is (sigil of pool), bag is (sigil of bag), opts is (sigil of opts), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is 100, stop_after_first is false, stop is false
+    var st as state.SemaState is with module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of t), symbols is (sigil of syms), names is (sigil of pool), bag is (sigil of bag), opts is (sigil of opts), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is 100, stop_after_first is false, stop is false, allow_mutating is false
     calling checker.install with (sigil of st)
     calling collect.collect_module with (sigil of st)
     calling checker.check_module_bodies with (sigil of st)

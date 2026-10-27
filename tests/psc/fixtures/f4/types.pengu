@@ -1,0 +1,14 @@
+rune Point:
+    x as int
+    y as int
+
+omen Color:
+    Red
+    Green
+
+weave main into int:
+    var p as Point is with x is 1, y is 2
+    var c as Color is Color.Green
+    if c == Color.Green:
+        return p.x + p.y
+    return 0

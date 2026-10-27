@@ -1,0 +1,5 @@
+import std.spark
+
+weave main into int:
+    calling spark.println with "hello from PSC"
+    return 0

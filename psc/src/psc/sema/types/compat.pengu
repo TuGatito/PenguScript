@@ -62,8 +62,6 @@ weave compatible with t as ref to types.SemaTypeTable, a as int, b as int into b
                 return true
         if tb.kind == tk.SemaTypeKind.TkOpaque:
             return true
-    if ta.kind == tk.SemaTypeKind.TkRef and tb.kind == tk.SemaTypeKind.TkRef:
-        return true
     if ta.kind == tk.SemaTypeKind.TkRef:
         return calling ref_compatible with t, ta, b, tb
     if ta.kind == tk.SemaTypeKind.TkFrozen:
@@ -343,6 +341,10 @@ weave ref_compatible with t as ref to types.SemaTypeTable, ta as tk.SemaType, b 
     var b_frozen as bool is calling is_frozen_target with t, tb.a
     if a_frozen and not b_frozen:
         return false
+    var at as tk.SemaType is calling types.at with t, ta.a
+    var bt as tk.SemaType is calling types.at with t, tb.a
+    if at.kind == tk.SemaTypeKind.TkFn and bt.kind == tk.SemaTypeKind.TkFn:
+        return calling fn_compatible with t, at, bt
     if (calling void_pointer with t, ta.a) or (calling void_pointer with t, tb.a):
         return true
     return calling same_pointee with t, ta.a, tb.a
@@ -395,11 +397,35 @@ weave same_pointee with t as ref to types.SemaTypeTable, a as int, b as int into
         return calling same_pointee with t, ta.a, tb.a
     if a == b:
         return true
+    if (calling has_type_param with t, a) or (calling has_type_param with t, b):
+        return true
     if ta.kind == tk.SemaTypeKind.TkBase and tb.kind == tk.SemaTypeKind.TkBase:
         var an as string is calling pool_text with t, ta.name
         var bn as string is calling pool_text with t, tb.name
         if (an == "char" and bn == "byte") or (an == "byte" and bn == "char"):
             return true
+    return false
+
+## ¿El tipo contiene un parámetro de tipo?
+##
+## ## Memoria
+## O(profundidad).
+weave has_type_param with t as ref to types.SemaTypeTable, id as int into bool:
+    var ty as tk.SemaType is calling types.at with t, id
+    if ty.kind == tk.SemaTypeKind.TkTypeParam:
+        return true
+    if ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal or ty.kind == tk.SemaTypeKind.TkFrozen:
+        return calling has_type_param with t, ty.b
+    if ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkList or ty.kind == tk.SemaTypeKind.TkMaybe or ty.kind == tk.SemaTypeKind.TkSlice or ty.kind == tk.SemaTypeKind.TkMany or ty.kind == tk.SemaTypeKind.TkArray or ty.kind == tk.SemaTypeKind.TkRange:
+        return calling has_type_param with t, ty.a
+    if ty.kind == tk.SemaTypeKind.TkResult or ty.kind == tk.SemaTypeKind.TkMap:
+        return (calling has_type_param with t, ty.a) or (calling has_type_param with t, ty.b)
+    if ty.kind == tk.SemaTypeKind.TkTuple:
+        var i as int is 0
+        while i < ty.count:
+            if calling has_type_param with t, (t->type_children at (ty.first + i)):
+                return true
+            set i is i + 1
     return false
 
 ## Compatibilidad de funciones.
@@ -446,4 +472,46 @@ weave nominal_compatible with t as ref to types.SemaTypeTable, ta as tk.SemaType
         if not calling compatible with t, (t->type_children at (ta.first + i)), (t->type_children at (tb.first + i)):
             return false
         set i is i + 1
+    return true
+
+## ¿El tipo concreto satisface un concepto?
+##
+## Los primitivos tienen sus conceptos canónicos; las runas/ecos miran sus
+## derivaciones. Un `TypeParam`/`any`/`opaque` se considera válido para no
+## encadenar errores en contextos genéricos.
+##
+## ## Memoria
+## O(derivaciones); no asigna.
+weave concept_satisfied with t as ref to types.SemaTypeTable, concrete as int, concept as int into bool:
+    if concrete <= 0 or concept <= 0:
+        return true
+    var ct as tk.SemaType is calling types.at with t, concrete
+    if ct.kind == tk.SemaTypeKind.TkTypeParam or ct.kind == tk.SemaTypeKind.TkAny or ct.kind == tk.SemaTypeKind.TkOpaque:
+        return true
+    var cpt as tk.SemaType is calling types.at with t, concept
+    var cname_id as int is cpt.name
+    if cname_id < 0 and cpt.a >= 0 and cpt.a < t->nominal_infos.len:
+        var cinfo as types.SemaNominalInfo is (t->nominal_infos at cpt.a)
+        set cname_id is cinfo.base_name
+    var cname as string is calling pool_text with t, cname_id
+    if ct.kind == tk.SemaTypeKind.TkBase:
+        var bn as string is calling pool_text with t, ct.name
+        if cname == "Num":
+            return (calling is_int_name with bn) or (calling is_float_name with bn)
+        if cname == "Integrum":
+            return calling is_int_name with bn
+        if cname == "Real":
+            return calling is_float_name with bn
+        if cname == "Par" or cname == "Ordo":
+            return (calling is_int_name with bn) or (calling is_float_name with bn) or bn == "string" or bn == "char" or bn == "bool"
+        return true
+    if ct.kind == tk.SemaTypeKind.TkRune or ct.kind == tk.SemaTypeKind.TkEcho:
+        if ct.a >= 0 and ct.a < t->nominal_infos.len:
+            var info as types.SemaNominalInfo is (t->nominal_infos at ct.a)
+            var i as int is 0
+            while i < info.derived_count:
+                if (t->derived at (info.derived_first + i)) == concept:
+                    return true
+                set i is i + 1
+        return false
     return true

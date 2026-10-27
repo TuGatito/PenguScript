@@ -253,3 +253,34 @@ deliberate trade rather than a surprise.
 [`.github/workflows/nightly.yml`](.github/workflows/nightly.yml) (job `bench`) runs
 the harness nightly and on demand, uploading the CSV as an artifact. Benchmarks
 never block a pull request: they are noisy on shared CI runners.
+
+## PSC F3 — análisis semántico
+
+`psc/tests/bench_sema.pengu` genera 2 000 funciones (262 890 bytes) sin imports y
+mide `sema_api.check_text` en Release:
+
+```bash
+.venv/bin/python pengu_project.py run psc/tests/bench_sema.pengu \
+    --no-cache --profile release
+# bytes=262890 funcs=2000 ms=78 funcs/s=25600 errors=0
+```
+
+No es una comparación con stage0: mide el coste del pipeline F3
+(loader → collector → checker → inferencia) y sirve como puerta de regresión
+para el rendimiento. La memoria se valida aparte con ASan/UBSan sobre `psc check`
+en `main.pengu`, `std/oracle.pengu`, `std/petitio.pengu`, `std/cipher.pengu` y
+fixtures de `judge`.
+
+## F4 codegen (`psc emit-c`)
+
+Medido en este árbol con `psc/tools/bench_codegen.py` (5 ejecuciones, mediana).
+No incluye gcc ni link: F4 sólo emite C.
+
+| Fixture | ms | bytes |
+|---|---:|---:|
+| hello | 2.25 | 1874 |
+| types | 1.91 | 2415 |
+| control | 1.70 | 2101 |
+| interp | 1.73 | 1924 |
+| arena (std) | 133.14 | 6618 |
+| std_hello | 19.47 | 2027 |

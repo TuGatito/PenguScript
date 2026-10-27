@@ -1,0 +1,171 @@
+## psc/codegen/ctype.pengu — traducción `SemaType` → C.
+##
+## Es la única puerta de tipos C. Ningún emisor debe escribir un tipo C a mano.
+
+import std.builder
+
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.codegen.names as names
+
+insignia psc_codegen_ctype_
+
+## Tipo C de un `TypeId`.
+##
+## Devuelve un string owned; el llamador lo libera con `banish`.
+weave c_type with ns as ref to names.CgNames, id as int into string:
+    if id <= 0:
+        return "void*"
+    var t as tk.SemaType is calling types.at with ns->types, id
+    if t.kind == tk.SemaTypeKind.TkVoid:
+        return "void"
+    if t.kind == tk.SemaTypeKind.TkOpaque:
+        return "void*"
+    if t.kind == tk.SemaTypeKind.TkNull:
+        return "void*"
+    if t.kind == tk.SemaTypeKind.TkAny or t.kind == tk.SemaTypeKind.TkError:
+        return "void*"
+    if t.kind == tk.SemaTypeKind.TkBase:
+        return calling base_c_type with ns, t.name
+    if t.kind == tk.SemaTypeKind.TkRef:
+        var inner as string is calling c_type with ns, t.a
+        defer banish inner
+        if inner == "void":
+            return "void*"
+        return "{inner}*"
+    if t.kind == tk.SemaTypeKind.TkFrozen:
+        var inner2 as string is calling c_type with ns, t.a
+        defer banish inner2
+        return "const {inner2}"
+    if t.kind == tk.SemaTypeKind.TkArray:
+        var elem as string is calling c_type with ns, t.a
+        return "{elem}*"
+    if t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkMany:
+        return "PenguSlice"
+    if t.kind == tk.SemaTypeKind.TkList:
+        return "PenguList"
+    if t.kind == tk.SemaTypeKind.TkMap:
+        return "PenguMap"
+    if t.kind == tk.SemaTypeKind.TkMaybe:
+        return "PenguMaybe"
+    if t.kind == tk.SemaTypeKind.TkResult:
+        return "PenguResult"
+    if t.kind == tk.SemaTypeKind.TkRange:
+        return "PenguRange"
+    if t.kind == tk.SemaTypeKind.TkTuple:
+        return calling tuple_c_name with ns, id
+    if t.kind == tk.SemaTypeKind.TkFn:
+        return calling fn_c_type with ns, t.a
+    if t.kind == tk.SemaTypeKind.TkOmen:
+        var info as types.SemaNominalInfo is (ns->types->nominal_infos at t.a)
+        if (info.flags & types.NIF_STRING_VALUED) != 0:
+            return "PenguString"
+        return calling names.type_name with ns, id
+    if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho or t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+        return calling names.type_name with ns, id
+    if t.kind == tk.SemaTypeKind.TkConcept:
+        return "void*"
+    if t.kind == tk.SemaTypeKind.TkTypeParam:
+        if calling ns->subst.has with t.name:
+            return calling c_type with ns, (calling ns->subst.get with t.name)
+        return "void*"
+    return "void*"
+
+## Tipo C de un primitivo canónico.
+##
+## Devuelve un string owned (literal o pool).
+weave base_c_type with ns as ref to names.CgNames, nid as int into string:
+    var n as string is calling std_text with ns, nid
+    defer banish n
+    if n == "int" or n == "i32":
+        return "int32_t"
+    if n == "i64":
+        return "int64_t"
+    if n == "u32":
+        return "uint32_t"
+    if n == "u64":
+        return "uint64_t"
+    if n == "i16":
+        return "int16_t"
+    if n == "u16":
+        return "uint16_t"
+    if n == "i8":
+        return "int8_t"
+    if n == "u8" or n == "byte":
+        return "uint8_t"
+    if n == "char":
+        return "char"
+    if n == "usize":
+        return "size_t"
+    if n == "isize":
+        return "intptr_t"
+    if n == "float" or n == "f32":
+        return "float"
+    if n == "f64" or n == "double":
+        return "double"
+    if n == "bool":
+        return "bool"
+    if n == "string":
+        return "PenguString"
+    if n == "void":
+        return "void"
+    if n == "opaque":
+        return "void*"
+    if n == "error":
+        return "const char*"
+    return "{n}"
+
+## Texto de un NameId (owned).
+weave std_text with ns as ref to names.CgNames, nid as int into string:
+    return calling npool.copy_string with (calling npool.text with ns->names, nid)
+
+## Nombre de una tupla sintética.
+weave tuple_c_name with ns as ref to names.CgNames, id as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "PenguTuple"
+    var t as tk.SemaType is calling types.at with ns->types, id
+    var i as int is 0
+    while i < t.count:
+        calling sb.append with "_"
+        var cid as int is (ns->types->type_children at (t.first + i))
+        var cn as string is calling c_type with ns, cid
+        var ci as int is 0
+        var cnb as ref to frozen byte is bytes of cn
+        while ci < cn length:
+            var cc as int is ((cnb at ci) to int)
+            if (cc >= 48 and cc <= 57) or (cc >= 65 and cc <= 90) or (cc >= 97 and cc <= 122) or cc == 95:
+                var ch as string is cn at ci to (ci + 1)
+                calling sb.append with ch
+                banish ch
+            else:
+                calling sb.append with "_"
+            set ci is ci + 1
+        banish cn
+        set i is i + 1
+    return calling sb.finish
+
+## Tipo C de una función, como declarador sin nombre.
+weave fn_c_type with ns as ref to names.CgNames, info_idx as int into string:
+    var info as types.SemaFnInfo is (ns->types->fn_infos at info_idx)
+    var ret as string is calling c_type with ns, info.return_type
+    defer banish ret
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with ret
+    calling sb.append with " (*)("
+    if info.params_count == 0:
+        calling sb.append with "void"
+    else:
+        var i as int is 0
+        while i < info.params_count:
+            if i > 0:
+                calling sb.append with ", "
+            var p as types.SemaFnParam is (ns->types->fn_params at (info.params_first + i))
+            var pc as string is calling c_type with ns, p.type
+            calling sb.append with pc
+            banish pc
+            set i is i + 1
+    calling sb.append with ")"
+    return calling sb.finish

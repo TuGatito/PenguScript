@@ -261,12 +261,16 @@ weave last_component with s as string into string:
     var n as int is s length
     var start as int is 0
     while i < n:
-        if (s at i) == ".":
+        var ch as string is s at i
+        if ch == ".":
             set start is i + 1
+        banish ch
         set i is i + 1
     set i is start
     while i < n:
-        calling sb.append with (s at i)
+        var ch2 as string is s at i
+        calling sb.append with ch2
+        banish ch2
         set i is i + 1
     return calling sb.finish
 

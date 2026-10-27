@@ -1,0 +1,61 @@
+## psc/codegen/options.pengu — opciones de emisión C de F4.
+##
+## Las opciones son valores POD con strings prestados por el llamador; el
+## generador no las libera. El driver (F5) las construye desde el manifiesto o
+## la CLI.
+
+insignia psc_codegen_options_
+
+## Opciones de una emisión de C.
+rune CgOptions:
+    ## Directorio raíz del proyecto.
+    base_dir as string
+    ## Archivo de entrada (para `#line`/entry).
+    entry_file as string
+    ## Emitir la sección de tests y su entry.
+    is_test as bool
+    ## Emitir una biblioteca sin `main`.
+    is_library as bool
+    ## DCE de std/lib.
+    dce as bool
+    ## DCE también de módulos de usuario.
+    dce_scope_user as bool
+    ## Podar tipos/consts no usados.
+    prune_types as bool
+    ## Podar includes/links no usados.
+    prune_native as bool
+    ## Emitir `#line`.
+    line_markers as bool
+    ## C99 portable sin statement expressions.
+    strict_c99 as bool
+    ## Dialecto del compilador C (`gcc`, `clang`, `tcc`, `msvc`).
+    target_compiler as string
+    ## Desactivar checks de bounds/overflow.
+    release_unsafe as bool
+    ## Perfil debug (frames/diagnósticos).
+    debug as bool
+
+## Opciones por defecto para un proyecto.
+##
+## ## Memoria
+## Devuelve strings prestados; no asigna.
+weave default_options with base_dir as string into CgOptions:
+    return with base_dir is base_dir, entry_file is "", is_test is false, is_library is false, dce is true, dce_scope_user is false, prune_types is false, prune_native is false, line_markers is true, strict_c99 is false, target_compiler is "gcc", release_unsafe is false, debug is false
+
+## Estadísticas de emisión.
+rune CgStats:
+    ## Tipos emitidos.
+    types as int
+    ## Prototipos emitidos.
+    prototypes as int
+    ## Funciones emitidas.
+    functions as int
+    ## Instancias genéricas emitidas.
+    instances as int
+    ## Includes emitidos.
+    includes as int
+    ## Bytes del bundle.
+    bytes as int
+    ## Líneas del bundle.
+    lines as int
+

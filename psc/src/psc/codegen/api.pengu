@@ -1,0 +1,56 @@
+## psc/codegen/api.pengu — API pública de codegen F4.
+##
+## Recibe un `SemaProgram` ya comprobado por F3 y devuelve un `bundle.c` owned.
+## No invoca el compilador C ni toca el sistema de archivos.
+
+import psc.sema.modules.program as program
+import psc.codegen.options as cgopt
+import psc.codegen.context as context
+import psc.codegen.bundle as bundle
+
+insignia psc_codegen_api_
+
+## Resultado de una emisión.
+##
+## ## Memoria
+## `bundle` es owned; liberar con `free_result`.
+rune CgResult:
+    ## Emisión correcta.
+    ok as bool
+    ## C generado.
+    bundle as string
+    ## Estadísticas.
+    stats as CgStats
+
+## Opciones por defecto (reexportadas para la CLI).
+##
+## ## Memoria
+## Strings prestados.
+weave default_options with base_dir as string into CgOptions:
+    return calling cgopt.default_options with base_dir
+
+## Genera C para un programa.
+##
+## ## Memoria
+## Devuelve un resultado owned; el programa sigue siendo del llamador.
+weave generate_c with p as ref to program.SemaProgram, o as CgOptions into CgResult:
+    var c as context.CgContext is calling context.new_context with p, o
+    var code as string is calling bundle.generate_bundle_c with (sigil of c)
+    var nlines as int is 0
+    var b as ref to frozen byte is bytes of code
+    var i as int is 0
+    while i < code length:
+        if ((b at i) to int) == 10:
+            set nlines is nlines + 1
+        set i is i + 1
+    var st as CgStats is with types is c.catalog.types.len, prototypes is c.catalog.functions.len, functions is c.catalog.functions.len, instances is 0, includes is c.catalog.includes.len, bytes is code length, lines is nlines
+    # `code` se transfiere; el contexto no lo posee.
+    calling context.context_free with (sigil of c)
+    return with ok is true, bundle is code, stats is st
+
+## Libera un resultado.
+##
+## ## Memoria
+## Libera el bundle.
+weave free_result with r as ref to CgResult into void:
+    banish r->bundle

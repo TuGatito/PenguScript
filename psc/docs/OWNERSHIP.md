@@ -102,8 +102,13 @@ Estado medido en F2:
 
 Estado medido en F3:
 
-- `psc check` sobre 226 archivos (`std` + `tests` + `psc/src`): `ok=226 bad=0`.
+- `psc check` sobre 226 archivos (`std` + `tests` + `psc/src`): 225 válidos aceptados; el fixture negativo `coherence_conflict` se rechaza con E0047.
 - `tests/psc/test_f3_acceptance.py`: 17 passed.
 - `sema_smoke`, `sema_api_smoke` y `sema_check_smoke`: verdes.
+- ASan/UBSan con `detect_leaks=1`: limpio en `main`, `oracle`, `petitio`,
+  `cipher`, `arithmancy` y fixtures de `judge`.
 - Se corrigió un doble free en `discover` (el `pop` de la pila de ciclos
-  devuelve un string prestado; no se libera).
+  devuelve un string prestado; no se libera), la copia de texto del loader, el
+  buffer crudo de `SourceFile` en `SemaModule`, `tparam_cache` y los `string at`
+  de resolver/collect/convert/symbols.
+- Benchmark Release: 2 000 funciones / 262 890 B en 78 ms (~25 600 funcs/s).

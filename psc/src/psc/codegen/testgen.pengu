@@ -1,0 +1,90 @@
+## psc/codegen/testgen.pengu — sección `--test` de F4.
+##
+## Emite cada `test "nombre":` como `static void pengu_test_N(void)` y un
+## `main` que los ejecuta en orden. No usa el runner JSON de stage0; F5 puede
+## añadir selección por argumentos encima de este contrato estable.
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.sema.ast as astutil
+import psc.sema.modules.loader as loader
+import psc.sema.types.kind as tk
+
+import psc.codegen.context as context
+import psc.codegen.emit as emit
+import psc.codegen.stmt as stmtgen
+
+insignia psc_codegen_testgen_
+
+## Emite todos los tests; devuelve cuántos hay.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_all with c as ref to context.CgContext into int:
+    var count as int is 0
+    var mi as int is 0
+    while mi < c->program->modules.len:
+        var m as loader.SemaModule is (c->program->modules at mi)
+        var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+        var ni as int is 0
+        while ni < ast->nodes.len:
+            var k as pskind.NodeKind is calling astutil.kind_of with ast, ni
+            if k == pskind.NodeKind.NdTestDecl:
+                calling emit_one with c, mi, ni, count
+                set count is count + 1
+            set ni is ni + 1
+        set mi is mi + 1
+    return count
+
+## Emite un test concreto.
+##
+## ## Memoria
+## Restaura el contexto de la función anterior.
+weave emit_one with c as ref to context.CgContext, module_id as int, node as int, index as int into void:
+    var m as loader.SemaModule is (c->program->modules at module_id)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var oldm as int is c->current_module
+    var oldr as int is c->return_type
+    set c->current_module is module_id
+    set c->return_type is -1
+    calling context.clear_locals with c
+    calling emit.line with (sigil of c->emitter), "static void pengu_test_{index}(void) {"
+    calling emit.indent_more with (sigil of c->emitter)
+    var bi as int is 1
+    var bn as int is calling astutil.child_count with ast, node
+    while bi < bn:
+        var body as int is calling astutil.node_child with ast, node, bi
+        if body >= 0:
+            if (calling astutil.kind_of with ast, body) == pskind.NodeKind.NdBlock:
+                calling stmtgen.emit_block with c, body
+            else:
+                calling stmtgen.emit_stmt with c, body
+        set bi is bi + 1
+    calling stmtgen.emit_pending_defers with c
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"
+    set c->current_module is oldm
+    set c->return_type is oldr
+
+## Emite el `main` del modo test.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_main with c as ref to context.CgContext, count as int into void:
+    calling emit.line with (sigil of c->emitter), "int main(int argc, char** argv) {"
+    calling emit.indent_more with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "pengu_init(argc, argv);"
+    calling emit.line with (sigil of c->emitter), "pengu_install_crash_handler();"
+    var i as int is 0
+    while i < count:
+        calling emit.line with (sigil of c->emitter), "pengu_test_{i}();"
+        set i is i + 1
+    if count == 0:
+        calling emit.line with (sigil of c->emitter), "printf(\"No tests to run.\\n\");"
+    else:
+        calling emit.line with (sigil of c->emitter), "printf(\"All {count} test(s) passed.\\n\");"
+    calling emit.line with (sigil of c->emitter), "fflush(stdout);"
+    calling emit.line with (sigil of c->emitter), "fflush(stderr);"
+    calling emit.line with (sigil of c->emitter), "return 0;"
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"

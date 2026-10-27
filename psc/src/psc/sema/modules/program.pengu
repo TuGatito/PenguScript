@@ -204,7 +204,9 @@ weave companion_path with path as string into string:
     defer banish sb
     var i as int is 0
     while i < keep:
-        calling sb.append with (path at i)
+        var ch as string is path at i
+        calling sb.append with ch
+        banish ch
         set i is i + 1
     calling sb.append with ".d.pengu"
     return calling sb.finish
@@ -228,9 +230,10 @@ weave visiting_has with visiting as ref to list of string, path as string, count
 weave path_is_std with path as string into bool:
     var i as int is 0
     var n as int is path length
+    var b as ref to frozen byte is bytes of path
     while i + 3 < n:
-        if (path at i) == "/" and (path at (i + 1)) == "s" and (path at (i + 2)) == "t" and (path at (i + 3)) == "d":
-            if i + 4 == n or (path at (i + 4)) == "/":
+        if ((b at i) to int) == 47 and ((b at (i + 1)) to int) == 115 and ((b at (i + 2)) to int) == 116 and ((b at (i + 3)) to int) == 100:
+            if i + 4 == n or ((b at (i + 4)) to int) == 47:
                 return true
         set i is i + 1
     return false

@@ -120,6 +120,14 @@ Los targets aplican los accesos (`at`, `arrow`, `essence`) antes de comparar el
 tipo. La asignación a través de un puntero (`set p at i`) es válida aunque el
 binding sea `let`: se escribe en el pointee, no se reasigna el binding.
 
+`self` es un valor en receptores primitivos/`shard` y un `ref` en runes/ecos;
+asignar al `self` valor o usar `self->field` sobre un primitivo emite `E0006` /
+`E0003`. Las etiquetas de loop se registran en el scope del loop; `break`/
+`continue` con label inexistente son `E0004`, fuera de loop `E0007`, labels
+duplicados `E0069`. Las lambdas abren un scope que corta labels/loops externos.
+`@mutates` sólo se acepta en métodos, sin argumentos, con retorno `void` o el
+receptor; usarlo como expresión emite `E0066`.
+
 `set`/`let` respetan `SYM_MUTABLE`; los parámetros son mutables. `let` con
 destructuring de tuplas (`let (q, r) is f()`) define cada nombre con el tipo del
 elemento correspondiente.
@@ -144,11 +152,23 @@ re-validan por ABI: su firma la define el binding.
 ### Genéricos y conceptos
 
 - `shard T` crea `TypeParam` estables por `NameId` (`type_param_type` cachea).
-- `where T: Concepto` registra bounds; los conceptos y sus métodos están en el
-  registro de tipos.
-- `enchanting` registra métodos por receptor; `ritual` para constructores.
+- `where T: Concepto` registra bounds en `types.bounds` y en el símbolo de la
+  función/método. Los conceptos integrados (`Num`, `Integrum`, `Real`, `Par`,
+  `Ordo`, `Vinculum`, `Imago`, `Nexus`, `Forma`, `Iterabilis`, `Donum`) se
+  registran como tipos nominales en `init_builtins`.
+- Al llamar a una función/método genérico se comprueba que el tipo concreto
+  satisfaga sus bounds (`concept_satisfied`); si no, `E0032` en funciones y
+  `E0004` en métodos no disponibles.
+- Dentro del cuerpo, `bound_operator_ok` concede operadores según el concepto:
+  `Num` aritmética, `Integrum` módulo/bits/orden, `Real` aritmética flotante y
+  orden, `Par` igualdad, `Ordo` orden. Un operador no concedido es `E0049`.
+- `bind Tipo with Concepto` valida que cada método exista en el concepto y
+  registra la implementación por receptor.
+- `derive Nexus/Par/Ordo` se guarda en `derived`; `derive Real` se rechaza con
+  `E0005`. `banish` exige un rune/echo con `derive Nexus` (`E0008`).
 - Los métodos de `shard T` se resuelven por fallback genérico; los de un
-  receptor concreto (`Vec4`, `f64`, …) exigen coincidencia exacta.
+  receptor concreto (`Vec4`, `f64`, …) exigen coincidencia exacta. `f32` cae a
+  `float` e `i32` a `int` sólo cuando no hay método exacto.
 
 ## Diagnósticos
 
@@ -193,6 +213,15 @@ contiene el programa; `free_result` libera tipos, símbolos, módulos y nombres.
 
 - `tests/psc/test_f3_acceptance.py`: smokes, corpus curado, CLI/JSON, códigos
   `E0004/E0005/E0006` y, con `PSC_F3_FULL=1`, el corpus completo.
+- `psc/tools/lark_sema_oracle.py`: 193 casos literales de `tests/compiler`;
+  mide aceptación y primer código contra stage0. Resultado actual:
+  `valid=140 valid_rejected=0 invalid=53 invalid_accepted=0 same_code=53`.
+  Los 193 casos coinciden en aceptación y primer código; se documenta en
+  `PARITY.md`.
+- ASan/UBSan (`detect_leaks=1`): limpio sobre `main`, `oracle`, `petitio`,
+  `cipher`, `arithmancy` y fixtures de `judge`.
+- `psc/tests/bench_sema.pengu`: 2 000 funciones / 262 890 B en 78 ms Release
+  (~25 600 funcs/s).
 - `psc/tests/sema_smoke.pengu`: tabla/interning/canonical/compat.
 - `psc/tests/sema_api_smoke.pengu`: `check_text` válido/inválido.
 - `psc/tests/sema_check_smoke.pengu`: collect + bodies + bad return.

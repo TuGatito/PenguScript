@@ -1,0 +1,102 @@
+## psc/codegen/names.pengu — nombres C estables.
+##
+## F3 guarda nombres lógicos; F4 decide el nombre C final. Esta tabla cachea
+## tipos/símbolos y evita que dos módulos emitan el mismo identificador.
+
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.table as symbols
+
+insignia psc_codegen_names_
+
+## Tabla de nombres C.
+##
+## ## Memoria
+## Dueña de los mapas; `free` los libera.
+rune CgNames:
+    ## Pool prestado.
+    names as ref to npool.NamePool
+    ## Tabla de tipos prestada.
+    types as ref to types.SemaTypeTable
+    ## Tipo -> `NameId` C.
+    type_names as map of int to int
+    ## Símbolo -> `NameId` C.
+    symbol_names as map of int to int
+    ## Sustitución de type params (`NameId -> TypeId`) de la función actual.
+    subst as map of int to int
+
+## Crea la tabla.
+##
+## ## Memoria
+## Asigna los mapas; liberar con `free`.
+weave new_names with names as ref to npool.NamePool, types as ref to types.SemaTypeTable into CgNames:
+    return with names is names, types is types, type_names is map of int to int, symbol_names is map of int to int, subst is map of int to int
+
+## Libera la tabla.
+##
+## ## Memoria
+## Libera los mapas; los strings son del pool.
+weave names_free with n as ref to CgNames into void:
+    banish n->type_names
+    banish n->symbol_names
+    banish n->subst
+
+## Nombre C de un tipo nominal.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave type_name with n as ref to CgNames, id as int into string:
+    if calling n->type_names.has with id:
+        var nid0 as int is calling n->type_names.get with id
+        return calling npool.copy_string with (calling npool.text with n->names, nid0)
+    var ty as tk.SemaType is calling types.at with n->types, id
+    var nid as int is -1
+    if ty.kind == tk.SemaTypeKind.TkRune or ty.kind == tk.SemaTypeKind.TkEcho or ty.kind == tk.SemaTypeKind.TkOmen or ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal or ty.kind == tk.SemaTypeKind.TkConcept:
+        var info as types.SemaNominalInfo is (n->types->nominal_infos at ty.a)
+        set nid is info.c_name
+        if nid < 0 or nid == info.base_name:
+            # Los tipos usan el nombre base; el prefijo de módulo se añadirá
+            # cuando el catálogo tenga acceso al programa (F4b).
+            set nid is info.base_name
+    if nid < 0:
+        set nid is ty.name
+    if nid < 0:
+        return "void*"
+    calling n->type_names.put with id, nid
+    return calling npool.copy_string with (calling npool.text with n->names, nid)
+
+## Nombre C final de un símbolo.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave symbol_name with n as ref to CgNames, s as sym.SemaSymbol into string:
+    if calling n->symbol_names.has with s.name:
+        var sid0 as int is calling n->symbol_names.get with s.name
+        return calling npool.copy_string with (calling npool.text with n->names, sid0)
+    var nid as int is s.c_name
+    if nid < 0:
+        set nid is s.name
+    calling n->symbol_names.put with s.name, nid
+    return calling npool.copy_string with (calling npool.text with n->names, nid)
+
+## Nombre C de una función; `main` se renombra a `pengu_main`.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave function_name with n as ref to CgNames, s as sym.SemaSymbol into string:
+    var txt as string is calling symbol_name with n, s
+    if txt == "main":
+        banish txt
+        return "pengu_main"
+    return txt
+
+## Nombre C de un campo/parámetro/local.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave local_name with n as ref to CgNames, nid as int into string:
+    if nid < 0:
+        return "_unused"
+    return calling npool.copy_string with (calling npool.text with n->names, nid)

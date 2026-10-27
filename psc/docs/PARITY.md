@@ -166,10 +166,23 @@ F3 no replica `PenguChecker` línea a línea. La paridad se mide en tres niveles
 ### Resultado medido
 
 ```text
-F3 corpus: 226 archivos (std + tests + psc/src), bad=0
+F3 corpus válido: 225 archivos aceptados (std + tests + psc/src)
+F3 fixture negativo: coherence_conflict.pengu rechazado con E0047
+F3 semantic oracle (193 casos de tests/compiler):
+    valid=140 valid_rejected=0
+    invalid=53 invalid_accepted=0
+    same_first_code=53/53
 F3 pytest: 17 passed (smokes, corpus curado, CLI/JSON, códigos)
-F3 smoke:  types=25, api ok, collect errors=1, flag ok
+F3 smoke:  types=37, api ok, collect errors=1, flag ok
 ```
+
+Los 193 casos coinciden en aceptación y en el primer código. El patrón de
+variante anidada se valida contra el campo `kind` del rune, como stage0.
+
+ASan/UBSan (`detect_leaks=1`) queda limpio sobre `main.pengu`, `oracle.pengu`,
+`petitio.pengu`, `cipher.pengu`, `arithmancy.pengu` y fixtures de `judge`.
+El benchmark Release de `bench_sema.pengu` mide 78 ms para 2 000 funciones
+(262 890 B, ~25 600 funcs/s).
 
 ### Divergencias conocidas y política
 

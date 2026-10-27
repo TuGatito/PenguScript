@@ -1,0 +1,6 @@
+import std.arena
+weave main into int:
+    var a as Arena is calling Arena.new
+    defer calling a.free
+    defer banish a
+    return 0

@@ -1,0 +1,357 @@
+## psc/codegen/dce.pengu — reachability conservadora para el bundle.
+##
+## F4 empezó emitiendo todas las funciones del catálogo, incluidas las de std
+## que el programa no usa. Esto hacía que una función no soportada rompiera un
+## programa que ni la llamaba. La poda exacta por texto C llega en F4j; esta
+## primera versión recorre el AST y las anotaciones de símbolo de F3, que es
+## suficiente para no emitir código muerto evidente.
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.sema.ast as astutil
+import psc.sema.names as npool
+import psc.sema.annotate as ann
+import psc.sema.modules.loader as loader
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.table as symbols
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+
+import psc.codegen.context as context
+import psc.codegen.catalog as catalog
+
+insignia psc_codegen_dce_
+
+## Conjunto de funciones vivas.
+##
+## ## Memoria
+## Dueño de `live`; liberar con `free`.
+rune CgReach:
+    ## Un bool por función del catálogo.
+    live as list of bool
+    ## `SymbolId` ya marcados.
+    seen as map of int to int
+    ## `TypeId` usados por funciones vivas.
+    types as map of int to int
+
+## Crea el conjunto.
+##
+## ## Memoria
+## Asigna lista/mapa.
+weave new_reach with n as int into CgReach:
+    var live as list of bool is list of bool
+    var i as int is 0
+    while i < n:
+        calling live.push with false
+        set i is i + 1
+    return with live is live, seen is map of int to int, types is map of int to int
+
+## Libera el conjunto.
+##
+## ## Memoria
+## Libera lista/mapa.
+weave reach_free with r as ref to CgReach into void:
+    banish r->live
+    banish r->seen
+    banish r->types
+
+## `true` si un módulo es std (con fallback por ruta).
+##
+## ## Memoria
+## O(n) en el path.
+weave module_is_std with m as loader.SemaModule into bool:
+    if m.is_std:
+        return true
+    var p as string is m.path
+    var b as ref to frozen byte is bytes of p
+    if p length >= 4 and ((b at 0) to int) == 115 and ((b at 1) to int) == 116 and ((b at 2) to int) == 100 and ((b at 3) to int) == 47:
+        return true
+    var i as int is 0
+    while i + 5 <= p length:
+        if ((b at i) to int) == 47 and ((b at (i + 1)) to int) == 115 and ((b at (i + 2)) to int) == 116 and ((b at (i + 3)) to int) == 100 and ((b at (i + 4)) to int) == 47:
+            return true
+        set i is i + 1
+    return false
+
+## Marca un símbolo y encola su cuerpo.
+##
+## ## Memoria
+## O(1); no posee strings.
+weave mark_symbol with c as ref to context.CgContext, r as ref to CgReach, sid as int into void:
+    if sid < 0 or calling r->seen.has with sid:
+        return
+    calling r->seen.put with sid, sid
+    if not (calling c->catalog.by_symbol.has with sid):
+        return
+    var idx as int is calling c->catalog.by_symbol.get with sid
+    if (r->live at idx):
+        return
+    set r->live at (idx) is true
+    var f as catalog.CgFunction is (c->catalog.functions at idx)
+    if f.is_declare:
+        return
+    var m as loader.SemaModule is (c->program->modules at f.module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    calling scan_node with c, r, m, ast, f.node
+
+## Último token de un target.
+##
+## ## Memoria
+## O(nodos).
+weave last_token with ast as ref to psast.PsAst, node as int into int:
+    if node < 0:
+        return -1
+    var n as int is calling astutil.child_count with ast, node
+    var i as int is n - 1
+    while i >= 0:
+        var t as int is calling astutil.token_child with ast, node, i
+        if t >= 0:
+            return t
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            var got as int is calling last_token with ast, ch
+            if got >= 0:
+                return got
+        set i is i - 1
+    return -1
+
+## Recorre un nodo buscando llamadas.
+##
+## ## Memoria
+## Recursión sobre el AST; no asigna salvo el conjunto.
+weave scan_node with c as ref to context.CgContext, r as ref to CgReach, m as loader.SemaModule, ast as ref to psast.PsAst, node as int into void:
+    if node < 0:
+        return
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdCallingExpr:
+        var sid as int is calling ann.symbol_of with (sigil of m.annotations), node
+        if sid >= 0:
+            calling mark_symbol with c, r, sid
+        else:
+            var tng as int is calling astutil.node_child with ast, node, 0
+            var lt as int is calling last_token with ast, tng
+            if lt >= 0:
+                var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), lt
+                var nid as int is calling npool.intern with (sigil of c->program->names), txt
+                banish txt
+                if calling c->catalog.by_name.has with nid:
+                    var fi as int is calling c->catalog.by_name.get with nid
+                    var ff as catalog.CgFunction is (c->catalog.functions at fi)
+                    calling mark_symbol with c, r, ff.symbol
+                # `mod.fn`: marcar la función del módulo cualificado.
+                var tn0 as int is calling astutil.node_child with ast, node, 0
+                if tn0 >= 0:
+                    var btok0 as int is calling astutil.token_child with ast, tn0, 0
+                    var ltok0 as int is calling last_token with ast, tn0
+                    if btok0 >= 0 and ltok0 >= 0:
+                        var btxt0 as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), btok0
+                        var ltxt0 as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ltok0
+                        var lid0 as int is calling npool.intern with (sigil of c->program->names), ltxt0
+                        var suf0 as string is "/{btxt0}.pengu"
+                        var mi0 as int is 0
+                        while mi0 < c->program->modules.len:
+                            var mm0 as loader.SemaModule is (c->program->modules at mi0)
+                            if (mm0.path length) >= (suf0 length):
+                                if (mm0.path at ((mm0.path length) - (suf0 length)) to (mm0.path length)) == suf0:
+                                    var cfi0 as int is 0
+                                    while cfi0 < c->catalog.functions.len:
+                                        var cf0 as catalog.CgFunction is (c->catalog.functions at cfi0)
+                                        if cf0.module == mi0 and cf0.name == lid0:
+                                            calling mark_symbol with c, r, cf0.symbol
+                                        set cfi0 is cfi0 + 1
+                            set mi0 is mi0 + 1
+                        banish suf0
+                        banish ltxt0
+                        banish btxt0
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            calling scan_node with c, r, m, ast, ch
+        set i is i + 1
+
+## Marca un tipo y sus dependencias.
+##
+## ## Memoria
+## O(tipos).
+weave mark_type with c as ref to context.CgContext, r as ref to CgReach, ty as int into void:
+    if ty <= 0 or calling r->types.has with ty:
+        return
+    calling r->types.put with ty, ty
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen or t.kind == tk.SemaTypeKind.TkArray or t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkMaybe:
+        calling mark_type with c, r, t.a
+        return
+    if t.kind == tk.SemaTypeKind.TkResult or t.kind == tk.SemaTypeKind.TkMap:
+        calling mark_type with c, r, t.a
+        calling mark_type with c, r, t.b
+        return
+    if t.kind == tk.SemaTypeKind.TkTuple:
+        var i as int is 0
+        while i < t.count:
+            calling mark_type with c, r, (c->program->types.type_children at (t.first + i))
+            set i is i + 1
+        return
+    if t.kind == tk.SemaTypeKind.TkFn:
+        var info as types.SemaFnInfo is (c->program->types.fn_infos at t.a)
+        calling mark_type with c, r, info.return_type
+        var pi as int is 0
+        while pi < info.params_count:
+            var p as types.SemaFnParam is (c->program->types.fn_params at (info.params_first + pi))
+            calling mark_type with c, r, p.type
+            set pi is pi + 1
+        return
+    if t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+        calling mark_type with c, r, t.b
+        return
+    if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho or t.kind == tk.SemaTypeKind.TkOmen:
+        var info2 as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+        var fi as int is 0
+        while fi < info2.fields_count:
+            var f2 as types.SemaField is (c->program->types.fields at (info2.fields_first + fi))
+            calling mark_type with c, r, f2.type
+            set fi is fi + 1
+        var vi as int is 0
+        while vi < info2.variants_count:
+            var v2 as types.SemaVariant is (c->program->types.variants at (info2.variants_first + vi))
+            var pj as int is 0
+            while pj < v2.payload_count:
+                var pf as types.SemaField is (c->program->types.fields at (v2.payload_first + pj))
+                calling mark_type with c, r, pf.type
+                set pj is pj + 1
+            set vi is vi + 1
+        return
+
+## Marca los tipos anotados en un subárbol.
+##
+## ## Memoria
+## Recursión sobre el AST.
+weave mark_node_types with c as ref to context.CgContext, r as ref to CgReach, m as loader.SemaModule, ast as ref to psast.PsAst, node as int into void:
+    if node < 0:
+        return
+    var ty as int is calling ann.type_of with (sigil of m.annotations), node
+    if ty > 0:
+        calling mark_type with c, r, ty
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            calling mark_node_types with c, r, m, ast, ch
+        set i is i + 1
+
+## `true` si un tipo debe emitirse con `--prune-types`.
+##
+## ## Memoria
+## O(1).
+weave type_live with r as ref to CgReach, ty as int into bool:
+    return calling r->types.has with ty
+
+## Módulo padre de un `.d.pengu` (o `-1`).
+##
+## ## Memoria
+## O(módulos).
+weave parent_module with c as ref to context.CgContext, m as loader.SemaModule into int:
+    if m.companion_for >= 0:
+        return m.companion_for
+    var p as string is m.path
+    if p length > 7:
+        var base as string is "{p at 0 to (p length - 7)}.pengu"
+        var i as int is 0
+        while i < c->program->modules.len:
+            var mm as loader.SemaModule is (c->program->modules at i)
+            if mm.path == base:
+                banish base
+                return mm.id
+            set i is i + 1
+        banish base
+    return -1
+
+## Calcula reachability.
+##
+## ## Memoria
+## Devuelve `CgReach` owned; liberar con `reach_free`.
+weave compute with c as ref to context.CgContext into CgReach:
+    var r as CgReach is calling new_reach with c->catalog.functions.len
+    if not c->options.dce:
+        var i as int is 0
+        while i < r.live.len:
+            set r.live at (i) is true
+            set i is i + 1
+        return r
+    # Raíces: todo módulo no-std (API del proyecto), main y @export.
+    var i2 as int is 0
+    while i2 < c->catalog.functions.len:
+        var f as catalog.CgFunction is (c->catalog.functions at i2)
+        var m as loader.SemaModule is (c->program->modules at f.module)
+        var is_std as bool is calling module_is_std with m
+        var root as bool is f.is_main or c->options.is_test or f.is_spec
+        if c->options.is_library and not is_std:
+            set root is true
+        if not c->options.dce_scope_user and not is_std:
+            set root is true
+        if not root and (c->options.is_library or not c->options.dce_scope_user):
+            var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), f.symbol
+            if (sv.flags & sym.SYM_EXPORT) != 0:
+                set root is true
+        if root:
+            set r.live at (i2) is true
+            if f.symbol >= 0:
+                calling r.seen.put with f.symbol, f.symbol
+        set i2 is i2 + 1
+    # Los `.d.pengu` declarados por un módulo vivo deben emitirse: sus
+    # `include`/`declare` son la interfaz C que usan los antiquus del padre.
+    var live_parents as map of int to int is map of int to int
+    set i2 is 0
+    while i2 < c->catalog.functions.len:
+        if (r.live at i2):
+            var lm as loader.SemaModule is (c->program->modules at (c->catalog.functions at i2).module)
+            calling live_parents.put with lm.id, lm.id
+        set i2 is i2 + 1
+    set i2 is 0
+    while i2 < c->catalog.functions.len:
+        var df as catalog.CgFunction is (c->catalog.functions at i2)
+        var dm as loader.SemaModule is (c->program->modules at df.module)
+        var pid as int is calling parent_module with c, dm
+        if pid >= 0 and calling live_parents.has with pid:
+            set r.live at (i2) is true
+            if df.symbol >= 0:
+                calling r.seen.put with df.symbol, df.symbol
+        set i2 is i2 + 1
+    # Recorre cuerpos de las raíces.
+    set i2 is 0
+    while i2 < c->catalog.functions.len:
+        if r.live at i2:
+            var f2 as catalog.CgFunction is (c->catalog.functions at i2)
+            if not f2.is_declare:
+                var m2 as loader.SemaModule is (c->program->modules at f2.module)
+                var ast2 as ref to psast.PsAst is (sigil of m2.parse.ast)
+                calling scan_node with c, (sigil of r), m2, ast2, f2.node
+        set i2 is i2 + 1
+    # Tipos usados por funciones vivas y constantes.
+    set i2 is 0
+    while i2 < c->catalog.functions.len:
+        if r.live at i2:
+            var tf as catalog.CgFunction is (c->catalog.functions at i2)
+            var tm as loader.SemaModule is (c->program->modules at tf.module)
+            var tsv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), tf.symbol
+            calling mark_type with c, (sigil of r), tsv.type
+            var tast2 as ref to psast.PsAst is (sigil of tm.parse.ast)
+            calling mark_node_types with c, (sigil of r), tm, tast2, tf.node
+        set i2 is i2 + 1
+    set i2 is 0
+    while i2 < c->catalog.consts.len:
+        var tc as catalog.CgConst is (c->catalog.consts at i2)
+        calling mark_type with c, (sigil of r), tc.type_id
+        set i2 is i2 + 1
+    return r
+
+## Indica si una función del catálogo está viva.
+##
+## ## Memoria
+## O(1).
+weave live with r as ref to CgReach, idx as int into bool:
+    if idx < 0 or idx >= r->live.len:
+        return false
+    return (r->live at idx)

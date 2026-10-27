@@ -1,0 +1,12 @@
+omen E:
+    A with x as int
+    B
+
+weave f with e as E into int:
+    return judge e:
+        when A with x -> x
+        when B -> 0
+
+weave main into int:
+    var e as E is with A is 7
+    return calling f with e
