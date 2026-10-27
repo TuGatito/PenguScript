@@ -18,30 +18,28 @@
 
 ## Bloqueo actual (honesto)
 
-El **stage2** (PSC compilado por PSC) compila PSC y genera stage2, pero su
-**checker** falla al resolver llamadas cualificadas de módulos importados:
+El **checker de stage2 ya funciona**: `stage2 check psc/src/main.pengu` y los
+imports cualificados (`foo.hi`, `spark.println`) pasan. El bloqueo se movió a la
+**generación de C de stage2** al construir stage3:
 
-```text
-psc: undefined function 'foo'   # calling foo.hi
-psc: undefined function 'spark' # calling spark.println
-```
+- `arena_arena_alloc_inst` colisiona entre instanciaciones genéricas de tipos
+  distintos (`JsonEntry` vs `JsonValue`).
+- Algunas interpolaciones de campos/`p->campo` siguen emitiendo argumentos
+  vacíos (`%s` con `pengu_string_from_cstr("")`).
+- Returns sin valor / expresiones vacías en `std.diagnostic` y `std/arena`.
 
-Los imports se cargan, el alias existe en la tabla de símbolos y la función
-importada también se recolecta (se verificó con trazas). La traza final muestra
-que, en el F3 compilado por PSC, el nombre del método (`mname`) llega **vacío**
-para `foo.hi`/`spark.println`; por eso no se puede resolver el miembro. El
-problema está en la lectura del token del `dot_access` del AST en stage2 (no en
-la carga de módulos ni en la sintaxis). Por eso:
+Stage2 compila PSC y genera C sintácticamente mucho más cerca de stage1, pero
+todavía no produce un bundle C compilable para stage3. Por eso:
 
 - `stage1` (construido por stage0) es correcto y se auto-compila.
-- `stage2` (construido por stage1) **se construye**, pero no puede compilar
-  stage3 todavía.
+- `stage2` (construido por stage1) **se construye y ya checkea PSC**, pero su
+  codegen no completa stage3.
 - El **punto fijo stage2 == stage3** no se ha alcanzado.
 
 ## Qué falta para cerrar F5
 
-1. Corregir el enlace de scopes/imports en el F3 que ejecuta stage2
-   (`sema/symbols/table.pengu`, `sema/check/collect.pengu`, `sema/infer/core.pengu`).
+1. Corregir el codegen de stage2: nombres únicos de instanciaciones genéricas,
+   interpolación de campos/accesos `->` y returns/expresiones vacías.
 2. Reconstruir stage1 → stage2 → stage3 y comparar el C normalizado.
 3. Ejecutar el corpus 66 con el driver (no con el runner de F4) y ASan.
 4. Añadir tests F5 y `docs/selfhost/BOOTSTRAP.md`.

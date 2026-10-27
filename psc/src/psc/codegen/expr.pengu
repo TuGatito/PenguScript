@@ -2631,7 +2631,7 @@ weave interp_expr with c as ref to context.CgContext, content as string into str
             var one as string is content at i to (i + 1)
             defer banish one
             if ((b at i) to int) == 123:
-                calling fmt.append with "{{"
+                calling fmt.append with "{"
             else:
                 calling fmt.append with one
         set i is i + 1
