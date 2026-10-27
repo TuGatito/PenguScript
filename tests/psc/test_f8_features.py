@@ -77,10 +77,21 @@ def test_f8_hover_definition_symbols_completion_and_diagnostics() -> None:
     assert len(sem["data"]) >= 5 and len(sem["data"]) % 5 == 0
     fold = req(7, "textDocument/foldingRange", {"textDocument": {"uri": uri}})
     assert isinstance(fold, list)
+    actions = req(8, "textDocument/codeAction", {
+        "textDocument": {"uri": uri},
+        "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}},
+        "context": {"diagnostics": []},
+    })
+    assert actions and actions[0]["title"] == "Format document"
+    edit = req(9, "textDocument/onTypeFormatting", {
+        "textDocument": {"uri": uri}, "position": {"line": 1, "character": 4}, "ch": ":",
+        "options": {"tabSize": 4, "insertSpaces": True},
+    })
+    assert edit and edit[0]["newText"].startswith("\n")
 
-    p.stdin.write(frame({"jsonrpc": "2.0", "id": 8, "method": "shutdown", "params": None}))
+    p.stdin.write(frame({"jsonrpc": "2.0", "id": 10, "method": "shutdown", "params": None}))
     p.stdin.flush()
-    assert recv(p.stdout)["id"] == 8
+    assert recv(p.stdout)["id"] == 10
     p.stdin.write(frame({"jsonrpc": "2.0", "method": "exit"}))
     p.stdin.flush()
     p.stdin.close()

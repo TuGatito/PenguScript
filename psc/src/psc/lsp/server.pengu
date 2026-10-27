@@ -242,6 +242,12 @@ weave initialize_result into JsonValue:
     calling stp.put_json with "full", (calling JsonValue.bool_val with true)
     calling cap.put_json with "semanticTokensProvider", stp
     calling cap.put_json with "inlayHintProvider", (calling JsonValue.bool_val with true)
+    calling cap.put_json with "codeActionProvider", (calling JsonValue.bool_val with true)
+    var ot as JsonValue is calling JsonValue.empty_object
+    calling ot.put_json with "firstTriggerCharacter", (calling JsonValue.string_val with (calling copy with ":"))
+    var otm as JsonValue is calling JsonValue.empty_array
+    calling ot.put_json with "moreTriggerCharacter", otm
+    calling cap.put_json with "documentOnTypeFormattingProvider", ot
     var sh as JsonValue is calling JsonValue.empty_object
     var shc as JsonValue is calling JsonValue.empty_array
     calling shc.push_json with (calling JsonValue.string_val with (calling copy with "("))
@@ -1257,6 +1263,66 @@ weave handle_inlay with st as ref to State, id as rpc.JsonRpcId, params as JsonV
     var ok as bool is calling send_msg with st, out
     banish out
 
+## Code actions: por ahora "Format document".
+weave handle_code_action with st as ref to State, id as rpc.JsonRpcId, params as JsonValue into void:
+    var arr as JsonValue is calling JsonValue.empty_array
+    var action as JsonValue is calling JsonValue.empty_object
+    calling action.put_json with "title", (calling JsonValue.string_val with (calling copy with "Format document"))
+    calling action.put_json with "kind", (calling JsonValue.string_val with (calling copy with "source.fixAll"))
+    var cmd as JsonValue is calling JsonValue.empty_object
+    calling cmd.put_json with "title", (calling JsonValue.string_val with (calling copy with "Format document"))
+    calling cmd.put_json with "command", (calling JsonValue.string_val with (calling copy with "editor.action.formatDocument"))
+    calling action.put_json with "command", cmd
+    calling arr.push_json with action
+    var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), arr
+    var ok as bool is calling send_msg with st, out
+    banish out
+
+## On-type: tras ':' inserta salto e indentación.
+weave handle_on_type with st as ref to State, id as rpc.JsonRpcId, params as JsonValue into void:
+    var td as maybe JsonValue is calling params.get with "textDocument"
+    var po as maybe JsonValue is calling params.get with "position"
+    var ch as string is calling field_string with params, "ch"
+    var u as string is ""
+    var line as int is 0
+    var col as int is 0
+    if td.is_present:
+        set u is calling field_string with td.value, "uri"
+    if po.is_present:
+        set line is calling field_int with po.value, "line", 0
+        set col is calling field_int with po.value, "character", 0
+    banish po
+    banish td
+    var res as JsonValue is calling JsonValue.null_value
+    if ch == ":":
+        var text as string is calling doc_text with st, u
+        var ls as int is calling lpos.line_start with text, line
+        var b as ref to frozen byte is bytes of text
+        var ind as int is 0
+        while ls + ind < text length and (((b at (ls + ind)) to int) == 32 or ((b at (ls + ind)) to int) == 9):
+            set ind is ind + 1
+        var indent as string is ""
+        var k as int is 0
+        while k < ind + 4:
+            set indent is "{indent} "
+            set k is k + 1
+        var edit as JsonValue is calling JsonValue.empty_object
+        var off as int is calling lpos.offset_at with text, line, col
+        calling edit.put_json with "range", (calling lpos.range_json with text, off, off)
+        var nl as string is "\n{indent}"
+        calling edit.put_json with "newText", (calling JsonValue.string_val with (calling copy with nl))
+        var edits as JsonValue is calling JsonValue.empty_array
+        calling edits.push_json with edit
+        set res is edits
+        banish nl
+        banish indent
+        banish text
+    banish ch
+    banish u
+    var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), res
+    var ok as bool is calling send_msg with st, out
+    banish out
+
 ## Dispatch de request.
 weave handle_request with st as ref to State, id as rpc.JsonRpcId, method as string, params as maybe JsonValue into void:
     if method == "initialize":
@@ -1341,6 +1407,16 @@ weave handle_request with st as ref to State, id as rpc.JsonRpcId, method as str
     else if method == "textDocument/inlayHint":
         if params.is_present:
             calling handle_inlay with st, id, params.value
+        else:
+            calling send_method_error with st, id, method
+    else if method == "textDocument/codeAction":
+        if params.is_present:
+            calling handle_code_action with st, id, params.value
+        else:
+            calling send_method_error with st, id, method
+    else if method == "textDocument/onTypeFormatting":
+        if params.is_present:
+            calling handle_on_type with st, id, params.value
         else:
             calling send_method_error with st, id, method
     else:

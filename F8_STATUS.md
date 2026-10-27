@@ -25,13 +25,15 @@
 | Code lens | Run / Run test |
 | Semantic tokens | léxico simple: keywords/identificadores/literales/números/comentarios |
 | Inlay hints | tipo inferido básico para `var/let ... is <literal>` |
+| Code actions | acción “Format document” |
+| On-type | `:` inserta salto e indentación |
 | Tests | `test_f8_lsp.py` + `test_f8_features.py` (3 tests) |
 | Bootstrap | punto fijo OK; gcc/clang/TCC READY |
 
 ## Pendiente
 
 1. Diagnósticos UTF-16 verificados (hecho); faltan pruebas con CJK/emoji variados.
-2. Code actions y on-type formatting (inlay hints y semantic tokens ya hay una versión básica).
+2. Caches/índice de workspace y paridad fina de semantic/inlay/actions/on-type.
 3. Caches/índice de workspace (hoy escaneo en cada request).
 4. Paridad con `pengu_lsp`; ñ/CJK/emoji; 1 000 didChange; ASan.
 5. VS Code smoke, CI y docs completos.
