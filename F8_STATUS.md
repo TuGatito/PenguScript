@@ -27,7 +27,7 @@
 | Inlay hints | tipo inferido básico para `var/let ... is <literal>` |
 | Code actions | acción “Format document” |
 | On-type | `:` inserta salto e indentación |
-| Tests | `test_f8_lsp.py` + `test_f8_features.py` (4 tests) |
+| Tests | `test_f8_lsp.py` + `test_f8_features.py` + `test_f8_stress.py` (5 tests; 1 000 didChange) |
 | Bootstrap | punto fijo OK; gcc/clang/TCC READY |
 
 ## Pendiente

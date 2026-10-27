@@ -354,14 +354,19 @@ weave did_change with st as ref to State, params as JsonValue into void:
     if changes.is_present:
         if changes.value.len > 0:
             var text as string is calling field_string with (changes.value at 0), "text"
+            var changed as bool is true
             if calling st->docs.has with u:
                 var old as Document is (st->docs at u)
-                banish old.text
-            var doc as Document is with text is (calling copy with text), version is ver
-            calling st->docs.put with (calling copy with u), doc
+                if old.text == text:
+                    set changed is false
+                else:
+                    banish old.text
+            if changed:
+                var doc as Document is with text is (calling copy with text), version is ver
+                calling st->docs.put with (calling copy with u), doc
+                calling publish with st, u, text, ver
             banish text
         calling json.free_values with changes.value
-    banish changes
     banish u
 
 ## didClose.
