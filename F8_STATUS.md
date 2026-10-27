@@ -1,8 +1,8 @@
 # F8 — LSP nativo (cerrado)
 
 > El servidor nativo funciona en stdio y TCP, con lifecycle, documentos,
-> diagnósticos y una primera capa de features LSP basadas en el documento y en
-> `psc check`. No es paridad completa con `pengu_lsp`.
+> diagnósticos y features LSP. La paridad fina con `pengu_lsp` se limita a
+> diagnósticos; el resto es funcional pero heurístico.
 
 ## Completado
 
@@ -32,7 +32,7 @@
 | Bootstrap | punto fijo OK; gcc/clang/TCC READY |
 | Stress | 1 000 didChange (sin cambios) OK, también bajo ASan/UBSan O1 |
 
-## Pendiente
+## Verificaciones de cierre
 
 - VS Code smoke reproducible (`scripts/vscode_f8_smoke.sh`) ✅
 - Paridad de diagnósticos con `pengu_lsp` ✅
@@ -59,7 +59,9 @@ F8_VSCODE_DIAGS=[{"message":"expected an expression","source":"pengu","severity"
 ## Evidencia
 
 ```text
-tests/psc/test_f8_lsp.py + test_f8_features.py: 3 passed
+F6+F7+F8: 16 passed
+VS Code smoke: F8_VSCODE_DIAGS=expected an expression
+ASan/UBSan LSP: 1 000 didChange OK
 bootstrap: punto fijo OK
 preflight gcc/clang/TCC: READY
 psc lsp --tcp: initialize/shutdown/exit OK
