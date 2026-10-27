@@ -14,7 +14,7 @@
 | `run` | script/proyecto, `--` args, cache de scripts, exit code real, paths con espacios |
 | `check` | archivo y proyecto; el proyecto ya **no** escribe bundle |
 | `expand` | bundle-only restaurado |
-| Caché | content-addressed para `run` de scripts y builds de proyecto, `PSC_CACHE_DIR`, `--no-cache`, `--clear-cache`, `--ephemeral`, `gc --all` |
+| Caché | content-addressed para `run` de scripts y builds de proyecto, hash del compilador, `PSC_CACHE_DIR`, `--no-cache`, `--clear-cache`, `--ephemeral`, `gc --all/--max-age` |
 | Proyecto | `init`, `new`, `clean`, `doctor`, `metadata`, `tree` |
 | Tests/dev | `test` (runner de proyecto, fallo -> exit 1, `--json` JSONL), `watch`, `eval`, `time`, `benchmark`/`selftest` dev-only |
 | Herramientas | `fmt` (unidad detectada, reindentación, `--check`/`--stdin`/`--diff`), `doc` (Markdown), `assets` (embed, exclude, list, C/header/interface) |
@@ -38,10 +38,8 @@ preflight gcc/clang/TCC: READY
 2. **Doc**: búsqueda HTML y extracción de firmas/tipos como `pengu_doc`.
 3. **Assets**: `embed=false` (disk) e `.incbin` para assets grandes (exclude ya
    implementado).
-4. **Caché**: ya cubre builds de proyecto y `gc --max-age`; falta invalidación
-   por hash de binario del compilador (hoy usa path).
-5. **Multi-file `check`** y `--json` de check completo.
-6. Endurecer CI/nightly con F6 completo y corpus.
+4. **Multi-file `check`** y `--json` de check completo.
+5. Endurecer CI/nightly con F6 completo y corpus.
 
 ## Reproducir
 
