@@ -18,6 +18,7 @@
 
 import std.io
 import std.archivum
+import std.compass
 import std.diagnostic as diag
 import std.rites
 import std.spark
@@ -416,7 +417,12 @@ weave run_check with args as list of string into int:
                 return 2
             set path is a
         set i is i + 1
-    if (not use_stdin) and path length > 0 and calling archivum.is_dir with path:
+    var abs_path as string is calling compass.cp_absolute with path
+    var is_proj as bool is false
+    if path length > 0:
+        set is_proj is calling archivum.is_dir with abs_path
+    banish abs_path
+    if (not use_stdin) and path length > 0 and is_proj:
         calling sopts.free_options with (sigil of opts)
         return calling cmd_build.run_check_project with path
     if use_stdin and path length > 0:
