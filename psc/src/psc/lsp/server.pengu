@@ -177,7 +177,7 @@ weave publish with st as ref to State, document_uri as string, text as string, v
         calling cargs.push with (calling copy with "--diagnostics=json")
         var prc as rites.ProcessResult is calling rites.run_capture_all with st->exe, cargs
         if prc.code == 0 or prc.code == 1:
-            var jp as result of JsonValue to JsonError is calling json.parse with prc.stdout
+            var jp as result of JsonValue to JsonError is calling json.parse with prc.stderr
             if jp.is_ok:
                 var jv as JsonValue is jp.value
                 var arrv as maybe list of JsonValue is calling jv.as_array
@@ -205,14 +205,6 @@ weave publish with st as ref to State, document_uri as string, text as string, v
 weave initialize_result into JsonValue:
     var cap as JsonValue is calling JsonValue.empty_object
     calling cap.put_json with "textDocumentSync", (calling JsonValue.int_val with 1)
-    calling cap.put_json with "hoverProvider", (calling JsonValue.bool_val with true)
-    calling cap.put_json with "definitionProvider", (calling JsonValue.bool_val with true)
-    var completion as JsonValue is calling JsonValue.empty_object
-    var triggers as JsonValue is calling JsonValue.empty_array
-    calling triggers.push_json with (calling JsonValue.string_val with (calling copy with "."))
-    calling triggers.push_json with (calling JsonValue.string_val with (calling copy with ":"))
-    calling completion.put_json with "triggerCharacters", triggers
-    calling cap.put_json with "completionProvider", completion
     var out as JsonValue is calling JsonValue.empty_object
     calling out.put_json with "capabilities", cap
     var info as JsonValue is calling JsonValue.empty_object
