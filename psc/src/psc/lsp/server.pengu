@@ -241,6 +241,7 @@ weave initialize_result into JsonValue:
     calling stp.put_json with "legend", legend
     calling stp.put_json with "full", (calling JsonValue.bool_val with true)
     calling cap.put_json with "semanticTokensProvider", stp
+    calling cap.put_json with "inlayHintProvider", (calling JsonValue.bool_val with true)
     var sh as JsonValue is calling JsonValue.empty_object
     var shc as JsonValue is calling JsonValue.empty_array
     calling shc.push_json with (calling JsonValue.string_val with (calling copy with "("))
@@ -1194,6 +1195,68 @@ weave handle_semantic with st as ref to State, id as rpc.JsonRpcId, params as Js
     var ok as bool is calling send_msg with st, out
     banish out
 
+## Inlay hints de tipo para `var x is <literal>`.
+weave handle_inlay with st as ref to State, id as rpc.JsonRpcId, params as JsonValue into void:
+    var td as maybe JsonValue is calling params.get with "textDocument"
+    var u as string is ""
+    if td.is_present:
+        set u is calling field_string with td.value, "uri"
+    banish td
+    var text as string is calling doc_text with st, u
+    var arr as JsonValue is calling JsonValue.empty_array
+    var lines as list of string is calling text.split with "\n"
+    var line_no as int is 0
+    for line in lines:
+        var w as string is ""
+        var name_col as int is 0
+        var vi as int is calling scrolls.find with line, "var "
+        if vi >= 0:
+            set name_col is vi + 4
+            set w is line at (vi + 4) to (line length)
+        else:
+            var li as int is calling scrolls.find with line, "let "
+            if li >= 0:
+                set name_col is li + 4
+                set w is line at (li + 4) to (line length)
+        if w length > 0:
+            var nb as ref to frozen byte is bytes of w
+            var ne as int is 0
+            while ne < w length and calling is_word with ((nb at ne) to int):
+                set ne is ne + 1
+            if ne > 0:
+                var after as int is calling scrolls.find with w, " is "
+                if after >= 0:
+                    var expr as string is w at (after + 4) to (w length)
+                    var ty as string is ""
+                    if expr length > 0:
+                        var c0 as string is expr at 0 to 1
+                        if c0 == "\"":
+                            set ty is "string"
+                        else if c0 == "t" or c0 == "f":
+                            set ty is "bool"
+                        else if calling scrolls.contains with expr, ".":
+                            set ty is "float"
+                        else:
+                            set ty is "int"
+                        banish c0
+                    if ty length > 0:
+                        var hint as JsonValue is calling JsonValue.empty_object
+                        calling hint.put_json with "position", (calling lpos.position_json with text, (calling lpos.line_start with text, line_no) + name_col + ne)
+                        var lbl as string is ": {ty}"
+                        calling hint.put_json with "label", (calling JsonValue.string_val with (calling copy with lbl))
+                        calling arr.push_json with hint
+                        banish lbl
+                    banish expr
+            banish w
+        banish line
+        set line_no is line_no + 1
+    banish lines
+    banish text
+    banish u
+    var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), arr
+    var ok as bool is calling send_msg with st, out
+    banish out
+
 ## Dispatch de request.
 weave handle_request with st as ref to State, id as rpc.JsonRpcId, method as string, params as maybe JsonValue into void:
     if method == "initialize":
@@ -1273,6 +1336,11 @@ weave handle_request with st as ref to State, id as rpc.JsonRpcId, method as str
     else if method == "textDocument/semanticTokens/full":
         if params.is_present:
             calling handle_semantic with st, id, params.value
+        else:
+            calling send_method_error with st, id, method
+    else if method == "textDocument/inlayHint":
+        if params.is_present:
+            calling handle_inlay with st, id, params.value
         else:
             calling send_method_error with st, id, method
     else:
