@@ -16,15 +16,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Bootstrap PSC
+      - name: Bootstrap compiler
+        id: bootstrap
         uses: ./.github/actions/setup-psc-bootstrap
-        with:
-          version: "0.10.0"
 
       - name: Build compiler
+        shell: bash
         run: |
           set -euo pipefail
-          psc build .
+          case "$PENGU_COMPILER_NAME" in
+            psc|psc.exe)
+              "$PENGU_COMPILER" build .
+              ;;
+            *)
+              # Legacy releases ship `pengu`, which resolves the project from
+              # the working directory instead of taking a path argument.
+              "$PENGU_COMPILER" build
+              ;;
+          esac
           ./build/psc version
           ./tools/build_runtime.sh
 
@@ -33,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}" \
-          PENGU_BIND="$PENGU_HOME/bin/pengu-bind" \
+          PENGU_BIND="${PENGU_BIND:-build/pengu-bind}" \
           tools/release.sh
 
       - uses: actions/upload-artifact@v4

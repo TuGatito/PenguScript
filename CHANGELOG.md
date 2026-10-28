@@ -2,6 +2,15 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.11.1] — 2026-10-28 — Bootstrap de CI reparado
+
+- `.github/actions/setup-psc-bootstrap` resuelve el último release (o una versión/tag concreta) y entiende tanto el layout nativo `pengu-<version>-<target>-portable` como el plano `pengu-<os>-<arch>`.
+- Verificación con `SHA256SUMS.txt`/`SHA256SUMS`, extracción normalizada y exportación de `PENGU_HOME`, `PENGU_COMPILER`, `PENGU_STD_DIR`, `PENGU_LIB_DIR`, `PENGU_INCLUDE_DIR` y `PENGU_BIND`.
+- CI y release ya no fijan `0.10.0`; compilan con el bootstrap resuelto y usan `./build/psc` para el resto de pasos.
+- `diag_compat` mantiene el árbol compilable con bootstraps publicados antiguos.
+- `tools/release.sh` normaliza los targets `macos-*` y `windows-*`.
+- `psc 0.11.1 (F11)`.
+
 ## [F11] — 2026-10-27 — Bootstrap final y switchover
 
 - El compilador PSC vive en la raíz (`src/`, `pengu.toml`).

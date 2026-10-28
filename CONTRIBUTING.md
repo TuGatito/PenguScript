@@ -6,9 +6,10 @@ build, test, or run the project.
 ## Build
 
 ```bash
-# Download a PSC bootstrap release for your platform and export PENGU_HOME/PATH.
+# Download a bootstrap compiler from the latest release and export
+# PENGU_HOME/PATH, or let .github/actions/setup-psc-bootstrap do it.
 ./tools/build_runtime.sh
-psc build .
+psc build .        # flat/legacy bootstrap: pengu build
 ./build/psc version
 ```
 

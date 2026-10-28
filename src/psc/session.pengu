@@ -18,6 +18,7 @@ import psc.span as pspan
 import psc.source as psource
 import psc.token as pstoken
 import psc.diagnostics as psdiag
+import psc.diag_compat as diag_compat
 import psc.lexer_state as psstate
 import psc.lexer as pslexer
 
@@ -47,14 +48,14 @@ weave open with path as string, options as LexOptions into Session:
     var m as maybe string is calling archivum.read_bytes with path
     if not m.is_present:
         var empty as SourceFile is calling SourceFile.from_text with path, ""
-        var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+        var bag as diag.DiagnosticBag is calling diag_compat.new_diagnostic_bag
         var kw as KeywordTable is calling pstoken.keyword_table_new
         var err as SourceError is calling psource.source_error with SourceErrorKind.SrcRead, path, "cannot read source file"
         return with ok is false, error is err, source is empty, diagnostics is bag, keywords is kw, options is options
     var raw as string is m.value
     var f as SourceFile is calling SourceFile.from_text with path, raw
     banish m
-    var bag2 as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+    var bag2 as diag.DiagnosticBag is calling diag_compat.new_diagnostic_bag
     calling bag2.add_source with path, (calling f.get_text)
     var kw2 as KeywordTable is calling pstoken.keyword_table_new
     var empty_err as SourceError is calling psource.source_error with SourceErrorKind.SrcRead, "", ""
@@ -67,7 +68,7 @@ weave open with path as string, options as LexOptions into Session:
 ## Devuelve una sesión owned; liberar con `banish`.
 weave open_text with path as string, text as string, options as LexOptions into Session:
     var f as SourceFile is calling SourceFile.from_text with path, text
-    var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+    var bag as diag.DiagnosticBag is calling diag_compat.new_diagnostic_bag
     calling bag.add_source with path, (calling f.get_text)
     var kw as KeywordTable is calling pstoken.keyword_table_new
     var empty_err as SourceError is calling psource.source_error with SourceErrorKind.SrcRead, "", ""

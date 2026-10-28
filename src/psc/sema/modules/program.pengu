@@ -21,6 +21,7 @@ import psc.sema.modules.loader as loader
 import psc.sema.modules.resolver as resolver
 import psc.sema.ast as astutil
 import psc.sema.diagnostics as sdiag
+import psc.diag_compat as diag_compat
 import psc.ast.kind as pskind
 
 insignia sema_program_
@@ -59,7 +60,7 @@ weave new_program with options as sopts.SemaOptions into ref to SemaProgram:
     set p->names is calling npool.new_pool
     set p->types is calling types.new_table with (sigil of p->names)
     set p->symbols is calling symbols.new_symbols with (sigil of p->types), (sigil of p->names)
-    set p->diagnostics is calling diag.DiagnosticBag.new
+    set p->diagnostics is calling diag_compat.new_diagnostic_bag
     set p->modules is list of loader.SemaModule
     set p->by_path is map of string to int
     set p->order is list of int

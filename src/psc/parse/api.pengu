@@ -17,6 +17,7 @@ import psc.lexer as pslexer
 
 import psc.ast.kind as pskind
 import psc.ast.node as psast
+import psc.diag_compat as diag_compat
 import psc.parse.state as psstate
 import psc.parse.diagnostics as pdiag
 import psc.parse.expr.ops as pexpr
@@ -53,7 +54,7 @@ rune InterpParseResult derive Nexus:
 ## Devuelve un bundle owned; liberar con `banish`.
 weave ps_parse_interpolation_expr with text as string into InterpParseResult:
     var src as SourceFile is calling SourceFile.from_text with "<interp>", text
-    var bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+    var bag as diag.DiagnosticBag is calling diag_compat.new_diagnostic_bag
     calling bag.add_source with "<interp>", (calling src.get_text)
     var kw as KeywordTable is calling pstoken.keyword_table_new
     var lopt as LexOptions is calling default_lex_options

@@ -1,34 +1,69 @@
 name: Setup PSC bootstrap
-description: Download and verify a prebuilt PSC bootstrap (no Python).
+description: >
+  Download and verify a prebuilt PenguScript bootstrap compiler. The latest
+  published release is used by default; the action understands both the native
+  `pengu-<version>-<target>-portable` packages and the flat
+  `pengu-<os>-<arch>` packages used by older releases.
 
 inputs:
   version:
-    description: Bootstrap release version (e.g. 0.10.0)
+    description: >
+      Release tag or version to download (for example `v0.11.1` or `0.11.1`).
+      Use `latest` (the default) to resolve the newest published release.
     required: false
-    default: "0.10.0"
+    default: "latest"
   target:
-    description: Override target (linux-x86_64, macos-arm64, windows-x86_64, ...)
+    description: Override target (`linux-x86_64`, `macos-arm64`, `windows-x86_64`, ...)
     required: false
     default: ""
   cache-dir:
     description: Cache directory for downloaded bootstrap
     required: false
     default: ""
+  verify:
+    description: Verify the download against the release SHA256SUMS file
+    required: false
+    default: "true"
+
+outputs:
+  compiler:
+    description: Absolute path to the bootstrap compiler executable
+    value: ${{ steps.bootstrap.outputs.compiler }}
+  home:
+    description: Bootstrap installation root (PENGU_HOME)
+    value: ${{ steps.bootstrap.outputs.home }}
+  tag:
+    description: Release tag that was installed
+    value: ${{ steps.bootstrap.outputs.tag }}
+  asset:
+    description: Release asset that was downloaded
+    value: ${{ steps.bootstrap.outputs.asset }}
 
 runs:
   using: composite
   steps:
-    - name: Download PSC bootstrap
+    - name: Download bootstrap compiler
+      id: bootstrap
       shell: bash
       env:
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_TARGET: ${{ inputs.target }}
         INPUT_CACHE: ${{ inputs.cache-dir }}
+        INPUT_VERIFY: ${{ inputs.verify }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        version="$INPUT_VERSION"
-        if [ -n "$INPUT_TARGET" ]; then
-          target="$INPUT_TARGET"
+
+        repo="${GITHUB_REPOSITORY:-TuGatito/PenguScript}"
+        server="${GITHUB_SERVER_URL:-https://github.com}"
+        api="${GITHUB_API_URL:-https://api.github.com}"
+        version="${INPUT_VERSION:-latest}"
+        target_input="${INPUT_TARGET:-}"
+        cache_root="${INPUT_CACHE:-$HOME/.cache/pengu-bootstrap}"
+        verify="${INPUT_VERIFY:-true}"
+
+        if [ -n "$target_input" ]; then
+          target="$target_input"
         else
           os="$(uname -s | tr '[:upper:]' '[:lower:]')"
           arch="$(uname -m)"
@@ -42,45 +77,265 @@ runs:
           esac
           target="$os-$arch"
         fi
-        cache="${INPUT_CACHE:-$HOME/.cache/pengu-bootstrap}"
-        mkdir -p "$cache"
+        case "$target" in
+          linux-*|macos-*|windows-*) ;;
+          *) echo "::error::unsupported bootstrap target: $target" >&2; exit 1 ;;
+        esac
+        os="${target%%-*}"
+        arch="${target#*-}"
+
+        # ------------------------------------------------------------------
+        # Resolve the release tag. The redirect endpoint does not consume
+        # GitHub API quota, so try it first; fall back to the REST API.
+        # ------------------------------------------------------------------
+        if [ -z "$version" ] || [ "$version" = "latest" ]; then
+          tag=""
+          effective="$(curl -fsSIL --retry 3 --connect-timeout 15 -o /dev/null \
+            -w '%{url_effective}' "$server/$repo/releases/latest" 2>/dev/null || true)"
+          effective="${effective%%\?*}"
+          effective="${effective%/}"
+          tag="${effective##*/}"
+          if [ -z "$tag" ] || [ "$tag" = "latest" ]; then
+            if [ -n "${GITHUB_TOKEN:-}" ]; then
+              body="$(curl -fsSL --retry 3 --connect-timeout 15 \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                "$api/repos/$repo/releases/latest" 2>/dev/null || true)"
+              tag="$(printf '%s' "$body" |
+                sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+                head -n 1)"
+            fi
+          fi
+          if [ -z "$tag" ] || [ "$tag" = "latest" ]; then
+            echo "::error::cannot resolve the latest release of $repo" >&2
+            exit 1
+          fi
+        else
+          case "$version" in
+            v*) tag="$version" ;;
+            *) tag="v$version" ;;
+          esac
+        fi
+        version="${tag#v}"
+        base="$server/$repo/releases/download/$tag"
+
         case "$target" in
           windows-*) ext="zip" ;;
           *) ext="tar.gz" ;;
         esac
-        name="pengu-${version}-${target}-portable"
-        asset="${name}.${ext}"
-        base="https://github.com/TuGatito/PenguScript/releases/download/v${version}"
-        if [ ! -f "$cache/$asset" ]; then
-          curl -fsSL "$base/$asset" -o "$cache/$asset"
-          curl -fsSL "$base/SHA256SUMS" -o "$cache/SHA256SUMS"
-        fi
-        expected="$(grep "  ${asset}$" "$cache/SHA256SUMS" | awk '{print $1}')"
-        if [ -z "$expected" ]; then
-          echo "::error::no checksum for ${asset}" >&2
+
+        # The native package layout first, then the flat names shipped by the
+        # legacy releases (pengu-linux-x64.tar.gz, pengu-macos.tar.gz, ...).
+        candidates=(
+          "pengu-${version}-${target}-portable.${ext}"
+          "pengu-${version}-${target}.${ext}"
+        )
+        case "$target" in
+          linux-x86_64)
+            candidates+=("pengu-linux-x64.${ext}" "pengu-linux-x86_64.${ext}" "pengu-linux.${ext}")
+            ;;
+          linux-arm64)
+            candidates+=("pengu-linux-arm64.${ext}" "pengu-linux-aarch64.${ext}" "pengu-linux.${ext}")
+            ;;
+          macos-*)
+            candidates+=("pengu-macos.${ext}" "pengu-macos-${arch}.${ext}" "pengu-macos-x64.${ext}")
+            ;;
+          windows-x86_64)
+            candidates+=("pengu-windows-x64.${ext}" "pengu-windows-x86_64.${ext}" "pengu-windows.${ext}")
+            ;;
+          windows-arm64)
+            candidates+=("pengu-windows-arm64.${ext}" "pengu-windows-aarch64.${ext}" "pengu-windows.${ext}")
+            ;;
+        esac
+
+        asset=""
+        for candidate in "${candidates[@]}"; do
+          if curl -fsIL --retry 2 --connect-timeout 15 "$base/$candidate" >/dev/null 2>&1; then
+            asset="$candidate"
+            break
+          fi
+        done
+        if [ -z "$asset" ]; then
+          echo "::error::release $tag has no bootstrap asset for $target" >&2
+          echo "tried:" >&2
+          printf '  %s\n' "${candidates[@]}" >&2
           exit 1
         fi
-        if command -v sha256sum >/dev/null 2>&1; then
-          actual="$(sha256sum "$cache/$asset" | awk '{print $1}')"
-        else
-          actual="$(shasum -a 256 "$cache/$asset" | awk '{print $1}')"
+
+        dest="$cache_root/${tag}-${target}"
+        mkdir -p "$dest"
+        asset_path="$dest/$asset"
+
+        if [ ! -f "$asset_path" ]; then
+          echo "Downloading $base/$asset"
+          curl -fsSL --retry 3 --connect-timeout 15 "$base/$asset" -o "$asset_path"
         fi
-        if [ "$actual" != "$expected" ]; then
-          echo "::error::checksum mismatch for ${asset}" >&2
-          exit 1
+
+        # ------------------------------------------------------------------
+        # Checksums. Current releases publish SHA256SUMS.txt; older ones used
+        # SHA256SUMS and some predate checksums entirely.
+        # ------------------------------------------------------------------
+        checksum_file=""
+        for checksum_name in SHA256SUMS.txt SHA256SUMS; do
+          if curl -fsSL --retry 2 --connect-timeout 15 \
+            "$base/$checksum_name" -o "$dest/$checksum_name" 2>/dev/null; then
+            checksum_file="$dest/$checksum_name"
+            break
+          fi
+        done
+
+        expected=""
+        if [ -n "$checksum_file" ]; then
+          expected="$(awk -v want="$asset" '
+            { name = $2; sub(/^\.\//, "", name); sub(/^\*/, "", name); if (name == want) { print $1; exit } }
+          ' "$checksum_file")"
         fi
-        dest="$cache/$name"
-        if [ ! -d "$dest" ]; then
-          if [ "$ext" = "zip" ]; then
-            unzip -q "$cache/$asset" -d "$cache"
+
+        if [ "$verify" = "true" ]; then
+          if [ -z "$checksum_file" ]; then
+            echo "::error::release $tag does not publish a SHA256SUMS file; cannot verify $asset" >&2
+            exit 1
+          fi
+          if [ -z "$expected" ]; then
+            echo "::error::no checksum for $asset in $(basename "$checksum_file")" >&2
+            exit 1
+          fi
+        elif [ -z "$expected" ]; then
+          echo "::warning::no checksum available for $asset; continuing because verify=false"
+        fi
+
+        if [ -n "$expected" ]; then
+          if command -v sha256sum >/dev/null 2>&1; then
+            actual="$(sha256sum "$asset_path" | awk '{print $1}')"
           else
-            tar -xzf "$cache/$asset" -C "$cache"
+            actual="$(shasum -a 256 "$asset_path" | awk '{print $1}')"
+          fi
+          if [ "$actual" != "$expected" ]; then
+            rm -f "$asset_path"
+            echo "::error::checksum mismatch for $asset (expected $expected, got $actual)" >&2
+            exit 1
           fi
         fi
-        echo "PENGU_HOME=$dest" >> "$GITHUB_ENV"
-        echo "$dest/bin" >> "$GITHUB_PATH"
-        echo "PENGU_BIND=$dest/bin/pengu-bind$( [ "$target" = "windows-x86_64" ] && echo .exe )" >> "$GITHUB_ENV"
-        echo "PENGU_STD_DIR=$dest/std" >> "$GITHUB_ENV"
-        echo "PENGU_LIB_DIR=$dest/lib" >> "$GITHUB_ENV"
-        echo "PENGU_INCLUDE_DIR=$dest/include" >> "$GITHUB_ENV"
-        "$dest/bin/psc" version
+
+        # ------------------------------------------------------------------
+        # Extract into a stable root. Native portable packages already have a
+        # top-level directory; legacy packages extract their files directly.
+        # ------------------------------------------------------------------
+        home="$dest/home"
+        if [ ! -f "$home/.complete" ]; then
+          rm -rf "$home" "$dest/.extract"
+          mkdir -p "$dest/.extract"
+          if [ "$ext" = "zip" ]; then
+            unzip -q "$asset_path" -d "$dest/.extract"
+          else
+            tar -xzf "$asset_path" -C "$dest/.extract"
+          fi
+
+          root="$dest/.extract"
+          top_count="$(find "$dest/.extract" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+          if [ "$top_count" = "1" ]; then
+            only="$(find "$dest/.extract" -mindepth 1 -maxdepth 1)"
+            if [ -d "$only" ]; then
+              root="$only"
+            fi
+          fi
+          mkdir -p "$home"
+          cp -a "$root/." "$home/"
+          rm -rf "$dest/.extract"
+        fi
+
+        # ------------------------------------------------------------------
+        # Locate the compiler and expose a uniform environment.
+        # ------------------------------------------------------------------
+        compiler=""
+        for candidate in \
+          "$home/bin/psc" "$home/bin/psc.exe" \
+          "$home/psc" "$home/psc.exe" \
+          "$home/bin/pengu" "$home/bin/pengu.exe" \
+          "$home/pengu" "$home/pengu.exe"; do
+          if [ -f "$candidate" ]; then
+            chmod +x "$candidate" 2>/dev/null || true
+            compiler="$candidate"
+            break
+          fi
+        done
+        if [ -z "$compiler" ]; then
+          echo "::error::no psc/pengu executable found in the $tag bootstrap" >&2
+          find "$home" -maxdepth 2 -type f -print >&2 || true
+          exit 1
+        fi
+
+        compiler_name="$(basename "$compiler")"
+        # Flat packages keep the compiler at the root, next to `runtime/` and
+        # `std/`; moving it would break resource discovery. Native packages
+        # already put it in `bin/`.
+        touch "$home/.complete"
+
+        first_dir() {
+          for directory in "$@"; do
+            if [ -d "$directory" ]; then
+              printf '%s' "$directory"
+              return 0
+            fi
+          done
+          return 1
+        }
+
+        std_dir="$(first_dir "$home/std" "$home/share/pengu/std" || true)"
+        lib_dir="$(first_dir "$home/lib" "$home/lib/pengu" "$home/runtime" || true)"
+        include_dir="$(first_dir "$home/include" "$home/include/pengu" "$home/runtime/include" || true)"
+        stubs_dir="$(first_dir "$home/c_bind_stubs" "$home/share/pengu/c_bind_stubs" "$home/std_c" || true)"
+        bind=""
+        for candidate in \
+          "$home/bin/pengu-bind" "$home/bin/pengu-bind.exe" \
+          "$home/pengu-bind" "$home/pengu-bind.exe"; do
+          if [ -f "$candidate" ]; then
+            chmod +x "$candidate" 2>/dev/null || true
+            bind="$candidate"
+            break
+          fi
+        done
+
+        write_env() {
+          if [ -n "${GITHUB_ENV:-}" ]; then
+            printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"
+          else
+            export "$1=$2"
+          fi
+        }
+        write_path() {
+          if [ -n "${GITHUB_PATH:-}" ]; then
+            printf '%s\n' "$1" >> "$GITHUB_PATH"
+          else
+            export PATH="$1:$PATH"
+          fi
+        }
+
+        write_env PENGU_HOME "$home"
+        write_env PENGU_COMPILER "$compiler"
+        write_env PENGU_COMPILER_NAME "$compiler_name"
+        [ -n "$std_dir" ] && write_env PENGU_STD_DIR "$std_dir"
+        [ -n "$lib_dir" ] && write_env PENGU_LIB_DIR "$lib_dir"
+        [ -n "$include_dir" ] && write_env PENGU_INCLUDE_DIR "$include_dir"
+        [ -n "$stubs_dir" ] && write_env PENGU_C_BIND_STUBS "$stubs_dir"
+        [ -n "$bind" ] && write_env PENGU_BIND "$bind"
+        if [ "$compiler_name" = "psc" ] || [ "$compiler_name" = "psc.exe" ]; then
+          write_env PSC "$compiler"
+        fi
+        [ -d "$home/bin" ] && write_path "$home/bin"
+        write_path "$home"
+
+        if [ -n "${GITHUB_OUTPUT:-}" ]; then
+          {
+            printf 'compiler=%s\n' "$compiler"
+            printf 'home=%s\n' "$home"
+            printf 'tag=%s\n' "$tag"
+            printf 'asset=%s\n' "$asset"
+          } >> "$GITHUB_OUTPUT"
+        fi
+
+        # A bootstrap that cannot run is not a bootstrap. Prefer -V because the
+        # native psc and the legacy pengu both accept it.
+        if ! "$compiler" -V; then
+          "$compiler" version
+        fi

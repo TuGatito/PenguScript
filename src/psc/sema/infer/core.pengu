@@ -31,6 +31,7 @@ import psc.sema.state as state
 import psc.sema.annotate as ann
 import psc.sema.diagnostics as sdiag
 import psc.parse.api as parse_api
+import psc.diag_compat as diag_compat
 import psc.span as pspan
 
 insignia sema_infer_
@@ -232,7 +233,7 @@ weave check_string_literal with s as ref to state.SemaState, node as int into vo
                             calling sdiag.node_error with s->bag, s->src, sdiag.CODE_INTERP_PARSE, part.start, part.end, msg, "Fix the expression inside the braces.", ""
                         banish r
                     else:
-                        var tmp_bag as diag.DiagnosticBag is calling diag.DiagnosticBag.new
+                        var tmp_bag as diag.DiagnosticBag is calling diag_compat.new_diagnostic_bag
                         var tmp_ann as ann.SemaAnnotations is calling ann.new_annotations with (sigil of r.ast)
                         var old_src as ref to psource.SourceFile is s->src
                         var old_lex as ref to psstate.LexResult is s->lex

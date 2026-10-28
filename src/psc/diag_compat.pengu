@@ -1,0 +1,14 @@
+## psc/diag_compat.pengu — constructor compatible con bootstraps antiguos.
+##
+## Los compiladores publicados antes de PSC resuelven `diag.DiagnosticBag.new`
+## como un método del módulo `diag`. Este helper hace la construcción a través
+## de un import sin alias, que ambos compiladores entienden.
+
+import std.diagnostic
+
+## Construye un `DiagnosticBag` vacío.
+##
+## ## Retorno
+## El bag recién creado; liberar con `banish`.
+weave new_diagnostic_bag into DiagnosticBag:
+    return calling DiagnosticBag.new

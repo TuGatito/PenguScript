@@ -3,7 +3,19 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="${VERSION:-$("$ROOT/build/psc" version | awk '{print $2}')}"
-TARGET="${TARGET:-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)}"
+if [ -z "${TARGET:-}" ]; then
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  arch="$(uname -m)"
+  case "$arch" in
+    amd64) arch="x86_64" ;;
+    aarch64) arch="arm64" ;;
+  esac
+  case "$os" in
+    darwin) os="macos" ;;
+    mingw*|msys*|cygwin*) os="windows" ;;
+  esac
+  TARGET="$os-$arch"
+fi
 DIST="${DIST:-$ROOT/dist}"
 BIND="${PENGU_BIND:-$ROOT/build/pengu-bind}"
 LAYOUT="${LAYOUT:-both}"
