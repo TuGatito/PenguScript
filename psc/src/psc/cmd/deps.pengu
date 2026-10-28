@@ -29,6 +29,7 @@ weave project_root into string:
         banish cwd
         return ""
     var r as string is calling pman.find_root with cwd.value
+    banish cwd.value
     banish cwd
     return r
 
@@ -107,6 +108,12 @@ weave run_add with args as list of string into int:
     calling sf.push with "--trust"
     calling sf.push with "--help"
     var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    for v in vf:
+        banish v
+    banish vf
+    for v in sf:
+        banish v
+    banish sf
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e

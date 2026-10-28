@@ -77,6 +77,7 @@ weave load with base as string into list of Dependency:
         banish txt
         return out
     var pr as result of list of toml.TomlEntry to string is calling toml.parse with txt.value
+    banish txt.value
     banish txt
     if not pr.is_ok:
         banish pr
@@ -196,6 +197,18 @@ weave starts_with with s as string, p as string into bool:
         set i is i + 1
     return true
 
+weave ends_with with s as string, p as string into bool:
+    if s length < p length:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of p
+    var i as int is 0
+    while i < p length:
+        if ((sb at (s length - p length + i)) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true
+
 weave find_sub with s as string, p as string into int:
     var sb as ref to frozen byte is bytes of s
     var pb as ref to frozen byte is bytes of p
@@ -303,7 +316,7 @@ weave upsert with base as string, d as Dependency into bool:
             var eline as string is calling entry_line with d
             calling out.push with eline
             set inserted is true
-        else if in_deps and t length > 0 and (t at 0 to 1) == "[" and (t at (t length - 1) to (t length)) == "]":
+        else if in_deps and (calling starts_with with t, "[") and (calling ends_with with t, "]"):
             set in_deps is false
             calling out.push with (calling copy with line)
         else if in_deps and calling starts_with with t, "{d.name} ":
@@ -354,6 +367,7 @@ weave remove with base as string, name as string into bool:
         return false
     var ttxt as string is calling copy with txt.value
     var lines as list of string is calling ttxt.split with "\n"
+    banish txt.value
     banish txt
     var out as list of string is list of string
     var in_deps as bool is false
@@ -369,7 +383,7 @@ weave remove with base as string, name as string into bool:
         if t == "[dependencies]":
             set in_deps is true
             calling out.push with (calling copy with line)
-        else if in_deps and t length > 0 and (t at 0 to 1) == "[":
+        else if in_deps and (calling starts_with with t, "["):
             set in_deps is false
             calling out.push with (calling copy with line)
         else if in_deps and ((calling starts_with with t, "{name} ") or (calling starts_with with t, "{name}=")):

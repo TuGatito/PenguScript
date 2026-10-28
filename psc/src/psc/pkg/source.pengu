@@ -17,7 +17,7 @@ weave copy with s as string into string:
 
 ## ¿Es una URL git?
 weave is_git with s as string into bool:
-    if s length >= 4 and s at (s length - 4) to (s length) == ".git":
+    if calling ends_with with s, ".git":
         return true
     var prefixes as list of string is list of string
     calling prefixes.push with "http://"
@@ -28,7 +28,7 @@ weave is_git with s as string into bool:
     calling prefixes.push with "file://"
     var hit as bool is false
     for p in prefixes:
-        if s length >= p length and s at 0 to (p length) == p:
+        if calling starts_with with s, p:
             set hit is true
         banish p
     banish prefixes
@@ -173,6 +173,19 @@ weave tags with src as string into list of string:
         set i is i + 1
     banish args
     return out
+
+## `true` si `s` empieza por `p`.
+weave starts_with with s as string, p as string into bool:
+    if s length < p length:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of p
+    var i as int is 0
+    while i < p length:
+        if ((sb at i) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true
 
 ## `true` si `s` termina en `p`.
 weave ends_with with s as string, p as string into bool:

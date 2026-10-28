@@ -53,7 +53,8 @@ weave install with base as string, lib_dir as string, d as pman.Dependency into 
     var target as string is "{base}/{lib_dir}/{d.name}"
     var src as string is calling copy with d.source
     if d.kind == "path":
-        if (d.source at 0 to 1) != "/":
+        var dbs as ref to frozen byte is bytes of d.source
+        if d.source length == 0 or ((dbs at 0) to int) != 47:
             banish src
             set src is "{base}/{d.source}"
         if not calling archivum.is_dir with src:

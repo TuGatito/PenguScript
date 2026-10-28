@@ -44,6 +44,7 @@ weave tree_hash with root as string into string:
         var rel as string is ""
         if relm.is_present:
             set rel is (calling npool.copy_string with relm.value)
+            banish relm.value
         banish relm
         var skip as bool is false
         if (calling contains with rel, "/.git/") or (calling starts_with with rel, ".git/"):
@@ -62,6 +63,7 @@ weave tree_hash with root as string into string:
             var data as maybe string is calling archivum.read_bytes with f
             if data.is_present:
                 calling sb.append with data.value
+                banish data.value
                 banish data
             calling sb.append with "\0"
         banish rel
@@ -113,6 +115,7 @@ weave read with base as string into maybe Lock:
         banish txt
         return (maybe none)
     var pr as result of list of toml.TomlEntry to string is calling toml.parse with txt.value
+    banish txt.value
     banish txt
     if not pr.is_ok:
         banish pr
