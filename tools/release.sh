@@ -47,7 +47,8 @@ pack() {
     cp -a "$ROOT"/std/. "$root/std/"
     cp -a "$ROOT"/c_bind_stubs/. "$root/c_bind_stubs/"
   fi
-  for f in README.md CHANGELOG.md LICENSE; do [ -f "$ROOT/$f" ] && cp "$ROOT/$f" "$root/share/doc/pengu/"; done
+  for f in README.md CHANGELOG.md LICENSE THIRD_PARTY.md; do [ -f "$ROOT/$f" ] && cp "$ROOT/$f" "$root/share/doc/pengu/"; done
+  [ -f "$ROOT/std_c/sds/LICENSE" ] && cp "$ROOT/std_c/sds/LICENSE" "$root/share/doc/pengu/SDS_LICENSE"
   echo "$VERSION" > "$root/VERSION"
   cat > "$root/release.toml" <<TOML
 [release]

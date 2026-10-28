@@ -55,6 +55,14 @@
     temporales de tokens se liberan con `defer banish`.
 24. Las firmas y campos son POD; ninguna lista de `SemaType`/`SemaSymbol`
     libera recursivamente strings.
+25. **Todo `string` con posesión es SDS** (`is_owned == 1`): `data` apunta a
+    una reserva de `std_c/sds` y solo puede liberarse con `sdsfree`. Los
+    productores usan `pengu_string_owned`, `pengu_string_owned_size`,
+    `pengu_string_owned_from_sds` o `pengu_string_owned_from_sds_len`; nunca
+    `malloc` seguido de `is_owned = 1`.
+26. **`is_owned == 2` es un bloque crudo opaco** que no es SDS y se libera con
+    `free`. Solo lo usan `std/arena.pengu` (alineación de `max_align_t`) y
+    `std/regulus.pengu` (puntero compilado de la librería `re`).
 
 ## Tabla
 
@@ -70,6 +78,8 @@
 | `PsAst.nodes/children/labels` | `PsParseResult` / llamador | `banish result` |
 | `PsParser.child_stack/marks` | `PsParser` | `ps_free_scratch` |
 | `InterpParseResult.*` | `InterpParseResult` | `banish result` |
+| `PenguString.data` (`is_owned == 1`) | productor del string | `banish` (`sdsfree`) |
+| `PenguString.data` (`is_owned == 2`) | productor del bloque opaco | `banish` (`free`) |
 | `decode_*` / `ps_ast_token_text` | llamador | `banish` |
 | `SourceFile.slice/line_text` | llamador | `banish` |
 | Mensajes de `parse_issue_message` | llamador | `banish` tras `emit` |

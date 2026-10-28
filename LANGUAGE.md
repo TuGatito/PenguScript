@@ -276,7 +276,7 @@ PenguScript defines clean, C-compatible container structs in `pengu_runtime.h`:
 | Call Frame | `PenguFrame` | `typedef struct { const char *fn_name; const char *file; int line; } PenguFrame;` |
 
 #### Container Semantics & Memory:
-- **`PenguString`:** Represents an immutable string view. String literals in runtime expressions reference `.rodata` and are non-owning (`is_owned == 0`), while dynamic strings created from format `{expr}` or conversions are heap-allocated (`is_owned == 1`). `pengu_string_from_cstr` creates a non-owning view over a C string. Nothing is released automatically: call `banish` (or `defer banish`) on a string you allocated when you are done with it (§13).
+- **`PenguString`:** Represents an immutable string view. String literals in runtime expressions reference `.rodata` and are non-owning (`is_owned == 0`), while dynamic strings created from format `{expr}` or conversions are owned SDS strings (`is_owned == 1`). The backing allocation comes from the vendored **SDS (Simple Dynamic Strings)** library (`std_c/sds`), so `data` is always NUL-terminated, binary-safe and released with `sdsfree` (a small internal `is_owned == 2` kind covers opaque non-text blocks such as the arena and the regex compiler). `pengu_string_from_cstr` creates a non-owning view over a C string. Nothing is released automatically: call `banish` (or `defer banish`) on a string you allocated when you are done with it (§13).
 - **`PenguSlice`:** Represents a non-owning window over contiguous elements. Created via slicing (`nums at 1 to 3`) or through `std.ffi.slice_from_ptr`. Never owns heap memory; do not `banish` a slice.
 - **`PenguList`:** Growable dynamic vector. Manages an internal heap array of size `cap * elem_size`, expanding with 2x amortized growth upon `push`/`append`.
 - **`PenguMap`:** Hash table using open addressing and linear probing. Entries are stored in `PenguMapEntry { void *key; void *val; bool occupied; }`. Keys and values are copied into entry cells with `memcpy`; the map does not clone the payloads they reference. Iteration order is **hash order**, not insertion order.
@@ -2868,7 +2868,7 @@ weave main into int:
 Rules:
 - `banish target` accepts a mutable lvalue of type `ref to T`, `string`, `list of T`, `map of K to V`, `maybe T`, `result of T to E`, or a rune with `derive Nexus`. An element access (`banish xs at 0`, `banish m at "k"`) is an lvalue too, and releases the owned element in place.
 - `banish ptr` (where `ptr as ref to T`): emits `pengu_banish((void*)(ptr))` to release heap-allocated memory.
-- `banish s` (where `s as string`): emits `pengu_banish_string(&s)`. When the string owns its buffer (`is_owned == 1`) this frees it, sets `s.data = NULL` and `s.len = 0`. String literals and other non-owning views carry `is_owned == 0`, so banishing them is a safe no-op. Do not access the string after banishing.
+- `banish s` (where `s as string`): emits `pengu_banish_string(&s)`. When the string owns its buffer (`is_owned == 1`, an SDS allocation) this frees it with `sdsfree`; opaque raw blocks (`is_owned == 2`, e.g. arena/regex storage) are freed with `free`. In both cases it sets `s.data = NULL`, `s.len = 0` and `s.is_owned = 0`. String literals and other non-owning views carry `is_owned == 0`, so banishing them is a safe no-op. Do not access the string after banishing.
 - `banish l` (where `l as list of T`): emits `pengu_banish_list(&l)`. Frees the list's own element buffer and resets length and capacity to 0. It does **not** release the elements (see §13.5).
 - `banish m` (where `m as map of K to V`): emits `pengu_banish_map(&m)`. Frees the map's own entries table and per-entry key/value cells and resets length and capacity. It does **not** release heap buffers referenced by string keys or values (see §13.5).
 - `banish d` (where `d` is a rune with `derive Nexus`): emits `_pengu_cleanup_D(&d)`, the destructor the rune opted into (§9.1.2).
@@ -2980,15 +2980,19 @@ value. Module-level arrays are static storage and are allowed.
 | Function | Signature / Operation | Behavior | Release semantics |
 |----------|-----------------------|----------|-------------------|
 | `pengu_sigil_alloc` | `void* pengu_sigil_alloc(size_t sz)` | Allocates zero-initialized heap memory for `some` optionals. | The caller must `banish` the returned pointer. |
-| `pengu_string_new` | `PenguString pengu_string_new(const char *s, int len)` | Allocates an owned string buffer on the heap. | The caller must `banish` the returned `PenguString.data`. |
+| `pengu_string_new` | `PenguString pengu_string_new(const char *s)` | Allocates an owned SDS string from a NUL-terminated C string. | The caller must `banish` the returned `PenguString`. |
+| `pengu_string_owned` | `PenguString pengu_string_owned(const void *data, int len)` | Copies exactly `len` bytes into an owned SDS string (binary-safe). | Owned; `banish` it. |
+| `pengu_string_owned_size` | `PenguString pengu_string_owned_size(int len)` | Allocates a zeroed, owned SDS payload of `len` bytes to write into. | Owned; `banish` it. |
+| `pengu_string_owned_from_sds` | `PenguString pengu_string_owned_from_sds(sds s)` | Adopts an SDS allocation; length comes from `sdslen`. | Owned; `banish` it. |
+| `pengu_string_owned_from_sds_len` | `PenguString pengu_string_owned_from_sds_len(sds s, int used)` | Adopts an SDS allocation and fixes the used length (`sdssetlen` + NUL). | Owned; `banish` it. |
 | `pengu_string_from_cstr` | `PenguString pengu_string_from_cstr(const char *s)` | Creates a non-owning view over a C string (`is_owned == 0`). | Non-owning; `banish` is a no-op. |
-| `pengu_string_format_ex` | `PenguString pengu_string_format_ex(const char *fmt, ...)` | Byte-exact `"{expr}"` formatter: `%.*s` copies `len` bytes (NULs included). | Allocates a new buffer; the caller must `banish` it. |
-| `pengu_string_concat` | `PenguString pengu_string_concat(PenguString a, PenguString b)` | Allocates and returns concatenated string. | Allocates a new buffer; the caller must `banish` it. Inputs `a`, `b` unchanged. |
+| `pengu_string_format_ex` | `PenguString pengu_string_format_ex(const char *fmt, ...)` | Byte-exact `"{expr}"` formatter: `%.*s` copies `len` bytes (NULs included). | Allocates a new SDS buffer; the caller must `banish` it. |
+| `pengu_string_concat` | `PenguString pengu_string_concat(PenguString a, PenguString b)` | Allocates and returns concatenated string. | Allocates a new SDS buffer; the caller must `banish` it. Inputs `a`, `b` unchanged. |
 | `pengu_string_equal` | `bool pengu_string_equal(PenguString a, PenguString b)` | Compares byte content and length for equality. | Non-allocating; inputs passed by value. |
 | `pengu_to_string` | `pengu_to_string(x)` | Generic macro converting primitive `x` to `PenguString`. | Returns an owned heap string for formatted values, or a non-owning view. |
 | `pengu_string_format` | `PenguString pengu_string_format(const char *fmt, ...)` | Allocates formatted string via `vsnprintf`. | The caller must `banish` the returned `PenguString.data`. |
 | `pengu_string_copy` | `PenguString pengu_string_copy(PenguString s)` | Allocates an independent copy of `s`. | The caller must `banish` the copy. |
-| `pengu_banish_string`| `void pengu_banish_string(PenguString *s)` | Frees the heap buffer when `is_owned`, then nullifies data/len/is_owned. | Safe no-op on a non-owning view. |
+| `pengu_banish_string`| `void pengu_banish_string(PenguString *s)` | Frees an owned SDS buffer with `sdsfree` (or an opaque `is_owned == 2` block with `free`), then nullifies data/len/is_owned. | Safe no-op on a non-owning view. |
 | `pengu_banish_list`  | `void pengu_banish_list(PenguList *l)` | Frees the list's element buffer and resets length/capacity. | Does not touch the elements. |
 | `pengu_banish_string_list` | `void pengu_banish_string_list(PenguList *l)` | Banishes each `PenguString` element, then the list. | The opt-in helper for `list of string`. |
 | `pengu_banish_map`   | `void pengu_banish_map(PenguMap *m)` | Frees the map's entries table and per-entry key/value cells. | Does not release heap buffers referenced by keys/values. |

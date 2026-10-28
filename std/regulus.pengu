@@ -156,10 +156,11 @@ omen RegexError:
 ## Compiles `pattern` into an owned block.
 ##
 ## Returns a `PenguString` header whose `data` is the compiled program and whose
-## `is_owned` is 1 (so `banish` releases it). `err_out` receives 0 on success,
-## 1 for invalid syntax, 2 for an over-long pattern or 3 for OOM. A `string`
-## header is used instead of `ref to byte` because `derive Nexus` already knows
-## how to release an owned `string`.
+## `is_owned` is 2 (raw block, released with `free` by `banish`). `err_out`
+## receives 0 on success, 1 for invalid syntax, 2 for an over-long pattern or 3
+## for OOM. A `string` header is used instead of `ref to byte` because
+## `derive Nexus` already knows how to release an owned `string`, and the
+## pointer is owned by the `re` library, not by SDS.
 antiquus _regulus_compile with pattern as string, err_out as ref to int into string:
     r"""
 PenguString out;
@@ -203,7 +204,7 @@ if (compiled == 0)
 
 out.data = (char *)compiled;
 out.len = 0;
-out.is_owned = 1;
+out.is_owned = PENGU_STRING_OWNED_RAW;
 *err_out = 0;
 return out;
 """

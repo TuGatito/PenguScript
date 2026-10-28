@@ -450,7 +450,7 @@ int __MOD___count(void) { return __COUNT__; }
 char* __MOD___name(int i) { if (i < 0 || i >= __COUNT__) return (char*)0; return (char*)__MOD___assets[i].name; }
 const void* __MOD___data(const char* n) { if (!n) return (const void*)0; for (int i=0;i<__COUNT__;i++) if (strcmp(__MOD___assets[i].name,n)==0) return __MOD___assets[i].data; return (const void*)0; }
 size_t __MOD___size(const char* n) { const void* p=__MOD___data(n); if(!p) return 0; for (int i=0;i<__COUNT__;i++) if (strcmp(__MOD___assets[i].name,n)==0) return __MOD___assets[i].size; return 0; }
-PenguString __MOD___string(const char* n) { const void* p=__MOD___data(n); if(!p) return pengu_string_from_cstr(""); size_t z=__MOD___size(n); PenguString s; s.data=(char*)pengu_sigil_alloc((int64_t)z+1); if(!s.data){s.len=0;s.is_owned=1;return s;} if(z) memcpy(s.data,p,z); s.data[z]=0; s.len=(int)z; s.is_owned=1; return s; }
+PenguString __MOD___string(const char* n) { const void* p=__MOD___data(n); if(!p) return pengu_string_from_cstr(""); size_t z=__MOD___size(n); if(z > (size_t)INT_MAX) return pengu_string_from_cstr(""); if(z == 0) return pengu_string_owned_empty(); return pengu_string_owned(p, (int)z); }
 """
     var c1 as string is calling scrolls.replace_all with ctmpl, "__MOD__", man.assets_module
     var c2 as string is calling scrolls.replace_all with c1, "__ENTRIES__", entries
@@ -542,14 +542,9 @@ PenguString __MOD___string(const char* n) {
     const void* p = __MOD___data(n);
     if (!p) return pengu_string_from_cstr("");
     size_t z = __MOD___size(n);
-    PenguString s;
-    s.data = (char*)pengu_sigil_alloc((int64_t)z + 1);
-    if (!s.data) { s.len = 0; s.is_owned = 1; return s; }
-    if (z) memcpy(s.data, p, z);
-    s.data[z] = 0;
-    s.len = (int)z;
-    s.is_owned = 1;
-    return s;
+    if (z > (size_t)INT_MAX) return pengu_string_from_cstr("");
+    if (z == 0) return pengu_string_owned_empty();
+    return pengu_string_owned(p, (int)z);
 }
 """
         var d1 as string is calling scrolls.replace_all with dtmpl, "__MOD__", man.assets_module

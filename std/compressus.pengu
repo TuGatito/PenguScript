@@ -309,8 +309,8 @@ return (uint32_t)mz_adler32((mz_ulong)seed, p + offset, (size_t)length);
 ## `mz_stream` the binding deliberately does not expose.
 ##
 ## ## Memoria
-## The returned `PenguString` owns a `malloc` block that miniz allocated with its
-## default allocator (`malloc`), which is exactly what `banish` calls. `status`
+## The returned `PenguString` owns an SDS copy of the block miniz allocated; the
+## intermediate block is released with `mz_free`. `status`
 ## receives `MZ_OK` or a negative `MZ_*` code.
 antiquus _deflate_raw with data as string, level as int, status as ref to int into string:
     r"""
@@ -330,11 +330,10 @@ if (out_len > (size_t)INT_MAX) {
     *status = MZ_PARAM_ERROR;
     return pengu_string_from_cstr("");
 }
-PenguString s;
-s.data = (char *)buf;
-s.len = (int)out_len;
-s.is_owned = 1;
-return s;
+PenguString out = pengu_string_owned(buf, (int)out_len);
+mz_free(buf);
+if (out.len == 0 && out_len > 0) *status = MZ_MEM_ERROR;
+return out;
 """
 
 ## Compresses `data` as a **zlib** stream (RFC 1950) at `level`.
@@ -345,8 +344,8 @@ return s;
 ## a checksum miniz already emits and verifies.
 ##
 ## ## Memoria
-## Allocates exactly `mz_compressBound(n)` bytes with `malloc`; the returned
-## string owns them. `status` receives `MZ_OK` or a negative `MZ_*` code.
+## Reserves exactly `mz_compressBound(n)` bytes in an SDS buffer; the returned
+## string owns it. `status` receives `MZ_OK` or a negative `MZ_*` code.
 antiquus _deflate_zlib with data as string, level as int, status as ref to int into string:
     r"""
 *status = MZ_OK;
@@ -362,28 +361,24 @@ if (cap > (mz_ulong)INT_MAX) {
     *status = MZ_PARAM_ERROR;
     return pengu_string_from_cstr("");
 }
-unsigned char *buf = (unsigned char *)malloc((size_t)cap);
+sds buf = sdsnewlen(NULL, (size_t)cap);
 if (!buf) {
     *status = MZ_MEM_ERROR;
     return pengu_string_from_cstr("");
 }
 mz_ulong out_len = cap;
-int rc = mz_compress2(buf, &out_len, in, (mz_ulong)n, level);
+int rc = mz_compress2((unsigned char *)buf, &out_len, in, (mz_ulong)n, level);
 if (rc != MZ_OK) {
-    free(buf);
+    sdsfree(buf);
     *status = rc;
     return pengu_string_from_cstr("");
 }
 if (out_len > (mz_ulong)INT_MAX) {
-    free(buf);
+    sdsfree(buf);
     *status = MZ_PARAM_ERROR;
     return pengu_string_from_cstr("");
 }
-PenguString s;
-s.data = (char *)buf;
-s.len = (int)out_len;
-s.is_owned = 1;
-return s;
+return pengu_string_owned_from_sds_len(buf, (int)out_len);
 """
 
 ## Compresses `data` as a **gzip** stream (RFC 1952) at `level`.
@@ -400,7 +395,7 @@ return s;
 ## `0` otherwise); no reader depends on it.
 ##
 ## ## Memoria
-## Allocates the exact output size with `malloc`; the returned string owns it.
+## Reserves the exact output size in an SDS buffer; the returned string owns it.
 ## The temporary deflate block is released with `mz_free` before returning.
 ## `status` receives `MZ_OK` or a negative `MZ_*` code.
 antiquus _gzip_compress with data as string, level as int, filename as string, status as ref to int into string:
@@ -428,7 +423,7 @@ if (raw_len > (size_t)INT_MAX || header_len > (size_t)INT_MAX - raw_len - (size_
     return pengu_string_from_cstr("");
 }
 size_t total = header_len + raw_len + (size_t)8;
-unsigned char *out = (unsigned char *)malloc(total);
+sds out = sdsnewlen(NULL, total);
 if (!out) {
     mz_free(raw);
     *status = MZ_MEM_ERROR;
@@ -467,11 +462,7 @@ out[o++] = (unsigned char)((isize >> 24) & 0xff);
 
 mz_free(raw);
 
-PenguString s;
-s.data = (char *)out;
-s.len = (int)o;
-s.is_owned = 1;
-return s;
+return pengu_string_owned_from_sds_len(out, (int)o);
 """
 
 ## Inflates `data[offset..]` with `window_bits` (`15` = zlib, `-15` = raw).
@@ -516,7 +507,7 @@ size_t cap = 256;
 if (in_len <= ((size_t)-1 - 64) / 3) cap = in_len * 3 + 64;
 if (cap < 256) cap = 256;
 if (cap > (size_t)(1u << 20)) cap = (size_t)(1u << 20);
-unsigned char *out = (unsigned char *)malloc(cap);
+sds out = sdsnewlen(NULL, cap);
 if (!out) {
     mz_inflateEnd(&stream);
     *status = MZ_MEM_ERROR;
@@ -528,52 +519,48 @@ stream.avail_in = (unsigned int)in_len;
 
 size_t used = 0;
 for (;;) {
-    if (used == cap) {
+    if (sdsavail(out) == 0) {
         /* `PenguString.len` is a 32-bit int, so a larger output cannot be
-         * returned; stop before the doubling arithmetic can overflow. */
-        if (cap >= (size_t)INT_MAX) {
-            free(out);
+         * returned; stop before the growth arithmetic can overflow. */
+        size_t current = sdsalloc(out);
+        if (current >= (size_t)INT_MAX) {
+            sdsfree(out);
             mz_inflateEnd(&stream);
             *status = MZ_PARAM_ERROR;
             return pengu_string_from_cstr("");
         }
-        size_t next_cap = cap * 2;
-        if (next_cap > (size_t)INT_MAX) next_cap = (size_t)INT_MAX;
-        unsigned char *grown = (unsigned char *)realloc(out, next_cap);
+        sds grown = sdsMakeRoomFor(out, current);
         if (!grown) {
-            free(out);
+            sdsfree(out);
             mz_inflateEnd(&stream);
             *status = MZ_MEM_ERROR;
             return pengu_string_from_cstr("");
         }
         out = grown;
-        cap = next_cap;
     }
-    stream.next_out = out + used;
-    stream.avail_out = (unsigned int)(cap - used);
+    size_t cap_now = sdsalloc(out);
+    stream.next_out = (unsigned char *)out + used;
+    stream.avail_out = (unsigned int)(cap_now - used);
     unsigned int before_in = stream.avail_in;
     unsigned int before_out = stream.avail_out;
     rc = mz_inflate(&stream, MZ_NO_FLUSH);
-    used = cap - (size_t)stream.avail_out;
+    used = cap_now - (size_t)stream.avail_out;
+    sdssetlen(out, used);
     if (rc == MZ_STREAM_END) {
         *consumed = (int)stream.total_in;
         *status = MZ_OK;
         mz_inflateEnd(&stream);
-        PenguString s;
-        s.data = (char *)out;
-        s.len = (int)used;
-        s.is_owned = 1;
-        return s;
+        return pengu_string_owned_from_sds_len(out, (int)used);
     }
     if (rc != MZ_OK && rc != MZ_BUF_ERROR) {
-        free(out);
+        sdsfree(out);
         mz_inflateEnd(&stream);
         *status = rc;
         return pengu_string_from_cstr("");
     }
     if (stream.avail_out == 0) continue;
     if (stream.avail_in == before_in && stream.avail_out == before_out) {
-        free(out);
+        sdsfree(out);
         mz_inflateEnd(&stream);
         *status = MZ_BUF_ERROR;
         return pengu_string_from_cstr("");

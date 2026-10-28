@@ -12,8 +12,11 @@ OBJ="$OUT/obj_runtime"
 SOBJ="$OUT/obj_std_c"
 mkdir -p "$INC" "$LIB" "$OBJ" "$SOBJ"
 cp "$ROOT/pengu_runtime.h" "$INC/pengu_runtime.h"
+# `pengu_runtime.h` includes "sds.h": copy it next to the header so generated
+# bundles compile with the same `-I` as the runtime.
+cp "$ROOT/std_c/sds/sds.h" "$INC/sds.h"
 
-FLAGS=(-O2 -I"$ROOT" -I"$INC" -ffunction-sections -fdata-sections)
+FLAGS=(-O2 -I"$ROOT" -I"$INC" -I"$ROOT/std_c/sds" -ffunction-sections -fdata-sections)
 OBJS=()
 for pair in "pengu_runtime.o:0" "pengu_runtime_filum.o:1"; do
   obj="${pair%%:*}"
@@ -23,6 +26,12 @@ for pair in "pengu_runtime.o:0" "pengu_runtime_filum.o:1"; do
     -c "$ROOT/runtime/pengu_runtime.c" -o "$OBJ/$obj"
   OBJS+=("$OBJ/$obj")
 done
+# SDS is compiled into libpengu_runtime.a on purpose: every existing project
+# already links -lpengu_runtime, so no manifest or link-order change is needed.
+"$CC" -O2 -std=c99 -Wall -Wextra -Werror -I"$ROOT/std_c/sds" \
+  -ffunction-sections -fdata-sections \
+  -c "$ROOT/std_c/sds/sds.c" -o "$SOBJ/sds.o"
+OBJS+=("$SOBJ/sds.o")
 rm -f "$LIB/libpengu_runtime.a"
 "$AR" rcs "$LIB/libpengu_runtime.a" "${OBJS[@]}"
 
@@ -39,7 +48,7 @@ for src in "$ROOT"/std_c/*.c; do
   esac
   extra=()
   [ "$name" = "miniz" ] && extra=(-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES -DMINIZ_NO_ARCHIVE_APIS -DMINIZ_NO_STDIO -DMINIZ_NO_TIME -Wno-type-limits)
-  "$CC" -O2 -std=c99 -Wall -Wextra -Werror -I"$ROOT/std_c" -I"$ROOT" -I"$INC" \
+  "$CC" -O2 -std=c99 -Wall -Wextra -Werror -I"$ROOT/std_c" -I"$ROOT" -I"$INC" -I"$ROOT/std_c/sds" \
     -ffunction-sections -fdata-sections "${extra[@]}" -c "$src" -o "$SOBJ/$name.o"
   rm -f "$LIB/lib$name.a"
   "$AR" rcs "$LIB/lib$name.a" "$SOBJ/$name.o"

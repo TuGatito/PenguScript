@@ -150,6 +150,26 @@ psc build --locked
 psc vendor
 ```
 
+### Vendored C libraries
+
+The `string` type is backed by **SDS (Simple Dynamic Strings)** from Redis,
+vendored in [`std_c/sds/`](std_c/sds/) under the BSD-2-Clause license. SDS is
+compiled into `libpengu_runtime.a`, so projects keep linking only
+`-lpengu_runtime`; `sds.h` is installed next to `pengu_runtime.h`.
+
+## Credits
+
+PenguScript's string backend is built on **SDS — Simple Dynamic Strings**,
+created by [Salvatore Sanfilippo](https://github.com/antirez), improved by Oran
+Agra and maintained by the Redis community. It is vendored in
+[`std_c/sds/`](std_c/sds/) and distributed under its original BSD-2-Clause
+license; see [`std_c/sds/LICENSE`](std_c/sds/LICENSE) and
+[THIRD_PARTY.md](THIRD_PARTY.md).
+
+**Thank you**, Salvatore, Oran and the Redis community, for building and
+sharing such a small, battle-tested library. Your work is what makes
+PenguScript's strings safer and faster.
+
 ## Status
 
 - Lexer, parser, semantic analysis, C codegen, CLI, formatter, docs, assets,

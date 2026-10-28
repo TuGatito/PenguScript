@@ -246,7 +246,7 @@ PenguScript define structs de contenedor limpios y compatibles con C en `pengu_r
 | Call Frame | `PenguFrame` | `typedef struct { const char *fn_name; const char *file; int line; } PenguFrame;` |
 
 #### Semántica de contenedores y memoria:
-- **`PenguString`:** Representa una vista de cadena inmutable. Los literales de cadena en expresiones de runtime referencian `.rodata` y no poseen nada (`is_owned == 0`), mientras que las cadenas dinámicas creadas con el formato `{expr}` o conversiones se reservan en el heap (`is_owned == 1`). `pengu_string_from_cstr` crea una vista sin posesión sobre una cadena de C. Nada se libera automáticamente: aplica `banish` (o `defer banish`) a una cadena que hayas asignado cuando termines con ella (§13).
+- **`PenguString`:** Representa una vista de cadena inmutable. Los literales de cadena en expresiones de runtime referencian `.rodata` y no poseen nada (`is_owned == 0`), mientras que las cadenas dinámicas creadas con el formato `{expr}` o conversiones son cadenas SDS con posesión (`is_owned == 1`). La reserva la gestiona **SDS (Simple Dynamic Strings)**, vendorizado en `std_c/sds`: `data` está siempre terminado en NUL, es binario-seguro y se libera con `sdsfree` (el valor interno `is_owned == 2` queda para bloques opacos que no son texto, como el arena y el compilador de regex). `pengu_string_from_cstr` crea una vista sin posesión sobre una cadena de C. Nada se libera automáticamente: aplica `banish` (o `defer banish`) a una cadena que hayas asignado cuando termines con ella (§13).
 - **`PenguSlice`:** Representa una ventana sin posesión sobre elementos contiguos. Se crea mediante slicing (`nums at 1 to 3`) o a través de `std.ffi.slice_from_ptr`. Nunca posee memoria del heap; no hagas `banish` de un slice.
 - **`PenguList`:** Vector dinámico ampliable. Gestiona un array interno en el heap de tamaño `cap * elem_size`, que se expande con un crecimiento amortizado de 2x al hacer `push`/`append`.
 - **`PenguMap`:** Tabla hash con direccionamiento abierto y sondeo lineal. Las entradas se almacenan en `PenguMapEntry { void *key; void *val; bool occupied; }`. Las claves y los valores se copian en las celdas de las entradas con `memcpy`; el mapa no clona las cargas útiles a las que apunten. El orden de iteración es el **orden de hash**, no el orden de inserción.
@@ -2836,10 +2836,11 @@ Reglas:
 - `banish ptr` (donde `ptr as ref to T`): emite `pengu_banish((void*)(ptr))` para
   liberar memoria asignada en el heap.
 - `banish s` (donde `s as string`): emite `pengu_banish_string(&s)`. Si la cadena posee su
-  búfer (`is_owned == 1`) lo libera, establece `s.data = NULL` y `s.len = 0`. Los
-  literales de cadena y otras vistas sin posesión llevan `is_owned == 0`, así que
-  aplicarles banish es una operación segura que no hace nada. No accedas a la cadena
-  después de aplicar banish.
+  búfer (`is_owned == 1`, una reserva SDS) lo libera con `sdsfree`; los bloques crudos
+  opacos (`is_owned == 2`, p. ej. arena/regex) se liberan con `free`. En ambos casos
+  establece `s.data = NULL`, `s.len = 0` y `s.is_owned = 0`. Los literales de cadena y
+  otras vistas sin posesión llevan `is_owned == 0`, así que aplicarles banish es una
+  operación segura que no hace nada. No accedas a la cadena después de aplicar banish.
 - `banish l` (donde `l as list of T`): emite `pengu_banish_list(&l)`. Libera el búfer
   propio de elementos de la lista y reinicia la longitud y la capacidad a 0. **No**
   libera los elementos (véase §13.5).
@@ -2989,15 +2990,19 @@ valor. Los arrays a nivel de módulo son almacenamiento estático y sí se permi
 | Función | Firma / Operación | Comportamiento | Semántica de liberación |
 |----------|-----------------------|----------|---------------------|
 | `pengu_sigil_alloc` | `void* pengu_sigil_alloc(size_t sz)` | Asigna memoria del heap inicializada a cero para los opcionales `some`. | El llamador debe aplicar `banish` al puntero devuelto. |
-| `pengu_string_new` | `PenguString pengu_string_new(const char *s, int len)` | Asigna un búfer de cadena con posesión en el heap. | El llamador debe aplicar `banish` al `PenguString.data` devuelto. |
+| `pengu_string_new` | `PenguString pengu_string_new(const char *s)` | Asigna una cadena SDS con posesión desde una cadena C terminada en NUL. | El llamador debe aplicar `banish` al `PenguString` devuelto. |
+| `pengu_string_owned` | `PenguString pengu_string_owned(const void *data, int len)` | Copia exactamente `len` bytes a una cadena SDS con posesión (binario-segura). | Con posesión; aplicarle `banish`. |
+| `pengu_string_owned_size` | `PenguString pengu_string_owned_size(int len)` | Asigna un payload SDS zero-inicializado de `len` bytes para escribir. | Con posesión; aplicarle `banish`. |
+| `pengu_string_owned_from_sds` | `PenguString pengu_string_owned_from_sds(sds s)` | Adopta una reserva SDS; la longitud sale de `sdslen`. | Con posesión; aplicarle `banish`. |
+| `pengu_string_owned_from_sds_len` | `PenguString pengu_string_owned_from_sds_len(sds s, int used)` | Adopta una reserva SDS y fija la longitud usada (`sdssetlen` + NUL). | Con posesión; aplicarle `banish`. |
 | `pengu_string_from_cstr` | `PenguString pengu_string_from_cstr(const char *s)` | Crea una vista sin posesión sobre una cadena de C (`is_owned == 0`). | Sin posesión; `banish` no hace nada. |
-| `pengu_string_format_ex` | `PenguString pengu_string_format_ex(const char *fmt, ...)` | Formateador `"{expr}"` exacto a nivel de byte: `%.*s` copia `len` bytes (NULs incluidos). | Asigna un búfer nuevo; el llamador debe aplicarle `banish`. |
-| `pengu_string_concat` | `PenguString pengu_string_concat(PenguString a, PenguString b)` | Asigna y devuelve la cadena concatenada. | Asigna un búfer nuevo; el llamador debe aplicarle `banish`. Las entradas `a`, `b` no cambian. |
+| `pengu_string_format_ex` | `PenguString pengu_string_format_ex(const char *fmt, ...)` | Formateador `"{expr}"` exacto a nivel de byte: `%.*s` copia `len` bytes (NULs incluidos). | Asigna un búfer SDS nuevo; el llamador debe aplicarle `banish`. |
+| `pengu_string_concat` | `PenguString pengu_string_concat(PenguString a, PenguString b)` | Asigna y devuelve la cadena concatenada. | Asigna un búfer SDS nuevo; el llamador debe aplicarle `banish`. Las entradas `a`, `b` no cambian. |
 | `pengu_string_equal` | `bool pengu_string_equal(PenguString a, PenguString b)` | Compara el contenido de bytes y la longitud para determinar la igualdad. | No asigna; las entradas se pasan por valor. |
 | `pengu_to_string` | `pengu_to_string(x)` | Macro genérica que convierte el primitivo `x` a `PenguString`. | Devuelve una cadena del heap con posesión para valores formateados, o una vista sin posesión. |
 | `pengu_string_format` | `PenguString pengu_string_format(const char *fmt, ...)` | Asigna la cadena formateada mediante `vsnprintf`. | El llamador debe aplicar `banish` al `PenguString.data` devuelto. |
 | `pengu_string_copy` | `PenguString pengu_string_copy(PenguString s)` | Asigna una copia independiente de `s`. | El llamador debe aplicar `banish` a la copia. |
-| `pengu_banish_string`| `void pengu_banish_string(PenguString *s)` | Libera el búfer del heap cuando `is_owned`, y anula data/len/is_owned. | Operación segura que no hace nada sobre una vista sin posesión. |
+| `pengu_banish_string`| `void pengu_banish_string(PenguString *s)` | Libera una reserva SDS con `sdsfree` (o un bloque opaco `is_owned == 2` con `free`), y anula data/len/is_owned. | Operación segura que no hace nada sobre una vista sin posesión. |
 | `pengu_banish_list`  | `void pengu_banish_list(PenguList *l)` | Libera el búfer de elementos de la lista y reinicia la longitud y la capacidad. | No toca los elementos. |
 | `pengu_banish_string_list` | `void pengu_banish_string_list(PenguList *l)` | Aplica banish a cada elemento `PenguString` y después a la lista. | El ayudante optativo para `list of string`. |
 | `pengu_banish_map`   | `void pengu_banish_map(PenguMap *m)` | Libera la tabla de entradas del mapa y las celdas de clave/valor. | No libera los búferes del heap a los que apunten claves o valores. |

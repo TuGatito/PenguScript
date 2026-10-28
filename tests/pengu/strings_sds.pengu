@@ -1,0 +1,143 @@
+## Regression for the SDS string backend.
+##
+## Every owned `string` must carry a valid SDS header whose logical length
+## matches `PenguString.len`, and every borrowed view must stay non-owning.
+## Run with `psc run tests/pengu/strings_sds.pengu --no-cache`.
+
+import std.builder
+import std.scrolls
+import std.spark
+
+## True when `s` is an owned SDS string with a coherent header and NUL.
+antiquus _sds_owned_ok with s as string into bool:
+    r"""
+if (!s.data || s.is_owned != PENGU_STRING_OWNED) return false;
+if (sdslen(s.data) != (size_t)s.len) return false;
+return s.data[s.len] == '\0';
+"""
+
+## True when `s` is a borrowed view (`banish` must be a no-op).
+antiquus _sds_borrowed with s as string into bool:
+    r"""
+return s.is_owned == PENGU_STRING_BORROWED;
+"""
+
+weave fail with what as string into int:
+    calling spark.println with "FAIL strings_sds: {what}"
+    return 1
+
+weave main into int:
+    # --- Literals are borrowed; transformations are SDS-owned. -------------
+    let literal as string is "  Hello, World  "
+    if not (calling _sds_borrowed with literal):
+        return calling fail with "literal is not borrowed"
+
+    var trimmed as string is calling literal.get_trim
+    defer banish trimmed
+    if trimmed != "Hello, World":
+        return calling fail with "trim text"
+    if not (calling _sds_owned_ok with trimmed):
+        return calling fail with "trim is not SDS"
+
+    var upper as string is calling trimmed.get_upper
+    defer banish upper
+    if upper != "HELLO, WORLD":
+        return calling fail with "upper text"
+    if not (calling _sds_owned_ok with upper):
+        return calling fail with "upper is not SDS"
+
+    var replaced as string is calling trimmed.get_replace with "World", "Pengu"
+    defer banish replaced
+    if replaced != "Hello, Pengu":
+        return calling fail with "replace text"
+    if not (calling _sds_owned_ok with replaced):
+        return calling fail with "replace is not SDS"
+
+    var repeated as string is calling trimmed.get_repeat with 2
+    defer banish repeated
+    if repeated length != 24:
+        return calling fail with "repeat length"
+    if not (calling _sds_owned_ok with repeated):
+        return calling fail with "repeat is not SDS"
+
+    var reversed as string is calling trimmed.get_reverse
+    defer banish reversed
+    if reversed length != 12:
+        return calling fail with "reverse length"
+    if not (calling _sds_owned_ok with reversed):
+        return calling fail with "reverse is not SDS"
+
+    # --- Binary-safe lengths and NUL bytes. -------------------------------
+    var zero_code as int is 0
+    var zero_byte as string is chr zero_code
+    defer banish zero_byte
+    var binary as string is "a{zero_byte}b"
+    defer banish binary
+    if binary length != 3:
+        return calling fail with "binary literal length"
+    var sliced as string is calling binary.get_substring with 0, 3
+    defer banish sliced
+    if sliced length != 3:
+        return calling fail with "binary substring length"
+    if not (calling _sds_owned_ok with sliced):
+        return calling fail with "binary substring is not SDS"
+    var nul_at as string is calling sliced.get_char_at with 1
+    defer banish nul_at
+    if (nul_at length) != 1:
+        return calling fail with "embedded NUL char length"
+
+    # --- split returns borrowed views into the receiver. ------------------
+    let csv as string is "a,b,c"
+    var parts as list of string is calling csv.split with ","
+    if parts.len != 3:
+        banish parts
+        return calling fail with "split length"
+    let p0 as string is (parts at 0)
+    if not (calling _sds_borrowed with p0):
+        banish parts
+        return calling fail with "split element is not a view"
+    var joined as string is calling scrolls.join with parts, ","
+    defer banish joined
+    if joined != "a,b,c":
+        banish parts
+        return calling fail with "join text"
+    if not (calling _sds_owned_ok with joined):
+        banish parts
+        return calling fail with "join is not SDS"
+    banish parts
+
+    # --- StringBuffer over SDS: finish, to_string, capacity. --------------
+    var sb as StringBuilder is calling StringBuilder.with_capacity with 8
+    defer banish sb
+    calling sb.append with "abc"
+    calling sb.append with binary
+    if (calling sb.capacity) < 8:
+        return calling fail with "builder capacity"
+    calling sb.shrink_to_fit
+    if (calling sb.capacity) != 6:
+        return calling fail with "builder shrink capacity"
+    var built as string is calling sb.finish
+    defer banish built
+    if built length != 6:
+        return calling fail with "builder finish length"
+    if not (calling _sds_owned_ok with built):
+        return calling fail with "builder finish is not SDS"
+
+    var snapshot as string is calling sb.to_string
+    defer banish snapshot
+    if snapshot length != 0:
+        return calling fail with "builder after finish is not empty"
+    if not (calling _sds_owned_ok with snapshot):
+        return calling fail with "builder empty snapshot is not owned"
+
+    var empty_builder as StringBuilder is calling StringBuilder.new
+    defer banish empty_builder
+    var empty_finish as string is calling empty_builder.finish
+    defer banish empty_finish
+    if empty_finish length != 0:
+        return calling fail with "empty builder finish length"
+    if not (calling _sds_owned_ok with empty_finish):
+        return calling fail with "empty builder finish is not owned SDS"
+
+    calling spark.println with "OK strings_sds"
+    return 0

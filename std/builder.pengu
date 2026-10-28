@@ -40,12 +40,13 @@
 ## stored as an owned `PenguString` rather than a bare `ref to byte`. That is
 ## deliberate: `derive Nexus` on a rune frees `string`, `list` and `map` fields,
 ## so `banish builder` releases the buffer without a custom destructor (which
-## the language does not provide). The `string`'s `len` is kept at `0`; `_len`
-## and `_cap` are the real state. The three small `antiquus` helpers below are
-## the only C in the module: they write bytes through the `PenguString` header
-## (`memcpy`, `memmove`, `snprintf`, `realloc`) and reset the header on
-## `finish`. No language-level operation on a `string` is mutable, so there is
-## no pure alternative that preserves O(1) append.
+## the language does not provide). The buffer is an SDS allocation: `_data.len`
+## and the SDS header mirror `_len`, while `_cap` is a lower bound on the
+## capacity (`sdsalloc` may be larger). The `antiquus` helpers write bytes
+## through the `PenguString` header (`memcpy`, `memmove`, `snprintf`,
+## `sdsMakeRoomFor`, `sdsRemoveFreeSpace`) and reset the header on `finish`. No
+## language-level operation on a `string` is mutable, so there is no pure
+## alternative that preserves O(1) append.
 ##
 ## ## Complexity
 ## | Operation | Cost |
@@ -78,9 +79,9 @@ const BUILDER_DEFAULT_CAPACITY as int is 64
 ## A growable byte buffer for assembling text.
 ##
 ## The fields are private: use `append`/`insert`/`finish` instead of touching
-## the buffer. `_data` owns the allocation, `_len` is the number of bytes in use
-## and `_cap` is the number of usable bytes (the allocation is `_cap + 1` so the
-## buffer is always NUL-terminated).
+## the buffer. `_data` owns the SDS allocation, `_len` is the number of bytes in
+## use and `_cap` is a lower bound on the usable capacity. SDS always keeps a
+## NUL terminator after the used bytes.
 ##
 ## ## Memoria
 ## The builder owns `_data`. Release the whole builder with `banish` (or
@@ -97,43 +98,65 @@ rune StringBuilder derive Nexus:
 # (`_` prefix), so they are not part of the published surface.
 # ----------------------------------------------------------------------------
 
-## Allocates a zeroed, owned buffer with `cap` usable bytes plus a NUL slot.
+## Allocates an owned SDS buffer with at least `cap` usable bytes.
 ##
 ## ## Motivo
 ## A `PenguString` header with `is_owned == 1` is what lets the derived
-## `Nexus` free the builder buffer. Constructing that header and allocating
-## `cap + 1` bytes needs C-level access to the struct.
+## `Nexus` free the builder buffer. SDS owns the allocation and supplies the
+## NUL slot; only C can attach that pointer to the header.
 ##
 ## ## Memoria
-## Returns one owned allocation; the caller stores it in `StringBuilder._data`.
-## The buffer is NUL-terminated at index 0.
+## Returns one owned SDS allocation; the caller stores it in
+## `StringBuilder._data`. The buffer is NUL-terminated at index 0.
 antiquus _builder_alloc with cap as int into string:
     r"""
-size_t usable = (cap > 0) ? (size_t)cap : (size_t)0;
-char *buf = (char *)pengu_memoria_alloc(usable + 1);
+sds buf = sdsempty();
+if (!buf) return pengu_string_from_cstr("");
+if (cap > 0) {
+    sds grown = sdsMakeRoomFor(buf, (size_t)cap);
+    if (!grown) {
+        sdsfree(buf);
+        return pengu_string_from_cstr("");
+    }
+    buf = grown;
+}
 buf[0] = '\0';
+sdssetlen(buf, 0);
 PenguString s;
 s.data = buf;
 s.len = 0;
-s.is_owned = 1;
+s.is_owned = PENGU_STRING_OWNED;
 return s;
 """
 
 ## Grows or shrinks the buffer to `new_cap` usable bytes, preserving contents.
 ##
 ## ## Motivo
-## `realloc` plus the `+1` NUL slot is a C contract; `memoria.resize_array`
-## works on a bare pointer, and reattaching that pointer to a `PenguString`
-## header would need another unsafe write.
+## SDS owns the allocation: growth is `sdsMakeRoomFor` and shrinking is
+## `sdsRemoveFreeSpace`, both of which update the SDS header that `banish`
+## uses. Reattaching that pointer to a `PenguString` header needs C access.
 ##
 ## ## Memoria
-## Reallocates `_data`; the old pointer is invalid afterwards. New bytes are
-## zeroed by `pengu_memoria_resize`.
+## May reallocate `_data`; the old pointer is invalid afterwards. On OOM the
+## old buffer is kept untouched.
 antiquus _builder_resize with buf as ref to string, old_cap as int, new_cap as int into void:
     r"""
-size_t old_n = ((old_cap > 0) ? (size_t)old_cap : (size_t)0) + 1;
-size_t new_n = ((new_cap > 0) ? (size_t)new_cap : (size_t)0) + 1;
-buf->data = (char *)pengu_memoria_resize(buf->data, old_n, new_n, 1);
+(void)old_cap;
+if (!buf || !buf->data || buf->is_owned != PENGU_STRING_OWNED) return;
+size_t len = sdslen(buf->data);
+size_t target = (new_cap > 0) ? (size_t)new_cap : (size_t)0;
+if (target < len) target = len;
+size_t cap = sdsalloc(buf->data);
+if (target > cap) {
+    sds grown = sdsMakeRoomFor(buf->data, target - len);
+    if (!grown) return; /* keep the old buffer intact on OOM */
+    buf->data = grown;
+} else if (target == len && target < cap) {
+    sds shrunk = sdsRemoveFreeSpace(buf->data);
+    if (!shrunk) return;
+    buf->data = shrunk;
+}
+buf->len = (int)len;
 """
 
 ## Copies `n` bytes at `src` into `dst` starting at `off`, then NUL-terminates.
@@ -149,6 +172,8 @@ antiquus _builder_copy with dst as ref to string, off as int, src as ref to froz
 if (n <= 0 || !dst->data || !src) return;
 memcpy(dst->data + (size_t)off, src, (size_t)n);
 dst->data[(size_t)off + (size_t)n] = '\0';
+sdssetlen(dst->data, (size_t)off + (size_t)n);
+dst->len = off + n;
 """
 
 ## Copies a `slice of byte` into `dst` at `off`, then NUL-terminates.
@@ -164,6 +189,8 @@ antiquus _builder_copy_slice with dst as ref to string, off as int, src as slice
 if (!dst->data || src.len <= 0 || !src.data) return;
 memcpy(dst->data + (size_t)off, src.data, (size_t)src.len);
 dst->data[(size_t)off + (size_t)src.len] = '\0';
+sdssetlen(dst->data, (size_t)off + (size_t)src.len);
+dst->len = off + src.len;
 """
 
 ## Copies `src[0..n]` `times` times into `dst` at `off`, then NUL-terminates.
@@ -183,6 +210,8 @@ for (int i = 0; i < times; ++i) {
     p += n;
 }
 *p = '\0';
+sdssetlen(dst->data, (size_t)off + (size_t)n * (size_t)times);
+dst->len = off + n * times;
 """
 
 ## Inserts `n` bytes at `pos`, shifting the tail (including the NUL) right.
@@ -199,6 +228,8 @@ if (!dst->data || !src || n <= 0) return;
 memmove(dst->data + (size_t)pos + (size_t)n, dst->data + (size_t)pos,
         (size_t)(len - pos) + 1);
 memcpy(dst->data + (size_t)pos, src, (size_t)n);
+sdssetlen(dst->data, (size_t)len + (size_t)n);
+dst->len = len + n;
 """
 
 ## Fills `n` bytes at `off` with `value`, then NUL-terminates.
@@ -214,6 +245,8 @@ antiquus _builder_fill with dst as ref to string, off as int, value as int, n as
 if (!dst->data || n <= 0) return;
 memset(dst->data + (size_t)off, value, (size_t)n);
 dst->data[(size_t)off + (size_t)n] = '\0';
+sdssetlen(dst->data, (size_t)off + (size_t)n);
+dst->len = off + n;
 """
 
 ## Formats `value` as signed decimal into `dst` at `off` and returns the digits.
@@ -229,6 +262,8 @@ antiquus _builder_format_i64 with dst as ref to string, off as int, value as i64
 if (!dst->data) return 0;
 int written = snprintf(dst->data + (size_t)off, 32, "%lld", (long long)value);
 if (written < 0) return 0;
+sdssetlen(dst->data, (size_t)off + (size_t)written);
+dst->len = off + written;
 return written;
 """
 
@@ -245,6 +280,8 @@ antiquus _builder_format_f64 with dst as ref to string, off as int, value as f64
 if (!dst->data) return 0;
 int written = snprintf(dst->data + (size_t)off, 64, "%g", (double)value);
 if (written < 0) return 0;
+sdssetlen(dst->data, (size_t)off + (size_t)written);
+dst->len = off + written;
 return written;
 """
 
@@ -276,6 +313,8 @@ antiquus _builder_terminate with dst as ref to string, off as int into void:
     r"""
 if (!dst->data || off < 0) return;
 dst->data[(size_t)off] = '\0';
+sdssetlen(dst->data, (size_t)off);
+dst->len = off;
 """
 
 ## Returns the byte at `i` from a builder buffer of `len` bytes.
@@ -339,17 +378,17 @@ while (i < j) {
 ## with `data == NULL`, so a later `banish builder` is a safe no-op.
 antiquus _builder_take with buf as ref to string, len as int into string:
     r"""
-PenguString out = *buf;
-out.len = len;
-if (out.data) {
+PenguString out;
+if (buf->data && buf->is_owned == PENGU_STRING_OWNED) {
+    out = *buf;
+    sdssetlen(out.data, (size_t)len);
     out.data[(size_t)len] = '\0';
+    out.len = len;
+    out.is_owned = PENGU_STRING_OWNED;
 } else {
     /* A builder emptied by `reset` has no buffer; `finish` still promises an
      * owned empty string, never a borrowed rodata view. */
-    out.data = (char *)pengu_memoria_alloc(1);
-    out.data[0] = '\0';
-    out.len = 0;
-    out.is_owned = 1;
+    out = pengu_string_owned_empty();
 }
 buf->data = NULL;
 buf->len = 0;
@@ -367,15 +406,8 @@ return out;
 ## Allocates one owned buffer; the caller releases the result with `banish`.
 antiquus _builder_copy_out with buf as string, len as int into string:
     r"""
-size_t n = (len > 0) ? (size_t)len : (size_t)0;
-char *out_buf = (char *)pengu_memoria_alloc(n + 1);
-if (n > 0 && buf.data) memcpy(out_buf, buf.data, n);
-out_buf[n] = '\0';
-PenguString out;
-out.data = out_buf;
-out.len = (int)n;
-out.is_owned = 1;
-return out;
+if (len <= 0 || !buf.data) return pengu_string_owned_empty();
+return pengu_string_owned(buf.data, len);
 """
 
 ## Copies the byte range `[start, end)` into a new owned `PenguString`.
@@ -388,15 +420,10 @@ return out;
 ## Allocates one owned buffer; the caller releases the result with `banish`.
 antiquus _builder_copy_range with buf as string, start as int, end as int into string:
     r"""
-size_t n = (end > start) ? (size_t)(end - start) : (size_t)0;
-char *out_buf = (char *)pengu_memoria_alloc(n + 1);
-if (n > 0 && buf.data) memcpy(out_buf, buf.data + (size_t)start, n);
-out_buf[n] = '\0';
-PenguString out;
-out.data = out_buf;
-out.len = (int)n;
-out.is_owned = 1;
-return out;
+if (end <= start || !buf.data || start < 0) return pengu_string_owned_empty();
+if (end > buf.len) end = buf.len;
+if (end <= start) return pengu_string_owned_empty();
+return pengu_string_owned(buf.data + (size_t)start, end - start);
 """
 
 ## Returns a non-owning `slice of byte` view over the first `len` bytes.

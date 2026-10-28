@@ -224,7 +224,7 @@ weave bytes_from_string with s as string into ref to byte:
 ##
 ## ## Memoria
 ## Returns a freshly allocated owned string (empty for `null` or a
-## non-positive bound); release it with `banish`. The copy is one `malloc`:
+## non-positive bound); release it with `banish`. The copy is one SDS allocation:
 ## the former per-byte `"{out}{chr b}"` accumulation allocated, and leaked, one
 ## buffer per character.
 weave string_from_cstr_n with cstr as ref to char , max_len as int into string:
@@ -235,7 +235,7 @@ weave string_from_cstr_n with cstr as ref to char , max_len as int into string:
 ## ## Memoria
 ## Returns a freshly allocated owned string (empty for `null` or a
 ## non-positive count), byte-exact including embedded NULs; release it with
-## `banish`. One `malloc`, like `string_from_cstr_n`.
+## `banish`. One SDS allocation, like `string_from_cstr_n`.
 weave string_from_bytes with data as ref to byte , count as int into string:
     return calling _bytes_to_string with data , count
 
@@ -249,13 +249,7 @@ return pengu_string_from_cstr("");
 int n = 0;
 while (n < max_len && cstr[n] != '\0')
 n++;
-char *buf = (char *)malloc((size_t)n + 1);
-if (!buf)
-return pengu_string_from_cstr("");
-if (n > 0)
-memcpy(buf, cstr, (size_t)n);
-buf[n] = '\0';
-return (PenguString){buf, n, 1};
+return pengu_string_owned(cstr, n);
 """
 
 ## Byte-exact copy of `count` bytes in one allocation. Private bridge for
@@ -264,12 +258,7 @@ antiquus _bytes_to_string with data as ref to byte , count as int into string:
     r"""
 if (!data || count <= 0)
 return pengu_string_from_cstr("");
-char *buf = (char *)malloc((size_t)count + 1);
-if (!buf)
-return pengu_string_from_cstr("");
-memcpy(buf, data, (size_t)count);
-buf[count] = '\0';
-return (PenguString){buf, count, 1};
+return pengu_string_owned(data, count);
 """
 
 # ----------------------------------------------------------------------------

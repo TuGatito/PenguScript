@@ -245,7 +245,7 @@ pengu_map_put(m, &borrowed, &one);
 antiquus _coven_remove_string_key with m as ref to map of string to int, item as string into bool:
     r"""
 if (!m || m->cap == 0) return false;
-char *owned = NULL;
+PenguString owned = pengu_string_from_cstr("");
 uint32_t h = (item.data && item.len > 0) ? pengu_hash_bytes(item.data, (size_t)item.len) : 0;
 int idx = (int)(h % (uint32_t)m->cap);
 for (int i = 0; i < m->cap; ++i) {
@@ -254,12 +254,12 @@ for (int i = 0; i < m->cap; ++i) {
     if (!m->entries[cur].occupied || m->entries[cur].hash != h) continue;
     PenguString *k = (PenguString *)m->entries[cur].key;
     if (k && k->len == item.len && (k->len == 0 || memcmp(k->data, item.data, (size_t)k->len) == 0)) {
-        if (k->is_owned) owned = k->data;
+        if (k->is_owned) owned = *k;
         break;
     }
 }
 bool removed = pengu_map_remove(m, &item);
-if (owned) free(owned);
+pengu_banish_string(&owned);
 return removed;
 """
 

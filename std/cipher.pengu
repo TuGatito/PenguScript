@@ -205,7 +205,7 @@ size_t total = 0;
 for (int i = 0; i < parts.len; i++) {
     if (items[i].len > 0) total += (size_t)items[i].len;
 }
-char *buf = (char *)malloc(total + 1);
+sds buf = sdsnewlen(NULL, total);
 if (!buf) return pengu_string_from_cstr("");
 size_t off = 0;
 for (int i = 0; i < parts.len; i++) {
@@ -215,11 +215,7 @@ for (int i = 0; i < parts.len; i++) {
     }
 }
 buf[off] = '\0';
-PenguString s;
-s.data = buf;
-s.len = (int)off;
-s.is_owned = 1;
-return s;
+return pengu_string_owned_from_sds_len(buf, (int)off);
 """
 
 ## Byte value at `i` without allocating.
@@ -282,13 +278,7 @@ weave _drop_parts with parts as list of string into void:
 antiquus _zero_bytes with n as int into string:
     r"""
 if (n <= 0) return pengu_string_from_cstr("");
-char *buf = (char *)calloc((size_t)n, 1);
-if (!buf) return pengu_string_from_cstr("");
-PenguString s;
-s.data = buf;
-s.len = n;
-s.is_owned = 1;
-return s;
+return pengu_string_owned_size(n);
 """
 
 # ----------------------------------------------------------------------------
@@ -315,7 +305,7 @@ const unsigned char *in = (const unsigned char *)(data.data ? data.data : "");
 size_t n = (size_t)(data.len > 0 ? data.len : 0);
 if (n == 0) return pengu_string_from_cstr("");
 size_t out_len = ((n + 2) / 3) * 4;
-char *buf = (char *)malloc(out_len + 1);
+sds buf = sdsnewlen(NULL, out_len);
 if (!buf) return pengu_string_from_cstr("");
 size_t o = 0;
 size_t i = 0;
@@ -341,11 +331,7 @@ if (rem == 1) {
     if (padded) buf[o++] = '=';
 }
 buf[o] = '\0';
-PenguString s;
-s.data = buf;
-s.len = (int)o;
-s.is_owned = 1;
-return s;
+return pengu_string_owned_from_sds_len(buf, (int)o);
 """
 
 ## Decodes a Base64 string with strict padding and alphabet validation.
@@ -365,7 +351,7 @@ antiquus _b64_decode_raw with data as string, url_safe as bool into maybe string
 const unsigned char *in = (const unsigned char *)(data.data ? data.data : "");
 size_t n = (size_t)(data.len > 0 ? data.len : 0);
 size_t cap = (n / 4 + 1) * 3 + 4;
-char *buf = (char *)malloc(cap);
+sds buf = sdsnewlen(NULL, cap);
 if (!buf) return pengu_maybe_none();
 size_t o = 0;
 int quad[4];
@@ -417,13 +403,11 @@ for (size_t i = 0; i < n && ok; i++) {
     }
 }
 if (ok && qn != 0) ok = 0;
-if (!ok) { free(buf); return pengu_maybe_none(); }
+if (!ok) { sdsfree(buf); return pengu_maybe_none(); }
 buf[o] = '\0';
 PenguString *res = (PenguString *)malloc(sizeof(PenguString));
-if (!res) { free(buf); return pengu_maybe_none(); }
-res->data = buf;
-res->len = (int)o;
-res->is_owned = 1;
+if (!res) { sdsfree(buf); return pengu_maybe_none(); }
+*res = pengu_string_owned_from_sds_len(buf, (int)o);
 return pengu_maybe_some(res);
 """
 
@@ -445,18 +429,14 @@ static const char *digits = "0123456789abcdef";
 const unsigned char *in = (const unsigned char *)(data.data ? data.data : "");
 size_t n = (size_t)(data.len > 0 ? data.len : 0);
 if (n == 0) return pengu_string_from_cstr("");
-char *buf = (char *)malloc(n * 2 + 1);
+sds buf = sdsnewlen(NULL, n * 2);
 if (!buf) return pengu_string_from_cstr("");
 for (size_t i = 0; i < n; i++) {
     buf[i * 2] = digits[(in[i] >> 4) & 15];
     buf[i * 2 + 1] = digits[in[i] & 15];
 }
 buf[n * 2] = '\0';
-PenguString s;
-s.data = buf;
-s.len = (int)(n * 2);
-s.is_owned = 1;
-return s;
+return pengu_string_owned_from_sds_len(buf, (int)(n * 2));
 """
 
 ## Decodes a hexadecimal string into bytes, rejecting odd lengths and non-hex
@@ -474,7 +454,7 @@ const unsigned char *in = (const unsigned char *)(data.data ? data.data : "");
 size_t n = (size_t)(data.len > 0 ? data.len : 0);
 if (n == 0) return pengu_maybe_some(NULL);
 if ((n & 1) != 0) return pengu_maybe_none();
-char *buf = (char *)malloc(n / 2);
+sds buf = sdsnewlen(NULL, n / 2);
 if (!buf) return pengu_maybe_none();
 for (size_t i = 0; i < n; i += 2) {
     int hi;
@@ -484,18 +464,16 @@ for (size_t i = 0; i < n; i += 2) {
     if (a >= '0' && a <= '9') hi = a - '0';
     else if (a >= 'a' && a <= 'f') hi = a - 'a' + 10;
     else if (a >= 'A' && a <= 'F') hi = a - 'A' + 10;
-    else { free(buf); return pengu_maybe_none(); }
+    else { sdsfree(buf); return pengu_maybe_none(); }
     if (b >= '0' && b <= '9') lo = b - '0';
     else if (b >= 'a' && b <= 'f') lo = b - 'a' + 10;
     else if (b >= 'A' && b <= 'F') lo = b - 'A' + 10;
-    else { free(buf); return pengu_maybe_none(); }
+    else { sdsfree(buf); return pengu_maybe_none(); }
     buf[i / 2] = (char)((hi << 4) | lo);
 }
 PenguString *res = (PenguString *)malloc(sizeof(PenguString));
-if (!res) { free(buf); return pengu_maybe_none(); }
-res->data = buf;
-res->len = (int)(n / 2);
-res->is_owned = 1;
+if (!res) { sdsfree(buf); return pengu_maybe_none(); }
+*res = pengu_string_owned_from_sds_len(buf, (int)(n / 2));
 return pengu_maybe_some(res);
 """
 
@@ -519,7 +497,7 @@ const unsigned char *in = (const unsigned char *)(data.data ? data.data : "");
 size_t n = (size_t)(data.len > 0 ? data.len : 0);
 if (n == 0) return pengu_string_from_cstr("");
 size_t out_len = ((n + 4) / 5) * 8;
-char *buf = (char *)malloc(out_len + 1);
+sds buf = sdsnewlen(NULL, out_len);
 if (!buf) return pengu_string_from_cstr("");
 size_t o = 0;
 size_t i = 0;
@@ -540,11 +518,7 @@ while (i < n) {
     i += have;
 }
 buf[o] = '\0';
-PenguString s;
-s.data = buf;
-s.len = (int)o;
-s.is_owned = 1;
-return s;
+return pengu_string_owned_from_sds_len(buf, (int)o);
 """
 
 ## Decodes a padded Base32 string, rejecting misplaced padding and impossible
@@ -564,7 +538,7 @@ antiquus _b32_decode_raw with data as string into maybe string:
 const unsigned char *in = (const unsigned char *)(data.data ? data.data : "");
 size_t n = (size_t)(data.len > 0 ? data.len : 0);
 size_t cap = (n / 8 + 1) * 5 + 4;
-char *buf = (char *)malloc(cap);
+sds buf = sdsnewlen(NULL, cap);
 if (!buf) return pengu_maybe_none();
 size_t o = 0;
 int vals[8];
@@ -617,13 +591,11 @@ for (size_t i = 0; i < n && ok; i++) {
     }
 }
 if (ok && vn != 0) ok = 0;
-if (!ok) { free(buf); return pengu_maybe_none(); }
+if (!ok) { sdsfree(buf); return pengu_maybe_none(); }
 buf[o] = '\0';
 PenguString *res = (PenguString *)malloc(sizeof(PenguString));
-if (!res) { free(buf); return pengu_maybe_none(); }
-res->data = buf;
-res->len = (int)o;
-res->is_owned = 1;
+if (!res) { sdsfree(buf); return pengu_maybe_none(); }
+*res = pengu_string_owned_from_sds_len(buf, (int)o);
 return pengu_maybe_some(res);
 """
 
@@ -647,7 +619,7 @@ antiquus _json_escape_raw with s as string into string:
 static const char *digits = "0123456789abcdef";
 const unsigned char *in = (const unsigned char *)(s.data ? s.data : "");
 size_t n = (size_t)(s.len > 0 ? s.len : 0);
-char *buf = (char *)malloc(n * 6 + 1);
+sds buf = sdsnewlen(NULL, n * 6);
 if (!buf) return pengu_string_from_cstr("");
 size_t o = 0;
 for (size_t i = 0; i < n; i++) {
@@ -674,11 +646,7 @@ for (size_t i = 0; i < n; i++) {
     }
 }
 buf[o] = '\0';
-PenguString r;
-r.data = buf;
-r.len = (int)o;
-r.is_owned = 1;
-return r;
+return pengu_string_owned_from_sds_len(buf, (int)o);
 """
 
 # ----------------------------------------------------------------------------
@@ -803,15 +771,7 @@ else if (c <= 0xFFFFu) {
 } else {
     return pengu_string_from_cstr("");
 }
-char *buf = (char *)malloc((size_t)n + 1);
-if (!buf) return pengu_string_from_cstr("");
-memcpy(buf, tmp, (size_t)n);
-buf[n] = '\0';
-PenguString s;
-s.data = buf;
-s.len = n;
-s.is_owned = 1;
-return s;
+return pengu_string_owned(tmp, n);
 """
 
 # ----------------------------------------------------------------------------

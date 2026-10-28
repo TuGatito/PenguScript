@@ -308,7 +308,7 @@ return -1;
 ## Copy of `s` with every non-overlapping occurrence of `from` replaced by `to`.
 ##
 ## ## Motivo
-## The replacement needs a pre-counted pass, a single `malloc` of the exact final
+## The replacement needs a pre-counted pass, a single SDS allocation of the exact final
 ## size and `memcpy` of the untouched spans; that is raw-buffer plumbing with an
 ## ownership flag the language does not expose.
 ##
@@ -338,7 +338,7 @@ return pengu_string_from_cstr("");
 size_t new_len = (size_t)new_len_64;
 if (new_len == 0)
 return pengu_string_from_cstr("");
-char *buf = (char *)malloc(new_len + 1);
+sds buf = sdsnewlen(NULL, new_len);
 if (!buf)
 return pengu_string_from_cstr("");
 char *dst = buf;
@@ -366,13 +366,13 @@ memcpy(dst, s.data + src_idx, (size_t)rem);
 dst += rem;
 }
 *dst = '\0';
-return (PenguString){buf, (int)new_len, 1};
+return pengu_string_owned_from_sds(buf);
 """
 
 ## Copy of `s` repeated `times` times.
 ##
 ## ## Motivo
-## A single `malloc` of `s.len * times` bytes plus one repetition loop avoids
+## A single SDS allocation of `s.len * times` bytes plus one repetition loop avoids
 ## building an intermediate `list of string` and concatenating it in Pengu.
 ##
 ## ## Memoria
@@ -387,7 +387,7 @@ return pengu_string_from_cstr("");
 size_t total_len = (size_t)s.len * (size_t)times;
 if (total_len > (size_t)INT_MAX || total_len + 1 > SIZE_MAX / 2)
 return pengu_string_from_cstr("");
-char *buf = (char *)malloc(total_len + 1);
+sds buf = sdsnewlen(NULL, total_len);
 if (!buf)
 return pengu_string_from_cstr("");
 for (int i = 0; i < times; ++i)
@@ -395,7 +395,7 @@ for (int i = 0; i < times; ++i)
 memcpy(buf + ((size_t)i * (size_t)s.len), s.data, (size_t)s.len);
 }
 buf[total_len] = '\0';
-return (PenguString){buf, (int)total_len, 1};
+return pengu_string_owned_from_sds(buf);
 """
 
 ## Copy of `s` with its bytes in reverse order.
@@ -411,7 +411,7 @@ antiquus pengu_string_reverse with s as string into string:
     r"""
 if (!s.data || s.len <= 0)
 return pengu_string_from_cstr("");
-char *buf = (char *)malloc((size_t)s.len + 1);
+sds buf = sdsnewlen(NULL, (size_t)s.len);
 if (!buf)
 return pengu_string_from_cstr("");
 for (int i = 0; i < s.len; ++i)
@@ -419,7 +419,7 @@ for (int i = 0; i < s.len; ++i)
 buf[i] = s.data[s.len - 1 - i];
 }
 buf[s.len] = '\0';
-return (PenguString){buf, s.len, 1};
+return pengu_string_owned_from_sds(buf);
 """
 
 ## ASCII case mapping in one allocation.
@@ -427,7 +427,7 @@ return (PenguString){buf, s.len, 1};
 ## ## Motivo
 ## Doing this in Pengu requires one `char_at` allocation per byte plus a
 ## `list of string` plus `_concat`, so a single `calling s.upper` leaked O(n)
-## temporary buffers. Here the whole result is one `malloc`.
+## temporary buffers. Here the whole result is one SDS allocation.
 ##
 ## ## Memoria
 ## Returns a freshly allocated owned string (empty string view for an empty
@@ -437,7 +437,7 @@ antiquus _ascii_case with s as string, mode as int into string:
     r"""
 if (!s.data || s.len <= 0)
 return pengu_string_from_cstr("");
-char *buf = (char *)malloc((size_t)s.len + 1);
+sds buf = sdsnewlen(NULL, (size_t)s.len);
 if (!buf)
 return pengu_string_from_cstr("");
 for (int i = 0; i < s.len; ++i)
@@ -454,7 +454,7 @@ if (mode == 1 || mode == 2) c = (unsigned char)(c - 32);
 buf[i] = (char)c;
 }
 buf[s.len] = '\0';
-return (PenguString){buf, s.len, 1};
+return pengu_string_owned_from_sds(buf);
 """
 
 ## ASCII classification of a whole string, allocation-free.
@@ -653,13 +653,13 @@ else break;
 }
 }
 int len = end - start;
-char *buf = (char *)malloc((size_t)len + 1);
+sds buf = sdsnewlen(NULL, (size_t)len);
 if (!buf)
 return pengu_string_from_cstr("");
 if (len > 0)
 memcpy(buf, s.data + start, (size_t)len);
 buf[len] = '\0';
-return (PenguString){buf, len, 1};
+return pengu_string_owned_from_sds(buf);
 """
 
 ## ASCII view of a byte range: no allocation, no ownership.
@@ -684,7 +684,7 @@ return (PenguString){s.data + start, end - start, 0};
 ## `string.upper()` on the first byte of every whitespace-separated word.
 ##
 ## ## Motivo
-## One `malloc` instead of a `list of string` plus one owning byte per
+## One SDS allocation instead of a `list of string` plus one owning byte per
 ## character.
 ##
 ## ## Memoria
@@ -693,7 +693,7 @@ antiquus _title_ascii with s as string into string:
     r"""
 if (!s.data || s.len <= 0)
 return pengu_string_from_cstr("");
-char *buf = (char *)malloc((size_t)s.len + 1);
+sds buf = sdsnewlen(NULL, (size_t)s.len);
 if (!buf)
 return pengu_string_from_cstr("");
 bool at_word_start = true;
@@ -718,13 +718,13 @@ buf[i] = (char)c;
 at_word_start = false;
 }
 buf[s.len] = '\0';
-return (PenguString){buf, s.len, 1};
+return pengu_string_owned_from_sds(buf);
 """
 
 ## `string.upper()` on the first byte, `string.lower()` on the rest.
 ##
 ## ## Motivo
-## One `malloc` instead of an owning byte per character plus a list.
+## One SDS allocation instead of an owning byte per character plus a list.
 ##
 ## ## Memoria
 ## Returns a freshly allocated owned string (empty view for an empty input).
@@ -732,7 +732,7 @@ antiquus _capitalize_ascii with s as string into string:
     r"""
 if (!s.data || s.len <= 0)
 return pengu_string_from_cstr("");
-char *buf = (char *)malloc((size_t)s.len + 1);
+sds buf = sdsnewlen(NULL, (size_t)s.len);
 if (!buf)
 return pengu_string_from_cstr("");
 for (int i = 0; i < s.len; ++i)
@@ -749,7 +749,7 @@ if (c >= 'A' && c <= 'Z') c = (unsigned char)(c + 32);
 buf[i] = (char)c;
 }
 buf[s.len] = '\0';
-return (PenguString){buf, s.len, 1};
+return pengu_string_owned_from_sds(buf);
 """
 
 ## snake_case / kebab_case / PascalCase in one allocation.
@@ -767,7 +767,7 @@ antiquus _identifier_case with s as string, mode as int into string:
 if (!s.data || s.len <= 0)
 return pengu_string_from_cstr("");
 size_t cap = (size_t)s.len * 2 + 1;
-char *buf = (char *)malloc(cap);
+sds buf = sdsnewlen(NULL, cap);
 if (!buf)
 return pengu_string_from_cstr("");
 int n = 0;
@@ -819,7 +819,7 @@ buf[n++] = (char)c;
 }
 }
 buf[n] = '\0';
-return (PenguString){buf, n, 1};
+return pengu_string_owned_from_sds_len(buf, n);
 """
 
 ## Replace the first occurrence of `from` with `to`, in one allocation.
@@ -842,7 +842,7 @@ int64_t new_len_64 = (int64_t)hit + (int64_t)to.len + (int64_t)(s.len - hit - fr
 if (new_len_64 < 0 || new_len_64 > (int64_t)INT_MAX)
 return pengu_string_from_cstr("");
 int new_len = (int)new_len_64;
-char *buf = (char *)malloc((size_t)new_len + 1);
+sds buf = sdsnewlen(NULL, (size_t)new_len);
 if (!buf)
 return pengu_string_from_cstr("");
 char *dst = buf;
@@ -864,7 +864,7 @@ memcpy(dst, s.data + tail_start, (size_t)tail_len);
 dst += tail_len;
 }
 *dst = '\0';
-return (PenguString){buf, new_len, 1};
+return pengu_string_owned_from_sds(buf);
 """
 
 # --- Enchantings --------------------------------------------------------
@@ -4127,10 +4127,15 @@ weave _join_parts with parts as list of string, sep as string into string:
     let ll as int is parts length
     if ll == 0:
         return ""
-    var out as string is "{parts at 0}"
+    # Bind the indexed view first: `"{parts at i}"` is not lowered correctly by
+    # the current code generator (it emits an empty argument), while a local
+    # `string` interpolates as a normal `%.*s` value.
+    var first as string is (parts at 0)
+    var out as string is "{first}"
     var i as int is 1
     while i < ll:
-        var next as string is "{out}{sep}{parts at i}"
+        var piece as string is (parts at i)
+        var next as string is "{out}{sep}{piece}"
         banish out
         set out is next
         set i is i + 1

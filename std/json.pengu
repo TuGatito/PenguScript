@@ -483,16 +483,8 @@ memset(v, 0, sizeof *v);
 ## Allocates one owned buffer; release it with `banish`.
 antiquus _json_bytes_to_string with s as slice of byte into string:
     r"""
-int n = s.len;
-char *buf = (char *)pengu_memoria_alloc((size_t)n + 1);
-if (!buf) return pengu_string_from_cstr("");
-if (n > 0 && s.data) memcpy(buf, s.data, (size_t)n);
-buf[n] = '\0';
-PenguString out;
-out.data = buf;
-out.len = n;
-out.is_owned = 1;
-return out;
+if (s.len <= 0 || !s.data) return pengu_string_from_cstr("");
+return pengu_string_owned(s.data, s.len);
 """
 
 ## Inserts or replaces `key -> value` in an object entry list, taking ownership

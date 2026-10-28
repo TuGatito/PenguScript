@@ -250,7 +250,7 @@ return pengu_string_from_cstr("");
 #else
 if (fd < 0 || max_bytes <= 0)
 return pengu_string_from_cstr("");
-char *buf = (char *)malloc((size_t)max_bytes + 1);
+sds buf = sdsnewlen(NULL, (size_t)max_bytes);
 if (!buf)
 return pengu_string_from_cstr("");
 ssize_t got;
@@ -260,15 +260,10 @@ got = recv((int)fd, buf, (size_t)max_bytes, 0);
 } while (got < 0 && errno == EINTR);
 if (got <= 0)
 {
-free(buf);
+sdsfree(buf);
 return pengu_string_from_cstr("");
 }
-buf[got] = '\0';
-PenguString out;
-out.data = buf;
-out.len = (int)got;
-out.is_owned = 1;
-return out;
+return pengu_string_owned_from_sds_len(buf, (int)got);
 #endif
 """
 
@@ -280,7 +275,7 @@ return pengu_maybe_none();
 #else
 if (fd < 0 || n <= 0)
 return pengu_maybe_none();
-char *buf = (char *)malloc((size_t)n + 1);
+sds buf = sdsnewlen(NULL, (size_t)n);
 if (!buf)
 return pengu_maybe_none();
 size_t got = 0;
@@ -291,21 +286,18 @@ if (part < 0 && errno == EINTR)
 continue;
 if (part <= 0)
 {
-free(buf);
+sdsfree(buf);
 return pengu_maybe_none();
 }
 got += (size_t)part;
 }
-buf[n] = '\0';
 PenguString *boxed = (PenguString *)malloc(sizeof(PenguString));
 if (!boxed)
 {
-free(buf);
+sdsfree(buf);
 return pengu_maybe_none();
 }
-boxed->data = buf;
-boxed->len = n;
-boxed->is_owned = 1;
+*boxed = pengu_string_owned_from_sds_len(buf, n);
 return pengu_maybe_some(boxed);
 #endif
 """

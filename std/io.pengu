@@ -60,20 +60,9 @@ else:
 ## that makes accidental C-string use safe).  The caller releases it.
 antiquus _io_from_bytes with data as ref to byte, n as int into string:
     r"""
-PenguString out;
-out.data = (char *)"";
-out.len = 0;
-out.is_owned = 0;
 if (n <= 0 || !data)
-return out;
-out.data = (char *)malloc((size_t)n + 1);
-if (!out.data)
-return out;
-memcpy(out.data, data, (size_t)n);
-out.data[n] = '\0';
-out.len = n;
-out.is_owned = 1;
-return out;
+return pengu_string_from_cstr("");
+return pengu_string_owned(data, n);
 """
 
 # ----------------------------------------------------------------------------
@@ -95,26 +84,18 @@ weave read_stdin with max_bytes as int into string:
 
 antiquus _io_read_stdin with max_bytes as int into string:
     r"""
-PenguString out;
-out.data = (char *)"";
-out.len = 0;
-out.is_owned = 0;
 if (max_bytes <= 0)
-return out;
-char *buf = (char *)malloc((size_t)max_bytes + 1);
+return pengu_string_from_cstr("");
+sds buf = sdsnewlen(NULL, (size_t)max_bytes);
 if (!buf)
-return out;
+return pengu_string_from_cstr("");
 size_t got = fread(buf, 1, (size_t)max_bytes, stdin);
-buf[got] = '\0';
 if (got == 0)
 {
-free(buf);
-return out;
+sdsfree(buf);
+return pengu_string_from_cstr("");
 }
-out.data = buf;
-out.len = (int)got;
-out.is_owned = 1;
-return out;
+return pengu_string_owned_from_sds_len(buf, (int)got);
 """
 
 ## Reads exactly `n` bytes from stdin.
@@ -134,7 +115,7 @@ antiquus _io_read_stdin_exact with n as int into maybe string:
     r"""
 if (n <= 0)
 return pengu_maybe_none();
-char *buf = (char *)malloc((size_t)n + 1);
+sds buf = sdsnewlen(NULL, (size_t)n);
 if (!buf)
 return pengu_maybe_none();
 size_t got = 0;
@@ -147,19 +128,16 @@ got += part;
 }
 if (got != (size_t)n)
 {
-free(buf);
+sdsfree(buf);
 return pengu_maybe_none();
 }
-buf[n] = '\0';
 PenguString *boxed = (PenguString *)malloc(sizeof(PenguString));
 if (!boxed)
 {
-free(buf);
+sdsfree(buf);
 return pengu_maybe_none();
 }
-boxed->data = buf;
-boxed->len = n;
-boxed->is_owned = 1;
+*boxed = pengu_string_owned_from_sds_len(buf, n);
 return pengu_maybe_some(boxed);
 """
 
@@ -175,35 +153,36 @@ weave read_stdin_all into string:
 
 antiquus _io_read_stdin_all into string:
     r"""
-size_t cap = 8192;
-size_t len = 0;
-char *buf = (char *)malloc(cap);
+sds buf = sdsempty();
 if (!buf)
 return pengu_string_from_cstr("");
-for (;;)
+sds grown = sdsMakeRoomFor(buf, 8192);
+if (!grown)
 {
-if (len + 4096 + 1 > cap)
-{
-cap *= 2;
-char *nb = (char *)realloc(buf, cap);
-if (!nb)
-{
-free(buf);
+sdsfree(buf);
 return pengu_string_from_cstr("");
 }
-buf = nb;
+buf = grown;
+for (;;)
+{
+if (sdsavail(buf) < 4096)
+{
+grown = sdsMakeRoomFor(buf, 4096);
+if (!grown)
+{
+sdsfree(buf);
+return pengu_string_from_cstr("");
 }
-size_t got = fread(buf + len, 1, 4096, stdin);
-len += got;
+buf = grown;
+}
+size_t got = fread(buf + sdslen(buf), 1, 4096, stdin);
+if (got == 0)
+break;
+sdsIncrLen(buf, (ssize_t)got);
 if (got < 4096)
 break;
 }
-buf[len] = '\0';
-PenguString out;
-out.data = buf;
-out.len = (int)len;
-out.is_owned = 1;
-return out;
+return pengu_string_owned_from_sds(buf);
 """
 
 ## Reads one line from stdin, without the trailing newline.
@@ -215,9 +194,7 @@ weave read_stdin_line into string:
 
 antiquus _io_read_stdin_line into string:
     r"""
-size_t cap = 256;
-size_t len = 0;
-char *buf = (char *)malloc(cap);
+sds buf = sdsempty();
 if (!buf)
 return pengu_string_from_cstr("");
 int c;
@@ -227,32 +204,29 @@ while ((c = fgetc(stdin)) != EOF)
 saw_any = true;
 if (c == '\n')
 break;
-if (len + 2 > cap)
+if (sdsavail(buf) < 2)
 {
-cap *= 2;
-char *nb = (char *)realloc(buf, cap);
-if (!nb)
+sds grown = sdsMakeRoomFor(buf, 256);
+if (!grown)
 {
-free(buf);
+sdsfree(buf);
 return pengu_string_from_cstr("");
 }
-buf = nb;
+buf = grown;
 }
-buf[len++] = (char)c;
+buf[sdslen(buf)] = (char)c;
+sdsIncrLen(buf, 1);
 }
 if (!saw_any)
 {
-free(buf);
+sdsfree(buf);
 return pengu_string_from_cstr("");
 }
-if (len > 0 && buf[len - 1] == '\r')
-len--;
-buf[len] = '\0';
-PenguString out;
-out.data = buf;
-out.len = (int)len;
-out.is_owned = 1;
-return out;
+if (sdslen(buf) > 0 && buf[sdslen(buf) - 1] == '\r')
+{
+sdsIncrLen(buf, -1);
+}
+return pengu_string_owned_from_sds(buf);
 """
 
 # ----------------------------------------------------------------------------

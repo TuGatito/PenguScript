@@ -787,28 +787,9 @@ PenguEntryArray pengu_map_to_entries(const PenguMap *map) {
             PenguString *src = (PenguString *)map->entries[i].key;
             PenguString *dst = (PenguString *)kdst;
             if (src && src->data && src->len > 0) {
-                dst->data = (char *)malloc((size_t)src->len + 1);
-                if (dst->data) {
-                    memcpy(dst->data, src->data, (size_t)src->len);
-                    dst->data[src->len] = '\0';
-                    dst->len = src->len;
-                    dst->is_owned = 1;
-                } else {
-                    /* Allocation failed: fall back to the shared read-only
-                     * empty string, which must never be freed. Comparing
-                     * `dst->data == PENGU_EMPTY_CSTR` here would be a
-                     * comparison against a string literal's address -- the
-                     * standard leaves it unspecified whether that is the same
-                     * object (clang: -Wstring-compare), so track ownership
-                     * explicitly instead. */
-                    dst->len = 0;
-                    dst->data = (char *)PENGU_EMPTY_CSTR;
-                    dst->is_owned = 0;
-                }
+                *dst = pengu_string_owned(src->data, src->len);
             } else {
-                dst->data = (char *)PENGU_EMPTY_CSTR;
-                dst->len = 0;
-                dst->is_owned = 0;
+                *dst = pengu_string_from_cstr(PENGU_EMPTY_CSTR);
             }
         } else {
             memcpy(kdst, map->entries[i].key, map->key_size);
@@ -817,24 +798,9 @@ PenguEntryArray pengu_map_to_entries(const PenguMap *map) {
             PenguString *src = (PenguString *)map->entries[i].val;
             PenguString *dst = (PenguString *)vdst;
             if (src && src->data && src->len > 0) {
-                dst->data = (char *)malloc((size_t)src->len + 1);
-                if (dst->data) {
-                    memcpy(dst->data, src->data, (size_t)src->len);
-                    dst->data[src->len] = '\0';
-                    dst->len = src->len;
-                    dst->is_owned = 1;
-                } else {
-                    /* See the key branch above: ownership is tracked by the
-                     * success of the allocation, never by comparing against
-                     * the address of PENGU_EMPTY_CSTR. */
-                    dst->len = 0;
-                    dst->data = (char *)PENGU_EMPTY_CSTR;
-                    dst->is_owned = 0;
-                }
+                *dst = pengu_string_owned(src->data, src->len);
             } else {
-                dst->data = (char *)PENGU_EMPTY_CSTR;
-                dst->len = 0;
-                dst->is_owned = 0;
+                *dst = pengu_string_from_cstr(PENGU_EMPTY_CSTR);
             }
         } else {
             memcpy(vdst, map->entries[i].val, map->val_size);
@@ -856,12 +822,7 @@ void pengu_entry_array_free(PenguEntryArray *arr) {
         if (arr->key_size == sizeof(PenguString)) {
             for (int i = 0; i < arr->count; ++i) {
                 PenguString *s = (PenguString *)arr->keys + i;
-                if (s->data && s->is_owned) {
-                    free(s->data);
-                }
-                s->data = NULL;
-                s->len = 0;
-                s->is_owned = 0;
+                pengu_banish_string(s);
             }
         }
         free(arr->keys);
@@ -871,12 +832,7 @@ void pengu_entry_array_free(PenguEntryArray *arr) {
         if (arr->val_size == sizeof(PenguString)) {
             for (int i = 0; i < arr->count; ++i) {
                 PenguString *s = (PenguString *)arr->values + i;
-                if (s->data && s->is_owned) {
-                    free(s->data);
-                }
-                s->data = NULL;
-                s->len = 0;
-                s->is_owned = 0;
+                pengu_banish_string(s);
             }
         }
         free(arr->values);
@@ -894,28 +850,14 @@ PenguSlice pengu_string_as_slice(PenguString s) {
 }
 
 PenguString pengu_string_copy(PenguString s) {
-    if (!s.data || s.len == 0) {
+    if (!s.data || s.len <= 0) {
         PenguString empty;
         empty.len = 0;
         empty.data = (char *)PENGU_EMPTY_CSTR;
-        empty.is_owned = 0;
+        empty.is_owned = PENGU_STRING_BORROWED;
         return empty;
     }
-    char *buf = (char *)malloc((size_t)s.len + 1);
-    if (!buf) {
-        PenguString empty;
-        empty.len = 0;
-        empty.data = (char *)PENGU_EMPTY_CSTR;
-        empty.is_owned = 0;
-        return empty;
-    }
-    memcpy(buf, s.data, (size_t)s.len);
-    buf[s.len] = '\0';
-    PenguString out;
-    out.data = buf;
-    out.len = s.len;
-    out.is_owned = 1;
-    return out;
+    return pengu_string_owned(s.data, s.len);
 }
 
 /* ---------------------------------------------------------------------------

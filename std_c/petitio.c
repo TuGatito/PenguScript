@@ -49,28 +49,16 @@ static char *petitio_dup_pengu(PenguString s)
  * string is a valid result and callers `banish` it unconditionally). */
 static PenguString petitio_pengu_dup(const char *data, int len)
 {
-    char *buf = petitio_dup_n(data, len);
-    PenguString out;
-    if (buf == NULL) {
-        out.data = (char *)"";
-        out.len = 0;
-        out.is_owned = 0;
-        return out;
-    }
-    out.data = buf;
-    out.len = len;
-    out.is_owned = 1;
-    return out;
+    /* SDS-backed owned text: the runtime owns the allocation scheme, so a
+     * later `banish` releases it with sdsfree. An empty/NULL result is the
+     * borrowed empty view, exactly like the runtime constructors. */
+    return pengu_string_owned(data, len);
 }
 
-/* The empty owned string: `banish` on it is a no-op because is_owned is 0. */
+/* The empty string view: `banish` on it is a no-op because is_owned is 0. */
 static PenguString petitio_pengu_empty(void)
 {
-    PenguString out;
-    out.data = (char *)"";
-    out.len = 0;
-    out.is_owned = 0;
-    return out;
+    return pengu_string_from_cstr("");
 }
 
 static int petitio_ascii_lower(int c)

@@ -159,11 +159,16 @@ if (prompt.data && prompt.len > 0)
 fwrite(prompt.data, 1, (size_t)prompt.len, stdout);
 fflush(stdout);
 }
-size_t cap = 4096;
-size_t len = 0;
-char *buf = (char *)malloc(cap);
+sds buf = sdsempty();
 if (!buf)
 return pengu_string_from_cstr("");
+sds grown = sdsMakeRoomFor(buf, 4096);
+if (!grown)
+{
+sdsfree(buf);
+return pengu_string_from_cstr("");
+}
+buf = grown;
 int c;
 bool any = false;
 while ((c = fgetc(stdin)) != EOF)
@@ -171,32 +176,29 @@ while ((c = fgetc(stdin)) != EOF)
 any = true;
 if (c == '\n')
 break;
-if (len + 2 > cap)
+if (sdsavail(buf) < 2)
 {
-cap *= 2;
-char *nb = (char *)realloc(buf, cap);
-if (!nb)
+grown = sdsMakeRoomFor(buf, 4096);
+if (!grown)
 {
-free(buf);
+sdsfree(buf);
 return pengu_string_from_cstr("");
 }
-buf = nb;
+buf = grown;
 }
-buf[len++] = (char)c;
+buf[sdslen(buf)] = (char)c;
+sdsIncrLen(buf, 1);
 }
 if (!any)
 {
-free(buf);
+sdsfree(buf);
 return pengu_string_from_cstr("");
 }
-if (len > 0 && buf[len - 1] == '\r')
-len--;
-buf[len] = '\0';
-PenguString out;
-out.data = buf;
-out.len = (int)len;
-out.is_owned = 1;
-return out;
+if (sdslen(buf) > 0 && buf[sdslen(buf) - 1] == '\r')
+{
+sdsIncrLen(buf, -1);
+}
+return pengu_string_owned_from_sds(buf);
 """
 
 ## Reads a single byte from stdin, or `none` at end of input.

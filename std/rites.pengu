@@ -226,30 +226,32 @@ FILE *fp = popen(cline, mode);
 free(cline);
 if (!fp)
 return pengu_string_from_cstr("");
-size_t cap = 4096;
-size_t len = 0;
-char *buf = (char *)malloc(cap);
+sds buf = sdsempty();
 if (!buf)
 {
 pclose(fp);
 return pengu_string_from_cstr("");
 }
-size_t got;
-while ((got = fread(buf + len, 1, cap - len - 1, fp)) > 0)
+for (;;)
 {
-len += got;
-if (len + 1 >= cap)
+if (sdsavail(buf) < 4096)
 {
-cap *= 2;
-char *nb = (char *)realloc(buf, cap);
-if (!nb)
+sds grown = sdsMakeRoomFor(buf, 4096);
+if (!grown)
+{
+sdsfree(buf);
+pclose(fp);
+return pengu_string_from_cstr("");
+}
+buf = grown;
+}
+size_t got = fread(buf + sdslen(buf), 1, 4096, fp);
+if (got == 0)
 break;
-buf = nb;
+sdsIncrLen(buf, (ssize_t)got);
 }
-}
-buf[len] = '\0';
 int st = pclose(fp);
-PenguString str = pengu_string_from_cstr("");
+PenguString str;
 bool failed = false;
 int code = 0;
 if (st == -1)
@@ -279,11 +281,10 @@ snprintf(msg, sizeof(msg), "command exited with code %d", code);
 PenguString *boxed = (PenguString *)malloc(sizeof(PenguString));
 if (boxed)
 *err = pengu_string_new(msg);
-free(buf);
+sdsfree(buf);
 return pengu_string_from_cstr("");
 }
-str = pengu_string_new(buf);
-free(buf);
+str = pengu_string_owned_from_sds(buf);
 return str;
 #endif
 """
@@ -388,13 +389,12 @@ cline[cmdline.len] = '\0';
       long _n = ftell(STREAM);                                                 \
       if (_n < 0) _n = 0;                                                      \
       rewind(STREAM);                                                          \
-      char *_buf = (char *)malloc((size_t)_n + 1);                             \
-      if (_buf) {                                                              \
-        size_t _got = fread(_buf, 1, (size_t)_n, STREAM);                      \
-        _buf[_got] = '\0';                                                     \
-        DEST->data = _buf;                                                     \
-        DEST->len = (int)_got;                                                 \
-        DEST->is_owned = 1;                                                    \
+      if (_n <= (long)INT_MAX) {                                               \
+        sds _buf = sdsnewlen(NULL, (size_t)_n);                                \
+        if (_buf) {                                                            \
+          size_t _got = fread(_buf, 1, (size_t)_n, STREAM);                    \
+          *DEST = pengu_string_owned_from_sds_len(_buf, (int)_got);            \
+        }                                                                      \
       }                                                                        \
     }                                                                          \
   } while (0)

@@ -124,6 +124,13 @@ weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, cc_ov
     banish incc
     calling add_inc with (sigil of incs), p->runtime_include
     calling add_inc with (sigil of incs), p->std_c_dir
+    # Vendored SDS lives in `std_c/sds`; `build/include` already gets a copy,
+    # but a source checkout that has not run build_runtime yet still resolves
+    # `#include "sds.h"` through this path.
+    if p->std_c_dir length > 0:
+        var stdfsds as string is "{p->std_c_dir}/sds"
+        calling add_inc with (sigil of incs), stdfsds
+        banish stdfsds
     for d in m->include_dirs:
         var di as string is "{m->base_dir}/{d}"
         calling add_inc with (sigil of incs), di

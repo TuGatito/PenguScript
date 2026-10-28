@@ -98,7 +98,8 @@ char *buf = (char *)pengu_memoria_alloc(bytes + 1);
 PenguString s;
 s.data = buf;
 s.len = (int)bytes;
-s.is_owned = 1;
+/* Raw byte block, not text: keep the malloc allocator and let `banish` free it. */
+s.is_owned = PENGU_STRING_OWNED_RAW;
 return s;
 """
 

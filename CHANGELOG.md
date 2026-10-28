@@ -2,6 +2,34 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [Unreleased] — Backend de `string` sobre SDS
+
+- El tipo `string` usa **SDS (Simple Dynamic Strings)** vendorizado en
+  `std_c/sds` (BSD-2-Clause) como almacenamiento de toda cadena con posesión.
+- `is_owned == 1` significa reserva SDS y se libera con `sdsfree`;
+  `is_owned == 2` queda reservado para bloques opacos que no son texto
+  (`std/arena`, `std/regulus`) y se libera con `free`.
+- Nuevos helpers del runtime: `pengu_string_owned`, `_owned_size`,
+  `_owned_empty`, `_owned_from_sds` y `_owned_from_sds_len`.
+- `pengu_string_new`, `_copy`, `_format`, `_format_ex`, `_concat`, `_trim*`,
+  `_substring`, `_char_at`, `_from_int`, `_from_float` y `_from_char` construyen
+  SDS.
+- `pengu_c_archivum_read_file`, `pengu_map_to_entries` y
+  `pengu_entry_array_free` también usan SDS.
+- Migrados a SDS: `scrolls`, `builder`, `ffi`, `json`, `io`, `net`, `spark`,
+  `rites`, `archivum`, `digest`, `cipher`, `compressus`, `petitio` y el C
+  generado por `psc assets`.
+- `StringBuilder` mantiene la API y pasa a crecer con `sdsMakeRoomFor` /
+  `sdsRemoveFreeSpace`; `finish` y `to_string` siguen prometiendo un resultado
+  con posesión.
+- Corregido `scrolls.join`: el indexado `parts at i` dentro de una
+  interpolación generaba un argumento vacío; ahora se bindea a un local.
+- Añadido `tests/pengu/strings_sds.pengu` (cabeceras SDS, NUL embebido, vistas,
+  builder, capacidad y `join`).
+- Documentación: `README` (créditos y agradecimiento a SDS/Redis),
+  `THIRD_PARTY.md`, `LANGUAGE*.md`, `SECURITY.md`, `docs/psc/OWNERSHIP.md` y
+  `tools/release.sh` (empaqueta el aviso de terceros).
+
 ## [0.11.1] — 2026-10-28 — Bootstrap de CI reparado
 
 - `.github/actions/setup-psc-bootstrap` resuelve el último release (o una versión/tag concreta) y entiende tanto el layout nativo `pengu-<version>-<target>-portable` como el plano `pengu-<os>-<arch>`.

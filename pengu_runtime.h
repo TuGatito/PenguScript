@@ -11,6 +11,9 @@
  * bindings (I/O, logging, math, time, random, OS rites, paths, filesystem,
  * JSON/Base64, CSV/TSV, concurrency, regex, XML/HTML, compression/hashing, and networking).
  *
+ * `string` storage is backed by SDS (Simple Dynamic Strings), vendored in
+ * `std_c/sds` under the BSD-2-Clause license; see THIRD_PARTY.md.
+ *
  * @note Designed for C11/C99 compatibility with manual memory management (banish/defer).
  */
 
@@ -71,6 +74,11 @@
  *
  * `tests/abi/test_abi_layout.c` asserts these values at runtime on every
  * platform the suite runs on; keep it in sync if a layout ever changes.
+ *
+ * ABI v2 is preserved by the SDS migration: `PenguString` keeps the same
+ * 16-byte layout, but an owned payload (`is_owned == 1`) is now an SDS
+ * allocation. C extensions must build owned strings with the runtime
+ * constructors (`pengu_string_owned*`), never with `malloc` + `is_owned = 1`.
  * ========================================================================= */
 #define PENGU_ABI_VERSION 2
 
@@ -174,6 +182,19 @@ int pengu_abi_version(void);
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+
+/* SDS (Simple Dynamic Strings) backs every owned `PenguString`.  The vendored
+ * copy lives in `std_c/sds`; `tools/build_runtime.sh` compiles it into
+ * `libpengu_runtime.a` and copies `sds.h` next to this header, so generated
+ * bundles see it through the same `-I` the runtime uses.
+ *
+ * MSVC has no POSIX `ssize_t`, which `sds.h` uses in two declarations.  Define
+ * it before the include, guarded exactly like the CRT's own typedef. */
+#if defined(_MSC_VER) && !defined(_SSIZE_T_DEFINED) && !defined(__MINGW32__)
+typedef intptr_t ssize_t;
+#define _SSIZE_T_DEFINED 1
+#endif
+#include "sds.h"
 
 #if defined(_WIN32) || defined(_WIN64)
 #define PENGU_WINDOWS 1
@@ -1008,13 +1029,16 @@ extern "C"
 
   /**
    * @brief Represents an immutable UTF-8 string with explicit length and data pointer.
-   * @note PenguString NO garantiza NUL-terminación. `data` es un buffer de `len`
-   *       bytes y puede no tener '\0' al final (p.ej. pengu_string_as_slice o
-   *       vistas sobre buffers parciales). Los constructores internos
-   *       (pengu_string_new, _copy, _from_cstr, _substring, _split, _concat,
-   *       _format, _replace, _repeat, _reverse, _from_int, _from_float,
-   *       _from_char, _char_at) SÍ producen buffers NUL-terminados, pero el
-   *       consumidor no debe asumirlo sin comprobación explícita.
+   * @note Toda cadena con posesión (`is_owned == 1`) es una reserva **SDS**
+   *       (Simple Dynamic Strings, `std_c/sds`): `data` siempre termina en '\0'
+   *       y se libera con `sdsfree` (ver `pengu_banish_string`). Las vistas
+   *       (`is_owned == 0`) siguen sin garantizar NUL-terminación en su último
+   *       byte (p.ej. pengu_string_as_slice o vistas sobre buffers parciales).
+   *       Los constructores internos (pengu_string_new, _copy, _from_cstr,
+   *       _substring, _split, _concat, _format, _replace, _repeat, _reverse,
+   *       _from_int, _from_float, _from_char, _char_at) producen buffers
+   *       NUL-terminados, pero el consumidor no debe asumirlo en una vista sin
+   *       comprobación explícita.
    */
   typedef struct
   {
@@ -1022,6 +1046,12 @@ extern "C"
     int len;
     int32_t is_owned;
   } PenguString;
+
+  /* Ownership kinds stored in `PenguString.is_owned` (see the full contract in
+   * section "5.1 Ownership kinds and SDS constructors" below). */
+  #define PENGU_STRING_BORROWED 0
+  #define PENGU_STRING_OWNED 1
+  #define PENGU_STRING_OWNED_RAW 2
 
   /**
    * @brief Creates a deep copy of a PenguString.
@@ -1037,7 +1067,7 @@ extern "C"
    *       construido con len correcta. Strings > INT_MAX bytes se rechazan (retornan
    *       vacío) y en ningún caso se admiten longitudes truncadas.
    * @param str Null-terminated C string buffer.
-   * @return Newly allocated PenguString.
+   * @return Newly allocated SDS-backed PenguString.
    */
   static inline PenguString pengu_string_new(const char *str)
   {
@@ -1057,17 +1087,17 @@ extern "C"
       s.is_owned = 0;
       return s;
     }
-    s.len = (int)len;
-    s.data = (char *)malloc((size_t)s.len + 1);
-    if (!s.data)
+    sds draft = sdsnewlen(str, len);
+    if (!draft)
     {
       s.len = 0;
       s.data = (char *)"";
       s.is_owned = 0;
       return s;
     }
-    s.is_owned = 1;
-    memcpy(s.data, str, (size_t)s.len + 1);
+    s.len = (int)len;
+    s.data = draft;
+    s.is_owned = PENGU_STRING_OWNED;
     return s;
   }
 
@@ -1123,6 +1153,167 @@ extern "C"
     s.len = len;
     s.is_owned = 0;
     return s;
+  }
+
+  /* -------------------------------------------------------------------------
+   * 5.1 Ownership kinds and SDS constructors
+   *
+   * Every owned `PenguString` created by the runtime or the standard library
+   * carries one of these values in `is_owned`:
+   *
+   *   0 (`PENGU_STRING_BORROWED`) - a view; `banish` is a no-op.
+   *   1 (`PENGU_STRING_OWNED`)    - `data` is a valid `sds`; free with `sdsfree`.
+   *   2 (`PENGU_STRING_OWNED_RAW`)- `data` is a non-SDS raw block owned by the
+   *                                 program and allocated with the C allocator;
+   *                                 free with `free`.  Reserved for blocks that
+   *                                 cannot be SDS: `std/arena` (alignment) and
+   *                                 `std/regulus` (opaque `re_t` from lib `re`).
+   *
+   * C extensions must not hand a `malloc` buffer to `pengu_banish_string` with
+   * `is_owned == 1`; use `pengu_string_owned` or `pengu_string_owned_size`.
+   * ------------------------------------------------------------------------- */
+
+  /**
+   * @brief Copies exactly `len` bytes into a freshly allocated SDS string.
+   *
+   * Binary-safe: embedded NUL bytes survive. An empty/NULL input yields the
+   * borrowed empty view (so `banish` stays a no-op), matching the historical
+   * constructors. On allocation failure it also returns the empty view.
+   *
+   * @param data Source bytes (may be NULL only when `len <= 0`).
+   * @param len Exact number of bytes to copy.
+   * @return Owned SDS string, or the borrowed empty view.
+   */
+  static inline PenguString pengu_string_owned(const void *data, int len)
+  {
+    if (!data || len <= 0)
+      return pengu_string_from_cstr("");
+    sds s = sdsnewlen(data, (size_t)len);
+    if (!s)
+      return pengu_string_from_cstr("");
+    PenguString out;
+    out.data = s;
+    out.len = len;
+    out.is_owned = PENGU_STRING_OWNED;
+    return out;
+  }
+
+  /**
+   * @brief Allocates an owned, zero-initialized SDS payload of `len` bytes.
+   *
+   * Use it when the bytes are written afterwards and the final length is known
+   * up front. The payload is always NUL-terminated by SDS; callers may set a
+   * shorter used length with `pengu_string_owned_from_sds_len`.
+   *
+   * @param len Number of payload bytes (<= 0 yields the empty view).
+   * @return Owned SDS string, or the borrowed empty view on failure.
+   */
+  static inline PenguString pengu_string_owned_size(int len)
+  {
+    if (len <= 0)
+      return pengu_string_from_cstr("");
+    sds s = sdsnewlen(NULL, (size_t)len);
+    if (!s)
+      return pengu_string_from_cstr("");
+    PenguString out;
+    out.data = s;
+    out.len = len;
+    out.is_owned = PENGU_STRING_OWNED;
+    return out;
+  }
+
+  /**
+   * @brief Owned empty SDS string (`data != NULL`, `len == 0`, `is_owned == 1`).
+   *
+   * Only the builders that promise an owned empty result need this; every other
+   * constructor returns the cheaper borrowed empty view.
+   */
+  static inline PenguString pengu_string_owned_empty(void)
+  {
+    sds s = sdsempty();
+    if (!s)
+      return pengu_string_from_cstr("");
+    PenguString out;
+    out.data = s;
+    out.len = 0;
+    out.is_owned = PENGU_STRING_OWNED;
+    return out;
+  }
+
+  /**
+   * @brief Wraps an SDS string whose length is already authoritative.
+   * @param s SDS returned by `sdsnew*`/`sdscat*` (takes ownership).
+   * @return Owned `PenguString`, or the empty view if `s` is NULL/too large.
+   */
+  static inline PenguString pengu_string_owned_from_sds(sds s)
+  {
+    if (!s)
+      return pengu_string_from_cstr("");
+    size_t n = sdslen(s);
+    if (n > (size_t)INT_MAX)
+    {
+      sdsfree(s);
+      return pengu_string_from_cstr("");
+    }
+    PenguString out;
+    out.data = s;
+    out.len = (int)n;
+    out.is_owned = PENGU_STRING_OWNED;
+    return out;
+  }
+
+  /**
+   * @brief Wraps an SDS allocation setting an explicit used length.
+   *
+   * For builders that reserve capacity up front and then write fewer bytes:
+   * `used` must fit the SDS allocation. The header length is updated and the
+   * byte at `used` is forced to NUL.
+   *
+   * @param s SDS allocation (takes ownership, even on failure).
+   * @param used Number of meaningful bytes (`0 <= used <= sdsalloc(s)`).
+   * @return Owned `PenguString`, or the empty view on invalid length/OOM.
+   */
+  static inline PenguString pengu_string_owned_from_sds_len(sds s, int used)
+  {
+    if (!s || used < 0)
+    {
+      sdsfree(s);
+      return pengu_string_from_cstr("");
+    }
+    size_t cap = sdsalloc(s);
+    if ((size_t)used > cap || (size_t)used > (size_t)INT_MAX)
+    {
+      sdsfree(s);
+      return pengu_string_from_cstr("");
+    }
+    sdssetlen(s, (size_t)used);
+    s[used] = '\0';
+    PenguString out;
+    out.data = s;
+    out.len = used;
+    out.is_owned = PENGU_STRING_OWNED;
+    return out;
+  }
+
+  /**
+   * @brief Wraps a raw (non-SDS) owned block in a `PenguString` header.
+   *
+   * The block is released with `free`, not `sdsfree`; only use it for buffers
+   * that cannot be SDS (see the ownership-kind comment above).
+   *
+   * @param data Raw allocation owned by the caller.
+   * @param len Number of bytes represented by the block.
+   * @return A `PenguString` with `is_owned == 2`.
+   */
+  static inline PenguString pengu_string_owned_raw(void *data, int len)
+  {
+    if (!data)
+      return pengu_string_from_cstr("");
+    PenguString out;
+    out.data = (char *)data;
+    out.len = len;
+    out.is_owned = PENGU_STRING_OWNED_RAW;
+    return out;
   }
 
   /** @brief Shared read-only empty C string used by the null-safe helpers. */
@@ -1182,23 +1373,22 @@ extern "C"
   {
     if (!fmt)
       return pengu_string_from_cstr("");
-    size_t cap = 64;
-    size_t len = 0;
-    char *buf = (char *)malloc(cap);
-    if (!buf)
+    sds out = sdsempty();
+    if (!out)
       return pengu_string_from_cstr("");
+    bool failed = false;
 
 #define PENGU_FMT_APPEND_BYTES(SRC, N)                                        \
     do {                                                                      \
       size_t _n = (size_t)(N);                                                \
-      if (len + _n + 1 > cap) {                                               \
-        while (len + _n + 1 > cap) cap *= 2;                                  \
-        char *_nb = (char *)realloc(buf, cap);                                \
-        if (!_nb) { free(buf); return pengu_string_from_cstr(""); }            \
-        buf = _nb;                                                            \
+      if (!failed && _n > 0) {                                                \
+        sds _next = sdscatlen(out, (SRC), _n);                                \
+        if (!_next) {                                                         \
+          failed = true;                                                      \
+        } else {                                                              \
+          out = _next;                                                        \
+        }                                                                     \
       }                                                                       \
-      memcpy(buf + len, (SRC), _n);                                           \
-      len += _n;                                                              \
     } while (0)
 
     /* snprintf returns the length the whole formatted value *would* have, which
@@ -1210,16 +1400,21 @@ extern "C"
      * safety net for any specifier whose output can outgrow the buffer. */
 #define PENGU_FMT_APPEND_FORMATTED(FMT, VAL)                                  \
     do {                                                                      \
-      char _small[64];                                                        \
-      int _k = snprintf(_small, sizeof(_small), (FMT), (VAL));                \
-      if (_k > 0 && (size_t)_k < sizeof(_small)) {                            \
-        PENGU_FMT_APPEND_BYTES(_small, _k);                                   \
-      } else if (_k > 0) {                                                    \
-        char *_big = (char *)malloc((size_t)_k + 1);                          \
-        if (!_big) { free(buf); return pengu_string_from_cstr(""); }          \
-        snprintf(_big, (size_t)_k + 1, (FMT), (VAL));                         \
-        PENGU_FMT_APPEND_BYTES(_big, _k);                                     \
-        free(_big);                                                           \
+      if (!failed) {                                                          \
+        char _small[64];                                                      \
+        int _k = snprintf(_small, sizeof(_small), (FMT), (VAL));              \
+        if (_k > 0 && (size_t)_k < sizeof(_small)) {                          \
+          PENGU_FMT_APPEND_BYTES(_small, _k);                                 \
+        } else if (_k > 0) {                                                  \
+          char *_big = (char *)malloc((size_t)_k + 1);                        \
+          if (!_big) {                                                        \
+            failed = true;                                                    \
+          } else {                                                            \
+            snprintf(_big, (size_t)_k + 1, (FMT), (VAL));                     \
+            PENGU_FMT_APPEND_BYTES(_big, _k);                                 \
+            free(_big);                                                       \
+          }                                                                   \
+        }                                                                     \
       }                                                                       \
     } while (0)
 
@@ -1300,12 +1495,11 @@ extern "C"
 #undef PENGU_FMT_APPEND_BYTES
 #undef PENGU_FMT_APPEND_FORMATTED
 
-    if (len == 0) {
-      free(buf);
+    if (failed || sdslen(out) == 0) {
+      sdsfree(out);
       return pengu_string_from_cstr("");
     }
-    buf[len] = '\0';
-    return (PenguString){buf, (int)len, 1};
+    return pengu_string_owned_from_sds(out);
   }
 
   /**
@@ -1328,13 +1522,13 @@ extern "C"
     va_end(args);
     if (size <= 0)
       return pengu_string_from_cstr("");
-    char *buf = (char *)malloc((size_t)size + 1);
-    if (!buf)
+    sds out = sdsnewlen(NULL, (size_t)size);
+    if (!out)
       return pengu_string_from_cstr("");
     va_start(args, fmt);
-    vsnprintf(buf, (size_t)size + 1, fmt, args);
+    vsnprintf(out, (size_t)size + 1, fmt, args);
     va_end(args);
-    return (PenguString){buf, size, 1};
+    return pengu_string_owned_from_sds(out);
   }
 
   /**
@@ -1353,27 +1547,18 @@ extern "C"
     int total = a.len + b.len;
     if (total <= 0)
       return pengu_string_from_cstr("");
-    PenguString s;
-    s.len = total;
-    s.data = (char *)malloc((size_t)total + 1);
-    if (!s.data)
-    {
-      s.len = 0;
-      s.data = (char *)"";
-      s.is_owned = 0;
-      return s;
-    }
-    s.is_owned = 1;
+    sds out = sdsnewlen(NULL, (size_t)total);
+    if (!out)
+      return pengu_string_from_cstr("");
     if (a.data && a.len > 0)
     {
-      memcpy(s.data, a.data, (size_t)a.len);
+      memcpy(out, a.data, (size_t)a.len);
     }
     if (b.data && b.len > 0)
     {
-      memcpy(s.data + a.len, b.data, (size_t)b.len);
+      memcpy(out + a.len, b.data, (size_t)b.len);
     }
-    s.data[s.len] = '\0';
-    return s;
+    return pengu_string_owned_from_sds(out);
   }
 
   /**
@@ -1415,12 +1600,16 @@ extern "C"
   /**
    * @brief Frees heap buffer allocated by a PenguString.
    * @param s Pointer to PenguString to deallocate.
-   * @warning Solo es seguro sobre strings creados por pengu_string_new, _copy,
-   *          _format, _concat, _substring, _replace, _repeat, _reverse, _from_int,
-   *          _from_float, _from_char. NUNCA llamar sobre el resultado de
-   *          pengu_string_from_cstr (view de rodata) ni sobre strings con len == 0
-   *          (no-op). La heurística 'len > 0 ⟹ owning' NO distingue views no-owning
-   *          con contenido.
+   * @warning Solo es seguro sobre strings creados por los constructores del
+   *          runtime (pengu_string_new, _copy, _format, _concat, _substring,
+   *          _replace, _repeat, _reverse, _from_int, _from_float, _from_char,
+   *          pengu_string_owned*, o los bloques opacos con is_owned == 2).
+   *          NUNCA llamar sobre el resultado de pengu_string_from_cstr (view de
+   *          rodata) ni sobre strings con len == 0 (no-op). La heurística
+   *          'len > 0 ⟹ owning' NO distingue views no-owning con contenido.
+   *
+   * A `is_owned == 1` payload is an SDS string and is released with `sdsfree`;
+   * `is_owned == 2` is a raw block (arena/regulus) released with `free`.
    */
   static inline void pengu_banish_string(PenguString *s)
   {
@@ -1428,7 +1617,10 @@ extern "C"
       return;
     if (s->data && s->is_owned)
     {
-      free(s->data);
+      if (s->is_owned == PENGU_STRING_OWNED)
+        sdsfree(s->data);
+      else
+        free(s->data);
     }
     s->data = NULL;
     s->len = 0;
@@ -1498,12 +1690,7 @@ extern "C"
     int len = (end >= start) ? (end - start + 1) : 0;
     if (len <= 0)
       return pengu_string_from_cstr("");
-    char *buf = (char *)malloc((size_t)len + 1);
-    if (!buf)
-      return pengu_string_from_cstr("");
-    memcpy(buf, s.data + start, (size_t)len);
-    buf[len] = '\0';
-    return (PenguString){buf, len, 1};
+    return pengu_string_owned(s.data + start, len);
   }
 
   /**
@@ -1523,12 +1710,7 @@ extern "C"
     int len = s.len - start;
     if (len <= 0)
       return pengu_string_from_cstr("");
-    char *buf = (char *)malloc((size_t)len + 1);
-    if (!buf)
-      return pengu_string_from_cstr("");
-    memcpy(buf, s.data + start, (size_t)len);
-    buf[len] = '\0';
-    return (PenguString){buf, len, 1};
+    return pengu_string_owned(s.data + start, len);
   }
 
   /**
@@ -1548,12 +1730,7 @@ extern "C"
     int len = end + 1;
     if (len <= 0)
       return pengu_string_from_cstr("");
-    char *buf = (char *)malloc((size_t)len + 1);
-    if (!buf)
-      return pengu_string_from_cstr("");
-    memcpy(buf, s.data, (size_t)len);
-    buf[len] = '\0';
-    return (PenguString){buf, len, 1};
+    return pengu_string_owned(s.data, len);
   }
 
   /* pengu_string_starts_with and pengu_string_ends_with moved to
@@ -1576,13 +1753,7 @@ extern "C"
       end = s.len;
     if (start >= end)
       return pengu_string_from_cstr("");
-    int len = end - start;
-    char *buf = (char *)malloc((size_t)len + 1);
-    if (!buf)
-      return pengu_string_from_cstr("");
-    memcpy(buf, s.data + start, (size_t)len);
-    buf[len] = '\0';
-    return (PenguString){buf, len, 1};
+    return pengu_string_owned(s.data + start, end - start);
   }
 
   /* pengu_string_replace, pengu_string_repeat and pengu_string_reverse moved to
@@ -1600,12 +1771,7 @@ extern "C"
   {
     if (!s.data || idx < 0 || idx >= s.len)
       return pengu_string_from_cstr("");
-    char *buf = (char *)malloc(2);
-    if (!buf)
-      return pengu_string_from_cstr("");
-    buf[0] = s.data[idx];
-    buf[1] = '\0';
-    return (PenguString){buf, 1, 1};
+    return pengu_string_owned(s.data + idx, 1);
   }
 
   /**
@@ -1615,9 +1781,7 @@ extern "C"
    */
   static inline PenguString pengu_string_from_int(int64_t val)
   {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%lld", (long long)val);
-    return pengu_string_new(buf);
+    return pengu_string_owned_from_sds(sdsfromlonglong((long long)val));
   }
 
   /**
@@ -1641,12 +1805,7 @@ extern "C"
    */
   static inline PenguString pengu_string_from_char(char c)
   {
-    char *buf = (char *)malloc(2);
-    if (!buf)
-      return pengu_string_from_cstr("");
-    buf[0] = c;
-    buf[1] = '\0';
-    return (PenguString){buf, 1, 1};
+    return pengu_string_owned(&c, 1);
   }
 
   /**
@@ -3654,8 +3813,8 @@ extern "C"
    * ========================================================================= */
 
   /** @brief Reads entire file into a PenguString.
-   * A present result holds a heap PenguString* that owns its buffer: the caller
-   * must free the buffer with pengu_banish_string() and the wrapper with
+   * A present result holds a heap PenguString* that owns an SDS buffer: the
+   * caller must free the buffer with pengu_banish_string() and the wrapper with
    * free().
    * @note Archivos que excedan INT_MAX bytes se rechazan (retorna none) para
    *       evitar truncación silenciosa al asignarse a int len. En plataformas LLP64
@@ -3682,7 +3841,7 @@ extern "C"
       fclose(f);
       return pengu_maybe_none();
     }
-    char *buf = (char *)malloc((size_t)sz + 1);
+    sds buf = sdsnewlen(NULL, (size_t)sz);
     if (!buf)
     {
       fclose(f);
@@ -3690,23 +3849,23 @@ extern "C"
     }
     size_t read_bytes = fread(buf, 1, (size_t)sz, f);
     fclose(f);
-    if (read_bytes > (size_t)INT_MAX)
-    {
-      free(buf);
-      return pengu_maybe_none();
-    }
-    buf[read_bytes] = '\0';
     PenguString *res = (PenguString *)malloc(sizeof(PenguString));
     if (!res)
     {
-      free(buf);
+      sdsfree(buf);
       return pengu_maybe_none();
     }
-    res->data = (read_bytes > 0) ? buf : (char *)"";
     if (read_bytes == 0)
-      free(buf);
-    res->len = (int)read_bytes;
-    res->is_owned = (read_bytes > 0) ? 1 : 0;
+    {
+      sdsfree(buf);
+      res->data = (char *)"";
+      res->len = 0;
+      res->is_owned = PENGU_STRING_BORROWED;
+    }
+    else
+    {
+      *res = pengu_string_owned_from_sds_len(buf, (int)read_bytes);
+    }
     return pengu_maybe_some(res);
   }
 
