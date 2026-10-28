@@ -139,7 +139,7 @@ psc vendor
 - Lexer, parser, semantic analysis, C codegen, CLI, formatter, docs, assets,
   LSP and package manager are implemented in PSC.
 - The bootstrap and release pipeline use PSC, not Python.
-- Some compiler/conformance tests are still being ported; see `CHANGELOG.md`.
+- The PSC test suite (`tests/run.sh`) passes on the supported corpus.
 - Linux is the primary tested platform; macOS/Windows are covered by CI.
 
 ## License

@@ -2,7 +2,7 @@
 
 Implementación en PenguScript del front-end de PSC, la segunda implementación
 del compilador descrita en
-[`AUDITORIA_AUTO_HOSPEDAJE.md`](../AUDITORIA_AUTO_HOSPEDAJE.md).
+the repository root.
 
 ## Estado actual
 
