@@ -18,9 +18,33 @@ psc version | help
 Los comandos de fases posteriores existen y fallan con un mensaje explícito:
 
 ```text
-psc bind                F10
 psc build --target      F11
 ```
+
+## Bind (F10)
+
+```bash
+psc bind HEADER [--prefix P] [--links L...] [--ignore S...]
+                [--include-paths D...] [--output PATH|-]
+                [--define NAME[=V]] [--cpp-flags FLAGS]
+                [--system-includes] [--preprocessed FILE.i]
+                [--no-blank-extensions] [--no-cpp]
+                [--auto-import[=DIR]] [--no-comments]
+                [--helper-version] [--print-helper]
+```
+
+`psc bind` localiza `pengu-bind` en `$PENGU_BIND`, junto a `psc`,
+`libexec/pengu`, `$PENGU_HOME` o `PATH`. El helper es un binario autocontenido:
+no requiere Python en el equipo de destino.
+
+## Release
+
+```bash
+python psc/tools/release.py --dist-dir dist --layout both
+```
+
+Genera portable y FHS, `release.toml` y `SHA256SUMS`. El paquete incluye
+`psc`, `pengu-bind`, `std/`, headers, runtime y stubs.
 
 ## Dependencias (F9)
 

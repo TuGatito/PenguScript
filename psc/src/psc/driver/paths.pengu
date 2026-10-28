@@ -110,6 +110,28 @@ weave find_paths with base_dir as string into Paths:
     var env_lib as string is calling env_or_empty with "PENGU_LIB_DIR"
     var env_inc as string is calling env_or_empty with "PENGU_INCLUDE_DIR"
     var env_std as string is calling env_or_empty with "PENGU_STD_DIR"
+    var env_home as string is calling env_or_empty with "PENGU_HOME"
+    if env_home length == 0:
+        var av as list of string is calling rites.get_args
+        if av.len > 0:
+            var exe0 as string is (av at 0)
+            var ed as string is calling compass.cp_dirname with exe0
+            var eh as string is calling compass.cp_dirname with ed
+            var hc as list of string is list of string
+            calling hc.push with "{eh}/lib/libpengu_runtime.a"
+            calling hc.push with "{eh}/lib/pengu/libpengu_runtime.a"
+            var hit as string is calling first_file with hc
+            if hit length > 0:
+                set env_home is (calling copy with eh)
+                banish hit
+            calling free_strings with hc
+            banish eh
+            banish ed
+        var ai as int is 0
+        while ai < av.len:
+            banish av at ai
+            set ai is ai + 1
+        banish av
     if env_archive length > 0:
         if calling archivum.is_file with env_archive:
             set archive is env_archive
@@ -123,6 +145,36 @@ weave find_paths with base_dir as string into Paths:
             set archive is cand
         else:
             banish cand
+    if env_home length > 0:
+        if archive length == 0:
+            var hc as list of string is list of string
+            calling hc.push with "{env_home}/lib/libpengu_runtime.a"
+            calling hc.push with "{env_home}/lib/pengu/libpengu_runtime.a"
+            set archive is calling first_file with hc
+            calling free_strings with hc
+        if include length == 0:
+            var hi as list of string is list of string
+            calling hi.push with "{env_home}/include/pengu"
+            calling hi.push with "{env_home}/include"
+            set include is calling first_dir with hi
+            calling free_strings with hi
+        if stdc length == 0:
+            var hs as list of string is list of string
+            calling hs.push with "{env_home}/std_c"
+            calling hs.push with "{env_home}/share/pengu/std_c"
+            set stdc is calling first_dir with hs
+            calling free_strings with hs
+        var hst1 as string is "{env_home}/std"
+        var hst2 as string is "{env_home}/share/pengu/std"
+        if calling archivum.is_dir with hst1:
+            calling stds.push with hst1
+        else:
+            banish hst1
+        if calling archivum.is_dir with hst2:
+            calling stds.push with hst2
+        else:
+            banish hst2
+    banish env_home
     if repo length > 0:
         if archive length == 0:
             var cands as list of string is list of string

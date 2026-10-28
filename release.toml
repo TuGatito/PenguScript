@@ -1,0 +1,16 @@
+# F10 release metadata. The packed artifact also contains a copy of this file.
+[release]
+version = "0.10.0"
+bind_version = "0.10.0"
+layouts = ["portable", "fhs"]
+default_target = "linux-x86_64"
+
+[targets]
+linux = ["x86_64", "aarch64"]
+macos = ["x86_64", "arm64"]
+windows = ["x86_64"]
+
+[smoke]
+no_python = true
+psc_commands = ["version", "build", "bind"]
+bind_helper = true

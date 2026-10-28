@@ -2,6 +2,16 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [F10] — 2026-10-27 — Bind externo y release nativo
+
+- `psc bind` nativo con locator y contrato de flags.
+- `pengu-bind` onefile; paridad byte a byte en corpus de stubs.
+- Release portable/FHS de PSC con `std/`, headers, runtime y stubs.
+- `release.toml` + `SHA256SUMS`; tar.gz determinista.
+- `PENGU_HOME` para descubrir recursos del paquete.
+- `psc 0.10.0 (F10)`.
+- Tests: `tests/psc/test_f10_bind.py`.
+
 ## [F9] — 2026-10-27 — Dependencias y package manager nativo
 
 - `psc add/remove/update/upgrade/verify/vendor` implementados en PSC.

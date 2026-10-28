@@ -49,6 +49,7 @@ import psc.cmd.time as cmd_time
 import psc.cmd.watch as cmd_watch
 import psc.cmd.gc as cmd_gc
 import psc.cmd.lsp as cmd_lsp
+import psc.cmd.bind as cmd_bind
 import psc.cmd.fmt as cmd_fmt
 import psc.cmd.doc as cmd_doc
 import psc.cmd.assets as cmd_assets
@@ -94,7 +95,7 @@ weave dispatch with args as list of string into int:
         return gc
     var cmd as string is args at 1
     if cmd == "version" or cmd == "--version" or cmd == "-V":
-        calling spark.println with "psc 0.9.0 (F9)"
+        calling spark.println with "psc 0.10.0 (F10)"
         return 0
     if cmd == "help" or cmd == "--help" or cmd == "-h":
         if cmd == "help" and args.len >= 3:
@@ -149,10 +150,7 @@ weave dispatch with args as list of string into int:
     if cmd == "lsp":
         return calling cmd_lsp.run_lsp with args
     if cmd == "bind":
-        if args.len > 2 and (args at 2) == "--help":
-            calling spark.println with "psc bind arrives in F10 (C bindings)."
-            return 0
-        return calling cmd_stubs.run_bind
+        return calling cmd_bind.run with args
     if cmd == "test":
         return calling cmd_test.run_test with args
     if cmd == "eval":
