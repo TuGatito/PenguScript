@@ -1,0 +1,754 @@
+## psc/src/main.pengu — CLI de PSC (F1 + F2 + F3).
+##
+## ```text
+## psc lex <file> [--comments] [--no-indent] [--check]
+##                [--diagnostics=plain|json] [--color|--no-color]
+## psc lex --stdin ...
+## psc parse <file> [--check] [--no-header] [--stdin]
+## psc ast <file> ...
+## psc check <file> [--diagnostics=plain|json] [-D NAME] [--stdin]
+## psc version
+## ```
+##
+## Exit codes: 0 sin errores, 1 con diagnósticos de error, 2 uso/E-S.
+##
+## ## Memoria
+## El argv de `std.rites` se libera al final de `main`; cada recurso de una
+## ejecución se libera con `banish` antes de volver.
+
+import std.io
+import std.archivum
+import std.compass
+import std.diagnostic as diag
+import std.rites
+import std.spark
+
+import psc.source as psource
+import psc.token as pstoken
+import psc.lexer_state as psstate
+import psc.session as pssession
+import psc.token_dump as psdump
+import psc.ast.dump as psastdump
+import psc.parse.state as psstate
+import psc.parse.api as psapi
+
+import psc.sema.options as sopts
+import psc.sema.api as sema_api
+import psc.codegen.api as cgapi
+import psc.codegen.options as cgopt
+import psc.cmd.build as cmd_build
+import psc.cmd.init as cmd_init
+import psc.cmd.clean as cmd_clean
+import psc.cmd.doctor as cmd_doctor
+import psc.cmd.meta as cmd_meta
+import psc.cmd.stubs as cmd_stubs
+import psc.cmd.deps as cmd_deps
+import psc.cmd.test as cmd_test
+import psc.cmd.eval as cmd_eval
+import psc.cmd.time as cmd_time
+import psc.cmd.watch as cmd_watch
+import psc.cmd.gc as cmd_gc
+import psc.cmd.lsp as cmd_lsp
+import psc.cmd.bind as cmd_bind
+import psc.cmd.fmt as cmd_fmt
+import psc.cmd.doc as cmd_doc
+import psc.cmd.assets as cmd_assets
+import psc.cmd.dev as cmd_dev
+
+
+## Punto de entrada.
+weave main into int:
+    var args as list of string is calling rites.get_args
+    var code as int is calling dispatch with args
+    var i as int is 0
+    while i < args.len:
+        var a as string is args at i
+        banish a
+        set i is i + 1
+    banish args
+    return code
+
+## Despacha el subcomando.
+##
+## ## Memoria
+## No libera `args` (los libera `main`).
+weave dispatch with args as list of string into int:
+    if args.len < 2:
+        calling print_help
+        return 2
+    var gstart as int is 1
+    while gstart < args.len:
+        var ga as string is args at gstart
+        if ga == "--no-color" or ga == "--quiet" or ga == "-q":
+            set gstart is gstart + 1
+        else:
+            break
+    if gstart > 1:
+        var sargs as list of string is list of string
+        calling sargs.push with (args at 0)
+        var gi as int is gstart
+        while gi < args.len:
+            calling sargs.push with (args at gi)
+            set gi is gi + 1
+        var gc as int is calling dispatch with sargs
+        banish sargs
+        return gc
+    var cmd as string is args at 1
+    if cmd == "version" or cmd == "--version" or cmd == "-V":
+        calling spark.println with "psc 0.11.0 (F11)"
+        return 0
+    if cmd == "help" or cmd == "--help" or cmd == "-h":
+        if cmd == "help" and args.len >= 3:
+            var sub as string is args at 2
+            var hargs as list of string is list of string
+            calling hargs.push with (args at 0)
+            calling hargs.push with sub
+            calling hargs.push with "--help"
+            var hc as int is calling dispatch with hargs
+            banish hargs
+            return hc
+        calling print_help
+        return 0
+    if cmd == "lex":
+        return calling run_lex with args
+    if cmd == "parse" or cmd == "ast":
+        return calling run_parse with args
+    if cmd == "check":
+        return calling run_check with args
+    if cmd == "emit-c":
+        return calling run_emit_c with args
+    if cmd == "build":
+        return calling cmd_build.run_build with args
+    if cmd == "run":
+        return calling cmd_build.run_run with args
+    if cmd == "expand":
+        return calling cmd_build.run_expand with args
+    if cmd == "init":
+        return calling cmd_init.run_init with args
+    if cmd == "new":
+        return calling cmd_init.run_new with args
+    if cmd == "clean":
+        return calling cmd_clean.run_clean with args
+    if cmd == "doctor":
+        return calling cmd_doctor.run_doctor with args
+    if cmd == "metadata":
+        return calling cmd_meta.run_metadata with args
+    if cmd == "tree":
+        return calling cmd_meta.run_tree with args
+    if cmd == "add":
+        return calling cmd_deps.run_add with args
+    if cmd == "remove":
+        return calling cmd_deps.run_remove with args
+    if cmd == "update":
+        return calling cmd_deps.run_update with args
+    if cmd == "upgrade":
+        return calling cmd_deps.run_upgrade with args
+    if cmd == "verify":
+        return calling cmd_deps.run_verify with args
+    if cmd == "vendor":
+        return calling cmd_deps.run_vendor with args
+    if cmd == "lsp":
+        return calling cmd_lsp.run_lsp with args
+    if cmd == "bind":
+        return calling cmd_bind.run with args
+    if cmd == "test":
+        return calling cmd_test.run_test with args
+    if cmd == "eval":
+        return calling cmd_eval.run_eval with args
+    if cmd == "time":
+        return calling cmd_time.run_time with args
+    if cmd == "watch":
+        return calling cmd_watch.run_watch with args
+    if cmd == "gc":
+        return calling cmd_gc.run_gc with args
+    if cmd == "fmt":
+        return calling cmd_fmt.run_fmt with args
+    if cmd == "doc":
+        return calling cmd_doc.run_doc with args
+    if cmd == "assets":
+        return calling cmd_assets.run_assets with args
+    if cmd == "benchmark":
+        return calling cmd_dev.run_benchmark with args
+    if cmd == "selftest":
+        return calling cmd_dev.run_selftest with args
+    var msg as string is "psc: unknown command '{cmd}'"
+    calling spark.eprintln with msg
+    banish msg
+    calling print_help
+    return 2
+
+## Implementa `psc lex`.
+##
+## ## Memoria
+## Libera todo lo que crea antes de volver.
+weave run_lex with args as list of string into int:
+    var opts as LexOptions is calling default_lex_options
+    var use_stdin as bool is false
+    var check_only as bool is false
+    var comments as bool is false
+    var json_diags as bool is false
+    var json_u16 as bool is false
+    var force_color as bool is false
+    var no_color as bool is false
+    var path as string is ""
+    var i as int is 2
+    while i < args.len:
+        var a as string is args at i
+        if a == "--stdin":
+            set use_stdin is true
+        else if a == "--check":
+            set check_only is true
+        else if a == "--comments":
+            set comments is true
+        else if a == "--no-indent":
+            set opts.keep_indent_tokens is false
+        else if a == "--diagnostics=json":
+            set json_diags is true
+            set json_u16 is false
+        else if a == "--diagnostics=json-utf16":
+            set json_diags is true
+            set json_u16 is true
+        else if a == "--diagnostics=plain":
+            set json_diags is false
+        else if a == "--color":
+            set force_color is true
+        else if a == "--no-color":
+            set no_color is true
+        else if a == "--quiet":
+            var quiet_noop as int is 0
+        else if a == "--help" or a == "-h":
+            calling print_lex_help
+            return 0
+        else if calling starts_dash with a:
+            var unknown as string is "psc lex: unknown option '{a}'"
+            calling spark.eprintln with unknown
+            banish unknown
+            calling print_lex_help
+            return 2
+        else:
+            if path length > 0:
+                calling spark.eprintln with "psc lex: only one input file is supported"
+                return 2
+            set path is a
+        set i is i + 1
+    if use_stdin and path length > 0:
+        calling spark.eprintln with "psc lex: --stdin and a file are mutually exclusive"
+        return 2
+    if (not use_stdin) and path length == 0:
+        calling spark.eprintln with "psc lex: missing input file (or --stdin)"
+        calling print_lex_help
+        return 2
+    var s as Session is calling open_input with path, use_stdin, opts
+    defer banish s
+    if not s.ok:
+        var emsg as string is "psc lex: cannot read '{path}': {s.error.message}"
+        calling spark.eprintln with emsg
+        banish emsg
+        return 2
+    var r as LexResult is calling s.lex
+    defer banish r
+    if not check_only:
+        var text as string is calling psdump.dump with sigil of s.source, sigil of r, sigil of s.keywords, comments
+        calling spark.print with text
+        banish text
+    if s.diagnostics.items.len > 0:
+        var rendered as string is ""
+        if json_diags:
+            set rendered is calling s.render_json
+        else if force_color and not no_color:
+            set rendered is calling s.render_forced
+        else:
+            set rendered is calling s.render_plain
+        if json_diags:
+            calling spark.eprintln with rendered
+        else:
+            calling spark.eprint with rendered
+        banish rendered
+    if calling s.has_errors:
+        return 1
+    return 0
+
+## Implementa `psc parse`.
+##
+## ## Memoria
+## Libera todo lo que crea antes de volver.
+weave run_parse with args as list of string into int:
+    var lopts as LexOptions is calling default_lex_options
+    var popts as PsParseOptions is calling ps_default_parse_options
+    var use_stdin as bool is false
+    var check_only as bool is false
+    var json_diags as bool is false
+    var force_color as bool is false
+    var no_color as bool is false
+    var no_header as bool is false
+    var path as string is ""
+    var i as int is 2
+    while i < args.len:
+        var a as string is args at i
+        if a == "--stdin":
+            set use_stdin is true
+        else if a == "--check":
+            set check_only is true
+        else if a == "--diagnostics=json":
+            set json_diags is true
+        else if a == "--diagnostics=plain":
+            set json_diags is false
+        else if a == "--color":
+            set force_color is true
+        else if a == "--no-color":
+            set no_color is true
+        else if a == "--no-header":
+            set no_header is true
+        else if a == "--stop-after-first":
+            set popts.stop_after_first is true
+        else if a == "--quiet":
+            var quiet_noop as int is 0
+        else if a == "--help" or a == "-h":
+            calling print_parse_help
+            return 0
+        else if calling starts_with with a, "--max-errors=":
+            var num as string is a at 13 to (a length)
+            defer banish num
+            var parsed as maybe int is calling spark.parse_int with num
+            if parsed.is_present:
+                set popts.max_errors is parsed.value
+            banish parsed
+        else if calling starts_dash with a:
+            var unknown as string is "psc parse: unknown option '{a}'"
+            calling spark.eprintln with unknown
+            banish unknown
+            calling print_parse_help
+            return 2
+        else:
+            if path length > 0:
+                calling spark.eprintln with "psc parse: only one input file is supported"
+                return 2
+            set path is a
+        set i is i + 1
+    if use_stdin and path length > 0:
+        calling spark.eprintln with "psc parse: --stdin and a file are mutually exclusive"
+        return 2
+    if (not use_stdin) and path length == 0:
+        calling spark.eprintln with "psc parse: missing input file (or --stdin)"
+        calling print_parse_help
+        return 2
+    var s as Session is calling open_input with path, use_stdin, lopts
+    defer banish s
+    if not s.ok:
+        var emsg as string is "psc parse: cannot read '{path}': {s.error.message}"
+        calling spark.eprintln with emsg
+        banish emsg
+        return 2
+    var r as LexResult is calling s.lex
+    defer banish r
+    var pr as PsParseResult is calling psapi.ps_parse_file with sigil of s.source, sigil of s.diagnostics, sigil of r, popts
+    defer banish pr
+    if not check_only:
+        var text as string is ""
+        if no_header:
+            set text is calling psastdump.ps_ast_dump_body with sigil of s.source, sigil of r, sigil of pr.ast, pr.root
+        else:
+            set text is calling psastdump.ps_ast_dump with sigil of s.source, sigil of r, sigil of pr.ast, pr.root
+        calling spark.print with text
+        banish text
+    if s.diagnostics.items.len > 0:
+        var rendered as string is ""
+        if json_diags:
+            set rendered is calling s.render_json
+        else if force_color and not no_color:
+            set rendered is calling s.render_forced
+        else:
+            set rendered is calling s.render_plain
+        if json_diags:
+            calling spark.eprintln with rendered
+        else:
+            calling spark.eprint with rendered
+        banish rendered
+    if calling s.has_errors:
+        return 1
+    if not pr.ok:
+        return 1
+    return 0
+
+## Implementa `psc check`.
+##
+## ## Memoria
+## Libera la opción/resultado antes de volver.
+weave run_check with args as list of string into int:
+    var opts as sopts.SemaOptions is calling sopts.default_options with "."
+    var use_stdin as bool is false
+    var json_diags as bool is false
+    var json_u16 as bool is false
+    var force_color as bool is false
+    var no_color as bool is false
+    var path as string is ""
+    var extra as list of string is list of string
+    var i as int is 2
+    while i < args.len:
+        var a as string is args at i
+        if a == "--stdin":
+            set use_stdin is true
+        else if a == "--diagnostics=json":
+            set json_diags is true
+            set json_u16 is false
+        else if a == "--diagnostics=json-utf16":
+            set json_diags is true
+            set json_u16 is true
+        else if a == "--diagnostics=plain":
+            set json_diags is false
+        else if a == "--color":
+            set force_color is true
+        else if a == "--no-color":
+            set no_color is true
+        else if a == "--stop-after-first":
+            set opts.stop_after_first is true
+        else if a == "--deny-deprecated":
+            set opts.deny_deprecated is true
+        else if calling starts_with with a, "--max-errors=":
+            var num as string is a at 13 to (a length)
+            defer banish num
+            var parsed as maybe int is calling spark.parse_int with num
+            if parsed.is_present:
+                set opts.max_errors is parsed.value
+            banish parsed
+        else if calling starts_with with a, "--base-dir=":
+            var bd as string is a at 11 to (a length)
+            banish opts.base_dir
+            set opts.base_dir is bd
+        else if calling starts_with with a, "--src-dir=":
+            var sd as string is a at 10 to (a length)
+            banish opts.src_dir
+            set opts.src_dir is sd
+        else if calling starts_with with a, "--lib-dir=":
+            var ld as string is a at 10 to (a length)
+            banish opts.lib_dir
+            set opts.lib_dir is ld
+        else if a == "--help" or a == "-h":
+            calling print_check_help
+            calling sopts.free_options with (sigil of opts)
+            return 0
+        else if calling starts_dash with a:
+            var unknown as string is "psc check: unknown option '{a}'"
+            calling spark.eprintln with unknown
+            banish unknown
+            calling print_check_help
+            calling sopts.free_options with (sigil of opts)
+            return 2
+        else:
+            if path length > 0:
+                calling extra.push with a
+            else:
+                set path is a
+        set i is i + 1
+    var abs_path as string is calling compass.cp_absolute with path
+    var is_proj as bool is false
+    if path length > 0:
+        set is_proj is calling archivum.is_dir with abs_path
+    banish abs_path
+    if (not use_stdin) and path length > 0 and is_proj:
+        calling sopts.free_options with (sigil of opts)
+        return calling cmd_build.run_check_project with path
+    if use_stdin and path length > 0:
+        calling spark.eprintln with "psc check: --stdin and a file are mutually exclusive"
+        calling sopts.free_options with (sigil of opts)
+        return 2
+    if (not use_stdin) and path length == 0:
+        calling spark.eprintln with "psc check: missing input file (or --stdin)"
+        calling print_check_help
+        calling sopts.free_options with (sigil of opts)
+        return 2
+    if use_stdin:
+        var text as string is calling io.read_stdin_all
+        defer banish text
+        var r1 as sema_api.SemaResult is calling sema_api.check_text with "<stdin>", text, opts
+        return calling report_check with r1, json_diags, json_u16, force_color, no_color
+    var r2 as sema_api.SemaResult is calling sema_api.check_file with path, opts
+    var code as int is calling report_check with r2, json_diags, json_u16, force_color, no_color
+    var ei as int is 0
+    while ei < extra.len:
+        var hargs as list of string is list of string
+        calling hargs.push with (args at 0)
+        calling hargs.push with "check"
+        calling hargs.push with (extra at ei)
+        var hc as int is calling dispatch with hargs
+        banish hargs
+        if hc != 0:
+            set code is 1
+        set ei is ei + 1
+    banish extra
+    return code
+
+## Implementa `psc emit-c`: F3 + codegen, sin compilador C.
+##
+## ## Memoria
+## Libera programa y bundle; las opciones las libera el programa.
+weave run_emit_c with args as list of string into int:
+    var opts as sopts.SemaOptions is calling sopts.default_options with "."
+    var out_path as string is ""
+    var to_stdout as bool is false
+    var path as string is ""
+    var cgp as CgOptions is calling cgopt.default_options with "."
+    var i as int is 2
+    while i < args.len:
+        var a as string is args at i
+        if a == "--stdout":
+            set to_stdout is true
+        else if a == "--test":
+            set cgp.is_test is true
+        else if a == "--library":
+            set cgp.is_library is true
+        else if a == "--no-dce":
+            set cgp.dce is false
+        else if a == "--prune-types":
+            set cgp.prune_types is true
+        else if a == "--dce-scope=user" or a == "--tree-shake-user":
+            set cgp.dce_scope_user is true
+        else if a == "--prune-native":
+            set cgp.prune_native is true
+        else if a == "--no-line-markers":
+            set cgp.line_markers is false
+        else if a == "--strict-c99":
+            set cgp.strict_c99 is true
+        else if a == "--release-unsafe":
+            set cgp.release_unsafe is true
+        else if a == "--debug":
+            set cgp.debug is true
+        else if calling starts_with with a, "--target-compiler=":
+            set cgp.target_compiler is a at 18 to (a length)
+        else if calling starts_with with a, "--out=":
+            set out_path is a at 6 to (a length)
+        else if a == "--help" or a == "-h":
+            calling print_emit_c_help
+            calling sopts.free_options with (sigil of opts)
+            return 0
+        else if calling starts_dash with a:
+            var unknown as string is "psc emit-c: unknown option '{a}'"
+            calling spark.eprintln with unknown
+            banish unknown
+            calling print_emit_c_help
+            calling sopts.free_options with (sigil of opts)
+            return 2
+        else:
+            if path length > 0:
+                calling spark.eprintln with "psc emit-c: only one input file is supported"
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            set path is a
+        set i is i + 1
+    if path length == 0:
+        calling spark.eprintln with "psc emit-c: missing input file"
+        calling print_emit_c_help
+        calling sopts.free_options with (sigil of opts)
+        return 2
+    var r as sema_api.SemaResult is calling sema_api.check_file with path, opts
+    if not r.ok:
+        var ignored as int is calling report_check with r, false, false, false, true
+        return 1
+    if r.program->modules.len > 0:
+        set cgp.base_dir is r.program->options.base_dir
+    set cgp.entry_file is path
+    var cr is calling cgapi.generate_c with r.program, cgp
+    if not cr.ok:
+        calling spark.eprintln with "psc emit-c: code generation failed"
+        calling cgapi.free_result with (sigil of cr)
+        calling sema_api.free_result with (sigil of r)
+        return 1
+    if to_stdout or out_path length == 0:
+        calling spark.print with cr.bundle
+    else:
+        if calling archivum.write_text with out_path, cr.bundle:
+            var smsg as string is "wrote {out_path} ({cr.stats.lines} lines, {cr.stats.bytes} bytes, {cr.stats.includes} includes)"
+            calling spark.eprintln with smsg
+            banish smsg
+        else:
+            var emsg as string is "psc emit-c: cannot write '{out_path}'"
+            calling spark.eprintln with emsg
+            banish emsg
+            calling cgapi.free_result with (sigil of cr)
+            calling sema_api.free_result with (sigil of r)
+            return 2
+    calling cgapi.free_result with (sigil of cr)
+    calling sema_api.free_result with (sigil of r)
+    return 0
+
+## Renderiza y libera un resultado; devuelve el exit code.
+##
+## ## Memoria
+## Libera el programa del resultado.
+weave report_check with result as sema_api.SemaResult, json_diags as bool, json_u16 as bool, force_color as bool, no_color as bool into int:
+    var bag_ref as ref to diag.DiagnosticBag is (sigil of result.program->diagnostics)
+    if bag_ref->error_count > 0 or bag_ref->warning_count > 0:
+        var rendered as string is ""
+        if json_diags and json_u16:
+            set rendered is calling bag_ref.render_json_utf16
+        else if json_diags:
+            set rendered is calling bag_ref.render_json
+        else if force_color and not no_color:
+            set rendered is calling bag_ref.render_colored
+        else:
+            set rendered is calling bag_ref.render_plain
+        if json_diags:
+            calling spark.eprintln with rendered
+        else:
+            calling spark.eprint with rendered
+        banish rendered
+    var bad as bool is (not result.ok) or bag_ref->error_count > 0
+    calling sema_api.free_result with (sigil of result)
+    if bad:
+        return 1
+    return 0
+
+## `true` si `s` empieza por `prefix`.
+##
+## ## Memoria
+## O(prefix), no asigna.
+weave starts_with with s as string, prefix as string into bool:
+    var n as int is s length
+    var m as int is prefix length
+    if m > n:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of prefix
+    var i as int is 0
+    while i < m:
+        if ((sb at i) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## Ayuda de `parse`.
+##
+## ## Memoria
+## No asigna.
+weave print_parse_help into void:
+    calling spark.println with "Usage: psc parse <file> [options]"
+    calling spark.println with "  --stdin                 read source from stdin"
+    calling spark.println with "  --check                 only diagnostics, no AST dump"
+    calling spark.println with "  --no-header             omit the AST dump header"
+    calling spark.println with "  --max-errors=N          stop after N errors (default 100)"
+    calling spark.println with "  --stop-after-first      stop at the first syntax error"
+    calling spark.println with "  --diagnostics=plain|json|json-utf16"
+    calling spark.println with "  --color / --no-color"
+    calling spark.println with "  --quiet                 suppress the banner (none by default)"
+    calling spark.println with "  --help"
+
+## Abre el fuente desde stdin o desde un archivo.
+##
+## ## Memoria
+## Devuelve una sesión owned; liberar con `banish`.
+weave open_input with path as string, use_stdin as bool, opts as LexOptions into Session:
+    if use_stdin:
+        var text as string is calling io.read_stdin_all
+        defer banish text
+        return calling pssession.open_text with "<stdin>", text, opts
+    return calling pssession.open with path, opts
+
+## `true` si el primer byte de `s` es `-`, sin asignar un substring.
+##
+## ## Memoria
+## O(1), no asigna.
+weave starts_dash with s as string into bool:
+    if s length == 0:
+        return false
+    var raw as ref to frozen byte is bytes of s
+    return ((raw at 0) to int) == 45
+
+## Ayuda general.
+##
+## ## Memoria
+## No asigna.
+weave print_help into void:
+    calling spark.println with "psc 0.11.0 — PenguScript compiler"
+    calling spark.println with ""
+    calling spark.println with "Usage:"
+    calling spark.println with "  psc lex <file> [options]"
+    calling spark.println with "  psc lex --stdin [options]"
+    calling spark.println with "  psc parse <file> [options]"
+    calling spark.println with "  psc parse --stdin [options]"
+    calling spark.println with "  psc check <file> [options]"
+    calling spark.println with "  psc emit-c <file> [options]"
+    calling spark.println with "  psc build [TARGET] [options]"
+    calling spark.println with "  psc run [TARGET] [-- args]"
+    calling spark.println with "  psc expand [TARGET] [options]"
+    calling spark.println with "  psc init <name> [options]"
+    calling spark.println with "  psc new <template> <name> [options]"
+    calling spark.println with "  psc clean [TARGET] [--dry-run]"
+    calling spark.println with "  psc doctor [--json]"
+    calling spark.println with "  psc metadata [--json]"
+    calling spark.println with "  psc test [TARGET] [options]"
+    calling spark.println with "  psc eval EXPRESSION"
+    calling spark.println with "  psc time SCRIPT"
+    calling spark.println with "  psc watch SCRIPT"
+    calling spark.println with "  psc gc [--all]"
+    calling spark.println with "  psc fmt [PATHS] [options]"
+    calling spark.println with "  psc doc [--output=DIR]"
+    calling spark.println with "  psc assets [--list]"
+    calling spark.println with "  psc benchmark [options]"
+    calling spark.println with "  psc selftest [args]"
+    calling spark.println with "  psc tree [--json]"
+    calling spark.println with "  psc add"
+    calling spark.println with "  psc remove"
+    calling spark.println with "  psc upgrade"
+    calling spark.println with "  psc verify"
+    calling spark.println with "  psc vendor"
+    calling spark.println with "  psc update"
+    calling spark.println with "  psc lsp"
+    calling spark.println with "  psc bind"
+    calling spark.println with "  psc version"
+
+## Ayuda de `lex`.
+##
+## ## Memoria
+## No asigna.
+## Ayuda de `check`.
+##
+## ## Memoria
+## No asigna.
+weave print_check_help into void:
+    calling spark.println with "Usage: psc check <file> [options]"
+    calling spark.println with "  --stdin                 read source from stdin"
+    calling spark.println with "  --diagnostics=plain|json|json-utf16"
+    calling spark.println with "  --color / --no-color"
+    calling spark.println with "  --max-errors=N          stop after N errors (default 100)"
+    calling spark.println with "  --stop-after-first      stop at the first semantic error"
+    calling spark.println with "  --base-dir=DIR          project root (default '.')"
+    calling spark.println with "  --src-dir=DIR           source directory (default 'src')"
+    calling spark.println with "  --lib-dir=DIR           bindings directory (default 'lib')"
+    calling spark.println with "  --deny-deprecated       treat W0006 as a failure"
+    calling spark.println with "  --help"
+
+## Ayuda de `emit-c`.
+##
+## ## Memoria
+## No asigna.
+weave print_emit_c_help into void:
+    calling spark.println with "Usage: psc emit-c <file> [options]"
+    calling spark.println with "  --out=FILE              write bundle.c to FILE"
+    calling spark.println with "  --stdout                write the bundle to stdout (default)"
+    calling spark.println with "  --test                  emit the integrated test runner"
+    calling spark.println with "  --library               emit no main wrapper"
+    calling spark.println with "  --no-dce                disable dead-code elimination"
+    calling spark.println with "  --prune-types           prune unused types/consts"
+    calling spark.println with "  --dce-scope=user        also prune project weaves"
+    calling spark.println with "  --prune-native          prune unused includes/links"
+    calling spark.println with "  --no-line-markers       omit #line directives"
+    calling spark.println with "  --strict-c99            portable C99 (no GNU extensions)"
+    calling spark.println with "  --target-compiler=NAME  gcc|clang|tcc|msvc"
+    calling spark.println with "  --release-unsafe        disable bounds/overflow checks"
+    calling spark.println with "  --debug                 debug profile"
+    calling spark.println with "  --help"
+
+## Ayuda de `lex`.
+##
+## ## Memoria
+## No asigna.
+weave print_lex_help into void:
+    calling spark.println with "Usage: psc lex <file> [options]"
+    calling spark.println with "  --stdin                 read source from stdin"
+    calling spark.println with "  --check                 only diagnostics, no token dump"
+    calling spark.println with "  --comments              include comment trivia in the dump"
+    calling spark.println with "  --no-indent             omit INDENT/DEDENT tokens"
+    calling spark.println with "  --diagnostics=plain|json|json-utf16"
+    calling spark.println with "  --color / --no-color"
+    calling spark.println with "  --quiet                 suppress the banner (none by default)"
+    calling spark.println with "  --help"

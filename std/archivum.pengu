@@ -1979,10 +1979,7 @@ weave list_files_recursive with root as string into list of string:
                     # it is popped again (the root is a borrowed view).
                     calling dirs.push with p
                 else:
-                    if calling is_file with p:
-                        calling out.push with p
-                    else:
-                        banish p
+                    calling out.push with p
                 set i is i + 1
             var j as int is 0
             while j < list_d.len:

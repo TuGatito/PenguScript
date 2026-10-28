@@ -1,0 +1,198 @@
+## psc/sema/api.pengu — API pública de F3.
+##
+## `check_file`/`check_text` construyen un `SemaProgram`, descubren imports,
+## crean scopes por módulo y ejecutan collector + checker. El CLI y los tests
+## consumen la misma API.
+##
+## ## Memoria
+## Devuelve un `SemaResult` owned; `free_result` libera todo el programa.
+
+import psc.sema.names as npool
+import psc.sema.options as sopts
+import psc.sema.modules.program as program
+import psc.sema.modules.loader as loader
+import psc.sema.symbols.scope as scope
+import psc.sema.state as state
+import psc.sema.check.body as checker
+import psc.sema.check.collect as collect
+
+import std.archivum
+import std.compass
+
+insignia sema_api_
+
+## Resultado de una comprobación.
+##
+## ## Memoria
+## `program` es owned; liberar con `free_result`.
+rune SemaResult:
+    ## `true` si no hay errores.
+    ok as bool
+    ## Programa y tablas (owned).
+    program as ref to program.SemaProgram
+
+## Libera un resultado.
+##
+## ## Memoria
+## Libera el programa completo.
+weave free_result with r as ref to SemaResult into void:
+    calling program.free_program with r->program
+
+## Comprueba un archivo del disco.
+##
+## ## Memoria
+## Devuelve un resultado owned.
+weave check_file with path as string, options as sopts.SemaOptions into SemaResult:
+    var opts as sopts.SemaOptions is options
+    calling configure_options with path, (sigil of opts)
+    var p as ref to program.SemaProgram is calling program.new_program with opts
+    var visiting as list of string is list of string
+    defer banish visiting
+    var root as int is calling program.discover with p, path, true, 0, (sigil of visiting), 0
+    set p->root is root
+    calling program.create_module_scopes with p
+    calling collect_all with p
+    calling check_bodies with p
+    return with ok is (p->diagnostics.error_count == 0), program is p
+
+## Ajusta `base_dir`/`std_dirs` buscando el `pengu.toml` del proyecto.
+##
+## ## Memoria
+## Reemplaza strings owned de las opciones.
+weave configure_options with path as string, opts as ref to sopts.SemaOptions into void:
+    var abs as string is calling compass.cp_absolute with path
+    if abs length == 0 or ((bytes of abs at 0) to int) != 47:
+        var cwm as maybe string is calling rites.getcwd
+        if cwm.is_present:
+            var cws as string is calling npool.copy_string with cwm.value
+            var fix as string is "{cws}/{path}"
+            banish cws
+            banish cwm.value
+            banish cwm
+            banish abs
+            set abs is fix
+        else:
+            banish cwm
+    defer banish abs
+    var root as string is calling find_project_root with abs
+    if root != "":
+        banish opts->base_dir
+        set opts->base_dir is root
+    else:
+        banish root
+        var d as string is calling compass.cp_dirname with abs
+        banish opts->base_dir
+        set opts->base_dir is d
+    var parent as string is calling compass.cp_dirname with opts->base_dir
+    defer banish parent
+    var parts as list of string is calling std_parts with parent
+    defer banish parts
+    var std_path as string is calling compass.cp_join with parts
+    defer banish std_path
+    if calling archivum.is_dir with std_path:
+        calling opts->std_dirs.push with (calling npool.copy_string with std_path)
+    if calling archivum.is_dir with "std":
+        calling opts->std_dirs.push with (calling npool.copy_string with "std")
+
+## Partes para `parent/std`.
+##
+## ## Memoria
+## Lista owned; liberar con `banish` (strings prestados).
+weave std_parts with parent as string into list of string:
+    var xs as list of string is list of string
+    calling xs.push with parent
+    calling xs.push with "std"
+    return xs
+
+## Sube desde el archivo hasta encontrar `pengu.toml`/`pengu.yaml`.
+##
+## ## Memoria
+## Devuelve el path owned o `""`.
+weave find_project_root with abs as string into string:
+    var d as string is calling compass.cp_dirname with abs
+    defer banish d
+    var i as int is 0
+    while i < 64:
+        var toml as string is "{d}/pengu.toml"
+        defer banish toml
+        if calling archivum.is_file with toml:
+            var out as string is calling npool.copy_string with d
+            return out
+        var yaml as string is "{d}/pengu.yaml"
+        defer banish yaml
+        if calling archivum.is_file with yaml:
+            return "{d}"
+        var parent as string is calling compass.cp_dirname with d
+        if parent == d or parent == "":
+            banish parent
+            return ""
+        banish d
+        set d is parent
+        set i is i + 1
+    return ""
+
+## Comprueba texto en memoria con un path lógico.
+##
+## ## Memoria
+## Devuelve un resultado owned.
+weave check_text with path as string, text as string, options as sopts.SemaOptions into SemaResult:
+    var opts as sopts.SemaOptions is options
+    calling configure_options with path, (sigil of opts)
+    var p as ref to program.SemaProgram is calling program.new_program with opts
+    var m as loader.SemaModule is calling loader.load_text with path, path, text, (sigil of p->diagnostics), true, true, false, 0
+    var id as int is p->modules.len
+    set m.id is id
+    calling p->modules.push with m
+    calling p->by_path.put with m.canonical_path, id
+    calling p->order.push with id
+    set p->root is id
+    var visiting as list of string is list of string
+    defer banish visiting
+    calling program.discover_imports_of with p, m, 0, (sigil of visiting), 0
+    calling program.create_module_scopes with p
+    calling collect_all with p
+    calling check_bodies with p
+    return with ok is (p->diagnostics.error_count == 0), program is p
+
+## Chequea cuerpos después de recolectar todas las firmas.
+##
+## ## Memoria
+## Abre/cierra scopes; no libera módulos.
+weave check_bodies with p as ref to program.SemaProgram into void:
+    var i as int is 0
+    while i < p->order.len:
+        var id as int is (p->order at i)
+        var m as loader.SemaModule is (p->modules at id)
+        var use_scope as int is m.scope
+        if m.companion_for >= 0:
+            var pm as loader.SemaModule is (p->modules at m.companion_for)
+            set use_scope is pm.scope
+        set p->symbols.current is use_scope
+        var st as state.SemaState is with program is p, module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of p->types), symbols is (sigil of p->symbols), names is (sigil of p->names), bag is (sigil of p->diagnostics), opts is (sigil of p->options), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is p->options.max_errors, stop_after_first is p->options.stop_after_first, stop is false, allow_mutating is false
+        calling checker.install with (sigil of st)
+        calling checker.check_module_bodies with (sigil of st)
+        set p->modules at (id) is m
+        set p->symbols.current is 0
+        set i is i + 1
+
+## Ejecuta collector/checker en orden topológico.
+##
+## ## Memoria
+## Presta el programa; no libera módulos.
+weave collect_all with p as ref to program.SemaProgram into void:
+    var i as int is 0
+    while i < p->order.len:
+        var id as int is (p->order at i)
+        var m as loader.SemaModule is (p->modules at id)
+        var use_scope as int is m.scope
+        if m.companion_for >= 0:
+            var pm as loader.SemaModule is (p->modules at m.companion_for)
+            set use_scope is pm.scope
+        set p->symbols.current is use_scope
+        var st as state.SemaState is with program is p, module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of p->types), symbols is (sigil of p->symbols), names is (sigil of p->names), bag is (sigil of p->diagnostics), opts is (sigil of p->options), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is p->options.max_errors, stop_after_first is p->options.stop_after_first, stop is false, allow_mutating is false
+        calling checker.install with (sigil of st)
+        calling collect.collect_module with (sigil of st)
+        set st.errors is st.errors
+        set p->modules at (id) is m
+        set p->symbols.current is 0
+        set i is i + 1

@@ -1,515 +1,67 @@
 name: CI
 
-# One workflow for push/PR.  Responsibilities:
-#   * fast feedback (smoke, no runtime build)
-#   * compile + test on Linux / Windows / macOS
-#   * a compiler matrix (gcc + clang) for the compliance and migration corpora
-#   * package the release, archive it reproducibly and verify the artifact
-#   * auto-tag when a commit to main carries a new CHANGELOG.md section
-#
-# The heavy, non-blocking work (fuzz, sanitizers, CodeQL, the Linux -> Windows
-# cross-compile and the benchmarks) lives in `.github/workflows/nightly.yml` and
-# is deliberately not duplicated here.  `release.yml` owns publishing a Release;
-# this workflow only creates a tag.
-
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
-    branches: [ main, master ]
+    branches: [main, master]
 
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
-env:
-  PYTHON_VERSION: '3.14'
-  NODE_VERSION: '20'
-
 jobs:
-  # ----------------------------------------------------------------------
-  # Fast feedback: unit tests only, no C compiler and no runtime build.
-  # The `_smoke/` corpus cases are collected on purpose and skip here, because
-  # `build-runtime: false` means the runtime archive is absent and the runner
-  # skips instead of failing for an environmental reason.  Measured: ~3 s.
-  # ----------------------------------------------------------------------
-  smoke:
-    name: Smoke (fast feedback)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Set up build environment (no runtime build)
-        uses: ./.github/actions/setup-pengu
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          build-runtime: 'false'
-
-      - name: Smoke tests
-        run: |
-          python pengu_project.py selftest --smoke
-
-  # ----------------------------------------------------------------------
-  # F5: PSC compila PSC y el driver usa gcc/clang/TCC.
-  # ----------------------------------------------------------------------
-  psc-selfhost:
-    name: PSC self-host (gcc + clang + TCC)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Set up build environment
-        uses: ./.github/actions/setup-pengu
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install TCC
-        run: sudo apt-get update && sudo apt-get install -y tcc
-
-      - name: Build PSC stage1 with stage0
-        run: |
-          cd psc
-          python ../pengu_project.py build
-
-      - name: Self-compile preflight (gcc, clang, TCC)
-        run: |
-          python psc/tools/selfhost_preflight.py --psc psc/build/psc --smoke
-          python psc/tools/selfhost_preflight.py --psc psc/build/psc --cc clang --smoke
-          python psc/tools/selfhost_preflight.py --psc psc/build/psc --cc "$(command -v tcc)" --smoke
-
-      - name: F5 driver acceptance
-        run: python -m pytest -q tests/psc/test_f5_acceptance.py
-
-      - name: F6 CLI acceptance
-        run: python -m pytest -q tests/psc/test_f6_cli.py
-
-      - name: F7 tools acceptance
-        run: python -m pytest -q tests/psc/test_f7_tools.py
-
-      - name: F8 LSP acceptance
-        run: python -m pytest -q tests/psc/test_f8_lsp.py tests/psc/test_f8_features.py tests/psc/test_f8_stress.py tests/psc/test_f8_interp_cache.py tests/psc/test_f8_parity.py tests/psc/test_f9_deps.py tests/psc/test_f10_bind.py
-
-      - name: F10 release portable/FHS
-        run: python psc/tools/release.py --dist-dir /tmp/psc-dist --layout both
-
-      - name: F7 fmt parity (stage0)
-        run: python psc/tools/parity_tools.py --only fmt --path std --path psc/src
-
-      - name: ASan/UBSan self-compile smoke
-        run: |
-          psc/build/psc emit-c psc/src/main.pengu --out=/tmp/psc_asan.c
-          gcc -std=c11 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer             -I build/include -I . -I std_c /tmp/psc_asan.c             build/lib/libpengu_runtime.a -lm -lpthread -ldl -o /tmp/psc_asan
-          ASAN_OPTIONS=detect_leaks=0 /tmp/psc_asan version
-
-  # ----------------------------------------------------------------------
-  # The real matrix: Linux / Windows / macOS.
-  #   * setup-pengu builds the runtime (cached).
-  #   * fmt and ruff gate the standard library and undefined names.
-  #   * the C `_Static_assert` ABI check is compiled with the runner's compiler.
-  #   * the full suite runs with `-n auto`; coverage is enforced on Linux only.
-  #   * the release is packaged, archived deterministically and verified in the
-  #     portable and FHS layouts before the artifact is uploaded.
-  # ----------------------------------------------------------------------
-  test:
-    name: ${{ matrix.label }}
+  build:
+    name: PSC (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    permissions:
-      contents: read
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            label: Windows x64
-            artifact_name: pengu-windows-x64
-            archive_ext: zip
-          - os: ubuntu-latest
-            label: Linux x64
-            artifact_name: pengu-linux-x64
-            archive_ext: tar.gz
-          - os: macos-latest
-            label: macOS (arm64)
-            artifact_name: pengu-macos
-            archive_ext: tar.gz
+          - { os: ubuntu-latest, label: linux }
+          - { os: macos-latest, label: macos }
+          - { os: windows-latest, label: windows }
     steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@v4
 
-      - name: Set up build environment
-        uses: ./.github/actions/setup-pengu
+      - name: Bootstrap PSC
+        uses: ./.github/actions/setup-psc-bootstrap
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          version: "0.10.0"
 
-      - name: Dependency workflow smoke (pengu add)
-        timeout-minutes: 10
+      - name: Build compiler
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import os
-          import subprocess
-          import sys
-          import tempfile
+          psc version
+          psc build .
+          ./build/psc version
 
-          root = os.getcwd()
-          cli = os.path.join(root, "pengu_project.py")
-          tmp = tempfile.mkdtemp(prefix="pengu_add_ci_")
-
-          dep = os.path.join(tmp, "ci_dep")
-          os.makedirs(os.path.join(dep, "src"))
-          with open(os.path.join(dep, "pengu.toml"), "w", encoding="utf-8") as fh:
-              fh.write('[project]\nname = "ci_dep"\nversion = "0.1.0"\noutput = "static"\n')
-          with open(os.path.join(dep, "src", "main.pengu"), "w", encoding="utf-8") as fh:
-              fh.write("## ci dependency\nweave ci_fn into int:\n    return 7\n")
-
-          subprocess.run([sys.executable, cli, "init", "app", "--type", "exe"], cwd=tmp, check=True)
-          proj = os.path.join(tmp, "app")
-
-          def run(*args):
-              subprocess.run([sys.executable, cli, *args], cwd=proj, check=True)
-
-          run("add", dep)
-          assert os.path.isdir(os.path.join(proj, "lib", "ci_dep")), "pengu add did not install lib/ci_dep"
-          run("update")
-          run("check")
-          print("pengu add smoke: ok")
-          PY
-
-      - name: Toolchain smoke test (run + cache + doctor)
-        timeout-minutes: 10
-        run: |
-          python scripts/smoke.py
-
-      - name: Standard library formatting gate
-        run: |
-          python pengu_project.py fmt --check std/
-
-      # Undefined names are compiler crashes, not style. F821 as an ERROR would
-      # have caught blocker B6 (`node` instead of `target_node` in
-      # pengu_infer.py) automatically. E9 covers syntax-level breakage.
-      #
-      # Written on a single line on purpose: this step has no `shell:`, so on
-      # Windows it runs under PowerShell, where a trailing `\` is NOT a line
-      # continuation (ParserError: "Missing expression after unary operator
-      # '--'"). A single line is portable to bash and PowerShell alike, so the
-      # gate cannot be skipped by the runner's default shell.
-      - name: Lint gate (F821/E9, undefined names are errors)
-        run: python -m ruff check --select F821,E9 --exclude extern,build,vscode-extension .
-
-      # The compiler suite is the whole gate now that the binding corpora are
-      # gone. It is split in two on purpose:
-      #
-      #   * `-m "not slow"` is parse + check + codegen only -- no C compiler, no
-      #     subprocess. It is the fast signal (measured: under a second locally)
-      #     and runs on every platform in the matrix.
-      #   * `-m "slow"` compiles and *runs* real programs. It needs a C compiler
-      #     and a built runtime; Windows runners have no usable `cc` for it, so
-      #     they run the fast half and the e2e half is covered by Linux + macOS
-      #     here and by the sanitizer job in nightly.yml.
-      - name: Fast compiler tests (no C compiler)
+      - name: Format gate
         shell: bash
-        timeout-minutes: 10
-        run: |
-          set -euo pipefail
-          python -m pytest tests/compiler/ -m "not slow" -q -p no:cacheprovider \
-            --timeout=120
+        run: psc fmt --check src std
 
-      - name: Slow compiler tests (compile + run, Linux/macOS)
+      - name: PSC tests
         if: runner.os != 'Windows'
         shell: bash
-        timeout-minutes: 20
-        run: |
-          set -euo pipefail
-          python -m pytest tests/compiler/ -m "slow" -q -p no:cacheprovider \
-            --timeout=600
+        run: ./tests/smoke.sh
 
-      - name: Package standalone release
-        run: |
-          python make_release.py
+      - name: PSC tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tests/smoke.ps1
 
-      # Deterministic archive (Phase 9, item 9.8): sorted entries with a
-      # constant mtime from SOURCE_DATE_EPOCH, so the same tree always hashes
-      # the same bytes.
-      - name: Archive distribution
+      - name: Bind smoke
         shell: bash
         run: |
-          set -euo pipefail
-          python make_release.py --archive-only \
-            --dist-dir pengucc_build \
-            --archive "${{ matrix.artifact_name }}.${{ matrix.archive_ext }}"
+          psc bind c_bind_stubs/stdio.h --output=/tmp/psc-bind-check.d.pengu
+          test -s /tmp/psc-bind-check.d.pengu
 
-      # The same commit must produce the same bytes (item 9.8). Packing the same
-      # tree twice proves the archive layer.
-      - name: Reproducibility check (same commit, same bytes)
+      - name: ASan/UBSan smoke (Linux)
+        if: runner.os == 'Linux'
         shell: bash
         run: |
-          set -euo pipefail
-          python make_release.py --archive-only \
-            --dist-dir pengucc_build \
-            --archive "repro-check-${{ matrix.artifact_name }}.${{ matrix.archive_ext }}"
-          A=$(sha256sum "${{ matrix.artifact_name }}.${{ matrix.archive_ext }}" | cut -d' ' -f1)
-          B=$(sha256sum "repro-check-${{ matrix.artifact_name }}.${{ matrix.archive_ext }}" | cut -d' ' -f1)
-          echo "run 1: $A"; echo "run 2: $B"
-          test "$A" = "$B" || { echo "::error::archive is not reproducible: $A != $B"; exit 1; }
-          rm -f "repro-check-${{ matrix.artifact_name }}.${{ matrix.archive_ext }}"
-
-      - name: Upload standalone artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}.${{ matrix.archive_ext }}
-          if-no-files-found: error
-          retention-days: 30
-
-      # Phase 9, item 9.12: the *packaged artifact* must work, not just the tree
-      # it was built from. It is run in the portable layout and installed into a
-      # real FHS prefix; the FHS run also proves the prefix is what made the
-      # build link, by hiding <prefix>/lib/pengu and requiring the documented
-      # failure.
-      - name: Verify the artifact in the portable layout
-        shell: bash
-        run: |
-          set -euo pipefail
-          python scripts/verify_release_artifact.py \
-            --artifact "${{ matrix.artifact_name }}.${{ matrix.archive_ext }}" \
-            --layout portable
-
-      - name: Verify the artifact installed in an FHS prefix
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          python scripts/verify_release_artifact.py \
-            --artifact "${{ matrix.artifact_name }}.tar.gz" \
-            --layout fhs
-
-  # ----------------------------------------------------------------------
-  # WebAssembly (Emscripten).  Its own job because it needs a toolchain the
-  # other three do not: emsdk, plus a *separate* runtime archive compiled for
-  # wasm32 (build/wasm/lib/libpengu_runtime.a -- the host archive cannot be
-  # linked into a wasm binary).
-  #
-  # Node executes the generated app.js, so a wasm build is verified end to end
-  # without a browser.  The `-pthread` path is covered too: filum_stress spawns
-  # real Workers and asserts that >=2 distinct OS threads were observed, which
-  # is exactly what breaks if `-pthread` is ever dropped from the flag set.
-  # ----------------------------------------------------------------------
-  wasm:
-    name: WebAssembly (Emscripten)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Set up build environment
-        uses: ./.github/actions/setup-pengu
-        with:
-          build-runtime: 'true'
-          # The wasm suite runs the generated .js with node.
-          setup-node: 'true'
-
-      - name: Set up Emscripten
-        uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
-
-      - name: Build the wasm runtime
-        run: python build_runtime.py --target emscripten
-
-      - name: Verify the wasm runtime archive is wasm
-        run: |
-          # A host archive here would mean `--target emscripten` silently did
-          # nothing, and every later failure would look unrelated.
-          python - <<'PY'
-          import pathlib
-          import subprocess
-          import sys
-          import tempfile
-
-          archive = pathlib.Path("build/wasm/lib/libpengu_runtime.a").resolve()
-          if not archive.is_file():
-              sys.exit(f"{archive} was not produced")
-          if archive.read_bytes()[:8] != b"!<arch>\n":
-              sys.exit(f"{archive} is not an ar archive")
-          with tempfile.TemporaryDirectory() as tmp:
-              subprocess.run(["emar", "x", str(archive)], cwd=tmp, check=True)
-              members = sorted(pathlib.Path(tmp).glob("*.o"))
-              if not members:
-                  sys.exit("the archive has no object members")
-              for member in members:
-                  magic = member.read_bytes()[:4]
-                  if magic != b"\x00asm":
-                      sys.exit(f"{member.name} is not a wasm object (magic={magic!r})")
-                  print(f"ok {member.name} ({member.stat().st_size} bytes, wasm)")
-          PY
-
-      - name: WebAssembly target suite
-        run: |
-          python -m pytest tests/wasm/ -q -p no:cacheprovider --timeout=1800
-
-      - name: Build a runnable demo page
-        run: |
-          # `--keep` pins the output to a predictable path so it can be
-          # uploaded: app.html (open it in a browser) plus app.js + app.wasm
-          # (`node app.js` runs the same program headlessly).
-          python pengu_project.py run --target wasm32-unknown-emscripten \
-            --keep --no-cache tests/wasm/filum_stress.pengu
-
-      - name: Upload wasm artifacts
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: wasm-artifacts-${{ github.run_id }}
-          path: |
-            build/wasm/lib/*.a
-            tests/wasm/build/filum_stress_run/*.html
-            tests/wasm/build/filum_stress_run/*.js
-            tests/wasm/build/filum_stress_run/*.wasm
-          if-no-files-found: warn
-
-  # ----------------------------------------------------------------------
-  # Primitive enchanting (Phase 2).  The same tests the matrix runs, but with
-  # `-v` and without the `-m` filter, so a regression in the feature points at
-  # the exact assertion instead of "the suite is red".  Kept as its own job
-  # because it is the cheapest way to see *why* a primitive method broke.
-  # ----------------------------------------------------------------------
-  primitive-enchanting:
-    name: Primitive enchanting
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Set up build environment
-        uses: ./.github/actions/setup-pengu
-        with:
-          build-runtime: 'true'
-
-      - name: Primitive enchanting suite
-        run: |
-          python -m pytest tests/compiler/test_primitive_*.py -v -p no:cacheprovider \
-            --timeout=600
-
-  # ----------------------------------------------------------------------
-  # VSIX: platform-independent, so it is built ONCE (not 3x).
-  # ----------------------------------------------------------------------
-  vscode-extension:
-    name: VS Code Extension
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: vscode-extension/package-lock.json
-
-      - name: Build VSIX
-        working-directory: vscode-extension
-        run: |
-          npm ci
-          # `vsce` stamps the .vsix with the manifest's own `version`; without
-          # this the artifact is named `pengus-2.0.0.vsix` for every release.
-          # After `npm ci`, so npm still validates the matching lock file.
-          python3 ../make_release.py --sync-extension-version
-          npx --yes @vscode/vsce package --no-dependencies
-
-      - name: Upload VSIX
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: vscode-extension
-          path: vscode-extension/*.vsix
-          if-no-files-found: warn
-          retention-days: 30
-
-  # ----------------------------------------------------------------------
-  # Auto-tag: reads CHANGELOG.md, creates the tag if it does not exist and
-  # DISPATCHES `release.yml` (a push made with GITHUB_TOKEN does not start a
-  # workflow; `workflow_dispatch` is the documented exception).  It only creates
-  # the tag and never publishes anything: `release.yml` is the sole publisher.
-  # ----------------------------------------------------------------------
-  auto-tag:
-    name: Auto Tag
-    needs: [ smoke, test, wasm, primitive-enchanting, vscode-extension ]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-      # Needed to start `release.yml`: `contents: write` cannot do it.
-      actions: write
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: '3.14'
-
-      # The previous regex took the FIRST "## [...]" heading, which after the
-      # phase headers is "## [Unreleased] — ..." and would have pushed a
-      # "vUnreleased" tag.  scripts/release_version.py skips [Unreleased] and is
-      # shared with release.yml so both agree on the version.
-      - name: Resolve version from CHANGELOG
-        id: changelog
-        run: |
-          python scripts/release_version.py --github-output "$GITHUB_OUTPUT"
-
-      - name: Create Git Tag if Not Exists
-        id: tag
-        env:
-          # The tag message is the CHANGELOG title, i.e. free-form text; the
-          # v2.1.0 heading contains `pengu add`, and interpolating it with
-          # `${{ }}` made bash run those backticks as a command substitution,
-          # silently committing the tag with a mutilated message.
-          CHANGELOG_TAG: ${{ steps.changelog.outputs.tag_name }}
-          CHANGELOG_TITLE: ${{ steps.changelog.outputs.title }}
-        run: |
-          TAG="$CHANGELOG_TAG"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists."
-            echo "created=false" >> "$GITHUB_OUTPUT"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git tag -a "$TAG" -m "$CHANGELOG_TITLE"
-            git push origin "$TAG"
-            echo "created=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Dispatch the publishing workflow for the new tag
-        if: steps.tag.outputs.created == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CHANGELOG_TAG: ${{ steps.changelog.outputs.tag_name }}
-        run: |
-          set -euo pipefail
-          echo "dispatching for $CHANGELOG_TAG"
-          gh workflow run release.yml \
-            --ref "${GITHUB_REF_NAME}" \
-            -f version="$CHANGELOG_TAG"
+          ./build/psc emit-c src/main.pengu --out=/tmp/psc-asan.c
+          cc -std=c11 -g -O1 -fsanitize=address,undefined -I "$PENGU_INCLUDE_DIR" -I . -I std_c \
+            /tmp/psc-asan.c "$PENGU_LIB_DIR/libpengu_runtime.a" -lm -lpthread -ldl -o /tmp/psc-asan
+          ASAN_OPTIONS=detect_leaks=0 /tmp/psc-asan version

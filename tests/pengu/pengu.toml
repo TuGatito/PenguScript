@@ -1,0 +1,17 @@
+[project]
+name = "psc-tests"
+version = "0.11.0"
+entry = "lexer_unit.pengu"
+output = "exe"
+output_name = "psc-tests"
+
+[build]
+src_dir = "../../src"
+lib_dir = "../../lib"
+include_dir = "../../build/include"
+c_dir = "../../c"
+build_dir = "../../build"
+links = ["pengu_runtime", "miniz", "re", "petitio", "curl"]
+cflags = ["-Wall", "-std=c11"]
+ldflags = []
+cc = "gcc"

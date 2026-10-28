@@ -2,6 +2,16 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [F11] — 2026-10-27 — Bootstrap final y switchover
+
+- El compilador PSC vive en la raíz (`src/`, `pengu.toml`).
+- Se elimina el compilador Python y su arnés del árbol de trabajo.
+- Runtime C sin Python (`tools/build_runtime.sh`).
+- CI descarga un bootstrap PSC 0.10.0 y compila con él.
+- Tests PSC-native (`tests/run.sh`, `tests/run.ps1`).
+- README y documentación actualizados.
+- `psc 0.11.0 (F11)`.
+
 ## [F10] — 2026-10-27 — Bind externo y release nativo
 
 - `psc bind` nativo con locator y contrato de flags.

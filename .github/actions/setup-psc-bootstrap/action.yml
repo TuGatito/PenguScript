@@ -1,0 +1,86 @@
+name: Setup PSC bootstrap
+description: Download and verify a prebuilt PSC bootstrap (no Python).
+
+inputs:
+  version:
+    description: Bootstrap release version (e.g. 0.10.0)
+    required: false
+    default: "0.10.0"
+  target:
+    description: Override target (linux-x86_64, macos-arm64, windows-x86_64, ...)
+    required: false
+    default: ""
+  cache-dir:
+    description: Cache directory for downloaded bootstrap
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Download PSC bootstrap
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_CACHE: ${{ inputs.cache-dir }}
+      run: |
+        set -euo pipefail
+        version="$INPUT_VERSION"
+        if [ -n "$INPUT_TARGET" ]; then
+          target="$INPUT_TARGET"
+        else
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64|amd64) arch="x86_64" ;;
+            arm64|aarch64) arch="arm64" ;;
+          esac
+          case "$os" in
+            darwin) os="macos" ;;
+            mingw*|msys*|cygwin*) os="windows" ;;
+          esac
+          target="$os-$arch"
+        fi
+        cache="${INPUT_CACHE:-$HOME/.cache/pengu-bootstrap}"
+        mkdir -p "$cache"
+        case "$target" in
+          windows-*) ext="zip" ;;
+          *) ext="tar.gz" ;;
+        esac
+        name="pengu-${version}-${target}-portable"
+        asset="${name}.${ext}"
+        base="https://github.com/TuGatito/PenguScript/releases/download/v${version}"
+        if [ ! -f "$cache/$asset" ]; then
+          curl -fsSL "$base/$asset" -o "$cache/$asset"
+          curl -fsSL "$base/SHA256SUMS" -o "$cache/SHA256SUMS"
+        fi
+        expected="$(grep "  ${asset}$" "$cache/SHA256SUMS" | awk '{print $1}')"
+        if [ -z "$expected" ]; then
+          echo "::error::no checksum for ${asset}" >&2
+          exit 1
+        fi
+        if command -v sha256sum >/dev/null 2>&1; then
+          actual="$(sha256sum "$cache/$asset" | awk '{print $1}')"
+        else
+          actual="$(shasum -a 256 "$cache/$asset" | awk '{print $1}')"
+        fi
+        if [ "$actual" != "$expected" ]; then
+          echo "::error::checksum mismatch for ${asset}" >&2
+          exit 1
+        fi
+        dest="$cache/$name"
+        if [ ! -d "$dest" ]; then
+          if [ "$ext" = "zip" ]; then
+            unzip -q "$cache/$asset" -d "$cache"
+          else
+            tar -xzf "$cache/$asset" -C "$cache"
+          fi
+        fi
+        echo "PENGU_HOME=$dest" >> "$GITHUB_ENV"
+        echo "$dest/bin" >> "$GITHUB_PATH"
+        echo "PENGU_BIND=$dest/bin/pengu-bind$( [ "$target" = "windows-x86_64" ] && echo .exe )" >> "$GITHUB_ENV"
+        echo "PENGU_STD_DIR=$dest/std" >> "$GITHUB_ENV"
+        echo "PENGU_LIB_DIR=$dest/lib" >> "$GITHUB_ENV"
+        echo "PENGU_INCLUDE_DIR=$dest/include" >> "$GITHUB_ENV"
+        "$dest/bin/psc" version
