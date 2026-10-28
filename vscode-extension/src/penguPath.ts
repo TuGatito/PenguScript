@@ -98,7 +98,7 @@ export function candidateExecutables(options: ResolvePenguOptions): string[] {
     const platform = options.platform ?? process.platform;
     const exists = options.isFile ?? isFile;
     const home = options.homeDir ?? os.homedir();
-    const exe = platform === 'win32' ? 'pengu.exe' : 'pengu';
+    const exe = platform === 'win32' ? 'psc.exe' : 'psc';
     const join = (platform === 'win32' ? path.win32 : path.posix).join;
     const candidates: string[] = [];
 
@@ -108,11 +108,7 @@ export function candidateExecutables(options: ResolvePenguOptions): string[] {
             join(root, 'bin', exe),
             join(root, 'dist', exe),
             join(root, 'dist2', exe),
-            join(root, 'build', exe),
-            join(root, '.venv', 'bin', exe),
-            join(root, 'venv', 'bin', exe),
-            join(root, '.venv', 'Scripts', exe),
-            join(root, 'venv', 'Scripts', exe)
+            join(root, 'build', exe)
         );
     }
 
@@ -124,7 +120,7 @@ export function candidateExecutables(options: ResolvePenguOptions): string[] {
     if (platform === 'win32') {
         candidates.push(join(home, 'AppData', 'Local', 'Programs', 'pengu', exe));
     } else {
-        candidates.push('/usr/local/bin/pengu', '/usr/bin/pengu', '/opt/pengu/pengu');
+        candidates.push('/usr/local/bin/psc', '/usr/bin/psc', '/opt/pengu/psc');
     }
 
     return candidates.filter(exists);
@@ -153,7 +149,7 @@ export function resolvePenguCommand(options: ResolvePenguOptions = {}): PenguCom
         return { command: expandHome(fromEnv, home), source: 'PENGU_BIN_PATH' };
     }
 
-    const bare = 'pengu';
+    const bare = 'psc';
     const onPath = findOnPath(
         bare,
         options.pathValue ?? process.env.PATH ?? '',
