@@ -690,6 +690,30 @@ weave collect_omen with s as ref to state.SemaState, node as int into void:
                 set count is count + 1
         set i is i + 1
     calling types.set_nominal_variants with s->types, info_idx, first, count
+    # Parámetros `shard` del omen (para instanciar `Val of int`).
+    var tpc as int is 0
+    var tpfirst as int is s->types->tparams.len
+    var ti as int is 0
+    while ti < n:
+        var tc as int is calling astutil.node_child with s->ast, node, ti
+        if tc >= 0 and (calling astutil.kind_of with s->ast, tc) == pskind.NodeKind.NdShardParams:
+            var sci as int is 0
+            var scn as int is calling astutil.child_count with s->ast, tc
+            while sci < scn:
+                var tptok as int is calling astutil.token_child with s->ast, tc, sci
+                if tptok >= 0:
+                    var tptxt as string is calling astutil.token_text with s->src, s->lex, tptok
+                    var tpnid as int is calling npool.intern with s->names, tptxt
+                    banish tptxt
+                    var tpi as types.SemaTypeParamInfo is with name is tpnid, bounds_first is 0, bounds_count is 0, flags is 0
+                    var ignored_tp as int is calling types.add_tparam with s->types, tpi
+                    set tpc is tpc + 1
+                set sci is sci + 1
+        set ti is ti + 1
+    var dinfo as types.SemaNominalInfo is (s->types->nominal_infos at info_idx)
+    set dinfo.tparams_first is tpfirst
+    set dinfo.tparams_count is tpc
+    set s->types->nominal_infos at (info_idx) is dinfo
 
 ## `alias`/`seal`.
 ##
