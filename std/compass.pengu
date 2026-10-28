@@ -799,7 +799,9 @@ weave cp_matches with path as string, pattern as string into bool:
 weave cp_cwd into string:
     let m as maybe string is calling pengu_c_getcwd
     if m is present:
-        let cur as string is "{m.value}"
+        let v as string is m.value
+        let cur as string is "{v}"
+        banish v
         banish m
         return cur
     banish m

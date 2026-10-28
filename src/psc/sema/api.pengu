@@ -61,7 +61,8 @@ weave check_file with path as string, options as sopts.SemaOptions into SemaResu
 ## Reemplaza strings owned de las opciones.
 weave configure_options with path as string, opts as ref to sopts.SemaOptions into void:
     var abs as string is calling compass.cp_absolute with path
-    if abs length == 0 or ((bytes of abs at 0) to int) != 47:
+    var absb as ref to frozen byte is bytes of abs
+    if abs length == 0 or ((absb at 0) to int) != 47:
         var cwm as maybe string is calling rites.getcwd
         if cwm.is_present:
             var cws as string is calling npool.copy_string with cwm.value
@@ -144,7 +145,6 @@ weave check_text with path as string, text as string, options as sopts.SemaOptio
     set m.id is id
     calling p->modules.push with m
     calling p->by_path.put with m.canonical_path, id
-    calling p->order.push with id
     set p->root is id
     var visiting as list of string is list of string
     defer banish visiting

@@ -124,7 +124,8 @@ weave create_project with name as string, template as string, out_type as string
         calling spark.eprintln with "psc init: cannot determine current directory"
         banish cwd
         return 2
-    var proj as string is "{cwd.value}/{name}"
+    var cws as string is calling npool.copy_string with cwd.value
+    var proj as string is "{cws}/{name}"
     if calling archivum.exists with proj:
         if not calling archivum.is_dir with proj:
             calling spark.eprintln with "psc init: target exists and is not a directory"

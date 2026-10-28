@@ -44,12 +44,12 @@ jobs:
       - name: PSC tests
         if: runner.os != 'Windows'
         shell: bash
-        run: ./tests/smoke.sh
+        run: ./tests/run.sh
 
       - name: PSC tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./tests/smoke.ps1
+        run: ./tests/run.ps1
 
       - name: Bind smoke
         shell: bash

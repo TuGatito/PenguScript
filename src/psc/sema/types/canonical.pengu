@@ -43,47 +43,64 @@ weave build_canonical with t as ref to types.SemaTypeTable, ty as tk.SemaType in
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     judge ty.kind:
-        when TkAny -> calling sb.append with "any"
-        when TkNull -> calling sb.append with "null"
-        when TkVoid -> calling sb.append with "void"
-        when TkOpaque -> calling sb.append with "opaque"
-        when TkError -> calling sb.append with "<error>"
-        when TkCVarArgs -> calling sb.append with "..."
-        when TkBase -> calling sb.append with (calling display_base with t, ty.name)
+        when TkAny ->
+            calling sb.append with "any"
+        when TkNull ->
+            calling sb.append with "null"
+        when TkVoid ->
+            calling sb.append with "void"
+        when TkOpaque ->
+            calling sb.append with "opaque"
+        when TkError ->
+            calling sb.append with "<error>"
+        when TkCVarArgs ->
+            calling sb.append with "..."
+        when TkBase ->
+            calling sb.append with (calling display_base with t, ty.name)
         when TkRef ->
+            
             calling sb.append with "ref to "
             calling append_type with (sigil of sb), t, ty.a
         when TkFrozen ->
+            
             calling sb.append with "frozen "
             calling append_type with (sigil of sb), t, ty.a
         when TkArray ->
+            
             calling sb.append with "array of "
             calling append_type with (sigil of sb), t, ty.a
             calling sb.append with " with size "
             calling sb.append_int with ty.b
         when TkSlice ->
+            
             calling sb.append with "slice of "
             calling append_type with (sigil of sb), t, ty.a
         when TkMany ->
+            
             calling sb.append with "many "
             calling append_type with (sigil of sb), t, ty.a
         when TkList ->
+            
             calling sb.append with "list of "
             calling append_type with (sigil of sb), t, ty.a
         when TkMap ->
+            
             calling sb.append with "map of "
             calling append_type with (sigil of sb), t, ty.a
             calling sb.append with " to "
             calling append_type with (sigil of sb), t, ty.b
         when TkMaybe ->
+            
             calling sb.append with "maybe "
             calling append_type with (sigil of sb), t, ty.a
         when TkResult ->
+            
             calling sb.append with "result of "
             calling append_type with (sigil of sb), t, ty.a
             calling sb.append with " to "
             calling append_type with (sigil of sb), t, ty.b
         when TkTuple ->
+            
             calling sb.append with "("
             var i as int is 0
             while i < ty.count:
@@ -93,23 +110,32 @@ weave build_canonical with t as ref to types.SemaTypeTable, ty as tk.SemaType in
                 set i is i + 1
             calling sb.append with ")"
         when TkRange ->
+            
             calling sb.append with "range of "
             calling append_type with (sigil of sb), t, ty.a
         when TkFn ->
+            
             calling append_fn with (sigil of sb), t, ty.a
         when TkRune ->
+            
             calling append_nominal with (sigil of sb), t, ty
         when TkEcho ->
+            
             calling append_nominal with (sigil of sb), t, ty
         when TkOmen ->
+            
             calling append_nominal with (sigil of sb), t, ty
         when TkAlias ->
+            
             calling append_nominal with (sigil of sb), t, ty
         when TkSeal ->
+            
             calling append_nominal with (sigil of sb), t, ty
         when TkConcept ->
+            
             calling append_nominal with (sigil of sb), t, ty
         when TkTypeParam ->
+            
             var p as types.SemaTypeParamInfo is (t->tparams at ty.a)
             calling sb.append with (calling npool.text with t->names, p.name)
     return calling sb.finish
@@ -198,45 +224,62 @@ weave build_mangled with t as ref to types.SemaTypeTable, ty as tk.SemaType into
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     judge ty.kind:
-        when TkAny -> calling sb.append with "any"
-        when TkNull -> calling sb.append with "null"
-        when TkVoid -> calling sb.append with "void"
-        when TkOpaque -> calling sb.append with "opaque"
-        when TkError -> calling sb.append with "error"
-        when TkCVarArgs -> calling sb.append with "cvarargs"
-        when TkBase -> calling sb.append with (calling npool.text with t->names, ty.name)
+        when TkAny ->
+            calling sb.append with "any"
+        when TkNull ->
+            calling sb.append with "null"
+        when TkVoid ->
+            calling sb.append with "void"
+        when TkOpaque ->
+            calling sb.append with "opaque"
+        when TkError ->
+            calling sb.append with "error"
+        when TkCVarArgs ->
+            calling sb.append with "cvarargs"
+        when TkBase ->
+            calling sb.append with (calling npool.text with t->names, ty.name)
         when TkRef ->
+            
             calling sb.append with "ref_"
             calling append_mangled with (sigil of sb), t, ty.a
         when TkFrozen ->
+            
             calling sb.append with "frozen_"
             calling append_mangled with (sigil of sb), t, ty.a
         when TkArray ->
+            
             calling sb.append with "arr_{ty.b}_"
             calling append_mangled with (sigil of sb), t, ty.a
         when TkSlice ->
+            
             calling sb.append with "slice_"
             calling append_mangled with (sigil of sb), t, ty.a
         when TkMany ->
+            
             calling sb.append with "many_"
             calling append_mangled with (sigil of sb), t, ty.a
         when TkList ->
+            
             calling sb.append with "list_"
             calling append_mangled with (sigil of sb), t, ty.a
         when TkMap ->
+            
             calling sb.append with "map_"
             calling append_mangled with (sigil of sb), t, ty.a
             calling sb.append with "_"
             calling append_mangled with (sigil of sb), t, ty.b
         when TkMaybe ->
+            
             calling sb.append with "maybe_"
             calling append_mangled with (sigil of sb), t, ty.a
         when TkResult ->
+            
             calling sb.append with "result_"
             calling append_mangled with (sigil of sb), t, ty.a
             calling sb.append with "_"
             calling append_mangled with (sigil of sb), t, ty.b
         when TkTuple ->
+            
             calling sb.append with "tup"
             var i as int is 0
             while i < ty.count:
@@ -244,11 +287,14 @@ weave build_mangled with t as ref to types.SemaTypeTable, ty as tk.SemaType into
                 calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
                 set i is i + 1
         when TkRange ->
+            
             calling sb.append with "range_"
             calling append_mangled with (sigil of sb), t, ty.a
         when TkFn ->
+            
             calling sb.append with "fn"
         when TkRune ->
+            
             var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
             calling sb.append with (calling npool.text with t->names, info.c_name)
             if ty.count > 0:
@@ -260,6 +306,7 @@ weave build_mangled with t as ref to types.SemaTypeTable, ty as tk.SemaType into
                     calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
                     set i is i + 1
         when TkEcho ->
+            
             var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
             calling sb.append with (calling npool.text with t->names, info.c_name)
             if ty.count > 0:
@@ -271,6 +318,7 @@ weave build_mangled with t as ref to types.SemaTypeTable, ty as tk.SemaType into
                     calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
                     set i is i + 1
         when TkOmen ->
+            
             var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
             calling sb.append with (calling npool.text with t->names, info.c_name)
             if ty.count > 0:
@@ -282,6 +330,7 @@ weave build_mangled with t as ref to types.SemaTypeTable, ty as tk.SemaType into
                     calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
                     set i is i + 1
         when TkAlias ->
+            
             var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
             calling sb.append with (calling npool.text with t->names, info.c_name)
             if ty.count > 0:
@@ -293,6 +342,7 @@ weave build_mangled with t as ref to types.SemaTypeTable, ty as tk.SemaType into
                     calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
                     set i is i + 1
         when TkSeal ->
+            
             var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
             calling sb.append with (calling npool.text with t->names, info.c_name)
             if ty.count > 0:
@@ -304,6 +354,7 @@ weave build_mangled with t as ref to types.SemaTypeTable, ty as tk.SemaType into
                     calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
                     set i is i + 1
         when TkConcept ->
+            
             var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
             calling sb.append with (calling npool.text with t->names, info.c_name)
             if ty.count > 0:
@@ -315,6 +366,7 @@ weave build_mangled with t as ref to types.SemaTypeTable, ty as tk.SemaType into
                     calling append_mangled with (sigil of sb), t, (t->type_children at (ty.first + i))
                     set i is i + 1
         when TkTypeParam ->
+            
             var p as types.SemaTypeParamInfo is (t->tparams at ty.a)
             calling sb.append with (calling npool.text with t->names, p.name)
     return calling sb.finish

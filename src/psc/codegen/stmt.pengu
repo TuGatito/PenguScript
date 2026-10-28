@@ -647,7 +647,19 @@ weave emit_judge_stmt with c as ref to context.CgContext, node as int, ast as re
                                         banish pct
                                         banish pfn
                                 set pi is pi + 1
-                        calling emit_block with c, body
+                        if (calling astutil.kind_of with ast, body) == pskind.NodeKind.NdBlock:
+                            calling emit_block with c, body
+                        else:
+                            var bcnt as int is calling astutil.child_count with ast, body
+                            if bcnt > 0:
+                                var bi as int is 0
+                                while bi < bcnt:
+                                    var bc2 as int is calling astutil.node_child with ast, body, bi
+                                    if bc2 >= 0:
+                                        calling emit_stmt with c, bc2
+                                    set bi is bi + 1
+                            else:
+                                calling emit_stmt with c, body
                         calling emit.line with (sigil of c->emitter), "break;"
                         calling emit.indent_less with (sigil of c->emitter)
                         calling emit.line with (sigil of c->emitter), "}"
