@@ -1,0 +1,89 @@
+## Regression for the CC-backed LinkedList/UnorderedSet/OrderedSet/OrderedMap
+## types in std.ordinal.
+import std.ordinal
+import std.spark
+
+weave fail with what as string into int:
+    calling spark.println with "FAIL ordinal_cc: {what}"
+    return 1
+
+weave main into int:
+    var ll as LinkedListInt is calling new_linked_list_int
+    calling ll.push_back with 2
+    calling ll.push_front with 1
+    if (calling ll.size) != 2:
+        return calling fail with "linked list size"
+    var li as list of int is calling ll.items
+    if (li at 0) != 1 or (li at 1) != 2:
+        banish li
+        return calling fail with "linked list order"
+    banish li
+    var popped as maybe int is calling ll.pop_front
+    if popped is not present:
+        banish popped
+        return calling fail with "linked list pop_front"
+    if popped.value != 1:
+        banish popped
+        return calling fail with "linked list pop value"
+    banish popped
+    calling ll.release
+
+    var us as UnorderedSetInt is calling new_unordered_set_int
+    calling us.add with 3
+    calling us.add with 3
+    calling us.add with 1
+    if (calling us.size) != 2:
+        return calling fail with "unordered set dedupe"
+    if not calling us.has with 3:
+        return calling fail with "unordered set has"
+    if not calling us.remove with 3:
+        return calling fail with "unordered set remove"
+    if (calling us.size) != 1:
+        return calling fail with "unordered set size after remove"
+    calling us.release
+
+    var os as OrderedSetInt is calling new_ordered_set_int
+    calling os.add with 3
+    calling os.add with 1
+    calling os.add with 2
+    var oi as list of int is calling os.items
+    if (oi at 0) != 1 or (oi at 1) != 2 or (oi at 2) != 3:
+        banish oi
+        return calling fail with "ordered set order"
+    banish oi
+    calling os.release
+
+    var ss as OrderedSetString is calling new_ordered_set_string
+    calling ss.add with "beta"
+    calling ss.add with "alpha"
+    var si as list of string is calling ss.items
+    if (si at 0) != "alpha" or (si at 1) != "beta":
+        banish si
+        return calling fail with "ordered string set order"
+    banish si
+    calling ss.release
+
+    var om as OrderedMapStringInt is calling new_ordered_map_string_int
+    calling om.put with "b", 2
+    calling om.put with "a", 1
+    if (calling om.size) != 2:
+        return calling fail with "ordered map size"
+    var got as maybe int is calling om.get with "a"
+    if got is not present:
+        banish got
+        return calling fail with "ordered map get"
+    if got.value != 1:
+        banish got
+        return calling fail with "ordered map value"
+    banish got
+    var ok as list of string is calling om.keys
+    if (ok at 0) != "a" or (ok at 1) != "b":
+        banish ok
+        return calling fail with "ordered map key order"
+    banish ok
+    if not calling om.remove with "a":
+        return calling fail with "ordered map remove"
+    calling om.release
+
+    calling spark.println with "OK ordinal_cc"
+    return 0

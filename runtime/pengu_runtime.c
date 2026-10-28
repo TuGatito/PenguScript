@@ -731,15 +731,8 @@ PenguList pengu_list_from_data(const void *data, size_t elem_size, int count) {
         empty.len = 0;
         return empty;
     }
-    PenguList list = pengu_list_new(elem_size, (size_t)count);
-    if (!list.data) {
-        list.len = 0;
-        list.cap = 0;
-        list.elem_size = elem_size;
-        return list;
-    }
-    memcpy(list.data, data, (size_t)count * elem_size);
-    list.len = count;
+    PenguList list;
+    pengu_cc_list_from_data(&list, data, elem_size, count);
     return list;
 }
 
@@ -764,54 +757,57 @@ PenguEntryArray pengu_map_to_entries(const PenguMap *map) {
     out.count = 0;
     out.key_size = map ? map->key_size : 0;
     out.val_size = map ? map->val_size : 0;
-    if (!map || map->len <= 0 || !map->entries || map->key_size == 0 || map->val_size == 0)
+    if (!map || map->len <= 0 || map->key_size == 0 || map->val_size == 0)
         return out;
 
-    out.keys = malloc((size_t)map->len * map->key_size);
-    out.values = malloc((size_t)map->len * map->val_size);
+    PenguList keys = pengu_map_keys(map);
+    PenguList values = pengu_map_values(map);
+    int n = keys.len < values.len ? keys.len : values.len;
+    if (n <= 0) {
+        pengu_banish_list(&keys);
+        pengu_banish_list(&values);
+        return out;
+    }
+
+    out.keys = malloc((size_t)n * map->key_size);
+    out.values = malloc((size_t)n * map->val_size);
     if (!out.keys || !out.values) {
         if (out.keys) free(out.keys);
         if (out.values) free(out.values);
         out.keys = NULL;
         out.values = NULL;
+        pengu_banish_list(&keys);
+        pengu_banish_list(&values);
         return out;
     }
 
-    int n = 0;
-    for (int i = 0; i < map->cap && n < map->len; ++i) {
-        if (!map->entries[i].occupied)
-            continue;
-        char *kdst = (char *)out.keys + ((size_t)n * map->key_size);
-        char *vdst = (char *)out.values + ((size_t)n * map->val_size);
+    for (int i = 0; i < n; ++i) {
+        const void *ksrc = pengu_list_at(&keys, i);
+        const void *vsrc = pengu_list_at(&values, i);
+        char *kdst = (char *)out.keys + ((size_t)i * map->key_size);
+        char *vdst = (char *)out.values + ((size_t)i * map->val_size);
         if (map->key_size == sizeof(PenguString)) {
-            PenguString *src = (PenguString *)map->entries[i].key;
+            const PenguString *src = (const PenguString *)ksrc;
             PenguString *dst = (PenguString *)kdst;
-            if (src && src->data && src->len > 0) {
-                *dst = pengu_string_owned(src->data, src->len);
-            } else {
-                *dst = pengu_string_from_cstr(PENGU_EMPTY_CSTR);
-            }
+            *dst = (src && src->data && src->len > 0)
+                       ? pengu_string_owned(src->data, src->len)
+                       : pengu_string_from_cstr(PENGU_EMPTY_CSTR);
         } else {
-            memcpy(kdst, map->entries[i].key, map->key_size);
+            memcpy(kdst, ksrc, map->key_size);
         }
         if (map->val_size == sizeof(PenguString)) {
-            PenguString *src = (PenguString *)map->entries[i].val;
+            const PenguString *src = (const PenguString *)vsrc;
             PenguString *dst = (PenguString *)vdst;
-            if (src && src->data && src->len > 0) {
-                *dst = pengu_string_owned(src->data, src->len);
-            } else {
-                *dst = pengu_string_from_cstr(PENGU_EMPTY_CSTR);
-            }
+            *dst = (src && src->data && src->len > 0)
+                       ? pengu_string_owned(src->data, src->len)
+                       : pengu_string_from_cstr(PENGU_EMPTY_CSTR);
         } else {
-            memcpy(vdst, map->entries[i].val, map->val_size);
+            memcpy(vdst, vsrc, map->val_size);
         }
-        n++;
     }
     out.count = n;
-    if (n < map->len) {
-        /* Should not happen (len counts occupied slots); keep defensive. */
-        out.count = n;
-    }
+    pengu_banish_list(&keys);
+    pengu_banish_list(&values);
     return out;
 }
 

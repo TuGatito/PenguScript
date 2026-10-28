@@ -103,7 +103,9 @@ weave signature_spec with c as ref to context.CgContext, f as catalog.CgFunction
                     banish pct
                     calling sb.append with " "
                     var pname as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pt
-                    calling sb.append with pname
+                    var psafe as string is calling context.safe_c_name with pname
+                    calling sb.append with psafe
+                    banish psafe
                     banish pname
                     set wrote is true
             set pi is pi + 1
@@ -270,6 +272,7 @@ weave signature with c as ref to context.CgContext, f as catalog.CgFunction into
                 calling sb.append with ", "
             var p as types.SemaFnParam is (c->program->types.fn_params at (info.params_first + i))
             var pn as string is calling pname_for with c, f, i
+            var pnsafe as string is calling context.safe_c_name with pn
             var pct as string is calling ctype.c_type with (sigil of c->names), p.type
             var params0 as int is -1
             var si as int is 0
@@ -286,19 +289,20 @@ weave signature with c as ref to context.CgContext, f as catalog.CgFunction into
                     var styp as int is calling astutil.node_child with ast, spn, 1
                     if styp >= 0 and (calling astutil.kind_of with ast, styp) == pskind.NodeKind.NdFnType:
                         banish pct
-                        set pct is calling ast_fn_param_decl with c, m, styp, pn
+                        set pct is calling ast_fn_param_decl with c, m, styp, pnsafe
                         set ast_fn is true
             if ast_fn:
                 calling sb.append with pct
             else if calling has_fn_slot with pct:
-                var pnamed as string is calling name_fn_declarator with pct, pn
+                var pnamed as string is calling name_fn_declarator with pct, pnsafe
                 calling sb.append with pnamed
                 banish pnamed
             else:
                 calling sb.append with pct
                 calling sb.append with " "
-                calling sb.append with pn
+                calling sb.append with pnsafe
             banish pct
+            banish pnsafe
             banish pn
             set i is i + 1
     calling sb.append with ")"
@@ -365,7 +369,8 @@ weave emit_function with c as ref to context.CgContext, f as catalog.CgFunction 
         var pid as int is calling npool.intern with (sigil of c->program->names), pn
         banish pn
         calling context.add_local with c, pid, p.type, pid
-        var pn2 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), pid)
+        var pidc as int is calling context.local_c_name with c, pid
+        var pn2 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), pidc)
         calling emit.line with (sigil of c->emitter), "(void){pn2};"
         banish pn2
         set i is i + 1

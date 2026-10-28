@@ -49,6 +49,7 @@ pack() {
   fi
   for f in README.md CHANGELOG.md LICENSE THIRD_PARTY.md; do [ -f "$ROOT/$f" ] && cp "$ROOT/$f" "$root/share/doc/pengu/"; done
   [ -f "$ROOT/std_c/sds/LICENSE" ] && cp "$ROOT/std_c/sds/LICENSE" "$root/share/doc/pengu/SDS_LICENSE"
+  [ -f "$ROOT/std_c/CC-main/LICENSE" ] && cp "$ROOT/std_c/CC-main/LICENSE" "$root/share/doc/pengu/CC_LICENSE"
   echo "$VERSION" > "$root/VERSION"
   cat > "$root/release.toml" <<TOML
 [release]

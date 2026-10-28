@@ -97,9 +97,9 @@ weave generate_bundle_c with c as ref to context.CgContext into string:
     calling emit.line with (sigil of c->emitter), "#endif"
     calling emit.line with (sigil of c->emitter), "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L"
     if c->options.strict_c99:
-        calling emit.line with (sigil of c->emitter), "typedef char pengu_abi_static_assert[(PENGU_ABI_VERSION == 2) ? 1 : -1];"
+        calling emit.line with (sigil of c->emitter), "typedef char pengu_abi_static_assert[(PENGU_ABI_VERSION == 3) ? 1 : -1];"
     else:
-        calling emit.line with (sigil of c->emitter), "_Static_assert(PENGU_ABI_VERSION == 2, \"pengu_runtime.h ABI mismatch: bundle expects v2\");"
+        calling emit.line with (sigil of c->emitter), "_Static_assert(PENGU_ABI_VERSION == 3, \"pengu_runtime.h ABI mismatch: bundle expects v3\");"
     calling emit.line with (sigil of c->emitter), "#endif"
     calling emit.line with (sigil of c->emitter), "extern int pengu_abi_version(void);"
     calling emit.line with (sigil of c->emitter), "#if defined(__GNUC__) || defined(__clang__)"

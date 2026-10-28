@@ -38,7 +38,7 @@
 ## ## Memory
 ## A set **borrows** the string elements it stores. `add` copies the
 ## `PenguString` header into the backing map but never the characters it points
-## at: under ABI v2 a runtime container "never clones on store and never recurses
+## at: under ABI v3 a runtime container "never clones on store and never recurses
 ## on release" (`pengu_runtime.h`). An element passed to `add` must therefore
 ## outlive the set. Handing `add` a temporary and then releasing it leaves the
 ## set holding a dangling key, and a later `contains` reads freed memory -
@@ -168,7 +168,7 @@ const COVEN_VERSION as string is "2.14.0"
 # Ownership bridges (raw-buffer plumbing)
 # ----------------------------------------------------------------------------
 #
-# ABI v2 freezes the container rule: `pengu_map_put` copies the *header* of a
+# ABI v3 freezes the container rule: `pengu_map_put` copies the *header* of a
 # `PenguString` key and `pengu_banish_map` frees only each entry's key/value
 # bytes - neither one ever touches the characters a key points at. A set that
 # owns its elements therefore has to allocate the copies itself and free them
@@ -196,23 +196,27 @@ return pengu_string_copy(s);
 antiquus _coven_release_string_set with m as ref to map of string to int into void:
     r"""
 if (!m) return;
-if (m->entries) {
-    for (int i = 0; i < m->cap; ++i) {
-        if (m->entries[i].occupied && m->entries[i].key)
-            pengu_banish_string((PenguString *)m->entries[i].key);
-    }
+PenguList keys = pengu_map_keys_string(m);
+for (int i = 0; i < keys.len; ++i) {
+    PenguString *k = (PenguString *)pengu_list_at(&keys, i);
+    if (k && k->is_owned)
+        pengu_banish_string(k);
 }
+pengu_banish_list(&keys);
 pengu_banish_map(m);
 """
 
 ## Frees every key the map owns, leaving the map's entries in place.
 antiquus _coven_free_owned_keys with m as ref to map of string to int into void:
     r"""
-if (!m || !m->entries) return;
-for (int i = 0; i < m->cap; ++i) {
-    if (m->entries[i].occupied && m->entries[i].key)
-        pengu_banish_string((PenguString *)m->entries[i].key);
+if (!m) return;
+PenguList keys = pengu_map_keys_string(m);
+for (int i = 0; i < keys.len; ++i) {
+    PenguString *k = (PenguString *)pengu_list_at(&keys, i);
+    if (k && k->is_owned)
+        pengu_banish_string(k);
 }
+pengu_banish_list(&keys);
 """
 
 ## Inserts `item` into the map as a **non-owning** key: the set borrows it.
@@ -244,20 +248,17 @@ pengu_map_put(m, &borrowed, &one);
 ## still-intact `item` rather than the key that is being released.
 antiquus _coven_remove_string_key with m as ref to map of string to int, item as string into bool:
     r"""
-if (!m || m->cap == 0) return false;
+if (!m) return false;
 PenguString owned = pengu_string_from_cstr("");
-uint32_t h = (item.data && item.len > 0) ? pengu_hash_bytes(item.data, (size_t)item.len) : 0;
-int idx = (int)(h % (uint32_t)m->cap);
-for (int i = 0; i < m->cap; ++i) {
-    int cur = (idx + i) % m->cap;
-    if (!m->entries[cur].occupied && !m->entries[cur].tombstone) break;
-    if (!m->entries[cur].occupied || m->entries[cur].hash != h) continue;
-    PenguString *k = (PenguString *)m->entries[cur].key;
-    if (k && k->len == item.len && (k->len == 0 || memcmp(k->data, item.data, (size_t)k->len) == 0)) {
-        if (k->is_owned) owned = *k;
+PenguList keys = pengu_map_keys_string(m);
+for (int i = 0; i < keys.len; ++i) {
+    PenguString *k = (PenguString *)pengu_list_at(&keys, i);
+    if (k && pengu_string_equal(*k, item)) {
+        owned = *k;
         break;
     }
 }
+pengu_banish_list(&keys);
 bool removed = pengu_map_remove(m, &item);
 pengu_banish_string(&owned);
 return removed;

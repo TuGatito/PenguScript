@@ -239,7 +239,7 @@ PenguScript define structs de contenedor limpios y compatibles con C en `pengu_r
 | `string` | `PenguString` | `typedef struct { char *data; int len; int32_t is_owned; } PenguString;` |
 | `slice of T` | `PenguSlice` | `typedef struct { void *data; int len; size_t elem_size; } PenguSlice;` |
 | `list of T` | `PenguList` | `typedef struct { void *data; int len; int cap; size_t elem_size; } PenguList;` |
-| `map of K to V` | `PenguMap` | `typedef struct { PenguMapEntry *entries; int len; int cap; size_t key_size; size_t val_size; } PenguMap;` |
+| `map of K to V` | `PenguMap` | `typedef struct { void *state; int len; int cap; size_t key_size; size_t val_size; } PenguMap;` |
 | `maybe T` | `PenguMaybe` | `typedef struct { bool is_present; void *value; } PenguMaybe;` |
 | `result of T to E` | `PenguResult` | `typedef struct { bool is_ok; void *ok_val; void *err_val; } PenguResult;` |
 | `range` (`a to b`) | `PenguRange` | `typedef struct { int64_t start; int64_t end; } PenguRange;` |
@@ -248,8 +248,8 @@ PenguScript define structs de contenedor limpios y compatibles con C en `pengu_r
 #### Semántica de contenedores y memoria:
 - **`PenguString`:** Representa una vista de cadena inmutable. Los literales de cadena en expresiones de runtime referencian `.rodata` y no poseen nada (`is_owned == 0`), mientras que las cadenas dinámicas creadas con el formato `{expr}` o conversiones son cadenas SDS con posesión (`is_owned == 1`). La reserva la gestiona **SDS (Simple Dynamic Strings)**, vendorizado en `std_c/sds`: `data` está siempre terminado en NUL, es binario-seguro y se libera con `sdsfree` (el valor interno `is_owned == 2` queda para bloques opacos que no son texto, como el arena y el compilador de regex). `pengu_string_from_cstr` crea una vista sin posesión sobre una cadena de C. Nada se libera automáticamente: aplica `banish` (o `defer banish`) a una cadena que hayas asignado cuando termines con ella (§13).
 - **`PenguSlice`:** Representa una ventana sin posesión sobre elementos contiguos. Se crea mediante slicing (`nums at 1 to 3`) o a través de `std.ffi.slice_from_ptr`. Nunca posee memoria del heap; no hagas `banish` de un slice.
-- **`PenguList`:** Vector dinámico ampliable. Gestiona un array interno en el heap de tamaño `cap * elem_size`, que se expande con un crecimiento amortizado de 2x al hacer `push`/`append`.
-- **`PenguMap`:** Tabla hash con direccionamiento abierto y sondeo lineal. Las entradas se almacenan en `PenguMapEntry { void *key; void *val; bool occupied; }`. Las claves y los valores se copian en las celdas de las entradas con `memcpy`; el mapa no clona las cargas útiles a las que apunten. El orden de iteración es el **orden de hash**, no el orden de inserción.
+- **`PenguList`:** Vector dinámico ampliable respaldado por CC `vec`. `data` apunta dentro de la reserva CC (la cabecera CC está justo antes), `len`/`cap` reflejan CC, y `push`/`pop`/`clear`/`banish` pasan por el adaptador CC. Las listas de arena (`cap < 0`) conservan su contrato anterior.
+- **`PenguMap`:** Mapa hash unordered respaldado por CC `map`. `state` es un estado opaco del runtime (handle CC + layout + kind de clave); `len`/`cap` reflejan la tabla CC. Claves y valores se copian por valor y nunca se clonan/liberan sus payloads. El orden de iteración es arbitrario (orden hash de CC), no el de inserción.
 - **`PenguMaybe`:** Contenedor de valores para valores opcionales. Si `is_present` es `true`, `value` apunta a una copia en el heap reservada mediante `pengu_sigil_alloc(sizeof(T))`. Si `is_present` es `false`, `value` es `NULL`.
 - **`PenguResult`:** Representa un éxito (`is_ok = true`, carga útil en `ok_val`) o un fallo (`is_ok = false`, carga útil en `err_val`).
 - **`PenguFrame`:** Búfer circular en anillo de 64 frames. Rastrea las llamadas a funciones activas (`pengu_frame_push` / `pengu_frame_pop`) para emitir trazas de origen legibles por humanos en fallos fatales.
@@ -3003,15 +3003,15 @@ valor. Los arrays a nivel de módulo son almacenamiento estático y sí se permi
 | `pengu_string_format` | `PenguString pengu_string_format(const char *fmt, ...)` | Asigna la cadena formateada mediante `vsnprintf`. | El llamador debe aplicar `banish` al `PenguString.data` devuelto. |
 | `pengu_string_copy` | `PenguString pengu_string_copy(PenguString s)` | Asigna una copia independiente de `s`. | El llamador debe aplicar `banish` a la copia. |
 | `pengu_banish_string`| `void pengu_banish_string(PenguString *s)` | Libera una reserva SDS con `sdsfree` (o un bloque opaco `is_owned == 2` con `free`), y anula data/len/is_owned. | Operación segura que no hace nada sobre una vista sin posesión. |
-| `pengu_banish_list`  | `void pengu_banish_list(PenguList *l)` | Libera el búfer de elementos de la lista y reinicia la longitud y la capacidad. | No toca los elementos. |
+| `pengu_banish_list`  | `void pengu_banish_list(PenguList *l)` | Libera la reserva CC `vec` (o no hace nada en una vista de arena) y reinicia longitud/capacidad. | No toca los elementos. |
 | `pengu_banish_string_list` | `void pengu_banish_string_list(PenguList *l)` | Aplica banish a cada elemento `PenguString` y después a la lista. | El ayudante optativo para `list of string`. |
-| `pengu_banish_map`   | `void pengu_banish_map(PenguMap *m)` | Libera la tabla de entradas del mapa y las celdas de clave/valor. | No libera los búferes del heap a los que apunten claves o valores. |
+| `pengu_banish_map`   | `void pengu_banish_map(PenguMap *m)` | Libera el mapa CC y su estado opaco. | No libera los búferes del heap a los que apunten claves o valores. |
 | `pengu_banish`       | `void pengu_banish(void *ptr)` | Llama al `free(ptr)` estándar del heap. | Libera la asignación del puntero sin procesar. |
 
 ### 13.5 Contenedores: `memcpy` al almacenar, liberación explícita
 
 `PenguList` y `PenguMap` almacenan bytes de elementos; nunca clonan y nunca liberan de
-forma recursiva. El ABI del runtime es la **v2** (`PENGU_ABI_VERSION == 2`):
+forma recursiva. El ABI del runtime es la **v3** (`PENGU_ABI_VERSION == 3`):
 
 ```c
 typedef struct {
@@ -3019,7 +3019,7 @@ typedef struct {
 } PenguList;
 
 typedef struct {
-    PenguMapEntry *entries; int len; int cap;
+    void *state; int len; int cap;
     size_t key_size, val_size;                        /* 32 bytes */
 } PenguMap;
 ```
@@ -3027,9 +3027,9 @@ typedef struct {
 * `pengu_list_push` / `pengu_map_put` copian `elem_size` (o `key_size` /
   `val_size`) bytes con `memcpy`. No hay callbacks `elem_cleanup` / `elem_clone`:
   los campos de la v1 y `pengu_list_new_owned` / `pengu_map_new_owned` ya no existen.
-* `pengu_banish_list` libera el búfer de elementos y nada más;
-  `pengu_banish_map` libera la tabla de entradas y las celdas de clave/valor por
-  entrada. Ninguno de los dos recorre los elementos.
+* `pengu_banish_list` libera la reserva CC `vec` y nada más;
+  `pengu_banish_map` libera el mapa CC y su estado opaco. Ninguno de los dos
+  recorre los elementos.
 * **Invariante:** `elem_size` / `key_size` / `val_size` son inmutables una vez que
   el contenedor existe — cambiar el stride lo desincronizaría de las celdas ya
   almacenadas. Muta los elementos en su sitio en lugar de re-tipar un contenedor.
@@ -3053,6 +3053,35 @@ weave main into int:
     banish rows                                 # frees only rows' own buffer
     return 0
 ```
+
+### `std.ordinal` (nuevo en 0.12)
+
+`std.ordinal` añade tipos concretos respaldados por CC sin cambiar las APIs
+existentes de `list`/`map`/`Set`:
+
+```pengu
+import std.ordinal
+
+var ll as LinkedListInt is calling new_linked_list_int
+calling ll.push_back with 1
+calling ll.release
+
+var os as OrderedSetString is calling new_ordered_set_string
+calling os.add with "b"
+calling os.add with "a"          # items() está ordenado: ["a", "b"]
+calling os.release
+
+var om as OrderedMapStringInt is calling new_ordered_map_string_int
+calling om.put with "b", 2
+calling om.put with "a", 1       # keys() está ordenado: ["a", "b"]
+calling om.release
+```
+
+`LinkedListInt`/`LinkedListString` usan CC `list`; `UnorderedSet*` usan CC
+`set`; `OrderedSet*` usan CC `oset`; `OrderedMap*` usan CC `omap`. Llama a
+`release` (no `banish`) sobre la runa. Los helpers de iteración devuelven una
+`list` con posesión; las claves/valores son prestados, como en los mapas/sets
+antiguos.
 
 Para un bloque crudo del heap, `std.memoria` es el asignador canónico; `banish`
 sigue siendo el operador de liberación:

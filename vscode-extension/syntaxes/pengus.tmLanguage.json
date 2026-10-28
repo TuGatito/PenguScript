@@ -230,6 +230,10 @@
         {
           "name": "storage.type.collection.pengus",
           "match": "\\b(array\\s+of|slice\\s+of|list\\s+of|map\\s+of|maybe|result\\s+of|ref\\s+to|frozen|many|array|slice|list|map|result|ref)\\b"
+        },
+        {
+          "name": "support.class.container.pengus",
+          "match": "\\b(LinkedListInt|LinkedListString|UnorderedSetInt|UnorderedSetString|OrderedSetInt|OrderedSetString|OrderedMapIntInt|OrderedMapStringInt)\\b"
         }
       ]
     },

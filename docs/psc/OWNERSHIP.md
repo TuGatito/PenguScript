@@ -60,7 +60,11 @@
     productores usan `pengu_string_owned`, `pengu_string_owned_size`,
     `pengu_string_owned_from_sds` o `pengu_string_owned_from_sds_len`; nunca
     `malloc` seguido de `is_owned = 1`.
-26. **`is_owned == 2` es un bloque crudo opaco** que no es SDS y se libera con
+26. **Los contenedores usan CC**: `PenguList.data` apunta al payload de un
+    `cc_vec` (la cabecera CC vive antes); `PenguMap.state` es un estado opaco
+    con el handle `cc_map`. No se libera `data`/`state` con `free` ni se
+    recorren las entradas del mapa a mano; usar las funciones del runtime.
+27. **`is_owned == 2` es un bloque crudo opaco** que no es SDS y se libera con
     `free`. Solo lo usan `std/arena.pengu` (alineación de `max_align_t`) y
     `std/regulus.pengu` (puntero compilado de la librería `re`).
 

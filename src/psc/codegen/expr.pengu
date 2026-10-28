@@ -871,18 +871,45 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
         if pl >= 0:
             var plname as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pl
             if plname == "len" or plname == "length":
-                var pbase as int is calling astutil.token_child with ast, tgt_prop, 0
-                if pbase >= 0:
-                    var pbtxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pbase
-                    var pbnid as int is calling npool.intern with (sigil of c->program->names), pbtxt
-                    var pty0 as int is calling context.local_type with c, pbnid
+                # Resolve the whole receiver, not only its first token:
+                # `self->items.len` must lower to `(self->items).len`, not
+                # `(self).len`.  The old single-token path broke every method
+                # that read the length of a nested container.
+                #
+                # Only built-in containers expose `len` as a C field.  A rune
+                # such as `SetString` also has a `len` method; that must fall
+                # through to normal method dispatch instead of becoming
+                # `s.len` in C.
+                var prt as CgTarget is calling resolve_target with c, tgt_prop, ast, true
+                defer banish prt.text
+                var is_prop as bool is false
+                var pcheck as int is prt.type_id
+                var pguard as int is 0
+                while pcheck > 0 and pguard < 8:
+                    var pty1 as tk.SemaType is calling types.at with (sigil of c->program->types), pcheck
+                    if pty1.kind == tk.SemaTypeKind.TkList or pty1.kind == tk.SemaTypeKind.TkMap or pty1.kind == tk.SemaTypeKind.TkSlice or pty1.kind == tk.SemaTypeKind.TkMany:
+                        set is_prop is true
+                        set pcheck is -1
+                    else if pty1.kind == tk.SemaTypeKind.TkRef:
+                        set pcheck is pty1.a
+                        set pguard is pguard + 1
+                    else if pty1.kind == tk.SemaTypeKind.TkBase:
+                        var pbn as string is calling npool.text with (sigil of c->program->names), pty1.name
+                        if pbn == "string":
+                            set is_prop is true
+                        banish pbn
+                        set pcheck is -1
+                    else:
+                        set pcheck is -1
+                if is_prop:
                     var pop as string is "."
-                    if pty0 > 0:
-                        var pty1 as tk.SemaType is calling types.at with (sigil of c->program->types), pty0
-                        if pty1.kind == tk.SemaTypeKind.TkRef:
+                    if prt.text == "self" and not c->self_value:
+                        set pop is "->"
+                    else if prt.type_id > 0:
+                        var pty2 as tk.SemaType is calling types.at with (sigil of c->program->types), prt.type_id
+                        if pty2.kind == tk.SemaTypeKind.TkRef:
                             set pop is "->"
-                    var pvn as string is "({pbtxt}){pop}{plname}"
-                    banish pbtxt
+                    var pvn as string is "({prt.text}){pop}{plname}"
                     banish plname
                     return pvn
             banish plname
@@ -1020,6 +1047,31 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     set sfi is sfi + 1
                 banish rctype
                 banish mfull
+                # Fallback for methods whose C name is not `<CType>_<method>`
+                # (`list_sum`, `map_keys_sorted`, bound concept methods...).
+                # Prefer a catalog method whose declared receiver type matches
+                # the receiver context before falling back to a module function
+                # with the same name.
+                if fslot < 0:
+                    var msi as int is 0
+                    while msi < c->catalog.functions.len:
+                        var mf as catalog.CgFunction is (c->catalog.functions at msi)
+                        if mf.is_method and mf.name == nid:
+                            var mfr as bool is mf.recv_type == rct_id
+                            if not mfr and mf.recv_type > 0:
+                                var mfrt as string is calling ctype.c_type with (sigil of c->names), mf.recv_type
+                                if mfrt == rctype:
+                                    set mfr is true
+                                banish mfrt
+                            if mfr:
+                                set fslot is msi
+                                banish cname
+                                set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), mf.c_name)
+                                set msi is c->catalog.functions.len
+                            else:
+                                set msi is msi + 1
+                        else:
+                            set msi is msi + 1
             banish rtt0.text
             if fslot >= 0:
                 set last is -2

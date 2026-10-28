@@ -13,6 +13,8 @@ import psc.sema.modules.loader as loader
 import psc.sema.names as npool
 import psc.sema.symbols.symbol as sym
 import psc.sema.types.table as types
+import psc.sema.types.kind as tk
+import psc.sema.types.convert as convert
 import psc.sema.symbols.table as symbols
 
 import psc.codegen.options as cgopts
@@ -304,6 +306,40 @@ weave deep_token_text with m as loader.SemaModule, ast as ref to psast.PsAst, no
         set i is i + 1
     return ""
 
+## Convierte un nodo de tipo a `TypeId` durante la construcción del catálogo.
+##
+## El catálogo se construye antes de que exista un `CgContext`, así que no se
+## puede usar `tast.from_ast`; se usa el mismo `convert.TypeCtx` de F3.
+##
+## ## Memoria
+## Puede añadir diagnósticos; no posee strings.
+weave catalog_type_from_ast with p as ref to program.SemaProgram, m as loader.SemaModule, node as int into int:
+    if node < 0:
+        return -1
+    var ctx as convert.TypeCtx is with types is (sigil of p->types), symbols is (sigil of p->symbols), names is (sigil of p->names), bag is (sigil of p->diagnostics), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast)
+    return calling convert.convert with (sigil of ctx), node
+
+## `true` si el tipo contiene un parámetro `shard T`.
+##
+## El catálogo actual no especializa métodos genéricos: registrarlos como si
+## fueran concretos emitía C con `void *` y rompía la compilación del propio
+## compilador.  Se omiten hasta que exista especialización real; las funciones
+## genéricas de módulo conservan su camino propio.
+##
+## ## Memoria
+## O(profundidad del tipo).
+weave has_type_param with p as ref to program.SemaProgram, id as int into bool:
+    if id <= 0:
+        return false
+    var t as tk.SemaType is calling types.at with (sigil of p->types), id
+    if t.kind == tk.SemaTypeKind.TkTypeParam:
+        return true
+    if t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkMany or t.kind == tk.SemaTypeKind.TkMaybe or t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen or t.kind == tk.SemaTypeKind.TkArray or t.kind == tk.SemaTypeKind.TkRange:
+        return calling has_type_param with p, t.a
+    if t.kind == tk.SemaTypeKind.TkMap or t.kind == tk.SemaTypeKind.TkResult:
+        return (calling has_type_param with p, t.a) or (calling has_type_param with p, t.b)
+    return false
+
 ## Recorre un bloque `enchanting` y registra sus métodos.
 ##
 ## ## Memoria
@@ -313,10 +349,10 @@ weave collect_enchanting with p as ref to program.SemaProgram, c as ref to CgCat
     var tnode as int is calling astutil.node_child with ast, node, 0
     if tnode < 0:
         return
-    var ttext as string is calling deep_token_text with m, ast, tnode
-    defer banish ttext
-    var recv as int is calling symbols.lookup_type_name with (sigil of p->symbols), ttext
+    var recv as int is calling catalog_type_from_ast with p, m, tnode
     if recv < 0:
+        return
+    if calling has_type_param with p, recv:
         return
     var i as int is 1
     var n as int is calling astutil.child_count with ast, node
@@ -342,8 +378,20 @@ weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m 
         return
     var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of p->symbols), sid
     var rname as string is "Type"
-    var info as types.SemaNominalInfo is (p->types.nominal_infos at (calling types.at with (sigil of p->types), recv).a)
-    set rname is calling npool.text with (sigil of p->names), info.base_name
+    var rt as tk.SemaType is calling types.at with (sigil of p->types), recv
+    if rt.kind == tk.SemaTypeKind.TkList:
+        set rname is "list"
+    else if rt.kind == tk.SemaTypeKind.TkMap:
+        set rname is "map"
+    else if rt.kind == tk.SemaTypeKind.TkSlice or rt.kind == tk.SemaTypeKind.TkMany:
+        set rname is "slice"
+    else if rt.kind == tk.SemaTypeKind.TkBase:
+        set rname is calling npool.text with (sigil of p->names), rt.name
+    else if rt.a > 0 and rt.a < p->types.nominal_infos.len:
+        var info as types.SemaNominalInfo is (p->types.nominal_infos at rt.a)
+        set rname is calling npool.text with (sigil of p->names), info.base_name
+    else:
+        set rname is "Type"
     var mname as string is calling npool.text with (sigil of p->names), name
     var full as string is "{rname}_{mname}"
     var cname as int is calling npool.intern with (sigil of p->names), full
@@ -385,6 +433,33 @@ weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m 
     calling c->by_symbol.put with sid, idx
     if not (calling c->by_name.has with name):
         calling c->by_name.put with name, idx
+
+## Recorre un bloque `bind <Type> with <Concept>` y registra sus métodos.
+##
+## `bind` bodies were previously invisible to the code generator: the symbol
+## table knew about `int.cmp`, but the catalog (and therefore the emitted C) did
+## not, so `calling x.cmp` lowered to a bare `cmp(...)`.  Registering the bind
+## methods here makes bound concept methods ordinary catalog entries.
+##
+## ## Memoria
+## Añade al catálogo.
+weave collect_bind with p as ref to program.SemaProgram, c as ref to CgCatalog, m as loader.SemaModule, node as int into void:
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var tnode as int is calling astutil.node_child with ast, node, 0
+    if tnode < 0:
+        return
+    var recv as int is calling catalog_type_from_ast with p, m, tnode
+    if recv < 0:
+        return
+    if calling has_type_param with p, recv:
+        return
+    var i as int is 1
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0 and (calling astutil.kind_of with ast, ch) == pskind.NodeKind.NdWeaveDecl:
+            calling add_method with p, c, m, recv, ch
+        set i is i + 1
 
 ## Registra una constante de módulo.
 ##
@@ -612,6 +687,8 @@ weave collect_top_node with p as ref to program.SemaProgram, c as ref to CgCatal
         calling add_type with p, c, m, node, false, false
     else if k == pskind.NodeKind.NdEnchantingDecl:
         calling collect_enchanting with p, c, m, node
+    else if k == pskind.NodeKind.NdBindDecl:
+        calling collect_bind with p, c, m, node
     else if k == pskind.NodeKind.NdConstDecl:
         calling add_const with p, c, m, node
     else if k == pskind.NodeKind.NdIncludeStmt:

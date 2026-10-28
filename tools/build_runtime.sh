@@ -16,7 +16,7 @@ cp "$ROOT/pengu_runtime.h" "$INC/pengu_runtime.h"
 # bundles compile with the same `-I` as the runtime.
 cp "$ROOT/std_c/sds/sds.h" "$INC/sds.h"
 
-FLAGS=(-O2 -I"$ROOT" -I"$INC" -I"$ROOT/std_c/sds" -ffunction-sections -fdata-sections)
+FLAGS=(-O2 -std=c11 -I"$ROOT" -I"$INC" -I"$ROOT/std_c/sds" -I"$ROOT/std_c/CC-main" -ffunction-sections -fdata-sections)
 WERROR=(-Werror)
 [ "${PENGU_NO_WERROR:-0}" = "1" ] && WERROR=()
 OBJS=()
@@ -34,6 +34,14 @@ done
   -ffunction-sections -fdata-sections \
   -c "$ROOT/std_c/sds/sds.c" -o "$SOBJ/sds.o"
 OBJS+=("$SOBJ/sds.o")
+# Convenient Containers adapter: the only TU that includes cc.h, so generated
+# bundles never see its macros or its C11 `typeof` requirement.
+"$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \
+  -c "$ROOT/runtime/pengu_containers.c" -o "$OBJ/pengu_containers.o"
+OBJS+=("$OBJ/pengu_containers.o")
+"$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \
+  -c "$ROOT/runtime/pengu_cc_extra.c" -o "$OBJ/pengu_cc_extra.o"
+OBJS+=("$OBJ/pengu_cc_extra.o")
 rm -f "$LIB/libpengu_runtime.a"
 "$AR" rcs "$LIB/libpengu_runtime.a" "${OBJS[@]}"
 

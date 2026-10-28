@@ -165,7 +165,14 @@ weave clear_scopes with c as ref to CgContext into void:
 ## ## Memoria
 ## Añade a `locals`; el nombre C es un `NameId`.
 weave add_local with c as ref to CgContext, name as int, type_id as int, c_name as int into void:
-    var l as CgLocal is with name is name, type is type_id, c_name is c_name
+    var cid as int is c_name
+    if c_name >= 0:
+        var raw as string is calling npool.text with c->names.names, c_name
+        var safe as string is calling safe_c_name with raw
+        if safe != raw:
+            set cid is calling npool.intern with c->names.names, safe
+        banish safe
+    var l as CgLocal is with name is name, type is type_id, c_name is cid
     calling c->locals.push with l
 
 ## Busca el tipo de un local.
@@ -203,3 +210,24 @@ weave clear_locals with c as ref to CgContext into void:
     while n > 0:
         var ignored as CgLocal is calling c->locals.pop
         set n is n - 1
+
+## `true` para identificadores que son palabras reservadas de C.
+##
+## PenguScript permite parámetros como `default` o `case`; emitirlos tal cual
+## produce C inválido. La capa C les añade un sufijo `_` de forma consistente.
+##
+## ## Memoria
+## No asigna.
+weave is_c_keyword with s as string into bool:
+    if s == "auto" or s == "break" or s == "case" or s == "char" or s == "const" or s == "continue" or s == "default" or s == "do" or s == "double" or s == "else" or s == "enum" or s == "extern" or s == "float" or s == "for" or s == "goto" or s == "if" or s == "inline" or s == "int" or s == "long" or s == "register" or s == "restrict" or s == "return" or s == "short" or s == "signed" or s == "sizeof" or s == "static" or s == "struct" or s == "switch" or s == "typedef" or s == "union" or s == "unsigned" or s == "void" or s == "volatile" or s == "while" or s == "_Alignas" or s == "_Alignof" or s == "_Atomic" or s == "_Bool" or s == "_Complex" or s == "_Generic" or s == "_Imaginary" or s == "_Noreturn" or s == "_Static_assert" or s == "_Thread_local" or s == "bool" or s == "true" or s == "false":
+        return true
+    return false
+
+## Nombre C seguro para un identificador de PenguScript.
+##
+## ## Memoria
+## Devuelve string owned.
+weave safe_c_name with s as string into string:
+    if calling is_c_keyword with s:
+        return "{s}_"
+    return calling npool.copy_string with s

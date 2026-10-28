@@ -269,7 +269,7 @@ PenguScript defines clean, C-compatible container structs in `pengu_runtime.h`:
 | `string` | `PenguString` | `typedef struct { char *data; int len; int32_t is_owned; } PenguString;` |
 | `slice of T` | `PenguSlice` | `typedef struct { void *data; int len; size_t elem_size; } PenguSlice;` |
 | `list of T` | `PenguList` | `typedef struct { void *data; int len; int cap; size_t elem_size; } PenguList;` |
-| `map of K to V` | `PenguMap` | `typedef struct { PenguMapEntry *entries; int len; int cap; size_t key_size; size_t val_size; } PenguMap;` |
+| `map of K to V` | `PenguMap` | `typedef struct { void *state; int len; int cap; size_t key_size; size_t val_size; } PenguMap;` |
 | `maybe T` | `PenguMaybe` | `typedef struct { bool is_present; void *value; } PenguMaybe;` |
 | `result of T to E` | `PenguResult` | `typedef struct { bool is_ok; void *ok_val; void *err_val; } PenguResult;` |
 | `range` (`a to b`) | `PenguRange` | `typedef struct { int64_t start; int64_t end; } PenguRange;` |
@@ -278,8 +278,8 @@ PenguScript defines clean, C-compatible container structs in `pengu_runtime.h`:
 #### Container Semantics & Memory:
 - **`PenguString`:** Represents an immutable string view. String literals in runtime expressions reference `.rodata` and are non-owning (`is_owned == 0`), while dynamic strings created from format `{expr}` or conversions are owned SDS strings (`is_owned == 1`). The backing allocation comes from the vendored **SDS (Simple Dynamic Strings)** library (`std_c/sds`), so `data` is always NUL-terminated, binary-safe and released with `sdsfree` (a small internal `is_owned == 2` kind covers opaque non-text blocks such as the arena and the regex compiler). `pengu_string_from_cstr` creates a non-owning view over a C string. Nothing is released automatically: call `banish` (or `defer banish`) on a string you allocated when you are done with it (§13).
 - **`PenguSlice`:** Represents a non-owning window over contiguous elements. Created via slicing (`nums at 1 to 3`) or through `std.ffi.slice_from_ptr`. Never owns heap memory; do not `banish` a slice.
-- **`PenguList`:** Growable dynamic vector. Manages an internal heap array of size `cap * elem_size`, expanding with 2x amortized growth upon `push`/`append`.
-- **`PenguMap`:** Hash table using open addressing and linear probing. Entries are stored in `PenguMapEntry { void *key; void *val; bool occupied; }`. Keys and values are copied into entry cells with `memcpy`; the map does not clone the payloads they reference. Iteration order is **hash order**, not insertion order.
+- **`PenguList`:** Growable dynamic vector backed by CC `vec`. `data` points into the CC allocation (the CC header lives before it), `len`/`cap` mirror CC, and `push`/`pop`/`clear`/`banish` call the CC adapter. Non-owning arena lists (`cap < 0`) keep their old contract.
+- **`PenguMap`:** Unordered hash map backed by CC `map`. `state` is an opaque runtime state (CC handle + layout + key kind); `len`/`cap` mirror the CC table. Keys and values are copied by value and payloads are never cloned/freed. Iteration order is arbitrary (CC hash order), not insertion order.
 - **`PenguMaybe`:** Value container for optional values. If `is_present` is `true`, `value` points to a heap copy allocated via `pengu_sigil_alloc(sizeof(T))`. If `is_present` is `false`, `value` is `NULL`.
 - **`PenguResult`:** Represents either a success (`is_ok = true`, payload at `ok_val`) or failure (`is_ok = false`, payload at `err_val`).
 - **`PenguFrame`:** Circular ring buffer of 64 frames. Tracks active function calls (`pengu_frame_push` / `pengu_frame_pop`) to emit human-readable source backtraces on fatal crashes.
@@ -2993,15 +2993,15 @@ value. Module-level arrays are static storage and are allowed.
 | `pengu_string_format` | `PenguString pengu_string_format(const char *fmt, ...)` | Allocates formatted string via `vsnprintf`. | The caller must `banish` the returned `PenguString.data`. |
 | `pengu_string_copy` | `PenguString pengu_string_copy(PenguString s)` | Allocates an independent copy of `s`. | The caller must `banish` the copy. |
 | `pengu_banish_string`| `void pengu_banish_string(PenguString *s)` | Frees an owned SDS buffer with `sdsfree` (or an opaque `is_owned == 2` block with `free`), then nullifies data/len/is_owned. | Safe no-op on a non-owning view. |
-| `pengu_banish_list`  | `void pengu_banish_list(PenguList *l)` | Frees the list's element buffer and resets length/capacity. | Does not touch the elements. |
+| `pengu_banish_list`  | `void pengu_banish_list(PenguList *l)` | Releases the CC vec allocation (or no-ops for an arena view) and resets length/capacity. | Does not touch the elements. |
 | `pengu_banish_string_list` | `void pengu_banish_string_list(PenguList *l)` | Banishes each `PenguString` element, then the list. | The opt-in helper for `list of string`. |
-| `pengu_banish_map`   | `void pengu_banish_map(PenguMap *m)` | Frees the map's entries table and per-entry key/value cells. | Does not release heap buffers referenced by keys/values. |
+| `pengu_banish_map`   | `void pengu_banish_map(PenguMap *m)` | Releases the CC map and its opaque state. | Does not release heap buffers referenced by keys/values. |
 | `pengu_banish`       | `void pengu_banish(void *ptr)` | Calls standard heap `free(ptr)`. | Releases a raw pointer allocation. |
 
 ### 13.5 Containers: `memcpy` on Store, Explicit Release
 
 `PenguList` and `PenguMap` store element bytes; they never clone and never
-recursively release. The runtime ABI is **v2** (`PENGU_ABI_VERSION == 2`):
+recursively release. The runtime ABI is **v3** (`PENGU_ABI_VERSION == 3`):
 
 ```c
 typedef struct {
@@ -3009,7 +3009,7 @@ typedef struct {
 } PenguList;
 
 typedef struct {
-    PenguMapEntry *entries; int len; int cap;
+    void *state; int len; int cap;
     size_t key_size, val_size;                        /* 32 bytes */
 } PenguMap;
 ```
@@ -3018,9 +3018,9 @@ typedef struct {
   `val_size`) bytes with `memcpy`. There are no `elem_cleanup` / `elem_clone`
   callbacks: the v1 fields and `pengu_list_new_owned` / `pengu_map_new_owned`
   are gone.
-* `pengu_banish_list` frees the element buffer and nothing else;
-  `pengu_banish_map` frees the entries table and the per-entry key/value cells.
-  Neither recurses into the elements.
+* `pengu_banish_list` releases the CC `vec` allocation and nothing else;
+  `pengu_banish_map` releases the CC `map` and its opaque state. Neither
+  recurses into the elements.
 * **Invariant:** `elem_size` / `key_size` / `val_size` are immutable once the
   container exists — changing the stride would desynchronise it from the slots
   already stored. Mutate elements in place instead of re-typing a container.
@@ -3043,6 +3043,34 @@ weave main into int:
     banish rows                                 # frees only rows' own buffer
     return 0
 ```
+
+### `std.ordinal` (new in 0.12)
+
+`std.ordinal` adds concrete CC-backed types without changing the existing
+`list`/`map`/`Set` APIs:
+
+```pengu
+import std.ordinal
+
+var ll as LinkedListInt is calling new_linked_list_int
+calling ll.push_back with 1
+calling ll.release
+
+var os as OrderedSetString is calling new_ordered_set_string
+calling os.add with "b"
+calling os.add with "a"          # items() is sorted: ["a", "b"]
+calling os.release
+
+var om as OrderedMapStringInt is calling new_ordered_map_string_int
+calling om.put with "b", 2
+calling om.put with "a", 1       # keys() is sorted: ["a", "b"]
+calling om.release
+```
+
+`LinkedListInt`/`LinkedListString` use CC `list`; `UnorderedSet*` use CC `set`;
+`OrderedSet*` use CC `oset`; `OrderedMap*` use CC `omap`. Call `release` (not
+`banish`) on the rune. Iteration helpers return an owned `list`; keys/values in
+containers are borrowed, like the legacy maps/sets.
 
 For a raw heap block, `std.memoria` is the canonical allocator; `banish`
 remains the release operator:

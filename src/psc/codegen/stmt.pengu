@@ -276,7 +276,7 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
     var ntxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), name_tok
     defer banish ntxt
     var nid as int is calling npool.intern with (sigil of c->program->names), ntxt
-    var cn as string is calling npool.copy_string with ntxt
+    var cn as string is calling context.safe_c_name with ntxt
     defer banish cn
     var rk as pskind.NodeKind is calling astutil.kind_of with ast, range
     if rk == pskind.NodeKind.NdToExpr:
@@ -298,6 +298,28 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
     if lt < 0:
         return
     var lty as tk.SemaType is calling types.at with (sigil of c->program->types), lt
+    # Iteración sobre mapa (`for k in map`).  El iterador del runtime recorre
+    # la tabla CC sin asignar una lista temporal, así que `break`, `continue` y
+    # `return` dentro del cuerpo son seguros.
+    if lty.kind == tk.SemaTypeKind.TkMap:
+        var kt as string is calling ctype.c_type with (sigil of c->names), lty.a
+        defer banish kt
+        var mexpr as string is calling expr.emit_expr with c, range
+        defer banish mexpr
+        var mtmp as string is calling emit.temp with (sigil of c->emitter), "_map"
+        defer banish mtmp
+        var itmp as string is calling emit.temp with (sigil of c->emitter), "_mi"
+        defer banish itmp
+        calling emit.line with (sigil of c->emitter), "PenguMap {mtmp} = {mexpr};"
+        calling emit.line with (sigil of c->emitter), "PenguMapIter {itmp} = pengu_map_iter_begin(&{mtmp});"
+        calling emit.line with (sigil of c->emitter), "for (; pengu_map_iter_valid(&{itmp}); pengu_map_iter_advance(&{itmp})) {"
+        calling emit.indent_more with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "{kt} {cn} = (*(const {kt}*)pengu_map_iter_key(&{itmp}));"
+        calling context.add_local with c, nid, lty.a, nid
+        calling emit_loop_block with c, body
+        calling emit.indent_less with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "}"
+        return
     if lty.kind != tk.SemaTypeKind.TkList:
         return
     var et as string is calling ctype.c_type with (sigil of c->names), lty.a
@@ -512,6 +534,10 @@ weave emit_defer with c as ref to context.CgContext, node as int into void:
                 calling emit.line with (sigil of c->emitter), "pengu_banish_list(&({vn}));"
             else if t.kind == tk.SemaTypeKind.TkMap:
                 calling emit.line with (sigil of c->emitter), "pengu_banish_map(&({vn}));"
+            else if t.kind == tk.SemaTypeKind.TkMaybe:
+                calling emit.line with (sigil of c->emitter), "pengu_banish_maybe(&({vn}));"
+            else if t.kind == tk.SemaTypeKind.TkResult:
+                calling emit.line with (sigil of c->emitter), "pengu_banish_result(&({vn}));"
             else if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho:
                 var ct as string is calling ctype.c_type with (sigil of c->names), ty
                 defer banish ct
@@ -817,7 +843,7 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
         set ty is 1
     var ct as string is calling ctype.c_type with (sigil of c->names), ty
     defer banish ct
-    var cn as string is calling npool.copy_string with txt
+    var cn as string is calling context.safe_c_name with txt
     defer banish cn
     var cdecl as string is calling ctype.declare with ct, cn
     defer banish cdecl

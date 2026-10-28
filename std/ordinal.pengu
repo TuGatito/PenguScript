@@ -1,0 +1,290 @@
+## std/ordinal.pengu — CC-backed linked list, unordered/ordered set and
+## ordered map types for the concrete key/value kinds the current compiler can
+## monomorphise safely (`int` and `string`).
+##
+## The existing `list`, `map`, `Set` and `SetString` APIs are untouched.  These
+## types are additive and use Convenient Containers directly:
+##
+## - `LinkedListInt` / `LinkedListString` → CC `list`
+## - `UnorderedSetInt` / `UnorderedSetString` → CC `set`
+## - `OrderedSetInt` / `OrderedSetString` → CC `oset`
+## - `OrderedMapIntInt` / `OrderedMapStringInt` → CC `omap`
+##
+## ## Memoria
+## Every type owns one CC handle.  Release it with `release`; `banish` on the
+## rune is not supported (the handle is opaque).  Iteration methods return an
+## owned `list` that the caller releases with `banish`.  String keys/values are
+## borrowed, exactly like the legacy maps/sets; an owned key must outlive the
+## container (or be copied explicitly).
+
+import std.spark
+
+
+# --- C bridges ------------------------------------------------------------
+
+declare ccx_ll_new with elem_size as int, kind as int into ref to void
+declare ccx_ll_push_back_int with h as ref to void, value as int into void
+declare ccx_ll_push_front_int with h as ref to void, value as int into void
+declare ccx_ll_push_back_string with h as ref to void, value as string into void
+declare ccx_ll_push_front_string with h as ref to void, value as string into void
+declare ccx_ll_pop_front_int with h as ref to void, out as ref to int into bool
+declare ccx_ll_pop_front_string with h as ref to void, out as ref to string into bool
+declare ccx_ll_len with h as ref to void into int
+declare ccx_ll_items_int with h as ref to void into list of int
+declare ccx_ll_items_string with h as ref to void into list of string
+declare ccx_ll_clear with h as ref to void into void
+declare ccx_ll_free with h as ref to void into void
+
+declare ccx_uset_new with key_size as int, kind as int into ref to void
+declare ccx_uset_add_int with h as ref to void, value as int into bool
+declare ccx_uset_add_string with h as ref to void, value as string into bool
+declare ccx_uset_has_int with h as ref to void, value as int into bool
+declare ccx_uset_has_string with h as ref to void, value as string into bool
+declare ccx_uset_remove_int with h as ref to void, value as int into bool
+declare ccx_uset_remove_string with h as ref to void, value as string into bool
+declare ccx_uset_len with h as ref to void into int
+declare ccx_uset_items_int with h as ref to void into list of int
+declare ccx_uset_items_string with h as ref to void into list of string
+declare ccx_uset_clear with h as ref to void into void
+declare ccx_uset_free with h as ref to void into void
+
+declare ccx_oset_new with key_size as int, kind as int into ref to void
+declare ccx_oset_add_int with h as ref to void, value as int into bool
+declare ccx_oset_add_string with h as ref to void, value as string into bool
+declare ccx_oset_has_int with h as ref to void, value as int into bool
+declare ccx_oset_has_string with h as ref to void, value as string into bool
+declare ccx_oset_remove_int with h as ref to void, value as int into bool
+declare ccx_oset_remove_string with h as ref to void, value as string into bool
+declare ccx_oset_len with h as ref to void into int
+declare ccx_oset_items_int with h as ref to void into list of int
+declare ccx_oset_items_string with h as ref to void into list of string
+declare ccx_oset_clear with h as ref to void into void
+declare ccx_oset_free with h as ref to void into void
+
+declare ccx_omap_new with key_size as int, val_size as int, kind as int into ref to void
+declare ccx_omap_put_int_int with h as ref to void, key as int, value as int into bool
+declare ccx_omap_put_string_int with h as ref to void, key as string, value as int into bool
+declare ccx_omap_get_int_int with h as ref to void, key as int into maybe int
+declare ccx_omap_get_string_int with h as ref to void, key as string into maybe int
+declare ccx_omap_has_int_int with h as ref to void, key as int into bool
+declare ccx_omap_has_string_int with h as ref to void, key as string into bool
+declare ccx_omap_remove_int_int with h as ref to void, key as int into bool
+declare ccx_omap_remove_string_int with h as ref to void, key as string into bool
+declare ccx_omap_len with h as ref to void into int
+declare ccx_omap_keys_int with h as ref to void into list of int
+declare ccx_omap_keys_string with h as ref to void into list of string
+declare ccx_omap_values_int with h as ref to void into list of int
+declare ccx_omap_clear with h as ref to void into void
+declare ccx_omap_free with h as ref to void into void
+
+const ORDINAL_VERSION as string is "1.0.0"
+
+# --- Linked list ----------------------------------------------------------
+
+rune LinkedListInt:
+    _handle as ref to void
+
+rune LinkedListString:
+    _handle as ref to void
+
+weave new_linked_list_int into LinkedListInt:
+    return with _handle is calling ccx_ll_new with ((size of int) to int), 0
+
+weave new_linked_list_string into LinkedListString:
+    return with _handle is calling ccx_ll_new with ((size of string) to int), 1
+
+enchanting LinkedListInt:
+    ## Appends `value` at the back.
+    weave push_back with value as int into void:
+        calling ccx_ll_push_back_int with self->_handle, value
+    ## Adds `value` at the front.
+    weave push_front with value as int into void:
+        calling ccx_ll_push_front_int with self->_handle, value
+    ## Removes and returns the front value, or `none`.
+    weave pop_front into maybe int:
+        var out as int is 0
+        if calling ccx_ll_pop_front_int with self->_handle, (sigil of out):
+            return some out
+        return maybe none
+    ## Number of elements.
+    weave size into int:
+        return calling ccx_ll_len with self->_handle
+    ## Owned list copy of the elements, front to back.
+    weave items into list of int:
+        return calling ccx_ll_items_int with self->_handle
+    ## Removes every element, preserving the handle.
+    weave clear into void:
+        calling ccx_ll_clear with self->_handle
+    ## Releases the CC handle. The receiver is unusable afterwards.
+    weave release into void:
+        calling ccx_ll_free with self->_handle
+
+enchanting LinkedListString:
+    weave push_back with value as string into void:
+        calling ccx_ll_push_back_string with self->_handle, value
+    weave push_front with value as string into void:
+        calling ccx_ll_push_front_string with self->_handle, value
+    weave pop_front into maybe string:
+        var out as string is ""
+        if calling ccx_ll_pop_front_string with self->_handle, (sigil of out):
+            return some out
+        return maybe none
+    weave size into int:
+        return calling ccx_ll_len with self->_handle
+    weave items into list of string:
+        return calling ccx_ll_items_string with self->_handle
+    weave clear into void:
+        calling ccx_ll_clear with self->_handle
+    weave release into void:
+        calling ccx_ll_free with self->_handle
+
+# --- Unordered sets -------------------------------------------------------
+
+rune UnorderedSetInt:
+    _handle as ref to void
+
+rune UnorderedSetString:
+    _handle as ref to void
+
+weave new_unordered_set_int into UnorderedSetInt:
+    return with _handle is calling ccx_uset_new with ((size of int) to int), 0
+
+weave new_unordered_set_string into UnorderedSetString:
+    return with _handle is calling ccx_uset_new with ((size of string) to int), 1
+
+enchanting UnorderedSetInt:
+    weave add with value as int into bool:
+        return calling ccx_uset_add_int with self->_handle, value
+    weave has with value as int into bool:
+        return calling ccx_uset_has_int with self->_handle, value
+    weave remove with value as int into bool:
+        return calling ccx_uset_remove_int with self->_handle, value
+    weave size into int:
+        return calling ccx_uset_len with self->_handle
+    weave items into list of int:
+        return calling ccx_uset_items_int with self->_handle
+    weave clear into void:
+        calling ccx_uset_clear with self->_handle
+    weave release into void:
+        calling ccx_uset_free with self->_handle
+
+enchanting UnorderedSetString:
+    weave add with value as string into bool:
+        return calling ccx_uset_add_string with self->_handle, value
+    weave has with value as string into bool:
+        return calling ccx_uset_has_string with self->_handle, value
+    weave remove with value as string into bool:
+        return calling ccx_uset_remove_string with self->_handle, value
+    weave size into int:
+        return calling ccx_uset_len with self->_handle
+    weave items into list of string:
+        return calling ccx_uset_items_string with self->_handle
+    weave clear into void:
+        calling ccx_uset_clear with self->_handle
+    weave release into void:
+        calling ccx_uset_free with self->_handle
+
+# --- Ordered sets ---------------------------------------------------------
+
+rune OrderedSetInt:
+    _handle as ref to void
+
+rune OrderedSetString:
+    _handle as ref to void
+
+weave new_ordered_set_int into OrderedSetInt:
+    return with _handle is calling ccx_oset_new with ((size of int) to int), 0
+
+weave new_ordered_set_string into OrderedSetString:
+    return with _handle is calling ccx_oset_new with ((size of string) to int), 1
+
+enchanting OrderedSetInt:
+    weave add with value as int into bool:
+        return calling ccx_oset_add_int with self->_handle, value
+    weave has with value as int into bool:
+        return calling ccx_oset_has_int with self->_handle, value
+    weave remove with value as int into bool:
+        return calling ccx_oset_remove_int with self->_handle, value
+    weave size into int:
+        return calling ccx_oset_len with self->_handle
+    ## Elements in ascending order.
+    weave items into list of int:
+        return calling ccx_oset_items_int with self->_handle
+    weave clear into void:
+        calling ccx_oset_clear with self->_handle
+    weave release into void:
+        calling ccx_oset_free with self->_handle
+
+enchanting OrderedSetString:
+    weave add with value as string into bool:
+        return calling ccx_oset_add_string with self->_handle, value
+    weave has with value as string into bool:
+        return calling ccx_oset_has_string with self->_handle, value
+    weave remove with value as string into bool:
+        return calling ccx_oset_remove_string with self->_handle, value
+    weave size into int:
+        return calling ccx_oset_len with self->_handle
+    ## Elements in ascending byte order.
+    weave items into list of string:
+        return calling ccx_oset_items_string with self->_handle
+    weave clear into void:
+        calling ccx_oset_clear with self->_handle
+    weave release into void:
+        calling ccx_oset_free with self->_handle
+
+# --- Ordered maps ---------------------------------------------------------
+
+rune OrderedMapIntInt:
+    _handle as ref to void
+
+rune OrderedMapStringInt:
+    _handle as ref to void
+
+weave new_ordered_map_int_int into OrderedMapIntInt:
+    return with _handle is calling ccx_omap_new with ((size of int) to int), ((size of int) to int), 0
+
+weave new_ordered_map_string_int into OrderedMapStringInt:
+    return with _handle is calling ccx_omap_new with ((size of string) to int), ((size of int) to int), 1
+
+enchanting OrderedMapIntInt:
+    weave put with key as int, value as int into bool:
+        return calling ccx_omap_put_int_int with self->_handle, key, value
+    weave get with key as int into maybe int:
+        return calling ccx_omap_get_int_int with self->_handle, key
+    weave has with key as int into bool:
+        return calling ccx_omap_has_int_int with self->_handle, key
+    weave remove with key as int into bool:
+        return calling ccx_omap_remove_int_int with self->_handle, key
+    weave size into int:
+        return calling ccx_omap_len with self->_handle
+    ## Keys in ascending order.
+    weave keys into list of int:
+        return calling ccx_omap_keys_int with self->_handle
+    ## Values in ascending key order.
+    weave values into list of int:
+        return calling ccx_omap_values_int with self->_handle
+    weave clear into void:
+        calling ccx_omap_clear with self->_handle
+    weave release into void:
+        calling ccx_omap_free with self->_handle
+
+enchanting OrderedMapStringInt:
+    weave put with key as string, value as int into bool:
+        return calling ccx_omap_put_string_int with self->_handle, key, value
+    weave get with key as string into maybe int:
+        return calling ccx_omap_get_string_int with self->_handle, key
+    weave has with key as string into bool:
+        return calling ccx_omap_has_string_int with self->_handle, key
+    weave remove with key as string into bool:
+        return calling ccx_omap_remove_string_int with self->_handle, key
+    weave size into int:
+        return calling ccx_omap_len with self->_handle
+    ## Keys in ascending byte order.
+    weave keys into list of string:
+        return calling ccx_omap_keys_string with self->_handle
+    weave values into list of int:
+        return calling ccx_omap_values_int with self->_handle
+    weave clear into void:
+        calling ccx_omap_clear with self->_handle
+    weave release into void:
+        calling ccx_omap_free with self->_handle

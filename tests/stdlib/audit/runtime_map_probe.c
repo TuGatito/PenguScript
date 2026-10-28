@@ -2,7 +2,7 @@
  *
  * Covers two heap-use-after-frees in the specialized string-to-int map entry
  * points (`pengu_map_put_string_int` / `pengu_map_remove_string_int`): under
- * ABI v2 a map owns only the key/value *bytes*, so freeing the `PenguString`
+ * ABI v3 a map owns only the key/value *bytes*, so freeing the `PenguString`
  * payload of a stored key freed memory that belonged to the caller.
  *
  * Compiled by `tests/stdlib/audit/test_runtime_memory.py` with ASan+UBSan.

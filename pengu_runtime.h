@@ -38,7 +38,7 @@
 #endif
 
 /* =========================================================================
- * ABI v2 — frozen at PenguScript 1.0.0
+ * ABI v3 — Convenient Containers backend
  *
  * PENGU_ABI_VERSION is bumped only by a breaking change to any layout below.
  * The generated C (`bundle.c`) and every prebuilt `libpengu_*.a` must agree on
@@ -52,7 +52,7 @@
  * The layouts below are the *real* ones shipped by the runtime.  Sizes are for
  * 64-bit targets (LP64 and LLP64): pointers/size_t/function pointers are 8
  * bytes and `int` is 4, so the numbers are identical on Linux/macOS x86_64 and
- * on Windows x64.  32-bit targets differ and are not covered by ABI v2.
+ * on Windows x64.  32-bit targets differ and are not covered by ABI v3.
  *
  *   PenguString  { char *data; int len; int32_t is_owned; }        size 16, align 8
  *                offsets: data=0 len=8 is_owned=12
@@ -61,10 +61,10 @@
  *   PenguList    { void *data; int len; int cap; size_t elem_size; }
  *                size 24, align 8
  *                offsets: data=0 len=8 cap=12 elem_size=16
- *   PenguMap     { PenguMapEntry *entries; int len; int cap;
+ *   PenguMap     { void *state; int len; int cap;
  *                  size_t key_size; size_t val_size; }
  *                size 32, align 8
- *                offsets: entries=0 len=8 cap=12 key_size=16 val_size=24
+ *                offsets: state=0 len=8 cap=12 key_size=16 val_size=24
  *   PenguMaybe   { bool is_present; void *value; }                 size 16, align 8
  *                offsets: is_present=0 value=8
  *   PenguResult  { bool is_ok; void *ok_val; void *err_val; }      size 24, align 8
@@ -75,12 +75,17 @@
  * `tests/abi/test_abi_layout.c` asserts these values at runtime on every
  * platform the suite runs on; keep it in sync if a layout ever changes.
  *
- * ABI v2 is preserved by the SDS migration: `PenguString` keeps the same
- * 16-byte layout, but an owned payload (`is_owned == 1`) is now an SDS
- * allocation. C extensions must build owned strings with the runtime
- * constructors (`pengu_string_owned*`), never with `malloc` + `is_owned = 1`.
+ * v3 (Convenient Containers): `PenguList` and `PenguMap` keep their size and
+ * alignment, but their first field now refers to a CC-backed allocation:
+ * `PenguList.data` points into a `cc_vec` block (the CC header lives before it)
+ * and `PenguMap.state` is an opaque `PenguMapState*` (a `cc_map` handle plus
+ * layout/hash metadata). C extensions must not `free()` those fields or walk
+ * `PenguMap` entries directly; use the runtime accessors.
+ *
+ * ABI v2 preserved the SDS migration: `PenguString` keeps the same 16-byte
+ * layout, and an owned payload (`is_owned == 1`) is an SDS allocation.
  * ========================================================================= */
-#define PENGU_ABI_VERSION 2
+#define PENGU_ABI_VERSION 3
 
 /*
  * Phase 3 item 3.5. Defined in `pengu_runtime.c` -- i.e. it exists as an
@@ -1956,6 +1961,19 @@ extern "C"
     size_t elem_size;
   } PenguList;
 
+  /* CC-backed list primitives (runtime/pengu_containers.c).  The header keeps
+   * only the field accessors; the CC header never reaches generated bundles. */
+  void pengu_cc_list_init(PenguList *list, size_t elem_size, size_t cap);
+  void pengu_cc_list_push(PenguList *list, const void *item);
+  void *pengu_cc_list_pop_val(PenguList *list);
+  bool pengu_cc_list_pop(PenguList *list, void *out_item);
+  void pengu_cc_list_clear(PenguList *list);
+  void pengu_cc_list_banish(PenguList *list);
+  void pengu_cc_list_set_len(PenguList *list, int len);
+  bool pengu_cc_list_remove_at(PenguList *list, int idx);
+  void pengu_cc_list_from_data(PenguList *list, const void *data,
+                               size_t elem_size, int count);
+
   /**
    * @brief Creates a new dynamic list with given element size and capacity.
    * @param elem_size Size of each element in bytes.
@@ -1965,15 +1983,11 @@ extern "C"
   static inline PenguList pengu_list_new(size_t elem_size, size_t cap)
   {
     PenguList list;
+    list.data = NULL;
     list.len = 0;
-    list.cap = (cap > 0) ? (int)cap : 4;
+    list.cap = 0;
     list.elem_size = elem_size;
-    list.data = malloc((size_t)list.cap * elem_size);
-    if (!list.data)
-    {
-      list.cap = 0;
-      list.len = 0;
-    }
+    pengu_cc_list_init(&list, elem_size, cap);
     return list;
   }
 
@@ -1987,27 +2001,7 @@ extern "C"
   {
     if (!list || !item)
       return;
-    /* Negative capacity marks a non-owning (arena-backed) list header: its
-     * `data` points into an arena block, so growing it with realloc would hand
-     * a block interior to free(). Immutable by contract. */
-    if (list->cap < 0)
-      return;
-    if (list->len >= list->cap)
-    {
-      if (list->cap > INT_MAX / 2)
-        return;
-      int new_cap = (list->cap == 0) ? 4 : list->cap * 2;
-      if (list->elem_size != 0 && (size_t)new_cap > SIZE_MAX / list->elem_size)
-        return;
-      void *new_data = realloc(list->data, (size_t)new_cap * list->elem_size);
-      if (!new_data)
-        return;
-      list->data = new_data;
-      list->cap = new_cap;
-    }
-    char *target = (char *)list->data + ((size_t)list->len * list->elem_size);
-    memcpy(target, item, list->elem_size);
-    list->len++;
+    pengu_cc_list_push(list, item);
   }
 
   /**
@@ -2019,10 +2013,7 @@ extern "C"
    */
   static inline void *pengu_list_pop_val(PenguList *list)
   {
-    if (!list || list->len <= 0)
-      return NULL;
-    list->len--;
-    return (char *)list->data + ((size_t)list->len * list->elem_size);
+    return pengu_cc_list_pop_val(list);
   }
 
   /**
@@ -2033,15 +2024,7 @@ extern "C"
    */
   static inline bool pengu_list_pop(PenguList *list, void *out_item)
   {
-    if (!list || list->len <= 0)
-      return false;
-    list->len--;
-    if (out_item)
-    {
-      char *src = (char *)list->data + ((size_t)list->len * list->elem_size);
-      memcpy(out_item, src, list->elem_size);
-    }
-    return true;
+    return pengu_cc_list_pop(list, out_item);
   }
 
   /**
@@ -2103,10 +2086,7 @@ extern "C"
    */
   static inline void pengu_list_clear(PenguList *list)
   {
-    if (list)
-    {
-      list->len = 0;
-    }
+    pengu_cc_list_clear(list);
   }
 
   /**
@@ -2119,18 +2099,22 @@ extern "C"
    */
   static inline void pengu_banish_list(PenguList *list)
   {
-    if (list && list->data)
-    {
-      /* `cap < 0` marks a non-owning list (std.json's `parse_in_arena` builds
-       * one over an arena block): the bytes belong to the arena, not to
-       * malloc, so banishing the value must be a safe no-op. Accessors only
-       * need `data`, `len` and `elem_size`, all of which stay valid. */
-      if (list->cap >= 0)
-        free(list->data);
-      list->data = NULL;
-      list->len = 0;
-      list->cap = 0;
-    }
+    pengu_cc_list_banish(list);
+  }
+
+  /**
+   * @brief Sets the logical length of a list, updating the CC header.
+   * For a non-owning arena list (`cap < 0`) only `len` changes.
+   */
+  static inline void pengu_list_set_len(PenguList *list, int len)
+  {
+    pengu_cc_list_set_len(list, len);
+  }
+
+  /** @brief Removes the element at `idx`, shifting the tail left. */
+  static inline bool pengu_list_remove_at(PenguList *list, int idx)
+  {
+    return pengu_cc_list_remove_at(list, idx);
   }
 
   /* =========================================================================
@@ -2348,12 +2332,35 @@ extern "C"
    */
   typedef struct
   {
-    PenguMapEntry *entries;
+    void *state;
     int len;
     int cap;
     size_t key_size;
     size_t val_size;
   } PenguMap;
+
+  /* CC-backed map primitives (runtime/pengu_containers.c). */
+  void pengu_cc_map_init(PenguMap *map, size_t key_size, size_t val_size);
+  void pengu_cc_map_put(PenguMap *map, const void *key, const void *val);
+  void *pengu_cc_map_get(const PenguMap *map, const void *key);
+  bool pengu_cc_map_remove(PenguMap *map, const void *key);
+  void pengu_cc_map_clear(PenguMap *map);
+  void pengu_cc_map_banish(PenguMap *map);
+  PenguList pengu_cc_map_keys(const PenguMap *map);
+  PenguList pengu_cc_map_values(const PenguMap *map);
+  void pengu_cc_map_pin_sizes(PenguMap *map, size_t key_size, size_t val_size);
+
+  /** Allocation-free map iterator used by `for k in map`. */
+  typedef struct
+  {
+    const PenguMap *map;
+    void *it;
+  } PenguMapIter;
+
+  PenguMapIter pengu_map_iter_begin(const PenguMap *map);
+  bool pengu_map_iter_valid(const PenguMapIter *iter);
+  void pengu_map_iter_advance(PenguMapIter *iter);
+  const void *pengu_map_iter_key(const PenguMapIter *iter);
 
   /**
    * @brief Creates a new hash map.
@@ -2364,46 +2371,13 @@ extern "C"
   static inline PenguMap pengu_map_new(size_t key_size, size_t val_size)
   {
     PenguMap map;
+    map.state = NULL;
     map.len = 0;
-    map.cap = 16;
+    map.cap = 0;
     map.key_size = key_size;
     map.val_size = val_size;
-    map.entries = (PenguMapEntry *)calloc((size_t)map.cap, sizeof(PenguMapEntry));
-    if (!map.entries)
-    {
-      map.cap = 0;
-      map.len = 0;
-    }
+    pengu_cc_map_init(&map, key_size, val_size);
     return map;
-  }
-
-  /**
-   * @brief Allocates and initializes key/val pointers for a map entry slot.
-   * @note En fallo de realloc/malloc, retorna silenciosamente sin insertar.
-   *       El caller no puede distinguir entre éxito y OOM.
-   */
-  static inline bool pengu_map_alloc_slot(PenguMap *map, int idx,
-                                          const void *key, const void *val,
-                                          uint32_t h)
-  {
-    void *k = malloc(map->key_size);
-    void *v = malloc(map->val_size);
-    if (!k || !v)
-    {
-      free(k);
-      free(v);
-      return false;
-    }
-    memcpy(k, key, map->key_size);
-    memcpy(v, val, map->val_size);
-
-    map->entries[idx].hash = h;
-    map->entries[idx].occupied = true;
-    map->entries[idx].tombstone = false;
-    map->entries[idx].key = k;
-    map->entries[idx].val = v;
-    map->len++;
-    return true;
   }
 
   /**
@@ -2415,100 +2389,7 @@ extern "C"
    */
   static inline void pengu_map_put(PenguMap *map, const void *key, const void *val)
   {
-    if (!map || !key || !val)
-      return;
-    if (map->cap == 0)
-    {
-      map->cap = 16;
-      map->entries = (PenguMapEntry *)calloc((size_t)map->cap, sizeof(PenguMapEntry));
-      if (!map->entries)
-      {
-        map->cap = 0;
-        map->len = 0;
-        return;
-      }
-      map->len = 0;
-    }
-    if (map->len * 2 >= map->cap)
-    {
-      int old_cap = map->cap;
-      if (old_cap > INT_MAX / 2)
-        return;
-      if ((size_t)old_cap > (SIZE_MAX / 2) / sizeof(PenguMapEntry))
-        return;
-      PenguMapEntry *old_entries = map->entries;
-      map->cap = old_cap * 2;
-      map->entries = (PenguMapEntry *)calloc((size_t)map->cap, sizeof(PenguMapEntry));
-      if (!map->entries)
-      {
-        map->cap = old_cap;
-        map->entries = old_entries;
-        return;
-      }
-      map->len = 0;
-      for (int i = 0; i < old_cap; ++i)
-      {
-        if (old_entries[i].occupied)
-        {
-          pengu_map_put(map, old_entries[i].key, old_entries[i].val);
-          /* The new entry copied the key/value bytes; the old slot only owned
-           * those bytes, never what a PenguString inside them pointed at. */
-          free(old_entries[i].key);
-          free(old_entries[i].val);
-        }
-      }
-      free(old_entries);
-    }
-    uint32_t h = (map->key_size == sizeof(PenguString)) ? (((PenguString *)key)->data && ((PenguString *)key)->len > 0 ? pengu_hash_bytes(((PenguString *)key)->data, (size_t)((PenguString *)key)->len) : 0) : pengu_hash_bytes(key, map->key_size);
-    int idx = (int)(h % (uint32_t)map->cap);
-    int first_tombstone = -1;
-    for (int i = 0; i < map->cap; ++i)
-    {
-      int cur = (idx + i) % map->cap;
-      if (!map->entries[cur].occupied)
-      {
-        if (map->entries[cur].tombstone)
-        {
-          if (first_tombstone == -1)
-            first_tombstone = cur;
-        }
-        else
-        {
-          int insert_idx = (first_tombstone != -1) ? first_tombstone : cur;
-          pengu_map_alloc_slot(map, insert_idx, key, val, h);
-          return;
-        }
-      }
-      else if (map->entries[cur].hash == h)
-      {
-        bool match = false;
-        if (map->key_size == sizeof(PenguString))
-        {
-          PenguString *k1 = (PenguString *)map->entries[cur].key;
-          const PenguString *k2 = (const PenguString *)key;
-          match = (k1->len == k2->len && (k1->len == 0 || memcmp(k1->data, k2->data, (size_t)k1->len) == 0));
-        }
-        else
-        {
-          match = (memcmp(map->entries[cur].key, key, map->key_size) == 0);
-        }
-        if (match)
-        {
-          /* Overwriting an existing value copies the new bytes over the old
-           * ones.  Whatever the old value pointed at is not released: the map
-           * never owned it, and freeing it here would free memory the caller
-           * may still hold.  Losing that buffer is a leak, and leaks are the
-           * manual model's trade-off. */
-          memcpy(map->entries[cur].val, val, map->val_size);
-          return;
-        }
-      }
-    }
-    if (first_tombstone != -1)
-    {
-      pengu_map_alloc_slot(map, first_tombstone, key, val, h);
-      return;
-    }
+    pengu_cc_map_put(map, key, val);
   }
 
   /**
@@ -2519,33 +2400,7 @@ extern "C"
    */
   static inline void *pengu_map_get(const PenguMap *map, const void *key)
   {
-    if (!map || !key || map->cap == 0)
-      return NULL;
-    uint32_t h = (map->key_size == sizeof(PenguString)) ? (((PenguString *)key)->data && ((PenguString *)key)->len > 0 ? pengu_hash_bytes(((PenguString *)key)->data, (size_t)((PenguString *)key)->len) : 0) : pengu_hash_bytes(key, map->key_size);
-    int idx = (int)(h % (uint32_t)map->cap);
-    for (int i = 0; i < map->cap; ++i)
-    {
-      int cur = (idx + i) % map->cap;
-      if (!map->entries[cur].occupied && !map->entries[cur].tombstone)
-        return NULL;
-      if (map->entries[cur].occupied && map->entries[cur].hash == h)
-      {
-        bool match = false;
-        if (map->key_size == sizeof(PenguString))
-        {
-          PenguString *k1 = (PenguString *)map->entries[cur].key;
-          const PenguString *k2 = (const PenguString *)key;
-          match = (k1->len == k2->len && (k1->len == 0 || memcmp(k1->data, k2->data, (size_t)k1->len) == 0));
-        }
-        else
-        {
-          match = (memcmp(map->entries[cur].key, key, map->key_size) == 0);
-        }
-        if (match)
-          return map->entries[cur].val;
-      }
-    }
-    return NULL;
+    return pengu_cc_map_get(map, key);
   }
 
   /**
@@ -2556,7 +2411,7 @@ extern "C"
    */
   static inline bool pengu_map_contains(const PenguMap *map, const void *key)
   {
-    return pengu_map_get(map, key) != NULL;
+    return pengu_cc_map_get(map, key) != NULL;
   }
 
   /**
@@ -2567,45 +2422,7 @@ extern "C"
    */
   static inline bool pengu_map_remove(PenguMap *map, const void *key)
   {
-    if (!map || !key || map->cap == 0)
-      return false;
-    uint32_t h = (map->key_size == sizeof(PenguString)) ? (((PenguString *)key)->data && ((PenguString *)key)->len > 0 ? pengu_hash_bytes(((PenguString *)key)->data, (size_t)((PenguString *)key)->len) : 0) : pengu_hash_bytes(key, map->key_size);
-    int idx = (int)(h % (uint32_t)map->cap);
-    for (int i = 0; i < map->cap; ++i)
-    {
-      int cur = (idx + i) % map->cap;
-      if (!map->entries[cur].occupied && !map->entries[cur].tombstone)
-        return false;
-      if (map->entries[cur].occupied && map->entries[cur].hash == h)
-      {
-        bool match = false;
-        if (map->key_size == sizeof(PenguString))
-        {
-          PenguString *k1 = (PenguString *)map->entries[cur].key;
-          const PenguString *k2 = (const PenguString *)key;
-          match = (k1->len == k2->len && (k1->len == 0 || memcmp(k1->data, k2->data, (size_t)k1->len) == 0));
-        }
-        else
-        {
-          match = (memcmp(map->entries[cur].key, key, map->key_size) == 0);
-        }
-        if (match)
-        {
-          /* The entry only owns the key/value *bytes*; what a PenguString
-           * inside them points at is not released here. */
-          free(map->entries[cur].key);
-          free(map->entries[cur].val);
-          map->entries[cur].occupied = false;
-          map->entries[cur].tombstone = true;
-          map->entries[cur].key = NULL;
-          map->entries[cur].val = NULL;
-          map->entries[cur].hash = 0;
-          map->len--;
-          return true;
-        }
-      }
-    }
-    return false;
+    return pengu_cc_map_remove(map, key);
   }
 
   /**
@@ -2619,23 +2436,7 @@ extern "C"
    */
   static inline void pengu_banish_map(PenguMap *map)
   {
-    if (map && map->entries)
-    {
-      for (int i = 0; i < map->cap; ++i)
-      {
-        if (map->entries[i].occupied)
-        {
-          if (map->entries[i].key)
-            free(map->entries[i].key);
-          if (map->entries[i].val)
-            free(map->entries[i].val);
-        }
-      }
-      free(map->entries);
-      map->entries = NULL;
-      map->len = 0;
-      map->cap = 0;
-    }
+    pengu_cc_map_banish(map);
   }
 
   /**
@@ -2644,35 +2445,12 @@ extern "C"
    */
   static inline void pengu_map_clear(PenguMap *map)
   {
-    if (!map || !map->entries)
-      return;
-    for (int i = 0; i < map->cap; ++i)
-    {
-      if (map->entries[i].occupied)
-      {
-        if (map->entries[i].key)
-        {
-          /* Only the key's bytes belong to the map; a PenguString key keeps
-           * its own buffer alive. */
-          free(map->entries[i].key);
-          map->entries[i].key = NULL;
-        }
-        if (map->entries[i].val)
-        {
-          free(map->entries[i].val);
-          map->entries[i].val = NULL;
-        }
-        map->entries[i].occupied = false;
-        map->entries[i].hash = 0;
-      }
-      map->entries[i].tombstone = false;
-    }
-    map->len = 0;
+    pengu_cc_map_clear(map);
   }
 
   /** @brief Inserts or updates a string-to-int pair in the hash map.
    *
-   * Same ownership rule as `pengu_map_put` (ABI v2): the map copies the
+   * Same ownership rule as `pengu_map_put` (ABI v3): the map copies the
    * `PenguString` *bytes* with `memcpy` and never takes over the buffer the
    * string points at.  The caller keeps owning that buffer.
    *
@@ -2686,120 +2464,16 @@ extern "C"
     if (!m || !k || !v)
       return;
     if (m->len == 0)
-    {
-      /* Empty map: pin the layout this entry point stores. */
-      m->key_size = sizeof(PenguString);
-      m->val_size = sizeof(int32_t);
-    }
-    if (m->cap == 0)
-    {
-      m->cap = 16;
-      m->entries = (PenguMapEntry *)calloc((size_t)m->cap, sizeof(PenguMapEntry));
-      if (!m->entries)
-      {
-        m->cap = 0;
-        m->len = 0;
-        return;
-      }
-      m->key_size = sizeof(PenguString);
-      m->val_size = sizeof(int32_t);
-      m->len = 0;
-    }
-    if (m->len * 2 >= m->cap)
-    {
-      int old_cap = m->cap;
-      if (old_cap > INT_MAX / 2)
-        return;
-      if ((size_t)old_cap > (SIZE_MAX / 2) / sizeof(PenguMapEntry))
-        return;
-      PenguMapEntry *old_entries = m->entries;
-      m->cap = old_cap * 2;
-      m->entries = (PenguMapEntry *)calloc((size_t)m->cap, sizeof(PenguMapEntry));
-      if (!m->entries)
-      {
-        m->cap = old_cap;
-        m->entries = old_entries;
-        return;
-      }
-      m->len = 0;
-      for (int i = 0; i < old_cap; ++i)
-      {
-        if (old_entries[i].occupied)
-        {
-          PenguString *ek = (PenguString *)old_entries[i].key;
-          int32_t *ev = (int32_t *)old_entries[i].val;
-          pengu_map_put_string_int(m, ek, ev);
-          /* ABI v2: the slot owned only the `PenguString` *bytes*.  The buffer
-           * `ek->data` points at belongs to whoever called put -- freeing it
-           * here (as the pre-v2 deep-copy runtime did) leaves the caller and
-           * every other slot holding a dangling pointer. */
-          free(ek);
-          free(ev);
-        }
-      }
-      free(old_entries);
-    }
-    uint32_t h = (k->data && k->len > 0) ? pengu_hash_bytes(k->data, (size_t)k->len) : 0;
-    int idx = (int)(h % (uint32_t)m->cap);
-    int first_tombstone = -1;
-    for (int i = 0; i < m->cap; ++i)
-    {
-      int cur = (idx + i) % m->cap;
-      if (!m->entries[cur].occupied)
-      {
-        if (m->entries[cur].tombstone)
-        {
-          if (first_tombstone == -1)
-            first_tombstone = cur;
-          continue;
-        }
-        int insert_idx = (first_tombstone != -1) ? first_tombstone : cur;
-        pengu_map_alloc_slot(m, insert_idx, k, v, h);
-        return;
-      }
-      else if (m->entries[cur].hash == h)
-      {
-        PenguString *existing = (PenguString *)m->entries[cur].key;
-        if (existing->len == k->len &&
-            (k->len == 0 ||
-             memcmp(existing->data, k->data, (size_t)k->len) == 0))
-        {
-          *(int32_t *)m->entries[cur].val = *v;
-          return;
-        }
-      }
-    }
-    if (first_tombstone != -1)
-    {
-      pengu_map_alloc_slot(m, first_tombstone, k, v, h);
-      return;
-    }
+      pengu_cc_map_pin_sizes(m, sizeof(PenguString), sizeof(int32_t));
+    pengu_cc_map_put(m, k, v);
   }
 
   /** @brief Retrieves pointer to int32 value for string key in hash map. */
   static inline int32_t *pengu_map_get_string_int(const PenguMap *m, const PenguString *k)
   {
-    if (!m || !k || !m->entries || m->cap == 0)
+    if (!m || !k || m->key_size != sizeof(PenguString))
       return NULL;
-    uint32_t h = (k->data && k->len > 0) ? pengu_hash_bytes(k->data, (size_t)k->len) : 0;
-    int idx = (int)(h % (uint32_t)m->cap);
-    for (int i = 0; i < m->cap; ++i)
-    {
-      int cur = (idx + i) % m->cap;
-      if (!m->entries[cur].occupied && !m->entries[cur].tombstone)
-        return NULL;
-      if (m->entries[cur].occupied && m->entries[cur].hash == h)
-      {
-        PenguString *existing = (PenguString *)m->entries[cur].key;
-        if (existing->len == k->len &&
-            (k->len == 0 ||
-             memcmp(existing->data, k->data, (size_t)k->len) == 0))
-        {
-          return (int32_t *)m->entries[cur].val;
-        }
-      }
-    }
-    return NULL;
+    return (int32_t *)pengu_cc_map_get(m, k);
   }
 
   /** @brief Checks if hash map contains string key. */
@@ -2811,39 +2485,9 @@ extern "C"
   /** @brief Removes string key entry from hash map. */
   static inline bool pengu_map_remove_string_int(PenguMap *m, const PenguString *k)
   {
-    if (!m || !k || !m->entries || m->cap == 0)
+    if (!m || !k || m->key_size != sizeof(PenguString))
       return false;
-    uint32_t h = (k->data && k->len > 0) ? pengu_hash_bytes(k->data, (size_t)k->len) : 0;
-    int idx = (int)(h % (uint32_t)m->cap);
-    for (int i = 0; i < m->cap; ++i)
-    {
-      int cur = (idx + i) % m->cap;
-      if (!m->entries[cur].occupied && !m->entries[cur].tombstone)
-        return false;
-      if (m->entries[cur].occupied && m->entries[cur].hash == h)
-      {
-        PenguString *existing = (PenguString *)m->entries[cur].key;
-        if (existing->len == k->len &&
-            (k->len == 0 ||
-             memcmp(existing->data, k->data, (size_t)k->len) == 0))
-        {
-          /* ABI v2: release only the slot's own key/value bytes.  The string
-           * buffer `existing->data` aliases caller-owned memory (see
-           * pengu_map_put_string_int); banishing it here freed somebody
-           * else's allocation. */
-          free(m->entries[cur].key);
-          free(m->entries[cur].val);
-          m->entries[cur].key = NULL;
-          m->entries[cur].val = NULL;
-          m->entries[cur].occupied = false;
-          m->entries[cur].tombstone = true;
-          m->entries[cur].hash = 0;
-          m->len--;
-          return true;
-        }
-      }
-    }
-    return false;
+    return pengu_cc_map_remove(m, k);
   }
 
 /* =========================================================================
@@ -2876,17 +2520,7 @@ extern "C"
    */
   static inline PenguList pengu_map_keys(const PenguMap *m)
   {
-    if (!m || m->key_size <= 0 || !m->entries || m->cap == 0)
-      return pengu_list_new(m && m->key_size > 0 ? m->key_size : sizeof(void *), 0);
-    PenguList list = pengu_list_new(m->key_size, m->len > 0 ? (size_t)m->len : 8);
-    for (int i = 0; i < m->cap; ++i)
-    {
-      if (m->entries[i].occupied && m->entries[i].key)
-      {
-        pengu_list_push(&list, m->entries[i].key);
-      }
-    }
-    return list;
+    return pengu_cc_map_keys(m);
   }
 
   /**
@@ -2913,17 +2547,7 @@ extern "C"
    */
   static inline PenguList pengu_map_values(const PenguMap *m)
   {
-    if (!m || m->val_size <= 0 || !m->entries || m->cap == 0)
-      return pengu_list_new(m && m->val_size > 0 ? m->val_size : sizeof(void *), 0);
-    PenguList list = pengu_list_new(m->val_size, m->len > 0 ? (size_t)m->len : 8);
-    for (int i = 0; i < m->cap; ++i)
-    {
-      if (m->entries[i].occupied && m->entries[i].val)
-      {
-        pengu_list_push(&list, m->entries[i].val);
-      }
-    }
-    return list;
+    return pengu_cc_map_values(m);
   }
   /**
    * @brief Initializes runtime command-line argument tracking.
@@ -4309,7 +3933,7 @@ extern "C"
     if (!map)
       return pengu_maybe_none();
     *map = pengu_map_new(sizeof(PenguString), sizeof(PenguString));
-    if (!map->entries)
+    if (!map->state)
     {
       free(map);
       return pengu_maybe_none();

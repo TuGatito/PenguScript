@@ -2,6 +2,35 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.12.0] — 2026-10-28 — Contenedores sobre Convenient Containers (ABI v3)
+
+- `list of T` usa CC `vec`; `map of K to V` usa CC `map`. `PenguList`/`PenguMap`
+  conservan tamaño/alineación, pero `PenguMap.state` es ahora un estado opaco y
+  la ABI sube a **v3**.
+- **CC v1.4.3** (MIT, Jackson L. Allan) vendorizado en `std_c/CC-main`; el
+  adaptador vive en `runtime/pengu_containers.c` y `runtime/pengu_cc_extra.c`
+  con `CC_NO_SHORT_NAMES`, fuera de los bundles generados.
+- Nuevo módulo `std.ordinal` con tipos concretos respaldados por CC:
+  `LinkedListInt`/`LinkedListString` (`list`), `UnorderedSetInt`/`String`
+  (`set`), `OrderedSetInt`/`String` (`oset`) y `OrderedMapIntInt`/`StringInt`
+  (`omap`), con métodos de edición e iteración.
+- `std.coven` conserva su API y `items` map-backed; ahora el mapa subyacente es
+  CC.
+- Arreglado `for k in map`: antes compilaba pero no iteraba. Usa un iterador de
+  runtime sin asignación temporal.
+- Arreglado el registro de métodos de `bind`/conceptos: `calling x.cmp` vuelve a
+  emitir código C válido.
+- Arreglada la lectura anidada de `.len` (`self->items.len` generaba
+  `(self).len`) y el acceso `self` puntero en métodos de contenedor.
+- Los parámetros/locales con nombres de palabra reservada de C (`default`,
+  `case`, …) se emiten con sufijo `_`.
+- `pengu_map_to_entries`, `pengu_list_from_data` y los bridges de `std/json`
+  actualizados al backend CC.
+- Extensión de VS Code actualizada: resaltado y snippets para `std.ordinal`,
+  `LinkedList*`, `UnorderedSet*`, `OrderedSet*` y `OrderedMap*`; versión 3.0.4.
+- Docs/README/THIRD_PARTY/SECURITY y licencias de SDS y CC empaquetadas.
+- `psc 0.12.0 (F11)`.
+
 ## [0.11.2] — 2026-10-28 — Backend de `string` sobre SDS y bootstrap nativo
 
 - El tipo `string` usa **SDS (Simple Dynamic Strings)** vendorizado en

@@ -9,7 +9,7 @@
 #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-_Static_assert(PENGU_ABI_VERSION == 2, "pengu_runtime.h ABI mismatch: bundle expects v2");
+_Static_assert(PENGU_ABI_VERSION == 3, "pengu_runtime.h ABI mismatch: bundle expects v3");
 #endif
 extern int pengu_abi_version(void);
 #if defined(__GNUC__) || defined(__clang__)

@@ -683,8 +683,9 @@ antiquus _json_pop_arr with v as ref to JsonValue, out as ref to JsonValue into 
     r"""
 if (!v || v->tag != JsonValue_Arr || v->data.Arr.items.len <= 0) return false;
 PenguList *l = &v->data.Arr.items;
-l->len--;
-*out = ((JsonValue *)l->data)[l->len];
+int last = l->len - 1;
+*out = ((JsonValue *)l->data)[last];
+pengu_list_set_len(l, last);
 return true;
 """
 
@@ -752,7 +753,7 @@ for (int i = 0; i < l->len; i++) {
         if (i + 1 < l->len) {
             memmove(&es[i], &es[i + 1], (size_t)(l->len - i - 1) * sizeof(JsonEntry));
         }
-        l->len--;
+        pengu_list_set_len(l, l->len - 1);
         return true;
     }
 }

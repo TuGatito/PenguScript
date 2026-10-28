@@ -48,7 +48,7 @@ You can customize the extension via VS Code Settings (`Ctrl+,` / `Cmd+,`) under 
 2. In VS Code:
    - Open the Extensions view (`Ctrl+Shift+X`).
    - Click the `...` menu (Views and More Actions) in the top-right.
-   - Select **Install from VSIX...** and pick `pengus-0.6.0.vsix`.
+   - Select **Install from VSIX...** and pick `pengus-3.0.4.vsix`.
 
 ### Method B: Development / Local Testing
 1. Clone the repository and install npm dependencies:
@@ -60,6 +60,19 @@ You can customize the extension via VS Code Settings (`Ctrl+,` / `Cmd+,`) under 
 2. Press `F5` in VS Code to launch the Extension Development Host window.
 
 ---
+
+## Convenient Containers (0.12+)
+
+The grammar and snippets know the CC-backed types added in PenguScript 0.12:
+
+- `LinkedListInt` / `LinkedListString` (CC `list`)
+- `UnorderedSetInt` / `UnorderedSetString` (CC `set`)
+- `OrderedSetInt` / `OrderedSetString` (CC `oset`)
+- `OrderedMapIntInt` / `OrderedMapStringInt` (CC `omap`)
+
+Import `std.ordinal` and use the `linked_list`, `unordered_set`, `ordered_set`,
+`ordered_map` or `cc_import` snippets. The existing `list`, `map`, `Set` and
+`SetString` APIs are unchanged; they are now backed by CC `vec`/`map`.
 
 ## v0.15.0 Feature Support & Enhancements
 

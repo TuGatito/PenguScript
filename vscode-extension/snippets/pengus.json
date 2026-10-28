@@ -987,5 +987,53 @@
       "    ${0}"
     ],
     "description": "Code block conditionally compiled only under the debug profile"
+  },
+  "Import Convenient Containers types": {
+    "prefix": "cc_import",
+    "body": [
+      "import std.ordinal",
+      "${0}"
+    ],
+    "description": "Import the CC-backed LinkedList/set/ordered map types"
+  },
+  "Linked list (int)": {
+    "prefix": "linked_list",
+    "body": [
+      "var ${1:items} as LinkedListInt is calling new_linked_list_int",
+      "calling ${1:items}.push_back with ${2:1}",
+      "defer calling ${1:items}.release",
+      "${0}"
+    ],
+    "description": "Create a CC-backed linked list of int"
+  },
+  "Unordered set (int)": {
+    "prefix": "unordered_set",
+    "body": [
+      "var ${1:seen} as UnorderedSetInt is calling new_unordered_set_int",
+      "calling ${1:seen}.add with ${2:1}",
+      "defer calling ${1:seen}.release",
+      "${0}"
+    ],
+    "description": "Create a CC-backed unordered set of int"
+  },
+  "Ordered set (int)": {
+    "prefix": "ordered_set",
+    "body": [
+      "var ${1:keys} as OrderedSetInt is calling new_ordered_set_int",
+      "calling ${1:keys}.add with ${2:1}",
+      "defer calling ${1:keys}.release",
+      "${0}"
+    ],
+    "description": "Create a CC-backed ordered set of int"
+  },
+  "Ordered map (string to int)": {
+    "prefix": "ordered_map",
+    "body": [
+      "var ${1:index} as OrderedMapStringInt is calling new_ordered_map_string_int",
+      "calling ${1:index}.put with ${2:\"key\"}, ${3:1}",
+      "defer calling ${1:index}.release",
+      "${0}"
+    ],
+    "description": "Create a CC-backed ordered map of string to int"
   }
 }

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.11.2-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.12.0-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey">
@@ -34,6 +34,14 @@ This repository contains **only the native compiler** and its standard library.
 The legacy Python compiler lives outside `main` as a historical reference; it is
 not required to build, test, or run anything here.
 
+## Runtime containers (0.12+)
+
+`list of T` is backed by **Convenient Containers `vec`** and `map of K to V` by
+**CC `map`**; the legacy `Set`/`SetString` APIs stay map-backed. The additive
+`std.ordinal` module exposes CC-backed `LinkedList*`, `UnorderedSet*`,
+`OrderedSet*` and `OrderedMap*` concrete types for `int`/`string` keys and
+values. See [LANGUAGE.md](LANGUAGE.md) and [std/ordinal.pengu](std/ordinal.pengu).
+
 ## Install
 
 Download a release for your platform:
@@ -46,8 +54,8 @@ pengu-<version>-<os>-<arch>-fhs.tar.gz
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.11.2-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.11.2-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.12.0-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.12.0-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 
@@ -164,6 +172,11 @@ vendored in [`std_c/sds/`](std_c/sds/) under the BSD-2-Clause license. SDS is
 compiled into `libpengu_runtime.a`, so projects keep linking only
 `-lpengu_runtime`; `sds.h` is installed next to `pengu_runtime.h`.
 
+Container storage is backed by **Convenient Containers (CC)** by Jackson L.
+Allan, vendored in [`std_c/CC-main/`](std_c/CC-main/) under the MIT license.
+`libpengu_runtime.a` contains the CC adapter (`vec` for `list`, `map` for
+`map`, and `set`/`oset`/`omap`/`list` for the new `std.ordinal` types).
+
 ## Credits
 
 PenguScript's string backend is built on **SDS — Simple Dynamic Strings**,
@@ -176,6 +189,15 @@ license; see [`std_c/sds/LICENSE`](std_c/sds/LICENSE) and
 **Thank you**, Salvatore, Oran and the Redis community, for building and
 sharing such a small, battle-tested library. Your work is what makes
 PenguScript's strings safer and faster.
+
+PenguScript's list/map/set storage is built on **Convenient Containers (CC)**,
+created by [Jackson L. Allan](https://github.com/JacksonAllan), vendored in
+[`std_c/CC-main/`](std_c/CC-main/) under the MIT license. See
+[`std_c/CC-main/LICENSE`](std_c/CC-main/LICENSE) and
+[THIRD_PARTY.md](THIRD_PARTY.md).
+
+**Thank you**, Jackson, for designing a generic container library that is both
+ergonomic and fast, and for making it available under a permissive license.
 
 ## Status
 
