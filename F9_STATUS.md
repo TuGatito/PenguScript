@@ -42,7 +42,7 @@ bootstrap: punto fijo OK
 - `vendor` copia el árbol completo (incluye `build/` si existe).
 - `build.pengu` se ejecuta sólo para dependencias directas; las transitivas no.
 - Los tests cubren Linux; Windows/macOS antes de F11.
-- **LeakSanitizer** todavía reporta allocaciones retenidas en el comando `add`
+- **LeakSanitizer** todavía reporta ~5 KB en 146 allocaciones al hacer `add`
   (no hay use-after-free ni doble free). Es deuda de ownership pendiente; no se
   declara “cero leaks”.
 
