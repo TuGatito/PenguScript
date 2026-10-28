@@ -2,7 +2,7 @@
  
 All notable changes to PenguScript will be documented in this file.
 
-## [Unreleased] — Backend de `string` sobre SDS
+## [0.11.2] — 2026-10-28 — Backend de `string` sobre SDS y bootstrap nativo
 
 - El tipo `string` usa **SDS (Simple Dynamic Strings)** vendorizado en
   `std_c/sds` (BSD-2-Clause) como almacenamiento de toda cadena con posesión.
@@ -29,6 +29,11 @@ All notable changes to PenguScript will be documented in this file.
 - Documentación: `README` (créditos y agradecimiento a SDS/Redis),
   `THIRD_PARTY.md`, `LANGUAGE*.md`, `SECURITY.md`, `docs/psc/OWNERSHIP.md` y
   `tools/release.sh` (empaqueta el aviso de terceros).
+- CI/release construyen un bootstrap nativo `psc` desde
+  `bootstrap/psc_stage0.c` con `tools/build_bootstrap.sh` (runtime C incluido,
+  sin Python); ya no esperan al compilador legacy `pengu` del release.
+- `tools/gen_stage0.sh` regenera y verifica (`--check`) el bundle stage0.
+- `psc 0.11.2 (F11)`.
 
 ## [0.11.1] — 2026-10-28 — Bootstrap de CI reparado
 

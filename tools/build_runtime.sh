@@ -17,6 +17,8 @@ cp "$ROOT/pengu_runtime.h" "$INC/pengu_runtime.h"
 cp "$ROOT/std_c/sds/sds.h" "$INC/sds.h"
 
 FLAGS=(-O2 -I"$ROOT" -I"$INC" -I"$ROOT/std_c/sds" -ffunction-sections -fdata-sections)
+WERROR=(-Werror)
+[ "${PENGU_NO_WERROR:-0}" = "1" ] && WERROR=()
 OBJS=()
 for pair in "pengu_runtime.o:0" "pengu_runtime_filum.o:1"; do
   obj="${pair%%:*}"
@@ -28,7 +30,7 @@ for pair in "pengu_runtime.o:0" "pengu_runtime_filum.o:1"; do
 done
 # SDS is compiled into libpengu_runtime.a on purpose: every existing project
 # already links -lpengu_runtime, so no manifest or link-order change is needed.
-"$CC" -O2 -std=c99 -Wall -Wextra -Werror -I"$ROOT/std_c/sds" \
+"$CC" -O2 -std=c99 -Wall -Wextra "${WERROR[@]}" -I"$ROOT/std_c/sds" \
   -ffunction-sections -fdata-sections \
   -c "$ROOT/std_c/sds/sds.c" -o "$SOBJ/sds.o"
 OBJS+=("$SOBJ/sds.o")
@@ -48,7 +50,7 @@ for src in "$ROOT"/std_c/*.c; do
   esac
   extra=()
   [ "$name" = "miniz" ] && extra=(-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES -DMINIZ_NO_ARCHIVE_APIS -DMINIZ_NO_STDIO -DMINIZ_NO_TIME -Wno-type-limits)
-  "$CC" -O2 -std=c99 -Wall -Wextra -Werror -I"$ROOT/std_c" -I"$ROOT" -I"$INC" -I"$ROOT/std_c/sds" \
+  "$CC" -O2 -std=c99 -Wall -Wextra "${WERROR[@]}" -I"$ROOT/std_c" -I"$ROOT" -I"$INC" -I"$ROOT/std_c/sds" \
     -ffunction-sections -fdata-sections "${extra[@]}" -c "$src" -o "$SOBJ/$name.o"
   rm -f "$LIB/lib$name.a"
   "$AR" rcs "$LIB/lib$name.a" "$SOBJ/$name.o"

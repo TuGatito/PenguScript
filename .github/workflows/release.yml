@@ -16,26 +16,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Bootstrap compiler
-        id: bootstrap
-        uses: ./.github/actions/setup-psc-bootstrap
+      - name: Build bootstrap compiler
+        shell: bash
+        # The latest published release still ships the legacy `pengu` CLI,
+        # which cannot compile this tree in reasonable time. The checked-in
+        # stage0 bundle gives a native `psc` with only a C compiler.
+        run: bash ./tools/build_bootstrap.sh
 
       - name: Build compiler
         shell: bash
         run: |
           set -euo pipefail
-          case "$PENGU_COMPILER_NAME" in
-            psc|psc.exe)
-              "$PENGU_COMPILER" build .
-              ;;
-            *)
-              # Legacy releases ship `pengu`, which resolves the project from
-              # the working directory instead of taking a path argument.
-              "$PENGU_COMPILER" build
-              ;;
-          esac
+          ./build/psc-stage0 build .
           ./build/psc version
-          ./tools/build_runtime.sh
 
       - name: Package portable/FHS
         shell: bash

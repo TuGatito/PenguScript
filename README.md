@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.11.1-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.11.2-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey">
@@ -46,8 +46,8 @@ pengu-<version>-<os>-<arch>-fhs.tar.gz
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.11.1-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.11.1-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.11.2-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.11.2-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 
@@ -56,9 +56,35 @@ and the C bindings. No Python installation is required.
 
 ## Build from source
 
-Building the compiler needs a **bootstrap compiler** and a C compiler. The CI
-helper (`.github/actions/setup-psc-bootstrap`) resolves the newest published
-release automatically. Releases use one of two layouts:
+Building the compiler needs a **native bootstrap `psc`** and a C compiler. The
+repository ships a generated stage0 bundle, so no release download and no
+Python are required:
+
+```bash
+./tools/build_bootstrap.sh      # builds the C runtime + build/psc-stage0
+./build/psc-stage0 build .
+./build/psc version
+```
+
+`tools/gen_stage0.sh` regenerates `bootstrap/psc_stage0.c` after compiler
+changes; `tools/gen_stage0.sh --check` verifies that the committed bundle is up
+to date.
+
+Alternatively, use a native portable from the latest release:
+
+```bash
+# Linux example: use pengu-macos.tar.gz or pengu-windows-x64.zip elsewhere.
+curl -LO https://github.com/TuGatito/PenguScript/releases/latest/download/pengu-linux-x64.tar.gz
+mkdir -p .bootstrap
+tar -xzf pengu-linux-x64.tar.gz -C .bootstrap
+export PENGU_HOME="$PWD/.bootstrap"
+export PATH="$PENGU_HOME/bin:$PENGU_HOME:$PATH"
+
+psc build .
+./build/psc version
+```
+
+Releases use one of two layouts:
 
 ```text
 # native packages
@@ -70,26 +96,7 @@ pengu-macos.tar.gz
 pengu-windows-x64.zip
 ```
 
-For a local bootstrap (Linux shown):
-
-```bash
-curl -LO https://github.com/TuGatito/PenguScript/releases/latest/download/pengu-linux-x64.tar.gz
-mkdir -p .bootstrap
-tar -xzf pengu-linux-x64.tar.gz -C .bootstrap
-export PENGU_HOME="$PWD/.bootstrap"
-export PATH="$PENGU_HOME/bin:$PENGU_HOME:$PATH"
-
-# Runtime + std_c archives
-./tools/build_runtime.sh
-
-# Compile this repository with the bootstrap compiler. Native releases expose
-# `psc`; flat releases expose `pengu`.
-psc build .        # legacy: pengu build
-./build/psc version
-```
-
-On macOS download `pengu-macos.tar.gz`; on Windows download
-`pengu-windows-x64.zip` and use `tools/build_runtime.ps1`.
+On Windows use `tools/build_runtime.ps1` when building the runtime manually.
 
 The compiler is self-hosted: `bootstrap psc` builds `psc`, and a fixed point is
 checked by rebuilding with the just-built compiler.
