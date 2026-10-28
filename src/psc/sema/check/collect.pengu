@@ -440,7 +440,7 @@ weave new_nominal with s as ref to state.SemaState, kind as tk.SemaNominalKind, 
     var flags as int is 0
     if public:
         set flags is flags | types.NIF_PUBLIC
-    var info as types.SemaNominalInfo is with kind is kind, base_name is name, c_name is cname, module is s->module->id, flags is flags, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, attrs_node is -1
+    var info as types.SemaNominalInfo is with kind is kind, base_name is name, c_name is cname, module is s->module->id, flags is flags, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, template_info is -1, attrs_node is -1
     return calling types.named_type with s->types, info
 
 ## Recorta espacios de una línea.
@@ -584,13 +584,27 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
     set dinfo.derived_first is dfirst
     set dinfo.derived_count is dcount
     var tpc as int is 0
+    var tpfirst as int is s->types->tparams.len
     var ti as int is 0
     while ti < n:
         var tc as int is calling astutil.node_child with s->ast, node, ti
         if tc >= 0 and (calling astutil.kind_of with s->ast, tc) == pskind.NodeKind.NdShardParams:
-            set tpc is calling astutil.child_count with s->ast, tc
+            # `child_count` incluye el marcador ausente `_`; registra sólo los
+            # tokens de parámetro reales (`T`, `A`, `B`, ...).
+            var sci as int is 0
+            var scn as int is calling astutil.child_count with s->ast, tc
+            while sci < scn:
+                var tptok as int is calling astutil.token_child with s->ast, tc, sci
+                if tptok >= 0:
+                    var tptxt as string is calling astutil.token_text with s->src, s->lex, tptok
+                    var tpnid as int is calling npool.intern with s->names, tptxt
+                    banish tptxt
+                    var tpi as types.SemaTypeParamInfo is with name is tpnid, bounds_first is 0, bounds_count is 0, flags is 0
+                    var ignored_tp as int is calling types.add_tparam with s->types, tpi
+                    set tpc is tpc + 1
+                set sci is sci + 1
         set ti is ti + 1
-    set dinfo.tparams_first is 0
+    set dinfo.tparams_first is tpfirst
     set dinfo.tparams_count is tpc
     set s->types->nominal_infos at (info_idx) is dinfo
     var skind as sym.SemaSymbolKind is sym.SemaSymbolKind.SkRune
@@ -694,7 +708,7 @@ weave collect_alias with s as ref to state.SemaState, node as int, is_seal as bo
     var nk as tk.SemaNominalKind is tk.SemaNominalKind.NkAlias
     if is_seal:
         set nk is tk.SemaNominalKind.NkSeal
-    var info as types.SemaNominalInfo is with kind is nk, base_name is name, c_name is name, module is s->module->id, flags is types.NIF_PUBLIC, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, attrs_node is -1
+    var info as types.SemaNominalInfo is with kind is nk, base_name is name, c_name is name, module is s->module->id, flags is types.NIF_PUBLIC, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, template_info is -1, attrs_node is -1
     var ty as int is calling types.named_with_target with s->types, info, target
     var sk as sym.SemaSymbolKind is sym.SemaSymbolKind.SkAlias
     if is_seal:

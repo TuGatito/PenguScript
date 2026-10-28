@@ -52,6 +52,8 @@ rune SemaNominalInfo:
     derived_first as int
     ## Número de derivaciones.
     derived_count as int
+    ## Índice de la info de la plantilla (`-1` si no es una instancia).
+    template_info as int
     ## Nodo de atributos del AST (`-1` si no).
     attrs_node as int
 

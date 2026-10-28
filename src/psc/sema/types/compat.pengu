@@ -461,6 +461,17 @@ weave nominal_compatible with t as ref to types.SemaTypeTable, ta as tk.SemaType
         return false
     var ia as types.SemaNominalInfo is (t->nominal_infos at ta.a)
     var ib as types.SemaNominalInfo is (t->nominal_infos at tb.a)
+    # Plantilla e instancia (o dos instancias de la misma plantilla) son
+    # compatibles en contextos genéricos. La comprobación estricta de
+    # argumentos vive en la especialización de F4.
+    var atpl as int is ta.a
+    if ia.template_info >= 0:
+        set atpl is ia.template_info
+    var btpl as int is tb.a
+    if ib.template_info >= 0:
+        set btpl is ib.template_info
+    if atpl == btpl:
+        return true
     var an as string is calling pool_text with t, ia.base_name
     var bn as string is calling pool_text with t, ib.base_name
     if ta.a != tb.a and (an != bn or ia.module != ib.module):

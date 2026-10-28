@@ -11,6 +11,85 @@ import psc.codegen.names as names
 
 insignia psc_codegen_ctype_
 
+## `true` si un tipo contiene un `TkTypeParam`.
+##
+## ## Memoria
+## O(profundidad).
+weave type_has_param with t as ref to types.SemaTypeTable, id as int into bool:
+    if id <= 0:
+        return false
+    var ty as tk.SemaType is calling types.at with t, id
+    if ty.kind == tk.SemaTypeKind.TkTypeParam:
+        return true
+    if ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkFrozen or ty.kind == tk.SemaTypeKind.TkArray or ty.kind == tk.SemaTypeKind.TkList or ty.kind == tk.SemaTypeKind.TkSlice or ty.kind == tk.SemaTypeKind.TkMany or ty.kind == tk.SemaTypeKind.TkMaybe or ty.kind == tk.SemaTypeKind.TkRange:
+        return calling type_has_param with t, ty.a
+    if ty.kind == tk.SemaTypeKind.TkMap or ty.kind == tk.SemaTypeKind.TkResult:
+        return (calling type_has_param with t, ty.a) or (calling type_has_param with t, ty.b)
+    if ty.kind == tk.SemaTypeKind.TkTuple:
+        var i as int is 0
+        while i < ty.count:
+            if calling type_has_param with t, (t->type_children at (ty.first + i)):
+                return true
+            set i is i + 1
+    return false
+
+## `true` si la instancia no tiene campos dependientes de T.
+##
+## Los contenedores `LinkedList of T`, `UnorderedSet of T`, etc. solo guardan
+## un handle; pueden compartir el struct C de la plantilla aunque el `TypeId`
+## semántico sea distinto. Esto evita generar un struct por `T` sin perder la
+## comprobación de tipos.
+##
+## ## Memoria
+## O(campos).
+weave nominal_erased with t as ref to types.SemaTypeTable, info as types.SemaNominalInfo into bool:
+    var check as types.SemaNominalInfo is info
+    if info.template_info >= 0 and info.template_info < t->nominal_infos.len:
+        set check is (t->nominal_infos at info.template_info)
+    var i as int is 0
+    while i < check.fields_count:
+        var f as types.SemaField is (t->fields at (check.fields_first + i))
+        if calling type_has_param with t, f.type:
+            return false
+        set i is i + 1
+    return true
+
+## `TypeId` de la plantilla de una instancia.
+##
+## ## Memoria
+## O(tipos); solo se usa para nombres C de instancias borradas.
+weave template_type_of with t as ref to types.SemaTypeTable, info as types.SemaNominalInfo into int:
+    var i as int is 0
+    while i < t->types.len:
+        var ty as tk.SemaType is (t->types at i)
+        if ty.a == info.template_info and ty.count == 0:
+            if ty.kind == tk.SemaTypeKind.TkRune or ty.kind == tk.SemaTypeKind.TkEcho or ty.kind == tk.SemaTypeKind.TkOmen or ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal or ty.kind == tk.SemaTypeKind.TkConcept:
+                return i
+        set i is i + 1
+    return -1
+
+## Código de `kind` para los descriptores de contenedores CC.
+##
+## 0 = entero/POD numérico, 1 = string, 2 = float, 9 = bytes.
+##
+## ## Memoria
+## O(1).
+weave type_kind_code with ns as ref to names.CgNames, id as int into int:
+    var t as tk.SemaType is calling types.at with ns->types, id
+    if t.kind == tk.SemaTypeKind.TkTypeParam and calling ns->subst.has with t.name:
+        return calling type_kind_code with ns, (calling ns->subst.get with t.name)
+    if t.kind == tk.SemaTypeKind.TkBase:
+        var n as string is calling base_c_type with ns, t.name
+        defer banish n
+        if n == "PenguString":
+            return 1
+        if n == "float" or n == "double":
+            return 2
+        return 0
+    if t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+        return calling type_kind_code with ns, t.a
+    return 9
+
 ## Tipo C de un `TypeId`.
 ##
 ## Devuelve un string owned; el llamador lo libera con `banish`.
@@ -67,6 +146,11 @@ weave c_type with ns as ref to names.CgNames, id as int into string:
             return "PenguString"
         return calling names.type_name with ns, id
     if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho or t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+        var info as types.SemaNominalInfo is (ns->types->nominal_infos at t.a)
+        if info.template_info >= 0 and calling nominal_erased with ns->types, info:
+            var tt as int is calling template_type_of with ns->types, info
+            if tt > 0:
+                return calling names.type_name with ns, tt
         return calling names.type_name with ns, id
     if t.kind == tk.SemaTypeKind.TkConcept:
         return "void*"

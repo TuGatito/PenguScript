@@ -13,6 +13,7 @@ import psc.sema.symbols.symbol as sym
 import psc.sema.symbols.table as symbols
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
+import psc.sema.types.compat as scompat
 import psc.sema.annotate as ann
 
 import psc.codegen.context as context
@@ -213,6 +214,210 @@ weave expr_last_token with ast as ref to psast.PsAst, node as int into int:
         set i is i - 1
     return -1
 
+## Añade al catálogo las `CgType` de las instancias nominales.
+##
+## La plantilla ya está en `catalog.by_type` (se registró aunque sea genérica).
+## Cada instancia usa el nodo/módulo de la plantilla, pero su `type_id` y sus
+## campos son los de la `SemaNominalInfo` instanciada.
+##
+## ## Memoria
+## Añade tipos al catálogo; no posee strings.
+weave collect_type_instances with c as ref to context.CgContext into void:
+    var i as int is 0
+    while i < c->program->symbols.instances.len:
+        var inst as sym.SemaInstance is (c->program->symbols.instances at i)
+        if inst.type > 0 and not (calling c->catalog.by_type.has with inst.type):
+            var ity as tk.SemaType is calling types.at with (sigil of c->program->types), inst.type
+            var iinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at ity.a)
+            var check as types.SemaNominalInfo is iinfo
+            if iinfo.template_info >= 0 and iinfo.template_info < c->program->types.nominal_infos.len:
+                set check is (c->program->types.nominal_infos at iinfo.template_info)
+            var erased as bool is true
+            var efi as int is 0
+            while efi < check.fields_count:
+                var ef as types.SemaField is (c->program->types.fields at (check.fields_first + efi))
+                if calling has_type_param with c->program, ef.type:
+                    set erased is false
+                set efi is efi + 1
+            if erased:
+                set i is i + 1
+                continue
+            var template_idx as int is -1
+            if calling c->catalog.by_type.has with inst.template_type:
+                set template_idx is calling c->catalog.by_type.get with inst.template_type
+            if template_idx >= 0 and template_idx < c->catalog.types.len:
+                var base as catalog.CgType is (c->catalog.types at template_idx)
+                var ct as catalog.CgType is with type_id is inst.type, node is base.node, module is base.module, is_struct is base.is_struct, is_omen is base.is_omen
+                var idx as int is c->catalog.types.len
+                calling c->catalog.types.push with ct
+                calling c->catalog.by_type.put with inst.type, idx
+        set i is i + 1
+
+## Argumentos de tipo visibles en un receptor (`list of int`, `map of K to V`).
+##
+## ## Memoria
+## Devuelve una lista owned.
+weave type_args_of with c as ref to context.CgContext, id as int into list of int:
+    var out as list of int is list of int
+    if id <= 0:
+        return out
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), id
+    while t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen:
+        if t.a <= 0:
+            return out
+        set id is t.a
+        set t is calling types.at with (sigil of c->program->types), id
+    if t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkMaybe or t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkMany or t.kind == tk.SemaTypeKind.TkRange or t.kind == tk.SemaTypeKind.TkArray:
+        calling out.push with t.a
+    else if t.kind == tk.SemaTypeKind.TkMap or t.kind == tk.SemaTypeKind.TkResult:
+        calling out.push with t.a
+        calling out.push with t.b
+    else if t.kind == tk.SemaTypeKind.TkTuple:
+        var i as int is 0
+        while i < t.count:
+            calling out.push with (c->program->types.type_children at (t.first + i))
+            set i is i + 1
+    return out
+
+## Especializa un método genérico para un receptor concreto.
+##
+## ## Memoria
+## Puede añadir una `CgFunction`; devuelve el índice.
+weave ensure_method_spec with c as ref to context.CgContext, base_idx as int, recv_id as int into int:
+    if base_idx < 0:
+        return base_idx
+    var bf as catalog.CgFunction is (c->catalog.functions at base_idx)
+    if not bf.is_generic or bf.tparams.len == 0:
+        return base_idx
+    var args as list of int is calling type_args_of with c, recv_id
+    if args.len != bf.tparams.len:
+        banish args
+        return base_idx
+    var si as int is calling add_method_spec with c, base_idx, recv_id, args
+    banish args
+    if si < 0:
+        return base_idx
+    return si
+
+## Añade la especialización de un método genérico para un receptor concreto.
+##
+## ## Memoria
+## Añade una `CgFunction`; no posee strings.
+weave add_method_spec with c as ref to context.CgContext, base_idx as int, recv_type as int, args as list of int into int:
+    var base as catalog.CgFunction is (c->catalog.functions at base_idx)
+    var ex as int is calling find_spec with c, base.symbol, args
+    if ex >= 0:
+        var ef as catalog.CgFunction is (c->catalog.functions at ex)
+        if ef.recv_type == recv_type:
+            return ex
+    # Respeta los bounds (`where T: Num`): no se genera `list_sum` para string
+    # o para un rune que no implemente el concepto.
+    if base.symbol >= 0:
+        var bsv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), base.symbol
+        var bi as int is 0
+        while bi < bsv.bounds_count:
+            var concept as int is (c->program->types.bounds at (bsv.bounds_first + bi))
+            var ai as int is bi
+            if ai >= args.len:
+                set ai is args.len - 1
+            var ctxt as string is calling npool.text with (sigil of c->program->names), (calling types.at with (sigil of c->program->types), concept).name
+            var argt as tk.SemaType is calling types.at with (sigil of c->program->types), (args at ai)
+            if ctxt == "Num" or ctxt == "Integrum" or ctxt == "Real":
+                if argt.kind != tk.SemaTypeKind.TkBase:
+                    return -1
+            if ai < 0 or not (calling scompat.concept_satisfied with (sigil of c->program->types), (args at ai), concept):
+                return -1
+            set bi is bi + 1
+    var bname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), base.c_name)
+    var cname as string is "{bname}_inst{c->catalog.functions.len}"
+    banish bname
+    var cid as int is calling npool.intern with (sigil of c->program->names), cname
+    banish cname
+    var tps as list of int is list of int
+    var i as int is 0
+    while i < base.tparams.len:
+        calling tps.push with (base.tparams at i)
+        set i is i + 1
+    var sargs as list of int is list of int
+    set i is 0
+    while i < args.len:
+        calling sargs.push with (args at i)
+        set i is i + 1
+    var f as catalog.CgFunction is with name is base.name, symbol is base.symbol, node is base.node, module is base.module, is_declare is false, is_antiquus is false, is_method is true, recv_type is recv_type, self_value is base.self_value, is_ritual is base.is_ritual, tparams is tps, spec_args is sargs, is_generic is true, is_spec is true, is_main is false, c_name is cid
+    calling c->catalog.functions.push with f
+    return c->catalog.functions.len - 1
+
+## `true` si todos los args de una lista son concretos.
+##
+## ## Memoria
+## O(args).
+weave all_concrete with c as ref to context.CgContext, args as list of int into bool:
+    var i as int is 0
+    while i < args.len:
+        var t as tk.SemaType is calling types.at with (sigil of c->program->types), (args at i)
+        if t.kind == tk.SemaTypeKind.TkTypeParam:
+            return false
+        if t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen or t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkMaybe or t.kind == tk.SemaTypeKind.TkMap or t.kind == tk.SemaTypeKind.TkResult:
+            # Los args anidados con T no se especializan en esta pasada.
+            var nested as list of int is calling type_args_of with c, (args at i)
+            var ok as bool is calling all_concrete with c, nested
+            banish nested
+            if not ok:
+                return false
+        set i is i + 1
+    return true
+
+## Especializa los métodos de todas las instancias nominales.
+##
+## ## Memoria
+## Añade funciones al catálogo.
+weave collect_method_instances with c as ref to context.CgContext into void:
+    var base_count as int is c->catalog.functions.len
+    var ii as int is 0
+    while ii < c->program->symbols.instances.len:
+        var inst as sym.SemaInstance is (c->program->symbols.instances at ii)
+        var args as list of int is list of int
+        var ai as int is 0
+        while ai < inst.args_count:
+            calling args.push with (c->program->symbols.instance_args at (inst.args_first + ai))
+            set ai is ai + 1
+        var fi as int is 0
+        while fi < base_count:
+            var bf as catalog.CgFunction is (c->catalog.functions at fi)
+            if bf.is_method and bf.is_generic and not bf.is_spec and bf.recv_type == inst.template_type:
+                var ignored as int is calling add_method_spec with c, fi, inst.type, args
+            set fi is fi + 1
+        banish args
+        set ii is ii + 1
+    # Preespecializa métodos sencillos de list/map usados por la stdlib. Los
+    # métodos con callbacks se crean en `ensure_method_spec` cuando se usan.
+    var ti as int is 0
+    while ti < c->program->types.types.len:
+        var args2 as list of int is calling type_args_of with c, ti
+        var orig2 as tk.SemaType is calling types.at with (sigil of c->program->types), ti
+        if (orig2.kind == tk.SemaTypeKind.TkRef or orig2.kind == tk.SemaTypeKind.TkFrozen):
+            banish args2
+            set ti is ti + 1
+            continue
+        if args2.len > 0 and calling all_concrete with c, args2:
+            var rt2 as tk.SemaType is calling types.at with (sigil of c->program->types), ti
+            while rt2.kind == tk.SemaTypeKind.TkRef or rt2.kind == tk.SemaTypeKind.TkFrozen:
+                if rt2.a <= 0:
+                    break
+                set rt2 is calling types.at with (sigil of c->program->types), rt2.a
+            if rt2.kind == tk.SemaTypeKind.TkList or rt2.kind == tk.SemaTypeKind.TkMap:
+                var fi2 as int is 0
+                while fi2 < base_count:
+                    var bf2 as catalog.CgFunction is (c->catalog.functions at fi2)
+                    var bn2 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), bf2.name)
+                    if bf2.is_method and bf2.is_generic and not bf2.is_spec and bf2.recv_type > 0 and (bn2 == "sum" or bn2 == "at_or" or bn2 == "size"):
+                        var bt2 as tk.SemaType is calling types.at with (sigil of c->program->types), bf2.recv_type
+                        if bt2.kind == rt2.kind and bf2.tparams.len == args2.len:
+                            var ignored2 as int is calling add_method_spec with c, fi2, ti, args2
+                    banish bn2
+                    set fi2 is fi2 + 1
+        banish args2
+        set ti is ti + 1
 ## Especializa todas las llamadas genéricas del catálogo.
 ##
 ## ## Memoria

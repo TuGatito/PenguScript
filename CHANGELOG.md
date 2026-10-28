@@ -2,6 +2,25 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.13.0] — 2026-10-28 — Monomorfización real y contenedores genéricos
+
+- F3 materializa tipos genéricos (`Box of int`, `Box of string`, `Box of
+  Box of int`, runas/ecos/omens/alias/seals) con `SemaNominalInfo` propia,
+  cache por plantilla+args, campos/variantes sustituidos y soporte recursivo.
+- F4 emite una `CgType` por instancia y especializa métodos de runas
+  genéricas; los campos `T` ya no se convierten en `void*`.
+- `std.ordinal` usa runas genéricas: `LinkedList of T`,
+  `UnorderedSet of T`, `OrderedSet of T` y `OrderedMap of K and V`.
+  Sustituyen a las variantes concretas `*Int`/`*String`, que se eliminan.
+- `LinkedList of string`, `UnorderedSet of string` (igualdad por contenido),
+  `OrderedSet` y `OrderedMap` ordenados, y valores de usuario (runas) pasan por
+  CC `list`/`set`/`oset`/`omap` con `sizeof(T)` real y descriptores de tipo.
+- Corregidos receptores `self` en métodos de `map`/`list`, especialización de
+  métodos genéricos de list/map, firmas de callbacks y conteo de `shard`.
+- `tests/pengu/ordinal_cc.pengu` cubre int/string/runa, orden, deduplicación y
+  `maybe T`.
+- `psc 0.13.0 (F11)`.
+
 ## [0.12.0] — 2026-10-28 — Contenedores sobre Convenient Containers (ABI v3)
 
 - `list of T` usa CC `vec`; `map of K to V` usa CC `map`. `PenguList`/`PenguMap`
@@ -10,10 +29,9 @@ All notable changes to PenguScript will be documented in this file.
 - **CC v1.4.3** (MIT, Jackson L. Allan) vendorizado en `std_c/CC-main`; el
   adaptador vive en `runtime/pengu_containers.c` y `runtime/pengu_cc_extra.c`
   con `CC_NO_SHORT_NAMES`, fuera de los bundles generados.
-- Nuevo módulo `std.ordinal` con tipos concretos respaldados por CC:
-  `LinkedListInt`/`LinkedListString` (`list`), `UnorderedSetInt`/`String`
-  (`set`), `OrderedSetInt`/`String` (`oset`) y `OrderedMapIntInt`/`StringInt`
-  (`omap`), con métodos de edición e iteración.
+- Nuevo módulo `std.ordinal` con tipos respaldados por CC (en 0.13 pasan a
+  ser genéricos): `LinkedList`, `UnorderedSet`, `OrderedSet` y `OrderedMap`,
+  con métodos de edición e iteración.
 - `std.coven` conserva su API y `items` map-backed; ahora el mapa subyacente es
   CC.
 - Arreglado `for k in map`: antes compilaba pero no iteraba. Usa un iterador de

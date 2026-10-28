@@ -233,7 +233,7 @@
         },
         {
           "name": "support.class.container.pengus",
-          "match": "\\b(LinkedListInt|LinkedListString|UnorderedSetInt|UnorderedSetString|OrderedSetInt|OrderedSetString|OrderedMapIntInt|OrderedMapStringInt)\\b"
+          "match": "\\b(LinkedList|UnorderedSet|OrderedSet|OrderedMap)\\b"
         }
       ]
     },

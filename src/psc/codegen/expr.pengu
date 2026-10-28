@@ -534,7 +534,7 @@ weave emit_expr_as with c as ref to context.CgContext, node as int, expected as 
         var lt0 as tk.SemaType is calling types.at with (sigil of c->program->types), expected
         if lt0.kind == tk.SemaTypeKind.TkList:
             var et0 as string is calling ctype.c_type with (sigil of c->names), lt0.a
-            var ln0 as string is "pengu_list_new(sizeof({et0}), 4)"
+            var ln0 as string is "pengu_list_new(sizeof({et0}), 0)"
             banish et0
             return ln0
     if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdMapType:
@@ -854,6 +854,25 @@ weave result_ctor with c as ref to context.CgContext, node as int, ast as ref to
 ## Strings owned; no posee args.
 weave call_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
     var m as loader.SemaModule is (c->program->modules at c->current_module)
+    # Intrínseco `cc_type_kind of T`: constante de compilación para los
+    # descriptores de claves de std.ordinal. Se resuelve antes de cualquier
+    # búsqueda en el catálogo; `cc_type_kind` no se emite como función.
+    var ik_target as int is calling astutil.node_child with ast, node, 0
+    if ik_target >= 0:
+        var ik_last as int is calling last_token_deep with ast, ik_target
+        if ik_last >= 0:
+            var ik_txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ik_last
+            if ik_txt == "cc_type_kind":
+                var ik_args as int is calling astutil.node_child with ast, node, 1
+                if ik_args >= 0:
+                    var ik_first as int is calling astutil.node_child with ast, ik_args, 0
+                    if ik_first >= 0:
+                        var ik_tid as int is calling tast.from_ast with c, m, ik_first
+                        banish ik_txt
+                        if ik_tid > 0:
+                            var ik_code as int is calling ctype.type_kind_code with (sigil of c->names), ik_tid
+                            return "{ik_code}"
+                banish ik_txt
     var ctor_t as int is calling astutil.node_child with ast, node, 0
     var ctor_last as int is calling last_token_deep with ast, ctor_t
     if ctor_last >= 0:
@@ -999,6 +1018,21 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                 var qsid as int is calling symbols.lookup_in_scope with (sigil of c->program->symbols), m.scope, qnid
                 if qsid < 0:
                     set qsid is calling symbols.lookup_name with (sigil of c->program->symbols), qtxt
+                # `mod.fn` directo por nombre C (`tally_sum`) aunque `by_name`
+                # apunte a un método homónimo (`list_sum`).
+                var qexpected as string is "{qtxt}_{lname}"
+                var qei as int is 0
+                while qei < c->catalog.functions.len:
+                    var qef as catalog.CgFunction is (c->catalog.functions at qei)
+                    var qec as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), qef.c_name)
+                    if qec == qexpected and not qef.is_method and qef.name == nid:
+                        set fslot is qei
+                        banish cname
+                        set cname is qec
+                        set qec is ""
+                    banish qec
+                    set qei is qei + 1
+                banish qexpected
                 banish qtxt
                 if qsid >= 0:
                     var qsv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), qsid
@@ -1033,18 +1067,30 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     set rct_id is rct_ty.a
                     set rct_ty is calling types.at with (sigil of c->program->types), rct_id
                 var rctype as string is calling ctype.c_type with (sigil of c->names), rct_id
-                var mfull as string is "{rctype}_{lname}"
-                var sfi as int is 0
-                while sfi < c->catalog.functions.len:
-                    var sff as catalog.CgFunction is (c->catalog.functions at sfi)
-                    var sfn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sff.c_name)
-                    if sfn == mfull:
-                        set fslot is sfi
+                # Una instancia tiene prioridad sobre la plantilla `Box_get`.
+                var psi as int is 0
+                while psi < c->catalog.functions.len:
+                    var psf as catalog.CgFunction is (c->catalog.functions at psi)
+                    if psf.is_method and psf.is_spec and psf.recv_type == rct_id and psf.name == nid:
+                        set fslot is psi
                         banish cname
-                        set cname is sfn
-                        set sfn is ""
-                    banish sfn
-                    set sfi is sfi + 1
+                        set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), psf.c_name)
+                        set psi is c->catalog.functions.len
+                    else:
+                        set psi is psi + 1
+                var mfull as string is "{rctype}_{lname}"
+                if fslot < 0:
+                    var sfi as int is 0
+                    while sfi < c->catalog.functions.len:
+                        var sff as catalog.CgFunction is (c->catalog.functions at sfi)
+                        var sfn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sff.c_name)
+                        if sfn == mfull:
+                            set fslot is sfi
+                            banish cname
+                            set cname is sfn
+                            set sfn is ""
+                        banish sfn
+                        set sfi is sfi + 1
                 banish rctype
                 banish mfull
                 # Fallback for methods whose C name is not `<CType>_<method>`
@@ -1075,7 +1121,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             banish rtt0.text
             if fslot >= 0:
                 set last is -2
-            if last >= 0 and calling c->catalog.by_name.has with nid:
+            if last >= 0 and fslot < 0 and calling c->catalog.by_name.has with nid:
                 var fslot0 as int is calling c->catalog.by_name.get with nid
                 set fslot is fslot0
                 var f0 as catalog.CgFunction is (c->catalog.functions at fslot0)
@@ -1085,6 +1131,89 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                 var lcopy as string is calling npool.copy_string with lname
                 banish cname
                 set cname is lcopy
+    # Si `ann.symbol_of` resolvió el símbolo plantilla, `cname` ya es
+    # `Box_get`; una instancia debe usar su especialización `Box_get_instN`.
+    if cname != "":
+        var ot as int is calling astutil.node_child with ast, node, 0
+        if ot >= 0:
+            var ol as int is calling last_token_deep with ast, ot
+            if ol >= 0:
+                var otxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ol
+                var onid as int is calling npool.intern with (sigil of c->program->names), otxt
+                banish otxt
+                var ort as CgTarget is calling resolve_target with c, ot, ast, true
+                defer banish ort.text
+                var orid as int is ort.type_id
+                if orid > 0:
+                    var orty as tk.SemaType is calling types.at with (sigil of c->program->types), orid
+                    while orty.kind == tk.SemaTypeKind.TkRef or orty.kind == tk.SemaTypeKind.TkFrozen:
+                        if orty.a <= 0:
+                            break
+                        set orid is orty.a
+                        set orty is calling types.at with (sigil of c->program->types), orid
+                    var oi2 as int is 0
+                    while oi2 < c->catalog.functions.len:
+                        var of2 as catalog.CgFunction is (c->catalog.functions at oi2)
+                        if of2.is_method and of2.is_spec and of2.recv_type == orid and of2.name == onid:
+                            banish cname
+                            set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), of2.c_name)
+                            set fslot is oi2
+                            set oi2 is c->catalog.functions.len
+                        else:
+                            set oi2 is oi2 + 1
+    # Override final para `mod.fn` genéricas: `ann.symbol_of` puede haber
+    # resuelto un método homónimo (`sum` → `list_sum`) antes de llegar aquí.
+    var qo_t as int is calling astutil.node_child with ast, node, 0
+    if qo_t >= 0:
+        var qo_b as int is calling astutil.token_child with ast, qo_t, 0
+        var qo_l as int is calling last_token_deep with ast, qo_t
+        if qo_b >= 0 and qo_l >= 0:
+            var qo_bt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), qo_b
+            var qo_lt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), qo_l
+            var qo_exp as string is "{qo_bt}_{qo_lt}"
+            var qo_i as int is 0
+            while qo_i < c->catalog.functions.len:
+                var qo_f as catalog.CgFunction is (c->catalog.functions at qo_i)
+                var qo_c as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), qo_f.c_name)
+                if qo_c == qo_exp and not qo_f.is_method:
+                    set fslot is qo_i
+                    banish cname
+                    set cname is qo_c
+                    set qo_c is ""
+                banish qo_c
+                set qo_i is qo_i + 1
+            banish qo_exp
+            banish qo_bt
+            banish qo_lt
+            if fslot >= 0:
+                var qf0 as catalog.CgFunction is (c->catalog.functions at fslot)
+                if qf0.is_generic or qf0.tparams.len > 0:
+                    var qa0 as list of int is list of int
+                    var qargs as int is calling astutil.node_child with ast, node, 2
+                    if qargs >= 0:
+                        var qan as int is calling astutil.child_count with ast, qargs
+                        var qai as int is 0
+                        while qai < qan:
+                            var qarg as int is calling astutil.node_child with ast, qargs, qai
+                            if qarg >= 0:
+                                var qav as int is qarg
+                                if (calling astutil.kind_of with ast, qarg) == pskind.NodeKind.NdPosArg:
+                                    set qav is calling astutil.node_child with ast, qarg, 0
+                                if qav >= 0:
+                                    var qaty as int is calling node_type with c, qav
+                                    if qaty > 0:
+                                        calling qa0.push with qaty
+                            set qai is qai + 1
+                    var qinf as list of int is calling generics.infer_from_actual with c, fslot, qa0
+                    if qinf.len == qf0.tparams.len and qinf.len > 0:
+                        var qsi as int is calling generics.add_spec with c, fslot, qinf
+                        if qsi >= 0:
+                            set fslot is qsi
+                            var qsf as catalog.CgFunction is (c->catalog.functions at qsi)
+                            banish cname
+                            set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), qsf.c_name)
+                    banish qinf
+                    banish qa0
     var gargs as int is calling astutil.node_child with ast, node, 1
     if gargs >= 0 and (calling astutil.kind_of with ast, gargs) == pskind.NodeKind.NdGenericArgs:
         var tnode_g as int is calling astutil.node_child with ast, node, 0
@@ -1117,6 +1246,20 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                 banish cname
                 set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sf.c_name)
             banish args
+    # Si la resolución cualificada no encontró `fslot`, búscalo por su nombre
+    # C (`tally_sum`) antes de intentar inferir una especialización.
+    if fslot < 0 and cname != "":
+        var csi as int is 0
+        while csi < c->catalog.functions.len:
+            var csf as catalog.CgFunction is (c->catalog.functions at csi)
+            var csn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), csf.c_name)
+            if csn == cname:
+                set fslot is csi
+                banish csn
+                set csi is c->catalog.functions.len
+            else:
+                banish csn
+                set csi is csi + 1
     # Genéricas sin `of T`: resolver la instancia ya creada por el prepass.
     var explicit_g as bool is gargs >= 0 and (calling astutil.kind_of with ast, gargs) == pskind.NodeKind.NdGenericArgs
     if fslot >= 0 and not explicit_g:
@@ -1148,6 +1291,22 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sf0.c_name)
             banish inf0
             banish actuals
+    # Método genérico sobre un receptor concreto (`list of int`, `map of
+    # string to int`): especializa el cuerpo con los args del receptor.
+    if fslot >= 0:
+        var mg as catalog.CgFunction is (c->catalog.functions at fslot)
+        if mg.is_method and mg.is_generic and not mg.is_spec:
+            var mt0 as int is calling astutil.node_child with ast, node, 0
+            var mrt as CgTarget is calling resolve_target with c, mt0, ast, true
+            defer banish mrt.text
+            var mrid as int is mrt.type_id
+            if mrid > 0:
+                var mig as int is calling generics.ensure_method_spec with c, fslot, mrid
+                if mig > 0 and mig != fslot:
+                    set fslot is mig
+                    var msf as catalog.CgFunction is (c->catalog.functions at mig)
+                    banish cname
+                    set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), msf.c_name)
     # Corrige llamadas `mod.fn` aunque F3 ya haya anotado un nombre poco preciso.
     var qtn as int is calling astutil.node_child with ast, node, 0
     if qtn >= 0 and not (gargs >= 0 and (calling astutil.kind_of with ast, gargs) == pskind.NodeKind.NdGenericArgs):
@@ -1284,7 +1443,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             if ref_map:
                 set mt is calling types.at with (sigil of c->program->types), tt.a
             var mrecv as string is "&({tgt.text})"
-            if ref_map:
+            if ref_map or (tgt.text == "self" and not c->self_value):
                 set mrecv is tgt.text
             var argm as int is calling astutil.node_child with ast, node, 2
             if argm >= 0:
@@ -2212,24 +2371,24 @@ weave list_init_expr with c as ref to context.CgContext, node as int, ast as ref
                 set ty is calling types.list_of with (sigil of c->program->types), et0
             else:
                 var ect0 as string is calling tast.c_type_ast with c, m0, c0
-                var lret0 as string is "pengu_list_new(sizeof({ect0}), 4)"
+                var lret0 as string is "pengu_list_new(sizeof({ect0}), 0)"
                 banish ect0
                 return lret0
     if ty <= 1:
-        return "pengu_list_new(1, 4)"
+        return "pengu_list_new(1, 0)"
     var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
     if t.kind != tk.SemaTypeKind.TkList:
         var m1 as loader.SemaModule is (c->program->modules at c->current_module)
         var cc0 as int is calling astutil.node_child with ast, node, 0
         if cc0 >= 0:
             var ect1 as string is calling tast.c_type_ast with c, m1, cc0
-            var lr1 as string is "pengu_list_new(sizeof({ect1}), 4)"
+            var lr1 as string is "pengu_list_new(sizeof({ect1}), 0)"
             banish ect1
             return lr1
-        return "pengu_list_new(1, 4)"
+        return "pengu_list_new(1, 0)"
     var elem as string is calling ctype.c_type with (sigil of c->names), t.a
     defer banish elem
-    return "pengu_list_new(sizeof({elem}), 4)"
+    return "pengu_list_new(sizeof({elem}), 0)"
 
 ## `true` si el omen usa representación tag+union.
 ##

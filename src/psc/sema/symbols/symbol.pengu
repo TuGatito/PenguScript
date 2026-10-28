@@ -145,6 +145,8 @@ rune SemaInstance:
     template_node as int
     ## Símbolo de la plantilla (`-1` si es un tipo).
     template_symbol as int
+    ## `TypeId` de la plantilla nominal (`-1` si no aplica).
+    template_type as int
     ## Primer type arg en `type_args`.
     args_first as int
     ## Número de type args.

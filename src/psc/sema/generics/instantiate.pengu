@@ -1,0 +1,234 @@
+## psc/sema/generics/instantiate.pengu — materialización de tipos genéricos.
+##
+## Convierte una plantilla nominal (`Box`, `Node`, `Option`, ...) y sus
+## argumentos de tipo en una `SemaNominalInfo` concreta.  La instancia se
+## cachea por `(plantilla, args)` y se registra antes de sustituir sus campos
+## para que los tipos recursivos (`Node of T` dentro de `Node of T`) terminen.
+##
+## El compilador sigue siendo explícito: no hay sustitución perezosa en F4.
+
+import std.builder
+
+import psc.sema.names as npool
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.table as symbols
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.types.canonical as canonical
+
+insignia sema_generic_instantiate_
+
+## Clave textual de una instancia (plantilla + args).
+##
+## ## Memoria
+## Devuelve string owned.
+weave instance_key with template as int, args as list of int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append_int with template
+    var i as int is 0
+    while i < args.len:
+        calling sb.append with ":"
+        calling sb.append_int with (args at i)
+        set i is i + 1
+    return calling sb.finish
+
+## Nombre C estable de una instancia.
+##
+## ## Memoria
+## Devuelve string owned.
+weave instance_c_name with t as ref to types.SemaTypeTable, template as int, args as list of int into string:
+    var tinfo as types.SemaNominalInfo is (t->nominal_infos at (calling types.at with t, template).a)
+    var base as string is calling npool.text with t->names, tinfo.c_name
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with base
+    var i as int is 0
+    while i < args.len:
+        calling sb.append with "__"
+        var an as int is calling canonical.mangled_name with t, (args at i)
+        calling sb.append with (calling npool.text with t->names, an)
+        set i is i + 1
+    return calling sb.finish
+
+## Sustituye un tipo formal por sus argumentos reales.
+##
+## ## Memoria
+## Puede crear nuevos `TypeId` internados; no posee strings.
+weave subst_type with t as ref to types.SemaTypeTable, id as int, subst as ref to map of int to int into int:
+    if id <= 0:
+        return id
+    var ty as tk.SemaType is calling types.at with t, id
+    if ty.kind == tk.SemaTypeKind.TkTypeParam:
+        if calling subst.has with ty.name:
+            return calling subst.get with ty.name
+        return id
+    if ty.kind == tk.SemaTypeKind.TkRef:
+        return calling types.ref_to with t, (calling subst_type with t, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkFrozen:
+        return calling types.frozen with t, (calling subst_type with t, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkArray:
+        return calling types.array_of with t, (calling subst_type with t, ty.a, subst), ty.b
+    if ty.kind == tk.SemaTypeKind.TkSlice:
+        return calling types.slice_of with t, (calling subst_type with t, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkMany:
+        return calling types.many_of with t, (calling subst_type with t, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkList:
+        return calling types.list_of with t, (calling subst_type with t, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkMaybe:
+        return calling types.maybe_of with t, (calling subst_type with t, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkRange:
+        return calling types.range_of with t, (calling subst_type with t, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkMap:
+        return calling types.map_of with t, (calling subst_type with t, ty.a, subst), (calling subst_type with t, ty.b, subst)
+    if ty.kind == tk.SemaTypeKind.TkResult:
+        return calling types.result_of with t, (calling subst_type with t, ty.a, subst), (calling subst_type with t, ty.b, subst)
+    if ty.kind == tk.SemaTypeKind.TkTuple:
+        var ids as list of int is list of int
+        var i as int is 0
+        while i < ty.count:
+            calling ids.push with (calling subst_type with t, (t->type_children at (ty.first + i)), subst)
+            set i is i + 1
+        var out as int is calling types.tuple_of with t, ids
+        banish ids
+        return out
+    if ty.kind == tk.SemaTypeKind.TkFn:
+        var fi as types.SemaFnInfo is (t->fn_infos at ty.a)
+        var first as int is 0
+        var count as int is 0
+        var j as int is 0
+        while j < fi.params_count:
+            var p as types.SemaFnParam is (t->fn_params at (fi.params_first + j))
+            var np as types.SemaFnParam is with name is p.name, type is (calling subst_type with t, p.type, subst), flags is p.flags, default_node is p.default_node
+            var idx as int is calling types.add_fn_param with t, np
+            if count == 0:
+                set first is idx
+            set count is count + 1
+            set j is j + 1
+        var ni as types.SemaFnInfo is with params_first is first, params_count is count, return_type is (calling subst_type with t, fi.return_type, subst), tparams_first is 0, tparams_count is 0, flags is fi.flags, attrs_node is fi.attrs_node
+        return calling types.fn_type with t, ni
+    # Nominales ya instanciados, primitivos y tipos sintéticos.
+    return id
+
+## Mapea una clase nominal al `SemaSymbolKind` de su plantilla.
+##
+## ## Memoria
+## No asigna.
+weave instance_symbol_kind with k as tk.SemaNominalKind into sym.SemaSymbolKind:
+    if k == tk.SemaNominalKind.NkEcho:
+        return sym.SemaSymbolKind.SkEcho
+    if k == tk.SemaNominalKind.NkOmen:
+        return sym.SemaSymbolKind.SkOmen
+    if k == tk.SemaNominalKind.NkAlias:
+        return sym.SemaSymbolKind.SkAlias
+    if k == tk.SemaNominalKind.NkSeal:
+        return sym.SemaSymbolKind.SkSeal
+    if k == tk.SemaNominalKind.NkConcept:
+        return sym.SemaSymbolKind.SkConcept
+    return sym.SemaSymbolKind.SkRune
+
+## Materializa una instancia nominal.
+##
+## `template` es el `TypeId` de la plantilla; `args` son sus argumentos ya
+## convertidos. Devuelve el `TypeId` de la instancia o `-1` si la aridad no
+## coincide.
+##
+## ## Memoria
+## Añade `SemaNominalInfo`, campos, variantes, `SemaInstance` y args.
+weave instantiate_nominal with s as ref to symbols.SemaSymbols, template as int, args as list of int into int:
+    if template <= 0:
+        return -1
+    var t as ref to types.SemaTypeTable is s->types
+    var tt as tk.SemaType is calling types.at with t, template
+    if tt.kind != tk.SemaTypeKind.TkRune and tt.kind != tk.SemaTypeKind.TkEcho and tt.kind != tk.SemaTypeKind.TkOmen and tt.kind != tk.SemaTypeKind.TkAlias and tt.kind != tk.SemaTypeKind.TkSeal and tt.kind != tk.SemaTypeKind.TkConcept:
+        return -1
+    var tinfo as types.SemaNominalInfo is (t->nominal_infos at tt.a)
+    if args.len != tinfo.tparams_count:
+        return -1
+    var keytxt as string is calling instance_key with template, args
+    var key as int is calling npool.intern with s->names, keytxt
+    banish keytxt
+    if calling s->instance_keys.has with key:
+        var old as int is calling s->instance_keys.get with key
+        var oi as sym.SemaInstance is (s->instances at old)
+        return oi.type
+
+    var cname_txt as string is calling instance_c_name with t, template, args
+    var cname as int is calling npool.intern with s->names, cname_txt
+    banish cname_txt
+
+    var info as types.SemaNominalInfo is with kind is tinfo.kind, base_name is cname, c_name is cname, module is tinfo.module, flags is tinfo.flags, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, template_info is tt.a, attrs_node is tinfo.attrs_node
+    var info_idx as int is t->nominal_infos.len
+    calling t->nominal_infos.push with info
+
+    # Sustitución T -> args (necesaria para el target de alias/seal).
+    var subst as map of int to int is map of int to int
+    var ti as int is 0
+    while ti < args.len and ti < tinfo.tparams_count:
+        var tp as types.SemaTypeParamInfo is (t->tparams at (tinfo.tparams_first + ti))
+        calling subst.put with tp.name, (args at ti)
+        set ti is ti + 1
+    var bval as int is template
+    if (tt.kind == tk.SemaTypeKind.TkAlias or tt.kind == tk.SemaTypeKind.TkSeal) and tt.b > 0:
+        set bval is calling subst_type with t, tt.b, (sigil of subst)
+    var ity as tk.SemaType is with kind is tt.kind, name is cname, a is info_idx, b is bval, c is 0, first is 0, count is 0
+    var iid as int is calling types.intern_type with t, ity
+
+    # Registrar la instancia antes de poblar campos (recursión).
+    var args_first as int is s->instance_args.len
+    var ai as int is 0
+    while ai < args.len:
+        calling s->instance_args.push with (args at ai)
+        set ai is ai + 1
+    var inst as sym.SemaInstance is with kind is (calling instance_symbol_kind with tinfo.kind), template_node is -1, template_symbol is -1, template_type is template, args_first is args_first, args_count is args.len, receiver is -1, type is iid, flags is 0
+    var inst_idx as int is s->instances.len
+    calling s->instances.push with inst
+    calling s->instance_keys.put with key, inst_idx
+    calling s->instance_by_type.put with iid, inst_idx
+
+    # Campos concretos.
+    var fields_first as int is t->fields.len
+    var fc as int is 0
+    var fi as int is 0
+    while fi < tinfo.fields_count:
+        var f as types.SemaField is (t->fields at (tinfo.fields_first + fi))
+        var nf as types.SemaField is with name is f.name, type is (calling subst_type with t, f.type, (sigil of subst)), flags is f.flags, attrs_node is f.attrs_node
+        var ignored as int is calling types.add_field with t, nf
+        set fc is fc + 1
+        set fi is fi + 1
+    calling types.set_nominal_fields with t, info_idx, fields_first, fc
+
+    # Variantes de un omen (payloads sustituidos).
+    var vfirst as int is t->variants.len
+    var vc as int is 0
+    var vi as int is 0
+    while vi < tinfo.variants_count:
+        var v as types.SemaVariant is (t->variants at (tinfo.variants_first + vi))
+        var pfirst as int is t->fields.len
+        var pc as int is 0
+        var pi as int is 0
+        while pi < v.payload_count:
+            var pf as types.SemaField is (t->fields at (v.payload_first + pi))
+            var npf as types.SemaField is with name is pf.name, type is (calling subst_type with t, pf.type, (sigil of subst)), flags is pf.flags, attrs_node is pf.attrs_node
+            var ignored2 as int is calling types.add_field with t, npf
+            set pc is pc + 1
+            set pi is pi + 1
+        var nv as types.SemaVariant is with name is v.name, value_i is v.value_i, value_s is v.value_s, payload_first is pfirst, payload_count is pc, flags is v.flags
+        var ignored3 as int is calling types.add_variant with t, nv
+        set vc is vc + 1
+        set vi is vi + 1
+    calling types.set_nominal_variants with t, info_idx, vfirst, vc
+
+    # Derivaciones: las conservamos; F4 las usa para emitir clone/cleanup.
+    var dfirst as int is t->derived.len
+    var dc as int is 0
+    var di as int is 0
+    while di < tinfo.derived_count:
+        var d as int is (t->derived at (tinfo.derived_first + di))
+        var ignored4 as int is calling types.add_derived with t, d
+        set dc is dc + 1
+        set di is di + 1
+    calling types.set_nominal_derived with t, info_idx, dfirst, dc
+
+    banish subst
+    return iid

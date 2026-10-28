@@ -3054,31 +3054,31 @@ weave main into int:
     return 0
 ```
 
-### `std.ordinal` (nuevo en 0.12)
+### `std.ordinal` (nuevo en 0.13)
 
-`std.ordinal` añade tipos concretos respaldados por CC sin cambiar las APIs
+`std.ordinal` añade tipos genéricos respaldados por CC sin cambiar las APIs
 existentes de `list`/`map`/`Set`:
 
 ```pengu
 import std.ordinal
 
-var ll as LinkedListInt is calling new_linked_list_int
+var ll as LinkedList of int is calling new_linked_list of int
 calling ll.push_back with 1
 calling ll.release
 
-var os as OrderedSetString is calling new_ordered_set_string
+var os as OrderedSet of string is calling new_ordered_set of string
 calling os.add with "b"
 calling os.add with "a"          # items() está ordenado: ["a", "b"]
 calling os.release
 
-var om as OrderedMapStringInt is calling new_ordered_map_string_int
+var om as OrderedMap of string and int is calling new_ordered_map of string and int
 calling om.put with "b", 2
 calling om.put with "a", 1       # keys() está ordenado: ["a", "b"]
 calling om.release
 ```
 
-`LinkedListInt`/`LinkedListString` usan CC `list`; `UnorderedSet*` usan CC
-`set`; `OrderedSet*` usan CC `oset`; `OrderedMap*` usan CC `omap`. Llama a
+`LinkedList of T` usa CC `list`; `UnorderedSet of T` usa CC
+`set`; `OrderedSet of T` usa CC `oset`; `OrderedMap of K and V` usa CC `omap`. Llama a
 `release` (no `banish`) sobre la runa. Los helpers de iteración devuelven una
 `list` con posesión; las claves/valores son prestados, como en los mapas/sets
 antiguos.

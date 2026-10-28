@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.12.0-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.13.0-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey">
@@ -34,13 +34,14 @@ This repository contains **only the native compiler** and its standard library.
 The legacy Python compiler lives outside `main` as a historical reference; it is
 not required to build, test, or run anything here.
 
-## Runtime containers (0.12+)
+## Runtime containers (0.13+)
 
 `list of T` is backed by **Convenient Containers `vec`** and `map of K to V` by
 **CC `map`**; the legacy `Set`/`SetString` APIs stay map-backed. The additive
-`std.ordinal` module exposes CC-backed `LinkedList*`, `UnorderedSet*`,
-`OrderedSet*` and `OrderedMap*` concrete types for `int`/`string` keys and
-values. See [LANGUAGE.md](LANGUAGE.md) and [std/ordinal.pengu](std/ordinal.pengu).
+`std.ordinal` exposes CC-backed generic `LinkedList of T`, `UnorderedSet of T`,
+`OrderedSet of T` and `OrderedMap of K and V`; `T`/`K`/`V` can be built-ins,
+strings or user runes. See [LANGUAGE.md](LANGUAGE.md) and
+[std/ordinal.pengu](std/ordinal.pengu).
 
 ## Install
 
@@ -54,8 +55,8 @@ pengu-<version>-<os>-<arch>-fhs.tar.gz
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.12.0-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.12.0-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.13.0-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.13.0-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 

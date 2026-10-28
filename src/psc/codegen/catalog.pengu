@@ -352,8 +352,6 @@ weave collect_enchanting with p as ref to program.SemaProgram, c as ref to CgCat
     var recv as int is calling catalog_type_from_ast with p, m, tnode
     if recv < 0:
         return
-    if calling has_type_param with p, recv:
-        return
     var i as int is 1
     var n as int is calling astutil.child_count with ast, node
     while i < n:
@@ -366,6 +364,37 @@ weave collect_enchanting with p as ref to program.SemaProgram, c as ref to CgCat
 ##
 ## ## Memoria
 ## Añade a listas/mapas; no posee strings.
+## Añade los `NameId` de los type params presentes en un tipo.
+##
+## ## Memoria
+## Añade a la lista prestada.
+weave collect_type_params with p as ref to program.SemaProgram, id as int, out as ref to list of int into void:
+    if id <= 0:
+        return
+    var t as tk.SemaType is calling types.at with (sigil of p->types), id
+    if t.kind == tk.SemaTypeKind.TkTypeParam:
+        var already as bool is false
+        var i as int is 0
+        while i < out->len:
+            if ((essence of out) at i) == t.name:
+                set already is true
+            set i is i + 1
+        if not already:
+            calling out.push with t.name
+        return
+    if t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen or t.kind == tk.SemaTypeKind.TkArray or t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkMany or t.kind == tk.SemaTypeKind.TkMaybe or t.kind == tk.SemaTypeKind.TkRange:
+        calling collect_type_params with p, t.a, out
+        return
+    if t.kind == tk.SemaTypeKind.TkMap or t.kind == tk.SemaTypeKind.TkResult:
+        calling collect_type_params with p, t.a, out
+        calling collect_type_params with p, t.b, out
+        return
+    if t.kind == tk.SemaTypeKind.TkTuple:
+        var j as int is 0
+        while j < t.count:
+            calling collect_type_params with p, (p->types.type_children at (t.first + j)), out
+            set j is j + 1
+
 weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m as loader.SemaModule, recv as int, node as int into void:
     var ast as ref to psast.PsAst is (sigil of m.parse.ast)
     var name as int is calling decl_name with p, ast, (sigil of m.source), (sigil of m.lex), node
@@ -427,8 +456,23 @@ weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m 
                     banish ptxt
                 set pi is pi + 1
         set ai2 is ai2 + 1
+    var is_gen as bool is false
+    var mtps as list of int is list of int
+    var rty as tk.SemaType is calling types.at with (sigil of p->types), recv
+    if rty.kind == tk.SemaTypeKind.TkRune or rty.kind == tk.SemaTypeKind.TkEcho or rty.kind == tk.SemaTypeKind.TkOmen or rty.kind == tk.SemaTypeKind.TkAlias or rty.kind == tk.SemaTypeKind.TkSeal or rty.kind == tk.SemaTypeKind.TkConcept:
+        var rinfo as types.SemaNominalInfo is (p->types.nominal_infos at rty.a)
+        if rinfo.tparams_count > 0:
+            var ti as int is 0
+            while ti < rinfo.tparams_count:
+                var tp as types.SemaTypeParamInfo is (p->types.tparams at (rinfo.tparams_first + ti))
+                calling mtps.push with tp.name
+                set ti is ti + 1
+    else:
+        calling collect_type_params with p, recv, (sigil of mtps)
+    if mtps.len > 0:
+        set is_gen is true
     var idx as int is c->functions.len
-    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is false, is_antiquus is false, is_method is true, recv_type is recv, self_value is is_self_value, is_ritual is is_rit, tparams is list of int, spec_args is list of int, is_generic is false, is_spec is false, is_main is is_main, c_name is cname
+    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is false, is_antiquus is false, is_method is true, recv_type is recv, self_value is is_self_value, is_ritual is is_rit, tparams is mtps, spec_args is list of int, is_generic is is_gen, is_spec is false, is_main is is_main, c_name is cname
     calling c->functions.push with f
     calling c->by_symbol.put with sid, idx
     if not (calling c->by_name.has with name):
@@ -450,8 +494,6 @@ weave collect_bind with p as ref to program.SemaProgram, c as ref to CgCatalog, 
         return
     var recv as int is calling catalog_type_from_ast with p, m, tnode
     if recv < 0:
-        return
-    if calling has_type_param with p, recv:
         return
     var i as int is 1
     var n as int is calling astutil.child_count with ast, node

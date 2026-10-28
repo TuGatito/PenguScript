@@ -1,14 +1,17 @@
-## Regression for the CC-backed LinkedList/UnorderedSet/OrderedSet/OrderedMap
-## types in std.ordinal.
+## Regression for the generic CC-backed containers in std.ordinal.
 import std.ordinal
 import std.spark
+
+rune Point:
+    x as int
+    y as int
 
 weave fail with what as string into int:
     calling spark.println with "FAIL ordinal_cc: {what}"
     return 1
 
 weave main into int:
-    var ll as LinkedListInt is calling new_linked_list_int
+    var ll as LinkedList of int is calling new_linked_list of int
     calling ll.push_back with 2
     calling ll.push_front with 1
     if (calling ll.size) != 2:
@@ -28,21 +31,63 @@ weave main into int:
     banish popped
     calling ll.release
 
-    var us as UnorderedSetInt is calling new_unordered_set_int
-    calling us.add with 3
-    calling us.add with 3
-    calling us.add with 1
-    if (calling us.size) != 2:
-        return calling fail with "unordered set dedupe"
-    if not calling us.has with 3:
-        return calling fail with "unordered set has"
-    if not calling us.remove with 3:
-        return calling fail with "unordered set remove"
+    var ls as LinkedList of string is calling new_linked_list of string
+    var alpha as string is "alpha"
+    var beta as string is "beta"
+    calling ls.push_back with alpha
+    calling ls.push_back with beta
+    var lsi as list of string is calling ls.items
+    if (lsi at 0) != "alpha" or (lsi at 1) != "beta":
+        banish lsi
+        banish alpha
+        banish beta
+        return calling fail with "string linked list"
+    banish lsi
+    banish alpha
+    banish beta
+    calling ls.release
+
+    var lp as LinkedList of Point is calling new_linked_list of Point
+    var p as Point is with x is 1, y is 2
+    calling lp.push_back with p
+    var lpi as list of Point is calling lp.items
+    var p0 as Point is lpi at 0
+    if p0.x != 1 or p0.y != 2:
+        banish lpi
+        return calling fail with "rune linked list"
+    banish lpi
+    calling lp.release
+
+    var us as UnorderedSet of string is calling new_unordered_set of string
+    var same1 as string is "same"
+    var same2 as string is "same"
+    calling us.add with same1
+    calling us.add with same2
     if (calling us.size) != 1:
-        return calling fail with "unordered set size after remove"
+        banish same1
+        banish same2
+        return calling fail with "unordered string set dedupe"
+    if not calling us.has with "same":
+        banish same1
+        banish same2
+        return calling fail with "unordered string set has"
+    banish same1
+    banish same2
     calling us.release
 
-    var os as OrderedSetInt is calling new_ordered_set_int
+    var ui as UnorderedSet of int is calling new_unordered_set of int
+    calling ui.add with 3
+    calling ui.add with 3
+    calling ui.add with 1
+    if (calling ui.size) != 2:
+        return calling fail with "unordered int set dedupe"
+    if not calling ui.remove with 3:
+        return calling fail with "unordered int set remove"
+    if (calling ui.size) != 1:
+        return calling fail with "unordered int set size after remove"
+    calling ui.release
+
+    var os as OrderedSet of int is calling new_ordered_set of int
     calling os.add with 3
     calling os.add with 1
     calling os.add with 2
@@ -53,7 +98,7 @@ weave main into int:
     banish oi
     calling os.release
 
-    var ss as OrderedSetString is calling new_ordered_set_string
+    var ss as OrderedSet of string is calling new_ordered_set of string
     calling ss.add with "beta"
     calling ss.add with "alpha"
     var si as list of string is calling ss.items
@@ -63,27 +108,51 @@ weave main into int:
     banish si
     calling ss.release
 
-    var om as OrderedMapStringInt is calling new_ordered_map_string_int
-    calling om.put with "b", 2
-    calling om.put with "a", 1
+    var om as OrderedMap of string and int is calling new_ordered_map of string and int
+    var k1 as string is "b"
+    var k2 as string is "a"
+    calling om.put with k1, 2
+    calling om.put with k2, 1
     if (calling om.size) != 2:
+        banish k1
+        banish k2
         return calling fail with "ordered map size"
-    var got as maybe int is calling om.get with "a"
+    var got as maybe int is calling om.get with k2
     if got is not present:
         banish got
+        banish k1
+        banish k2
         return calling fail with "ordered map get"
     if got.value != 1:
         banish got
+        banish k1
+        banish k2
         return calling fail with "ordered map value"
     banish got
     var ok as list of string is calling om.keys
     if (ok at 0) != "a" or (ok at 1) != "b":
         banish ok
+        banish k1
+        banish k2
         return calling fail with "ordered map key order"
     banish ok
-    if not calling om.remove with "a":
+    if not calling om.remove with k2:
+        banish k1
+        banish k2
         return calling fail with "ordered map remove"
+    banish k1
+    banish k2
     calling om.release
+
+    var omi as OrderedMap of int and int is calling new_ordered_map of int and int
+    calling omi.put with 2, 20
+    calling omi.put with 1, 10
+    var ovi as list of int is calling omi.values
+    if (ovi at 0) != 10 or (ovi at 1) != 20:
+        banish ovi
+        return calling fail with "ordered int map values"
+    banish ovi
+    calling omi.release
 
     calling spark.println with "OK ordinal_cc"
     return 0

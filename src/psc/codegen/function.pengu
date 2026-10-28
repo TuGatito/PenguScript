@@ -99,12 +99,17 @@ weave signature_spec with c as ref to context.CgContext, f as catalog.CgFunction
                     if wrote:
                         calling sb.append with ", "
                     var pct as string is calling tast.c_type_ast with c, m, pty
-                    calling sb.append with pct
-                    banish pct
-                    calling sb.append with " "
                     var pname as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pt
                     var psafe as string is calling context.safe_c_name with pname
-                    calling sb.append with psafe
+                    if calling has_fn_slot with pct:
+                        var pnamed as string is calling name_fn_declarator with pct, psafe
+                        calling sb.append with pnamed
+                        banish pnamed
+                    else:
+                        calling sb.append with pct
+                        calling sb.append with " "
+                        calling sb.append with psafe
+                    banish pct
                     banish psafe
                     banish pname
                     set wrote is true

@@ -3044,31 +3044,31 @@ weave main into int:
     return 0
 ```
 
-### `std.ordinal` (new in 0.12)
+### `std.ordinal` (new in 0.13)
 
-`std.ordinal` adds concrete CC-backed types without changing the existing
+`std.ordinal` adds generic CC-backed types without changing the existing
 `list`/`map`/`Set` APIs:
 
 ```pengu
 import std.ordinal
 
-var ll as LinkedListInt is calling new_linked_list_int
+var ll as LinkedList of int is calling new_linked_list of int
 calling ll.push_back with 1
 calling ll.release
 
-var os as OrderedSetString is calling new_ordered_set_string
+var os as OrderedSet of string is calling new_ordered_set of string
 calling os.add with "b"
 calling os.add with "a"          # items() is sorted: ["a", "b"]
 calling os.release
 
-var om as OrderedMapStringInt is calling new_ordered_map_string_int
+var om as OrderedMap of string and int is calling new_ordered_map of string and int
 calling om.put with "b", 2
 calling om.put with "a", 1       # keys() is sorted: ["a", "b"]
 calling om.release
 ```
 
-`LinkedListInt`/`LinkedListString` use CC `list`; `UnorderedSet*` use CC `set`;
-`OrderedSet*` use CC `oset`; `OrderedMap*` use CC `omap`. Call `release` (not
+`LinkedList of T` uses CC `list`; `UnorderedSet of T` uses CC `set`;
+`OrderedSet of T` uses CC `oset`; `OrderedMap of K and V` uses CC `omap`. Call `release` (not
 `banish`) on the rune. Iteration helpers return an owned `list`; keys/values in
 containers are borrowed, like the legacy maps/sets.
 

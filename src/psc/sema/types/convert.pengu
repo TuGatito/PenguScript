@@ -19,6 +19,7 @@ import psc.ast.kind as pskind
 import psc.sema.names as npool
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
+import psc.sema.generics.instantiate as ginst
 import psc.sema.symbols.table as symbols
 import psc.sema.ast as astutil
 import psc.sema.diagnostics as sdiag
@@ -144,6 +145,28 @@ weave convert_param with ctx as ref to TypeCtx, node as int into int:
     var info as types.SemaTypeParamInfo is with name is nid, bounds_first is 0, bounds_count is 0, flags is 0
     return calling types.type_param_type with ctx->types, info
 
+## `true` si un tipo contiene un `TkTypeParam`.
+##
+## ## Memoria
+## O(profundidad).
+weave type_has_param with t as ref to types.SemaTypeTable, id as int into bool:
+    if id <= 0:
+        return false
+    var ty as tk.SemaType is calling types.at with t, id
+    if ty.kind == tk.SemaTypeKind.TkTypeParam:
+        return true
+    if ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkFrozen or ty.kind == tk.SemaTypeKind.TkArray or ty.kind == tk.SemaTypeKind.TkList or ty.kind == tk.SemaTypeKind.TkSlice or ty.kind == tk.SemaTypeKind.TkMany or ty.kind == tk.SemaTypeKind.TkMaybe or ty.kind == tk.SemaTypeKind.TkRange:
+        return calling type_has_param with t, ty.a
+    if ty.kind == tk.SemaTypeKind.TkMap or ty.kind == tk.SemaTypeKind.TkResult:
+        return (calling type_has_param with t, ty.a) or (calling type_has_param with t, ty.b)
+    if ty.kind == tk.SemaTypeKind.TkTuple:
+        var i as int is 0
+        while i < ty.count:
+            if calling type_has_param with t, (t->type_children at (ty.first + i)):
+                return true
+            set i is i + 1
+    return false
+
 ## Convierte un tipo custom (`mod.Name`/`Name` + args).
 ##
 ## ## Memoria
@@ -173,15 +196,64 @@ weave convert_custom with ctx as ref to TypeCtx, node as int into int:
         calling sdiag.node_error with ctx->bag, ctx->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with ctx->ast, node), (calling astutil.end_of with ctx->ast, node), msg, "Declare the type or import the module that defines it.", "Types must be declared before they are used."
         banish msg
         return 0
-    # Los argumentos genéricos se validan pero la especialización completa se
-    # construye en `generics/instantiate.pengu`. Aquí se conserva el tipo base.
+    # Argumentos genéricos: `Box of int` / `Map of string to int`.
+    var args as list of int is list of int
     var i as int is 1
     var n as int is calling astutil.child_count with ctx->ast, node
     while i < n:
         var c as int is calling astutil.node_child with ctx->ast, node, i
         if c >= 0:
-            var ignored as int is calling convert with ctx, c
+            if (calling astutil.kind_of with ctx->ast, c) == pskind.NodeKind.NdGenericArgs:
+                var gi as int is 0
+                var gn as int is calling astutil.child_count with ctx->ast, c
+                while gi < gn:
+                    var ga as int is calling astutil.node_child with ctx->ast, c, gi
+                    if ga >= 0:
+                        var gid as int is calling convert with ctx, ga
+                        if gid > 0:
+                            calling args.push with gid
+                    set gi is gi + 1
+            else:
+                var aid as int is calling convert with ctx, c
+                if aid > 0:
+                    calling args.push with aid
         set i is i + 1
+    var base_ty as tk.SemaType is calling types.at with ctx->types, t
+    if base_ty.kind == tk.SemaTypeKind.TkRune or base_ty.kind == tk.SemaTypeKind.TkEcho or base_ty.kind == tk.SemaTypeKind.TkOmen or base_ty.kind == tk.SemaTypeKind.TkAlias or base_ty.kind == tk.SemaTypeKind.TkSeal or base_ty.kind == tk.SemaTypeKind.TkConcept:
+        var binfo as types.SemaNominalInfo is (ctx->types->nominal_infos at base_ty.a)
+        if args.len > 0:
+            if args.len != binfo.tparams_count:
+                var gmsg as string is "wrong number of type arguments for '{name}' ({args.len}/{binfo.tparams_count})"
+                calling sdiag.node_error with ctx->bag, ctx->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with ctx->ast, node), (calling astutil.end_of with ctx->ast, node), gmsg, "Pass exactly the type parameters declared by the type.", ""
+                banish gmsg
+                banish args
+                return 0
+            var hasp as bool is false
+            var pai as int is 0
+            while pai < args.len:
+                if calling type_has_param with ctx->types, (args at pai):
+                    set hasp is true
+                set pai is pai + 1
+            if hasp:
+                banish args
+                return t
+            var inst as int is calling ginst.instantiate_nominal with ctx->symbols, t, args
+            banish args
+            if inst > 0:
+                return inst
+            return 0
+        else if binfo.tparams_count > 0:
+            # Declaración/uso de la plantilla en `enchanting Box shard T`:
+            # se conserva el tipo base; el uso concreto exige argumentos.
+            banish args
+            return t
+    if args.len > 0:
+        var gmsg2 as string is "type '{name}' does not take type arguments"
+        calling sdiag.node_error with ctx->bag, ctx->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with ctx->ast, node), (calling astutil.end_of with ctx->ast, node), gmsg2, "Remove the type arguments.", ""
+        banish gmsg2
+        banish args
+        return 0
+    banish args
     return t
 
 ## Convierte una firma `weave with ... into ...`.

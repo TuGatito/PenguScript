@@ -40,7 +40,9 @@ void pengu_cc_list_init(PenguList *list, size_t elem_size, size_t cap)
   list->cap = 0;
   list->elem_size = elem_size;
   list->data = NULL;
-  size_t wanted = cap > 0 ? cap : 4;
+  size_t wanted = cap;
+  if (wanted == 0)
+    return;
   cc_allocing_fn_result_ty result = cc_vec_reserve(
       (void *)&cc_vec_placeholder, wanted, elem_size, 0, NULL, 0.0, realloc, NULL);
   if (!result.other_ptr)
@@ -50,7 +52,11 @@ void pengu_cc_list_init(PenguList *list, size_t elem_size, size_t cap)
 
 void pengu_cc_list_push(PenguList *list, const void *item)
 {
-  if (!list || !item || list->cap < 0 || !list->data)
+  if (!list || !item || list->cap < 0)
+    return;
+  if (!list->data)
+    pengu_cc_list_init(list, list->elem_size, 4);
+  if (!list->data)
     return;
   cc_allocing_fn_result_ty result = cc_vec_push(
       pengu_cc_vec_hdr(list), (void *)item, list->elem_size, realloc);

@@ -1,0 +1,39 @@
+## Regression for generic runes and generic functions.
+import std.spark
+
+rune Box shard T:
+    value as T
+
+enchanting Box shard T:
+    weave get into T:
+        return self.value
+
+weave ident shard T with value as T into T:
+    return value
+
+weave main into int:
+    var bi as Box of int is with value is 7
+    var bs as Box of string is with value is "hi"
+    if (calling bi.get) != 7:
+        return 1
+    var s as string is calling bs.get
+    if s != "hi":
+        banish s
+        return 1
+    banish s
+
+    var innerb as Box of int is with value is 9
+    var nested as Box of Box of int is with value is innerb
+    var inner as Box of int is calling nested.get
+    if (calling inner.get) != 9:
+        return 1
+
+    var a as int is calling ident of int with 5
+    var b as string is calling ident of string with "ok"
+    if a != 5 or b != "ok":
+        banish b
+        return 1
+    banish b
+
+    calling spark.println with "OK generic_runes"
+    return 0
