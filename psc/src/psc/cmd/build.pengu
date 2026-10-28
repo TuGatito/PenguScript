@@ -153,6 +153,8 @@ weave run_build with args as list of string into int:
     set o.no_cache is calling cliargs.enabled with (sigil of pr.args), "--no-cache"
     set o.clear_cache is calling cliargs.enabled with (sigil of pr.args), "--clear-cache"
     set o.ephemeral is calling cliargs.enabled with (sigil of pr.args), "--ephemeral"
+    set o.locked is calling cliargs.enabled with (sigil of pr.args), "--locked"
+    set o.frozen is calling cliargs.enabled with (sigil of pr.args), "--frozen"
     var prof as string is calling cliargs.value with (sigil of pr.args), "--profile"
     if prof length == 0:
         set prof is calling cliargs.value with (sigil of pr.args), "-p"

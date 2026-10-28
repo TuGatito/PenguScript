@@ -20,6 +20,10 @@ import psc.driver.manifest as manifest
 import psc.os.proc as proc
 import psc.driver.paths as paths
 import psc.driver.toolchain as toolchain
+import psc.pkg.manifest as pman
+import psc.pkg.resolve as presolve
+import psc.pkg.lock as plock
+import psc.pkg.source as psource
 
 insignia psc_driver_build_
 
@@ -50,6 +54,8 @@ rune BuildOptions:
     no_cache as bool
     clear_cache as bool
     ephemeral as bool
+    locked as bool
+    frozen as bool
     defines as list of string
 
 ## Resultado de un build.
@@ -137,7 +143,7 @@ weave find_manifest_root with start as string into string:
 ## ## Memoria
 ## Strings owned; liberar con `free_options`.
 weave default_options into BuildOptions:
-    return with target is "", profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, defines is list of string
+    return with target is "", profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, defines is list of string
 
 ## Libera opciones.
 ##
@@ -199,6 +205,16 @@ weave build with o as BuildOptions into BuildResult:
         set man is calling manifest.load_manifest with root, o.profile
         set base is man.base_dir
     else if not is_file:
+        var leg as string is calling pman.legacy_manifest with start
+        if leg length > 0:
+            var lm2 as string is "only pengu.toml is supported; found {leg}. YAML/JSON manifests are no longer accepted."
+            banish leg
+            banish cwd
+            banish target
+            banish start
+            banish root
+            return with ok is false, error is lm2, artifact is "", bundle_path is ""
+        banish leg
         banish cwd
         banish target
         banish start
@@ -272,6 +288,76 @@ weave build with o as BuildOptions into BuildResult:
     while doi < o.defines.len:
         calling so.defines.push with (calling copy with (o.defines at doi))
         set doi is doi + 1
+    var dep_ds as list of pman.Dependency is calling pman.load with base
+    if dep_ds.len > 0:
+        if o.frozen:
+            for vd in dep_ds:
+                var vt as string is "{base}/{man.lib_dir}/{vd.name}"
+                if not calling archivum.is_dir with vt:
+                    var vv as string is "{base}/vendor/{vd.name}"
+                    if calling archivum.is_dir with vv:
+                        var vr as bool is calling psource.copy_local with vv, vt
+                    banish vv
+                if not calling archivum.is_dir with vt:
+                    banish vt
+                    banish dep_ds
+                    calling manifest.free_manifest with (sigil of man)
+                    calling paths.free_paths with (sigil of p)
+                    calling toolchain.free_toolchain with (sigil of tc)
+                    return with ok is false, error is "E0061: dependency missing and --frozen forbids network/install", artifact is "", bundle_path is ""
+                banish vt
+        var g as presolve.Graph is calling presolve.resolve with base, man.lib_dir, dep_ds
+        if not g.ok:
+            var ge as string is g.error
+            calling spark.eprintln with ge
+            banish ge
+            banish dep_ds
+            calling manifest.free_manifest with (sigil of man)
+            calling paths.free_paths with (sigil of p)
+            calling toolchain.free_toolchain with (sigil of tc)
+            return with ok is false, error is "dependencies", artifact is "", bundle_path is ""
+        if o.locked or o.frozen:
+            var lm as maybe plock.Lock is calling plock.read with base
+            if not lm.is_present:
+                banish lm
+                banish dep_ds
+                calling manifest.free_manifest with (sigil of man)
+                calling paths.free_paths with (sigil of p)
+                calling toolchain.free_toolchain with (sigil of tc)
+                return with ok is false, error is "E0061: pengu.lock missing (--locked/--frozen)", artifact is "", bundle_path is ""
+            var bad as bool is false
+            for gp in g.packages:
+                var found as bool is false
+                for lp in lm.value.packages:
+                    if lp.name == gp.name:
+                        set found is true
+                        if lp.version != gp.version or lp.commit != gp.commit or lp.sha256 != gp.sha256:
+                            set bad is true
+                if not found:
+                    set bad is true
+            if bad:
+                banish lm
+                banish dep_ds
+                calling manifest.free_manifest with (sigil of man)
+                calling paths.free_paths with (sigil of p)
+                calling toolchain.free_toolchain with (sigil of tc)
+                return with ok is false, error is "E0061: pengu.lock is out of date (--locked/--frozen)", artifact is "", bundle_path is ""
+            banish lm
+        else:
+            var lk as plock.Lock is with target is "x86_64-unknown-linux-gnu", packages is list of plock.Package
+            for gp2 in g.packages:
+                calling lk.packages.push with gp2
+            var lw as bool is calling plock.write with base, lk
+        for gp in g.packages:
+            var dsrc as string is "{base}/{man.lib_dir}/{gp.name}/src"
+            var dsd as bool is calling archivum.is_dir with dsrc
+            if dsd:
+                calling so.dep_dirs.push with (calling copy with dsrc)
+            var dinc as string is "{base}/{man.lib_dir}/{gp.name}/include"
+            if calling archivum.is_dir with dinc:
+                calling tc.include_dirs.push with (calling copy with dinc)
+            banish dsrc
+            banish dinc
     var ccn as string is calling compass.cp_basename with tc.cc
     banish so.compiler
     set so.compiler is (calling copy with ccn)

@@ -8,6 +8,8 @@ import std.spark
 
 import psc.cli.args as cliargs
 import psc.driver.manifest as manifest
+import psc.pkg.manifest as pman
+import psc.pkg.lock as plock
 import psc.sema.names as npool
 
 insignia psc_cmd_meta_
@@ -152,7 +154,24 @@ weave run_metadata with args as list of string into int:
     calling sb.append_char with '"'
     calling sb.append with "],"
     calling jkey with (sigil of sb), "dependencies"
-    calling sb.append with r"{}"
+    var mds as list of pman.Dependency is calling pman.load with root
+    calling sb.append with "{"
+    var mi as int is 0
+    for md in mds:
+        if mi > 0:
+            calling sb.append with ","
+        calling jstr with (sigil of sb), md.name
+        calling sb.append with ":"
+        calling sb.append with "{"
+        calling jkey with (sigil of sb), "source"
+        calling jstr with (sigil of sb), md.source
+        calling sb.append with ","
+        calling jkey with (sigil of sb), "constraint"
+        calling jstr with (sigil of sb), md.constraint
+        calling sb.append with "}"
+        set mi is mi + 1
+    banish mds
+    calling sb.append with "}"
     calling sb.append with "}"
     var out as string is calling sb.finish
     calling spark.println with out
@@ -219,14 +238,54 @@ weave run_tree with args as list of string into int:
         calling jstr with (sigil of tsb), man.name
         calling tsb.append with ","
         calling jkey with (sigil of tsb), "dependencies"
-        calling tsb.append with "[]}"
+        var tds as list of pman.Dependency is calling pman.load with root
+        var tlm as maybe plock.Lock is calling plock.read with root
+        calling tsb.append with "["
+        var ti as int is 0
+        for td in tds:
+            if ti > 0:
+                calling tsb.append with ","
+            calling tsb.append with "{"
+            calling jkey with (sigil of tsb), "name"
+            calling jstr with (sigil of tsb), td.name
+            calling tsb.append with ","
+            calling jkey with (sigil of tsb), "source"
+            calling jstr with (sigil of tsb), td.source
+            calling tsb.append with ","
+            calling jkey with (sigil of tsb), "constraint"
+            calling jstr with (sigil of tsb), td.constraint
+            calling tsb.append with ","
+            calling jkey with (sigil of tsb), "version"
+            var tv as string is ""
+            if tlm.is_present:
+                for tp in tlm.value.packages:
+                    if tp.name == td.name:
+                        set tv is tp.version
+            calling jstr with (sigil of tsb), tv
+            banish tv
+            calling tsb.append with "}"
+            set ti is ti + 1
+        banish tds
+        banish tlm
+        calling tsb.append with "]}"
         var out as string is calling tsb.finish
         calling spark.println with out
         banish out
     else:
-        var line as string is "{man.name} (no dependencies)"
-        calling spark.println with line
-        banish line
+        var hds as list of pman.Dependency is calling pman.load with root
+        if hds.len == 0:
+            var line as string is "{man.name} (no dependencies)"
+            calling spark.println with line
+            banish line
+        else:
+            var head as string is "{man.name}"
+            calling spark.println with head
+            banish head
+            for hd in hds:
+                var dl as string is "  - {hd.name} {hd.constraint} ({hd.source})"
+                calling spark.println with dl
+                banish dl
+        banish hds
     calling manifest.free_manifest with (sigil of man)
     banish root
     banish cwd

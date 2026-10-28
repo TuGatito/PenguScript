@@ -1,0 +1,143 @@
+## psc/pkg/resolve.pengu — resolución e instalación de dependencias.
+
+import std.archivum
+
+import psc.pkg.install as install
+import psc.pkg.lock as plock
+import psc.pkg.manifest as pman
+import psc.pkg.source as source
+import psc.sema.names as npool
+
+insignia psc_pkg_resolve_
+
+## Resultado.
+rune Graph:
+    ok as bool
+    error as string
+    packages as list of plock.Package
+
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Busca un paquete por nombre.
+weave find_pkg with ps as list of plock.Package, name as string into int:
+    var i as int is 0
+    while i < ps.len:
+        if (ps at i).name == name:
+            return i
+        set i is i + 1
+    return 0 - 1
+
+## Asegura/instala y crea el paquete.
+weave ensure with base as string, lib_dir as string, d as pman.Dependency, parent as string into maybe plock.Package:
+    var target as string is "{base}/{lib_dir}/{d.name}"
+    var ver as string is ""
+    var commit as string is ""
+    if not calling archivum.is_dir with target:
+        var inst as maybe install.Installed is calling install.install with base, lib_dir, d
+        if not inst.is_present:
+            banish inst
+            banish target
+            return (maybe none)
+        set ver is inst.value.version
+        set commit is inst.value.commit
+        banish inst
+    else:
+        set ver is calling install.dep_version with target
+        if d.kind == "git":
+            set commit is calling source.commit with target
+    var hash as string is calling plock.tree_hash with target
+    var req as list of string is list of string
+    if parent length > 0:
+        calling req.push with (calling copy with parent)
+    var p as plock.Package is with name is (calling copy with d.name), source is (calling copy with d.source), constraint is (calling copy with d.constraint), version is ver, commit is commit, sha256 is hash, required_by is req, children is list of string
+    banish target
+    return some p
+
+## Resuelve el grafo desde dependencias directas.
+weave resolve with base as string, lib_dir as string, deps as list of pman.Dependency into Graph:
+    var g as Graph is with ok is true, error is "", packages is list of plock.Package
+    var roots as list of pman.Dependency is deps
+    var queue as list of pman.Dependency is list of pman.Dependency
+    var parents as list of string is list of string
+    for d in roots:
+        calling queue.push with (calling pman.clone_dep with d)
+        calling parents.push with ""
+    var qi as int is 0
+    while qi < queue.len:
+        var d as pman.Dependency is (queue at qi)
+        var parent as string is (parents at qi)
+        var ex as int is calling find_pkg with g.packages, d.name
+        if ex >= 0:
+            if parent length > 0:
+                var ep as plock.Package is (g.packages at ex)
+                var present as bool is false
+                for r in ep.required_by:
+                    if r == parent:
+                        set present is true
+                if not present:
+                    calling ep.required_by.push with (calling copy with parent)
+                    set g.packages at ex is ep
+        else:
+            var pm as maybe plock.Package is calling ensure with base, lib_dir, d, parent
+            if not pm.is_present:
+                banish pm
+                set g.ok is false
+                banish g.error
+                set g.error is "cannot install dependency '{d.name}'"
+                var k as int is qi
+                while k < parents.len:
+                    banish parents at k
+                    set k is k + 1
+                var qk as int is 0
+                while qk < queue.len:
+                    calling pman.free_one with (sigil of (queue at qk))
+                    set qk is qk + 1
+                banish queue
+                banish parents
+                return g
+            var p as plock.Package is pm.value
+            var idx as int is g.packages.len
+            calling g.packages.push with p
+            var child as string is p.name
+            banish pm
+            var cpath as string is "{base}/{lib_dir}/{d.name}"
+            var cdeps as list of pman.Dependency is calling pman.load with cpath
+            banish cpath
+            for cd in cdeps:
+                calling queue.push with (calling pman.clone_dep with cd)
+                calling parents.push with (calling copy with child)
+            calling pman.free with cdeps
+        set qi is qi + 1
+    var qf as int is 0
+    while qf < queue.len:
+        calling pman.free_one with (sigil of (queue at qf))
+        set qf is qf + 1
+    banish queue
+    banish parents
+    return g
+
+## Libera un grafo.
+weave free with g as ref to Graph into void:
+    var i as int is 0
+    while i < g->packages.len:
+        var p as plock.Package is (g->packages at i)
+        banish p.name
+        banish p.source
+        banish p.constraint
+        banish p.version
+        banish p.commit
+        banish p.sha256
+        var j as int is 0
+        while j < p.required_by.len:
+            banish p.required_by at j
+            set j is j + 1
+        banish p.required_by
+        set j is 0
+        while j < p.children.len:
+            banish p.children at j
+            set j is j + 1
+        banish p.children
+        set i is i + 1
+    banish g->packages
+    banish g->error

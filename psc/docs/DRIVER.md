@@ -27,7 +27,7 @@ defines = ["FEATURE"]
 cflags = ["-O2", "-DNDEBUG"]
 ```
 
-`dependencies` se rechaza explícitamente en F5; llegará en F9.
+`dependencies` se resuelve en F9 (local/git, lock y vendor). Sólo `pengu.toml`; YAML/JSON se rechazan.
 
 ## Comandos
 

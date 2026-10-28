@@ -1,0 +1,459 @@
+## psc/cmd/deps.pengu — package manager F9.
+##
+## Sólo TOML: pengu.yaml/json se rechazan explícitamente.
+
+import std.archivum
+import std.compass
+import std.rites
+import std.spark
+
+import psc.cli.args as cliargs
+import psc.pkg.build_script as build_script
+import psc.pkg.install as install
+import psc.pkg.lock as plock
+import psc.pkg.manifest as pman
+import psc.pkg.resolve as presolve
+import psc.pkg.source as psource
+import psc.pkg.semver as semver
+import psc.sema.names as npool
+
+insignia psc_cmd_deps_
+
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Raíz del proyecto o `""`.
+weave project_root into string:
+    var cwd as maybe string is calling rites.getcwd
+    if not cwd.is_present:
+        banish cwd
+        return ""
+    var r as string is calling pman.find_root with cwd.value
+    banish cwd
+    return r
+
+## Imprime un error de fase.
+weave fail with msg as string into int:
+    var e as string is "psc: {msg}"
+    calling spark.eprintln with e
+    banish e
+    return 1
+
+## Rechaza manifiestos YAML/JSON.
+weave check_legacy with base as string into int:
+    var l as string is calling pman.legacy_manifest with base
+    if l length > 0:
+        var m as string is "only pengu.toml is supported; found {l}. Migrate to pengu.toml (YAML/JSON manifests are no longer accepted)."
+        calling spark.eprintln with m
+        banish m
+        banish l
+        return 1
+    banish l
+    return 0
+
+## Resuelve, instala y escribe lock.
+weave sync with base as string, lib_dir as string, write_lock as bool, trusted as bool, exe as string, run_build as bool into int:
+    var deps as list of pman.Dependency is calling pman.load with base
+    if deps.len == 0:
+        var lp as string is "{base}/pengu.lock"
+        var ign as bool is calling archivum.delete_file with lp
+        banish lp
+        return 0
+    var g as presolve.Graph is calling presolve.resolve with base, lib_dir, deps
+    if not g.ok:
+        var e as string is g.error
+        calling spark.eprintln with e
+        banish e
+        calling pman.free with deps
+        calling presolve.free with (sigil of g)
+        return 1
+    if write_lock:
+        var lk as plock.Lock is with target is "x86_64-unknown-linux-gnu", packages is list of plock.Package
+        for p in g.packages:
+            calling lk.packages.push with p
+        var ok as bool is calling plock.write with base, lk
+        banish lk.packages
+        if not ok:
+            calling spark.eprintln with "psc: cannot write pengu.lock"
+            return 1
+    calling pman.free with deps
+    calling presolve.free with (sigil of g)
+    return 0
+
+## Lee una dependencia del manifiesto.
+weave dep_by_name with base as string, name as string into pman.Dependency:
+    var ds as list of pman.Dependency is calling pman.load with base
+    var i as int is 0
+    while i < ds.len:
+        if (ds at i).name == name:
+            var d as pman.Dependency is (ds at i)
+            var out as pman.Dependency is with name is (calling copy with d.name), kind is (calling copy with d.kind), source is (calling copy with d.source), branch is (calling copy with d.branch), tag is (calling copy with d.tag), constraint is (calling copy with d.constraint)
+            calling pman.free with ds
+            return out
+        set i is i + 1
+    calling pman.free with ds
+    return with name is "", kind is "", source is "", branch is "", tag is "", constraint is "*"
+
+## `psc add`.
+weave run_add with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--name"
+    calling vf.push with "--branch"
+    calling vf.push with "--tag"
+    calling vf.push with "--version"
+    var sf as list of string is list of string
+    calling sf.push with "--no-build"
+    calling sf.push with "--rebuild"
+    calling sf.push with "--trust"
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok:
+        var e as string is pr.error
+        calling spark.eprintln with e
+        banish e
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling spark.println with "Usage: psc add SOURCE [--name=NAME] [--branch=B] [--tag=T] [--version=C] [--no-build] [--rebuild] [--trust]"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    if pr.args.positionals.len < 1:
+        calling spark.eprintln with "psc add: missing SOURCE"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var source as string is calling copy with (pr.args.positionals at 0)
+    var name as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--name")
+    if pr.args.positionals.len >= 2:
+        banish name
+        set name is calling copy with (pr.args.positionals at 0)
+        banish source
+        set source is calling copy with (pr.args.positionals at 1)
+    var base as string is calling project_root
+    if base length == 0:
+        var cw as maybe string is calling rites.getcwd
+        var leg as string is ""
+        if cw.is_present:
+            set leg is calling pman.legacy_manifest with cw.value
+        banish cw
+        if leg length > 0:
+            var lm as string is "only pengu.toml is supported; found {leg}. YAML/JSON manifests are no longer accepted."
+            calling spark.eprintln with lm
+            banish lm
+            banish leg
+            banish source
+            banish base
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 1
+        banish leg
+        banish source
+        banish base
+        calling cliargs.free_parse_result with (sigil of pr)
+        return calling fail with "no pengu.toml found"
+    if (calling check_legacy with base) != 0:
+        banish source
+        banish base
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    if name length == 0:
+        banish name
+        set name is calling derive_name with source
+    if not calling pman.valid_name with name:
+        var m as string is "invalid dependency name '{name}'"
+        calling spark.eprintln with m
+        banish m
+        banish name
+        banish source
+        banish base
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var d as pman.Dependency is with name is (calling copy with name), kind is (calling copy with "path"), source is source, branch is (calling copy with (calling cliargs.value with (sigil of pr.args), "--branch")), tag is (calling copy with (calling cliargs.value with (sigil of pr.args), "--tag")), constraint is (calling copy with (calling cliargs.value with (sigil of pr.args), "--version"))
+    if d.constraint length == 0:
+        banish d.constraint
+        set d.constraint is "*"
+    if calling psource.is_git with source:
+        set d.kind is (calling copy with "git")
+    var up as bool is calling pman.upsert with base, d
+    if not up:
+        calling spark.eprintln with "psc add: cannot update pengu.toml"
+        banish name
+        banish base
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var trust as bool is calling cliargs.enabled with (sigil of pr.args), "--trust"
+    var nobuild as bool is calling cliargs.enabled with (sigil of pr.args), "--no-build"
+    var code as int is calling sync with base, "lib", true, trust, (args at 0), not nobuild
+    if code == 0 and not nobuild:
+        var force as bool is calling cliargs.enabled with (sigil of pr.args), "--rebuild"
+        var br as bool is calling build_script.run with base, "lib", name, trust, force, (args at 0)
+        if br:
+            set code is calling sync with base, "lib", true, trust, (args at 0), false
+    banish name
+    banish base
+    calling cliargs.free_parse_result with (sigil of pr)
+    return code
+
+## Deriva nombre de una fuente.
+weave derive_name with source as string into string:
+    var s as string is source
+    var b as ref to frozen byte is bytes of s
+    var i as int is s length - 1
+    while i > 0 and (((b at i) to int) == 47 or ((b at i) to int) == 92):
+        set i is i - 1
+    var e as int is i + 1
+    while i >= 0 and ((b at i) to int) != 47 and ((b at i) to int) != 92:
+        set i is i - 1
+    var n as string is s at (i + 1) to e
+    if calling ends_with with n, ".git":
+        var cut as int is n length - 4
+        var n2 as string is n at 0 to cut
+        banish n
+        set n is n2
+    banish s
+    return n
+
+weave ends_with with s as string, p as string into bool:
+    if s length < p length:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of p
+    var i as int is 0
+    while i < p length:
+        if ((sb at (s length - p length + i)) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## `psc remove`.
+weave run_remove with args as list of string into int:
+    var sf as list of string is list of string
+    calling sf.push with "--keep-files"
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    if not pr.ok or pr.args.positionals.len == 0:
+        calling spark.eprintln with "Usage: psc remove NAME [--keep-files]"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var name as string is calling copy with (pr.args.positionals at 0)
+    var base as string is calling project_root
+    if base length == 0:
+        banish name
+        banish base
+        calling cliargs.free_parse_result with (sigil of pr)
+        return calling fail with "no pengu.toml found"
+    var okm as bool is calling pman.remove with base, name
+    if not okm:
+        calling spark.eprintln with "psc remove: dependency not found"
+        banish name
+        banish base
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    if not calling cliargs.enabled with (sigil of pr.args), "--keep-files":
+        var p as string is "{base}/lib/{name}"
+        if calling archivum.is_dir with p:
+            var ign as bool is calling archivum.remove_dir with p, true
+        banish p
+    var code as int is calling sync with base, "lib", true, false, (args at 0), false
+    banish name
+    banish base
+    calling cliargs.free_parse_result with (sigil of pr)
+    return code
+
+## `psc update`.
+weave run_update with args as list of string into int:
+    var sf as list of string is list of string
+    calling sf.push with "--trust"
+    calling sf.push with "--no-build"
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    if not pr.ok:
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling spark.println with "Usage: psc update [--trust] [--no-build]"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var base as string is calling project_root
+    if base length == 0:
+        banish base
+        calling cliargs.free_parse_result with (sigil of pr)
+        return calling fail with "no pengu.toml found"
+    var trust as bool is calling cliargs.enabled with (sigil of pr.args), "--trust"
+    var nobuild as bool is calling cliargs.enabled with (sigil of pr.args), "--no-build"
+    var code as int is calling sync with base, "lib", true, trust, (args at 0), not nobuild
+    banish base
+    calling cliargs.free_parse_result with (sigil of pr)
+    return code
+
+## `psc upgrade`.
+weave run_upgrade with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--version"
+    calling vf.push with "--branch"
+    var sf as list of string is list of string
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
+    if not pr.ok or pr.args.positionals.len == 0:
+        calling spark.eprintln with "Usage: psc upgrade NAME [--version=V] [--branch=B]"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    var name as string is calling copy with (pr.args.positionals at 0)
+    var base as string is calling project_root
+    if base length == 0:
+        banish name
+        banish base
+        calling cliargs.free_parse_result with (sigil of pr)
+        return calling fail with "no pengu.toml found"
+    var d as pman.Dependency is calling dep_by_name with base, name
+    if d.name length == 0:
+        banish name
+        banish base
+        calling cliargs.free_parse_result with (sigil of pr)
+        return calling fail with "dependency not found"
+    var ver as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--version")
+    if ver length > 0:
+        banish d.constraint
+        set d.constraint is (calling copy with ver)
+        banish d.tag
+        set d.tag is ""
+    var br as string is calling copy with (calling cliargs.value with (sigil of pr.args), "--branch")
+    if br length > 0:
+        banish d.branch
+        set d.branch is (calling copy with br)
+    var up as bool is calling pman.upsert with base, d
+    var code as int is 0
+    if up:
+        var upath as string is "{base}/lib/{name}"
+        if calling archivum.is_dir with upath:
+            var ign as bool is calling archivum.remove_dir with upath, true
+        banish upath
+        set code is calling sync with base, "lib", true, false, (args at 0), false
+    else:
+        set code is 1
+    banish ver
+    banish br
+    banish name
+    banish base
+    calling cliargs.free_parse_result with (sigil of pr)
+    return code
+
+## `psc verify`.
+weave run_verify with args as list of string into int:
+    var sf as list of string is list of string
+    calling sf.push with "--verbose"
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    if not pr.ok:
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling spark.println with "Usage: psc verify [--verbose]"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var base as string is calling project_root
+    if base length == 0:
+        banish base
+        calling cliargs.free_parse_result with (sigil of pr)
+        return calling fail with "no pengu.toml found"
+    var lm as maybe plock.Lock is calling plock.read with base
+    if not lm.is_present:
+        calling spark.eprintln with "psc verify: no pengu.lock found"
+        banish lm
+        banish base
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
+    var bad as int is 0
+    for p in lm.value.packages:
+        var dir as string is "{base}/lib/{p.name}"
+        if not calling archivum.is_dir with dir:
+            var m as string is "  - {p.name}: not installed"
+            calling spark.eprintln with m
+            banish m
+            set bad is bad + 1
+        else:
+            if p.commit length > 0:
+                var hc as string is calling psource.commit with dir
+                if hc != p.commit:
+                    var mc as string is "  - {p.name}: commit mismatch"
+                    calling spark.eprintln with mc
+                    banish mc
+                    set bad is bad + 1
+                banish hc
+            if p.sha256 length > 0:
+                var h as string is calling plock.tree_hash with dir
+                if h != p.sha256:
+                    var m2 as string is "  - {p.name}: sha256 mismatch"
+                    calling spark.eprintln with m2
+                    banish m2
+                    set bad is bad + 1
+                banish h
+        banish dir
+    var count as int is lm.value.packages.len
+    if bad == 0:
+        var msg as string is "Verified {count} package(s) match pengu.lock"
+        calling spark.println with msg
+        banish msg
+    banish lm
+    banish base
+    calling cliargs.free_parse_result with (sigil of pr)
+    if bad > 0:
+        return 1
+    return 0
+
+## `psc vendor`.
+weave run_vendor with args as list of string into int:
+    var sf as list of string is list of string
+    calling sf.push with "--verbose"
+    calling sf.push with "--help"
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    if not pr.ok:
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 2
+    if calling cliargs.enabled with (sigil of pr.args), "help":
+        calling spark.println with "Usage: psc vendor [--verbose]"
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 0
+    var base as string is calling project_root
+    if base length == 0:
+        banish base
+        calling cliargs.free_parse_result with (sigil of pr)
+        return calling fail with "no pengu.toml found"
+    var vdir as string is "{base}/vendor"
+    var ignv as bool is calling archivum.create_dir with vdir, true
+    var lm0 as maybe plock.Lock is calling plock.read with base
+    var count as int is 0
+    if lm0.is_present:
+        for vp in lm0.value.packages:
+            var src as string is "{base}/lib/{vp.name}"
+            if calling archivum.is_dir with src:
+                var dst as string is "{vdir}/{vp.name}"
+                var okc as bool is calling psource.copy_local with src, dst
+                if okc:
+                    set count is count + 1
+                banish dst
+            banish src
+        banish lm0
+    else:
+        banish lm0
+        var ds as list of pman.Dependency is calling pman.load with base
+        for d in ds:
+            var src as string is "{base}/lib/{d.name}"
+            if calling archivum.is_dir with src:
+                var dst as string is "{vdir}/{d.name}"
+                var okc as bool is calling psource.copy_local with src, dst
+                if okc:
+                    set count is count + 1
+                banish dst
+            banish src
+        banish ds
+    var readme as string is "# vendor/\n\nDependency snapshots generated by `psc vendor`.\n"
+    var rp as string is "{vdir}/README.md"
+    var ig2 as bool is calling archivum.write_text with rp, readme
+    banish rp
+    banish readme
+    var msg as string is "Vendored {count} dependency(ies) into {vdir}"
+    calling spark.println with msg
+    banish msg
+    banish vdir
+    banish base
+    calling cliargs.free_parse_result with (sigil of pr)
+    return 0

@@ -176,12 +176,6 @@ weave load_manifest with base_dir as string, profile as string into Manifest:
     var bad as string is ""
     if output != "exe" and output != "c" and output != "obj" and output != "static" and output != "shared":
         set bad is "output '{output}' is not supported (use exe|c|obj|static|shared)"
-    var has_deps as bool is false
-    for e in entries:
-        if calling starts_with with e.key, "dependencies.":
-            set has_deps is true
-    if has_deps:
-        set bad is "dependencies are not supported in F5 (planned F9)"
     calling toml.free_entries with entries
     return with found is true, ok is (bad length == 0), error is bad, base_dir is (calling copy with base_dir), name is name, version is version, entry is entry, output is output, output_name is output_name, src_dir is src_dir, lib_dir is lib_dir, include_dir is include_dir, c_dir is c_dir, build_dir is build_dir, assets_dir is assets_dir, assets_module is assets_module, assets_embed is assets_embed, assets_exclude is assets_exclude, links is links, lib_dirs is lib_dirs, include_dirs is include_dirs, cflags is cflags, ldflags is ldflags, defines is defines, cc is cc, strict_c99 is strict
 

@@ -218,7 +218,18 @@ weave find_module with options as ref to opts.SemaOptions, dot as string, from_d
             if h2 != "":
                 return h2
             banish h2
-    # 5. base_dir
+    # 5. dep_dirs (F9)
+    var ddi as int is 0
+    while ddi < options->dep_dirs.len:
+        var ddir as string is (options->dep_dirs at ddi)
+        var dpre as string is calling join2 with ddir, rel
+        var dhit as string is calling try_prefix with dpre
+        banish dpre
+        if dhit != "":
+            return dhit
+        banish dhit
+        set ddi is ddi + 1
+    # 6. base_dir
     var pre5 as string is calling join2 with options->base_dir, rel
     defer banish pre5
     var hit5 as string is calling try_prefix with pre5

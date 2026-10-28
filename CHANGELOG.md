@@ -2,6 +2,16 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [F9] — 2026-10-27 — Dependencias y package manager nativo
+
+- `psc add/remove/update/upgrade/verify/vendor` implementados en PSC.
+- Dependencias locales y git, tags SemVer, transitivas y `pengu.lock` v1.
+- `--locked`/`--frozen`, vendor offline y `build.pengu` con `--trust`.
+- `tree`/`metadata` incluyen dependencias.
+- **Sólo `pengu.toml`**: `pengu.yaml`, `pengu.yml` y `pengu.json` se rechazan.
+- Build resuelve `lib/<name>/src`, includes y lock.
+- Tests: `tests/psc/test_f9_deps.py` (7).
+
 ## [3.0.3] — 2026-10-24 — B1/B2 residuals and byte-exact `\xNN`
 
 Closes the three gaps left after 3.0.2.  The full 3.0.1 audit remains closed; this

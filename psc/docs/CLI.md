@@ -18,11 +18,33 @@ psc version | help
 Los comandos de fases posteriores existen y fallan con un mensaje explícito:
 
 ```text
-psc add/remove/upgrade/verify/vendor/update   F9
-psc lsp                                      F8
-psc bind                                     F10
-psc build --target                           F11
+psc bind                F10
+psc build --target      F11
 ```
+
+## Dependencias (F9)
+
+Sólo `pengu.toml`; `pengu.yaml`, `pengu.yml` y `pengu.json` se rechazan.
+
+```bash
+psc add SOURCE [--name=NAME] [--branch=B] [--tag=T] [--version=CONSTRAINT]
+psc remove NAME [--keep-files]
+psc update [--trust] [--no-build]
+psc upgrade NAME [--version=V] [--branch=B]
+psc verify [--verbose]
+psc vendor [--verbose]
+psc tree [--json]
+psc metadata [--json]
+psc build [--locked|--frozen]
+```
+
+- Fuentes: path local, `file://` o URL git. Las versiones son tags git.
+- `add` instala en `lib/<name>`, resuelve transitivas y escribe `pengu.lock`.
+- `build.pengu` sólo se ejecuta con `--trust` o `PENGU_TRUST_ALL=1`.
+- `--locked` verifica el lock sin reescribirlo; `--frozen` además exige lock y
+  restaura desde `vendor/` sin red.
+- `verify` comprueba commit y SHA-256 del árbol.
+
 
 ## Build
 

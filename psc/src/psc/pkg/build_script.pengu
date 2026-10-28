@@ -1,0 +1,73 @@
+## psc/pkg/build_script.pengu — build.pengu de dependencias con --trust.
+
+import std.archivum
+import std.rites
+import std.spark
+
+import psc.os.proc as proc
+
+insignia psc_pkg_build_script_
+
+## Trust: flag, `PENGU_TRUST_ALL`, o prompt interactivo (no implementado).
+weave trusted_by_env into bool:
+    var v as maybe string is calling rites.getenv with "PENGU_TRUST_ALL"
+    if not v.is_present:
+        banish v
+        return false
+    var s as string is v.value
+    var ok as bool is s == "1" or s == "true" or s == "yes" or s == "on"
+    banish v
+    return ok
+
+## Ejecuta `build.pengu` de una dependencia directa.
+##
+## Devuelve true si existía y se ejecutó (aunque fallara).
+weave run with base as string, lib_dir as string, name as string, trusted as bool, force as bool, exe as string into bool:
+    var dir as string is "{base}/{lib_dir}/{name}"
+    var script as string is "{dir}/build.pengu"
+    if not calling archivum.is_file with script:
+        banish script
+        banish dir
+        return false
+    var allowed as bool is trusted
+    if not allowed:
+        set allowed is calling trusted_by_env
+    if not allowed:
+        var msg as string is "     Skipped '{name}' build.pengu; pass --trust to run it."
+        calling spark.eprintln with msg
+        banish msg
+        banish script
+        banish dir
+        return false
+    var args as list of string is list of string
+    calling args.push with (calling copy with exe)
+    calling args.push with "run"
+    calling args.push with (calling copy with script)
+    if force:
+        calling args.push with "--"
+        calling args.push with "--force"
+    var msg2 as string is "    Building dependency '{name}' with build.pengu"
+    calling spark.eprintln with msg2
+    banish msg2
+    var old as maybe string is calling rites.getcwd
+    var oldp as string is ""
+    if old.is_present:
+        set oldp is (calling copy with old.value)
+    banish old
+    var ch as bool is calling rites.chdir with dir
+    var code as int is calling proc.run_argv with args
+    if oldp length > 0:
+        var back as bool is calling rites.chdir with oldp
+    banish oldp
+    var i as int is 0
+    while i < args.len:
+        banish args at i
+        set i is i + 1
+    banish args
+    if code != 0:
+        var w as string is "     Warning build.pengu of '{name}' returned {code}"
+        calling spark.eprintln with w
+        banish w
+    banish script
+    banish dir
+    return true

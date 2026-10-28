@@ -2941,7 +2941,7 @@ weave remove with m as map of string to int, key as string into bool:
 ## calling atlas.clear with m
 ## ```
 weave clear with m as map of string to int into void:
-    calling m.clear
+    calling clear with m
 
 
 ## New list with all keys of the `map of string to int`.

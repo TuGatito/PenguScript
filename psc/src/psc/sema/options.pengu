@@ -17,6 +17,8 @@ rune SemaOptions:
     lib_dir as string
     ## Directorios extra de stdlib; prestados/owned por el llamador.
     std_dirs as list of string
+    ## Directorios extra de módulos de proyecto (dependencias F9).
+    dep_dirs as list of string
     ## `-D NAME` / `-D NAME=valor`.
     defines as list of string
     ## SO de compilación (`linux`, `windows`, `macos`, ...).
@@ -47,7 +49,7 @@ rune SemaOptions:
 ## ## Memoria
 ## Devuelve strings owned; el llamador los libera con `free_options`.
 weave default_options with base_dir as string into SemaOptions:
-    return with base_dir is base_dir, src_dir is "src", lib_dir is "lib", std_dirs is list of string, defines is list of string, os_name is "linux", arch is "x64", compiler is "gcc", wasm_target is "", is_main is true, is_debug is false, deny_deprecated is false, max_errors is 100, stop_after_first is false, include_antiquus is false
+    return with base_dir is base_dir, src_dir is "src", lib_dir is "lib", std_dirs is list of string, dep_dirs is list of string, defines is list of string, os_name is "linux", arch is "x64", compiler is "gcc", wasm_target is "", is_main is true, is_debug is false, deny_deprecated is false, max_errors is 100, stop_after_first is false, include_antiquus is false
 
 ## Libera las opciones.
 ##
@@ -62,6 +64,11 @@ weave free_options with opts as ref to SemaOptions into void:
         banish opts->std_dirs at (i)
         set i is i + 1
     banish opts->std_dirs
+    var dj as int is 0
+    while dj < opts->dep_dirs.len:
+        banish opts->dep_dirs at dj
+        set dj is dj + 1
+    banish opts->dep_dirs
     set i is 0
     while i < opts->defines.len:
         banish opts->defines at (i)

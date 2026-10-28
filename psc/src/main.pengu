@@ -42,6 +42,7 @@ import psc.cmd.clean as cmd_clean
 import psc.cmd.doctor as cmd_doctor
 import psc.cmd.meta as cmd_meta
 import psc.cmd.stubs as cmd_stubs
+import psc.cmd.deps as cmd_deps
 import psc.cmd.test as cmd_test
 import psc.cmd.eval as cmd_eval
 import psc.cmd.time as cmd_time
@@ -93,7 +94,7 @@ weave dispatch with args as list of string into int:
         return gc
     var cmd as string is args at 1
     if cmd == "version" or cmd == "--version" or cmd == "-V":
-        calling spark.println with "psc 0.8.0 (F8)"
+        calling spark.println with "psc 0.9.0 (F9)"
         return 0
     if cmd == "help" or cmd == "--help" or cmd == "-h":
         if cmd == "help" and args.len >= 3:
@@ -133,11 +134,18 @@ weave dispatch with args as list of string into int:
         return calling cmd_meta.run_metadata with args
     if cmd == "tree":
         return calling cmd_meta.run_tree with args
-    if cmd == "add" or cmd == "remove" or cmd == "upgrade" or cmd == "verify" or cmd == "vendor" or cmd == "update":
-        if args.len > 2 and (args at 2) == "--help":
-            calling spark.println with "These commands arrive in F9 (package manager)."
-            return 0
-        return calling cmd_stubs.run_deps with cmd
+    if cmd == "add":
+        return calling cmd_deps.run_add with args
+    if cmd == "remove":
+        return calling cmd_deps.run_remove with args
+    if cmd == "update":
+        return calling cmd_deps.run_update with args
+    if cmd == "upgrade":
+        return calling cmd_deps.run_upgrade with args
+    if cmd == "verify":
+        return calling cmd_deps.run_verify with args
+    if cmd == "vendor":
+        return calling cmd_deps.run_vendor with args
     if cmd == "lsp":
         return calling cmd_lsp.run_lsp with args
     if cmd == "bind":

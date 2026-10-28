@@ -1,0 +1,195 @@
+## psc/pkg/lock.pengu — `pengu.lock` v1.
+##
+## Formato TOML plano idéntico a stage0:
+## version, targets, y [[package]] con name/source/constraint/version/commit/
+## sha256/required_by/children.
+
+import std.archivum
+import std.builder
+import std.compass
+import std.digest
+import std.toml as toml
+
+import psc.sema.names as npool
+
+insignia psc_pkg_lock_
+
+## Paquete bloqueado.
+rune Package:
+    name as string
+    source as string
+    constraint as string
+    version as string
+    commit as string
+    sha256 as string
+    required_by as list of string
+    children as list of string
+
+## Lock completo.
+rune Lock:
+    target as string
+    packages as list of Package
+
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Hash SHA-256 del árbol (ignora .git/build/caches).
+weave tree_hash with root as string into string:
+    var b as string is ""
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var files as list of string is calling archivum.find_files with root, true
+    for f in files:
+        var relm as maybe string is calling compass.cp_relative_to with f, root
+        var rel as string is ""
+        if relm.is_present:
+            set rel is (calling npool.copy_string with relm.value)
+        banish relm
+        var skip as bool is false
+        if (calling contains with rel, "/.git/") or (calling starts_with with rel, ".git/"):
+            set skip is true
+        if (calling contains with rel, "/build/") or (calling starts_with with rel, "build/"):
+            set skip is true
+        if (calling contains with rel, "/__pycache__/") or (calling starts_with with rel, "__pycache__"):
+            set skip is true
+        if (calling contains with rel, "/.venv/") or (calling starts_with with rel, ".venv/"):
+            set skip is true
+        if (calling contains with rel, "/node_modules/") or (calling starts_with with rel, "node_modules/"):
+            set skip is true
+        if not skip:
+            calling sb.append with rel
+            calling sb.append with "\0"
+            var data as maybe string is calling archivum.read_bytes with f
+            if data.is_present:
+                calling sb.append with data.value
+                banish data
+            calling sb.append with "\0"
+        banish rel
+        banish f
+    banish files
+    var data2 as string is calling sb.finish
+    var h as string is calling digest.sha256_hex with data2
+    banish data2
+    return h
+
+## `true` si `s` contiene `p`.
+weave contains with s as string, p as string into bool:
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of p
+    var i as int is 0
+    while i + p length <= s length:
+        var j as int is 0
+        var hit as bool is true
+        while j < p length:
+            if ((sb at (i + j)) to int) != ((pb at j) to int):
+                set hit is false
+            set j is j + 1
+        if hit:
+            return true
+        set i is i + 1
+    return false
+
+weave starts_with with s as string, p as string into bool:
+    if s length < p length:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of p
+    var i as int is 0
+    while i < p length:
+        if ((sb at i) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## Lee un lock; `none` si no existe o es inválido.
+weave read with base as string into maybe Lock:
+    var path as string is "{base}/pengu.lock"
+    if not calling archivum.is_file with path:
+        banish path
+        return (maybe none)
+    var txt as maybe string is calling archivum.read_text with path
+    banish path
+    if not txt.is_present:
+        banish txt
+        return (maybe none)
+    var pr as result of list of toml.TomlEntry to string is calling toml.parse with txt.value
+    banish txt
+    if not pr.is_ok:
+        banish pr
+        return (maybe none)
+    var entries as list of toml.TomlEntry is pr.value
+    var lock as Lock is with target is "", packages is list of Package
+    var i as int is 0
+    while i < 10000:
+        var prefix as string is "package[{i}]."
+        if not calling toml.has with entries, "{prefix}name":
+            break
+        var p as Package is with name is (calling toml.get with entries, "{prefix}name"), source is (calling toml.get with entries, "{prefix}source"), constraint is (calling toml.get with entries, "{prefix}constraint"), version is (calling toml.get with entries, "{prefix}version"), commit is (calling toml.get with entries, "{prefix}commit"), sha256 is (calling toml.get with entries, "{prefix}sha256"), required_by is (calling toml.get_array with entries, "{prefix}required_by"), children is (calling toml.get_array with entries, "{prefix}children")
+        calling lock.packages.push with p
+        set i is i + 1
+    var tgt as string is ""
+    if calling toml.has with entries, "targets[0]":
+        set tgt is calling toml.get with entries, "targets[0]"
+    set lock.target is tgt
+    calling toml.free_entries with entries
+    return some lock
+
+## Serializa un lock.
+weave dumps with lock as Lock into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "version = 1\n"
+    if lock.target length > 0:
+        calling sb.append with "targets = [\""
+        calling sb.append with lock.target
+        calling sb.append with "\"]\n"
+    else:
+        calling sb.append with "targets = []\n"
+    for p in lock.packages:
+        calling sb.append with "\n[[package]]\nname = \""
+        calling sb.append with p.name
+        calling sb.append with "\"\nsource = \""
+        calling sb.append with p.source
+        calling sb.append with "\"\nconstraint = \""
+        calling sb.append with p.constraint
+        calling sb.append with "\"\nversion = \""
+        calling sb.append with p.version
+        calling sb.append with "\"\ncommit = \""
+        calling sb.append with p.commit
+        calling sb.append with "\"\nsha256 = \""
+        calling sb.append with p.sha256
+        calling sb.append with "\"\nrequired_by = ["
+        var j as int is 0
+        while j < p.required_by.len:
+            if j > 0:
+                calling sb.append with ", "
+            calling sb.append with "\""
+            calling sb.append with (p.required_by at j)
+            calling sb.append with "\""
+            set j is j + 1
+        calling sb.append with "]\nchildren = ["
+        set j is 0
+        while j < p.children.len:
+            if j > 0:
+                calling sb.append with ", "
+            calling sb.append with "\""
+            calling sb.append with (p.children at j)
+            calling sb.append with "\""
+            set j is j + 1
+        calling sb.append with "]\n"
+    return calling sb.finish
+
+## Escribe un lock de forma atómica.
+weave write with base as string, lock as Lock into bool:
+    var text as string is calling dumps with lock
+    var path as string is "{base}/pengu.lock"
+    var tmp as string is "{path}.tmp"
+    var ok as bool is calling archivum.write_text with tmp, text
+    if ok:
+        set ok is calling archivum.move_file with tmp, path, true
+    if not ok:
+        var ign as bool is calling archivum.delete_file with tmp
+    banish tmp
+    banish path
+    banish text
+    return ok

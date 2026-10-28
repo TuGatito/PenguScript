@@ -1,0 +1,188 @@
+## psc/pkg/source.pengu — fuentes local/git.
+##
+## Git se ejecuta con argv (nunca shell) para no inyectar opciones ni comandos.
+
+import std.archivum
+import std.builder
+import std.compass
+import std.rites
+
+import psc.os.proc as proc
+import psc.sema.names as npool
+
+insignia psc_pkg_source_
+
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## ¿Es una URL git?
+weave is_git with s as string into bool:
+    if s length >= 4 and s at (s length - 4) to (s length) == ".git":
+        return true
+    var prefixes as list of string is list of string
+    calling prefixes.push with "http://"
+    calling prefixes.push with "https://"
+    calling prefixes.push with "git://"
+    calling prefixes.push with "ssh://"
+    calling prefixes.push with "git@"
+    calling prefixes.push with "file://"
+    var hit as bool is false
+    for p in prefixes:
+        if s length >= p length and s at 0 to (p length) == p:
+            set hit is true
+        banish p
+    banish prefixes
+    return hit
+
+## Copia un árbol local a `dst` (elimina dst antes).
+weave copy_local with src as string, dst as string into bool:
+    if calling archivum.is_dir with dst:
+        var ign as bool is calling archivum.remove_dir with dst, true
+    var okd as bool is calling archivum.create_dir with dst, true
+    if not okd:
+        return false
+    var files as list of string is calling archivum.find_files with src, true
+    var ok as bool is true
+    for f in files:
+        var relm as maybe string is calling compass.cp_relative_to with f, src
+        if relm.is_present:
+            var rel as string is (calling copy with relm.value)
+            var out as string is "{dst}/{rel}"
+            var parent as string is calling compass.cp_dirname with out
+            var ig as bool is calling archivum.create_dir with parent, true
+            if not calling archivum.copy_file with f, out, true:
+                set ok is false
+            banish parent
+            banish out
+            banish rel
+        banish relm
+        banish f
+    banish files
+    return ok
+
+## Clona un repo git y hace checkout de `ref` (tag/branch) si no está vacío.
+weave clone_git with src as string, dst as string, ref as string into bool:
+    if calling archivum.is_dir with dst:
+        var ign as bool is calling archivum.remove_dir with dst, true
+    var args as list of string is list of string
+    calling args.push with (calling copy with "git")
+    calling args.push with (calling copy with "clone")
+    calling args.push with (calling copy with "--quiet")
+    calling args.push with (calling copy with src)
+    calling args.push with (calling copy with dst)
+    var code as int is calling proc.run_argv with args
+    var i as int is 0
+    while i < args.len:
+        banish args at i
+        set i is i + 1
+    banish args
+    if code != 0:
+        return false
+    if ref length > 0:
+        var cargs as list of string is list of string
+        calling cargs.push with (calling copy with "git")
+        calling cargs.push with (calling copy with "-C")
+        calling cargs.push with (calling copy with dst)
+        calling cargs.push with (calling copy with "checkout")
+        calling cargs.push with (calling copy with "--quiet")
+        calling cargs.push with (calling copy with ref)
+        var ccode as int is calling proc.run_argv with cargs
+        set i is 0
+        while i < cargs.len:
+            banish cargs at i
+            set i is i + 1
+        banish cargs
+        if ccode != 0:
+            return false
+    return true
+
+## `git -C path rev-parse HEAD`; `""` si falla.
+weave commit with path as string into string:
+    var hp as string is "{path}/.git/HEAD"
+    var hm as maybe string is calling archivum.read_text with hp
+    banish hp
+    if not hm.is_present:
+        banish hm
+        return calling copy with ""
+    var h as string is calling copy with hm.value
+    banish hm
+    # trim newline
+    var b as ref to frozen byte is bytes of h
+    var e as int is h length
+    while e > 0 and (((b at (e - 1)) to int) == 10 or ((b at (e - 1)) to int) == 13 or ((b at (e - 1)) to int) == 32):
+        set e is e - 1
+    var head as string is (calling copy with (h at 0 to e))
+    banish h
+    if head length > 5 and head at 0 to 5 == "ref: ":
+        var refname as string is head at 5 to (head length)
+        banish head
+        var rp as string is "{path}/.git/{refname}"
+        var rm as maybe string is calling archivum.read_text with rp
+        banish rp
+        banish refname
+        if rm.is_present:
+            var rh as string is calling copy with rm.value
+            banish rm
+            var rb as ref to frozen byte is bytes of rh
+            var re as int is rh length
+            while re > 0 and (((rb at (re - 1)) to int) == 10 or ((rb at (re - 1)) to int) == 13 or ((rb at (re - 1)) to int) == 32):
+                set re is re - 1
+            var out as string is (calling copy with (rh at 0 to re))
+            banish rh
+            return out
+        banish rm
+        return calling copy with ""
+    return head
+
+## Tags git (`git ls-remote --tags URL`), sin `^{}`.
+weave tags with src as string into list of string:
+    var out as list of string is list of string
+    var args as list of string is list of string
+    calling args.push with (calling copy with "ls-remote")
+    calling args.push with (calling copy with "--tags")
+    calling args.push with (calling copy with src)
+    var pr as rites.ProcessResult is calling rites.run_capture_all with "git", args
+    if pr.code == 0:
+        var lines as list of string is calling pr.stdout.split with "\n"
+        for line in lines:
+            var tab as int is 0
+            var b as ref to frozen byte is bytes of line
+            while tab < line length and ((b at tab) to int) != 9:
+                set tab is tab + 1
+            if tab + 1 < line length:
+                var ref as string is line at (tab + 1) to (line length)
+                var rb as ref to frozen byte is bytes of ref
+                var slash as int is ref length - 1
+                while slash >= 0 and ((rb at slash) to int) != 47:
+                    set slash is slash - 1
+                if slash >= 0:
+                    var tag as string is ref at (slash + 1) to (ref length)
+                    if tag length > 3 and tag at (tag length - 3) to (tag length) == r"^{}":
+                        var cut as int is tag length - 3
+                        var t2 as string is tag at 0 to cut
+                        banish tag
+                        set tag is t2
+                    calling out.push with tag
+                banish ref
+        banish lines
+    banish pr.stdout
+    banish pr.stderr
+    var i as int is 0
+    while i < args.len:
+        banish args at i
+        set i is i + 1
+    banish args
+    return out
+
+## `true` si `s` termina en `p`.
+weave ends_with with s as string, p as string into bool:
+    if s length < p length:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of p
+    var i as int is 0
+    while i < p length:
+        if ((sb at (s length - p length + i)) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true

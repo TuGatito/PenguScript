@@ -1,0 +1,239 @@
+## psc/pkg/semver.pengu — SemVer y constraints para dependencias.
+##
+## Puerto de `pengu_semver.py`: versiones `1.2.3`, tags con `v`, prerelease y
+## constraints `^`, `~`, `>=`, `>`, `<=`, `<`, `=`, `*` y listas por coma.
+
+import std.builder
+import psc.sema.names as npool
+
+insignia psc_pkg_semver_
+
+## Versión SemVer.
+rune Version:
+    major as int
+    minor as int
+    patch as int
+    pre as string
+
+## Constraint.
+rune Constraint:
+    ## 0=*, 1=^, 2=~, 3===, 4=>=, 5=>, 6=<=, 7=<
+    op as int
+    version as Version
+
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## ¿Dígito?
+weave digit with c as int into bool:
+    return c >= 48 and c <= 57
+
+## Parsea una versión; `none` si inválida.
+weave parse_version with text as string into maybe Version:
+    var s as string is text
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    if i < s length and (s at i to (i + 1)) == "v":
+        set i is i + 1
+    var nums as list of int is list of int
+    var cur as int is 0
+    var has as bool is false
+    while i < s length:
+        var c as int is ((b at i) to int)
+        if calling digit with c:
+            set cur is cur * 10 + (c - 48)
+            set has is true
+        else if c == 46:
+            if not has:
+                banish nums
+                return (maybe none)
+            calling nums.push with cur
+            set cur is 0
+            set has is false
+        else:
+            break
+        set i is i + 1
+    if has:
+        calling nums.push with cur
+    if nums.len < 1:
+        banish nums
+        return (maybe none)
+    var maj as int is 0
+    var mnr as int is 0
+    var pat as int is 0
+    if nums.len > 0:
+        set maj is (nums at 0)
+    if nums.len > 1:
+        set mnr is (nums at 1)
+    if nums.len > 2:
+        set pat is (nums at 2)
+    banish nums
+    var pre as string is ""
+    if i < s length and (s at i to (i + 1)) == "-":
+        set i is i + 1
+        set pre is s at i to (s length)
+    else:
+        if i < s length and (s at i to (i + 1)) == "+":
+            var plus as int is i
+            set pre is ""
+            banish pre
+            set pre is ""
+    if pre length == 0:
+        banish pre
+        set pre is ""
+    var vv as Version is with major is maj, minor is mnr, patch is pat, pre is pre
+    return some vv
+
+## Compara versiones: -1, 0, 1.
+weave cmp with a as Version, b as Version into int:
+    if a.major != b.major:
+        if a.major < b.major:
+            return -1
+        return 1
+    if a.minor != b.minor:
+        if a.minor < b.minor:
+            return -1
+        return 1
+    if a.patch != b.patch:
+        if a.patch < b.patch:
+            return -1
+        return 1
+    if a.pre length == 0 and b.pre length == 0:
+        return 0
+    if a.pre length == 0:
+        return 1
+    if b.pre length == 0:
+        return -1
+    if a.pre == b.pre:
+        return 0
+    if calling pres_less with a.pre, b.pre:
+        return -1
+    return 1
+
+## Comparación simple de prerelease.
+weave pres_less with a as string, b as string into bool:
+    var n as int is a length
+    if b length < n:
+        set n is b length
+    var i as int is 0
+    var ab as ref to frozen byte is bytes of a
+    var bb as ref to frozen byte is bytes of b
+    while i < n:
+        var ca as int is ((ab at i) to int)
+        var cb as int is ((bb at i) to int)
+        if ca != cb:
+            if (calling digit with ca) and (calling digit with cb):
+                return ca < cb
+            return ca < cb
+        set i is i + 1
+    return a length < b length
+
+## Parsea un constraint; `none` si inválido.
+weave parse_constraint with text as string into maybe Constraint:
+    var s as string is text
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < s length and (((b at i) to int) == 32 or ((b at i) to int) == 9):
+        set i is i + 1
+    var op as int is 3
+    if i + 1 < s length and (s at i to (i + 1)) == "^":
+        set op is 1
+        set i is i + 1
+    else if i + 1 < s length and (s at i to (i + 1)) == "~":
+        set op is 2
+        set i is i + 1
+    else if i + 1 < s length and (s at i to (i + 2)) == ">=":
+        set op is 4
+        set i is i + 2
+    else if i + 1 < s length and (s at i to (i + 2)) == "<=":
+        set op is 6
+        set i is i + 2
+    else if i + 1 < s length and (s at i to (i + 1)) == ">":
+        set op is 5
+        set i is i + 1
+    else if i + 1 < s length and (s at i to (i + 1)) == "<":
+        set op is 7
+        set i is i + 1
+    else if i + 1 < s length and (s at i to (i + 1)) == "=":
+        set op is 3
+        set i is i + 1
+    while i < s length and (((b at i) to int) == 32 or ((b at i) to int) == 9):
+        set i is i + 1
+    var rest as string is s at i to (s length)
+    if rest == "*" or rest == "x" or rest == "X":
+        banish rest
+        var zero as Version is with major is 0, minor is 0, patch is 0, pre is ""
+        var anyc as Constraint is with op is 0, version is zero
+        return some anyc
+    var v as maybe Version is calling parse_version with rest
+    banish rest
+    if not v.is_present:
+        banish v
+        return (maybe none)
+    var cc as Constraint is with op is op, version is v.value
+    return some cc
+
+## Parsea una lista de constraints separadas por coma.
+weave parse_constraints with text as string into list of Constraint:
+    var out as list of Constraint is list of Constraint
+    var parts as list of string is calling text.split with ","
+    for p in parts:
+        var pm as maybe Constraint is calling parse_constraint with p
+        if pm.is_present:
+            calling out.push with pm.value
+        banish pm
+        banish p
+    banish parts
+    return out
+
+## ¿La versión satisface el constraint?
+weave satisfies_one with v as Version, c as Constraint into bool:
+    if c.op == 0:
+        return true
+    var cv as Version is c.version
+    var cmpv as int is calling cmp with v, cv
+    if c.op == 3:
+        return cmpv == 0
+    if c.op == 4:
+        return cmpv >= 0
+    if c.op == 5:
+        return cmpv > 0
+    if c.op == 6:
+        return cmpv <= 0
+    if c.op == 7:
+        return cmpv < 0
+    if c.op == 1:
+        if v.major != cv.major:
+            return false
+        if cv.major == 0:
+            return v.minor == cv.minor and v.patch >= cv.patch
+        return cmpv >= 0
+    if c.op == 2:
+        return v.major == cv.major and v.minor == cv.minor and v.patch >= cv.patch
+    return false
+
+## ¿Satisface todos?
+weave satisfies with v as Version, cs as list of Constraint into bool:
+    for c in cs:
+        if not calling satisfies_one with v, c:
+            return false
+    return true
+
+## Elige el tag más alto que satisface; `""` si no.
+weave select_tag with tags as list of string, constraints as list of Constraint into string:
+    var best as string is ""
+    var bestv as Version is with major is 0, minor is 0, patch is 0, pre is ""
+    var has as bool is false
+    for t in tags:
+        var pm as maybe Version is calling parse_version with t
+        if pm.is_present:
+            var pv as Version is pm.value
+            if calling satisfies with pv, constraints:
+                if not has or (calling cmp with pv, bestv) > 0:
+                    banish best
+                    set best is calling copy with t
+                    set bestv is pv
+                    set has is true
+        banish pm
+        banish t
+    return best

@@ -1,0 +1,107 @@
+## psc/pkg/install.pengu — instala una dependencia en lib/<name>.
+import std.archivum
+import std.compass
+import std.toml as toml
+
+import psc.pkg.lock as plock
+import psc.pkg.manifest as pman
+import psc.pkg.semver as semver
+import psc.pkg.source as source
+import psc.sema.names as npool
+
+insignia psc_pkg_install_
+
+## Resultado de instalar.
+rune Installed:
+    name as string
+    path as string
+    version as string
+    commit as string
+    kind as string
+    source as string
+    constraint as string
+
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Lee `version` de un manifiesto de dependencia.
+weave dep_version with dir as string into string:
+    var path as string is "{dir}/pengu.toml"
+    var txt as maybe string is calling archivum.read_text with path
+    banish path
+    if txt.is_present:
+        var pr as result of list of toml.TomlEntry to string is calling toml.parse with txt.value
+        if pr.is_ok:
+            var entries as list of toml.TomlEntry is pr.value
+            if calling toml.has with entries, "project.version":
+                var v as string is calling toml.get with entries, "project.version"
+                var vc as string is calling copy with v
+                calling toml.free_entries with entries
+                banish txt
+                return vc
+            calling toml.free_entries with entries
+        banish pr
+    banish txt
+    return calling copy with "0.1.0"
+
+## Instala una dependencia.
+##
+## Devuelve `none` en error.
+weave install with base as string, lib_dir as string, d as pman.Dependency into maybe Installed:
+    if not calling pman.valid_name with d.name:
+        return (maybe none)
+    var target as string is "{base}/{lib_dir}/{d.name}"
+    var src as string is calling copy with d.source
+    if d.kind == "path":
+        if (d.source at 0 to 1) != "/":
+            banish src
+            set src is "{base}/{d.source}"
+        if not calling archivum.is_dir with src:
+            banish src
+            banish target
+            return (maybe none)
+        if not calling source.copy_local with src, target:
+            banish src
+            banish target
+            return (maybe none)
+        banish src
+        var ver as string is calling dep_version with target
+        var inst as Installed is with name is (calling copy with d.name), path is (calling copy with target), version is ver, commit is "", kind is "path", source is (calling copy with d.source), constraint is (calling copy with d.constraint)
+        banish target
+        return some inst
+    var ref as string is ""
+    var version as string is ""
+    if d.tag length > 0:
+        set ref is d.tag
+        set version is d.tag
+    else if d.branch length > 0:
+        set ref is d.branch
+    else:
+        var tags as list of string is calling source.tags with src
+        var cons as list of semver.Constraint is calling semver.parse_constraints with d.constraint
+        var tag as string is calling semver.select_tag with tags, cons
+        if tag length == 0:
+            var i as int is 0
+            while i < tags.len:
+                banish tags at i
+                set i is i + 1
+            banish tags
+            banish cons
+            banish src
+            banish target
+            return (maybe none)
+        set ref is (calling copy with tag)
+        set version is tag
+    if not calling source.clone_git with src, target, ref:
+        banish src
+        banish target
+        banish ref
+        return (maybe none)
+    var commit as string is calling source.commit with target
+    if version length == 0:
+        set version is calling dep_version with target
+    var inst2 as Installed is with name is (calling copy with d.name), path is (calling copy with target), version is version, commit is commit, kind is "git", source is (calling copy with d.source), constraint is (calling copy with d.constraint)
+    banish target
+    banish ref
+    banish src
+    return some inst2

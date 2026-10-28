@@ -1,0 +1,389 @@
+## psc/pkg/manifest.pengu — dependencias y edición quirúrgica de pengu.toml.
+##
+## Sólo TOML. `pengu.yaml`, `pengu.yml` y `pengu.json` se rechazan
+## explícitamente; no hay parser YAML/JSON de manifiesto.
+
+import std.archivum
+import std.compass
+import std.toml as toml
+
+import psc.sema.names as npool
+
+insignia psc_pkg_manifest_
+
+## Dependencia declarada.
+rune Dependency:
+    name as string
+    ## "path" o "git".
+    kind as string
+    source as string
+    branch as string
+    tag as string
+    constraint as string
+
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Busca la raíz con `pengu.toml`; rechaza formatos legados.
+##
+## Devuelve `""` si no hay manifiesto; el caller distingue el error con
+## `legacy_manifest`.
+weave find_root with start as string into string:
+    var d as string is calling compass.cp_absolute with start
+    var i as int is 0
+    while i < 8:
+        var f as string is "{d}/pengu.toml"
+        if calling archivum.is_file with f:
+            banish f
+            return d
+        banish f
+        var parent as string is calling compass.cp_dirname with d
+        if parent == d:
+            banish parent
+            banish d
+            return ""
+        banish d
+        set d is parent
+        set i is i + 1
+    banish d
+    return ""
+
+## Ruta de un manifiesto legado en `base`, o `""`.
+weave legacy_manifest with base as string into string:
+    var cands as list of string is list of string
+    calling cands.push with "pengu.yaml"
+    calling cands.push with "pengu.yml"
+    calling cands.push with "pengu.json"
+    for c in cands:
+        var p as string is "{base}/{c}"
+        if calling archivum.is_file with p:
+            banish p
+            for x in cands:
+                banish x
+            banish cands
+            return c
+        banish p
+        banish c
+    banish cands
+    return ""
+
+## Carga dependencias.
+weave load with base as string into list of Dependency:
+    var out as list of Dependency is list of Dependency
+    var path as string is "{base}/pengu.toml"
+    var txt as maybe string is calling archivum.read_text with path
+    banish path
+    if not txt.is_present:
+        banish txt
+        return out
+    var pr as result of list of toml.TomlEntry to string is calling toml.parse with txt.value
+    banish txt
+    if not pr.is_ok:
+        banish pr
+        return out
+    var entries as list of toml.TomlEntry is pr.value
+    var names as list of string is list of string
+    for e in entries:
+        if calling starts_with with e.key, "dependencies.":
+            var rest as string is e.key at 13 to (e.key length)
+            var dot as int is calling find_sub with rest, "."
+            if dot > 0:
+                var nm as string is rest at 0 to dot
+                var seen as bool is false
+                for n in names:
+                    if n == nm:
+                        set seen is true
+                if not seen:
+                    calling names.push with nm
+                else:
+                    banish nm
+            banish rest
+    for nm in names:
+        var kind as string is (calling copy with "")
+        var src as string is (calling copy with "")
+        var branch as string is (calling copy with "")
+        var tag as string is (calling copy with "")
+        var cons as string is (calling copy with "*")
+        for e in entries:
+            var pre as string is "dependencies.{nm}."
+            if calling starts_with with e.key, pre:
+                var field as string is e.key at (pre length) to (e.key length)
+                if field == "path":
+                    banish kind
+                    banish src
+                    set kind is (calling copy with "path")
+                    set src is (calling copy with e.value)
+                else if field == "url":
+                    banish kind
+                    set kind is (calling copy with "git")
+                    banish src
+                    set src is (calling copy with e.value)
+                else if field == "branch":
+                    banish branch
+                    set branch is (calling copy with e.value)
+                else if field == "tag":
+                    banish tag
+                    set tag is (calling copy with e.value)
+                else if field == "version":
+                    banish cons
+                    set cons is (calling copy with e.value)
+                banish field
+            banish pre
+        calling out.push with (with name is (calling copy with nm), kind is kind, source is src, branch is branch, tag is tag, constraint is cons)
+        banish nm
+    banish names
+    calling toml.free_entries with entries
+    return out
+
+## Índice de una dependencia o -1.
+weave find_dep with ds as list of Dependency, name as string into int:
+    var i as int is 0
+    while i < ds.len:
+        if (ds at i).name == name:
+            return i
+        set i is i + 1
+    return -1
+
+## Copia owned de una dependencia.
+weave clone_dep with d as Dependency into Dependency:
+    return with name is (calling copy with d.name), kind is (calling copy with d.kind), source is (calling copy with d.source), branch is (calling copy with d.branch), tag is (calling copy with d.tag), constraint is (calling copy with d.constraint)
+
+## Libera una lista de dependencias.
+weave free with ds as list of Dependency into void:
+    var i as int is 0
+    while i < ds.len:
+        var d as Dependency is (ds at i)
+        banish d.name
+        banish d.kind
+        banish d.source
+        banish d.branch
+        banish d.tag
+        banish d.constraint
+        set i is i + 1
+    banish ds
+
+## Libera una dependencia.
+weave free_one with d as ref to Dependency into void:
+    banish d->name
+    banish d->kind
+    banish d->source
+    banish d->branch
+    banish d->tag
+    banish d->constraint
+
+## `true` si el nombre es seguro.
+weave valid_name with name as string into bool:
+    if name length == 0 or name == "." or name == "..":
+        return false
+    var b as ref to frozen byte is bytes of name
+    var i as int is 0
+    while i < name length:
+        var c as int is ((b at i) to int)
+        if not ((c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95 or c == 45):
+            return false
+        set i is i + 1
+    return true
+
+weave starts_with with s as string, p as string into bool:
+    if s length < p length:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of p
+    var i as int is 0
+    while i < p length:
+        if ((sb at i) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+weave find_sub with s as string, p as string into int:
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of p
+    var i as int is 0
+    while i + p length <= s length:
+        var j as int is 0
+        var hit as bool is true
+        while j < p length:
+            if ((sb at (i + j)) to int) != ((pb at j) to int):
+                set hit is false
+            set j is j + 1
+        if hit:
+            return i
+        set i is i + 1
+    return 0 - 1
+
+## Escapa un string TOML básico.
+weave escape with s as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < s length:
+        var c as int is ((b at i) to int)
+        if c == 34:
+            calling sb.append with "\\\""
+        else if c == 92:
+            calling sb.append with "\\\\"
+        else:
+            var one as string is s at i to (i + 1)
+            calling sb.append with one
+            banish one
+        set i is i + 1
+    return calling sb.finish
+
+## Entrada TOML de una dependencia.
+weave entry_line with d as Dependency into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with d.name
+    calling sb.append with " = { "
+    if d.kind == "path":
+        calling sb.append with "path = \""
+        calling sb.append with (calling escape with d.source)
+        calling sb.append with "\""
+    else:
+        calling sb.append with "url = \""
+        calling sb.append with (calling escape with d.source)
+        calling sb.append with "\""
+        if d.branch length > 0:
+            calling sb.append with ", branch = \""
+            calling sb.append with (calling escape with d.branch)
+            calling sb.append with "\""
+        if d.tag length > 0:
+            calling sb.append with ", tag = \""
+            calling sb.append with (calling escape with d.tag)
+            calling sb.append with "\""
+        if d.constraint length > 0 and d.constraint != "*":
+            calling sb.append with ", version = \""
+            calling sb.append with (calling escape with d.constraint)
+            calling sb.append with "\""
+    calling sb.append with " }"
+    return calling sb.finish
+
+## Escribe/actualiza una dependencia en `[dependencies]` sin reformatear el resto.
+weave upsert with base as string, d as Dependency into bool:
+    var path as string is "{base}/pengu.toml"
+    var txt as maybe string is calling archivum.read_text with path
+    if not txt.is_present:
+        banish txt
+        banish path
+        return false
+    var ttxt as string is calling copy with txt.value
+    var lines as list of string is calling ttxt.split with "\n"
+    var out as list of string is list of string
+    var in_deps as bool is false
+    var inserted as bool is false
+    var found_sec as bool is false
+    var i as int is 0
+    while i < lines.len:
+        var line as string is (lines at i)
+        var lb as ref to frozen byte is bytes of line
+        var a as int is 0
+        var e as int is line length
+        while a < e and (((lb at a) to int) == 32 or ((lb at a) to int) == 9):
+            set a is a + 1
+        while e > a and (((lb at (e - 1)) to int) == 32 or ((lb at (e - 1)) to int) == 9):
+            set e is e - 1
+        var t as string is line at a to e
+        if t == "[dependencies]":
+            set in_deps is true
+            set found_sec is true
+            calling out.push with (calling copy with line)
+            # reemplaza/inserta la entrada justo después de la cabecera
+            var eline as string is calling entry_line with d
+            calling out.push with eline
+            set inserted is true
+        else if in_deps and t length > 0 and (t at 0 to 1) == "[" and (t at (t length - 1) to (t length)) == "]":
+            set in_deps is false
+            calling out.push with (calling copy with line)
+        else if in_deps and calling starts_with with t, "{d.name} ":
+            # omite la entrada anterior
+            var skipped as int is 0
+        else if in_deps and calling starts_with with t, "{d.name}=":
+            var skipped as int is 0
+        else:
+            calling out.push with (calling copy with line)
+        banish t
+        set i is i + 1
+    if not found_sec:
+        calling out.push with ""
+        calling out.push with "[dependencies]"
+        var eline2 as string is calling entry_line with d
+        calling out.push with eline2
+    for l in lines:
+        banish l
+    banish lines
+    banish ttxt
+    banish txt
+    var text as string is ""
+    for l in out:
+        var nxt as string is "{text}{l}\n"
+        banish text
+        set text is nxt
+    for l in out:
+        banish l
+    banish out
+    var tmp as string is "{path}.tmp"
+    var ok as bool is calling archivum.write_text with tmp, text
+    if ok:
+        set ok is calling archivum.move_file with tmp, path, true
+    if not ok:
+        var ign as bool is calling archivum.delete_file with tmp
+    banish tmp
+    banish text
+    banish path
+    return ok
+
+## Elimina una dependencia del manifiesto.
+weave remove with base as string, name as string into bool:
+    var path as string is "{base}/pengu.toml"
+    var txt as maybe string is calling archivum.read_text with path
+    if not txt.is_present:
+        banish txt
+        banish path
+        return false
+    var ttxt as string is calling copy with txt.value
+    var lines as list of string is calling ttxt.split with "\n"
+    banish txt
+    var out as list of string is list of string
+    var in_deps as bool is false
+    for line in lines:
+        var lb as ref to frozen byte is bytes of line
+        var a as int is 0
+        var e as int is line length
+        while a < e and (((lb at a) to int) == 32 or ((lb at a) to int) == 9):
+            set a is a + 1
+        while e > a and (((lb at (e - 1)) to int) == 32 or ((lb at (e - 1)) to int) == 9):
+            set e is e - 1
+        var t as string is line at a to e
+        if t == "[dependencies]":
+            set in_deps is true
+            calling out.push with (calling copy with line)
+        else if in_deps and t length > 0 and (t at 0 to 1) == "[":
+            set in_deps is false
+            calling out.push with (calling copy with line)
+        else if in_deps and ((calling starts_with with t, "{name} ") or (calling starts_with with t, "{name}=")):
+            var skipped as int is 0
+        else:
+            calling out.push with (calling copy with line)
+        banish t
+    banish lines
+    banish ttxt
+    var text as string is ""
+    for l in out:
+        var nxt as string is "{text}{l}\n"
+        banish text
+        set text is nxt
+    for l in out:
+        banish l
+    banish out
+    var tmp as string is "{path}.tmp"
+    var ok as bool is calling archivum.write_text with tmp, text
+    if ok:
+        set ok is calling archivum.move_file with tmp, path, true
+    if not ok:
+        var ign as bool is calling archivum.delete_file with tmp
+    banish tmp
+    banish text
+    banish path
+    return ok

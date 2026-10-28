@@ -94,8 +94,8 @@ def test_f6_metadata_fmt_doc_assets(tmp_path: Path) -> None:
 
 def test_f6_stubs_and_cache(tmp_path: Path) -> None:
     r = run(["add", "x"], tmp_path, tmp_path)
-    assert r.returncode == 2
-    assert "F9" in r.stderr
+    assert r.returncode == 1
+    assert "pengu.toml" in r.stderr
 
     script = tmp_path / "cache_script.pengu"
     script.write_text('import std.spark\n\nweave main into int:\n    return 0\n', encoding="utf-8")
