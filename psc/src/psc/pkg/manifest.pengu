@@ -239,23 +239,33 @@ weave entry_line with d as Dependency into string:
     calling sb.append with " = { "
     if d.kind == "path":
         calling sb.append with "path = \""
-        calling sb.append with (calling escape with d.source)
+        var es as string is calling escape with d.source
+        calling sb.append with es
+        banish es
         calling sb.append with "\""
     else:
         calling sb.append with "url = \""
-        calling sb.append with (calling escape with d.source)
+        var eu as string is calling escape with d.source
+        calling sb.append with eu
+        banish eu
         calling sb.append with "\""
         if d.branch length > 0:
             calling sb.append with ", branch = \""
-            calling sb.append with (calling escape with d.branch)
+            var eb as string is calling escape with d.branch
+            calling sb.append with eb
+            banish eb
             calling sb.append with "\""
         if d.tag length > 0:
             calling sb.append with ", tag = \""
-            calling sb.append with (calling escape with d.tag)
+            var et as string is calling escape with d.tag
+            calling sb.append with et
+            banish et
             calling sb.append with "\""
         if d.constraint length > 0 and d.constraint != "*":
             calling sb.append with ", version = \""
-            calling sb.append with (calling escape with d.constraint)
+            var ec as string is calling escape with d.constraint
+            calling sb.append with ec
+            banish ec
             calling sb.append with "\""
     calling sb.append with " }"
     return calling sb.finish
