@@ -421,13 +421,13 @@ if (!raw) {
 
 /* header + body + trailer; the guard keeps every size arithmetic overflow-free
  * and every length inside the int the PenguString header stores. */
-size_t header_len = (size_t)GZIP_HEADER_SIZE + (name_len ? name_len + 1 : (size_t)0);
-if (raw_len > (size_t)INT_MAX || header_len > (size_t)INT_MAX - raw_len - (size_t)GZIP_TRAILER_SIZE) {
+size_t header_len = (size_t)10 + (name_len ? name_len + 1 : (size_t)0);
+if (raw_len > (size_t)INT_MAX || header_len > (size_t)INT_MAX - raw_len - (size_t)8) {
     mz_free(raw);
     *status = MZ_PARAM_ERROR;
     return pengu_string_from_cstr("");
 }
-size_t total = header_len + raw_len + (size_t)GZIP_TRAILER_SIZE;
+size_t total = header_len + raw_len + (size_t)8;
 unsigned char *out = (unsigned char *)malloc(total);
 if (!out) {
     mz_free(raw);

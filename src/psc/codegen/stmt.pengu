@@ -609,6 +609,7 @@ weave emit_judge_stmt with c as ref to context.CgContext, node as int, ast as re
     calling emit.indent_more with (sigil of c->emitter)
     var m as loader.SemaModule is (c->program->modules at c->current_module)
     var i as int is 0
+    var has_else as bool is false
     var n as int is calling astutil.child_count with ast, node
     while i < n:
         var cl as int is calling astutil.node_child with ast, node, i
@@ -652,6 +653,7 @@ weave emit_judge_stmt with c as ref to context.CgContext, node as int, ast as re
                         calling emit.line with (sigil of c->emitter), "}"
                         banish pvt
             else if ck == pskind.NodeKind.NdElseClause:
+                set has_else is true
                 calling emit.line with (sigil of c->emitter), "default: {"
                 calling emit.indent_more with (sigil of c->emitter)
                 var eb as int is calling astutil.node_child with ast, cl, 0
@@ -664,7 +666,8 @@ weave emit_judge_stmt with c as ref to context.CgContext, node as int, ast as re
                 calling emit.indent_less with (sigil of c->emitter)
                 calling emit.line with (sigil of c->emitter), "}"
         set i is i + 1
-    calling emit.line with (sigil of c->emitter), "default: break;"
+    if not has_else:
+        calling emit.line with (sigil of c->emitter), "default: break;"
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
 

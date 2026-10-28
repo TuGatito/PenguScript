@@ -2775,13 +2775,12 @@ weave _json_to_arena with v as JsonValue, a as ref to arena.Arena into JsonValue
             0
         when Arr with items ->
             var count as int is items.len
-            var dst as ref to JsonValue is calling arena.arena_alloc of JsonValue with a, count
+            var lst as list of JsonValue is list of JsonValue
             var i as int is 0
             while i < count:
                 let src is items at i
-                set dst at i is calling _json_to_arena with src, a
+                calling lst.push with (calling _json_to_arena with src, a)
                 set i is i + 1
-            var lst as list of JsonValue is calling _json_arena_list with dst, count
             set out is with Arr is lst
             0
         when Obj with entries ->

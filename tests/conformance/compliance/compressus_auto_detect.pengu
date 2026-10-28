@@ -22,12 +22,7 @@ weave main into int:
         if ad.is_ok:
             let (plain, fmt) is ad.value
             calling ward.assert_eq_int with (plain length), (text length)
-            var gzip_code as bool is false
-            judge fmt:
-                when Gzip ->
-                    set gzip_code is true
-                else ->
-                    set gzip_code is false
+            var gzip_code as bool is fmt == Gzip
             calling ward.assert_true with gzip_code
         banish ad
     banish gz

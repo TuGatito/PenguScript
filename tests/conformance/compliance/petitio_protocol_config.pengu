@@ -25,39 +25,47 @@ weave main into int:
     defer banish req
 
     # HTTP version: HTTP/1.1 by default; the builder selects the rest.
-    judge req.http_version:
-        when Http11 -> calling spark.println with "default=Http11"
-        else -> calling spark.println with "FAIL default version"
+    if req.http_version == Http11:
+        calling spark.println with "default=Http11"
+    else:
+        calling spark.println with "FAIL default version"
     calling req.http_version with HttpVersion.Http2
-    judge req.http_version:
-        when Http2 -> calling spark.println with "selected=Http2"
-        else -> calling spark.println with "FAIL Http2"
+    if req.http_version == Http2:
+        calling spark.println with "selected=Http2"
+    else:
+        calling spark.println with "FAIL Http2"
     calling req.http_version with HttpVersion.Http2PriorKnowledge
-    judge req.http_version:
-        when Http2PriorKnowledge -> calling spark.println with "selected=PriorKnowledge"
-        else -> calling spark.println with "FAIL prior knowledge"
+    if req.http_version == Http2PriorKnowledge:
+        calling spark.println with "selected=PriorKnowledge"
+    else:
+        calling spark.println with "FAIL prior knowledge"
     calling req.http_version with HttpVersion.Http10
-    judge req.http_version:
-        when Http10 -> calling spark.println with "selected=Http10"
-        else -> calling spark.println with "FAIL Http10"
+    if req.http_version == Http10:
+        calling spark.println with "selected=Http10"
+    else:
+        calling spark.println with "FAIL Http10"
 
     # Authentication: credentials and mode move together.
-    judge req.auth_mode:
-        when NoAuth -> calling spark.println with "auth=NoAuth"
-        else -> calling spark.println with "FAIL default auth"
+    if req.auth_mode == NoAuth:
+        calling spark.println with "auth=NoAuth"
+    else:
+        calling spark.println with "FAIL default auth"
     calling req.auth_basic with "u", "p"
     calling eq_s with req.basic_user, "u", "basic user"
-    judge req.auth_mode:
-        when BasicAuth -> calling spark.println with "auth=BasicAuth"
-        else -> calling spark.println with "FAIL basic mode"
+    if req.auth_mode == BasicAuth:
+        calling spark.println with "auth=BasicAuth"
+    else:
+        calling spark.println with "FAIL basic mode"
     calling req.auth_digest with "u", "p"
-    judge req.auth_mode:
-        when DigestAuth -> calling spark.println with "auth=DigestAuth"
-        else -> calling spark.println with "FAIL digest mode"
+    if req.auth_mode == DigestAuth:
+        calling spark.println with "auth=DigestAuth"
+    else:
+        calling spark.println with "FAIL digest mode"
     calling req.auth_any with "u", "p"
-    judge req.auth_mode:
-        when AnyAuth -> calling spark.println with "auth=AnyAuth"
-        else -> calling spark.println with "FAIL any mode"
+    if req.auth_mode == AnyAuth:
+        calling spark.println with "auth=AnyAuth"
+    else:
+        calling spark.println with "FAIL any mode"
 
     # SOCKS proxies: socks5h by default (DNS on the proxy), explicit scheme kept.
     calling req.socks_proxy with "127.0.0.1:1080", ""
@@ -82,9 +90,10 @@ weave main into int:
         cookies is cookies
         cleared_cookies is cleared
     calling eq_i with (resp.bytes_written to int), 0, "empty response written"
-    judge resp.http_version:
-        when Http11 -> calling spark.println with "response=Http11"
-        else -> calling spark.println with "FAIL response version"
+    if resp.http_version == Http11:
+        calling spark.println with "response=Http11"
+    else:
+        calling spark.println with "FAIL response version"
     banish resp
 
     # The two streaming-only error variants explain themselves.

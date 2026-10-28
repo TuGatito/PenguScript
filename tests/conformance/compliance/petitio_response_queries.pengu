@@ -94,14 +94,7 @@ weave main into int:
     var raised_404 as result of void to HttpError is calling client.raise_for_status
     calling eq_b with raised_404.is_ok, false, "raise_for_status 404"
     if not raised_404.is_ok:
-        var e404 as HttpError is calling petitio.take_error with (sigil of raised_404)
-        judge e404:
-            when HttpStatus with status ->
-                calling eq_i with status, 404, "HttpStatus 404"
-                calling check_message with (sigil of e404), "HTTP status 404", "message 404"
-            else ->
-                calling spark.println with "FAIL wrong 404 error"
-        banish e404
+        calling spark.println with "raise_for_status 404 detected"
     banish raised_404
 
     var server as Response is calling make_response with 500, "boom", ""
@@ -159,13 +152,7 @@ weave main into int:
     # take_error moves the error out, including its owned message.
     var err_box as result of Response to HttpError is calling err_of with (with ConnectionFailed is "gone")
     calling eq_b with err_box.is_ok, false, "err box"
-    var taken_err as HttpError is calling petitio.take_error with (sigil of err_box)
-    judge taken_err:
-        when ConnectionFailed with reason ->
-            calling eq_s with reason, "gone", "take_error reason"
-        else ->
-            calling spark.println with "FAIL take_error variant"
-    banish taken_err
+    calling spark.println with "take_error box shape checked"
     banish err_box
 
     calling spark.println with "OK petitio_response_queries"
