@@ -1308,8 +1308,14 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     banish cname
                     set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), msf.c_name)
     # Corrige llamadas `mod.fn` aunque F3 ya haya anotado un nombre poco preciso.
+    # No pises una especialización genérica ya creada (`tally_sum_instN`).
+    var qskip as bool is false
+    if fslot >= 0:
+        var qsf0 as catalog.CgFunction is (c->catalog.functions at fslot)
+        if qsf0.is_spec:
+            set qskip is true
     var qtn as int is calling astutil.node_child with ast, node, 0
-    if qtn >= 0 and not (gargs >= 0 and (calling astutil.kind_of with ast, gargs) == pskind.NodeKind.NdGenericArgs):
+    if qtn >= 0 and not qskip and not (gargs >= 0 and (calling astutil.kind_of with ast, gargs) == pskind.NodeKind.NdGenericArgs):
         var qtok0 as int is calling astutil.token_child with ast, qtn, 0
         var qlast as int is calling last_token_deep with ast, qtn
         if qtok0 >= 0 and qlast >= 0:
@@ -1404,12 +1410,12 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
         var sfe as catalog.CgFunction is (c->catalog.functions at fslot)
         banish cname
         set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sfe.c_name)
-    if qslot >= 0:
+    if qslot >= 0 and not qskip:
         set fslot is qslot
         banish cname
         set cname is calling npool.copy_string with qname
         set method_name is ""
-    else if early_slot >= 0:
+    else if early_slot >= 0 and not qskip:
         set fslot is early_slot
         banish cname
         set cname is calling npool.copy_string with early_name

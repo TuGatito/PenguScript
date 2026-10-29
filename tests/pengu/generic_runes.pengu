@@ -1,5 +1,6 @@
 ## Regression for generic runes and generic functions.
 import std.spark
+import std.tally
 
 rune Box shard T:
     value as T
@@ -34,6 +35,13 @@ weave main into int:
         banish b
         return 1
     banish b
+
+    var xs as list of int is [1, 2, 3]
+    var qs as int is calling tally.sum with xs
+    if qs != 6:
+        banish xs
+        return 1
+    banish xs
 
     calling spark.println with "OK generic_runes"
     return 0

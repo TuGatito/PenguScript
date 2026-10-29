@@ -17,6 +17,9 @@ All notable changes to PenguScript will be documented in this file.
   CC `list`/`set`/`oset`/`omap` con `sizeof(T)` real y descriptores de tipo.
 - Corregidos receptores `self` en métodos de `map`/`list`, especialización de
   métodos genéricos de list/map, firmas de callbacks y conteo de `shard`.
+- Corregida la resolución de funciones genéricas de módulo cualificadas
+  (`calling tally.sum with xs`): el catálogo preespecializa la función antes
+  de DCE y no la pisa con el símbolo plantilla.
 - `tests/pengu/ordinal_cc.pengu` cubre int/string/runa, orden, deduplicación y
   `maybe T`.
 - `psc 0.13.0 (F11)`.

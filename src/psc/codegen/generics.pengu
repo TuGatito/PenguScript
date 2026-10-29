@@ -141,7 +141,43 @@ weave scan with c as ref to context.CgContext, m as loader.SemaModule, node as i
             if last >= 0:
                 var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), last
                 var nid as int is calling npool.intern with (sigil of c->program->names), txt
-                banish txt
+                # `mod.fn`: preespecializa la función de módulo por su nombre C
+                # (`tally_sum`), antes de DCE.
+                var qb as int is calling astutil.token_child with ast, target, 0
+                if qb >= 0 and qb != last:
+                    var qbt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), qb
+                    var qexp as string is "{qbt}_{txt}"
+                    var qfi as int is 0
+                    while qfi < c->catalog.functions.len:
+                        var qf as catalog.CgFunction is (c->catalog.functions at qfi)
+                        var qfn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), qf.c_name)
+                        if qfn == qexp and not qf.is_method and qf.is_generic:
+                            var qact as list of int is list of int
+                            var qargs as int is calling astutil.node_child with ast, node, 2
+                            if qargs >= 0:
+                                var qan as int is calling astutil.child_count with ast, qargs
+                                var qai as int is 0
+                                while qai < qan:
+                                    var qarg as int is calling astutil.node_child with ast, qargs, qai
+                                    if qarg >= 0:
+                                        var qav as int is qarg
+                                        if (calling astutil.kind_of with ast, qarg) == pskind.NodeKind.NdPosArg:
+                                            set qav is calling astutil.node_child with ast, qarg, 0
+                                        if qav >= 0:
+                                            var qaty as int is calling ann.type_of with (sigil of m.annotations), qav
+                                            if qaty > 0:
+                                                calling qact.push with qaty
+                                    set qai is qai + 1
+                            var qinf as list of int is calling infer_from_actual with c, qfi, qact
+                            if qinf.len == qf.tparams.len and qinf.len > 0:
+                                var qsi as int is calling add_spec with c, qfi, qinf
+                            banish qinf
+                            banish qact
+                        banish qfn
+                        set qfi is qfi + 1
+                    banish qexp
+                    banish qbt
+                banish nid
                 if calling c->catalog.by_name.has with nid:
                     var bi as int is calling c->catalog.by_name.get with nid
                     var bf as catalog.CgFunction is (c->catalog.functions at bi)
