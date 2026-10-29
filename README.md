@@ -10,10 +10,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.14.5-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.14.6-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
-  <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey">
+  <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey">
 </p>
 
 <p align="center">
@@ -62,15 +62,15 @@ strings or user runes. See [LANGUAGE.md](LANGUAGE.md) and
 Download a release for your platform:
 
 ```text
-pengu-<version>-<os>-<arch>-portable.tar.gz   # or .zip on Windows
+pengu-<version>-<os>-<arch>-portable.tar.gz
 pengu-<version>-<os>-<arch>-fhs.tar.gz
 ```
 
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.14.5-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.14.5-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.14.6-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.14.6-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 
@@ -97,7 +97,7 @@ date.
 Alternatively, use a native portable from the latest release:
 
 ```bash
-# Linux example: use pengu-macos.tar.gz or pengu-windows-x64.zip elsewhere.
+# Linux example: use pengu-macos.tar.gz on macOS.
 curl -LO https://github.com/TuGatito/PenguScript/releases/latest/download/pengu-linux-x64.tar.gz
 mkdir -p .bootstrap
 tar -xzf pengu-linux-x64.tar.gz -C .bootstrap
@@ -112,15 +112,12 @@ Releases use one of two layouts:
 
 ```text
 # native packages
-pengu-<version>-<os>-<arch>-portable.tar.gz   # or .zip on Windows
+pengu-<version>-<os>-<arch>-portable.tar.gz
 
 # flat packages published by older releases
 pengu-linux-x64.tar.gz
 pengu-macos.tar.gz
-pengu-windows-x64.zip
 ```
-
-On Windows use `tools/build_runtime.ps1` when building the runtime manually.
 
 The compiler is self-hosted: `bootstrap psc` builds `psc`, and a fixed point is
 checked by rebuilding with the just-built compiler.
@@ -232,7 +229,8 @@ build time; see [`tools/pengu-bind-clang.c`](tools/pengu-bind-clang.c).
   LSP and package manager are implemented in PSC.
 - The bootstrap and release pipeline use PSC, not Python.
 - The PSC test suite (`tests/run.sh`) passes on the supported corpus.
-- Linux is the primary tested platform; macOS/Windows are covered by CI.
+- Linux is the primary tested platform; macOS is covered by CI. Windows is not
+  currently supported.
 
 ## License
 

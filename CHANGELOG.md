@@ -2,6 +2,18 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.14.6] — 2026-10-28 — Linux/macOS y release desde el changelog
+
+- Windows sale temporalmente de la matriz de CI y de las plataformas
+  soportadas en el README; el compilador conserva el código Windows para
+  retomarlo más adelante.
+- CI compila solo Linux y macOS, empaqueta
+  `pengu-<version>-<target>-portable` y sube los artefactos.
+- El job de release toma la versión de la primera sección versionada de
+  `CHANGELOG.md`; si el tag `v<version>` no existe, lo crea y publica un
+  GitHub Release con las notas de esa sección, los binarios y `SHA256SUMS.txt`.
+- `psc 0.14.6 (F11)`.
+
 ## [0.14.5] — 2026-10-28 — Release automático desde CI
 
 - CI publica un GitHub Release al terminar en `main`, usando `VERSION` como

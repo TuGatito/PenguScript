@@ -14,16 +14,12 @@ jobs:
     name: PSC (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
-    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, label: linux, experimental: false }
-          - { os: macos-latest, label: macos, experimental: false }
-          # Windows is best-effort until the remaining toolchain issues are
-          # solved; a Windows failure must not block the Linux/macOS release.
-          - { os: windows-latest, label: windows, experimental: true }
+          - { os: ubuntu-latest, label: linux }
+          - { os: macos-latest, label: macos }
     steps:
       - uses: actions/checkout@v4
 
@@ -43,52 +39,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          stage0=./build/psc-stage0
-          if [ -f "$stage0.exe" ]; then stage0="$stage0.exe"; fi
-          echo "bootstrap compiler: $stage0"
-          set +e
-          "$stage0" build .
-          rc=$?
-          set -e
-          echo "bootstrap build exit: $rc"
-          ls -l build || true
-          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
-          if [ -f build/psc.exe ]; then
-            psc_bin=build/psc.exe
-          elif [ -f build/psc ]; then
-            psc_bin=build/psc
-          else
-            echo "::error::the build did not produce build/psc(.exe)"
-            exit 1
-          fi
-          echo "compiler: $psc_bin"
-          "$psc_bin" version
+          ./build/psc-stage0 build .
+          ./build/psc version
 
       - name: Format gate
         shell: bash
-        run: |
-          set -euo pipefail
-          psc_bin=./build/psc
-          if [ -f "$psc_bin.exe" ]; then psc_bin="$psc_bin.exe"; fi
-          "$psc_bin" fmt --check src std
+        run: ./build/psc fmt --check src std
 
       - name: Stage0 freshness
         shell: bash
         run: bash ./tools/gen_stage0.sh --check
 
       - name: PSC tests
-        if: runner.os != 'Windows'
         shell: bash
         run: ./tests/run.sh
-
-      - name: PSC tests (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          # The Windows runner has no libcurl development package; the petitio
-          # conformance cases are covered on Linux/macOS.
-          PSC_SKIP_PETITIO: "1"
-        run: ./tests/run.ps1
 
       - name: Bind smoke
         shell: bash
@@ -121,9 +85,9 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Publish release
+    name: Publish release from CHANGELOG
     needs: build
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -139,24 +103,30 @@ jobs:
           merge-multiple: true
           path: dist
 
-      - name: Create GitHub release from VERSION and CHANGELOG
+      - name: Create tag and GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VERSION="$(tr -d '\r\n' < VERSION)"
+          VERSION="$(grep -m1 -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md |
+            sed -E 's/^## \[([^]]+)\].*/\1/')"
+          if [ -z "$VERSION" ]; then
+            echo "::error::CHANGELOG.md has no versioned section"
+            exit 1
+          fi
           TAG="v$VERSION"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "::notice::release $TAG already exists; skipping"
+          echo "CHANGELOG version: $VERSION (tag $TAG)"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::notice::tag $TAG already exists; skipping release"
             exit 0
           fi
           shopt -s nullglob
           archives=(dist/*.tar.gz dist/*.zip)
           shopt -u nullglob
           if [ "${#archives[@]}" -eq 0 ]; then
-            echo "::warning::no release archives were produced; skipping release"
-            exit 0
+            echo "::error::no release archives were produced"
+            exit 1
           fi
           awk -v ver="$VERSION" '
             index($0, "## [" ver "]") == 1 { capture = 1; next }
@@ -170,17 +140,12 @@ jobs:
           TITLE="$(awk -v ver="$VERSION" \
             'index($0, "## [" ver "]") == 1 { print; exit }' CHANGELOG.md |
             sed -E 's/^## \[[^]]+\] — [0-9]{4}-[0-9]{2}-[0-9]{2} — //')"
-          (cd dist && sha256sum *.tar.gz *.zip 2>/dev/null > SHA256SUMS.txt || true)
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS.txt)
           assets=()
           for f in dist/*.tar.gz dist/*.zip dist/SHA256SUMS.txt; do
             [ -f "$f" ] && assets+=("$f")
           done
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" \
-              --title "PenguScript v$VERSION — $TITLE" \
-              --notes-file release-notes.md "${assets[@]}"
-          else
-            gh release create "$TAG" --target "$GITHUB_SHA" \
-              --title "PenguScript v$VERSION — $TITLE" \
-              --notes-file release-notes.md "${assets[@]}"
-          fi
+          gh release create "$TAG" --target "$GITHUB_SHA" \
+            --title "PenguScript v$VERSION — $TITLE" \
+            --notes-file release-notes.md "${assets[@]}"
+
