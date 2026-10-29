@@ -3,7 +3,7 @@
     "displayName": "PenguScript",
     "description": "Language support, LSP intelligence, and cargo-like project management for PenguScript.",
     "publisher": "pengus-lang",
-    "version": "3.1.0",
+    "version": "3.2.0",
     "icon": "./icons/pengu_icon.png",
     "keywords": [
         "pengus",
@@ -20,7 +20,7 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/pengus-lang/penguscript"
+        "url": "https://github.com/TuGatito/PenguScript"
     },
     "engines": {
         "vscode": "^1.80.0"
@@ -109,7 +109,7 @@
             },
             {
                 "command": "pengus.selectExecutable",
-                "title": "PenguScript: Select pengu Executable",
+                "title": "PenguScript: Select psc Executable",
                 "category": "PenguScript"
             },
             {
@@ -130,7 +130,7 @@
                 "pengus.executablePath": {
                     "type": "string",
                     "default": "",
-                    "markdownDescription": "Path to the `pengu` executable (standalone release, `pengu.exe`, or a project's `.venv/bin/pengu`). When empty the extension searches `$PENGU_BIN_PATH`, then `PATH`, then the usual release locations (`./pengu`, `./.venv/bin/pengu`, `~/pengu/pengu`, `~/.local/bin/pengu`, `/usr/local/bin/pengu`)."
+                    "markdownDescription": "Path to the `psc` executable (release `bin/psc`, or a project-local `build/psc`). When empty the extension searches `$PSC_BIN_PATH` (legacy `$PENGU_BIN_PATH`), then `PATH`, then the usual release locations (`./psc`, `./bin/psc`, `./build/psc`, `~/psc/psc`, `~/.local/bin/psc`, `/usr/local/bin/psc`)."
                 },
                 "pengus.defaultProfile": {
                     "type": "string",
@@ -147,7 +147,7 @@
     "scripts": {
         "vscode:prepublish": "npm run bundle",
         "compile": "tsc -p ./",
-        "bundle": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+        "bundle": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
         "watch": "tsc -watch -p ./",
         "package": "npx @vscode/vsce package"
     },

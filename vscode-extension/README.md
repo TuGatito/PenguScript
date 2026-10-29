@@ -31,7 +31,7 @@ You can customize the extension via VS Code Settings (`Ctrl+,` / `Cmd+,`) under 
 
 | Setting | Default | Description |
 |---|---|---|
-| `pengus.executablePath` | `""` | Absolute path to the standalone `pengu` or `pengu.exe` binary. |
+| `pengus.executablePath` | `""` | Absolute path to the standalone `psc` binary (`bin/psc` in a release). |
 | `pengus.defaultProfile` | `"debug"` | Default build profile (`debug` or `release`). |
 
 ---
@@ -39,22 +39,22 @@ You can customize the extension via VS Code Settings (`Ctrl+,` / `Cmd+,`) under 
 ## Installation
 
 ### Method A: Install from `.vsix` package
-1. Build the release package using `python make_release.py` or run:
+1. Build the release package:
    ```bash
    cd vscode-extension
-   npm install
+   npm ci
    npm run package
    ```
 2. In VS Code:
    - Open the Extensions view (`Ctrl+Shift+X`).
    - Click the `...` menu (Views and More Actions) in the top-right.
-   - Select **Install from VSIX...** and pick `pengus-3.1.0.vsix`.
+   - Select **Install from VSIX...** and pick `pengus-3.2.0.vsix`.
 
 ### Method B: Development / Local Testing
 1. Clone the repository and install npm dependencies:
    ```bash
    cd vscode-extension
-   npm install
+   npm ci
    npm run compile
    ```
 2. Press `F5` in VS Code to launch the Extension Development Host window.
@@ -110,11 +110,11 @@ The grammar, syntax highlighter, and snippet collection cover the modern PenguSc
 
 The commands are integrated into the command palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) and the status bar menu:
 
-- **PenguScript: Run Project** (`pengu run`)
-- **PenguScript: Build Project** (`pengu build`)
-- **PenguScript: Run Tests** (`pengu test`)
-- **PenguScript: Generate Documentation** (`pengu doc`)
-- **PenguScript: Clean Project** (`pengu clean`)
-- **PenguScript: Initialize New Project** (`pengu init`)
-- **PenguScript: Restart Language Server** (`pengu lsp`)
+- **PenguScript: Run Project** (`psc run`)
+- **PenguScript: Build Project** (`psc build`)
+- **PenguScript: Run Tests** (`psc test`)
+- **PenguScript: Generate Documentation** (`psc doc`)
+- **PenguScript: Clean Project** (`psc clean`)
+- **PenguScript: Initialize New Project** (`psc init`)
+- **PenguScript: Restart Language Server** (`psc lsp`)
 - **PenguScript: Show Menu** (interactive quick-pick launcher)

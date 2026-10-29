@@ -18250,7 +18250,7 @@ module.exports = __toCommonJS(extension_exports);
 var vscode = __toESM(require("vscode"));
 var import_node = __toESM(require_node3());
 
-// src/penguPath.ts
+// src/pscPath.ts
 var fs = __toESM(require("fs"));
 var os = __toESM(require("os"));
 var path = __toESM(require("path"));
@@ -18288,7 +18288,7 @@ function candidateExecutables(options) {
   const platform = options.platform ?? process.platform;
   const exists = options.isFile ?? isFile;
   const home = options.homeDir ?? os.homedir();
-  const exe = platform === "win32" ? "pengu.exe" : "pengu";
+  const exe = platform === "win32" ? "psc.exe" : "psc";
   const join2 = (platform === "win32" ? path.win32 : path.posix).join;
   const candidates = [];
   for (const root of options.workspaceFolders ?? []) {
@@ -18296,27 +18296,23 @@ function candidateExecutables(options) {
       join2(root, exe),
       join2(root, "bin", exe),
       join2(root, "dist", exe),
-      join2(root, "dist2", exe),
-      join2(root, "build", exe),
-      join2(root, ".venv", "bin", exe),
-      join2(root, "venv", "bin", exe),
-      join2(root, ".venv", "Scripts", exe),
-      join2(root, "venv", "Scripts", exe)
+      join2(root, "build", exe)
     );
   }
   candidates.push(
+    join2(home, "psc", exe),
     join2(home, "pengu", exe),
     join2(home, ".local", "bin", exe),
     join2(home, "bin", exe)
   );
   if (platform === "win32") {
-    candidates.push(join2(home, "AppData", "Local", "Programs", "pengu", exe));
+    candidates.push(join2(home, "AppData", "Local", "Programs", "PenguScript", exe));
   } else {
-    candidates.push("/usr/local/bin/pengu", "/usr/bin/pengu", "/opt/pengu/pengu");
+    candidates.push("/usr/local/bin/psc", "/usr/bin/psc", "/opt/psc/psc", "/opt/pengu/psc");
   }
   return candidates.filter(exists);
 }
-function resolvePenguCommand(options = {}) {
+function resolvePscCommand(options = {}) {
   const platform = options.platform ?? process.platform;
   const home = options.homeDir ?? os.homedir();
   const exists = options.isFile ?? isFile;
@@ -18326,9 +18322,9 @@ function resolvePenguCommand(options = {}) {
   }
   const fromEnv = options.envPath?.trim();
   if (fromEnv) {
-    return { command: expandHome(fromEnv, home), source: "PENGU_BIN_PATH" };
+    return { command: expandHome(fromEnv, home), source: "PSC_BIN_PATH" };
   }
-  const bare = "pengu";
+  const bare = "psc";
   const onPath = findOnPath(
     bare,
     options.pathValue ?? process.env.PATH ?? "",
@@ -18348,44 +18344,44 @@ function resolvePenguCommand(options = {}) {
 
 // src/extension.ts
 var client;
-var penguTerminal;
+var pscTerminal;
 var output;
 function log(message) {
   output?.appendLine(`[pengus] ${message}`);
 }
-function resolvePengu() {
+function resolvePsc() {
   const configured = vscode.workspace.getConfiguration("pengus").get("executablePath");
   const workspaceFolders = (vscode.workspace.workspaceFolders ?? []).filter((folder) => folder.uri.scheme === "file").map((folder) => folder.uri.fsPath);
-  return resolvePenguCommand({
+  return resolvePscCommand({
     configuredPath: configured,
-    envPath: process.env.PENGU_BIN_PATH,
+    envPath: process.env.PSC_BIN_PATH ?? process.env.PENGU_BIN_PATH,
     workspaceFolders
   });
 }
-function getPenguCommand() {
-  return resolvePengu()?.command ?? (process.platform === "win32" ? "pengu.exe" : "pengu");
+function getPscCommand() {
+  return resolvePsc()?.command ?? (process.platform === "win32" ? "psc.exe" : "psc");
 }
-function getPenguProfile() {
+function getPscProfile() {
   const config = vscode.workspace.getConfiguration("pengus");
   return config.get("defaultProfile") || "debug";
 }
 function getTerminal() {
-  if (!penguTerminal || penguTerminal.exitStatus !== void 0) {
-    penguTerminal = vscode.window.createTerminal("PenguScript");
+  if (!pscTerminal || pscTerminal.exitStatus !== void 0) {
+    pscTerminal = vscode.window.createTerminal("PenguScript");
   }
-  return penguTerminal;
+  return pscTerminal;
 }
 function runInTerminal(cmd) {
   const terminal = getTerminal();
   terminal.show();
   terminal.sendText(cmd);
 }
-async function reportMissingPengu(configured) {
-  const detail = configured ? `\`${configured}\` no existe.` : "No se encontr\xF3 en `pengus.executablePath`, `$PENGU_BIN_PATH`, el `PATH` ni en las ubicaciones habituales.";
-  log(`no pengu executable: ${detail}`);
+async function reportMissingPsc(configured) {
+  const detail = configured ? `\`${configured}\` no existe.` : "No se encontr\xF3 en `pengus.executablePath`, `$PSC_BIN_PATH`, el `PATH` ni en las ubicaciones habituales.";
+  log(`no psc executable: ${detail}`);
   log(`PATH=${process.env.PATH || ""}`);
   const choice = await vscode.window.showErrorMessage(
-    `PenguScript: no se encontr\xF3 el binario \`pengu\`. ${detail} El servidor de lenguaje no puede arrancar.`,
+    `PenguScript: no se encontr\xF3 el binario \`psc\`. ${detail} El servidor de lenguaje no puede arrancar.`,
     "Seleccionar el ejecutable\u2026",
     "Abrir ajustes",
     "Ver registro"
@@ -18399,13 +18395,13 @@ async function reportMissingPengu(configured) {
   }
 }
 function startClient() {
-  const resolved = resolvePengu();
+  const resolved = resolvePsc();
   if (!resolved) {
-    void reportMissingPengu();
+    void reportMissingPsc();
     return;
   }
   if (!isFile(resolved.command)) {
-    void reportMissingPengu(resolved.command);
+    void reportMissingPsc(resolved.command);
     return;
   }
   log(`launching "${resolved.command}" lsp --stdio (from ${resolved.source})`);
@@ -18422,12 +18418,12 @@ function startClient() {
       // symbol tables per project, and drops them on
       // `workspace/didChangeWatchedFiles`; watching only `**/*.pengu`
       // left the editor completing from the previous layout after a
-      // `pengu.toml` (or `pengu.yaml`) edit until some source file was
+      // `pengu.toml` edit until some source file was
       // reopened.
       fileEvents: [
         vscode.workspace.createFileSystemWatcher("**/*.{pengu,pengus}"),
         vscode.workspace.createFileSystemWatcher(
-          "**/{pengu,Pengu}.{toml,yaml,yml,json,lock}"
+          "**/{pengu,Pengu}.{toml,lock}"
         )
       ]
     },
@@ -18477,8 +18473,8 @@ async function restartClient() {
 async function selectExecutable() {
   const picked = await vscode.window.showOpenDialog({
     canSelectMany: false,
-    openLabel: "Usar este pengu",
-    title: "Selecciona el ejecutable `pengu`"
+    openLabel: "Usar este psc",
+    title: "Selecciona el ejecutable `psc`"
   });
   if (!picked || picked.length === 0) {
     return;
@@ -18498,25 +18494,25 @@ function activate(context) {
     () => selectExecutable()
   );
   const buildCmd = vscode.commands.registerCommand("pengus.build", () => {
-    const cmd = getPenguCommand();
-    const profile = getPenguProfile();
+    const cmd = getPscCommand();
+    const profile = getPscProfile();
     runInTerminal(`${cmd} build --profile=${profile}`);
   });
   const runCmd = vscode.commands.registerCommand("pengus.run", () => {
-    const cmd = getPenguCommand();
-    const profile = getPenguProfile();
+    const cmd = getPscCommand();
+    const profile = getPscProfile();
     runInTerminal(`${cmd} run --profile=${profile}`);
   });
   const testCmd = vscode.commands.registerCommand("pengus.test", () => {
-    const cmd = getPenguCommand();
+    const cmd = getPscCommand();
     runInTerminal(`${cmd} test`);
   });
   const docCmd = vscode.commands.registerCommand("pengus.doc", () => {
-    const cmd = getPenguCommand();
+    const cmd = getPscCommand();
     runInTerminal(`${cmd} doc`);
   });
   const cleanCmd = vscode.commands.registerCommand("pengus.clean", () => {
-    const cmd = getPenguCommand();
+    const cmd = getPscCommand();
     runInTerminal(`${cmd} clean`);
   });
   const initCmd = vscode.commands.registerCommand("pengus.init", async () => {
@@ -18525,19 +18521,19 @@ function activate(context) {
       placeHolder: "my_project"
     });
     if (projectName) {
-      const cmd = getPenguCommand();
+      const cmd = getPscCommand();
       runInTerminal(`${cmd} init ${projectName}`);
     }
   });
   const showMenuCmd = vscode.commands.registerCommand("pengus.showMenu", async () => {
     const items = [
-      { label: "$(play) Run Project", description: "pengu run", detail: "Build and run the project" },
-      { label: "$(tools) Build Project", description: "pengu build", detail: "Compile the project to native C / binary" },
-      { label: "$(beaker) Run Tests", description: "pengu test", detail: "Compile in test mode and execute tests" },
-      { label: "$(book) Generate Documentation", description: "pengu doc", detail: "Generate Markdown documentation from ## comments" },
-      { label: "$(trash) Clean Project", description: "pengu clean", detail: "Clean build artifacts" },
-      { label: "$(new-folder) Initialize Project", description: "pengu init", detail: "Initialize a new project scaffold" },
-      { label: "$(file-binary) Select pengu Executable", description: "pengus.selectExecutable", detail: "Point the extension at a specific pengu binary" },
+      { label: "$(play) Run Project", description: "psc run", detail: "Build and run the project" },
+      { label: "$(tools) Build Project", description: "psc build", detail: "Compile the project to native C / binary" },
+      { label: "$(beaker) Run Tests", description: "psc test", detail: "Compile in test mode and execute tests" },
+      { label: "$(book) Generate Documentation", description: "psc doc", detail: "Generate Markdown documentation from ## comments" },
+      { label: "$(trash) Clean Project", description: "psc clean", detail: "Clean build artifacts" },
+      { label: "$(new-folder) Initialize Project", description: "psc init", detail: "Initialize a new project scaffold" },
+      { label: "$(file-binary) Select psc Executable", description: "pengus.selectExecutable", detail: "Point the extension at a specific psc binary" },
       { label: "$(sync) Restart Language Server", description: "pengus.restartLsp", detail: "Restart the PenguScript LSP server" }
     ];
     const selected = await vscode.window.showQuickPick(items, {
@@ -18556,7 +18552,7 @@ function activate(context) {
         vscode.commands.executeCommand("pengus.clean");
       } else if (selected.label.includes("Initialize Project")) {
         vscode.commands.executeCommand("pengus.init");
-      } else if (selected.label.includes("Select pengu Executable")) {
+      } else if (selected.label.includes("Select psc Executable")) {
         vscode.commands.executeCommand("pengus.selectExecutable");
       } else if (selected.label.includes("Restart Language Server")) {
         vscode.commands.executeCommand("pengus.restartLsp");
@@ -18599,3 +18595,4 @@ function deactivate() {
   activate,
   deactivate
 });
+//# sourceMappingURL=extension.js.map

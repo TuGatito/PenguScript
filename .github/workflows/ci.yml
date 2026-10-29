@@ -84,9 +84,50 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  vscode:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: vscode-extension/package-lock.json
+
+      - name: Install extension dependencies
+        working-directory: vscode-extension
+        run: npm ci
+
+      - name: Test extension path resolution
+        working-directory: vscode-extension
+        run: |
+          npm run compile
+          node test/psc_path_check.js "$PWD/out"
+          rm -f out/pscPath.js out/pscPath.js.map
+
+      - name: Bundle extension
+        working-directory: vscode-extension
+        run: npm run bundle
+
+      - name: Package VSIX
+        working-directory: vscode-extension
+        run: |
+          mkdir -p dist
+          npx @vscode/vsce package --out "dist/pengus-$(node -p "require('./package.json').version").vsix"
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-vscode
+          path: vscode-extension/dist/*.vsix
+          if-no-files-found: error
+
   release:
     name: Publish release from CHANGELOG
-    needs: build
+    needs: [build, vscode]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -122,10 +163,11 @@ jobs:
             exit 0
           fi
           shopt -s nullglob
-          archives=(dist/*.tar.gz dist/*.zip)
+          platform_archives=(dist/*.tar.gz)
+          vsix_files=(dist/*.vsix)
           shopt -u nullglob
-          if [ "${#archives[@]}" -eq 0 ]; then
-            echo "::error::no release archives were produced"
+          if [ "${#platform_archives[@]}" -eq 0 ] || [ "${#vsix_files[@]}" -eq 0 ]; then
+            echo "::error::missing release archives or VSIX"
             exit 1
           fi
           awk -v ver="$VERSION" '
@@ -140,9 +182,9 @@ jobs:
           TITLE="$(awk -v ver="$VERSION" \
             'index($0, "## [" ver "]") == 1 { print; exit }' CHANGELOG.md |
             sed -E 's/^## \[[^]]+\] — [0-9]{4}-[0-9]{2}-[0-9]{2} — //')"
-          (cd dist && sha256sum *.tar.gz > SHA256SUMS.txt)
+          (cd dist && sha256sum *.tar.gz *.vsix > SHA256SUMS.txt)
           assets=()
-          for f in dist/*.tar.gz dist/*.zip dist/SHA256SUMS.txt; do
+          for f in dist/*.tar.gz dist/*.vsix dist/SHA256SUMS.txt; do
             [ -f "$f" ] && assets+=("$f")
           done
           gh release create "$TAG" --target "$GITHUB_SHA" \

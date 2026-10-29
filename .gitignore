@@ -28,3 +28,6 @@ __pycache__/
 *.py[cod]
 .venv/
 node_modules/
+
+# VS Code extension build output
+/vscode-extension/dist/

@@ -1,8 +1,8 @@
 const vscode = require('vscode');
 
 exports.run = async function () {
-    const psc = process.env.PSC_BIN || '/home/tugatito/Documentos/GitHub/PenguScript/psc/build/psc';
-    const file = process.env.PENGU_SMOKE_FILE || '/tmp/psc-f8-smoke.pengu';
+    const psc = process.env.PSC_BIN || '/usr/local/bin/psc';
+    const file = process.env.PSC_SMOKE_FILE || '/tmp/psc-f8-smoke.pengu';
     await vscode.workspace.getConfiguration('pengus').update('executablePath', psc, vscode.ConfigurationTarget.Global);
     const ext = vscode.extensions.getExtension('pengus-lang.pengus');
     if (!ext) throw new Error('pengus extension not found');

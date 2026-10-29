@@ -1,32 +1,32 @@
 /**
- * Locating the `pengu` executable for the VS Code extension.
+ * Locating the `psc` executable for the VS Code extension.
  *
  * Deliberately free of the `vscode` module: `extension.ts` passes the workspace
  * folders in, so this search can be exercised with plain Node (see
- * `tests/lsp/test_vscode_pengu_path.py`).
+ * `test/psc_path_check.js`).
  *
  * It exists because a VS Code started from the desktop does not inherit the
  * `PATH` a login shell builds — on Linux the session's own `PATH` comes from
- * systemd (`systemctl --user show-environment`), so a `pengu` exported from
+ * systemd (`systemctl --user show-environment`), so a `psc` exported from
  * `~/.bashrc` is invisible to the editor and the language client used to die
- * with a bare `spawn pengu ENOENT`.
+ * with a bare `spawn psc ENOENT`.
  */
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-/** A located `pengu` executable plus the rule that found it. */
-export interface PenguCommand {
+/** A located `psc` executable plus the rule that found it. */
+export interface PscCommand {
     command: string;
     /** Where the path came from; logged so a wrong pick is diagnosable. */
     source: string;
 }
 
 /** Every input the search reads, so a test can pin all of them. */
-export interface ResolvePenguOptions {
+export interface ResolvePscOptions {
     /** `pengus.executablePath`, when the user set one. */
     configuredPath?: string;
-    /** `$PENGU_BIN_PATH`, when set. */
+    /** `$PSC_BIN_PATH` (or legacy `$PENGU_BIN_PATH`), when set. */
     envPath?: string;
     /** File-system paths of the workspace folders, in order. */
     workspaceFolders?: string[];
@@ -91,10 +91,10 @@ export function findOnPath(
  * Well-known places a release is unpacked into.
  *
  * `docs/README_RELEASE.md` documents extracting the archive into a directory
- * and running `./pengu` (or `./install.sh`, which defaults to `~/.local`), so
+ * and running `./bin/psc` (or `./install.sh`, which defaults to `~/.local`), so
  * the workspace and the home directory are searched before giving up.
  */
-export function candidateExecutables(options: ResolvePenguOptions): string[] {
+export function candidateExecutables(options: ResolvePscOptions): string[] {
     const platform = options.platform ?? process.platform;
     const exists = options.isFile ?? isFile;
     const home = options.homeDir ?? os.homedir();
@@ -107,34 +107,34 @@ export function candidateExecutables(options: ResolvePenguOptions): string[] {
             join(root, exe),
             join(root, 'bin', exe),
             join(root, 'dist', exe),
-            join(root, 'dist2', exe),
             join(root, 'build', exe)
         );
     }
 
     candidates.push(
+        join(home, 'psc', exe),
         join(home, 'pengu', exe),
         join(home, '.local', 'bin', exe),
         join(home, 'bin', exe)
     );
     if (platform === 'win32') {
-        candidates.push(join(home, 'AppData', 'Local', 'Programs', 'pengu', exe));
+        candidates.push(join(home, 'AppData', 'Local', 'Programs', 'PenguScript', exe));
     } else {
-        candidates.push('/usr/local/bin/psc', '/usr/bin/psc', '/opt/pengu/psc');
+        candidates.push('/usr/local/bin/psc', '/usr/bin/psc', '/opt/psc/psc', '/opt/pengu/psc');
     }
 
     return candidates.filter(exists);
 }
 
 /**
- * Locates the `pengu` executable.
+ * Locates the `psc` executable.
  *
- * Order: the `pengus.executablePath` setting, then `$PENGU_BIN_PATH`, then
- * `PATH`, then the well-known locations. Returns `undefined` when nothing is
- * found, which the caller turns into an actionable message instead of a bare
- * `spawn ENOENT`.
+ * Order: the `pengus.executablePath` setting, then `$PSC_BIN_PATH` (legacy
+ * `$PENGU_BIN_PATH`), then `PATH`, then the well-known locations. Returns
+ * `undefined` when nothing is found, which the caller turns into an actionable
+ * message instead of a bare `spawn ENOENT`.
  */
-export function resolvePenguCommand(options: ResolvePenguOptions = {}): PenguCommand | undefined {
+export function resolvePscCommand(options: ResolvePscOptions = {}): PscCommand | undefined {
     const platform = options.platform ?? process.platform;
     const home = options.homeDir ?? os.homedir();
     const exists = options.isFile ?? isFile;
@@ -146,7 +146,7 @@ export function resolvePenguCommand(options: ResolvePenguOptions = {}): PenguCom
 
     const fromEnv = options.envPath?.trim();
     if (fromEnv) {
-        return { command: expandHome(fromEnv, home), source: 'PENGU_BIN_PATH' };
+        return { command: expandHome(fromEnv, home), source: 'PSC_BIN_PATH' };
     }
 
     const bare = 'psc';

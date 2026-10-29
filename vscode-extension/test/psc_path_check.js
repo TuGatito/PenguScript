@@ -1,13 +1,13 @@
 /**
- * Deterministic checks for vscode-extension/src/penguPath.ts.
+ * Deterministic checks for vscode-extension/src/pscPath.ts.
  *
- * Run as: node pengu_path_check.js <compiled-dir>
+ * Run as: node psc_path_check.js <compiled-dir>
  * Exits non-zero and prints "FAIL ..." lines when an expectation does not hold.
  */
 'use strict';
 
 const path = require('path');
-const mod = require(path.join(process.argv[2], 'penguPath.js'));
+const mod = require(path.join(process.argv[2], 'pscPath.js'));
 
 let failures = 0;
 function check(name, actual, expected) {
@@ -28,98 +28,98 @@ function fsOf(files) {
 }
 
 // The environment the bug was reported in: a VS Code launched from the desktop
-// session, whose PATH (systemd's) has no `pengu`, while the release sits in
-// ~/pengu/.
+// session, whose PATH (systemd's) has no `psc`, while the release sits in
+// ~/psc/.
 const SYSTEMD_PATH = '/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/lib/emscripten';
 const HOME = '/home/u';
 
 check(
-    'user case: ~/pengu/pengu is found when PATH has none',
-    mod.resolvePenguCommand({
+    'user case: ~/psc/psc is found when PATH has none',
+    mod.resolvePscCommand({
         homeDir: HOME,
         platform: 'linux',
         pathValue: SYSTEMD_PATH,
         workspaceFolders: [],
-        isFile: fsOf([`${HOME}/pengu/pengu`])
+        isFile: fsOf([`${HOME}/psc/psc`])
     }),
-    { command: `${HOME}/pengu/pengu`, source: 'well-known location' }
+    { command: `${HOME}/psc/psc`, source: 'well-known location' }
 );
 
 check(
-    'workspace .venv/bin/pengu is preferred over ~/pengu/pengu',
-    mod.resolvePenguCommand({
+    'workspace bin/psc is preferred over ~/psc/psc',
+    mod.resolvePscCommand({
         homeDir: HOME,
         platform: 'linux',
         pathValue: SYSTEMD_PATH,
         workspaceFolders: ['/work/proj'],
-        isFile: fsOf([`${HOME}/pengu/pengu`, '/work/proj/.venv/bin/pengu'])
+        isFile: fsOf([`${HOME}/psc/psc`, '/work/proj/bin/psc'])
     }),
-    { command: '/work/proj/.venv/bin/pengu', source: 'well-known location' }
+    { command: '/work/proj/bin/psc', source: 'well-known location' }
 );
 
 check(
     'PATH wins over the well-known locations',
-    mod.resolvePenguCommand({
+    mod.resolvePscCommand({
         homeDir: HOME,
         platform: 'linux',
         pathValue: `/opt/bin:${SYSTEMD_PATH}`,
         workspaceFolders: [],
-        isFile: fsOf([`${HOME}/pengu/pengu`, '/opt/bin/pengu'])
+        isFile: fsOf([`${HOME}/psc/psc`, '/opt/bin/psc'])
     }),
-    { command: '/opt/bin/pengu', source: 'PATH' }
+    { command: '/opt/bin/psc', source: 'PATH' }
 );
 
 check(
     'the setting wins and expands ~',
-    mod.resolvePenguCommand({
-        configuredPath: '~/pengu/pengu',
+    mod.resolvePscCommand({
+        configuredPath: '~/psc/psc',
         homeDir: HOME,
         platform: 'linux',
         pathValue: '/opt/bin',
-        isFile: fsOf(['/opt/bin/pengu'])
+        isFile: fsOf(['/opt/bin/psc'])
     }),
-    { command: `${HOME}/pengu/pengu`, source: 'pengus.executablePath' }
+    { command: `${HOME}/psc/psc`, source: 'pengus.executablePath' }
 );
 
 check(
-    '$PENGU_BIN_PATH wins over PATH',
-    mod.resolvePenguCommand({
-        envPath: '/custom/pengu',
+    '$PSC_BIN_PATH wins over PATH',
+    mod.resolvePscCommand({
+        envPath: '/custom/psc',
         homeDir: HOME,
         platform: 'linux',
         pathValue: '/opt/bin',
-        isFile: fsOf(['/opt/bin/pengu'])
+        isFile: fsOf(['/opt/bin/psc'])
     }),
-    { command: '/custom/pengu', source: 'PENGU_BIN_PATH' }
+    { command: '/custom/psc', source: 'PSC_BIN_PATH' }
 );
 
 check(
     'a blank setting is ignored',
-    mod.resolvePenguCommand({
+    mod.resolvePscCommand({
         configuredPath: '   ',
         homeDir: HOME,
         platform: 'linux',
         pathValue: SYSTEMD_PATH,
-        isFile: fsOf([`${HOME}/.local/bin/pengu`])
+        isFile: fsOf([`${HOME}/.local/bin/psc`])
     }),
-    { command: `${HOME}/.local/bin/pengu`, source: 'well-known location' }
+    { command: `${HOME}/.local/bin/psc`, source: 'well-known location' }
 );
 
 check(
     'Windows: PATHEXT is honoured',
-    mod.resolvePenguCommand({
+    mod.resolvePscCommand({
         homeDir: 'C:\\Users\\u',
         platform: 'win32',
         pathValue: 'C:\\tools',
         pathExt: '.EXE;.CMD',
-        isFile: fsOf(['C:\\tools\\pengu.EXE'])
+        isFile: fsOf(['C:\\tools\\psc.EXE'])
     }),
-    { command: 'C:\\tools\\pengu.EXE', source: 'PATH' }
+    { command: 'C:\\tools\\psc.EXE', source: 'PATH' }
 );
 
 check(
     'nothing anywhere yields undefined (the caller then explains why)',
-    mod.resolvePenguCommand({
+    mod.resolvePscCommand({
         homeDir: HOME,
         platform: 'linux',
         pathValue: SYSTEMD_PATH,

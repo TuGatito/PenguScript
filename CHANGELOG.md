@@ -2,6 +2,18 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.14.7] — 2026-10-28 — Extensión de VS Code en el release
+
+- La extensión de VS Code pasa a `psc`: búsqueda de `psc`/`bin/psc`/`build/psc`,
+  `PSC_BIN_PATH` (con fallback `PENGU_BIN_PATH`), comandos `psc build/run/test/...`
+  y LSP `psc lsp --stdio`.
+- `penguPath.ts` → `pscPath.ts`; tests de resolución de rutas actualizados.
+- Extensión `pengus-3.2.0` con repository, textos y settings de `psc`.
+- CI añade un job que instala dependencias, bundlea, empaqueta
+  `pengus-<version>.vsix`, sube el artefacto y lo incluye en el GitHub Release
+  junto a los binarios y `SHA256SUMS.txt`.
+- `psc 0.14.7 (F11)`.
+
 ## [0.14.6] — 2026-10-28 — Linux/macOS y release desde el changelog
 
 - Windows sale temporalmente de la matriz de CI y de las plataformas

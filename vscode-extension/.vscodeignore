@@ -1,9 +1,10 @@
 .vscode/**
 .vscode-test/**
 src/**
-# The Node driver for `src/penguPath.ts`; exercised by
-# tests/lsp/test_vscode_pengu_path.py from the checkout, not from the package.
+# The Node driver for `src/pscPath.ts`; exercised by
+# test/psc_path_check.js from the checkout, not from the package.
 test/**
 .gitignore
 tsconfig.json
 **/*.map
+dist/**
