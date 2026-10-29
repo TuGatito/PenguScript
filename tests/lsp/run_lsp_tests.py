@@ -19,6 +19,7 @@ PSC = pathlib.Path(os.environ.get("PSC", ROOT / "build" / "psc"))
 PROJECT = ROOT / "tests" / "lsp" / "fixtures" / "project"
 DOC = PROJECT / "src" / "main.pengu"
 URI = DOC.as_uri()
+VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
 
 def frame(obj: dict) -> bytes:
@@ -119,7 +120,7 @@ def main() -> int:
             {"rootUri": PROJECT.as_uri(), "capabilities": {}},
         )
         capabilities = init["result"]["capabilities"]
-        assert_eq("server version", init["result"]["serverInfo"]["version"], "0.15.0")
+        assert_eq("server version", init["result"]["serverInfo"]["version"], VERSION)
         assert_true("completion triggers", capabilities["completionProvider"].get("triggerCharacters"))
         assert_eq(
             "on-type key",

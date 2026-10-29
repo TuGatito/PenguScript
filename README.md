@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.16.0-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.16.1-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey">
@@ -69,8 +69,8 @@ pengu-<version>-<os>-<arch>-fhs.tar.gz
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.16.0-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.16.0-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.16.1-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.16.1-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 
@@ -125,27 +125,93 @@ checked by rebuilding with the just-built compiler.
 
 ## WebAssembly / web
 
-`psc` can compile to `wasm32-unknown-emscripten` with the Emscripten SDK
-installed on the machine. The wasm runtime is separate from the host one:
+`psc` compiles to **`wasm32-unknown-emscripten`** through the Emscripten SDK.
+The backend is still C11: `psc` emits one bundle and `emcc` turns it into
+`app.html` + `app.js` + `app.wasm`; `node` runs the same program headlessly.
 
-Release packages include the wasm runtime in `lib/wasm/`. From a source
-checkout, build it once:
+### Requirements
+
+- **Emscripten SDK** with `emcc` and `emar` on `PATH` (install/activate once):
+
+  ```bash
+  git clone https://github.com/emscripten-core/emsdk.git
+  cd emsdk
+  ./emsdk install latest
+  ./emsdk activate latest
+  source ./emsdk_env.sh
+  ```
+
+- **Node.js 20+** for `psc run`/`psc test --target wasm` (CI uses a current
+  Node; `node --version`).
+- A host C compiler is only needed to build `psc` itself, not to compile wasm.
+
+Check everything:
 
 ```bash
-source /path/to/emsdk/emsdk_env.sh
-./tools/build_runtime_wasm.sh
-
-psc build --target wasm          # build/app.html + app.js + app.wasm
-psc run   --target wasm          # build, then run with node
-psc test  --target wasm
 psc doctor --target wasm
 ```
 
-`when wasm:`, `when wasm_target == "emscripten":` and `when compiler == "emcc":`
-work in both sema and codegen. `std.web` (console, main loop, timers) compiles
-on native and wasm. `std.net` and native-library modules are rejected with an
-actionable message on wasm. See [docs/WASM.md](docs/WASM.md) for the support
-matrix and limitations.
+### Build the wasm runtime
+
+Release packages ship `lib/wasm/libpengu_runtime.a` and the HTML shell. From a
+source checkout, build the wasm runtime once (it is kept separate from
+`build/lib`):
+
+```bash
+./tools/build_runtime_wasm.sh
+# build/wasm/lib/libpengu_runtime.a
+# build/wasm/lib/libminiz.a
+# build/wasm/lib/libre.a
+```
+
+### Compile and run
+
+```bash
+psc build --target wasm                 # build/app.html + app.js + app.wasm
+psc build --target wasm32-unknown-emscripten
+psc run   --target wasm                 # builds and runs `node app.js`
+psc test  --target wasm                 # integrated tests through Node
+psc check --target wasm                 # checker/codegen only
+psc emit-c --target wasm --out=bundle.c
+```
+
+`wasm`/`wasm32`/`emscripten` are shorthands. The target can also live in the
+manifest:
+
+```toml
+[build]
+target = "wasm32-unknown-emscripten"
+```
+
+`--target wasm` sets `os = "emscripten"`, `arch = "wasm32"`,
+`compiler = "emcc"`, `wasm = true` and `wasm_target = "emscripten"`, so
+`when wasm:`, `when wasm_target == "emscripten":` and
+`when compiler == "emcc":` work in both sema and codegen.
+
+### Platform and limits (MVP)
+
+| Feature | Status |
+|---|---|
+| Host platforms | Linux x86_64, macOS arm64 |
+| wasm target | `wasm32-unknown-emscripten` (Emscripten backend) |
+| Artifacts | `app.html`/`app.js`/`app.wasm`; `static` with `emar`; `obj`; `c` |
+| `shared` | Refused (wasm side modules need `-fPIC` on every input) |
+| WASI | Recognized and refused |
+| `std.web` | Console, main loop, `now_ms`, `eval_js`, timers (native + wasm) |
+| `std.filum` | Works with `-pthread`; browser needs COOP/COEP |
+| `std.net`, `std.dynlib`, `std.ffi_call`, `std.secrets`, `std.petitio` | Rejected on wasm with an actionable message |
+| JavaScript/DOM/fetch interop | Planned for the next milestone (`std.js`/`std.dom`/`std.fetch`) |
+
+```bash
+# headless
+psc run tests/wasm/std_web_smoke.pengu --target wasm --profile=release
+
+# full wasm smoke suite (skips if emcc/node are missing)
+bash tests/wasm/run.sh
+```
+
+See [docs/WASM.md](docs/WASM.md) for the full support matrix and
+troubleshooting.
 
 ## Quick start
 

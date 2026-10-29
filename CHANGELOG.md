@@ -2,6 +2,27 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.16.1] — 2026-10-29 — CI wasm, README de plataforma y versión dinámica
+
+Parche de mantenimiento del MVP wasm. Los jobs de Linux y macOS fallaban solo
+por el test de protocolo LSP: comparaba la versión del servidor contra
+`"0.15.0"` hardcodeado y el compilador ya reportaba `0.16.0`.
+
+### Corregido
+
+- `tests/lsp/run_lsp_tests.py` lee `VERSION` y compara contra ese valor, así
+  que el próximo bump ya no rompe la CI. Verificado en Linux y macOS con
+  `python3 tests/lsp/run_lsp_tests.py` y `python3 tests/lsp/test_assets.py`.
+- `README.md` documenta la plataforma wasm y los requisitos reales: Emscripten
+  SDK (`emcc`/`emar`), Node.js 20+, compilación del runtime wasm, comandos
+  `psc build/run/test/check/emit-c --target wasm`, artefactos y límites del MVP
+  (`shared`/WASI rechazados, `std.net`/dynlib/ffi/secrets/petitio no
+  disponibles, interop JS en el siguiente hito).
+
+### Cambiado
+
+- `VERSION`, `pengu.toml`, `release.toml`, `psc` y el LSP reportan `0.16.1`.
+
 ## [0.16.0] — 2026-10-29 — WebAssembly (Emscripten) MVP y comptime correcto
 
 Restaura el target `wasm32-unknown-emscripten` en el compilador auto-hospedado
