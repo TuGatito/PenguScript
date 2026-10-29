@@ -644,9 +644,14 @@ weave build with o as BuildOptions into BuildResult:
                 calling args.push with "-lpengu_runtime"
             else:
                 calling args.push with "-l{lk}"
-        calling args.push with "-lm"
-        calling args.push with "-pthread"
-        calling args.push with "-ldl"
+        if so.os_name == "windows":
+            calling args.push with "-lm"
+            calling args.push with "-lws2_32"
+            calling args.push with "-lwinpthread"
+        else:
+            calling args.push with "-lm"
+            calling args.push with "-pthread"
+            calling args.push with "-ldl"
     calling args.push with "-o"
     calling args.push with (calling copy with objpath)
     if o.verbose:

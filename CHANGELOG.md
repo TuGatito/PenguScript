@@ -2,6 +2,15 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.14.3] — 2026-10-28 — Enlace de Windows
+
+- `psc/os/proc.pengu` usa `_spawnvp(_P_WAIT, ...)` en Windows en vez del modo
+  `0` (`_P_OVERLAY`), que reemplazaba el proceso `psc` por `gcc` y dejaba el
+  paso de build sin binario/exit code correcto.
+- El driver enlaza en Windows con `-lm -lws2_32 -lwinpthread`; ya no pasa
+  `-ldl`/`-pthread`, que no existen en MinGW.
+- Bundles stage0 regenerados y `psc 0.14.3 (F11)`.
+
 ## [0.14.2] — 2026-10-28 — Windows headers y tests petitio
 
 - Windows: `ProcessResult` usa campos `out`/`err` en vez de `stdout`/`stderr`,

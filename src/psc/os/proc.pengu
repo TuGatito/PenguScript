@@ -23,7 +23,7 @@ PenguString *s = (PenguString *)pengu_list_at(&argv, i);
 v[i] = (s && s->data) ? s->data : (char *)"";
 }
 v[argv.len] = NULL;
-int rc = _spawnvp(0, v[0], (const char *const *)v);
+int rc = _spawnvp(_P_WAIT, v[0], (const char *const *)v);
 free(v);
 return rc;
 #else
@@ -162,7 +162,7 @@ PenguString *s = (PenguString *)pengu_list_at(&argv, i);
 v[i] = (s && s->data) ? s->data : (char *)"";
 }
 v[argv.len] = NULL;
-int rc = _spawnvp(0, v[0], (const char *const *)v);
+int rc = _spawnvp(_P_WAIT, v[0], (const char *const *)v);
 free(v);
 return rc;
 #else

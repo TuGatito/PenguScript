@@ -8,7 +8,7 @@ description: >
 inputs:
   version:
     description: >
-      Release tag or version to download (for example `v0.14.2` or `0.14.2`).
+      Release tag or version to download (for example `v0.14.3` or `0.14.3`).
       Use `latest` (the default) to resolve the newest published release.
     required: false
     default: "latest"
