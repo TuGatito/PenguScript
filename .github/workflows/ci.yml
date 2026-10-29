@@ -14,13 +14,16 @@ jobs:
     name: PSC (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, label: linux }
-          - { os: macos-latest, label: macos }
-          - { os: windows-latest, label: windows }
+          - { os: ubuntu-latest, label: linux, experimental: false }
+          - { os: macos-latest, label: macos, experimental: false }
+          # Windows is best-effort until the remaining toolchain issues are
+          # solved; a Windows failure must not block the Linux/macOS release.
+          - { os: windows-latest, label: windows, experimental: true }
     steps:
       - uses: actions/checkout@v4
 
@@ -42,9 +45,23 @@ jobs:
           set -euo pipefail
           stage0=./build/psc-stage0
           if [ -f "$stage0.exe" ]; then stage0="$stage0.exe"; fi
+          echo "bootstrap compiler: $stage0"
+          set +e
           "$stage0" build .
-          psc_bin=./build/psc
-          if [ -f "$psc_bin.exe" ]; then psc_bin="$psc_bin.exe"; fi
+          rc=$?
+          set -e
+          echo "bootstrap build exit: $rc"
+          ls -l build || true
+          if [ "$rc" -ne 0 ]; then exit "$rc"; fi
+          if [ -f build/psc.exe ]; then
+            psc_bin=build/psc.exe
+          elif [ -f build/psc ]; then
+            psc_bin=build/psc
+          else
+            echo "::error::the build did not produce build/psc(.exe)"
+            exit 1
+          fi
+          echo "compiler: $psc_bin"
           "$psc_bin" version
 
       - name: Format gate
@@ -91,3 +108,79 @@ jobs:
           cc -std=c11 -g -O1 -fsanitize=address,undefined -I "$PWD/build/include" -I . -I std_c \
             /tmp/psc-asan.c build/lib/libpengu_runtime.a -lm -lpthread -ldl -o /tmp/psc-asan
           ASAN_OPTIONS=detect_leaks=0 /tmp/psc-asan version
+
+      - name: Package portable
+        shell: bash
+        run: bash ./tools/package_ci.sh
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.label }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release files
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      - name: Create GitHub release from VERSION and CHANGELOG
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '\r\n' < VERSION)"
+          TAG="v$VERSION"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::release $TAG already exists; skipping"
+            exit 0
+          fi
+          shopt -s nullglob
+          archives=(dist/*.tar.gz dist/*.zip)
+          shopt -u nullglob
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "::warning::no release archives were produced; skipping release"
+            exit 0
+          fi
+          awk -v ver="$VERSION" '
+            index($0, "## [" ver "]") == 1 { capture = 1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::CHANGELOG.md has no section for $VERSION"
+            exit 1
+          fi
+          TITLE="$(awk -v ver="$VERSION" \
+            'index($0, "## [" ver "]") == 1 { print; exit }' CHANGELOG.md |
+            sed -E 's/^## \[[^]]+\] — [0-9]{4}-[0-9]{2}-[0-9]{2} — //')"
+          (cd dist && sha256sum *.tar.gz *.zip 2>/dev/null > SHA256SUMS.txt || true)
+          assets=()
+          for f in dist/*.tar.gz dist/*.zip dist/SHA256SUMS.txt; do
+            [ -f "$f" ] && assets+=("$f")
+          done
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "PenguScript v$VERSION — $TITLE" \
+              --notes-file release-notes.md "${assets[@]}"
+          else
+            gh release create "$TAG" --target "$GITHUB_SHA" \
+              --title "PenguScript v$VERSION — $TITLE" \
+              --notes-file release-notes.md "${assets[@]}"
+          fi

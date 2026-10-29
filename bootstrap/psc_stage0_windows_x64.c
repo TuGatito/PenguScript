@@ -83160,7 +83160,7 @@ int32_t main_dispatch(PenguList args) {
     #line 97 "src/main.pengu"
     if ((pengu_string_equal(cmd, pengu_string_from_cstr("version")) || pengu_string_equal(cmd, pengu_string_from_cstr("--version"))) || pengu_string_equal(cmd, pengu_string_from_cstr("-V"))) {
         #line 98 "src/main.pengu"
-        (void)(spark_println(pengu_string_from_cstr("psc 0.14.4 (F11)")));
+        (void)(spark_println(pengu_string_from_cstr("psc 0.14.5 (F11)")));
         #line 99 "src/main.pengu"
         return 0;
     }
@@ -84427,7 +84427,7 @@ bool main_starts_dash(PenguString s) {
 #line 670 "src/main.pengu"
 void main_print_help(void) {
     #line 671 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr("psc 0.14.4 \xe2\x80\x94 PenguScript compiler")));
+    (void)(spark_println(pengu_string_from_cstr("psc 0.14.5 \xe2\x80\x94 PenguScript compiler")));
     #line 672 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr("")));
     #line 673 "src/main.pengu"

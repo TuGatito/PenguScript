@@ -1,7 +1,7 @@
 # F10 release metadata. The packed artifact also contains a copy of this file.
 [release]
-version = "0.14.4"
-bind_version = "0.14.4"
+version = "0.14.5"
+bind_version = "0.14.5"
 layouts = ["portable", "fhs"]
 default_target = "linux-x86_64"
 

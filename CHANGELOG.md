@@ -2,6 +2,19 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.14.5] — 2026-10-28 — Release automático desde CI
+
+- CI publica un GitHub Release al terminar en `main`, usando `VERSION` como
+  tag y la sección correspondiente de `CHANGELOG.md` como notas.
+- Cada job empaqueta `pengu-<version>-<target>-portable` y sube el artefacto;
+  el job de release reúne Linux/macOS/Windows, calcula `SHA256SUMS.txt` y
+  adjunta los binarios.
+- Windows queda como job experimental (`continue-on-error`): si falla, Linux
+  y macOS siguen publicando el release. El paso de build imprime el estado,
+  el contenido de `build/` y acepta `build/psc.exe` o `build/psc`.
+- Incluye el sufijo `.exe` del artefacto Windows de 0.14.4.
+- `psc 0.14.5 (F11)`.
+
 ## [0.14.4] — 2026-10-28 — Artefactos `.exe` en Windows
 
 - El driver añade la extensión `.exe` al artefacto de salida `exe` cuando
