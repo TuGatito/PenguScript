@@ -81,6 +81,15 @@ jobs:
             /tmp/psc-asan.c build/lib/libpengu_runtime.a -lm -lpthread -ldl -o /tmp/psc-asan
           ASAN_OPTIONS=detect_leaks=0 /tmp/psc-asan version
 
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - name: Build wasm runtime for packaging
+        shell: bash
+        run: bash ./tools/build_runtime_wasm.sh
+
       - name: Package portable
         shell: bash
         run: bash ./tools/package_ci.sh

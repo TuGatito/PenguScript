@@ -22,6 +22,8 @@ target y la paridad sema/codegen.
 - **Búsqueda de runtime wasm disjunta**: `build/wasm/lib`, `PENGU_RUNTIME_CROSS`,
   `PENGU_LIB_DIR`; nunca `build/lib`. `psc doctor --target wasm` comprueba
   `emcc`, `emar`, `node`, runtime y shell.
+- Los paquetes de release incluyen `lib/wasm/` y `share/pengu/pengu_wasm_shell.html`;
+  un checkout puede construirlo con `tools/build_runtime_wasm.sh`.
 - **Artefactos wasm**: `exe` → `app.html` + `app.js` + `app.wasm`; `static` →
   `libapp.a` con `emar`; `obj` → `.o`; `c` → `bundle.c`; `shared` se rechaza.
 - **Runner Node**: `psc run`/`psc test` con target wasm ejecutan `node app.js`;

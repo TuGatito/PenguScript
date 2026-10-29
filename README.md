@@ -128,6 +128,9 @@ checked by rebuilding with the just-built compiler.
 `psc` can compile to `wasm32-unknown-emscripten` with the Emscripten SDK
 installed on the machine. The wasm runtime is separate from the host one:
 
+Release packages include the wasm runtime in `lib/wasm/`. From a source
+checkout, build it once:
+
 ```bash
 source /path/to/emsdk/emsdk_env.sh
 ./tools/build_runtime_wasm.sh

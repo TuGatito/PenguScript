@@ -45,8 +45,9 @@ instructions instead of failing inside a linker.
 
 ## 2. Build the wasm runtime (once)
 
-The shipped `libpengu_runtime.a` is host-built and **cannot** satisfy a wasm
-link. Build the wasm one separately:
+Release packages built by CI ship the wasm runtime under `lib/wasm/` (and the
+shell under `share/pengu/`). In a source checkout, or if the package was built
+without Emscripten, build it once:
 
 ```bash
 ./tools/build_runtime_wasm.sh
