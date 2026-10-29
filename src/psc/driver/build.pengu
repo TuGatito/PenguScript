@@ -513,6 +513,8 @@ weave build with o as BuildOptions into BuildResult:
             set artifact is "{build_dir}/lib{out_name}.a"
         else if out_kind == "shared":
             set artifact is "{build_dir}/lib{out_name}.so"
+        else if out_kind == "exe" and so.os_name == "windows":
+            set artifact is "{build_dir}/{out_name}.exe"
         else:
             set artifact is "{build_dir}/{out_name}"
     var adir as string is calling compass.cp_dirname with artifact

@@ -2,6 +2,15 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.14.4] — 2026-10-28 — Artefactos `.exe` en Windows
+
+- El driver añade la extensión `.exe` al artefacto de salida `exe` cuando
+  `os == "windows"`, de modo que `build/psc` se genera como `build/psc.exe`.
+  Antes el paso de CI compilaba sin extensión y el siguiente
+  `./build/psc version` terminaba en 127; `tests/run.ps1` también espera
+  `build\psc.exe`.
+- Bundles stage0 regenerados y `psc 0.14.4 (F11)`.
+
 ## [0.14.3] — 2026-10-28 — Enlace de Windows
 
 - `psc/os/proc.pengu` usa `_spawnvp(_P_WAIT, ...)` en Windows en vez del modo
