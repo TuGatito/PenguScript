@@ -2,6 +2,76 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.16.0] — 2026-10-29 — WebAssembly (Emscripten) MVP y comptime correcto
+
+Restaura el target `wasm32-unknown-emscripten` en el compilador auto-hospedado
+y corrige la capa de `when`/comptime que lo bloqueaba. El backend C ya era
+compatible con wasm; lo que faltaba era el driver, el runtime wasm, el modelo de
+target y la paridad sema/codegen.
+
+### Añadido
+
+- **`--target wasm` / `wasm32-unknown-emscripten`** en `build`, `run`, `test`,
+  `check`, `emit-c` y `expand`, y `[build] target` en `pengu.toml`.
+  Alias: `wasm`, `wasm32`, `emscripten`. `wasm32-wasi` se rechaza con un
+  mensaje explícito. El target fija `os = emscripten`, `arch = wasm32`,
+  `compiler = emcc`, `wasm = true` y `wasm_target = "emscripten"`.
+- **`tools/build_runtime_wasm.sh`**: construye `build/wasm/lib/libpengu_runtime.a`
+  (core + filum + SDS + vaqt + CC + miniz + regex) con `emcc`/`emar`, separado
+  de `build/lib`. Sin Python.
+- **Búsqueda de runtime wasm disjunta**: `build/wasm/lib`, `PENGU_RUNTIME_CROSS`,
+  `PENGU_LIB_DIR`; nunca `build/lib`. `psc doctor --target wasm` comprueba
+  `emcc`, `emar`, `node`, runtime y shell.
+- **Artefactos wasm**: `exe` → `app.html` + `app.js` + `app.wasm`; `static` →
+  `libapp.a` con `emar`; `obj` → `.o`; `c` → `bundle.c`; `shared` se rechaza.
+- **Runner Node**: `psc run`/`psc test` con target wasm ejecutan `node app.js`;
+  sin Node se informa y se devuelve 2.
+- **`std.web`** funciona en nativo y wasm (consola, main loop, `now_ms`,
+  `eval_js`, timers). El shell HTML histórico se restaura como
+  `pengu_wasm_shell.html`.
+- **`psc assets --target wasm`** fuerza el fallback de arrays C (`.incbin` no
+  existe en el ensamblador wasm).
+- **Diagnóstico de módulos no portables**: `std.net`, `std.dynlib`,
+  `std.ffi_call`, `std.secrets` y `std.petitio` se rechazan en wasm con un
+  mensaje accionable antes del linker.
+- **`ldflag`/`build.ldflags`**: los enlaces de módulos y del manifiesto se
+  aplican por fin a la línea de enlace (y entran en la clave de caché).
+- **Tests**: `tests/wasm/run.sh` (sin Python), `tests/pengu/comptime_when.pengu`
+  y job de CI `WebAssembly (Emscripten)`.
+
+### Corregido
+
+- **`when` top-level/statement con varias sentencias**: el codegen solo emitía
+  la primera y malinterpretaba el `else`; ahora recorre todos los hijos y
+  `else when` anidado. Esto arregla `std.web`, `std.rites.which_all` y los
+  includes condicionales (incluido `std.net`).
+- **Comptime de wasm**: `wasm`, `wasm_target`, `compiler`, `main` y `debug` se
+  resuelven igual en sema y codegen; `wasm_target == ""` funciona; `-D wasm`
+  pliega `when wasm`; `when` desconocido emite E0039; `main` es por módulo.
+- **Errores de codegen**: `generate_c` devuelve `ok = false` y un mensaje; ya no
+  se descartan ramas en silencio.
+- **`static var`**: ahora emite almacenamiento `static` (con guard de
+  inicialización), en lugar de una local que se reiniciaba en cada llamada.
+- **Interpolación de `ref -> campo`**: `"{p->field}"` emite el campo real, no
+  un puntero vacío. Esto también corrige las rutas del driver (`-I/`, `-L/lib`).
+- **Parámetros de tipo función**: recuperan su nombre en la firma C
+  (`void (*cb)(void)`), lo que arregla callbacks de `std.web` y `std.filum`.
+- **`length` sobre `ref to string`**: emite `(*p).len`, arreglando
+  `std.rites.run_capture`.
+- **Expresiones `if`**: si no hay tipo anotado, el fallback es `int`, no `void*`.
+- **Doble free en errores de parseo**: los comandos ya no liberan `pr.error`
+  antes de `free_parse_result`; `psc test --no-cache` dejó de abortar.
+- **Paréntesis redundantes en condiciones**: se evita `if ((a == b))` y el
+  warning `-Wparentheses-equality` de clang/emcc.
+
+### Documentación
+
+- `docs/WASM.md` nuevo (instalación, runtime, artefactos, matriz de std,
+  threads, assets, flags, troubleshooting).
+- `LANGUAGE.md` §16/§20.2.3 actualizado a `psc` y al target real.
+- `docs/psc/CLI.md`, README y `docs/WASM.md`.
+- `VERSION`, `pengu.toml`, `release.toml`, `psc` y LSP reportan `0.16.0`.
+
 ## [0.15.0] — 2026-10-29 — LSP semántico, extensión 4.0.0 y stdlib portable
 
 - El LSP deja de ser un escáner de texto: `psc/lsp/query.pengu` consulta el AST,

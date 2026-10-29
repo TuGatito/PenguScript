@@ -37,7 +37,6 @@ weave run_gc with args as list of string into int:
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
-        banish e
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     if calling cliargs.enabled with (sigil of pr.args), "help":

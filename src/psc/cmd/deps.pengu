@@ -64,7 +64,6 @@ weave sync with base as string, lib_dir as string, write_lock as bool, trusted a
     if not g.ok:
         var e as string is g.error
         calling spark.eprintln with e
-        banish e
         calling pman.free with deps
         calling presolve.free with (sigil of g)
         return 1
@@ -117,7 +116,6 @@ weave run_add with args as list of string into int:
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
-        banish e
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     if calling cliargs.enabled with (sigil of pr.args), "help":

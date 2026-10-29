@@ -1,0 +1,49 @@
+## Regression for comptime `when`, per-module `main`, `static var` and
+## interpolation of `ref -> field` (all were broken before 0.16.0).
+import std.spark
+
+rune Box:
+    label as string
+
+weave next_id into int:
+    static var n as int is 0
+    set n is n + 1
+    return n
+
+weave label_of with b as ref to Box into string:
+    return "{b->label}"
+
+weave main into int:
+    var native as bool is false
+    var empty_target as bool is false
+    var entry as bool is false
+    when wasm:
+        calling spark.println with "FAIL: wasm branch in a native test"
+        return 1
+    when not wasm:
+        set native is true
+    when wasm_target == "":
+        set empty_target is true
+    when main:
+        set entry is true
+    if not native:
+        return 1
+    if not empty_target:
+        return 1
+    if not entry:
+        return 1
+    if (calling next_id) != 1:
+        return 1
+    if (calling next_id) != 2:
+        return 1
+    var b as Box is with label is "boxed"
+    var s as string is calling label_of with (sigil of b)
+    if s != "boxed":
+        banish s
+        return 1
+    banish s
+    var v as int is if 1 == 1 then 7 else 8
+    if v != 7:
+        return 1
+    calling spark.println with "OK comptime_when"
+    return 0

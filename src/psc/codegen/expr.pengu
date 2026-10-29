@@ -163,7 +163,7 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         if ity <= 0:
             set ity is calling node_type with c, it
         if ity <= 0:
-            set ity is 1
+            set ity is calling types.base with (sigil of c->program->types), "int"
         var ict as string is calling ctype.c_type with (sigil of c->names), ity
         defer banish ict
         var icv as string is calling emit_expr with c, ic
@@ -178,9 +178,10 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         defer banish isb
         calling isb.append with "__extension__(({ "
         calling isb.append with ict
-        calling isb.append with " _pif; if ("
-        calling isb.append with icv
-        calling isb.append with ") { _pif = "
+        var ifcond as string is "if ({icv})"
+        if calling emit.wrapped_parens with icv:
+            set ifcond is "if {icv}"
+        calling isb.append with " _pif; {ifcond} { _pif = "
         calling isb.append with itv
         calling isb.append with "; } else { _pif = "
         calling isb.append with iev
@@ -360,6 +361,16 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         var lb as int is calling astutil.node_child with ast, node, 0
         var lv as string is calling emit_expr with c, lb
         defer banish lv
+        # `err length` donde `err` es `ref to string` debe bajar a
+        # `(*err).len`, no a `err.len`. Sin este deref, el C generado no
+        # compila (bug detectado en std.rites.run_capture).
+        var lt as int is calling node_type with c, lb
+        if lt < 0:
+            set lt is calling guess_type with c, lb, ast
+        if lt > 0:
+            var lty as tk.SemaType is calling types.at with (sigil of c->program->types), lt
+            if lty.kind == tk.SemaTypeKind.TkRef:
+                return "((int32_t)(*({lv})).len)"
         return "((int32_t)({lv}).len)"
     if k == pskind.NodeKind.NdFieldAccess:
         return calling field_access_expr with c, node, ast, false
@@ -2957,6 +2968,10 @@ weave interp_expr with c as ref to context.CgContext, content as string into str
                             calling esb.append with seg
                             set cur_ty is calling types.base with (sigil of c->program->types), "int"
                         else:
+                            if sep == "->":
+                                var rt as tk.SemaType is calling types.at with (sigil of c->program->types), cur_ty
+                                if rt.kind == tk.SemaTypeKind.TkRef:
+                                    set cur_ty is rt.a
                             var sfid as int is calling npool.intern with (sigil of c->program->names), seg
                             var sfty as int is calling nominal_field_type with c, cur_ty, sfid
                             calling esb.append with seg

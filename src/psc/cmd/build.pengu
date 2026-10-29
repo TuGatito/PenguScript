@@ -10,6 +10,8 @@ import std.spark
 
 import psc.cli.args as cliargs
 import psc.driver.build as driver
+import psc.driver.runner as runner
+import psc.driver.target as targetmod
 import psc.sema.names as npool
 
 insignia psc_cmd_build_
@@ -62,6 +64,7 @@ weave starts_dash with s as string into bool:
 weave print_build_help into void:
     calling spark.println with "Usage: psc build [TARGET] [options]"
     calling spark.println with "  TARGET                  .pengu file or project directory (default: cwd)"
+    calling spark.println with "  --target=TRIPLE|wasm  host or wasm32-unknown-emscripten"
     calling spark.println with "  --profile=debug|release"
     calling spark.println with "  --cc=NAME               C compiler (default: gcc/cc)"
     calling spark.println with "  --out=PATH              artifact path"
@@ -77,6 +80,7 @@ weave print_build_help into void:
 weave print_run_help into void:
     calling spark.println with "Usage: psc run [TARGET] [-- args...]"
     calling spark.println with "  TARGET                  .pengu file or project directory (default: cwd)"
+    calling spark.println with "  --target=TRIPLE|wasm  host or wasm32-unknown-emscripten"
     calling spark.println with "  --profile=debug|release"
     calling spark.println with "  --cc=NAME"
     calling spark.println with "  --verbose"
@@ -90,6 +94,7 @@ weave print_expand_help into void:
     calling spark.println with "Usage: psc expand [TARGET] [options]"
     calling spark.println with "  --out=PATH              write the bundle to PATH (default: stdout)"
     calling spark.println with "  --library               emit no main wrapper"
+    calling spark.println with "  --target=TRIPLE|wasm"
     calling spark.println with "  --cc=NAME"
     calling spark.println with "  --strict-c99"
     calling spark.println with "  --release-unsafe"
@@ -140,7 +145,6 @@ weave run_build with args as list of string into int:
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
-        banish e
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     if (calling cliargs.enabled with (sigil of pr.args), "--help") or (calling cliargs.enabled with (sigil of pr.args), "-h"):
@@ -148,6 +152,21 @@ weave run_build with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 0
     var o as driver.BuildOptions is calling driver.default_options
+    var tval as string is calling cliargs.value with (sigil of pr.args), "--target"
+    if tval length > 0:
+        var nt as targetmod.Target is calling targetmod.parse with tval
+        if not nt.ok:
+            var terr as string is nt.error
+            var tmsg as string is "psc build: {terr}"
+            calling spark.eprintln with tmsg
+            banish tmsg
+            calling targetmod.free with (sigil of nt)
+            calling driver.free_options with (sigil of o)
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 2
+        calling targetmod.free with (sigil of o.platform)
+        set o.platform is nt
+        set o.target_explicit is true
     var prog as string is args at 0
     set o.compiler_path is calling copy_path with prog
     set o.no_cache is calling cliargs.enabled with (sigil of pr.args), "--no-cache"
@@ -195,12 +214,6 @@ weave run_build with args as list of string into int:
     var dscope as string is calling cliargs.value with (sigil of pr.args), "--dce-scope"
     if dscope == "user":
         set o.dce_scope_user is true
-    var tgt as string is calling cliargs.value with (sigil of pr.args), "--target"
-    if tgt length > 0:
-        calling spark.eprintln with "psc build: --target is not available until F11 (cross-compilation)"
-        calling driver.free_options with (sigil of o)
-        calling cliargs.free_parse_result with (sigil of pr)
-        return 2
     var defs as list of string is calling cliargs.list with (sigil of pr.args), "--define"
     if defs.len == 0:
         set defs is calling cliargs.list with (sigil of pr.args), "-D"
@@ -267,9 +280,12 @@ weave run_build with args as list of string into int:
 ##
 ## ## Memoria
 ## Libera opciones y resultado.
-weave run_check_project with path as string into int:
+weave run_check_project with path as string, t as targetmod.Target, explicit as bool into int:
     var o as driver.BuildOptions is calling driver.default_options
     set o.check_only is true
+    calling targetmod.free with (sigil of o.platform)
+    set o.platform is calling targetmod.clone with t
+    set o.target_explicit is explicit
     banish o.target
     set o.target is calling copy_path with path
     var r as driver.BuildResult is calling driver.build with o
@@ -299,6 +315,7 @@ weave run_run with args as list of string into int:
     var no_cache as bool is false
     var clear_cache as bool is false
     var ephemeral as bool is false
+    var tval as string is ""
     var i as int is 2
     while i < args.len:
         var a as string is args at i
@@ -322,6 +339,25 @@ weave run_run with args as list of string into int:
             calling print_run_help
             calling driver.free_options with (sigil of o)
             return 0
+        else if a == "--target":
+            if i + 1 >= args.len:
+                calling spark.eprintln with "psc run: missing value for '--target'"
+                calling driver.free_options with (sigil of o)
+                return 2
+            banish tval
+            set tval is calling copy_path with (args at (i + 1))
+            set i is i + 1
+        else if calling starts_with with a, "--target=":
+            banish tval
+            set tval is a at 9 to (a length)
+        else if a == "--profile":
+            if i + 1 >= args.len:
+                calling spark.eprintln with "psc run: missing value for '--profile'"
+                calling driver.free_options with (sigil of o)
+                return 2
+            banish o.profile
+            set o.profile is calling copy_path with (args at (i + 1))
+            set i is i + 1
         else if calling starts_with with a, "--profile=":
             var v as string is a at 10 to (a length)
             banish o.profile
@@ -346,9 +382,24 @@ weave run_run with args as list of string into int:
         set i is i + 1
     banish o.target
     set o.target is calling copy_path with path
+    if tval length > 0:
+        var nt as targetmod.Target is calling targetmod.parse with tval
+        if not nt.ok:
+            var terr as string is nt.error
+            var tmsg as string is "psc run: {terr}"
+            calling spark.eprintln with tmsg
+            banish tmsg
+            calling targetmod.free with (sigil of nt)
+            banish tval
+            calling driver.free_options with (sigil of o)
+            return 2
+        calling targetmod.free with (sigil of o.platform)
+        set o.platform is nt
+        set o.target_explicit is true
+    banish tval
     if clear_cache:
         var ignored as int is calling cache.clear
-    if path length > 0 and (calling archivum.is_file with path) and not no_cache and not ephemeral and not o.is_test:
+    if path length > 0 and (calling archivum.is_file with path) and not no_cache and not ephemeral and not o.is_test and not o.platform.is_wasm:
         var txtm as maybe string is calling archivum.read_text with path
         if txtm.is_present:
             var parts as list of string is list of string
@@ -357,21 +408,15 @@ weave run_run with args as list of string into int:
             var chid as string is calling compiler_identity with o.compiler_path
             calling parts.push with chid
             banish chid
+            calling parts.push with o.platform.triple
+            calling parts.push with o.platform.wasm_target
             calling parts.push with o.profile
             calling parts.push with o.cc
             calling parts.push with "run"
             var ck as string is calling cache.key with parts
             var hit as string is calling cache.get with ck
             if hit length > 0:
-                var hargv as list of string is list of string
-                calling hargv.push with (calling copy with hit)
-                for hc in child:
-                    calling hargv.push with hc
-                var hraw as int is calling proc.run_argv with hargv
-                banish hargv
-                var hcode as int is hraw
-                if hraw > 255:
-                    set hcode is (hraw / 256) % 256
+                var hcode as int is calling runner.run with o.platform, hit, child
                 banish hit
                 banish ck
                 banish parts
@@ -402,7 +447,7 @@ weave run_run with args as list of string into int:
         banish child
         return 1
     var art as string is r.artifact
-    if path length > 0 and (calling archivum.is_file with path) and not no_cache and not ephemeral and not o.is_test:
+    if path length > 0 and (calling archivum.is_file with path) and not no_cache and not ephemeral and not o.is_test and not o.platform.is_wasm:
         var txt2 as maybe string is calling archivum.read_text with path
         if txt2.is_present:
             var parts2 as list of string is list of string
@@ -411,6 +456,8 @@ weave run_run with args as list of string into int:
             var chid2 as string is calling compiler_identity with o.compiler_path
             calling parts2.push with chid2
             banish chid2
+            calling parts2.push with o.platform.triple
+            calling parts2.push with o.platform.wasm_target
             calling parts2.push with o.profile
             calling parts2.push with o.cc
             calling parts2.push with "run"
@@ -419,17 +466,7 @@ weave run_run with args as list of string into int:
             banish ck2
             banish parts2
         banish txt2
-    var rargv as list of string is list of string
-    calling rargv.push with (calling copy with art)
-    for rc in child:
-        calling rargv.push with rc
-    var raw_code as int is calling proc.run_argv with rargv
-    banish rargv
-    var code as int is raw_code
-    if raw_code > 255:
-        set code is (raw_code / 256) % 256
-    if code < 0:
-        set code is 1
+    var code as int is calling runner.run with o.platform, art, child
     calling driver.free_result with (sigil of r)
     calling driver.free_options with (sigil of o)
     var ci2 as int is 0
@@ -461,6 +498,37 @@ weave run_expand with args as list of string into int:
             calling print_expand_help
             calling driver.free_options with (sigil of o)
             return 0
+        else if a == "--target":
+            if i + 1 >= args.len:
+                calling spark.eprintln with "psc expand: missing value for '--target'"
+                calling driver.free_options with (sigil of o)
+                return 2
+            var nt as targetmod.Target is calling targetmod.parse with (args at (i + 1))
+            if not nt.ok:
+                var terr as string is nt.error
+                var tmsg as string is "psc expand: {terr}"
+                calling spark.eprintln with tmsg
+                banish tmsg
+                calling targetmod.free with (sigil of nt)
+                calling driver.free_options with (sigil of o)
+                return 2
+            calling targetmod.free with (sigil of o.platform)
+            set o.platform is nt
+            set o.target_explicit is true
+            set i is i + 1
+        else if calling starts_with with a, "--target=":
+            var nt2 as targetmod.Target is calling targetmod.parse with (a at 9 to (a length))
+            if not nt2.ok:
+                var terr2 as string is nt2.error
+                var tmsg2 as string is "psc expand: {terr2}"
+                calling spark.eprintln with tmsg2
+                banish tmsg2
+                calling targetmod.free with (sigil of nt2)
+                calling driver.free_options with (sigil of o)
+                return 2
+            calling targetmod.free with (sigil of o.platform)
+            set o.platform is nt2
+            set o.target_explicit is true
         else if calling starts_with with a, "--out=":
             var ov as string is a at 6 to (a length)
             banish out

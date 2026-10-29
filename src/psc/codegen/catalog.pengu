@@ -109,13 +109,15 @@ rune CgCatalog:
     includes as list of CgInclude
     ## `TypeId -> índice en types`.
     by_type as map of int to int
+    ## Errores de comptime detectados mientras se recolectaba el top-level.
+    errors as int
 
 ## Crea un catálogo vacío.
 ##
 ## ## Memoria
 ## Asigna listas/mapas.
 weave new_catalog into CgCatalog:
-    return with functions is list of CgFunction, by_symbol is map of int to int, by_name is map of int to int, types is list of CgType, consts is list of CgConst, includes is list of CgInclude, by_type is map of int to int
+    return with functions is list of CgFunction, by_symbol is map of int to int, by_name is map of int to int, types is list of CgType, consts is list of CgConst, includes is list of CgInclude, by_type is map of int to int, errors is 0
 
 ## Libera el catálogo.
 ##
@@ -699,21 +701,48 @@ weave collect_top_node with p as ref to program.SemaProgram, c as ref to CgCatal
     var k as pskind.NodeKind is calling astutil.kind_of with ast, node
     if k == pskind.NodeKind.NdWhenTopDecl:
         var cond as int is calling astutil.node_child with ast, node, 0
-        var body as int is calling astutil.node_child with ast, node, 1
-        var els as int is calling astutil.node_child with ast, node, 2
         var v as int is calling ctime.evaluate with o, m, cond
         if v < 0:
+            set c->errors is c->errors + 1
             return
+        var n as int is calling astutil.child_count with ast, node
+        var i as int is 1
         if v == 1:
-            calling collect_top_node with p, c, m, o, body
+            # La rama activa es todo lo que hay entre la condición y el `else`.
+            while i < n:
+                var ch as int is calling astutil.node_child with ast, node, i
+                if ch >= 0:
+                    var ck as pskind.NodeKind is calling astutil.kind_of with ast, ch
+                    if ck == pskind.NodeKind.NdWhenTopElsePlain or ck == pskind.NodeKind.NdWhenTopElseWhen:
+                        break
+                    if ck == pskind.NodeKind.NdTopStmt or ck == pskind.NodeKind.NdStmt:
+                        calling collect_top_node with p, c, m, o, ch
+                set i is i + 1
             return
-        if els < 0:
+        # Rama inactiva: saltar el cuerpo hasta el `else`.
+        while i < n:
+            var ch2 as int is calling astutil.node_child with ast, node, i
+            if ch2 >= 0:
+                var ck2 as pskind.NodeKind is calling astutil.kind_of with ast, ch2
+                if ck2 == pskind.NodeKind.NdWhenTopElsePlain or ck2 == pskind.NodeKind.NdWhenTopElseWhen:
+                    break
+            set i is i + 1
+        if i >= n:
             return
+        var els as int is calling astutil.node_child with ast, node, i
         var ek as pskind.NodeKind is calling astutil.kind_of with ast, els
         if ek == pskind.NodeKind.NdWhenTopElseWhen:
-            calling collect_top_node with p, c, m, o, (calling astutil.node_child with ast, els, 0)
+            var nested as int is calling astutil.node_child with ast, els, 0
+            if nested >= 0:
+                calling collect_top_node with p, c, m, o, nested
             return
-        calling collect_top_node with p, c, m, o, (calling astutil.node_child with ast, els, 0)
+        var j as int is 0
+        var en as int is calling astutil.child_count with ast, els
+        while j < en:
+            var e as int is calling astutil.node_child with ast, els, j
+            if e >= 0:
+                calling collect_top_node with p, c, m, o, e
+            set j is j + 1
         return
     if k == pskind.NodeKind.NdWeaveDecl:
         calling add_function with p, c, m, node, false, false

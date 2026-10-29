@@ -7,6 +7,7 @@ import std.spark
 
 import psc.cli.args as cliargs
 import psc.driver.paths as paths
+import psc.driver.target as targetmod
 import psc.sema.names as npool
 
 insignia psc_cmd_doctor_
@@ -17,6 +18,7 @@ insignia psc_cmd_doctor_
 ## No asigna.
 weave print_help into void:
     calling spark.println with "Usage: psc doctor [--json]"
+    calling spark.println with "  --target=TRIPLE|wasm  check the wasm toolchain/runtime"
     calling spark.println with "  --json   machine-readable report"
     calling spark.println with "  --help"
 
@@ -77,13 +79,14 @@ weave check_line with as_json as bool, name as string, ok as bool, detail as str
 ## ## Memoria
 ## Libera ParseResult y Paths.
 weave run_doctor with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--target"
     var sf as list of string is list of string
     calling sf.push with "--json"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
-        banish e
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     if calling cliargs.enabled with (sigil of pr.args), "help":
@@ -95,57 +98,98 @@ weave run_doctor with args as list of string into int:
     var base as string is "."
     if cwd.is_present:
         set base is cwd.value
-    var p as paths.Paths is calling paths.find_paths with base
+    var ht as targetmod.Target is calling targetmod.host
+    defer calling targetmod.free with (sigil of ht)
+    var tval as string is calling cliargs.value with (sigil of pr.args), "--target"
+    if tval length > 0:
+        var nt as targetmod.Target is calling targetmod.parse with tval
+        if not nt.ok:
+            var terr as string is nt.error
+            var tmsg as string is "psc doctor: {terr}"
+            calling spark.eprintln with tmsg
+            banish tmsg
+            calling targetmod.free with (sigil of nt)
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 2
+        calling targetmod.free with (sigil of ht)
+        set ht is nt
+    var p as paths.Paths is calling paths.find_paths with base, ht
     var bad as int is 0
-    # Compiladores
-    var gcc as maybe string is calling rites.which with "gcc"
-    if gcc.is_present:
-        calling check_line with as_json, "gcc", true, gcc.value
-    else:
-        calling check_line with as_json, "gcc", false, "not found"
-        set bad is bad + 1
-    banish gcc
-    var clang as maybe string is calling rites.which with "clang"
-    if clang.is_present:
-        calling check_line with as_json, "clang", true, clang.value
-    else:
-        calling check_line with as_json, "clang", false, "not found (optional)"
-    banish clang
-    var tcc as maybe string is calling rites.which with "tcc"
-    if tcc.is_present:
-        calling check_line with as_json, "tcc", true, tcc.value
-    else:
-        var cw2 as maybe string is calling rites.getcwd
-        var found_tcc as string is ""
-        if cw2.is_present:
-            var c1 as string is "{cw2.value}/build/tcc-dist/tcc-dist/bin/tcc"
-            if calling archivum.is_file with c1:
-                set found_tcc is c1
-            else:
-                banish c1
-            if found_tcc length == 0:
-                var c2 as string is "{cw2.value}/build/tcc-dev/tinycc-src/tcc"
-                if calling archivum.is_file with c2:
-                    set found_tcc is c2
-                else:
-                    banish c2
-        banish cw2
-        if found_tcc length > 0:
-            calling check_line with as_json, "tcc", true, found_tcc
-            banish found_tcc
+    if ht.is_wasm:
+        var em as maybe string is calling rites.which with "emcc"
+        if em.is_present:
+            calling check_line with as_json, "emcc", true, em.value
         else:
-            calling check_line with as_json, "tcc", false, "not found (required for the Linux gate)"
+            calling check_line with as_json, "emcc", false, "not found (install/activate emsdk)"
             set bad is bad + 1
-    banish tcc
+        banish em
+        var emar as maybe string is calling rites.which with "emar"
+        if emar.is_present:
+            calling check_line with as_json, "emar", true, emar.value
+        else:
+            calling check_line with as_json, "emar", false, "not found (emsdk ships it next to emcc)"
+            set bad is bad + 1
+        banish emar
+        var node as maybe string is calling rites.which with "node"
+        if node.is_present:
+            calling check_line with as_json, "node", true, node.value
+        else:
+            calling check_line with as_json, "node", false, "not found (needed by psc run/test)"
+        banish node
+    # Compiladores nativos
+    if not ht.is_wasm:
+        var gcc as maybe string is calling rites.which with "gcc"
+        if gcc.is_present:
+            calling check_line with as_json, "gcc", true, gcc.value
+        else:
+            calling check_line with as_json, "gcc", false, "not found"
+            set bad is bad + 1
+        banish gcc
+        var clang as maybe string is calling rites.which with "clang"
+        if clang.is_present:
+            calling check_line with as_json, "clang", true, clang.value
+        else:
+            calling check_line with as_json, "clang", false, "not found (optional)"
+        banish clang
+        var tcc as maybe string is calling rites.which with "tcc"
+        if tcc.is_present:
+            calling check_line with as_json, "tcc", true, tcc.value
+        else:
+            var cw2 as maybe string is calling rites.getcwd
+            var found_tcc as string is ""
+            if cw2.is_present:
+                var c1 as string is "{cw2.value}/build/tcc-dist/tcc-dist/bin/tcc"
+                if calling archivum.is_file with c1:
+                    set found_tcc is c1
+                else:
+                    banish c1
+                if found_tcc length == 0:
+                    var c2 as string is "{cw2.value}/build/tcc-dev/tinycc-src/tcc"
+                    if calling archivum.is_file with c2:
+                        set found_tcc is c2
+                    else:
+                        banish c2
+            banish cw2
+            if found_tcc length > 0:
+                calling check_line with as_json, "tcc", true, found_tcc
+                banish found_tcc
+            else:
+                calling check_line with as_json, "tcc", false, "not found (required for the Linux gate)"
+                set bad is bad + 1
+        banish tcc
     # Runtime/std
     if p.ok:
         calling check_line with as_json, "runtime-archive", true, p.runtime_archive
         calling check_line with as_json, "runtime-header", true, p.runtime_include
         calling check_line with as_json, "std", true, "found"
+        if ht.is_wasm:
+            if p.wasm_shell length > 0:
+                calling check_line with as_json, "wasm-shell", true, p.wasm_shell
+            else:
+                calling check_line with as_json, "wasm-shell", false, "not found (optional; Emscripten default page will be used)"
     else:
         var pe as string is p.error
         calling check_line with as_json, "paths", false, pe
-        banish pe
         set bad is bad + 1
     calling paths.free_paths with (sigil of p)
     banish cwd

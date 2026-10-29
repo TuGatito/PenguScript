@@ -233,7 +233,6 @@ weave run_init with args as list of string into int:
     if not pr.ok:
         var emsg as string is pr.error
         calling spark.eprintln with emsg
-        banish emsg
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     if calling cliargs.enabled with (sigil of pr.args), "help":
@@ -308,7 +307,6 @@ weave run_new with args as list of string into int:
     if not pr.ok:
         var emsg as string is pr.error
         calling spark.eprintln with emsg
-        banish emsg
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     if calling cliargs.enabled with (sigil of pr.args), "help":

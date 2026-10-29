@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.15.0-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.16.0-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey">
@@ -69,8 +69,8 @@ pengu-<version>-<os>-<arch>-fhs.tar.gz
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.15.0-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.15.0-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.16.0-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.16.0-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 
@@ -122,6 +122,27 @@ pengu-macos.tar.gz
 
 The compiler is self-hosted: `bootstrap psc` builds `psc`, and a fixed point is
 checked by rebuilding with the just-built compiler.
+
+## WebAssembly / web
+
+`psc` can compile to `wasm32-unknown-emscripten` with the Emscripten SDK
+installed on the machine. The wasm runtime is separate from the host one:
+
+```bash
+source /path/to/emsdk/emsdk_env.sh
+./tools/build_runtime_wasm.sh
+
+psc build --target wasm          # build/app.html + app.js + app.wasm
+psc run   --target wasm          # build, then run with node
+psc test  --target wasm
+psc doctor --target wasm
+```
+
+`when wasm:`, `when wasm_target == "emscripten":` and `when compiler == "emcc":`
+work in both sema and codegen. `std.web` (console, main loop, timers) compiles
+on native and wasm. `std.net` and native-library modules are rejected with an
+actionable message on wasm. See [docs/WASM.md](docs/WASM.md) for the support
+matrix and limitations.
 
 ## Quick start
 

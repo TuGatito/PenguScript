@@ -54,6 +54,19 @@ done
 
 cp -a "$ROOT/build/lib/." "$OUT/lib/"
 cp -a "$ROOT/build/include/." "$OUT/include/"
+# WebAssembly toolchain artifacts: separate archive and header tree.
+if [ -d "$ROOT/build/wasm/lib" ]; then
+  mkdir -p "$OUT/lib/wasm" "$OUT/share/pengu"
+  cp -a "$ROOT/build/wasm/lib/." "$OUT/lib/wasm/"
+fi
+if [ -d "$ROOT/build/wasm/include" ]; then
+  mkdir -p "$OUT/include/wasm"
+  cp -a "$ROOT/build/wasm/include/." "$OUT/include/wasm/"
+fi
+if [ -f "$ROOT/pengu_wasm_shell.html" ]; then
+  mkdir -p "$OUT/share/pengu"
+  cp "$ROOT/pengu_wasm_shell.html" "$OUT/share/pengu/pengu_wasm_shell.html"
+fi
 cp -a "$ROOT/std/." "$OUT/std/"
 cp -a "$ROOT/c_bind_stubs/." "$OUT/c_bind_stubs/"
 

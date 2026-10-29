@@ -260,7 +260,8 @@ weave collect_substring with s as string, start as int, end as int into string:
         set i is i + 1
     return calling sb.finish
 
-## Valor textual de un operando de `when` (`os`, `arch` o un literal).
+## Valor textual de un operando de `when` (`os`, `arch`, `compiler`,
+## `wasm_target`, booleanos comptime o un literal).
 ##
 ## ## Memoria
 ## Devuelve un string owned; liberar con `banish`.
@@ -272,6 +273,10 @@ weave when_value with s as ref to state.SemaState, node as int into string:
         var txt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
         defer banish txt
         return calling unquote with txt
+    if k == pskind.NodeKind.NdTrueLit:
+        return calling npool.copy_string with "true"
+    if k == pskind.NodeKind.NdFalseLit:
+        return calling npool.copy_string with "false"
     if k == pskind.NodeKind.NdVarRef:
         var txt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
         defer banish txt
@@ -279,8 +284,56 @@ weave when_value with s as ref to state.SemaState, node as int into string:
             return calling npool.copy_string with s->opts->os_name
         if txt == "arch":
             return calling npool.copy_string with s->opts->arch
+        if txt == "compiler":
+            return calling npool.copy_string with s->opts->compiler
+        if txt == "wasm_target":
+            return calling npool.copy_string with s->opts->wasm_target
+        if txt == "wasm":
+            if s->opts->wasm_target != "" or calling define_has with s, "wasm":
+                return calling npool.copy_string with "true"
+            return calling npool.copy_string with "false"
+        if txt == "main":
+            if s->module->is_entry:
+                return calling npool.copy_string with "true"
+            return calling npool.copy_string with "false"
+        if txt == "debug":
+            if s->opts->is_debug:
+                return calling npool.copy_string with "true"
+            return calling npool.copy_string with "false"
         return calling npool.copy_string with txt
     return ""
+
+## `true` si el operando de un `when` es una constante comptime conocida.
+##
+## Un identificador desconocido no es "falso": es E0039. Sólo `-D NAME` lo
+## convierte en definido.
+##
+## ## Memoria
+## O(1); no asigna.
+weave when_known with s as ref to state.SemaState, node as int into bool:
+    if node < 0:
+        return false
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    if k == pskind.NodeKind.NdStringLit or k == pskind.NodeKind.NdTrueLit or k == pskind.NodeKind.NdFalseLit:
+        return true
+    if k == pskind.NodeKind.NdDefinedExpr:
+        return true
+    if k == pskind.NodeKind.NdVarRef:
+        var txt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
+        defer banish txt
+        if txt == "os" or txt == "arch" or txt == "compiler" or txt == "wasm_target" or txt == "wasm" or txt == "main" or txt == "debug":
+            return true
+        return calling define_has with s, txt
+    return false
+
+## Error E0039 para una condición `when` no resoluble.
+##
+## ## Memoria
+## Emite el diagnóstico; no retiene strings.
+weave when_error with s as ref to state.SemaState, node as int into void:
+    var start as int is calling astutil.start_of with s->ast, node
+    var end as int is calling astutil.end_of with s->ast, node
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_C_NAME_FIELD, start, end, "unresolvable compile-time condition", "Use os, arch, compiler, wasm, wasm_target, main, debug, or -D NAME.", ""
 
 ## Evalúa una condición `when` top-level sencilla.
 ##
@@ -293,6 +346,9 @@ weave when_truth with s as ref to state.SemaState, node as int into bool:
     if k == pskind.NodeKind.NdEq or k == pskind.NodeKind.NdNe:
         var lc as int is calling astutil.node_child with s->ast, node, 0
         var rc as int is calling astutil.node_child with s->ast, node, 1
+        if not (calling when_known with s, lc) or not (calling when_known with s, rc):
+            calling when_error with s, node
+            return false
         var lv as string is calling when_value with s, lc
         var rv as string is calling when_value with s, rc
         var same as bool is lv == rv
@@ -314,14 +370,21 @@ weave when_truth with s as ref to state.SemaState, node as int into bool:
         if txt == "wasm":
             return s->opts->wasm_target != "" or calling define_has with s, "wasm"
         if txt == "main":
-            return s->opts->is_main
+            return s->module->is_entry
         if txt == "debug":
             return s->opts->is_debug
+        if txt == "compiler":
+            return s->opts->compiler length > 0
+        if txt == "wasm_target":
+            return s->opts->wasm_target length > 0
         if txt == "os":
             return true
         if txt == "arch":
             return true
-        return calling define_has with s, txt
+        if calling define_has with s, txt:
+            return true
+        calling when_error with s, node
+        return false
     if k == pskind.NodeKind.NdDefinedExpr:
         var dtxt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
         defer banish dtxt

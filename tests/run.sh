@@ -18,6 +18,7 @@ run_one() {
   fi
 }
 for f in tests/pengu/*.pengu; do [ -e "$f" ] && run_one "$f"; done
+[ -e tests/wasm/std_web_smoke.pengu ] && run_one tests/wasm/std_web_smoke.pengu
 while IFS= read -r f; do run_one "$f"; done < <(find tests/conformance -name '*.pengu' -type f | sort)
 if [ "$fail" -ne 0 ]; then
   echo "$fail of $count test file(s) failed"

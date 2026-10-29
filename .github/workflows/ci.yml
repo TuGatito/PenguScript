@@ -92,6 +92,52 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  wasm:
+    name: WebAssembly (Emscripten)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - name: Build bootstrap compiler
+        shell: bash
+        run: bash ./tools/build_bootstrap.sh
+
+      - name: Build compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/psc-stage0 build .
+          ./build/psc version
+
+      - name: Build wasm runtime
+        shell: bash
+        run: bash ./tools/build_runtime_wasm.sh
+
+      - name: WebAssembly smoke tests
+        shell: bash
+        run: bash ./tests/wasm/run.sh
+
+      - name: Package wasm demo
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ./build/psc run tests/wasm/std_web_smoke.pengu --target wasm --profile=release --no-cache
+          cp build/std_web_smoke.html build/std_web_smoke.js build/std_web_smoke.wasm dist/ || true
+
+      - name: Upload wasm demo
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-demo
+          path: dist/*
+          if-no-files-found: ignore
+
   vscode:
     name: VS Code extension
     runs-on: ubuntu-latest
@@ -135,7 +181,7 @@ jobs:
 
   release:
     name: Publish release from CHANGELOG
-    needs: [build, vscode]
+    needs: [build, wasm, vscode]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15

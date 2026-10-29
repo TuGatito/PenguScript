@@ -8,6 +8,7 @@ import std.compass
 import std.rites
 
 import psc.sema.names as npool
+import psc.driver.target as target
 
 insignia psc_driver_paths_
 
@@ -23,6 +24,8 @@ rune Paths:
     runtime_include as string
     std_c_dir as string
     std_dirs as list of string
+    ## Shell HTML para builds wasm exe (vacío si no hay).
+    wasm_shell as string
 
 ## Busca el checkout subiendo desde `base_dir`.
 ##
@@ -35,12 +38,15 @@ weave find_repo_root with base_dir as string into string:
     while i < 8:
         var std_dir as string is "{d}/std"
         var lib_dir as string is "{d}/build/lib"
-        if (calling archivum.is_dir with std_dir) and (calling archivum.is_dir with lib_dir):
+        var wasm_lib as string is "{d}/build/wasm/lib"
+        if (calling archivum.is_dir with std_dir) and ((calling archivum.is_dir with lib_dir) or (calling archivum.is_dir with wasm_lib)):
             banish std_dir
             banish lib_dir
+            banish wasm_lib
             return calling npool.copy_string with d
         banish std_dir
         banish lib_dir
+        banish wasm_lib
         var parent as string is calling compass.cp_dirname with d
         if parent == d:
             banish parent
@@ -91,7 +97,8 @@ weave env_or_empty with name as string into string:
 ##
 ## ## Memoria
 ## Resultado owned; liberar con `free_paths`.
-weave find_paths with base_dir as string into Paths:
+weave find_paths with base_dir as string, t as target.Target into Paths:
+    var is_wasm as bool is t.is_wasm
     var repo as string is calling find_repo_root with base_dir
     if repo length == 0:
         var cw as maybe string is calling rites.getcwd
@@ -105,11 +112,13 @@ weave find_paths with base_dir as string into Paths:
     var include as string is ""
     var stdc as string is ""
     var stds as list of string is list of string
+    var shell as string is ""
     var err as string is ""
     var env_archive as string is calling env_or_empty with "PENGU_RUNTIME_ARCHIVE"
     var env_lib as string is calling env_or_empty with "PENGU_LIB_DIR"
     var env_inc as string is calling env_or_empty with "PENGU_INCLUDE_DIR"
     var env_std as string is calling env_or_empty with "PENGU_STD_DIR"
+    var env_cross as string is calling env_or_empty with "PENGU_RUNTIME_CROSS"
     var env_home as string is calling env_or_empty with "PENGU_HOME"
     if env_home length == 0:
         var av as list of string is calling rites.get_args
@@ -118,8 +127,12 @@ weave find_paths with base_dir as string into Paths:
             var ed as string is calling compass.cp_dirname with exe0
             var eh as string is calling compass.cp_dirname with ed
             var hc as list of string is list of string
-            calling hc.push with "{eh}/lib/libpengu_runtime.a"
-            calling hc.push with "{eh}/lib/pengu/libpengu_runtime.a"
+            if is_wasm:
+                calling hc.push with "{eh}/lib/wasm/libpengu_runtime.a"
+                calling hc.push with "{eh}/lib/pengu/wasm/libpengu_runtime.a"
+            else:
+                calling hc.push with "{eh}/lib/libpengu_runtime.a"
+                calling hc.push with "{eh}/lib/pengu/libpengu_runtime.a"
             var hit as string is calling first_file with hc
             if hit length > 0:
                 set env_home is (calling copy with eh)
@@ -145,17 +158,32 @@ weave find_paths with base_dir as string into Paths:
             set archive is cand
         else:
             banish cand
+    if archive length == 0 and env_cross length > 0:
+        var crc as list of string is list of string
+        calling crc.push with "{env_cross}/lib/libpengu_runtime.a"
+        calling crc.push with "{env_cross}/libpengu_runtime.a"
+        set archive is calling first_file with crc
+        calling free_strings with crc
     if env_home length > 0:
         if archive length == 0:
             var hc as list of string is list of string
-            calling hc.push with "{env_home}/lib/libpengu_runtime.a"
-            calling hc.push with "{env_home}/lib/pengu/libpengu_runtime.a"
+            if is_wasm:
+                calling hc.push with "{env_home}/lib/wasm/libpengu_runtime.a"
+                calling hc.push with "{env_home}/lib/pengu/wasm/libpengu_runtime.a"
+            else:
+                calling hc.push with "{env_home}/lib/libpengu_runtime.a"
+                calling hc.push with "{env_home}/lib/pengu/libpengu_runtime.a"
             set archive is calling first_file with hc
             calling free_strings with hc
         if include length == 0:
             var hi as list of string is list of string
-            calling hi.push with "{env_home}/include/pengu"
-            calling hi.push with "{env_home}/include"
+            if is_wasm:
+                calling hi.push with "{env_home}/lib/wasm/include"
+                calling hi.push with "{env_home}/include/wasm"
+                calling hi.push with "{env_home}/include/pengu"
+            else:
+                calling hi.push with "{env_home}/include/pengu"
+                calling hi.push with "{env_home}/include"
             set include is calling first_dir with hi
             calling free_strings with hi
         if stdc length == 0:
@@ -174,16 +202,36 @@ weave find_paths with base_dir as string into Paths:
             calling stds.push with hst2
         else:
             banish hst2
+    if is_wasm:
+        var env_shell as string is calling env_or_empty with "PENGU_WASM_SHELL"
+        if env_shell length > 0:
+            if env_shell == "default" or env_shell == "none" or env_shell == "0":
+                banish env_shell
+            else if calling archivum.is_file with env_shell:
+                set shell is env_shell
+            else:
+                banish env_shell
+        if shell length == 0 and env_home length > 0:
+            var shc as list of string is list of string
+            calling shc.push with "{env_home}/share/pengu/pengu_wasm_shell.html"
+            calling shc.push with "{env_home}/pengu_wasm_shell.html"
+            set shell is calling first_file with shc
+            calling free_strings with shc
     banish env_home
     if repo length > 0:
         if archive length == 0:
             var cands as list of string is list of string
-            calling cands.push with "{repo}/build/lib/libpengu_runtime.a"
-            calling cands.push with "{repo}/runtime/lib/libpengu_runtime.a"
+            if is_wasm:
+                calling cands.push with "{repo}/build/wasm/lib/libpengu_runtime.a"
+            else:
+                calling cands.push with "{repo}/build/lib/libpengu_runtime.a"
+                calling cands.push with "{repo}/runtime/lib/libpengu_runtime.a"
             set archive is calling first_file with cands
             calling free_strings with cands
         if include length == 0:
             var incs as list of string is list of string
+            if is_wasm:
+                calling incs.push with "{repo}/build/wasm/include"
             calling incs.push with "{repo}/build/include"
             calling incs.push with "{repo}/runtime/include"
             calling incs.push with (calling npool.copy_string with repo)
@@ -200,6 +248,12 @@ weave find_paths with base_dir as string into Paths:
             calling stds.push with st
         else:
             banish st
+    if is_wasm and shell length == 0 and repo length > 0:
+        var rsh as list of string is list of string
+        calling rsh.push with "{repo}/pengu_wasm_shell.html"
+        calling rsh.push with "{repo}/runtime/pengu_wasm_shell.html"
+        set shell is calling first_file with rsh
+        calling free_strings with rsh
     if env_inc length > 0:
         if include length == 0 and calling archivum.is_dir with env_inc:
             set include is env_inc
@@ -213,13 +267,20 @@ weave find_paths with base_dir as string into Paths:
         else:
             banish env_std
     banish env_lib
+    banish env_cross
     if archive length == 0:
-        set err is "cannot find libpengu_runtime.a (set PENGU_LIB_DIR or run python build_runtime.py)"
+        if is_wasm:
+            set err is "cannot find the WebAssembly runtime archive libpengu_runtime.a (run tools/build_runtime_wasm.sh or set PENGU_RUNTIME_CROSS)"
+        else:
+            set err is "cannot find libpengu_runtime.a (set PENGU_LIB_DIR or run tools/build_runtime.sh)"
     else if include length == 0:
-        set err is "cannot find pengu_runtime.h (set PENGU_INCLUDE_DIR or run python build_runtime.py)"
+        if is_wasm:
+            set err is "cannot find pengu_runtime.h for wasm (run tools/build_runtime_wasm.sh or set PENGU_INCLUDE_DIR)"
+        else:
+            set err is "cannot find pengu_runtime.h (set PENGU_INCLUDE_DIR or run tools/build_runtime.sh)"
     else if stds.len == 0:
         set err is "cannot find the std/ directory (set PENGU_STD_DIR)"
-    return with ok is err length == 0, error is err, repo_root is repo, runtime_archive is archive, runtime_include is include, std_c_dir is stdc, std_dirs is stds
+    return with ok is err length == 0, error is err, repo_root is repo, runtime_archive is archive, runtime_include is include, std_c_dir is stdc, std_dirs is stds, wasm_shell is shell
 
 ## Libera rutas.
 ##
@@ -231,6 +292,7 @@ weave free_paths with p as ref to Paths into void:
     banish p->runtime_archive
     banish p->runtime_include
     banish p->std_c_dir
+    banish p->wasm_shell
     calling free_strings with p->std_dirs
 
 ## Libera una lista de strings owned.

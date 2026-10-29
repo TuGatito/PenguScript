@@ -36,6 +36,8 @@ weave is_libc_name with c as ref to context.CgContext, f as catalog.CgFunction i
         return true
     if (n length) >= 6 and (n at 0 to 6) == "rites_":
         return true
+    if (n length) >= 11 and (n at 0 to 11) == "emscripten_":
+        return true
     if n == "memmove" or n == "memcpy" or n == "memset" or n == "memcmp":
         return true
     if n == "malloc" or n == "calloc" or n == "realloc" or n == "free":

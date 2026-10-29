@@ -3445,10 +3445,10 @@ let buffer_size as int is when arch == "x64" then 8192 else 4096
 
 ### Comptime Variables & Intrinsics:
 - **`defined(NAME)`:** Evaluates to `true` if identifier `NAME` was provided via `-D NAME` or exists in the predefined compiler environment. `defined(wasm)` is also true whenever the target is WebAssembly (see below).
-- **`main`:** `bool`. Evaluates to `true` **only** for the project entry-point module (`compile_env.is_main`). When the `-D main` or `-D main=true` CLI flag is passed (e.g. `pengu build -D main` or `pengu run main.pengu -D main`), `main_flag_requested` enables entry-main semantics exclusively for the entry module; imported secondary modules always compile with `is_main = false`, preventing conflicting entry points.
+- **`main`:** `bool`. Evaluates to `true` **only** for the entry-point module (`SemaModule.is_entry` / `compile_env.is_main`); imported modules see `false`. `-D main` does not change the entry module; it is a normal define.
 - **`debug`:** `bool`, `true` when compiling with the `debug` profile or `-D debug`; `false` under `--profile release`.
-- **`os`:** String constant matching the host operating system (`'windows'`, `'linux'`, `'macos'`, `'freebsd'`). Note that `--target` does **not** change it — a `wasm32-unknown-emscripten` build still sees the host's `os` unless `-D os=emscripten` is passed. Use `wasm` / `wasm_target` below for the WebAssembly target.
-- **`arch`:** String constant matching target CPU architecture (`'x64'` / `'x86_64'`, `'arm64'`, `'x86'`).
+- **`os`:** String constant matching the **target** operating system (`'windows'`, `'linux'`, `'macos'`, `'emscripten'`). `--target wasm` makes it `'emscripten'`, which is what `std` uses for platform-specific includes. `-D os=...` overrides it for that name.
+- **`arch`:** String constant matching target CPU architecture (`'x64'` / `'x86_64'`, `'arm64'`, `'x86'`, `'wasm32'`). `--target wasm` sets `'wasm32'`.
 - **`compiler`:** String constant matching the target C compiler (`'gcc'`, `'clang'`, `'msvc'`, `'tcc'`). A `wasm32-unknown-emscripten` target reports `'emcc'` — the driver that will actually run, whether it was configured or auto-detected — so `when compiler == "emcc":` is reliable. `-D compiler=...` always wins.
 - **`wasm`:** `bool`, `true` when the build target is WebAssembly — i.e. `os` is `'emscripten'` or `'wasi'`, which `--target wasm32-unknown-emscripten` (or `--target wasm`) selects. `false` for every native build. `-D wasm` forces it true, and the two spellings agree: `when wasm:` and `when defined(wasm):` always answer alike.
 - **`wasm_target`:** `string`. The WebAssembly target's OS name — `'emscripten'` or `'wasi'` — and the **empty string** for a native build. Use it to distinguish the two:
@@ -4896,41 +4896,40 @@ pengu check --json | jq -c 'select(.type=="diagnostic") | {file,line,col,code}'
 ### 20.2.3 Cross-compilation (`--target`)
 
 ```bash
-pengu build --target x86_64-w64-mingw32 --cc x86_64-w64-mingw32-gcc
+psc build --target wasm32-unknown-emscripten
 ```
 
-- `--target <triple>` (`build`, `run`, `test`; or `build: target:` in
-  `pengu.yaml`) selects the target OS from a triple such as
-  `x86_64-w64-mingw32`, `i686-w64-mingw32`, `aarch64-apple-darwin` or
-  `x86_64-unknown-linux-gnu`. **Linux ⇄ Windows** and
-  **wasm32-unknown-emscripten** are the supported targets; see §20.2.3.1 for
-  WebAssembly and `docs/WASM.md` for its limitations.
-- Artifact extensions follow the target (`.exe`, `.dll`, `.dylib`, `.so`) and so
-  do the native archives declared by the project's satellite bindings.
-- With a Windows target from a non-Windows host the compiler is auto-detected
-  (`<triple>-gcc`, `x86_64-w64-mingw32-gcc`, `i686-w64-mingw32-gcc`); `--cc`
-  always wins. If none is installed the build fails with an actionable message.
-- The shipped runtime archive is host-built. Generating the C bundle for another
-  target needs nothing else, but *linking* a cross executable requires a runtime
-  built for the target: point `PENGU_RUNTIME_CROSS` at its prefix and the build
-  adds `-L<prefix>/lib -I<prefix>/include`. Satellite bindings must likewise provide
-  native archives built for the target.
+- `--target <triple>` (`build`, `run`, `test`, `check`, `emit-c`, `expand`; or
+  `[build] target` in `pengu.toml`) selects the target. The self-hosted driver
+  currently supports the **host** and **wasm32-unknown-emscripten** (alias
+  `wasm`, `wasm32`, `emscripten`). `wasm32-wasi`/`wasi` is recognized and
+  refused with an explicit message; native cross-compilation (Linux ⇄ Windows)
+  is not implemented yet and is rejected with a clear error.
+- Artifact extensions follow the target (`.exe`, `.dll`, `.dylib`, `.so`,
+  `.html`/`.js`/`.wasm`).
+- The wasm runtime archive is target-specific: point `PENGU_RUNTIME_CROSS` at
+  its prefix (or use `build/wasm/lib`) and the build adds
+  `-L<prefix>/lib -I<prefix>/include`. Satellite bindings must provide archives
+  built for the target.
 
 ### 20.2.3.1 WebAssembly (`--target wasm32-unknown-emscripten`)
 
 ```bash
-python build_runtime.py --target emscripten             # once: build/wasm/lib/libpengu_runtime.a
-pengu build --target wasm32-unknown-emscripten          # build/app.html + app.js + app.wasm
-pengu run   --target wasm32-unknown-emscripten          # builds, then runs app.js with node
-pengu run   --target wasm script.pengu                  # 'wasm' is a shorthand for the full triple
+./tools/build_runtime_wasm.sh                          # once: build/wasm/lib/libpengu_runtime.a
+psc build --target wasm32-unknown-emscripten           # build/app.html + app.js + app.wasm
+psc run   --target wasm32-unknown-emscripten           # builds, then runs app.js with node
+psc run   --target wasm script.pengu                   # 'wasm' is a shorthand for the full triple
+psc test  --target wasm                                # integrated tests through node
+psc doctor --target wasm                               # emcc/emar/node/runtime/shell
 ```
 
 - The backend is **Emscripten** (`emcc`/`emar`), invoked as a cross compiler.
   `emcc` is auto-detected, or passed with `--cc`; when it is missing the build
   stops with the emsdk installation commands instead of a linker error.
-- `--target <triple>` (`build`, `run`, `test`; or `build: target:` in
-  `pengu.yaml`). `wasm`, `wasm32` and `emscripten` are accepted shorthands.
-  `when os == ...` sees `emscripten` for this target.
+- `--target <triple>` (`build`, `run`, `test`, `check`, `emit-c`, `expand`; or
+  `[build] target` in `pengu.toml`). `wasm`, `wasm32` and `emscripten` are
+  accepted shorthands. `when os == ...` sees `emscripten`; `arch` sees
+  `wasm32`; `compiler` sees `emcc`.
 - **Artifacts.** `exe` → `app.html` (Emscripten also writes `app.js` and
   `app.wasm`; `node app.js` runs the program headlessly). `static` → `app.a`, an
   archive of wasm objects built with `emar`, linkable into another wasm bundle.
@@ -4948,7 +4947,9 @@ pengu run   --target wasm script.pengu                  # 'wasm' is a shorthand 
   `Cross-Origin-Embedder-Policy: require-corp`.
 - **`exec`/`spawn`.** There is no process to spawn: `pengu_c_exec` and
   `pengu_c_spawn` return `-1` and write a diagnostic to stderr under
-  `PENGU_EMSCRIPTEN`. They are unchanged on every other target.
+  `PENGU_EMSCRIPTEN`. They are unchanged on every other target. `std.net`,
+  `std.dynlib`, `std.ffi_call`, `std.secrets` and `std.petitio` are rejected
+  with an actionable message (see the matrix in `docs/WASM.md`).
 - **WASI is not supported.** A `wasm32-wasi` target is recognized and refused
   with an explicit message; it is not silently treated as the host.
 - Full details, limitations (the `static var` initialization race, why

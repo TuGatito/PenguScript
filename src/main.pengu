@@ -36,6 +36,8 @@ import psc.sema.options as sopts
 import psc.sema.api as sema_api
 import psc.codegen.api as cgapi
 import psc.codegen.options as cgopt
+import psc.driver.target as targetmod
+import psc.sema.names as npool
 import psc.cmd.build as cmd_build
 import psc.cmd.init as cmd_init
 import psc.cmd.clean as cmd_clean
@@ -55,6 +57,13 @@ import psc.cmd.doc as cmd_doc
 import psc.cmd.assets as cmd_assets
 import psc.cmd.dev as cmd_dev
 
+
+## Copia owned de un string.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy_path with s as string into string:
+    return calling npool.copy_string with s
 
 ## Punto de entrada.
 weave main into int:
@@ -95,7 +104,7 @@ weave dispatch with args as list of string into int:
         return gc
     var cmd as string is args at 1
     if cmd == "version" or cmd == "--version" or cmd == "-V":
-        calling spark.println with "psc 0.15.0 (F12)"
+        calling spark.println with "psc 0.16.0 (F13)"
         return 0
     if cmd == "help" or cmd == "--help" or cmd == "-h":
         if cmd == "help" and args.len >= 3:
@@ -383,11 +392,56 @@ weave run_check with args as list of string into int:
     var no_color as bool is false
     var path as string is ""
     var extra as list of string is list of string
+    var defs as list of string is list of string
+    var tgt as targetmod.Target is calling targetmod.host
+    defer calling targetmod.free with (sigil of tgt)
+    var target_given as bool is false
     var i as int is 2
     while i < args.len:
         var a as string is args at i
         if a == "--stdin":
             set use_stdin is true
+        else if a == "--target":
+            if i + 1 >= args.len:
+                calling spark.eprintln with "psc check: missing value for '--target'"
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            var nt as targetmod.Target is calling targetmod.parse with (args at (i + 1))
+            if not nt.ok:
+                var terr as string is nt.error
+                var tmsg as string is "psc check: {terr}"
+                calling spark.eprintln with tmsg
+                banish tmsg
+                calling targetmod.free with (sigil of nt)
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            calling targetmod.free with (sigil of tgt)
+            set tgt is nt
+            set target_given is true
+            set i is i + 1
+        else if calling starts_with with a, "--target=":
+            var nt2 as targetmod.Target is calling targetmod.parse with (a at 9 to (a length))
+            if not nt2.ok:
+                var terr2 as string is nt2.error
+                var tmsg2 as string is "psc check: {terr2}"
+                calling spark.eprintln with tmsg2
+                banish tmsg2
+                calling targetmod.free with (sigil of nt2)
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            calling targetmod.free with (sigil of tgt)
+            set tgt is nt2
+            set target_given is true
+        else if a == "-D" or a == "--define":
+            if i + 1 >= args.len:
+                calling spark.eprintln with "psc check: missing value for '-D'"
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            calling defs.push with (calling copy_path with (args at (i + 1)))
+            set i is i + 1
+        else if calling starts_with with a, "-D":
+            if (a length) > 2:
+                calling defs.push with (a at 2 to (a length))
         else if a == "--diagnostics=json":
             set json_diags is true
             set json_u16 is false
@@ -440,6 +494,14 @@ weave run_check with args as list of string into int:
             else:
                 set path is a
         set i is i + 1
+    calling targetmod.apply_sema with tgt, (sigil of opts)
+    for d in defs:
+        calling opts.defines.push with (calling copy_path with d)
+    var di as int is 0
+    while di < defs.len:
+        banish defs at di
+        set di is di + 1
+    banish defs
     var abs_path as string is calling compass.cp_absolute with path
     var is_proj as bool is false
     if path length > 0:
@@ -447,7 +509,7 @@ weave run_check with args as list of string into int:
     banish abs_path
     if (not use_stdin) and path length > 0 and is_proj:
         calling sopts.free_options with (sigil of opts)
-        return calling cmd_build.run_check_project with path
+        return calling cmd_build.run_check_project with path, tgt, target_given
     if use_stdin and path length > 0:
         calling spark.eprintln with "psc check: --stdin and a file are mutually exclusive"
         calling sopts.free_options with (sigil of opts)
@@ -490,6 +552,12 @@ weave run_emit_c with args as list of string into int:
     var cgp as CgOptions is calling cgopt.default_options with "."
     set cgp.os_name is opts.os_name
     set cgp.arch is opts.arch
+    var defs as list of string is list of string
+    var os_override as string is ""
+    var arch_override as string is ""
+    var compiler_override as string is ""
+    var tgt as targetmod.Target is calling targetmod.host
+    defer calling targetmod.free with (sigil of tgt)
     var i as int is 2
     while i < args.len:
         var a as string is args at i
@@ -515,16 +583,54 @@ weave run_emit_c with args as list of string into int:
             set cgp.release_unsafe is true
         else if a == "--debug":
             set cgp.debug is true
+        else if a == "--target":
+            if i + 1 >= args.len:
+                calling spark.eprintln with "psc emit-c: missing value for '--target'"
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            var nt as targetmod.Target is calling targetmod.parse with (args at (i + 1))
+            if not nt.ok:
+                var terr as string is nt.error
+                var tmsg as string is "psc emit-c: {terr}"
+                calling spark.eprintln with tmsg
+                banish tmsg
+                calling targetmod.free with (sigil of nt)
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            calling targetmod.free with (sigil of tgt)
+            set tgt is nt
+            set i is i + 1
+        else if calling starts_with with a, "--target=":
+            var nt2 as targetmod.Target is calling targetmod.parse with (a at 9 to (a length))
+            if not nt2.ok:
+                var terr2 as string is nt2.error
+                var tmsg2 as string is "psc emit-c: {terr2}"
+                calling spark.eprintln with tmsg2
+                banish tmsg2
+                calling targetmod.free with (sigil of nt2)
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            calling targetmod.free with (sigil of tgt)
+            set tgt is nt2
+        else if a == "-D" or a == "--define":
+            if i + 1 >= args.len:
+                calling spark.eprintln with "psc emit-c: missing value for '-D'"
+                calling sopts.free_options with (sigil of opts)
+                return 2
+            calling defs.push with (calling copy_path with (args at (i + 1)))
+            set i is i + 1
+        else if calling starts_with with a, "-D":
+            if (a length) > 2:
+                calling defs.push with (a at 2 to (a length))
         else if calling starts_with with a, "--target-compiler=":
-            set cgp.target_compiler is a at 18 to (a length)
+            banish compiler_override
+            set compiler_override is a at 18 to (a length)
         else if calling starts_with with a, "--target-os=":
-            banish opts.os_name
-            set opts.os_name is a at 12 to (a length)
-            set cgp.os_name is opts.os_name
+            banish os_override
+            set os_override is a at 12 to (a length)
         else if calling starts_with with a, "--target-arch=":
-            banish opts.arch
-            set opts.arch is a at 14 to (a length)
-            set cgp.arch is opts.arch
+            banish arch_override
+            set arch_override is a at 14 to (a length)
         else if calling starts_with with a, "--out=":
             set out_path is a at 6 to (a length)
         else if a == "--help" or a == "-h":
@@ -550,6 +656,33 @@ weave run_emit_c with args as list of string into int:
         calling print_emit_c_help
         calling sopts.free_options with (sigil of opts)
         return 2
+    calling targetmod.apply_sema with tgt, (sigil of opts)
+    if os_override length > 0:
+        banish opts.os_name
+        set opts.os_name is calling copy_path with os_override
+    if arch_override length > 0:
+        banish opts.arch
+        set opts.arch is calling copy_path with arch_override
+    if compiler_override length > 0:
+        banish opts.compiler
+        set opts.compiler is calling copy_path with compiler_override
+    banish os_override
+    banish arch_override
+    banish compiler_override
+    for d in defs:
+        calling opts.defines.push with (calling copy_path with d)
+    var di as int is 0
+    while di < defs.len:
+        banish defs at di
+        set di is di + 1
+    banish defs
+    calling targetmod.apply_cg with tgt, (sigil of cgp)
+    set cgp.os_name is opts.os_name
+    set cgp.arch is opts.arch
+    set cgp.compiler is opts.compiler
+    set cgp.defines is opts.defines
+    if compiler_override length > 0:
+        set cgp.target_compiler is compiler_override
     var r as sema_api.SemaResult is calling sema_api.check_file with path, opts
     if not r.ok:
         var ignored as int is calling report_check with r, false, false, false, true
@@ -559,7 +692,11 @@ weave run_emit_c with args as list of string into int:
     set cgp.entry_file is path
     var cr is calling cgapi.generate_c with r.program, cgp
     if not cr.ok:
-        calling spark.eprintln with "psc emit-c: code generation failed"
+        var cerr as string is cr.error
+        var cmsg as string is "psc emit-c: {cerr}"
+        calling spark.eprintln with cmsg
+        banish cmsg
+        banish cerr
         calling cgapi.free_result with (sigil of cr)
         calling sema_api.free_result with (sigil of r)
         return 1
@@ -668,7 +805,7 @@ weave starts_dash with s as string into bool:
 ## ## Memoria
 ## No asigna.
 weave print_help into void:
-    calling spark.println with "psc 0.15.0 — PenguScript compiler"
+    calling spark.println with "psc 0.16.0 — PenguScript compiler"
     calling spark.println with ""
     calling spark.println with "Usage:"
     calling spark.println with "  psc lex <file> [options]"
@@ -717,6 +854,8 @@ weave print_help into void:
 weave print_check_help into void:
     calling spark.println with "Usage: psc check <file> [options]"
     calling spark.println with "  --stdin                 read source from stdin"
+    calling spark.println with "  --target=TRIPLE|wasm    host or wasm32-unknown-emscripten"
+    calling spark.println with "  -D NAME[=VALUE]         define for `when`"
     calling spark.println with "  --diagnostics=plain|json|json-utf16"
     calling spark.println with "  --color / --no-color"
     calling spark.println with "  --max-errors=N          stop after N errors (default 100)"
@@ -744,8 +883,10 @@ weave print_emit_c_help into void:
     calling spark.println with "  --no-line-markers       omit #line directives"
     calling spark.println with "  --strict-c99            portable C99 (no GNU extensions)"
     calling spark.println with "  --target-compiler=NAME  gcc|clang|tcc|msvc"
-    calling spark.println with "  --target-os=OS          linux|macos|windows (default: host)"
-    calling spark.println with "  --target-arch=ARCH      x64|arm64|x86|arm (default: host)"
+    calling spark.println with "  --target=TRIPLE|wasm    host or wasm32-unknown-emscripten"
+    calling spark.println with "  -D NAME[=VALUE]         define for `when`"
+    calling spark.println with "  --target-os=OS          linux|macos|windows|emscripten (default: host)"
+    calling spark.println with "  --target-arch=ARCH      x64|arm64|x86|arm|wasm32 (default: host)"
     calling spark.println with "  --release-unsafe        disable bounds/overflow checks"
     calling spark.println with "  --debug                 debug profile"
     calling spark.println with "  --help"

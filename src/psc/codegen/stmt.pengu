@@ -355,31 +355,55 @@ weave emit_when_branch with c as ref to context.CgContext, node as int, ast as r
 
 ## Emite un `when` comptime como statement.
 ##
+## El AST tiene `cond` + N statements + `else` opcional; no asumir que el
+## segundo hijo es el cuerpo y el tercero el `else` (ese supuesto perdía todas
+## las sentencias intermedias).
+##
 ## ## Memoria
 ## Strings owned; los nodos son del AST.
 weave emit_when_stmt with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into void:
     var cond as int is calling astutil.node_child with ast, node, 0
-    var body as int is calling astutil.node_child with ast, node, 1
-    var els as int is calling astutil.node_child with ast, node, 2
     var m as loader.SemaModule is (c->program->modules at c->current_module)
     var v as int is calling ctime.evaluate with c->options, m, cond
     if v < 0:
         set c->errors is c->errors + 1
         return
+    var n as int is calling astutil.child_count with ast, node
+    var i as int is 1
     if v == 1:
-        calling emit_when_branch with c, body, ast
+        while i < n:
+            var ch as int is calling astutil.node_child with ast, node, i
+            if ch >= 0:
+                var ck as pskind.NodeKind is calling astutil.kind_of with ast, ch
+                if ck == pskind.NodeKind.NdWhenElsePlain or ck == pskind.NodeKind.NdWhenElseWhen:
+                    break
+                calling emit_when_branch with c, ch, ast
+            set i is i + 1
         return
-    if els < 0:
+    # Rama inactiva: saltar el cuerpo hasta el `else`.
+    while i < n:
+        var ch2 as int is calling astutil.node_child with ast, node, i
+        if ch2 >= 0:
+            var ck2 as pskind.NodeKind is calling astutil.kind_of with ast, ch2
+            if ck2 == pskind.NodeKind.NdWhenElsePlain or ck2 == pskind.NodeKind.NdWhenElseWhen:
+                break
+        set i is i + 1
+    if i >= n:
         return
+    var els as int is calling astutil.node_child with ast, node, i
     var ek as pskind.NodeKind is calling astutil.kind_of with ast, els
     if ek == pskind.NodeKind.NdWhenElseWhen:
         var nested as int is calling astutil.node_child with ast, els, 0
         if nested >= 0:
             calling emit_when_stmt with c, nested, ast
         return
-    var eb as int is calling astutil.node_child with ast, els, 0
-    if eb >= 0:
-        calling emit_when_branch with c, eb, ast
+    var j as int is 0
+    var en as int is calling astutil.child_count with ast, els
+    while j < en:
+        var e as int is calling astutil.node_child with ast, els, j
+        if e >= 0:
+            calling emit_when_branch with c, e, ast
+        set j is j + 1
 
 ## Emite un `if`/`unless`.
 ##
@@ -407,7 +431,10 @@ weave emit_if with c as ref to context.CgContext, node as int, ast as ref to psa
         if wrapped:
             calling emit.line with (sigil of c->emitter), "if {cv} {"
         else:
-            calling emit.line with (sigil of c->emitter), "if ({cv}) {"
+            var ifcond as string is "if ({cv})"
+            if calling emit.wrapped_parens with cv:
+                set ifcond is "if {cv}"
+            calling emit.line with (sigil of c->emitter), "{ifcond} {"
     calling emit.indent_more with (sigil of c->emitter)
     calling emit_block with c, body
     calling emit.indent_less with (sigil of c->emitter)
@@ -858,10 +885,25 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
         banish jtmp
         calling context.add_local with c, nid, ty, nid
         return
+    var is_static as bool is (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdStaticVarDecl
+    if is_static:
+        calling emit.line with (sigil of c->emitter), "static {cdecl};"
+        if vn >= 0:
+            var val as string is calling expr.emit_expr_as with c, vn, ty
+            defer banish val
+            var guard as string is "{cn}_pengu_initialized"
+            calling emit.line with (sigil of c->emitter), "static bool {guard} = false;"
+            calling emit.line with (sigil of c->emitter), "if (!{guard}) {"
+            calling emit.line with (sigil of c->emitter), "{cn} = {val};"
+            calling emit.line with (sigil of c->emitter), "{guard} = true;"
+            calling emit.line with (sigil of c->emitter), "}"
+        calling emit.line with (sigil of c->emitter), "(void){cn};"
+        calling context.add_local with c, nid, ty, nid
+        return
     if vn >= 0:
-        var val as string is calling expr.emit_expr_as with c, vn, ty
-        defer banish val
-        calling emit.line with (sigil of c->emitter), "{cdecl} = {val};"
+        var val2 as string is calling expr.emit_expr_as with c, vn, ty
+        defer banish val2
+        calling emit.line with (sigil of c->emitter), "{cdecl} = {val2};"
     else:
         calling emit.line with (sigil of c->emitter), "{cdecl};"
     calling emit.line with (sigil of c->emitter), "(void){cn};"

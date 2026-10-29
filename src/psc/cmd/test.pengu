@@ -9,6 +9,8 @@ import std.spark
 
 import psc.cli.args as cliargs
 import psc.driver.build as driver
+import psc.driver.runner as runner
+import psc.driver.target as targetmod
 import psc.os.proc as proc
 import psc.sema.names as npool
 
@@ -21,6 +23,7 @@ insignia psc_cmd_test_
 weave print_help into void:
     calling spark.println with "Usage: psc test [TARGET] [options]"
     calling spark.println with "  --profile=debug|release|small"
+    calling spark.println with "  --target=TRIPLE|wasm"
     calling spark.println with "  --cc=NAME"
     calling spark.println with "  --entry=PATH"
     calling spark.println with "  --json"
@@ -63,6 +66,7 @@ weave run_test with args as list of string into int:
     var vf as list of string is list of string
     calling vf.push with "--profile"
     calling vf.push with "--cc"
+    calling vf.push with "--target"
     calling vf.push with "--entry"
     var sf as list of string is list of string
     calling sf.push with "--json"
@@ -72,7 +76,6 @@ weave run_test with args as list of string into int:
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
-        banish e
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     if calling cliargs.enabled with (sigil of pr.args), "help":
@@ -111,6 +114,21 @@ weave run_test with args as list of string into int:
     if cc length > 0:
         banish o.cc
         set o.cc is calling copy with cc
+    var tval as string is calling cliargs.value with (sigil of pr.args), "--target"
+    if tval length > 0:
+        var nt as targetmod.Target is calling targetmod.parse with tval
+        if not nt.ok:
+            var terr as string is nt.error
+            var tmsg as string is "psc test: {terr}"
+            calling spark.eprintln with tmsg
+            banish tmsg
+            calling targetmod.free with (sigil of nt)
+            calling driver.free_options with (sigil of o)
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 2
+        calling targetmod.free with (sigil of o.platform)
+        set o.platform is nt
+        set o.target_explicit is true
     var ent as string is calling cliargs.value with (sigil of pr.args), "--entry"
     if ent length > 0:
         banish o.target
@@ -132,15 +150,7 @@ weave run_test with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 1
     var art as string is r.artifact
-    var targv as list of string is list of string
-    calling targv.push with (calling copy with art)
-    var raw as int is calling proc.run_argv with targv
-    banish targv
-    var code as int is raw
-    if raw > 255:
-        set code is (raw / 256) % 256
-    if code < 0:
-        set code is 1
+    var code as int is calling runner.run with o.platform, art, list of string
     if code != 0 and code != 2:
         set code is 1
     calling driver.free_result with (sigil of r)

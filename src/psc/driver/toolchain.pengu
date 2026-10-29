@@ -7,6 +7,7 @@ import std.rites
 import psc.sema.names as npool
 import psc.driver.manifest as manifest
 import psc.driver.paths as paths
+import psc.driver.target as target
 
 insignia psc_driver_toolchain_
 
@@ -45,9 +46,23 @@ weave free_strings with xs as list of string into void:
 ##
 ## ## Memoria
 ## Devuelve string owned o `""`.
-weave choose_cc with override as string, configured as string into string:
+weave choose_cc with override as string, configured as string, t as target.Target into string:
     if override length > 0:
         return calling copy with override
+    if t.is_wasm:
+        var we as maybe string is calling rites.getenv with "PSC_CC"
+        if we.is_present:
+            return we.value
+        banish we
+        var we2 as maybe string is calling rites.getenv with "PENGU_CC"
+        if we2.is_present:
+            return we2.value
+        banish we2
+        var em as maybe string is calling rites.which with "emcc"
+        if em.is_present:
+            return em.value
+        banish em
+        return ""
     if configured length > 0:
         return calling copy with configured
     var e as maybe string is calling rites.getenv with "PSC_CC"
@@ -66,10 +81,10 @@ weave choose_cc with override as string, configured as string into string:
     if c.is_present:
         return c.value
     banish c
-    var t as maybe string is calling rites.which with "tcc"
-    if t.is_present:
-        return t.value
-    banish t
+    var tcc as maybe string is calling rites.which with "tcc"
+    if tcc.is_present:
+        return tcc.value
+    banish tcc
     return calling copy with "gcc"
 
 ## Añade un directorio de include si existe.
@@ -92,9 +107,11 @@ weave add_lib with xs as ref to list of string, dir as string into void:
 ##
 ## ## Memoria
 ## Resultado owned; liberar con `free_toolchain`.
-weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, cc_override as string, profile as string, strict as bool, release_unsafe as bool into Toolchain:
-    var cc as string is calling choose_cc with cc_override, m->cc
+weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, t as target.Target, cc_override as string, profile as string, strict as bool, release_unsafe as bool into Toolchain:
+    var cc as string is calling choose_cc with cc_override, m->cc, t
     if cc length == 0:
+        if t.is_wasm:
+            return with ok is false, error is "emcc not found in PATH; install/activate the Emscripten SDK and re-run (or pass --cc /path/to/emcc)", cc is "", cflags is list of string, include_dirs is list of string, lib_dirs is list of string, links is list of string
         return with ok is false, error is "no C compiler found (use --cc or PSC_CC)", cc is "", cflags is list of string, include_dirs is list of string, lib_dirs is list of string, links is list of string
     var cflags as list of string is list of string
     calling cflags.push with "-std=c11"
@@ -140,6 +157,10 @@ weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, cc_ov
     calling add_lib with (sigil of libs), rdir
     banish rdir
     var lib0 as string is "{m->base_dir}/lib"
+    if t.is_wasm:
+        var libw as string is "{m->base_dir}/lib/wasm"
+        calling add_lib with (sigil of libs), libw
+        banish libw
     calling add_lib with (sigil of libs), lib0
     banish lib0
     for d in m->lib_dirs:

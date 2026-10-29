@@ -42,15 +42,19 @@ psc check .                         # checker + codegen del proyecto (sin cc)
 ```
 
 Opciones: `--profile=debug|release`, `--cc=NAME`, `--out=PATH`,
-`--strict-c99`, `--release-unsafe`, `--verbose`, `--help`.
+`--strict-c99`, `--release-unsafe`, `--verbose`, `--target=TRIPLE`, `--help`.
+
+`--target wasm` selecciona `wasm32-unknown-emscripten`: usa `emcc`/`emar`,
+busca el runtime en `build/wasm/lib` (o `PENGU_RUNTIME_CROSS`), produce
+`app.html`/`app.js`/`app.wasm` y ejecuta con Node en `run`/`test`.
 
 ## Rutas
 
 Orden de búsqueda del runtime/std:
 
 1. `PENGU_RUNTIME_ARCHIVE`, `PENGU_LIB_DIR`, `PENGU_INCLUDE_DIR`,
-   `PENGU_STD_DIR`.
-2. El checkout que contiene `std/` y `build/lib/`.
+   `PENGU_STD_DIR`, `PENGU_RUNTIME_CROSS`.
+2. El checkout que contiene `std/` y `build/lib/` o `build/wasm/lib/`.
 3. El directorio de trabajo actual (subiendo hasta la raíz del checkout).
 
 En Linux **TCC es obligatorio** para el gate de F5; `psc run` puede usar

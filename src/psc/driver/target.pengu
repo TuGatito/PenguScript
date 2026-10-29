@@ -1,0 +1,225 @@
+## psc/driver/target.pengu — modelo de target de compilación.
+##
+## Un `Target` describe para qué plataforma se compila. En este MVP se aceptan
+## el host nativo y `wasm32-unknown-emscripten` (alias `wasm`, `wasm32`,
+## `emscripten`). `wasm32-wasi` se reconoce para poder rechazarlo con un mensaje
+## claro, y cualquier otro triple de cross-compilación se rechaza hasta que el
+## driver tenga soporte real.
+##
+## ## Memoria
+## Todos los strings son owned; liberar con `free`.
+
+import std.rites
+import std.scrolls as scrolls
+
+import psc.sema.names as npool
+import psc.sema.options as sopts
+import psc.codegen.options as cgopt
+
+insignia psc_driver_target_
+
+## Plataforma de compilación.
+##
+## ## Memoria
+## Strings owned; liberar con `free`.
+rune Target:
+    ## `true` si el texto se pudo interpretar.
+    ok as bool
+    ## Error de parseo (owned) cuando `ok` es `false`.
+    error as string
+    ## Texto original tal y como lo pasó el usuario (vacío = host).
+    raw as string
+    ## Triple canónico (`wasm32-unknown-emscripten` o `""` para host).
+    triple as string
+    ## SO de compilación (`linux`, `macos`, `windows`, `emscripten`).
+    os as string
+    ## Arquitectura (`x64`, `arm64`, `x86`, `arm`, `wasm32`).
+    arch as string
+    ## Entorno del triple (`gnu`, `musl`, `mingw`, `emscripten`, `wasi`, ...).
+    env as string
+    ## `true` si el target es WebAssembly.
+    is_wasm as bool
+    ## `""` nativo, `emscripten` o `wasi`.
+    wasm_target as string
+    ## `true` si coincide con el host.
+    is_host as bool
+
+## Copia owned de un string.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## Normaliza un nombre de arquitectura a la ortografía del compilador.
+##
+## ## Memoria
+## Devuelve string owned.
+weave arch_name with s as string into string:
+    if s == "x86_64" or s == "amd64":
+        return calling copy with "x64"
+    if s == "aarch64" or s == "arm64":
+        return calling copy with "arm64"
+    if s == "i386" or s == "i686":
+        return calling copy with "x86"
+    if s == "wasm32" or s == "wasm":
+        return calling copy with "wasm32"
+    return calling copy with s
+
+## SO del host en el vocabulario de `Target`.
+##
+## ## Memoria
+## Devuelve string owned.
+weave host_os into string:
+    var u as string is calling rites.uname
+    var out as string is "linux"
+    if u == "Windows":
+        set out is "windows"
+    else if u == "Darwin":
+        set out is "macos"
+    banish u
+    return calling copy with out
+
+## Copia owned de un target.
+##
+## ## Memoria
+## Devuelve strings owned; liberar con `free`.
+weave clone with t as Target into Target:
+    return with ok is t.ok, error is (calling copy with t.error), raw is (calling copy with t.raw), triple is (calling copy with t.triple), os is (calling copy with t.os), arch is (calling copy with t.arch), env is (calling copy with t.env), is_wasm is t.is_wasm, wasm_target is (calling copy with t.wasm_target), is_host is t.is_host
+
+## Target del host.
+##
+## ## Memoria
+## Devuelve strings owned; liberar con `free`.
+weave host into Target:
+    var osn as string is calling host_os
+    var ar as string is calling rites.host_arch
+    return with ok is true, error is "", raw is "", triple is "", os is osn, arch is ar, env is "", is_wasm is false, wasm_target is "", is_host is true
+
+## Target wasm canónico.
+##
+## ## Memoria
+## Devuelve strings owned; liberar con `free`.
+weave wasm_target with which as string, raw_text as string into Target:
+    var triple as string is "wasm32-unknown-emscripten"
+    var env as string is "emscripten"
+    if which == "wasi":
+        set triple is "wasm32-wasi"
+        set env is "wasi"
+    return with ok is true, error is "", raw is (calling copy with raw_text), triple is triple, os is "emscripten", arch is "wasm32", env is env, is_wasm is true, wasm_target is (calling copy with which), is_host is false
+
+## Target de error.
+##
+## ## Memoria
+## Devuelve strings owned; liberar con `free`.
+weave failed with msg as string into Target:
+    return with ok is false, error is msg, raw is "", triple is "", os is "", arch is "", env is "", is_wasm is false, wasm_target is "", is_host is false
+
+## Interpreta `--target` / `[build] target`.
+##
+## Acepta `""` (host), `wasm`, `wasm32`, `emscripten`,
+## `wasm32-unknown-emscripten`, `wasm32-wasi`/`wasi`, y triples del host.
+## Cualquier otro triple se rechaza: el driver todavía no hace cross-compilation
+## nativa real.
+##
+## ## Memoria
+## Devuelve strings owned; liberar con `free`.
+weave parse with text as string into Target:
+    var trimmed as string is calling scrolls.trim with text
+    defer banish trimmed
+    if trimmed length == 0:
+        return calling host
+    var raw as string is calling copy with trimmed
+    var low as string is calling scrolls.to_lower with trimmed
+    defer banish low
+    if (low == "wasm" or low == "wasm32" or low == "emscripten") or (calling scrolls.contains with low, "emscripten"):
+        banish raw
+        return calling wasm_target with "emscripten", text
+    if (low == "wasi") or (calling scrolls.contains with low, "wasi"):
+        banish raw
+        return calling wasm_target with "wasi", text
+    # Triple nativo: se acepta si coincide con el host. El cruce real
+    # Linux ⇄ Windows queda fuera del MVP y se rechaza explícitamente.
+    var osn as string is "linux"
+    var env as string is ""
+    if (calling scrolls.contains with low, "windows") or (calling scrolls.contains with low, "mingw") or (calling scrolls.contains with low, "msvc"):
+        set osn is "windows"
+    else if (calling scrolls.contains with low, "darwin") or (calling scrolls.contains with low, "macos") or (calling scrolls.contains with low, "apple"):
+        set osn is "macos"
+    else if (calling scrolls.contains with low, "linux"):
+        set osn is "linux"
+    if calling scrolls.contains with low, "mingw":
+        set env is "mingw"
+    else if calling scrolls.contains with low, "msvc":
+        set env is "msvc"
+    else if calling scrolls.contains with low, "musl":
+        set env is "musl"
+    else if calling scrolls.contains with low, "gnu":
+        set env is "gnu"
+    var first_end as int is low length
+    var fi as int is 0
+    while fi < low length:
+        var ch as string is low at fi
+        if ch == "-":
+            banish ch
+            set first_end is fi
+            break
+        banish ch
+        set fi is fi + 1
+    var first as string is low at 0 to first_end
+    var ar as string is calling arch_name with first
+    var hos as string is calling host_os
+    var har as string is calling rites.host_arch
+    var same as bool is (osn == hos) and (ar == har) and (env == "" or env == "gnu")
+    banish hos
+    banish har
+    if not same:
+        var msg as string is "target '{text}' is not supported; use the host or 'wasm32-unknown-emscripten' (native cross-compilation is not implemented yet)"
+        banish ar
+        banish first
+        banish raw
+        return calling failed with msg
+    var out as Target is with ok is true, error is "", raw is raw, triple is "", os is osn, arch is ar, env is env, is_wasm is false, wasm_target is "", is_host is true
+    banish first
+    return out
+
+## Libera un target.
+##
+## ## Memoria
+## Libera todos los strings.
+weave free with t as ref to Target into void:
+    banish t->error
+    banish t->raw
+    banish t->triple
+    banish t->os
+    banish t->arch
+    banish t->env
+    banish t->wasm_target
+
+## Aplica un target a las opciones semánticas (copia owned de los strings).
+##
+## ## Memoria
+## Reemplaza los strings owned de `o`; el llamador conserva el target.
+weave apply_sema with t as Target, o as ref to sopts.SemaOptions into void:
+    banish o->os_name
+    set o->os_name is calling copy with t.os
+    banish o->arch
+    set o->arch is calling copy with t.arch
+    banish o->wasm_target
+    set o->wasm_target is calling copy with t.wasm_target
+    if t.is_wasm:
+        banish o->compiler
+        set o->compiler is calling copy with "emcc"
+
+## Aplica un target a las opciones de codegen (strings prestados).
+##
+## El target debe sobrevivir al codegen; el llamador lo garantiza.
+##
+## ## Memoria
+## No asigna; asigna vistas.
+weave apply_cg with t as Target, o as ref to cgopt.CgOptions into void:
+    set o->wasm is t.is_wasm
+    set o->wasm_target is t.wasm_target
+    set o->target_triple is t.triple
+    set o->os_name is t.os
+    set o->arch is t.arch

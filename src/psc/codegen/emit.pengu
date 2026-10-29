@@ -168,3 +168,27 @@ weave append_hex_digit with sb as ref to StringBuilder, d as int into void:
         calling sb.append with "8"
     else:
         calling sb.append with "9"
+
+## `true` si `s` está envuelto por un único par de paréntesis que abarca todo.
+##
+## ## Memoria
+## O(n); no asigna.
+weave wrapped_parens with s as string into bool:
+    var n as int is s length
+    if n < 2:
+        return false
+    var b as ref to frozen byte is bytes of s
+    if ((b at 0) to int) != 40 or ((b at (n - 1)) to int) != 41:
+        return false
+    var depth as int is 1
+    var i as int is 1
+    while i < n - 1:
+        var c as int is ((b at i) to int)
+        if c == 40:
+            set depth is depth + 1
+        else if c == 41:
+            set depth is depth - 1
+            if depth == 0:
+                return false
+        set i is i + 1
+    return true

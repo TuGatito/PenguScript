@@ -10,6 +10,7 @@ import std.spark
 
 import psc.cli.args as cliargs
 import psc.driver.manifest as manifest
+import psc.driver.target as targetmod
 import psc.sema.names as npool
 
 insignia psc_cmd_assets_
@@ -20,6 +21,7 @@ insignia psc_cmd_assets_
 ## No asigna.
 weave print_help into void:
     calling spark.println with "Usage: psc assets [--list] [--force]"
+    calling spark.println with "  --target=TRIPLE|wasm"
     calling spark.println with "  --list    list assets"
     calling spark.println with "  --force   regenerate"
     calling spark.println with "  --help"
@@ -162,21 +164,37 @@ weave cstr with sb as ref to StringBuilder, s as string into void:
 ## ## Memoria
 ## Libera temporales.
 weave run_assets with args as list of string into int:
+    var vf as list of string is list of string
+    calling vf.push with "--target"
     var sf as list of string is list of string
     calling sf.push with "--list"
     calling sf.push with "--force"
     calling sf.push with "--help"
-    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, list of string, sf, list of string
+    var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
     if not pr.ok:
         var e as string is pr.error
         calling spark.eprintln with e
-        banish e
         calling cliargs.free_parse_result with (sigil of pr)
         return 2
     if calling cliargs.enabled with (sigil of pr.args), "--help":
         calling print_help
         calling cliargs.free_parse_result with (sigil of pr)
         return 0
+    var tgt as targetmod.Target is calling targetmod.host
+    defer calling targetmod.free with (sigil of tgt)
+    var tval as string is calling cliargs.value with (sigil of pr.args), "--target"
+    if tval length > 0:
+        var nt as targetmod.Target is calling targetmod.parse with tval
+        if not nt.ok:
+            var terr as string is nt.error
+            var tmsg as string is "psc assets: {terr}"
+            calling spark.eprintln with tmsg
+            banish tmsg
+            calling targetmod.free with (sigil of nt)
+            calling cliargs.free_parse_result with (sigil of pr)
+            return 2
+        calling targetmod.free with (sigil of tgt)
+        set tgt is nt
     var cwd as maybe string is calling rites.getcwd
     if not cwd.is_present:
         banish cwd
@@ -219,13 +237,18 @@ weave run_assets with args as list of string into int:
     banish files
     var bdir0 as string is "{root}/{man.build_dir}"
     var threshold as int is 1000000
-    var the as maybe string is calling rites.getenv with "PENGU_ASSETS_INCBIN_THRESHOLD"
-    if the.is_present:
-        var tp as maybe int is calling spark.parse_int with the.value
-        if tp.is_present and tp.value >= 0:
-            set threshold is tp.value
-        banish tp
-    banish the
+    if tgt.is_wasm:
+        # WebAssembly's assembler has no .incbin/.section/.previous; embed as
+        # a plain C byte array instead.
+        set threshold is 0
+    if not tgt.is_wasm:
+        var the as maybe string is calling rites.getenv with "PENGU_ASSETS_INCBIN_THRESHOLD"
+        if the.is_present:
+            var tp as maybe int is calling spark.parse_int with the.value
+            if tp.is_present and tp.value >= 0:
+                set threshold is tp.value
+            banish tp
+        banish the
     var hb0 as StringBuilder is calling StringBuilder.new
     defer banish hb0
     calling hb0.append with man.assets_module

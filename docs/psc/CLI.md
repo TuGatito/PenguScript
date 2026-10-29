@@ -15,11 +15,9 @@ psc gc | benchmark | selftest
 psc version | help
 ```
 
-Los comandos de fases posteriores existen y fallan con un mensaje explícito:
-
-```text
-psc build --target      F11
-```
+`--target` está disponible en `build`, `run`, `test`, `check`, `emit-c` y
+`expand`. `wasm`, `wasm32`, `emscripten` y `wasm32-unknown-emscripten` son
+equivalentes; `wasm32-wasi` se rechaza con un mensaje explícito.
 
 ## Bind (F10)
 
@@ -84,9 +82,12 @@ psc build [TARGET] [opciones]
 - `--profile=debug|release|small`, `--cc`, `--out`/`-o`, `--entry`/`-e`.
 - `-D NAME[=VALUE]` repetible.
 - `--test`, `--strict-c99`, `--release-unsafe`, `--verbose`, `--json`.
+- `--target=wasm|wasm32-unknown-emscripten` (o `[build] target` en el manifiesto).
 - Tipos de salida del manifiesto: `exe`, `c`, `obj`, `static`, `shared`.
 
 `psc run` compila y ejecuta; propaga el exit code y acepta `-- args...`.
+Con `--target wasm` ejecuta `node app.js`; sin Node imprime la ruta del HTML y
+devuelve 2.
 `psc expand` emite el bundle C sin invocar `cc`.
 `psc check` de proyecto valida checker + codegen sin escribir bundle.
 

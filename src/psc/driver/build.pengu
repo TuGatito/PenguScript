@@ -13,12 +13,15 @@ import std.spark
 import psc.sema.names as npool
 import psc.sema.options as sopts
 import psc.sema.api as sema_api
+import psc.sema.modules.program as program
+import psc.sema.modules.loader as loader
 import psc.codegen.api as cgapi
 import psc.codegen.options as cgopt
 import psc.cache.cache as cache
 import psc.driver.manifest as manifest
 import psc.os.proc as proc
 import psc.driver.paths as paths
+import psc.driver.target as targetmod
 import psc.driver.toolchain as toolchain
 import psc.pkg.manifest as pman
 import psc.pkg.resolve as presolve
@@ -33,6 +36,10 @@ insignia psc_driver_build_
 ## Strings owned; liberar con `free_options`.
 rune BuildOptions:
     target as string
+    ## Plataforma de compilación (host o wasm).
+    platform as targetmod.Target
+    ## `true` si `--target` vino explícito (el manifiesto no debe pisarlo).
+    target_explicit as bool
     profile as string
     cc as string
     out_path as string
@@ -156,7 +163,7 @@ weave find_manifest_root with start as string into string:
 ## ## Memoria
 ## Strings owned; liberar con `free_options`.
 weave default_options into BuildOptions:
-    return with target is "", profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, defines is list of string
+    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, defines is list of string
 
 ## Libera opciones.
 ##
@@ -168,6 +175,7 @@ weave free_options with o as ref to BuildOptions into void:
     banish o->cc
     banish o->out_path
     banish o->compiler_path
+    calling targetmod.free with (sigil of o->platform)
     var oi as int is 0
     while oi < o->defines.len:
         banish o->defines at oi
@@ -182,6 +190,62 @@ weave free_result with r as ref to BuildResult into void:
     banish r->error
     banish r->artifact
     banish r->bundle_path
+
+## `true` si el programa importa `std.filum`.
+##
+## Es la misma condición que decide `-pthread`/`PENGU_ENABLE_THREADS`; si
+## divergen, el runtime y el bundle no enlazan.
+weave needs_threads with p as ref to program.SemaProgram into bool:
+    var i as int is 0
+    while i < p->modules.len:
+        var m as loader.SemaModule is (p->modules at i)
+        var path as string is m.source.path
+        if (calling ends_with with path, "/std/filum.pengu") or (calling ends_with with path, "\\std\\filum.pengu") or (calling ends_with with path, "std/filum.pengu"):
+            return true
+        set i is i + 1
+    return false
+
+## Archivero para wasm: `emar` del mismo emsdk que `emcc`, o `emar` del PATH.
+##
+## ## Memoria
+## Devuelve string owned.
+weave emar_for with cc as string into string:
+    var d as string is calling compass.cp_dirname with cc
+    if d length > 0:
+        var cand as string is "{d}/emar"
+        if calling archivum.is_file with cand:
+            banish d
+            return cand
+        banish cand
+    banish d
+    var w as maybe string is calling rites.which with "emar"
+    if w.is_present:
+        return w.value
+    banish w
+    return calling copy with "emar"
+
+## Módulo std no disponible en wasm: mensaje accionable, o `""`.
+##
+## `std.net` usa sockets BSD (no existen en el navegador; Node necesita `ws`);
+## dynlib/ffi/secrets/petitio dependen de librerías nativas que no están en el
+## sysroot wasm. Se rechazan antes de llegar a un error de linker.
+weave wasm_unsupported with p as ref to program.SemaProgram into string:
+    var i as int is 0
+    while i < p->modules.len:
+        var m as loader.SemaModule is (p->modules at i)
+        var path as string is m.source.path
+        if calling ends_with with path, "/std/net.pengu":
+            return "std.net is not available on wasm: browser sockets do not exist; use JS fetch/WebSocket through a binding (std.fetch is planned)"
+        if calling ends_with with path, "/std/dynlib.pengu":
+            return "std.dynlib is not available on wasm: there is no dlopen; keep this module in native builds"
+        if calling ends_with with path, "/std/ffi_call.pengu":
+            return "std.ffi_call is not available on wasm: libffi is not built for the wasm sysroot"
+        if calling ends_with with path, "/std/secrets.pengu":
+            return "std.secrets is not available on wasm: libsodium is not built for the wasm sysroot"
+        if calling ends_with with path, "/std/petitio.pengu":
+            return "std.petitio is not available on wasm: libcurl is not built for the wasm sysroot; use JS fetch (std.fetch is planned)"
+        set i is i + 1
+    return ""
 
 ## Construye un proyecto o un archivo.
 ##
@@ -240,6 +304,29 @@ weave build with o as BuildOptions into BuildResult:
         banish start
         banish root
         return with ok is false, error is emsg, artifact is "", bundle_path is ""
+    # Target efectivo: `--target` explícito manda; si no, `[build] target`.
+    var eff as targetmod.Target is calling targetmod.clone with o.platform
+    defer calling targetmod.free with (sigil of eff)
+    if (not o.target_explicit) and man.target length > 0:
+        var parsed as targetmod.Target is calling targetmod.parse with man.target
+        if not parsed.ok:
+            var terr as string is calling copy with parsed.error
+            calling targetmod.free with (sigil of parsed)
+            banish cwd
+            banish target
+            banish start
+            banish root
+            calling manifest.free_manifest with (sigil of man)
+            return with ok is false, error is terr, artifact is "", bundle_path is ""
+        calling targetmod.free with (sigil of eff)
+        set eff is parsed
+    if eff.wasm_target == "wasi":
+        banish cwd
+        banish target
+        banish start
+        banish root
+        calling manifest.free_manifest with (sigil of man)
+        return with ok is false, error is (calling copy with "WASI is not supported; use --target wasm32-unknown-emscripten"), artifact is "", bundle_path is ""
     var entry as string is ""
     if is_file:
         set entry is calling compass.cp_absolute with target
@@ -256,7 +343,7 @@ weave build with o as BuildOptions into BuildResult:
         banish entry
         calling manifest.free_manifest with (sigil of man)
         return with ok is false, error is emsg2, artifact is "", bundle_path is ""
-    var p as paths.Paths is calling paths.find_paths with base
+    var p as paths.Paths is calling paths.find_paths with base, eff
     if not p.ok and not o.check_only:
         var perr as string is p.error
         banish cwd
@@ -267,9 +354,9 @@ weave build with o as BuildOptions into BuildResult:
         calling manifest.free_manifest with (sigil of man)
         calling paths.free_paths with (sigil of p)
         return with ok is false, error is perr, artifact is "", bundle_path is ""
-    var tc as toolchain.Toolchain is calling toolchain.resolve with (sigil of man), (sigil of p), o.cc, o.profile, o.strict_c99, o.release_unsafe
+    var tc as toolchain.Toolchain is calling toolchain.resolve with (sigil of man), (sigil of p), eff, o.cc, o.profile, o.strict_c99, o.release_unsafe
     if o.verbose:
-        var pdbg as string is "paths: archive={p.runtime_archive} include={p.runtime_include} stds={p.std_dirs.len} incs={tc.include_dirs.len} libs={tc.lib_dirs.len}"
+        var pdbg as string is "paths: base={man.base_dir} incdir={man.include_dir} libdir={man.lib_dir} archive={p.runtime_archive} include={p.runtime_include} stds={p.std_dirs.len} incs={tc.include_dirs.len} libs={tc.lib_dirs.len}"
         calling spark.eprintln with pdbg
         banish pdbg
     if not tc.ok and not o.check_only:
@@ -285,6 +372,8 @@ weave build with o as BuildOptions into BuildResult:
         return with ok is false, error is terr, artifact is "", bundle_path is ""
     # F3: opciones propias, sin compartir ownership con Manifest/Paths.
     var so as sopts.SemaOptions is calling sopts.default_options with (calling copy with man.base_dir)
+    calling targetmod.apply_sema with eff, (sigil of so)
+    set so.is_debug is o.profile == "debug"
     banish so.src_dir
     set so.src_dir is (calling copy with man.src_dir)
     banish so.lib_dir
@@ -402,6 +491,19 @@ weave build with o as BuildOptions into BuildResult:
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is false, error is (calling copy with "semantic errors"), artifact is "", bundle_path is ""
+    if eff.is_wasm:
+        var uns as string is calling wasm_unsupported with sr.program
+        if uns length > 0:
+            banish cwd
+            banish target
+            banish start
+            banish root
+            banish entry
+            calling sema_api.free_result with (sigil of sr)
+            calling manifest.free_manifest with (sigil of man)
+            calling paths.free_paths with (sigil of p)
+            calling toolchain.free_toolchain with (sigil of tc)
+            return with ok is false, error is uns, artifact is "", bundle_path is ""
     if o.check_only:
         banish cwd
         banish target
@@ -413,7 +515,20 @@ weave build with o as BuildOptions into BuildResult:
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is true, error is "", artifact is "", bundle_path is ""
+    if eff.is_wasm and man.output == "shared":
+        banish cwd
+        banish target
+        banish start
+        banish root
+        banish entry
+        calling sema_api.free_result with (sigil of sr)
+        calling manifest.free_manifest with (sigil of man)
+        calling paths.free_paths with (sigil of p)
+        calling toolchain.free_toolchain with (sigil of tc)
+        return with ok is false, error is (calling copy with "output = \"shared\" is not supported for wasm: a side module needs -fPIC on every input, including the runtime archive. Use output = \"static\" or the default .html/.js/.wasm"), artifact is "", bundle_path is ""
+    var needs_th as bool is calling needs_threads with sr.program
     var cgo as cgopt.CgOptions is calling cgopt.default_options with (calling copy with base)
+    calling targetmod.apply_cg with eff, (sigil of cgo)
     set cgo.entry_file is (calling copy with entry)
     set cgo.is_library is o.is_library or (man.output != "exe" and man.output != "c")
     set cgo.is_test is o.is_test
@@ -427,7 +542,11 @@ weave build with o as BuildOptions into BuildResult:
     set cgo.release_unsafe is o.release_unsafe
     set cgo.os_name is so.os_name
     set cgo.arch is so.arch
-    set cgo.target_compiler is (calling copy with (calling compass.cp_basename with tc.cc))
+    set cgo.debug is o.profile == "debug"
+    var ccn2 as string is calling compass.cp_basename with tc.cc
+    defer banish ccn2
+    set cgo.target_compiler is ccn2
+    set cgo.compiler is ccn2
     var all_defs as list of string is list of string
     var adi as int is 0
     while adi < man.defines.len:
@@ -506,6 +625,8 @@ weave build with o as BuildOptions into BuildResult:
         set out_name is "{out_name}_test"
     if o.out_path length > 0:
         set artifact is calling compass.cp_absolute with o.out_path
+        if eff.is_wasm and out_kind == "exe" and not (calling ends_with with artifact, ".html") and not (calling ends_with with artifact, ".js") and not (calling ends_with with artifact, ".mjs"):
+            set artifact is "{artifact}.html"
     else:
         if out_kind == "obj":
             set artifact is "{build_dir}/{out_name}.o"
@@ -513,6 +634,8 @@ weave build with o as BuildOptions into BuildResult:
             set artifact is "{build_dir}/lib{out_name}.a"
         else if out_kind == "shared":
             set artifact is "{build_dir}/lib{out_name}.so"
+        else if out_kind == "exe" and eff.is_wasm:
+            set artifact is "{build_dir}/{out_name}.html"
         else if out_kind == "exe" and so.os_name == "windows":
             set artifact is "{build_dir}/{out_name}.exe"
         else:
@@ -523,7 +646,7 @@ weave build with o as BuildOptions into BuildResult:
     banish adir
     var ck as string is ""
     var cparts as list of string is list of string
-    if (not o.no_cache) and (not o.ephemeral) and (not o.check_only) and (not o.bundle_only) and man.output != "c":
+    if (not o.no_cache) and (not o.ephemeral) and (not o.check_only) and (not o.bundle_only) and man.output != "c" and not (eff.is_wasm and out_kind == "exe"):
         var cbytes as maybe string is calling archivum.read_bytes with o.compiler_path
         if cbytes.is_present:
             var chash as string is calling digest.sha256_raw with cbytes.value
@@ -532,6 +655,9 @@ weave build with o as BuildOptions into BuildResult:
             calling cparts.push with (calling copy with o.compiler_path)
         banish cbytes
         calling cparts.push with "psc-0.8.0"
+        calling cparts.push with (calling copy with eff.triple)
+        calling cparts.push with (calling copy with eff.wasm_target)
+        calling cparts.push with (calling copy with tc.cc)
         calling cparts.push with (calling copy with o.profile)
         calling cparts.push with (calling copy with o.cc)
         calling cparts.push with (calling copy with man.output)
@@ -566,6 +692,10 @@ weave build with o as BuildOptions into BuildResult:
         while dfi < o.defines.len:
             calling cparts.push with (calling copy with (o.defines at dfi))
             set dfi is dfi + 1
+        for ld in sr.program->symbols.ldflags:
+            calling cparts.push with (calling copy with ld)
+        for ld in man.ldflags:
+            calling cparts.push with (calling copy with ld)
         var mi as int is 0
         while mi < sr.program->modules.len:
             var mm as loader.SemaModule is (sr.program->modules at mi)
@@ -611,6 +741,10 @@ weave build with o as BuildOptions into BuildResult:
     var args as list of string is list of string
     for f in tc.cflags:
         calling args.push with (calling copy with f)
+    if needs_th:
+        calling args.push with "-DPENGU_ENABLE_THREADS=1"
+    else:
+        calling args.push with "-DPENGU_ENABLE_THREADS=0"
     for inc in tc.include_dirs:
         calling args.push with "-I{inc}"
     calling args.push with (calling copy with bundle)
@@ -634,7 +768,8 @@ weave build with o as BuildOptions into BuildResult:
             calling args.push with (calling copy with gf)
     if out_kind == "obj" or out_kind == "static":
         calling args.push with "-c"
-        calling args.push with "-fPIC"
+        if not eff.is_wasm:
+            calling args.push with "-fPIC"
     if out_kind == "shared":
         calling args.push with "-shared"
         calling args.push with "-fPIC"
@@ -646,7 +781,28 @@ weave build with o as BuildOptions into BuildResult:
                 calling args.push with "-lpengu_runtime"
             else:
                 calling args.push with "-l{lk}"
-        if so.os_name == "windows":
+        if eff.is_wasm:
+            calling args.push with "-lm"
+            if needs_th:
+                calling args.push with "-pthread"
+            if o.profile == "debug":
+                calling args.push with "-g"
+                calling args.push with "-sASSERTIONS=1"
+            else:
+                calling args.push with "-O2"
+            calling args.push with "-sWASM=1"
+            calling args.push with "-sALLOW_MEMORY_GROWTH=1"
+            calling args.push with "-sINITIAL_MEMORY=16MB"
+            calling args.push with "-sSTACK_SIZE=1MB"
+            calling args.push with "-sEXIT_RUNTIME=0"
+            calling args.push with "-sENVIRONMENT=web,node,worker"
+            calling args.push with "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,FS"
+            if needs_th:
+                calling args.push with "-sPTHREAD_POOL_SIZE=4"
+            if p.wasm_shell length > 0:
+                calling args.push with "--shell-file"
+                calling args.push with (calling copy with p.wasm_shell)
+        else if so.os_name == "windows":
             calling args.push with "-lm"
             calling args.push with "-lws2_32"
             calling args.push with "-lwinpthread"
@@ -654,6 +810,12 @@ weave build with o as BuildOptions into BuildResult:
             calling args.push with "-lm"
             calling args.push with "-pthread"
             calling args.push with "-ldl"
+        # Raw linker options from imported bindings (`ldflag "..."`) and from
+        # the project manifest. They stay outside any archive group.
+        for ld in sr.program->symbols.ldflags:
+            calling args.push with (calling copy with ld)
+        for ld in man.ldflags:
+            calling args.push with (calling copy with ld)
     calling args.push with "-o"
     calling args.push with (calling copy with objpath)
     if o.verbose:
@@ -690,14 +852,18 @@ weave build with o as BuildOptions into BuildResult:
         return with ok is false, error is (calling copy with "C compilation failed"), artifact is "", bundle_path is ""
     if out_kind == "static":
         var ar_args as list of string is list of string
-        calling ar_args.push with "ar"
+        if eff.is_wasm:
+            var emar as string is calling emar_for with tc.cc
+            calling ar_args.push with emar
+        else:
+            calling ar_args.push with "ar"
         calling ar_args.push with "rcs"
         calling ar_args.push with (calling copy with artifact)
         calling ar_args.push with (calling copy with objpath)
         var ar_code as int is calling proc.run_argv with ar_args
         calling free_strings with ar_args
         if ar_code != 0:
-            calling spark.eprintln with "ar failed"
+            calling spark.eprintln with "archiver failed"
             banish objpath
             banish cwd
             banish target
@@ -714,7 +880,7 @@ weave build with o as BuildOptions into BuildResult:
             calling manifest.free_manifest with (sigil of man)
             calling paths.free_paths with (sigil of p)
             calling toolchain.free_toolchain with (sigil of tc)
-            return with ok is false, error is (calling copy with "ar failed"), artifact is "", bundle_path is ""
+            return with ok is false, error is (calling copy with "archiver failed"), artifact is "", bundle_path is ""
     if ck length > 0:
         var storedx as bool is calling cache.put with ck, artifact
     banish ck

@@ -1,0 +1,111 @@
+## psc/driver/runner.pengu — ejecutar el artefacto de un build.
+##
+## Nativo: exec directo. Wasm: `node <artifact>.js` (Emscripten escribe
+## `app.html`, `app.js` y `app.wasm`; el HTML no es ejecutable).
+##
+## ## Memoria
+## Construye argv owned y libera todo antes de volver.
+
+import std.archivum
+import std.compass
+import std.rites
+import std.spark
+
+import psc.driver.target as target
+import psc.os.proc as proc
+import psc.sema.names as npool
+
+insignia psc_driver_runner_
+
+## Copia owned.
+##
+## ## Memoria
+## Devuelve string owned.
+weave copy with s as string into string:
+    return calling npool.copy_string with s
+
+## `true` si `s` termina en `suffix`.
+##
+## ## Memoria
+## O(suffix); no asigna.
+weave ends_with with s as string, suffix as string into bool:
+    var n as int is s length
+    var m as int is suffix length
+    if m > n:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of suffix
+    var i as int is 0
+    while i < m:
+        if ((sb at (n - m + i)) to int) != ((pb at i) to int):
+            return false
+        set i is i + 1
+    return true
+
+## Normaliza el código de retorno de un proceso.
+##
+## `proc.run_argv` devuelve el estado crudo de `wait` en algunas plataformas.
+##
+## ## Memoria
+## O(1).
+weave normalize with raw as int into int:
+    var code as int is raw
+    if raw > 255:
+        set code is (raw / 256) % 256
+    if code < 0:
+        set code is 1
+    return code
+
+## Ruta del loader JS de un artefacto wasm.
+##
+## ## Memoria
+## Devuelve string owned.
+weave js_path with artifact as string into string:
+    if (calling ends_with with artifact, ".js") or (calling ends_with with artifact, ".mjs"):
+        return calling copy with artifact
+    if calling ends_with with artifact, ".html":
+        var stem as string is calling compass.cp_stem with artifact
+        var dir as string is calling compass.cp_dirname with artifact
+        if dir length > 0 and dir != ".":
+            var out as string is "{dir}/{stem}.js"
+            banish dir
+            banish stem
+            return out
+        banish dir
+        var out2 as string is "{stem}.js"
+        banish stem
+        return out2
+    return "{artifact}.js"
+
+## Ejecuta `artifact` con los argumentos del programa.
+##
+## ## Memoria
+## Libera argv y temporales.
+weave run with t as target.Target, artifact as string, argv as list of string into int:
+    var args as list of string is list of string
+    if t.is_wasm:
+        var js as string is calling js_path with artifact
+        defer banish js
+        if not calling archivum.is_file with js:
+            var msg as string is "psc: wasm output not found: {js} (build with --target wasm)"
+            calling spark.eprintln with msg
+            banish msg
+            banish args
+            return 1
+        var node as maybe string is calling rites.which with "node"
+        if not node.is_present:
+            var hint as string is "psc: Node.js not found; open {artifact} in a browser (or install node and re-run)"
+            calling spark.eprintln with hint
+            banish hint
+            banish node
+            banish args
+            return 2
+        calling args.push with node.value
+        calling args.push with (calling copy with js)
+    else:
+        calling args.push with (calling copy with artifact)
+    for a in argv:
+        calling args.push with (calling copy with a)
+    var raw as int is calling proc.run_argv with args
+    banish args
+    return calling normalize with raw

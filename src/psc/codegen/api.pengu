@@ -19,6 +19,8 @@ rune CgResult:
     ok as bool
     ## C generado.
     bundle as string
+    ## Mensaje de error (owned) cuando `ok` es `false`.
+    error as string
     ## Estadísticas.
     stats as CgStats
 
@@ -44,13 +46,18 @@ weave generate_c with p as ref to program.SemaProgram, o as CgOptions into CgRes
             set nlines is nlines + 1
         set i is i + 1
     var st as CgStats is with types is c.catalog.types.len, prototypes is c.catalog.functions.len, functions is c.catalog.functions.len, instances is 0, includes is c.catalog.includes.len, bytes is code length, lines is nlines
+    var total_errors as int is c.errors + c.catalog.errors
+    var emsg as string is ""
+    if total_errors > 0:
+        set emsg is "code generation failed: {total_errors} unresolved compile-time condition(s)"
     # `code` se transfiere; el contexto no lo posee.
     calling context.context_free with (sigil of c)
-    return with ok is true, bundle is code, stats is st
+    return with ok is (total_errors == 0), bundle is code, error is emsg, stats is st
 
 ## Libera un resultado.
 ##
 ## ## Memoria
-## Libera el bundle.
+## Libera el bundle y el error.
 weave free_result with r as ref to CgResult into void:
     banish r->bundle
+    banish r->error

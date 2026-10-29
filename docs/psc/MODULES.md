@@ -41,9 +41,12 @@ como miembros; se resuelven por receptor.
 
 `when wasm:` y `when not wasm:` top-level se evalúan con:
 
-- `SemaOptions.wasm_target`;
+- `SemaOptions.wasm_target` (y `os`/`arch`/`compiler` del target);
 - defines `-D`;
-- `is_main`, `is_debug`, `os`, `arch`.
+- `is_entry` por módulo, `is_debug`, `os`, `arch`, `compiler`.
+
+Codegen resuelve las mismas variables (`wasm`, `wasm_target`, `compiler`,
+`main`, `debug`) antes de emitir; un `when` no resoluble es E0039.
 
 Sólo se recolecta la rama activa. `when` dentro de cuerpos se infiere como
 expresión; `defined`/`when` de constantes se pliega cuando el checker puede.

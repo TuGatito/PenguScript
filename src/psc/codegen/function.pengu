@@ -132,7 +132,7 @@ weave fn_decl_with_name with c as ref to context.CgContext, m as loader.SemaModu
     var n as int is raw length
     var rb as ref to frozen byte is bytes of raw
     while i < n:
-        if i + 2 < n and ((rb at i) to int) == 40 and ((rb at i + 1) to int) == 42 and ((rb at i + 2) to int) == 41:
+        if i + 2 < n and ((rb at i) to int) == 40 and ((rb at (i + 1)) to int) == 42 and ((rb at (i + 2)) to int) == 41:
             calling sb.append with "(*"
             calling sb.append with name
             calling sb.append with ")"
@@ -156,7 +156,7 @@ weave name_fn_declarator with raw as string, name as string into string:
     var rb as ref to frozen byte is bytes of raw
     var found as bool is false
     while i < n:
-        if i + 2 < n and ((rb at i) to int) == 40 and ((rb at i + 1) to int) == 42 and ((rb at i + 2) to int) == 41:
+        if i + 2 < n and ((rb at i) to int) == 40 and ((rb at (i + 1)) to int) == 42 and ((rb at (i + 2)) to int) == 41:
             calling sb.append with "(*"
             calling sb.append with name
             calling sb.append with ")"
