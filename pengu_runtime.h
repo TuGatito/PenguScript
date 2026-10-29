@@ -3357,6 +3357,21 @@ extern "C"
 #endif
   }
 
+  static inline PenguString pengu_c_arch(void)
+  {
+#if defined(__aarch64__) || defined(_M_ARM64)
+    return pengu_string_from_cstr("arm64");
+#elif defined(__x86_64__) || defined(_M_X64)
+    return pengu_string_from_cstr("x64");
+#elif defined(__i386__) || defined(_M_IX86)
+    return pengu_string_from_cstr("x86");
+#elif defined(__arm__) || defined(_M_ARM)
+    return pengu_string_from_cstr("arm");
+#else
+    return pengu_string_from_cstr("unknown");
+#endif
+  }
+
   static inline PenguString pengu_c_hostname(void)
   {
     char buf[256];

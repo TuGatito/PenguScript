@@ -425,6 +425,8 @@ weave build with o as BuildOptions into BuildResult:
     set cgo.dce_scope_user is o.dce_scope_user
     set cgo.strict_c99 is o.strict_c99
     set cgo.release_unsafe is o.release_unsafe
+    set cgo.os_name is so.os_name
+    set cgo.arch is so.arch
     set cgo.target_compiler is (calling copy with (calling compass.cp_basename with tc.cc))
     var all_defs as list of string is list of string
     var adi as int is 0

@@ -1,8 +1,13 @@
 ## psc/cmd/lsp.pengu — `psc lsp` (F8).
 
-include "sys/socket.h"
-include "netdb.h"
-include "unistd.h"
+when os == "windows":
+    include "io.h"
+when os != "windows":
+    include "sys/socket.h"
+when os != "windows":
+    include "netdb.h"
+when os != "windows":
+    include "unistd.h"
 include "errno.h"
 
 import std.net

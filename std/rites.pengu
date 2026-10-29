@@ -153,6 +153,9 @@ declare pengu_c_spawn with cmd as string , args as list of string into int
 # "Unknown") as a string.
 declare pengu_c_uname into string
 
+# C bridge returning the host architecture ("x64", "arm64", "x86" or "arm").
+declare pengu_c_arch into string
+
 # C bridge returning the machine's host name as a string.
 declare pengu_c_hostname into string
 
@@ -1501,6 +1504,16 @@ weave os_arch into string:
     when arch == "arm":
         return "arm"
     return "unknown"
+
+## The host architecture, detected at runtime.
+##
+## Unlike `os_arch`, this reflects the machine that is running the binary, not
+## the `arch` value baked into the current build.
+##
+## ## Memoria
+## The result is freshly allocated; release it with `banish`.
+weave host_arch into string:
+    return calling pengu_c_arch
 
 ## Returns the operating-system family name. Alias of `uname()`.
 ##

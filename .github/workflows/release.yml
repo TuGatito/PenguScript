@@ -27,8 +27,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./build/psc-stage0 build .
-          ./build/psc version
+          stage0=./build/psc-stage0
+          if [ -f "$stage0.exe" ]; then stage0="$stage0.exe"; fi
+          "$stage0" build .
+          psc_bin=./build/psc
+          if [ -f "$psc_bin.exe" ]; then psc_bin="$psc_bin.exe"; fi
+          "$psc_bin" version
 
       - name: Package portable/FHS
         shell: bash

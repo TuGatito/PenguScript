@@ -95,7 +95,7 @@ weave dispatch with args as list of string into int:
         return gc
     var cmd as string is args at 1
     if cmd == "version" or cmd == "--version" or cmd == "-V":
-        calling spark.println with "psc 0.14.0 (F11)"
+        calling spark.println with "psc 0.14.1 (F11)"
         return 0
     if cmd == "help" or cmd == "--help" or cmd == "-h":
         if cmd == "help" and args.len >= 3:
@@ -488,6 +488,8 @@ weave run_emit_c with args as list of string into int:
     var to_stdout as bool is false
     var path as string is ""
     var cgp as CgOptions is calling cgopt.default_options with "."
+    set cgp.os_name is opts.os_name
+    set cgp.arch is opts.arch
     var i as int is 2
     while i < args.len:
         var a as string is args at i
@@ -515,6 +517,14 @@ weave run_emit_c with args as list of string into int:
             set cgp.debug is true
         else if calling starts_with with a, "--target-compiler=":
             set cgp.target_compiler is a at 18 to (a length)
+        else if calling starts_with with a, "--target-os=":
+            banish opts.os_name
+            set opts.os_name is a at 12 to (a length)
+            set cgp.os_name is opts.os_name
+        else if calling starts_with with a, "--target-arch=":
+            banish opts.arch
+            set opts.arch is a at 14 to (a length)
+            set cgp.arch is opts.arch
         else if calling starts_with with a, "--out=":
             set out_path is a at 6 to (a length)
         else if a == "--help" or a == "-h":
@@ -658,7 +668,7 @@ weave starts_dash with s as string into bool:
 ## ## Memoria
 ## No asigna.
 weave print_help into void:
-    calling spark.println with "psc 0.14.0 — PenguScript compiler"
+    calling spark.println with "psc 0.14.1 — PenguScript compiler"
     calling spark.println with ""
     calling spark.println with "Usage:"
     calling spark.println with "  psc lex <file> [options]"
@@ -734,6 +744,8 @@ weave print_emit_c_help into void:
     calling spark.println with "  --no-line-markers       omit #line directives"
     calling spark.println with "  --strict-c99            portable C99 (no GNU extensions)"
     calling spark.println with "  --target-compiler=NAME  gcc|clang|tcc|msvc"
+    calling spark.println with "  --target-os=OS          linux|macos|windows (default: host)"
+    calling spark.println with "  --target-arch=ARCH      x64|arm64|x86|arm (default: host)"
     calling spark.println with "  --release-unsafe        disable bounds/overflow checks"
     calling spark.println with "  --debug                 debug profile"
     calling spark.println with "  --help"

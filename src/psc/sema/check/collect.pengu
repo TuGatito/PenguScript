@@ -254,6 +254,28 @@ weave collect_substring with s as string, start as int, end as int into string:
         set i is i + 1
     return calling sb.finish
 
+## Valor textual de un operando de `when` (`os`, `arch` o un literal).
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave when_value with s as ref to state.SemaState, node as int into string:
+    if node < 0:
+        return ""
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    if k == pskind.NodeKind.NdStringLit:
+        var txt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
+        defer banish txt
+        return calling unquote with txt
+    if k == pskind.NodeKind.NdVarRef:
+        var txt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
+        defer banish txt
+        if txt == "os":
+            return calling npool.copy_string with s->opts->os_name
+        if txt == "arch":
+            return calling npool.copy_string with s->opts->arch
+        return calling npool.copy_string with txt
+    return ""
+
 ## Evalúa una condición `when` top-level sencilla.
 ##
 ## ## Memoria
@@ -262,6 +284,17 @@ weave when_truth with s as ref to state.SemaState, node as int into bool:
     if node < 0:
         return true
     var k as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    if k == pskind.NodeKind.NdEq or k == pskind.NodeKind.NdNe:
+        var lc as int is calling astutil.node_child with s->ast, node, 0
+        var rc as int is calling astutil.node_child with s->ast, node, 1
+        var lv as string is calling when_value with s, lc
+        var rv as string is calling when_value with s, rc
+        var same as bool is lv == rv
+        banish lv
+        banish rv
+        if k == pskind.NodeKind.NdEq:
+            return same
+        return not same
     if k == pskind.NodeKind.NdTrueLit:
         return true
     if k == pskind.NodeKind.NdFalseLit:

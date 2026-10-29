@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.14.0-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.14.1-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey">
@@ -69,8 +69,8 @@ pengu-<version>-<os>-<arch>-fhs.tar.gz
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.14.0-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.14.0-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.14.1-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.14.1-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 
@@ -89,9 +89,10 @@ Python are required:
 ./build/psc version
 ```
 
-`tools/gen_stage0.sh` regenerates `bootstrap/psc_stage0.c` after compiler
-changes; `tools/gen_stage0.sh --check` verifies that the committed bundle is up
-to date.
+`tools/gen_stage0.sh` regenerates the per-platform
+`bootstrap/psc_stage0_<os>_<arch>.c` bundles after compiler changes;
+`tools/gen_stage0.sh --check` verifies that the committed bundles are up to
+date.
 
 Alternatively, use a native portable from the latest release:
 

@@ -35,12 +35,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./build/psc-stage0 build .
-          ./build/psc version
+          stage0=./build/psc-stage0
+          if [ -f "$stage0.exe" ]; then stage0="$stage0.exe"; fi
+          "$stage0" build .
+          psc_bin=./build/psc
+          if [ -f "$psc_bin.exe" ]; then psc_bin="$psc_bin.exe"; fi
+          "$psc_bin" version
 
       - name: Format gate
         shell: bash
-        run: ./build/psc fmt --check src std
+        run: |
+          set -euo pipefail
+          psc_bin=./build/psc
+          if [ -f "$psc_bin.exe" ]; then psc_bin="$psc_bin.exe"; fi
+          "$psc_bin" fmt --check src std
 
       - name: Stage0 freshness
         shell: bash

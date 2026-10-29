@@ -2,6 +2,22 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.14.1] — 2026-10-28 — Bootstrap por plataforma y CI multiplataforma
+
+- `bootstrap/psc_stage0_{linux_x64,macos_arm64,windows_x64}.c`: un bundle
+  stage0 por plataforma; `tools/build_bootstrap.sh` elige el del host y
+  `tools/gen_stage0.sh` los regenera/verifica todos.
+- `psc emit-c` acepta `--target-os` y `--target-arch`; el compilador detecta
+  el SO/arquitectura del host en tiempo de ejecución y `when os/arch` evalúa
+  comparaciones reales (`==`/`!=`) en vez de asumir Linux.
+- `psc lsp` separa sus `include` POSIX por plataforma: en Windows usa `io.h`
+  y no requiere `sys/wait.h`, `sys/socket.h` ni `netdb.h`.
+- `pengu.toml` deja de enlazar `petitio`/`curl`, que el compilador no usa; CI
+  Linux ya no necesita cabeceras de libcurl y Windows no busca `-lpetitio`.
+- `tools/build_runtime.sh` funciona con el bash 3.2 de macOS (arrays vacíos
+  bajo `set -u`) y permite omitir `-Werror` en Windows/MSYS2.
+- `psc 0.14.1 (F11)`.
+
 ## [0.14.0] — 2026-10-28 — vaqt, libffi opcional, FFI endurecido y bind con libclang
 
 - `std.ffi`: `SIZEOF_FLOAT` corregido a 4; `alignment_of` ya no depende sólo
@@ -102,8 +118,9 @@ All notable changes to PenguScript will be documented in this file.
   `THIRD_PARTY.md`, `LANGUAGE*.md`, `SECURITY.md`, `docs/psc/OWNERSHIP.md` y
   `tools/release.sh` (empaqueta el aviso de terceros).
 - CI/release construyen un bootstrap nativo `psc` desde
-  `bootstrap/psc_stage0.c` con `tools/build_bootstrap.sh` (runtime C incluido,
-  sin Python); ya no esperan al compilador legacy `pengu` del release.
+  `bootstrap/psc_stage0_<os>_<arch>.c` con `tools/build_bootstrap.sh` (runtime
+  C incluido, sin Python); ya no esperan al compilador legacy `pengu` del
+  release.
 - `tools/gen_stage0.sh` regenera y verifica (`--check`) el bundle stage0.
 - `psc 0.11.2 (F11)`.
 

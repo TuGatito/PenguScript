@@ -3,6 +3,8 @@
 ## Las opciones son inmutables durante el chequeo. Los strings son owned por el
 ## `SemaProgram`; el llamador puede liberar su copia después de `check_*`.
 
+import std.rites as rites
+
 insignia sema_options_
 
 ## Opciones de proyecto que necesita F3.
@@ -49,7 +51,15 @@ rune SemaOptions:
 ## ## Memoria
 ## Devuelve strings owned; el llamador los libera con `free_options`.
 weave default_options with base_dir as string into SemaOptions:
-    return with base_dir is base_dir, src_dir is "src", lib_dir is "lib", std_dirs is list of string, dep_dirs is list of string, defines is list of string, os_name is "linux", arch is "x64", compiler is "gcc", wasm_target is "", is_main is true, is_debug is false, deny_deprecated is false, max_errors is 100, stop_after_first is false, include_antiquus is false
+    var host as string is calling rites.uname
+    var osn as string is "linux"
+    if host == "Windows":
+        set osn is "windows"
+    else if host == "Darwin":
+        set osn is "macos"
+    banish host
+    var ar as string is calling rites.host_arch
+    return with base_dir is base_dir, src_dir is "src", lib_dir is "lib", std_dirs is list of string, dep_dirs is list of string, defines is list of string, os_name is osn, arch is ar, compiler is "gcc", wasm_target is "", is_main is true, is_debug is false, deny_deprecated is false, max_errors is 100, stop_after_first is false, include_antiquus is false
 
 ## Libera las opciones.
 ##

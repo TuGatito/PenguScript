@@ -30,39 +30,39 @@ for pair in "pengu_runtime.o:0" "pengu_runtime_filum.o:1"; do
 done
 # SDS is compiled into libpengu_runtime.a on purpose: every existing project
 # already links -lpengu_runtime, so no manifest or link-order change is needed.
-"$CC" -O2 -std=c99 -Wall -Wextra "${WERROR[@]}" -I"$ROOT/std_c/sds" \
+"$CC" -O2 -std=c99 -Wall -Wextra ${WERROR[@]+"${WERROR[@]}"} -I"$ROOT/std_c/sds" \
   -ffunction-sections -fdata-sections \
   -c "$ROOT/std_c/sds/sds.c" -o "$SOBJ/sds.o"
 OBJS+=("$SOBJ/sds.o")
 # vaqt: high-precision date/time (BSD-3, vendored in std_c/vaqt).
 for src in "$ROOT"/std_c/vaqt/src/*.c; do
   name="$(basename "$src" .c)"
-  "$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \
+  "$CC" "${FLAGS[@]}" -Wall -Wextra ${WERROR[@]+"${WERROR[@]}"} \
     -c "$src" -o "$SOBJ/vaqt_$name.o"
   OBJS+=("$SOBJ/vaqt_$name.o")
 done
-"$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \
+"$CC" "${FLAGS[@]}" -Wall -Wextra ${WERROR[@]+"${WERROR[@]}"} \
   -c "$ROOT/runtime/pengu_vaqt.c" -o "$OBJ/pengu_vaqt.o"
 OBJS+=("$OBJ/pengu_vaqt.o")
 # Optional libffi/dlfcn bridge.  The object is only pulled in by modules that
 # reference its symbols; projects that do not import std.ffi_call/std.dynlib do
 # not need -lffi/-ldl.
 if printf '#include <ffi.h>\n' | "$CC" -E -x c - >/dev/null 2>&1; then
-  "$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \
+  "$CC" "${FLAGS[@]}" -Wall -Wextra ${WERROR[@]+"${WERROR[@]}"} \
     -c "$ROOT/runtime/pengu_ffi_call.c" -o "$OBJ/pengu_ffi_call.o"
   OBJS+=("$OBJ/pengu_ffi_call.o")
 fi
 if printf '#include <sodium.h>\n' | "$CC" -E -x c - >/dev/null 2>&1; then
-  "$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \
+  "$CC" "${FLAGS[@]}" -Wall -Wextra ${WERROR[@]+"${WERROR[@]}"} \
     -c "$ROOT/runtime/pengu_sodium.c" -o "$OBJ/pengu_sodium.o"
   OBJS+=("$OBJ/pengu_sodium.o")
 fi
 # Convenient Containers adapter: the only TU that includes cc.h, so generated
 # bundles never see its macros or its C11 `typeof` requirement.
-"$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \
+"$CC" "${FLAGS[@]}" -Wall -Wextra ${WERROR[@]+"${WERROR[@]}"} \
   -c "$ROOT/runtime/pengu_containers.c" -o "$OBJ/pengu_containers.o"
 OBJS+=("$OBJ/pengu_containers.o")
-"$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \
+"$CC" "${FLAGS[@]}" -Wall -Wextra ${WERROR[@]+"${WERROR[@]}"} \
   -c "$ROOT/runtime/pengu_cc_extra.c" -o "$OBJ/pengu_cc_extra.o"
 OBJS+=("$OBJ/pengu_cc_extra.o")
 rm -f "$LIB/libpengu_runtime.a"
@@ -81,8 +81,8 @@ for src in "$ROOT"/std_c/*.c; do
   esac
   extra=()
   [ "$name" = "miniz" ] && extra=(-DMINIZ_NO_ZLIB_COMPATIBLE_NAMES -DMINIZ_NO_ARCHIVE_APIS -DMINIZ_NO_STDIO -DMINIZ_NO_TIME -Wno-type-limits)
-  "$CC" -O2 -std=c99 -Wall -Wextra "${WERROR[@]}" -I"$ROOT/std_c" -I"$ROOT" -I"$INC" -I"$ROOT/std_c/sds" \
-    -ffunction-sections -fdata-sections "${extra[@]}" -c "$src" -o "$SOBJ/$name.o"
+  "$CC" -O2 -std=c99 -Wall -Wextra ${WERROR[@]+"${WERROR[@]}"} -I"$ROOT/std_c" -I"$ROOT" -I"$INC" -I"$ROOT/std_c/sds" \
+    -ffunction-sections -fdata-sections ${extra[@]+"${extra[@]}"} -c "$src" -o "$SOBJ/$name.o"
   rm -f "$LIB/lib$name.a"
   "$AR" rcs "$LIB/lib$name.a" "$SOBJ/$name.o"
 done
