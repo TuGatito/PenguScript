@@ -1,0 +1,18 @@
+import std.spark
+
+rune Persona:
+    nombre as string
+    edad as int
+
+## Suma dos enteros.
+weave suma with a as int, b as int into int:
+    return a + b
+
+weave main into int:
+    let ruta is "datos.txt"
+    let b is ruta
+    var p as Persona with:
+        set .nombre is "Juan"
+        set .edad is 30
+    calling spark.println with b
+    return 0

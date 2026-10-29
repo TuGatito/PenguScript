@@ -14,6 +14,9 @@ import psc.sema.options as sopts
 import psc.sema.api as sema_api
 import psc.docgen.sig as dfsig
 import psc.sema.names as npool
+import psc.sema.symbols.symbol as sym
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
 
 insignia psc_cmd_doc_
 
@@ -153,7 +156,58 @@ weave signature_of with line as string into string:
     banish t
     return "**?**"
 
-## Renderiza un archivo a Markdown.
+## `true` si el símbolo se documenta.
+##
+## ## Memoria
+## No asigna.
+weave is_documentable with kind as sym.SemaSymbolKind into bool:
+    return kind == sym.SemaSymbolKind.SkWeave or kind == sym.SemaSymbolKind.SkDeclare or kind == sym.SemaSymbolKind.SkConst or kind == sym.SemaSymbolKind.SkRune or kind == sym.SemaSymbolKind.SkEcho or kind == sym.SemaSymbolKind.SkOmen or kind == sym.SemaSymbolKind.SkAlias or kind == sym.SemaSymbolKind.SkSeal or kind == sym.SemaSymbolKind.SkConcept or kind == sym.SemaSymbolKind.SkTest
+
+## Añade campos de una runa/echo o variantes de un omen.
+##
+## ## Memoria
+## No retiene; los strings auxiliares se liberan.
+weave append_type_details with sb as ref to StringBuilder, p as ref to semprog.SemaProgram, ty as tk.SemaType into void:
+    if ty.a < 0 or ty.a >= p->types.nominal_infos.len:
+        return
+    var info as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
+    if ty.kind == tk.SemaTypeKind.TkRune or ty.kind == tk.SemaTypeKind.TkEcho:
+        if info.fields_count > 0:
+            calling sb.append with "```pengu\n"
+            var fi as int is 0
+            while fi < info.fields_count:
+                var f as types.SemaField is (p->types.fields at (info.fields_first + fi))
+                var fn as string is calling npool.text with (sigil of p->names), f.name
+                var ft as string is calling dfsig.type_text with p, f.type
+                calling sb.append with "    {fn} as {ft}\n"
+                banish ft
+                set fi is fi + 1
+            calling sb.append with "```\n\n"
+    else if ty.kind == tk.SemaTypeKind.TkOmen:
+        if info.variants_count > 0:
+            calling sb.append with "```pengu\n"
+            var vi as int is 0
+            while vi < info.variants_count:
+                var v as types.SemaVariant is (p->types.variants at (info.variants_first + vi))
+                var vn as string is calling npool.text with (sigil of p->names), v.name
+                calling sb.append with "    {vn}"
+                if v.payload_count > 0:
+                    calling sb.append with " with "
+                    var pi2 as int is 0
+                    while pi2 < v.payload_count:
+                        if pi2 > 0:
+                            calling sb.append with ", "
+                        var pf as types.SemaField is (p->types.fields at (v.payload_first + pi2))
+                        var pfn as string is calling npool.text with (sigil of p->names), pf.name
+                        var pft as string is calling dfsig.type_text with p, pf.type
+                        calling sb.append with "{pfn} as {pft}"
+                        banish pft
+                        set pi2 is pi2 + 1
+                calling sb.append with "\n"
+                set vi is vi + 1
+            calling sb.append with "```\n\n"
+
+## Renderiza un archivo a Markdown desde los símbolos del checker.
 ##
 ## ## Memoria
 ## Devuelve string owned.
@@ -167,90 +221,63 @@ weave render_file with path as string, rel as string, p as ref to semprog.SemaPr
     calling sb.append with rel
     calling sb.append with "`\n\n---\n\n"
     banish mn
-    var kind_word as string is "symbol"
-    var txt as maybe string is calling archivum.read_text with path
-    if txt.is_present:
-        var ttext as string is txt.value
-        var lines as list of string is calling ttext.split with "\n"
-        var docs as list of string is list of string
-        var pi as int is 0
-        while pi < lines.len:
-            var line as string is (lines at pi)
-            var trimmed as string is line
-            # trim
-            var tb as ref to frozen byte is bytes of trimmed
-            var ts as int is 0
-            var te as int is trimmed length
-            while ts < te and (((tb at ts) to int) == 32 or ((tb at ts) to int) == 9):
-                set ts is ts + 1
-            while te > ts and (((tb at (te - 1)) to int) == 32 or ((tb at (te - 1)) to int) == 9):
-                set te is te - 1
-            if ts > 0 or te < trimmed length:
-                var tr2 as string is trimmed at ts to te
-                banish trimmed
-                set trimmed is tr2
-            if calling starts_with with trimmed, "##":
-                var d as string is trimmed at 2 to (trimmed length)
-                calling docs.push with d
-            else if calling is_decl with trimmed:
-                var sig as string is calling signature_of with trimmed
-                var nm as string is calling basename_no_ext with path
-                # heading: nombre simple
-                var hname as string is sig
-                var hs as int is 0
-                var he as int is sig length
-                while hs < he and (sig at hs to (hs + 1)) != "*":
-                    set hs is hs + 1
-                # extraer entre ** y **
-                var nstart as int is hs + 2
-                var ne as int is nstart
-                while ne < he and (sig at ne to (ne + 1)) != "*":
-                    set ne is ne + 1
-                if ne > nstart:
-                    var hn as string is sig at nstart to ne
-                    set hname is hn
-                var fsig as string is calling dfsig.signature_for with p, hname
-                if fsig length > 0:
-                    banish sig
-                    set sig is fsig
-                else:
-                    banish fsig
-                calling sb.append with "### `"
-                calling sb.append with hname
-                calling sb.append with "`\n\n> "
-                calling sb.append with sig
-                calling sb.append with "\n\n"
-                var fdoc as string is calling dfsig.doc_for with p, hname
-                if fdoc length > 0:
-                    calling sb.append with fdoc
-                    calling sb.append with "\n\n"
-                else if docs.len == 0:
-                    calling sb.append with "_Undocumented function._\n\n"
-                else:
-                    for d in docs:
-                        calling sb.append with d
-                        calling sb.append with "\n"
-                    calling sb.append with "\n"
-                for d in docs:
-                    banish d
-                set docs is list of string
-                banish hname
-                banish sig
-                banish nm
-                banish trimmed
-                set pi is pi + 1
-                continue
-            else if trimmed length > 0 and not (calling starts_with with trimmed, "#"):
-                for d in docs:
-                    banish d
-                set docs is list of string
-            banish trimmed
-            set pi is pi + 1
-        for d in docs:
-            banish d
-        banish docs
-        banish lines
-    banish txt
+    var mid as int is calling semprog.module_id with p, path
+    if mid < 0:
+        return calling sb.finish
+    var ids as list of int is list of int
+    var i as int is 0
+    while i < p->symbols.symbols.len:
+        var si as sym.SemaSymbol is (p->symbols.symbols at i)
+        if si.module == mid and si.name >= 0 and si.start >= 0 and calling is_documentable with si.kind:
+            calling ids.push with i
+        set i is i + 1
+    # Orden por offset de declaración (burbuja; la lista es pequeña).
+    var a as int is 0
+    while a < ids.len:
+        var b as int is 0
+        while b + 1 < ids.len - a:
+            var s1 as int is (p->symbols.symbols at (ids at b)).start
+            var s2 as int is (p->symbols.symbols at (ids at (b + 1))).start
+            if s1 > s2:
+                var tmp as int is (ids at b)
+                set ids at b is (ids at (b + 1))
+                set ids at (b + 1) is tmp
+            set b is b + 1
+        set a is a + 1
+    var seen_names as map of string to bool is map of string to bool
+    var k as int is 0
+    while k < ids.len:
+        var sid as int is (ids at k)
+        var si as sym.SemaSymbol is (p->symbols.symbols at sid)
+        var nm as string is calling npool.text with (sigil of p->names), si.name
+        if calling seen_names.has with nm:
+            set k is k + 1
+            continue
+        calling seen_names.put with (calling copy with nm), true
+        calling sb.append with "### `"
+        calling sb.append with nm
+        calling sb.append with "`\n\n> "
+        var sig as string is calling dfsig.signature_for_symbol with p, sid
+        if sig length > 0:
+            calling sb.append with sig
+            banish sig
+        else:
+            banish sig
+            var kn as string is calling sym.symbol_kind_name with si.kind
+            calling sb.append with "{kn} "
+            calling sb.append with nm
+        calling sb.append with "\n\n"
+        var ty as tk.SemaType is calling types.at with (sigil of p->types), si.type
+        calling append_type_details with (sigil of sb), p, ty
+        var doc as string is calling dfsig.doc_for_symbol with p, sid
+        if doc length > 0:
+            calling sb.append with doc
+            calling sb.append with "\n\n"
+        else:
+            calling sb.append with "_Undocumented._\n\n"
+        set k is k + 1
+    banish seen_names
+    banish ids
     return calling sb.finish
 
 ## Basename sin extensión.
@@ -371,12 +398,6 @@ weave run_doc with args as list of string into int:
             banish rel
             var target as string is "{out}/{nm}.md"
             calling archivum.write_text with target, md
-            var legacy as string is calling basename_no_ext with f
-            if legacy != nm:
-                var lpath as string is "{out}/{legacy}.md"
-                calling archivum.write_text with lpath, md
-                banish lpath
-            banish legacy
             calling mods.push with (calling copy with nm)
             banish target
             banish nm

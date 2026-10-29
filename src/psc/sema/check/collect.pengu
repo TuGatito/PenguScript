@@ -195,7 +195,13 @@ weave collect_import with s as ref to state.SemaState, node as int into void:
     var sv as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", 0, sym.SemaSymbolKind.SkImport
     set sv.name is alias
     set sv.c_name is alias
+    set sv.module is s->module->id
     set sv.module_scope is target.scope
+    set sv.start is calling astutil.start_of with s->ast, node
+    set sv.end is calling astutil.end_of with s->ast, node
+    var ipos as sourcemap.Position is calling s->src->position_at with sv.start
+    set sv.line is ipos.line
+    set sv.col is ipos.col
     calling symbols.symbol_define with s->symbols, sv
 
 ## Alias de un import (explícito o último componente).
@@ -487,7 +493,7 @@ weave trim_text with s as string into string:
         set e is e - 1
     return s at a to e
 
-## Asigna módulo, línea, columna y doc a un símbolo top-level.
+## Asigna módulo, línea, columna, span y doc a un símbolo top-level.
 weave tag_decl with s as ref to state.SemaState, id as int, node as int into void:
     if id < 0:
         return
@@ -496,20 +502,28 @@ weave tag_decl with s as ref to state.SemaState, id as int, node as int into voi
     var ps as sourcemap.Position is calling s->src->position_at with off
     set sv.line is ps.line
     set sv.col is ps.col
+    set sv.start is off
+    set sv.end is calling astutil.end_of with s->ast, node
     set sv.module is s->module->id
-    # doc comments inmediatamente encima
+    # Doc comments inmediatamente encima: `#`, `##` y bloques `## ... ##`.
     var lines as list of string is calling s->src->text.split with "\n"
     var li as int is ps.line - 2
     var docs as list of string is list of string
     while li >= 0:
         var line as string is (lines at li)
         var tr as string is calling trim_text with line
-        if calling starts_with with tr, "##":
-            var d as string is tr at 2 to (tr length)
-            calling docs.push with d
+        var d as string is ""
+        if calling starts_with_text with tr, "##":
+            set d is tr at 2 to (tr length)
+        else if calling starts_with_text with tr, "#":
+            set d is tr at 1 to (tr length)
         else:
+            banish d
             banish tr
             break
+        # Copia owned: `d` es una vista sobre `line`/`tr`.
+        calling docs.push with (calling npool.copy_string with d)
+        banish d
         banish tr
         banish line
         set li is li - 1
@@ -1035,6 +1049,7 @@ weave collect_weave with s as ref to state.SemaState, node as int, no_body as bo
     else:
         set sv.kind is sym.SemaSymbolKind.SkWeave
     calling symbols.symbol_set with s->symbols, sid, sv
+    calling tag_decl with s, sid, node
 
 ## Recolecta params de una lista.
 ##
@@ -1308,6 +1323,7 @@ weave collect_enchanting with s as ref to state.SemaState, node as int into void
             var msid as int is calling symbols.symbol_define_method with s->symbols, recv, mname, ft
             calling mark_mutating with s, m, msid
             calling apply_bounds with s, msid, br
+            calling tag_decl with s, msid, m
             calling define_get_alias with s, recv, mname, ft, br
         set i is i + 1
 
@@ -1339,6 +1355,7 @@ weave collect_bind with s as ref to state.SemaState, node as int into void:
             calling reject_duplicate_primitive with s, recv, mname, m
             var bsid2 as int is calling symbols.symbol_define_method with s->symbols, recv, mname, ft
             calling mark_mutating with s, m, bsid2
+            calling tag_decl with s, bsid2, m
             var empty_br as ParamRange is with first is 0, count is 0
             calling define_get_alias with s, recv, mname, ft, empty_br
         set i is i + 1
@@ -1352,4 +1369,5 @@ weave collect_test with s as ref to state.SemaState, node as int into void:
     var symv as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", 3, sym.SemaSymbolKind.SkTest
     set symv.name is name
     set symv.c_name is name
-    calling symbols.symbol_define with s->symbols, symv
+    var sid as int is calling symbols.symbol_define with s->symbols, symv
+    calling tag_decl with s, sid, node

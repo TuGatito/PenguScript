@@ -3,7 +3,7 @@
     "displayName": "PenguScript",
     "description": "Language support, LSP intelligence, and cargo-like project management for PenguScript.",
     "publisher": "pengus-lang",
-    "version": "3.2.0",
+    "version": "4.0.0",
     "icon": "./icons/pengu_icon.png",
     "keywords": [
         "pengus",
@@ -23,7 +23,7 @@
         "url": "https://github.com/TuGatito/PenguScript"
     },
     "engines": {
-        "vscode": "^1.80.0"
+        "vscode": "^1.82.0"
     },
     "categories": [
         "Programming Languages",
@@ -33,7 +33,9 @@
     ],
     "main": "./out/extension.js",
     "activationEvents": [
-        "onLanguage:pengus"
+        "onLanguage:pengus",
+        "workspaceContains:**/pengu.toml",
+        "workspaceContains:**/*.pengu"
     ],
     "contributes": {
         "languages": [
@@ -54,13 +56,6 @@
                     "light": "./icons/pengu_icon.png",
                     "dark": "./icons/pengu_icon_white.png"
                 }
-            }
-        ],
-        "iconThemes": [
-            {
-                "id": "pengus-icons",
-                "label": "PenguScript Icons",
-                "path": "./icons/pengu_icon.png"
             }
         ],
         "grammars": [
@@ -121,6 +116,31 @@
                 "command": "pengus.showMenu",
                 "title": "PenguScript: Show Menu",
                 "category": "PenguScript"
+            },
+            {
+                "command": "pengus.runFile",
+                "title": "PenguScript: Run Current File",
+                "category": "PenguScript"
+            },
+            {
+                "command": "pengus.testFile",
+                "title": "PenguScript: Test Current File",
+                "category": "PenguScript"
+            },
+            {
+                "command": "pengus.check",
+                "title": "PenguScript: Check File",
+                "category": "PenguScript"
+            },
+            {
+                "command": "pengus.format",
+                "title": "PenguScript: Format Document",
+                "category": "PenguScript"
+            },
+            {
+                "command": "pengus.openOutput",
+                "title": "PenguScript: Show Output",
+                "category": "PenguScript"
             }
         ],
         "configuration": {
@@ -136,12 +156,92 @@
                     "type": "string",
                     "enum": [
                         "debug",
-                        "release"
+                        "release",
+                        "small"
                     ],
                     "default": "debug",
                     "description": "Default build profile ('debug' or 'release') used for build and run commands."
+                },
+                "pengus.stdDir": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "Directorio de la stdlib. Si está vacío se usa `$PSC_STD_DIR`, `$PENGU_STD_DIR`, `<proyecto>/std` o `<psc>/../std`."
+                },
+                "pengus.trace.server": {
+                    "type": "string",
+                    "enum": [
+                        "off",
+                        "messages",
+                        "verbose"
+                    ],
+                    "default": "off",
+                    "description": "Nivel de traza del cliente LSP."
+                },
+                "pengus.inlayHints.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Mostrar hints de tipo inferido."
+                },
+                "pengus.semanticHighlighting.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Usar semantic tokens del LSP."
+                },
+                "pengus.statusBar.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Mostrar el estado de PenguScript en la barra inferior."
                 }
             }
+        },
+        "semanticTokenScopes": [
+            {
+                "language": "pengus",
+                "scopes": {
+                    "type": [
+                        "entity.name.type.pengus",
+                        "support.type.pengus"
+                    ],
+                    "namespace": [
+                        "entity.name.namespace.pengus"
+                    ],
+                    "parameter": [
+                        "variable.parameter.pengus"
+                    ],
+                    "property": [
+                        "variable.other.property.pengus"
+                    ],
+                    "enumMember": [
+                        "variable.other.enummember.pengus"
+                    ],
+                    "operator": [
+                        "keyword.operator.pengus"
+                    ]
+                }
+            }
+        ],
+        "configurationDefaults": {
+            "[pengus]": {
+                "editor.tabSize": 4,
+                "editor.insertSpaces": true,
+                "editor.detectIndentation": false
+            }
+        },
+        "menus": {
+            "editor/title": [
+                {
+                    "command": "pengus.run",
+                    "when": "resourceLangId == pengus",
+                    "group": "navigation@1"
+                }
+            ],
+            "explorer/context": [
+                {
+                    "command": "pengus.runFile",
+                    "when": "resourceExtname == .pengu",
+                    "group": "navigation@1"
+                }
+            ]
         }
     },
     "scripts": {
@@ -149,16 +249,29 @@
         "compile": "tsc -p ./",
         "bundle": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
         "watch": "tsc -watch -p ./",
-        "package": "npx @vscode/vsce package"
+        "package": "npx @vscode/vsce package",
+        "test": "npm run compile && node test/psc_path_check.js \"$PWD/out\""
     },
     "devDependencies": {
         "@types/node": "^18.14.6",
-        "@types/vscode": "^1.80.0",
+        "@types/vscode": "^1.82.0",
         "@vscode/vsce": "^2.22.0",
         "esbuild": "^0.20.0",
         "typescript": "^5.1.6"
     },
     "dependencies": {
         "vscode-languageclient": "^9.0.1"
+    },
+    "extensionKind": [
+        "workspace"
+    ],
+    "capabilities": {
+        "untrustedWorkspaces": {
+            "supported": "limited",
+            "restrictedConfigurations": [
+                "pengus.executablePath"
+            ]
+        },
+        "virtualWorkspaces": true
     }
 }

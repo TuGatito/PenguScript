@@ -31,3 +31,10 @@ node_modules/
 
 # VS Code extension build output
 /vscode-extension/dist/
+
+# Local CI job logs
+*-job-logs.txt
+
+# TypeScript intermediate output (the extension ships the esbuild bundle)
+/vscode-extension/out/pscPath.js
+/vscode-extension/out/pscPath.js.map

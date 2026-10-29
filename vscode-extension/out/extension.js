@@ -1639,13 +1639,13 @@ var require_connection = __commonJS({
       log: () => {
       }
     });
-    var Trace;
-    (function(Trace2) {
-      Trace2[Trace2["Off"] = 0] = "Off";
-      Trace2[Trace2["Messages"] = 1] = "Messages";
-      Trace2[Trace2["Compact"] = 2] = "Compact";
-      Trace2[Trace2["Verbose"] = 3] = "Verbose";
-    })(Trace || (exports2.Trace = Trace = {}));
+    var Trace2;
+    (function(Trace3) {
+      Trace3[Trace3["Off"] = 0] = "Off";
+      Trace3[Trace3["Messages"] = 1] = "Messages";
+      Trace3[Trace3["Compact"] = 2] = "Compact";
+      Trace3[Trace3["Verbose"] = 3] = "Verbose";
+    })(Trace2 || (exports2.Trace = Trace2 = {}));
     var TraceValues;
     (function(TraceValues2) {
       TraceValues2.Off = "off";
@@ -1653,42 +1653,42 @@ var require_connection = __commonJS({
       TraceValues2.Compact = "compact";
       TraceValues2.Verbose = "verbose";
     })(TraceValues || (exports2.TraceValues = TraceValues = {}));
-    (function(Trace2) {
+    (function(Trace3) {
       function fromString(value) {
         if (!Is.string(value)) {
-          return Trace2.Off;
+          return Trace3.Off;
         }
         value = value.toLowerCase();
         switch (value) {
           case "off":
-            return Trace2.Off;
+            return Trace3.Off;
           case "messages":
-            return Trace2.Messages;
+            return Trace3.Messages;
           case "compact":
-            return Trace2.Compact;
+            return Trace3.Compact;
           case "verbose":
-            return Trace2.Verbose;
+            return Trace3.Verbose;
           default:
-            return Trace2.Off;
+            return Trace3.Off;
         }
       }
-      Trace2.fromString = fromString;
+      Trace3.fromString = fromString;
       function toString(value) {
         switch (value) {
-          case Trace2.Off:
+          case Trace3.Off:
             return "off";
-          case Trace2.Messages:
+          case Trace3.Messages:
             return "messages";
-          case Trace2.Compact:
+          case Trace3.Compact:
             return "compact";
-          case Trace2.Verbose:
+          case Trace3.Verbose:
             return "verbose";
           default:
             return "off";
         }
       }
-      Trace2.toString = toString;
-    })(Trace || (exports2.Trace = Trace = {}));
+      Trace3.toString = toString;
+    })(Trace2 || (exports2.Trace = Trace2 = {}));
     var TraceFormat;
     (function(TraceFormat2) {
       TraceFormat2["Text"] = "text";
@@ -1832,7 +1832,7 @@ var require_connection = __commonJS({
       let responsePromises = /* @__PURE__ */ new Map();
       let knownCanceledRequests = /* @__PURE__ */ new Set();
       let requestTokens = /* @__PURE__ */ new Map();
-      let trace = Trace.Off;
+      let trace = Trace2.Off;
       let traceFormat = TraceFormat.Text;
       let tracer;
       let state = ConnectionState.New;
@@ -2201,21 +2201,21 @@ ${JSON.stringify(message, null, 4)}`);
           return void 0;
         }
         switch (trace) {
-          case Trace.Verbose:
+          case Trace2.Verbose:
             return JSON.stringify(params, null, 4);
-          case Trace.Compact:
+          case Trace2.Compact:
             return JSON.stringify(params);
           default:
             return void 0;
         }
       }
       function traceSendingRequest(message) {
-        if (trace === Trace.Off || !tracer) {
+        if (trace === Trace2.Off || !tracer) {
           return;
         }
         if (traceFormat === TraceFormat.Text) {
           let data = void 0;
-          if ((trace === Trace.Verbose || trace === Trace.Compact) && message.params) {
+          if ((trace === Trace2.Verbose || trace === Trace2.Compact) && message.params) {
             data = `Params: ${stringifyTrace(message.params)}
 
 `;
@@ -2226,12 +2226,12 @@ ${JSON.stringify(message, null, 4)}`);
         }
       }
       function traceSendingNotification(message) {
-        if (trace === Trace.Off || !tracer) {
+        if (trace === Trace2.Off || !tracer) {
           return;
         }
         if (traceFormat === TraceFormat.Text) {
           let data = void 0;
-          if (trace === Trace.Verbose || trace === Trace.Compact) {
+          if (trace === Trace2.Verbose || trace === Trace2.Compact) {
             if (message.params) {
               data = `Params: ${stringifyTrace(message.params)}
 
@@ -2246,12 +2246,12 @@ ${JSON.stringify(message, null, 4)}`);
         }
       }
       function traceSendingResponse(message, method, startTime) {
-        if (trace === Trace.Off || !tracer) {
+        if (trace === Trace2.Off || !tracer) {
           return;
         }
         if (traceFormat === TraceFormat.Text) {
           let data = void 0;
-          if (trace === Trace.Verbose || trace === Trace.Compact) {
+          if (trace === Trace2.Verbose || trace === Trace2.Compact) {
             if (message.error && message.error.data) {
               data = `Error data: ${stringifyTrace(message.error.data)}
 
@@ -2272,12 +2272,12 @@ ${JSON.stringify(message, null, 4)}`);
         }
       }
       function traceReceivedRequest(message) {
-        if (trace === Trace.Off || !tracer) {
+        if (trace === Trace2.Off || !tracer) {
           return;
         }
         if (traceFormat === TraceFormat.Text) {
           let data = void 0;
-          if ((trace === Trace.Verbose || trace === Trace.Compact) && message.params) {
+          if ((trace === Trace2.Verbose || trace === Trace2.Compact) && message.params) {
             data = `Params: ${stringifyTrace(message.params)}
 
 `;
@@ -2288,12 +2288,12 @@ ${JSON.stringify(message, null, 4)}`);
         }
       }
       function traceReceivedNotification(message) {
-        if (trace === Trace.Off || !tracer || message.method === LogTraceNotification.type.method) {
+        if (trace === Trace2.Off || !tracer || message.method === LogTraceNotification.type.method) {
           return;
         }
         if (traceFormat === TraceFormat.Text) {
           let data = void 0;
-          if (trace === Trace.Verbose || trace === Trace.Compact) {
+          if (trace === Trace2.Verbose || trace === Trace2.Compact) {
             if (message.params) {
               data = `Params: ${stringifyTrace(message.params)}
 
@@ -2308,12 +2308,12 @@ ${JSON.stringify(message, null, 4)}`);
         }
       }
       function traceReceivedResponse(message, responsePromise) {
-        if (trace === Trace.Off || !tracer) {
+        if (trace === Trace2.Off || !tracer) {
           return;
         }
         if (traceFormat === TraceFormat.Text) {
           let data = void 0;
-          if (trace === Trace.Verbose || trace === Trace.Compact) {
+          if (trace === Trace2.Verbose || trace === Trace2.Compact) {
             if (message.error && message.error.data) {
               data = `Error data: ${stringifyTrace(message.error.data)}
 
@@ -2339,7 +2339,7 @@ ${JSON.stringify(message, null, 4)}`);
         }
       }
       function logLSPMessage(type, message) {
-        if (!tracer || trace === Trace.Off) {
+        if (!tracer || trace === Trace2.Off) {
           return;
         }
         const lspMessage = {
@@ -2650,13 +2650,13 @@ ${JSON.stringify(message, null, 4)}`);
           }
           trace = _value;
           traceFormat = _traceFormat;
-          if (trace === Trace.Off) {
+          if (trace === Trace2.Off) {
             tracer = void 0;
           } else {
             tracer = _tracer;
           }
           if (_sendNotification && !isClosed() && !isDisposed()) {
-            await connection.sendNotification(SetTraceNotification.type, { value: Trace.toString(_value) });
+            await connection.sendNotification(SetTraceNotification.type, { value: Trace2.toString(_value) });
           }
         },
         onError: errorEmitter.event,
@@ -2698,10 +2698,10 @@ ${JSON.stringify(message, null, 4)}`);
         }
       };
       connection.onNotification(LogTraceNotification.type, (params) => {
-        if (trace === Trace.Off || !tracer) {
+        if (trace === Trace2.Off || !tracer) {
           return;
         }
-        const verbose = trace === Trace.Verbose || trace === Trace.Compact;
+        const verbose = trace === Trace2.Verbose || trace === Trace2.Compact;
         tracer.log(params.message, verbose ? params.verbose : void 0);
       });
       connection.onNotification(ProgressNotification.type, (params) => {
@@ -11744,17 +11744,17 @@ var require_configuration = __commonJS({
           if (index === -1) {
             result = toJSONObject(vscode_1.workspace.getConfiguration(void 0, resource).get(section));
           } else {
-            let config = vscode_1.workspace.getConfiguration(section.substr(0, index), resource);
-            if (config) {
-              result = toJSONObject(config.get(section.substr(index + 1)));
+            let config2 = vscode_1.workspace.getConfiguration(section.substr(0, index), resource);
+            if (config2) {
+              result = toJSONObject(config2.get(section.substr(index + 1)));
             }
           }
         } else {
-          let config = vscode_1.workspace.getConfiguration(void 0, resource);
+          let config2 = vscode_1.workspace.getConfiguration(void 0, resource);
           result = {};
-          for (let key of Object.keys(config)) {
-            if (config.has(key)) {
-              result[key] = toJSONObject(config.get(key));
+          for (let key of Object.keys(config2)) {
+            if (config2.has(key)) {
+              result[key] = toJSONObject(config2.get(key));
             }
           }
         }
@@ -11863,8 +11863,8 @@ var require_configuration = __commonJS({
         });
       }
       extractSettingsInformation(keys) {
-        function ensurePath(config, path2) {
-          let current = config;
+        function ensurePath(config2, path2) {
+          let current = config2;
           for (let i = 0; i < path2.length - 1; i++) {
             let obj = current[path2[i]];
             if (!obj) {
@@ -11880,15 +11880,15 @@ var require_configuration = __commonJS({
         for (let i = 0; i < keys.length; i++) {
           let key = keys[i];
           let index = key.indexOf(".");
-          let config = null;
+          let config2 = null;
           if (index >= 0) {
-            config = vscode_1.workspace.getConfiguration(key.substr(0, index), resource).get(key.substr(index + 1));
+            config2 = vscode_1.workspace.getConfiguration(key.substr(0, index), resource).get(key.substr(index + 1));
           } else {
-            config = vscode_1.workspace.getConfiguration(void 0, resource).get(key);
+            config2 = vscode_1.workspace.getConfiguration(void 0, resource).get(key);
           }
-          if (config) {
+          if (config2) {
             let path2 = keys[i].split(".");
-            ensurePath(result, path2)[path2[path2.length - 1]] = toJSONObject(config);
+            ensurePath(result, path2)[path2[path2.length - 1]] = toJSONObject(config2);
           }
         }
         return result;
@@ -12542,12 +12542,12 @@ var require_signatureHelp = __commonJS({
         super(client2, vscode_languageserver_protocol_1.SignatureHelpRequest.type);
       }
       fillClientCapabilities(capabilities) {
-        let config = (0, features_1.ensure)((0, features_1.ensure)(capabilities, "textDocument"), "signatureHelp");
-        config.dynamicRegistration = true;
-        config.signatureInformation = { documentationFormat: [vscode_languageserver_protocol_1.MarkupKind.Markdown, vscode_languageserver_protocol_1.MarkupKind.PlainText] };
-        config.signatureInformation.parameterInformation = { labelOffsetSupport: true };
-        config.signatureInformation.activeParameterSupport = true;
-        config.contextSupport = true;
+        let config2 = (0, features_1.ensure)((0, features_1.ensure)(capabilities, "textDocument"), "signatureHelp");
+        config2.dynamicRegistration = true;
+        config2.signatureInformation = { documentationFormat: [vscode_languageserver_protocol_1.MarkupKind.Markdown, vscode_languageserver_protocol_1.MarkupKind.PlainText] };
+        config2.signatureInformation.parameterInformation = { labelOffsetSupport: true };
+        config2.signatureInformation.activeParameterSupport = true;
+        config2.contextSupport = true;
       }
       initialize(capabilities, documentSelector) {
         const options = this.getRegistrationOptions(documentSelector, capabilities.signatureHelpProvider);
@@ -16085,16 +16085,16 @@ ${error.message}`, void 0, handlerResult.handled === true ? false : "force");
         }));
       }
       refreshTrace(connection, sendNotification = false) {
-        const config = vscode_1.workspace.getConfiguration(this._id);
+        const config2 = vscode_1.workspace.getConfiguration(this._id);
         let trace = vscode_languageserver_protocol_1.Trace.Off;
         let traceFormat = vscode_languageserver_protocol_1.TraceFormat.Text;
-        if (config) {
-          const traceConfig = config.get("trace.server", "off");
+        if (config2) {
+          const traceConfig = config2.get("trace.server", "off");
           if (typeof traceConfig === "string") {
             trace = vscode_languageserver_protocol_1.Trace.fromString(traceConfig);
           } else {
-            trace = vscode_languageserver_protocol_1.Trace.fromString(config.get("trace.server.verbosity", "off"));
-            traceFormat = vscode_languageserver_protocol_1.TraceFormat.fromString(config.get("trace.server.format", "text"));
+            trace = vscode_languageserver_protocol_1.Trace.fromString(config2.get("trace.server.verbosity", "off"));
+            traceFormat = vscode_languageserver_protocol_1.TraceFormat.fromString(config2.get("trace.server.format", "text"));
           }
         }
         this._trace = trace;
@@ -16111,16 +16111,16 @@ ${error.message}`, void 0, handlerResult.handled === true ? false : "force");
         if (!fileEvents) {
           return;
         }
-        let watchers;
+        let watchers2;
         if (Is.array(fileEvents)) {
-          watchers = fileEvents;
+          watchers2 = fileEvents;
         } else {
-          watchers = [fileEvents];
+          watchers2 = [fileEvents];
         }
-        if (!watchers) {
+        if (!watchers2) {
           return;
         }
-        this._dynamicFeatures.get(vscode_languageserver_protocol_1.DidChangeWatchedFilesNotification.type.method).registerRaw(UUID.generateUuid(), watchers);
+        this._dynamicFeatures.get(vscode_languageserver_protocol_1.DidChangeWatchedFilesNotification.type.method).registerRaw(UUID.generateUuid(), watchers2);
       }
       registerFeatures(features) {
         for (let feature of features) {
@@ -18249,6 +18249,7 @@ __export(extension_exports, {
 module.exports = __toCommonJS(extension_exports);
 var vscode = __toESM(require("vscode"));
 var import_node = __toESM(require_node3());
+var import_vscode_jsonrpc = __toESM(require_main());
 
 // src/pscPath.ts
 var fs = __toESM(require("fs"));
@@ -18260,6 +18261,23 @@ function isFile(candidate) {
   } catch {
     return false;
   }
+}
+function isExecutable(candidate) {
+  if (!isFile(candidate)) {
+    return false;
+  }
+  if (process.platform === "win32") {
+    return true;
+  }
+  try {
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function isBareName(value) {
+  return !value.includes("/") && !value.includes("\\");
 }
 function expandHome(target, homeDir) {
   if (target === "~") {
@@ -18318,10 +18336,34 @@ function resolvePscCommand(options = {}) {
   const exists = options.isFile ?? isFile;
   const configured = options.configuredPath?.trim();
   if (configured) {
+    if (isBareName(configured)) {
+      const hit = findOnPath(
+        configured,
+        options.pathValue ?? process.env.PATH ?? "",
+        platform,
+        options.pathExt ?? process.env.PATHEXT ?? ".EXE;.CMD;.BAT",
+        exists
+      );
+      if (hit) {
+        return { command: hit, source: "pengus.executablePath (PATH)" };
+      }
+    }
     return { command: expandHome(configured, home), source: "pengus.executablePath" };
   }
   const fromEnv = options.envPath?.trim();
   if (fromEnv) {
+    if (isBareName(fromEnv)) {
+      const hit = findOnPath(
+        fromEnv,
+        options.pathValue ?? process.env.PATH ?? "",
+        platform,
+        options.pathExt ?? process.env.PATHEXT ?? ".EXE;.CMD;.BAT",
+        exists
+      );
+      if (hit) {
+        return { command: hit, source: "PSC_BIN_PATH (PATH)" };
+      }
+    }
     return { command: expandHome(fromEnv, home), source: "PSC_BIN_PATH" };
   }
   const bare = "psc";
@@ -18346,24 +18388,42 @@ function resolvePscCommand(options = {}) {
 var client;
 var pscTerminal;
 var output;
+var statusBar;
+var watchers = [];
+var restarting;
 function log(message) {
   output?.appendLine(`[pengus] ${message}`);
 }
+function config() {
+  return vscode.workspace.getConfiguration("pengus");
+}
+function workspaceRoot() {
+  const folder = (vscode.workspace.workspaceFolders ?? []).find(
+    (candidate) => candidate.uri.scheme === "file"
+  );
+  return folder?.uri.fsPath;
+}
 function resolvePsc() {
-  const configured = vscode.workspace.getConfiguration("pengus").get("executablePath");
-  const workspaceFolders = (vscode.workspace.workspaceFolders ?? []).filter((folder) => folder.uri.scheme === "file").map((folder) => folder.uri.fsPath);
+  const configured = config().get("executablePath");
+  const folders = (vscode.workspace.workspaceFolders ?? []).filter((folder) => folder.uri.scheme === "file").map((folder) => folder.uri.fsPath);
   return resolvePscCommand({
     configuredPath: configured,
     envPath: process.env.PSC_BIN_PATH ?? process.env.PENGU_BIN_PATH,
-    workspaceFolders
+    // Workspace candidates are only trusted when the user trusts the folder.
+    workspaceFolders: vscode.workspace.isTrusted ? folders : []
   });
 }
 function getPscCommand() {
   return resolvePsc()?.command ?? (process.platform === "win32" ? "psc.exe" : "psc");
 }
 function getPscProfile() {
-  const config = vscode.workspace.getConfiguration("pengus");
-  return config.get("defaultProfile") || "debug";
+  return config().get("defaultProfile") || "debug";
+}
+function quote(value) {
+  if (process.platform === "win32") {
+    return `"${value.replace(/"/g, '\\"')}"`;
+  }
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 function getTerminal() {
   if (!pscTerminal || pscTerminal.exitStatus !== void 0) {
@@ -18371,13 +18431,66 @@ function getTerminal() {
   }
   return pscTerminal;
 }
-function runInTerminal(cmd) {
+function runInTerminal(args) {
+  const command = [quote(getPscCommand()), ...args.map(quote)].join(" ");
+  log(`run: ${command}`);
   const terminal = getTerminal();
   terminal.show();
-  terminal.sendText(cmd);
+  terminal.sendText(command);
+}
+function runProject(mode) {
+  const profile = getPscProfile();
+  switch (mode) {
+    case "run":
+      runInTerminal(["run", `--profile=${profile}`]);
+      break;
+    case "build":
+      runInTerminal(["build", `--profile=${profile}`]);
+      break;
+    case "test":
+      runInTerminal(["test"]);
+      break;
+    case "doc":
+      runInTerminal(["doc"]);
+      break;
+    case "clean":
+      runInTerminal(["clean"]);
+      break;
+  }
+}
+function uriToPath(uri) {
+  if (typeof uri !== "string") {
+    return void 0;
+  }
+  try {
+    const parsed = vscode.Uri.parse(uri);
+    return parsed.scheme === "file" ? parsed.fsPath : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function runFile(uri, mode) {
+  const file = uriToPath(uri) ?? vscode.window.activeTextEditor?.document.uri.fsPath;
+  if (!file) {
+    runProject(mode);
+    return;
+  }
+  if (mode === "test") {
+    runInTerminal(["test", file]);
+  } else {
+    runInTerminal(["run", `--profile=${getPscProfile()}`, file]);
+  }
+}
+function checkFile() {
+  const file = vscode.window.activeTextEditor?.document.uri.fsPath;
+  if (!file) {
+    void vscode.window.showWarningMessage("PenguScript: no active file to check.");
+    return;
+  }
+  runInTerminal(["check", file]);
 }
 async function reportMissingPsc(configured) {
-  const detail = configured ? `\`${configured}\` no existe.` : "No se encontr\xF3 en `pengus.executablePath`, `$PSC_BIN_PATH`, el `PATH` ni en las ubicaciones habituales.";
+  const detail = configured ? `\`${configured}\` no existe o no es ejecutable.` : "No se encontr\xF3 en `pengus.executablePath`, `$PSC_BIN_PATH`, el `PATH` ni en las ubicaciones habituales.";
   log(`no psc executable: ${detail}`);
   log(`PATH=${process.env.PATH || ""}`);
   const choice = await vscode.window.showErrorMessage(
@@ -18394,47 +18507,67 @@ async function reportMissingPsc(configured) {
     output?.show();
   }
 }
+function disposeWatchers() {
+  for (const watcher of watchers) {
+    watcher.dispose();
+  }
+  watchers = [];
+}
 function startClient() {
+  if (client) {
+    return;
+  }
   const resolved = resolvePsc();
   if (!resolved) {
     void reportMissingPsc();
     return;
   }
-  if (!isFile(resolved.command)) {
+  if (!isExecutable(resolved.command)) {
     void reportMissingPsc(resolved.command);
     return;
   }
   log(`launching "${resolved.command}" lsp --stdio (from ${resolved.source})`);
+  const root = workspaceRoot();
   const serverOptions = {
-    run: { command: resolved.command, args: ["lsp", "--stdio"], transport: import_node.TransportKind.stdio },
-    debug: { command: resolved.command, args: ["lsp", "--stdio"], transport: import_node.TransportKind.stdio }
-  };
-  const clientOptions = {
-    documentSelector: [
-      { scheme: "file", language: "pengus" }
-    ],
-    synchronize: {
-      // Sources *and* manifests. The server caches module scopes and
-      // symbol tables per project, and drops them on
-      // `workspace/didChangeWatchedFiles`; watching only `**/*.pengu`
-      // left the editor completing from the previous layout after a
-      // `pengu.toml` edit until some source file was
-      // reopened.
-      fileEvents: [
-        vscode.workspace.createFileSystemWatcher("**/*.{pengu,pengus}"),
-        vscode.workspace.createFileSystemWatcher(
-          "**/{pengu,Pengu}.{toml,lock}"
-        )
-      ]
+    run: {
+      command: resolved.command,
+      args: ["lsp", "--stdio"],
+      transport: import_node.TransportKind.stdio,
+      options: root ? { cwd: root } : void 0
     },
-    // Log every protocol error; keep the client library's own retry policy.
+    debug: {
+      command: resolved.command,
+      args: ["lsp", "--stdio"],
+      transport: import_node.TransportKind.stdio,
+      options: root ? { cwd: root } : void 0
+    }
+  };
+  disposeWatchers();
+  watchers.push(
+    vscode.workspace.createFileSystemWatcher("**/*.{pengu,pengus}"),
+    vscode.workspace.createFileSystemWatcher("**/{pengu,Pengu}.{toml,lock}")
+  );
+  const clientOptions = {
+    documentSelector: [{ scheme: "file", language: "pengus" }],
+    outputChannel: output,
+    traceOutputChannel: output,
+    workspaceFolder: root ? (vscode.workspace.workspaceFolders ?? []).find(
+      (folder) => folder.uri.fsPath === root
+    ) : void 0,
+    initializationOptions: {
+      stdDir: config().get("stdDir") || "",
+      executablePath: resolved.command,
+      inlayHints: config().get("inlayHints.enabled", true),
+      semanticHighlighting: config().get("semanticHighlighting.enabled", true)
+    },
+    synchronize: { fileEvents: watchers },
     errorHandler: {
       error: (error, message, count) => {
         log(`protocol error (${message?.jsonrpc ?? "?"}, attempt ${count}): ${String(error)}`);
         return { action: import_node.ErrorAction.Continue };
       },
       closed: () => {
-        log("connection closed");
+        log("connection closed; restarting");
         return { action: import_node.CloseAction.Restart };
       }
     }
@@ -18445,9 +18578,18 @@ function startClient() {
     serverOptions,
     clientOptions
   );
-  client.start();
+  const trace = config().get("trace.server") || "off";
+  if (client) {
+    client.setTrace(trace === "verbose" ? import_vscode_jsonrpc.Trace.Verbose : trace === "messages" ? import_vscode_jsonrpc.Trace.Messages : import_vscode_jsonrpc.Trace.Off);
+  }
+  client.start().catch(async (error) => {
+    log(`language client failed to start: ${String(error)}`);
+    client = void 0;
+    await vscode.window.showErrorMessage(
+      `PenguScript: el servidor de lenguaje no arranc\xF3. ${String(error)}`
+    );
+  });
 }
-var restarting;
 async function restartClient() {
   if (restarting) {
     return restarting;
@@ -18462,6 +18604,7 @@ async function restartClient() {
         log(`stopping the previous client failed: ${String(error)}`);
       }
     }
+    disposeWatchers();
     startClient();
   })();
   try {
@@ -18480,115 +18623,134 @@ async function selectExecutable() {
     return;
   }
   const chosen = picked[0].fsPath;
-  await vscode.workspace.getConfiguration("pengus").update("executablePath", chosen, vscode.ConfigurationTarget.Global);
+  await config().update("executablePath", chosen, vscode.ConfigurationTarget.Global);
   log(`pengus.executablePath -> ${chosen}`);
   await restartClient();
+}
+function updateStatusBar() {
+  if (!statusBar) {
+    return;
+  }
+  const enabled = config().get("statusBar.enabled", true);
+  if (!enabled) {
+    statusBar.hide();
+    return;
+  }
+  const profile = getPscProfile();
+  const root = workspaceRoot();
+  const project = root ? root.split(/[\\/]/).pop() : "sin proyecto";
+  statusBar.text = `$(play) PenguScript (${profile})`;
+  statusBar.tooltip = `Proyecto: ${project}
+Perfil: ${profile}
+Clic para abrir el men\xFA`;
+  statusBar.show();
+}
+async function showMenu() {
+  const entries = [
+    { label: "$(play) Run Project", description: "psc run", detail: "Build and run the project", command: "pengus.run" },
+    { label: "$(beaker) Run Tests", description: "psc test", detail: "Compile in test mode and execute tests", command: "pengus.test" },
+    { label: "$(tools) Build Project", description: "psc build", detail: "Compile the project to native C / binary", command: "pengus.build" },
+    { label: "$(check) Check File", description: "psc check", detail: "Type-check the active file", command: "pengus.check" },
+    { label: "$(book) Generate Documentation", description: "psc doc", detail: "Generate Markdown from # and ## comments", command: "pengus.doc" },
+    { label: "$(trash) Clean Project", description: "psc clean", detail: "Clean build artifacts", command: "pengus.clean" },
+    { label: "$(new-folder) Initialize Project", description: "psc init", detail: "Initialize a new project scaffold", command: "pengus.init" },
+    { label: "$(file-binary) Select psc Executable", description: "pengus.selectExecutable", detail: "Point the extension at a specific psc binary", command: "pengus.selectExecutable" },
+    { label: "$(sync) Restart Language Server", description: "pengus.restartLsp", detail: "Restart the PenguScript LSP server", command: "pengus.restartLsp" },
+    { label: "$(output) Show Output", description: "pengus.openOutput", detail: "Show the PenguScript/LSP log", command: "pengus.openOutput" }
+  ];
+  const selected = await vscode.window.showQuickPick(entries, {
+    placeHolder: "Select a PenguScript command"
+  });
+  if (selected) {
+    await vscode.commands.executeCommand(selected.command, ...selected.args ?? []);
+  }
+}
+function registerCommands(context) {
+  const commands2 = [
+    vscode.commands.registerCommand("pengus.restartLsp", () => restartClient()),
+    vscode.commands.registerCommand("pengus.selectExecutable", () => selectExecutable()),
+    vscode.commands.registerCommand("pengus.build", () => runProject("build")),
+    vscode.commands.registerCommand("pengus.run", (...args) => {
+      if (args.length > 0) {
+        runFile(args[0], "run");
+      } else {
+        runProject("run");
+      }
+    }),
+    vscode.commands.registerCommand("pengus.test", (...args) => {
+      if (args.length > 0) {
+        runFile(args[0], "test");
+      } else {
+        runProject("test");
+      }
+    }),
+    vscode.commands.registerCommand("pengus.runFile", (uri) => runFile(uri, "run")),
+    vscode.commands.registerCommand("pengus.testFile", (uri) => runFile(uri, "test")),
+    vscode.commands.registerCommand("pengus.check", () => checkFile()),
+    vscode.commands.registerCommand("pengus.doc", () => runProject("doc")),
+    vscode.commands.registerCommand("pengus.clean", () => runProject("clean")),
+    vscode.commands.registerCommand(
+      "pengus.format",
+      () => vscode.commands.executeCommand("editor.action.formatDocument")
+    ),
+    vscode.commands.registerCommand("pengus.openOutput", () => output?.show()),
+    vscode.commands.registerCommand("pengus.showMenu", () => showMenu()),
+    vscode.commands.registerCommand("pengus.init", async () => {
+      const name = await vscode.window.showInputBox({
+        prompt: "PenguScript project name",
+        placeHolder: "my_project",
+        validateInput: (value) => /^[A-Za-z_][A-Za-z0-9_-]*$/.test(value) ? void 0 : "Use letters, digits, _ or -; start with a letter or _."
+      });
+      if (name) {
+        runInTerminal(["init", name]);
+      }
+    })
+  ];
+  context.subscriptions.push(...commands2);
+}
+function registerConfigListener(context) {
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async (event) => {
+      if (event.affectsConfiguration("pengus.executablePath")) {
+        log("pengus.executablePath changed; restarting the language client");
+        await restartClient();
+      }
+      if (event.affectsConfiguration("pengus.defaultProfile") || event.affectsConfiguration("pengus.statusBar.enabled")) {
+        updateStatusBar();
+      }
+      if (event.affectsConfiguration("pengus.inlayHints.enabled") || event.affectsConfiguration("pengus.semanticHighlighting.enabled") || event.affectsConfiguration("pengus.stdDir") || event.affectsConfiguration("pengus.trace.server")) {
+        await restartClient();
+      }
+    }),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      updateStatusBar();
+      if (!client) {
+        startClient();
+      }
+    })
+  );
 }
 function activate(context) {
   output = vscode.window.createOutputChannel("PenguScript");
   context.subscriptions.push(output);
+  statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  statusBar.command = "pengus.showMenu";
+  context.subscriptions.push(statusBar);
+  registerCommands(context);
+  registerConfigListener(context);
+  updateStatusBar();
   startClient();
-  const restartCmd = vscode.commands.registerCommand("pengus.restartLsp", () => restartClient());
-  const selectExecutableCmd = vscode.commands.registerCommand(
-    "pengus.selectExecutable",
-    () => selectExecutable()
-  );
-  const buildCmd = vscode.commands.registerCommand("pengus.build", () => {
-    const cmd = getPscCommand();
-    const profile = getPscProfile();
-    runInTerminal(`${cmd} build --profile=${profile}`);
-  });
-  const runCmd = vscode.commands.registerCommand("pengus.run", () => {
-    const cmd = getPscCommand();
-    const profile = getPscProfile();
-    runInTerminal(`${cmd} run --profile=${profile}`);
-  });
-  const testCmd = vscode.commands.registerCommand("pengus.test", () => {
-    const cmd = getPscCommand();
-    runInTerminal(`${cmd} test`);
-  });
-  const docCmd = vscode.commands.registerCommand("pengus.doc", () => {
-    const cmd = getPscCommand();
-    runInTerminal(`${cmd} doc`);
-  });
-  const cleanCmd = vscode.commands.registerCommand("pengus.clean", () => {
-    const cmd = getPscCommand();
-    runInTerminal(`${cmd} clean`);
-  });
-  const initCmd = vscode.commands.registerCommand("pengus.init", async () => {
-    const projectName = await vscode.window.showInputBox({
-      prompt: "Enter PenguScript project name",
-      placeHolder: "my_project"
-    });
-    if (projectName) {
-      const cmd = getPscCommand();
-      runInTerminal(`${cmd} init ${projectName}`);
-    }
-  });
-  const showMenuCmd = vscode.commands.registerCommand("pengus.showMenu", async () => {
-    const items = [
-      { label: "$(play) Run Project", description: "psc run", detail: "Build and run the project" },
-      { label: "$(tools) Build Project", description: "psc build", detail: "Compile the project to native C / binary" },
-      { label: "$(beaker) Run Tests", description: "psc test", detail: "Compile in test mode and execute tests" },
-      { label: "$(book) Generate Documentation", description: "psc doc", detail: "Generate Markdown documentation from ## comments" },
-      { label: "$(trash) Clean Project", description: "psc clean", detail: "Clean build artifacts" },
-      { label: "$(new-folder) Initialize Project", description: "psc init", detail: "Initialize a new project scaffold" },
-      { label: "$(file-binary) Select psc Executable", description: "pengus.selectExecutable", detail: "Point the extension at a specific psc binary" },
-      { label: "$(sync) Restart Language Server", description: "pengus.restartLsp", detail: "Restart the PenguScript LSP server" }
-    ];
-    const selected = await vscode.window.showQuickPick(items, {
-      placeHolder: "Select a PenguScript command"
-    });
-    if (selected) {
-      if (selected.label.includes("Run Project")) {
-        vscode.commands.executeCommand("pengus.run");
-      } else if (selected.label.includes("Build Project")) {
-        vscode.commands.executeCommand("pengus.build");
-      } else if (selected.label.includes("Run Tests")) {
-        vscode.commands.executeCommand("pengus.test");
-      } else if (selected.label.includes("Generate Documentation")) {
-        vscode.commands.executeCommand("pengus.doc");
-      } else if (selected.label.includes("Clean Project")) {
-        vscode.commands.executeCommand("pengus.clean");
-      } else if (selected.label.includes("Initialize Project")) {
-        vscode.commands.executeCommand("pengus.init");
-      } else if (selected.label.includes("Select psc Executable")) {
-        vscode.commands.executeCommand("pengus.selectExecutable");
-      } else if (selected.label.includes("Restart Language Server")) {
-        vscode.commands.executeCommand("pengus.restartLsp");
-      }
-    }
-  });
-  const configListener = vscode.workspace.onDidChangeConfiguration(async (event) => {
-    if (event.affectsConfiguration("pengus.executablePath")) {
-      log("pengus.executablePath changed; restarting the language client");
-      await restartClient();
-    }
-  });
-  const folderListener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
-    if (!client) {
-      startClient();
-    }
-  });
-  context.subscriptions.push(
-    restartCmd,
-    selectExecutableCmd,
-    buildCmd,
-    runCmd,
-    testCmd,
-    docCmd,
-    cleanCmd,
-    initCmd,
-    showMenuCmd,
-    configListener,
-    folderListener
-  );
 }
 function deactivate() {
+  disposeWatchers();
+  statusBar?.dispose();
+  pscTerminal?.dispose();
   if (!client) {
     return void 0;
   }
-  return client.stop();
+  const current = client;
+  client = void 0;
+  return current.stop();
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

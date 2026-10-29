@@ -315,7 +315,7 @@ weave symbol_define_in with s as ref to SemaSymbols, scope_id as int, symbol as 
 ## Devuelve un POD; no asigna.
 weave make_symbol with names as ref to npool.NamePool, name as string, type_id as int, kind as sym.SemaSymbolKind into sym.SemaSymbol:
     var nid as int is calling npool.intern with names, name
-    return with name is nid, type is type_id, kind is kind, flags is 0, c_name is nid, module is -1, line is 0, col is 0, attrs_node is -1, doc is -1, const_id is -1, bounds_first is 0, bounds_count is 0, module_scope is -1
+    return with name is nid, type is type_id, kind is kind, flags is 0, c_name is nid, module is -1, line is 0, col is 0, start is -1, end is -1, attrs_node is -1, doc is -1, const_id is -1, bounds_first is 0, bounds_count is 0, module_scope is -1
 
 # ---------------------------------------------------------------------------
 # Registros

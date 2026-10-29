@@ -1,10 +1,12 @@
 .vscode/**
 .vscode-test/**
 src/**
-# The Node driver for `src/pscPath.ts`; exercised by
-# test/psc_path_check.js from the checkout, not from the package.
 test/**
-.gitignore
-tsconfig.json
-**/*.map
+node_modules/**
+out/**/*.map
+out/pscPath.js
 dist/**
+tsconfig.json
+package-lock.json
+.gitignore
+**/*.map

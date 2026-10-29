@@ -2,6 +2,41 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.15.0] — 2026-10-29 — LSP semántico, extensión 4.0.0 y stdlib portable
+
+- El LSP deja de ser un escáner de texto: `psc/lsp/query.pengu` consulta el AST,
+  los tipos, los símbolos y las docs reales del checker. Hover con tipo, firma,
+  tamaño aproximado y documentación; definición local/funciones/stdlib;
+  inlay hints semánticos; semantic tokens desde el lexer; completion de
+  keywords, tipos, locales, campos, `std.*` y módulos importados.
+- La resolución de la stdlib ya no depende del `cwd`: se busca
+  `PSC_STD_DIR`/`PENGU_STD_DIR`, `<proyecto>/std`, `<exe>/../std`,
+  `<exe>/../share/pengu/std`, `PENGU_HOME` y `cwd/std`. Funciona en el checkout
+  y en el layout portable `bin/psc` + `std/`.
+- Se corrige la fuga de memoria del LSP: cada documento posee su `SemaResult`
+  y lo libera al reemplazarlo o cerrarlo. Los diagnósticos incluyen `help:`,
+  `note:` y `relatedInformation`.
+- `collect_weave`/`collect_test`/métodos reciben línea, columna, span y docs;
+  los locales dejan de guardar un offset en el campo de línea. Las docs admiten
+  `#`, `##` y bloques `## ... ##`.
+- `psc doc` renderiza desde símbolos/AST: deja de generar docs vacías, de
+  duplicar páginas y de abortar con `double free` en `std/archivum`.
+- Code lens usa `pengus.run`/`pengus.test` con URI y offset; la extensión
+  ejecuta el archivo del lens.
+- Extensión VS Code 4.0.0: engine `^1.82.0`, `extensionKind: workspace`,
+  workspace trust para no ejecutar binarios del workspace en modo no confiable,
+  status bar, menú, comandos `runFile`/`testFile`/`check`/`format`, output
+  channel del LSP, watchers liberados, paths citados y `psc` aceptado como
+  nombre del `PATH`.
+- Gramática TextMate completa para 0.15.0: `set`, `derive`, `cyclus`,
+  `antiquus`, `enchanting`, `bind`, `seal`, conceptos reales (`Real`,
+  `Iterabilis`), tipos de usuario en uso, docs `#`/`##` y bloques doc.
+- Snippets corregidos (`main` importa `std.spark`, concept/bind sin `self`
+  espurio) y ampliados con docs, imports, `set .campo`, `type of`, `size of`,
+  `derive`, `cyclus`, `antiquus` y `try`.
+- Tests de protocolo LSP y de gramática/snippets; el CI valida el VSIX.
+- `psc 0.15.0 (F12)`.
+
 ## [0.14.7] — 2026-10-28 — Extensión de VS Code en el release
 
 - La extensión de VS Code pasa a `psc`: búsqueda de `psc`/`bin/psc`/`build/psc`,

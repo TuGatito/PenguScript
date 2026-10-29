@@ -7,15 +7,25 @@ import std.archivum
 import std.diagnostic as diag
 import std.json as json
 import std.jsonrpc as rpc
+import std.memoria
 import std.scrolls
 import std.spark
 
+import psc.ast.kind as pskind
+import psc.lexer_state as psstate
 import psc.lsp.positions as lpos
+import psc.lsp.query as query
 import psc.lsp.transport as transport
 import psc.lsp.uri as luri
 import psc.sema.api as sema_api
+import psc.sema.ast as astutil
+import psc.sema.modules.loader as loader
 import psc.sema.names as npool
 import psc.sema.options as sopts
+import psc.sema.symbols.symbol as sym
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.token as pstoken
 
 insignia psc_lsp_server_
 
@@ -23,6 +33,8 @@ insignia psc_lsp_server_
 rune Document:
     text as string
     version as int
+    ## Resultado semántico owned; `free_doc` lo libera.
+    sema as ref to sema_api.SemaResult
 
 ## Estado del servidor.
 rune State:
@@ -30,6 +42,9 @@ rune State:
     docs as map of string to Document
     root as string
     exe as string
+    std_dir as string
+    inlay_enabled as bool
+    semantic_enabled as bool
     ws_cache as JsonValue
     ws_ready as bool
     initialized as bool
@@ -173,29 +188,136 @@ weave subprocess_diag with text as string, o as JsonValue into JsonValue:
     banish msg
     return out
 
-## Publica diagnósticos usando `psc check` en un proceso hijo.
+## Libera el estado owned de un documento.
 ##
-## Aísla el checker del estado del servidor (F8.0); una versión nativa in-process
-## llega en F8.1 cuando el ownership de `check_text` esté auditado.
-weave publish with st as ref to State, document_uri as string, text as string, version as int into void:
+## ## Memoria
+## Libera el `SemaResult` y el texto.
+weave free_doc with d as ref to Document into void:
+    calling sema_api.free_result with d->sema
+    banish d->sema
+    banish d->text
+
+## Chequea el texto y devuelve un `SemaResult` owned en heap.
+##
+## ## Memoria
+## El llamador debe liberarlo con `free_doc`/`free_result`.
+weave check_document with st as ref to State, document_uri as string, text as string into ref to sema_api.SemaResult:
     var base as string is calling copy with st->root
     if base length == 0:
+        banish base
         set base is "."
     var opts as sopts.SemaOptions is calling sopts.default_options with (calling copy with base)
     banish base
+    if st->std_dir length > 0:
+        calling opts.std_dirs.push with (calling npool.copy_string with st->std_dir)
     var path as string is calling luri.uri_to_path with document_uri
     var sr as sema_api.SemaResult is calling sema_api.check_text with path, text, opts
     banish path
-    var jtext as string is calling sr.program->diagnostics.render_json_utf16
-    var jp as result of JsonValue to JsonError is calling json.parse with jtext
-    banish jtext
+    var sp as ref to sema_api.SemaResult is calling memoria.alloc of sema_api.SemaResult
+    set essence of sp is sr
+    return sp
+
+## Rango LSP de un span, leyendo el fuente si el span es de otro archivo.
+##
+## ## Memoria
+## Devuelve un `JsonValue` owned.
+weave span_range with path as string, text as string, span as diag.Span into JsonValue:
+    if span.file length > 0 and span.file != path:
+        var other as maybe string is calling archivum.read_text with span.file
+        if other.is_present:
+            var ot as string is other.value
+            var r as JsonValue is calling lpos.range_json with ot, span.start_byte, span.end_byte
+            banish ot
+            banish other
+            return r
+        banish other
+    return calling lpos.range_json with text, span.start_byte, span.end_byte
+
+## Construye un `Diagnostic` LSP con help/note y relatedInformation.
+##
+## ## Memoria
+## Devuelve owned.
+weave diag_to_lsp with path as string, text as string, d as diag.Diagnostic into JsonValue:
+    var o as JsonValue is calling JsonValue.empty_object
+    var msp as maybe diag.Span is calling main_span with d
+    if msp.is_present:
+        calling o.put_json with "range", (calling span_range with path, text, msp.value)
+    else:
+        calling o.put_json with "range", (calling lpos.range_json with text, 0, 0)
+    banish msp
+    calling o.put_json with "severity", (calling JsonValue.int_val with ((calling severity_num with d.severity) to i64))
+    if d.code length > 0:
+        calling o.put_json with "code", (calling JsonValue.string_val with (calling copy with d.code))
+    calling o.put_json with "source", (calling JsonValue.string_val with (calling copy with "psc"))
+    var msgb as StringBuilder is calling StringBuilder.new
+    calling msgb.append with d.message
+    if d.help.is_present:
+        var hv as string is d.help.value
+        if hv length > 0:
+            calling msgb.append with "\n\nhelp: "
+            calling msgb.append with hv
+    if d.note.is_present:
+        var nv as string is d.note.value
+        if nv length > 0:
+            calling msgb.append with "\n\nnote: "
+            calling msgb.append with nv
+    var msg as string is calling msgb.finish
+    banish msgb
+    calling o.put_json with "message", (calling JsonValue.string_val with (calling npool.copy_string with msg))
+    banish msg
+    var related as JsonValue is calling JsonValue.empty_array
+    for lb in d.labels:
+        if not lb.primary:
+            var uri2 as string is calling luri.path_to_uri with lb.span.file
+            var loc as JsonValue is calling JsonValue.empty_object
+            calling loc.put_json with "uri", (calling JsonValue.string_val with (calling copy with uri2))
+            calling loc.put_json with "range", (calling span_range with path, text, lb.span)
+            banish uri2
+            var ri as JsonValue is calling JsonValue.empty_object
+            calling ri.put_json with "location", loc
+            calling ri.put_json with "message", (calling JsonValue.string_val with (calling copy with lb.message))
+            calling related.push_json with ri
+    for rd in d.related:
+        var rmsp as maybe diag.Span is calling main_span with rd
+        if rmsp.is_present:
+            var ri2 as JsonValue is calling JsonValue.empty_object
+            var uri3 as string is calling luri.path_to_uri with rmsp.value.file
+            var loc2 as JsonValue is calling JsonValue.empty_object
+            calling loc2.put_json with "uri", (calling JsonValue.string_val with (calling copy with uri3))
+            calling loc2.put_json with "range", (calling span_range with path, text, rmsp.value)
+            calling ri2.put_json with "location", loc2
+            calling ri2.put_json with "message", (calling JsonValue.string_val with (calling copy with rd.message))
+            calling related.push_json with ri2
+            banish uri3
+        banish rmsp
+    if calling related.array_len > 0:
+        calling o.put_json with "relatedInformation", related
+    else:
+        banish related
+    return o
+
+## Publica los diagnósticos de un resultado ya chequeado.
+##
+## ## Memoria
+## `sr` sigue siendo propiedad del documento.
+weave publish with st as ref to State, document_uri as string, version as int, sr as ref to sema_api.SemaResult into void:
+    var path as string is calling luri.uri_to_path with document_uri
+    defer banish path
+    var text as string is calling doc_text with st, document_uri
+    defer banish text
     var diagnostics as JsonValue is calling JsonValue.empty_array
-    if jp.is_ok:
-        var jv0 as JsonValue is jp.value
-        if calling jv0.is_array:
-            set diagnostics is jv0
-        else:
-            banish jv0
+    var i as int is 0
+    while i < sr->program->diagnostics.items.len:
+        var d as diag.Diagnostic is (sr->program->diagnostics.items at i)
+        var msp as maybe diag.Span is calling main_span with d
+        var same as bool is true
+        if msp.is_present:
+            if msp.value.file length > 0 and msp.value.file != path:
+                set same is false
+        banish msp
+        if same:
+            calling diagnostics.push_json with (calling diag_to_lsp with path, text, d)
+        set i is i + 1
     var params as JsonValue is calling JsonValue.empty_object
     calling params.put_json with "uri", (calling JsonValue.string_val with (calling copy with document_uri))
     calling params.put_json with "version", (calling JsonValue.int_val with (version to i64))
@@ -229,6 +351,11 @@ weave initialize_result into JsonValue:
     calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "string"))
     calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "number"))
     calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "comment"))
+    calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "namespace"))
+    calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "parameter"))
+    calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "property"))
+    calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "enumMember"))
+    calling ttypes.push_json with (calling JsonValue.string_val with (calling copy with "operator"))
     var mods as JsonValue is calling JsonValue.empty_array
     calling legend.put_json with "tokenTypes", ttypes
     calling legend.put_json with "tokenModifiers", mods
@@ -240,7 +367,7 @@ weave initialize_result into JsonValue:
     var ot as JsonValue is calling JsonValue.empty_object
     calling ot.put_json with "firstTriggerCharacter", (calling JsonValue.string_val with (calling copy with ":"))
     var otm as JsonValue is calling JsonValue.empty_array
-    calling ot.put_json with "moreTriggerCharacter", otm
+    calling ot.put_json with "moreTriggerCharacters", otm
     calling cap.put_json with "documentOnTypeFormattingProvider", ot
     var sh as JsonValue is calling JsonValue.empty_object
     var shc as JsonValue is calling JsonValue.empty_array
@@ -248,16 +375,17 @@ weave initialize_result into JsonValue:
     calling shc.push_json with (calling JsonValue.string_val with (calling copy with ","))
     calling sh.put_json with "triggerCharacters", shc
     calling cap.put_json with "signatureHelpProvider", sh
-    var ren as JsonValue is calling JsonValue.empty_object
-    calling ren.put_json with "prepareProvider", (calling JsonValue.bool_val with true)
-    calling cap.put_json with "renameProvider", ren
     var comp as JsonValue is calling JsonValue.empty_object
+    var ctrig as JsonValue is calling JsonValue.empty_array
+    calling ctrig.push_json with (calling JsonValue.string_val with (calling copy with "."))
+    calling ctrig.push_json with (calling JsonValue.string_val with (calling copy with ":"))
+    calling comp.put_json with "triggerCharacters", ctrig
     calling cap.put_json with "completionProvider", comp
     var out as JsonValue is calling JsonValue.empty_object
     calling out.put_json with "capabilities", cap
     var info as JsonValue is calling JsonValue.empty_object
     calling info.put_json with "name", (calling JsonValue.string_val with (calling copy with "psc"))
-    calling info.put_json with "version", (calling JsonValue.string_val with (calling copy with "0.8.0 (F8)"))
+    calling info.put_json with "version", (calling JsonValue.string_val with (calling copy with "0.15.0"))
     calling out.put_json with "serverInfo", info
     return out
 
@@ -271,6 +399,18 @@ weave handle_initialize with st as ref to State, id as rpc.JsonRpcId, params as 
             set st->root is rpath
         else:
             banish rp
+        var pv as JsonValue is params.value
+        var io as maybe JsonValue is calling pv.get with "initializationOptions"
+        if io.is_present:
+            var sd as string is calling field_string with io.value, "stdDir"
+            if sd length > 0:
+                banish st->std_dir
+                set st->std_dir is sd
+            else:
+                banish sd
+            set st->inlay_enabled is calling field_bool with io.value, "inlayHints", true
+            set st->semantic_enabled is calling field_bool with io.value, "semanticHighlighting", true
+        banish io
     var res as JsonValue is calling initialize_result
     var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), res
     var ok as bool is calling send_msg with st, out
@@ -299,6 +439,19 @@ weave field_string with v as JsonValue, key as string into string:
     banish f
     return ""
 
+## Obtiene un bool de un objeto.
+weave field_bool with v as JsonValue, key as string, dflt as bool into bool:
+    var f as maybe JsonValue is calling v.get with key
+    if f.is_present:
+        var fv as JsonValue is f.value
+        var b as maybe bool is calling fv.as_bool
+        banish f
+        if b.is_present:
+            return b.value
+        banish b
+    banish f
+    return dflt
+
 ## Obtiene un int de un objeto.
 weave field_int with v as JsonValue, key as string, dflt as int into int:
     var f as maybe JsonValue is calling v.get with key
@@ -322,10 +475,11 @@ weave did_open with st as ref to State, params as JsonValue into void:
     var text as string is calling field_string with td.value, "text"
     var ver as int is calling field_int with td.value, "version", 0
     banish td
-    var doc as Document is with text is (calling copy with text), version is ver
+    var sp as ref to sema_api.SemaResult is calling check_document with st, u, text
+    var doc as Document is with text is (calling copy with text), version is ver, sema is sp
     calling st->docs.put with (calling copy with u), doc
     set st->ws_ready is false
-    calling publish with st, u, text, ver
+    calling publish with st, u, ver, sp
     banish text
     banish u
 
@@ -350,17 +504,19 @@ weave did_change with st as ref to State, params as JsonValue into void:
         if changes.value.len > 0:
             var text as string is calling field_string with (changes.value at 0), "text"
             var changed as bool is true
-            if calling st->docs.has with u:
-                var old as Document is (st->docs at u)
-                if old.text == text:
+            var have_old as bool is calling st->docs.has with u
+            if have_old:
+                var old_doc as Document is (st->docs at u)
+                if old_doc.text == text:
                     set changed is false
                 else:
-                    banish old.text
+                    calling free_doc with (sigil of old_doc)
             if changed:
-                var doc as Document is with text is (calling copy with text), version is ver
+                var sp as ref to sema_api.SemaResult is calling check_document with st, u, text
+                var doc as Document is with text is (calling copy with text), version is ver, sema is sp
                 calling st->docs.put with (calling copy with u), doc
                 set st->ws_ready is false
-                calling publish with st, u, text, ver
+                calling publish with st, u, ver, sp
             banish text
         calling json.free_values with changes.value
     banish u
@@ -375,7 +531,7 @@ weave did_close with st as ref to State, params as JsonValue into void:
     banish td
     if calling st->docs.has with u:
         var old as Document is (st->docs at u)
-        banish old.text
+        calling free_doc with (sigil of old)
     var ignr as bool is calling st->docs.remove with u
     var arr as JsonValue is calling JsonValue.empty_array
     var p2 as JsonValue is calling JsonValue.empty_object
@@ -415,6 +571,168 @@ weave word_at with text as string, off as int into string:
     while end < text length and calling is_word with ((b at end) to int):
         set end is end + 1
     return text at start to end
+
+## `SemaResult` de un documento abierto (`-1` no aplica; el llamador comprueba).
+weave doc_sema with st as ref to State, u as string into ref to sema_api.SemaResult:
+    var d as Document is (st->docs at u)
+    return d.sema
+
+## Módulo semántico de un documento abierto (`-1` si no).
+weave doc_module with st as ref to State, u as string into int:
+    if not calling st->docs.has with u:
+        return -1
+    var d as Document is (st->docs at u)
+    var path as string is calling luri.uri_to_path with u
+    defer banish path
+    return calling query.module_for_uri_path with d.sema->program, path
+
+## `true` si el símbolo es de tipo nominal/estructura.
+weave is_type_symbol with sid_kind as sym.SemaSymbolKind into bool:
+    return sid_kind == sym.SemaSymbolKind.SkRune or sid_kind == sym.SemaSymbolKind.SkEcho or sid_kind == sym.SemaSymbolKind.SkOmen or sid_kind == sym.SemaSymbolKind.SkAlias or sid_kind == sym.SemaSymbolKind.SkSeal or sid_kind == sym.SemaSymbolKind.SkConcept or sid_kind == sym.SemaSymbolKind.SkType
+
+## Añade campos/variantes de un tipo nominal a un hover.
+##
+## ## Memoria
+## No retiene; libera los strings auxiliares.
+weave hover_type_details with p as ref to sema_api.SemaResult, sb as ref to StringBuilder, type_id as int into void:
+    var ty as tk.SemaType is calling types.at with (sigil of p->program->types), type_id
+    if ty.a < 0 or ty.a >= p->program->types.nominal_infos.len:
+        return
+    var info as types.SemaNominalInfo is (p->program->types.nominal_infos at ty.a)
+    if (ty.kind == tk.SemaTypeKind.TkRune or ty.kind == tk.SemaTypeKind.TkEcho) and info.fields_count > 0:
+        calling sb.append with "```pengu
+"
+        var fi as int is 0
+        while fi < info.fields_count:
+            var f as types.SemaField is (p->program->types.fields at (info.fields_first + fi))
+            var fn as string is calling npool.text with (sigil of p->program->names), f.name
+            var ft as string is calling query.type_text with p->program, f.type
+            calling sb.append with "    {fn} as {ft}
+"
+            banish ft
+            set fi is fi + 1
+        calling sb.append with "```
+
+"
+    else if ty.kind == tk.SemaTypeKind.TkOmen and info.variants_count > 0:
+        calling sb.append with "```pengu
+"
+        var vi as int is 0
+        while vi < info.variants_count:
+            var v as types.SemaVariant is (p->program->types.variants at (info.variants_first + vi))
+            var vn as string is calling npool.text with (sigil of p->program->names), v.name
+            calling sb.append with "    {vn}
+"
+            set vi is vi + 1
+        calling sb.append with "```
+
+"
+
+## Markdown de hover para un símbolo.
+##
+## ## Memoria
+## Devuelve string owned.
+weave symbol_hover with p as ref to sema_api.SemaResult, sid as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var si as sym.SemaSymbol is calling query.symbol_at with p->program, sid
+    var nm as string is calling query.symbol_name with p->program, sid
+    var kn as string is calling sym.symbol_kind_name with si.kind
+    var ty as string is calling query.type_text with p->program, si.type
+    if si.kind == sym.SemaSymbolKind.SkImport:
+        calling sb.append with "```pengu
+import {nm}
+```
+
+"
+        var mscope as int is si.module_scope
+        var mid2 as int is calling query.module_for_scope with p->program, mscope
+        if mid2 >= 0:
+            var exports as list of int is calling query.module_exports with p->program, mid2
+            calling sb.append with "**Exported symbols**: "
+            var ei as int is 0
+            var first as bool is true
+            while ei < exports.len and ei < 40:
+                if not first:
+                    calling sb.append with ", "
+                var en as string is calling query.symbol_name with p->program, (exports at ei)
+                calling sb.append with "`{en}`"
+                set first is false
+                set ei is ei + 1
+            calling sb.append with "
+
+"
+            banish exports
+        banish ty
+        return calling sb.finish
+    if si.kind == sym.SemaSymbolKind.SkWeave or si.kind == sym.SemaSymbolKind.SkDeclare or si.kind == sym.SemaSymbolKind.SkConst:
+        var sig as string is calling query.signature_for with p->program, sid
+        if sig length > 0:
+            calling sb.append with "```pengu
+{sig}
+```
+
+"
+            banish sig
+        else:
+            banish sig
+            calling sb.append with "```pengu
+{kn} {nm}: {ty}
+```
+
+"
+    else:
+        calling sb.append with "```pengu
+{kn} {nm}: {ty}
+```
+
+"
+    var size as int is calling query.type_size with p->program, si.type
+    if size > 0:
+        calling sb.append with "**Size:** ≈ {size} bytes
+
+"
+    if calling is_type_symbol with si.kind:
+        calling hover_type_details with p, (sigil of sb), si.type
+    var doc as string is calling query.symbol_doc with p->program, sid
+    if doc length > 0:
+        calling sb.append with "---
+
+"
+        calling sb.append with doc
+        calling sb.append with "
+"
+    banish ty
+    return calling sb.finish
+
+## Documentación breve de keywords para hover.
+##
+## ## Memoria
+## Devuelve literal prestado o `""`.
+weave keyword_doc with w as string into string:
+    if w == "weave":
+        return "**weave**: declara una función o método."
+    if w == "rune":
+        return "**rune**: declara una estructura de campos tipados."
+    if w == "echo":
+        return "**echo**: declara una unión etiquetada compatible con C."
+    if w == "omen":
+        return "**omen**: declara un tipo algebraico (enum con payloads)."
+    if w == "set":
+        return "**set**: asigna un valor a una variable o campo mutable."
+    if w == "with":
+        return "**with**: abre un bloque de inicialización/acceso implícito a campos."
+    if w == "judge":
+        return "**judge**: pattern matching sobre un valor."
+    if w == "when":
+        return "**when**: rama de `judge` o condición de compilación."
+    if w == "calling":
+        return "**calling**: invoca una función o método."
+    if w == "let":
+        return "**let**: binding inmutable."
+    if w == "var":
+        return "**var**: variable mutable."
+    return ""
 
 ## Línea de una declaración que contiene `word`, o `""`.
 weave decl_line with text as string, word as string into string:
@@ -464,13 +782,24 @@ weave handle_hover with st as ref to State, id as rpc.JsonRpcId, params as JsonV
     banish td
     var text as string is calling doc_text with st, u
     var off as int is calling lpos.offset_at with text, line, ch
-    var word as string is calling word_at with text, off
     var res as JsonValue is calling JsonValue.null_value
-    if word length > 0:
-        var dl as string is calling decl_line with text, word
-        var value as string is "**{word}**"
-        if dl length > 0:
-            set value is "```pengu\n{dl}\n```"
+    var value as string is ""
+    if calling st->docs.has with u:
+        var mid as int is calling doc_module with st, u
+        if mid >= 0:
+            var sp as ref to sema_api.SemaResult is calling doc_sema with st, u
+            var sid as int is calling query.symbol_at_offset with sp->program, mid, text, off
+            if sid >= 0:
+                set value is calling symbol_hover with sp, sid
+            else:
+                var w as string is calling word_at with text, off
+                defer banish w
+                set value is calling keyword_doc with w
+    else:
+        var w2 as string is calling word_at with text, off
+        defer banish w2
+        set value is calling keyword_doc with w2
+    if value length > 0:
         var contents as JsonValue is calling JsonValue.empty_object
         calling contents.put_json with "kind", (calling JsonValue.string_val with (calling copy with "markdown"))
         calling contents.put_json with "value", (calling JsonValue.string_val with (calling copy with value))
@@ -478,15 +807,13 @@ weave handle_hover with st as ref to State, id as rpc.JsonRpcId, params as JsonV
         calling hov.put_json with "contents", contents
         set res is hov
         banish value
-        banish dl
-    banish word
     banish text
     banish u
     var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), res
     var ok as bool is calling send_msg with st, out
     banish out
 
-## Definition básica.
+## Definition semántica (local, misma archivo o std/módulo importado).
 weave handle_definition with st as ref to State, id as rpc.JsonRpcId, params as JsonValue into void:
     var td as maybe JsonValue is calling params.get with "textDocument"
     var po as maybe JsonValue is calling params.get with "position"
@@ -502,18 +829,35 @@ weave handle_definition with st as ref to State, id as rpc.JsonRpcId, params as 
     banish td
     var text as string is calling doc_text with st, u
     var off as int is calling lpos.offset_at with text, line, ch
-    var word as string is calling word_at with text, off
-    var dl as string is calling decl_line with text, word
     var res as JsonValue is calling JsonValue.null_value
-    if dl length > 0:
-        var idx as int is calling scrolls.find with text, dl
-        if idx >= 0:
-            var loc as JsonValue is calling JsonValue.empty_object
-            calling loc.put_json with "uri", (calling JsonValue.string_val with (calling copy with u))
-            calling loc.put_json with "range", (calling lpos.range_json with text, idx, idx)
-            set res is loc
-    banish dl
-    banish word
+    if calling st->docs.has with u:
+        var mid as int is calling doc_module with st, u
+        if mid >= 0:
+            var sp as ref to sema_api.SemaResult is calling doc_sema with st, u
+            var sid as int is calling query.symbol_at_offset with sp->program, mid, text, off
+            if sid >= 0:
+                var si as sym.SemaSymbol is calling query.symbol_at with sp->program, sid
+                var target_mid as int is si.module
+                var target_start as int is si.start
+                var target_end as int is si.end
+                if si.kind == sym.SemaSymbolKind.SkImport and si.module_scope >= 0:
+                    set target_mid is calling query.module_for_scope with sp->program, si.module_scope
+                    if target_mid >= 0:
+                        set target_start is 0
+                        set target_end is 0
+                if target_mid >= 0 and target_mid < sp->program->modules.len:
+                    var tm as loader.SemaModule is (sp->program->modules at target_mid)
+                    var uri2 as string is calling luri.path_to_uri with tm.path
+                    var loc as JsonValue is calling JsonValue.empty_object
+                    calling loc.put_json with "uri", (calling JsonValue.string_val with (calling copy with uri2))
+                    if target_start < 0:
+                        calling loc.put_json with "range", (calling lpos.range_json with text, 0, 0)
+                    else:
+                        var ttext as string is calling copy with tm.source.text
+                        calling loc.put_json with "range", (calling lpos.range_json with ttext, target_start, target_end)
+                        banish ttext
+                    set res is loc
+                    banish uri2
     banish text
     banish u
     var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), res
@@ -549,7 +893,23 @@ weave decl_name_line with line as string into string:
     banish rest
     return nm
 
-## Document symbols.
+## Kind LSP de un símbolo para el outline.
+weave symbol_kind_lsp with k as sym.SemaSymbolKind into int:
+    if k == sym.SemaSymbolKind.SkRune or k == sym.SemaSymbolKind.SkEcho:
+        return 23
+    if k == sym.SemaSymbolKind.SkOmen:
+        return 10
+    if k == sym.SemaSymbolKind.SkConcept:
+        return 11
+    if k == sym.SemaSymbolKind.SkConst:
+        return 14
+    if k == sym.SemaSymbolKind.SkImport:
+        return 2
+    if k == sym.SemaSymbolKind.SkParam or k == sym.SemaSymbolKind.SkLet or k == sym.SemaSymbolKind.SkVar:
+        return 13
+    return 12
+
+## Document symbols desde la tabla de símbolos.
 weave handle_document_symbols with st as ref to State, id as rpc.JsonRpcId, params as JsonValue into void:
     var td as maybe JsonValue is calling params.get with "textDocument"
     var u as string is ""
@@ -558,81 +918,237 @@ weave handle_document_symbols with st as ref to State, id as rpc.JsonRpcId, para
     banish td
     var text as string is calling doc_text with st, u
     var arr as JsonValue is calling JsonValue.empty_array
-    var b as ref to frozen byte is bytes of text
-    var start as int is 0
-    while start <= text length:
-        var end as int is start
-        while end < text length and ((b at end) to int) != 10:
-            set end is end + 1
-        var line as string is text at start to end
-        var nm as string is calling decl_name_line with line
-        if nm length > 0:
-            var item as JsonValue is calling JsonValue.empty_object
-            calling item.put_json with "name", (calling JsonValue.string_val with (calling copy with nm))
-            calling item.put_json with "kind", (calling JsonValue.int_val with 12)
-            calling item.put_json with "range", (calling lpos.range_json with text, start, end)
-            calling item.put_json with "selectionRange", (calling lpos.range_json with text, start, start)
-            calling arr.push_json with item
-            banish nm
-        banish line
-        if end >= text length:
-            break
-        set start is end + 1
+    var mid as int is calling doc_module with st, u
+    if mid >= 0:
+        var sp as ref to sema_api.SemaResult is calling doc_sema with st, u
+        var ids as list of int is calling query.module_symbols with sp->program, mid
+        var i as int is 0
+        while i < ids.len:
+            var sid as int is (ids at i)
+            var si as sym.SemaSymbol is calling query.symbol_at with sp->program, sid
+            if si.start >= 0:
+                var item as JsonValue is calling JsonValue.empty_object
+                var nm as string is calling query.symbol_name with sp->program, sid
+                calling item.put_json with "name", (calling JsonValue.string_val with (calling copy with nm))
+                calling item.put_json with "kind", (calling JsonValue.int_val with ((calling symbol_kind_lsp with si.kind) to i64))
+                var ty as string is calling query.type_text with sp->program, si.type
+                if ty length > 0:
+                    calling item.put_json with "detail", (calling JsonValue.string_val with (calling copy with ty))
+                banish ty
+                calling item.put_json with "range", (calling lpos.range_json with text, si.start, si.end)
+                calling item.put_json with "selectionRange", (calling lpos.range_json with text, si.start, si.end)
+                calling arr.push_json with item
+            set i is i + 1
+        banish ids
     banish text
     banish u
     var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), arr
     var ok as bool is calling send_msg with st, out
     banish out
 
+## `true` si `s` termina en `suffix`.
+weave ends_with with s as string, suffix as string into bool:
+    var n as int is s length
+    var m as int is suffix length
+    if m > n:
+        return false
+    return (s at (n - m) to n) == suffix
+
 ## Añade una completion si no existe.
-weave add_item with arr as ref to JsonValue, seen as ref to map of string to bool, w as string into void:
-    if w length == 0 or calling seen->has with w:
+##
+## ## Memoria
+## Copia label/detail/insert/doc; no retiene los parámetros.
+weave add_completion with arr as ref to JsonValue, seen as ref to map of string to bool, label as string, kind as int, detail as string, insert as string, doc as string into void:
+    if label length == 0 or calling seen->has with label:
         return
-    calling seen->put with (calling copy with w), true
+    calling seen->put with (calling copy with label), true
     var item as JsonValue is calling JsonValue.empty_object
-    calling item.put_json with "label", (calling JsonValue.string_val with (calling copy with w))
-    calling item.put_json with "kind", (calling JsonValue.int_val with 6)
+    calling item.put_json with "label", (calling JsonValue.string_val with (calling copy with label))
+    calling item.put_json with "kind", (calling JsonValue.int_val with (kind to i64))
+    if detail length > 0:
+        calling item.put_json with "detail", (calling JsonValue.string_val with (calling copy with detail))
+    if insert length > 0:
+        calling item.put_json with "insertText", (calling JsonValue.string_val with (calling copy with insert))
+    if doc length > 0:
+        var d as JsonValue is calling JsonValue.empty_object
+        calling d.put_json with "kind", (calling JsonValue.string_val with (calling copy with "markdown"))
+        calling d.put_json with "value", (calling JsonValue.string_val with (calling copy with doc))
+        calling item.put_json with "documentation", d
     calling arr.push_json with item
 
-## Completion básica.
+## Kind LSP de un símbolo.
+weave completion_kind with k as sym.SemaSymbolKind into int:
+    if k == sym.SemaSymbolKind.SkWeave or k == sym.SemaSymbolKind.SkDeclare or k == sym.SemaSymbolKind.SkTest:
+        return 3
+    if k == sym.SemaSymbolKind.SkRune or k == sym.SemaSymbolKind.SkEcho or k == sym.SemaSymbolKind.SkOmen or k == sym.SemaSymbolKind.SkType:
+        return 7
+    if k == sym.SemaSymbolKind.SkConcept:
+        return 8
+    if k == sym.SemaSymbolKind.SkImport:
+        return 9
+    if k == sym.SemaSymbolKind.SkConst:
+        return 21
+    return 6
+
+## Añade un símbolo semántico a la lista.
+##
+## ## Memoria
+## Libera el texto de tipo.
+weave add_symbol_completion with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string to bool, sid as int, prefix as string into void:
+    var nm as string is calling query.symbol_name with p->program, sid
+    if nm length == 0:
+        return
+    if prefix length > 0 and not (calling starts_with with nm, prefix):
+        return
+    var si as sym.SemaSymbol is calling query.symbol_at with p->program, sid
+    var ty as string is calling query.type_text with p->program, si.type
+    var doc as string is calling query.symbol_doc with p->program, sid
+    calling add_completion with arr, seen, nm, (calling completion_kind with si.kind), ty, "", doc
+    banish ty
+
+## Stem de un archivo de módulo (`spark.pengu` -> `spark`).
+weave module_stem with name as string into string:
+    if calling ends_with with name, ".d.pengu":
+        return name at 0 to (name length - 8)
+    if calling ends_with with name, ".pengu":
+        return name at 0 to (name length - 6)
+    return ""
+
+## Añade los módulos `std.*` de los directorios configurados.
+##
+## ## Memoria
+## Libera las listas de `read_dir`.
+weave add_std_modules with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string to bool, prefix as string into void:
+    var dirs as list of string is calling query.std_dirs with p->program
+    var di as int is 0
+    while di < dirs.len:
+        var dir as string is (dirs at di)
+        var ents as maybe list of string is calling archivum.read_dir with dir
+        if ents.is_present:
+            var names as list of string is ents.value
+            var i as int is 0
+            while i < names.len:
+                var name as string is (names at i)
+                var st as string is calling module_stem with name
+                if st length > 0 and st != "__init__":
+                    var label as string is "std.{st}"
+                    if prefix length == 0 or calling starts_with with st, prefix:
+                        var ins as string is calling copy with st
+                        calling add_completion with arr, seen, label, 9, "stdlib module", ins, ""
+                        banish ins
+                banish names at i
+                set i is i + 1
+            banish names
+        banish ents
+        set di is di + 1
+
+## Añade exports de un módulo importado.
+##
+## ## Memoria
+## Libera la lista de exports.
+weave add_module_exports with p as ref to sema_api.SemaResult, arr as ref to JsonValue, seen as ref to map of string to bool, mid as int, prefix as string into void:
+    var exps as list of int is calling query.module_exports with p->program, mid
+    var i as int is 0
+    while i < exps.len:
+        calling add_symbol_completion with p, arr, seen, (exps at i), prefix
+        set i is i + 1
+    banish exps
+
+## Completion semántica.
 weave handle_completion with st as ref to State, id as rpc.JsonRpcId, params as JsonValue into void:
     var td as maybe JsonValue is calling params.get with "textDocument"
+    var po as maybe JsonValue is calling params.get with "position"
     var u as string is ""
+    var line as int is 0
+    var ch as int is 0
     if td.is_present:
         set u is calling field_string with td.value, "uri"
+    if po.is_present:
+        set line is calling field_int with po.value, "line", 0
+        set ch is calling field_int with po.value, "character", 0
+    banish po
     banish td
     var text as string is calling doc_text with st, u
+    var off as int is calling lpos.offset_at with text, line, ch
+    var ls as int is calling lpos.line_start with text, line
+    var before as string is text at ls to off
+    defer banish before
+    var pstart as int is off
+    var pb as ref to frozen byte is bytes of text
+    while pstart > 0 and calling is_word with ((pb at (pstart - 1)) to int):
+        set pstart is pstart - 1
+    var prefix as string is text at pstart to off
+    defer banish prefix
     var arr as JsonValue is calling JsonValue.empty_array
     var seen as map of string to bool is map of string to bool
-    var kws as list of string is list of string
-    calling kws.push with "weave"
-    calling kws.push with "rune"
-    calling kws.push with "echo"
-    calling kws.push with "omen"
-    calling kws.push with "const"
-    calling kws.push with "var"
-    calling kws.push with "let"
-    calling kws.push with "if"
-    calling kws.push with "else"
-    calling kws.push with "while"
-    calling kws.push with "for"
-    calling kws.push with "return"
-    calling kws.push with "calling"
-    for k in kws:
-        calling add_item with (sigil of arr), (sigil of seen), k
-        banish k
-    var b as ref to frozen byte is bytes of text
-    var i as int is 0
-    while i < text length:
-        if calling is_word with ((b at i) to int):
-            var s0 as int is i
-            while i < text length and calling is_word with ((b at i) to int):
+    var mid as int is calling doc_module with st, u
+    var handled_member as bool is false
+    if mid >= 0:
+        var sp as ref to sema_api.SemaResult is calling doc_sema with st, u
+        var dot as int is calling scrolls.rfind with before, "."
+        if dot >= 0:
+            var left as string is before at 0 to dot
+            defer banish left
+            var alias_full as string is calling scrolls.trim with left
+            defer banish alias_full
+            var spc as int is calling scrolls.rfind with alias_full, " "
+            var alias as string is alias_full at (spc + 1) to (alias_full length)
+            defer banish alias
+            if alias == "std":
+                calling add_std_modules with sp, (sigil of arr), (sigil of seen), prefix
+                set handled_member is true
+            else:
+                var imp as int is calling query.imported_module with sp->program, mid, alias
+                if imp >= 0:
+                    calling add_module_exports with sp, (sigil of arr), (sigil of seen), imp, prefix
+                    set handled_member is true
+    if not handled_member:
+        var kt as pstoken.KeywordTable is calling pstoken.keyword_table_new
+        defer banish kt
+        var ki as int is 0
+        while ki < kt.entries.len:
+            var kw as pstoken.KeywordEntry is (kt.entries at ki)
+            if prefix length == 0 or calling starts_with with kw.word, prefix:
+                calling add_completion with (sigil of arr), (sigil of seen), kw.word, 14, "keyword", "", ""
+            set ki is ki + 1
+        var soft as list of string is list of string
+        calling soft.push with "self"
+        calling soft.push with "frozen"
+        calling soft.push with "inline"
+        calling soft.push with "ritual"
+        calling soft.push with "present"
+        calling soft.push with "main"
+        calling soft.push with "ok"
+        calling soft.push with "err"
+        calling soft.push with "unsafe"
+        calling soft.push with "over"
+        calling soft.push with "do"
+        var sfi as int is 0
+        while sfi < soft.len:
+            var w as string is (soft at sfi)
+            if prefix length == 0 or calling starts_with with w, prefix:
+                calling add_completion with (sigil of arr), (sigil of seen), w, 14, "keyword", "", ""
+            banish soft at sfi
+            set sfi is sfi + 1
+        banish soft
+        if mid >= 0:
+            var sp2 as ref to sema_api.SemaResult is calling doc_sema with st, u
+            var i as int is 0
+            while i < sp2->program->symbols.symbols.len:
+                var si as sym.SemaSymbol is (sp2->program->symbols.symbols at i)
+                if si.name >= 0 and (si.module == mid or si.module == -1):
+                    if si.kind != sym.SemaSymbolKind.SkImport:
+                        calling add_symbol_completion with sp2, (sigil of arr), (sigil of seen), i, prefix
                 set i is i + 1
-            var w as string is text at s0 to i
-            calling add_item with (sigil of arr), (sigil of seen), w
-            banish w
-        else:
-            set i is i + 1
+            var aliases as list of string is calling query.import_aliases with sp2->program, mid
+            var ai as int is 0
+            while ai < aliases.len:
+                var a as string is (aliases at ai)
+                if prefix length == 0 or calling starts_with with a, prefix:
+                    calling add_completion with (sigil of arr), (sigil of seen), a, 9, "imported module", "", ""
+                banish aliases at ai
+                set ai is ai + 1
+            banish aliases
     banish seen
     banish text
     banish u
@@ -1063,22 +1579,32 @@ weave handle_code_lens with st as ref to State, id as rpc.JsonRpcId, params as J
         while end < text length and ((b at end) to int) != 10:
             set end is end + 1
         var line as string is text at start to end
+        var lb as ref to frozen byte is bytes of line
+        var ind as int is 0
+        while ind < line length and (((lb at ind) to int) == 32 or ((lb at ind) to int) == 9):
+            set ind is ind + 1
+        var rest as string is line at ind to (line length)
         var title as string is ""
         var cmdname as string is ""
-        if calling scrolls.contains with line, "weave main":
+        if calling starts_with with rest, "weave main" and (rest length == 10 or (rest at 10 to 11) == " " or (rest at 10 to 11) == ":"):
             set title is "Run"
-            set cmdname is "psc.run"
-        else if calling scrolls.contains with line, "test ":
+            set cmdname is "pengus.run"
+        else if calling starts_with with rest, "test " or calling starts_with with rest, "test \"":
             set title is "Run test"
-            set cmdname is "psc.test"
+            set cmdname is "pengus.test"
         if title length > 0:
             var command as JsonValue is calling JsonValue.empty_object
             calling command.put_json with "title", (calling JsonValue.string_val with (calling copy with title))
             calling command.put_json with "command", (calling JsonValue.string_val with (calling copy with cmdname))
+            var args as JsonValue is calling JsonValue.empty_array
+            calling args.push_json with (calling JsonValue.string_val with (calling copy with u))
+            calling args.push_json with (calling JsonValue.int_val with (start to i64))
+            calling command.put_json with "arguments", args
             var item as JsonValue is calling JsonValue.empty_object
             calling item.put_json with "range", (calling lpos.range_json with text, start, end)
             calling item.put_json with "command", command
             calling arr.push_json with item
+        banish rest
         banish cmdname
         banish title
         banish line
@@ -1091,60 +1617,52 @@ weave handle_code_lens with st as ref to State, id as rpc.JsonRpcId, params as J
     var ok as bool is calling send_msg with st, out
     banish out
 
-## ¿Palabra clave?
-weave is_keyword with w as string into bool:
-    var kws as list of string is list of string
-    calling kws.push with "weave"
-    calling kws.push with "rune"
-    calling kws.push with "echo"
-    calling kws.push with "omen"
-    calling kws.push with "alias"
-    calling kws.push with "seal"
-    calling kws.push with "concept"
-    calling kws.push with "const"
-    calling kws.push with "var"
-    calling kws.push with "let"
-    calling kws.push with "if"
-    calling kws.push with "else"
-    calling kws.push with "while"
-    calling kws.push with "for"
-    calling kws.push with "return"
-    calling kws.push with "calling"
-    calling kws.push with "with"
-    calling kws.push with "into"
-    calling kws.push with "as"
-    calling kws.push with "is"
-    calling kws.push with "test"
-    calling kws.push with "import"
-    var hit as bool is false
-    for k in kws:
-        if k == w:
-            set hit is true
-    for k in kws:
-        banish k
-    banish kws
-    return hit
+## Token semántico pendiente de ordenar.
+rune SemToken:
+    start as int
+    end as int
+    ty as int
 
-## Estado de tokens.
-rune TokState:
-    pl as int
-    pc as int
+## Añade un token semántico si tiene longitud.
+weave add_sem with xs as ref to list of SemToken, start as int, end as int, ty as int into void:
+    if end <= start:
+        return
+    var t as SemToken is with start is start, end is end, ty is ty
+    calling xs->push with t
 
-## Añade un token semántico.
-weave push_token with arr as ref to JsonValue, ts as ref to TokState, line as int, ch as int, ln as int, ty as int into void:
-    var dl as int is line - ts->pl
-    var ds as int is ch
-    if dl == 0:
-        set ds is ch - ts->pc
-    calling arr.push_json with (calling JsonValue.int_val with (dl to i64))
-    calling arr.push_json with (calling JsonValue.int_val with (ds to i64))
-    calling arr.push_json with (calling JsonValue.int_val with (ln to i64))
-    calling arr.push_json with (calling JsonValue.int_val with (ty to i64))
-    calling arr.push_json with (calling JsonValue.int_val with 0)
-    set ts->pl is line
-    set ts->pc is ch
+## Kind semántico de un símbolo.
+weave sem_symbol_kind with si as sym.SemaSymbol into int:
+    if si.kind == sym.SemaSymbolKind.SkRune or si.kind == sym.SemaSymbolKind.SkEcho or si.kind == sym.SemaSymbolKind.SkOmen or si.kind == sym.SemaSymbolKind.SkAlias or si.kind == sym.SemaSymbolKind.SkSeal or si.kind == sym.SemaSymbolKind.SkConcept or si.kind == sym.SemaSymbolKind.SkType:
+        return 1
+    if si.kind == sym.SemaSymbolKind.SkWeave or si.kind == sym.SemaSymbolKind.SkDeclare or si.kind == sym.SemaSymbolKind.SkTest:
+        return 2
+    if si.kind == sym.SemaSymbolKind.SkImport:
+        return 7
+    if si.kind == sym.SemaSymbolKind.SkParam:
+        return 8
+    return 3
 
-## Semantic tokens (léxico simple).
+## `true` si el token es un operador.
+weave is_operator_token with k as pstoken.TokenKind into bool:
+    if k == pstoken.TokenKind.TokPlus or k == pstoken.TokenKind.TokMinus or k == pstoken.TokenKind.TokStar or k == pstoken.TokenKind.TokSlash or k == pstoken.TokenKind.TokPercent:
+        return true
+    if k == pstoken.TokenKind.TokAmpersand or k == pstoken.TokenKind.TokVerticalBar or k == pstoken.TokenKind.TokCaret or k == pstoken.TokenKind.TokTilde or k == pstoken.TokenKind.TokBang:
+        return true
+    if k == pstoken.TokenKind.TokAssign or k == pstoken.TokenKind.TokEqual or k == pstoken.TokenKind.TokNotEqual:
+        return true
+    if k == pstoken.TokenKind.TokLess or k == pstoken.TokenKind.TokLessOrEqual or k == pstoken.TokenKind.TokGreater or k == pstoken.TokenKind.TokGreaterOrEqual:
+        return true
+    if k == pstoken.TokenKind.TokShiftLeft or k == pstoken.TokenKind.TokShiftRight:
+        return true
+    if k == pstoken.TokenKind.TokPlusAssign or k == pstoken.TokenKind.TokMinusAssign or k == pstoken.TokenKind.TokStarAssign or k == pstoken.TokenKind.TokSlashAssign:
+        return true
+    if k == pstoken.TokenKind.TokPercentAssign or k == pstoken.TokenKind.TokAmpersandAssign or k == pstoken.TokenKind.TokVerticalBarAssign or k == pstoken.TokenKind.TokCaretAssign:
+        return true
+    if k == pstoken.TokenKind.TokShiftLeftAssign or k == pstoken.TokenKind.TokShiftRightAssign:
+        return true
+    return false
+
+## Semantic tokens desde el lexer/AST (UTF-16, sin adivinar).
 weave handle_semantic with st as ref to State, id as rpc.JsonRpcId, params as JsonValue into void:
     var td as maybe JsonValue is calling params.get with "textDocument"
     var u as string is ""
@@ -1153,62 +1671,98 @@ weave handle_semantic with st as ref to State, id as rpc.JsonRpcId, params as Js
     banish td
     var text as string is calling doc_text with st, u
     var data as JsonValue is calling JsonValue.empty_array
-    var b as ref to frozen byte is bytes of text
-    var line as int is 0
-    var start as int is 0
-    var ts as TokState is with pl is 0, pc is 0
-    while start <= text length:
-        var end as int is start
-        while end < text length and ((b at end) to int) != 10:
-            set end is end + 1
-        var ltext as string is text at start to end
-        var lb as ref to frozen byte is bytes of ltext
+    var mid as int is calling doc_module with st, u
+    if st->semantic_enabled and mid >= 0:
+        var sp as ref to sema_api.SemaResult is calling doc_sema with st, u
+        var m as loader.SemaModule is (sp->program->modules at mid)
+        var toks as list of SemToken is list of SemToken
+        var prev_kind as pstoken.TokenKind is pstoken.TokenKind.TokEof
+        var prev_kw as pstoken.KeywordKind is pstoken.KeywordKind.KwNotKeyword
         var i as int is 0
-        while i < ltext length:
-            var c as int is ((lb at i) to int)
-            if c == 35:
-                var comment as string is ltext at i to (ltext length)
-                var clen as int is calling lpos.utf16_len with comment
-                calling push_token with (sigil of data), (sigil of ts), line, i, clen, 6
-                banish comment
-                set i is ltext length
-            else if c == 34 or c == 39:
-                var q as int is i
-                set i is i + 1
-                while i < ltext length and ((lb at i) to int) != q:
-                    if ((lb at i) to int) == 92:
-                        set i is i + 1
-                    set i is i + 1
-                if i < ltext length:
-                    set i is i + 1
-                var lit as string is ltext at q to i
-                var llen as int is calling lpos.utf16_len with lit
-                calling push_token with (sigil of data), (sigil of ts), line, q, llen, 4
+        while i < m.lex.tokens.len:
+            var t as pstoken.Token is (m.lex.tokens at i)
+            if t.end > t.start:
+                if t.kind == pstoken.TokenKind.TokKeyword:
+                    calling add_sem with (sigil of toks), t.start, t.end, 0
+                else if t.kind == pstoken.TokenKind.TokIdentifier:
+                    var nm as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), i
+                    var sid as int is calling query.symbol_by_name with sp->program, mid, nm, t.start
+                    banish nm
+                    if sid >= 0:
+                        var si as sym.SemaSymbol is calling query.symbol_at with sp->program, sid
+                        calling add_sem with (sigil of toks), t.start, t.end, (calling sem_symbol_kind with si)
+                    else if prev_kind == pstoken.TokenKind.TokDot:
+                        calling add_sem with (sigil of toks), t.start, t.end, 9
+                    else if prev_kw == pstoken.KeywordKind.KwCalling:
+                        calling add_sem with (sigil of toks), t.start, t.end, 2
+                    else:
+                        calling add_sem with (sigil of toks), t.start, t.end, 3
+                else if t.kind == pstoken.TokenKind.TokStringLit or t.kind == pstoken.TokenKind.TokCharLit or t.kind == pstoken.TokenKind.TokAntiquusBody:
+                    calling add_sem with (sigil of toks), t.start, t.end, 4
+                else if t.kind == pstoken.TokenKind.TokIntLit or t.kind == pstoken.TokenKind.TokFloatLit:
+                    calling add_sem with (sigil of toks), t.start, t.end, 5
+                else if calling is_operator_token with t.kind:
+                    calling add_sem with (sigil of toks), t.start, t.end, 11
+            if t.kind != pstoken.TokenKind.TokNewline and t.kind != pstoken.TokenKind.TokIndent and t.kind != pstoken.TokenKind.TokDedent:
+                set prev_kind is t.kind
+                set prev_kw is t.kw
+            set i is i + 1
+        # Comentarios de una sola línea (los bloques multilínea se omiten para
+        # no emitir tokens que crucen líneas).
+        var ci as int is 0
+        while ci < m.lex.comments.len:
+            var c as psstate.Comment is (m.lex.comments at ci)
+            var has_nl as bool is false
+            var cb as ref to frozen byte is bytes of text
+            var q as int is c.start
+            while q < c.end and q < text length:
+                if ((cb at q) to int) == 10:
+                    set has_nl is true
+                set q is q + 1
+            if not has_nl:
+                calling add_sem with (sigil of toks), c.start, c.end, 6
+            set ci is ci + 1
+        # Orden por offset.
+        var a as int is 0
+        while a < toks.len:
+            var b as int is 0
+            while b + 1 < toks.len - a:
+                if (toks at b).start > (toks at (b + 1)).start:
+                    var tmp as SemToken is (toks at b)
+                    set toks at b is (toks at (b + 1))
+                    set toks at (b + 1) is tmp
+                set b is b + 1
+            set a is a + 1
+        var last_line as int is 0
+        var last_ch as int is 0
+        var k as int is 0
+        while k < toks.len:
+            var tk as SemToken is (toks at k)
+            var ps as JsonValue is calling lpos.position_json with text, tk.start
+            var pe as JsonValue is calling lpos.position_json with text, tk.end
+            var sl as int is calling jint with ps, "line", 0
+            var sc as int is calling jint with ps, "character", 0
+            var el as int is calling jint with pe, "line", sl
+            var ec as int is calling jint with pe, "character", sc
+            banish pe
+            banish ps
+            if el == sl:
+                var dl as int is sl - last_line
+                var ds as int is sc
+                if dl == 0:
+                    set ds is sc - last_ch
+                var lit as string is text at tk.start to tk.end
+                var ln as int is calling lpos.utf16_len with lit
                 banish lit
-            else if calling is_word with c:
-                var s0 as int is i
-                while i < ltext length and calling is_word with ((lb at i) to int):
-                    set i is i + 1
-                var w as string is ltext at s0 to i
-                var ty as int is 3
-                if calling is_keyword with w:
-                    set ty is 0
-                var wlen as int is calling lpos.utf16_len with w
-                calling push_token with (sigil of data), (sigil of ts), line, s0, wlen, ty
-                banish w
-            else if c >= 48 and c <= 57:
-                var s1 as int is i
-                while i < ltext length and (((lb at i) to int) >= 48 and ((lb at i) to int) <= 57):
-                    set i is i + 1
-                var nlen as int is i - s1
-                calling push_token with (sigil of data), (sigil of ts), line, s1, nlen, 5
-            else:
-                set i is i + 1
-        banish ltext
-        if end >= text length:
-            break
-        set start is end + 1
-        set line is line + 1
+                calling data.push_json with (calling JsonValue.int_val with (dl to i64))
+                calling data.push_json with (calling JsonValue.int_val with (ds to i64))
+                calling data.push_json with (calling JsonValue.int_val with (ln to i64))
+                calling data.push_json with (calling JsonValue.int_val with (tk.ty to i64))
+                calling data.push_json with (calling JsonValue.int_val with 0)
+                set last_line is sl
+                set last_ch is sc
+            set k is k + 1
+        banish toks
     banish text
     banish u
     var res as JsonValue is calling JsonValue.empty_object
@@ -1217,7 +1771,7 @@ weave handle_semantic with st as ref to State, id as rpc.JsonRpcId, params as Js
     var ok as bool is calling send_msg with st, out
     banish out
 
-## Inlay hints de tipo para `var x is <literal>`.
+## Inlay hints de tipo inferido (semánticos, sin duplicar anotaciones).
 weave handle_inlay with st as ref to State, id as rpc.JsonRpcId, params as JsonValue into void:
     var td as maybe JsonValue is calling params.get with "textDocument"
     var u as string is ""
@@ -1226,53 +1780,57 @@ weave handle_inlay with st as ref to State, id as rpc.JsonRpcId, params as JsonV
     banish td
     var text as string is calling doc_text with st, u
     var arr as JsonValue is calling JsonValue.empty_array
-    var lines as list of string is calling text.split with "\n"
-    var line_no as int is 0
-    for line in lines:
-        var w as string is ""
-        var name_col as int is 0
-        var vi as int is calling scrolls.find with line, "var "
-        if vi >= 0:
-            set name_col is vi + 4
-            set w is line at (vi + 4) to (line length)
-        else:
-            var li as int is calling scrolls.find with line, "let "
-            if li >= 0:
-                set name_col is li + 4
-                set w is line at (li + 4) to (line length)
-        if w length > 0:
-            var nb as ref to frozen byte is bytes of w
-            var ne as int is 0
-            while ne < w length and calling is_word with ((nb at ne) to int):
-                set ne is ne + 1
-            if ne > 0:
-                var after as int is calling scrolls.find with w, " is "
-                if after >= 0:
-                    var expr as string is w at (after + 4) to (w length)
-                    var ty as string is ""
-                    if expr length > 0:
-                        var c0 as string is expr at 0 to 1
-                        if c0 == "\"":
-                            set ty is "string"
-                        else if c0 == "t" or c0 == "f":
-                            set ty is "bool"
-                        else if calling scrolls.contains with expr, ".":
-                            set ty is "float"
-                        else:
-                            set ty is "int"
-                        banish c0
-                    if ty length > 0:
-                        var hint as JsonValue is calling JsonValue.empty_object
-                        calling hint.put_json with "position", (calling lpos.position_json with text, (calling lpos.line_start with text, line_no) + name_col + ne)
-                        var lbl as string is ": {ty}"
-                        calling hint.put_json with "label", (calling JsonValue.string_val with (calling copy with lbl))
-                        calling arr.push_json with hint
-                        banish lbl
-                    banish expr
-            banish w
-        banish line
-        set line_no is line_no + 1
-    banish lines
+    var mid as int is calling doc_module with st, u
+    if st->inlay_enabled and mid >= 0:
+        var sp as ref to sema_api.SemaResult is calling doc_sema with st, u
+        var m as loader.SemaModule is (sp->program->modules at mid)
+        var base as int is 0
+        var tb as ref to frozen byte is bytes of text
+        while base <= text length:
+            var le as int is base
+            while le < text length and ((tb at le) to int) != 10:
+                set le is le + 1
+            var line as string is text at base to le
+            var lb as ref to frozen byte is bytes of line
+            var ind as int is 0
+            while ind < line length and (((lb at ind) to int) == 32 or ((lb at ind) to int) == 9):
+                set ind is ind + 1
+            var probe as int is base + ind + 1
+            if probe < base + line length:
+                var node as int is calling query.node_at with sp->program, mid, probe
+                if node >= 0 and (calling astutil.kind_of with (sigil of m.parse.ast), node) == pskind.NodeKind.NdStmt:
+                    set node is calling astutil.node_child with (sigil of m.parse.ast), node, 0
+                if node >= 0:
+                    var nk as pskind.NodeKind is calling astutil.kind_of with (sigil of m.parse.ast), node
+                    if nk == pskind.NodeKind.NdVarDecl or nk == pskind.NodeKind.NdLetDecl or nk == pskind.NodeKind.NdStaticVarDecl:
+                        var cn as int is calling astutil.child_count with (sigil of m.parse.ast), node
+                        var explicit as bool is false
+                        if cn > 1:
+                            if (calling astutil.node_child with (sigil of m.parse.ast), node, 1) >= 0:
+                                set explicit is true
+                        var tslot as int is calling astutil.token_child with (sigil of m.parse.ast), node, 0
+                        var names_node as int is calling astutil.node_child with (sigil of m.parse.ast), node, 0
+                        if (not explicit) and tslot < 0 and names_node >= 0:
+                            set tslot is calling astutil.token_child with (sigil of m.parse.ast), names_node, 0
+                        if (not explicit) and tslot >= 0:
+                            var name as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), tslot
+                            var sid as int is calling query.symbol_by_name with sp->program, mid, name, base + ind + 8
+                            banish name
+                            if sid >= 0:
+                                var t as int is calling query.symbol_type with sp->program, sid
+                                var ty as string is calling query.type_text with sp->program, t
+                                if ty length > 0:
+                                    var tok as pstoken.Token is calling astutil.token_at with (sigil of m.lex), tslot
+                                    var hint as JsonValue is calling JsonValue.empty_object
+                                    calling hint.put_json with "position", (calling lpos.position_json with text, tok.end)
+                                    var lbl as string is ": {ty}"
+                                    calling hint.put_json with "label", (calling JsonValue.string_val with (calling copy with lbl))
+                                    banish lbl
+                                    calling arr.push_json with hint
+                                banish ty
+            if le >= text length:
+                break
+            set base is le + 1
     banish text
     banish u
     var out as rpc.JsonRpcMessage is calling rpc.response_ok with (calling copy_id with id), arr
@@ -1464,7 +2022,7 @@ weave handle_notification with st as ref to State, method as string, params as m
 
 ## Bucle principal.
 weave run_with with tr as transport.Transport, root as string, exe as string into int:
-    var st as State is with tr is tr, docs is map of string to Document, root is root, exe is exe, ws_cache is (calling JsonValue.empty_array), ws_ready is false, initialized is false, shutdown is false
+    var st as State is with tr is tr, docs is map of string to Document, root is root, exe is exe, std_dir is "", inlay_enabled is true, semantic_enabled is true, ws_cache is (calling JsonValue.empty_array), ws_ready is false, initialized is false, shutdown is false
     while true:
         var body as maybe string is calling transport.read_frame with (sigil of st.tr)
         if not body.is_present:

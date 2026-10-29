@@ -301,7 +301,7 @@ weave scan_imports with p as ref to SemaProgram, m as loader.SemaModule, out as 
                 if path_node >= 0:
                     var dot as string is calling program_dotted_text with m, path_node
                     calling out.push with dot
-                    calling nodes.push with stmt
+                    calling nodes.push with path_node
         set i is i + 1
 
 ## Texto de un `dotted_path`.

@@ -142,6 +142,11 @@ psc time src/main.pengu
 `psc benchmark` y `psc selftest` son **dev-only** y requieren el checkout y
 Python; no forman parte del camino de build de usuario.
 
+## LSP
+
+`psc lsp [--stdio|--tcp] [--host=HOST] [--port=PORT]` inicia el
+servidor de lenguaje. Ver [`docs/LSP.md`](../LSP.md).
+
 ## Assets
 
 El manifiesto configura:

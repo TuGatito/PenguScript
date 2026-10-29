@@ -109,6 +109,10 @@ rune SemaSymbol:
     line as int
     ## Columna 1-indexed (byte).
     col as int
+    ## Offset de byte inclusivo de la declaración (`-1` si no).
+    start as int
+    ## Offset de byte exclusivo de la declaración (`-1` si no).
+    end as int
     ## Nodo de atributos del AST (`-1` si no).
     attrs_node as int
     ## `NameId` del doc comment (`-1` si no).

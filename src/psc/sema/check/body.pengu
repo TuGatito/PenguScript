@@ -9,6 +9,8 @@
 
 import psc.ast.kind as pskind
 
+import std.sourcemap
+
 import psc.sema.names as npool
 
 import psc.sema.types.kind as tk
@@ -376,7 +378,13 @@ weave check_local with s as ref to state.SemaState, node as int, kind as pskind.
             set sv.kind is sym.SemaSymbolKind.SkVar
         if kind == pskind.NodeKind.NdStaticVarDecl:
             set sv.kind is sym.SemaSymbolKind.SkStaticVar
-        set sv.line is calling astutil.start_of with s->ast, node
+        var nstart as int is calling astutil.start_of with s->ast, node
+        var npos as sourcemap.Position is calling s->src->position_at with nstart
+        set sv.line is npos.line
+        set sv.col is npos.col
+        set sv.start is nstart
+        set sv.end is calling astutil.end_of with s->ast, node
+        set sv.module is s->module->id
         calling symbols.symbol_define with s->symbols, sv
         set i is i + 1
     if vn >= 0 and name_ids.len == 1:

@@ -54,6 +54,14 @@ jobs:
         shell: bash
         run: ./tests/run.sh
 
+      - name: LSP protocol tests
+        shell: bash
+        run: python3 tests/lsp/run_lsp_tests.py
+
+      - name: Language asset tests
+        shell: bash
+        run: python3 tests/lsp/test_assets.py
+
       - name: Bind smoke
         shell: bash
         run: |

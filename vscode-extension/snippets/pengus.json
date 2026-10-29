@@ -2,6 +2,8 @@
   "Main Weave Entry Point (int)": {
     "prefix": "main",
     "body": [
+      "import std.spark",
+      "",
       "weave main into int:",
       "    var msg as string is \"Hello from PenguScript!\"",
       "    calling spark.println with msg",
@@ -13,6 +15,8 @@
   "Main Weave Entry Point (void)": {
     "prefix": "main_void",
     "body": [
+      "import std.spark",
+      "",
       "weave main into void:",
       "    var msg as string is \"Hello from PenguScript!\"",
       "    calling spark.println with msg",
@@ -691,7 +695,7 @@
     "prefix": "concept",
     "body": [
       "concept ${1:Printable}:",
-      "    weave ${2:to_string} with self into string",
+      "    weave ${2:to_string} into string",
       "    ${0}"
     ],
     "description": "Declare a concept (interface / trait)"
@@ -708,7 +712,7 @@
     "prefix": "bind",
     "body": [
       "bind ${1:Point} with ${2:Printable}:",
-      "    weave ${3:describe} with self into string:",
+      "    weave ${3:describe} into string:",
       "        return \"(${self.x}, ${self.y})\"",
       "    ${0}"
     ],
@@ -1035,5 +1039,76 @@
       "${0}"
     ],
     "description": "Create a CC-backed ordered map of string to int"
+  },
+  "Documentation Comment": {
+    "prefix": "doc",
+    "body": [
+      "## ${1:Summary}.",
+      "##",
+      "## ${2:Details}.",
+      "${0}"
+    ],
+    "description": "Doc comment block for a declaration"
+  },
+  "Standard Library Import": {
+    "prefix": "import_std",
+    "body": [
+      "import std.${1|archivum,spark,json,jsonrpc,scrolls,tally,net,petitio,diagnostic|}",
+      "${0}"
+    ],
+    "description": "Import a standard library module"
+  },
+  "Field Assignment": {
+    "prefix": "set_field",
+    "body": [
+      "set .${1:field} is ${2:value}",
+      "${0}"
+    ],
+    "description": "Assign a field inside a with: block"
+  },
+  "Type Of Expression": {
+    "prefix": "type_of",
+    "body": [
+      "let ${1:name} as string is type of ${2:expr}",
+      "${0}"
+    ],
+    "description": "Static type name as a string"
+  },
+  "Size Of Type": {
+    "prefix": "size_of",
+    "body": [
+      "let ${1:n} as usize is size of ${2:Type}",
+      "${0}"
+    ],
+    "description": "Size of a type in bytes"
+  },
+  "Derive Concepts": {
+    "prefix": "derive",
+    "body": [
+      "rune ${1:Point} derive ${2:Par, Ordo, Vinculum, Imago}:",
+      "    ${3:x} as ${4:int}",
+      "    ${0}"
+    ],
+    "description": "Derive built-in concepts"
+  },
+  "Cyclic Type": {
+    "prefix": "cyclus",
+    "body": [
+      "rune ${1:Node} cyclus shard ${2:T}:",
+      "    ${3:next} as maybe ref to ${1:Node} of ${2:T}",
+      "    ${0}"
+    ],
+    "description": "Explicit self-referential type"
+  },
+  "Antiquus C Block": {
+    "prefix": "antiquus",
+    "body": [
+      "antiquus ${1:name} with ${2:arg as int} into ${3:int}:",
+      "    r\"\"\"",
+      "    return ${4:arg};",
+      "    \"\"\"",
+      "${0}"
+    ],
+    "description": "Raw C function body"
   }
 }

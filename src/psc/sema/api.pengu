@@ -18,6 +18,9 @@ import psc.sema.check.collect as collect
 
 import std.archivum
 import std.compass
+import std.rites
+
+import psc.driver.manifest as project_manifest
 
 insignia sema_api_
 
@@ -55,7 +58,11 @@ weave check_file with path as string, options as sopts.SemaOptions into SemaResu
     calling check_bodies with p
     return with ok is (p->diagnostics.error_count == 0), program is p
 
-## Ajusta `base_dir`/`std_dirs` buscando el `pengu.toml` del proyecto.
+## Ajusta `base_dir`/`src_dir`/`lib_dir`/`std_dirs` con el proyecto real.
+##
+## La búsqueda de stdlib no depende del `cwd`: cubre una stdlib vendorizada en
+## el proyecto, una instalación portable (`bin/psc` + `std/`), una instalación
+## FHS (`share/pengu/std`), `PENGU_STD_DIR`/`PSC_STD_DIR` y `PENGU_HOME`.
 ##
 ## ## Memoria
 ## Reemplaza strings owned de las opciones.
@@ -84,26 +91,111 @@ weave configure_options with path as string, opts as ref to sopts.SemaOptions in
         var d as string is calling compass.cp_dirname with abs
         banish opts->base_dir
         set opts->base_dir is d
-    var parent as string is calling compass.cp_dirname with opts->base_dir
-    defer banish parent
-    var parts as list of string is calling std_parts with parent
-    defer banish parts
-    var std_path as string is calling compass.cp_join with parts
-    defer banish std_path
-    if calling archivum.is_dir with std_path:
-        calling opts->std_dirs.push with (calling npool.copy_string with std_path)
-    if calling archivum.is_dir with "std":
-        calling opts->std_dirs.push with (calling npool.copy_string with "std")
+    calling configure_manifest with opts
+    calling configure_std_dirs with opts
 
-## Partes para `parent/std`.
+## Lee `pengu.toml` si existe y aplica `src_dir`/`lib_dir`.
 ##
 ## ## Memoria
-## Lista owned; liberar con `banish` (strings prestados).
-weave std_parts with parent as string into list of string:
-    var xs as list of string is list of string
-    calling xs.push with parent
-    calling xs.push with "std"
-    return xs
+## Copia los strings del manifiesto antes de liberarlo.
+weave configure_manifest with opts as ref to sopts.SemaOptions into void:
+    var m as project_manifest.Manifest is calling project_manifest.load_manifest with opts->base_dir, "debug"
+    if m.found and m.ok:
+        if m.src_dir length > 0:
+            banish opts->src_dir
+            set opts->src_dir is (calling npool.copy_string with m.src_dir)
+        if m.lib_dir length > 0:
+            banish opts->lib_dir
+            set opts->lib_dir is (calling npool.copy_string with m.lib_dir)
+    calling project_manifest.free_manifest with (sigil of m)
+
+## `true` si la lista ya contiene `s`.
+##
+## ## Memoria
+## O(n); no asigna.
+weave has_string with xs as list of string, s as string into bool:
+    var i as int is 0
+    while i < xs.len:
+        if (xs at i) == s:
+            return true
+        set i is i + 1
+    return false
+
+## Añade un directorio de stdlib si existe y no está repetido.
+##
+## ## Memoria
+## Hace una copia owned del path.
+weave add_std_dir with opts as ref to sopts.SemaOptions, path as string into void:
+    if path length == 0:
+        return
+    if not calling archivum.is_dir with path:
+        return
+    if calling has_string with opts->std_dirs, path:
+        return
+    calling opts->std_dirs.push with (calling npool.copy_string with path)
+
+## Variable de entorno como string owned (o `""`).
+##
+## ## Memoria
+## Devuelve owned si existe; `""` es literal prestado.
+weave env_text with name as string into string:
+    var v as maybe string is calling rites.getenv with name
+    if v.is_present:
+        return v.value
+    banish v
+    return ""
+
+## Directorio del ejecutable actual (`""` si no se puede resolver).
+##
+## ## Memoria
+## Devuelve string owned.
+weave exe_dir into string:
+    var argv0 as string is calling rites.get_argv with 0
+    defer banish argv0
+    if argv0 length == 0:
+        return ""
+    return calling compass.cp_dirname with argv0
+
+## Añade las raíces de stdlib conocidas.
+##
+## ## Memoria
+## Copia cada path añadido.
+weave configure_std_dirs with opts as ref to sopts.SemaOptions into void:
+    var env_psc as string is calling env_text with "PSC_STD_DIR"
+    defer banish env_psc
+    calling add_std_dir with opts, env_psc
+    var env_pengu as string is calling env_text with "PENGU_STD_DIR"
+    defer banish env_pengu
+    calling add_std_dir with opts, env_pengu
+    var home as string is calling env_text with "PENGU_HOME"
+    defer banish home
+    if home length > 0:
+        var h1 as string is "{home}/std"
+        defer banish h1
+        calling add_std_dir with opts, h1
+        var h2 as string is "{home}/share/pengu/std"
+        defer banish h2
+        calling add_std_dir with opts, h2
+    var base as string is opts->base_dir
+    var b1 as string is "{base}/std"
+    defer banish b1
+    calling add_std_dir with opts, b1
+    var exe as string is calling exe_dir
+    defer banish exe
+    if exe length > 0:
+        var e1 as string is "{exe}/../std"
+        defer banish e1
+        calling add_std_dir with opts, e1
+        var e2 as string is "{exe}/../share/pengu/std"
+        defer banish e2
+        calling add_std_dir with opts, e2
+    var cwm as maybe string is calling rites.getcwd
+    if cwm.is_present:
+        var c1 as string is "{cwm.value}/std"
+        defer banish c1
+        calling add_std_dir with opts, c1
+        banish cwm.value
+    banish cwm
 
 ## Sube desde el archivo hasta encontrar `pengu.toml`/`pengu.yaml`.
 ##

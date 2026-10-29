@@ -50,6 +50,27 @@ export function isFile(candidate: string): boolean {
     }
 }
 
+/** True for a regular file that can be executed on this platform. */
+export function isExecutable(candidate: string): boolean {
+    if (!isFile(candidate)) {
+        return false;
+    }
+    if (process.platform === 'win32') {
+        return true;
+    }
+    try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** True when `value` is a name, not a path. */
+function isBareName(value: string): boolean {
+    return !value.includes('/') && !value.includes('\\');
+}
+
 /** Expands a leading `~`: the shell does it for a terminal, VS Code does not. */
 export function expandHome(target: string, homeDir: string): string {
     if (target === '~') {
@@ -141,11 +162,35 @@ export function resolvePscCommand(options: ResolvePscOptions = {}): PscCommand |
 
     const configured = options.configuredPath?.trim();
     if (configured) {
+        if (isBareName(configured)) {
+            const hit = findOnPath(
+                configured,
+                options.pathValue ?? process.env.PATH ?? '',
+                platform,
+                options.pathExt ?? process.env.PATHEXT ?? '.EXE;.CMD;.BAT',
+                exists
+            );
+            if (hit) {
+                return { command: hit, source: 'pengus.executablePath (PATH)' };
+            }
+        }
         return { command: expandHome(configured, home), source: 'pengus.executablePath' };
     }
 
     const fromEnv = options.envPath?.trim();
     if (fromEnv) {
+        if (isBareName(fromEnv)) {
+            const hit = findOnPath(
+                fromEnv,
+                options.pathValue ?? process.env.PATH ?? '',
+                platform,
+                options.pathExt ?? process.env.PATHEXT ?? '.EXE;.CMD;.BAT',
+                exists
+            );
+            if (hit) {
+                return { command: hit, source: 'PSC_BIN_PATH (PATH)' };
+            }
+        }
         return { command: expandHome(fromEnv, home), source: 'PSC_BIN_PATH' };
     }
 

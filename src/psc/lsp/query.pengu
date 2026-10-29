@@ -1,0 +1,325 @@
+## psc/lsp/query.pengu — consultas semánticas para el servidor LSP.
+##
+## El LSP no debe reimplementar el parser ni adivinar tipos desde el texto.
+## Este módulo expone las consultas mínimas sobre `SemaProgram`: símbolo bajo
+## una posición, tipo, documentación, exports, módulos y tamaño aproximado.
+
+import std.builder
+
+import psc.ast.node as psast
+import psc.sema.annotate as ann
+import psc.sema.ast as astutil
+import psc.sema.modules.loader as loader
+import psc.sema.modules.program as program
+import psc.sema.names as npool
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.table as symbols
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.docgen.sig as sig
+
+insignia psc_lsp_query_
+
+## Módulo cargado para un path (`-1` si no).
+weave module_at with p as ref to program.SemaProgram, path as string into int:
+    return calling program.module_id with p, path
+
+## Módulo cargado para el path absoluto de un documento.
+weave module_for_uri_path with p as ref to program.SemaProgram, path as string into int:
+    var abs as string is calling program.canonical_path with p, path
+    defer banish abs
+    if calling p->by_path.has with abs:
+        return calling p->by_path.get with abs
+    return -1
+
+## Número de símbolos del programa.
+weave symbol_count with p as ref to program.SemaProgram into int:
+    return p->symbols.symbols.len
+
+## Símbolo por id (`-1` si no).
+weave symbol_at with p as ref to program.SemaProgram, sid as int into sym.SemaSymbol:
+    if sid < 0 or sid >= p->symbols.symbols.len:
+        return with name is -1, type is 0, kind is sym.SemaSymbolKind.SkVar, flags is 0, c_name is -1, module is -1, line is 0, col is 0, start is -1, end is -1, attrs_node is -1, doc is -1, const_id is -1, bounds_first is 0, bounds_count is 0, module_scope is -1
+    return (p->symbols.symbols at sid)
+
+## `NameId` de un símbolo.
+weave symbol_name_id with p as ref to program.SemaProgram, sid as int into int:
+    if sid < 0 or sid >= p->symbols.symbols.len:
+        return -1
+    return (p->symbols.symbols at sid).name
+
+## Texto del nombre de un símbolo (prestado).
+weave symbol_name with p as ref to program.SemaProgram, sid as int into string:
+    var nid as int is calling symbol_name_id with p, sid
+    if nid < 0:
+        return ""
+    return calling npool.text with (sigil of p->names), nid
+
+## Tipo de un símbolo.
+weave symbol_type with p as ref to program.SemaProgram, sid as int into int:
+    if sid < 0 or sid >= p->symbols.symbols.len:
+        return 0
+    return (p->symbols.symbols at sid).type
+
+## Doc de un símbolo (`""` si no).
+weave symbol_doc with p as ref to program.SemaProgram, sid as int into string:
+    if sid < 0 or sid >= p->symbols.symbols.len:
+        return ""
+    var d as int is (p->symbols.symbols at sid).doc
+    if d < 0:
+        return ""
+    return calling npool.text with (sigil of p->names), d
+
+## Texto canónico de un tipo.
+weave type_text with p as ref to program.SemaProgram, type_id as int into string:
+    return calling sig.type_text with p, type_id
+
+## Firma de un símbolo (`""` si no aplica).
+weave signature_for with p as ref to program.SemaProgram, sid as int into string:
+    return calling sig.signature_for_symbol with p, sid
+
+## Tipo de un nodo anotado (`-1` si no).
+weave node_type with p as ref to program.SemaProgram, mid as int, node as int into int:
+    if mid < 0 or mid >= p->modules.len or node < 0:
+        return -1
+    var m as loader.SemaModule is (p->modules at mid)
+    return calling ann.type_of with (sigil of m.annotations), node
+
+## Símbolo de un nodo anotado (`-1` si no).
+weave node_symbol with p as ref to program.SemaProgram, mid as int, node as int into int:
+    if mid < 0 or mid >= p->modules.len or node < 0:
+        return -1
+    var m as loader.SemaModule is (p->modules at mid)
+    return calling ann.symbol_of with (sigil of m.annotations), node
+
+## Nodo AST más pequeño que contiene `offset` (`-1` si no).
+weave node_at with p as ref to program.SemaProgram, mid as int, offset as int into int:
+    if mid < 0 or mid >= p->modules.len:
+        return -1
+    var m as loader.SemaModule is (p->modules at mid)
+    var best as int is -1
+    var best_len as int is 1 << 30
+    var i as int is 0
+    while i < m.parse.ast.nodes.len:
+        var st as int is calling astutil.start_of with (sigil of m.parse.ast), i
+        var en as int is calling astutil.end_of with (sigil of m.parse.ast), i
+        var ln as int is en - st
+        if st <= offset and offset < en and ln > 0 and ln < best_len:
+            set best is i
+            set best_len is ln
+        set i is i + 1
+    return best
+
+## `true` si `c` es carácter de identificador.
+weave is_word_char with c as int into bool:
+    return (c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95
+
+## Palabra (identificador) bajo un offset.
+weave word_at with text as string, offset as int into string:
+    var b as ref to frozen byte is bytes of text
+    var st as int is offset
+    while st > 0 and calling is_word_char with ((b at (st - 1)) to int):
+        set st is st - 1
+    var en as int is offset
+    while en < text length and calling is_word_char with ((b at en) to int):
+        set en is en + 1
+    return text at st to en
+
+## `true` si el símbolo es público/documentable.
+weave is_public with p as ref to program.SemaProgram, sid as int into bool:
+    var nm as string is calling symbol_name with p, sid
+    if nm length == 0:
+        return false
+    var first as string is nm at 0 to 1
+    defer banish first
+    return first != "_"
+
+## Símbolo que declara `name` en el módulo, el más cercano antes de `offset`.
+weave symbol_by_name with p as ref to program.SemaProgram, mid as int, name as string, offset as int into int:
+    var best as int is -1
+    var best_start as int is -1
+    var builtin as int is -1
+    var i as int is 0
+    while i < p->symbols.symbols.len:
+        var si as sym.SemaSymbol is (p->symbols.symbols at i)
+        if si.name >= 0:
+            var nm as string is calling npool.text with (sigil of p->names), si.name
+            if nm == name and (si.module == mid or si.module == -1):
+                if si.start >= 0 and si.start <= offset and si.start > best_start:
+                    set best is i
+                    set best_start is si.start
+                if si.start < 0 and builtin < 0:
+                    set builtin is i
+        set i is i + 1
+    if best >= 0:
+        return best
+    return builtin
+
+## Símbolo bajo un offset (declaración o uso anotado).
+weave symbol_at_offset with p as ref to program.SemaProgram, mid as int, text as string, offset as int into int:
+    var n as int is calling node_at with p, mid, offset
+    if n >= 0:
+        var ns as int is calling node_symbol with p, mid, n
+        if ns >= 0:
+            return ns
+    var w as string is calling word_at with text, offset
+    defer banish w
+    if w length == 0:
+        return -1
+    var by_name as int is calling symbol_by_name with p, mid, w, offset
+    if by_name >= 0:
+        return by_name
+    # Símbolos de módulos importados: `spark.println` no está en el scope del
+    # documento, pero `spark` sí es un `SkImport`.
+    var i as int is 0
+    while i < p->symbols.symbols.len:
+        var si as sym.SemaSymbol is (p->symbols.symbols at i)
+        if si.kind == sym.SemaSymbolKind.SkImport and si.name >= 0:
+            var nm as string is calling npool.text with (sigil of p->names), si.name
+            if nm == w:
+                return i
+        set i is i + 1
+    return -1
+
+## Tipo bajo un offset (`-1` si no).
+weave type_at_offset with p as ref to program.SemaProgram, mid as int, text as string, offset as int into int:
+    var n as int is calling node_at with p, mid, offset
+    if n >= 0:
+        var t as int is calling node_type with p, mid, n
+        if t > 0:
+            return t
+    var sid as int is calling symbol_at_offset with p, mid, text, offset
+    if sid >= 0:
+        return calling symbol_type with p, sid
+    return -1
+
+## Ids de símbolos declarados por un módulo.
+weave module_symbols with p as ref to program.SemaProgram, mid as int into list of int:
+    var out as list of int is list of int
+    var i as int is 0
+    while i < p->symbols.symbols.len:
+        var si as sym.SemaSymbol is (p->symbols.symbols at i)
+        if si.module == mid and si.name >= 0 and calling is_public with p, i:
+            calling out.push with i
+        set i is i + 1
+    return out
+
+## Módulo cuyo scope global es `scope_id` (`-1` si no).
+weave module_for_scope with p as ref to program.SemaProgram, scope_id as int into int:
+    if scope_id < 0:
+        return -1
+    var i as int is 0
+    while i < p->modules.len:
+        var m as loader.SemaModule is (p->modules at i)
+        if m.scope == scope_id:
+            return i
+        set i is i + 1
+    return -1
+
+## Exports de un módulo importado.
+weave module_exports with p as ref to program.SemaProgram, mid as int into list of int:
+    return calling module_symbols with p, mid
+
+## Alias de imports del módulo.
+weave import_aliases with p as ref to program.SemaProgram, mid as int into list of string:
+    var out as list of string is list of string
+    var i as int is 0
+    while i < p->symbols.symbols.len:
+        var si as sym.SemaSymbol is (p->symbols.symbols at i)
+        if si.kind == sym.SemaSymbolKind.SkImport and si.module == mid and si.name >= 0:
+            var nm as string is calling npool.text with (sigil of p->names), si.name
+            calling out.push with (calling npool.copy_string with nm)
+        set i is i + 1
+    return out
+
+## Módulo importado por un alias (`-1` si no).
+weave imported_module with p as ref to program.SemaProgram, mid as int, alias as string into int:
+    var i as int is 0
+    while i < p->symbols.symbols.len:
+        var si as sym.SemaSymbol is (p->symbols.symbols at i)
+        if si.kind == sym.SemaSymbolKind.SkImport and si.module == mid and si.name >= 0:
+            var nm as string is calling npool.text with (sigil of p->names), si.name
+            if nm == alias:
+                return calling module_for_scope with p, si.module_scope
+        set i is i + 1
+    return -1
+
+## Directorios de stdlib configurados.
+weave std_dirs with p as ref to program.SemaProgram into list of string:
+    return p->options.std_dirs
+
+## Tamaño aproximado en bytes de un tipo (layout C, sin padding).
+##
+## Para runas suma los campos; para contenedores usa el tamaño del descriptor
+## del runtime. Es una estimación para el hover, no un `sizeof` del compilador C.
+weave type_size with p as ref to program.SemaProgram, type_id as int into int:
+    return calling type_size_at with p, type_id, 0
+
+## Implementación recursiva de `type_size`.
+weave type_size_at with p as ref to program.SemaProgram, type_id as int, depth as int into int:
+    if depth > 12 or type_id <= 0:
+        return 0
+    var ty as tk.SemaType is calling types.at with (sigil of p->types), type_id
+    if ty.kind == tk.SemaTypeKind.TkBase:
+        var nm as string is calling npool.text with (sigil of p->names), ty.name
+        if nm == "int" or nm == "i32" or nm == "u32" or nm == "float":
+            return 4
+        if nm == "i64" or nm == "u64" or nm == "f64":
+            return 8
+        if nm == "i16" or nm == "u16":
+            return 2
+        if nm == "i8" or nm == "u8" or nm == "byte" or nm == "char" or nm == "bool":
+            return 1
+        if nm == "usize" or nm == "isize":
+            return 8
+        if nm == "string":
+            return 16
+        if nm == "void":
+            return 0
+        return 8
+    if ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkFrozen or ty.kind == tk.SemaTypeKind.TkFn:
+        return 8
+    if ty.kind == tk.SemaTypeKind.TkArray:
+        var es as int is calling type_size_at with p, ty.a, depth + 1
+        if ty.b > 0:
+            return es * ty.b
+        return es
+    if ty.kind == tk.SemaTypeKind.TkList or ty.kind == tk.SemaTypeKind.TkMap or ty.kind == tk.SemaTypeKind.TkSlice:
+        return 24
+    if ty.kind == tk.SemaTypeKind.TkMaybe or ty.kind == tk.SemaTypeKind.TkResult:
+        var inner as int is ty.a
+        if ty.kind == tk.SemaTypeKind.TkResult and ty.b > 0:
+            var eb as int is calling type_size_at with p, ty.b, depth + 1
+            if eb > inner:
+                set inner is ty.b
+        return 8 + (calling type_size_at with p, inner, depth + 1)
+    if ty.kind == tk.SemaTypeKind.TkRune or ty.kind == tk.SemaTypeKind.TkEcho:
+        if ty.a >= 0 and ty.a < p->types.nominal_infos.len:
+            var info as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
+            var total as int is 0
+            var fi as int is 0
+            while fi < info.fields_count:
+                var f as types.SemaField is (p->types.fields at (info.fields_first + fi))
+                set total is total + (calling type_size_at with p, f.type, depth + 1)
+                set fi is fi + 1
+            return total
+        return 0
+    if ty.kind == tk.SemaTypeKind.TkOmen:
+        if ty.a >= 0 and ty.a < p->types.nominal_infos.len:
+            var info2 as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
+            var max_payload as int is 0
+            var vi as int is 0
+            while vi < info2.variants_count:
+                var v as types.SemaVariant is (p->types.variants at (info2.variants_first + vi))
+                var psz as int is 0
+                var pi as int is 0
+                while pi < v.payload_count:
+                    var pf as types.SemaField is (p->types.fields at (v.payload_first + pi))
+                    set psz is psz + (calling type_size_at with p, pf.type, depth + 1)
+                    set pi is pi + 1
+                if psz > max_payload:
+                    set max_payload is psz
+                set vi is vi + 1
+            return 8 + max_payload
+        return 8
+    return 8

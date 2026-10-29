@@ -116,9 +116,21 @@ weave type_into with tt as ref to types.SemaTypeTable, p as ref to program.SemaP
     else:
         calling sb.append with "opaque"
 
-## Firma resuelta para un nombre; `""` si no es símbolo documentable.
-weave signature_for with p as ref to program.SemaProgram, name as string into string:
-    var sid as int is calling symbol_of with p, name
+## Texto canónico de un `TypeId` (`""` si no es válido).
+##
+## ## Memoria
+## Devuelve string owned.
+weave type_text with p as ref to program.SemaProgram, type_id as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling type_into with (sigil of p->types), p, type_id, (sigil of sb)
+    return calling sb.finish
+
+## Firma de un símbolo por id (`""` si no es documentable).
+##
+## ## Memoria
+## Devuelve string owned.
+weave signature_for_symbol with p as ref to program.SemaProgram, sid as int into string:
     if sid < 0 or sid >= p->symbols.symbols.len:
         return ""
     var si as sym.SemaSymbol is (p->symbols.symbols at sid)
@@ -156,12 +168,22 @@ weave signature_for with p as ref to program.SemaProgram, name as string into st
         calling type_into with (sigil of p->types), p, si.type, (sigil of sb)
     return calling sb.finish
 
-## Doc comment resuelto para un nombre (prestado; `""` si no).
-weave doc_for with p as ref to program.SemaProgram, name as string into string:
-    var sid as int is calling symbol_of with p, name
+## Firma resuelta para un nombre; `""` si no es símbolo documentable.
+weave signature_for with p as ref to program.SemaProgram, name as string into string:
+    return calling signature_for_symbol with p, (calling symbol_of with p, name)
+
+## Doc comment de un símbolo por id (`""` si no tiene).
+##
+## ## Memoria
+## Devuelve string prestado del pool.
+weave doc_for_symbol with p as ref to program.SemaProgram, sid as int into string:
     if sid < 0 or sid >= p->symbols.symbols.len:
         return ""
     var si as sym.SemaSymbol is (p->symbols.symbols at sid)
     if si.doc < 0:
         return ""
     return calling nt with p, si.doc
+
+## Doc comment resuelto para un nombre (prestado; `""` si no).
+weave doc_for with p as ref to program.SemaProgram, name as string into string:
+    return calling doc_for_symbol with p, (calling symbol_of with p, name)

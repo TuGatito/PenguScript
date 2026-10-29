@@ -4,42 +4,85 @@
   "scopeName": "source.pengus",
   "fileTypes": [
     "pengu",
-    "pengus",
-    "d.pengu"
+    "pengus"
   ],
   "patterns": [
-    { "include": "#comments" },
-    { "include": "#strings" },
-    { "include": "#characters" },
-    { "include": "#numbers" },
-    { "include": "#constants" },
-    { "include": "#self_reference" },
-    { "include": "#memory_modifiers" },
-    { "include": "#comptime_vars" },
-    { "include": "#function_definition" },
-    { "include": "#type_definition" },
-    { "include": "#builtin_concepts" },
-    { "include": "#builtin_types" },
-    { "include": "#keywords_control" },
-    { "include": "#keywords_declaration" },
-    { "include": "#test_definition" },
-    { "include": "#operators" }
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#characters"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#constants"
+    },
+    {
+      "include": "#attributes"
+    },
+    {
+      "include": "#function_definition"
+    },
+    {
+      "include": "#type_definition"
+    },
+    {
+      "include": "#test_definition"
+    },
+    {
+      "include": "#builtin_concepts"
+    },
+    {
+      "include": "#builtin_types"
+    },
+    {
+      "include": "#type_use"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#punctuation"
+    }
   ],
   "repository": {
     "comments": {
       "patterns": [
         {
-          "name": "comment.line.double-hash.pengus",
-          "match": "^##.*$"
+          "name": "comment.block.documentation.pengus",
+          "begin": "^\\s*##\\s*$",
+          "end": "^\\s*##\\s*$",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.begin.pengus"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.end.pengus"
+            }
+          }
         },
         {
-          "name": "comment.block.pengus",
-          "begin": "##",
-          "end": "##"
+          "name": "comment.line.documentation.pengus",
+          "match": "^\\s*##.*$",
+          "captures": {
+            "0": {
+              "name": "punctuation.definition.comment.pengus"
+            }
+          }
         },
         {
           "name": "comment.line.number-sign.pengus",
-          "match": "#.*$"
+          "match": "^\\s*#.*$"
         },
         {
           "name": "comment.line.double-slash.pengus",
@@ -60,27 +103,15 @@
           "end": "\"\"\"",
           "patterns": [
             {
-              "name": "constant.character.escape.pengus",
-              "match": "\\\\."
+              "include": "#string_escapes"
             },
             {
-              "name": "meta.embedded.line.pengus",
-              "begin": "\\{",
-              "end": "\\}",
-              "beginCaptures": {
-                "0": { "name": "punctuation.section.embedded.begin.pengus" }
-              },
-              "endCaptures": {
-                "0": { "name": "punctuation.section.embedded.end.pengus" }
-              },
-              "patterns": [
-                { "include": "$self" }
-              ]
+              "include": "#interpolation"
             }
           ]
         },
         {
-          "name": "string.quoted.raw.single.pengus",
+          "name": "string.quoted.raw.pengus",
           "begin": "r\"",
           "end": "\""
         },
@@ -90,22 +121,42 @@
           "end": "\"",
           "patterns": [
             {
-              "name": "constant.character.escape.pengus",
-              "match": "\\\\."
+              "include": "#string_escapes"
             },
             {
-              "name": "meta.embedded.line.pengus",
-              "begin": "\\{",
-              "end": "\\}",
-              "beginCaptures": {
-                "0": { "name": "punctuation.section.embedded.begin.pengus" }
-              },
-              "endCaptures": {
-                "0": { "name": "punctuation.section.embedded.end.pengus" }
-              },
-              "patterns": [
-                { "include": "$self" }
-              ]
+              "include": "#interpolation"
+            }
+          ]
+        }
+      ]
+    },
+    "string_escapes": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.pengus",
+          "match": "\\\\u\\{[0-9A-Fa-f]+\\}|\\\\x[0-9A-Fa-f]{2}|\\\\[0-7]{1,3}|\\\\."
+        }
+      ]
+    },
+    "interpolation": {
+      "patterns": [
+        {
+          "name": "meta.embedded.line.pengus",
+          "begin": "\\{",
+          "end": "\\}",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.section.embedded.begin.pengus"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.embedded.end.pengus"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
             }
           ]
         }
@@ -115,7 +166,7 @@
       "patterns": [
         {
           "name": "string.quoted.single.pengus",
-          "match": "'(?:[^'\\\\]|\\\\x[0-9a-fA-F]{2}|\\\\[0-7]{1,3}|\\\\.)'"
+          "match": "'(?:[^'\\\\]|\\\\x[0-9A-Fa-f]{2}|\\\\[0-7]{1,3}|\\\\.)'"
         }
       ]
     },
@@ -131,7 +182,7 @@
         },
         {
           "name": "constant.numeric.hex.pengus",
-          "match": "\\b0[xX][0-9a-fA-F_]+\\b"
+          "match": "\\b0[xX][0-9A-Fa-f_]+\\b"
         },
         {
           "name": "constant.numeric.float.pengus",
@@ -146,15 +197,15 @@
     "constants": {
       "patterns": [
         {
-          "name": "constant.language.null.pengus",
-          "match": "\\bnull\\b"
-        },
-        {
           "name": "constant.language.boolean.pengus",
           "match": "\\b(true|false)\\b"
         },
         {
-          "name": "constant.language.maybe-none.pengus",
+          "name": "constant.language.null.pengus",
+          "match": "\\bnull\\b"
+        },
+        {
+          "name": "constant.language.none.pengus",
           "match": "\\bmaybe\\s+none\\b"
         },
         {
@@ -162,42 +213,63 @@
           "match": "\\berror\\b"
         },
         {
-          "name": "constant.language.result-variant.pengus",
+          "name": "constant.language.variant.pengus",
           "match": "\\b(ok|err|some)\\b"
         }
       ]
     },
-    "self_reference": {
+    "attributes": {
       "patterns": [
         {
-          "match": "\\b(self)(->)",
+          "name": "meta.attribute.pengus",
+          "match": "@[A-Za-z_][A-Za-z0-9_]*",
           "captures": {
-            "1": { "name": "variable.language.self.pengus" },
-            "2": { "name": "punctuation.accessor.arrow.pengus" }
+            "0": {
+              "name": "entity.name.function.decorator.pengus"
+            }
           }
-        },
-        {
-          "name": "variable.language.self.pengus",
-          "match": "\\bself\\b"
         }
       ]
     },
     "function_definition": {
       "patterns": [
         {
-          "match": "\\b((?:(?:inline|ritual)\\s+)*)(weave)(?:\\s+((?:inline|ritual)\\s*))*\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "match": "\\b((?:(?:inline|ritual)\\s+)*)(weave|antiquus)(?:\\s+((?:inline|ritual)\\s*))*\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
-            "1": { "name": "storage.modifier.function.pengus" },
-            "2": { "name": "keyword.declaration.function.pengus" },
-            "3": { "name": "storage.modifier.function.pengus" },
-            "4": { "name": "entity.name.function.pengus" }
+            "1": {
+              "name": "storage.modifier.function.pengus"
+            },
+            "2": {
+              "name": "keyword.declaration.function.pengus"
+            },
+            "3": {
+              "name": "storage.modifier.function.pengus"
+            },
+            "4": {
+              "name": "entity.name.function.pengus"
+            }
           }
         },
         {
-          "match": "\\b(calling)\\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*)",
+          "match": "\\b(declare)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
-            "1": { "name": "keyword.control.calling.pengus" },
-            "2": { "name": "entity.name.function.call.pengus" }
+            "1": {
+              "name": "keyword.declaration.function.pengus"
+            },
+            "2": {
+              "name": "entity.name.function.declare.pengus"
+            }
+          }
+        },
+        {
+          "match": "\\b(calling)\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.calling.pengus"
+            },
+            "2": {
+              "name": "entity.name.function.call.pengus"
+            }
           }
         }
       ]
@@ -205,10 +277,69 @@
     "type_definition": {
       "patterns": [
         {
-          "match": "\\b(rune|echo|omen|alias|enchanting|concept|bind|seal)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "match": "\\b(rune|echo|omen|alias|seal|concept)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
-            "1": { "name": "keyword.declaration.type.pengus" },
-            "2": { "name": "entity.name.type.class.pengus" }
+            "1": {
+              "name": "keyword.declaration.type.pengus"
+            },
+            "2": {
+              "name": "entity.name.type.pengus"
+            }
+          }
+        },
+        {
+          "match": "\\b(enchanting|bind)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s+with\\s+([A-Za-z_][A-Za-z0-9_]*))?",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.type.pengus"
+            },
+            "2": {
+              "name": "entity.name.type.pengus"
+            },
+            "3": {
+              "name": "entity.name.type.concept.pengus"
+            }
+          }
+        }
+      ]
+    },
+    "test_definition": {
+      "patterns": [
+        {
+          "match": "\\b(test)\\s+(\"[^\"]*\"|[A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.declaration.pengus"
+            },
+            "2": {
+              "name": "entity.name.function.test.pengus"
+            }
+          }
+        }
+      ]
+    },
+    "type_use": {
+      "patterns": [
+        {
+          "match": "\\b(as|of|to|into|shard|where|many|maybe|frozen)\\s+([A-Z][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.type.pengus"
+            },
+            "2": {
+              "name": "entity.name.type.pengus"
+            }
+          }
+        },
+        {
+          "match": "\\b(ref\\s+to|list\\s+of|map\\s+of|result\\s+of)\\s+([A-Z][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.pengus"
+            },
+            "2": {
+              "name": "entity.name.type.pengus"
+            }
           }
         }
       ]
@@ -217,7 +348,7 @@
       "patterns": [
         {
           "name": "support.class.concept.pengus",
-          "match": "\\b(Imago|Nexus|Donum|Equitas|Ordo|Index|IndexSet|Iter|Len|Display|Debug|Copy|Clone|Drop|Num|Integrum|Par|Vinculum|Forma)\\b"
+          "match": "\\b(Num Integrum Real Par Ordo Vinculum Imago Nexus Forma Iterabilis Donum)\\b"
         }
       ]
     },
@@ -225,58 +356,15 @@
       "patterns": [
         {
           "name": "storage.type.primitive.pengus",
-          "match": "\\b(char|byte|u8|i8|u16|i16|u32|i32|u64|i64|int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|usize|isize|size_t|short|ushort|long|ulong|float|f32|f64|double|bool|string|void|opaque|error|any|Any)\\b"
-        },
-        {
-          "name": "storage.type.collection.pengus",
-          "match": "\\b(array\\s+of|slice\\s+of|list\\s+of|map\\s+of|maybe|result\\s+of|ref\\s+to|frozen|many|array|slice|list|map|result|ref)\\b"
-        },
-        {
-          "name": "support.class.container.pengus",
-          "match": "\\b(LinkedList|UnorderedSet|OrderedSet|OrderedMap)\\b"
+          "match": "\\b(int i8 i16 i32 i64 u8 u16 u32 u64 usize isize byte char float f32 f64 double bool string void opaque any int8 int16 int32 int64 uint uint8 uint16 uint32 uint64 size_t intptr_t uintptr_t ptrdiff_t short ushort long ulong)\\b"
         }
       ]
     },
-    "keywords_control": {
+    "keywords": {
       "patterns": [
         {
-          "name": "keyword.control.pengus",
-          "match": "\\b(if|then|else|unless|while|for|from|to|step|in|not\\s+in|do|with|judge|when|or\\s+else|or\\s+return|or|and|lambda|return|break|continue|defer|errdefer|banish|try|defined|bytes\\s+of|some|ord|chr|transmute|sigil\\s+of|essence\\s+of|size\\s+of|donum)\\b"
-        }
-      ]
-    },
-    "keywords_declaration": {
-      "patterns": [
-        {
-          "name": "keyword.other.declaration.pengus",
-          "match": "\\b(var|let|const|set|declare|import|include|link|insignia|sigil|essence|shard|many|of|is|as|into|and|capacity|size|length|at|transmute|present|not\\s+present|concept|bind|seal|ritual|inline|where|derive|cyclus|static|test|frozen)\\b"
-        }
-      ]
-    },
-    "memory_modifiers": {
-      "patterns": [
-        {
-          "name": "storage.modifier.frozen.pengus",
-          "match": "\\bfrozen\\b(?=\\s+[a-zA-Z_])"
-        }
-      ]
-    },
-    "comptime_vars": {
-      "patterns": [
-        {
-          "name": "variable.language.comptime.pengus",
-          "match": "\\b(os|arch|compiler|main|debug)\\b(?=\\s*(==|!=|:|then|\\())"
-        }
-      ]
-    },
-    "test_definition": {
-      "patterns": [
-        {
-          "match": "\\b(test)\\s+(\"[^\"]*\"|[a-zA-Z_][a-zA-Z0-9_]*)",
-          "captures": {
-            "1": { "name": "keyword.other.declaration.pengus" },
-            "2": { "name": "entity.name.function.pengus" }
-          }
+          "name": "keyword.other.pengus",
+          "match": "\\b(import include link ldflag insignia const var let set static weave antiquus declare enchanting rune echo omen alias seal concept bind shard where when test if unless else while for in from to step judge calling with into as is many return break continue defer errdefer banish some ord chr bytes essence sigil transmute size type try defined not and or lambda null true false maybe none error derive cyclus donum inline ritual frozen self)\\b"
         }
       ]
     },
@@ -291,20 +379,28 @@
           "match": "\\.\\."
         },
         {
-          "name": "keyword.operator.assignment.pengus",
-          "match": "\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>="
+          "name": "keyword.operator.comparison.pengus",
+          "match": "==|!=|<=|>=|<|>"
         },
         {
-          "name": "keyword.operator.comparison.pengus",
-          "match": "(==|!=|<=|>=|<|>)"
+          "name": "keyword.operator.assignment.pengus",
+          "match": "\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|<<=|>>=|=(?!=)"
         },
         {
           "name": "keyword.operator.arithmetic.pengus",
-          "match": "(\\+|-|\\*|/|%|\\|\\||&&|\\||&|\\^|<<|>>|~)"
+          "match": "\\+|-|\\*|/|%|\\|\\||&&|\\||&|\\^|<<|>>|~|!"
         },
         {
-          "name": "keyword.operator.logical.pengus",
-          "match": "\\b(not\\s+in|in|not|and|or)\\b"
+          "name": "punctuation.separator.pengus",
+          "match": "[:,]"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.section.pengus",
+          "match": "[(){}\\[\\]]"
         }
       ]
     }

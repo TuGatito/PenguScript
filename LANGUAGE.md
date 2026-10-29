@@ -5148,26 +5148,34 @@ pengu assets [--config CONFIG] [--list] [--force]
 - `--list`: Displays all tracked asset files, their exact byte size, and their generated PenguScript constant identifiers.
 - `--force`: Regenerates all asset tables unconditionally, bypassing modification caches.
 
-### 20.10 Language Server Protocol (`pengu lsp`)
+### 20.10 Language Server Protocol (`psc lsp`)
 
 Powers IDE integration (VS Code, Neovim, Emacs, Helix):
 
 ```bash
-pengu lsp [--stdio] [--tcp] [--host HOST] [--port PORT]
+psc lsp [--stdio] [--tcp] [--host HOST] [--port PORT]
 ```
 
 - `--stdio`: Standard I/O communication (default for editor sub-processes).
 - `--tcp`, `--host`, `--port`: Runs the LSP server over a TCP socket (default port: `2087`).
-- Capabilities:
-  - Real-time diagnostic reporting with Rust-like caret spans.
-  - Contextual code completion (keywords, runes, methods, local variables, module symbols).
-  - Hover information showing type signatures, docstrings, and calculated struct memory sizes/alignments.
-  - Go to definition and go to implementation.
-  - Find references and workspace symbol search.
-  - Document symbol outline and workspace symbols.
-  - Rename symbol across files.
-  - Code actions: import module, remove unused symbols, implement concept methods.
-  - Document formatting.
+- Capabilities (all backed by `SemaProgram`, not by text heuristics):
+  - Diagnostics with Rust-like primary/secondary spans, `help:`, `note:` and
+    `relatedInformation`; `source: "psc"`.
+  - Completion of keywords, types, locals, parameters, fields, imported module
+    members and `std.*` module paths (trigger characters `.` and `:`).
+  - Hover with canonical type, signature, docs from `#`/`##` comments,
+    fields/variants and approximate byte size.
+  - Go to definition for locals, functions, methods, types and imported modules.
+  - Inferred-type inlay hints (annotated bindings are not duplicated).
+  - Semantic tokens from the lexer: keyword, type, function, namespace,
+    parameter, property, enum member, string, number, comment and operator.
+  - Document symbols, workspace symbols, folding, formatting, signature help,
+    references and code lens (`pengus.run`/`pengus.test`).
+- Stdlib resolution does not depend on the process `cwd`: it searches
+  `PSC_STD_DIR`, `PENGU_STD_DIR`, `<project>/std`, `<psc>/../std`,
+  `<psc>/../share/pengu/std`, `$PENGU_HOME/std` and `cwd/std`.
+- The VS Code client owns the process lifetime, frees the old `SemaResult` on
+  every edit and publishes diagnostics with `help:`/`note:` included.
 
 ### 20.11 Dependency Management (`pengu add` & `pengu update`)
 
