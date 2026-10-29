@@ -35,3 +35,45 @@ to the rest of the C ecosystem.
 Thank you to Jackson L. Allan for building CC and releasing it under the MIT
 license; its type-erased internals let PenguScript keep its stable runtime
 container ABI while replacing the hand-written storage.
+
+
+## vaqt — high-precision date/time
+
+- **Location:** [`std_c/vaqt/`](std_c/vaqt/)
+- **Version:** upstream `nalgeon/vaqt` (BSD-3-Clause), vendored source.
+- **License:** BSD-3-Clause. See [`std_c/vaqt/LICENSE`](std_c/vaqt/LICENSE);
+  release packages ship it as `share/doc/pengu/VAQT_LICENSE`.
+- **Author / credits:** Anton Zhiyanov, based on Go's `time` package
+  (Copyright The Go Authors). See the upstream
+  [README](https://github.com/nalgeon/vaqt).
+- **Usage:** compiled into `libpengu_runtime.a` and exposed through the
+  additive [`std/chrono.pengu`](std/chrono.pengu) `Instant`/`Duration` API.
+  The historical libc-based `std.chronicle` API is unchanged.
+
+Thank you to Anton Zhiyanov and the Go authors for a small, precise, portable
+time library.
+
+## libffi — optional dynamic calls
+
+- **Location:** [`std_c/libffi/`](std_c/libffi/)
+- **Version:** upstream `libffi/libffi` (MIT), vendored source.
+- **License:** MIT. See [`std_c/libffi/LICENSE`](std_c/libffi/LICENSE).
+- **Usage:** optional satellite for
+  [`std/ffi_call.pengu`](std/ffi_call.pengu); it is not linked by the core
+  runtime. Build with system libffi or `tools/build_libffi.sh`.
+
+## libsodium — optional crypto/random
+
+- **Location:** [`std_c/libsodium/`](std_c/libsodium/)
+- **License:** ISC. See [`std_c/libsodium/LICENSE`](std_c/libsodium/LICENSE).
+- **Usage:** optional satellite for [`std/secrets.pengu`](std/secrets.pengu);
+  it is not linked by the core runtime. The source is not vendored because it
+  is large; use a pinned system package or an upstream release.
+
+## libclang — build-time binding generator
+
+- **Usage:** [`tools/pengu-bind-clang.c`](tools/pengu-bind-clang.c), built by
+  [`tools/build_bind.sh`](tools/build_bind.sh) against the system libclang.
+  Apache-2.0 with LLVM exceptions. It is never linked into `psc` or generated
+  programs.
+- **Credits:** the LLVM/Clang project.

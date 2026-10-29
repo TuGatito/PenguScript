@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.13.0-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.14.0-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey">
@@ -34,6 +34,20 @@ This repository contains **only the native compiler** and its standard library.
 The legacy Python compiler lives outside `main` as a historical reference; it is
 not required to build, test, or run anything here.
 
+## Optional C modules
+
+The core runtime stays on libc/libm/pthreads plus the vendored SDS, CC and
+vaqt. Optional native capabilities are explicit modules:
+
+- `std.chrono` — vaqt-backed nanosecond `Instant`/`Duration`;
+- `std.dynlib` — `dlopen`/`LoadLibrary` symbol loading;
+- `std.ffi_call` — libffi-backed dynamic calls (optional `-lffi`);
+- `std.secrets` — libsodium-backed secure random/SHA-256/wipe (optional
+  `-lsodium`).
+
+Each module emits its `link` directive; the project manifest only needs the
+library available. See [docs/EXTERNAL_MODULES.md](docs/EXTERNAL_MODULES.md).
+
 ## Runtime containers (0.13+)
 
 `list of T` is backed by **Convenient Containers `vec`** and `map of K to V` by
@@ -55,8 +69,8 @@ pengu-<version>-<os>-<arch>-fhs.tar.gz
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.13.0-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.13.0-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.14.0-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.14.0-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 
@@ -199,6 +213,17 @@ created by [Jackson L. Allan](https://github.com/JacksonAllan), vendored in
 
 **Thank you**, Jackson, for designing a generic container library that is both
 ergonomic and fast, and for making it available under a permissive license.
+
+High-precision time uses **vaqt**, created by
+[Anton Zhiyanov](https://github.com/nalgeon) and based on Go's `time` package.
+vaqt is vendored in [`std_c/vaqt/`](std_c/vaqt/) under BSD-3-Clause; see
+[THIRD_PARTY.md](THIRD_PARTY.md).
+
+Optional native calls use **libffi** (MIT), vendored in
+[`std_c/libffi/`](std_c/libffi/). Secure random/SHA helpers use
+**libsodium** (ISC) through an optional system package. The libclang-based
+binding generator links **libclang** (Apache-2.0 with LLVM exceptions) only at
+build time; see [`tools/pengu-bind-clang.c`](tools/pengu-bind-clang.c).
 
 ## Status
 

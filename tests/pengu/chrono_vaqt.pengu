@@ -1,0 +1,27 @@
+import std.chrono
+import std.spark
+
+weave main into int:
+    var t as Instant is calling from_unix with 1700000000, 123456789
+    if (calling year with t) != 2023:
+        return 1
+    var s as string is calling t.format_iso
+    if s != "2023-11-14T22:13:20.123456789Z":
+        banish s
+        return 1
+    banish s
+    var p as maybe Instant is calling parse_iso with "2023-11-14T22:13:20Z"
+    if p is not present:
+        banish p
+        return 1
+    if (calling to_unix with p.value) != 1700000000:
+        banish p
+        return 1
+    banish p
+    var later as Instant is calling t.plus_days with 1
+    if (calling day with later) != 15:
+        return 1
+    if not calling is_before with t, later:
+        return 1
+    calling spark.println with "OK chrono_vaqt"
+    return 0

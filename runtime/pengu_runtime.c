@@ -876,6 +876,10 @@ PenguSlice pengu_ffi_slice_f64(const void *data, int count) {
     return pengu_slice_new((void *)(data ? data : (void *)PENGU_EMPTY_CSTR), sizeof(double), count > 0 ? count : 0);
 }
 
+PenguSlice pengu_ffi_slice_f32(const void *data, int count) {
+    return pengu_slice_new((void *)(data ? data : (void *)PENGU_EMPTY_CSTR), sizeof(float), count > 0 ? count : 0);
+}
+
 PenguList pengu_ffi_list_u8(const void *data, int count) {
     return pengu_list_from_data(data, 1, count);
 }
@@ -884,6 +888,16 @@ PenguList pengu_ffi_list_i32(const void *data, int count) {
 }
 PenguList pengu_ffi_list_f64(const void *data, int count) {
     return pengu_list_from_data(data, sizeof(double), count);
+}
+
+PenguList pengu_ffi_list_f32(const void *data, int count) {
+    return pengu_list_from_data(data, sizeof(float), count);
+}
+
+void *pengu_ffi_ptr_offset(const void *p, int n) {
+    if (!p)
+        return NULL;
+    return (void *)((const char *)p + n);
 }
 
 PenguString pengu_ffi_cstr_string(const char *s) {

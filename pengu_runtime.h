@@ -4459,12 +4459,41 @@ extern "C"
   PenguSlice pengu_ffi_slice_i32(const void *data, int count);
   /** Non-owning double slice view over `count` elements at `data` (NULL-safe). */
   PenguSlice pengu_ffi_slice_f64(const void *data, int count);
+  /** Non-owning float32 slice view over `count` elements at `data`. */
+  PenguSlice pengu_ffi_slice_f32(const void *data, int count);
   /** Owning copy of `count` bytes at `data` into a PenguList of uint8. */
   PenguList pengu_ffi_list_u8(const void *data, int count);
   /** Owning copy of `count` int32 elements at `data` into a PenguList. */
   PenguList pengu_ffi_list_i32(const void *data, int count);
   /** Owning copy of `count` double elements at `data` into a PenguList. */
   PenguList pengu_ffi_list_f64(const void *data, int count);
+  /** Owning copy of `count` float32 elements at `data` into a PenguList. */
+  PenguList pengu_ffi_list_f32(const void *data, int count);
+  /** Raw byte offset; no bounds or provenance checks. */
+  void *pengu_ffi_ptr_offset(const void *p, int n);
+
+  /* vaqt-backed high-precision time (runtime/pengu_vaqt.c). */
+  void pengu_vaqt_now(int64_t *sec, int32_t *nsec);
+  void pengu_vaqt_from_unix(int64_t sec, int32_t nsec, int64_t *out_sec, int32_t *out_nsec);
+  void pengu_vaqt_to_unix(int64_t sec, int32_t nsec, int64_t *out_sec, int32_t *out_nsec);
+  int pengu_vaqt_year(int64_t sec, int32_t nsec);
+  int pengu_vaqt_month(int64_t sec, int32_t nsec);
+  int pengu_vaqt_day(int64_t sec, int32_t nsec);
+  int pengu_vaqt_hour(int64_t sec, int32_t nsec);
+  int pengu_vaqt_minute(int64_t sec, int32_t nsec);
+  int pengu_vaqt_second(int64_t sec, int32_t nsec);
+  int pengu_vaqt_nano(int64_t sec, int32_t nsec);
+  int pengu_vaqt_weekday(int64_t sec, int32_t nsec);
+  int pengu_vaqt_yearday(int64_t sec, int32_t nsec);
+  int pengu_vaqt_compare(int64_t asec, int32_t ansec, int64_t bsec, int32_t bnsec);
+  void pengu_vaqt_add(int64_t sec, int32_t nsec, int64_t add_sec, int32_t add_nsec,
+                      int64_t *out_sec, int32_t *out_nsec);
+  void pengu_vaqt_add_date(int64_t sec, int32_t nsec, int years, int months, int days,
+                           int64_t *out_sec, int32_t *out_nsec);
+  PenguString pengu_vaqt_format_iso(int64_t sec, int32_t nsec, int offset);
+  PenguString pengu_vaqt_format_date(int64_t sec, int32_t nsec, int offset);
+  PenguString pengu_vaqt_format_datetime(int64_t sec, int32_t nsec, int offset);
+  bool pengu_vaqt_parse_iso(PenguString s, int64_t *out_sec, int32_t *out_nsec);
   /** NULL-safe owning PenguString copy of a C string (see pengu_string_new). */
   PenguString pengu_ffi_cstr_string(const char *s);
   /** Read-only view of a PenguString's internal buffer (never NULL). */

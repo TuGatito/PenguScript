@@ -86,15 +86,18 @@
 const FFI_VERSION as string is "2.14.0"
 
 # Target platform architecture size constants (bytes)
+## 64-bit targets (the ABI supported by the current runtime). `pointer_size`
+## below still reports 4 on x86/arm; these constants mirror the shipped ABI.
 const SIZEOF_POINTER as int is 8
+const SIZEOF_SIZE_T as int is 8
 const SIZEOF_INT as int is 4
-const SIZEOF_FLOAT as int is 8
+## PenguScript `float` is C `float` (32-bit), not `double`.
+const SIZEOF_FLOAT as int is 4
 const SIZEOF_BYTE as int is 1
 const SIZEOF_CHAR as int is 1
 const SIZEOF_BOOL as int is 1
 const SIZEOF_SHORT as int is 2
 const SIZEOF_LONG as int is 8
-const SIZEOF_SIZE_T as int is 8
 
 ## Returns the pointer size in bytes for the compilation target architecture.
 weave pointer_size into int:
@@ -121,9 +124,15 @@ weave alignment_of shard T into int:
     var s as int is size of T
     if s <= 0:
         return 1
+    if s >= 16:
+        return 16
     if s >= 8:
         return 8
-    return s
+    if s >= 4:
+        return 4
+    if s >= 2:
+        return 2
+    return 1
 
 # ----------------------------------------------------------------------------
 # Pointer & NULL Utilities
@@ -159,11 +168,18 @@ weave ptr_eq with a as ref to void , b as ref to void into bool:
     var ob as opaque is b
     return oa == ob
 
+## Returns `p + n` bytes without dereferencing it. The caller is responsible
+## for keeping the result inside the original allocation; this is deliberately
+## a raw operation for C interop, not a safe primitive.
+weave ptr_offset with p as ref to void , n as int into ref to void:
+    return calling pengu_ffi_ptr_offset with p , n
+
 # ----------------------------------------------------------------------------
 # External C Declarations (runtime bridges, null-safe at the C layer)
 # ----------------------------------------------------------------------------
 
 # NULL-safe owning copy of a C string (NULL -> empty string).
+declare pengu_ffi_ptr_offset with p as ref to void , n as int into ref to void
 declare pengu_ffi_cstr_string with cstr as ref to char into string
 # Read-only view of the string's internal buffer (never NULL, aliases `s`).
 declare pengu_ffi_string_cstr with s as string into ref to char
@@ -178,7 +194,7 @@ declare pengu_ffi_slice_u8 with data as ref to void , count as int into slice of
 # Non-owning int32 slice view over `count` elements at `data` (NULL-safe).
 declare pengu_ffi_slice_i32 with data as ref to void , count as int into slice of int
 # Non-owning double slice view over `count` elements at `data` (NULL-safe).
-declare pengu_ffi_slice_f64 with data as ref to void , count as int into slice of float
+declare pengu_ffi_slice_f32 with data as ref to void , count as int into slice of float
 
 # Generic owning list creation from raw buffer and element size.
 declare pengu_list_from_data with data as ref to void , elem_size as int , count as int into list of void
@@ -188,7 +204,7 @@ declare pengu_ffi_list_u8 with data as ref to void , count as int into list of b
 # Owning copy of `count` int32 elements at `data` into a new list of int.
 declare pengu_ffi_list_i32 with data as ref to void , count as int into list of int
 # Owning copy of `count` double elements at `data` into a new list of float.
-declare pengu_ffi_list_f64 with data as ref to void , count as int into list of float
+declare pengu_ffi_list_f32 with data as ref to void , count as int into list of float
 
 # Generic owning map creation from parallel key/value arrays.
 declare pengu_map_from_entries with keys as ref to void , values as ref to void , key_size as int , val_size as int , count as int into map of void to void
@@ -283,7 +299,7 @@ weave slice_of_int_from_ptr with data as ref to void , count as int into slice o
 
 ## Non-owning float slice over `count` float (double) elements starting at `data`.
 weave slice_of_float_from_ptr with data as ref to void , count as int into slice of float:
-    return calling pengu_ffi_slice_f64 with data , count
+    return calling pengu_ffi_slice_f32 with data , count
 
 ## Non-owning bool slice over `count` boolean elements starting at `data`.
 weave slice_of_bool_from_ptr with data as ref to void , count as int into slice of bool:
@@ -319,7 +335,7 @@ weave list_of_int_from_ptr with data as ref to void , count as int into list of 
 
 ## Copies `count` double elements starting at `data` into a new list of float.
 weave list_of_float_from_ptr with data as ref to void , count as int into list of float:
-    return calling pengu_ffi_list_f64 with data , count
+    return calling pengu_ffi_list_f32 with data , count
 
 ## Copies `count` bool elements starting at `data` into a new list of bool.
 weave list_of_bool_from_ptr with data as ref to void , count as int into list of bool:

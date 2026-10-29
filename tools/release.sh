@@ -18,6 +18,10 @@ if [ -z "${TARGET:-}" ]; then
 fi
 DIST="${DIST:-$ROOT/dist}"
 BIND="${PENGU_BIND:-$ROOT/build/pengu-bind}"
+if [ ! -x "$BIND" ]; then
+  echo "[release] building libclang pengu-bind"
+  "$ROOT/tools/build_bind.sh" "$BIND"
+fi
 LAYOUT="${LAYOUT:-both}"
 EPOCH="${SOURCE_DATE_EPOCH:-1700000000}"
 
@@ -50,6 +54,10 @@ pack() {
   for f in README.md CHANGELOG.md LICENSE THIRD_PARTY.md; do [ -f "$ROOT/$f" ] && cp "$ROOT/$f" "$root/share/doc/pengu/"; done
   [ -f "$ROOT/std_c/sds/LICENSE" ] && cp "$ROOT/std_c/sds/LICENSE" "$root/share/doc/pengu/SDS_LICENSE"
   [ -f "$ROOT/std_c/CC-main/LICENSE" ] && cp "$ROOT/std_c/CC-main/LICENSE" "$root/share/doc/pengu/CC_LICENSE"
+  [ -f "$ROOT/std_c/vaqt/LICENSE" ] && cp "$ROOT/std_c/vaqt/LICENSE" "$root/share/doc/pengu/VAQT_LICENSE"
+  [ -f "$ROOT/std_c/libffi/LICENSE" ] && cp "$ROOT/std_c/libffi/LICENSE" "$root/share/doc/pengu/LIBFFI_LICENSE"
+  [ -f "$ROOT/std_c/libsodium/LICENSE" ] && cp "$ROOT/std_c/libsodium/LICENSE" "$root/share/doc/pengu/LIBSODIUM_LICENSE"
+  [ -f "$ROOT/std_c/libclang/LICENSE" ] && cp "$ROOT/std_c/libclang/LICENSE" "$root/share/doc/pengu/LIBCLANG_LICENSE"
   echo "$VERSION" > "$root/VERSION"
   cat > "$root/release.toml" <<TOML
 [release]

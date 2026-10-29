@@ -376,6 +376,16 @@ weave build with o as BuildOptions into BuildResult:
     set so.compiler is (calling copy with ccn)
     banish ccn
     var sr as sema_api.SemaResult is calling sema_api.check_file with entry, so
+    # Los módulos pueden declarar `link "name"` (p. ej. std.dynlib → dl,
+    # std.ffi_call → ffi). Se añaden al toolchain antes de enlazar, sin exigir
+    # que el manifiesto del proyecto los repita.
+    for ml in sr.program->symbols.links:
+        var already as bool is false
+        for tl in tc.links:
+            if tl == ml:
+                set already is true
+        if not already:
+            calling tc.links.push with (calling copy with ml)
     var bag_ref as ref to diag.DiagnosticBag is (sigil of sr.program->diagnostics)
     var bag_v as diag.DiagnosticBag is sr.program->diagnostics
     if not sr.ok or bag_ref->error_count > 0:

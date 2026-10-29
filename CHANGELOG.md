@@ -2,6 +2,28 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.14.0] — 2026-10-28 — vaqt, libffi opcional, FFI endurecido y bind con libclang
+
+- `std.ffi`: `SIZEOF_FLOAT` corregido a 4; `alignment_of` ya no depende sólo
+  del tamaño; nuevas vistas `slice/list` de `float` de 32 bits y
+  `ptr_offset`; `ptr_offset` es explícitamente una operación cruda.
+- Nuevo `std.chrono` con `Instant`/`Duration` de precisión de nanosegundos,
+  ISO 8601, calendario y aritmética, respaldado por **vaqt** vendorizado en
+  `std_c/vaqt` (BSD-3). `std.chronicle` conserva su API histórica.
+- Nuevo `std.ffi_call` (libffi) y `std.dynlib` (`dlopen`/Win32) como módulos
+  opcionales; libffi queda vendorizado en `std_c/libffi` (MIT) y no se enlaza
+  al runtime base.
+- Nuevo `std.secrets` para aleatoriedad segura/SHA-256/wipe con **libsodium**
+  (ISC), también opcional.
+- `tools/pengu-bind-clang.c` + `tools/build_bind.sh`: generador de bindings
+  basado en **libclang** (Apache-2.0 con excepciones LLVM), sin Python en el
+  camino de release. `tools/release.sh` lo construye y empaqueta.
+- `docs/EXTERNAL_MODULES.md`, `THIRD_PARTY.md` y README actualizados con
+  créditos, licencias y layout `std_c/<lib>/`.
+- `std_c/vaqt`, `std_c/libffi`, `std_c/libsodium`, `std_c/libclang` añadidos
+  con README/licencia; las librerías opcionales no entran al runtime base.
+- `psc 0.14.0 (F11)`.
+
 ## [0.13.0] — 2026-10-28 — Monomorfización real y contenedores genéricos
 
 - F3 materializa tipos genéricos (`Box of int`, `Box of string`, `Box of

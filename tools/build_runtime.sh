@@ -16,7 +16,7 @@ cp "$ROOT/pengu_runtime.h" "$INC/pengu_runtime.h"
 # bundles compile with the same `-I` as the runtime.
 cp "$ROOT/std_c/sds/sds.h" "$INC/sds.h"
 
-FLAGS=(-O2 -std=c11 -I"$ROOT" -I"$INC" -I"$ROOT/std_c/sds" -I"$ROOT/std_c/CC-main" -ffunction-sections -fdata-sections)
+FLAGS=(-O2 -std=c11 -D_POSIX_C_SOURCE=200809L -I"$ROOT" -I"$INC" -I"$ROOT/std_c/sds" -I"$ROOT/std_c/CC-main" -I"$ROOT/std_c/vaqt/src" -ffunction-sections -fdata-sections)
 WERROR=(-Werror)
 [ "${PENGU_NO_WERROR:-0}" = "1" ] && WERROR=()
 OBJS=()
@@ -34,6 +34,29 @@ done
   -ffunction-sections -fdata-sections \
   -c "$ROOT/std_c/sds/sds.c" -o "$SOBJ/sds.o"
 OBJS+=("$SOBJ/sds.o")
+# vaqt: high-precision date/time (BSD-3, vendored in std_c/vaqt).
+for src in "$ROOT"/std_c/vaqt/src/*.c; do
+  name="$(basename "$src" .c)"
+  "$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \
+    -c "$src" -o "$SOBJ/vaqt_$name.o"
+  OBJS+=("$SOBJ/vaqt_$name.o")
+done
+"$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \
+  -c "$ROOT/runtime/pengu_vaqt.c" -o "$OBJ/pengu_vaqt.o"
+OBJS+=("$OBJ/pengu_vaqt.o")
+# Optional libffi/dlfcn bridge.  The object is only pulled in by modules that
+# reference its symbols; projects that do not import std.ffi_call/std.dynlib do
+# not need -lffi/-ldl.
+if printf '#include <ffi.h>\n' | "$CC" -E -x c - >/dev/null 2>&1; then
+  "$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \
+    -c "$ROOT/runtime/pengu_ffi_call.c" -o "$OBJ/pengu_ffi_call.o"
+  OBJS+=("$OBJ/pengu_ffi_call.o")
+fi
+if printf '#include <sodium.h>\n' | "$CC" -E -x c - >/dev/null 2>&1; then
+  "$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \
+    -c "$ROOT/runtime/pengu_sodium.c" -o "$OBJ/pengu_sodium.o"
+  OBJS+=("$OBJ/pengu_sodium.o")
+fi
 # Convenient Containers adapter: the only TU that includes cc.h, so generated
 # bundles never see its macros or its C11 `typeof` requirement.
 "$CC" "${FLAGS[@]}" -Wall -Wextra "${WERROR[@]}" \

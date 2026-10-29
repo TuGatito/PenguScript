@@ -1,0 +1,47 @@
+## std/ffi_call.pengu — optional libffi-backed dynamic calls.
+##
+## This module is a satellite-style surface: it links `-lffi` only when
+## imported.  It complements `std.ffi` (buffer/string conversion) and
+## `std.dynlib` (symbol lookup).  The generated compiler/runtime never depends
+## on libffi unless this module is in the program.
+##
+## Type codes accepted by `FfiSignature`:
+##   0 void, 1 i8, 2 u8, 3 i16, 4 u16, 5 i32, 6 u32,
+##   7 i64, 8 u64, 9 f32, 10 f64, 11 pointer, 12 C string, 13 bool.
+##
+## ## Memory
+## `signature` allocates an opaque `FfiSignature`; release it with `release`.
+## `call` writes into the caller-provided output; no allocation is retained.
+
+import std.oracle
+
+link "ffi"
+
+const FFI_CALL_VERSION as string is "1.0.0"
+
+rune FfiSignature:
+    _sig as opaque
+
+declare ccx_ffi_sig_new with ret as int, args as list of int into opaque
+declare ccx_ffi_sig_free with sig as opaque into void
+declare ccx_ffi_call with sig as opaque, fn as ref to void, args as list of ref to void, out as ref to void into bool
+declare ccx_ffi_ret_size with sig as opaque into int
+
+## Builds a call signature. The result owns the signature on success.
+weave signature with ret as int, args as list of int into result of FfiSignature to string:
+    var raw as opaque is calling ccx_ffi_sig_new with ret, args
+    if raw == null:
+        return calling err_of with "libffi: unsupported signature or allocation failure"
+    return calling ok_of with (with _sig is raw)
+
+## Calls `fn` with `args` (each element is a pointer to the argument value) and
+## stores the return value in `out`. The caller owns the signature and output.
+weave call with fn as ref to void, sig as ref to FfiSignature, args as list of ref to void, out as ref to void into bool:
+    return calling ccx_ffi_call with sig->_sig, fn, args, out
+
+weave ret_size with sig as ref to FfiSignature into int:
+    return calling ccx_ffi_ret_size with sig->_sig
+
+enchanting FfiSignature:
+    weave release into void:
+        calling ccx_ffi_sig_free with self->_sig

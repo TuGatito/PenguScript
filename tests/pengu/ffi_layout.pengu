@@ -1,0 +1,22 @@
+import std.ffi
+import std.spark
+
+weave main into int:
+    if SIZEOF_FLOAT != 4:
+        return 1
+    if SIZEOF_BYTE != 1 or SIZEOF_CHAR != 1 or SIZEOF_BOOL != 1:
+        return 1
+    if calling alignment_of of int < 1:
+        return 1
+    var b as byte is 7
+    var p as ref to void is calling ptr_offset with (sigil of b), 0
+    if p == null:
+        return 1
+    var data as string is "abc"
+    var cp as ref to char is calling cstr_from_string with data
+    if cp == null:
+        banish data
+        return 1
+    banish data
+    calling spark.println with "OK ffi_layout"
+    return 0

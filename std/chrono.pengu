@@ -1,0 +1,197 @@
+## std/chrono.pengu — high-precision instants and durations.
+##
+## This is the additive vaqt-backed API.  The historical `std.chronicle` API
+## (Unix seconds as `float`, libc `strftime`/`localtime`) remains unchanged for
+## compatibility; new code that needs nanoseconds, ISO 8601 round-trips or
+## calendar arithmetic should use `Instant`/`Duration` here.
+##
+## `Instant` stores seconds since 0001-01-01 UTC plus nanoseconds within the
+## second, exactly like Go's `time.Time` (and vaqt).  `Duration` is a signed
+## 64-bit nanosecond count (about ±290 years).
+##
+## ## Memory
+## `Instant` and `Duration` are plain values.  `format_iso`/`format_date`/
+## `format_datetime` return an owned string (release with `banish`); the rest
+## allocate nothing.
+##
+## ## Example
+## ```pengu
+## import std.chrono
+## import std.spark
+##
+## weave main into int:
+##     var t as chrono.Instant is calling chrono.now
+##     var s as string is calling t.format_iso with 0
+##     calling spark.println with s
+##     banish s
+##     return 0
+## ```
+
+import std.spark
+
+const CHRONO_VERSION as string is "1.0.0"
+
+## Nanoseconds in one microsecond/millisecond/second/minute/hour.
+const NANOSECOND as i64 is 1
+const MICROSECOND as i64 is 1000
+const MILLISECOND as i64 is 1000000
+const SECOND as i64 is 1000000000
+const MINUTE as i64 is 60000000000
+const HOUR as i64 is 3600000000000
+
+## A high-precision instant: seconds since 0001-01-01 UTC and nanoseconds.
+rune Instant:
+    sec as i64
+    nsec as i32
+
+## A signed duration in nanoseconds.
+alias Duration as i64
+
+declare pengu_vaqt_now with sec as ref to i64, nsec as ref to i32 into void
+declare pengu_vaqt_from_unix with sec as i64, nsec as i32, out_sec as ref to i64, out_nsec as ref to i32 into void
+declare pengu_vaqt_to_unix with sec as i64, nsec as i32, out_sec as ref to i64, out_nsec as ref to i32 into void
+declare pengu_vaqt_year with sec as i64, nsec as i32 into int
+declare pengu_vaqt_month with sec as i64, nsec as i32 into int
+declare pengu_vaqt_day with sec as i64, nsec as i32 into int
+declare pengu_vaqt_hour with sec as i64, nsec as i32 into int
+declare pengu_vaqt_minute with sec as i64, nsec as i32 into int
+declare pengu_vaqt_second with sec as i64, nsec as i32 into int
+declare pengu_vaqt_nano with sec as i64, nsec as i32 into int
+declare pengu_vaqt_weekday with sec as i64, nsec as i32 into int
+declare pengu_vaqt_yearday with sec as i64, nsec as i32 into int
+declare pengu_vaqt_compare with asec as i64, ansec as i32, bsec as i64, bnsec as i32 into int
+declare pengu_vaqt_add with sec as i64, nsec as i32, add_sec as i64, add_nsec as i32, out_sec as ref to i64, out_nsec as ref to i32 into void
+declare pengu_vaqt_add_date with sec as i64, nsec as i32, years as int, months as int, days as int, out_sec as ref to i64, out_nsec as ref to i32 into void
+declare pengu_vaqt_format_iso with sec as i64, nsec as i32, offset as int into string
+declare pengu_vaqt_format_date with sec as i64, nsec as i32, offset as int into string
+declare pengu_vaqt_format_datetime with sec as i64, nsec as i32, offset as int into string
+declare pengu_vaqt_parse_iso with s as string, out_sec as ref to i64, out_nsec as ref to i32 into bool
+
+## Current UTC instant.
+weave now into Instant:
+    var sec as i64 is 0
+    var nsec as i32 is 0
+    calling pengu_vaqt_now with (sigil of sec), (sigil of nsec)
+    return with sec is sec, nsec is nsec
+
+## Builds an Instant from a Unix timestamp (seconds since 1970 UTC).
+weave from_unix with sec as i64, nsec as i32 is 0 into Instant:
+    var os as i64 is 0
+    var on as i32 is 0
+    calling pengu_vaqt_from_unix with sec, nsec, (sigil of os), (sigil of on)
+    return with sec is os, nsec is on
+
+## Builds an Instant from a Unix timestamp expressed as whole seconds.
+weave from_unix_sec with sec as i64 into Instant:
+    return calling from_unix with sec, 0
+
+## Returns the Unix timestamp in whole seconds (truncating sub-second part).
+weave to_unix with t as Instant into i64:
+    var sec as i64 is 0
+    var nsec as i32 is 0
+    calling pengu_vaqt_to_unix with t.sec, t.nsec, (sigil of sec), (sigil of nsec)
+    return sec
+
+## Returns the Unix timestamp in nanoseconds.
+weave to_unix_nano with t as Instant into i64:
+    var sec as i64 is 0
+    var nsec as i32 is 0
+    calling pengu_vaqt_to_unix with t.sec, t.nsec, (sigil of sec), (sigil of nsec)
+    return (sec * SECOND) + (nsec to i64)
+
+## ISO 8601 representation. `offset` is seconds east of UTC (0 = Z).
+weave format_iso with t as Instant, offset as int is 0 into string:
+    return calling pengu_vaqt_format_iso with t.sec, t.nsec, offset
+
+weave format_date with t as Instant, offset as int is 0 into string:
+    return calling pengu_vaqt_format_date with t.sec, t.nsec, offset
+
+weave format_datetime with t as Instant, offset as int is 0 into string:
+    return calling pengu_vaqt_format_datetime with t.sec, t.nsec, offset
+
+## Parses the ISO/fecha/hora layouts supported by vaqt. Returns `maybe none`
+## for text that is not a valid zero-valued instant.
+weave parse_iso with s as string into maybe Instant:
+    var sec as i64 is 0
+    var nsec as i32 is 0
+    if calling pengu_vaqt_parse_iso with s, (sigil of sec), (sigil of nsec):
+        var out as Instant is with sec is sec, nsec is nsec
+        return some out
+    return maybe none
+
+## Calendar fields in UTC.
+weave year with t as Instant into int:
+    return calling pengu_vaqt_year with t.sec, t.nsec
+weave month with t as Instant into int:
+    return calling pengu_vaqt_month with t.sec, t.nsec
+weave day with t as Instant into int:
+    return calling pengu_vaqt_day with t.sec, t.nsec
+weave hour with t as Instant into int:
+    return calling pengu_vaqt_hour with t.sec, t.nsec
+weave minute with t as Instant into int:
+    return calling pengu_vaqt_minute with t.sec, t.nsec
+weave second with t as Instant into int:
+    return calling pengu_vaqt_second with t.sec, t.nsec
+weave nanosecond with t as Instant into int:
+    return calling pengu_vaqt_nano with t.sec, t.nsec
+weave weekday with t as Instant into int:
+    return calling pengu_vaqt_weekday with t.sec, t.nsec
+weave yearday with t as Instant into int:
+    return calling pengu_vaqt_yearday with t.sec, t.nsec
+
+## -1, 0 or 1.
+weave compare with a as Instant, b as Instant into int:
+    return calling pengu_vaqt_compare with a.sec, a.nsec, b.sec, b.nsec
+
+weave is_before with a as Instant, b as Instant into bool:
+    return (calling compare with a, b) < 0
+weave is_after with a as Instant, b as Instant into bool:
+    return (calling compare with a, b) > 0
+weave equals with a as Instant, b as Instant into bool:
+    return (calling compare with a, b) == 0
+
+## Adds a duration in nanoseconds.
+weave add_duration with t as Instant, d as Duration into Instant:
+    var sec as i64 is 0
+    var nsec as i32 is 0
+    var ds as i64 is d / SECOND
+    var dn as i32 is (d % SECOND) to i32
+    calling pengu_vaqt_add with t.sec, t.nsec, ds, dn, (sigil of sec), (sigil of nsec)
+    return with sec is sec, nsec is nsec
+
+## Adds calendar years, months and days.
+weave add_date with t as Instant, years as int, months as int, days as int into Instant:
+    var sec as i64 is 0
+    var nsec as i32 is 0
+    calling pengu_vaqt_add_date with t.sec, t.nsec, years, months, days, (sigil of sec), (sigil of nsec)
+    return with sec is sec, nsec is nsec
+
+weave sub with a as Instant, b as Instant into Duration:
+    return ((a.sec - b.sec) * SECOND) + ((a.nsec - b.nsec) to i64)
+
+enchanting Instant:
+    weave format_iso into string:
+        return calling pengu_vaqt_format_iso with self.sec, self.nsec, 0
+    weave to_iso into string:
+        return calling pengu_vaqt_format_iso with self.sec, self.nsec, 0
+    weave to_unix_sec into i64:
+        var sec as i64 is 0
+        var nsec as i32 is 0
+        calling pengu_vaqt_to_unix with self.sec, self.nsec, (sigil of sec), (sigil of nsec)
+        return sec
+    weave plus_nanos with d as i64 into Instant:
+        var sec as i64 is 0
+        var nsec as i32 is 0
+        var ds as i64 is d / SECOND
+        var dn as i32 is (d % SECOND) to i32
+        calling pengu_vaqt_add with self.sec, self.nsec, ds, dn, (sigil of sec), (sigil of nsec)
+        return with sec is sec, nsec is nsec
+    weave plus_days with d as int into Instant:
+        var sec as i64 is 0
+        var nsec as i32 is 0
+        calling pengu_vaqt_add_date with self.sec, self.nsec, 0, 0, d, (sigil of sec), (sigil of nsec)
+        return with sec is sec, nsec is nsec
+    weave is_before_with with other as Instant into bool:
+        return (calling pengu_vaqt_compare with self.sec, self.nsec, other.sec, other.nsec) < 0
+    weave is_after_with with other as Instant into bool:
+        return (calling pengu_vaqt_compare with self.sec, self.nsec, other.sec, other.nsec) > 0

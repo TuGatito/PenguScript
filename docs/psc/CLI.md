@@ -34,14 +34,18 @@ psc bind HEADER [--prefix P] [--links L...] [--ignore S...]
 ```
 
 `psc bind` localiza `pengu-bind` en `$PENGU_BIND`, junto a `psc`,
-`libexec/pengu`, `$PENGU_HOME` o `PATH`. El helper es un binario autocontenido:
-no requiere Python en el equipo de destino.
+`libexec/pengu`, `$PENGU_HOME` o `PATH`. El helper por defecto es el binario C
+construido por `tools/build_bind.sh` contra **libclang**; no requiere Python.
 
 ## Release
 
 ```bash
-python psc/tools/release.py --dist-dir dist --layout both
+tools/build_bind.sh
+tools/release.sh
 ```
+
+`tools/release.sh` usa `build/psc` y `build/pengu-bind` y genera portable/FHS,
+`release.toml` y `SHA256SUMS` sin Python.
 
 Genera portable y FHS, `release.toml` y `SHA256SUMS`. El paquete incluye
 `psc`, `pengu-bind`, `std/`, headers, runtime y stubs.

@@ -1,0 +1,42 @@
+## std/dynlib.pengu — portable dynamic-library loading.
+##
+## POSIX uses `dlopen`/`dlsym`/`dlclose`; Windows uses
+## `LoadLibraryA`/`GetProcAddress`/`FreeLibrary`.  Loading native code is a
+## capability: never pass a path or symbol controlled by untrusted input.
+##
+## ## Memory
+## `Library` owns one native handle; call `close` exactly once.
+
+import std.ffi
+import std.oracle
+
+when os != "windows":
+    link "dl"
+
+rune Library:
+    _handle as opaque
+
+declare ccx_dyn_open with path as ref to frozen char into opaque
+declare ccx_dyn_symbol with handle as opaque, name as ref to frozen char into ref to void
+declare ccx_dyn_close with handle as opaque into void
+
+weave open with path as string into result of Library to string:
+    var h as opaque is calling ccx_dyn_open with (calling ffi_cstr with path)
+    if h == null:
+        return calling err_of with "dynamic library could not be loaded"
+    return calling ok_of with (with _handle is h)
+
+weave symbol with lib as ref to Library, name as string into result of ref to void to string:
+    var p as ref to void is calling ccx_dyn_symbol with lib->_handle, (calling ffi_cstr with name)
+    if p == null:
+        return calling err_of with "symbol not found"
+    return calling ok_of with p
+
+weave close with lib as ref to Library into void:
+    calling ccx_dyn_close with lib->_handle
+
+## C string view helper; the pointer is valid for the duration of the call.
+antiquus ffi_cstr with s as string into ref to frozen char:
+    r"""
+return s.data ? s.data : "";
+"""
