@@ -1,6 +1,6 @@
 [project]
 name = "psc"
-version = "0.16.1"
+version = "0.17.0"
 entry = "src/main.pengu"
 output = "exe"
 output_name = "psc"

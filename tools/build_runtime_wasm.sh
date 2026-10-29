@@ -90,6 +90,11 @@ done
   -c "$ROOT/runtime/pengu_vaqt.c" -o "$OBJ/pengu_vaqt.o"
 OBJS+=("$OBJ/pengu_vaqt.o")
 
+echo "[runtime-wasm] JS bridge"
+"$EMCC" "${FLAGS[@]}" -Wall -Wextra \
+  -c "$ROOT/runtime/pengu_js.c" -o "$OBJ/pengu_js.o"
+OBJS+=("$OBJ/pengu_js.o")
+
 echo "[runtime-wasm] containers"
 "$EMCC" "${FLAGS[@]}" -Wall -Wextra \
   -c "$ROOT/runtime/pengu_containers.c" -o "$OBJ/pengu_containers.o"

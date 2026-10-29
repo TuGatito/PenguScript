@@ -1,0 +1,38 @@
+## std.web.fetch — callback-oriented fetch helpers.
+##
+## WebAssembly-only. The callbacks run on the JS event loop; keep the runtime
+## alive with `std.web.set_main_loop` (or a DOM event) until they fire.
+##
+## The callback string is borrowed for the duration of the call; copy it if
+## you need to retain it.
+##
+## ```pengu
+## weave on_text with text as string into void:
+##     ...
+## weave on_error with text as string into void:
+##     ...
+## calling fetch.get_text with "https://example.com", on_text, on_error
+## ```
+
+import std.web.js as js
+
+when wasm:
+
+    ## GET `url`; `on_ok` receives the response body, `on_err` a diagnostic.
+    weave get_text with url as string, on_ok as weave with text as string into void, on_err as weave with text as string into void into result of bool to js.JsError:
+        return calling js.fetch_text with url, on_ok, on_err
+
+    ## POST `body` to `url`.
+    weave post_text with url as string, body as string, on_ok as weave with text as string into void, on_err as weave with text as string into void into result of bool to js.JsError:
+        return calling js.fetch_post with url, body, on_ok, on_err
+
+when not wasm:
+
+    weave _native_error into js.JsError:
+        return with name is "NotSupported", message is "std.web.fetch requires a wasm build", stack is ""
+
+    weave get_text with url as string, on_ok as weave with text as string into void, on_err as weave with text as string into void into result of bool to js.JsError:
+        return calling err_of with (calling _native_error)
+
+    weave post_text with url as string, body as string, on_ok as weave with text as string into void, on_err as weave with text as string into void into result of bool to js.JsError:
+        return calling err_of with (calling _native_error)

@@ -1,0 +1,131 @@
+## std.web.storage — localStorage/sessionStorage helpers.
+##
+## WebAssembly-only (the browser provides the Storage API). Values are strings;
+## missing keys return `none`.
+
+import std.web.js as js
+
+when wasm:
+
+    ## Reads `area.getItem(key)`.
+    weave _get with area as string, key as string into result of maybe string to js.JsError:
+        var g as js.JsValue is calling js.global
+        defer calling js.release with g
+        var a as result of js.JsValue to js.JsError is calling js.get with g, area
+        if not a.is_ok:
+            return calling err_of with a.error
+        var k as result of js.JsValue to js.JsError is calling js.string with key
+        if not k.is_ok:
+            calling js.release with a.value
+            return calling err_of with k.error
+        var args as list of js.JsValue is list of js.JsValue
+        calling args.push with k.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "getItem", args
+        calling js.release with k.value
+        calling js.release with a.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        if calling js.is_null with r.value:
+            calling js.release with r.value
+            return calling ok_of with (maybe none)
+        var s as result of string to js.JsError is calling js.from_string with r.value
+        calling js.release with r.value
+        if not s.is_ok:
+            return calling err_of with s.error
+        return calling ok_of with (some s.value)
+
+    ## Writes `area.setItem(key, value)`.
+    weave _set with area as string, key as string, value as string into result of bool to js.JsError:
+        var g as js.JsValue is calling js.global
+        defer calling js.release with g
+        var a as result of js.JsValue to js.JsError is calling js.get with g, area
+        if not a.is_ok:
+            return calling err_of with a.error
+        var k as result of js.JsValue to js.JsError is calling js.string with key
+        var v as result of js.JsValue to js.JsError is calling js.string with value
+        if not k.is_ok:
+            calling js.release with a.value
+            return calling err_of with k.error
+        if not v.is_ok:
+            calling js.release with a.value
+            calling js.release with k.value
+            return calling err_of with v.error
+        var args as list of js.JsValue is list of js.JsValue
+        calling args.push with k.value
+        calling args.push with v.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "setItem", args
+        calling js.release with k.value
+        calling js.release with v.value
+        calling js.release with a.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Removes `area.removeItem(key)`.
+    weave _remove with area as string, key as string into result of bool to js.JsError:
+        var g as js.JsValue is calling js.global
+        defer calling js.release with g
+        var a as result of js.JsValue to js.JsError is calling js.get with g, area
+        if not a.is_ok:
+            return calling err_of with a.error
+        var k as result of js.JsValue to js.JsError is calling js.string with key
+        if not k.is_ok:
+            calling js.release with a.value
+            return calling err_of with k.error
+        var args as list of js.JsValue is list of js.JsValue
+        calling args.push with k.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "removeItem", args
+        calling js.release with k.value
+        calling js.release with a.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## `localStorage.getItem(key)`.
+    weave local_get with key as string into result of maybe string to js.JsError:
+        return calling _get with "localStorage", key
+
+    ## `localStorage.setItem(key, value)`.
+    weave local_set with key as string, value as string into result of bool to js.JsError:
+        return calling _set with "localStorage", key, value
+
+    ## `localStorage.removeItem(key)`.
+    weave local_remove with key as string into result of bool to js.JsError:
+        return calling _remove with "localStorage", key
+
+    ## `sessionStorage.getItem(key)`.
+    weave session_get with key as string into result of maybe string to js.JsError:
+        return calling _get with "sessionStorage", key
+
+    ## `sessionStorage.setItem(key, value)`.
+    weave session_set with key as string, value as string into result of bool to js.JsError:
+        return calling _set with "sessionStorage", key, value
+
+    ## `sessionStorage.removeItem(key)`.
+    weave session_remove with key as string into result of bool to js.JsError:
+        return calling _remove with "sessionStorage", key
+
+when not wasm:
+
+    weave _native_error into js.JsError:
+        return with name is "NotSupported", message is "std.web.storage requires a wasm build", stack is ""
+
+    weave local_get with key as string into result of maybe string to js.JsError:
+        return calling err_of with (calling _native_error)
+
+    weave local_set with key as string, value as string into result of bool to js.JsError:
+        return calling err_of with (calling _native_error)
+
+    weave local_remove with key as string into result of bool to js.JsError:
+        return calling err_of with (calling _native_error)
+
+    weave session_get with key as string into result of maybe string to js.JsError:
+        return calling err_of with (calling _native_error)
+
+    weave session_set with key as string, value as string into result of bool to js.JsError:
+        return calling err_of with (calling _native_error)
+
+    weave session_remove with key as string into result of bool to js.JsError:
+        return calling err_of with (calling _native_error)

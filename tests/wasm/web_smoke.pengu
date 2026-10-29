@@ -1,0 +1,124 @@
+import std.spark
+import std.web.js as js
+import std.web.dom as dom
+import std.web.canvas as canvas
+import std.web.storage as storage
+
+weave setup into bool:
+    var code as string is r"""
+globalThis.document = {
+  querySelector: function(sel) {
+    return {
+      textContent: "",
+      value: "",
+      setAttribute: function(n, v) { this[n] = v; },
+      classList: { add: function(n) { this[n] = true; }, remove: function(n) { delete this[n]; } },
+      appendChild: function(c) { return c; },
+      addEventListener: function(n, f) { this[n] = f; },
+      remove: function() { },
+      getContext: function(kind) {
+        return {
+          fillStyle: "", strokeStyle: "",
+          fillRect: function() { }, clearRect: function() { }, strokeRect: function() { },
+          fillText: function() { }, beginPath: function() { }, moveTo: function() { },
+          lineTo: function() { }, stroke: function() { }
+        };
+      }
+    };
+  },
+  createElement: function(tag) {
+    return {
+      tagName: tag, textContent: "", value: "",
+      setAttribute: function(n, v) { this[n] = v; },
+      classList: { add: function() { }, remove: function() { } },
+      appendChild: function(c) { return c; },
+      addEventListener: function() { },
+      remove: function() { }
+    };
+  }
+};
+globalThis.localStorage = {
+  _d: {},
+  getItem: function(k) { return Object.prototype.hasOwnProperty.call(this._d, k) ? this._d[k] : null; },
+  setItem: function(k, v) { this._d[k] = String(v); },
+  removeItem: function(k) { delete this._d[k]; }
+};
+"""
+    var r as result of js.JsValue to js.JsError is calling js.eval with code
+    banish code
+    if not r.is_ok:
+        banish r.error.message
+        banish r.error.stack
+        banish r.error.name
+        return false
+    calling js.release with r.value
+    return true
+
+weave on_event with ev as js.JsValue into void:
+    return
+
+weave main into int:
+    if not (calling setup):
+        calling spark.println with "setup failed"
+        return 1
+    var q as result of dom.Element to js.JsError is calling dom.query with "#app"
+    if not q.is_ok:
+        calling spark.println with "query failed"
+        return 1
+    var sr as result of bool to js.JsError is calling dom.set_text with (sigil of q.value), "hello"
+    if not sr.is_ok:
+        calling spark.println with "set_text failed"
+        return 1
+    var tr as result of string to js.JsError is calling dom.text with (sigil of q.value)
+    if not tr.is_ok:
+        calling spark.println with "text failed"
+        return 1
+    if tr.value != "hello":
+        calling spark.println with "text mismatch"
+        return 1
+    banish tr.value
+    calling dom.add_class with (sigil of q.value), "active"
+    calling dom.set_attr with (sigil of q.value), "id", "app"
+    calling dom.on with (sigil of q.value), "click", on_event
+    var child as result of dom.Element to js.JsError is calling dom.create with "span"
+    if child.is_ok:
+        calling dom.append with (sigil of q.value), (sigil of child.value)
+        calling dom.free with (sigil of child.value)
+    calling dom.remove with (sigil of q.value)
+    calling dom.free with (sigil of q.value)
+    var cv as result of canvas.Canvas to js.JsError is calling canvas.context2d with "#canvas"
+    if not cv.is_ok:
+        calling spark.println with "canvas failed"
+        return 1
+    calling canvas.set_fill_style with (sigil of cv.value), "#ff0000"
+    calling canvas.fill_rect with (sigil of cv.value), 1.0, 2.0, 3.0, 4.0
+    calling canvas.fill_text with (sigil of cv.value), "hi", 1.0, 2.0
+    calling canvas.begin_path with (sigil of cv.value)
+    calling canvas.move_to with (sigil of cv.value), 0.0, 0.0
+    calling canvas.line_to with (sigil of cv.value), 5.0, 5.0
+    calling canvas.stroke with (sigil of cv.value)
+    calling canvas.free with (sigil of cv.value)
+    var setr as result of bool to js.JsError is calling storage.local_set with "k", "v"
+    if not setr.is_ok:
+        calling spark.println with "storage set failed"
+        return 1
+    var getr as result of maybe string to js.JsError is calling storage.local_get with "k"
+    if not getr.is_ok:
+        calling spark.println with "storage get failed"
+        return 1
+    if not getr.value.is_present:
+        calling spark.println with "storage missing"
+        return 1
+    if getr.value.value != "v":
+        calling spark.println with "storage mismatch"
+        return 1
+    banish getr.value.value
+    banish getr.value
+    calling storage.local_remove with "k"
+    var missing as result of maybe string to js.JsError is calling storage.local_get with "k"
+    if missing.is_ok and missing.value.is_present:
+        calling spark.println with "storage remove failed"
+        return 1
+    banish missing
+    calling spark.println with "WEB OK"
+    return 0

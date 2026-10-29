@@ -205,6 +205,20 @@ weave needs_threads with p as ref to program.SemaProgram into bool:
         set i is i + 1
     return false
 
+## `true` si el programa usa la capa JS (`std.web.js`).
+##
+## Todos los módulos web importan `std.web.js`, así que comprobar su path es
+## suficiente. Los programas sin JS no pagan `--js-library` ni exports extra.
+weave needs_js with p as ref to program.SemaProgram into bool:
+    var i as int is 0
+    while i < p->modules.len:
+        var m as loader.SemaModule is (p->modules at i)
+        var path as string is m.source.path
+        if (calling ends_with with path, "/std/web/js.pengu") or (calling ends_with with path, "std/web/js.pengu"):
+            return true
+        set i is i + 1
+    return false
+
 ## Archivero para wasm: `emar` del mismo emsdk que `emcc`, o `emar` del PATH.
 ##
 ## ## Memoria
@@ -527,6 +541,18 @@ weave build with o as BuildOptions into BuildResult:
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is false, error is (calling copy with "output = \"shared\" is not supported for wasm: a side module needs -fPIC on every input, including the runtime archive. Use output = \"static\" or the default .html/.js/.wasm"), artifact is "", bundle_path is ""
     var needs_th as bool is calling needs_threads with sr.program
+    var needs_web_js as bool is calling needs_js with sr.program
+    if eff.is_wasm and needs_web_js and p.js_library length == 0:
+        banish cwd
+        banish target
+        banish start
+        banish root
+        banish entry
+        calling sema_api.free_result with (sigil of sr)
+        calling manifest.free_manifest with (sigil of man)
+        calling paths.free_paths with (sigil of p)
+        calling toolchain.free_toolchain with (sigil of tc)
+        return with ok is false, error is (calling copy with "std.web.js needs runtime/pengu_js.js; rebuild the wasm runtime or reinstall the package"), artifact is "", bundle_path is ""
     var cgo as cgopt.CgOptions is calling cgopt.default_options with (calling copy with base)
     calling targetmod.apply_cg with eff, (sigil of cgo)
     set cgo.entry_file is (calling copy with entry)
@@ -802,6 +828,14 @@ weave build with o as BuildOptions into BuildResult:
             if p.wasm_shell length > 0:
                 calling args.push with "--shell-file"
                 calling args.push with (calling copy with p.wasm_shell)
+            if needs_web_js:
+                if p.js_pre length > 0:
+                    calling args.push with "--pre-js"
+                    calling args.push with (calling copy with p.js_pre)
+                calling args.push with "--js-library"
+                calling args.push with (calling copy with p.js_library)
+                calling args.push with "-sEXPORTED_FUNCTIONS=_main,_malloc,_free,_pengu_js_invoke,_pengu_js_invoke_string"
+                calling args.push with "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,FS,UTF8ToString,stringToUTF8,lengthBytesUTF8"
         else if so.os_name == "windows":
             calling args.push with "-lm"
             calling args.push with "-lws2_32"

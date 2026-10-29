@@ -56,8 +56,29 @@ check "build hello" "$PSC" build "$HELLO" --target wasm --profile=release --no-c
 check "node hello" bash -c "test \"\$(node '$TMP/hello.js')\" = 'wasm hello'"
 check "psc run hello" bash -c "test \"\$('$PSC' run '$HELLO' --target wasm --profile=release --no-cache)\" = 'wasm hello'"
 
+# Copy sources to TMP so the intermediate bundle names cannot collide with
+# the native suite (which runs its own copy of std_web_smoke.pengu).
+cp "$ROOT/tests/wasm/js_smoke.pengu" "$TMP/js_smoke.pengu"
+cp "$ROOT/tests/wasm/web_smoke.pengu" "$TMP/web_smoke.pengu"
+cp "$ROOT/tests/wasm/web_compile.pengu" "$TMP/web_compile.pengu"
+cp "$ROOT/tests/wasm/std_web_smoke.pengu" "$TMP/std_web_smoke.pengu"
+
+# std.web.js: eval/get/set/call and a C callback invoked from JS.
+check "std.web.js build" "$PSC" build "$TMP/js_smoke.pengu" --target wasm --profile=release --no-cache --out="$TMP/js_smoke"
+js_out="$(node "$TMP/js_smoke.js" 2>/dev/null || true)"
+check "std.web.js" grep -q 'JS OK' <<<"$js_out"
+
+# std.web.dom / std.web.canvas / std.web.storage against a minimal fake DOM.
+check "std.web dom build" "$PSC" build "$TMP/web_smoke.pengu" --target wasm --profile=release --no-cache --out="$TMP/web_smoke"
+web_out="$(node "$TMP/web_smoke.js" 2>/dev/null || true)"
+check "std.web dom/canvas/storage" grep -q 'WEB OK' <<<"$web_out"
+
+# All web modules must compile and link together (WebSocket/fetch start code).
+check "web modules compile" "$PSC" build "$TMP/web_compile.pengu" --target wasm --profile=release --no-cache --out="$TMP/web_compile"
+
 # std.web end-to-end (main loop, timers, static var).
-stdweb_out="$(timeout 30 "$PSC" run "$ROOT/tests/wasm/std_web_smoke.pengu" --target wasm --profile=release --no-cache 2>/dev/null || true)"
+check "std.web wasm build" "$PSC" build "$TMP/std_web_smoke.pengu" --target wasm --profile=release --no-cache --out="$TMP/std_web_smoke"
+stdweb_out="$(timeout 30 node "$TMP/std_web_smoke.js" 2>/dev/null || true)"
 check "std.web wasm" grep -q 'std_web_smoke: OK' <<<"$stdweb_out"
 
 # Integrated test runner.

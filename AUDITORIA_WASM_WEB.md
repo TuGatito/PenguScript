@@ -9,7 +9,7 @@
 > - **Fecha:** 2026-10-29
 > - **Entorno verificado:** Linux x86_64, `gcc`, Emscripten `6.0.13-git`
 >   (`/usr/lib/emscripten/emcc`), `emar`, Node.js `26.12.1`
-> - **Estado:** auditoría completa; **MVP F0–F4 implementado en 0.16.0**. F5–F9 quedan como plan.
+> - **Estado:** auditoría completa; **MVP F0–F4 + Track B F5–F6 implementados en 0.17.0**. F7–F9 quedan como plan.
 
 ---
 
@@ -39,8 +39,9 @@
 
 ### 0.1. Diagnóstico en una frase
 
-> **Actualización 0.16.0:** el MVP F0–F4 ya está implementado. Este documento
-> conserva el diagnóstico y el plan; el estado real está en `CHANGELOG.md`.
+> **Actualización 0.17.0:** el MVP F0–F4 y los módulos web `std.web.*`
+> (Track B, F5–F6) ya están implementados. Este documento conserva el
+> diagnóstico y el plan; el estado real está en `CHANGELOG.md`.
 
 El compilador **ya no sabe compilar a wasm**: el flag `--target` existe en el
 parser de argumentos pero el driver lo rechaza explícitamente, el modelo de
@@ -200,8 +201,9 @@ El soporte «completo» exige las tres piezas: **toolchain Emscripten**,
 
 ### 2.3. Limitaciones de esta auditoría
 
-- No se ha probado en navegador real (solo Node). Las APIs DOM/Canvas se
-  proponen, no se han implementado.
+- Las APIs DOM/Canvas se probaron contra un DOM falso en Node y se
+  compilaron para wasm, pero no se ha hecho una prueba visual en navegador
+  real.
 - La matriz de stdlib no es exhaustiva: se han probado los módulos de mayor
   riesgo y se ha inferido el resto por sus includes/dependencias.
 - El runtime wasm del §8 se construyó a mano, no con un script del repo; sirve

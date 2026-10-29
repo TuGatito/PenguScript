@@ -26,6 +26,10 @@ rune Paths:
     std_dirs as list of string
     ## Shell HTML para builds wasm exe (vacío si no hay).
     wasm_shell as string
+    ## JS library de interop wasm (vacío si no hay).
+    js_library as string
+    ## Pre-JS con los helpers de la JS library (vacío si no hay).
+    js_pre as string
 
 ## Busca el checkout subiendo desde `base_dir`.
 ##
@@ -113,6 +117,8 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
     var stdc as string is ""
     var stds as list of string is list of string
     var shell as string is ""
+    var jslib as string is ""
+    var jspre as string is ""
     var err as string is ""
     var env_archive as string is calling env_or_empty with "PENGU_RUNTIME_ARCHIVE"
     var env_lib as string is calling env_or_empty with "PENGU_LIB_DIR"
@@ -211,6 +217,17 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
                 set shell is env_shell
             else:
                 banish env_shell
+        if env_home length > 0:
+            var jhc as list of string is list of string
+            calling jhc.push with "{env_home}/share/pengu/pengu_js.js"
+            calling jhc.push with "{env_home}/lib/pengu_js.js"
+            set jslib is calling first_file with jhc
+            calling free_strings with jhc
+            var jpc as list of string is list of string
+            calling jpc.push with "{env_home}/share/pengu/pengu_js_pre.js"
+            calling jpc.push with "{env_home}/lib/pengu_js_pre.js"
+            set jspre is calling first_file with jpc
+            calling free_strings with jpc
         if shell length == 0 and env_home length > 0:
             var shc as list of string is list of string
             calling shc.push with "{env_home}/share/pengu/pengu_wasm_shell.html"
@@ -248,6 +265,17 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
             calling stds.push with st
         else:
             banish st
+    if is_wasm and jslib length == 0 and repo length > 0:
+        var jl as list of string is list of string
+        calling jl.push with "{repo}/runtime/pengu_js.js"
+        calling jl.push with "{repo}/pengu_js.js"
+        set jslib is calling first_file with jl
+        calling free_strings with jl
+        var jp as list of string is list of string
+        calling jp.push with "{repo}/runtime/pengu_js_pre.js"
+        calling jp.push with "{repo}/pengu_js_pre.js"
+        set jspre is calling first_file with jp
+        calling free_strings with jp
     if is_wasm and shell length == 0 and repo length > 0:
         var rsh as list of string is list of string
         calling rsh.push with "{repo}/pengu_wasm_shell.html"
@@ -280,7 +308,7 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
             set err is "cannot find pengu_runtime.h (set PENGU_INCLUDE_DIR or run tools/build_runtime.sh)"
     else if stds.len == 0:
         set err is "cannot find the std/ directory (set PENGU_STD_DIR)"
-    return with ok is err length == 0, error is err, repo_root is repo, runtime_archive is archive, runtime_include is include, std_c_dir is stdc, std_dirs is stds, wasm_shell is shell
+    return with ok is err length == 0, error is err, repo_root is repo, runtime_archive is archive, runtime_include is include, std_c_dir is stdc, std_dirs is stds, wasm_shell is shell, js_library is jslib, js_pre is jspre
 
 ## Libera rutas.
 ##
@@ -293,6 +321,8 @@ weave free_paths with p as ref to Paths into void:
     banish p->runtime_include
     banish p->std_c_dir
     banish p->wasm_shell
+    banish p->js_library
+    banish p->js_pre
     calling free_strings with p->std_dirs
 
 ## Libera una lista de strings owned.

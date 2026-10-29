@@ -2,6 +2,54 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.17.0] — 2026-10-29 — Web completo (Track B): `std.web.*`
+
+Cierra el Track B del plan wasm con una capa ECMAScript tipada y módulos web
+namespaced. Todo se compila con `emcc` sin Python y sin `EM_ASM`.
+
+### Añadido
+
+- **`std.web.js`**: puente JS genérico con `JsValue` opaco, `eval`, `global`,
+  `get`/`set`, índices, `call`/`new`, `typeof`, conversiones, callbacks C,
+  promesas (`promise_then`), `import_module` y `JsError`.
+- **`std.web.dom`**: `document`, `query`, `create`, texto, atributos, clases,
+  `append`/`remove`, eventos (`on`) y `value`.
+- **`std.web.fetch`**: `get_text`/`post_text` con callbacks de éxito/error.
+- **`std.web.websocket`**: `open`/`send`/`close` con callbacks de open, mensaje
+  y error/cierre.
+- **`std.web.storage`**: `localStorage` y `sessionStorage`
+  (`local_get/set/remove`, `session_get/set/remove`).
+- **`std.web.canvas`**: contexto 2D, `fillRect`/`clearRect`/`strokeRect`,
+  `fillText`, estilos, paths (`beginPath`/`moveTo`/`lineTo`/`stroke`).
+- Runtime JS ([`runtime/pengu_js.js`](runtime/pengu_js.js),
+  [`runtime/pengu_js_pre.js`](runtime/pengu_js_pre.js)) y puente C
+  ([`runtime/pengu_js.c`](runtime/pengu_js.c)). El driver añade
+  `--pre-js`, `--js-library` y los exports necesarios solo cuando el programa
+  importa `std.web.js`.
+- Los paquetes de release incluyen `share/pengu/pengu_js*.js`.
+
+### Corregido
+
+- **Callbacks con parámetros**: `ref to weave with …` en una firma C generaba
+  `void*` en lugar del puntero a función. Las APIs nuevas usan
+  `weave with …` y `std.web.set_timeout` también se corrigió.
+- **Orden de typedefs**: los alias/seals ahora se emiten antes de los structs,
+  así un campo `JsValue` en un `rune` compila.
+- **Prototipos del puente JS**: `pengu_js_*` ya no se confunde con el runtime
+  y se declara en `bundle.c`.
+- **Declaradores de callbacks con tipos cualificados**: `std.web.dom` usa un
+  alias local (`EventArg`) para que `void (*)(JsValue)` sea válido.
+- El runner nativo ejecuta también `tests/wasm/js_smoke.pengu` (stubs
+  nativos de `std.web.js`).
+
+### Tests y docs
+
+- `tests/wasm/js_smoke.pengu` (eval/get/set/call/callback), `web_smoke.pengu`
+  (DOM/canvas/storage con un DOM falso) y `web_compile.pengu` (todos los
+  módulos, fetch/WebSocket/promesas).
+- `tests/wasm/run.sh` cubre los tres; `docs/WASM.md`, `README.md` y
+  `LANGUAGE.md` documentan `std.web.*`, requisitos y límites.
+
 ## [0.16.1] — 2026-10-29 — CI wasm, README de plataforma y versión dinámica
 
 Parche de mantenimiento del MVP wasm. Los jobs de Linux y macOS fallaban solo

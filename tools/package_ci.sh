@@ -67,6 +67,11 @@ if [ -f "$ROOT/pengu_wasm_shell.html" ]; then
   mkdir -p "$OUT/share/pengu"
   cp "$ROOT/pengu_wasm_shell.html" "$OUT/share/pengu/pengu_wasm_shell.html"
 fi
+if [ -f "$ROOT/runtime/pengu_js.js" ]; then
+  mkdir -p "$OUT/share/pengu"
+  cp "$ROOT/runtime/pengu_js.js" "$OUT/share/pengu/pengu_js.js"
+  cp "$ROOT/runtime/pengu_js_pre.js" "$OUT/share/pengu/pengu_js_pre.js"
+fi
 cp -a "$ROOT/std/." "$OUT/std/"
 cp -a "$ROOT/c_bind_stubs/." "$OUT/c_bind_stubs/"
 

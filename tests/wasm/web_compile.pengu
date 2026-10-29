@@ -1,0 +1,71 @@
+import std.spark
+import std.web.dom as dom
+import std.web.canvas as canvas
+import std.web.storage as storage
+import std.web.websocket as ws
+import std.web.fetch as fetch
+import std.web.js as js
+
+weave on_text with text as string into void:
+    return
+
+weave on_event with ev as js.JsValue into void:
+    return
+
+weave main into int:
+    var d as result of dom.Element to js.JsError is calling dom.document
+    if d.is_ok:
+        var q as result of dom.Element to js.JsError is calling dom.query with "#app"
+        if q.is_ok:
+            calling dom.set_text with (sigil of q.value), "hello"
+            calling dom.free with (sigil of q.value)
+        else:
+            banish q.error.message
+            banish q.error.stack
+            banish q.error.name
+        calling dom.free with (sigil of d.value)
+    else:
+        banish d.error.message
+        banish d.error.stack
+        banish d.error.name
+    var c as result of canvas.Canvas to js.JsError is calling canvas.context2d with "#canvas"
+    if c.is_ok:
+        calling canvas.fill_rect with (sigil of c.value), 0.0, 0.0, 10.0, 10.0
+        calling canvas.free with (sigil of c.value)
+    else:
+        banish c.error.message
+        banish c.error.stack
+        banish c.error.name
+    var s as result of maybe string to js.JsError is calling storage.local_get with "key"
+    if s.is_ok:
+        banish s.value
+    else:
+        banish s.error.message
+        banish s.error.stack
+        banish s.error.name
+    var w as result of ws.Socket to js.JsError is calling ws.open with "ws://127.0.0.1:1", on_text, on_text, on_text
+    if w.is_ok:
+        calling ws.close with (sigil of w.value)
+    else:
+        banish w.error.message
+        banish w.error.stack
+        banish w.error.name
+    var p as result of js.JsValue to js.JsError is calling js.eval with "Promise.resolve(1)"
+    if p.is_ok:
+        var pt as result of bool to js.JsError is calling js.promise_then with p.value, on_event, on_event
+        if not pt.is_ok:
+            banish pt.error.message
+            banish pt.error.stack
+            banish pt.error.name
+        calling js.release with p.value
+    else:
+        banish p.error.message
+        banish p.error.stack
+        banish p.error.name
+    var f as result of bool to js.JsError is calling fetch.get_text with "data:text/plain,ok", on_text, on_text
+    if not f.is_ok:
+        banish f.error.message
+        banish f.error.stack
+        banish f.error.name
+    calling spark.println with "web modules compiled"
+    return 0

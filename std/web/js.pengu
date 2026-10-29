@@ -1,0 +1,475 @@
+## std.web.js — typed JavaScript/ECMAScript interop for WebAssembly.
+##
+## Values that cross the C ↔ JS boundary are opaque `JsValue` handles
+## (`i32`): 0 means `undefined`, 1 means `null`, and >= 2 is an entry in the
+## JS-side registry. Strings are UTF-8 and are copied on each crossing.
+##
+## This module is the low-level escape hatch; `std.web.dom`,
+## `std.web.fetch`, `std.web.websocket`, `std.web.canvas` and
+## `std.web.storage` are typed wrappers on top of it.
+##
+## ## Memoria
+## `JsValue` handles are owned by the caller. Release them with `release`.
+## `JsError` owns its strings.
+
+import std.spark
+
+const JS_VERSION as string is "0.1.0"
+
+## Opaque JS value handle.
+seal JsValue as i32
+
+## `undefined` handle.
+const UNDEFINED as JsValue is 0
+
+## `null` handle.
+const NULL as JsValue is 1
+
+## Error/exception coming from JavaScript.
+rune JsError:
+    name as string
+    message as string
+    stack as string
+
+when wasm:
+
+    const IS_WASM as bool is true
+
+    include "pengu_runtime.h"
+
+    declare pengu_js_eval with code as ref to frozen char into i32
+    declare pengu_js_global into i32
+    declare pengu_js_get with obj as i32, name as ref to frozen char into i32
+    declare pengu_js_set with obj as i32, name as ref to frozen char, value as i32 into i32
+    declare pengu_js_get_index with obj as i32, index as i32 into i32
+    declare pengu_js_set_index with obj as i32, index as i32, value as i32 into i32
+    declare pengu_js_call with fn as i32, this_v as i32, args as ref to void, argc as i32 into i32
+    declare pengu_js_new with ctor as i32, args as ref to void, argc as i32 into i32
+    declare pengu_js_typeof_string with v as i32 into ref to char
+    declare pengu_js_is_undefined with v as i32 into i32
+    declare pengu_js_is_null with v as i32 into i32
+    declare pengu_js_is_truthy with v as i32 into i32
+    declare pengu_js_to_string with v as i32 into ref to char
+    declare pengu_js_to_f64 with v as i32 into f64
+    declare pengu_js_to_i64 with v as i32 into i64
+    declare pengu_js_to_bool with v as i32 into i32
+    declare pengu_js_from_string with s as ref to frozen char into i32
+    declare pengu_js_object into i32
+    declare pengu_js_array into i32
+    declare pengu_js_length with v as i32 into i32
+    declare pengu_js_release with v as i32 into i32
+    declare pengu_js_retain with v as i32 into i32
+    declare pengu_js_make_callback with id as i32 into i32
+    declare pengu_js_promise_then with p as i32, ok as i32, err as i32 into void
+    declare pengu_js_import_module with url as ref to frozen char into i32
+    declare pengu_js_last_error into ref to char
+    declare pengu_js_callback_free with id as i32 into void
+    declare pengu_js_callback_string_free with id as i32 into void
+
+    declare pengu_js_callback_new_ptr with fn as ref to void into i32
+    declare pengu_js_callback_string_new_ptr with fn as ref to void into i32
+    declare pengu_js_fetch_text with url as ref to frozen char, ok as i32, err as i32 into i32
+    declare pengu_js_fetch_post with url as ref to frozen char, body as ref to frozen char, ok as i32, err as i32 into i32
+    declare pengu_js_ws_open with url as ref to frozen char, open as i32, msg as i32, err as i32 into i32
+    declare pengu_js_ws_send with id as i32, text as ref to frozen char into i32
+    declare pengu_js_ws_close with id as i32 into i32
+
+    ## Borrowed C string view of a PenguString.
+    antiquus _cstr with s as string into ref to frozen char:
+        r"""
+        return s.data ? s.data : "";
+        """
+
+    ## Takes ownership of a C string allocated by the JS library and returns a
+    ## PenguString. The pointer is freed here.
+    antiquus _take_cstr with p as ref to char into string:
+        r"""
+        if (!p) return pengu_string_from_cstr("JavaScript error");
+        PenguString s = pengu_string_new(p);
+        free(p);
+        return s;
+        """
+
+    ## Builds a `JsError` from the JS-side last error.
+    weave _error into JsError:
+        var p as ref to char is calling pengu_js_last_error
+        var msg as string is calling _take_cstr with p
+        return with name is "JS", message is msg, stack is ""
+
+    weave _fail into result of JsValue to JsError:
+        return calling err_of with (calling _error)
+
+    weave _fail_bool into result of bool to JsError:
+        return calling err_of with (calling _error)
+
+    weave _fail_int into result of int to JsError:
+        return calling err_of with (calling _error)
+
+    ## Evaluates `code` as JavaScript and returns its value.
+    weave eval with code as string into result of JsValue to JsError:
+        var h as i32 is calling pengu_js_eval with (calling _cstr with code)
+        if h < 0:
+            return calling _fail
+        return calling ok_of with h
+
+    ## The JS `globalThis`.
+    weave global into JsValue:
+        return calling pengu_js_global
+
+    ## Reads `obj.name`.
+    weave get with obj as JsValue, name as string into result of JsValue to JsError:
+        var h as i32 is calling pengu_js_get with obj, (calling _cstr with name)
+        if h < 0:
+            return calling _fail
+        return calling ok_of with h
+
+    ## Writes `obj.name = value`.
+    weave set with obj as JsValue, name as string, value as JsValue into result of bool to JsError:
+        var rc as i32 is calling pengu_js_set with obj, (calling _cstr with name), value
+        if rc < 0:
+            return calling _fail_bool
+        return calling ok_of with true
+
+    ## Reads `obj[index]`.
+    weave get_index with obj as JsValue, index as int into result of JsValue to JsError:
+        var h as i32 is calling pengu_js_get_index with obj, (index to i32)
+        if h < 0:
+            return calling _fail
+        return calling ok_of with h
+
+    ## Writes `obj[index] = value`.
+    weave set_index with obj as JsValue, index as int, value as JsValue into result of bool to JsError:
+        var rc as i32 is calling pengu_js_set_index with obj, (index to i32), value
+        if rc < 0:
+            return calling _fail_bool
+        return calling ok_of with true
+
+    ## Calls `fn` with `this_v` and `args`.
+    weave call with fn as JsValue, this_v as JsValue, args as list of JsValue into result of JsValue to JsError:
+        var h as i32 is calling pengu_js_call with fn, this_v, args.data, args.len
+        if h < 0:
+            return calling _fail
+        return calling ok_of with h
+
+    ## Calls `obj.name(args...)`; releases the temporary method handle.
+    weave call_method with obj as JsValue, name as string, args as list of JsValue into result of JsValue to JsError:
+        var f as result of JsValue to JsError is calling get with obj, name
+        if not f.is_ok:
+            return f
+        var h as result of JsValue to JsError is calling call with f.value, obj, args
+        calling release with f.value
+        return h
+
+    ## Constructs `new ctor(args...)`.
+    weave new with ctor as JsValue, args as list of JsValue into result of JsValue to JsError:
+        var h as i32 is calling pengu_js_new with ctor, args.data, args.len
+        if h < 0:
+            return calling _fail
+        return calling ok_of with h
+
+    ## JS `typeof`.
+    weave typeof with v as JsValue into result of string to JsError:
+        var p as ref to char is calling pengu_js_typeof_string with v
+        if p == null:
+            return calling err_of with (calling _error)
+        var s as string is calling _take_cstr with p
+        return calling ok_of with s
+
+    ## `true` for the `undefined` handle.
+    weave is_undefined with v as JsValue into bool:
+        return (calling pengu_js_is_undefined with v) != 0
+
+    ## `true` for the `null` handle.
+    weave is_null with v as JsValue into bool:
+        return (calling pengu_js_is_null with v) != 0
+
+    ## JS truthiness.
+    weave is_truthy with v as JsValue into bool:
+        return (calling pengu_js_is_truthy with v) != 0
+
+    ## JS `String(v)`.
+    weave to_string with v as JsValue into result of string to JsError:
+        var p as ref to char is calling pengu_js_to_string with v
+        if p == null:
+            return calling err_of with (calling _error)
+        var s as string is calling _take_cstr with p
+        return calling ok_of with s
+
+    ## JS `Number(v)`. Returns `NaN` on a non-numeric value.
+    weave to_f64 with v as JsValue into f64:
+        return calling pengu_js_to_f64 with v
+
+    ## JS `BigInt(v)`.
+    weave to_i64 with v as JsValue into i64:
+        return calling pengu_js_to_i64 with v
+
+    ## JS truthiness as a bool.
+    weave to_bool with v as JsValue into bool:
+        return (calling pengu_js_to_bool with v) != 0
+
+    ## Creates a JS string.
+    weave string with s as string into result of JsValue to JsError:
+        var h as i32 is calling pengu_js_from_string with (calling _cstr with s)
+        if h < 0:
+            return calling _fail
+        return calling ok_of with h
+
+    ## Copies a JS string into a PenguString.
+    weave from_string with v as JsValue into result of string to JsError:
+        return calling to_string with v
+
+    ## Creates a plain JS object.
+    weave object into JsValue:
+        return calling pengu_js_object
+
+    ## Creates a JS array.
+    weave array into JsValue:
+        return calling pengu_js_array
+
+    ## `v.length` for arrays/strings, or 0.
+    weave length with v as JsValue into int:
+        return calling pengu_js_length with v
+
+    ## Releases a handle. Releasing 0/1 is a no-op.
+    weave release with v as JsValue into void:
+        var ignored as i32 is calling pengu_js_release with v
+
+    ## Retains a handle (currently a no-op; explicit ownership is the policy).
+    weave retain with v as JsValue into void:
+        var ignored2 as i32 is calling pengu_js_retain with v
+
+    ## Registers a C callback that receives a `JsValue`.
+    weave make_callback with fn as weave with arg as JsValue into void into result of JsValue to JsError:
+        var id as i32 is calling pengu_js_callback_new_ptr with fn
+        if id <= 0:
+            return calling _fail
+        var h as i32 is calling pengu_js_make_callback with id
+        if h < 0:
+            calling pengu_js_callback_free with id
+            return calling _fail
+        return calling ok_of with h
+
+    ## Frees a callback created by `make_callback`.
+    weave free_callback with id as int into void:
+        calling pengu_js_callback_free with (id to i32)
+
+    ## Registers a C callback that receives an owned? borrowed UTF-8 string.
+    ## The string is borrowed for the duration of the call.
+    weave make_string_callback with fn as weave with text as string into void into result of int to JsError:
+        var id as i32 is calling pengu_js_callback_string_new_ptr with fn
+        if id <= 0:
+            return calling _fail_int
+        return calling ok_of with (id to int)
+
+    ## Frees a string callback.
+    weave free_string_callback with id as int into void:
+        calling pengu_js_callback_string_free with (id to i32)
+
+    ## Attaches callbacks to a JS promise.
+    weave promise_then with p as JsValue, on_ok as weave with v as JsValue into void, on_err as weave with e as JsValue into void into result of bool to JsError:
+        var okr as result of JsValue to JsError is calling make_callback with on_ok
+        if not okr.is_ok:
+            return calling err_of with (calling _error)
+        var errr as result of JsValue to JsError is calling make_callback with on_err
+        if not errr.is_ok:
+            calling release with okr.value
+            return calling err_of with (calling _error)
+        calling pengu_js_promise_then with p, (okr.value to i32), (errr.value to i32)
+        return calling ok_of with true
+
+    ## Dynamic `import(url)`; returns the JS promise.
+    weave import_module with url as string into result of JsValue to JsError:
+        var h as i32 is calling pengu_js_import_module with (calling _cstr with url)
+        if h < 0:
+            return calling _fail
+        return calling ok_of with h
+
+    ## Fetches `url` and delivers its body as a string (GET).
+    weave fetch_text with url as string, on_ok as weave with text as string into void, on_err as weave with text as string into void into result of bool to JsError:
+        var okr as result of int to JsError is calling make_string_callback with on_ok
+        if not okr.is_ok:
+            return calling err_of with (calling _error)
+        var errr as result of int to JsError is calling make_string_callback with on_err
+        if not errr.is_ok:
+            calling free_string_callback with okr.value
+            return calling err_of with (calling _error)
+        var rc as i32 is calling pengu_js_fetch_text with (calling _cstr with url), (okr.value to i32), (errr.value to i32)
+        if rc < 0:
+            calling free_string_callback with okr.value
+            calling free_string_callback with errr.value
+            return calling _fail_bool
+        return calling ok_of with true
+
+    ## Fetches `url` with a POST body and delivers the response body.
+    weave fetch_post with url as string, body as string, on_ok as weave with text as string into void, on_err as weave with text as string into void into result of bool to JsError:
+        var okr as result of int to JsError is calling make_string_callback with on_ok
+        if not okr.is_ok:
+            return calling err_of with (calling _error)
+        var errr as result of int to JsError is calling make_string_callback with on_err
+        if not errr.is_ok:
+            calling free_string_callback with okr.value
+            return calling err_of with (calling _error)
+        var rc as i32 is calling pengu_js_fetch_post with (calling _cstr with url), (calling _cstr with body), (okr.value to i32), (errr.value to i32)
+        if rc < 0:
+            calling free_string_callback with okr.value
+            calling free_string_callback with errr.value
+            return calling _fail_bool
+        return calling ok_of with true
+
+    ## Opens a WebSocket. Callbacks receive "" on open, the message on data,
+    ## and a diagnostic string on error/close.
+    weave ws_open with url as string, on_open as weave with text as string into void, on_message as weave with text as string into void, on_error as weave with text as string into void into result of int to JsError:
+        var o1 as result of int to JsError is calling make_string_callback with on_open
+        if not o1.is_ok:
+            return calling _fail_int
+        var o2 as result of int to JsError is calling make_string_callback with on_message
+        if not o2.is_ok:
+            calling free_string_callback with o1.value
+            return calling _fail_int
+        var o3 as result of int to JsError is calling make_string_callback with on_error
+        if not o3.is_ok:
+            calling free_string_callback with o1.value
+            calling free_string_callback with o2.value
+            return calling _fail_int
+        var id as i32 is calling pengu_js_ws_open with (calling _cstr with url), (o1.value to i32), (o2.value to i32), (o3.value to i32)
+        if id < 0:
+            calling free_string_callback with o1.value
+            calling free_string_callback with o2.value
+            calling free_string_callback with o3.value
+            return calling _fail_int
+        return calling ok_of with (id to int)
+
+    ## Sends a text frame.
+    weave ws_send with id as int, text as string into result of bool to JsError:
+        var rc as i32 is calling pengu_js_ws_send with (id to i32), (calling _cstr with text)
+        if rc < 0:
+            return calling _fail_bool
+        return calling ok_of with true
+
+    ## Closes a WebSocket.
+    weave ws_close with id as int into result of bool to JsError:
+        var rc as i32 is calling pengu_js_ws_close with (id to i32)
+        if rc < 0:
+            return calling _fail_bool
+        return calling ok_of with true
+
+when not wasm:
+
+    const IS_WASM as bool is false
+
+    weave _native_error into JsError:
+        return with name is "NotSupported", message is "std.web.js requires a wasm build (--target wasm32-unknown-emscripten)", stack is ""
+
+    weave _fail into result of JsValue to JsError:
+        return calling err_of with (calling _native_error)
+
+    weave _fail_bool into result of bool to JsError:
+        return calling err_of with (calling _native_error)
+
+    weave _fail_int into result of int to JsError:
+        return calling err_of with (calling _native_error)
+
+    weave eval with code as string into result of JsValue to JsError:
+        return calling _fail
+
+    weave global into JsValue:
+        return UNDEFINED
+
+    weave get with obj as JsValue, name as string into result of JsValue to JsError:
+        return calling _fail
+
+    weave set with obj as JsValue, name as string, value as JsValue into result of bool to JsError:
+        return calling _fail_bool
+
+    weave get_index with obj as JsValue, index as int into result of JsValue to JsError:
+        return calling _fail
+
+    weave set_index with obj as JsValue, index as int, value as JsValue into result of bool to JsError:
+        return calling _fail_bool
+
+    weave call with fn as JsValue, this_v as JsValue, args as list of JsValue into result of JsValue to JsError:
+        return calling _fail
+
+    weave call_method with obj as JsValue, name as string, args as list of JsValue into result of JsValue to JsError:
+        return calling _fail
+
+    weave new with ctor as JsValue, args as list of JsValue into result of JsValue to JsError:
+        return calling _fail
+
+    weave typeof with v as JsValue into result of string to JsError:
+        return calling err_of with (calling _native_error)
+
+    weave is_undefined with v as JsValue into bool:
+        return false
+
+    weave is_null with v as JsValue into bool:
+        return false
+
+    weave is_truthy with v as JsValue into bool:
+        return false
+
+    weave to_string with v as JsValue into result of string to JsError:
+        return calling err_of with (calling _native_error)
+
+    weave to_f64 with v as JsValue into f64:
+        return 0.0
+
+    weave to_i64 with v as JsValue into i64:
+        return 0
+
+    weave to_bool with v as JsValue into bool:
+        return false
+
+    weave string with s as string into result of JsValue to JsError:
+        return calling _fail
+
+    weave from_string with v as JsValue into result of string to JsError:
+        return calling err_of with (calling _native_error)
+
+    weave object into JsValue:
+        return UNDEFINED
+
+    weave array into JsValue:
+        return UNDEFINED
+
+    weave length with v as JsValue into int:
+        return 0
+
+    weave release with v as JsValue into void:
+        return
+
+    weave retain with v as JsValue into void:
+        return
+
+    weave make_callback with fn as weave with arg as JsValue into void into result of JsValue to JsError:
+        return calling _fail
+
+    weave free_callback with id as int into void:
+        return
+
+    weave make_string_callback with fn as weave with text as string into void into result of int to JsError:
+        return calling _fail_int
+
+    weave free_string_callback with id as int into void:
+        return
+
+    weave promise_then with p as JsValue, on_ok as weave with v as JsValue into void, on_err as weave with e as JsValue into void into result of bool to JsError:
+        return calling _fail_bool
+
+    weave import_module with url as string into result of JsValue to JsError:
+        return calling _fail
+
+    weave fetch_text with url as string, on_ok as weave with text as string into void, on_err as weave with text as string into void into result of bool to JsError:
+        return calling _fail_bool
+
+    weave fetch_post with url as string, body as string, on_ok as weave with text as string into void, on_err as weave with text as string into void into result of bool to JsError:
+        return calling _fail_bool
+
+    weave ws_open with url as string, on_open as weave with text as string into void, on_message as weave with text as string into void, on_error as weave with text as string into void into result of int to JsError:
+        return calling _fail_int
+
+    weave ws_send with id as int, text as string into result of bool to JsError:
+        return calling _fail_bool
+
+    weave ws_close with id as int into result of bool to JsError:
+        return calling _fail_bool

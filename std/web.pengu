@@ -80,7 +80,7 @@ when wasm:
 
     ## Schedules `cb(user_data)` to run once, `msecs` from now.
     ## Returns an id that `clear_timeout` accepts.
-    declare emscripten_set_timeout with cb as ref to weave with arg as ref to void into void , msecs as f64 , user_data as ref to void into int
+    declare emscripten_set_timeout with cb as weave with arg as ref to void into void , msecs as f64 , user_data as ref to void into int
 
     ## Cancels a timeout scheduled by `set_timeout`.
     declare emscripten_clear_timeout with timeout_id as int into void
@@ -155,7 +155,7 @@ when wasm:
     ## Schedules `cb(arg)` to run once, `ms` milliseconds from now.
     ## ## Retorno
     ## An id for `clear_timeout`.
-    weave set_timeout with cb as ref to weave with arg as ref to void into void , ms as f64 , arg as ref to void into int:
+    weave set_timeout with cb as weave with arg as ref to void into void , ms as f64 , arg as ref to void into int:
         return calling emscripten_set_timeout with cb , ms , arg
 
     ## Cancels a timeout scheduled with `set_timeout`.
@@ -232,7 +232,7 @@ when not wasm:
 
     ## Fails: there is no JS event loop to schedule into. Use `chronicle.sleep_ms`
     ## for a blocking sleep, or the platform's own timer API.
-    weave set_timeout with cb as ref to weave with arg as ref to void into void , ms as f64 , arg as ref to void into int:
+    weave set_timeout with cb as weave with arg as ref to void into void , ms as f64 , arg as ref to void into int:
         calling spark.panic with "std.web.set_timeout requires a wasm build (--target wasm32-unknown-emscripten)"
         return 0
 

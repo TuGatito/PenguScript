@@ -1,0 +1,46 @@
+## std.web.websocket — typed WebSocket client.
+##
+## WebAssembly-only. Open a socket, then send/close it. Callbacks are driven by
+## the JS event loop; keep the runtime alive with `std.web.set_main_loop`.
+## Callback strings are borrowed for the duration of the call.
+
+import std.web.js as js
+
+when wasm:
+
+    ## A live WebSocket connection.
+    rune Socket:
+        id as int
+
+    ## Opens `url`. `on_open` receives "", `on_message` the text frame, and
+    ## `on_error` a diagnostic (including close events).
+    weave open with url as string, on_open as weave with text as string into void, on_message as weave with text as string into void, on_error as weave with text as string into void into result of Socket to js.JsError:
+        var r as result of int to js.JsError is calling js.ws_open with url, on_open, on_message, on_error
+        if not r.is_ok:
+            return calling err_of with r.error
+        return calling ok_of with (with id is r.value)
+
+    ## Sends a text frame.
+    weave send with s as ref to Socket, text as string into result of bool to js.JsError:
+        return calling js.ws_send with s->id, text
+
+    ## Closes the socket.
+    weave close with s as ref to Socket into result of bool to js.JsError:
+        return calling js.ws_close with s->id
+
+when not wasm:
+
+    rune Socket:
+        id as int
+
+    weave _native_error into js.JsError:
+        return with name is "NotSupported", message is "std.web.websocket requires a wasm build", stack is ""
+
+    weave open with url as string, on_open as weave with text as string into void, on_message as weave with text as string into void, on_error as weave with text as string into void into result of Socket to js.JsError:
+        return calling err_of with (calling _native_error)
+
+    weave send with s as ref to Socket, text as string into result of bool to js.JsError:
+        return calling err_of with (calling _native_error)
+
+    weave close with s as ref to Socket into result of bool to js.JsError:
+        return calling err_of with (calling _native_error)

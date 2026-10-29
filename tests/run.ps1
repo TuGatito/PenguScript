@@ -8,6 +8,8 @@ $files = @(Get-ChildItem tests\pengu\*.pengu -File -ErrorAction SilentlyContinue
 $files += @(Get-ChildItem tests\conformance -Recurse -Filter *.pengu -File -ErrorAction SilentlyContinue)
 $wasmSmoke = Join-Path $Root "tests\wasm\std_web_smoke.pengu"
 if (Test-Path $wasmSmoke) { $files += Get-Item $wasmSmoke }
+$jsSmoke = Join-Path $Root "tests\wasm\js_smoke.pengu"
+if (Test-Path $jsSmoke) { $files += Get-Item $jsSmoke }
 foreach ($f in $files) {
     $text = Get-Content -Raw $f.FullName
     if ($text -notmatch 'weave main') { continue }

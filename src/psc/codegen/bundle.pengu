@@ -28,6 +28,9 @@ insignia psc_codegen_bundle_
 weave is_libc_name with c as ref to context.CgContext, f as catalog.CgFunction into bool:
     var n as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.c_name)
     defer banish n
+    # The JS bridge declares these itself; the runtime header does not.
+    if (n length) >= 9 and (n at 0 to 9) == "pengu_js_":
+        return false
     if (n length) >= 6 and (n at 0 to 6) == "pengu_":
         return true
     if (n length) >= 3 and (n at 0 to 3) == "mz_":
@@ -119,12 +122,6 @@ weave generate_bundle_c with c as ref to context.CgContext into string:
             calling ctypes.emit_forward with c, t
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)
-    set i is 0
-    while i < c->catalog.types.len:
-        var t2 as catalog.CgType is (c->catalog.types at i)
-        if not c->options.prune_types or calling dce.type_live with (sigil of reach), t2.type_id:
-            calling ctypes.emit_definition with c, t2
-        set i is i + 1
     # Alias/sellos (`seal Codepoint as u32`) que aparecen en firmas C.
     var ai as int is 0
     while ai < c->program->types.types.len:
@@ -152,6 +149,12 @@ weave generate_bundle_c with c as ref to context.CgContext into string:
             banish atgt
         set ai is ai + 1
     calling emit.blank with (sigil of c->emitter)
+    set i is 0
+    while i < c->catalog.types.len:
+        var t2 as catalog.CgType is (c->catalog.types at i)
+        if not c->options.prune_types or calling dce.type_live with (sigil of reach), t2.type_id:
+            calling ctypes.emit_definition with c, t2
+        set i is i + 1
     # Tuplas sintéticas.
     var ti as int is 0
     while ti < c->program->types.types.len:

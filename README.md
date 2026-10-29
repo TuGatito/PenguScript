@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.16.1-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.17.0-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey">
@@ -69,8 +69,8 @@ pengu-<version>-<os>-<arch>-fhs.tar.gz
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.16.1-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.16.1-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.17.0-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.17.0-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 
@@ -188,7 +188,7 @@ target = "wasm32-unknown-emscripten"
 `when wasm:`, `when wasm_target == "emscripten":` and
 `when compiler == "emcc":` work in both sema and codegen.
 
-### Platform and limits (MVP)
+### Platform and limits
 
 | Feature | Status |
 |---|---|
@@ -200,7 +200,7 @@ target = "wasm32-unknown-emscripten"
 | `std.web` | Console, main loop, `now_ms`, `eval_js`, timers (native + wasm) |
 | `std.filum` | Works with `-pthread`; browser needs COOP/COEP |
 | `std.net`, `std.dynlib`, `std.ffi_call`, `std.secrets`, `std.petitio` | Rejected on wasm with an actionable message |
-| JavaScript/DOM/fetch interop | Planned for the next milestone (`std.js`/`std.dom`/`std.fetch`) |
+| JS/DOM/fetch/WebSocket/storage/canvas | `std.web.js`, `std.web.dom`, `std.web.fetch`, `std.web.websocket`, `std.web.storage`, `std.web.canvas` |
 
 ```bash
 # headless
@@ -319,6 +319,8 @@ build time; see [`tools/pengu-bind-clang.c`](tools/pengu-bind-clang.c).
 - Lexer, parser, semantic analysis, C codegen, CLI, formatter, docs, assets,
   LSP and package manager are implemented in PSC.
 - The bootstrap and release pipeline use PSC, not Python.
+- WebAssembly (`wasm32-unknown-emscripten`) and the typed `std.web.*` modules
+  (JS, DOM, fetch, WebSocket, storage, canvas) are covered by the wasm suite.
 - The PSC test suite (`tests/run.sh`) passes on the supported corpus.
 - Linux is the primary tested platform; macOS is covered by CI. Windows is not
   currently supported.

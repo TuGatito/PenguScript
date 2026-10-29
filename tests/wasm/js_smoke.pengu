@@ -1,0 +1,72 @@
+import std.web.js as js
+import std.spark
+
+weave on_cb with v as js.JsValue into void:
+    var g as js.JsValue is calling js.global
+    var s as result of js.JsValue to js.JsError is calling js.string with "cb-hit"
+    if s.is_ok:
+        var r as result of bool to js.JsError is calling js.set with g, "__pengu_cb", s.value
+        banish r
+        calling js.release with s.value
+    calling js.release with g
+
+weave main into int:
+    if not js.IS_WASM:
+        calling spark.println with "skip"
+        return 0
+    var e as result of js.JsValue to js.JsError is calling js.eval with "1 + 2"
+    if not e.is_ok:
+        calling spark.println with "eval failed"
+        return 1
+    var n as i64 is calling js.to_i64 with e.value
+    if n != 3:
+        calling spark.println with "eval mismatch"
+        return 1
+    var g as js.JsValue is calling js.global
+    var m as result of js.JsValue to js.JsError is calling js.get with g, "String"
+    if not m.is_ok:
+        calling spark.println with "get failed"
+        return 1
+    var a as list of js.JsValue is list of js.JsValue
+    var x as result of js.JsValue to js.JsError is calling js.string with "x"
+    var y as result of js.JsValue to js.JsError is calling js.string with "y"
+    if not x.is_ok or not y.is_ok:
+        return 1
+    calling a.push with x.value
+    var c as result of js.JsValue to js.JsError is calling js.call with m.value, g, a
+    if not c.is_ok:
+        calling spark.println with "call failed"
+        return 1
+    var sr as result of string to js.JsError is calling js.from_string with c.value
+    if not sr.is_ok:
+        return 1
+    var s as string is sr.value
+    if s != "x":
+        calling spark.println with "call wrong"
+        return 1
+    banish s
+    var fn as result of js.JsValue to js.JsError is calling js.eval with r"""(function(cb){ cb(); })"""
+    if not fn.is_ok:
+        return 1
+    var cb as result of js.JsValue to js.JsError is calling js.make_callback with on_cb
+    if not cb.is_ok:
+        return 1
+    var args as list of js.JsValue is list of js.JsValue
+    calling args.push with cb.value
+    var callr as result of js.JsValue to js.JsError is calling js.call with fn.value, g, args
+    if not callr.is_ok:
+        return 1
+    var flag as result of js.JsValue to js.JsError is calling js.get with g, "__pengu_cb"
+    if not flag.is_ok:
+        calling spark.println with "callback missing"
+        return 1
+    var fr as result of string to js.JsError is calling js.from_string with flag.value
+    if not fr.is_ok:
+        return 1
+    var fs as string is fr.value
+    if fs != "cb-hit":
+        calling spark.println with "callback wrong"
+        return 1
+    banish fs
+    calling spark.println with "JS OK"
+    return 0

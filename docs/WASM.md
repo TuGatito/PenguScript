@@ -1,6 +1,6 @@
 # WebAssembly with PenguScript (`--target wasm`)
 
-> **Status:** MVP (F0–F4). `wasm32-unknown-emscripten` is the only wasm target;
+> **Status:** MVP + Web modules (F0–F6). `wasm32-unknown-emscripten` is the only wasm target;
 > WASI is recognized and refused. A native compiler is still the bootstrap;
 > Emscripten (`emcc`/`emar`) is the C → wasm backend.
 >
@@ -147,7 +147,61 @@ The inactive branch is removed before emission; it leaves no trace in
 entry points `panic` with an actionable message, so shared code compiles on
 both targets.
 
-### Portability matrix (MVP)
+### Web / ECMAScript modules
+
+The web-facing modules are namespaced under `std.web.*` so their purpose is
+unambiguous:
+
+| Module | Purpose |
+|---|---|
+| `std.web` | console, main loop, `now_ms`, `eval_js`, timers (native + wasm) |
+| `std.web.js` | generic JS values: eval/get/set/call/new/callbacks/promises/errors |
+| `std.web.dom` | `querySelector`, create elements, text/attrs/classes, events |
+| `std.web.fetch` | callback-based GET/POST (`fetch_text`/`post_text`) |
+| `std.web.websocket` | open/send/close a text-frame WebSocket |
+| `std.web.storage` | `localStorage`/`sessionStorage` get/set/remove |
+| `std.web.canvas` | Canvas 2D context, fill/stroke/text/path helpers |
+
+They are implemented with a small JS library
+([`runtime/pengu_js.js`](../runtime/pengu_js.js)) and a C callback bridge
+([`runtime/pengu_js.c`](../runtime/pengu_js.c)); `psc` adds `--pre-js`,
+`--js-library` and the required exports automatically when it sees
+`std.web.js` in the program.
+
+`JsValue` is an opaque `i32` handle (0 = `undefined`, 1 = `null`); strings are
+copied across the boundary. Fallible operations return `result of T to
+JsError`. Callbacks are plain function pointers (no captures), so each one is a
+top-level `weave`.
+
+```pengu
+import std.web as web
+import std.web.js as js
+import std.web.dom as dom
+import std.web.fetch as fetch
+
+weave tick into void:
+    calling web.cancel_main_loop
+
+weave on_text with text as string into void:
+    let title as result of dom.Element to js.JsError is calling dom.query with "#title"
+    if title.is_ok:
+        calling dom.set_text with (sigil of title.value), text
+        calling dom.free with (sigil of title.value)
+
+weave on_error with text as string into void:
+    ...
+
+weave main into int:
+    calling fetch.get_text with "data:text/plain,hello", on_text, on_error
+    calling web.set_main_loop with tick, 0, false
+    return 0
+```
+
+The web modules are **wasm-only**; `std.web.js` has native stubs that return a
+`JsError` (`NotSupported`), while the typed wrappers (`dom`, `fetch`, ...) are
+compiled only for wasm.
+
+### Portability matrix
 
 | Module | wasm | Notes |
 |---|---|---|

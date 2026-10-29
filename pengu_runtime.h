@@ -4520,6 +4520,16 @@ extern "C"
   PenguMap pengu_ffi_map_si(PenguSlice keys, PenguSlice vals);
 
 
+  #if defined(__EMSCRIPTEN__)
+  /* JS bridge callbacks (runtime/pengu_js.c; only linked for wasm). */
+  typedef void (*PenguJsValueCallback)(int32_t);
+  typedef void (*PenguJsStringCallback)(PenguString);
+  int32_t pengu_js_callback_new(PenguJsValueCallback fn);
+  void pengu_js_callback_free(int32_t id);
+  int32_t pengu_js_callback_string_new(PenguJsStringCallback fn);
+  void pengu_js_callback_string_free(int32_t id);
+  #endif
+
 #ifdef __cplusplus
 }
 #endif

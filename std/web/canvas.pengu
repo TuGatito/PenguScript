@@ -1,0 +1,111 @@
+## std.web.canvas — Canvas 2D helpers.
+##
+## WebAssembly-only. Obtain a context with `context2d("#canvas")`, then draw.
+## Requires std.web.dom and a real browser document.
+
+import std.web.js as js
+import std.web.dom as dom
+
+when wasm:
+
+    ## A CanvasRenderingContext2D handle.
+    rune Canvas:
+        _ctx as js.JsValue
+
+    declare pengu_js_canvas_call with ctx as i32, method as ref to frozen char, a as f64, b as f64, c as f64, d as f64, n as i32 into i32
+    declare pengu_js_canvas_text with ctx as i32, method as ref to frozen char, text as ref to frozen char, a as f64, b as f64 into i32
+
+    ## `querySelector(selector).getContext("2d")`.
+    weave context2d with selector as string into result of Canvas to js.JsError:
+        var el as result of dom.Element to js.JsError is calling dom.query with selector
+        if not el.is_ok:
+            return calling err_of with el.error
+        var kind as result of js.JsValue to js.JsError is calling js.string with "2d"
+        if not kind.is_ok:
+            calling dom.free with (sigil of el.value)
+            return calling err_of with kind.error
+        var args as list of js.JsValue is list of js.JsValue
+        calling args.push with kind.value
+        var ctx as result of js.JsValue to js.JsError is calling js.call_method with el.value._v, "getContext", args
+        calling js.release with kind.value
+        calling dom.free with (sigil of el.value)
+        if not ctx.is_ok:
+            return calling err_of with ctx.error
+        return calling ok_of with (with _ctx is ctx.value)
+
+    ## Releases the context handle.
+    weave free with c as ref to Canvas into void:
+        calling js.release with c->_ctx
+
+    weave _canvas_error with message as string into js.JsError:
+        return with name is "JS", message is message, stack is ""
+
+    antiquus _cstr with s as string into ref to frozen char:
+        r"""
+        return s.data ? s.data : "";
+        """
+
+    ## Calls a context method with `n` (0..4) numeric arguments.
+    weave _call with c as ref to Canvas, method as string, a as f64, b as f64, d as f64, e as f64, n as int into result of bool to js.JsError:
+        var ni as i32 is (n to i32)
+        var rc as i32 is calling pengu_js_canvas_call with c->_ctx, (calling _cstr with method), a, b, d, e, ni
+        if rc < 0:
+            return calling err_of with (calling _canvas_error with "canvas call failed")
+        return calling ok_of with true
+
+    ## `ctx.fillStyle = color`.
+    weave set_fill_style with c as ref to Canvas, color as string into result of bool to js.JsError:
+        var s as result of js.JsValue to js.JsError is calling js.string with color
+        if not s.is_ok:
+            return calling err_of with s.error
+        var r as result of bool to js.JsError is calling js.set with c->_ctx, "fillStyle", s.value
+        calling js.release with s.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        return calling ok_of with true
+
+    ## `ctx.strokeStyle = color`.
+    weave set_stroke_style with c as ref to Canvas, color as string into result of bool to js.JsError:
+        var s as result of js.JsValue to js.JsError is calling js.string with color
+        if not s.is_ok:
+            return calling err_of with s.error
+        var r as result of bool to js.JsError is calling js.set with c->_ctx, "strokeStyle", s.value
+        calling js.release with s.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        return calling ok_of with true
+
+    ## `ctx.clearRect(x, y, w, h)`.
+    weave clear_rect with c as ref to Canvas, x as f64, y as f64, w as f64, h as f64 into result of bool to js.JsError:
+        return calling _call with c, "clearRect", x, y, w, h, 4
+
+    ## `ctx.fillRect(x, y, w, h)`.
+    weave fill_rect with c as ref to Canvas, x as f64, y as f64, w as f64, h as f64 into result of bool to js.JsError:
+        return calling _call with c, "fillRect", x, y, w, h, 4
+
+    ## `ctx.strokeRect(x, y, w, h)`.
+    weave stroke_rect with c as ref to Canvas, x as f64, y as f64, w as f64, h as f64 into result of bool to js.JsError:
+        return calling _call with c, "strokeRect", x, y, w, h, 4
+
+    ## `ctx.fillText(text, x, y)`.
+    weave fill_text with c as ref to Canvas, text as string, x as f64, y as f64 into result of bool to js.JsError:
+        var rc as i32 is calling pengu_js_canvas_text with c->_ctx, (calling _cstr with "fillText"), (calling _cstr with text), x, y
+        if rc < 0:
+            return calling err_of with (calling _canvas_error with "canvas fillText failed")
+        return calling ok_of with true
+
+    ## `ctx.beginPath()`.
+    weave begin_path with c as ref to Canvas into result of bool to js.JsError:
+        return calling _call with c, "beginPath", 0.0, 0.0, 0.0, 0.0, 0
+
+    ## `ctx.moveTo(x, y)`.
+    weave move_to with c as ref to Canvas, x as f64, y as f64 into result of bool to js.JsError:
+        return calling _call with c, "moveTo", x, y, 0.0, 0.0, 2
+
+    ## `ctx.lineTo(x, y)`.
+    weave line_to with c as ref to Canvas, x as f64, y as f64 into result of bool to js.JsError:
+        return calling _call with c, "lineTo", x, y, 0.0, 0.0, 2
+
+    ## `ctx.stroke()`.
+    weave stroke with c as ref to Canvas into result of bool to js.JsError:
+        return calling _call with c, "stroke", 0.0, 0.0, 0.0, 0.0, 0

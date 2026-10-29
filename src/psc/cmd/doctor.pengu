@@ -187,6 +187,10 @@ weave run_doctor with args as list of string into int:
                 calling check_line with as_json, "wasm-shell", true, p.wasm_shell
             else:
                 calling check_line with as_json, "wasm-shell", false, "not found (optional; Emscripten default page will be used)"
+            if p.js_library length > 0 and p.js_pre length > 0:
+                calling check_line with as_json, "wasm-js-library", true, p.js_library
+            else:
+                calling check_line with as_json, "wasm-js-library", false, "not found (std.web.* needs runtime/pengu_js.js)"
     else:
         var pe as string is p.error
         calling check_line with as_json, "paths", false, pe
