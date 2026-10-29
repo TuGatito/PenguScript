@@ -2,6 +2,20 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.14.2] — 2026-10-28 — Windows headers y tests petitio
+
+- Windows: `ProcessResult` usa campos `out`/`err` en vez de `stdout`/`stderr`,
+  que en MinGW son macros de `<stdio.h>` y rompían los structs generados.
+- Windows: `psc/os/proc.pengu` ya no redeclara `_spawnvp`; usa la declaración
+  de `<process.h>` incluida por `pengu_runtime.h`, evitando el conflicto de
+  tipos.
+- Linux CI instala `libcurl4-openssl-dev`; `tools/build_runtime.sh` construye
+  `libpetitio.a` y los tests de conformidad `petitio_*` vuelven a enlazar.
+- Windows omite los tests `petitio_*` (`PSC_SKIP_PETITIO=1`) porque el runner
+  no trae cabeceras/librería de desarrollo de libcurl; se cubren en Linux/macOS.
+- Bundles stage0 regenerados para las tres plataformas.
+- `psc 0.14.2 (F11)`.
+
 ## [0.14.1] — 2026-10-28 — Bootstrap por plataforma y CI multiplataforma
 
 - `bootstrap/psc_stage0_{linux_x64,macos_arm64,windows_x64}.c`: un bundle

@@ -24,6 +24,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install libcurl (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+
       - name: Build bootstrap compiler
         shell: bash
         # The latest published release still ships the legacy `pengu` CLI,
@@ -62,6 +67,10 @@ jobs:
       - name: PSC tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          # The Windows runner has no libcurl development package; the petitio
+          # conformance cases are covered on Linux/macOS.
+          PSC_SKIP_PETITIO: "1"
         run: ./tests/run.ps1
 
       - name: Bind smoke

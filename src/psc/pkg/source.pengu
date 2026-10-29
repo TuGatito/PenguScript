@@ -143,7 +143,7 @@ weave tags with src as string into list of string:
     calling args.push with (calling copy with src)
     var pr as rites.ProcessResult is calling rites.run_capture_all with "git", args
     if pr.code == 0:
-        var lines as list of string is calling pr.stdout.split with "\n"
+        var lines as list of string is calling pr.out.split with "\n"
         for line in lines:
             var tab as int is 0
             var b as ref to frozen byte is bytes of line
@@ -165,8 +165,8 @@ weave tags with src as string into list of string:
                     calling out.push with tag
                 banish ref
         banish lines
-    banish pr.stdout
-    banish pr.stderr
+    banish pr.out
+    banish pr.err
     var i as int is 0
     while i < args.len:
         banish args at i

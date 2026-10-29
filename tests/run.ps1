@@ -10,6 +10,7 @@ foreach ($f in $files) {
     $text = Get-Content -Raw $f.FullName
     if ($text -notmatch 'weave main') { continue }
     if ($f.Name -match '^(bench_|fuzz_)') { continue }
+    if ($env:PSC_SKIP_PETITIO -eq '1' -and $f.Name -match '^petitio_') { continue }
     $count++
     & $Psc run $f.FullName --no-cache
     if ($LASTEXITCODE -ne 0) { Write-Host "FAIL $($f.FullName)"; $fail++ }

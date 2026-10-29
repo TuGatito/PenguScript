@@ -348,8 +348,8 @@ return -1;
 ## Both strings are owned by the rune; release each one with `banish` after the
 ## last use.  The rune itself is a plain value (no hidden allocation).
 rune ProcessResult:
-    stdout as string
-    stderr as string
+    out as string
+    err as string
     code as int
     timed_out as bool
 
@@ -492,7 +492,7 @@ return code;
 ## - `args`: arguments, each escaped with `shell_escape`. Borrowed.
 ##
 ## ## Retorno
-## A `ProcessResult` whose `stdout`/`stderr` are owned strings and whose `code`
+## A `ProcessResult` whose `out`/`err` are owned strings and whose `code`
 ## is the child's exit status.  Unlike `run_capture`, a non-zero exit does not
 ## hide the output; this is the API a compiler driver uses for `gcc`.
 ##
@@ -503,8 +503,8 @@ return code;
 ## ```pengu
 ## let r as rites.ProcessResult is calling rites.run_capture_all with "gcc", ["-v"]
 ## calling spark.println_int with r.code
-## banish r.stdout
-## banish r.stderr
+## banish r.out
+## banish r.err
 ## ```
 weave run_capture_all with cmd as string , args as list of string into ProcessResult:
     let line as string is calling _rites_build_cmdline with cmd , args
@@ -512,7 +512,7 @@ weave run_capture_all with cmd as string , args as list of string into ProcessRe
     var out as string is ""
     var errtext as string is ""
     let code as int is calling _rites_capture_all with line , (sigil of out) , (sigil of errtext)
-    return with stdout is out, stderr is errtext, code is code, timed_out is false
+    return with out is out, err is errtext, code is code, timed_out is false
 
 ## Returns POSIX credential `which` for the current process.
 ##

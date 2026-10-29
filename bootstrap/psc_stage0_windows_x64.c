@@ -333,8 +333,8 @@ struct Path {
     PenguString raw;
 };
 struct ProcessResult {
-    PenguString stdout;
-    PenguString stderr;
+    PenguString out;
+    PenguString err;
     int32_t code;
     bool timed_out;
 };
@@ -2031,8 +2031,8 @@ static inline void _pengu_cleanup_Path(Path* p) {
 }
 static inline void _pengu_cleanup_ProcessResult(ProcessResult* p) {
     (void)p;
-    pengu_banish_string(&(p->stdout));
-    pengu_banish_string(&(p->stderr));
+    pengu_banish_string(&(p->out));
+    pengu_banish_string(&(p->err));
 }
 static inline void _pengu_cleanup_IoError(IoError* p) {
     (void)p;
@@ -3535,7 +3535,6 @@ return pengu_string_copy(s);
 int32_t run_argv(PenguList argv) {
 
 #if defined(_WIN32)
-extern int _spawnvp(int, const char *, const char *const *);
 if (argv.len <= 0)
 return -1;
 char **v = (char **)malloc(((size_t)argv.len + 1) * sizeof(char *));
@@ -3662,7 +3661,6 @@ return kill(pid, 15) == 0;
 int32_t run_argv_quiet(PenguList argv) {
 
 #if defined(_WIN32)
-extern int _spawnvp(int, const char *, const char *const *);
 if (argv.len <= 0)
 return -1;
 char **v = (char **)malloc(((size_t)argv.len + 1) * sizeof(char *));
@@ -6596,7 +6594,7 @@ ProcessResult rites_run_capture_all(PenguString cmd, PenguList args) {
     int32_t code = _rites_capture_all(line, ((&(out))), ((&(errtext))));
     (void)code;
     #line 515 "std/rites.pengu"
-    ProcessResult _ret9 = (ProcessResult){.stdout = out, .stderr = errtext, .code = code, .timed_out = false};
+    ProcessResult _ret9 = (ProcessResult){.out = out, .err = errtext, .code = code, .timed_out = false};
     pengu_banish_string(&(line));
     return _ret9;
     pengu_banish_string(&(line));
@@ -65367,7 +65365,7 @@ PenguList psc_pkg_source_tags(PenguString src) {
     #line 145 "src/psc/pkg/source.pengu"
     if (pr.code == 0) {
         #line 146 "src/psc/pkg/source.pengu"
-        PenguList lines = string_split(&(pr.stdout), pengu_string_from_cstr("\n"));
+        PenguList lines = string_split(&(pr.out), pengu_string_from_cstr("\n"));
         (void)lines;
         #line 147 "src/psc/pkg/source.pengu"
         PenguList _lst562 = lines;
@@ -65429,9 +65427,9 @@ PenguList psc_pkg_source_tags(PenguString src) {
         pengu_banish_list(&(lines));
     }
     #line 168 "src/psc/pkg/source.pengu"
-    pengu_banish_string(&(pr.stdout));
+    pengu_banish_string(&(pr.out));
     #line 169 "src/psc/pkg/source.pengu"
-    pengu_banish_string(&(pr.stderr));
+    pengu_banish_string(&(pr.err));
     #line 170 "src/psc/pkg/source.pengu"
     int32_t i = 0;
     (void)i;
@@ -83148,7 +83146,7 @@ int32_t main_dispatch(PenguList args) {
     #line 97 "src/main.pengu"
     if ((pengu_string_equal(cmd, pengu_string_from_cstr("version")) || pengu_string_equal(cmd, pengu_string_from_cstr("--version"))) || pengu_string_equal(cmd, pengu_string_from_cstr("-V"))) {
         #line 98 "src/main.pengu"
-        (void)(spark_println(pengu_string_from_cstr("psc 0.14.1 (F11)")));
+        (void)(spark_println(pengu_string_from_cstr("psc 0.14.2 (F11)")));
         #line 99 "src/main.pengu"
         return 0;
     }
@@ -84415,7 +84413,7 @@ bool main_starts_dash(PenguString s) {
 #line 670 "src/main.pengu"
 void main_print_help(void) {
     #line 671 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr("psc 0.14.1 \xe2\x80\x94 PenguScript compiler")));
+    (void)(spark_println(pengu_string_from_cstr("psc 0.14.2 \xe2\x80\x94 PenguScript compiler")));
     #line 672 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr("")));
     #line 673 "src/main.pengu"

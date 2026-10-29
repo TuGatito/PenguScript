@@ -12,7 +12,6 @@ insignia psc_os_proc_
 antiquus run_argv with argv as list of string into int:
     r"""
 #if defined(_WIN32)
-extern int _spawnvp(int, const char *, const char *const *);
 if (argv.len <= 0)
 return -1;
 char **v = (char **)malloc(((size_t)argv.len + 1) * sizeof(char *));
@@ -152,7 +151,6 @@ return kill(pid, 15) == 0;
 antiquus run_argv_quiet with argv as list of string into int:
     r"""
 #if defined(_WIN32)
-extern int _spawnvp(int, const char *, const char *const *);
 if (argv.len <= 0)
 return -1;
 char **v = (char **)malloc(((size_t)argv.len + 1) * sizeof(char *));
