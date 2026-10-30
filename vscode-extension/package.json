@@ -254,7 +254,7 @@
         "test:grammar": "node test/grammar.test.js"
     },
     "devDependencies": {
-        "@types/node": "^18.14.6",
+        "@types/node": "^26.6.5",
         "@types/vscode": "^1.82.0",
         "@vscode/vsce": "^2.22.0",
         "esbuild": "^0.20.0",
