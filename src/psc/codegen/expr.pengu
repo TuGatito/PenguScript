@@ -27,6 +27,8 @@ import psc.codegen.ctype as ctype
 import psc.codegen.names as names
 import psc.codegen.emit as emit
 import psc.codegen.origin as origin
+import psc.parse.state as pstate
+import psc.sema.modules.program as program
 import psc.codegen.catalog as catalog
 import psc.codegen.type_ast as tast
 import psc.codegen.generics as generics
@@ -4101,16 +4103,30 @@ weave interp_expr with c as ref to context.CgContext, node as int, content as st
                 calling args.append with "pengu_string_from_cstr(\"\")"
             else:
                 var it as loader.SemaInterp is (m.interps at ii)
-                var saved as loader.SemaModule is (c->program->modules at midx)
-                var tmpmod as loader.SemaModule is saved
+                # Emite con una copia del programa cuyo módulo actual es el
+                # AST de la interpolación. No muta el SemaProgram original: el
+                # codegen sigue usando el AST principal al terminar.
+                var tmpmod as loader.SemaModule is (c->program->modules at midx)
                 set tmpmod.source is it.parse.source
                 set tmpmod.lex is it.parse.lex
-                set tmpmod.parse.ast is it.parse.ast
+                set tmpmod.parse is with ok is true, root is it.parse.root, ast is it.parse.ast, error_count is 0
                 set tmpmod.annotations is it.annotations
-                set c->program->modules at midx is tmpmod
-                var expr_c as string is calling emit_expr with c, it.parse.root
-                var ty as int is calling node_type with c, it.parse.root
-                set c->program->modules at midx is saved
+                var newmods as list of loader.SemaModule is list of loader.SemaModule
+                var mi as int is 0
+                while mi < c->program->modules.len:
+                    if mi == midx:
+                        calling newmods.push with tmpmod
+                    else:
+                        var om as loader.SemaModule is (c->program->modules at mi)
+                        calling newmods.push with om
+                    set mi is mi + 1
+                var prog2 as program.SemaProgram is (essence of (c->program))
+                set prog2.modules is newmods
+                var c2 as context.CgContext is (essence of c)
+                set c2.program is (sigil of prog2)
+                var expr_c as string is calling emit_expr with (sigil of c2), it.parse.root
+                var ty as int is calling node_type with (sigil of c2), it.parse.root
+                banish newmods
                 if expr_c == "":
                     calling fmt.append with "%s"
                     calling args.append with "pengu_string_from_cstr(\"\")"
