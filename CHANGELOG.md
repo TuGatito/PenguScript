@@ -45,6 +45,11 @@ otros que rompían la semántica de `std.*` y de los ejemplos de `raylib-pengu`.
   tipo de valor en vez de desreferenciar `NULL`.
 - **`ffi` const-correctness.** `cstr_from_string`/`string_from_cstr`/`cstr_free`
   usan `ref to frozen char`, eliminando el warning `-Wdiscarded-qualifiers`.
+- **`ffi` const-correctness.** `cstr_from_string`/`string_from_cstr`/`cstr_free`
+  usan `ref to frozen char`, eliminando el warning `-Wdiscarded-qualifiers`.
+- **`std.compass.cp_join`** usa `StringBuilder` en vez de concatenar con dos
+  interpolaciones en un bucle. Evita el camino que dejaba argumentos vacíos en
+  el bootstrap y pasa de O(n²) a O(n).
 
 ### Corregido — sema
 

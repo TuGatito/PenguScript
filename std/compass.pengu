@@ -13,6 +13,7 @@
 ## ## Example
 ## ```pengu
 ## import std.spark
+import std.builder
 ## import std.compass
 ##
 ## weave main into int:
@@ -512,29 +513,25 @@ weave cp_join with parts as list of string into string:
     if parts.len == 0:
         return ""
     let sep as string is calling cp_sep
-    var buf as string is ""
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
     var i as int is 0
     while i < parts.len:
         let p as string is parts at i
         if p length > 0:
             if calling cp_is_abs with p:
-                let a0 as string is "{p}"
-                banish buf
-                set buf is a0
+                calling sb.clear
+                calling sb.append with p
             else:
-                if buf length > 0:
-                    let bb as ref to frozen byte is bytes of buf
-                    if not (calling cp_is_sep with (bb at (buf length - 1))):
-                        let a1 as string is "{buf}{sep}"
-                        banish buf
-                        set buf is a1
-                let a2 as string is "{buf}{p}"
-                banish buf
-                set buf is a2
+                if (calling sb.len) > 0:
+                    let last as char is calling sb.char_at with ((calling sb.len) - 1)
+                    if not (calling cp_is_sep with last):
+                        calling sb.append with sep
+                calling sb.append with p
         set i is i + 1
-    let res as string is calling cp_normalize with buf
-    banish buf
-    return res
+    let raw as string is calling sb.finish
+    defer banish raw
+    return calling cp_normalize with raw
 
 ## Replaces the extension of `path` with `new_ext`.
 ##

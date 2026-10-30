@@ -148,6 +148,12 @@ cambios (por ejemplo, un binario de release corregido o un stage0 generado por
 - La interpolación de una expresión de tipo `string` que no es un identificador
   evalúa la expresión dos veces (`.len` y `.data`). Es correcta si la expresión
   es pura; conviene introducir un temporal en una revisión posterior.
+- La interpolación de una expresión de tipo `string` que no es un identificador
+  evalúa la expresión dos veces (`.len` y `.data`). Es correcta si la expresión
+  es pura; conviene introducir un temporal en una revisión posterior.
+- La interpolación de varios segmentos dentro de bloques anidados de `std` puede
+  no encontrar su AST guardado. `std.compass.cp_join` se reescribió con
+  `StringBuilder`; el resto de `std` debe auditarse con el mismo criterio.
 - `when` como expresión y `judge … over` no tienen codegen dedicado; el código
   actual de `std` no los usa en rutas críticas.
 - `unsafe:` desactiva bounds checks, no los checks de overflow aritmético
