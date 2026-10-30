@@ -1,6 +1,6 @@
 # PenguScript for Visual Studio Code
 
-Official editor support for **PenguScript 0.17.2**: language server, syntax
+Official editor support for **PenguScript 0.17.3**: language server, syntax
 highlighting, snippets, project commands and a status bar.
 
 ## Requirements
@@ -103,6 +103,6 @@ Press `F5` to launch an Extension Development Host window.
 
 | Extension | Compiler |
 |---|---|
-| 4.1.0 | 0.17.2 |
+| 4.1.0 | 0.17.3 |
 | 4.0.0 | 0.15.0 |
 | 3.2.x | 0.14.x |

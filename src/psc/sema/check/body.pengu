@@ -399,6 +399,10 @@ weave check_local with s as ref to state.SemaState, node as int, kind as pskind.
 weave check_set with s as ref to state.SemaState, node as int, compound as bool into void:
     var target as int is calling astutil.node_child with s->ast, node, 0
     var value as int is calling astutil.node_child with s->ast, node, 1
+    # `compound_set_stmt` stores `target`, the operator token and `value`, so
+    # the value lives in slot 2, not slot 1 (which is the operator token).
+    if compound:
+        set value is calling astutil.node_child with s->ast, node, 2
     if target < 0:
         return
     var tt as int is calling target_type with s, target

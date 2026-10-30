@@ -111,9 +111,20 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
         calling emit.indent_less with (sigil of c->emitter)
         calling emit.line with (sigil of c->emitter), "}"
         return
-    if k == pskind.NodeKind.NdReturnStmt:
+    if k == pskind.NodeKind.NdReturnStmt or k == pskind.NodeKind.NdReturnSimple:
         var e as int is calling astutil.node_child with ast, node, 0
         if e >= 0:
+            # Un `return err_of ...` es una salida de error: ejecuta los
+            # `errdefer` registrados antes de devolver.
+            if (calling astutil.kind_of with ast, e) == pskind.NodeKind.NdCallingExpr:
+                var ertgt as int is calling astutil.node_child with ast, e, 0
+                var errtok as int is calling expr.last_token_deep with ast, ertgt
+                if errtok >= 0:
+                    var erm as loader.SemaModule is (c->program->modules at c->current_module)
+                    var ertxt as string is calling astutil.token_text with (sigil of erm.source), (sigil of erm.lex), errtok
+                    defer banish ertxt
+                    if ertxt == "err_of" or ertxt == "err":
+                        calling emit_errdefers with c
             var rcnt as int is calling astutil.child_count with ast, node
             if rcnt > 1 and c->return_type >= 0:
                 var rtt as tk.SemaType is calling types.at with (sigil of c->program->types), c->return_type
@@ -207,7 +218,7 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
         if d >= 0:
             calling context.add_defer with c, d
         return
-    if k == pskind.NodeKind.NdSetStmt:
+    if k == pskind.NodeKind.NdSetStmt or k == pskind.NodeKind.NdSetSimple:
         var tgt as int is calling astutil.node_child with ast, node, 0
         var valn as int is calling astutil.node_child with ast, node, 1
         if tgt >= 0 and valn >= 0:
@@ -225,6 +236,27 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
                 set vtxt is calling expr.emit_expr with c, valn
             defer banish vtxt
             calling emit.line with (sigil of c->emitter), "{ttxt} = {vtxt};"
+        return
+    if k == pskind.NodeKind.NdCompoundSetStmt or k == pskind.NodeKind.NdCompoundSetSimple:
+        var ctgt as int is calling astutil.node_child with ast, node, 0
+        var cval as int is calling astutil.node_child with ast, node, 2
+        var cop as string is calling astutil.child_token_text with (sigil of m.source), (sigil of m.lex), ast, node, 1
+        defer banish cop
+        if ctgt >= 0 and cval >= 0 and cop != "":
+            var cttxt as string is calling target_text with c, ctgt, ast
+            defer banish cttxt
+            var ci_node as int is ctgt
+            if (calling astutil.kind_of with ast, ctgt) == pskind.NodeKind.NdSetTarget:
+                set ci_node is calling astutil.node_child with ast, ctgt, 0
+            var ci0 as expr.CgTarget is calling expr.resolve_target with c, ci_node, ast, false
+            defer banish ci0.text
+            var cvtxt as string is ""
+            if ci0.type_id >= 0:
+                set cvtxt is calling expr.emit_expr_as with c, cval, ci0.type_id
+            else:
+                set cvtxt is calling expr.emit_expr with c, cval
+            defer banish cvtxt
+            calling emit.line with (sigil of c->emitter), "{cttxt} {cop} {cvtxt};"
         return
     if k == pskind.NodeKind.NdBreakStmt or k == pskind.NodeKind.NdBreakSimple:
         calling emit_loop_exit_defers with c
@@ -288,35 +320,90 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
             calling emit.indent_less with (sigil of c->emitter)
             calling emit.line with (sigil of c->emitter), "}"
         return
-    if k == pskind.NodeKind.NdExprStmt:
+    if k == pskind.NodeKind.NdExprStmt or k == pskind.NodeKind.NdSimpleStmt:
         var e2 as int is calling astutil.node_child with ast, node, 0
         if e2 >= 0:
-            if (calling astutil.kind_of with ast, e2) == pskind.NodeKind.NdBanishExpr:
-                calling emit_defer with c, e2
-            else if (calling astutil.kind_of with ast, e2) == pskind.NodeKind.NdJudgeExpr:
-                calling emit_judge_stmt with c, e2, ast
+            calling emit_expr_statement with c, e2, ast
+        return
+    if k == pskind.NodeKind.NdWithStmt:
+        var wtgt as int is calling astutil.node_child with ast, node, 0
+        if wtgt >= 0:
+            var wtv as string is calling expr.emit_expr with c, wtgt
+            var wtt as int is calling expr.node_type with c, wtgt
+            if wtt <= 0:
+                set wtt is calling expr.guess_type with c, wtgt, ast
+            calling context.push_with with c, wtv, wtt
+            calling emit.line with (sigil of c->emitter), "{"
+            calling emit.indent_more with (sigil of c->emitter)
+            calling begin_scope with c, false
+            var wi as int is 1
+            var wn as int is calling astutil.child_count with ast, node
+            while wi < wn:
+                var wch as int is calling astutil.node_child with ast, node, wi
+                if wch >= 0:
+                    calling emit_stmt with c, wch
+                set wi is wi + 1
+            calling end_scope with c
+            calling emit.indent_less with (sigil of c->emitter)
+            calling emit.line with (sigil of c->emitter), "}"
+            calling context.pop_with with c
+        return
+    if k == pskind.NodeKind.NdUnsafeStmt:
+        var ub as int is calling astutil.node_child with ast, node, 0
+        if ub >= 0:
+            calling emit.line with (sigil of c->emitter), "{"
+            calling emit.indent_more with (sigil of c->emitter)
+            set c->unsafe_depth is c->unsafe_depth + 1
+            calling begin_scope with c, false
+            if (calling astutil.kind_of with ast, ub) == pskind.NodeKind.NdBlock:
+                calling emit_block_body with c, ub
             else:
-                var v2 as string is calling expr.emit_expr with c, e2
-                defer banish v2
-                var m2 as loader.SemaModule is (c->program->modules at c->current_module)
-                var asid2 as int is calling ann.symbol_of with (sigil of m2.annotations), e2
-                var mutating2 as bool is false
-                if asid2 >= 0:
-                    var asv2 as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), asid2
-                    if (asv2.flags & sym.SYM_MUTATING) != 0 and (asv2.flags & sym.SYM_GET_ALIAS) == 0:
-                        set mutating2 is true
-                if mutating2:
-                    var tgt2 as int is calling astutil.node_child with ast, e2, 0
-                    var rtv as expr.CgTarget is calling expr.resolve_target with c, tgt2, ast, true
-                    defer banish rtv.text
-                    calling emit.line with (sigil of c->emitter), "{rtv.text} = {v2};"
-                else:
-                    calling emit.line with (sigil of c->emitter), "(void)({v2});"
+                calling emit_stmt with c, ub
+            calling end_scope with c
+            set c->unsafe_depth is c->unsafe_depth - 1
+            calling emit.indent_less with (sigil of c->emitter)
+            calling emit.line with (sigil of c->emitter), "}"
+        return
+    if k == pskind.NodeKind.NdErrdeferStmt:
+        var ed as int is calling astutil.node_child with ast, node, 0
+        if ed >= 0:
+            calling context.add_errdefer with c, ed
         return
     # Fallback: una expresión-statement sin tipo.
     var v3 as string is calling expr.emit_expr with c, node
     defer banish v3
     calling emit.line with (sigil of c->emitter), "(void)({v3});"
+
+## Emite una expresión como statement, incluyendo las llamadas a métodos
+## `@mutates` (que se asignan de vuelta al receptor).
+##
+## ## Memoria
+## Strings owned.
+weave emit_expr_statement with c as ref to context.CgContext, e2 as int, ast as ref to psast.PsAst into void:
+    if e2 < 0:
+        return
+    if (calling astutil.kind_of with ast, e2) == pskind.NodeKind.NdBanishExpr:
+        calling emit_defer with c, e2
+        return
+    if (calling astutil.kind_of with ast, e2) == pskind.NodeKind.NdJudgeExpr:
+        calling emit_judge_stmt with c, e2, ast
+        return
+    var v2 as string is calling expr.emit_expr with c, e2
+    defer banish v2
+    var m2 as loader.SemaModule is (c->program->modules at c->current_module)
+    var asid2 as int is calling ann.symbol_of with (sigil of m2.annotations), e2
+    var mutating2 as bool is false
+    if asid2 >= 0:
+        var asv2 as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), asid2
+        if (asv2.flags & sym.SYM_MUTATING) != 0 and (asv2.flags & sym.SYM_GET_ALIAS) == 0:
+            set mutating2 is true
+    if mutating2:
+        var tgt2 as int is calling astutil.node_child with ast, e2, 0
+        var rtv as expr.CgTarget is calling expr.resolve_target with c, tgt2, ast, true
+        defer banish rtv.text
+        calling emit.line with (sigil of c->emitter), "{rtv.text} = {v2};"
+    else:
+        calling emit.line with (sigil of c->emitter), "(void)({v2});"
 
 ## Emite un `for var in start to end`.
 ##
@@ -646,7 +733,7 @@ weave target_text with c as ref to context.CgContext, node as int, ast as ref to
     var k as pskind.NodeKind is calling astutil.kind_of with ast, node
     if k == pskind.NodeKind.NdSetTarget:
         return calling target_text with c, (calling astutil.node_child with ast, node, 0), ast
-    if k == pskind.NodeKind.NdNormalTarget:
+    if k == pskind.NodeKind.NdNormalTarget or k == pskind.NodeKind.NdWithTarget:
         var rt is calling expr.resolve_target with c, node, ast, false
         return rt.text
     if k == pskind.NodeKind.NdEssenceTarget:
@@ -702,6 +789,16 @@ weave emit_loop_exit_defers with c as ref to context.CgContext into void:
     while d >= mark:
         calling emit_defer with c, (c->defers at d)
         set d is d - 1
+
+## Emite los `errdefer` pendientes (ruta de error), en orden LIFO.
+##
+## ## Memoria
+## Strings owned; los nodos son del AST.
+weave emit_errdefers with c as ref to context.CgContext into void:
+    var i as int is c->errdefers.len - 1
+    while i >= 0:
+        calling emit_defer with c, (c->errdefers at i)
+        set i is i - 1
 
 ## Emite un `defer` pendiente.
 ##
@@ -1092,6 +1189,101 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
     var jvn as int is vn
     while jvn >= 0 and (calling astutil.kind_of with ast, jvn) == pskind.NodeKind.NdParenExpr:
         set jvn is calling astutil.node_child with ast, jvn, 0
+    if jvn >= 0 and ((calling astutil.kind_of with ast, jvn) == pskind.NodeKind.NdOrReturn or (calling astutil.kind_of with ast, jvn) == pskind.NodeKind.NdTryExpr):
+        var ur_op as int is calling astutil.node_child with ast, jvn, 0
+        if ur_op < 0:
+            calling emit.line with (sigil of c->emitter), "{cdecl};"
+            calling context.add_local with c, nid, ty, nid
+            return
+        var ur_ot as int is calling expr.node_type with c, ur_op
+        var ur_ott as tk.SemaType is calling types.at with (sigil of c->program->types), ur_ot
+        var ur_pay as int is ur_ot
+        if ur_ott.kind == tk.SemaTypeKind.TkMaybe or ur_ott.kind == tk.SemaTypeKind.TkResult:
+            set ur_pay is ur_ott.a
+        var ur_pt as string is calling ctype.c_type with (sigil of c->names), ur_pay
+        defer banish ur_pt
+        var ur_zero as string is calling expr.zero_value_expr with c, ty
+        defer banish ur_zero
+        calling emit.line with (sigil of c->emitter), "{cdecl} = {ur_zero};"
+        var ur_ov as string is calling expr.emit_expr with c, ur_op
+        defer banish ur_ov
+        var ur_tmp as string is calling emit.temp with (sigil of c->emitter), "_u"
+        defer banish ur_tmp
+        if ur_ott.kind == tk.SemaTypeKind.TkMaybe:
+            calling emit.line with (sigil of c->emitter), "PenguMaybe {ur_tmp} = {ur_ov};"
+            calling emit.line with (sigil of c->emitter), "if ({ur_tmp}.is_present) {"
+        else if ur_ott.kind == tk.SemaTypeKind.TkResult:
+            calling emit.line with (sigil of c->emitter), "PenguResult {ur_tmp} = {ur_ov};"
+            calling emit.line with (sigil of c->emitter), "if ({ur_tmp}.is_ok) {"
+        else:
+            calling emit.line with (sigil of c->emitter), "{cn} = {ur_ov};"
+        if ur_ott.kind == tk.SemaTypeKind.TkMaybe:
+            calling emit.line with (sigil of c->emitter), "{cn} = (*( {ur_pt}*){ur_tmp}.value);"
+        else if ur_ott.kind == tk.SemaTypeKind.TkResult:
+            calling emit.line with (sigil of c->emitter), "{cn} = (*( {ur_pt}*){ur_tmp}.ok_val);"
+        if ur_ott.kind == tk.SemaTypeKind.TkMaybe or ur_ott.kind == tk.SemaTypeKind.TkResult:
+            calling emit.line with (sigil of c->emitter), "} else {"
+            calling emit.indent_more with (sigil of c->emitter)
+            calling emit_errdefers with c
+            if (calling astutil.kind_of with ast, jvn) == pskind.NodeKind.NdOrReturn:
+                var ur_fb as int is calling astutil.node_child with ast, jvn, 1
+                if ur_fb >= 0:
+                    var ur_fbv as string is calling expr.emit_expr with c, ur_fb
+                    defer banish ur_fbv
+                    calling emit.line with (sigil of c->emitter), "return {ur_fbv};"
+                else:
+                    calling emit.line with (sigil of c->emitter), "return 0;"
+            else:
+                if ur_ott.kind == tk.SemaTypeKind.TkMaybe:
+                    calling emit.line with (sigil of c->emitter), "return pengu_maybe_none();"
+                else:
+                    calling emit.line with (sigil of c->emitter), "return {ur_tmp};"
+            calling emit.indent_less with (sigil of c->emitter)
+            calling emit.line with (sigil of c->emitter), "}"
+        calling context.add_local with c, nid, ty, nid
+        return
+    if jvn >= 0 and (calling astutil.kind_of with ast, jvn) == pskind.NodeKind.NdOrBlock:
+        var ob_op as int is calling astutil.node_child with ast, jvn, 0
+        var ob_block as int is calling astutil.node_child with ast, jvn, 1
+        if ob_op < 0:
+            calling emit.line with (sigil of c->emitter), "{cdecl};"
+            calling context.add_local with c, nid, ty, nid
+            return
+        var ob_ot as int is calling expr.node_type with c, ob_op
+        var ob_ott as tk.SemaType is calling types.at with (sigil of c->program->types), ob_ot
+        var ob_pay as int is ob_ot
+        if ob_ott.kind == tk.SemaTypeKind.TkMaybe or ob_ott.kind == tk.SemaTypeKind.TkResult:
+            set ob_pay is ob_ott.a
+        var ob_pt as string is calling ctype.c_type with (sigil of c->names), ob_pay
+        defer banish ob_pt
+        var ob_zero as string is calling expr.zero_value_expr with c, ty
+        defer banish ob_zero
+        calling emit.line with (sigil of c->emitter), "{cdecl} = {ob_zero};"
+        var ob_ov as string is calling expr.emit_expr with c, ob_op
+        defer banish ob_ov
+        var ob_tmp as string is calling emit.temp with (sigil of c->emitter), "_or"
+        defer banish ob_tmp
+        if ob_ott.kind == tk.SemaTypeKind.TkMaybe:
+            calling emit.line with (sigil of c->emitter), "PenguMaybe {ob_tmp} = {ob_ov};"
+            calling emit.line with (sigil of c->emitter), "if ({ob_tmp}.is_present) {"
+        else if ob_ott.kind == tk.SemaTypeKind.TkResult:
+            calling emit.line with (sigil of c->emitter), "PenguResult {ob_tmp} = {ob_ov};"
+            calling emit.line with (sigil of c->emitter), "if ({ob_tmp}.is_ok) {"
+        else:
+            calling emit.line with (sigil of c->emitter), "{cn} = {ob_ov};"
+        if ob_ott.kind == tk.SemaTypeKind.TkMaybe:
+            calling emit.line with (sigil of c->emitter), "{cn} = (*( {ob_pt}*){ob_tmp}.value);"
+        else if ob_ott.kind == tk.SemaTypeKind.TkResult:
+            calling emit.line with (sigil of c->emitter), "{cn} = (*( {ob_pt}*){ob_tmp}.ok_val);"
+        if ob_ott.kind == tk.SemaTypeKind.TkMaybe or ob_ott.kind == tk.SemaTypeKind.TkResult:
+            calling emit.line with (sigil of c->emitter), "} else {"
+            calling emit.indent_more with (sigil of c->emitter)
+            if ob_block >= 0:
+                calling emit_stmt with c, ob_block
+            calling emit.indent_less with (sigil of c->emitter)
+            calling emit.line with (sigil of c->emitter), "}"
+        calling context.add_local with c, nid, ty, nid
+        return
     if jvn >= 0 and (calling astutil.kind_of with ast, jvn) == pskind.NodeKind.NdJudgeExpr:
         calling emit.line with (sigil of c->emitter), "{cdecl};"
         calling emit.line with (sigil of c->emitter), "(void){cn};"

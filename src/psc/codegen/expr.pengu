@@ -9,11 +9,14 @@ import std.builder
 import psc.ast.kind as pskind
 import psc.ast.node as psast
 import psc.lexer_decode as psdecode
+import psc.lexer_state as psstate
+import psc.source as psource
 import psc.sema.ast as astutil
 import psc.sema.modules.loader as loader
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
 import psc.sema.types.compat as compat
+import psc.sema.types.canonical as canon
 import psc.sema.symbols.symbol as sym
 import psc.sema.symbols.table as symbols
 import psc.sema.annotate as ann
@@ -23,6 +26,7 @@ import psc.codegen.context as context
 import psc.codegen.ctype as ctype
 import psc.codegen.names as names
 import psc.codegen.emit as emit
+import psc.codegen.origin as origin
 import psc.codegen.catalog as catalog
 import psc.codegen.type_ast as tast
 import psc.codegen.generics as generics
@@ -64,8 +68,8 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         defer banish raw
         var lt as int is calling node_type with c, node
         if lt > 0 and (calling compat.is_cstr with (sigil of c->program->types), lt):
-            return calling c_string_expr with c, raw, true
-        return calling c_string_expr with c, raw, false
+            return calling c_string_expr with c, node, raw, true
+        return calling c_string_expr with c, node, raw, false
     if k == pskind.NodeKind.NdVarRef or k == pskind.NodeKind.NdSelfRef:
         var txt as string is calling astutil.first_token_text with (sigil of m.source), (sigil of m.lex), ast, node
         defer banish txt
@@ -405,6 +409,36 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         return calling field_access_expr with c, node, ast, true
     if k == pskind.NodeKind.NdArrayLit:
         return calling array_lit_expr with c, node, ast, calling node_type with c, node
+    if k == pskind.NodeKind.NdForComp:
+        return calling for_comp_expr with c, node, ast
+    if k == pskind.NodeKind.NdDonumExpr:
+        var dt as int is calling node_type with c, node
+        if dt <= 0:
+            var dtn as int is calling astutil.node_child with ast, node, 0
+            if dtn >= 0:
+                set dt is calling tast.from_ast with c, m, dtn
+        if dt <= 0:
+            return "0"
+        return calling zero_value_expr with c, dt
+    if k == pskind.NodeKind.NdTypeOf:
+        var ton as int is calling astutil.node_child with ast, node, 0
+        var toy as int is calling node_type with c, ton
+        if toy <= 0:
+            set toy is calling guess_type with c, ton, ast
+        if toy <= 0:
+            return "pengu_string_from_cstr(\"any\")"
+        var tnid as int is calling canon.canonical_name with (sigil of c->program->types), toy
+        var ttxt as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), tnid)
+        defer banish ttxt
+        var tesc as string is calling emit.escape_c with ttxt
+        defer banish tesc
+        return "pengu_string_from_cstr(\"{tesc}\")"
+    if k == pskind.NodeKind.NdInExpr or k == pskind.NodeKind.NdNotInExpr:
+        return calling in_expr with c, node, ast, k == pskind.NodeKind.NdNotInExpr
+    if k == pskind.NodeKind.NdOrReturn:
+        return calling unwrap_expr with c, node, ast, true
+    if k == pskind.NodeKind.NdTryExpr:
+        return calling unwrap_expr with c, node, ast, false
     if k == pskind.NodeKind.NdListInitExpr:
         return calling list_init_expr with c, node, ast, -1
     if k == pskind.NodeKind.NdStructInit:
@@ -455,6 +489,503 @@ weave guess_type with c as ref to context.CgContext, node as int, ast as ref to 
 ##
 ## ## Memoria
 ## Devuelve string owned.
+## Emite `or return` y `try` sobre `maybe`/`result`.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave unwrap_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, is_or_return as bool into string:
+    var operand as int is calling astutil.node_child with ast, node, 0
+    if operand < 0:
+        return "0"
+    var ot as int is calling node_type with c, operand
+    if ot <= 0:
+        return calling emit_expr with c, operand
+    var ott as tk.SemaType is calling types.at with (sigil of c->program->types), ot
+    if ott.kind != tk.SemaTypeKind.TkMaybe and ott.kind != tk.SemaTypeKind.TkResult:
+        return calling emit_expr with c, operand
+    var payload as int is ott.a
+    var pt as string is calling ctype.c_type with (sigil of c->names), payload
+    defer banish pt
+    var tmp as string is calling emit.temp with (sigil of c->emitter), "_u"
+    defer banish tmp
+    var ov as string is calling emit_expr with c, operand
+    defer banish ov
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "__extension__(({ Pengu"
+    if ott.kind == tk.SemaTypeKind.TkMaybe:
+        calling sb.append with "Maybe "
+    else:
+        calling sb.append with "Result "
+    calling sb.append with tmp
+    calling sb.append with " = "
+    calling sb.append with ov
+    calling sb.append with "; "
+    if ott.kind == tk.SemaTypeKind.TkMaybe:
+        calling sb.append with "if (!"
+        calling sb.append with tmp
+        calling sb.append with ".is_present) { "
+    else:
+        calling sb.append with "if (!"
+        calling sb.append with tmp
+        calling sb.append with ".is_ok) { "
+    if is_or_return:
+        var fallback as int is calling astutil.node_child with ast, node, 1
+        var fb as string is ""
+        if fallback >= 0:
+            set fb is calling emit_expr with c, fallback
+        defer banish fb
+        if fb == "":
+            set fb is "0"
+        calling sb.append with "return "
+        calling sb.append with fb
+        calling sb.append with "; "
+    else:
+        if ott.kind == tk.SemaTypeKind.TkMaybe:
+            calling sb.append with "return pengu_maybe_none(); "
+        else:
+            calling sb.append with "return "
+            calling sb.append with tmp
+            calling sb.append with "; "
+    calling sb.append with "} (*( "
+    calling sb.append with pt
+    calling sb.append with "*)"
+    if ott.kind == tk.SemaTypeKind.TkMaybe:
+        calling sb.append with tmp
+        calling sb.append with ".value); }))"
+    else:
+        calling sb.append with tmp
+        calling sb.append with ".ok_val); }))"
+    return calling sb.finish
+
+## Emite el valor cero de un tipo (`donum T`).
+##
+## ## Memoria
+## Devuelve un string owned.
+weave zero_value_expr with c as ref to context.CgContext, ty as int into string:
+    if ty <= 0:
+        return "0"
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkOpaque or t.kind == tk.SemaTypeKind.TkFn:
+        return "NULL"
+    if t.kind == tk.SemaTypeKind.TkBase:
+        var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
+        defer banish bn
+        if bn == "string":
+            return "pengu_string_from_cstr(\"\")"
+        if bn == "bool":
+            return "false"
+        if bn == "float" or bn == "f32" or bn == "f64" or bn == "double":
+            return "0.0"
+        return "0"
+    if t.kind == tk.SemaTypeKind.TkMaybe:
+        return "pengu_maybe_none()"
+    var ct as string is calling ctype.c_type with (sigil of c->names), ty
+    defer banish ct
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "("
+    calling sb.append with ct
+    calling sb.append with r"){0}"
+    return calling sb.finish
+
+## Emite `valor in coleccion` / `valor not in coleccion`.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave in_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, negated as bool into string:
+    var valn as int is calling astutil.node_child with ast, node, 0
+    var coln as int is calling astutil.node_child with ast, node, 1
+    if valn < 0 or coln < 0:
+        return "false"
+    var val_c as string is calling emit_expr with c, valn
+    defer banish val_c
+    var col_c as string is calling emit_expr with c, coln
+    defer banish col_c
+    var val_ty as int is calling node_type with c, valn
+    if val_ty <= 0:
+        set val_ty is calling guess_type with c, valn, ast
+    var col_ty as int is calling node_type with c, coln
+    if col_ty <= 0:
+        set col_ty is calling guess_type with c, coln, ast
+    if (calling astutil.kind_of with ast, coln) == pskind.NodeKind.NdToExpr:
+        var lo as int is calling astutil.node_child with ast, coln, 0
+        var hi as int is calling astutil.node_child with ast, coln, 1
+        var lo_c as string is calling emit_expr with c, lo
+        var hi_c as string is calling emit_expr with c, hi
+        defer banish lo_c
+        defer banish hi_c
+        var inner as string is "(({val_c}) >= ({lo_c}) && ({val_c}) < ({hi_c}))"
+        if negated:
+            return "!({inner})"
+        return inner
+    if col_ty <= 0:
+        return "false"
+    var ct as tk.SemaType is calling types.at with (sigil of c->program->types), col_ty
+    var is_ref as bool is ct.kind == tk.SemaTypeKind.TkRef
+    var actual as tk.SemaType is ct
+    if is_ref and ct.a > 0:
+        set actual is calling types.at with (sigil of c->program->types), ct.a
+    var amp as string is "&"
+    if is_ref:
+        set amp is ""
+    var inner as string is "false"
+    if actual.kind == tk.SemaTypeKind.TkMap:
+        var kt as string is calling ctype.c_type with (sigil of c->names), actual.a
+        defer banish kt
+        var sb as StringBuilder is calling StringBuilder.new
+        defer banish sb
+        var ktmp as string is calling emit.temp with (sigil of c->emitter), "_k"
+        defer banish ktmp
+        calling sb.append with "__extension__(({ "
+        calling sb.append with kt
+        calling sb.append with " "
+        calling sb.append with ktmp
+        calling sb.append with " = "
+        calling sb.append with val_c
+        calling sb.append with "; pengu_map_contains("
+        calling sb.append with amp
+        calling sb.append with "("
+        calling sb.append with col_c
+        calling sb.append with "), &"
+        calling sb.append with ktmp
+        calling sb.append with "); }))"
+        set inner is calling sb.finish
+    else if actual.kind == tk.SemaTypeKind.TkList:
+        var el as string is calling ctype.c_type with (sigil of c->names), actual.a
+        defer banish el
+        var sb2 as StringBuilder is calling StringBuilder.new
+        defer banish sb2
+        var etmp as string is calling emit.temp with (sigil of c->emitter), "_e"
+        defer banish etmp
+        calling sb2.append with "__extension__(({ "
+        calling sb2.append with el
+        calling sb2.append with " "
+        calling sb2.append with etmp
+        calling sb2.append with " = "
+        calling sb2.append with val_c
+        calling sb2.append with "; pengu_list_contains("
+        calling sb2.append with amp
+        calling sb2.append with "("
+        calling sb2.append with col_c
+        calling sb2.append with "), &"
+        calling sb2.append with etmp
+        calling sb2.append with "); }))"
+        set inner is calling sb2.finish
+    else if actual.kind == tk.SemaTypeKind.TkBase:
+        var bn as string is calling npool.text with (sigil of c->program->names), actual.name
+        if bn == "string":
+            var vst as tk.SemaType is calling types.at with (sigil of c->program->types), val_ty
+            if vst.kind == tk.SemaTypeKind.TkBase and (calling npool.text with (sigil of c->program->names), vst.name) == "string":
+                set inner is "(pengu__find_sub({col_c}, {val_c}, 0) >= 0)"
+            else:
+                set inner is "(memchr(({col_c}).data, (int)({val_c}), (size_t)({col_c}).len) != NULL)"
+    if inner == "false" and (actual.kind == tk.SemaTypeKind.TkArray or actual.kind == tk.SemaTypeKind.TkSlice or actual.kind == tk.SemaTypeKind.TkMany):
+        var el2 as string is calling ctype.c_type with (sigil of c->names), actual.a
+        defer banish el2
+        var sb3 as StringBuilder is calling StringBuilder.new
+        defer banish sb3
+        var vtmp2 as string is calling emit.temp with (sigil of c->emitter), "_v"
+        var itmp2 as string is calling emit.temp with (sigil of c->emitter), "_i"
+        var ftmp2 as string is calling emit.temp with (sigil of c->emitter), "_found"
+        defer banish vtmp2
+        defer banish itmp2
+        defer banish ftmp2
+        var len2 as string is "0"
+        var sep2 as string is "."
+        if is_ref:
+            set sep2 is "->"
+        if actual.kind == tk.SemaTypeKind.TkArray:
+            set len2 is "{actual.b}"
+        else:
+            set len2 is "({col_c}){sep2}len"
+        calling sb3.append with "__extension__(({ "
+        calling sb3.append with el2
+        calling sb3.append with " "
+        calling sb3.append with vtmp2
+        calling sb3.append with " = "
+        calling sb3.append with val_c
+        calling sb3.append with "; bool "
+        calling sb3.append with ftmp2
+        calling sb3.append with " = false; for (int "
+        calling sb3.append with itmp2
+        calling sb3.append with " = 0; "
+        calling sb3.append with itmp2
+        calling sb3.append with " < "
+        calling sb3.append with len2
+        calling sb3.append with "; "
+        calling sb3.append with itmp2
+        calling sb3.append with "++) { if (memcmp(&({col_c})["
+        calling sb3.append with itmp2
+        calling sb3.append with "], &"
+        calling sb3.append with vtmp2
+        calling sb3.append with ", sizeof("
+        calling sb3.append with el2
+        calling sb3.append with ")) == 0) { "
+        calling sb3.append with ftmp2
+        calling sb3.append with " = true; break; } } "
+        calling sb3.append with ftmp2
+        calling sb3.append with "; }))"
+        set inner is calling sb3.finish
+    if negated:
+        var nres as string is "!({inner})"
+        banish inner
+        return nres
+    return inner
+
+## Emite una lista por comprensión (`for x in xs [when cond] then expr`).
+##
+## ## Memoria
+## Strings owned; el resultado es una statement-expression con un `PenguList`
+## recién reservado.
+weave for_comp_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var name_tok as int is calling astutil.token_child with ast, node, 0
+    var col as int is calling astutil.node_child with ast, node, 1
+    var cond as int is calling astutil.node_child with ast, node, 2
+    var body as int is calling astutil.node_child with ast, node, 3
+    if body < 0:
+        set body is cond
+        set cond is -1
+    if name_tok < 0 or col < 0 or body < 0:
+        return "0"
+    var rt as int is calling node_type with c, node
+    if rt <= 0:
+        return "0"
+    var rtt as tk.SemaType is calling types.at with (sigil of c->program->types), rt
+    if rtt.kind != tk.SemaTypeKind.TkList:
+        return "0"
+    var et as int is rtt.a
+    var ect as string is calling ctype.c_type with (sigil of c->names), et
+    defer banish ect
+    var ntxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), name_tok
+    defer banish ntxt
+    var cname as string is ""
+    if ntxt == "_":
+        set cname is calling emit.temp with (sigil of c->emitter), "_comp_x"
+    else:
+        set cname is calling context.safe_c_name with ntxt
+    defer banish cname
+    var nid as int is calling npool.intern with (sigil of c->program->names), ntxt
+    var col_type as int is calling node_type with c, col
+    if col_type <= 0:
+        set col_type is calling guess_type with c, col, ast
+    var ct as tk.SemaType is calling types.at with (sigil of c->program->types), col_type
+    var is_ref as bool is ct.kind == tk.SemaTypeKind.TkRef
+    var actual as tk.SemaType is ct
+    if is_ref and ct.a > 0:
+        set actual is calling types.at with (sigil of c->program->types), ct.a
+    var col_c as string is calling emit_expr with c, col
+    defer banish col_c
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var ltmp as string is calling emit.temp with (sigil of c->emitter), "_comp"
+    var itmp as string is calling emit.temp with (sigil of c->emitter), "_ci"
+    var vtmp as string is calling emit.temp with (sigil of c->emitter), "_cv"
+    defer banish ltmp
+    defer banish itmp
+    defer banish vtmp
+    calling sb.append with "__extension__(({ PenguList "
+    calling sb.append with ltmp
+    calling sb.append with " = pengu_list_new(sizeof("
+    calling sb.append with ect
+    calling sb.append with "), 0); "
+    # Tipo del binding del bucle (no el tipo del resultado).
+    var loop_ty as int is et
+    var ck as pskind.NodeKind is calling astutil.kind_of with ast, col
+    if ck == pskind.NodeKind.NdToExpr:
+        set loop_ty is calling types.base with (sigil of c->program->types), "int"
+    else if ct.kind == tk.SemaTypeKind.TkMap:
+        set loop_ty is actual.a
+    else if actual.kind == tk.SemaTypeKind.TkList or actual.kind == tk.SemaTypeKind.TkSlice or actual.kind == tk.SemaTypeKind.TkArray:
+        set loop_ty is actual.a
+    else if actual.kind == tk.SemaTypeKind.TkBase:
+        var lbn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), actual.name)
+        defer banish lbn
+        if lbn == "string":
+            set loop_ty is calling types.base with (sigil of c->program->types), "string"
+    var lct as string is calling ctype.c_type with (sigil of c->names), loop_ty
+    defer banish lct
+    # Locales: el binding del bucle solo vive dentro de la comprensión.
+    var mark as int is c->locals.len
+    calling context.add_local with c, nid, loop_ty, nid
+    var cond_c as string is "1"
+    if cond >= 0:
+        set cond_c is calling emit_expr with c, cond
+    defer banish cond_c
+    var body_c as string is calling emit_expr_as with c, body, et
+    defer banish body_c
+    if ck == pskind.NodeKind.NdToExpr:
+        var lo as int is calling astutil.node_child with ast, col, 0
+        var hi as int is calling astutil.node_child with ast, col, 1
+        var lo_c as string is calling emit_expr with c, lo
+        var hi_c as string is calling emit_expr with c, hi
+        defer banish lo_c
+        defer banish hi_c
+        calling sb.append with "for (int32_t "
+        calling sb.append with cname
+        calling sb.append with " = "
+        calling sb.append with lo_c
+        calling sb.append with "; "
+        calling sb.append with cname
+        calling sb.append with " < "
+        calling sb.append with hi_c
+        calling sb.append with "; "
+        calling sb.append with cname
+        calling sb.append with "++) { if ("
+        calling sb.append with cond_c
+        calling sb.append with ") { "
+        calling sb.append with ect
+        calling sb.append with " "
+        calling sb.append with vtmp
+        calling sb.append with " = "
+        calling sb.append with body_c
+        calling sb.append with "; pengu_list_push(&"
+        calling sb.append with ltmp
+        calling sb.append with ", &"
+        calling sb.append with vtmp
+        calling sb.append with "); } } "
+    else if ct.kind == tk.SemaTypeKind.TkMap:
+        var ktmp as string is calling emit.temp with (sigil of c->emitter), "_mk"
+        var ptmp as string is calling emit.temp with (sigil of c->emitter), "_mp"
+        defer banish ktmp
+        defer banish ptmp
+        calling sb.append with "PenguMap "
+        calling sb.append with ktmp
+        calling sb.append with " = "
+        calling sb.append with col_c
+        calling sb.append with "; PenguMapIter "
+        calling sb.append with ptmp
+        calling sb.append with " = pengu_map_iter_begin(&"
+        calling sb.append with ktmp
+        calling sb.append with "); for (; pengu_map_iter_valid(&"
+        calling sb.append with ptmp
+        calling sb.append with "); pengu_map_iter_advance(&"
+        calling sb.append with ptmp
+        calling sb.append with ")) { "
+        calling sb.append with lct
+        calling sb.append with " "
+        calling sb.append with cname
+        calling sb.append with " = (*(const "
+        calling sb.append with lct
+        calling sb.append with "*)pengu_map_iter_key(&"
+        calling sb.append with ptmp
+        calling sb.append with ")); if ("
+        calling sb.append with cond_c
+        calling sb.append with ") { "
+        calling sb.append with ect
+        calling sb.append with " "
+        calling sb.append with vtmp
+        calling sb.append with " = "
+        calling sb.append with body_c
+        calling sb.append with "; pengu_list_push(&"
+        calling sb.append with ltmp
+        calling sb.append with ", &"
+        calling sb.append with vtmp
+        calling sb.append with "); } } "
+    else if actual.kind == tk.SemaTypeKind.TkList:
+        var sep as string is "."
+        var amp as string is "&"
+        if is_ref:
+            set sep is "->"
+            set amp is ""
+        calling sb.append with "PenguList "
+        calling sb.append with ltmp
+        calling sb.append with "_l = "
+        calling sb.append with col_c
+        calling sb.append with "; for (int "
+        calling sb.append with itmp
+        calling sb.append with " = 0; "
+        calling sb.append with itmp
+        calling sb.append with " < "
+        calling sb.append with ltmp
+        calling sb.append with "_l"
+        calling sb.append with ".len; "
+        calling sb.append with itmp
+        calling sb.append with "++) { "
+        calling sb.append with lct
+        calling sb.append with " "
+        calling sb.append with cname
+        calling sb.append with " = (*( "
+        calling sb.append with lct
+        calling sb.append with "*)pengu_list_at(&"
+        calling sb.append with ltmp
+        calling sb.append with "_l, "
+        calling sb.append with itmp
+        calling sb.append with ")); if ("
+        calling sb.append with cond_c
+        calling sb.append with ") { "
+        calling sb.append with ect
+        calling sb.append with " "
+        calling sb.append with vtmp
+        calling sb.append with " = "
+        calling sb.append with body_c
+        calling sb.append with "; pengu_list_push(&"
+        calling sb.append with ltmp
+        calling sb.append with ", &"
+        calling sb.append with vtmp
+        calling sb.append with "); } } "
+    else:
+        var len_expr as string is "0"
+        var sep2 as string is "."
+        if is_ref:
+            set sep2 is "->"
+        if actual.kind == tk.SemaTypeKind.TkArray:
+            set len_expr is "{actual.b}"
+        else:
+            set len_expr is "({col_c}){sep2}len"
+        calling sb.append with "for (int "
+        calling sb.append with itmp
+        calling sb.append with " = 0; "
+        calling sb.append with itmp
+        calling sb.append with " < "
+        calling sb.append with len_expr
+        calling sb.append with "; "
+        calling sb.append with itmp
+        calling sb.append with "++) { "
+        calling sb.append with lct
+        calling sb.append with " "
+        calling sb.append with cname
+        if actual.kind == tk.SemaTypeKind.TkBase:
+            var sbn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), actual.name)
+            defer banish sbn
+            if sbn == "string":
+                calling sb.append with " = pengu_string_char_at("
+                calling sb.append with col_c
+                calling sb.append with ", "
+                calling sb.append with itmp
+                calling sb.append with "); "
+            else:
+                calling sb.append with " = ("
+                calling sb.append with col_c
+                calling sb.append with ")["
+                calling sb.append with itmp
+                calling sb.append with "]; "
+        else:
+            calling sb.append with " = ("
+            calling sb.append with col_c
+            calling sb.append with ")["
+            calling sb.append with itmp
+            calling sb.append with "]; "
+        calling sb.append with "if ("
+        calling sb.append with cond_c
+        calling sb.append with ") { "
+        calling sb.append with ect
+        calling sb.append with " "
+        calling sb.append with vtmp
+        calling sb.append with " = "
+        calling sb.append with body_c
+        calling sb.append with "; pengu_list_push(&"
+        calling sb.append with ltmp
+        calling sb.append with ", &"
+        calling sb.append with vtmp
+        calling sb.append with "); } } "
+    while c->locals.len > mark:
+        var ignored as context.CgLocal is calling c->locals.pop
+    calling sb.append with ltmp
+    calling sb.append with "; }))"
+    return calling sb.finish
+
 ## Emite un literal de lista `[a, b, ...]` como `PenguList`.
 ##
 ## ## Memoria
@@ -2052,6 +2583,70 @@ weave infer_at_type with c as ref to context.CgContext, node as int, ast as ref 
         return t.a
     return -1
 
+## Envuelve un índice con `pengu_assert_bounds` si los checks están activos.
+##
+## ## Parámetros
+## - `idx`: expresión C del índice.
+## - `base`: expresión C del contenedor.
+## - `base_type`: `TypeId` del contenedor (puede ser `ref to`).
+## - `node`: nodo del acceso, para la ubicación del diagnóstico.
+## - `is_ref`: `true` si `base` ya es un puntero al contenedor.
+##
+## ## Retorno
+## La expresión del índice, envuelta o no. String owned.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave checked_index with c as ref to context.CgContext, idx as string, base as string, base_type as int, node as int, is_ref as bool into string:
+    if c->unsafe_depth > 0 or c->options.release_unsafe:
+        return calling npool.copy_string with idx
+    if base_type <= 0:
+        return calling npool.copy_string with idx
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), base_type
+    var actual as tk.SemaType is t
+    var sep as string is "."
+    if t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen:
+        set sep is "->"
+        if t.a > 0:
+            set actual is calling types.at with (sigil of c->program->types), t.a
+    var len_expr as string is ""
+    if actual.kind == tk.SemaTypeKind.TkArray:
+        if actual.b > 0:
+            set len_expr is "{actual.b}"
+    else if actual.kind == tk.SemaTypeKind.TkList or actual.kind == tk.SemaTypeKind.TkSlice or actual.kind == tk.SemaTypeKind.TkMany:
+        set len_expr is "({base}){sep}len"
+    else if actual.kind == tk.SemaTypeKind.TkBase:
+        var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), actual.name)
+        defer banish bn
+        if bn == "string":
+            set len_expr is "({base}){sep}len"
+    if len_expr == "":
+        return calling npool.copy_string with idx
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var line as int is calling origin.line_of with m, node
+    var path as string is calling emit.escape_c with m.source.path
+    defer banish path
+    var tmp as string is calling emit.temp with (sigil of c->emitter), "_p_idx"
+    defer banish tmp
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "(__extension__(({ int64_t "
+    calling sb.append with tmp
+    calling sb.append with " = (int64_t)("
+    calling sb.append with idx
+    calling sb.append with "); pengu_assert_bounds("
+    calling sb.append with tmp
+    calling sb.append with ", (int64_t)("
+    calling sb.append with len_expr
+    calling sb.append with "), \""
+    calling sb.append with path
+    calling sb.append with ":"
+    calling sb.append with (line to string)
+    calling sb.append with "\"); "
+    calling sb.append with tmp
+    calling sb.append with "; })))"
+    return calling sb.finish
+
 ## Emite una indexación `base at index`.
 ##
 ## ## Memoria
@@ -2074,6 +2669,8 @@ weave at_expr with c as ref to context.CgContext, node as int, ast as ref to psa
             set is_ref is true
             if t.a > 0:
                 set t is calling types.at with (sigil of c->program->types), t.a
+        var cix as string is calling checked_index with c, ix, bs, bt, node, is_ref
+        defer banish cix
         var amp as string is "&"
         if is_ref:
             set amp is ""
@@ -2086,7 +2683,7 @@ weave at_expr with c as ref to context.CgContext, node as int, ast as ref to psa
             calling ssb.append with "*)pengu_slice_at({amp}("
             calling ssb.append with bs
             calling ssb.append with "), (int)("
-            calling ssb.append with ix
+            calling ssb.append with cix
             calling ssb.append with ")))"
             banish set
             return calling ssb.finish
@@ -2100,31 +2697,41 @@ weave at_expr with c as ref to context.CgContext, node as int, ast as ref to psa
             calling asb.append with "*)pengu_list_at({amp}("
             calling asb.append with bs
             calling asb.append with "), (int)("
-            calling asb.append with ix
+            calling asb.append with cix
             calling asb.append with ")))"
             return calling asb.finish
         if t.kind == tk.SemaTypeKind.TkMap:
             var kt as string is calling ctype.c_type with (sigil of c->names), t.a
             var vt as string is calling ctype.c_type with (sigil of c->names), t.b
+            var vtt as tk.SemaType is calling types.at with (sigil of c->program->types), t.b
+            var vzero as string is "NULL"
+            if vtt.kind != tk.SemaTypeKind.TkRef and vtt.kind != tk.SemaTypeKind.TkFn and vtt.kind != tk.SemaTypeKind.TkOpaque:
+                var zsb as StringBuilder is calling StringBuilder.new
+                defer banish zsb
+                calling zsb.append with "("
+                calling zsb.append with vt
+                calling zsb.append with r"){0}"
+                set vzero is calling zsb.finish
+            var ktmp as string is calling emit.temp with (sigil of c->emitter), "_k"
+            var ptmp as string is calling emit.temp with (sigil of c->emitter), "_p"
+            defer banish ktmp
+            defer banish ptmp
             var msb as StringBuilder is calling StringBuilder.new
             defer banish msb
             calling msb.append with "__extension__(({ "
             calling msb.append with kt
-            calling msb.append with " _k = "
+            calling msb.append with " {ktmp} = "
             calling msb.append with ix
-            calling msb.append with "; (*( "
-            calling msb.append with vt
-            calling msb.append with "*)pengu_map_get({amp}("
-            calling msb.append with bs
-            calling msb.append with "), &_k)); }))"
+            calling msb.append with "; void* {ptmp} = pengu_map_get({amp}({bs}), &{ktmp}); {ptmp} ? (*( {vt}*){ptmp}) : {vzero}; }))"
             banish kt
             banish vt
+            banish vzero
             return calling msb.finish
         if t.kind == tk.SemaTypeKind.TkBase:
             var bn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
             defer banish bn
             if bn == "string":
-                return "pengu_string_char_at({bs}, (int)({ix}))"
+                return "pengu_string_char_at({bs}, (int)({cix}))"
     return "({bs})[{ix}]"
 
 ## Target resuelto de una llamada: texto C y tipo.
@@ -2159,9 +2766,100 @@ weave cg_field_type with c as ref to context.CgContext, ty as int, fname as int 
 ##
 ## ## Memoria
 ## Devuelve un `CgTarget` owned; liberar `text` con `banish`.
+## Aplica un acceso `at` a un target ya resuelto.
+##
+## ## Memoria
+## Devuelve un `CgTarget` owned; liberar `text`.
+weave at_access_target with c as ref to context.CgContext, ch as int, base as string, ty as int, ast as ref to psast.PsAst into CgTarget:
+    var ixnode as int is calling astutil.node_child with ast, ch, 0
+    if ixnode < 0:
+        return with text is (calling npool.copy_string with base), type_id is ty
+    var ixt as string is calling emit_expr with c, ixnode
+    defer banish ixt
+    if ty <= 0:
+        return with text is "{base}[{ixt}]", type_id is -1
+    var it0 as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var is_ref as bool is it0.kind == tk.SemaTypeKind.TkRef
+    var actual as tk.SemaType is it0
+    if is_ref and it0.a > 0:
+        set actual is calling types.at with (sigil of c->program->types), it0.a
+    var cix as string is calling checked_index with c, ixt, base, ty, ch, is_ref
+    defer banish cix
+    var amp as string is "&"
+    if is_ref:
+        set amp is ""
+    if actual.kind == tk.SemaTypeKind.TkList:
+        var el as string is calling ctype.c_type with (sigil of c->names), actual.a
+        defer banish el
+        return with text is "(*( {el}*)pengu_list_at({amp}({base}), (int)({cix})))", type_id is actual.a
+    if actual.kind == tk.SemaTypeKind.TkArray or actual.kind == tk.SemaTypeKind.TkSlice or actual.kind == tk.SemaTypeKind.TkRef:
+        return with text is "{base}[{cix}]", type_id is actual.a
+    return with text is "{base}[{cix}]", type_id is -1
+
+## Resuelve un target relativo al `with target:` más interno.
+##
+## El AST de un `with_target` empieza con el nombre del primer campo (o del
+## método, si `skip_method`) y sigue con accesos `.campo` / `->campo` / `at`.
+##
+## ## Memoria
+## Devuelve un `CgTarget` owned; liberar `text`.
+weave resolve_with_target with c as ref to context.CgContext, target as int, ast as ref to psast.PsAst, skip_method as bool into CgTarget:
+    if c->with_targets.len == 0 or c->with_types.len == 0:
+        return with text is "NULL", type_id is -1
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var n as int is calling astutil.child_count with ast, target
+    var tok as int is calling astutil.token_child with ast, target, 0
+    var base as string is calling npool.copy_string with (c->with_targets at (c->with_targets.len - 1))
+    var ty as int is (c->with_types at (c->with_types.len - 1))
+    if tok < 0:
+        return with text is base, type_id is ty
+    # `calling .metodo`: el único token es el método; el receptor es el target.
+    if skip_method and n == 1:
+        return with text is base, type_id is ty
+    var ftxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), tok
+    var fid as int is calling npool.intern with (sigil of c->program->names), ftxt
+    set ty is calling cg_field_type with c, ty, fid
+    var nxt as string is "{base}.{ftxt}"
+    banish base
+    banish ftxt
+    set base is nxt
+    var i as int is 1
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, target, i
+        if ch >= 0:
+            var ck as pskind.NodeKind is calling astutil.kind_of with ast, ch
+            var is_method as bool is skip_method and (i == n - 1) and (ck == pskind.NodeKind.NdDotAccess or ck == pskind.NodeKind.NdArrowAccess)
+            if not is_method:
+                if ck == pskind.NodeKind.NdAtAccess:
+                    var atr as CgTarget is calling at_access_target with c, ch, base, ty, ast
+                    banish base
+                    set base is atr.text
+                    set ty is atr.type_id
+                else:
+                    var ft as int is calling astutil.token_child with ast, ch, 0
+                    if ft >= 0:
+                        var fld as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
+                        var fid2 as int is calling npool.intern with (sigil of c->program->names), fld
+                        set ty is calling cg_field_type with c, ty, fid2
+                        var sep as string is "."
+                        if ck == pskind.NodeKind.NdArrowAccess:
+                            set sep is "->"
+                        var nxt3 as string is "{base}{sep}{fld}"
+                        banish base
+                        banish fld
+                        set base is nxt3
+        set i is i + 1
+    return with text is base, type_id is ty
+
+## Resuelve el target de un `set` (nombre, campo, índice o `with`).
+##
+## ## Memoria
+## Devuelve un `CgTarget` owned; liberar `text`.
 weave resolve_target with c as ref to context.CgContext, target as int, ast as ref to psast.PsAst, skip_method as bool into CgTarget:
     if target < 0:
         return with text is "NULL", type_id is -1
+    if (calling astutil.kind_of with ast, target) == pskind.NodeKind.NdWithTarget:
+        return calling resolve_with_target with c, target, ast, skip_method
     var m as loader.SemaModule is (c->program->modules at c->current_module)
     var n as int is calling astutil.child_count with ast, target
     if n <= 0:
@@ -2192,24 +2890,10 @@ weave resolve_target with c as ref to context.CgContext, target as int, ast as r
             var is_method as bool is skip_method and (i == n - 1) and (ck == pskind.NodeKind.NdDotAccess or ck == pskind.NodeKind.NdArrowAccess)
             if not is_method:
                 if ck == pskind.NodeKind.NdAtAccess:
-                    var ixnode as int is calling astutil.node_child with ast, ch, 0
-                    var ixt as string is calling emit_expr with c, ixnode
-                    var it0 as tk.SemaType is calling types.at with (sigil of c->program->types), ty
-                    if it0.kind == tk.SemaTypeKind.TkList:
-                        var el as string is calling ctype.c_type with (sigil of c->names), it0.a
-                        var nxtl as string is "(*( {el}*)pengu_list_at(&({base}), (int)({ixt})))"
-                        banish el
-                        banish ixt
-                        banish base
-                        set base is nxtl
-                        set ty is it0.a
-                    else:
-                        var nxt2 as string is "{base}[{ixt}]"
-                        banish ixt
-                        banish base
-                        set base is nxt2
-                        if it0.kind == tk.SemaTypeKind.TkRef or it0.kind == tk.SemaTypeKind.TkArray or it0.kind == tk.SemaTypeKind.TkSlice:
-                            set ty is it0.a
+                    var atr as CgTarget is calling at_access_target with c, ch, base, ty, ast
+                    banish base
+                    set base is atr.text
+                    set ty is atr.type_id
                 else:
                     var ft as int is calling astutil.token_child with ast, ch, 0
                     if ft >= 0:
@@ -3219,7 +3903,7 @@ weave escape_c_lit with s as string into string:
 ##
 ## ## Memoria
 ## Devuelve string owned.
-weave c_string_expr with c as ref to context.CgContext, raw as string, as_cstr as bool into string:
+weave c_string_expr with c as ref to context.CgContext, node as int, raw as string, as_cstr as bool into string:
     var n as int is raw length
     if n < 2:
         if as_cstr:
@@ -3252,7 +3936,7 @@ weave c_string_expr with c as ref to context.CgContext, raw as string, as_cstr a
             var resc2 as string is calling emit.escape_c with decoded
             defer banish resc2
             return "\"{resc2}\""
-        return calling interp_expr with c, decoded
+        return calling interp_expr with c, node, decoded
     var esc as string is calling emit.escape_c with decoded
     defer banish esc
     if as_cstr:
@@ -3326,126 +4010,111 @@ weave nominal_field_type with c as ref to context.CgContext, ty as int, fname as
         set i is i + 1
     return -1
 
-weave interp_expr with c as ref to context.CgContext, content as string into string:
+## Devuelve el índice del `StringInfo` del literal `node`, o `-1`.
+##
+## ## Memoria
+## O(literales).
+weave find_string_info with c as ref to context.CgContext, node as int into int:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var ns as int is calling astutil.start_of with (sigil of m.parse.ast), node
+    var ne as int is calling astutil.end_of with (sigil of m.parse.ast), node
+    var i as int is 0
+    while i < m.lex.strings.len:
+        var si as psstate.StringInfo is (m.lex.strings at i)
+        if si.has_interp and si.content_start >= ns and si.content_end <= ne:
+            return i
+        set i is i + 1
+    return -1
+
+## Devuelve el índice del `SemaInterp` de un segmento, o `-1`.
+##
+## ## Memoria
+## O(interpolaciones del módulo).
+weave find_interp with m as ref to loader.SemaModule, node as int, pstart as int, pend as int into int:
+    var i as int is 0
+    while i < m->interps.len:
+        var it as loader.SemaInterp is (m->interps at i)
+        if it.node == node and it.part_start == pstart and it.part_end == pend:
+            return i
+        set i is i + 1
+    return -1
+
+## Añade un texto literal al formato, escapando C y `%`.
+##
+## ## Memoria
+## Strings owned.
+weave append_format_text with fmt as ref to StringBuilder, text as string into void:
+    var esc as string is calling emit.escape_c with text
+    defer banish esc
+    var b as ref to frozen byte is bytes of esc
+    var i as int is 0
+    var n as int is esc length
+    while i < n:
+        var code as int is ((b at i) to int)
+        if code == 37:
+            calling fmt.append with "%%"
+        else:
+            var one as string is esc at i to (i + 1)
+            calling fmt.append with one
+            banish one
+        set i is i + 1
+
+## Emite una interpolación usando los AST/anotaciones que guardó el sema.
+##
+## ## Memoria
+## Strings owned.
+weave interp_expr with c as ref to context.CgContext, node as int, content as string into string:
     var fmt as StringBuilder is calling StringBuilder.new
     defer banish fmt
     var args as StringBuilder is calling StringBuilder.new
     defer banish args
-    var b as ref to frozen byte is bytes of content
-    var i as int is 0
-    var n as int is content length
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var si_idx as int is calling find_string_info with c, node
+    if si_idx < 0:
+        var esc0 as string is calling emit.escape_c with content
+        defer banish esc0
+        return "pengu_string_from_cstr(\"{esc0}\")"
+    var si as psstate.StringInfo is (m.lex.strings at si_idx)
+    var mp as ref to loader.SemaModule is (sigil of (c->program->modules at c->current_module))
+    var pi as int is 0
     var nargs as int is 0
-    while i < n:
-        var code as int is ((b at i) to int)
-        if code == 123 and i + 1 < n and ((b at (i + 1)) to int) == 123:
-            calling fmt.append with "{{"
-            set i is i + 2
-            continue
-        if code == 125 and i + 1 < n and ((b at (i + 1)) to int) == 125:
-            calling fmt.append with "}}"
-            set i is i + 2
-            continue
-        if code == 123 and i + 1 < n:
-            var j as int is i + 1
-            while j < n and ((b at j) to int) != 125:
-                set j is j + 1
-            if j < n:
-                var inner as string is content at (i + 1) to j
-                defer banish inner
-                if nargs > 0:
-                    calling args.append with ", "
-                var expr_c as string is ""
-                var arg_ty as int is -1
-                var base_end as int is 0
-                while base_end < inner length:
-                    var bc as string is inner at base_end to (base_end + 1)
-                    if bc == "." or bc == "-" or bc == " ":
-                        banish bc
-                        break
-                    banish bc
-                    set base_end is base_end + 1
-                var base_s as string is inner at 0 to base_end
-                var bnid as int is calling npool.intern with (sigil of c->program->names), base_s
-                var blc as int is calling context.local_c_name with c, bnid
-                if blc >= 0:
-                    var bty as int is calling context.local_type with c, bnid
-                    var esb as StringBuilder is calling StringBuilder.new
-                    defer banish esb
-                    var bcn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), blc)
-                    calling esb.append with bcn
-                    banish bcn
-                    var cur_ty as int is bty
-                    var pos as int is base_end
-                    while pos < inner length:
-                        if inner at pos to (pos + 1) == " ":
-                            var wstart as int is pos + 1
-                            var wend as int is wstart
-                            while wend < inner length and (inner at wend to (wend + 1)) != " " and (inner at wend to (wend + 1)) != ".":
-                                set wend is wend + 1
-                            var wlen as string is inner at wstart to wend
-                            if wlen == "length" or wlen == "len":
-                                calling esb.append with ".len"
-                                set cur_ty is calling types.base with (sigil of c->program->types), "int"
-                                set pos is wend
-                                banish wlen
-                                continue
-                            banish wlen
-                            break
-                        var sep as string is inner at pos to (pos + 1)
-                        var adv as int is 1
-                        if sep == "-" and pos + 1 < inner length and (inner at (pos + 1) to (pos + 2)) == ">":
-                            banish sep
-                            set sep is "->"
-                            set adv is 2
-                        var seg_start as int is pos + adv
-                        var seg_end as int is seg_start
-                        while seg_end < inner length:
-                            var sc as string is inner at seg_end to (seg_end + 1)
-                            if sc == "." or sc == "-":
-                                banish sc
-                                break
-                            banish sc
-                            set seg_end is seg_end + 1
-                        var seg as string is inner at seg_start to seg_end
-                        calling esb.append with sep
-                        if seg == "len" or seg == "length":
-                            calling esb.append with "len"
-                            set cur_ty is calling types.base with (sigil of c->program->types), "int"
-                        else:
-                            if sep == "->":
-                                var rt as tk.SemaType is calling types.at with (sigil of c->program->types), cur_ty
-                                if rt.kind == tk.SemaTypeKind.TkRef:
-                                    set cur_ty is rt.a
-                            var sfid as int is calling npool.intern with (sigil of c->program->names), seg
-                            var sfty as int is calling nominal_field_type with c, cur_ty, sfid
-                            calling esb.append with seg
-                            if sfty >= 0:
-                                set cur_ty is sfty
-                        banish seg
-                        banish sep
-                        set pos is seg_end
-                    set expr_c is calling esb.finish
-                    set arg_ty is cur_ty
-                banish base_s
+    while pi < si.part_count:
+        var part as psstate.StringPart is (m.lex.parts at (si.part_start + pi))
+        if part.kind == SegText:
+            var txt as string is calling psdecode.decode_part with (sigil of m.source), part, si.is_raw, si.is_triple, si.dedent, si.content_start
+            calling append_format_text with (sigil of fmt), txt
+            banish txt
+        else:
+            if nargs > 0:
+                calling args.append with ", "
+            var ii as int is calling find_interp with (sigil of m), node, part.start, part.end
+            if ii < 0:
+                calling fmt.append with "%s"
+                calling args.append with "pengu_string_from_cstr(\"\")"
+            else:
+                var it as loader.SemaInterp is (m.interps at ii)
+                var old_source as psource.SourceFile is mp->source
+                var old_lex as psstate.LexResult is mp->lex
+                var old_ast as psast.PsAst is mp->parse.ast
+                var old_ann as ann.SemaAnnotations is mp->annotations
+                set mp->source is it.parse.source
+                set mp->lex is it.parse.lex
+                set mp->parse.ast is it.parse.ast
+                set mp->annotations is it.annotations
+                var expr_c as string is calling emit_expr with c, it.parse.root
+                var ty as int is calling node_type with c, it.parse.root
+                set mp->source is old_source
+                set mp->lex is old_lex
+                set mp->parse.ast is old_ast
+                set mp->annotations is old_ann
                 if expr_c == "":
                     calling fmt.append with "%s"
                     calling args.append with "pengu_string_from_cstr(\"\")"
                 else:
-                    calling append_interp_value with c, (sigil of fmt), (sigil of args), expr_c, arg_ty
+                    calling append_interp_value with c, (sigil of fmt), (sigil of args), expr_c, ty
                 banish expr_c
-                set nargs is nargs + 1
-                set i is j + 1
-                continue
-        if code == 37:
-            calling fmt.append with "%%"
-        else:
-            var one as string is content at i to (i + 1)
-            defer banish one
-            if ((b at i) to int) == 123:
-                calling fmt.append with "{"
-            else:
-                calling fmt.append with one
-        set i is i + 1
+            set nargs is nargs + 1
+        set pi is pi + 1
     var fmt_text as string is calling fmt.finish
     defer banish fmt_text
     var escfmt as string is calling emit.escape_c with fmt_text

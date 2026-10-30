@@ -2,6 +2,74 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.17.3] — 2026-10-30 — Codegen de statements y expresiones completo
+
+Esta versión cierra huecos de codegen que compilaban pero no ejecutaban nada, y
+otros que rompían la semántica de `std.*` y de los ejemplos de `raylib-pengu`.
+
+### Corregido — codegen
+
+- **Asignación compuesta (`set x += y`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`,
+  `^=`, `<<=`, `>>=`).** `emit_stmt` no tenía rama para
+  `NdCompoundSetStmt`: el nodo caía en el *fallback* y se emitía como
+  `(void)(0);`. Ahora se emite `<target> <op> <value>;` con el operador exacto
+  del token y el mismo `resolve_target` que `set x is y`. Esto arregla el
+  movimiento, la física, el zoom y el giro de los ejemplos de cámara.
+- **`NdSimpleStmt`.** Una llamada en una línea (`if c: calling f with …`) se
+  emitía como `(void)(0);`; ahora se emite como expresión-statement.
+- **`with target:` y `unsafe:`.** Ambos nodos se descartaban. `with` mantiene
+  una pila de targets con su tipo y resuelve `set .campo`, `set .a.b` y
+  `calling .metodo`; `unsafe:` emite su bloque.
+- **`errdefer`.** Se registraba pero no se ejecutaba nunca. Ahora se emite en
+  las rutas de error de `or return`/`try` con inicializador local y en
+  `return err_of …`.
+- **Retorno implícito.** El último expression-statement de una función no void
+  se emite como `return expr;` en vez de `(void)(expr);`. Era la causa del
+  warning `control reaches end of non-void function` en `std/tally.pengu`.
+- **Interpolación `{expr}` completa.** El emisor solo entendía identificadores
+  simples; ahora reutiliza el AST y las anotaciones que el sema ya produce para
+  cada segmento (`ps_parse_interpolation_expr`) y emite expresiones
+  arbitrarias: llamadas, `at`, aritmética, `to string`, etc.
+- **Comprehensiones `for x in col [when cond] then expr`.** Se emiten como
+  `PenguList` con bucle para listas, arrays, slices, rangos, mapas y strings.
+- **`in` / `not in`.** Listas, mapas, strings, rangos y arrays/slices.
+- **`type of` y `donum`.** `type of` emite el nombre canónico; `donum T` emite
+  el cero del tipo.
+- **`or return`, `try` y `or:`.** Desempaquetan `maybe`/`result`; `or return`
+  devuelve el fallback, `try` propaga `none`/el error, y `or:` ejecuta su
+  bloque. El caso principal (inicializador de `var`/`let`) se emite como
+  sentencias para poder ejecutar `errdefer`.
+- **Bounds checks.** `at` en arrays, slices, listas y strings emite
+  `pengu_assert_bounds` con la ubicación del fuente; `--release-unsafe` y
+  `unsafe:` los desactivan. El acceso a un mapa ausente devuelve el cero del
+  tipo de valor en vez de desreferenciar `NULL`.
+- **`ffi` const-correctness.** `cstr_from_string`/`string_from_cstr`/`cstr_free`
+  usan `ref to frozen char`, eliminando el warning `-Wdiscarded-qualifiers`.
+
+### Corregido — sema
+
+- `check_set` leía el valor de una asignación compuesta en el slot 1 (el token
+  del operador). Ahora usa el slot 2 y valida el tipo del valor; `set x +=
+  "texto"` deja de aceptarse en silencio.
+- El sema conserva el AST y las anotaciones de cada interpolación en
+  `SemaModule.interps`, de modo que el codegen no re-parsea ni re-infiere.
+
+### Notas de bootstrap
+
+El `bootstrap/psc_stage0_*.c` committed se generó con un `psc` anterior a estos
+arreglos; ese binario **no** puede compilar correctamente el nuevo codegen
+(omite asignaciones compuestas y otras ramas). Para publicar 0.17.3 hay que
+regenerar stage0 con un compilador que ya incluya estos cambios:
+
+```bash
+./tools/build.sh                 # requiere un psc de arranque correcto
+./tools/gen_stage0.sh            # regenera bootstrap/psc_stage0_*.c
+./tools/gen_stage0.sh --check    # valida que está al día
+```
+
+Mientras no se regenere stage0, el árbol compila con `build/psc` (0.17.2) pero
+el binario resultante no es un bootstrap fiable.
+
 ## [0.17.2] — 2026-10-30 — Codegen completo para raylib-pengu
 
 Los 226 ejemplos de `raylib-pengu` compilan (`build` y `build --exe`) y se

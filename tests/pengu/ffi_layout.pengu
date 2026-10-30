@@ -13,7 +13,7 @@ weave main into int:
     if p == null:
         return 1
     var data as string is "abc"
-    var cp as ref to char is calling cstr_from_string with data
+    var cp as ref to frozen char is calling cstr_from_string with data
     if cp == null:
         banish data
         return 1

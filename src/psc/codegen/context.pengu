@@ -56,10 +56,20 @@ rune CgContext:
     locals as list of CgLocal
     ## `defer` pendientes (nodos AST), en orden de declaración.
     defers as list of int
+    ## `errdefer` pendientes (nodos AST), en orden de declaración.
+    errdefers as list of int
     ## Índice de `defers` donde empieza cada scope C abierto.
     scope_marks as list of int
+    ## Índice de `errdefers` donde empieza cada scope C abierto.
+    err_marks as list of int
     ## `true` si el scope correspondiente es un loop (break/continue).
     scope_loops as list of bool
+    ## Expresiones C de los `with target:` abiertos (owned, LIFO).
+    with_targets as list of string
+    ## `TypeId` de cada `with target:` abierto (paralelo a `with_targets`).
+    with_types as list of int
+    ## Profundidad de bloques `unsafe:` (0 = checks activos).
+    unsafe_depth as int
     ## `TypeId` de retorno actual (`-1` fuera).
     return_type as int
     ## Módulo actual (`-1` fuera).
@@ -82,7 +92,7 @@ rune CgContext:
 weave new_context with p as ref to program.SemaProgram, o as opts.CgOptions into CgContext:
     var ns as names.CgNames is calling names.new_names with (sigil of p->names), (sigil of p->types)
     var cat as catalog.CgCatalog is calling catalog.catalog_collect with p, o
-    return with program is p, options is o, names is ns, catalog is cat, emitter is calling emit.new_emitter, locals is list of CgLocal, defers is list of int, scope_marks is list of int, scope_loops is list of bool, return_type is -1, current_module is -1, current_fn is "", self_type is -1, self_value is false, lambdas is list of CgLambda, errors is 0
+    return with program is p, options is o, names is ns, catalog is cat, emitter is calling emit.new_emitter, locals is list of CgLocal, defers is list of int, errdefers is list of int, scope_marks is list of int, err_marks is list of int, scope_loops is list of bool, with_targets is list of string, with_types is list of int, unsafe_depth is 0, return_type is -1, current_module is -1, current_fn is "", self_type is -1, self_value is false, lambdas is list of CgLambda, errors is 0
 
 ## Libera el contexto.
 ##
@@ -95,8 +105,14 @@ weave context_free with c as ref to CgContext into void:
     banish c->locals
     banish c->lambdas
     banish c->defers
+    banish c->errdefers
     banish c->scope_marks
+    banish c->err_marks
     banish c->scope_loops
+    for target in c->with_targets:
+        banish target
+    banish c->with_targets
+    banish c->with_types
     banish c->current_fn
 
 ## Fija la sustitución de type params de una función.
@@ -117,6 +133,7 @@ weave set_subst with c as ref to CgContext, f as catalog.CgFunction into void:
 ## Añade dos marcas POD.
 weave cg_scope_push with c as ref to CgContext, is_loop as bool into void:
     calling c->scope_marks.push with c->defers.len
+    calling c->err_marks.push with c->errdefers.len
     calling c->scope_loops.push with is_loop
 
 ## Cierra el scope C actual (el llamador ya emitió sus defers).
@@ -127,6 +144,8 @@ weave cg_scope_pop with c as ref to CgContext into void:
     if c->scope_marks.len > 0:
         var m as int is calling c->scope_marks.pop
         var l as bool is calling c->scope_loops.pop
+    if c->err_marks.len > 0:
+        var em as int is calling c->err_marks.pop
 
 ## Índice de `defers` donde empieza el scope actual (0 si no hay).
 ##
@@ -143,6 +162,32 @@ weave current_scope_mark with c as ref to CgContext into int:
 ## Añade un nodo AST (POD).
 weave add_defer with c as ref to CgContext, node as int into void:
     calling c->defers.push with node
+
+## Registra un `errdefer` en el scope actual.
+##
+## ## Memoria
+## Añade un nodo AST (POD).
+weave add_errdefer with c as ref to CgContext, node as int into void:
+    calling c->errdefers.push with node
+
+## Abre un `with target:` con su expresión C y su tipo.
+##
+## ## Memoria
+## `text` se transfiere a la pila; se libera al hacer `pop_with`.
+weave push_with with c as ref to CgContext, text as string, type_id as int into void:
+    calling c->with_targets.push with text
+    calling c->with_types.push with type_id
+
+## Cierra el `with target:` más interno y libera su texto.
+##
+## ## Memoria
+## Libera la expresión C transferida por `push_with`.
+weave pop_with with c as ref to CgContext into void:
+    if c->with_targets.len > 0:
+        var t as string is calling c->with_targets.pop
+        banish t
+    if c->with_types.len > 0:
+        var ignored as int is calling c->with_types.pop
 
 ## Limpia todos los defers y scopes (nueva función/cuerpo).
 ##
@@ -161,6 +206,14 @@ weave clear_scopes with c as ref to CgContext into void:
     while l > 0:
         var ignored_l as bool is calling c->scope_loops.pop
         set l is l - 1
+    var ed as int is c->errdefers.len
+    while ed > 0:
+        var ignored_ed as int is calling c->errdefers.pop
+        set ed is ed - 1
+    var em as int is c->err_marks.len
+    while em > 0:
+        var ignored_em as int is calling c->err_marks.pop
+        set em is em - 1
 
 ## Añade un local al scope C actual.
 ##

@@ -55,7 +55,7 @@
 #
 # Pattern 7: Pengu string -> C char* (Read-Only View)
 # ----------------------------------------------------------------------------
-# Use 'cstr_from_string' to borrow a NUL-terminated 'ref to char' pointing to
+# Use 'cstr_from_string' to borrow a NUL-terminated 'ref to frozen char' pointing to
 # the string's internal buffer. Valid only while the string is alive.
 #
 # Pattern 8: Pengu string -> C bytes (Read-Only Byte View)
@@ -218,17 +218,17 @@ declare pengu_ffi_map_si with keys as slice of string , vals as slice of int int
 
 ## Copies a null-terminated C string into an owned PenguScript string. A NULL
 ## C pointer is converted to an empty string (never crashes).
-weave string_from_cstr with cstr as ref to char into string:
+weave string_from_cstr with cstr as ref to frozen char into string:
     return calling pengu_ffi_cstr_string with cstr
 
 ## Returns a read-only pointer to the string's internal buffer (never NULL for
 ## empty strings). The pointer stays valid only while the string lives; do not
 ## banish or modify it.
-weave cstr_from_string with s as string into ref to char:
+weave cstr_from_string with s as string into ref to frozen char:
     return calling pengu_ffi_string_cstr with s
 
 ## No-op release for non-owning C string views (for symmetry).
-weave cstr_free with p as ref to char into void:
+weave cstr_free with p as ref to frozen char into void:
     return
 
 ## Returns a read-only byte view of the string's internal buffer (never NULL).

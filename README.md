@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.17.1-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.17.3-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey">
@@ -69,8 +69,8 @@ pengu-<version>-<os>-<arch>-fhs.tar.gz
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.17.1-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.17.1-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.17.3-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.17.3-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 

@@ -25,6 +25,22 @@ import psc.sema.annotate as ann
 
 insignia sema_loader_
 
+## Interpolación `{expr}` de un literal string, ya parseada e inferida.
+##
+## Se conserva para que el codegen no tenga que re-parsear ni re-inferir la
+## expresión: usa el AST y las anotaciones que produjo el sema.
+rune SemaInterp:
+    ## Nodo `string_lit` dueño.
+    node as int
+    ## Inicio del segmento de expresión dentro del contenido.
+    part_start as int
+    ## Fin del segmento de expresión dentro del contenido.
+    part_end as int
+    ## Parse result de la expresión (dueño de source/lex/ast).
+    parse as papi.InterpParseResult
+    ## Anotaciones de la expresión.
+    annotations as ann.SemaAnnotations
+
 ## Un módulo cargado.
 ##
 ## ## Memoria
@@ -64,6 +80,8 @@ rune SemaModule:
     type_ids as map of int to int
     ## Módulo padre si este es un binding `.d.pengu` (`-1` si no).
     companion_for as int
+    ## Interpolaciones de literales string, ya parseadas e inferidas.
+    interps as list of SemaInterp
 
 ## Libera un módulo.
 ##
@@ -71,6 +89,10 @@ rune SemaModule:
 ## Libera el AST, los tokens, la fuente y el path.
 weave free_module with m as ref to SemaModule into void:
     calling ann.free_annotations with (sigil of m->annotations)
+    for it in m->interps:
+        calling ann.free_annotations with (sigil of it.annotations)
+        banish it.parse
+    banish m->interps
     banish m->type_ids
     banish m->parse
     banish m->lex
@@ -117,7 +139,7 @@ weave load_text with path as string, display as string, text as string, bag as r
     var popt as pstate.PsParseOptions is calling pstate.ps_default_parse_options
     var parse as pstate.PsParseResult is calling papi.ps_parse_file with (sigil of src), bag, (sigil of lex), popt
     var notes as ann.SemaAnnotations is calling ann.new_annotations with (sigil of parse.ast)
-    return with path is owned_path, canonical_path is owned_canon, source is src, source_text is owned_text, lex is lex, parse is parse, ok is (readable and parse.ok), id is -1, is_entry is is_entry, is_std is is_std, insignia is -1, insignia_pos is -1, depth is depth, annotations is notes, scope is -1, type_ids is map of int to int, companion_for is -1
+    return with path is owned_path, canonical_path is owned_canon, source is src, source_text is owned_text, lex is lex, parse is parse, ok is (readable and parse.ok), id is -1, is_entry is is_entry, is_std is is_std, insignia is -1, insignia_pos is -1, depth is depth, annotations is notes, scope is -1, type_ids is map of int to int, companion_for is -1, interps is list of SemaInterp
 
 ## Módulo vacío para una lectura fallida.
 ##

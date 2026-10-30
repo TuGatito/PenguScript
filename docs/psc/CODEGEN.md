@@ -60,6 +60,11 @@ codegen.api.generate_c
 - **P4.1 (0.17.2):** `@mutates` con asignación y `get_*` puro, `transmute`,
   `for … from … to … [step]`, `judge` expresión con tipo esperado, `append`,
   `.length`, resolución de imports/homónimos y dispatch por receptor.
+- **P4.2 (0.17.3):** `compound_set_stmt`, `simple_stmt`, `with target:`,
+  `unsafe:`, `errdefer`, retorno implícito, interpolación con expresiones
+  arbitrarias, comprehensiones, `in`/`not in`, `type of`, `donum`, `or return`,
+  `try`, `or:`, bounds checks y cero de mapas ausentes. El detalle y la
+  auditoría están en `AUDITORIA_0.17.3.md`.
 - **Conformidad:** **66/66** fixtures con las librerías nativas.
 - **Calidad:** 17 casos de aceptación F4, ASan/UBSan, golden C normalizado y
   benchmark de emisión.

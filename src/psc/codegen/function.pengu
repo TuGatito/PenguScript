@@ -405,9 +405,33 @@ weave emit_function with c as ref to context.CgContext, f as catalog.CgFunction 
     calling stmtgen.begin_scope with c, false
     var bi as int is slot
     var bn as int is calling astutil.child_count with ast, f.node
+    var returns_void as bool is false
+    if c->return_type > 0:
+        var rtv as tk.SemaType is calling types.at with (sigil of c->program->types), c->return_type
+        if rtv.kind == tk.SemaTypeKind.TkVoid:
+            set returns_void is true
     while bi < bn:
         var b as int is calling astutil.node_child with ast, f.node, bi
         if b >= 0:
+            if bi == bn - 1 and c->return_type > 0 and not returns_void:
+                var rtk as pskind.NodeKind is calling astutil.kind_of with ast, b
+                var ie as int is -1
+                if rtk == pskind.NodeKind.NdExprStmt or rtk == pskind.NodeKind.NdSimpleStmt:
+                    var inner_e as int is calling astutil.node_child with ast, b, 0
+                    if inner_e >= 0:
+                        set ie is inner_e
+                else if rtk == pskind.NodeKind.NdStmt:
+                    var inner_s as int is calling astutil.node_child with ast, b, 0
+                    if inner_s >= 0 and (calling astutil.kind_of with ast, inner_s) == pskind.NodeKind.NdExprStmt:
+                        var inner_e2 as int is calling astutil.node_child with ast, inner_s, 0
+                        if inner_e2 >= 0:
+                            set ie is inner_e2
+                if ie >= 0:
+                    var iret as string is calling expr.emit_expr_as with c, ie, c->return_type
+                    defer banish iret
+                    calling emit.line with (sigil of c->emitter), "return {iret};"
+                    set bi is bi + 1
+                    continue
             calling stmtgen.emit_stmt with c, b
         set bi is bi + 1
     calling stmtgen.end_scope with c

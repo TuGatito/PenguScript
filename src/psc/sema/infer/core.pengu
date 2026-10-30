@@ -292,9 +292,12 @@ weave check_string_literal with s as ref to state.SemaState, node as int into vo
                             if d2.code == sdiag.CODE_MUTATES_EXPR:
                                 set icode is sdiag.CODE_MUTATES_EXPR
                             calling sdiag.node_error with s->bag, s->src, icode, part.start, part.end, msg2, "Fix the expression inside the braces.", ""
-                        calling ann.free_annotations with (sigil of tmp_ann)
-                        banish tmp_bag
-                        banish r
+                            calling ann.free_annotations with (sigil of tmp_ann)
+                            banish tmp_bag
+                            banish r
+                        else:
+                            banish tmp_bag
+                            calling s->module->interps.push with with node is node, part_start is part.start, part_end is part.end, parse is r, annotations is tmp_ann
                 set j is j + 1
         set i is i + 1
 
