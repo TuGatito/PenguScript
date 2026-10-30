@@ -263,7 +263,7 @@
         "vscode-textmate": "^9.3.2"
     },
     "dependencies": {
-        "vscode-languageclient": "^9.0.1"
+        "vscode-languageclient": "^11.0.0"
     },
     "extensionKind": [
         "workspace"
