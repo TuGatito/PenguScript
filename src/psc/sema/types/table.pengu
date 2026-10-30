@@ -24,6 +24,12 @@ import psc.sema.types.kind as tk
 
 insignia sema_type_table_
 
+## `TypeId` del singleton `...` de las firmas `declare`.
+##
+## `new_table` inserta los singletons en este orden: error, any, null, void,
+## opaque y cvarargs; el resto de IDs son dinámicos.
+const TYPE_ID_CVARARGS as int is 5
+
 ## Información mutable de una runa/echo/omen/alias/seal/concepto.
 rune SemaNominalInfo:
     ## Clase nominal.

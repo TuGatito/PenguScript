@@ -68,6 +68,7 @@ weave print_build_help into void:
     calling spark.println with "  --profile=debug|release"
     calling spark.println with "  --cc=NAME               C compiler (default: gcc/cc)"
     calling spark.println with "  --out=PATH              artifact path"
+    calling spark.println with "  --exe                   link an executable even if the manifest says output=\"c\""
     calling spark.println with "  --strict-c99            portable C99"
     calling spark.println with "  --release-unsafe        disable bounds/overflow checks"
     calling spark.println with "  --verbose               print the cc command"
@@ -125,6 +126,7 @@ weave run_build with args as list of string into int:
     calling sf.push with "--strict-c99"
     calling sf.push with "--release-unsafe"
     calling sf.push with "--test"
+    calling sf.push with "--exe"
     calling sf.push with "--json"
     calling sf.push with "--no-dce"
     calling sf.push with "--prune-types"
@@ -205,6 +207,7 @@ weave run_build with args as list of string into int:
     set o.strict_c99 is calling cliargs.enabled with (sigil of pr.args), "--strict-c99"
     set o.release_unsafe is calling cliargs.enabled with (sigil of pr.args), "--release-unsafe"
     set o.is_test is calling cliargs.enabled with (sigil of pr.args), "--test"
+    set o.force_exe is calling cliargs.enabled with (sigil of pr.args), "--exe"
     set o.no_dce is calling cliargs.enabled with (sigil of pr.args), "--no-dce"
     set o.prune_types is calling cliargs.enabled with (sigil of pr.args), "--prune-types"
     set o.no_line_markers is calling cliargs.enabled with (sigil of pr.args), "--no-line-markers"
@@ -307,6 +310,10 @@ weave run_check_project with path as string, t as targetmod.Target, explicit as 
 ## Libera opciones, resultado y args del hijo.
 weave run_run with args as list of string into int:
     var o as driver.BuildOptions is calling driver.default_options
+    # `run` siempre necesita un ejecutable, aunque el proyecto sea una
+    # librería (`output = "c"`/`"static"`); si no, intentaría ejecutar el
+    # bundle C y fallaría con "not found".
+    set o.force_exe is true
     var prog as string is args at 0
     set o.compiler_path is calling copy_path with prog
     var path as string is ""

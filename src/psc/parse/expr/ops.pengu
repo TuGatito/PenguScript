@@ -392,7 +392,9 @@ weave pexpr_parse_range with p as ref to PsParser into int:
     if calling ps_check_kw with p, KwTo:
         var opi2 as int is p->pos
         var ignored2 as Token is calling ps_advance with p
-        var right2 as int is calling pexpr_parse_bit_or with p
+        # El lado derecho de `to` es un tipo (`f32`, `list of T`, ...), no una
+        # expresión: `f32` es un identificador, no un keyword de tipo base.
+        var right2 as int is calling ptypes.ptype_parse_type with p
         return calling putil.pexpr_binary with p, NodeKind.NdToExpr, left, opi2, right2
     return left
 

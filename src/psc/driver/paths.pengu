@@ -136,9 +136,11 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
             if is_wasm:
                 calling hc.push with "{eh}/lib/wasm/libpengu_runtime.a"
                 calling hc.push with "{eh}/lib/pengu/wasm/libpengu_runtime.a"
+                calling hc.push with "{eh}/build/wasm/lib/libpengu_runtime.a"
             else:
                 calling hc.push with "{eh}/lib/libpengu_runtime.a"
                 calling hc.push with "{eh}/lib/pengu/libpengu_runtime.a"
+                calling hc.push with "{eh}/build/lib/libpengu_runtime.a"
             var hit as string is calling first_file with hc
             if hit length > 0:
                 set env_home is (calling copy with eh)
@@ -158,7 +160,7 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
             banish env_archive
     else:
         banish env_archive
-    if archive length == 0 and env_lib length > 0:
+    if (not is_wasm) and archive length == 0 and env_lib length > 0:
         var cand as string is "{env_lib}/libpengu_runtime.a"
         if calling archivum.is_file with cand:
             set archive is cand
@@ -176,9 +178,11 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
             if is_wasm:
                 calling hc.push with "{env_home}/lib/wasm/libpengu_runtime.a"
                 calling hc.push with "{env_home}/lib/pengu/wasm/libpengu_runtime.a"
+                calling hc.push with "{env_home}/build/wasm/lib/libpengu_runtime.a"
             else:
                 calling hc.push with "{env_home}/lib/libpengu_runtime.a"
                 calling hc.push with "{env_home}/lib/pengu/libpengu_runtime.a"
+                calling hc.push with "{env_home}/build/lib/libpengu_runtime.a"
             set archive is calling first_file with hc
             calling free_strings with hc
         if include length == 0:
@@ -187,19 +191,23 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
                 calling hi.push with "{env_home}/lib/wasm/include"
                 calling hi.push with "{env_home}/include/wasm"
                 calling hi.push with "{env_home}/include/pengu"
+                calling hi.push with "{env_home}/build/wasm/include"
             else:
                 calling hi.push with "{env_home}/include/pengu"
                 calling hi.push with "{env_home}/include"
+                calling hi.push with "{env_home}/build/include"
             set include is calling first_dir with hi
             calling free_strings with hi
         if stdc length == 0:
             var hs as list of string is list of string
             calling hs.push with "{env_home}/std_c"
             calling hs.push with "{env_home}/share/pengu/std_c"
+            calling hs.push with "{env_home}/build/std_c"
             set stdc is calling first_dir with hs
             calling free_strings with hs
         var hst1 as string is "{env_home}/std"
         var hst2 as string is "{env_home}/share/pengu/std"
+        var hst3 as string is "{env_home}/build/std"
         if calling archivum.is_dir with hst1:
             calling stds.push with hst1
         else:
@@ -208,6 +216,10 @@ weave find_paths with base_dir as string, t as target.Target into Paths:
             calling stds.push with hst2
         else:
             banish hst2
+        if calling archivum.is_dir with hst3:
+            calling stds.push with hst3
+        else:
+            banish hst3
     if is_wasm:
         var env_shell as string is calling env_or_empty with "PENGU_WASM_SHELL"
         if env_shell length > 0:

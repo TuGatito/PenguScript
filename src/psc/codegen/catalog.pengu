@@ -3,6 +3,8 @@
 ## Recorre los módulos de F3 en orden topológico y registra funciones y firmas.
 ## No interpreta cuerpos: eso es trabajo de `emit`/`stmt`/`expr`.
 
+import std.builder
+
 import psc.ast.kind as pskind
 import psc.ast.node as psast
 import psc.source as psource
@@ -87,6 +89,8 @@ rune CgConst:
     c_name as int
     ## Módulo declarante.
     module as int
+    ## Nodo AST de la declaración `const` (para inicializadores no escalares).
+    node as int
     ## Valor F3.
     value as sym.SemaConst
 
@@ -185,8 +189,11 @@ weave decl_name with p as ref to program.SemaProgram, ast as ref to psast.PsAst,
 ##
 ## ## Memoria
 ## Devuelve string owned; liberar con `banish`.
-weave module_fn_prefix with p as ref to program.SemaProgram, m as loader.SemaModule into string:
+weave module_fn_prefix with p as ref to program.SemaProgram, m as loader.SemaModule, node as int into string:
     if m.insignia >= 0:
+        # `insignia` es posicional: no afecta a declaraciones anteriores.
+        if m.insignia_pos >= 0 and node >= 0 and (calling astutil.start_of with (sigil of m.parse.ast), node) < m.insignia_pos:
+            return ""
         return calling npool.copy_string with (calling npool.text with (sigil of p->names), m.insignia)
     var path as string is m.path
     var n as int is path length
@@ -242,6 +249,21 @@ weave add_function with p as ref to program.SemaProgram, c as ref to CgCatalog, 
     if calling c->by_symbol.has with sid:
         return
     var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of p->symbols), sid
+    # `lookup_in_scope` puede devolver un símbolo homónimo de otro módulo
+    # (`std.diagnostic.label` vs `rayguix.label`). Preferir siempre el del
+    # módulo que se está catalogando.
+    if ((sv.kind != sym.SemaSymbolKind.SkWeave and sv.kind != sym.SemaSymbolKind.SkDeclare) or sv.module != m.id) and not is_antiquus:
+        var alt as int is -1
+        var ti as int is 0
+        while ti < p->symbols.symbols.len:
+            var cand as sym.SemaSymbol is (p->symbols.symbols at ti)
+            if cand.name == name and cand.module == m.id and (cand.kind == sym.SemaSymbolKind.SkWeave or cand.kind == sym.SemaSymbolKind.SkDeclare):
+                set alt is ti
+            set ti is ti + 1
+        if alt < 0:
+            return
+        set sid is alt
+        set sv is calling symbols.symbol_at with (sigil of p->symbols), sid
     var cname as int is sv.c_name
     if cname < 0:
         set cname is sv.name
@@ -254,9 +276,26 @@ weave add_function with p as ref to program.SemaProgram, c as ref to CgCatalog, 
         set cname is calling npool.intern with (sigil of p->names), "pengu_time"
     else if is_antiquus:
         set cname is sv.name
+        if m.insignia >= 0:
+            var apref as string is calling module_fn_prefix with p, m, node
+            if apref != "":
+                var afull as string is "{apref}{ntext}"
+                set cname is calling npool.intern with (sigil of p->names), afull
+                banish afull
+            banish apref
+    else if is_declare:
+        # Los bindings .d.pengu usan `insignia webui_` para que `declare bind`
+        # llame a `webui_bind`; sin insignia se respeta el nombre de la cabecera.
+        if m.insignia >= 0:
+            var dpref as string is calling module_fn_prefix with p, m, node
+            if dpref != "":
+                var dfull as string is "{dpref}{ntext}"
+                set cname is calling npool.intern with (sigil of p->names), dfull
+                banish dfull
+            banish dpref
     else if not is_declare and (sv.flags & sym.SYM_EXPORT) == 0:
         # Prefijo de módulo para evitar colisiones globales (`spark_println`).
-        var pref as string is calling module_fn_prefix with p, m
+        var pref as string is calling module_fn_prefix with p, m, node
         if pref != "":
             var full as string is "{pref}{ntext}"
             set cname is calling npool.intern with (sigil of p->names), full
@@ -342,6 +381,25 @@ weave has_type_param with p as ref to program.SemaProgram, id as int into bool:
         return (calling has_type_param with p, t.a) or (calling has_type_param with p, t.b)
     return false
 
+## Resuelve alias/seal hasta el tipo subyacente.
+##
+## Los métodos de `enchanting Quaternion` (alias de `Vector4`) se registran en
+## sema bajo `Vector4`; el catálogo debe buscar con el mismo id.
+##
+## ## Memoria
+## O(profundidad); no asigna.
+weave underlying_type_id with p as ref to program.SemaProgram, id as int into int:
+    var cur as int is id
+    var guard as int is 0
+    while guard < 32:
+        var ty as tk.SemaType is calling types.at with (sigil of p->types), cur
+        if ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal:
+            set cur is ty.b
+        else:
+            break
+        set guard is guard + 1
+    return cur
+
 ## Recorre un bloque `enchanting` y registra sus métodos.
 ##
 ## ## Memoria
@@ -354,6 +412,7 @@ weave collect_enchanting with p as ref to program.SemaProgram, c as ref to CgCat
     var recv as int is calling catalog_type_from_ast with p, m, tnode
     if recv < 0:
         return
+    set recv is calling underlying_type_id with p, recv
     var i as int is 1
     var n as int is calling astutil.child_count with ast, node
     while i < n:
@@ -497,6 +556,7 @@ weave collect_bind with p as ref to program.SemaProgram, c as ref to CgCatalog, 
     var recv as int is calling catalog_type_from_ast with p, m, tnode
     if recv < 0:
         return
+    set recv is calling underlying_type_id with p, recv
     var i as int is 1
     var n as int is calling astutil.child_count with ast, node
     while i < n:
@@ -508,6 +568,38 @@ weave collect_bind with p as ref to program.SemaProgram, c as ref to CgCatalog, 
 ## Registra una constante de módulo.
 ##
 ## ## Memoria
+## Identificador C válido a partir de un nombre de módulo.
+##
+## Los módulos `.d.pengu` producen prefijos con punto (`raylib.d_`); un
+## `#define` no puede contenerlo.
+##
+## ## Memoria
+## Devuelve string owned.
+weave safe_ident with s as string into string:
+    var needs as bool is false
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < s length:
+        var ch as int is ((b at i) to int)
+        if not ((ch >= 48 and ch <= 57) or (ch >= 65 and ch <= 90) or (ch >= 97 and ch <= 122) or ch == 95):
+            set needs is true
+        set i is i + 1
+    if not needs:
+        return calling npool.copy_string with s
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    set i is 0
+    while i < s length:
+        var ch2 as int is ((b at i) to int)
+        if (ch2 >= 48 and ch2 <= 57) or (ch2 >= 65 and ch2 <= 90) or (ch2 >= 97 and ch2 <= 122) or ch2 == 95:
+            var one as string is s at i to (i + 1)
+            calling sb.append with one
+            banish one
+        else:
+            calling sb.append with "_"
+        set i is i + 1
+    return calling sb.finish
+
 ## Añade a listas; no posee strings.
 weave add_const with p as ref to program.SemaProgram, c as ref to CgCatalog, m as loader.SemaModule, node as int into void:
     var ast as ref to psast.PsAst is (sigil of m.parse.ast)
@@ -527,18 +619,32 @@ weave add_const with p as ref to program.SemaProgram, c as ref to CgCatalog, m a
     if cname < 0:
         set cname is sv.name
     if (sv.flags & sym.SYM_EXPORT) == 0:
-        var cpref as string is calling module_fn_prefix with p, m
+        var cpref as string is calling module_fn_prefix with p, m, node
         if cpref != "":
             var ntext as string is calling npool.text with (sigil of p->names), sv.name
             var full as string is "{cpref}{ntext}"
             set cname is calling npool.intern with (sigil of p->names), full
             banish full
         banish cpref
+    # En un binding `.d.pengu`, la cabecera ya define sus propios macros. Se
+    # prefija siempre con `insignia` (aunque el `const` esté antes de la
+    # directiva) para no redefinir `WEBUI_VERSION`, `PI`, etc.
+    if (calling is_decl_path with m.canonical_path) and m.insignia >= 0:
+        var ipref as string is calling npool.text with (sigil of p->names), m.insignia
+        var iname as string is calling npool.text with (sigil of p->names), sv.name
+        var ifull as string is "{ipref}{iname}"
+        set cname is calling npool.intern with (sigil of p->names), ifull
+        banish ifull
+    var raw_c as string is calling npool.text with (sigil of p->names), cname
+    var safe_c as string is calling safe_ident with raw_c
+    if safe_c != raw_c:
+        set cname is calling npool.intern with (sigil of p->names), safe_c
+    banish safe_c
     var value as sym.SemaConst is (p->symbols.const_values at sv.const_id)
     if value.kind == sym.SemaConstKind.CkNone:
         var vnode as int is calling astutil.node_child with ast, node, 2
         set value is calling const_fallback with p, m, vnode
-    var cc as CgConst is with name is name, type_id is sv.type, c_name is cname, module is m.id, value is value
+    var cc as CgConst is with name is name, type_id is sv.type, c_name is cname, module is m.id, node is node, value is value
     calling c->consts.push with cc
 
 ## Entero de un token decimal/hex.
@@ -600,6 +706,9 @@ weave const_fallback with p as ref to program.SemaProgram, m as loader.SemaModul
         set cv.kind is sym.SemaConstKind.CkInt
         set cv.i is calling parse_int_text with it
         banish it
+        return cv
+    if k == pskind.NodeKind.NdFloatLit:
+        set cv.kind is sym.SemaConstKind.CkFloat
         return cv
     if k == pskind.NodeKind.NdStringLit:
         var st as string is calling astutil.child_token_text with (sigil of m.source), (sigil of m.lex), ast, node, 0
@@ -668,11 +777,26 @@ weave const_fallback with p as ref to program.SemaProgram, m as loader.SemaModul
         return cv
     return cv
 
+## `true` si el módulo es un archivo de declaración `.d.pengu`.
+##
+## Su C ya viene de los `include` de cabecera; volver a emitir `struct`/`enum`
+## duplicaría las definiciones del header.
+##
+## ## Memoria
+## O(sufijo); no asigna.
+weave is_decl_path with path as string into bool:
+    var n as int is path length
+    if n < 8:
+        return false
+    return (path at (n - 8) to n) == ".d.pengu"
+
 ## Registra un tipo de un módulo.
 ##
 ## ## Memoria
 ## Añade a listas/mapas; no posee strings.
 weave add_type with p as ref to program.SemaProgram, c as ref to CgCatalog, m as loader.SemaModule, node as int, is_struct as bool, is_omen as bool into void:
+    if calling is_decl_path with m.path:
+        return
     var tid as int is -1
     if calling m.type_ids.has with node:
         set tid is calling m.type_ids.get with node

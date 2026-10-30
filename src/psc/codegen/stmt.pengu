@@ -268,16 +268,42 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
 ## Strings owned.
 weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into void:
     var name_tok as int is calling astutil.token_child with ast, node, 0
-    var range as int is calling astutil.node_child with ast, node, 1
-    var body as int is calling astutil.node_child with ast, node, 2
+    var name_tok2 as int is calling astutil.token_child with ast, node, 1
+    var indexed as bool is name_tok2 >= 0
+    var range_slot as int is 1
+    var body_slot as int is 2
+    if indexed:
+        set range_slot is 2
+        set body_slot is 3
+    var range as int is calling astutil.node_child with ast, node, range_slot
+    var body as int is calling astutil.node_child with ast, node, body_slot
     if name_tok < 0 or range < 0 or body < 0:
         return
     var m as loader.SemaModule is (c->program->modules at c->current_module)
     var ntxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), name_tok
     defer banish ntxt
     var nid as int is calling npool.intern with (sigil of c->program->names), ntxt
-    var cn as string is calling context.safe_c_name with ntxt
+    var cn as string is ""
+    if ntxt == "_":
+        set cn is calling emit.temp with (sigil of c->emitter), "_discard"
+    else:
+        set cn is calling context.safe_c_name with ntxt
     defer banish cn
+    # Segundo binding del `for i, item in ...`.
+    var nid2 as int is -1
+    var ntxt2 as string is calling npool.copy_string with ""
+    defer banish ntxt2
+    var cn2 as string is calling npool.copy_string with ""
+    defer banish cn2
+    if indexed:
+        banish ntxt2
+        set ntxt2 is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), name_tok2
+        set nid2 is calling npool.intern with (sigil of c->program->names), ntxt2
+        banish cn2
+        if ntxt2 == "_":
+            set cn2 is calling emit.temp with (sigil of c->emitter), "_discard"
+        else:
+            set cn2 is calling context.safe_c_name with ntxt2
     var rk as pskind.NodeKind is calling astutil.kind_of with ast, range
     if rk == pskind.NodeKind.NdToExpr:
         var lo as int is calling astutil.node_child with ast, range, 0
@@ -288,7 +314,8 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
         defer banish hi_t
         calling emit.line with (sigil of c->emitter), "for (int32_t {cn} = {lo_t}; {cn} < {hi_t}; {cn}++) {"
         calling emit.indent_more with (sigil of c->emitter)
-        calling context.add_local with c, nid, 1, nid
+        if ntxt != "_":
+            calling context.add_local with c, nid, 1, nid
         calling emit_loop_block with c, body
         calling emit.indent_less with (sigil of c->emitter)
         calling emit.line with (sigil of c->emitter), "}"
@@ -298,9 +325,9 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
     if lt < 0:
         return
     var lty as tk.SemaType is calling types.at with (sigil of c->program->types), lt
-    # Iteración sobre mapa (`for k in map`).  El iterador del runtime recorre
-    # la tabla CC sin asignar una lista temporal, así que `break`, `continue` y
-    # `return` dentro del cuerpo son seguros.
+    # Iteración sobre mapa (`for k in map` / `for i, k in map`). El iterador del
+    # runtime recorre la tabla CC sin asignar una lista temporal, así que
+    # `break`, `continue` y `return` dentro del cuerpo son seguros.
     if lty.kind == tk.SemaTypeKind.TkMap:
         var kt as string is calling ctype.c_type with (sigil of c->names), lty.a
         defer banish kt
@@ -312,10 +339,21 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
         defer banish itmp
         calling emit.line with (sigil of c->emitter), "PenguMap {mtmp} = {mexpr};"
         calling emit.line with (sigil of c->emitter), "PenguMapIter {itmp} = pengu_map_iter_begin(&{mtmp});"
-        calling emit.line with (sigil of c->emitter), "for (; pengu_map_iter_valid(&{itmp}); pengu_map_iter_advance(&{itmp})) {"
-        calling emit.indent_more with (sigil of c->emitter)
-        calling emit.line with (sigil of c->emitter), "{kt} {cn} = (*(const {kt}*)pengu_map_iter_key(&{itmp}));"
-        calling context.add_local with c, nid, lty.a, nid
+        if indexed:
+            calling emit.line with (sigil of c->emitter), "int32_t {cn} = 0;"
+            calling emit.line with (sigil of c->emitter), "for (; pengu_map_iter_valid(&{itmp}); pengu_map_iter_advance(&{itmp}), {cn}++) {"
+            calling emit.indent_more with (sigil of c->emitter)
+            calling emit.line with (sigil of c->emitter), "{kt} {cn2} = (*(const {kt}*)pengu_map_iter_key(&{itmp}));"
+            if ntxt != "_":
+                calling context.add_local with c, nid, 1, nid
+            if ntxt2 != "_":
+                calling context.add_local with c, nid2, lty.a, nid2
+        else:
+            calling emit.line with (sigil of c->emitter), "for (; pengu_map_iter_valid(&{itmp}); pengu_map_iter_advance(&{itmp})) {"
+            calling emit.indent_more with (sigil of c->emitter)
+            calling emit.line with (sigil of c->emitter), "{kt} {cn} = (*(const {kt}*)pengu_map_iter_key(&{itmp}));"
+            if ntxt != "_":
+                calling context.add_local with c, nid, lty.a, nid
         calling emit_loop_block with c, body
         calling emit.indent_less with (sigil of c->emitter)
         calling emit.line with (sigil of c->emitter), "}"
@@ -331,10 +369,20 @@ weave emit_for_in with c as ref to context.CgContext, node as int, ast as ref to
     var idxt as string is calling emit.temp with (sigil of c->emitter), "_li"
     defer banish idxt
     calling emit.line with (sigil of c->emitter), "PenguList {tmp} = {lexpr};"
-    calling emit.line with (sigil of c->emitter), "for (int {idxt} = 0; {idxt} < {tmp}.len; {idxt}++) {"
-    calling emit.indent_more with (sigil of c->emitter)
-    calling emit.line with (sigil of c->emitter), "{et} {cn} = (*( {et}*)pengu_list_at(&{tmp}, {idxt}));"
-    calling context.add_local with c, nid, lty.a, nid
+    if indexed:
+        calling emit.line with (sigil of c->emitter), "for (int32_t {cn} = 0; {cn} < {tmp}.len; {cn}++) {"
+        calling emit.indent_more with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "{et} {cn2} = (*( {et}*)pengu_list_at(&{tmp}, {cn}));"
+        if ntxt != "_":
+            calling context.add_local with c, nid, 1, nid
+        if ntxt2 != "_":
+            calling context.add_local with c, nid2, lty.a, nid2
+    else:
+        calling emit.line with (sigil of c->emitter), "for (int {idxt} = 0; {idxt} < {tmp}.len; {idxt}++) {"
+        calling emit.indent_more with (sigil of c->emitter)
+        calling emit.line with (sigil of c->emitter), "{et} {cn} = (*( {et}*)pengu_list_at(&{tmp}, {idxt}));"
+        if ntxt != "_":
+            calling context.add_local with c, nid, lty.a, nid
     calling emit_loop_block with c, body
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
@@ -405,6 +453,74 @@ weave emit_when_stmt with c as ref to context.CgContext, node as int, ast as ref
             calling emit_when_branch with c, e, ast
         set j is j + 1
 
+## Emite `if NAME as T is maybe:` / `unless ...`.
+##
+## El `maybe` se materializa una sola vez en un temporal para no evaluar dos
+## veces la expresión, y el binding se declara dentro del bloque del `if`.
+##
+## ## Memoria
+## Strings owned.
+weave emit_if_binding with c as ref to context.CgContext, node as int, cond_node as int, ast as ref to psast.PsAst, negate as bool into void:
+    var name_tok as int is calling astutil.token_child with ast, cond_node, 0
+    var type_node as int is calling astutil.node_child with ast, cond_node, 1
+    var value_node as int is calling astutil.node_child with ast, cond_node, 2
+    var body as int is calling astutil.node_child with ast, node, 1
+    if name_tok < 0 or type_node < 0 or value_node < 0 or body < 0:
+        return
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var ntxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), name_tok
+    defer banish ntxt
+    var nid as int is calling npool.intern with (sigil of c->program->names), ntxt
+    var cn as string is calling context.safe_c_name with ntxt
+    defer banish cn
+    var ty as int is calling type_from_ast with c, m, type_node
+    var ct as string is calling ctype.c_type with (sigil of c->names), ty
+    defer banish ct
+    var ve as string is calling expr.emit_expr with c, value_node
+    defer banish ve
+    var tmp as string is calling emit.temp with (sigil of c->emitter), "_maybe"
+    defer banish tmp
+    calling emit.line with (sigil of c->emitter), "{"
+    calling emit.indent_more with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "PenguMaybe {tmp} = {ve};"
+    if negate:
+        calling emit.line with (sigil of c->emitter), "if (!{tmp}.is_present) {"
+    else:
+        calling emit.line with (sigil of c->emitter), "if ({tmp}.is_present) {"
+    calling emit.indent_more with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "{ct} {cn} = (*( {ct}*)({tmp}).value);"
+    calling context.add_local with c, nid, ty, nid
+    calling emit_block with c, body
+    calling emit.indent_less with (sigil of c->emitter)
+    var els as int is calling astutil.node_child with ast, node, 2
+    if els >= 0:
+        var eb as int is calling astutil.node_child with ast, els, 0
+        if eb >= 0 and (calling astutil.kind_of with ast, eb) == pskind.NodeKind.NdIfStmt:
+            calling emit.line with (sigil of c->emitter), "} else "
+            calling emit_if with c, eb, ast, false
+            calling emit.indent_less with (sigil of c->emitter)
+            calling emit.line with (sigil of c->emitter), "}"
+            return
+        if eb >= 0:
+            calling emit.line with (sigil of c->emitter), "} else {"
+            calling emit.indent_more with (sigil of c->emitter)
+            calling begin_scope with c, false
+            var ej as int is 0
+            var ecount as int is calling astutil.child_count with ast, els
+            while ej < ecount:
+                var ech as int is calling astutil.node_child with ast, els, ej
+                if ech >= 0:
+                    if (calling astutil.kind_of with ast, ech) == pskind.NodeKind.NdBlock:
+                        calling emit_block with c, ech
+                    else:
+                        calling emit_stmt with c, ech
+                set ej is ej + 1
+            calling end_scope with c
+            calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"
+
 ## Emite un `if`/`unless`.
 ##
 ## ## Memoria
@@ -413,6 +529,9 @@ weave emit_if with c as ref to context.CgContext, node as int, ast as ref to psa
     var cond_node as int is calling astutil.node_child with ast, node, 0
     var body as int is calling astutil.node_child with ast, node, 1
     if cond_node < 0 or body < 0:
+        return
+    if (calling astutil.kind_of with ast, cond_node) == pskind.NodeKind.NdIfCondBinding:
+        calling emit_if_binding with c, node, cond_node, ast, negate
         return
     var cond as int is cond_node
     if (calling astutil.kind_of with ast, cond_node) == pskind.NodeKind.NdIfCond:

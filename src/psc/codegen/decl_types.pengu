@@ -7,6 +7,7 @@ import std.builder
 
 import psc.ast.kind as pskind
 import psc.sema.ast as astutil
+import psc.sema.modules.loader as loader
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
 import psc.sema.names as npool
@@ -16,6 +17,7 @@ import psc.codegen.context as context
 import psc.codegen.catalog as catalog
 import psc.codegen.ctype as ctype
 import psc.codegen.emit as emit
+import psc.codegen.expr as expr
 
 insignia psc_codegen_types_
 
@@ -59,28 +61,52 @@ weave emit_tuple with c as ref to context.CgContext, id as int into void:
 
 ## Emite una constante de módulo.
 ##
+## Los valores escalares simples conservan el `#define` compacto; los
+## inicializadores de rune/echo (`const RAYWHITE as Color is with ...`), floats
+## y cualquier expresión no plegada se emiten desde el AST con el tipo
+## declarado (compound literal incluido).
+##
 ## ## Memoria
 ## Strings temporales liberados.
 weave emit_const with c as ref to context.CgContext, k as catalog.CgConst into void:
-    var cname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), k.c_name)
+    var raw as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), k.c_name)
+    var cname as string is calling context.safe_c_name with raw
+    banish raw
     defer banish cname
     var text as string is ""
-    if k.value.kind == sym.SemaConstKind.CkString:
-        var sv as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), k.value.name)
-        defer banish sv
-        var esc as string is calling emit.escape_c with sv
-        defer banish esc
-        set text is "pengu_string_from_cstr(\"{esc}\")"
-    else if k.value.kind == sym.SemaConstKind.CkBool:
-        if k.value.b:
-            set text is "true"
-        else:
-            set text is "false"
-    else if k.value.kind == sym.SemaConstKind.CkFloat:
-        set text is "{k.value.f}"
-    else:
-        set text is "{k.value.i}"
+    var vnode as int is -1
+    if k.node >= 0 and k.module >= 0 and k.module < c->program->modules.len:
+        var m as loader.SemaModule is (c->program->modules at k.module)
+        set vnode is calling astutil.node_child with (sigil of m.parse.ast), k.node, 2
+    if vnode >= 0:
+        var saved as int is c->current_module
+        set c->current_module is k.module
+        set text is calling expr.emit_expr_as with c, vnode, k.type_id
+        set c->current_module is saved
+    if vnode < 0 or text length == 0:
+        if text length == 0:
+            set text is calling npool.copy_string with "0"
+        if k.value.kind == sym.SemaConstKind.CkString:
+            banish text
+            var sv as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), k.value.name)
+            defer banish sv
+            var esc as string is calling emit.escape_c with sv
+            defer banish esc
+            set text is "pengu_string_from_cstr(\"{esc}\")"
+        else if k.value.kind == sym.SemaConstKind.CkBool:
+            banish text
+            if k.value.b:
+                set text is calling npool.copy_string with "true"
+            else:
+                set text is calling npool.copy_string with "false"
+        else if k.value.kind == sym.SemaConstKind.CkFloat:
+            banish text
+            set text is "{k.value.f}"
+        else if k.value.kind == sym.SemaConstKind.CkInt or k.value.kind == sym.SemaConstKind.CkChar:
+            banish text
+            set text is "{k.value.i}"
     calling emit.line with (sigil of c->emitter), "#define {cname} {text}"
+    banish text
 
 ## Emite la declaración adelantada de un tipo.
 ##

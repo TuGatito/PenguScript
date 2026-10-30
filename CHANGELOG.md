@@ -2,6 +2,75 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.17.1] — 2026-10-30 — Toolchain in-tree y entorno automático
+
+Todo el compilador, runtime, std, cabeceras y helpers viven ahora en
+`build/`, y un único comando deja el entorno registrado para bash, zsh, fish y
+PowerShell.
+
+### Añadido
+
+- **`tools/build.sh`**: construye runtime + bootstrap + `build/psc`, el
+  `pengu-bind` opcional y el runtime wasm (si `emcc` está disponible), y
+  registra el entorno en los rc de bash/zsh/fish (bloque idempotente). Genera
+  `build/env/pengu.env.{sh,fish,ps1}` y una copia estable en
+  `${XDG_CONFIG_HOME:-$HOME/.config}/pengu/`.
+- **`tools/build.ps1`**, **`tools/build_bootstrap.ps1`** y
+  **`tools/build_bind.ps1`**: flujo equivalente en Windows, con
+  `build\env\pengu.env.ps1` / `.cmd` y registro en el perfil de PowerShell.
+- **`PENGU_PSC`** y detección de `PENGU_HOME` con layout de checkout
+  (`build/lib`, `build/include`, `build/wasm/lib`).
+- **`psc build --exe`**: enlaza un ejecutable aunque el manifiesto declare
+  `output = "c"`, para compilar ejemplos sueltos de bindings.
+
+### Corregido
+
+- **`declare` variádicos**: `declare F with a as int, ...` ya parsea el
+  `...` tras la coma y conserva la variadicidad en la firma C.
+- **Literales `const char*`**: un string literal en contexto
+  `ref to char`/`ref to frozen char` se emite como literal C puro, sin
+  envolverlo en `PenguString`.
+- **Constantes de bindings**: los `const` de `.d.pengu` ya no generan macros
+  con punto (`raylib.d_RAYWHITE`) y los valores float/rune (`PI`, `RAYWHITE`,
+  `Color`) se emiten desde el AST con su tipo.
+- **Tipos de `.d.pengu`**: no se reemiten `struct`/`enum`/`typedef` que ya
+  define la cabecera incluida; los prototipos `declare` del binding tampoco
+  duplican la cabecera.
+- **`insignia` en bindings**: `declare bind` llama a `webui_bind` (prefijo
+  posicional) en vez de al `bind` de libc; los `const` de un `.d.pengu` usan
+  el prefijo para no redefinir macros de la cabecera.
+- **Casts `to`**: el lado derecho se parsea como tipo, así `to f32`, `to i64`,
+  `to u32` y `to list of T` funcionan; los omens sin payload se pueden
+  convertir a numéricos (`gesture to u32`).
+- **`when ... else when` top-level**: las ramas anidadas aportan sus `link`/
+  `ldflag`/`include` (necesario para los bindings webui/raylib).
+- **Argumentos de llamada**: se emiten con el tipo esperado del parámetro, lo
+  que arregla `with x is ...` anidados y los literales string en `const char*`.
+- **`for i, item in ...`**: forma indexada implementada en checker y codegen
+  para listas y mapas, con `_` para descartar y `E0037` para nombres repetidos.
+- **`if x as T is maybe`**: el binding se materializa una sola vez y se declara
+  dentro del bloque C.
+- **Métodos `maybe`/`result`**: `unwrap`, `unwrap_or`, `is_some`, `is_none`,
+  `is_ok`, `is_err`, `unwrap_err` y `expect` bajan a C sin funciones
+  inexistentes.
+- **`std.archivum.find_files`**: construye rutas con `compass.join`; ya no usa
+  interpolación `"{root}/{(l at i)}"` (la interpolación simple no admite `at`)
+  y vuelve a encontrar los glue C (`c/raygui_impl.c`).
+- **Archivos dentro de un proyecto**: `psc build file.pengu` y `psc run`
+  compilan también el `c/` glue del `pengu.toml`, no sólo el bundle.
+- **`psc run` sobre librerías**: fuerza `exe`; antes intentaba ejecutar
+  `bundle.c`.
+- **Orden de includes**: el `build/` del proyecto ya no tapa el
+  `pengu_runtime.h` actual; el runtime generado usa `<pengu_runtime.h>`.
+
+### Tests
+
+- `psc build` de los 48 ejemplos de `raylib-pengu/examples/core` sin variables
+  de entorno manuales; `psc build --exe`/`psc run` del ejemplo WebUI y de los
+  ejemplos core representativos.
+- Build wasm (`std_web_smoke.pengu`) usando el entorno registrado por
+  `tools/build.sh`.
+
 ## [0.17.0] — 2026-10-29 — Web completo (Track B): `std.web.*`
 
 Cierra el Track B del plan wasm con una capa ECMAScript tipada y módulos web

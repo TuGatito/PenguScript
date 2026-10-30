@@ -255,13 +255,13 @@ weave type_live with r as ref to CgReach, ty as int into bool:
 weave parent_module with c as ref to context.CgContext, m as loader.SemaModule into int:
     if m.companion_for >= 0:
         return m.companion_for
-    var p as string is m.path
-    if p length > 7:
-        var base as string is "{p at 0 to (p length - 7)}.pengu"
+    var p as string is m.canonical_path
+    if p length > 8:
+        var base as string is "{p at 0 to (p length - 8)}.pengu"
         var i as int is 0
         while i < c->program->modules.len:
             var mm as loader.SemaModule is (c->program->modules at i)
-            if mm.path == base:
+            if mm.canonical_path == base:
                 banish base
                 return mm.id
             set i is i + 1

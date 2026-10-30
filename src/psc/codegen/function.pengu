@@ -268,11 +268,19 @@ weave signature with c as ref to context.CgContext, f as catalog.CgFunction into
         else:
             calling sb.append with "{recv_ct}* self"
         set wrote_any is true
-    if info.params_count == 0 and not wrote_any:
+    var fixed as int is info.params_count
+    var has_varargs as bool is false
+    if fixed > 0:
+        var lastp as types.SemaFnParam is (c->program->types.fn_params at (info.params_first + fixed - 1))
+        var lty as tk.SemaType is calling types.at with (sigil of c->program->types), lastp.type
+        if lty.kind == tk.SemaTypeKind.TkCVarArgs:
+            set has_varargs is true
+            set fixed is fixed - 1
+    if fixed == 0 and not wrote_any and not has_varargs:
         calling sb.append with "void"
     else:
         var i as int is 0
-        while i < info.params_count:
+        while i < fixed:
             if i > 0 or wrote_any:
                 calling sb.append with ", "
             var p as types.SemaFnParam is (c->program->types.fn_params at (info.params_first + i))
@@ -310,6 +318,10 @@ weave signature with c as ref to context.CgContext, f as catalog.CgFunction into
             banish pnsafe
             banish pn
             set i is i + 1
+        if has_varargs:
+            if fixed > 0 or wrote_any:
+                calling sb.append with ", "
+            calling sb.append with "..."
     calling sb.append with ")"
     return calling sb.finish
 
@@ -367,8 +379,14 @@ weave emit_function with c as ref to context.CgContext, f as catalog.CgFunction 
     calling context.clear_locals with c
     calling context.clear_scopes with c
     # Parámetros locales.
+    var fixed as int is info.params_count
+    if fixed > 0:
+        var lastp as types.SemaFnParam is (c->program->types.fn_params at (info.params_first + fixed - 1))
+        var lty as tk.SemaType is calling types.at with (sigil of c->program->types), lastp.type
+        if lty.kind == tk.SemaTypeKind.TkCVarArgs:
+            set fixed is fixed - 1
     var i as int is 0
-    while i < info.params_count:
+    while i < fixed:
         var p as types.SemaFnParam is (c->program->types.fn_params at (info.params_first + i))
         var pn as string is calling pname_for with c, f, i
         var pid as int is calling npool.intern with (sigil of c->program->names), pn

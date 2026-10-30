@@ -105,6 +105,8 @@ weave c_type with ns as ref to names.CgNames, id as int into string:
         return "void*"
     if t.kind == tk.SemaTypeKind.TkAny or t.kind == tk.SemaTypeKind.TkError:
         return "void*"
+    if t.kind == tk.SemaTypeKind.TkCVarArgs:
+        return "..."
     if t.kind == tk.SemaTypeKind.TkBase:
         return calling base_c_type with ns, t.name
     if t.kind == tk.SemaTypeKind.TkRef:
@@ -282,11 +284,19 @@ weave fn_c_type with ns as ref to names.CgNames, info_idx as int into string:
     defer banish sb
     calling sb.append with ret
     calling sb.append with " (*)("
-    if info.params_count == 0:
+    var fixed as int is info.params_count
+    var has_varargs as bool is false
+    if fixed > 0:
+        var lastp as types.SemaFnParam is (ns->types->fn_params at (info.params_first + fixed - 1))
+        var lty as tk.SemaType is calling types.at with ns->types, lastp.type
+        if lty.kind == tk.SemaTypeKind.TkCVarArgs:
+            set has_varargs is true
+            set fixed is fixed - 1
+    if fixed == 0 and not has_varargs:
         calling sb.append with "void"
     else:
         var i as int is 0
-        while i < info.params_count:
+        while i < fixed:
             if i > 0:
                 calling sb.append with ", "
             var p as types.SemaFnParam is (ns->types->fn_params at (info.params_first + i))
@@ -294,5 +304,9 @@ weave fn_c_type with ns as ref to names.CgNames, info_idx as int into string:
             calling sb.append with pc
             banish pc
             set i is i + 1
+        if has_varargs:
+            if fixed > 0:
+                calling sb.append with ", "
+            calling sb.append with "..."
     calling sb.append with ")"
     return calling sb.finish

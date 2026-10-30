@@ -13,6 +13,7 @@ import psc.sema.ast as astutil
 import psc.sema.modules.loader as loader
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
+import psc.sema.types.compat as compat
 import psc.sema.symbols.symbol as sym
 import psc.sema.symbols.table as symbols
 import psc.sema.annotate as ann
@@ -61,7 +62,10 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
     if k == pskind.NodeKind.NdStringLit:
         var raw as string is calling astutil.child_token_text with (sigil of m.source), (sigil of m.lex), ast, node, 0
         defer banish raw
-        return calling c_string_expr with c, raw
+        var lt as int is calling node_type with c, node
+        if lt > 0 and (calling compat.is_cstr with (sigil of c->program->types), lt):
+            return calling c_string_expr with c, raw, true
+        return calling c_string_expr with c, raw, false
     if k == pskind.NodeKind.NdVarRef or k == pskind.NodeKind.NdSelfRef:
         var txt as string is calling astutil.first_token_text with (sigil of m.source), (sigil of m.lex), ast, node
         defer banish txt
@@ -856,6 +860,74 @@ weave result_ctor with c as ref to context.CgContext, node as int, ast as ref to
         calling sb.append with "PenguResult _r = pengu_result_err(_h); _r; }))"
     return calling sb.finish
 
+## Baja métodos builtin de `maybe`/`result` (`unwrap`, `is_some`, ...).
+##
+## Devuelve `""` si la llamada no es uno de esos métodos. El receptor se
+## resuelve sin el último acceso (el nombre del método).
+##
+## ## Memoria
+## Devuelve string owned cuando hay coincidencia.
+weave maybe_result_method with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
+    var tgt as int is calling astutil.node_child with ast, node, 0
+    if tgt < 0 or (calling astutil.kind_of with ast, tgt) != pskind.NodeKind.NdNormalTarget:
+        return ""
+    var last as int is calling last_token_deep with ast, tgt
+    if last < 0:
+        return ""
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var mname as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), last
+    defer banish mname
+    var rt as CgTarget is calling resolve_target with c, tgt, ast, true
+    defer banish rt.text
+    if rt.type_id <= 0:
+        return ""
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), rt.type_id
+    if t.kind == tk.SemaTypeKind.TkMaybe:
+        if mname == "is_some" or mname == "is_present":
+            return "(({rt.text}).is_present)"
+        if mname == "is_none" or mname == "is_not_present":
+            return "(!({rt.text}).is_present)"
+        var ct as string is calling ctype.c_type with (sigil of c->names), t.a
+        defer banish ct
+        if mname == "unwrap" or mname == "expect":
+            return "(*( {ct}*)(({rt.text}).value))"
+        if mname == "unwrap_or" or mname == "value_or":
+            var args as int is calling astutil.node_child with ast, node, 2
+            if args >= 0:
+                var a0 as int is calling astutil.node_child with ast, args, 0
+                if a0 >= 0 and (calling astutil.kind_of with ast, a0) == pskind.NodeKind.NdPosArg:
+                    set a0 is calling astutil.node_child with ast, a0, 0
+                if a0 >= 0:
+                    var dv as string is calling emit_expr_as with c, a0, t.a
+                    defer banish dv
+                    return "(({rt.text}).is_present ? (*( {ct}*)(({rt.text}).value)) : ({dv}))"
+        return ""
+    if t.kind == tk.SemaTypeKind.TkResult:
+        if mname == "is_ok":
+            return "(({rt.text}).is_ok)"
+        if mname == "is_err":
+            return "(!({rt.text}).is_ok)"
+        var okt as string is calling ctype.c_type with (sigil of c->names), t.a
+        defer banish okt
+        if mname == "unwrap" or mname == "expect":
+            return "(*( {okt}*)(({rt.text}).ok_val))"
+        if mname == "unwrap_err" or mname == "expect_err":
+            var ert as string is calling ctype.c_type with (sigil of c->names), t.b
+            defer banish ert
+            return "(*( {ert}*)(({rt.text}).err_val))"
+        if mname == "unwrap_or" or mname == "value_or":
+            var args2 as int is calling astutil.node_child with ast, node, 2
+            if args2 >= 0:
+                var a02 as int is calling astutil.node_child with ast, args2, 0
+                if a02 >= 0 and (calling astutil.kind_of with ast, a02) == pskind.NodeKind.NdPosArg:
+                    set a02 is calling astutil.node_child with ast, a02, 0
+                if a02 >= 0:
+                    var dv2 as string is calling emit_expr_as with c, a02, t.a
+                    defer banish dv2
+                    return "(({rt.text}).is_ok ? (*( {okt}*)(({rt.text}).ok_val)) : ({dv2}))"
+        return ""
+    return ""
+
 ## Emite una llamada.
 ##
 ## Usa la anotación de símbolo de F3 (resuelve `mod.fn` y métodos); si falta,
@@ -865,6 +937,9 @@ weave result_ctor with c as ref to context.CgContext, node as int, ast as ref to
 ## Strings owned; no posee args.
 weave call_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
     var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var builtin_mr as string is calling maybe_result_method with c, node, ast
+    if builtin_mr length > 0:
+        return builtin_mr
     # Intrínseco `cc_type_kind of T`: constante de compilación para los
     # descriptores de claves de std.ordinal. Se resuelve antes de cualquier
     # búsqueda en el catálogo; `cc_type_kind` no se emite como función.
@@ -1564,8 +1639,18 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
     banish cname
     calling sb.append with "("
     var wrote_recv as bool is false
+    var fn_params_first as int is -1
+    var fn_params_count as int is 0
     if fslot >= 0:
         var fm as catalog.CgFunction is (c->catalog.functions at fslot)
+        if fm.symbol >= 0:
+            var fsv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), fm.symbol
+            if fsv.type > 0:
+                var fty as tk.SemaType is calling types.at with (sigil of c->program->types), fsv.type
+                if fty.kind == tk.SemaTypeKind.TkFn:
+                    var finfo as types.SemaFnInfo is (c->program->types.fn_infos at fty.a)
+                    set fn_params_first is finfo.params_first
+                    set fn_params_count is finfo.params_count
         if fm.is_method:
             if not fm.is_ritual:
                 var target0 as int is calling astutil.node_child with ast, node, 0
@@ -1585,7 +1670,15 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                 var v as int is arg
                 if (calling astutil.kind_of with ast, arg) == pskind.NodeKind.NdPosArg:
                     set v is calling astutil.node_child with ast, arg, 0
-                var a as string is calling emit_expr with c, v
+                var a as string is ""
+                if i < fn_params_count:
+                    var p as types.SemaFnParam is (c->program->types.fn_params at (fn_params_first + i))
+                    if p.type > 0 and p.type != types.TYPE_ID_CVARARGS:
+                        set a is calling emit_expr_as with c, v, p.type
+                    else:
+                        set a is calling emit_expr with c, v
+                else:
+                    set a is calling emit_expr with c, v
                 calling sb.append with a
                 banish a
             set i is i + 1
@@ -2086,6 +2179,49 @@ weave dotted_path_text with c as ref to context.CgContext, node as int, ast as r
         return bp
     return ""
 
+## Nombre C de una variante de omen.
+##
+## Los omens propios emiten `Type_Variant`; los declarados en un `.d.pengu`
+## usan el nombre crudo del enum de la cabecera (`BLEND_ALPHA`, no
+## `BlendMode_BLEND_ALPHA`), porque su `typedef` no se regenera.
+##
+## ## Memoria
+## Devuelve string owned.
+weave omen_variant_c_name with c as ref to context.CgContext, oty as int, vname as int into string:
+    var vn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), vname)
+    var ty as tk.SemaType is calling types.at with (sigil of c->program->types), oty
+    if ty.kind == tk.SemaTypeKind.TkOmen and ty.a >= 0 and ty.a < c->program->types.nominal_infos.len:
+        var info as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
+        if info.module >= 0 and info.module < c->program->modules.len:
+            var om as loader.SemaModule is (c->program->modules at info.module)
+            if calling catalog.is_decl_path with om.canonical_path:
+                return vn
+    var aon as string is calling ctype.c_type with (sigil of c->names), oty
+    var full as string is "{aon}_{vn}"
+    banish aon
+    banish vn
+    return full
+
+## Busca una variante de omen exportada por `module_id` (global scope).
+##
+## Las variantes se registran en el scope 0, no en el scope del módulo, así que
+## `lookup_in_scope(module_scope, ...)` no las encuentra para `mod.Variant`.
+##
+## ## Memoria
+## O(símbolos); no asigna.
+weave find_module_variant with c as ref to context.CgContext, module_id as int, name as int into int:
+    var i as int is 0
+    while i < c->program->symbols.symbols.len:
+        var sv as sym.SemaSymbol is (c->program->symbols.symbols at i)
+        if sv.kind == sym.SemaSymbolKind.SkConst and sv.name == name and sv.type > 0:
+            var ty as tk.SemaType is calling types.at with (sigil of c->program->types), sv.type
+            if ty.kind == tk.SemaTypeKind.TkOmen and ty.a >= 0 and ty.a < c->program->types.nominal_infos.len:
+                var info as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
+                if info.module == module_id:
+                    return sv.type
+        set i is i + 1
+    return -1
+
 ## Emite un acceso a campo o una variante de omen.
 ##
 ## ## Memoria
@@ -2117,13 +2253,9 @@ weave field_access_expr with c as ref to context.CgContext, node as int, ast as 
         if asv.type >= 0:
             var ast0 as tk.SemaType is calling types.at with (sigil of c->program->types), asv.type
             if ast0.kind == tk.SemaTypeKind.TkOmen:
-                var aon as string is calling ctype.c_type with (sigil of c->names), asv.type
-                var avn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), asv.name)
-                defer banish aon
-                defer banish avn
-                return "{aon}_{avn}"
+                return calling omen_variant_c_name with c, asv.type, asv.name
     # `mod.CONST`: el base es un alias de import, no un valor.
-    if base >= 0 and (calling astutil.kind_of with ast, base) == pskind.NodeKind.NdVarRef:
+    if base >= 0 and (((calling astutil.kind_of with ast, base) == pskind.NodeKind.NdVarRef) or ((calling astutil.kind_of with ast, base) == pskind.NodeKind.NdNormalTarget)):
         var btokc as int is calling astutil.token_child with ast, base, 0
         if btokc >= 0:
             var btxtc as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), btokc
@@ -2156,6 +2288,17 @@ weave field_access_expr with c as ref to context.CgContext, node as int, ast as 
                             if bff.module == bmid and bff.name == bfnid and not bff.is_method:
                                 return calling npool.copy_string with (calling npool.text with (sigil of c->program->names), bff.c_name)
                             set bfi is bfi + 1
+                        # `mod.Variant` de un omen del módulo.
+                        var bmsid as int is calling symbols.lookup_in_scope with (sigil of c->program->symbols), bsvc.module_scope, bfnid
+                        if bmsid >= 0:
+                            var bms as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), bmsid
+                            if bms.kind == sym.SemaSymbolKind.SkConst and bms.type > 0:
+                                var bmty as tk.SemaType is calling types.at with (sigil of c->program->types), bms.type
+                                if bmty.kind == tk.SemaTypeKind.TkOmen:
+                                    return calling omen_variant_c_name with c, bms.type, bms.name
+                        var gvty as int is calling find_module_variant with c, bmid, bfnid
+                        if gvty >= 0:
+                            return calling omen_variant_c_name with c, gvty, bfnid
     var bt0 as int is calling node_type with c, base
     if bt0 < 0 and base >= 0 and (calling astutil.kind_of with ast, base) == pskind.NodeKind.NdVarRef:
         var btok as int is calling astutil.token_child with ast, base, 0
@@ -2204,9 +2347,8 @@ weave field_access_expr with c as ref to context.CgContext, node as int, ast as 
     if bty0 >= 0:
         var bty1 as tk.SemaType is calling types.at with (sigil of c->program->types), bty0
         if bty1.kind == tk.SemaTypeKind.TkOmen:
-            var bot as string is calling ctype.c_type with (sigil of c->names), bty0
-            defer banish bot
-            return "{bot}_{fname}"
+            var fvid as int is calling npool.intern with (sigil of c->program->names), fname
+            return calling omen_variant_c_name with c, bty0, fvid
     var qpath as string is calling dotted_path_text with c, base, ast
     defer banish qpath
     if qpath != "":
@@ -2625,7 +2767,26 @@ weave with_init_expr with c as ref to context.CgContext, node as int, ast as ref
                     var ft as int is calling astutil.token_child with ast, wt, 0
                     if ft >= 0:
                         var fn as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
-                        var av as string is calling emit_expr with c, val
+                        var fty as int is -1
+                        var sty as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+                        var guard as int is 0
+                        while guard < 16 and (sty.kind == tk.SemaTypeKind.TkAlias or sty.kind == tk.SemaTypeKind.TkSeal):
+                            set sty is calling types.at with (sigil of c->program->types), sty.b
+                            set guard is guard + 1
+                        if sty.kind == tk.SemaTypeKind.TkRune or sty.kind == tk.SemaTypeKind.TkEcho:
+                            var sinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at sty.a)
+                            var fi as int is 0
+                            var fnid as int is calling npool.intern with (sigil of c->program->names), fn
+                            while fi < sinfo.fields_count:
+                                var sf as types.SemaField is (c->program->types.fields at (sinfo.fields_first + fi))
+                                if sf.name == fnid:
+                                    set fty is sf.type
+                                set fi is fi + 1
+                        var av as string is ""
+                        if fty >= 0:
+                            set av is calling emit_expr_as with c, val, fty
+                        else:
+                            set av is calling emit_expr with c, val
                         if i > 0:
                             calling sb.append with ", "
                         calling sb.append with ".{fn} = {av}"
@@ -2779,15 +2940,19 @@ weave escape_c_lit with s as string into string:
 
 ## Convierte un literal PenguScript completo (con comillas) en C.
 ##
+## Con `as_cstr = true` emite un literal `const char*` puro (`"..."`) para
+## contextos `ref to char`/`ref to frozen char`; si no, un `PenguString`.
 ## Los literales con `{expr}` simples (identificadores locales) se emiten con
 ## `pengu_string_format_ex`; el resto se conserva como texto. La subfase de
 ## interpolación completa añadirá expresiones arbitrarias y `(chr N)`.
 ##
 ## ## Memoria
 ## Devuelve string owned.
-weave c_string_expr with c as ref to context.CgContext, raw as string into string:
+weave c_string_expr with c as ref to context.CgContext, raw as string, as_cstr as bool into string:
     var n as int is raw length
     if n < 2:
+        if as_cstr:
+            return "\"\""
         return "pengu_string_from_cstr(\"\")"
     var is_raw as bool is false
     var start as int is 1
@@ -2806,13 +2971,21 @@ weave c_string_expr with c as ref to context.CgContext, raw as string into strin
     if is_raw:
         var resc as string is calling emit.escape_c with content
         defer banish resc
+        if as_cstr:
+            return "\"{resc}\""
         return "pengu_string_from_cstr(\"{resc}\")"
     var decoded as string is calling psdecode.decode_text with content, false
     defer banish decoded
     if calling has_interp with decoded:
+        if as_cstr:
+            var resc2 as string is calling emit.escape_c with decoded
+            defer banish resc2
+            return "\"{resc2}\""
         return calling interp_expr with c, decoded
     var esc as string is calling emit.escape_c with decoded
     defer banish esc
+    if as_cstr:
+        return "\"{esc}\""
     return "pengu_string_from_cstr(\"{esc}\")"
 
 ## `true` si el contenido tiene una interpolación simple.

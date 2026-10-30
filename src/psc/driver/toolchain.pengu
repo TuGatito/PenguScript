@@ -133,9 +133,6 @@ weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, t as 
     var inc1 as string is "{m->base_dir}/include"
     calling add_inc with (sigil of incs), inc1
     banish inc1
-    var incb as string is "{m->base_dir}/{m->build_dir}"
-    calling add_inc with (sigil of incs), incb
-    banish incb
     var incc as string is "{m->base_dir}/{m->c_dir}"
     calling add_inc with (sigil of incs), incc
     banish incc
@@ -152,6 +149,11 @@ weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, t as 
         var di as string is "{m->base_dir}/{d}"
         calling add_inc with (sigil of incs), di
         banish di
+    # El build dir del proyecto va al final: puede contener copias antiguas de
+    # `pengu_runtime.h` de builds anteriores y no debe tapar el runtime actual.
+    var incb as string is "{m->base_dir}/{m->build_dir}"
+    calling add_inc with (sigil of incs), incb
+    banish incb
     var libs as list of string is list of string
     var rdir as string is calling compass.cp_dirname with p->runtime_archive
     calling add_lib with (sigil of libs), rdir

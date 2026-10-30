@@ -81,11 +81,16 @@ psc build [TARGET] [opciones]
 - `TARGET`: archivo `.pengu` o directorio de proyecto (default: cwd).
 - `--profile=debug|release|small`, `--cc`, `--out`/`-o`, `--entry`/`-e`.
 - `-D NAME[=VALUE]` repetible.
-- `--test`, `--strict-c99`, `--release-unsafe`, `--verbose`, `--json`.
+- `--test`, `--exe`, `--strict-c99`, `--release-unsafe`, `--verbose`, `--json`.
 - `--target=wasm|wasm32-unknown-emscripten` (o `[build] target` en el manifiesto).
 - Tipos de salida del manifiesto: `exe`, `c`, `obj`, `static`, `shared`.
+- `--exe` fuerza el enlazado de un ejecutable aunque el manifiesto declare
+  `output = "c"` (útil para compilar un ejemplo suelto de un binding).
 
 `psc run` compila y ejecuta; propaga el exit code y acepta `-- args...`.
+Aunque el manifiesto sea una librería (`output = "c"`/`"static"`), `run` fuerza
+un ejecutable. Un archivo `.pengu` dentro de un proyecto conserva el `c/` glue C
+del manifiesto (por ejemplo `raygui_impl.c`).
 Con `--target wasm` ejecuta `node app.js`; sin Node imprime la ruta del HTML y
 devuelve 2.
 `psc expand` emite el bundle C sin invocar `cc`.

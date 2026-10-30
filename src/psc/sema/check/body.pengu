@@ -630,19 +630,40 @@ weave check_control with s as ref to state.SemaState, node as int into void:
     if kk == pskind.NodeKind.NdForInStmt:
         calling begin_loop with s, node
         var nm as int is calling astutil.token_child with s->ast, node, 0
-        var coll as int is calling astutil.node_child with s->ast, node, 1
+        var nm2 as int is calling astutil.token_child with s->ast, node, 1
+        var indexed as bool is nm2 >= 0
+        var coll_slot as int is 1
+        if indexed:
+            set coll_slot is 2
+        var coll as int is calling astutil.node_child with s->ast, node, coll_slot
         var et as int is 0
         if coll >= 0:
             var ct as int is calling state.call_infer with s, coll, -1
             set et is calling compat.element_type with s->types, ct
+        var first_type as int is et
+        if indexed:
+            set first_type is calling types.base with s->types, "int"
         if nm >= 0:
             var txt as string is calling astutil.token_text with s->src, s->lex, nm
             defer banish txt
             var nid as int is calling npool.intern with s->names, txt
-            var sv as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", et, sym.SemaSymbolKind.SkLet
+            var sv as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", first_type, sym.SemaSymbolKind.SkLet
             set sv.name is nid
             set sv.c_name is nid
             calling symbols.symbol_define with s->symbols, sv
+        if indexed and nm2 >= 0:
+            var txt2 as string is calling astutil.token_text with s->src, s->lex, nm2
+            defer banish txt2
+            var nid2 as int is calling npool.intern with s->names, txt2
+            if nm >= 0:
+                var t1 as string is calling astutil.token_text with s->src, s->lex, nm
+                defer banish t1
+                if t1 == txt2 and t1 != "_":
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_C_NAME_DUP, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "index and element loop bindings must have distinct names", "Rename one of the bindings, or use '_'.", ""
+            var sv2 as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", et, sym.SemaSymbolKind.SkLet
+            set sv2.name is nid2
+            set sv2.c_name is nid2
+            calling symbols.symbol_define with s->symbols, sv2
         var b as int is calling astutil.node_child with s->ast, node, (calling astutil.child_count with s->ast, node) - 1
         if b >= 0:
             calling check_block with s, b

@@ -52,8 +52,13 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
     else if kind == pskind.NodeKind.NdFloatLit:
         set t is calling types.base with s->types, "float"
     else if kind == pskind.NodeKind.NdStringLit:
-        calling check_string_literal with s, node
-        set t is calling types.base with s->types, "string"
+        # Los bindings C esperan `const char*`; en ese contexto el literal es
+        # directamente un puntero y no un `PenguString`.
+        if expected > 0 and (calling compat.is_cstr with s->types, expected) and not (calling string_literal_has_interp with s, node):
+            set t is expected
+        else:
+            calling check_string_literal with s, node
+            set t is calling types.base with s->types, "string"
     else if kind == pskind.NodeKind.NdCharLit:
         set t is calling types.base with s->types, "char"
     else if kind == pskind.NodeKind.NdTrueLit or kind == pskind.NodeKind.NdFalseLit:
@@ -203,6 +208,26 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
             set t is 1
     calling ann.set_type with s->annotations, node, t
     return t
+
+## ¿El literal string de `node` contiene interpolación `{...}`?
+##
+## Los literales que se emiten como `const char*` no pueden interpolar: el
+## resultado sería un `PenguString`, no un puntero C.
+##
+## ## Memoria
+## O(n); no asigna.
+weave string_literal_has_interp with s as ref to state.SemaState, node as int into bool:
+    if s->lex->strings.len == 0:
+        return false
+    var ns as int is calling astutil.start_of with s->ast, node
+    var ne as int is calling astutil.end_of with s->ast, node
+    var i as int is 0
+    while i < s->lex->strings.len:
+        var si as psstate.StringInfo is (s->lex->strings at i)
+        if si.has_interp and si.content_start >= ns and si.content_end <= ne:
+            return true
+        set i is i + 1
+    return false
 
 ## Comprueba las interpolaciones de un literal string en el scope actual.
 ##

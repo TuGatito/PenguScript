@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.17.0-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.17.1-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey">
@@ -69,8 +69,8 @@ pengu-<version>-<os>-<arch>-fhs.tar.gz
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.17.0-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.17.0-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.17.1-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.17.1-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 
@@ -82,7 +82,62 @@ publish `pengus-<version>.vsix` for the VS Code extension.
 
 Building the compiler needs a **native bootstrap `psc`** and a C compiler. The
 repository ships a generated stage0 bundle, so no release download and no
-Python are required:
+Python are required.
+
+### One command (Linux / macOS / GitHub Actions)
+
+```bash
+./tools/build.sh
+```
+
+`tools/build.sh` builds the C runtime, bootstraps the compiler from stage0,
+builds `build/psc`, the optional `pengu-bind` helper and the WebAssembly
+runtime (when `emcc` is available), and then registers the toolchain
+environment for the detected shells: **bash**, **zsh**, **fish** and, when
+available, PowerShell. Everything lives inside this checkout:
+
+```text
+build/psc                 compiler
+build/pengu-bind          optional libclang helper
+build/lib/*.a             native runtime + std_c satellites
+build/include/*.h         headers used by generated bundles
+build/wasm/...            optional wasm runtime
+build/env/pengu.env.*     generated shell environments
+```
+
+After opening a new terminal (or reloading the shell) `psc` works from any
+directory:
+
+```bash
+psc version
+psc build /path/to/project
+```
+
+The environment sets `PENGU_HOME`, `PENGU_LIB_DIR`, `PENGU_INCLUDE_DIR`,
+`PENGU_STD_DIR`, `PENGU_PSC`, `PENGU_BIND` and (when built)
+`PENGU_RUNTIME_CROSS`, and prepends `build/` to `PATH`. Use `--no-register` to
+only generate the files under `build/env/`, or source them manually:
+
+```bash
+. "build/env/pengu.env.sh"          # bash / zsh
+source "build/env/pengu.env.fish"   # fish
+. "build/env/pengu.env.ps1"         # PowerShell
+```
+
+### Windows
+
+```powershell
+.\tools\build.ps1
+```
+
+It builds the runtime and `build\psc.exe` from the Windows stage0 bundle,
+generates `build\env\pengu.env.ps1` / `.cmd`, and registers the environment in
+the current PowerShell profile. Use `-NoRegister` to skip the profile edit,
+`-NoBind` / `-NoWasm` to skip optional components.
+
+### Manual / CI bootstrap
+
+The individual steps remain available:
 
 ```bash
 ./tools/build_bootstrap.sh      # builds the C runtime + build/psc-stage0

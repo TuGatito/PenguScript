@@ -879,6 +879,10 @@ weave pdecl_parse_declare_params with p as ref to PsParser into int:
         calling ps_add_child with p, param
         if calling ps_check with p, TokComma:
             var ignored3 as Token is calling ps_advance with p
+            # `declare F with a as int, ...` (variádico tras la coma): el
+            # `...` pertenece a la firma, no es otro parámetro.
+            if calling ps_check with p, TokEllipsis:
+                set more is false
         else:
             set more is false
     if calling ps_check with p, TokEllipsis:

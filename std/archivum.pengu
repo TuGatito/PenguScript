@@ -1629,7 +1629,13 @@ weave find_files with root as string, recursive as bool is true into list of str
         var l as list of string is entries.value
         var i as int is 0
         while i < l.len:
-            var fp as string is "{root}/{(l at i)}"
+            # Construir con `compass.join` (no con interpolación `"{root}/{...}"`):
+            # la interpolación sólo admite identificadores/campos simples.
+            var parts as list of string is list of string
+            calling parts.push with root
+            calling parts.push with (l at i)
+            var fp as string is calling compass.join with parts
+            banish parts
             if calling is_file with fp:
                 # `push` copies the struct: `out` takes ownership of the buffer.
                 calling out.push with fp

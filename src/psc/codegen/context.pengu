@@ -3,6 +3,8 @@
 ## El contexto presta el `SemaProgram`; es dueño del nombre table, catálogo,
 ## emisor y scopes C. No muta F3.
 
+import std.builder
+
 import psc.sema.names as npool
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
@@ -225,9 +227,35 @@ weave is_c_keyword with s as string into bool:
 
 ## Nombre C seguro para un identificador de PenguScript.
 ##
+## Sustituye cualquier byte que no sea `[A-Za-z0-9_]` por `_` (los módulos
+## `.d.pengu` producen prefijos como `raylib.d_`) y añade `_` a las palabras
+## reservadas de C.
+##
 ## ## Memoria
 ## Devuelve string owned.
 weave safe_c_name with s as string into string:
+    var needs as bool is calling is_c_keyword with s
+    var b as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < s length:
+        var c as int is ((b at i) to int)
+        if not ((c >= 48 and c <= 57) or (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95):
+            set needs is true
+        set i is i + 1
+    if not needs:
+        return calling npool.copy_string with s
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    set i is 0
+    while i < s length:
+        var c2 as int is ((b at i) to int)
+        if (c2 >= 48 and c2 <= 57) or (c2 >= 65 and c2 <= 90) or (c2 >= 97 and c2 <= 122) or c2 == 95:
+            var ch as string is s at i to (i + 1)
+            calling sb.append with ch
+            banish ch
+        else:
+            calling sb.append with "_"
+        set i is i + 1
     if calling is_c_keyword with s:
-        return "{s}_"
-    return calling npool.copy_string with s
+        calling sb.append with "_"
+    return calling sb.finish

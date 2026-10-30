@@ -63,6 +63,8 @@ rune BuildOptions:
     ephemeral as bool
     locked as bool
     frozen as bool
+    ## `psc run`/`psc test` sobre un proyecto de librería: fuerza `exe`.
+    force_exe as bool
     defines as list of string
 
 ## Resultado de un build.
@@ -163,7 +165,7 @@ weave find_manifest_root with start as string into string:
 ## ## Memoria
 ## Strings owned; liberar con `free_options`.
 weave default_options into BuildOptions:
-    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, defines is list of string
+    return with target is "", platform is (calling targetmod.host), target_explicit is false, profile is (calling copy with "debug"), cc is "", out_path is "", verbose is false, strict_c99 is false, release_unsafe is false, is_library is false, is_test is false, test_json is false, bundle_only is false, check_only is false, no_dce is false, prune_types is false, no_line_markers is false, prune_native is false, dce_scope_user is false, pch is false, compiler_path is "", no_cache is false, clear_cache is false, ephemeral is false, locked is false, frozen is false, force_exe is false, defines is list of string
 
 ## Libera opciones.
 ##
@@ -286,7 +288,9 @@ weave build with o as BuildOptions into BuildResult:
             banish start
             set start is ts
     var root as string is calling find_manifest_root with start
-    set is_project is calling archivum.is_dir with target
+    # Un archivo dentro de un proyecto sigue siendo parte del proyecto: sus
+    # `c/` glue files y assets deben compilarse/incrustarse.
+    set is_project is root length > 0
     var base as string is root
     var man as manifest.Manifest is calling manifest.default_manifest with start, "main.pengu"
     if root length == 0:
@@ -553,10 +557,13 @@ weave build with o as BuildOptions into BuildResult:
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is false, error is (calling copy with "std.web.js needs runtime/pengu_js.js; rebuild the wasm runtime or reinstall the package"), artifact is "", bundle_path is ""
+    var eff_output as string is man.output
+    if o.force_exe:
+        set eff_output is "exe"
     var cgo as cgopt.CgOptions is calling cgopt.default_options with (calling copy with base)
     calling targetmod.apply_cg with eff, (sigil of cgo)
     set cgo.entry_file is (calling copy with entry)
-    set cgo.is_library is o.is_library or (man.output != "exe" and man.output != "c")
+    set cgo.is_library is o.is_library or (eff_output != "exe" and eff_output != "c")
     set cgo.is_test is o.is_test
     set cgo.test_json is o.test_json
     set cgo.line_markers is not o.no_line_markers
@@ -628,7 +635,7 @@ weave build with o as BuildOptions into BuildResult:
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is false, error is wberr, artifact is "", bundle_path is ""
-    if o.bundle_only or man.output == "c":
+    if o.bundle_only or (man.output == "c" and not o.force_exe):
         banish cwd
         banish target
         banish start
@@ -642,7 +649,7 @@ weave build with o as BuildOptions into BuildResult:
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is true, error is "", artifact is bundle, bundle_path is (calling copy with bundle)
     var artifact as string is ""
-    var out_kind as string is man.output
+    var out_kind as string is eff_output
     var out_name as string is man.output_name
     if is_file:
         var stem as string is calling compass.cp_stem with entry
@@ -672,7 +679,7 @@ weave build with o as BuildOptions into BuildResult:
     banish adir
     var ck as string is ""
     var cparts as list of string is list of string
-    if (not o.no_cache) and (not o.ephemeral) and (not o.check_only) and (not o.bundle_only) and man.output != "c" and not (eff.is_wasm and out_kind == "exe"):
+    if (not o.no_cache) and (not o.ephemeral) and (not o.check_only) and (not o.bundle_only) and (man.output != "c" or o.force_exe) and not (eff.is_wasm and out_kind == "exe"):
         var cbytes as maybe string is calling archivum.read_bytes with o.compiler_path
         if cbytes.is_present:
             var chash as string is calling digest.sha256_raw with cbytes.value
@@ -686,7 +693,7 @@ weave build with o as BuildOptions into BuildResult:
         calling cparts.push with (calling copy with tc.cc)
         calling cparts.push with (calling copy with o.profile)
         calling cparts.push with (calling copy with o.cc)
-        calling cparts.push with (calling copy with man.output)
+        calling cparts.push with (calling copy with eff_output)
         calling cparts.push with "test"
         if o.is_test:
             calling cparts.push with "1"
@@ -789,6 +796,10 @@ weave build with o as BuildOptions into BuildResult:
                 calling glue.push with (calling copy with bf)
             banish bf
         banish bfiles
+    if o.verbose:
+        var gmsg as string is "glue: project={is_project} base={base} cdir={man.c_dir} files={glue.len} out={out_kind}"
+        calling spark.eprintln with gmsg
+        banish gmsg
     if out_kind != "obj" and out_kind != "static":
         for gf in glue:
             calling args.push with (calling copy with gf)

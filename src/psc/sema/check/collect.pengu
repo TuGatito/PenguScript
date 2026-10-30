@@ -11,6 +11,7 @@ import std.builder
 
 import psc.ast.kind as pskind
 import psc.ast.node as psast
+import psc.token as pstoken
 
 import psc.sema.names as npool
 import psc.sema.types.kind as tk
@@ -409,6 +410,12 @@ weave define_has with s as ref to state.SemaState, name as string into bool:
 ## ## Memoria
 ## Recorre top_stmts; no asigna.
 weave collect_when_top with s as ref to state.SemaState, node as int into void:
+    # `else when` envuelve el siguiente `when_top_decl` en un nodo contenedor.
+    if (calling astutil.kind_of with s->ast, node) == pskind.NodeKind.NdWhenTopElseWhen:
+        var nested as int is calling astutil.node_child with s->ast, node, 0
+        if nested >= 0:
+            calling collect_when_top with s, nested
+        return
     var cond as int is calling astutil.node_child with s->ast, node, 0
     var active as bool is calling when_truth with s, cond
     var i as int is 1
@@ -490,6 +497,7 @@ weave collect_insignia with s as ref to state.SemaState, node as int into void:
         calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MULTIPLE_INSIGNIA, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "multiple 'insignia' directives not allowed", "Only one 'insignia' per module.", ""
         return
     set s->module->insignia is nid
+    set s->module->insignia_pos is calling astutil.start_of with s->ast, node
     set s->symbols->insignia is nid
 
 ## Busca el primer token hijo (el nombre de la declaración).
@@ -924,6 +932,11 @@ weave const_literal with s as ref to state.SemaState, node as int into sym.SemaC
             banish ch
         banish rawc
         return cv
+    if k == pskind.NodeKind.NdFloatLit:
+        # El codegen emite el token original (precisión completa); `f` no hace
+        # falta para un literal.
+        set cv.kind is sym.SemaConstKind.CkFloat
+        return cv
     if k == pskind.NodeKind.NdParenExpr:
         return calling const_literal with s, (calling astutil.node_child with s->ast, node, 0)
     if k == pskind.NodeKind.NdNeg:
@@ -1140,6 +1153,14 @@ weave collect_params with s as ref to state.SemaState, pnode as int, out as ref 
             var fp as types.SemaFnParam is with name is pname, type is pty, flags is 0, default_node is -1
             calling types.add_fn_param with s->types, fp
             set out->count is out->count + 1
+        else:
+            # `...` es un token hijo, no un `NdParam`: registra el singleton
+            # CVarArgs para que la firma C conserve la variadicidad.
+            var et as pstoken.TokenKind is calling astutil.child_token_kind with s->lex, s->ast, pnode, i
+            if et == pstoken.TokenKind.TokEllipsis:
+                var fpe as types.SemaFnParam is with name is -1, type is types.TYPE_ID_CVARARGS, flags is 0, default_node is -1
+                calling types.add_fn_param with s->types, fpe
+                set out->count is out->count + 1
         set i is i + 1
 
 ## Nodo `attribute` llamado `name`, o `-1`.
@@ -1366,6 +1387,7 @@ weave collect_enchanting with s as ref to state.SemaState, node as int into void
     var recv as int is 0
     if recv_node >= 0:
         set recv is calling convert.convert with (sigil of ctx), recv_node
+    var recv_under as int is calling infer.underlying_type with s, recv
     var br as ParamRange is with first is 0, count is 0
     var wi as int is 1
     var wn as int is calling astutil.child_count with s->ast, node
@@ -1382,12 +1404,13 @@ weave collect_enchanting with s as ref to state.SemaState, node as int into void
             var mname as int is calling decl_name with s, m
             var ft as int is calling collect_method_sig with s, m
             calling check_mutates_method with s, m, recv, ft
-            calling reject_duplicate_primitive with s, recv, mname, m
-            var msid as int is calling symbols.symbol_define_method with s->symbols, recv, mname, ft
+            calling reject_duplicate_primitive with s, recv_under, mname, m
+            # `Quaternion` es alias de `Vector4`: ambos comparten tabla de métodos.
+            var msid as int is calling symbols.symbol_define_method with s->symbols, recv_under, mname, ft
             calling mark_mutating with s, m, msid
             calling apply_bounds with s, msid, br
             calling tag_decl with s, msid, m
-            calling define_get_alias with s, recv, mname, ft, br
+            calling define_get_alias with s, recv_under, mname, ft, br
         set i is i + 1
 
 ## `bind Tipo with Concepto:`: registra las implementaciones de método.
@@ -1400,6 +1423,7 @@ weave collect_bind with s as ref to state.SemaState, node as int into void:
     var recv as int is 0
     if recv_node >= 0:
         set recv is calling convert.convert with (sigil of ctx), recv_node
+    var recv_under as int is calling infer.underlying_type with s, recv
     var i as int is 2
     var n as int is calling astutil.child_count with s->ast, node
     while i < n:
@@ -1415,12 +1439,12 @@ weave collect_bind with s as ref to state.SemaState, node as int into void:
                 calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTATES_ATTR, (calling astutil.start_of with s->ast, m), (calling astutil.end_of with s->ast, m), "@mutates is not allowed in bind", "Use a pure method.", ""
             var ft as int is calling collect_method_sig with s, m
             calling check_mutates_method with s, m, recv, ft
-            calling reject_duplicate_primitive with s, recv, mname, m
-            var bsid2 as int is calling symbols.symbol_define_method with s->symbols, recv, mname, ft
+            calling reject_duplicate_primitive with s, recv_under, mname, m
+            var bsid2 as int is calling symbols.symbol_define_method with s->symbols, recv_under, mname, ft
             calling mark_mutating with s, m, bsid2
             calling tag_decl with s, bsid2, m
             var empty_br as ParamRange is with first is 0, count is 0
-            calling define_get_alias with s, recv, mname, ft, empty_br
+            calling define_get_alias with s, recv_under, mname, ft, empty_br
         set i is i + 1
 
 ## `test "nombre":`.

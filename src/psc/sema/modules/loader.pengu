@@ -52,6 +52,8 @@ rune SemaModule:
     is_std as bool
     ## `NameId` del `insignia` (`-1` si no).
     insignia as int
+    ## Offset de byte de la directiva `insignia` (`-1` si no).
+    insignia_pos as int
     ## Profundidad de import (para diagnósticos).
     depth as int
     ## Anotaciones semánticas por nodo.
@@ -115,7 +117,7 @@ weave load_text with path as string, display as string, text as string, bag as r
     var popt as pstate.PsParseOptions is calling pstate.ps_default_parse_options
     var parse as pstate.PsParseResult is calling papi.ps_parse_file with (sigil of src), bag, (sigil of lex), popt
     var notes as ann.SemaAnnotations is calling ann.new_annotations with (sigil of parse.ast)
-    return with path is owned_path, canonical_path is owned_canon, source is src, source_text is owned_text, lex is lex, parse is parse, ok is (readable and parse.ok), id is -1, is_entry is is_entry, is_std is is_std, insignia is -1, depth is depth, annotations is notes, scope is -1, type_ids is map of int to int, companion_for is -1
+    return with path is owned_path, canonical_path is owned_canon, source is src, source_text is owned_text, lex is lex, parse is parse, ok is (readable and parse.ok), id is -1, is_entry is is_entry, is_std is is_std, insignia is -1, insignia_pos is -1, depth is depth, annotations is notes, scope is -1, type_ids is map of int to int, companion_for is -1
 
 ## Módulo vacío para una lectura fallida.
 ##

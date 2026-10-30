@@ -154,6 +154,20 @@ weave can_cast with t as ref to types.SemaTypeTable, a as int, b as int into boo
         return true
     if ta.kind == tk.SemaTypeKind.TkNull:
         return true
+    # Un omen sin payload es un `enum` C: convertirlo a un numérico es válido
+    # y lo usan los bindings (`gesture to u32`, `key to int`).
+    if ta.kind == tk.SemaTypeKind.TkOmen:
+        if tb.kind == tk.SemaTypeKind.TkBase and (calling is_numeric with t, b):
+            if ta.a >= 0 and ta.a < t->nominal_infos.len:
+                var oi as types.SemaNominalInfo is (t->nominal_infos at ta.a)
+                var vi as int is 0
+                var has_payload as bool is false
+                while vi < oi.variants_count:
+                    var vv as types.SemaVariant is (t->variants at (oi.variants_first + vi))
+                    if vv.payload_count > 0:
+                        set has_payload is true
+                    set vi is vi + 1
+                return not has_payload
     if ta.kind == tk.SemaTypeKind.TkError or tb.kind == tk.SemaTypeKind.TkError:
         return true
     return false
@@ -358,6 +372,48 @@ weave is_frozen_target with t as ref to types.SemaTypeTable, id as int into bool
     if ty.kind == tk.SemaTypeKind.TkAlias:
         return calling is_frozen_target with t, ty.b
     return ty.kind == tk.SemaTypeKind.TkFrozen
+
+## ¿Es `ref to char` / `ref to frozen char` (o `byte`)?
+##
+## Reconoce alias, seal y `frozen` alrededor tanto de la referencia como del
+## pointee. El checker usa esto para aceptar un literal string en contextos
+## `const char*` (bindings C) sin inferir un `PenguString`.
+##
+## ## Memoria
+## O(profundidad); no asigna.
+weave is_cstr with t as ref to types.SemaTypeTable, id as int into bool:
+    if id <= 0:
+        return false
+    var cur as int is id
+    var ty as tk.SemaType is calling types.at with t, cur
+    var guard as int is 0
+    while guard < 32:
+        if ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal:
+            set cur is ty.b
+        else if ty.kind == tk.SemaTypeKind.TkFrozen:
+            set cur is ty.a
+        else:
+            break
+        set ty is calling types.at with t, cur
+        set guard is guard + 1
+    if ty.kind != tk.SemaTypeKind.TkRef:
+        return false
+    var inner as int is ty.a
+    var ity as tk.SemaType is calling types.at with t, inner
+    set guard is 0
+    while guard < 32:
+        if ity.kind == tk.SemaTypeKind.TkAlias or ity.kind == tk.SemaTypeKind.TkSeal:
+            set inner is ity.b
+        else if ity.kind == tk.SemaTypeKind.TkFrozen:
+            set inner is ity.a
+        else:
+            break
+        set ity is calling types.at with t, inner
+        set guard is guard + 1
+    if ity.kind != tk.SemaTypeKind.TkBase:
+        return false
+    var n as string is calling pool_text with t, ity.name
+    return n == "char" or n == "byte"
 
 ## ¿Es `ref to void/opaque`?
 ##

@@ -104,7 +104,7 @@ weave dispatch with args as list of string into int:
         return gc
     var cmd as string is args at 1
     if cmd == "version" or cmd == "--version" or cmd == "-V":
-        calling spark.println with "psc 0.17.0 (F13)"
+        calling spark.println with "psc 0.17.1 (F13)"
         return 0
     if cmd == "help" or cmd == "--help" or cmd == "-h":
         if cmd == "help" and args.len >= 3:
@@ -805,7 +805,7 @@ weave starts_dash with s as string into bool:
 ## ## Memoria
 ## No asigna.
 weave print_help into void:
-    calling spark.println with "psc 0.17.0 — PenguScript compiler"
+    calling spark.println with "psc 0.17.1 — PenguScript compiler"
     calling spark.println with ""
     calling spark.println with "Usage:"
     calling spark.println with "  psc lex <file> [options]"

@@ -54,8 +54,16 @@ Orden de búsqueda del runtime/std:
 
 1. `PENGU_RUNTIME_ARCHIVE`, `PENGU_LIB_DIR`, `PENGU_INCLUDE_DIR`,
    `PENGU_STD_DIR`, `PENGU_RUNTIME_CROSS`.
-2. El checkout que contiene `std/` y `build/lib/` o `build/wasm/lib/`.
-3. El directorio de trabajo actual (subiendo hasta la raíz del checkout).
+2. `PENGU_HOME` (layout portable o checkout): `HOME/lib`,
+   `HOME/include`, `HOME/std`, y también `HOME/build/lib`,
+   `HOME/build/include`, `HOME/build/wasm/lib` para un checkout construido
+   in-tree.
+3. El checkout que contiene `std/` y `build/lib/` o `build/wasm/lib/`.
+4. El directorio de trabajo actual (subiendo hasta la raíz del checkout).
+
+`tools/build.sh` deja todo el toolchain en el propio checkout y genera el
+entorno (`PENGU_HOME`, `PENGU_LIB_DIR`, `PENGU_INCLUDE_DIR`,
+`PENGU_STD_DIR`, `PENGU_RUNTIME_CROSS`, `PATH`) en `build/env/`.
 
 En Linux **TCC es obligatorio** para el gate de F5; `psc run` puede usar
 `--cc=tcc` para el camino rápido.
