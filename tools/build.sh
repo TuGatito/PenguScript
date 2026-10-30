@@ -140,6 +140,7 @@ ENV_DIR="$ROOT/build/env"
 mkdir -p "$ENV_DIR"
 
 sh_quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 PSC_PATH="$ROOT/build/psc"
 BIND_PATH="$ROOT/build/pengu-bind"
@@ -216,6 +217,27 @@ if ((\$env:PATH -split ';') -notcontains \$penguBin) {
 }
 EOF
 
+# Machine-readable description for editors/LSPs that do not source shell rc files.
+version="$(cat "$ROOT/VERSION" 2>/dev/null || printf '0.0.0')"
+bind_value=""
+if [ -x "$BIND_PATH" ]; then bind_value="$(json_escape "$BIND_PATH")"; fi
+wasm_value=""
+if [ -d "$WASM_DIR" ]; then wasm_value="$(json_escape "$WASM_DIR")"; fi
+cat > "$ENV_DIR/pengu.env.json" <<JSON
+{
+  "schema": 1,
+  "version": "$(json_escape "$version")",
+  "home": "$(json_escape "$ROOT")",
+  "psc": "$(json_escape "$PSC_PATH")",
+  "std": "$(json_escape "$ROOT/std")",
+  "include": "$(json_escape "$ROOT/build/include")",
+  "lib": "$(json_escape "$ROOT/build/lib")",
+  "bind": "$bind_value",
+  "wasm": "$wasm_value",
+  "path": ["$(json_escape "$ROOT/build")"]
+}
+JSON
+
 log "environment written to build/env/"
 
 # ---------------------------------------------------------------------------
@@ -228,6 +250,7 @@ if [ "$REGISTER" = "1" ]; then
   cp "$ENV_DIR/pengu.env.sh" "$CORE_DIR/env.sh"
   cp "$ENV_DIR/pengu.env.fish" "$CORE_DIR/env.fish"
   cp "$ENV_DIR/pengu.env.ps1" "$CORE_DIR/env.ps1"
+  cp "$ENV_DIR/pengu.env.json" "$CORE_DIR/env.json"
   QSH="$(sh_quote "$CORE_DIR/env.sh")"
   QFISH="$(sh_quote "$CORE_DIR/env.fish")"
   QPS="$(sh_quote "$CORE_DIR/env.ps1")"

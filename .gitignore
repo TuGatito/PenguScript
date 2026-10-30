@@ -38,3 +38,6 @@ node_modules/
 # TypeScript intermediate output (the extension ships the esbuild bundle)
 /vscode-extension/out/pscPath.js
 /vscode-extension/out/pscPath.js.map
+
+# Packaged VSIX artifacts
+/vscode-extension/*.vsix

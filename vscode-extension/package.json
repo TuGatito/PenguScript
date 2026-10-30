@@ -3,7 +3,7 @@
     "displayName": "PenguScript",
     "description": "Language support, LSP intelligence, and cargo-like project management for PenguScript.",
     "publisher": "pengus-lang",
-    "version": "4.0.0",
+    "version": "4.1.0",
     "icon": "./icons/pengu_icon.png",
     "keywords": [
         "pengus",
@@ -150,7 +150,7 @@
                 "pengus.executablePath": {
                     "type": "string",
                     "default": "",
-                    "markdownDescription": "Path to the `psc` executable (release `bin/psc`, or a project-local `build/psc`). When empty the extension searches `$PSC_BIN_PATH` (legacy `$PENGU_BIN_PATH`), then `PATH`, then the usual release locations (`./psc`, `./bin/psc`, `./build/psc`, `~/psc/psc`, `~/.local/bin/psc`, `/usr/local/bin/psc`)."
+                    "markdownDescription": "Path to the `psc` executable. When empty the extension checks `$PENGU_PSC`, `~/.config/pengu/env.json` (written by `tools/build.sh`), `$PENGU_HOME/build/psc`, `$PSC_BIN_PATH` (legacy `$PENGU_BIN_PATH`), `PATH`, and the usual locations (`./psc`, `./bin/psc`, `./build/psc`, `~/psc/psc`, `~/.local/bin/psc`, `/usr/local/bin/psc`)."
                 },
                 "pengus.defaultProfile": {
                     "type": "string",
@@ -165,7 +165,7 @@
                 "pengus.stdDir": {
                     "type": "string",
                     "default": "",
-                    "markdownDescription": "Directorio de la stdlib. Si está vacío se usa `$PSC_STD_DIR`, `$PENGU_STD_DIR`, `<proyecto>/std` o `<psc>/../std`."
+                    "markdownDescription": "Directorio de la stdlib. Si est\u00e1 vac\u00edo se usa `$PSC_STD_DIR`, `$PENGU_STD_DIR`, `<proyecto>/std` o `<psc>/../std`."
                 },
                 "pengus.trace.server": {
                     "type": "string",
@@ -250,14 +250,17 @@
         "bundle": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
         "watch": "tsc -watch -p ./",
         "package": "npx @vscode/vsce package",
-        "test": "npm run compile && node test/psc_path_check.js \"$PWD/out\""
+        "test": "npm run compile && node test/psc_path_check.js \"$PWD/out\" && node test/grammar.test.js",
+        "test:grammar": "node test/grammar.test.js"
     },
     "devDependencies": {
         "@types/node": "^18.14.6",
         "@types/vscode": "^1.82.0",
         "@vscode/vsce": "^2.22.0",
         "esbuild": "^0.20.0",
-        "typescript": "^5.1.6"
+        "typescript": "^5.1.6",
+        "vscode-oniguruma": "^2.0.1",
+        "vscode-textmate": "^9.3.2"
     },
     "dependencies": {
         "vscode-languageclient": "^9.0.1"

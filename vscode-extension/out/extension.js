@@ -3105,7 +3105,7 @@ var require_main = __commonJS({
     var ril_1 = require_ril();
     ril_1.default.install();
     var path2 = require("path");
-    var os2 = require("os");
+    var os3 = require("os");
     var crypto_1 = require("crypto");
     var net_1 = require("net");
     var api_1 = require_api();
@@ -3242,7 +3242,7 @@ var require_main = __commonJS({
       if (XDG_RUNTIME_DIR) {
         result = path2.join(XDG_RUNTIME_DIR, `vscode-ipc-${randomSuffix}.sock`);
       } else {
-        result = path2.join(os2.tmpdir(), `vscode-${randomSuffix}.sock`);
+        result = path2.join(os3.tmpdir(), `vscode-${randomSuffix}.sock`);
       }
       const limit = safeIpcPathLengths.get(process.platform);
       if (limit !== void 0 && result.length > limit) {
@@ -18247,6 +18247,7 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
+var os2 = __toESM(require("os"));
 var vscode = __toESM(require("vscode"));
 var import_node = __toESM(require_node3());
 var import_vscode_jsonrpc = __toESM(require_main());
@@ -18302,6 +18303,38 @@ function findOnPath(name, pathValue, platform, pathExt, isFile2) {
   }
   return void 0;
 }
+function defaultEnvFile(homeDir, platform = process.platform, env = process.env) {
+  if (platform === "win32") {
+    const base2 = env.LOCALAPPDATA || path.win32.join(homeDir, ".config");
+    return path.win32.join(base2, "pengu", "env.json");
+  }
+  const base = env.XDG_CONFIG_HOME || path.posix.join(homeDir, ".config");
+  return path.posix.join(base, "pengu", "env.json");
+}
+function readPenguEnv(file) {
+  try {
+    const text = fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "");
+    const raw = JSON.parse(text);
+    if (!raw || typeof raw !== "object") {
+      return void 0;
+    }
+    const obj = raw;
+    const out = { schema: typeof obj.schema === "number" ? obj.schema : void 0 };
+    const strings = ["version", "home", "psc", "std", "include", "lib", "wasm", "bind"];
+    for (const key of strings) {
+      const value = obj[key];
+      if (typeof value === "string" && value.length > 0) {
+        out[key] = value;
+      }
+    }
+    if (Array.isArray(obj.path) && obj.path.every((item) => typeof item === "string")) {
+      out.path = obj.path;
+    }
+    return out.psc || out.home ? out : void 0;
+  } catch {
+    return void 0;
+  }
+}
 function candidateExecutables(options) {
   const platform = options.platform ?? process.platform;
   const exists = options.isFile ?? isFile;
@@ -18334,44 +18367,61 @@ function resolvePscCommand(options = {}) {
   const platform = options.platform ?? process.platform;
   const home = options.homeDir ?? os.homedir();
   const exists = options.isFile ?? isFile;
-  const configured = options.configuredPath?.trim();
-  if (configured) {
-    if (isBareName(configured)) {
-      const hit = findOnPath(
-        configured,
-        options.pathValue ?? process.env.PATH ?? "",
-        platform,
-        options.pathExt ?? process.env.PATHEXT ?? ".EXE;.CMD;.BAT",
-        exists
-      );
+  const pathValue = options.pathValue ?? process.env.PATH ?? "";
+  const pathExt = options.pathExt ?? process.env.PATHEXT ?? ".EXE;.CMD;.BAT";
+  const seek = (value, source) => {
+    if (isBareName(value)) {
+      const hit = findOnPath(value, pathValue, platform, pathExt, exists);
       if (hit) {
-        return { command: hit, source: "pengus.executablePath (PATH)" };
+        return { command: hit, source: `${source} (PATH)` };
       }
     }
-    return { command: expandHome(configured, home), source: "pengus.executablePath" };
+    return { command: expandHome(value, home), source };
+  };
+  const configured = options.configuredPath?.trim();
+  if (configured) {
+    const hit = seek(configured, "pengus.executablePath");
+    if (exists(hit.command)) {
+      return hit;
+    }
+  }
+  const penguPsc = options.penguPsc?.trim();
+  if (penguPsc) {
+    const hit = seek(penguPsc, "PENGU_PSC");
+    if (exists(hit.command)) {
+      return hit;
+    }
   }
   const fromEnv = options.envPath?.trim();
   if (fromEnv) {
-    if (isBareName(fromEnv)) {
-      const hit = findOnPath(
-        fromEnv,
-        options.pathValue ?? process.env.PATH ?? "",
-        platform,
-        options.pathExt ?? process.env.PATHEXT ?? ".EXE;.CMD;.BAT",
-        exists
-      );
-      if (hit) {
-        return { command: hit, source: "PSC_BIN_PATH (PATH)" };
-      }
+    const hit = seek(fromEnv, "PSC_BIN_PATH");
+    if (exists(hit.command)) {
+      return hit;
     }
-    return { command: expandHome(fromEnv, home), source: "PSC_BIN_PATH" };
+  }
+  const envFile = options.envFile ?? defaultEnvFile(home, platform);
+  const env = readPenguEnv(envFile);
+  if (env?.psc) {
+    const command = expandHome(env.psc, home);
+    if (exists(command)) {
+      return { command, source: `env.json (${envFile})` };
+    }
+  }
+  const homeRoot = env?.home ?? options.penguHome;
+  if (homeRoot) {
+    const join2 = platform === "win32" ? path.win32.join : path.posix.join;
+    const exe = platform === "win32" ? "psc.exe" : "psc";
+    const candidate2 = join2(homeRoot, "build", exe);
+    if (exists(candidate2)) {
+      return { command: candidate2, source: "PENGU_HOME/build" };
+    }
   }
   const bare = "psc";
   const onPath = findOnPath(
     bare,
-    options.pathValue ?? process.env.PATH ?? "",
+    pathValue,
     platform,
-    options.pathExt ?? process.env.PATHEXT ?? ".EXE;.CMD;.BAT",
+    pathExt,
     exists
   );
   if (onPath) {
@@ -18406,12 +18456,19 @@ function workspaceRoot() {
 function resolvePsc() {
   const configured = config().get("executablePath");
   const folders = (vscode.workspace.workspaceFolders ?? []).filter((folder) => folder.uri.scheme === "file").map((folder) => folder.uri.fsPath);
-  return resolvePscCommand({
+  const resolved = resolvePscCommand({
     configuredPath: configured,
+    penguPsc: process.env.PENGU_PSC,
     envPath: process.env.PSC_BIN_PATH ?? process.env.PENGU_BIN_PATH,
+    penguHome: process.env.PENGU_HOME,
+    envFile: defaultEnvFile(os2.homedir()),
     // Workspace candidates are only trusted when the user trusts the folder.
     workspaceFolders: vscode.workspace.isTrusted ? folders : []
   });
+  if (resolved && configured && resolved.source !== "pengus.executablePath") {
+    log(`pengus.executablePath no es v\xE1lido (${configured}); usando ${resolved.command} (${resolved.source})`);
+  }
+  return resolved;
 }
 function getPscCommand() {
   return resolvePsc()?.command ?? (process.platform === "win32" ? "psc.exe" : "psc");
@@ -18490,7 +18547,7 @@ function checkFile() {
   runInTerminal(["check", file]);
 }
 async function reportMissingPsc(configured) {
-  const detail = configured ? `\`${configured}\` no existe o no es ejecutable.` : "No se encontr\xF3 en `pengus.executablePath`, `$PSC_BIN_PATH`, el `PATH` ni en las ubicaciones habituales.";
+  const detail = configured ? `\`${configured}\` no existe o no es ejecutable.` : "No se encontr\xF3 en `pengus.executablePath`, `$PENGU_PSC`, `$PSC_BIN_PATH`, `~/.config/pengu/env.json`, `$PENGU_HOME/build/psc`, el `PATH` ni en las ubicaciones habituales.";
   log(`no psc executable: ${detail}`);
   log(`PATH=${process.env.PATH || ""}`);
   const choice = await vscode.window.showErrorMessage(
@@ -18513,6 +18570,29 @@ function disposeWatchers() {
   }
   watchers = [];
 }
+function lspEnvironment(command) {
+  const env = { ...process.env, PENGU_PSC: command };
+  const fromFile = readPenguEnv(defaultEnvFile(os2.homedir()));
+  if (fromFile?.home) {
+    env.PENGU_HOME = fromFile.home;
+  }
+  if (fromFile?.std) {
+    env.PENGU_STD_DIR = fromFile.std;
+  }
+  if (fromFile?.include) {
+    env.PENGU_INCLUDE_DIR = fromFile.include;
+  }
+  if (fromFile?.lib) {
+    env.PENGU_LIB_DIR = fromFile.lib;
+  }
+  if (fromFile?.wasm) {
+    env.PENGU_RUNTIME_CROSS = fromFile.wasm;
+  }
+  if (fromFile?.bind) {
+    env.PENGU_BIND = fromFile.bind;
+  }
+  return env;
+}
 function startClient() {
   if (client) {
     return;
@@ -18528,18 +18608,19 @@ function startClient() {
   }
   log(`launching "${resolved.command}" lsp --stdio (from ${resolved.source})`);
   const root = workspaceRoot();
+  const serverEnv = lspEnvironment(resolved.command);
   const serverOptions = {
     run: {
       command: resolved.command,
       args: ["lsp", "--stdio"],
       transport: import_node.TransportKind.stdio,
-      options: root ? { cwd: root } : void 0
+      options: { cwd: root, env: serverEnv }
     },
     debug: {
       command: resolved.command,
       args: ["lsp", "--stdio"],
       transport: import_node.TransportKind.stdio,
-      options: root ? { cwd: root } : void 0
+      options: { cwd: root, env: serverEnv }
     }
   };
   disposeWatchers();
@@ -18548,14 +18629,17 @@ function startClient() {
     vscode.workspace.createFileSystemWatcher("**/{pengu,Pengu}.{toml,lock}")
   );
   const clientOptions = {
-    documentSelector: [{ scheme: "file", language: "pengus" }],
+    documentSelector: [
+      { scheme: "file", language: "pengus" },
+      { scheme: "file", pattern: "**/*.d.pengu" }
+    ],
     outputChannel: output,
     traceOutputChannel: output,
     workspaceFolder: root ? (vscode.workspace.workspaceFolders ?? []).find(
       (folder) => folder.uri.fsPath === root
     ) : void 0,
     initializationOptions: {
-      stdDir: config().get("stdDir") || "",
+      stdDir: config().get("stdDir") || process.env.PENGU_STD_DIR || "",
       executablePath: resolved.command,
       inlayHints: config().get("inlayHints.enabled", true),
       semanticHighlighting: config().get("semanticHighlighting.enabled", true)

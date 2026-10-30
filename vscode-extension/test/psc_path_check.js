@@ -8,6 +8,8 @@
 
 const path = require('path');
 const mod = require(path.join(process.argv[2], 'pscPath.js'));
+const NO_ENV = path.join(__dirname, 'fixtures', 'does-not-exist.json');
+const resolve = (options) => mod.resolvePscCommand({ envFile: NO_ENV, ...options });
 
 let failures = 0;
 function check(name, actual, expected) {
@@ -35,7 +37,7 @@ const HOME = '/home/u';
 
 check(
     'user case: ~/psc/psc is found when PATH has none',
-    mod.resolvePscCommand({
+    resolve({
         homeDir: HOME,
         platform: 'linux',
         pathValue: SYSTEMD_PATH,
@@ -47,7 +49,7 @@ check(
 
 check(
     'workspace bin/psc is preferred over ~/psc/psc',
-    mod.resolvePscCommand({
+    resolve({
         homeDir: HOME,
         platform: 'linux',
         pathValue: SYSTEMD_PATH,
@@ -59,7 +61,7 @@ check(
 
 check(
     'PATH wins over the well-known locations',
-    mod.resolvePscCommand({
+    resolve({
         homeDir: HOME,
         platform: 'linux',
         pathValue: `/opt/bin:${SYSTEMD_PATH}`,
@@ -71,31 +73,44 @@ check(
 
 check(
     'the setting wins and expands ~',
-    mod.resolvePscCommand({
+    resolve({
         configuredPath: '~/psc/psc',
         homeDir: HOME,
         platform: 'linux',
         pathValue: '/opt/bin',
-        isFile: fsOf(['/opt/bin/psc'])
+        isFile: fsOf(['/opt/bin/psc', `${HOME}/psc/psc`])
     }),
     { command: `${HOME}/psc/psc`, source: 'pengus.executablePath' }
 );
 
 check(
     '$PSC_BIN_PATH wins over PATH',
-    mod.resolvePscCommand({
+    resolve({
         envPath: '/custom/psc',
         homeDir: HOME,
         platform: 'linux',
         pathValue: '/opt/bin',
-        isFile: fsOf(['/opt/bin/psc'])
+        isFile: fsOf(['/opt/bin/psc', '/custom/psc'])
     }),
     { command: '/custom/psc', source: 'PSC_BIN_PATH' }
 );
 
 check(
-    'a blank setting is ignored',
+    'a stale setting falls back instead of disabling the LSP',
     mod.resolvePscCommand({
+        configuredPath: '/old/nonexistent/psc',
+        homeDir: HOME,
+        platform: 'linux',
+        pathValue: SYSTEMD_PATH,
+        envFile: path.join(__dirname, 'fixtures', 'pengu.env.json'),
+        isFile: fsOf(['/checkout/PenguScript/build/psc'])
+    }),
+    { command: '/checkout/PenguScript/build/psc', source: `env.json (${path.join(__dirname, 'fixtures', 'pengu.env.json')})` }
+);
+
+check(
+    'a blank setting is ignored',
+    resolve({
         configuredPath: '   ',
         homeDir: HOME,
         platform: 'linux',
@@ -107,7 +122,7 @@ check(
 
 check(
     'Windows: PATHEXT is honoured',
-    mod.resolvePscCommand({
+    resolve({
         homeDir: 'C:\\Users\\u',
         platform: 'win32',
         pathValue: 'C:\\tools',
@@ -117,9 +132,62 @@ check(
     { command: 'C:\\tools\\psc.EXE', source: 'PATH' }
 );
 
+
+check(
+    'PENGU_PSC wins over PATH and the legacy variables',
+    resolve({
+        penguPsc: '/checkout/PenguScript/build/psc',
+        envPath: '/legacy/psc',
+        homeDir: HOME,
+        platform: 'linux',
+        pathValue: SYSTEMD_PATH,
+        envFile: '/nonexistent/env.json',
+        isFile: fsOf(['/checkout/PenguScript/build/psc', '/legacy/psc'])
+    }),
+    { command: '/checkout/PenguScript/build/psc', source: 'PENGU_PSC' }
+);
+
+check(
+    'env.json resolves the checkout when the GUI has no PATH entry',
+    resolve({
+        homeDir: HOME,
+        platform: 'linux',
+        pathValue: SYSTEMD_PATH,
+        envFile: path.join(__dirname, 'fixtures', 'pengu.env.json'),
+        isFile: fsOf(['/checkout/PenguScript/build/psc'])
+    }),
+    { command: '/checkout/PenguScript/build/psc', source: `env.json (${path.join(__dirname, 'fixtures', 'pengu.env.json')})` }
+);
+
+check(
+    'PENGU_HOME/build/psc is a fallback before PATH',
+    resolve({
+        penguHome: '/checkout/PenguScript',
+        homeDir: HOME,
+        platform: 'linux',
+        pathValue: SYSTEMD_PATH,
+        envFile: '/nonexistent/env.json',
+        isFile: fsOf(['/checkout/PenguScript/build/psc'])
+    }),
+    { command: '/checkout/PenguScript/build/psc', source: 'PENGU_HOME/build' }
+);
+
+check(
+    'a raylib workspace with systemd PATH still finds the compiler via env.json',
+    resolve({
+        homeDir: HOME,
+        platform: 'linux',
+        pathValue: SYSTEMD_PATH,
+        workspaceFolders: ['/home/u/raylib-pengu'],
+        envFile: path.join(__dirname, 'fixtures', 'pengu.env.json'),
+        isFile: fsOf(['/checkout/PenguScript/build/psc'])
+    }),
+    { command: '/checkout/PenguScript/build/psc', source: `env.json (${path.join(__dirname, 'fixtures', 'pengu.env.json')})` }
+);
+
 check(
     'nothing anywhere yields undefined (the caller then explains why)',
-    mod.resolvePscCommand({
+    resolve({
         homeDir: HOME,
         platform: 'linux',
         pathValue: SYSTEMD_PATH,

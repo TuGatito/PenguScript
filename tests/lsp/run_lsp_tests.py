@@ -201,6 +201,18 @@ def main() -> int:
         assert_true("outline has suma", "suma" in names)
         assert_true("outline has main", "main" in names)
 
+        # Documentation separated by one blank line must still attach to the
+        # declaration (the raylib wrappers use this convention everywhere).
+        doc_gap = PROJECT / "src" / "doc_gap.pengu"
+        doc_gap_uri = doc_gap.as_uri()
+        client.open(doc_gap_uri, doc_gap.read_text())
+        doc_hover = client.request(
+            "textDocument/hover",
+            {"textDocument": {"uri": doc_gap_uri}, "position": {"line": 2, "character": 8}},
+        )
+        doc_value = doc_hover["result"]["contents"]["value"]
+        assert_true("hover docs across blank line", "Documented with a blank line" in doc_value)
+
         # Rich diagnostics: help/note must survive the LSP serialization.
         bad_uri = (PROJECT / "src" / "bad.pengu").as_uri()
         bad = 'import std.spark\n\nweave main into int:\n    let x as int is "hola"\n    return 0\n'

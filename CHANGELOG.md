@@ -28,6 +28,21 @@ ejecutan (`run`), incluido el ejemplo WebAssembly en Chromium headless.
 - **`psc run --target wasm --browser`** y fallback automático a Chromium
   headless cuando Node no puede crear el canvas de raylib.
 
+### Extensión VS Code 4.1.0
+
+- **Gramática corregida:** se eliminó el bloque `## ... ##` inexistente, se
+  arreglaron las alternancias de `keywords`/`builtin_types`/`builtin_concepts`
+  y `enchanting`/`bind` aceptan tipos punteados (`raylib.Mesh`).
+- **Rutas sin shell:** `tools/build.sh`/`build.ps1` escriben
+  `build/env/pengu.env.json` y `~/.config/pengu/env.json`; la extensión lee
+  `PENGU_PSC`, `PENGU_HOME/build/psc` y ese JSON, y pasa el entorno al LSP.
+- **Setting obsoleto:** una ruta inválida en `pengus.executablePath` ya no
+  desactiva el LSP; se avisa y se prueba JSON/PATH.
+- **Hover docs:** la documentación `##` separada por una línea en blanco ya se
+  asocia a la declaración (wrappers de raylib).
+- **Tests:** gramática TextMate, resolución `PENGU_PSC`/JSON, `.d.pengu`,
+  hover docs y corpus raylib.
+
 ### Corregido
 
 - Constantes locales de los ejemplos (`const` → `let`), `entry` → `main`,

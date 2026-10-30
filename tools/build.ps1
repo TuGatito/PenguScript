@@ -138,6 +138,23 @@ try {
     $cmdLines += "set `"PATH=%PENGU_HOME%\build;%PATH%`""
     Set-Content -LiteralPath $envCmd -Value $cmdLines -Encoding ascii
 
+    $versionPath = Join-Path $Root "VERSION"
+    $version = if (Test-Path $versionPath) { (Get-Content -LiteralPath $versionPath -Raw).Trim() } else { "0.0.0" }
+    $envJsonPath = Join-Path $envDir "pengu.env.json"
+    $envJson = [ordered]@{
+        schema  = 1
+        version = $version
+        home    = $Root
+        psc     = Join-Path $Root "build\psc.exe"
+        std     = Join-Path $Root "std"
+        include = Join-Path $Root "build\include"
+        lib     = Join-Path $Root "build\lib"
+        bind    = $(if (Test-Path $bindPath) { $bindPath } else { "" })
+        wasm    = $(if (Test-Path $wasmDir) { $wasmDir } else { "" })
+        path    = @((Join-Path $Root "build"))
+    }
+    $envJson | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $envJsonPath -Encoding utf8
+
     Write-Log "environment written to build\env\"
 
     # ------------------------------------------------------------------
@@ -155,6 +172,8 @@ try {
         Copy-Item -LiteralPath $envPs -Destination $coreEnv -Force
         $coreCmd = Join-Path $coreDir "env.cmd"
         Copy-Item -LiteralPath $envCmd -Destination $coreCmd -Force
+        $coreJson = Join-Path $coreDir "env.json"
+        Copy-Item -LiteralPath $envJsonPath -Destination $coreJson -Force
 
         $profilePath = $PROFILE.CurrentUserCurrentHost
         if (-not $profilePath) {

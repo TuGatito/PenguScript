@@ -1,13 +1,14 @@
 # PenguScript for Visual Studio Code
 
-Official editor support for **PenguScript 0.15.0**: language server, syntax
+Official editor support for **PenguScript 0.17.2**: language server, syntax
 highlighting, snippets, project commands and a status bar.
 
 ## Requirements
 
 - VS Code **1.82** or newer.
-- A `psc` binary on `PATH`, selected with `pengus.executablePath`, or discoverable
-  in a standard install location (`~/psc/psc`, `~/.local/bin/psc`,
+- A `psc` binary selected with `pengus.executablePath`, `$PENGU_PSC`, the
+  persistent `~/.config/pengu/env.json` written by `tools/build.sh`, `$PATH`, or
+  a standard install location (`~/psc/psc`, `~/.local/bin/psc`,
   `/usr/local/bin/psc`, `./bin/psc`, `./build/psc`).
 
 The extension does **not** execute a project-local `psc` in an untrusted
@@ -36,7 +37,7 @@ workspace. Trust the folder or select a user-installed binary first.
 
 ### Editor assets
 
-- TextMate grammar for the 0.15.0 syntax: `set`, `derive`, `cyclus`,
+- TextMate grammar for the 0.17.2 syntax: `set`, `derive`, `cyclus`,
   `antiquus`, `enchanting`, `bind`, `seal`, concepts (`Real`, `Iterabilis`, …),
   doc blocks and user types in type position.
 - 120+ snippets: main, runes/echos/omens, concepts/bind, generics, `with`,
@@ -56,7 +57,7 @@ workspace. Trust the folder or select a user-installed binary first.
 |---|---|---|
 | `pengus.executablePath` | `""` | Path or bare name of `psc`. |
 | `pengus.defaultProfile` | `"debug"` | `debug`, `release` or `small` for build/run. |
-| `pengus.stdDir` | `""` | Explicit stdlib directory (also `PSC_STD_DIR`/`PENGU_STD_DIR`). |
+| `pengus.stdDir` | `""` | Explicit stdlib directory (also `PENGU_STD_DIR` (legacy `PSC_STD_DIR`)). |
 | `pengus.trace.server` | `"off"` | LSP trace level (`off`, `messages`, `verbose`). |
 | `pengus.inlayHints.enabled` | `true` | Show inferred type hints. |
 | `pengus.semanticHighlighting.enabled` | `true` | Use LSP semantic tokens. |
@@ -73,7 +74,7 @@ npm run package
 ```
 
 Then **Extensions → … → Install from VSIX…** and pick
-`pengus-4.0.0.vsix`.
+`pengus-4.1.0.vsix`.
 
 ### Development
 
@@ -88,8 +89,8 @@ Press `F5` to launch an Extension Development Host window.
 ## Troubleshooting
 
 - **`cannot resolve imported module 'std.*'`** — check `psc --version`, then set
-  `pengus.executablePath` or `PSC_STD_DIR`. The LSP searches
-  `$PSC_STD_DIR`, `$PENGU_STD_DIR`, `<project>/std`, `<psc>/../std`,
+  `pengus.executablePath` or `PENGU_STD_DIR`. The LSP searches
+  `$PENGU_STD_DIR` (legacy `$PSC_STD_DIR`), `<project>/std`, `<psc>/../std`,
   `<psc>/../share/pengu/std` and `$PENGU_HOME/std`.
 - **The extension does not start** — open the **PenguScript** output channel;
   the client logs the resolved binary and protocol errors there.
@@ -102,5 +103,6 @@ Press `F5` to launch an Extension Development Host window.
 
 | Extension | Compiler |
 |---|---|
+| 4.1.0 | 0.17.2 |
 | 4.0.0 | 0.15.0 |
 | 3.2.x | 0.14.x |

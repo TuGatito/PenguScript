@@ -1,3 +1,4 @@
+import * as os from 'os';
 import * as vscode from 'vscode';
 import {
     CloseAction,
@@ -9,7 +10,7 @@ import {
     TransportKind
 } from 'vscode-languageclient/node';
 import { Trace } from 'vscode-jsonrpc';
-import { PscCommand, isExecutable, resolvePscCommand } from './pscPath';
+import { PscCommand, defaultEnvFile, isExecutable, readPenguEnv, resolvePscCommand } from './pscPath';
 
 let client: LanguageClient | undefined;
 let pscTerminal: vscode.Terminal | undefined;
@@ -44,12 +45,19 @@ function resolvePsc(): PscCommand | undefined {
     const folders = (vscode.workspace.workspaceFolders ?? [])
         .filter((folder) => folder.uri.scheme === 'file')
         .map((folder) => folder.uri.fsPath);
-    return resolvePscCommand({
+    const resolved = resolvePscCommand({
         configuredPath: configured,
+        penguPsc: process.env.PENGU_PSC,
         envPath: process.env.PSC_BIN_PATH ?? process.env.PENGU_BIN_PATH,
+        penguHome: process.env.PENGU_HOME,
+        envFile: defaultEnvFile(os.homedir()),
         // Workspace candidates are only trusted when the user trusts the folder.
         workspaceFolders: vscode.workspace.isTrusted ? folders : []
     });
+    if (resolved && configured && resolved.source !== 'pengus.executablePath') {
+        log(`pengus.executablePath no es válido (${configured}); usando ${resolved.command} (${resolved.source})`);
+    }
+    return resolved;
 }
 
 function getPscCommand(): string {
@@ -140,7 +148,7 @@ function checkFile(): void {
 async function reportMissingPsc(configured?: string): Promise<void> {
     const detail = configured
         ? `\`${configured}\` no existe o no es ejecutable.`
-        : 'No se encontró en `pengus.executablePath`, `$PSC_BIN_PATH`, el `PATH` ni en las ubicaciones habituales.';
+        : 'No se encontró en `pengus.executablePath`, `$PENGU_PSC`, `$PSC_BIN_PATH`, `~/.config/pengu/env.json`, `$PENGU_HOME/build/psc`, el `PATH` ni en las ubicaciones habituales.';
     log(`no psc executable: ${detail}`);
     log(`PATH=${process.env.PATH || ''}`);
     const choice = await vscode.window.showErrorMessage(
@@ -166,6 +174,19 @@ function disposeWatchers(): void {
     watchers = [];
 }
 
+/** Environment inherited by the LSP, including the persistent build description. */
+function lspEnvironment(command: string): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env, PENGU_PSC: command };
+    const fromFile = readPenguEnv(defaultEnvFile(os.homedir()));
+    if (fromFile?.home) { env.PENGU_HOME = fromFile.home; }
+    if (fromFile?.std) { env.PENGU_STD_DIR = fromFile.std; }
+    if (fromFile?.include) { env.PENGU_INCLUDE_DIR = fromFile.include; }
+    if (fromFile?.lib) { env.PENGU_LIB_DIR = fromFile.lib; }
+    if (fromFile?.wasm) { env.PENGU_RUNTIME_CROSS = fromFile.wasm; }
+    if (fromFile?.bind) { env.PENGU_BIND = fromFile.bind; }
+    return env;
+}
+
 /** Starts the language client against the resolved executable. */
 function startClient(): void {
     if (client) {
@@ -182,18 +203,19 @@ function startClient(): void {
     }
     log(`launching "${resolved.command}" lsp --stdio (from ${resolved.source})`);
     const root = workspaceRoot();
+    const serverEnv = lspEnvironment(resolved.command);
     const serverOptions: ServerOptions = {
         run: {
             command: resolved.command,
             args: ['lsp', '--stdio'],
             transport: TransportKind.stdio,
-            options: root ? { cwd: root } : undefined
+            options: { cwd: root, env: serverEnv }
         },
         debug: {
             command: resolved.command,
             args: ['lsp', '--stdio'],
             transport: TransportKind.stdio,
-            options: root ? { cwd: root } : undefined
+            options: { cwd: root, env: serverEnv }
         }
     };
 
@@ -204,14 +226,17 @@ function startClient(): void {
     );
 
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [{ scheme: 'file', language: 'pengus' }],
+        documentSelector: [
+            { scheme: 'file', language: 'pengus' },
+            { scheme: 'file', pattern: '**/*.d.pengu' }
+        ],
         outputChannel: output,
         traceOutputChannel: output,
         workspaceFolder: root ? (vscode.workspace.workspaceFolders ?? []).find(
             (folder) => folder.uri.fsPath === root
         ) : undefined,
         initializationOptions: {
-            stdDir: config().get<string>('stdDir') || '',
+            stdDir: config().get<string>('stdDir') || process.env.PENGU_STD_DIR || '',
             executablePath: resolved.command,
             inlayHints: config().get<boolean>('inlayHints.enabled', true),
             semanticHighlighting: config().get<boolean>('semanticHighlighting.enabled', true)

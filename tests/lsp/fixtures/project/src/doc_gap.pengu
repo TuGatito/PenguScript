@@ -1,0 +1,4 @@
+## Documented with a blank line before the declaration.
+
+weave documented with a as int into int:
+    return a

@@ -28,6 +28,12 @@ export interface ResolvePscOptions {
     configuredPath?: string;
     /** `$PSC_BIN_PATH` (or legacy `$PENGU_BIN_PATH`), when set. */
     envPath?: string;
+    /** `$PENGU_PSC`, written by `tools/build.sh` / `tools/build.ps1`. */
+    penguPsc?: string;
+    /** `$PENGU_HOME`, the compiler checkout or install prefix. */
+    penguHome?: string;
+    /** Explicit `pengu.env.json`; defaults to the per-user config file. */
+    envFile?: string;
     /** File-system paths of the workspace folders, in order. */
     workspaceFolders?: string[];
     /** Directory treated as `~`; defaults to `os.homedir()`. */
@@ -108,6 +114,60 @@ export function findOnPath(
     return undefined;
 }
 
+/** The persistent, shell-independent toolchain description written by the build. */
+export interface PenguEnv {
+    schema?: number;
+    version?: string;
+    home?: string;
+    psc?: string;
+    std?: string;
+    include?: string;
+    lib?: string;
+    wasm?: string;
+    bind?: string;
+    path?: string[];
+}
+
+/** Default per-user env file, matching tools/build.{sh,ps1}. */
+export function defaultEnvFile(
+    homeDir: string,
+    platform: NodeJS.Platform = process.platform,
+    env: NodeJS.ProcessEnv = process.env
+): string {
+    if (platform === 'win32') {
+        const base = env.LOCALAPPDATA || path.win32.join(homeDir, '.config');
+        return path.win32.join(base, 'pengu', 'env.json');
+    }
+    const base = env.XDG_CONFIG_HOME || path.posix.join(homeDir, '.config');
+    return path.posix.join(base, 'pengu', 'env.json');
+}
+
+/** Reads and minimally validates a `pengu.env.json`; never throws. */
+export function readPenguEnv(file: string): PenguEnv | undefined {
+    try {
+        const text = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+        const raw = JSON.parse(text) as unknown;
+        if (!raw || typeof raw !== 'object') {
+            return undefined;
+        }
+        const obj = raw as Record<string, unknown>;
+        const out: PenguEnv = { schema: typeof obj.schema === 'number' ? obj.schema : undefined };
+        const strings: (keyof PenguEnv)[] = ['version', 'home', 'psc', 'std', 'include', 'lib', 'wasm', 'bind'];
+        for (const key of strings) {
+            const value = obj[key];
+            if (typeof value === 'string' && value.length > 0) {
+                (out as Record<string, unknown>)[key] = value;
+            }
+        }
+        if (Array.isArray(obj.path) && obj.path.every((item) => typeof item === 'string')) {
+            out.path = obj.path as string[];
+        }
+        return out.psc || out.home ? out : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 /**
  * Well-known places a release is unpacked into.
  *
@@ -159,47 +219,71 @@ export function resolvePscCommand(options: ResolvePscOptions = {}): PscCommand |
     const platform = options.platform ?? process.platform;
     const home = options.homeDir ?? os.homedir();
     const exists = options.isFile ?? isFile;
+    const pathValue = options.pathValue ?? process.env.PATH ?? '';
+    const pathExt = options.pathExt ?? process.env.PATHEXT ?? '.EXE;.CMD;.BAT';
 
-    const configured = options.configuredPath?.trim();
-    if (configured) {
-        if (isBareName(configured)) {
-            const hit = findOnPath(
-                configured,
-                options.pathValue ?? process.env.PATH ?? '',
-                platform,
-                options.pathExt ?? process.env.PATHEXT ?? '.EXE;.CMD;.BAT',
-                exists
-            );
+    const seek = (value: string, source: string): PscCommand => {
+        if (isBareName(value)) {
+            const hit = findOnPath(value, pathValue, platform, pathExt, exists);
             if (hit) {
-                return { command: hit, source: 'pengus.executablePath (PATH)' };
+                return { command: hit, source: `${source} (PATH)` };
             }
         }
-        return { command: expandHome(configured, home), source: 'pengus.executablePath' };
+        return { command: expandHome(value, home), source };
+    };
+
+    // A stale setting (for example a removed `~/pengu/bin/psc`) must not
+    // disable the extension: try the remaining sources and let the caller log
+    // that the explicit path was skipped.
+    const configured = options.configuredPath?.trim();
+    if (configured) {
+        const hit = seek(configured, 'pengus.executablePath');
+        if (exists(hit.command)) {
+            return hit;
+        }
+    }
+
+    const penguPsc = options.penguPsc?.trim();
+    if (penguPsc) {
+        const hit = seek(penguPsc, 'PENGU_PSC');
+        if (exists(hit.command)) {
+            return hit;
+        }
     }
 
     const fromEnv = options.envPath?.trim();
     if (fromEnv) {
-        if (isBareName(fromEnv)) {
-            const hit = findOnPath(
-                fromEnv,
-                options.pathValue ?? process.env.PATH ?? '',
-                platform,
-                options.pathExt ?? process.env.PATHEXT ?? '.EXE;.CMD;.BAT',
-                exists
-            );
-            if (hit) {
-                return { command: hit, source: 'PSC_BIN_PATH (PATH)' };
-            }
+        const hit = seek(fromEnv, 'PSC_BIN_PATH');
+        if (exists(hit.command)) {
+            return hit;
         }
-        return { command: expandHome(fromEnv, home), source: 'PSC_BIN_PATH' };
+    }
+
+    const envFile = options.envFile ?? defaultEnvFile(home, platform);
+    const env = readPenguEnv(envFile);
+    if (env?.psc) {
+        const command = expandHome(env.psc, home);
+        if (exists(command)) {
+            return { command, source: `env.json (${envFile})` };
+        }
+    }
+
+    const homeRoot = env?.home ?? options.penguHome;
+    if (homeRoot) {
+        const join = platform === 'win32' ? path.win32.join : path.posix.join;
+        const exe = platform === 'win32' ? 'psc.exe' : 'psc';
+        const candidate = join(homeRoot, 'build', exe);
+        if (exists(candidate)) {
+            return { command: candidate, source: 'PENGU_HOME/build' };
+        }
     }
 
     const bare = 'psc';
     const onPath = findOnPath(
         bare,
-        options.pathValue ?? process.env.PATH ?? '',
+        pathValue,
         platform,
-        options.pathExt ?? process.env.PATHEXT ?? '.EXE;.CMD;.BAT',
+        pathExt,
         exists
     );
     if (onPath) {

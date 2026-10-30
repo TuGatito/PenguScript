@@ -4,7 +4,8 @@
   "scopeName": "source.pengus",
   "fileTypes": [
     "pengu",
-    "pengus"
+    "pengus",
+    "d.pengu"
   ],
   "patterns": [
     {
@@ -56,21 +57,6 @@
   "repository": {
     "comments": {
       "patterns": [
-        {
-          "name": "comment.block.documentation.pengus",
-          "begin": "^\\s*##\\s*$",
-          "end": "^\\s*##\\s*$",
-          "beginCaptures": {
-            "0": {
-              "name": "punctuation.definition.comment.begin.pengus"
-            }
-          },
-          "endCaptures": {
-            "0": {
-              "name": "punctuation.definition.comment.end.pengus"
-            }
-          }
-        },
         {
           "name": "comment.line.documentation.pengus",
           "match": "^\\s*##.*$",
@@ -288,7 +274,7 @@
           }
         },
         {
-          "match": "\\b(enchanting|bind)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s+with\\s+([A-Za-z_][A-Za-z0-9_]*))?",
+          "match": "\\b(enchanting|bind)\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\\s+with\\s+([A-Za-z_][A-Za-z0-9_]*))?",
           "captures": {
             "1": {
               "name": "keyword.declaration.type.pengus"
@@ -348,7 +334,7 @@
       "patterns": [
         {
           "name": "support.class.concept.pengus",
-          "match": "\\b(Num Integrum Real Par Ordo Vinculum Imago Nexus Forma Iterabilis Donum)\\b"
+          "match": "\\b(Num|Integrum|Real|Par|Ordo|Vinculum|Imago|Nexus|Forma|Iterabilis|Donum)\\b"
         }
       ]
     },
@@ -356,7 +342,7 @@
       "patterns": [
         {
           "name": "storage.type.primitive.pengus",
-          "match": "\\b(int i8 i16 i32 i64 u8 u16 u32 u64 usize isize byte char float f32 f64 double bool string void opaque any int8 int16 int32 int64 uint uint8 uint16 uint32 uint64 size_t intptr_t uintptr_t ptrdiff_t short ushort long ulong)\\b"
+          "match": "\\b(int|i8|i16|i32|i64|u8|u16|u32|u64|usize|isize|byte|char|float|f32|f64|double|bool|string|void|opaque|any|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|size_t|intptr_t|uintptr_t|ptrdiff_t|short|ushort|long|ulong)\\b"
         }
       ]
     },
@@ -364,7 +350,7 @@
       "patterns": [
         {
           "name": "keyword.other.pengus",
-          "match": "\\b(import include link ldflag insignia const var let set static weave antiquus declare enchanting rune echo omen alias seal concept bind shard where when test if unless else while for in from to step judge calling with into as is many return break continue defer errdefer banish some ord chr bytes essence sigil transmute size type try defined not and or lambda null true false maybe none error derive cyclus donum inline ritual frozen self)\\b"
+          "match": "\\b(import|include|link|ldflag|insignia|const|var|let|set|static|weave|antiquus|declare|enchanting|rune|echo|omen|alias|seal|concept|bind|shard|where|when|test|if|unless|else|while|for|in|from|to|step|judge|calling|with|into|as|is|many|return|break|continue|defer|errdefer|banish|some|ord|chr|bytes|essence|sigil|transmute|size|type|try|defined|not|and|or|lambda|null|true|false|maybe|none|error|derive|cyclus|donum|inline|ritual|frozen|self)\\b"
         }
       ]
     },

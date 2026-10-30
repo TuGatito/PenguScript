@@ -579,6 +579,15 @@ weave tag_decl with s as ref to state.SemaState, id as int, node as int into voi
     # Doc comments inmediatamente encima: `#`, `##` y bloques `## ... ##`.
     var lines as list of string is calling s->src->text.split with "\n"
     var li as int is ps.line - 2
+    # La convención de los bindings deja una línea en blanco entre la
+    # documentación `##` y la declaración; no debe romper el doc.
+    if li >= 0:
+        var gap as string is (lines at li)
+        var gapt as string is calling trim_text with gap
+        if gapt length == 0:
+            set li is li - 1
+        banish gapt
+        banish gap
     var docs as list of string is list of string
     while li >= 0:
         var line as string is (lines at li)
