@@ -125,6 +125,26 @@ weave last_token with ast as ref to psast.PsAst, node as int into int:
         set i is i - 1
     return -1
 
+## Recorre el AST de una interpolación en busca de llamadas.
+##
+## ## Memoria
+## Recursión sobre el AST; no asigna salvo el conjunto.
+weave scan_interp_node with c as ref to context.CgContext, r as ref to CgReach, ast as ref to psast.PsAst, anns as ref to ann.SemaAnnotations, node as int into void:
+    if node < 0:
+        return
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdCallingExpr:
+        var sid as int is calling ann.symbol_of with anns, node
+        if sid >= 0:
+            calling mark_symbol with c, r, sid
+    var i as int is 0
+    var n as int is calling astutil.child_count with ast, node
+    while i < n:
+        var ch as int is calling astutil.node_child with ast, node, i
+        if ch >= 0:
+            calling scan_interp_node with c, r, ast, anns, ch
+        set i is i + 1
+
 ## Recorre un nodo buscando llamadas.
 ##
 ## ## Memoria
@@ -133,6 +153,13 @@ weave scan_node with c as ref to context.CgContext, r as ref to CgReach, m as lo
     if node < 0:
         return
     var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdStringLit:
+        # Las expresiones de interpolación no son hijos del AST principal; el
+        # sema las guarda en `m.interps`. Sin este recorrido, DCE poda las
+        # funciones llamadas solo desde `{calling f ...}`.
+        for it in m.interps:
+            if it.node == node:
+                calling scan_interp_node with c, r, (sigil of it.parse.ast), (sigil of it.annotations), it.parse.root
     if k == pskind.NodeKind.NdCallingExpr:
         var sid as int is calling ann.symbol_of with (sigil of m.annotations), node
         if sid >= 0:

@@ -4037,6 +4037,14 @@ weave find_interp with m as ref to loader.SemaModule, node as int, pstart as int
         if it.node == node and it.part_start == pstart and it.part_end == pend:
             return i
         set i is i + 1
+    # Los offsets del `StringInfo` son únicos dentro del módulo; el sema puede
+    # haber guardado el nodo padre (p. ej. un `pos_arg`) en vez del `string_lit`.
+    set i is 0
+    while i < m->interps.len:
+        var it2 as loader.SemaInterp is (m->interps at i)
+        if it2.part_start == pstart and it2.part_end == pend:
+            return i
+        set i is i + 1
     return -1
 
 ## Añade un texto literal al formato, escapando C y `%`.
@@ -4075,7 +4083,7 @@ weave interp_expr with c as ref to context.CgContext, node as int, content as st
         defer banish esc0
         return "pengu_string_from_cstr(\"{esc0}\")"
     var si as psstate.StringInfo is (m.lex.strings at si_idx)
-    var mp as ref to loader.SemaModule is (sigil of (c->program->modules at c->current_module))
+    var midx as int is c->current_module
     var pi as int is 0
     var nargs as int is 0
     while pi < si.part_count:
@@ -4093,20 +4101,16 @@ weave interp_expr with c as ref to context.CgContext, node as int, content as st
                 calling args.append with "pengu_string_from_cstr(\"\")"
             else:
                 var it as loader.SemaInterp is (m.interps at ii)
-                var old_source as psource.SourceFile is mp->source
-                var old_lex as psstate.LexResult is mp->lex
-                var old_ast as psast.PsAst is mp->parse.ast
-                var old_ann as ann.SemaAnnotations is mp->annotations
-                set mp->source is it.parse.source
-                set mp->lex is it.parse.lex
-                set mp->parse.ast is it.parse.ast
-                set mp->annotations is it.annotations
+                var saved as loader.SemaModule is (c->program->modules at midx)
+                var tmpmod as loader.SemaModule is saved
+                set tmpmod.source is it.parse.source
+                set tmpmod.lex is it.parse.lex
+                set tmpmod.parse.ast is it.parse.ast
+                set tmpmod.annotations is it.annotations
+                set c->program->modules at midx is tmpmod
                 var expr_c as string is calling emit_expr with c, it.parse.root
                 var ty as int is calling node_type with c, it.parse.root
-                set mp->source is old_source
-                set mp->lex is old_lex
-                set mp->parse.ast is old_ast
-                set mp->annotations is old_ann
+                set c->program->modules at midx is saved
                 if expr_c == "":
                     calling fmt.append with "%s"
                     calling args.append with "pengu_string_from_cstr(\"\")"
