@@ -97,6 +97,11 @@ weave c_type with ns as ref to names.CgNames, id as int into string:
     if id <= 0:
         return "void*"
     var t as tk.SemaType is calling types.at with ns->types, id
+    var tn0 as string is calling names.type_name with ns, id
+    if tn0 == "va_list":
+        banish tn0
+        return "va_list"
+    banish tn0
     if t.kind == tk.SemaTypeKind.TkVoid:
         return "void"
     if t.kind == tk.SemaTypeKind.TkOpaque:
@@ -235,6 +240,8 @@ weave base_c_type with ns as ref to names.CgNames, nid as int into string:
         return "double"
     if n == "bool":
         return "bool"
+    if n == "va_list":
+        return "va_list"
     if n == "string":
         return "PenguString"
     if n == "void":

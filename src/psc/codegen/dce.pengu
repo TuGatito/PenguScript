@@ -80,6 +80,9 @@ weave module_is_std with m as loader.SemaModule into bool:
 weave mark_symbol with c as ref to context.CgContext, r as ref to CgReach, sid as int into void:
     if sid < 0 or calling r->seen.has with sid:
         return
+    var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), sid
+    if (sv.flags & sym.SYM_GET_ALIAS) != 0 and sv.alias_of >= 0:
+        calling mark_symbol with c, r, sv.alias_of
     calling r->seen.put with sid, sid
     if not (calling c->catalog.by_symbol.has with sid):
         return
@@ -88,6 +91,13 @@ weave mark_symbol with c as ref to context.CgContext, r as ref to CgReach, sid a
         return
     set r->live at (idx) is true
     var f as catalog.CgFunction is (c->catalog.functions at idx)
+    if f.is_generic:
+        var sfi as int is 0
+        while sfi < c->catalog.functions.len:
+            var sf as catalog.CgFunction is (c->catalog.functions at sfi)
+            if sf.is_spec and sf.symbol == f.symbol and not (r->live at sfi):
+                set r->live at (sfi) is true
+            set sfi is sfi + 1
     if f.is_declare:
         return
     var m as loader.SemaModule is (c->program->modules at f.module)

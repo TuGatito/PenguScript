@@ -57,6 +57,9 @@ codegen.api.generate_c
   `--prune-types`, includes sólo de módulos vivos y matriz gcc/clang;
   `--prune-native` es no-op porque F4 no enlaza binarios (F5 sí).
 - **P4:** constantes de módulo y su emisión C.
+- **P4.1 (0.17.2):** `@mutates` con asignación y `get_*` puro, `transmute`,
+  `for … from … to … [step]`, `judge` expresión con tipo esperado, `append`,
+  `.length`, resolución de imports/homónimos y dispatch por receptor.
 - **Conformidad:** **66/66** fixtures con las librerías nativas.
 - **Calidad:** 17 casos de aceptación F4, ASan/UBSan, golden C normalizado y
   benchmark de emisión.

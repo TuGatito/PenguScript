@@ -346,8 +346,16 @@ weave list_of_char_from_ptr with data as ref to void , count as int into list of
     return calling list_from_ptr of char with data , count
 
 ## Copies `count` PenguString elements starting at `data` into a new list of string.
-weave list_of_string_from_ptr with data as ref to void , count as int into list of string:
-    return calling list_from_ptr of string with data , count
+antiquus list_of_string_from_ptr with data as ref to void , count as int into list of string:
+    r"""
+PenguList out = pengu_list_new(sizeof(PenguString), count);
+char **items = (char **)data;
+for (int i = 0; i < count; i++) {
+    PenguString s = pengu_string_from_cstr(items[i] ? items[i] : "");
+    pengu_list_push(&out, &s);
+}
+return out;
+"""
 
 # ----------------------------------------------------------------------------
 # Map bridge (key/value entries -> map)

@@ -25,6 +25,7 @@ import psc.sema.types.convert as convert
 import psc.sema.types.canonical as canon
 import psc.sema.symbols.table as symbols
 import psc.sema.symbols.symbol as sym
+import psc.sema.modules.loader as loader
 import psc.sema.symbols.scope as scope
 import psc.sema.ast as astutil
 import psc.sema.state as state
@@ -108,6 +109,13 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
         set t is calling types.base with s->types, "int"
     else if kind == pskind.NodeKind.NdToExpr:
         set t is calling infer_to with s, node
+    else if kind == pskind.NodeKind.NdTransmute:
+        var tn as int is calling astutil.node_child with s->ast, node, 1
+        if tn >= 0:
+            var ctx as convert.TypeCtx is with types is s->types, symbols is s->symbols, names is s->names, bag is s->bag, src is s->src, lex is s->lex, ast is s->ast
+            set t is calling convert.convert with (sigil of ctx), tn
+        if t <= 0:
+            set t is calling infer with s, (calling astutil.node_child with s->ast, node, 0), expected
     else if kind == pskind.NodeKind.NdListInitExpr:
         set t is calling infer_list_init with s, node, expected
     else if kind == pskind.NodeKind.NdMapInitExpr:
@@ -517,6 +525,21 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
         if base_import >= 0:
             var mid0 as int is calling npool.intern with s->names, mname
             set sid is calling symbols.lookup_in_scope with s->symbols, base_import, mid0
+            if base_import >= 0:
+                # El scope del módulo no contiene todos los `weave` de un
+                # `.pengu`; resolver por módulo antes del fallback global
+                # (evita que `rayguix.label` caiga en `std.diagnostic.label`).
+                var mmi as int is 0
+                while mmi < s->program->modules.len and sid < 0:
+                    var mm as loader.SemaModule is (s->program->modules at mmi)
+                    if mm.scope == base_import:
+                        var msi as int is 0
+                        while msi < s->symbols->symbols.len and sid < 0:
+                            var msv as sym.SemaSymbol is (s->symbols->symbols at msi)
+                            if msv.module == mmi and msv.name == mid0 and (msv.kind == sym.SemaSymbolKind.SkWeave or msv.kind == sym.SemaSymbolKind.SkDeclare or msv.kind == sym.SemaSymbolKind.SkConst):
+                                set sid is msi
+                            set msi is msi + 1
+                    set mmi is mmi + 1
         if rcp >= 0 and sid < 0:
             var rty_pre as tk.SemaType is calling types.at with s->types, rcp
             if rty_pre.kind == tk.SemaTypeKind.TkMaybe or rty_pre.kind == tk.SemaTypeKind.TkResult:
@@ -679,7 +702,7 @@ weave builtin_method with s as ref to state.SemaState, recv as int, name as stri
     if kind == tk.SemaTypeKind.TkTypeParam:
         return calling types.base with s->types, "int"
     if kind == tk.SemaTypeKind.TkList:
-        if name == "push" or name == "clear" or name == "insert":
+        if name == "push" or name == "append" or name == "clear" or name == "insert":
             return 3
         if name == "pop" or name == "at" or name == "last" or name == "first":
             return rt.a

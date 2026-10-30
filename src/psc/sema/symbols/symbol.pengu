@@ -60,6 +60,8 @@ const SYM_MUTATING as int is 1 << 8
 const SYM_HAS_DOC as int is 1 << 9
 const SYM_NO_RETURN as int is 1 << 10
 const SYM_EXPORT as int is 1 << 11
+## Alias puro `get_<metodo>` generado por `@mutates`.
+const SYM_GET_ALIAS as int is 1 << 12
 
 ## Clase de valor constante.
 omen SemaConstKind:
@@ -103,6 +105,8 @@ rune SemaSymbol:
     flags as int
     ## `NameId` del nombre C efectivo.
     c_name as int
+    ## Símbolo del método mutante del que este es alias (`-1` si no).
+    alias_of as int
     ## Módulo que lo declara (`-1` para builtins).
     module as int
     ## Línea 1-indexed.

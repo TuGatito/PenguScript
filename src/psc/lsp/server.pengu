@@ -385,7 +385,7 @@ weave initialize_result into JsonValue:
     calling out.put_json with "capabilities", cap
     var info as JsonValue is calling JsonValue.empty_object
     calling info.put_json with "name", (calling JsonValue.string_val with (calling copy with "psc"))
-    calling info.put_json with "version", (calling JsonValue.string_val with (calling copy with "0.17.1"))
+    calling info.put_json with "version", (calling JsonValue.string_val with (calling copy with "0.17.2"))
     calling out.put_json with "serverInfo", info
     return out
 

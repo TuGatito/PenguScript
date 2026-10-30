@@ -177,6 +177,42 @@ weave scan with c as ref to context.CgContext, m as loader.SemaModule, node as i
                         set qfi is qfi + 1
                     banish qexp
                     banish qbt
+                # Alias puro `get_*` de un método `@mutates` genérico: la
+                # llamada no pasa por `by_name`, así que especializamos aquí
+                # antes de emitir prototipos.
+                var asid0 as int is calling ann.symbol_of with (sigil of m.annotations), node
+                if asid0 >= 0:
+                    var asv0 as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), asid0
+                    if (asv0.flags & sym.SYM_GET_ALIAS) != 0 and asv0.alias_of >= 0 and (calling c->catalog.by_symbol.has with asv0.alias_of):
+                        var abi as int is calling c->catalog.by_symbol.get with asv0.alias_of
+                        var abf as catalog.CgFunction is (c->catalog.functions at abi)
+                        if abf.is_generic and abf.tparams.len > 0:
+                            var rtg as int is -1
+                            var tgn as int is calling astutil.node_child with ast, node, 0
+                            if tgn >= 0:
+                                var rgn as int is tgn
+                                if (calling astutil.kind_of with ast, tgn) == pskind.NodeKind.NdNormalTarget:
+                                    set rgn is calling astutil.node_child with ast, tgn, 0
+                                if rgn >= 0:
+                                    set rtg is calling ann.type_of with (sigil of m.annotations), rgn
+                            if rtg > 0:
+                                var gty0 as tk.SemaType is calling types.at with (sigil of c->program->types), rtg
+                                var gguard as int is 0
+                                while gguard < 16 and (gty0.kind == tk.SemaTypeKind.TkRef or gty0.kind == tk.SemaTypeKind.TkFrozen or gty0.kind == tk.SemaTypeKind.TkAlias or gty0.kind == tk.SemaTypeKind.TkSeal):
+                                    if gty0.kind == tk.SemaTypeKind.TkAlias or gty0.kind == tk.SemaTypeKind.TkSeal:
+                                        if gty0.b <= 0:
+                                            break
+                                        set rtg is gty0.b
+                                    else:
+                                        if gty0.a <= 0:
+                                            break
+                                        set rtg is gty0.a
+                                    set gty0 is calling types.at with (sigil of c->program->types), rtg
+                                    set gguard is gguard + 1
+                                var gargs0 as list of int is list of int
+                                calling gargs0.push with rtg
+                                var gspec0 as int is calling add_spec with c, abi, gargs0
+                                banish gargs0
                 banish nid
                 if calling c->catalog.by_name.has with nid:
                     var bi as int is calling c->catalog.by_name.get with nid

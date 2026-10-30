@@ -91,7 +91,9 @@ psc build [TARGET] [opciones]
 Aunque el manifiesto sea una librería (`output = "c"`/`"static"`), `run` fuerza
 un ejecutable. Un archivo `.pengu` dentro de un proyecto conserva el `c/` glue C
 del manifiesto (por ejemplo `raygui_impl.c`).
-Con `--target wasm` ejecuta `node app.js`; sin Node imprime la ruta del HTML y
+Con `--target wasm` ejecuta `node app.js`; si Node no puede crear el canvas
+(raylib web) o se pasa `--browser`, sirve el HTML por HTTP y lo ejecuta en
+Chromium/Chrome headless. Sin Node ni navegador imprime la ruta del HTML y
 devuelve 2.
 `psc expand` emite el bundle C sin invocar `cc`.
 `psc check` de proyecto valida checker + codegen sin escribir bundle.

@@ -488,6 +488,17 @@ weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m 
     banish full
     var is_main as bool is false
     var is_self_value as bool is (sv.flags & sym.SYM_SELF_VALUE) != 0
+    # Los métodos de primitivos (`f32.sin`, `int.clamp`) reciben `self` por
+    # valor; `string` es la excepción (PenguString*).
+    var srt as tk.SemaType is calling types.at with (sigil of p->types), recv
+    var sguard as int is 0
+    while sguard < 16 and (srt.kind == tk.SemaTypeKind.TkAlias or srt.kind == tk.SemaTypeKind.TkSeal):
+        set srt is calling types.at with (sigil of p->types), srt.b
+        set sguard is sguard + 1
+    if srt.kind == tk.SemaTypeKind.TkBase:
+        var sname as string is calling npool.text with (sigil of p->names), srt.name
+        if sname != "string":
+            set is_self_value is true
     var is_rit as bool is false
     var ai as int is 0
     var an as int is calling astutil.child_count with ast, node

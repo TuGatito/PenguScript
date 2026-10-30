@@ -136,6 +136,10 @@ weave can_cast with t as ref to types.SemaTypeTable, a as int, b as int into boo
         return calling can_cast with t, ta.b, b
     if tb.kind == tk.SemaTypeKind.TkSeal:
         return calling can_cast with t, a, tb.b
+    if ta.kind == tk.SemaTypeKind.TkFrozen:
+        return calling can_cast with t, ta.a, b
+    if tb.kind == tk.SemaTypeKind.TkFrozen:
+        return calling can_cast with t, a, tb.b
     if ta.kind == tk.SemaTypeKind.TkBase and tb.kind == tk.SemaTypeKind.TkBase:
         if (calling is_numeric with t, a) and (calling is_numeric with t, b):
             return true

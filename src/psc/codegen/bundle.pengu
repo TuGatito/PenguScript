@@ -47,9 +47,9 @@ weave is_libc_name with c as ref to context.CgContext, f as catalog.CgFunction i
         return true
     if n == "strlen" or n == "strcmp" or n == "strncmp" or n == "strcpy" or n == "strncpy":
         return true
-    if n == "snprintf" or n == "printf" or n == "fprintf" or n == "puts" or n == "fputs":
+    if n == "snprintf" or n == "printf" or n == "fprintf" or n == "vprintf" or n == "puts" or n == "fputs":
         return true
-    if n == "time" or n == "clock" or n == "getenv" or n == "abort" or n == "exit":
+    if n == "time" or n == "clock" or n == "localtime" or n == "asctime" or n == "strftime" or n == "getenv" or n == "abort" or n == "exit":
         return true
     if n == "fopen" or n == "fclose" or n == "fread" or n == "fwrite" or n == "fflush":
         return true

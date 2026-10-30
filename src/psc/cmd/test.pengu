@@ -151,7 +151,7 @@ weave run_test with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 1
     var art as string is r.artifact
-    var code as int is calling runner.run with o.platform, art, list of string
+    var code as int is calling runner.run with o.platform, art, list of string, false
     if code != 0 and code != 2:
         set code is 1
     calling driver.free_result with (sigil of r)

@@ -85,6 +85,7 @@ weave print_run_help into void:
     calling spark.println with "  --profile=debug|release"
     calling spark.println with "  --cc=NAME"
     calling spark.println with "  --verbose"
+    calling spark.println with "  --browser             run wasm in headless Chromium instead of Node"
     calling spark.println with "  --help"
 
 ## Ayuda de `expand`.
@@ -322,6 +323,7 @@ weave run_run with args as list of string into int:
     var no_cache as bool is false
     var clear_cache as bool is false
     var ephemeral as bool is false
+    var browser as bool is false
     var tval as string is ""
     var i as int is 2
     while i < args.len:
@@ -342,6 +344,8 @@ weave run_run with args as list of string into int:
             set clear_cache is true
         else if a == "--ephemeral":
             set ephemeral is true
+        else if a == "--browser":
+            set browser is true
         else if a == "--help" or a == "-h":
             calling print_run_help
             calling driver.free_options with (sigil of o)
@@ -423,7 +427,7 @@ weave run_run with args as list of string into int:
             var ck as string is calling cache.key with parts
             var hit as string is calling cache.get with ck
             if hit length > 0:
-                var hcode as int is calling runner.run with o.platform, hit, child
+                var hcode as int is calling runner.run with o.platform, hit, child, browser
                 banish hit
                 banish ck
                 banish parts
@@ -473,7 +477,7 @@ weave run_run with args as list of string into int:
             banish ck2
             banish parts2
         banish txt2
-    var code as int is calling runner.run with o.platform, art, child
+    var code as int is calling runner.run with o.platform, art, child, browser
     calling driver.free_result with (sigil of r)
     calling driver.free_options with (sigil of o)
     var ci2 as int is 0

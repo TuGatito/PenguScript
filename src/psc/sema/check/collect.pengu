@@ -1366,7 +1366,7 @@ weave concept_method_exists with s as ref to state.SemaState, name as int into b
 ##
 ## ## Memoria
 ## O(1); no asigna el nombre si ya existe.
-weave define_get_alias with s as ref to state.SemaState, recv as int, mname as int, ft as int, br as ParamRange into void:
+weave define_get_alias with s as ref to state.SemaState, recv as int, mname as int, ft as int, br as ParamRange, base_sid as int into void:
     var mtext as string is calling npool.text with s->names, mname
     if calling starts_with_text with mtext, "get_":
         return
@@ -1375,6 +1375,10 @@ weave define_get_alias with s as ref to state.SemaState, recv as int, mname as i
     var gid as int is calling npool.intern with s->names, gtext
     if (calling symbols.lookup_method_exact with s->symbols, recv, gid) < 0:
         var gsid as int is calling symbols.symbol_define_method with s->symbols, recv, gid, ft
+        var gsym as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, gsid
+        set gsym.flags is gsym.flags | sym.SYM_GET_ALIAS
+        set gsym.alias_of is base_sid
+        calling symbols.symbol_set with s->symbols, gsid, gsym
         calling apply_bounds with s, gsid, br
 
 ## `enchanting`.
@@ -1410,7 +1414,7 @@ weave collect_enchanting with s as ref to state.SemaState, node as int into void
             calling mark_mutating with s, m, msid
             calling apply_bounds with s, msid, br
             calling tag_decl with s, msid, m
-            calling define_get_alias with s, recv_under, mname, ft, br
+            calling define_get_alias with s, recv_under, mname, ft, br, msid
         set i is i + 1
 
 ## `bind Tipo with Concepto:`: registra las implementaciones de método.
@@ -1444,7 +1448,7 @@ weave collect_bind with s as ref to state.SemaState, node as int into void:
             calling mark_mutating with s, m, bsid2
             calling tag_decl with s, bsid2, m
             var empty_br as ParamRange is with first is 0, count is 0
-            calling define_get_alias with s, recv_under, mname, ft, empty_br
+            calling define_get_alias with s, recv_under, mname, ft, empty_br, bsid2
         set i is i + 1
 
 ## `test "nombre":`.

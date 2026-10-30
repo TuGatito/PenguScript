@@ -2,6 +2,42 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.17.2] — 2026-10-30 — Codegen completo para raylib-pengu
+
+Los 226 ejemplos de `raylib-pengu` compilan (`build` y `build --exe`) y se
+ejecutan (`run`), incluido el ejemplo WebAssembly en Chromium headless.
+
+### Añadido
+
+- **`@mutates` completo**: la forma mutante asigna el resultado
+  (`x = Tipo_metodo(...)`) y la forma pura `get_*` se expande en el call-site
+  con una copia del receptor; DCE marca también el método base.
+- **`transmute`**: emite un cast C real al tipo destino en vez de caer a `0`.
+- **Bucles `for … from … to … [step …]`**: codegen de rango con paso,
+  comparación ascendente/descendente y variable local.
+- **`judge` como expresión**: propaga el tipo esperado, soporta `with`,
+  patrones numéricos y variantes de omens de `.d.pengu`.
+- **`append`** como alias de `push`; `.length` de listas/strings emite `.len`.
+- **Resolución por módulo**: funciones y constantes de imports transitivos
+  (`colors.BLUE`, `raymathx.PI`, `rayguix.label`) ya no caen en homónimos
+  globales.
+- **Dispatch de métodos por receptor**: `Texture2D.draw`/`draw_pro` ya no se
+  confunden con `Rectangle`.
+- **`va_list`** como tipo C real y supresión de prototipos libc
+  (`vprintf`, `localtime`, …).
+- **`psc run --target wasm --browser`** y fallback automático a Chromium
+  headless cuando Node no puede crear el canvas de raylib.
+
+### Corregido
+
+- Constantes locales de los ejemplos (`const` → `let`), `entry` → `main`,
+  `MaterialMapIndex` y variantes de omens en los ejemplos.
+- `std.ffi.list_of_string_from_ptr` copia `char**` como `PenguString`.
+- `text_join` usa un `StringBuilder` en vez de `TextJoin` con un array de
+  punteros.
+- Buffers de audio (`AudioStream.update`) y punteros de shaders.
+- `can_cast` acepta `frozen` y los casts a/desde tipos congelados.
+
 ## [0.17.1] — 2026-10-30 — Toolchain in-tree y entorno automático
 
 Todo el compilador, runtime, std, cabeceras y helpers viven ahora en

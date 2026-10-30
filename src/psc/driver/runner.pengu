@@ -7,6 +7,7 @@
 ## Construye argv owned y libera todo antes de volver.
 
 import std.archivum
+import std.chronicle
 import std.compass
 import std.rites
 import std.spark
@@ -77,13 +78,106 @@ weave js_path with artifact as string into string:
         return out2
     return "{artifact}.js"
 
+## Busca un navegador Chromium/Chrome para wasm headless.
+##
+## ## Memoria
+## Devuelve un string owned o `maybe none`.
+weave chromium_path into maybe string:
+    var names as list of string is list of string
+    calling names.push with "chromium"
+    calling names.push with "chromium-browser"
+    calling names.push with "google-chrome"
+    calling names.push with "google-chrome-stable"
+    var i as int is 0
+    while i < names.len:
+        var hit as maybe string is calling rites.which with (names at i)
+        if hit.is_present:
+            var out as string is hit.value
+            banish names
+            return some out
+        banish hit
+        set i is i + 1
+    banish names
+    return maybe none
+
+## Ejecuta un HTML wasm en Chromium headless con un servidor HTTP local.
+##
+## ## Memoria
+## Libera temporales; el servidor se termina al acabar.
+weave run_browser with artifact as string into int:
+    var py as maybe string is calling rites.which with "python3"
+    if not py.is_present:
+        calling spark.eprintln with "psc: python3 not found; cannot serve the wasm page"
+        banish py
+        return 2
+    var chrome as maybe string is calling chromium_path
+    if not chrome.is_present:
+        calling spark.eprintln with "psc: Chromium/Chrome not found; build with --target wasm and open the HTML manually"
+        banish py
+        banish chrome
+        return 2
+    var dir as string is calling compass.cp_dirname with artifact
+    if dir length == 0:
+        banish dir
+        set dir is calling copy with "."
+    var base as string is calling compass.cp_basename with artifact
+    var port as int is 18765
+    var sargs as list of string is list of string
+    calling sargs.push with py.value
+    calling sargs.push with "-m"
+    calling sargs.push with "http.server"
+    calling sargs.push with "{port}"
+    calling sargs.push with "--bind"
+    calling sargs.push with "127.0.0.1"
+    calling sargs.push with "--directory"
+    calling sargs.push with (calling copy with dir)
+    var pid as int is calling proc.spawn_argv with sargs
+    banish py
+    banish sargs
+    if pid <= 0:
+        calling spark.eprintln with "psc: could not start the wasm HTTP server"
+        banish dir
+        banish base
+        banish chrome
+        return 2
+    calling chronicle.sleep_ms with 600
+    var url as string is "http://127.0.0.1:{port}/{base}"
+    var shot as string is "{dir}/psc-wasm.png"
+    var cargs as list of string is list of string
+    calling cargs.push with chrome.value
+    calling cargs.push with "--headless=new"
+    calling cargs.push with "--no-sandbox"
+    calling cargs.push with "--disable-gpu"
+    calling cargs.push with "--disable-dev-shm-usage"
+    calling cargs.push with "--enable-unsafe-swiftshader"
+    calling cargs.push with "--hide-scrollbars"
+    calling cargs.push with "--virtual-time-budget=6000"
+    calling cargs.push with "--screenshot={shot}"
+    calling cargs.push with url
+    var code as int is calling proc.run_argv_quiet with cargs
+    banish cargs
+    var alive as bool is calling proc.pid_alive with pid
+    if alive:
+        var ignored as bool is calling proc.terminate with pid
+        var ignored2 as int is calling proc.wait_pid with pid
+    banish url
+    banish shot
+    banish dir
+    banish base
+    banish chrome
+    return calling normalize with code
+
 ## Ejecuta `artifact` con los argumentos del programa.
 ##
 ## ## Memoria
 ## Libera argv y temporales.
-weave run with t as target.Target, artifact as string, argv as list of string into int:
+weave run with t as target.Target, artifact as string, argv as list of string, browser as bool into int:
     var args as list of string is list of string
     if t.is_wasm:
+        if browser:
+            var bcode as int is calling run_browser with artifact
+            banish args
+            return bcode
         var js as string is calling js_path with artifact
         defer banish js
         if not calling archivum.is_file with js:
@@ -108,4 +202,12 @@ weave run with t as target.Target, artifact as string, argv as list of string in
         calling args.push with (calling copy with a)
     var raw as int is calling proc.run_argv with args
     banish args
-    return calling normalize with raw
+    var code as int is calling normalize with raw
+    # raylib web necesita DOM/WebGL: si Node falla, intenta el navegador.
+    if t.is_wasm and code != 0 and not browser:
+        var chrome as maybe string is calling chromium_path
+        if chrome.is_present:
+            banish chrome
+            return calling run_browser with artifact
+        banish chrome
+    return code

@@ -184,6 +184,8 @@ weave convert_custom with ctx as ref to TypeCtx, node as int into int:
             defer banish last
             if last != name:
                 set t is calling symbols.lookup_type_name with ctx->symbols, last
+    if t < 0 and name == "va_list":
+        return calling types.base with ctx->types, "va_list"
     if t < 0 and calling looks_like_type_param with name:
         var pid as int is calling npool.intern with ctx->names, name
         var pinfo as types.SemaTypeParamInfo is with name is pid, bounds_first is 0, bounds_count is 0, flags is 0
