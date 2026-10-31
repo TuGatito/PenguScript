@@ -124,21 +124,16 @@ Además:
 
 ## 5. Bootstrap
 
-El `bootstrap/psc_stage0_*.c` committed se generó con un `psc` anterior a estos
-arreglos y **no puede compilar correctamente el nuevo codegen**: omite
-asignaciones compuestas, `simple_stmt`, `or:` y otras ramas. Por eso el árbol
-se compila con `build/psc` 0.17.2, pero el binario resultante no es un
-bootstrap fiable y no debe regenerar stage0.
-
-Para publicar 0.17.3 hace falta un `psc` de arranque que ya incluya estos
-cambios (por ejemplo, un binario de release corregido o un stage0 generado por
-él) y entonces:
+El `bootstrap/psc_stage0_*.c` se regeneró con `psc 0.17.3` y se validó:
 
 ```bash
-./tools/build.sh
-./tools/gen_stage0.sh
-./tools/gen_stage0.sh --check
+PSC=build/psc-dev4 ./tools/gen_stage0.sh
+./tools/build_bootstrap.sh
+./build/psc-stage0 build src/main.pengu --out=build/psc-from-stage0
 ```
+
+`psc-stage0` y `psc-from-stage0` son 0.17.3, compilan los 226 ejemplos y se
+autohospedan. La cadena de arranque queda cerrada.
 
 ## 6. Limitaciones conocidas
 
@@ -148,12 +143,10 @@ cambios (por ejemplo, un binario de release corregido o un stage0 generado por
 - La interpolación de una expresión de tipo `string` que no es un identificador
   evalúa la expresión dos veces (`.len` y `.data`). Es correcta si la expresión
   es pura; conviene introducir un temporal en una revisión posterior.
-- La interpolación de una expresión de tipo `string` que no es un identificador
-  evalúa la expresión dos veces (`.len` y `.data`). Es correcta si la expresión
-  es pura; conviene introducir un temporal en una revisión posterior.
 - La interpolación de varios segmentos dentro de bloques anidados de `std` puede
-  no encontrar su AST guardado. `std.compass.cp_join` se reescribió con
-  `StringBuilder`; el resto de `std` debe auditarse con el mismo criterio.
+  no encontrar su AST guardado; hay fallback para identificadores y caminos
+  `a.b`/`self->x`, y `std.compass.cp_join` se reescribió con `StringBuilder`.
+  Las expresiones complejas que no encuentran AST siguen emitiendo vacío.
 - `when` como expresión y `judge … over` no tienen codegen dedicado; el código
   actual de `std` no los usa en rutas críticas.
 - `unsafe:` desactiva bounds checks, no los checks de overflow aritmético

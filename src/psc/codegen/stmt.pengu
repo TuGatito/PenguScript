@@ -639,7 +639,7 @@ weave emit_if_binding with c as ref to context.CgContext, node as int, cond_node
     if els >= 0:
         var eb as int is calling astutil.node_child with ast, els, 0
         if eb >= 0 and (calling astutil.kind_of with ast, eb) == pskind.NodeKind.NdIfStmt:
-            calling emit.line with (sigil of c->emitter), "} else "
+            calling emit.line with (sigil of c->emitter), "} else"
             calling emit_if with c, eb, ast, false
             calling emit.indent_less with (sigil of c->emitter)
             calling emit.line with (sigil of c->emitter), "}"
@@ -704,7 +704,7 @@ weave emit_if with c as ref to context.CgContext, node as int, ast as ref to psa
     if els >= 0:
         var eb as int is calling astutil.node_child with ast, els, 0
         if eb >= 0 and (calling astutil.kind_of with ast, eb) == pskind.NodeKind.NdIfStmt:
-            calling emit.line with (sigil of c->emitter), "} else "
+            calling emit.line with (sigil of c->emitter), "} else"
             calling emit_if with c, eb, ast, false
             return
         if eb >= 0:

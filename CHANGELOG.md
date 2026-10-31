@@ -30,6 +30,17 @@ otros que rompían la semántica de `std.*` y de los ejemplos de `raylib-pengu`.
   simples; ahora reutiliza el AST y las anotaciones que el sema ya produce para
   cada segmento (`ps_parse_interpolation_expr`) y emite expresiones
   arbitrarias: llamadas, `at`, aritmética, `to string`, etc.
+  arbitrarias: llamadas, `at`, aritmética, `to string`, etc.
+- **DCE de interpolaciones.** La poda de código muerto recorre los AST de
+  interpolación guardados por el sema; una función llamada solo desde
+  `{calling f …}` ya no se elimina. Es lo que mantenía roto el `main` del
+  propio compilador.
+- **Texto de interpolación sin doble escape.** Los segmentos de texto se
+  decodifican una vez y el formato completo se escapa una sola vez; `#line`,
+  consts y firmas dejan de emitir `\"` y el compilador puede autocontenerse.
+- **Interpolación de campos y `self`.** Fallback para `{a.b}` y para `self`
+  cuando es un parámetro libre; `resolve_target` prefiere el tipo local de
+  `self` antes que `self_type`.
 - **Comprehensiones `for x in col [when cond] then expr`.** Se emiten como
   `PenguList` con bucle para listas, arrays, slices, rangos, mapas y strings.
 - **`in` / `not in`.** Listas, mapas, strings, rangos y arrays/slices.
@@ -45,8 +56,6 @@ otros que rompían la semántica de `std.*` y de los ejemplos de `raylib-pengu`.
   tipo de valor en vez de desreferenciar `NULL`.
 - **`ffi` const-correctness.** `cstr_from_string`/`string_from_cstr`/`cstr_free`
   usan `ref to frozen char`, eliminando el warning `-Wdiscarded-qualifiers`.
-- **`ffi` const-correctness.** `cstr_from_string`/`string_from_cstr`/`cstr_free`
-  usan `ref to frozen char`, eliminando el warning `-Wdiscarded-qualifiers`.
 - **`std.compass.cp_join`** usa `StringBuilder` en vez de concatenar con dos
   interpolaciones en un bucle. Evita el camino que dejaba argumentos vacíos en
   el bootstrap y pasa de O(n²) a O(n).
@@ -59,21 +68,19 @@ otros que rompían la semántica de `std.*` y de los ejemplos de `raylib-pengu`.
 - El sema conserva el AST y las anotaciones de cada interpolación en
   `SemaModule.interps`, de modo que el codegen no re-parsea ni re-infiere.
 
-### Notas de bootstrap
+### Bootstrap
 
-El `bootstrap/psc_stage0_*.c` committed se generó con un `psc` anterior a estos
-arreglos; ese binario **no** puede compilar correctamente el nuevo codegen
-(omite asignaciones compuestas y otras ramas). Para publicar 0.17.3 hay que
-regenerar stage0 con un compilador que ya incluya estos cambios:
+`bootstrap/psc_stage0_*.c` se regeneró con el compilador 0.17.3 corregido y se
+validó la cadena completa:
 
 ```bash
-./tools/build.sh                 # requiere un psc de arranque correcto
-./tools/gen_stage0.sh            # regenera bootstrap/psc_stage0_*.c
-./tools/gen_stage0.sh --check    # valida que está al día
+PSC=build/psc-dev4 ./tools/gen_stage0.sh
+./tools/build_bootstrap.sh          # psc-stage0 0.17.3
+./build/psc-stage0 build src/main.pengu --out=build/psc-from-stage0
 ```
 
-Mientras no se regenere stage0, el árbol compila con `build/psc` (0.17.2) pero
-el binario resultante no es un bootstrap fiable.
+`psc-stage0` y `psc-from-stage0` compilan el árbol, los 226 ejemplos y se
+autohospedan. No queda ningún paso manual pendiente.
 
 ## [0.17.2] — 2026-10-30 — Codegen completo para raylib-pengu
 

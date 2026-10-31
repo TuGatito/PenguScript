@@ -2101,6 +2101,10 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             set method_name is lns
     var tgt as CgTarget is calling resolve_target with c, tgt_node, ast, true
     defer banish tgt.text
+    if tgt.type_id < 0 and tgt_node >= 0:
+        var gty as int is calling guess_type with c, tgt_node, ast
+        if gty > 0:
+            set tgt.type_id is gty
     if tgt.type_id >= 0:
         var tt as tk.SemaType is calling types.at with (sigil of c->program->types), tgt.type_id
         var tct0 as string is calling ctype.c_type with (sigil of c->names), tgt.type_id
@@ -2783,8 +2787,10 @@ weave at_access_target with c as ref to context.CgContext, ch as int, base as st
     var it0 as tk.SemaType is calling types.at with (sigil of c->program->types), ty
     var is_ref as bool is it0.kind == tk.SemaTypeKind.TkRef
     var actual as tk.SemaType is it0
+    var actual_id as int is ty
     if is_ref and it0.a > 0:
-        set actual is calling types.at with (sigil of c->program->types), it0.a
+        set actual_id is it0.a
+        set actual is calling types.at with (sigil of c->program->types), actual_id
     var cix as string is calling checked_index with c, ixt, base, ty, ch, is_ref
     defer banish cix
     var amp as string is "&"
@@ -2796,7 +2802,7 @@ weave at_access_target with c as ref to context.CgContext, ch as int, base as st
         return with text is "(*( {el}*)pengu_list_at({amp}({base}), (int)({cix})))", type_id is actual.a
     if actual.kind == tk.SemaTypeKind.TkArray or actual.kind == tk.SemaTypeKind.TkSlice or actual.kind == tk.SemaTypeKind.TkRef:
         return with text is "{base}[{cix}]", type_id is actual.a
-    return with text is "{base}[{cix}]", type_id is -1
+    return with text is "{base}[{cix}]", type_id is actual_id
 
 ## Resuelve un target relativo al `with target:` más interno.
 ##
@@ -2874,7 +2880,14 @@ weave resolve_target with c as ref to context.CgContext, target as int, ast as r
     var base as string is ""
     if txt == "self":
         set base is "self"
-        set ty is c->self_type
+        # En una función libre con parámetro `self`, el tipo está en los
+        # locales; `c->self_type` solo existe para métodos con receptor.
+        var snid as int is calling npool.intern with (sigil of c->program->names), "self"
+        var sty as int is calling context.local_type with c, snid
+        if sty > 0:
+            set ty is sty
+        else:
+            set ty is c->self_type
     else:
         var nid as int is calling npool.intern with (sigil of c->program->names), txt
         set ty is calling context.local_type with c, nid
@@ -4054,20 +4067,94 @@ weave find_interp with m as ref to loader.SemaModule, node as int, pstart as int
 ## ## Memoria
 ## Strings owned.
 weave append_format_text with fmt as ref to StringBuilder, text as string into void:
-    var esc as string is calling emit.escape_c with text
-    defer banish esc
-    var b as ref to frozen byte is bytes of esc
+    # El texto se añade sin escapar: `interp_expr` escapa el formato completo
+    # una sola vez al construir el literal C. Escapar aquí también convertía
+    # `"` en `\\"` y rompía `#line`, consts y firmas del autocontenido.
+    var b as ref to frozen byte is bytes of text
     var i as int is 0
-    var n as int is esc length
+    var n as int is text length
     while i < n:
         var code as int is ((b at i) to int)
         if code == 37:
             calling fmt.append with "%%"
         else:
-            var one as string is esc at i to (i + 1)
+            var one as string is text at i to (i + 1)
             calling fmt.append with one
             banish one
         set i is i + 1
+
+## Resuelve un camino simple `a.b.c` / `self->x` para una interpolación cuyo
+## AST no quedó asociado al literal. Devuelve texto/type o text vacío.
+##
+## ## Memoria
+## Devuelve `text` owned; liberar con `banish`.
+weave interp_path_c with c as ref to context.CgContext, txt as string into CgTarget:
+    var n as int is txt length
+    var b as ref to frozen byte is bytes of txt
+    var i as int is 0
+    var base as string is ""
+    var ty as int is -1
+    # Primer identificador.
+    var st as int is i
+    while i < n:
+        var ch as int is ((b at i) to int)
+        var ok as bool is (ch >= 65 and ch <= 90) or (ch >= 97 and ch <= 122) or (ch >= 48 and ch <= 57) or ch == 95
+        if not ok:
+            break
+        set i is i + 1
+    if i == st:
+        return with text is (calling npool.copy_string with ""), type_id is -1
+    var first as string is txt at st to i
+    if first == "self":
+        var snid as int is calling npool.intern with (sigil of c->program->names), "self"
+        var sty as int is calling context.local_type with c, snid
+        if sty > 0:
+            set ty is sty
+        else:
+            set ty is c->self_type
+        set base is "self"
+    else:
+        var pid as int is calling npool.intern with (sigil of c->program->names), first
+        var lc as int is calling context.local_c_name with c, pid
+        if lc < 0:
+            banish first
+            return with text is (calling npool.copy_string with ""), type_id is -1
+        set ty is calling context.local_type with c, pid
+        set base is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), lc)
+    banish first
+    while i < n:
+        var sep as string is "."
+        if ((b at i) to int) == 46:
+            set i is i + 1
+        else if ((b at i) to int) == 45 and i + 1 < n and ((b at (i + 1)) to int) == 62:
+            set sep is "->"
+            set i is i + 2
+        else:
+            banish base
+            return with text is (calling npool.copy_string with ""), type_id is -1
+        var fs as int is i
+        while i < n:
+            var ch2 as int is ((b at i) to int)
+            var ok2 as bool is (ch2 >= 65 and ch2 <= 90) or (ch2 >= 97 and ch2 <= 122) or (ch2 >= 48 and ch2 <= 57) or ch2 == 95
+            if not ok2:
+                break
+            set i is i + 1
+        if i == fs:
+            banish base
+            return with text is (calling npool.copy_string with ""), type_id is -1
+        var fld as string is txt at fs to i
+        var fid as int is calling npool.intern with (sigil of c->program->names), fld
+        var fty as int is calling cg_field_type with c, ty, fid
+        if fty <= 0:
+            banish fld
+            banish base
+            return with text is (calling npool.copy_string with ""), type_id is -1
+        var nxt as string is "{base}{sep}{fld}"
+        banish base
+        banish fld
+        set base is nxt
+        set ty is fty
+    return with text is base, type_id is ty
 
 ## Emite una interpolación usando los AST/anotaciones que guardó el sema.
 ##
@@ -4091,7 +4178,14 @@ weave interp_expr with c as ref to context.CgContext, node as int, content as st
     while pi < si.part_count:
         var part as psstate.StringPart is (m.lex.parts at (si.part_start + pi))
         if part.kind == SegText:
-            var txt as string is calling psdecode.decode_part with (sigil of m.source), part, si.is_raw, si.is_triple, si.dedent, si.content_start
+            var txt as string is ""
+            if not si.is_raw and not si.is_triple:
+                var rsp as psource.ByteSpan is with start is part.start, end is part.end
+                var rawtxt as string is calling m.source.slice with rsp
+                set txt is calling psdecode.decode_text with rawtxt, false
+                banish rawtxt
+            else:
+                set txt is calling psdecode.decode_part with (sigil of m.source), part, si.is_raw, si.is_triple, si.dedent, si.content_start
             calling append_format_text with (sigil of fmt), txt
             banish txt
         else:
@@ -4099,8 +4193,45 @@ weave interp_expr with c as ref to context.CgContext, node as int, content as st
                 calling args.append with ", "
             var ii as int is calling find_interp with (sigil of m), node, part.start, part.end
             if ii < 0:
-                calling fmt.append with "%s"
-                calling args.append with "pengu_string_from_cstr(\"\")"
+                # Fallback para interpolaciones cuyo AST no quedó asociado al
+                # literal (p. ej. literales dentro de bloques anidados de un
+                # módulo con insignia). Si el segmento es un identificador
+                # local, su tipo y nombre C están en el contexto.
+                var ptxt as string is calling m.source.slice with (with start is part.start, end is part.end)
+                var simple as bool is (ptxt length) > 0
+                var pk as int is 0
+                var pb as ref to frozen byte is bytes of ptxt
+                while pk < ptxt length:
+                    var pc as int is ((pb at pk) to int)
+                    var is_alpha as bool is (pc >= 65 and pc <= 90) or (pc >= 97 and pc <= 122) or pc == 95
+                    var is_digit as bool is pc >= 48 and pc <= 57
+                    if pk == 0:
+                        if not is_alpha:
+                            set simple is false
+                    else:
+                        if not (is_alpha or is_digit):
+                            set simple is false
+                    set pk is pk + 1
+                var used as bool is false
+                if simple:
+                    var pid as int is calling npool.intern with (sigil of c->program->names), ptxt
+                    var lty as int is calling context.local_type with c, pid
+                    if lty > 0:
+                        var lcn as int is calling context.local_c_name with c, pid
+                        if lcn >= 0:
+                            var ltxt as string is calling npool.text with (sigil of c->program->names), lcn
+                            calling append_interp_value with c, (sigil of fmt), (sigil of args), ltxt, lty
+                            set used is true
+                if not used:
+                    var path as CgTarget is calling interp_path_c with c, ptxt
+                    if path.type_id > 0 and path.text length > 0:
+                        calling append_interp_value with c, (sigil of fmt), (sigil of args), path.text, path.type_id
+                        set used is true
+                    banish path.text
+                banish ptxt
+                if not used:
+                    calling fmt.append with "%s"
+                    calling args.append with "pengu_string_from_cstr(\"\")"
             else:
                 var it as loader.SemaInterp is (m.interps at ii)
                 # Emite con una copia del programa cuyo módulo actual es el
