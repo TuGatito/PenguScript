@@ -1,0 +1,6 @@
+# Size fixture: smallest program (print + exit).
+import std.spark
+
+weave main into int:
+    calling println with "hello"
+    return 0

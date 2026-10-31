@@ -328,7 +328,7 @@ weave compute with c as ref to context.CgContext into CgReach:
             set root is true
         if not c->options.dce_scope_user and not is_std:
             set root is true
-        if not root and (c->options.is_library or not c->options.dce_scope_user):
+        if not root:
             var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), f.symbol
             if (sv.flags & sym.SYM_EXPORT) != 0:
                 set root is true

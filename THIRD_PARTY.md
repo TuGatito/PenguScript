@@ -77,3 +77,54 @@ time library.
   Apache-2.0 with LLVM exceptions. It is never linked into `psc` or generated
   programs.
 - **Credits:** the LLVM/Clang project.
+
+## miniz — gzip/zlib/deflate
+
+- **Location:** [`std_c/miniz.c`](std_c/miniz.c) and
+  [`std_c/miniz.h`](std_c/miniz.h)
+- **Version:** miniz 3.1.2 (single-file distribution).
+- **License:** public domain / Unlicense. The header states that miniz is
+  public domain and includes the Unlicense statement at the end of
+  [`std_c/miniz.h`](std_c/miniz.h).
+- **Author / credits:** Rich Geldreich and the miniz contributors.
+- **Usage:** built as `libminiz.a` and linked only by
+  [`std/compressus.pengu`](std/compressus.pengu). Not part of the core runtime.
+  Build flags disable archive/stdio/time APIs and zlib-compatible names.
+
+## tiny-regex-c — regular expressions
+
+- **Location:** [`std_c/re.c`](std_c/re.c) and [`std_c/re.h`](std_c/re.h)
+- **License:** public domain. The file header credits Rob Pike's regular
+  expression code as the inspiration and places the implementation in the
+  public domain.
+- **Usage:** built as `libre.a` and linked only by
+  [`std/regulus.pengu`](std/regulus.pengu). It supports a deliberately small
+  subset (no `{n,m}` and no alternation).
+- **Caveat:** the upstream header says `[^...]` is broken; this was not
+  reproducible in the current version, but the subset limits are real. New code
+  should prefer `std.regula` (PCRE2) once the satellite lands.
+
+## utf8.h — UTF-8 primitives
+
+- **Location:** [`std_c/utf8.h`](std_c/utf8.h)
+- **License:** public domain / Unlicense ("free and unencumbered software
+  released into the public domain").
+- **Author / credits:** Neil Henning (`sheredom`).
+- **Usage:** header-only; included by the `std.lingua` adapter. No archive and
+  no link flag.
+
+## petitio — libcurl transport
+
+- **Location:** [`std_c/petitio.c`](std_c/petitio.c) and
+  [`std_c/petitio.h`](std_c/petitio.h)
+- **License:** first-party (MIT, same as PenguScript), wrapping libcurl
+  (MIT-like). libcurl is a system dependency, not vendored.
+- **Usage:** built as `libpetitio.a`; linked by
+  [`std/petitio.pengu`](std/petitio.pengu) together with `-lcurl`.
+
+## toml_min — minimal TOML subset
+
+- **Location:** [`std_c/toml_min.h`](std_c/toml_min.h)
+- **License:** first-party (MIT, same as PenguScript).
+- **Usage:** header-only parser for the TOML 1.0 subset exposed by
+  [`std/toml.pengu`](std/toml.pengu); replaced by tomlc99 in the F3 phase.

@@ -175,6 +175,8 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
         set t is calling types.ref_to with s->types, frozen_byte
     else if kind == pskind.NodeKind.NdSizeOf:
         set t is calling types.base with s->types, "usize"
+    else if kind == pskind.NodeKind.NdAlignOf:
+        set t is calling types.base with s->types, "usize"
     else if kind == pskind.NodeKind.NdTypeOf:
         var tof as int is calling astutil.node_child with s->ast, node, 0
         if tof >= 0:

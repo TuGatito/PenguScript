@@ -150,6 +150,7 @@ omen NodeKind:
     NdEssenceOf
     NdTransmute
     NdSizeOf
+    NdAlignOf
     NdTypeOf
     NdSomeExpr
     NdBanishExpr
@@ -382,6 +383,7 @@ weave ps_node_kind_name with kind as NodeKind into string:
         when NdShr -> "shr"
         when NdSigilOf -> "sigil_of"
         when NdSizeOf -> "size_of"
+        when NdAlignOf -> "align_of"
         when NdSliceAtExpr -> "slice_at_expr"
         when NdSliceRange -> "slice_range"
         when NdSliceType -> "slice_type"

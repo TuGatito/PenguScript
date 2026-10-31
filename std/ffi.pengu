@@ -97,7 +97,11 @@ const SIZEOF_BYTE as int is 1
 const SIZEOF_CHAR as int is 1
 const SIZEOF_BOOL as int is 1
 const SIZEOF_SHORT as int is 2
-const SIZEOF_LONG as int is 8
+## `long` is 32-bit on Windows (LLP64) and on 32-bit targets; 64-bit elsewhere.
+when os == "windows" or arch == "x86" or arch == "arm":
+    const SIZEOF_LONG as int is 4
+else:
+    const SIZEOF_LONG as int is 8
 
 ## Returns the pointer size in bytes for the compilation target architecture.
 weave pointer_size into int:
@@ -119,20 +123,9 @@ weave pointer_size_bytes into int:
 weave size_of shard T into int:
     return size of T
 
-## Returns the typical alignment in bytes of type T based on its size.
+## Returns the alignment in bytes of type T (`_Alignof`/`__alignof__`).
 weave alignment_of shard T into int:
-    var s as int is size of T
-    if s <= 0:
-        return 1
-    if s >= 16:
-        return 16
-    if s >= 8:
-        return 8
-    if s >= 4:
-        return 4
-    if s >= 2:
-        return 2
-    return 1
+    return align of T
 
 # ----------------------------------------------------------------------------
 # Pointer & NULL Utilities

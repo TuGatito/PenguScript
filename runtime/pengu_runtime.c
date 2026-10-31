@@ -93,7 +93,14 @@ int pengu_c_filum_num_cpu(void) {
     GetSystemInfo(&sysinfo);
     return (int)sysinfo.dwNumberOfProcessors;
 #else
-    return 4;
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    if (n < 1) {
+        return 1;
+    }
+    if (n > 4096) {
+        return 4096;
+    }
+    return (int)n;
 #endif
 }
 

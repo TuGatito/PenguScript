@@ -1,0 +1,9 @@
+# Size fixture: libc time formatting.
+import std.chronicle
+import std.spark
+
+weave main into int:
+    var stamp as string is calling chronicle.format with "%Y-%m-%d", 0.0
+    calling println with stamp
+    banish stamp
+    return 0

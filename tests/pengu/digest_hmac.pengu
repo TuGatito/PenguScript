@@ -1,0 +1,12 @@
+## HMAC-SHA-256 vectors (RFC 4231).
+import std.digest
+import std.ward
+
+weave main into int:
+    var h as string is calling digest.hmac_sha256_hex with "key", "The quick brown fox jumps over the lazy dog"
+    calling ward.assert_eq_string with h, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
+    banish h
+    var h2 as string is calling digest.hmac_sha256_hex with "Jefe", "what do ya want for nothing?"
+    calling ward.assert_eq_string with h2, "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+    banish h2
+    return 0

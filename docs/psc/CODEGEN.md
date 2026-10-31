@@ -54,8 +54,10 @@ codegen.api.generate_c
   como expresión y statement, `with:`/`is:`, `or else`, lambdas sin captura,
   `@mutates`, `chr`/`ord`, interpolación completa y strings UTF-8.
 - **P3.4:** `--test` integrado, `--strict-c99`, DCE por alcance de usuario,
-  `--prune-types`, includes sólo de módulos vivos y matriz gcc/clang;
-  `--prune-native` es no-op porque F4 no enlaza binarios (F5 sí).
+  `--prune-types`, includes sólo de módulos vivos y matriz gcc/clang.
+  `--prune-native` ya está implementado: enlaza un `-l` sólo cuando el módulo
+  que lo declara tiene una función viva, y se activa por defecto en
+  `--profile release` (F1).
 - **P4:** constantes de módulo y su emisión C.
 - **P4.1 (0.17.2):** `@mutates` con asignación y `get_*` puro, `transmute`,
   `for … from … to … [step]`, `judge` expresión con tipo esperado, `append`,
@@ -65,7 +67,12 @@ codegen.api.generate_c
   arbitrarias, comprehensiones, `in`/`not in`, `type of`, `donum`, `or return`,
   `try`, `or:`, bounds checks y cero de mapas ausentes. El detalle y la
   auditoría están en `AUDITORIA_0.17.3.md`.
-- **Conformidad:** **66/66** fixtures con las librerías nativas.
+- **P4.3 (0.18.0):** enlace perezoso por módulo vivo (`--prune-native` por
+  defecto en release), `-ffunction-sections`/`--gc-sections`, endurecimiento
+  RELRO/PIE/FORTIFY, orden topológico de tipos (arregla `std.cipher`),
+  `align of T`, floats con round-trip corto y límite de descompresión de
+  256 MiB. Detalle en `CHANGELOG.md`.
+- **Conformidad:** **88/88** fixtures con las librerías nativas.
 - **Calidad:** 17 casos de aceptación F4, ASan/UBSan, golden C normalizado y
   benchmark de emisión.
 

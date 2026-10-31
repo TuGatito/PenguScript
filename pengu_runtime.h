@@ -88,6 +88,19 @@
 #define PENGU_ABI_VERSION 3
 
 /*
+ * `align of T` in PenguScript. C11 `_Alignof` is exact; GCC/Clang keep working
+ * under `-std=c99`; the last resort is `sizeof(T)`, which is conservative but
+ * never smaller than the real alignment.
+ */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#  define PENGU_ALIGNOF(T) _Alignof(T)
+#elif defined(__GNUC__) || defined(__clang__)
+#  define PENGU_ALIGNOF(T) __alignof__(T)
+#else
+#  define PENGU_ALIGNOF(T) sizeof(T)
+#endif
+
+/*
  * Phase 3 item 3.5. Defined in `pengu_runtime.c` -- i.e. it exists as an
  * object-file symbol inside `libpengu_runtime.a`, never as an inline function in
  * this header. A consumer that calls it therefore fails to LINK when the archive
@@ -184,6 +197,7 @@ int pengu_abi_version(void);
 #include <time.h>
 #include <errno.h>
 #include <limits.h>
+#include <locale.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -729,10 +743,11 @@ extern "C"
   {
     if (b->len == 0) return;
 #if PENGU_WINDOWS
-    (void)_write(2, b->buf, (unsigned int)b->len);
+    int ignored = _write(2, b->buf, (unsigned int)b->len);
 #else
-    (void)write(2, b->buf, b->len);
+    ssize_t ignored = write(2, b->buf, b->len);
 #endif
+    (void)ignored;
   }
 
 #if PENGU_FRAME_TRACE
@@ -1790,14 +1805,88 @@ extern "C"
   }
 
   /**
+   * @brief Normalises the locale decimal separator in a formatted float.
+   *
+   * `%g`/`%.*g` honour `LC_NUMERIC`; PenguScript output is always `.` so a
+   * program that calls `setlocale` cannot silently produce `3,14`.
+   */
+  static inline void pengu__normalize_float_dot(char *buf)
+  {
+    struct lconv *lc = localeconv();
+    const char *dp = (lc && lc->decimal_point && lc->decimal_point[0])
+                         ? lc->decimal_point
+                         : ".";
+    size_t dl = strlen(dp);
+    if (dl == 1 && dp[0] == '.')
+      return;
+    char *hit = strstr(buf, dp);
+    if (!hit)
+      return;
+    *hit = '.';
+    if (dl > 1)
+      memmove(hit + 1, hit + dl, strlen(hit + dl) + 1);
+  }
+
+  /**
+   * @brief Formats a 32-bit float using the shortest round-tripping form.
+   *
+   * `%.9g` is the maximum needed for binary32; the loop stops as soon as
+   * `strtof` returns the same value, so `0.1f` prints as `0.1`, not
+   * `0.10000000149011612`.
+   */
+  static inline PenguString pengu_string_from_float32(float val)
+  {
+    char buf[64];
+    if (isnan(val)) {
+      snprintf(buf, sizeof(buf), "nan");
+      return pengu_string_new(buf);
+    }
+    if (isinf(val)) {
+      snprintf(buf, sizeof(buf), val < 0 ? "-inf" : "inf");
+      return pengu_string_new(buf);
+    }
+    int precision = 1;
+    for (; precision <= 9; precision++) {
+      snprintf(buf, sizeof(buf), "%.*g", precision, (double)val);
+      if (strtof(buf, NULL) == val)
+        break;
+    }
+    if (precision > 9)
+      snprintf(buf, sizeof(buf), "%.9g", (double)val);
+    pengu__normalize_float_dot(buf);
+    return pengu_string_new(buf);
+  }
+
+  /**
    * @brief Formats a floating point number to a PenguString.
+   *
+   * Uses the shortest decimal form that round-trips to the same `double`
+   * (`%.1g` .. `%.17g`), not the 6-significant-digit `%g` default. The decimal
+   * separator is normalised to `.` so output does not depend on `LC_NUMERIC`.
+   *
    * @param val Floating point value.
    * @return Formatted PenguString.
    */
   static inline PenguString pengu_string_from_float(double val)
   {
     char buf[64];
-    snprintf(buf, sizeof(buf), "%g", val);
+    if (isnan(val)) {
+      snprintf(buf, sizeof(buf), "nan");
+      return pengu_string_new(buf);
+    }
+    if (isinf(val)) {
+      snprintf(buf, sizeof(buf), val < 0 ? "-inf" : "inf");
+      return pengu_string_new(buf);
+    }
+    int precision = 1;
+    for (; precision <= 17; precision++) {
+      snprintf(buf, sizeof(buf), "%.*g", precision, val);
+      if (strtod(buf, NULL) == val)
+        break;
+    }
+    if (precision > 17)
+      snprintf(buf, sizeof(buf), "%.17g", val);
+    pengu__normalize_float_dot(buf);
     return pengu_string_new(buf);
   }
 
@@ -1865,7 +1954,7 @@ extern "C"
     long long: pengu_string_from_int,          \
     unsigned long long: pengu_string_from_int, \
     double: pengu_string_from_float,           \
-    float: pengu_string_from_float,            \
+    float: pengu_string_from_float32,          \
     bool: pengu_string_from_bool,              \
     char*: pengu_string_from_cstr,             \
     const char*: pengu_string_from_cstr,       \
@@ -2962,10 +3051,91 @@ extern "C"
    * 13. Random & Distributions (Lot)
    * ========================================================================= */
 
-  static inline void pengu_c_srand(int seed) { srand((unsigned int)seed); }
-  static inline int pengu_c_rand(void) { return rand(); }
-  static inline int pengu_c_rand_max(void) { return RAND_MAX; }
-  static inline double pengu_c_rand_double(void) { return (double)rand() / ((double)RAND_MAX + 1.0); }
+  /* Lot lock: no-op when the thread layer is disabled, portable mutex otherwise. */
+  void *pengu_c_filum_mutex_new(void);
+  void pengu_c_filum_mutex_lock(void *m);
+  void pengu_c_filum_mutex_unlock(void *m);
+# if PENGU_ENABLE_THREADS
+  static void *pengu_lot_mtx = NULL;
+  static inline void pengu_c_lot_lock(void)
+  {
+    if (!pengu_lot_mtx) pengu_lot_mtx = pengu_c_filum_mutex_new();
+    pengu_c_filum_mutex_lock(pengu_lot_mtx);
+  }
+  static inline void pengu_c_lot_unlock(void)
+  {
+    if (pengu_lot_mtx) pengu_c_filum_mutex_unlock(pengu_lot_mtx);
+  }
+# else
+  static inline void pengu_c_lot_lock(void) { }
+  static inline void pengu_c_lot_unlock(void) { }
+# endif
+
+  /* PCG32 (O'Neill 2014): small, fast, statistically strong, no libc state.
+     The default seed comes from the OS CSPRNG; `seed()` makes it reproducible. */
+  static uint64_t pengu_rng_state = 0;
+  static uint64_t pengu_rng_inc = 1442695040888963407ULL;
+  static bool pengu_rng_seeded = false;
+
+  static void pengu_rng_seed_os(void)
+  {
+    uint64_t s = 0;
+#if PENGU_WINDOWS
+    /* Windows: no extra link dependency here; callers that need CSPRNG bytes
+       should use std.secrets (libsodium). */
+    s = 0;
+#elif defined(__linux__)
+    {
+      extern long getrandom(void *, unsigned long, unsigned int);
+      if (getrandom(&s, sizeof s, 0) != (long)sizeof s) s = 0;
+    }
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    arc4random_buf(&s, sizeof s);
+#else
+    {
+      FILE *f = fopen("/dev/urandom", "rb");
+      if (f) { if (fread(&s, 1, sizeof s, f) != sizeof s) s = 0; fclose(f); }
+    }
+#endif
+    if (s == 0)
+      s = (uint64_t)time(NULL) ^ (uint64_t)(uintptr_t)&s ^ 0x9E3779B97F4A7C15ULL;
+    pengu_rng_state = s;
+    pengu_rng_inc = 1442695040888963407ULL;
+    pengu_rng_seeded = true;
+  }
+
+  static uint32_t pengu_rng_u32(void)
+  {
+    if (!pengu_rng_seeded) pengu_rng_seed_os();
+    uint64_t old = pengu_rng_state;
+    pengu_rng_state = old * 6364136223846793005ULL + pengu_rng_inc;
+    uint32_t xs = (uint32_t)(((old >> 18) ^ old) >> 27);
+    uint32_t rot = (uint32_t)(old >> 59);
+    return (xs >> rot) | (xs << ((-rot) & 31));
+  }
+
+  static inline void pengu_c_srand(int seed)
+  {
+    uint64_t z = (uint64_t)(uint32_t)seed + 0x9E3779B97F4A7C15ULL;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    pengu_rng_state = z ^ (z >> 31);
+    pengu_rng_inc = 1442695040888963407ULL;
+    pengu_rng_seeded = true;
+  }
+  static inline int pengu_c_rand(void) { return (int)(pengu_rng_u32() >> 1); }
+  static inline int pengu_c_rand_max(void) { return 2147483647; }
+  static inline double pengu_c_rand_double(void)
+  {
+    uint64_t a = (uint64_t)pengu_rng_u32() << 21;
+    uint64_t b = (uint64_t)pengu_rng_u32() & ((1ULL << 21) - 1ULL);
+    return (double)(a ^ b) * (1.0 / 9007199254740992.0);
+  }
+  static inline void pengu_c_rand_bytes(unsigned char *out, int n)
+  {
+    if (!out || n <= 0) return;
+    for (int i = 0; i < n; i++) out[i] = (unsigned char)(pengu_rng_u32() & 0xFFU);
+  }
   static inline int pengu_c_rand_range(int min, int max)
   {
     if (min >= max)

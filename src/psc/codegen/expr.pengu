@@ -154,6 +154,8 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         var eo as int is calling astutil.node_child with ast, node, 0
         var eov as string is calling emit_expr with c, eo
         defer banish eov
+        if c->self_value:
+            return eov
         return "(*( {eov}))"
     if k == pskind.NodeKind.NdBytesExpr:
         var bb as int is calling astutil.node_child with ast, node, 0
@@ -226,7 +228,9 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
                     defer banish stn
                     if stn == "string":
                         return tvx
-                    if stn == "float" or stn == "f32" or stn == "f64" or stn == "double":
+                    if stn == "float" or stn == "f32":
+                        return "pengu_string_from_float32({tvx})"
+                    if stn == "f64" or stn == "double":
                         return "pengu_string_from_float({tvx})"
                     if stn == "bool":
                         return "pengu_string_from_bool({tvx})"
@@ -253,6 +257,14 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
             defer banish sct
             return "((size_t)sizeof({sct}))"
         return "((size_t)sizeof(void*))"
+    if k == pskind.NodeKind.NdAlignOf:
+        var atn as int is calling astutil.node_child with ast, node, 0
+        var aty as int is calling tast.from_ast with c, m, atn
+        if aty >= 0:
+            var act as string is calling ctype.c_type with (sigil of c->names), aty
+            defer banish act
+            return "((size_t)PENGU_ALIGNOF({act}))"
+        return "((size_t)PENGU_ALIGNOF(void*))"
     if k == pskind.NodeKind.NdSliceAtExpr:
         var sb0 as int is calling astutil.node_child with ast, node, 0
         var rg as int is calling astutil.node_child with ast, node, 1

@@ -483,16 +483,6 @@ weave build with o as BuildOptions into BuildResult:
     set so.compiler is (calling copy with ccn)
     banish ccn
     var sr as sema_api.SemaResult is calling sema_api.check_file with entry, so
-    # Los módulos pueden declarar `link "name"` (p. ej. std.dynlib → dl,
-    # std.ffi_call → ffi). Se añaden al toolchain antes de enlazar, sin exigir
-    # que el manifiesto del proyecto los repita.
-    for ml in sr.program->symbols.links:
-        var already as bool is false
-        for tl in tc.links:
-            if tl == ml:
-                set already is true
-        if not already:
-            calling tc.links.push with (calling copy with ml)
     var bag_ref as ref to diag.DiagnosticBag is (sigil of sr.program->diagnostics)
     var bag_v as diag.DiagnosticBag is sr.program->diagnostics
     if not sr.ok or bag_ref->error_count > 0:
@@ -604,6 +594,28 @@ weave build with o as BuildOptions into BuildResult:
         calling paths.free_paths with (sigil of p)
         calling toolchain.free_toolchain with (sigil of tc)
         return with ok is false, error is (calling copy with "code generation failed"), artifact is "", bundle_path is ""
+    # Links de módulos: se podan si `--prune-native` y el módulo no tiene
+    # ninguna función viva. Sin la poda se mantiene el comportamiento previo.
+    var lmi as int is 0
+    while lmi < sr.program->symbols.links.len:
+        var lname as string is (sr.program->symbols.links at lmi)
+        var lmod as int is -1
+        if lmi < sr.program->symbols.link_modules.len:
+            set lmod is (sr.program->symbols.link_modules at lmi)
+        var keep as bool is true
+        if o.prune_native and lmod >= 0:
+            set keep is false
+            for lm in cr.live_modules:
+                if lm == lmod:
+                    set keep is true
+        if keep:
+            var already as bool is false
+            for tl in tc.links:
+                if tl == lname:
+                    set already is true
+            if not already:
+                calling tc.links.push with (calling copy with lname)
+        set lmi is lmi + 1
     var build_dir as string is "{base}/{man.build_dir}"
     if not calling archivum.create_dir with build_dir, true:
         var bderr as string is "cannot create build directory: {build_dir}"
@@ -774,6 +786,16 @@ weave build with o as BuildOptions into BuildResult:
     var args as list of string is list of string
     for f in tc.cflags:
         calling args.push with (calling copy with f)
+    calling args.push with "-ffunction-sections"
+    calling args.push with "-fdata-sections"
+    # D12: hardening del binario final. Solo release y nunca en WASM (emcc no
+    # acepta estas banderas de ELF/PIE).
+    if o.profile == "release" and not eff.is_wasm:
+        calling args.push with "-fstack-protector-strong"
+        if so.os_name == "linux":
+            calling args.push with "-D_FORTIFY_SOURCE=3"
+            if out_kind == "exe":
+                calling args.push with "-fPIE"
     if needs_th:
         calling args.push with "-DPENGU_ENABLE_THREADS=1"
     else:
@@ -811,6 +833,19 @@ weave build with o as BuildOptions into BuildResult:
         calling args.push with "-shared"
         calling args.push with "-fPIC"
     if out_kind == "exe":
+        if not eff.is_wasm:
+            if so.os_name == "macos":
+                calling args.push with "-Wl,-dead_strip"
+            else:
+                calling args.push with "-Wl,--gc-sections"
+            if so.os_name == "linux":
+                calling args.push with "-Wl,--as-needed"
+                calling args.push with "-Wl,-z,relro,-z,now"
+                calling args.push with "-Wl,-z,noexecstack"
+                if o.profile == "release":
+                    calling args.push with "-pie"
+            if o.profile == "release":
+                calling args.push with "-s"
         for ld in tc.lib_dirs:
             calling args.push with "-L{ld}"
         for lk in tc.links:

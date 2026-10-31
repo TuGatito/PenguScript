@@ -2,6 +2,75 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.18.0] — 2026-10-31 — Enlace perezoso, endurecimiento y cierre de F2
+
+Cierra la fase F2 de la auditoría de runtime/std/std_c y consolida el
+enlazado perezoso de la fase F1. El objetivo es que un programa pague sólo por
+lo que usa, que el binario final sea enlazado con protecciones modernas y que
+las rutas de datos no confíen en supuestos del host.
+
+### Añadido
+
+- **Enlace perezoso de librerías nativas.** `declare`/`link` ahora registra el
+  módulo dueño; el codegen devuelve los módulos vivos y el enlazador emite un
+  `-l` sólo cuando una función de ese módulo sobrevive al DCE. Los módulos
+  `*.d.pengu` de binding heredan el módulo wrapper. En `--profile release`
+  `--prune-native` queda activo por defecto.
+- **Endurecimiento de release.** `-fstack-protector-strong`,
+  `-D_FORTIFY_SOURCE=3` y `-fPIE` en Linux, `-Wl,-z,relro,-z,now`,
+  `-Wl,-z,noexecstack`, `-pie`, `-Wl,--gc-sections`, `-Wl,--as-needed` y `-s`
+  en el enlace final. `hello` pasa de 60.200 a 14.376 bytes.
+- **`align of T`** como expresión de compilación, con `PENGU_ALIGNOF` portable
+  (`_Alignof`, `__alignof__` o `sizeof`).
+- **HMAC-SHA-256** en `std.digest`: `hmac_sha256_raw` y `hmac_sha256_hex`,
+  con vectores RFC 4231 en la suite.
+- **PRNG PCG32** en el runtime para `std.lot`, con seed mezclada por SplitMix64
+  y seed del sistema (`getrandom`, `arc4random`, `/dev/urandom`).
+- **Fuzzer de parsers** (`tests/pengu/fuzz_parsers.pengu`) para JSON, TOML,
+  YAML y regex, y smoke de 5.000 iteraciones en CI.
+- **Herramientas de release**: `tools/size_report.sh`, `tools/license_check.sh`,
+  `tools/satellite_new.sh`, `tools/fetch_satellite.sh` y
+  `tests/link_prune.sh`, con baseline de tamaños en `tests/baseline/sizes.json`.
+
+### Corregido
+
+- **`std.cipher` no compilaba.** El omen `CipherJsonValue` se emitía antes de
+  los runes de su payload y GCC rechazaba los campos de tipo incompleto. El
+  codegen ahora ordena topológicamente las definiciones de tipos.
+- **`num_cpu` en POSIX** devolvía siempre 4; ahora usa
+  `sysconf(_SC_NPROCESSORS_ONLN)` con clamp 1..4096.
+- **`std.ffi` en Windows LLP64**: `SIZEOF_LONG` pasa a 4 en Windows/x86/ARM y
+  `alignment_of` usa `align of T` en vez de derivarlo de `size of T`.
+- **Formato de floats**: `str_float`/interpolación usan el round-trip más corto
+  (`%.*g` + `strtod`/`strtof`) y normalizan el separador decimal a `.` aunque
+  la aplicación haya llamado a `setlocale`.
+- **Bomba de descompresión**: `std.compressus` limita la salida en memoria a
+  256 MiB y devuelve un error de límite en vez de crecer sin control.
+- **`lot__mtx` sin definir** en programas sin threads: el lock de `std.lot` usa
+  `pengu_c_lot_lock`/`pengu_c_lot_unlock`, no-op cuando
+  `PENGU_ENABLE_THREADS=0`.
+- **`essence of self`** ya no emite `*` sobre receptores pasados por valor, lo
+  que rompía `a.cmp with b` en tipos base.
+- **DCE y `@export`**: una función marcada `@export` es raíz en cualquier
+  alcance, no sólo en librerías.
+
+### Cambiado
+
+- `std.digest` comparte el formateador hexadecimal entre SHA-256 y HMAC.
+- `std.lot` documenta que PCG32 es rápido y reproducible, **no** criptográfico;
+  para secretos sigue estando `std.secrets` (libsodium).
+- `docs/EXTERNAL_MODULES.md`, `std_c/README.md` y `THIRD_PARTY.md` describen el
+  árbol real (miniz/re/utf8.h/petitio/toml_min fuera del runtime) y la política
+  binding (`std/<lib>.d.pengu`) vs wrapper (`std/<latín>.pengu`).
+
+### Pruebas
+
+- `tests/pengu/cipher_types.pengu`, `digest_hmac.pengu`, `float_format.pengu`,
+  `lot_pcg.pengu` y `ffi_layout.pengu` ampliado.
+- Suite completa: **88/88** archivos.
+- Gates: `fmt --check`, `license_check`, `link_prune`, `size_report` y
+  `fuzz_parsers -- 5000` en verde.
+
 ## [0.17.3] — 2026-10-30 — Codegen de statements y expresiones completo
 
 Esta versión cierra huecos de codegen que compilaban pero no ejecutaban nada, y

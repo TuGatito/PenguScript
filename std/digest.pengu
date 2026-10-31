@@ -53,13 +53,11 @@ weave sha256_raw with data as string into string:
 ##
 ## ## Memoria
 ## The returned string owns its buffer; release it with `banish`.
-weave sha256_hex with data as string into string:
-    let raw as string is calling sha256_raw with data
-    defer banish raw
+weave _digest_hex_of_raw with raw as string into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     var i as int is 0
-    while i < 32:
+    while i < raw.len:
         let b as int is ord (raw at i)
         let hi as string is calling _digest_hex_digit with b / 16
         let lo as string is calling _digest_hex_digit with b % 16
@@ -69,6 +67,64 @@ weave sha256_hex with data as string into string:
         banish lo
         set i is i + 1
     return calling sb.finish
+
+weave sha256_hex with data as string into string:
+    let raw as string is calling sha256_raw with data
+    defer banish raw
+    return calling _digest_hex_of_raw with raw
+
+## HMAC block size in bytes (RFC 2104; SHA-256 uses 64).
+const HMAC_BLOCK as int is 64
+## Inner padding byte for HMAC (`0x36`).
+const HMAC_IPAD as int is 54
+## Outer padding byte for HMAC (`0x5c`).
+const HMAC_OPAD as int is 92
+
+## Returns the raw 32-byte HMAC-SHA-256 of `message` under `key` (RFC 2104).
+##
+## ## Memoria
+## The returned string owns a 32-byte buffer; release it with `banish`.
+weave hmac_sha256_raw with key as string, message as string into string:
+    var k as string is key
+    var owns_k as bool is false
+    if k.len > HMAC_BLOCK:
+        set k is calling sha256_raw with k
+        set owns_k is true
+    var block as StringBuilder is calling StringBuilder.new
+    defer banish block
+    calling block.append with k
+    var i as int is k.len
+    while i < HMAC_BLOCK:
+        calling block.append_char with (0 to char)
+        set i is i + 1
+    if owns_k:
+        banish k
+    let kblock as string is calling block.finish
+    defer banish kblock
+    var inner as StringBuilder is calling StringBuilder.new
+    defer banish inner
+    var outer as StringBuilder is calling StringBuilder.new
+    defer banish outer
+    set i is 0
+    while i < HMAC_BLOCK:
+        let b as int is ord (kblock at i)
+        calling inner.append_char with ((b ^ HMAC_IPAD) to char)
+        calling outer.append_char with ((b ^ HMAC_OPAD) to char)
+        set i is i + 1
+    calling inner.append with message
+    let inner_raw as string is calling sha256_raw with (calling inner.finish)
+    defer banish inner_raw
+    calling outer.append with inner_raw
+    return calling sha256_raw with (calling outer.finish)
+
+## Returns the lowercase hexadecimal HMAC-SHA-256 of `message` under `key`.
+##
+## ## Memoria
+## The returned string owns its buffer; release it with `banish`.
+weave hmac_sha256_hex with key as string, message as string into string:
+    let raw as string is calling hmac_sha256_raw with key, message
+    defer banish raw
+    return calling _digest_hex_of_raw with raw
 
 ## Returns the SHA-256 hex digest of the file at `path`.
 ##

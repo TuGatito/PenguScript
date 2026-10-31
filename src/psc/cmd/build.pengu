@@ -212,7 +212,9 @@ weave run_build with args as list of string into int:
     set o.no_dce is calling cliargs.enabled with (sigil of pr.args), "--no-dce"
     set o.prune_types is calling cliargs.enabled with (sigil of pr.args), "--prune-types"
     set o.no_line_markers is calling cliargs.enabled with (sigil of pr.args), "--no-line-markers"
-    set o.prune_native is calling cliargs.enabled with (sigil of pr.args), "--prune-native"
+    # D12: release prunes satellite links by default; `--prune-native` keeps
+    # the explicit opt-in for debug builds.
+    set o.prune_native is (calling cliargs.enabled with (sigil of pr.args), "--prune-native") or prof == "release"
     set o.dce_scope_user is calling cliargs.enabled with (sigil of pr.args), "--tree-shake-user"
     set o.pch is calling cliargs.enabled with (sigil of pr.args), "--pch"
     var dscope as string is calling cliargs.value with (sigil of pr.args), "--dce-scope"

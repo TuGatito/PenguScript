@@ -1,6 +1,10 @@
 import std.ffi
 import std.spark
 
+rune Padded:
+    a as char
+    b as f64
+
 weave main into int:
     if SIZEOF_FLOAT != 4:
         return 1
@@ -8,6 +12,17 @@ weave main into int:
         return 1
     if calling alignment_of of int < 1:
         return 1
+    ## `alignment_of` must use `_Alignof`, not the old size heuristic.
+    if calling alignment_of of Padded != 8:
+        return 1
+    if calling size_of of Padded != 16:
+        return 1
+    when os == "windows":
+        if SIZEOF_LONG != 4:
+            return 1
+    else:
+        if SIZEOF_LONG != 8:
+            return 1
     var b as byte is 7
     var p as ref to void is calling ptr_offset with (sigil of b), 0
     if p == null:

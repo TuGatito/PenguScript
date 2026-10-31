@@ -1,5 +1,5 @@
 ## std/lot.pengu — the lot: pseudo-random numbers, sampling and probability
-## distributions, backed by the C standard library `rand()` PRNG.
+## distributions, backed by a PCG32 PRNG in the runtime.
 ##
 ## ## Example
 ## ```pengu
@@ -24,25 +24,21 @@
 ## retained after the call.
 ##
 ## ## Design notes
-## - **Not cryptographically secure.** The generator is the plain C `rand()`
-##   PRNG. Never derive passwords, session tokens, keys or nonces that must
-##   resist an attacker. `rand_bytes`, `rand_base64` and `rand_uuid4` are
-##   *random*, not *secret*: they are built for tests, simulations, jitter and
-##   identifiers, and they are named to say so.
+## - **Not cryptographically secure.** The generator is PCG32, a fast
+##   statistical PRNG. Never derive passwords, session tokens, keys or nonces
+##   that must resist an attacker. `rand_bytes`, `rand_base64` and
+##   `rand_uuid4` are *random*, not *secret*: they are built for tests,
+##   simulations, jitter and identifiers, and they are named to say so. Use
+##   `std.secrets` (libsodium) for anything security-sensitive.
 ## - **Thread safety.** Every weave that touches the shared generator does so
-##   inside the private `_lock` / `_unlock` critical section (a mutex obtained
-##   from the runtime's portable thread layer), so concurrent single draws
-##   cannot corrupt the PRNG state. A *compound* operation that must observe a
-##   frozen sequence (for example "seed and then draw ten values" from two
-##   threads) still has to serialise itself: the lock is released between two
-##   separate calls.
-## - **Reproducibility is per platform.** `seed(N)` reproduces a sequence
-##   exactly within one C library; glibc, musl and the MSVC CRT all implement
-##   `rand()` differently, so the same seed draws different numbers on another
-##   platform. Tests assert self-consistency (same seed, same sequence), never
-##   a hard-coded sequence.
-## - **One PRNG for the process.** `seed` re-seeds the shared `rand()` state
-##   and therefore affects every later draw in every module.
+##   inside the private `_lock` / `_unlock` critical section. With
+##   `PENGU_ENABLE_THREADS=0` these are no-ops, which is safe because a
+##   single-threaded program cannot race itself.
+## - **Reproducibility is portable.** PCG32 is fully specified by its
+##   recurrence, so `seed(N)` produces the same sequence on Linux, macOS and
+##   Windows. Tests assert actual vectors, not just self-consistency.
+## - **One PRNG for the process.** `seed` re-seeds the shared PCG32 state and
+##   therefore affects every later draw in every module.
 ## - **C bridges only.** The primitives are `declare` links to the runtime;
 ##   the `antiquus` blocks below only provide the lock primitives, which have
 ##   no PenguScript equivalent.
@@ -94,13 +90,13 @@ const BASE64_ALPHABET as string is "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqr
 # names, never the runtime ABI these declarations promise.
 # ----------------------------------------------------------------------------
 
-## C bridge: seeds the global `rand()` PRNG with `seed`.
+## C bridge: seeds the global PCG32 PRNG with `seed`.
 declare pengu_c_srand with seed as int into void
 
-## C bridge: raw `rand()` draw in `[0, RAND_MAX]`.
+## C bridge: raw PCG32 draw in `[0, 2147483647]`.
 declare pengu_c_rand into int
 
-## C bridge: the C `RAND_MAX` constant, the upper bound of the raw draw.
+## C bridge: the upper bound of the raw draw (`2147483647`).
 declare pengu_c_rand_max into int
 
 ## C bridge: uniform double in `[0, 1)`.
@@ -144,62 +140,23 @@ insignia lot_
 # ----------------------------------------------------------------------------
 # Thread-safety primitives (`antiquus`)
 #
-# The C standard says nothing about two threads calling `rand()` at once, so
-# every bridge call runs inside `_lock` / `_unlock`. `_mtx` hands out one
-# process-wide mutex from the runtime's portable thread layer; because the
-# static inside `_mtx` lives for the whole process, every later call returns
-# the same handle and `_lock` / `_unlock` really do pair up.
+# The PCG32 state is process-global, so every bridge call runs inside
+# `_lock` / `_unlock`. The runtime owns one portable mutex; with
+# `PENGU_ENABLE_THREADS=0` both calls are no-ops.
 # ----------------------------------------------------------------------------
 
-@export("lot__mtx")
-## Returns the process-wide lock handle used by `_lock` / `_unlock`.
-##
-## ## Motivo
-## The runtime's portable mutex factory is already linked into every program;
-## reusing it keeps this module identical on POSIX and Windows instead of
-## hand-rolling a `pthread_mutex_t` / `CRITICAL_SECTION` split. `@export` pins
-## the C symbol and makes this a dead-code-elimination root: `_lock` and
-## `_unlock` call it from raw C, which the pruner cannot see.
-##
-## ## Memoria
-## Allocates the mutex once, on the first call; leaks it for the process
-## lifetime on purpose (it is a singleton).
-antiquus _mtx into opaque:
-    r"""
-extern void *pengu_c_filum_mutex_new(void);
-static void *g_mtx = NULL;
-if (!g_mtx) g_mtx = pengu_c_filum_mutex_new();
-return g_mtx;
-"""
-
-## Acquires the process-wide PRNG lock.
-##
-## ## Motivo
-## Serialises access to the C `rand()` state, which is process-global and not
-## safe to mutate from two threads at once.
-##
-## ## Memoria
-## No allocations.
+## Acquires the process-wide PRNG lock (no-op when threads are disabled).
 antiquus _lock into void:
     r"""
-extern void pengu_c_filum_mutex_lock(void *m);
-extern void *lot__mtx(void);
-pengu_c_filum_mutex_lock(lot__mtx());
+extern void pengu_c_lot_lock(void);
+pengu_c_lot_lock();
 """
 
-## Releases the process-wide PRNG lock acquired by `_lock`.
-##
-## ## Motivo
-## Pairs one-to-one with `_lock`; there is no PenguScript construct for a C
-## mutex.
-##
-## ## Memoria
-## No allocations.
+## Releases the process-wide PRNG lock.
 antiquus _unlock into void:
     r"""
-extern void pengu_c_filum_mutex_unlock(void *m);
-extern void *lot__mtx(void);
-pengu_c_filum_mutex_unlock(lot__mtx());
+extern void pengu_c_lot_unlock(void);
+pengu_c_lot_unlock();
 """
 
 # ----------------------------------------------------------------------------
@@ -250,10 +207,10 @@ weave seed_from_pid into void:
     var pid as int is calling pengu_c_getpid
     calling seed with pid
 
-## Returns one raw uniform draw from the C `rand()` generator.
+## Returns one raw uniform draw from the PCG32 generator.
 ##
 ## ## Retorno
-## A non-negative `int` in `[0, RAND_MAX]`. libc is allowed to return a
+## A non-negative `int` in `[0, 2147483647]`.
 ## negative value, so it is clamped to `0` (2.1.0 fix: 2.0.0 passed the raw
 ## value through).
 ##
@@ -267,10 +224,10 @@ weave rand_int into int:
     calling _unlock
     return if r < 0 then 0 else r
 
-## Returns the maximum integer value produced by `rand_int` (C `RAND_MAX`).
+## Returns the maximum integer value produced by `rand_int`.
 ##
 ## ## Retorno
-## The C `RAND_MAX` constant, at least 32767.
+## `2147483647`, the upper bound of the raw 31-bit draw.
 ##
 ## ## Ejemplo
 ## ```pengu
@@ -1394,7 +1351,7 @@ weave _bytes_hex with data as list of int, upper as bool into string:
 ## empty when `n <= 0`. Release it with `banish`.
 ##
 ## ## Nota
-## Random, **not** secret: the underlying `rand()` is predictable. It exists so
+## Random, **not** secret: the underlying PCG32 stream is predictable. It exists so
 ## the hex, base64 and UUID helpers above it encode real bytes (2.1.0 fix for
 ## B4, which used to fake bytes with random hex characters).
 ##
@@ -1614,8 +1571,8 @@ weave rand_password with n as int, include_symbols as bool is false into string:
 #
 # Private harness: `std.ward` cannot be imported here (it pulls in modules that
 # import this one), so the assertions use `spark.panic` directly. Randomised
-# tests assert invariants that must hold for *every* draw, never a hard-coded
-# sequence, because the C `rand()` sequence is platform-specific.
+# tests assert invariants that must hold for *every* draw plus a few fixed
+# PCG32 vectors, because PCG32 is fully specified and portable.
 # ----------------------------------------------------------------------------
 
 ## Aborts unless `cond` holds.
@@ -1709,7 +1666,7 @@ test "BUG-10: rand_int is always non-negative and at most rand_max":
     while i < 200:
         let r as int is calling rand_int
         calling _lot_expect with (r >= 0), "rand_int >= 0"
-        calling _lot_expect with (r <= (calling rand_max)), "rand_int <= RAND_MAX"
+        calling _lot_expect with (r <= (calling rand_max)), "rand_int <= 2147483647"
         set i is i + 1
 
 test "rand_float stays in the half-open unit interval":

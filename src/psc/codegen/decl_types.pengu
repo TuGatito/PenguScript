@@ -218,6 +218,117 @@ weave emit_cleanup with c as ref to context.CgContext, t as catalog.CgType into 
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
 
+## Resuelve un `TypeId` a su tipo nominal (rune/eco/omen), siguiendo alias y seals.
+##
+## Devuelve `-1` cuando el tipo no es nominal o el id no es válido.
+##
+## ## Memoria
+## No asigna.
+weave nominal_type_id with c as ref to context.CgContext, tid as int into int:
+    var cur as int is tid
+    var guard as int is 0
+    while cur >= 0 and cur < c->program->types.types.len and guard < 32:
+        var t as tk.SemaType is calling types.at with (sigil of c->program->types), cur
+        if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho or t.kind == tk.SemaTypeKind.TkOmen:
+            return cur
+        if t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+            set cur is t.b
+            set guard is guard + 1
+            continue
+        return -1
+    return -1
+
+## Añade a `out` los índices de catálogo de los tipos nominales usados **por valor**
+## en los campos/variantes de `i`.
+##
+## Los punteros no necesitan tipo completo, pero incluirlos sólo añade aristas
+## conservadoras; el DFS corta ciclos, así que un ciclo de punteros no rompe nada.
+##
+## ## Memoria
+## No retiene memoria.
+weave collect_type_deps with c as ref to context.CgContext, i as int, idx as ref to list of int, out as ref to list of int into void:
+    var t as catalog.CgType is (c->catalog.types at i)
+    if t.type_id < 0 or t.type_id >= c->program->types.types.len:
+        return
+    var ty as tk.SemaType is calling types.at with (sigil of c->program->types), t.type_id
+    if ty.a < 0 or ty.a >= c->program->types.nominal_infos.len:
+        return
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
+    var fi as int is 0
+    while fi < info.fields_count:
+        var f as types.SemaField is (c->program->types.fields at (info.fields_first + fi))
+        var nid as int is calling nominal_type_id with c, f.type
+        if nid >= 0 and (idx at nid) >= 0:
+            calling out.push with (idx at nid)
+        set fi is fi + 1
+    var vi as int is 0
+    while vi < info.variants_count:
+        var v as types.SemaVariant is (c->program->types.variants at (info.variants_first + vi))
+        var pi as int is 0
+        while pi < v.payload_count:
+            var pf as types.SemaField is (c->program->types.fields at (v.payload_first + pi))
+            var pid as int is calling nominal_type_id with c, pf.type
+            if pid >= 0 and (idx at pid) >= 0:
+                calling out.push with (idx at pid)
+            set pi is pi + 1
+        set vi is vi + 1
+
+## DFS de ordenación topológica de definiciones.
+##
+## ## Memoria
+## Libera la lista temporal de dependencias.
+weave visit_catalog_type with c as ref to context.CgContext, i as int, idx as ref to list of int, state as ref to list of int, order as ref to list of int into void:
+    if (state at i) == 1 or (state at i) == 2:
+        return
+    set state at i is 1
+    var deps as list of int is list of int
+    calling collect_type_deps with c, i, idx, (sigil of deps)
+    var d as int is 0
+    while d < deps.len:
+        var dep as int is (deps at d)
+        set d is d + 1
+        if dep == i:
+            continue
+        calling visit_catalog_type with c, dep, idx, state, order
+    banish deps
+    set state at i is 2
+    calling order.push with i
+
+## Ordena las definiciones de tipos para que los campos por valor encuentren el
+## tipo completo (p.ej. un omen con payload `JsonArrayNode` declarado después).
+##
+## Emite el orden de índices de `c->catalog.types`; los tipos no vivos se filtran
+## después. Los ciclos (posibles sólo vía punteros) se cortan sin fallar.
+##
+## ## Memoria
+## Devuelve una lista owned; `idx`/`state` se liberan aquí.
+weave order_types with c as ref to context.CgContext into list of int:
+    var n as int is c->catalog.types.len
+    var idx as list of int is list of int
+    var i as int is 0
+    while i < c->program->types.types.len:
+        calling idx.push with -1
+        set i is i + 1
+    set i is 0
+    while i < n:
+        var t as catalog.CgType is (c->catalog.types at i)
+        if t.type_id >= 0 and t.type_id < idx.len:
+            set idx at (t.type_id) is i
+        set i is i + 1
+    var state as list of int is list of int
+    set i is 0
+    while i < n:
+        calling state.push with 0
+        set i is i + 1
+    var order as list of int is list of int
+    set i is 0
+    while i < n:
+        calling visit_catalog_type with c, i, (sigil of idx), (sigil of state), (sigil of order)
+        set i is i + 1
+    banish idx
+    banish state
+    return order
+
 ## Emite la definición struct/enum de un tipo.
 ##
 ## ## Memoria

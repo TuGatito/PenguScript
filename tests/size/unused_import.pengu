@@ -1,0 +1,7 @@
+# Link-prune fixture: imports a satellite module but calls none of its functions.
+import std.compressus
+import std.spark
+
+weave main into int:
+    calling println with "unused import"
+    return 0

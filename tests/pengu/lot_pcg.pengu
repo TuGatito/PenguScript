@@ -1,0 +1,18 @@
+## PCG32: same seed reproduces, different seeds diverge.
+import std.lot
+import std.ward
+
+weave main into int:
+    calling lot.seed with 12345
+    var a as int is calling lot.rand_int
+    var b as int is calling lot.rand_int
+    calling lot.seed with 12345
+    var c as int is calling lot.rand_int
+    var d as int is calling lot.rand_int
+    calling ward.assert_eq_int with a, c
+    calling ward.assert_eq_int with b, d
+    calling lot.seed with 999
+    var e as int is calling lot.rand_int
+    if e == a and b == d:
+        return 1
+    return 0

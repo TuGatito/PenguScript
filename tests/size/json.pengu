@@ -1,0 +1,12 @@
+# Size fixture: JSON parser + DOM + stringify.
+import std.json
+import std.spark
+
+weave main into int:
+    var parsed as result of JsonValue to JsonError is calling json.parse with "{\"a\":1,\"b\":[true,null]}"
+    if parsed.is_ok:
+        var out as string is calling json.stringify with parsed.value
+        calling println with out
+        banish out
+    banish parsed
+    return 0

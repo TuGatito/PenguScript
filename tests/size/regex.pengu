@@ -1,0 +1,10 @@
+# Size fixture: tiny-regex-c match.
+import std.regulus
+import std.spark
+
+weave main into int:
+    var matched as result of bool to RegexError is calling regulus.is_match with "^a+$", "aaa"
+    if matched.is_ok and matched.value:
+        calling println with "match"
+    banish matched
+    return 0

@@ -78,6 +78,12 @@ weave pexpr_parse_unary with p as ref to PsParser into int:
         var ignored8 as Token is calling ps_advance with p
         var ty as int is calling ptypes.ptype_parse_type with p
         return calling putil.pexpr_unary_node with p, NodeKind.NdSizeOf, ty, opi6, start6
+    if calling ps_check_kw with p, KwAlignOf:
+        var start6b as int is calling ps_current_start with p
+        var opi6b as int is p->pos
+        var ignored8b as Token is calling ps_advance with p
+        var tyb as int is calling ptypes.ptype_parse_type with p
+        return calling putil.pexpr_unary_node with p, NodeKind.NdAlignOf, tyb, opi6b, start6b
     if calling ps_check_kw with p, KwTypeOf:
         var start7 as int is calling ps_current_start with p
         var opi7 as int is p->pos

@@ -1,0 +1,10 @@
+# Size fixture: YAML subset parser.
+import std.spark
+import std.yaml
+
+weave main into int:
+    var entries as result of list of YamlEntry to string is calling yaml.parse with "name: pengu\ncount: 3\n"
+    if entries.is_ok:
+        calling println with calling spark.str_int with (calling yaml.find with entries.value, "name")
+    banish entries
+    return 0

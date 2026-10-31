@@ -1,0 +1,50 @@
+## Fuzz determinista de los parsers de std (JSON, TOML, YAML) y del motor regex.
+## Uso: pengu run tests/pengu/fuzz_parsers.pengu --no-cache -- 2000
+##
+## Genera entradas pseudoaleatorias y exige que ningún parser haga panic,
+## desborde la pila ni entre en un bucle infinito. No valida semántica.
+import std.spark
+import std.rites
+import std.builder
+import std.json
+import std.toml
+import std.yaml
+import std.regulus
+
+weave main into int:
+    var iterations as int is 2000
+    if calling rites.get_argc >= 2:
+        var a as string is calling rites.get_argv with 1
+        var parsed as maybe int is calling spark.parse_int with a
+        if parsed.is_present:
+            set iterations is parsed.value
+        banish parsed
+        banish a
+    var state as u64 is 0x9E3779B97F4A7C15
+    var i as int is 0
+    while i < iterations:
+        set state is state * 6364136223846793005 + 1442695040888963407
+        var length as int is ((state >> 33) % 257) to int
+        var sb as StringBuilder is calling StringBuilder.new
+        var j as int is 0
+        while j < length:
+            set state is state * 6364136223846793005 + 1442695040888963407
+            var b as int is ((state >> 17) & 0x7F) to int
+            calling sb.append_char with (b to char)
+            set j is j + 1
+        var raw as string is calling sb.finish
+        banish sb
+        var jr as result of json.JsonValue to json.JsonError is calling json.parse with raw
+        banish jr
+        var tr as result of list of toml.TomlEntry to string is calling toml.parse with raw
+        banish tr
+        var yr as result of list of yaml.YamlEntry to string is calling yaml.parse with raw
+        banish yr
+        var mr as result of bool to regulus.RegexError is calling regulus.is_match with "[a-z]+", raw
+        banish mr
+        banish raw
+        set i is i + 1
+        if i % 500 == 0:
+            calling spark.println with "fuzz parsers: {i}"
+    calling spark.println with "fuzz parsers ok: {iterations}"
+    return 0

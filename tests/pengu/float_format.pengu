@@ -1,0 +1,18 @@
+## Shortest round-trip float formatting and locale-independent dot.
+import std.spark
+import std.ward
+
+weave main into int:
+    var a as float is 0.1
+    var s as string is calling spark.str_float with a
+    calling ward.assert_eq_string with s, "0.1"
+    banish s
+    var b as f64 is 1.0 / 3.0
+    var t as string is b to string
+    calling ward.assert_eq_string with t, "0.3333333333333333"
+    banish t
+    var c as float is 1.0 / 3.0
+    var u as string is calling spark.str_float with c
+    calling ward.assert_eq_string with u, "0.33333334"
+    banish u
+    return 0

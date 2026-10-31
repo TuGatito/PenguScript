@@ -54,6 +54,23 @@ jobs:
         shell: bash
         run: ./tests/run.sh
 
+      - name: License allowlist
+        shell: bash
+        run: bash ./tools/license_check.sh
+
+      - name: Link pruning
+        shell: bash
+        run: bash ./tests/link_prune.sh
+
+      - name: Parser fuzz smoke
+        shell: bash
+        run: ./build/psc run tests/pengu/fuzz_parsers.pengu --no-cache -- 5000
+
+      - name: Binary size budget (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash ./tools/size_report.sh
+
       - name: LSP protocol tests
         shell: bash
         run: python3 tests/lsp/run_lsp_tests.py

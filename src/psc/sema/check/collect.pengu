@@ -458,6 +458,13 @@ weave collect_link with s as ref to state.SemaState, node as int, kind as pskind
         set s->symbols->has_includes is true
     else if kind == pskind.NodeKind.NdLinkStmt:
         calling s->symbols->links.push with (calling npool.copy_string with val)
+        # Un `.d.pengu` companion declara el `link` de su módulo dueño; el DCE
+        # marca vivo al dueño, no al companion. Se registra el dueño para que
+        # `--prune-native` no elimine el `-l` de un módulo que sí se usa.
+        var lid as int is s->module->id
+        if s->module->companion_for >= 0:
+            set lid is s->module->companion_for
+        calling s->symbols->link_modules.push with lid
     else:
         calling s->symbols->ldflags.push with (calling npool.copy_string with val)
 

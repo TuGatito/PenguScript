@@ -507,6 +507,7 @@ size_t cap = 256;
 if (in_len <= ((size_t)-1 - 64) / 3) cap = in_len * 3 + 64;
 if (cap < 256) cap = 256;
 if (cap > (size_t)(1u << 20)) cap = (size_t)(1u << 20);
+if (cap > (size_t)268435456) cap = (size_t)268435456;
 sds out = sdsnewlen(NULL, cap);
 if (!out) {
     mz_inflateEnd(&stream);
@@ -523,13 +524,15 @@ for (;;) {
         /* `PenguString.len` is a 32-bit int, so a larger output cannot be
          * returned; stop before the growth arithmetic can overflow. */
         size_t current = sdsalloc(out);
-        if (current >= (size_t)INT_MAX) {
+        if (current >= (size_t)INT_MAX || current >= (size_t)268435456) {
             sdsfree(out);
             mz_inflateEnd(&stream);
-            *status = MZ_PARAM_ERROR;
+            *status = -20000;
             return pengu_string_from_cstr("");
         }
-        sds grown = sdsMakeRoomFor(out, current);
+        size_t want = current * 2;
+        if (want > (size_t)268435456) want = (size_t)268435456;
+        sds grown = sdsMakeRoomFor(out, want - sdslen(out));
         if (!grown) {
             sdsfree(out);
             mz_inflateEnd(&stream);
@@ -651,6 +654,8 @@ return out;
 ## `context` names the operation for the `Internal` fallback, so an unexpected
 ## status still says *where* it happened.
 weave _error_from_status with status as int, context as string into CompressError:
+    if status == -20000:
+        return with Internal is with code is -20000, reason is "in-memory decompression exceeded 256 MiB"
     if status == -4:
         return AllocationFailed
     if status == -3:

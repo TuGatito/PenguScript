@@ -201,6 +201,9 @@ weave scan_word with lx as ref to psstate.LexerState into void:
     if calling range_equals with lx, start, end, "size":
         if calling try_compound_of with lx, start, start_line, start_col:
             return
+    if calling range_equals with lx, start, end, "align":
+        if calling try_compound_of with lx, start, start_line, start_col:
+            return
     var k as KeywordKind is calling keyword_range with lx, start, end
     if k == KwAntiquus:
         set lx->pending_antiquus is true
@@ -275,6 +278,8 @@ weave try_compound_of with lx as ref to psstate.LexerState, word_start as int, s
     var first as int is calling psstate.lex_byte_at with lx, word_start
     if first == 115:
         set kind is KwSizeOf
+    if first == 97:
+        set kind is KwAlignOf
     calling psstate.lex_advance_to with lx, lx->pos + off + 2
     calling psstate.lex_emit_token with lx, TokKeyword, kind, word_start, lx->pos, start_line, start_col, 0
     return true

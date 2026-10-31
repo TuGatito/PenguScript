@@ -1,0 +1,13 @@
+# Size fixture: miniz gzip round-trip.
+import std.compressus
+import std.spark
+
+weave main into int:
+    var packed as result of string to CompressError is calling compressus.gzip_compress with "hello hello hello", CompressionLevel.Default
+    if packed.is_ok:
+        var plain as result of string to CompressError is calling compressus.gzip_decompress with packed.value
+        if plain.is_ok:
+            calling println with plain.value
+        banish plain
+    banish packed
+    return 0

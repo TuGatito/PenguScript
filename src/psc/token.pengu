@@ -297,6 +297,8 @@ omen KeywordKind:
     KwTypeOf
     ## `size of` (token compuesto)
     KwSizeOf
+    ## `align of` (token compuesto)
+    KwAlignOf
 
 ## Un token léxico.
 ##
