@@ -2,6 +2,49 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.19.0] — 2026-10-31 — Ordenación O(n log n) con API tipada
+
+Sustituye la ordenación O(n²) de `std.tally` por un merge sort estable
+`O(n log n)` y hace explícita la API por tipo de elemento. Es un cambio de API
+deliberado: la ordenación deja de depender de `cmp` genérico y pasa a funciones
+de módulo tipadas, seguras en compilación.
+
+### Cambiado (ruptura de API)
+
+- **`std.tally` ordena con funciones tipadas de módulo.** Se eliminan
+  `sort_asc`/`sort_desc` (métodos y funciones de módulo genéricas) y
+  `is_sorted_asc`/`is_sorted_desc` genéricos. En su lugar:
+  `tally.sort_int_asc`, `tally.sort_int_desc`, `tally.sort_float_asc`,
+  `tally.sort_float_desc`, `tally.sort_f64_asc`, `tally.sort_f64_desc`,
+  `tally.sort_string_asc`, `tally.sort_string_desc`, y sus homólogos
+  `tally.is_sorted_<tipo>_asc/desc`.
+- Cada función recibe `l as list of T` y devuelve una lista nueva; el input no
+  se muta. El merge sort es estable, usa `O(n)` memoria auxiliar y `O(n log n)`
+  comparaciones.
+- Para `string` el orden es lexicográfico por bytes UTF-8 (`std.scrolls.compare`).
+
+### Corregido
+
+- **Resolución de métodos de `enchanting` sobre contenedores.** Los métodos
+  concretos de `enchanting list of <tipo>` podían resolverse contra un receptor
+  de otro tipo de elemento (por ejemplo `xs.sort_int_desc` sobre
+  `list of string`) y ejecutar código incorrecto. La nueva API de módulo evita
+  esa ruta; el bug de resolución queda registrado para una corrección futura
+  del compilador.
+- **Bug de alcance en merge sort.** `w` se declaraba dentro del bucle `while lo`
+  y la copia de vuelta quedaba fuera de su alcance (`undefined identifier 'w'`).
+  Ahora se declara en el alcance de `while width`.
+- **Copia inválida en funciones de módulo.** `for x in essence of l` emitía
+  `*l` sobre `PenguList`; se usa `for x in l`.
+
+### Pruebas
+
+- Nuevo `tests/pengu/sort_tally.pengu`: int, float, f64, string, listas de
+  5.000 elementos, input intacto y `is_sorted_*`.
+- Casos nuevos en los tests internos de `std/tally` para f64, string descendente,
+  1.000 elementos y `is_sorted` de strings.
+- Suite completa: **89/89** archivos PSC.
+
 ## [0.18.0] — 2026-10-31 — Enlace perezoso, endurecimiento y cierre de F2
 
 Cierra la fase F2 de la auditoría de runtime/std/std_c y consolida el

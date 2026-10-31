@@ -102,6 +102,7 @@ insignia tally_
 
 import std.spark
 import std.atlas
+import std.scrolls
 
 # --- Public constants ---------------------------------------------------
 
@@ -649,124 +650,6 @@ enchanting list of shard T where T: Donum and T: Ordered:
             set idx is idx + 1
         best_idx
 
-    ## Copy of `self` sorted ascending (insertion sort, O(n^2)).
-    ##
-    ## ## Parámetros
-    ## - None: the receiver is copied and sorted.
-    ##
-    ## ## Retorno
-    ## A new owned `list of T`; release it with `banish`. `self` is not mutated.
-    ##
-    ## ## Ejemplo
-    ## ```pengu
-    ## var xs as list of int is [3, 1, 2]
-    ## calling xs.sort_asc    # [1, 2, 3]
-    ## ```
-    weave sort_asc into list of T:
-        var out as list of T is for x in essence of self then x
-        let n as int is calling out.len
-        var i as int is 0
-        while i < n:
-            var j as int is i + 1
-            while j < n:
-                var left as T is out at j
-                var right as T is out at i
-                let c as int is calling left.cmp with right
-                if c < 0:
-                    let tmp as T is out at i
-                    set out at i is (out at j)
-                    set out at j is tmp
-                set j is j + 1
-            set i is i + 1
-        out
-
-    ## Copy of `self` sorted descending (insertion sort, O(n^2)).
-    ##
-    ## ## Parámetros
-    ## - None: the receiver is copied and sorted.
-    ##
-    ## ## Retorno
-    ## A new owned `list of T`; release it with `banish`. `self` is not mutated.
-    ##
-    ## ## Ejemplo
-    ## ```pengu
-    ## var xs as list of int is [3, 1, 2]
-    ## calling xs.sort_desc    # [3, 2, 1]
-    ## ```
-    weave sort_desc into list of T:
-        var out as list of T is for x in essence of self then x
-        let n as int is calling out.len
-        var i as int is 0
-        while i < n:
-            var j as int is i + 1
-            while j < n:
-                var left as T is out at j
-                var right as T is out at i
-                let c as int is calling left.cmp with right
-                if c > 0:
-                    let tmp as T is out at i
-                    set out at i is (out at j)
-                    set out at j is tmp
-                set j is j + 1
-            set i is i + 1
-        out
-
-    ## True when `self` is sorted in non-descending order.
-    ##
-    ## ## Parámetros
-    ## - None: the receiver is scanned once.
-    ##
-    ## ## Retorno
-    ## `true` for a list of zero or one elements, and whenever adjacent pairs
-    ## never decrease. Borrows the receiver.
-    ##
-    ## ## Ejemplo
-    ## ```pengu
-    ## var xs as list of int is [1, 2, 2]
-    ## calling xs.is_sorted_asc    # true
-    ## ```
-    weave is_sorted_asc into bool:
-        let n as int is calling self.len
-        if n <= 1:
-            return true
-        var i as int is 0
-        while i < (n - 1):
-            var a as T is self at i
-            var b as T is self at (i + 1)
-            let c as int is calling a.cmp with b
-            if c > 0:
-                return false
-            set i is i + 1
-        true
-
-    ## True when `self` is sorted in non-ascending order.
-    ##
-    ## ## Parámetros
-    ## - None: the receiver is scanned once.
-    ##
-    ## ## Retorno
-    ## `true` for a list of zero or one elements, and whenever adjacent pairs
-    ## never increase. Borrows the receiver.
-    ##
-    ## ## Ejemplo
-    ## ```pengu
-    ## var xs as list of int is [3, 2, 2]
-    ## calling xs.is_sorted_desc    # true
-    ## ```
-    weave is_sorted_desc into bool:
-        let n as int is calling self.len
-        if n <= 1:
-            return true
-        var i as int is 0
-        while i < (n - 1):
-            var a as T is self at i
-            var b as T is self at (i + 1)
-            let c as int is calling a.cmp with b
-            if c < 0:
-                return false
-            set i is i + 1
-        true
-
     ## First element strictly greater than `threshold`.
     ##
     ## ## Parámetros
@@ -1270,6 +1153,484 @@ enchanting list of int:
     ## ```
     weave clamp_all with lo as int is 0, hi as int is 100 into list of int:
         for x in essence of self then (if x < lo then lo else (if x > hi then hi else x))
+
+
+# --- Concrete sort specialisations (stable merge sort, O(n log n)) ---
+
+# --- Concrete sort module functions (stable merge sort, O(n log n)) ---
+
+## Stable merge sort of `list of int` (`asc`).
+weave sort_int_asc with l as list of int into list of int:
+    var out as list of int is for x in l then x
+    let n as int is calling out.len
+    if n < 2:
+        return out
+    var buf as list of int is for x in out then x
+    var width as int is 1
+    while width < n:
+        var w as int is 0
+        var lo as int is 0
+        while lo < n:
+            var mid as int is lo + width
+            if mid > n:
+                set mid is n
+            var hi as int is lo + width + width
+            if hi > n:
+                set hi is n
+            set w is lo
+            var a as int is lo
+            var b as int is mid
+            while a < mid and b < hi:
+                if (out at b) < (out at a):
+                    set buf at w is (out at b)
+                    set b is b + 1
+                else:
+                    set buf at w is (out at a)
+                    set a is a + 1
+                set w is w + 1
+            while a < mid:
+                set buf at w is (out at a)
+                set a is a + 1
+                set w is w + 1
+            while b < hi:
+                set buf at w is (out at b)
+                set b is b + 1
+                set w is w + 1
+            set lo is lo + width + width
+        set w is 0
+        while w < n:
+            set out at w is (buf at w)
+            set w is w + 1
+        set width is width + width
+    banish buf
+    return out
+
+## Stable merge sort of `list of int` (`desc`).
+weave sort_int_desc with l as list of int into list of int:
+    var out as list of int is for x in l then x
+    let n as int is calling out.len
+    if n < 2:
+        return out
+    var buf as list of int is for x in out then x
+    var width as int is 1
+    while width < n:
+        var w as int is 0
+        var lo as int is 0
+        while lo < n:
+            var mid as int is lo + width
+            if mid > n:
+                set mid is n
+            var hi as int is lo + width + width
+            if hi > n:
+                set hi is n
+            set w is lo
+            var a as int is lo
+            var b as int is mid
+            while a < mid and b < hi:
+                if (out at b) > (out at a):
+                    set buf at w is (out at b)
+                    set b is b + 1
+                else:
+                    set buf at w is (out at a)
+                    set a is a + 1
+                set w is w + 1
+            while a < mid:
+                set buf at w is (out at a)
+                set a is a + 1
+                set w is w + 1
+            while b < hi:
+                set buf at w is (out at b)
+                set b is b + 1
+                set w is w + 1
+            set lo is lo + width + width
+        set w is 0
+        while w < n:
+            set out at w is (buf at w)
+            set w is w + 1
+        set width is width + width
+    banish buf
+    return out
+
+## Stable merge sort of `list of float` (`asc`).
+weave sort_float_asc with l as list of float into list of float:
+    var out as list of float is for x in l then x
+    let n as int is calling out.len
+    if n < 2:
+        return out
+    var buf as list of float is for x in out then x
+    var width as int is 1
+    while width < n:
+        var w as int is 0
+        var lo as int is 0
+        while lo < n:
+            var mid as int is lo + width
+            if mid > n:
+                set mid is n
+            var hi as int is lo + width + width
+            if hi > n:
+                set hi is n
+            set w is lo
+            var a as int is lo
+            var b as int is mid
+            while a < mid and b < hi:
+                if (out at b) < (out at a):
+                    set buf at w is (out at b)
+                    set b is b + 1
+                else:
+                    set buf at w is (out at a)
+                    set a is a + 1
+                set w is w + 1
+            while a < mid:
+                set buf at w is (out at a)
+                set a is a + 1
+                set w is w + 1
+            while b < hi:
+                set buf at w is (out at b)
+                set b is b + 1
+                set w is w + 1
+            set lo is lo + width + width
+        set w is 0
+        while w < n:
+            set out at w is (buf at w)
+            set w is w + 1
+        set width is width + width
+    banish buf
+    return out
+
+## Stable merge sort of `list of float` (`desc`).
+weave sort_float_desc with l as list of float into list of float:
+    var out as list of float is for x in l then x
+    let n as int is calling out.len
+    if n < 2:
+        return out
+    var buf as list of float is for x in out then x
+    var width as int is 1
+    while width < n:
+        var w as int is 0
+        var lo as int is 0
+        while lo < n:
+            var mid as int is lo + width
+            if mid > n:
+                set mid is n
+            var hi as int is lo + width + width
+            if hi > n:
+                set hi is n
+            set w is lo
+            var a as int is lo
+            var b as int is mid
+            while a < mid and b < hi:
+                if (out at b) > (out at a):
+                    set buf at w is (out at b)
+                    set b is b + 1
+                else:
+                    set buf at w is (out at a)
+                    set a is a + 1
+                set w is w + 1
+            while a < mid:
+                set buf at w is (out at a)
+                set a is a + 1
+                set w is w + 1
+            while b < hi:
+                set buf at w is (out at b)
+                set b is b + 1
+                set w is w + 1
+            set lo is lo + width + width
+        set w is 0
+        while w < n:
+            set out at w is (buf at w)
+            set w is w + 1
+        set width is width + width
+    banish buf
+    return out
+
+## Stable merge sort of `list of f64` (`asc`).
+weave sort_f64_asc with l as list of f64 into list of f64:
+    var out as list of f64 is for x in l then x
+    let n as int is calling out.len
+    if n < 2:
+        return out
+    var buf as list of f64 is for x in out then x
+    var width as int is 1
+    while width < n:
+        var w as int is 0
+        var lo as int is 0
+        while lo < n:
+            var mid as int is lo + width
+            if mid > n:
+                set mid is n
+            var hi as int is lo + width + width
+            if hi > n:
+                set hi is n
+            set w is lo
+            var a as int is lo
+            var b as int is mid
+            while a < mid and b < hi:
+                if (out at b) < (out at a):
+                    set buf at w is (out at b)
+                    set b is b + 1
+                else:
+                    set buf at w is (out at a)
+                    set a is a + 1
+                set w is w + 1
+            while a < mid:
+                set buf at w is (out at a)
+                set a is a + 1
+                set w is w + 1
+            while b < hi:
+                set buf at w is (out at b)
+                set b is b + 1
+                set w is w + 1
+            set lo is lo + width + width
+        set w is 0
+        while w < n:
+            set out at w is (buf at w)
+            set w is w + 1
+        set width is width + width
+    banish buf
+    return out
+
+## Stable merge sort of `list of f64` (`desc`).
+weave sort_f64_desc with l as list of f64 into list of f64:
+    var out as list of f64 is for x in l then x
+    let n as int is calling out.len
+    if n < 2:
+        return out
+    var buf as list of f64 is for x in out then x
+    var width as int is 1
+    while width < n:
+        var w as int is 0
+        var lo as int is 0
+        while lo < n:
+            var mid as int is lo + width
+            if mid > n:
+                set mid is n
+            var hi as int is lo + width + width
+            if hi > n:
+                set hi is n
+            set w is lo
+            var a as int is lo
+            var b as int is mid
+            while a < mid and b < hi:
+                if (out at b) > (out at a):
+                    set buf at w is (out at b)
+                    set b is b + 1
+                else:
+                    set buf at w is (out at a)
+                    set a is a + 1
+                set w is w + 1
+            while a < mid:
+                set buf at w is (out at a)
+                set a is a + 1
+                set w is w + 1
+            while b < hi:
+                set buf at w is (out at b)
+                set b is b + 1
+                set w is w + 1
+            set lo is lo + width + width
+        set w is 0
+        while w < n:
+            set out at w is (buf at w)
+            set w is w + 1
+        set width is width + width
+    banish buf
+    return out
+
+## Stable merge sort of `list of string` (`asc`).
+weave sort_string_asc with l as list of string into list of string:
+    var out as list of string is for x in l then x
+    let n as int is calling out.len
+    if n < 2:
+        return out
+    var buf as list of string is for x in out then x
+    var width as int is 1
+    while width < n:
+        var w as int is 0
+        var lo as int is 0
+        while lo < n:
+            var mid as int is lo + width
+            if mid > n:
+                set mid is n
+            var hi as int is lo + width + width
+            if hi > n:
+                set hi is n
+            set w is lo
+            var a as int is lo
+            var b as int is mid
+            while a < mid and b < hi:
+                if calling _string_less with (out at b), (out at a):
+                    set buf at w is (out at b)
+                    set b is b + 1
+                else:
+                    set buf at w is (out at a)
+                    set a is a + 1
+                set w is w + 1
+            while a < mid:
+                set buf at w is (out at a)
+                set a is a + 1
+                set w is w + 1
+            while b < hi:
+                set buf at w is (out at b)
+                set b is b + 1
+                set w is w + 1
+            set lo is lo + width + width
+        set w is 0
+        while w < n:
+            set out at w is (buf at w)
+            set w is w + 1
+        set width is width + width
+    banish buf
+    return out
+
+## Stable merge sort of `list of string` (`desc`).
+weave sort_string_desc with l as list of string into list of string:
+    var out as list of string is for x in l then x
+    let n as int is calling out.len
+    if n < 2:
+        return out
+    var buf as list of string is for x in out then x
+    var width as int is 1
+    while width < n:
+        var w as int is 0
+        var lo as int is 0
+        while lo < n:
+            var mid as int is lo + width
+            if mid > n:
+                set mid is n
+            var hi as int is lo + width + width
+            if hi > n:
+                set hi is n
+            set w is lo
+            var a as int is lo
+            var b as int is mid
+            while a < mid and b < hi:
+                if calling _string_greater with (out at b), (out at a):
+                    set buf at w is (out at b)
+                    set b is b + 1
+                else:
+                    set buf at w is (out at a)
+                    set a is a + 1
+                set w is w + 1
+            while a < mid:
+                set buf at w is (out at a)
+                set a is a + 1
+                set w is w + 1
+            while b < hi:
+                set buf at w is (out at b)
+                set b is b + 1
+                set w is w + 1
+            set lo is lo + width + width
+        set w is 0
+        while w < n:
+            set out at w is (buf at w)
+            set w is w + 1
+        set width is width + width
+    banish buf
+    return out
+
+
+## Strict lexicographic order for `string` (UTF-8 bytes).
+weave _string_less with a as string, b as string into bool:
+    return (calling scrolls.compare with a, b) < 0
+
+## Strict reverse-lexicographic order for `string`.
+weave _string_greater with a as string, b as string into bool:
+    return (calling scrolls.compare with a, b) > 0
+
+## True when `l` is non-decreasing.
+weave is_sorted_int_asc with l as list of int into bool:
+    let n as int is calling l.len
+    if n < 2:
+        return true
+    var i as int is 0
+    while i < n - 1:
+        if (l at (i + 1)) < (l at i):
+            return false
+        set i is i + 1
+    return true
+
+## True when `l` is non-increasing.
+weave is_sorted_int_desc with l as list of int into bool:
+    let n as int is calling l.len
+    if n < 2:
+        return true
+    var i as int is 0
+    while i < n - 1:
+        if (l at (i + 1)) > (l at i):
+            return false
+        set i is i + 1
+    return true
+
+## True when `l` is non-decreasing.
+weave is_sorted_float_asc with l as list of float into bool:
+    let n as int is calling l.len
+    if n < 2:
+        return true
+    var i as int is 0
+    while i < n - 1:
+        if (l at (i + 1)) < (l at i):
+            return false
+        set i is i + 1
+    return true
+
+## True when `l` is non-increasing.
+weave is_sorted_float_desc with l as list of float into bool:
+    let n as int is calling l.len
+    if n < 2:
+        return true
+    var i as int is 0
+    while i < n - 1:
+        if (l at (i + 1)) > (l at i):
+            return false
+        set i is i + 1
+    return true
+
+## True when `l` is non-decreasing.
+weave is_sorted_f64_asc with l as list of f64 into bool:
+    let n as int is calling l.len
+    if n < 2:
+        return true
+    var i as int is 0
+    while i < n - 1:
+        if (l at (i + 1)) < (l at i):
+            return false
+        set i is i + 1
+    return true
+
+## True when `l` is non-increasing.
+weave is_sorted_f64_desc with l as list of f64 into bool:
+    let n as int is calling l.len
+    if n < 2:
+        return true
+    var i as int is 0
+    while i < n - 1:
+        if (l at (i + 1)) > (l at i):
+            return false
+        set i is i + 1
+    return true
+
+## True when `l` is non-decreasing (UTF-8 byte order).
+weave is_sorted_string_asc with l as list of string into bool:
+    let n as int is calling l.len
+    if n < 2:
+        return true
+    var i as int is 0
+    while i < n - 1:
+        if calling _string_less with (l at (i + 1)), (l at i):
+            return false
+        set i is i + 1
+    return true
+
+## True when `l` is non-increasing (UTF-8 byte order).
+weave is_sorted_string_desc with l as list of string into bool:
+    let n as int is calling l.len
+    if n < 2:
+        return true
+    var i as int is 0
+    while i < n - 1:
+        if calling _string_greater with (l at (i + 1)), (l at i):
+            return false
+        set i is i + 1
+    return true
 
 # --- Module functions (generic over `list of shard T`) -------------------
 
@@ -2002,70 +2363,6 @@ weave reverse shard T with l as list of T into list of T:
         set i is i + 1
     return out
 
-## Functional form of `sort_asc`: ascending copy.
-##
-## ## Parámetros
-## - `l`: the list to copy. Read only.
-##
-## ## Retorno
-## A new owned `list of T` sorted ascending; release it with `banish`. `l` is
-## not mutated.
-##
-## ## Ejemplo
-## ```pengu
-## var xs as list of int is [3, 1, 2]
-## calling sort_asc with xs    # [1, 2, 3]
-## ```
-weave sort_asc shard T where T: Ordered with l as list of T into list of T:
-    var out as list of T is for x in l then x
-    let n as int is calling out.len
-    var i as int is 0
-    while i < n:
-        var j as int is i + 1
-        while j < n:
-            var left as T is out at j
-            var right as T is out at i
-            let c as int is calling left.cmp with right
-            if c < 0:
-                let tmp as T is out at i
-                set out at i is (out at j)
-                set out at j is tmp
-            set j is j + 1
-        set i is i + 1
-    return out
-
-## Functional form of `sort_desc`: descending copy.
-##
-## ## Parámetros
-## - `l`: the list to copy. Read only.
-##
-## ## Retorno
-## A new owned `list of T` sorted descending; release it with `banish`. `l` is
-## not mutated.
-##
-## ## Ejemplo
-## ```pengu
-## var xs as list of int is [3, 1, 2]
-## calling sort_desc with xs    # [3, 2, 1]
-## ```
-weave sort_desc shard T where T: Ordered with l as list of T into list of T:
-    var out as list of T is for x in l then x
-    let n as int is calling out.len
-    var i as int is 0
-    while i < n:
-        var j as int is i + 1
-        while j < n:
-            var left as T is out at j
-            var right as T is out at i
-            let c as int is calling left.cmp with right
-            if c > 0:
-                let tmp as T is out at i
-                set out at i is (out at j)
-                set out at j is tmp
-            set j is j + 1
-        set i is i + 1
-    return out
-
 ## Functional form of `unique`: copy without duplicates.
 ##
 ## ## Parámetros
@@ -2275,60 +2572,6 @@ weave slice_list shard T with l as list of T, start as int, end_idx as int into 
         calling idxs.push with i
         set i is i + 1
     return for j in idxs then (l at j)
-
-## Functional form of `is_sorted_asc`: non-descending order test.
-##
-## ## Parámetros
-## - `l`: the list to scan. Read only.
-##
-## ## Retorno
-## `true` when `l` never decreases. Borrows `l`.
-##
-## ## Ejemplo
-## ```pengu
-## var xs as list of int is [1, 2, 3]
-## calling is_sorted_asc with xs    # true
-## ```
-weave is_sorted_asc shard T where T: Ordered with l as list of T into bool:
-    let n as int is calling l.len
-    if n <= 1:
-        return true
-    var i as int is 0
-    while i < (n - 1):
-        var a as T is l at i
-        var b as T is l at (i + 1)
-        let c as int is calling a.cmp with b
-        if c > 0:
-            return false
-        set i is i + 1
-    return true
-
-## Functional form of `is_sorted_desc`: non-ascending order test.
-##
-## ## Parámetros
-## - `l`: the list to scan. Read only.
-##
-## ## Retorno
-## `true` when `l` never increases. Borrows `l`.
-##
-## ## Ejemplo
-## ```pengu
-## var xs as list of int is [3, 2, 1]
-## calling is_sorted_desc with xs    # true
-## ```
-weave is_sorted_desc shard T where T: Ordered with l as list of T into bool:
-    let n as int is calling l.len
-    if n <= 1:
-        return true
-    var i as int is 0
-    while i < (n - 1):
-        var a as T is l at i
-        var b as T is l at (i + 1)
-        let c as int is calling a.cmp with b
-        if c < 0:
-            return false
-        set i is i + 1
-    return true
 
 ## Functional form of `all_positive`: strict positivity test.
 ##
@@ -3233,21 +3476,47 @@ test "reverse returns a reversed copy":
     let _a51 as list of int is [3, 1, 4, 1, 5]
     let out as list of int is calling reverse with _a51
     calling _expect_eq_int with (out at 0), 5, "reverse first"
-test "sort_asc sorts ascending without mutating the input":
+test "sort_int_asc sorts ascending without mutating the input":
     let _a52 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling sort_asc with _a52
-    calling _expect_eq_int with (out at 0), 1, "sort_asc first"
-    calling _expect_eq_int with (_a52 at 0), 3, "sort_asc input intact"
-test "sort_desc sorts descending":
+    let out as list of int is calling sort_int_asc with _a52
+    calling _expect_eq_int with (out at 0), 1, "sort_int_asc first"
+    calling _expect_eq_int with (_a52 at 0), 3, "sort_int_asc input intact"
+test "sort_int_desc sorts descending":
     let _a53 as list of int is [3, 1, 4, 1, 5]
-    let out as list of int is calling sort_desc with _a53
-    calling _expect_eq_int with (out at 0), 5, "sort_desc first"
-test "sort_asc and sort_desc are generic over float":
+    let out as list of int is calling sort_int_desc with _a53
+    calling _expect_eq_int with (out at 0), 5, "sort_int_desc first"
+test "sort_float_asc and sort_float_desc order floats":
     let fs as list of float is [2.5, -1.5, 4.5]
-    let up as list of float is calling fs.sort_asc
-    let down as list of float is calling fs.sort_desc
-    calling _expect_eq_float with (up at 0), -1.5, "float sort_asc"
-    calling _expect_eq_float with (down at 0), 4.5, "float sort_desc"
+    let up as list of float is calling fs.sort_float_asc
+    let down as list of float is calling fs.sort_float_desc
+    calling _expect_eq_float with (up at 0), -1.5, "float sort_float_asc"
+    calling _expect_eq_float with (down at 0), 4.5, "float sort_float_desc"
+test "sort_f64_asc sorts 64-bit floats":
+    let xs as list of f64 is [2.5, -1.5, 4.5]
+    let out as list of f64 is calling sort_f64_asc with xs
+    calling _expect with (out at 0) < -1.0, "f64 sort first"
+    calling _expect with (out at 2) > 4.0, "f64 sort last"
+test "sort_string_desc sorts strings in reverse order":
+    let ws as list of string is ["b", "a", "c"]
+    let out as list of string is calling sort_string_desc with ws
+    calling _expect with (out at 0) == "c", "string desc first"
+    calling _expect with (out at 2) == "a", "string desc last"
+test "the 1000-element sort stays ordered":
+    var xs as list of int is list of int
+    var i as int is 0
+    while i < 1000:
+        calling xs.push with ((i * 37) % 1000)
+        set i is i + 1
+    let out as list of int is calling sort_int_asc with xs
+    calling _expect with (calling is_sorted_int_asc with out), "1000 sorted asc"
+    calling _expect with (out at 0) == 0, "1000 first"
+    calling _expect with (out at 999) == 999, "1000 last"
+test "is_sorted methods work for strings":
+    let good as list of string is ["a", "b", "c"]
+    let bad as list of string is ["b", "a"]
+    calling _expect with (calling is_sorted_string_asc with good), "string sorted asc"
+    calling _expect with (calling is_sorted_string_asc with bad) == false, "string not sorted asc"
+    calling _expect with (calling is_sorted_string_desc with bad), "string sorted desc"
 test "unique removes duplicates keeping the order":
     let _a54 as list of int is [3, 1, 4, 1, 5]
     let out as list of int is calling unique with _a54
@@ -3276,14 +3545,14 @@ test "clamp_all uses the default range [0, 100]":
     let out as list of int is calling clamp_all with _a59
     calling _expect_eq_int with (out at 0), 0, "clamp default low"
     calling _expect_eq_int with (out at 1), 100, "clamp default high"
-test "is_sorted_asc detects unsorted and sorted lists":
+test "is_sorted_int_asc detects unsorted and sorted lists":
     let _a60 as list of int is [3, 1, 2]
     let _a61 as list of int is [1, 2, 3]
-    calling _expect_eq_bool with (calling is_sorted_asc with _a60), false, "not sorted asc"
-    calling _expect_eq_bool with (calling is_sorted_asc with _a61), true, "sorted asc"
-test "is_sorted_desc detects descending order":
+    calling _expect_eq_bool with (calling is_sorted_int_asc with _a60), false, "not sorted asc"
+    calling _expect_eq_bool with (calling is_sorted_int_asc with _a61), true, "sorted asc"
+test "is_sorted_int_desc detects descending order":
     let _a62 as list of int is [3, 2, 1]
-    calling _expect_eq_bool with (calling is_sorted_desc with _a62), true, "sorted desc"
+    calling _expect_eq_bool with (calling is_sorted_int_desc with _a62), true, "sorted desc"
 test "the map_square, map_negate and map_add_scalar methods transform":
     let xs as list of int is [3, -1]
     let sq as list of int is calling xs.map_square
@@ -3372,9 +3641,9 @@ test "all_in_range checks the inclusive range":
 test "the is_sorted methods inspect the order":
     let up as list of int is [1, 2, 3]
     let down as list of int is [3, 2, 1]
-    calling _expect_eq_bool with (calling up.is_sorted_asc), true, "method sorted asc"
-    calling _expect_eq_bool with (calling down.is_sorted_desc), true, "method sorted desc"
-    calling _expect_eq_bool with (calling up.is_sorted_desc), false, "method not sorted desc"
+    calling _expect_eq_bool with (calling is_sorted_int_asc with up), true, "method sorted asc"
+    calling _expect_eq_bool with (calling is_sorted_int_desc with down), true, "method sorted desc"
+    calling _expect_eq_bool with (calling is_sorted_int_desc with up), false, "method not sorted desc"
 test "the all_positive and any_negative methods scan the sign":
     let pos as list of int is [3, 1]
     let mixed as list of int is [3, -1]
@@ -3639,13 +3908,13 @@ test "the max_val module function orders strings":
 test "the min_val module function orders strings":
     let ws as list of string is ["b", "a", "c"]
     calling _expect with (calling min_val with ws) == "a", "module min_val string"
-test "the sort_asc module function sorts strings":
+test "sort_string_asc sorts strings":
     let ws as list of string is ["b", "a", "c"]
-    let out as list of string is calling sort_asc with ws
+    let out as list of string is calling sort_string_asc with ws
     let first_word as string is out at 0
     let last_word as string is out at 2
-    calling _expect with first_word == "a", "module sort_asc string first"
-    calling _expect with last_word == "c", "module sort_asc string last"
+    calling _expect with first_word == "a", "module sort_string_asc first"
+    calling _expect with last_word == "c", "module sort_string_asc last"
 test "the filter_even module function keeps i64 parity":
     let ls as list of i64 is [1, 2, 3, 4]
     let evens as list of i64 is calling filter_even with ls
@@ -3683,10 +3952,10 @@ test "the root sum module function reduces floats":
 test "the root max_val module function orders strings":
     let ws as list of string is ["b", "a", "c"]
     calling _expect with (calling max_val with ws) == "c", "root max_val string"
-test "the root sort_asc module function sorts strings":
+test "the root sort_string_asc module function sorts strings":
     let ws as list of string is ["b", "a", "c"]
-    let out as list of string is calling sort_asc with ws
-    calling _expect with (out at 0) == "a", "root sort_asc string"
+    let out as list of string is calling sort_string_asc with ws
+    calling _expect with (out at 0) == "a", "root sort_string_asc string"
 test "the root at_or_shard module function returns its default":
     let ws as list of string is ["a"]
     let missing as string is calling at_or_shard with ws, 9, "?"

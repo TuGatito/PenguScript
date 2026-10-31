@@ -5734,28 +5734,29 @@ void main_print_help(void);
 void main_print_check_help(void);
 void main_print_emit_c_help(void);
 void main_print_lex_help(void);
-void memoria_copy_inst3262(uint8_t* dst, const uint8_t* src, size_t n);
-JsonEntry* arena_arena_alloc_inst3263(Arena* a, int32_t n);
-SemaProgram* memoria_alloc_inst3264(void);
-SemaResult* memoria_alloc_inst3265(void);
-int32_t list_sum_inst3266(PenguList* self);
-int32_t map_size_inst3267(PenguMap* self);
-int32_t map_size_inst3268(PenguMap* self);
-int32_t map_size_inst3269(PenguMap* self);
-int32_t map_size_inst3270(PenguMap* self);
-int32_t map_size_inst3271(PenguMap* self);
-int32_t map_size_inst3272(PenguMap* self);
-float list_sum_inst3273(PenguList* self);
-size_t list_sum_inst3274(PenguList* self);
-int32_t map_size_inst3275(PenguMap* self);
-int32_t map_size_inst3276(PenguMap* self);
+void memoria_copy_inst3272(uint8_t* dst, const uint8_t* src, size_t n);
+JsonEntry* arena_arena_alloc_inst3273(Arena* a, int32_t n);
+SemaProgram* memoria_alloc_inst3274(void);
+SemaResult* memoria_alloc_inst3275(void);
+int32_t list_sum_inst3276(PenguList* self);
 int32_t map_size_inst3277(PenguMap* self);
-int64_t list_sum_inst3278(PenguList* self);
+int32_t map_size_inst3278(PenguMap* self);
 int32_t map_size_inst3279(PenguMap* self);
-int32_t list_sum_inst3280(PenguList* self);
+int32_t map_size_inst3280(PenguMap* self);
 int32_t map_size_inst3281(PenguMap* self);
 int32_t map_size_inst3282(PenguMap* self);
-char list_sum_inst3283(PenguList* self);
+float list_sum_inst3283(PenguList* self);
+double list_sum_inst3284(PenguList* self);
+size_t list_sum_inst3285(PenguList* self);
+int32_t map_size_inst3286(PenguMap* self);
+int32_t map_size_inst3287(PenguMap* self);
+int32_t map_size_inst3288(PenguMap* self);
+int64_t list_sum_inst3289(PenguList* self);
+int32_t map_size_inst3290(PenguMap* self);
+int32_t list_sum_inst3291(PenguList* self);
+int32_t map_size_inst3292(PenguMap* self);
+int32_t map_size_inst3293(PenguMap* self);
+char list_sum_inst3294(PenguList* self);
 
 
 #line 111 "std/io.pengu"
@@ -31501,7 +31502,7 @@ bool sema_ast_label_text_in_range(SourceFile* src, LexResult* lex, PsAst* ast, P
 SemaProgram* sema_program_new_program(SemaOptions options) {
     (void)options;
     #line 58 "src/psc/sema/modules/program.pengu"
-    SemaProgram* p = memoria_alloc_inst3264();
+    SemaProgram* p = memoria_alloc_inst3274();
     (void)p;
     #line 59 "src/psc/sema/modules/program.pengu"
     p->options = options;
@@ -84582,7 +84583,7 @@ SemaResult* psc_lsp_server_check_document(State* st, PenguString document_uri, P
     #line 215 "src/psc/lsp/server.pengu"
     pengu_banish_string(&(path));
     #line 216 "src/psc/lsp/server.pengu"
-    SemaResult* sp = memoria_alloc_inst3265();
+    SemaResult* sp = memoria_alloc_inst3275();
     (void)sp;
     #line 217 "src/psc/lsp/server.pengu"
     (*( sp)) = sr;
@@ -84969,7 +84970,7 @@ JsonValue psc_lsp_server_initialize_result(void) {
     #line 387 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(info), pengu_string_from_cstr("name"), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr("psc")))));
     #line 388 "src/psc/lsp/server.pengu"
-    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr("version"), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr("0.18.0")))));
+    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr("version"), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr("0.19.0")))));
     #line 389 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(out), pengu_string_from_cstr("serverInfo"), info));
     #line 390 "src/psc/lsp/server.pengu"
@@ -93684,7 +93685,7 @@ int32_t main_dispatch(PenguList args) {
     #line 106 "src/main.pengu"
     if ((pengu_string_equal(cmd, pengu_string_from_cstr("version")) || pengu_string_equal(cmd, pengu_string_from_cstr("--version"))) || pengu_string_equal(cmd, pengu_string_from_cstr("-V"))) {
         #line 107 "src/main.pengu"
-        (void)(spark_println(pengu_string_from_cstr("psc 0.18.0 (F13)")));
+        (void)(spark_println(pengu_string_from_cstr("psc 0.19.0 (F13)")));
         #line 108 "src/main.pengu"
         return 0;
     }
@@ -95300,7 +95301,7 @@ bool main_starts_dash(PenguString s) {
 #line 807 "src/main.pengu"
 void main_print_help(void) {
     #line 808 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr("psc 0.18.0 \xe2\x80\x94 PenguScript compiler")));
+    (void)(spark_println(pengu_string_from_cstr("psc 0.19.0 \xe2\x80\x94 PenguScript compiler")));
     #line 809 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr("")));
     #line 810 "src/main.pengu"
@@ -95470,7 +95471,7 @@ void main_print_lex_help(void) {
 }
 
 #line 267 "std/memoria.pengu"
-void memoria_copy_inst3262(uint8_t* dst, const uint8_t* src, size_t n) {
+void memoria_copy_inst3272(uint8_t* dst, const uint8_t* src, size_t n) {
     (void)dst;
     (void)src;
     (void)n;
@@ -95479,7 +95480,7 @@ void memoria_copy_inst3262(uint8_t* dst, const uint8_t* src, size_t n) {
 }
 
 #line 508 "std/arena.pengu"
-JsonEntry* arena_arena_alloc_inst3263(Arena* a, int32_t n) {
+JsonEntry* arena_arena_alloc_inst3273(Arena* a, int32_t n) {
     (void)a;
     (void)n;
     #line 509 "std/arena.pengu"
@@ -95501,108 +95502,30 @@ JsonEntry* arena_arena_alloc_inst3263(Arena* a, int32_t n) {
 }
 
 #line 140 "std/memoria.pengu"
-SemaProgram* memoria_alloc_inst3264(void) {
+SemaProgram* memoria_alloc_inst3274(void) {
     #line 141 "std/memoria.pengu"
     return pengu_memoria_alloc(((size_t)sizeof(SemaProgram)));
 }
 
 #line 140 "std/memoria.pengu"
-SemaResult* memoria_alloc_inst3265(void) {
+SemaResult* memoria_alloc_inst3275(void) {
     #line 141 "std/memoria.pengu"
     return pengu_memoria_alloc(((size_t)sizeof(SemaResult)));
 }
 
-#line 309 "std/tally.pengu"
-int32_t list_sum_inst3266(PenguList* self) {
-    #line 310 "std/tally.pengu"
+#line 310 "std/tally.pengu"
+int32_t list_sum_inst3276(PenguList* self) {
+    #line 311 "std/tally.pengu"
     int32_t acc = (int32_t){0};
     (void)acc;
-    #line 311 "std/tally.pengu"
+    #line 312 "std/tally.pengu"
     PenguList _lst1821 = (*( self));
     for (int _li1822 = 0; _li1822 < _lst1821.len; _li1822++) {
         int32_t x = (*( int32_t*)pengu_list_at(&_lst1821, _li1822));
-        #line 312 "std/tally.pengu"
+        #line 313 "std/tally.pengu"
         acc = (acc + x);
     }
     return acc;
-}
-
-#line 317 "std/atlas.pengu"
-int32_t map_size_inst3267(PenguMap* self) {
-    #line 318 "std/atlas.pengu"
-    return ((*( self))).len;
-}
-
-#line 317 "std/atlas.pengu"
-int32_t map_size_inst3268(PenguMap* self) {
-    #line 318 "std/atlas.pengu"
-    return ((*( self))).len;
-}
-
-#line 317 "std/atlas.pengu"
-int32_t map_size_inst3269(PenguMap* self) {
-    #line 318 "std/atlas.pengu"
-    return ((*( self))).len;
-}
-
-#line 317 "std/atlas.pengu"
-int32_t map_size_inst3270(PenguMap* self) {
-    #line 318 "std/atlas.pengu"
-    return ((*( self))).len;
-}
-
-#line 317 "std/atlas.pengu"
-int32_t map_size_inst3271(PenguMap* self) {
-    #line 318 "std/atlas.pengu"
-    return ((*( self))).len;
-}
-
-#line 317 "std/atlas.pengu"
-int32_t map_size_inst3272(PenguMap* self) {
-    #line 318 "std/atlas.pengu"
-    return ((*( self))).len;
-}
-
-#line 309 "std/tally.pengu"
-float list_sum_inst3273(PenguList* self) {
-    #line 310 "std/tally.pengu"
-    float acc = (float){0};
-    (void)acc;
-    #line 311 "std/tally.pengu"
-    PenguList _lst1823 = (*( self));
-    for (int _li1824 = 0; _li1824 < _lst1823.len; _li1824++) {
-        float x = (*( float*)pengu_list_at(&_lst1823, _li1824));
-        #line 312 "std/tally.pengu"
-        acc = (acc + x);
-    }
-    return acc;
-}
-
-#line 309 "std/tally.pengu"
-size_t list_sum_inst3274(PenguList* self) {
-    #line 310 "std/tally.pengu"
-    size_t acc = (size_t){0};
-    (void)acc;
-    #line 311 "std/tally.pengu"
-    PenguList _lst1825 = (*( self));
-    for (int _li1826 = 0; _li1826 < _lst1825.len; _li1826++) {
-        size_t x = (*( size_t*)pengu_list_at(&_lst1825, _li1826));
-        #line 312 "std/tally.pengu"
-        acc = (acc + x);
-    }
-    return acc;
-}
-
-#line 317 "std/atlas.pengu"
-int32_t map_size_inst3275(PenguMap* self) {
-    #line 318 "std/atlas.pengu"
-    return ((*( self))).len;
-}
-
-#line 317 "std/atlas.pengu"
-int32_t map_size_inst3276(PenguMap* self) {
-    #line 318 "std/atlas.pengu"
-    return ((*( self))).len;
 }
 
 #line 317 "std/atlas.pengu"
@@ -95611,19 +95534,10 @@ int32_t map_size_inst3277(PenguMap* self) {
     return ((*( self))).len;
 }
 
-#line 309 "std/tally.pengu"
-int64_t list_sum_inst3278(PenguList* self) {
-    #line 310 "std/tally.pengu"
-    int64_t acc = (int64_t){0};
-    (void)acc;
-    #line 311 "std/tally.pengu"
-    PenguList _lst1827 = (*( self));
-    for (int _li1828 = 0; _li1828 < _lst1827.len; _li1828++) {
-        int64_t x = (*( int64_t*)pengu_list_at(&_lst1827, _li1828));
-        #line 312 "std/tally.pengu"
-        acc = (acc + x);
-    }
-    return acc;
+#line 317 "std/atlas.pengu"
+int32_t map_size_inst3278(PenguMap* self) {
+    #line 318 "std/atlas.pengu"
+    return ((*( self))).len;
 }
 
 #line 317 "std/atlas.pengu"
@@ -95632,19 +95546,10 @@ int32_t map_size_inst3279(PenguMap* self) {
     return ((*( self))).len;
 }
 
-#line 309 "std/tally.pengu"
-int32_t list_sum_inst3280(PenguList* self) {
-    #line 310 "std/tally.pengu"
-    int32_t acc = (int32_t){0};
-    (void)acc;
-    #line 311 "std/tally.pengu"
-    PenguList _lst1829 = (*( self));
-    for (int _li1830 = 0; _li1830 < _lst1829.len; _li1830++) {
-        int32_t x = (*( int32_t*)pengu_list_at(&_lst1829, _li1830));
-        #line 312 "std/tally.pengu"
-        acc = (acc + x);
-    }
-    return acc;
+#line 317 "std/atlas.pengu"
+int32_t map_size_inst3280(PenguMap* self) {
+    #line 318 "std/atlas.pengu"
+    return ((*( self))).len;
 }
 
 #line 317 "std/atlas.pengu"
@@ -95659,16 +95564,127 @@ int32_t map_size_inst3282(PenguMap* self) {
     return ((*( self))).len;
 }
 
-#line 309 "std/tally.pengu"
-char list_sum_inst3283(PenguList* self) {
-    #line 310 "std/tally.pengu"
-    char acc = (char){0};
-    (void)acc;
+#line 310 "std/tally.pengu"
+float list_sum_inst3283(PenguList* self) {
     #line 311 "std/tally.pengu"
+    float acc = (float){0};
+    (void)acc;
+    #line 312 "std/tally.pengu"
+    PenguList _lst1823 = (*( self));
+    for (int _li1824 = 0; _li1824 < _lst1823.len; _li1824++) {
+        float x = (*( float*)pengu_list_at(&_lst1823, _li1824));
+        #line 313 "std/tally.pengu"
+        acc = (acc + x);
+    }
+    return acc;
+}
+
+#line 310 "std/tally.pengu"
+double list_sum_inst3284(PenguList* self) {
+    #line 311 "std/tally.pengu"
+    double acc = (double){0};
+    (void)acc;
+    #line 312 "std/tally.pengu"
+    PenguList _lst1825 = (*( self));
+    for (int _li1826 = 0; _li1826 < _lst1825.len; _li1826++) {
+        double x = (*( double*)pengu_list_at(&_lst1825, _li1826));
+        #line 313 "std/tally.pengu"
+        acc = (acc + x);
+    }
+    return acc;
+}
+
+#line 310 "std/tally.pengu"
+size_t list_sum_inst3285(PenguList* self) {
+    #line 311 "std/tally.pengu"
+    size_t acc = (size_t){0};
+    (void)acc;
+    #line 312 "std/tally.pengu"
+    PenguList _lst1827 = (*( self));
+    for (int _li1828 = 0; _li1828 < _lst1827.len; _li1828++) {
+        size_t x = (*( size_t*)pengu_list_at(&_lst1827, _li1828));
+        #line 313 "std/tally.pengu"
+        acc = (acc + x);
+    }
+    return acc;
+}
+
+#line 317 "std/atlas.pengu"
+int32_t map_size_inst3286(PenguMap* self) {
+    #line 318 "std/atlas.pengu"
+    return ((*( self))).len;
+}
+
+#line 317 "std/atlas.pengu"
+int32_t map_size_inst3287(PenguMap* self) {
+    #line 318 "std/atlas.pengu"
+    return ((*( self))).len;
+}
+
+#line 317 "std/atlas.pengu"
+int32_t map_size_inst3288(PenguMap* self) {
+    #line 318 "std/atlas.pengu"
+    return ((*( self))).len;
+}
+
+#line 310 "std/tally.pengu"
+int64_t list_sum_inst3289(PenguList* self) {
+    #line 311 "std/tally.pengu"
+    int64_t acc = (int64_t){0};
+    (void)acc;
+    #line 312 "std/tally.pengu"
+    PenguList _lst1829 = (*( self));
+    for (int _li1830 = 0; _li1830 < _lst1829.len; _li1830++) {
+        int64_t x = (*( int64_t*)pengu_list_at(&_lst1829, _li1830));
+        #line 313 "std/tally.pengu"
+        acc = (acc + x);
+    }
+    return acc;
+}
+
+#line 317 "std/atlas.pengu"
+int32_t map_size_inst3290(PenguMap* self) {
+    #line 318 "std/atlas.pengu"
+    return ((*( self))).len;
+}
+
+#line 310 "std/tally.pengu"
+int32_t list_sum_inst3291(PenguList* self) {
+    #line 311 "std/tally.pengu"
+    int32_t acc = (int32_t){0};
+    (void)acc;
+    #line 312 "std/tally.pengu"
     PenguList _lst1831 = (*( self));
     for (int _li1832 = 0; _li1832 < _lst1831.len; _li1832++) {
-        char x = (*( char*)pengu_list_at(&_lst1831, _li1832));
-        #line 312 "std/tally.pengu"
+        int32_t x = (*( int32_t*)pengu_list_at(&_lst1831, _li1832));
+        #line 313 "std/tally.pengu"
+        acc = (acc + x);
+    }
+    return acc;
+}
+
+#line 317 "std/atlas.pengu"
+int32_t map_size_inst3292(PenguMap* self) {
+    #line 318 "std/atlas.pengu"
+    return ((*( self))).len;
+}
+
+#line 317 "std/atlas.pengu"
+int32_t map_size_inst3293(PenguMap* self) {
+    #line 318 "std/atlas.pengu"
+    return ((*( self))).len;
+}
+
+#line 310 "std/tally.pengu"
+char list_sum_inst3294(PenguList* self) {
+    #line 311 "std/tally.pengu"
+    char acc = (char){0};
+    (void)acc;
+    #line 312 "std/tally.pengu"
+    PenguList _lst1833 = (*( self));
+    for (int _li1834 = 0; _li1834 < _lst1833.len; _li1834++) {
+        char x = (*( char*)pengu_list_at(&_lst1833, _li1834));
+        #line 313 "std/tally.pengu"
         acc = (acc + x);
     }
     return acc;

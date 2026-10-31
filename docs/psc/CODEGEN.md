@@ -72,7 +72,10 @@ codegen.api.generate_c
   RELRO/PIE/FORTIFY, orden topológico de tipos (arregla `std.cipher`),
   `align of T`, floats con round-trip corto y límite de descompresión de
   256 MiB. Detalle en `CHANGELOG.md`.
-- **Conformidad:** **88/88** fixtures con las librerías nativas.
+- **P4.4 (0.19.0):** `std.tally` pasa a merge sort estable `O(n log n)`
+  con API tipada de módulo (`sort_<tipo>_asc/desc`, `is_sorted_<tipo>_asc/desc`);
+  se retiran los métodos genéricos basados en `cmp`.
+- **Conformidad:** **89/89** fixtures con las librerías nativas.
 - **Calidad:** 17 casos de aceptación F4, ASan/UBSan, golden C normalizado y
   benchmark de emisión.
 

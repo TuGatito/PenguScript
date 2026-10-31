@@ -2260,12 +2260,12 @@ weave push_if_new with xs as ref to list of int, v as int into bool:
 
 ```pengu
 # ❌ Anti-Pengunic
-calling xs.push with 10.reverse.sort_asc
+calling xs.push with (calling tally.sort_int_asc with [3, 1, 10])
 
 # ✅ Pengunic
 calling xs.push with 10
 calling xs.reverse
-calling xs.sort_asc
+let ordered is calling tally.sort_int_asc with xs
 ```
 
 ### 14.16 Unpacking tuples by hand
@@ -2631,7 +2631,8 @@ The syntax `calling x.a.b.c` chains several method calls on a single receiver. E
 let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
 
 # ✅ Pengunic: chain of pure transformations over collections
-let top5 is calling scores.filter_positive.sort_desc.take with 5
+let ordered is calling tally.sort_int_desc with (calling scores.filter_positive)
+let top5 is calling tally.take with ordered, 5
 ```
 
 **Do not chain when:**
@@ -2646,12 +2647,12 @@ let top5 is calling scores.filter_positive.sort_desc.take with 5
 
 ```pengu
 # ❌ Anti-Pengunic: mixes reading and mutation
-calling xs.push with 10.reverse.sort_asc
+calling xs.push with (calling tally.sort_int_asc with [3, 1, 10])
 
 # ✅ Pengunic: separate mutation from reading
 calling xs.push with 10
 calling xs.reverse
-calling xs.sort_asc
+let ordered is calling tally.sort_int_asc with xs
 ```
 
 ### 16.2 Multi-line chains
