@@ -288,12 +288,12 @@ weave check_string_literal with s as ref to state.SemaState, node as int into vo
                         set s->annotations is old_ann
                         if tmp_bag.error_count > 0:
                             var d2 as diag.Diagnostic is (tmp_bag.items at 0)
-                            var msg2 as string is "invalid interpolation expression: {d2.message}"
-                            defer banish msg2
+                            var msg as string is "invalid interpolation expression: {d2.message}"
+                            defer banish msg
                             var icode as string is sdiag.CODE_INTERP_PARSE
                             if d2.code == sdiag.CODE_MUTATES_EXPR:
                                 set icode is sdiag.CODE_MUTATES_EXPR
-                            calling sdiag.node_error with s->bag, s->src, icode, part.start, part.end, msg2, "Fix the expression inside the braces.", ""
+                            calling sdiag.node_error with s->bag, s->src, icode, part.start, part.end, msg, "Fix the expression inside the braces.", ""
                             calling ann.free_annotations with (sigil of tmp_ann)
                             banish tmp_bag
                             banish r
@@ -580,6 +580,25 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
             # Una llamada `receptor.metodo` sólo puede resolver métodos (o
             # builtins de contenedor); no cae al registro global de funciones.
             if n > 1 and base_import < 0 and base_sid >= 0:
+                var mnid as int is calling npool.find with s->names, method_text
+                if mnid >= 0:
+                    var mi as int is 0
+                    while mi < s->symbols->symbols.len:
+                        if calling s->symbols->method_receiver.has with mi:
+                            var ms as sym.SemaSymbol is (s->symbols->symbols at mi)
+                            if ms.name == mnid:
+                                var mr as int is calling s->symbols->method_receiver.get with mi
+                                if not (calling compat.has_type_param with s->types, mr):
+                                    var mrt as tk.SemaType is calling types.at with s->types, (calling underlying_type with s, mr)
+                                    var crt as tk.SemaType is calling types.at with s->types, (calling underlying_type with s, rcp)
+                                    if crt.kind == tk.SemaTypeKind.TkRef:
+                                        set crt is calling types.at with s->types, crt.a
+                                    if crt.kind == tk.SemaTypeKind.TkList and mrt.kind == tk.SemaTypeKind.TkList and not (calling compat.compatible with s->types, crt.a, mrt.a):
+                                        var msg as string is "method '{method_text}' is not defined for this receiver type"
+                                        defer banish msg
+                                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg, "This method belongs to a list with a different element type.", ""
+                                        return 0
+                        set mi is mi + 1
                 calling undefined_call with s, node, method_text
                 return 0
             if sid < 0:
@@ -717,6 +736,19 @@ weave builtin_method with s as ref to state.SemaState, recv as int, name as stri
             return calling types.base with s->types, "bool"
         if name == "size" or name == "len" or name == "length":
             return calling types.base with s->types, "int"
+        var pnid as int is calling npool.find with s->names, name
+        if pnid >= 0:
+            var pi as int is 0
+            while pi < s->symbols->symbols.len:
+                if calling s->symbols->method_receiver.has with pi:
+                    var ps as sym.SemaSymbol is (s->symbols->symbols at pi)
+                    if ps.name == pnid:
+                        var pr as int is calling s->symbols->method_receiver.get with pi
+                        if not (calling compat.has_type_param with s->types, pr):
+                            var prt as tk.SemaType is calling types.at with s->types, (calling underlying_type with s, pr)
+                            if prt.kind == tk.SemaTypeKind.TkList and not (calling compat.compatible with s->types, rt.a, prt.a):
+                                return -1
+                set pi is pi + 1
         if expected >= 0:
             return expected
         return 3

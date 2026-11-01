@@ -75,7 +75,10 @@ codegen.api.generate_c
 - **P4.4 (0.19.0):** `std.tally` pasa a merge sort estable `O(n log n)`
   con API tipada de módulo (`sort_<tipo>_asc/desc`, `is_sorted_<tipo>_asc/desc`);
   se retiran los métodos genéricos basados en `cmp`.
-- **Conformidad:** **89/89** fixtures con las librerías nativas.
+- **P4.5 (0.19.1):** validación del receptor declarado de métodos concretos
+  `enchanting list of <tipo>`; un método de `list of int` no se resuelve sobre
+  `list of string` (`E0005 method ... is not defined for this receiver type`).
+- **Conformidad:** **90/90** fixtures con las librerías nativas.
 - **Calidad:** 17 casos de aceptación F4, ASan/UBSan, golden C normalizado y
   benchmark de emisión.
 

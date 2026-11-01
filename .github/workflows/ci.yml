@@ -62,6 +62,10 @@ jobs:
         shell: bash
         run: bash ./tests/link_prune.sh
 
+      - name: Receiver type guard
+        shell: bash
+        run: bash ./tests/receiver_guard.sh
+
       - name: Parser fuzz smoke
         shell: bash
         run: ./build/psc run tests/pengu/fuzz_parsers.pengu --no-cache -- 5000

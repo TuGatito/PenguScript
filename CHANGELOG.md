@@ -2,6 +2,32 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.19.1] — 2026-10-31 — Validación del receptor en métodos de `enchanting list`
+
+Cierra la deuda de resolución de métodos concretos sobre listas: un método
+declarado en `enchanting list of int` ya no puede ejecutarse sobre un
+`list of string` (ni viceversa). El compilador registra el tipo de receptor
+declarado de cada método y lo compara con el tipo real del receptor.
+
+### Corregido
+
+- **Receptor de métodos `enchanting list of <tipo>`.** `SemaSymbols` guarda
+  `method_receiver` (SymbolId → TypeId del receptor declarado). En
+  `infer_call`, una llamada `receptor.metodo` rechaza con
+  `error[E0005]: method '<nombre>' is not defined for this receiver type`
+  cuando el receptor es una lista con un elemento incompatible.
+- **Fallback permisivo de `builtin_method`.** La rama `TkList` ya no acepta
+  cualquier nombre: si existe un método con ese nombre sobre una lista de otro
+  tipo de elemento, devuelve `-1` para que la llamada falle en vez de emitir
+  una llamada al método equivocado.
+
+### Pruebas
+
+- `tests/pengu/enchant_receiver.pengu`: métodos concretos de `list of int` y
+  `list of string` conviven y se enlazan al receptor correcto.
+- `tests/receiver_guard.sh` (CI): un `list of string` llamando a un método de
+  `list of int` debe fallar con el diagnóstico de receptor.
+
 ## [0.19.0] — 2026-10-31 — Ordenación O(n log n) con API tipada
 
 Sustituye la ordenación O(n²) de `std.tally` por un merge sort estable
