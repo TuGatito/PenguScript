@@ -4,6 +4,7 @@
 ## parámetros y statements.
 
 import std.builder
+import std.spark
 
 import psc.ast.kind as pskind
 import psc.ast.node as psast
@@ -247,7 +248,7 @@ weave signature with c as ref to context.CgContext, f as catalog.CgFunction into
     var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), f.symbol
     var ft as tk.SemaType is calling types.at with (sigil of c->program->types), sv.type
     if ft.kind != tk.SemaTypeKind.TkFn:
-        return "void"
+        return calling npool.copy_string with "void"
     var info as types.SemaFnInfo is (c->program->types.fn_infos at ft.a)
     var ret as string is calling ctype.c_type with (sigil of c->names), info.return_type
     defer banish ret
@@ -287,6 +288,13 @@ weave signature with c as ref to context.CgContext, f as catalog.CgFunction into
             var pn as string is calling pname_for with c, f, i
             var pnsafe as string is calling context.safe_c_name with pn
             var pct as string is calling ctype.c_type with (sigil of c->names), p.type
+            var pcb as ref to frozen byte is bytes of pct
+            var pci as int is 0
+            while pci < (pct length):
+                if ((pcb at pci) to int) == 0:
+                    var pty as tk.SemaType is calling types.at with (sigil of c->program->types), p.type
+                    calling spark.panic with "NUL in param {i} type kind {pty.kind}: {pct}"
+                set pci is pci + 1
             var params0 as int is -1
             var si as int is 0
             var sn as int is calling astutil.child_count with ast, f.node

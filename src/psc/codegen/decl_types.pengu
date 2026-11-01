@@ -398,7 +398,12 @@ weave emit_definition with c as ref to context.CgContext, t as catalog.CgType in
                     defer banish fn
                     var fdecl as string is calling ctype.declare with ft, fn
                     defer banish fdecl
-                    calling emit.line with (sigil of c->emitter), "{fdecl};"
+                    var fsuf2 as string is ""
+                    if f.align_override > 0:
+                        set fsuf2 is " __attribute__((aligned({f.align_override})))"
+                    calling emit.line with (sigil of c->emitter), "{fdecl}{fsuf2};"
+                    if f.align_override > 0:
+                        banish fsuf2
                     set fi is fi + 1
                 calling emit.indent_less with (sigil of c->emitter)
                 calling emit.line with (sigil of c->emitter), "} {vn3};"
@@ -474,7 +479,12 @@ weave emit_definition with c as ref to context.CgContext, t as catalog.CgType in
         defer banish fname
         var fdecl as string is calling ctype.declare with ftxt, fname
         defer banish fdecl
-        calling emit.line with (sigil of c->emitter), "{fdecl};"
+        var fsuf as string is ""
+        if f.align_override > 0:
+            set fsuf is " __attribute__((aligned({f.align_override})))"
+        calling emit.line with (sigil of c->emitter), "{fdecl}{fsuf};"
+        if f.align_override > 0:
+            banish fsuf
         set i is i + 1
     calling emit.indent_less with (sigil of c->emitter)
     var rsuf as string is calling layout_attr_suffix with info

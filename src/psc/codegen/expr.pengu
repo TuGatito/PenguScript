@@ -1588,7 +1588,6 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                         var pbn as string is calling npool.text with (sigil of c->program->names), pty1.name
                         if pbn == "string":
                             set is_prop is true
-                        banish pbn
                         set pcheck is -1
                     else:
                         set pcheck is -1
@@ -1681,8 +1680,9 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             set last is calling last_token_deep with ast, target
         if last >= 0:
             var lname as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), last
+            defer banish lname
             banish cname
-            set cname is lname
+            set cname is calling npool.copy_string with lname
             set method_name is calling npool.copy_string with lname
             var nid as int is calling npool.intern with (sigil of c->program->names), lname
             # Llamada cualificada `mod.fn`: resolver por módulo, no por método.
@@ -1813,6 +1813,27 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                 var lcopy as string is calling npool.copy_string with lname
                 banish cname
                 set cname is lcopy
+    # Elige la plantilla genérica cuya forma de receptor coincide. `by_name`
+    # es global por nombre y puede apuntar a otro tipo (`StringBuilder.is_empty`
+    # para un `map`); la firma C sería incompatible.
+    var ov_t as int is calling astutil.node_child with ast, node, 0
+    if ov_t >= 0:
+        var ov_last as int is calling last_token_deep with ast, ov_t
+        if ov_last >= 0:
+            var ov_txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ov_last
+            var ov_nid as int is calling npool.intern with (sigil of c->program->names), ov_txt
+            banish ov_txt
+            var ov_tgt as CgTarget is calling resolve_target with c, ov_t, ast, true
+            defer banish ov_tgt.text
+            if ov_tgt.type_id > 0:
+                var ov_mi as int is calling generics.find_generic_method with c, ov_nid, ov_tgt.type_id
+                if ov_mi >= 0:
+                    var ov_si as int is calling generics.ensure_method_spec with c, ov_mi, ov_tgt.type_id
+                    if ov_si >= 0 and ov_si != fslot:
+                        set fslot is ov_si
+                        var ov_sf as catalog.CgFunction is (c->catalog.functions at ov_si)
+                        banish cname
+                        set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), ov_sf.c_name)
     # Si `ann.symbol_of` resolvió el símbolo plantilla, `cname` ya es
     # `Box_get`; una instancia debe usar su especialización `Box_get_instN`.
     if cname != "":

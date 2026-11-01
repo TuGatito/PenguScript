@@ -1,0 +1,22 @@
+## Field-level @align(N).
+
+rune P:
+    @align(8)
+    x as int
+    y as char
+
+rune R:
+    a as char
+    @align(16)
+    b as f64
+
+weave main into int:
+    if size of P != 8:
+        return 1
+    if align of P != 8:
+        return 2
+    if size of R != 32:
+        return 3
+    if align of R != 16:
+        return 4
+    return 0

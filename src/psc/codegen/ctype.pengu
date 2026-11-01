@@ -3,7 +3,6 @@
 ## Es la única puerta de tipos C. Ningún emisor debe escribir un tipo C a mano.
 
 import std.builder
-
 import psc.sema.names as npool
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
@@ -95,23 +94,23 @@ weave type_kind_code with ns as ref to names.CgNames, id as int into int:
 ## Devuelve un string owned; el llamador lo libera con `banish`.
 weave c_type with ns as ref to names.CgNames, id as int into string:
     if id <= 0:
-        return "void*"
+        return calling npool.copy_string with "void*"
     var t as tk.SemaType is calling types.at with ns->types, id
     var tn0 as string is calling names.type_name with ns, id
     if tn0 == "va_list":
         banish tn0
-        return "va_list"
+        return calling npool.copy_string with "va_list"
     banish tn0
     if t.kind == tk.SemaTypeKind.TkVoid:
-        return "void"
+        return calling npool.copy_string with "void"
     if t.kind == tk.SemaTypeKind.TkOpaque:
-        return "void*"
+        return calling npool.copy_string with "void*"
     if t.kind == tk.SemaTypeKind.TkNull:
-        return "void*"
+        return calling npool.copy_string with "void*"
     if t.kind == tk.SemaTypeKind.TkAny or t.kind == tk.SemaTypeKind.TkError:
-        return "void*"
+        return calling npool.copy_string with "void*"
     if t.kind == tk.SemaTypeKind.TkCVarArgs:
-        return "..."
+        return calling npool.copy_string with "..."
     if t.kind == tk.SemaTypeKind.TkBase:
         return calling base_c_type with ns, t.name
     if t.kind == tk.SemaTypeKind.TkRef:
@@ -122,7 +121,7 @@ weave c_type with ns as ref to names.CgNames, id as int into string:
         var inner as string is calling c_type with ns, t.a
         defer banish inner
         if inner == "void":
-            return "void*"
+            return calling npool.copy_string with "void*"
         return "{inner}*"
     if t.kind == tk.SemaTypeKind.TkFrozen:
         var inner2 as string is calling c_type with ns, t.a
@@ -132,17 +131,17 @@ weave c_type with ns as ref to names.CgNames, id as int into string:
         var elem as string is calling c_type with ns, t.a
         return "{elem}*"
     if t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkMany:
-        return "PenguSlice"
+        return calling npool.copy_string with "PenguSlice"
     if t.kind == tk.SemaTypeKind.TkList:
-        return "PenguList"
+        return calling npool.copy_string with "PenguList"
     if t.kind == tk.SemaTypeKind.TkMap:
-        return "PenguMap"
+        return calling npool.copy_string with "PenguMap"
     if t.kind == tk.SemaTypeKind.TkMaybe:
-        return "PenguMaybe"
+        return calling npool.copy_string with "PenguMaybe"
     if t.kind == tk.SemaTypeKind.TkResult:
-        return "PenguResult"
+        return calling npool.copy_string with "PenguResult"
     if t.kind == tk.SemaTypeKind.TkRange:
-        return "PenguRange"
+        return calling npool.copy_string with "PenguRange"
     if t.kind == tk.SemaTypeKind.TkTuple:
         return calling tuple_c_name with ns, id
     if t.kind == tk.SemaTypeKind.TkFn:
@@ -150,7 +149,7 @@ weave c_type with ns as ref to names.CgNames, id as int into string:
     if t.kind == tk.SemaTypeKind.TkOmen:
         var info as types.SemaNominalInfo is (ns->types->nominal_infos at t.a)
         if (info.flags & types.NIF_STRING_VALUED) != 0:
-            return "PenguString"
+            return calling npool.copy_string with "PenguString"
         return calling names.type_name with ns, id
     if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho or t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
         var info as types.SemaNominalInfo is (ns->types->nominal_infos at t.a)
@@ -160,12 +159,12 @@ weave c_type with ns as ref to names.CgNames, id as int into string:
                 return calling names.type_name with ns, tt
         return calling names.type_name with ns, id
     if t.kind == tk.SemaTypeKind.TkConcept:
-        return "void*"
+        return calling npool.copy_string with "void*"
     if t.kind == tk.SemaTypeKind.TkTypeParam:
         if calling ns->subst.has with t.name:
             return calling c_type with ns, (calling ns->subst.get with t.name)
-        return "void*"
-    return "void*"
+        return calling npool.copy_string with "void*"
+    return calling npool.copy_string with "void*"
 
 ## Declarador C de un nombre con el tipo `ct`.
 ##
@@ -212,44 +211,50 @@ weave declare with ct as string, name as string into string:
 weave base_c_type with ns as ref to names.CgNames, nid as int into string:
     var n as string is calling std_text with ns, nid
     defer banish n
+    var nb as ref to frozen byte is bytes of n
+    var ni as int is 0
+    while ni < (n length):
+        if ((nb at ni) to int) == 0:
+            calling spark.panic with "NUL base name nid {nid} len {n length}: {n}"
+        set ni is ni + 1
     if n == "int" or n == "i32":
-        return "int32_t"
+        return calling npool.copy_string with "int32_t"
     if n == "i64":
-        return "int64_t"
+        return calling npool.copy_string with "int64_t"
     if n == "u32":
-        return "uint32_t"
+        return calling npool.copy_string with "uint32_t"
     if n == "u64":
-        return "uint64_t"
+        return calling npool.copy_string with "uint64_t"
     if n == "i16":
-        return "int16_t"
+        return calling npool.copy_string with "int16_t"
     if n == "u16":
-        return "uint16_t"
+        return calling npool.copy_string with "uint16_t"
     if n == "i8":
-        return "int8_t"
+        return calling npool.copy_string with "int8_t"
     if n == "u8" or n == "byte":
-        return "uint8_t"
+        return calling npool.copy_string with "uint8_t"
     if n == "char":
-        return "char"
+        return calling npool.copy_string with "char"
     if n == "usize":
-        return "size_t"
+        return calling npool.copy_string with "size_t"
     if n == "isize":
-        return "intptr_t"
+        return calling npool.copy_string with "intptr_t"
     if n == "float" or n == "f32":
-        return "float"
+        return calling npool.copy_string with "float"
     if n == "f64" or n == "double":
-        return "double"
+        return calling npool.copy_string with "double"
     if n == "bool":
-        return "bool"
+        return calling npool.copy_string with "bool"
     if n == "va_list":
-        return "va_list"
+        return calling npool.copy_string with "va_list"
     if n == "string":
-        return "PenguString"
+        return calling npool.copy_string with "PenguString"
     if n == "void":
-        return "void"
+        return calling npool.copy_string with "void"
     if n == "opaque":
-        return "void*"
+        return calling npool.copy_string with "void*"
     if n == "error":
-        return "const char*"
+        return calling npool.copy_string with "const char*"
     return "{n}"
 
 ## Texto de un NameId (owned).

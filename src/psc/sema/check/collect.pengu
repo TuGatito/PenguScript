@@ -572,6 +572,32 @@ weave parse_uint_text with t as string into int:
         set i is i + 1
     return n
 
+## `@align(N)` de un campo (`0` si no tiene).
+##
+## ## Memoria
+## O(1).
+weave field_align_override with s as ref to state.SemaState, field as int into int:
+    var attrs as int is calling astutil.node_child with s->ast, field, 0
+    if attrs < 0 or (calling astutil.kind_of with s->ast, attrs) != pskind.NodeKind.NdAttributes:
+        return 0
+    var i as int is 0
+    while i < (calling astutil.child_count with s->ast, attrs):
+        var a as int is calling astutil.node_child with s->ast, attrs, i
+        if a >= 0 and (calling astutil.kind_of with s->ast, a) == pskind.NodeKind.NdAttribute:
+            var nm as string is calling astutil.first_token_text with s->src, s->lex, s->ast, a
+            if nm == "align":
+                var args as int is calling astutil.node_child with s->ast, a, 1
+                if args >= 0:
+                    var txt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, args
+                    var av as int is calling parse_uint_text with txt
+                    banish txt
+                    if av >= 1 and av <= 128 and (av & (av - 1)) == 0:
+                        return av
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_ATTRIBUTE, (calling astutil.start_of with s->ast, a), (calling astutil.end_of with s->ast, a), "@align(N) requires N to be a power of two between 1 and 128", "Use @align(1), @align(2), @align(4), ... or @align(128).", ""
+                    return 0
+        set i is i + 1
+    return 0
+
 ## Aplica `@packed` / `@align(N)` del nodo de declaración a su info nominal.
 weave apply_nominal_attrs with s as ref to state.SemaState, ty as int, node as int into void:
     var t as tk.SemaType is calling types.at with s->types, ty
@@ -729,7 +755,7 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
                     if ftn >= 0:
                         var ctx as convert.TypeCtx is calling collect_type_ctx with s
                         set ftype is calling convert.convert with (sigil of ctx), ftn
-                var fld as types.SemaField is with name is fname, type is ftype, flags is 0, attrs_node is -1
+                var fld as types.SemaField is with name is fname, type is ftype, flags is 0, attrs_node is -1, align_override is (calling field_align_override with s, c)
                 calling types.add_field with s->types, fld
                 set field_count is field_count + 1
         set i is i + 1
@@ -854,7 +880,7 @@ weave collect_omen with s as ref to state.SemaState, node as int into void:
                             var oftxt as string is calling astutil.token_text with s->src, s->lex, oft
                             defer banish oftxt
                             var ofnid as int is calling npool.intern with s->names, oftxt
-                            var ofld as types.SemaField is with name is ofnid, type is ofty, flags is 0, attrs_node is -1
+                            var ofld as types.SemaField is with name is ofnid, type is ofty, flags is 0, attrs_node is -1, align_override is 0
                             calling types.add_field with s->types, ofld
                             set pcount is pcount + 1
                     set ci is ci + 1

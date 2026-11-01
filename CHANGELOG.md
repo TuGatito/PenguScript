@@ -2,6 +2,32 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.22.0] — 2026-11-01 — Bundle integrity and field alignment
+
+### Añadido
+
+- **`@align(N)` a nivel de campo** en `rune`/`echo`: `SemaField.align_override`,
+  emisión de `__attribute__((aligned(N)))` por miembro y layout coherente en el
+  LSP (el override del campo gana sobre `@packed`). Nuevo test
+  `tests/pengu/field_align.pengu`.
+- **Guard de integridad del bundle**: si el C generado contiene un byte NUL, el
+  compilador aborta con `internal error: NUL byte in generated C at offset ...`
+  en vez de producir un C corrupto.
+
+### Corregido
+
+- **Corrupción de heap en codegen** que insertaba NUL en `bundle.c` y rompía
+  `psc test` (8.427 NUL; primer daño en `std/scrolls.pengu:3053`). Se debía a
+  dos liberaciones de strings prestadas en `call_expr` (`npool.text` para
+  `len`/`length` y un alias `cname`/`lname`); diagnosticado con ASAN y
+  corregido. `ctype.c_type`/`base_c_type` ahora devuelven strings owned.
+- **`to string`/casts**: ya no se libera el operando antes de interpolar el
+  resultado; `"42" to string` y `("42" to string) + "x"` funcionan y se añadió
+  `tests/pengu/string_cast.pengu`.
+- **Nombres C de métodos de contenedores**: incluyen los argumentos de tipo
+  (`map_<k>_<v>_<metodo>`) para evitar redefiniciones entre `map of string to
+  int` y `map of string to float`.
+
 ## [0.21.1] — 2026-11-01 — Tooling: LSP, VS Code y Neovim
 
 Soporte completo para las herramientas del lenguaje y cierre de deuda del LSP.

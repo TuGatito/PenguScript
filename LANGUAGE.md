@@ -5855,9 +5855,25 @@ rune NetHeader:
 
 With `@packed` this rune occupies 8 bytes rather than the 12 that padding would
 require. `@packed` and `@align(N)` apply to `rune`, `echo` and `omen`
-declarations; field-level alignment is not supported yet.
+declarations.
+
+Both attributes can also be written on an individual field. A field-level
+`@align(N)` raises that field's alignment (a field override wins over a
+`@packed` declaration), and the compiler emits the matching
+`__attribute__((aligned(N)))` on the C member:
+
+```pengu
+rune Record:
+    kind as u8
+    @align(8)
+    payload as u64
+```
+
+`size of Record` is 16 bytes: `payload` starts at offset 8. Field alignment is
+supported in `rune` and `echo` fields; the LSP inlay hint reports the same
+layout.
 
 *End of reference. Corrections welcome — this document mirrors compiler
-behavior at version 0.21.1; run `psc check` on any snippet to confirm
+behavior at version 0.22.0; run `psc check` on any snippet to confirm
 semantics on your toolchain.*
 

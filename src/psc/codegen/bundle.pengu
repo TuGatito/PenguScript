@@ -4,6 +4,7 @@
 ## tipos, tests, line markers y DCE se añaden por subfases.
 
 import std.builder
+import std.spark
 
 import psc.codegen.context as context
 import psc.codegen.catalog as catalog
@@ -54,6 +55,36 @@ weave is_libc_name with c as ref to context.CgContext, f as catalog.CgFunction i
     if n == "fopen" or n == "fclose" or n == "fread" or n == "fwrite" or n == "fflush":
         return true
     return false
+
+## Verifica que el C generado no contenga bytes NUL (corrupción de heap).
+##
+## ## Memoria
+## Consume el emisor; devuelve el string owned del llamador.
+weave finish_checked with e as ref to CgEmitter into string:
+    var text as string is calling emit.finish with e
+    var b as ref to frozen byte is bytes of text
+    var i as int is 0
+    while i < (text length):
+        if ((b at i) to int) == 0:
+            var sb as StringBuilder is calling StringBuilder.new
+            var j as int is i - 60
+            if j < 0:
+                set j is 0
+            var lim as int is i + 60
+            if lim > (text length):
+                set lim is text length
+            while j < lim:
+                var code as int is ((b at j) to int)
+                if code >= 32 and code < 127:
+                    calling sb.append with (text at j to (j + 1))
+                else:
+                    calling sb.append with "?"
+                set j is j + 1
+            var ctx as string is calling sb.finish
+            banish sb
+            calling spark.panic with "internal error: NUL in generated C at {i}: {ctx}"
+        set i is i + 1
+    return text
 
 ## Emite el bundle completo.
 ##
@@ -226,8 +257,8 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     # Prototipos.
     set i is 0
     while i < c->catalog.functions.len:
-        if calling dce.live with (sigil of reach), i:
-            var f as catalog.CgFunction is (c->catalog.functions at i)
+        var f as catalog.CgFunction is (c->catalog.functions at i)
+        if calling dce.live with (sigil of reach), i or f.is_spec:
             var fmod as loader.SemaModule is (c->program->modules at f.module)
             var skip_decl_proto as bool is f.is_declare and (calling catalog.is_decl_path with fmod.canonical_path)
             if (not f.is_generic or f.is_spec) and not f.is_antiquus and not skip_decl_proto and (not f.is_declare or not calling is_libc_name with c, f):
@@ -257,7 +288,7 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     if c->options.is_test:
         var nt as int is calling testgen.emit_all with c
         calling testgen.emit_main with c, nt, c->options.test_json
-        return calling emit.finish with (sigil of c->emitter)
+        return calling finish_checked with (sigil of c->emitter)
     # Entry wrapper.
     var has_main as bool is false
     set i is 0
@@ -277,4 +308,4 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
         calling emit.line with (sigil of c->emitter), "return pengu_status;"
         calling emit.indent_less with (sigil of c->emitter)
         calling emit.line with (sigil of c->emitter), "}"
-    return calling emit.finish with (sigil of c->emitter)
+    return calling finish_checked with (sigil of c->emitter)

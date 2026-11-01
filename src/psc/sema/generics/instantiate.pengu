@@ -192,7 +192,7 @@ weave instantiate_nominal with s as ref to symbols.SemaSymbols, template as int,
     var fi as int is 0
     while fi < tinfo.fields_count:
         var f as types.SemaField is (t->fields at (tinfo.fields_first + fi))
-        var nf as types.SemaField is with name is f.name, type is (calling subst_type with t, f.type, (sigil of subst)), flags is f.flags, attrs_node is f.attrs_node
+        var nf as types.SemaField is with name is f.name, type is (calling subst_type with t, f.type, (sigil of subst)), flags is f.flags, attrs_node is f.attrs_node, align_override is f.align_override
         var ignored as int is calling types.add_field with t, nf
         set fc is fc + 1
         set fi is fi + 1
@@ -209,7 +209,7 @@ weave instantiate_nominal with s as ref to symbols.SemaSymbols, template as int,
         var pi as int is 0
         while pi < v.payload_count:
             var pf as types.SemaField is (t->fields at (v.payload_first + pi))
-            var npf as types.SemaField is with name is pf.name, type is (calling subst_type with t, pf.type, (sigil of subst)), flags is pf.flags, attrs_node is pf.attrs_node
+            var npf as types.SemaField is with name is pf.name, type is (calling subst_type with t, pf.type, (sigil of subst)), flags is pf.flags, attrs_node is pf.attrs_node, align_override is pf.align_override
             var ignored2 as int is calling types.add_field with t, npf
             set pc is pc + 1
             set pi is pi + 1

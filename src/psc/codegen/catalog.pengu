@@ -484,8 +484,26 @@ weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m 
         set rname is "Type"
     var mname as string is calling npool.text with (sigil of p->names), name
     var full as string is "{rname}_{mname}"
-    var cname as int is calling npool.intern with (sigil of p->names), full
+    # Los métodos de contenedores concretos necesitan los argumentos de tipo en
+    # el nombre C: `map of string to int` y `map of string to float` comparten
+    # `map_<metodo>` y colisionaban al emitir el bundle.
+    var fullsb as StringBuilder is calling StringBuilder.new
+    calling fullsb.append with full
+    if rt.kind == tk.SemaTypeKind.TkMap or rt.kind == tk.SemaTypeKind.TkResult:
+        if rt.a > 0 or rt.b > 0:
+            calling fullsb.append with "_"
+            calling fullsb.append_int with rt.a
+            calling fullsb.append with "_"
+            calling fullsb.append_int with rt.b
+    else if rt.kind == tk.SemaTypeKind.TkList or rt.kind == tk.SemaTypeKind.TkSlice or rt.kind == tk.SemaTypeKind.TkMany or rt.kind == tk.SemaTypeKind.TkMaybe or rt.kind == tk.SemaTypeKind.TkArray:
+        if rt.a > 0:
+            calling fullsb.append with "_"
+            calling fullsb.append_int with rt.a
+    var cfull as string is calling fullsb.finish
+    var cname as int is calling npool.intern with (sigil of p->names), cfull
+    banish cfull
     banish full
+    banish fullsb
     var is_main as bool is false
     var is_self_value as bool is (sv.flags & sym.SYM_SELF_VALUE) != 0
     # Los métodos de primitivos (`f32.sin`, `int.clamp`) reciben `self` por

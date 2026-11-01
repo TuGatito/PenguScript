@@ -85,6 +85,8 @@ weave align_of with p as ref to program.SemaProgram, type_id as int, depth as in
             var fa as int is 1
             if not info.is_packed:
                 set fa is calling align_of with p, f.type, depth + 1
+            if f.align_override > fa:
+                set fa is f.align_override
             if fa > al:
                 set al is fa
             set i is i + 1
@@ -155,6 +157,8 @@ weave size_of with p as ref to program.SemaProgram, type_id as int, depth as int
                 var ua as int is 1
                 if not info.is_packed:
                     set ua is calling align_of with p, uf.type, depth + 1
+                if uf.align_override > ua:
+                    set ua is uf.align_override
                 if ua > al:
                     set al is ua
                 var us as int is calling size_of with p, uf.type, depth + 1
@@ -169,6 +173,8 @@ weave size_of with p as ref to program.SemaProgram, type_id as int, depth as int
             var fa as int is 1
             if not info.is_packed:
                 set fa is calling align_of with p, f.type, depth + 1
+            if f.align_override > fa:
+                set fa is f.align_override
             if fa > al:
                 set al is fa
             set off is calling align_up with off, fa

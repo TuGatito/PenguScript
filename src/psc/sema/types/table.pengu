@@ -77,6 +77,8 @@ rune SemaField:
     flags as int
     ## Nodo de atributos del AST.
     attrs_node as int
+    ## `@align(N)` aplicado al campo (`0` si no).
+    align_override as int
 
 ## Variante de un `omen`.
 rune SemaVariant:

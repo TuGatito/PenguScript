@@ -134,6 +134,27 @@ weave scan with c as ref to context.CgContext, m as loader.SemaModule, node as i
         return
     var ast as ref to psast.PsAst is (sigil of m.parse.ast)
     if (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdCallingExpr:
+        # Preespecializa métodos de contenedor (`m.keys`, `s.is_empty`) antes
+        # de emitir prototipos: si se crean durante el cuerpo, C no ve la firma.
+        var mt0 as int is calling astutil.node_child with ast, node, 0
+        if mt0 >= 0:
+            var mtl as int is calling expr_last_token with ast, mt0
+            if mtl >= 0:
+                var mtxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), mtl
+                var mnid0 as int is calling npool.intern with (sigil of c->program->names), mtxt
+                var rn0 as int is mt0
+                if rn0 >= 0:
+                    var rt0 as int is calling ann.type_of with (sigil of m.annotations), mt0
+                    if rt0 <= 0:
+                        var rsid0 as int is calling ann.symbol_of with (sigil of m.annotations), rn0
+                        if rsid0 >= 0:
+                            var rsv0 as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), rsid0
+                            set rt0 is rsv0.type
+                    if rt0 > 0:
+                        var gmi0 as int is calling find_generic_method with c, mnid0, rt0
+                        if gmi0 >= 0:
+                            var ignored_gmi as int is calling ensure_method_spec with c, gmi0, rt0
+                banish mtxt
         var gargs as int is calling astutil.node_child with ast, node, 1
         var target as int is calling astutil.node_child with ast, node, 0
         if target >= 0:
@@ -350,6 +371,56 @@ weave type_args_of with c as ref to context.CgContext, id as int into list of in
             calling out.push with (c->program->types.type_children at (t.first + i))
             set i is i + 1
     return out
+
+## Kind estructural de un receptor de contenedor (para emparejar métodos genéricos).
+weave container_kind with c as ref to context.CgContext, id as int into int:
+    if id <= 0:
+        return -1
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), id
+    var guard as int is 0
+    while guard < 12 and (t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen or t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal):
+        if t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+            if t.b <= 0:
+                return -1
+            set t is calling types.at with (sigil of c->program->types), t.b
+        else:
+            if t.a <= 0:
+                return -1
+            set t is calling types.at with (sigil of c->program->types), t.a
+        set guard is guard + 1
+    if t.kind == tk.SemaTypeKind.TkList:
+        return 1
+    if t.kind == tk.SemaTypeKind.TkMap:
+        return 2
+    if t.kind == tk.SemaTypeKind.TkMaybe:
+        return 3
+    if t.kind == tk.SemaTypeKind.TkResult:
+        return 4
+    if t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkMany:
+        return 5
+    if t.kind == tk.SemaTypeKind.TkBase:
+        if calling scompat.is_string with (sigil of c->program->types), id:
+            return 100
+        return 101
+    return -1
+
+## Busca la plantilla genérica de un método por nombre y forma del receptor.
+weave find_generic_method with c as ref to context.CgContext, name as int, recv_id as int into int:
+    var rk as int is calling container_kind with c, recv_id
+    if rk < 0:
+        return -1
+    var targs as list of int is calling type_args_of with c, recv_id
+    var need as int is targs.len
+    banish targs
+    var i as int is 0
+    while i < c->catalog.functions.len:
+        var f as catalog.CgFunction is (c->catalog.functions at i)
+        if f.is_method and f.is_generic and not f.is_spec and f.name == name and f.tparams.len == need:
+            var fk as int is calling container_kind with c, f.recv_type
+            if fk == rk:
+                return i
+        set i is i + 1
+    return -1
 
 ## Especializa un método genérico para un receptor concreto.
 ##
