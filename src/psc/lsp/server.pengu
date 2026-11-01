@@ -1073,12 +1073,28 @@ weave decl_name_line with line as string into string:
     var kw as int is 0
     if calling starts_with with rest, "weave ":
         set kw is 6
+    else if calling starts_with with rest, "ritual weave ":
+        set kw is 13
+    else if calling starts_with with rest, "inline weave ":
+        set kw is 13
     else if calling starts_with with rest, "rune ":
         set kw is 5
     else if calling starts_with with rest, "echo ":
         set kw is 5
     else if calling starts_with with rest, "omen ":
         set kw is 5
+    else if calling starts_with with rest, "concept ":
+        set kw is 8
+    else if calling starts_with with rest, "alias ":
+        set kw is 6
+    else if calling starts_with with rest, "seal ":
+        set kw is 5
+    else if calling starts_with with rest, "enchanting ":
+        set kw is 11
+    else if calling starts_with with rest, "bind ":
+        set kw is 5
+    else if calling starts_with with rest, "declare ":
+        set kw is 8
     else if calling starts_with with rest, "const ":
         set kw is 6
     if kw == 0:
@@ -1091,6 +1107,30 @@ weave decl_name_line with line as string into string:
     var nm as string is rest at kw to j
     banish rest
     return nm
+
+## Kind LSP aproximado de una línea de declaración.
+weave decl_kind_line with line as string into int:
+    var b as ref to frozen byte is bytes of line
+    var i as int is 0
+    while i < line length and (((b at i) to int) == 32 or ((b at i) to int) == 9):
+        set i is i + 1
+    var indented as bool is i > 0
+    var rest as string is line at i to (line length)
+    var kind as int is 12
+    if calling starts_with with rest, "rune " or calling starts_with with rest, "echo " or calling starts_with with rest, "seal ":
+        set kind is 23
+    else if calling starts_with with rest, "omen ":
+        set kind is 10
+    else if calling starts_with with rest, "concept ":
+        set kind is 11
+    else if calling starts_with with rest, "alias ":
+        set kind is 26
+    else if calling starts_with with rest, "const ":
+        set kind is 14
+    else if indented and calling starts_with with rest, "weave ":
+        set kind is 6
+    banish rest
+    return kind
 
 ## Kind LSP de un símbolo para el outline.
 weave symbol_kind_lsp with k as sym.SemaSymbolKind into int:
@@ -1890,7 +1930,7 @@ weave handle_workspace_symbols with st as ref to State, id as rpc.JsonRpcId, par
                             calling loc.put_json with "range", (calling lpos.range_json with text, start, start)
                             var item as JsonValue is calling JsonValue.empty_object
                             calling item.put_json with "name", (calling JsonValue.string_val with (calling copy with nm))
-                            calling item.put_json with "kind", (calling JsonValue.int_val with 12)
+                            calling item.put_json with "kind", (calling JsonValue.int_val with (calling decl_kind_line with line))
                             calling item.put_json with "location", loc
                             calling all.push_json with item
                             set count is count + 1

@@ -207,7 +207,6 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
     if k == pskind.NodeKind.NdToExpr:
         var tv as int is calling astutil.node_child with ast, node, 0
         var tvx as string is calling emit_expr with c, tv
-        defer banish tvx
         var tnode as int is calling astutil.node_child with ast, node, 1
         var tct as string is ""
         if tnode >= 0 and (calling astutil.kind_of with ast, tnode) == pskind.NodeKind.NdVarRef:
@@ -221,7 +220,6 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
             var tt2 as int is calling tast.from_ast with c, m, tnode
             if tt2 >= 0:
                 set tct is calling ctype.c_type with (sigil of c->names), tt2
-        defer banish tct
         if tct == "":
             return tvx
         if tct == "PenguString":
@@ -230,16 +228,20 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
                 var stt as tk.SemaType is calling types.at with (sigil of c->program->types), stv
                 if stt.kind == tk.SemaTypeKind.TkBase:
                     var stn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), stt.name)
-                    defer banish stn
                     if stn == "string":
                         return tvx
                     if stn == "float" or stn == "f32":
+                        banish tvx
                         return "pengu_string_from_float32({tvx})"
                     if stn == "f64" or stn == "double":
+                        banish tvx
                         return "pengu_string_from_float({tvx})"
                     if stn == "bool":
+                        banish tvx
                         return "pengu_string_from_bool({tvx})"
+            banish tvx
             return "pengu_string_from_int((int64_t)({tvx}))"
+        banish tvx
         return "(({tct})({tvx}))"
     if k == pskind.NodeKind.NdTransmute:
         var tmv as int is calling astutil.node_child with ast, node, 0
