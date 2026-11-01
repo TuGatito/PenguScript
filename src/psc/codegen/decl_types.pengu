@@ -342,6 +342,25 @@ weave order_types with c as ref to context.CgContext into list of int:
 ##
 ## ## Memoria
 ## Strings temporales liberados.
+## Sufijo C para `@packed` / `@align(N)`.
+weave layout_attr_suffix with info as types.SemaNominalInfo into string:
+    if not info.is_packed and info.align_override <= 0:
+        return ""
+    var sb as StringBuilder is calling StringBuilder.new
+    calling sb.append with " __attribute__(("
+    var first as bool is true
+    if info.is_packed:
+        calling sb.append with "packed"
+        set first is false
+    if info.align_override > 0:
+        if not first:
+            calling sb.append with ", "
+        calling sb.append with "aligned("
+        calling sb.append_int with info.align_override
+        calling sb.append with ")"
+    calling sb.append with "))"
+    return calling sb.finish
+
 weave emit_definition with c as ref to context.CgContext, t as catalog.CgType into void:
     var ty as tk.SemaType is calling types.at with (sigil of c->program->types), t.type_id
     var cname as string is calling type_name with c, t
@@ -387,7 +406,9 @@ weave emit_definition with c as ref to context.CgContext, t as catalog.CgType in
         calling emit.indent_less with (sigil of c->emitter)
         calling emit.line with (sigil of c->emitter), "} data;"
         calling emit.indent_less with (sigil of c->emitter)
-        calling emit.line with (sigil of c->emitter), "};"
+        var osuf as string is calling layout_attr_suffix with oi
+        defer banish osuf
+        calling emit.line with (sigil of c->emitter), "}{osuf};"
         return
     if t.is_omen:
         var oi2 as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
@@ -456,4 +477,6 @@ weave emit_definition with c as ref to context.CgContext, t as catalog.CgType in
         calling emit.line with (sigil of c->emitter), "{fdecl};"
         set i is i + 1
     calling emit.indent_less with (sigil of c->emitter)
-    calling emit.line with (sigil of c->emitter), "};"
+    var rsuf as string is calling layout_attr_suffix with info
+    defer banish rsuf
+    calling emit.line with (sigil of c->emitter), "}{rsuf};"

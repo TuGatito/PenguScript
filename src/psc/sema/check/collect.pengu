@@ -557,8 +557,51 @@ weave new_nominal with s as ref to state.SemaState, kind as tk.SemaNominalKind, 
     var flags as int is 0
     if public:
         set flags is flags | types.NIF_PUBLIC
-    var info as types.SemaNominalInfo is with kind is kind, base_name is name, c_name is cname, module is s->module->id, flags is flags, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, template_info is -1, attrs_node is -1
+    var info as types.SemaNominalInfo is with kind is kind, base_name is name, c_name is cname, module is s->module->id, flags is flags, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, template_info is -1, attrs_node is -1, is_packed is false, align_override is 0
     return calling types.named_type with s->types, info
+
+## Convierte un texto numérico simple en entero (atributos `@align(N)`).
+weave parse_uint_text with t as string into int:
+    var b as ref to frozen byte is bytes of t
+    var n as int is 0
+    var i as int is 0
+    while i < t length:
+        var c as int is (b at i) to int
+        if c >= 48 and c <= 57:
+            set n is n * 10 + (c - 48)
+        set i is i + 1
+    return n
+
+## Aplica `@packed` / `@align(N)` del nodo de declaración a su info nominal.
+weave apply_nominal_attrs with s as ref to state.SemaState, ty as int, node as int into void:
+    var t as tk.SemaType is calling types.at with s->types, ty
+    if t.a < 0:
+        return
+    var attrs as int is calling astutil.node_child with s->ast, node, 0
+    if attrs < 0 or (calling astutil.kind_of with s->ast, attrs) != pskind.NodeKind.NdAttributes:
+        return
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at t.a)
+    var i as int is 0
+    while i < (calling astutil.child_count with s->ast, attrs):
+        var a as int is calling astutil.node_child with s->ast, attrs, i
+        var nm as string is calling astutil.first_token_text with s->src, s->lex, s->ast, a
+        if nm == "packed":
+            set info.is_packed is true
+        else if nm == "align":
+            var args as int is calling astutil.node_child with s->ast, a, 1
+            if args >= 0:
+                var txt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, args
+                var av as int is calling parse_uint_text with txt
+                if av < 1 or av > 128 or (av & (av - 1)) != 0:
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_ATTRIBUTE, (calling astutil.start_of with s->ast, a), (calling astutil.end_of with s->ast, a), "@align(N) requires N to be a power of two between 1 and 128", "Use @align(1), @align(2), @align(4), ... or @align(128).", ""
+                else:
+                    set info.align_override is av
+                set info.attrs_node is args
+                banish txt
+        banish nm
+        set i is i + 1
+    set info.attrs_node is attrs
+    set s->types->nominal_infos at (t.a) is info
 
 ## Recorta espacios de una línea.
 weave trim_text with s as string into string:
@@ -660,6 +703,7 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
     else:
         set ty is calling new_nominal with s, nk, name, name, true
         calling s->module->type_ids.put with node, ty
+    calling apply_nominal_attrs with s, ty, node
     var info_idx as int is (calling types.at with s->types, ty).a
     var skind0 as sym.SemaSymbolKind is sym.SemaSymbolKind.SkRune
     if sk == sym.SemaSymbolKind.SkEcho:
@@ -779,6 +823,7 @@ weave collect_omen with s as ref to state.SemaState, node as int into void:
         set ty is calling new_nominal with s, tk.SemaNominalKind.NkOmen, name, name, true
         calling s->module->type_ids.put with node, ty
         calling register_type with s, sym.SemaSymbolKind.SkOmen, name, ty, node
+    calling apply_nominal_attrs with s, ty, node
     var info_idx as int is (calling types.at with s->types, ty).a
     var first as int is s->types->variants.len
     var count as int is 0
@@ -866,7 +911,7 @@ weave collect_alias with s as ref to state.SemaState, node as int, is_seal as bo
     var nk as tk.SemaNominalKind is tk.SemaNominalKind.NkAlias
     if is_seal:
         set nk is tk.SemaNominalKind.NkSeal
-    var info as types.SemaNominalInfo is with kind is nk, base_name is name, c_name is name, module is s->module->id, flags is types.NIF_PUBLIC, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, template_info is -1, attrs_node is -1
+    var info as types.SemaNominalInfo is with kind is nk, base_name is name, c_name is name, module is s->module->id, flags is types.NIF_PUBLIC, fields_first is 0, fields_count is 0, variants_first is 0, variants_count is 0, tparams_first is 0, tparams_count is 0, derived_first is 0, derived_count is 0, template_info is -1, attrs_node is -1, is_packed is false, align_override is 0
     var ty as int is calling types.named_with_target with s->types, info, target
     var sk as sym.SemaSymbolKind is sym.SemaSymbolKind.SkAlias
     if is_seal:

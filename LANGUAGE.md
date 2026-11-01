@@ -5839,9 +5839,10 @@ root of dead-code elimination even when nothing in the program references it.
 
 ## 28. Layout attributes: `@packed` and `@align(N)`
 
-`@packed` removes inter-field padding from a `rune`, and `@align(N)` sets its
-alignment. `N` must be a power of two between 1 and 128 (`E0056`), because both
-GCC/Clang and MSVC require that:
+`@packed` removes inter-field padding from a `rune`, `echo` or `omen`, and
+`@align(N)` sets the alignment of the emitted C type. `N` must be a power of two
+between 1 and 128 (`E0056`), because both GCC/Clang and MSVC require that.
+The attributes are written on their own lines immediately above the declaration:
 
 ```pengu
 @packed
@@ -5853,15 +5854,10 @@ rune NetHeader:
 ```
 
 With `@packed` this rune occupies 8 bytes rather than the 12 that padding would
-require. `@align(N)` may also be applied to an individual field to align it
-within its struct.
-
-> [!NOTE]
-> `@packed` and `@align` apply to `rune` declarations and their fields. An `echo`
-> declaration has no attribute position in the grammar, so they cannot be written
-> there; a C union has its own layout rules.
+require. `@packed` and `@align(N)` apply to `rune`, `echo` and `omen`
+declarations; field-level alignment is not supported yet.
 
 *End of reference. Corrections welcome — this document mirrors compiler
-behavior at version 2.0.x; run `pengu check` on any snippet to confirm
+behavior at version 0.21.1; run `psc check` on any snippet to confirm
 semantics on your toolchain.*
 

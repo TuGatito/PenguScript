@@ -1,0 +1,32 @@
+## Layout attributes: @packed and @align(N).
+
+@packed
+rune Packed:
+    a as char
+    b as f64
+
+@align(16)
+rune Aligned:
+    a as char
+    b as f64
+
+@packed
+@align(8)
+rune Both:
+    a as char
+    b as f64
+
+weave main into int:
+    if size of Packed != 9:
+        return 1
+    if align of Packed != 1:
+        return 2
+    if size of Aligned != 16:
+        return 3
+    if align of Aligned != 16:
+        return 4
+    if size of Both != 16:
+        return 5
+    if align of Both != 8:
+        return 6
+    return 0

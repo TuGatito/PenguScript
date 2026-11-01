@@ -62,6 +62,10 @@ rune SemaNominalInfo:
     template_info as int
     ## Nodo de atributos del AST (`-1` si no).
     attrs_node as int
+    ## `@packed` aplicado a la declaración.
+    is_packed as bool
+    ## `@align(N)` aplicado a la declaración (`0` si no).
+    align_override as int
 
 ## Campo de una runa/echo o payload de una variante.
 rune SemaField:

@@ -82,10 +82,14 @@ weave align_of with p as ref to program.SemaProgram, type_id as int, depth as in
         var i as int is 0
         while i < info.fields_count:
             var f as types.SemaField is (p->types.fields at (info.fields_first + i))
-            var fa as int is calling align_of with p, f.type, depth + 1
+            var fa as int is 1
+            if not info.is_packed:
+                set fa is calling align_of with p, f.type, depth + 1
             if fa > al:
                 set al is fa
             set i is i + 1
+        if info.align_override > al:
+            set al is info.align_override
         return al
     if ty.kind == tk.SemaTypeKind.TkOmen:
         if ty.a < 0 or ty.a >= p->types.nominal_infos.len:
@@ -148,22 +152,30 @@ weave size_of with p as ref to program.SemaProgram, type_id as int, depth as int
             # Una union C ocupa el mayor miembro, alineado al mayor align.
             while i < info.fields_count:
                 var uf as types.SemaField is (p->types.fields at (info.fields_first + i))
-                var ua as int is calling align_of with p, uf.type, depth + 1
+                var ua as int is 1
+                if not info.is_packed:
+                    set ua is calling align_of with p, uf.type, depth + 1
                 if ua > al:
                     set al is ua
                 var us as int is calling size_of with p, uf.type, depth + 1
                 if us > off:
                     set off is us
                 set i is i + 1
+            if info.align_override > al:
+                set al is info.align_override
             return calling align_up with off, al
         while i < info.fields_count:
             var f as types.SemaField is (p->types.fields at (info.fields_first + i))
-            var fa as int is calling align_of with p, f.type, depth + 1
+            var fa as int is 1
+            if not info.is_packed:
+                set fa is calling align_of with p, f.type, depth + 1
             if fa > al:
                 set al is fa
             set off is calling align_up with off, fa
             set off is off + (calling size_of with p, f.type, depth + 1)
             set i is i + 1
+        if info.align_override > al:
+            set al is info.align_override
         return calling align_up with off, al
     if ty.kind == tk.SemaTypeKind.TkOmen:
         if ty.a < 0 or ty.a >= p->types.nominal_infos.len:
@@ -172,6 +184,8 @@ weave size_of with p as ref to program.SemaProgram, type_id as int, depth as int
         var has_payload as bool is false
         var max_payload as int is 0
         var max_align as int is 4
+        if info3.is_packed:
+            set max_align is 1
         var vi2 as int is 0
         while vi2 < info3.variants_count:
             var v2 as types.SemaVariant is (p->types.variants at (info3.variants_first + vi2))
@@ -182,7 +196,9 @@ weave size_of with p as ref to program.SemaProgram, type_id as int, depth as int
             var pi2 as int is 0
             while pi2 < v2.payload_count:
                 var pf2 as types.SemaField is (p->types.fields at (v2.payload_first + pi2))
-                var pfa as int is calling align_of with p, pf2.type, depth + 1
+                var pfa as int is 1
+                if not info3.is_packed:
+                    set pfa is calling align_of with p, pf2.type, depth + 1
                 if pfa > pal:
                     set pal is pfa
                 set poff is calling align_up with poff, pfa
@@ -196,7 +212,11 @@ weave size_of with p as ref to program.SemaProgram, type_id as int, depth as int
             set vi2 is vi2 + 1
         if not has_payload:
             return 4
-        var data_off as int is calling align_up with 4, max_align
+        if info3.align_override > max_align:
+            set max_align is info3.align_override
+        var data_off as int is 4
+        if not info3.is_packed:
+            set data_off is calling align_up with 4, max_align
         return calling align_up with (data_off + max_payload), max_align
     if ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal:
         if ty.b > 0:
