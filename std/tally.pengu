@@ -3487,8 +3487,8 @@ test "sort_int_desc sorts descending":
     calling _expect_eq_int with (out at 0), 5, "sort_int_desc first"
 test "sort_float_asc and sort_float_desc order floats":
     let fs as list of float is [2.5, -1.5, 4.5]
-    let up as list of float is calling fs.sort_float_asc
-    let down as list of float is calling fs.sort_float_desc
+    let up as list of float is calling tally.sort_float_asc with fs
+    let down as list of float is calling tally.sort_float_desc with fs
     calling _expect_eq_float with (up at 0), -1.5, "float sort_float_asc"
     calling _expect_eq_float with (down at 0), 4.5, "float sort_float_desc"
 test "sort_f64_asc sorts 64-bit floats":

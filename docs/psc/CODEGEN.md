@@ -78,6 +78,9 @@ codegen.api.generate_c
 - **P4.5 (0.19.1):** validación del receptor declarado de métodos concretos
   `enchanting list of <tipo>`; un método de `list of int` no se resuelve sobre
   `list of string` (`E0005 method ... is not defined for this receiver type`).
+- **P4.6 (0.19.2):** el fallback de métodos de lista exige un método real;
+  las funciones de módulo ya no se resuelven con sintaxis de método
+  (`E0005 ... is a module function, not a method`).
 - **Conformidad:** **90/90** fixtures con las librerías nativas.
 - **Calidad:** 17 casos de aceptación F4, ASan/UBSan, golden C normalizado y
   benchmark de emisión.

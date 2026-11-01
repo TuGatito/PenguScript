@@ -2,6 +2,31 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.19.2] — 2026-10-31 — Funciones de módulo no se resuelven como métodos
+
+Cierra el fallback UFCS que aceptaba cualquier nombre sobre una lista y luego
+emitía una llamada a una función de módulo sin argumentos
+(`tally_sort_int_desc()`), produciendo `too few arguments` en C.
+
+### Corregido
+
+- **`builtin_method` sobre `TkList`.** El fallback permisivo ya no devuelve un
+  tipo para cualquier nombre: sólo acepta métodos reales cuyo receptor sea una
+  lista genérica o compatible. Un nombre sin método asociado devuelve `-1`.
+- **Funciones de módulo usadas como método.** `xs.sort_int_desc` ahora falla en
+  compilación con:
+  `error[E0005]: 'sort_int_desc' is a module function, not a method`.
+  La ayuda indica llamarla desde su módulo o pasar el receptor como primer
+  argumento.
+- **Tests internos de `std.tally`.** `fs.sort_float_asc`/`fs.sort_float_desc`
+  pasan a la forma correcta `tally.sort_float_asc with fs` (la forma anterior
+  sólo compilaba por el fallback permisivo).
+
+### Pruebas
+
+- `tests/receiver_guard.sh` cubre también una función de módulo invocada con
+  sintaxis de método y exige el diagnóstico específico.
+
 ## [0.19.1] — 2026-10-31 — Validación del receptor en métodos de `enchanting list`
 
 Cierra la deuda de resolución de métodos concretos sobre listas: un método

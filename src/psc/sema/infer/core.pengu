@@ -580,6 +580,19 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
             # Una llamada `receptor.metodo` sólo puede resolver métodos (o
             # builtins de contenedor); no cae al registro global de funciones.
             if n > 1 and base_import < 0 and base_sid >= 0:
+                var gfid as int is calling npool.find with s->names, method_text
+                if gfid >= 0:
+                    var gfi2 as int is 0
+                    while gfi2 < s->symbols->symbols.len:
+                        var gfs2 as sym.SemaSymbol is (s->symbols->symbols at gfi2)
+                        if gfs2.name == gfid and (gfs2.kind == sym.SemaSymbolKind.SkWeave or gfs2.kind == sym.SemaSymbolKind.SkDeclare) and not (calling s->symbols->method_receiver.has with gfi2):
+                            var gmsg as string is "'{method_text}' is a module function, not a method"
+                            defer banish gmsg
+                            var ghelp as string is "Call it from the module that declares it, or pass the receiver as the first argument."
+                            defer banish ghelp
+                            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), gmsg, ghelp, ""
+                            return 0
+                        set gfi2 is gfi2 + 1
                 var mnid as int is calling npool.find with s->names, method_text
                 if mnid >= 0:
                     var mi as int is 0
@@ -737,6 +750,7 @@ weave builtin_method with s as ref to state.SemaState, recv as int, name as stri
         if name == "size" or name == "len" or name == "length":
             return calling types.base with s->types, "int"
         var pnid as int is calling npool.find with s->names, name
+        var pok as bool is false
         if pnid >= 0:
             var pi as int is 0
             while pi < s->symbols->symbols.len:
@@ -744,11 +758,15 @@ weave builtin_method with s as ref to state.SemaState, recv as int, name as stri
                     var ps as sym.SemaSymbol is (s->symbols->symbols at pi)
                     if ps.name == pnid:
                         var pr as int is calling s->symbols->method_receiver.get with pi
-                        if not (calling compat.has_type_param with s->types, pr):
+                        if calling compat.has_type_param with s->types, pr:
+                            set pok is true
+                        else:
                             var prt as tk.SemaType is calling types.at with s->types, (calling underlying_type with s, pr)
-                            if prt.kind == tk.SemaTypeKind.TkList and not (calling compat.compatible with s->types, rt.a, prt.a):
-                                return -1
+                            if prt.kind == tk.SemaTypeKind.TkList and calling compat.compatible with s->types, rt.a, prt.a:
+                                set pok is true
                 set pi is pi + 1
+        if not pok:
+            return -1
         if expected >= 0:
             return expected
         return 3
