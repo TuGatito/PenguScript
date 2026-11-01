@@ -10,6 +10,11 @@ All notable changes to PenguScript will be documented in this file.
   emisión de `__attribute__((aligned(N)))` por miembro y layout coherente en el
   LSP (el override del campo gana sobre `@packed`). Nuevo test
   `tests/pengu/field_align.pengu`.
+- **Argumentos por defecto**: `weave f with a as int, b as int is 1` admite
+  llamadas con menos argumentos; el default se evalúa en el módulo de la función
+  (incluido dentro de interpolaciones) y se inserta en el call site. Los
+  parámetros sin default ahora se validan con `too few arguments in call`.
+  Nuevo test `tests/pengu/default_args.pengu`.
 - **Guard de integridad del bundle**: si el C generado contiene un byte NUL, el
   compilador aborta con `internal error: NUL byte in generated C at offset ...`
   en vez de producir un C corrupto.
