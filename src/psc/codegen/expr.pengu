@@ -231,17 +231,12 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
                     if stn == "string":
                         return tvx
                     if stn == "float" or stn == "f32":
-                        banish tvx
                         return "pengu_string_from_float32({tvx})"
                     if stn == "f64" or stn == "double":
-                        banish tvx
                         return "pengu_string_from_float({tvx})"
                     if stn == "bool":
-                        banish tvx
                         return "pengu_string_from_bool({tvx})"
-            banish tvx
             return "pengu_string_from_int((int64_t)({tvx}))"
-        banish tvx
         return "(({tct})({tvx}))"
     if k == pskind.NodeKind.NdTransmute:
         var tmv as int is calling astutil.node_child with ast, node, 0

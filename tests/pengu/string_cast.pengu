@@ -1,0 +1,13 @@
+## Regresión: `to string` sobre un string no debe doble-liberar (0.21.1).
+weave main into int:
+    var a as string is "42" to string
+    if not (a == "42"):
+        return 1
+    var b as string is ("42" to string) + "x"
+    if not (b == "42x"):
+        return 1
+    var n as int is 42
+    var c as string is n to string
+    if not (c == "42"):
+        return 1
+    return 0
