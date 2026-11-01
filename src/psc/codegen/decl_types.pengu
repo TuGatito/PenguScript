@@ -345,7 +345,7 @@ weave order_types with c as ref to context.CgContext into list of int:
 ## Sufijo C para `@packed` / `@align(N)`.
 weave layout_attr_suffix with info as types.SemaNominalInfo into string:
     if not info.is_packed and info.align_override <= 0:
-        return ""
+        return calling npool.copy_string with ""
     var sb as StringBuilder is calling StringBuilder.new
     calling sb.append with " __attribute__(("
     var first as bool is true
