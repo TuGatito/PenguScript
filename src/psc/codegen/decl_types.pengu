@@ -117,8 +117,17 @@ weave emit_forward with c as ref to context.CgContext, t as catalog.CgType into 
     var cname as string is calling type_name with c, t
     defer banish cname
     if t.is_struct:
-        calling emit.line with (sigil of c->emitter), "struct {cname};"
-        calling emit.line with (sigil of c->emitter), "typedef struct {cname} {cname};"
+        var is_echo as bool is false
+        if ty.kind == tk.SemaTypeKind.TkEcho:
+            var ei as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
+            if ei.kind == tk.SemaNominalKind.NkEcho:
+                set is_echo is true
+        if is_echo:
+            calling emit.line with (sigil of c->emitter), "union {cname};"
+            calling emit.line with (sigil of c->emitter), "typedef union {cname} {cname};"
+        else:
+            calling emit.line with (sigil of c->emitter), "struct {cname};"
+            calling emit.line with (sigil of c->emitter), "typedef struct {cname} {cname};"
         return
     if t.is_omen:
         var info as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
@@ -430,7 +439,10 @@ weave emit_definition with c as ref to context.CgContext, t as catalog.CgType in
     if not t.is_struct:
         return
     var info as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
-    calling emit.line with (sigil of c->emitter), "struct {cname} {"
+    if info.kind == tk.SemaNominalKind.NkEcho:
+        calling emit.line with (sigil of c->emitter), "union {cname} {"
+    else:
+        calling emit.line with (sigil of c->emitter), "struct {cname} {"
     calling emit.indent_more with (sigil of c->emitter)
     var i as int is 0
     while i < info.fields_count:

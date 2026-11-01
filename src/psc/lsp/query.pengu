@@ -17,6 +17,8 @@ import psc.sema.symbols.table as symbols
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
 import psc.docgen.sig as sig
+import psc.lsp.layout as layout
+import psc.token as pstoken
 
 insignia psc_lsp_query_
 
@@ -248,78 +250,139 @@ weave imported_module with p as ref to program.SemaProgram, mid as int, alias as
 weave std_dirs with p as ref to program.SemaProgram into list of string:
     return p->options.std_dirs
 
-## Tamaño aproximado en bytes de un tipo (layout C, sin padding).
+## Tamaño en bytes de un tipo con el layout C del ABI v3 (64-bit, con padding).
 ##
-## Para runas suma los campos; para contenedores usa el tamaño del descriptor
-## del runtime. Es una estimación para el hover, no un `sizeof` del compilador C.
+## El cálculo vive en `layout.pengu`; aquí sólo se conserva la firma histórica
+## que usa el resto del LSP.
 weave type_size with p as ref to program.SemaProgram, type_id as int into int:
-    return calling type_size_at with p, type_id, 0
+    return calling layout.type_size with p, type_id
 
-## Implementación recursiva de `type_size`.
+## Implementación recursiva de `type_size` (compatibilidad).
 weave type_size_at with p as ref to program.SemaProgram, type_id as int, depth as int into int:
-    if depth > 12 or type_id <= 0:
-        return 0
+    return calling layout.size_of with p, type_id, depth
+
+## `true` si `nm` es el nombre de un tipo incorporado.
+weave is_builtin_type_name with nm as string into bool:
+    if nm == "int" or nm == "i8" or nm == "i16" or nm == "i32" or nm == "i64":
+        return true
+    if nm == "u8" or nm == "u16" or nm == "u32" or nm == "u64" or nm == "usize" or nm == "isize":
+        return true
+    if nm == "byte" or nm == "char" or nm == "bool" or nm == "float" or nm == "f32" or nm == "f64" or nm == "double":
+        return true
+    if nm == "string" or nm == "void" or nm == "any" or nm == "opaque" or nm == "ref" or nm == "frozen":
+        return true
+    if nm == "array" or nm == "list" or nm == "slice" or nm == "map" or nm == "maybe" or nm == "result" or nm == "range" or nm == "fn":
+        return true
+    if nm == "size_t" or nm == "intptr_t" or nm == "uintptr_t" or nm == "ptrdiff_t" or nm == "short" or nm == "ushort" or nm == "long" or nm == "ulong":
+        return true
+    return false
+
+## Tipo del receptor de `receptor.miembro` a partir del offset del punto.
+##
+## Usa el nodo AST que termina justo antes del punto; si no tiene anotación,
+## cae al símbolo de la palabra. Devuelve `-1` si no se puede resolver.
+weave receiver_type_at with p as ref to program.SemaProgram, mid as int, text as string, dot as int into int:
+    var probe as int is dot - 1
+    var b as ref to frozen byte is bytes of text
+    while probe >= 0:
+        var c as int is (b at probe) to int
+        if c == 32 or c == 9:
+            set probe is probe - 1
+        else:
+            break
+    if probe < 0:
+        return -1
+    var n as int is calling node_at with p, mid, probe
+    if n >= 0:
+        var t as int is calling node_type with p, mid, n
+        if t > 0:
+            return t
+    return calling type_at_offset with p, mid, text, probe
+
+## Métodos de encantamiento aplicables a un tipo.
+##
+## Incluye los métodos exactos del receptor y los métodos genéricos (aquellos
+## cuyo receptor es un `shard T`), que se resuelven en la llamada.
+weave methods_for_type with p as ref to program.SemaProgram, type_id as int into list of int:
+    var out as list of int is list of int
+    if type_id <= 0:
+        return out
+    var i as int is 0
+    while i < p->symbols.symbols.len:
+        var si as sym.SemaSymbol is (p->symbols.symbols at i)
+        if si.kind == sym.SemaSymbolKind.SkWeave:
+            if calling p->symbols.method_receiver.has with i:
+                var recv as int is calling p->symbols.method_receiver.get with i
+                if recv == type_id:
+                    calling out.push with i
+                else:
+                    var rt as tk.SemaType is calling types.at with (sigil of p->types), recv
+                    if rt.kind == tk.SemaTypeKind.TkTypeParam:
+                        calling out.push with i
+        set i is i + 1
+    return out
+
+## Tipo de un campo de `rune`/`echo` (`-1` si no existe).
+weave field_type_at with p as ref to program.SemaProgram, type_id as int, name as string into int:
+    if type_id <= 0:
+        return -1
     var ty as tk.SemaType is calling types.at with (sigil of p->types), type_id
-    if ty.kind == tk.SemaTypeKind.TkBase:
-        var nm as string is calling npool.text with (sigil of p->names), ty.name
-        if nm == "int" or nm == "i32" or nm == "u32" or nm == "float":
-            return 4
-        if nm == "i64" or nm == "u64" or nm == "f64":
-            return 8
-        if nm == "i16" or nm == "u16":
-            return 2
-        if nm == "i8" or nm == "u8" or nm == "byte" or nm == "char" or nm == "bool":
-            return 1
-        if nm == "usize" or nm == "isize":
-            return 8
-        if nm == "string":
-            return 16
-        if nm == "void":
-            return 0
-        return 8
-    if ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkFrozen or ty.kind == tk.SemaTypeKind.TkFn:
-        return 8
-    if ty.kind == tk.SemaTypeKind.TkArray:
-        var es as int is calling type_size_at with p, ty.a, depth + 1
-        if ty.b > 0:
-            return es * ty.b
-        return es
-    if ty.kind == tk.SemaTypeKind.TkList or ty.kind == tk.SemaTypeKind.TkMap or ty.kind == tk.SemaTypeKind.TkSlice:
-        return 24
-    if ty.kind == tk.SemaTypeKind.TkMaybe or ty.kind == tk.SemaTypeKind.TkResult:
-        var inner as int is ty.a
-        if ty.kind == tk.SemaTypeKind.TkResult and ty.b > 0:
-            var eb as int is calling type_size_at with p, ty.b, depth + 1
-            if eb > inner:
-                set inner is ty.b
-        return 8 + (calling type_size_at with p, inner, depth + 1)
-    if ty.kind == tk.SemaTypeKind.TkRune or ty.kind == tk.SemaTypeKind.TkEcho:
-        if ty.a >= 0 and ty.a < p->types.nominal_infos.len:
-            var info as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
-            var total as int is 0
-            var fi as int is 0
-            while fi < info.fields_count:
-                var f as types.SemaField is (p->types.fields at (info.fields_first + fi))
-                set total is total + (calling type_size_at with p, f.type, depth + 1)
-                set fi is fi + 1
-            return total
-        return 0
-    if ty.kind == tk.SemaTypeKind.TkOmen:
-        if ty.a >= 0 and ty.a < p->types.nominal_infos.len:
-            var info2 as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
-            var max_payload as int is 0
-            var vi as int is 0
-            while vi < info2.variants_count:
-                var v as types.SemaVariant is (p->types.variants at (info2.variants_first + vi))
-                var psz as int is 0
-                var pi as int is 0
-                while pi < v.payload_count:
-                    var pf as types.SemaField is (p->types.fields at (v.payload_first + pi))
-                    set psz is psz + (calling type_size_at with p, pf.type, depth + 1)
-                    set pi is pi + 1
-                if psz > max_payload:
-                    set max_payload is psz
-                set vi is vi + 1
-            return 8 + max_payload
-        return 8
-    return 8
+    if ty.kind != tk.SemaTypeKind.TkRune and ty.kind != tk.SemaTypeKind.TkEcho:
+        return -1
+    if ty.a < 0 or ty.a >= p->types.nominal_infos.len:
+        return -1
+    var info as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
+    var i as int is 0
+    while i < info.fields_count:
+        var f as types.SemaField is (p->types.fields at (info.fields_first + i))
+        var fnm as string is calling npool.text with (sigil of p->names), f.name
+        if fnm == name:
+            return f.type
+        set i is i + 1
+    return -1
+
+## Tipo del payload de una variante de `omen` (`-1` si no existe o no lleva payload).
+weave variant_payload_type with p as ref to program.SemaProgram, type_id as int, name as string into int:
+    if type_id <= 0:
+        return -1
+    var ty as tk.SemaType is calling types.at with (sigil of p->types), type_id
+    if ty.kind != tk.SemaTypeKind.TkOmen:
+        return -1
+    if ty.a < 0 or ty.a >= p->types.nominal_infos.len:
+        return -1
+    var info as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
+    var i as int is 0
+    while i < info.variants_count:
+        var v as types.SemaVariant is (p->types.variants at (info.variants_first + i))
+        var vnm as string is calling npool.text with (sigil of p->names), v.name
+        if vnm == name:
+            if v.payload_count == 0:
+                return -1
+            var f as types.SemaField is (p->types.fields at v.payload_first)
+            return f.type
+        set i is i + 1
+    return -1
+
+## Offset del nombre de un símbolo dentro de su declaración.
+##
+## `si.start` apunta al inicio de la declaración; para hover/rename se necesita
+## el identificador. Devuelve `-1` si no se encuentra.
+weave symbol_name_start with p as ref to program.SemaProgram, mid as int, sid as int into int:
+    if mid < 0 or mid >= p->modules.len:
+        return -1
+    var si as sym.SemaSymbol is (p->symbols.symbols at sid)
+    var nm as string is calling npool.text with (sigil of p->names), si.name
+    var m as loader.SemaModule is (p->modules at mid)
+    var text as string is m.source.text
+    var i as int is 0
+    while i < m.lex.tokens.len:
+        var tok as pstoken.Token is (m.lex.tokens at i)
+        if tok.start >= si.start and tok.end <= si.end:
+            if tok.kind == pstoken.TokenKind.TokIdentifier:
+                var lex as string is text at tok.start to tok.end
+                var same as bool is lex == nm
+                banish lex
+                if same:
+                    return tok.start
+        set i is i + 1
+    return -1

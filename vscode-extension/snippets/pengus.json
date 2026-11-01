@@ -44,16 +44,6 @@
     ],
     "description": "Declare a generic struct with type parameter (shard)"
   },
-  "Echo Tagged Union Definition": {
-    "prefix": "echo",
-    "body": [
-      "echo ${1:Value}:",
-      "    ${2:i} as int",
-      "    ${3:f} as float",
-      "    ${0}"
-    ],
-    "description": "Declare a tagged union (echo)"
-  },
   "Omen Algebraic Data Type": {
     "prefix": "omen",
     "body": [
@@ -1110,5 +1100,40 @@
       "${0}"
     ],
     "description": "Raw C function body"
+  },
+  "Pipe Expression": {
+    "prefix": "pipe",
+    "body": [
+      "let ${1:result} as ${2:string} is ${3:expr} pipe ${4:function}",
+      "${0}"
+    ],
+    "description": "Feed a value into a call with `pipe` (0.21+)."
+  },
+  "Align Of Expression": {
+    "prefix": "alignof",
+    "body": [
+      "let ${1:n} as usize is align of ${2:Type}",
+      "${0}"
+    ],
+    "description": "Alignment in bytes of a type (`align of T`)."
+  },
+  "Method Chain": {
+    "prefix": "chain",
+    "body": [
+      "calling ${1:value}.${2:method}",
+      "calling ${1:value}.${3:method}",
+      "${0}"
+    ],
+    "description": "Chain method calls on a receiver (`calling x.method`)."
+  },
+  "Echo Record Definition": {
+    "prefix": "echo",
+    "body": [
+      "echo ${1:Value}:",
+      "    ${2:i} as int",
+      "    ${3:f} as float",
+      "    ${0}"
+    ],
+    "description": "Echo record (all fields stored; see LANGUAGE.md 9.2)."
   }
 }

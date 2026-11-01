@@ -1,0 +1,277 @@
+## psc/lsp/docs.pengu — documentación breve (inglés) para hover.
+##
+## El LSP la usa cuando el cursor está sobre una palabra clave, un tipo
+## incorporado o un operador. El texto está pensado para quien llega al
+## lenguaje por primera vez: qué hace y cuándo se usa, sin jerga innecesaria.
+##
+## ## Memoria
+## Sólo devuelve literales estáticos; no asigna.
+
+insignia psc_lsp_docs_
+
+## Documentación de una palabra clave, tipo u operador. `""` si no hay.
+weave lookup with word as string into string:
+    var d as string is calling keyword_doc with word
+    if d length > 0:
+        return d
+    return calling type_doc with word
+
+## Palabras clave y operadores con forma de palabra.
+weave keyword_doc with word as string into string:
+    if word == "weave":
+        return "**weave** — Declares a function or a method.\n\nA function takes named parameters with `with` and returns a value with `into`. Use `weave main` for the program entry point."
+    if word == "antiquus":
+        return "**antiquus** — Declares a function whose body is literal C code, written between triple quotes.\n\nIt is the escape hatch for system calls, performance-critical code and FFI glue that PenguScript does not express directly."
+    if word == "declare":
+        return "**declare** — Declares an external function that is provided by C or by another library.\n\nIt has no body; it only describes the signature so calls type-check."
+    if word == "enchanting":
+        return "**enchanting** — Attaches methods to an existing type.\n\nInside the block, `weave name with ...` adds a method callable as `value.name` or `calling value.name`. Methods that mutate the receiver must be marked as such by the language rules."
+    if word == "rune":
+        return "**rune** — Declares a struct: a record with named, typed fields.\n\nFields are read with `.field` and written with `set value.field is ...`."
+    if word == "echo":
+        return "**echo** — Declares a C-compatible aggregate of named fields.\n\nIt is intended for FFI layouts; use `rune` for ordinary records."
+    if word == "omen":
+        return "**omen** — Declares an enum or a tagged union (algebraic sum type).\n\nVariants without a payload behave like a C enum. Variants with a payload carry data and are matched with `judge`."
+    if word == "alias":
+        return "**alias** — Gives another name to an existing type.\n\nIt is a transparent alias: values of the alias and of the original type are interchangeable."
+    if word == "seal":
+        return "**seal** — Declares a distinct type backed by another type (a newtype).\n\nUnlike `alias`, a sealed type does not implicitly convert to its backing type."
+    if word == "concept":
+        return "**concept** — Declares a compile-time contract: a set of operations a type must provide.\n\nGeneric code uses concepts in `where` clauses to constrain its type parameters."
+    if word == "bind":
+        return "**bind** — Declares that a type satisfies a concept, and provides the required operations."
+    if word == "shard":
+        return "**shard** — Introduces a generic type parameter.\n\nExample: `weave first of shard T with items as list of shard T into maybe shard T`. Constraints go in a `where` clause."
+    if word == "where":
+        return "**where** — Adds constraints to generic parameters, for example `where T: Donum` or `where T: Integrum`."
+    if word == "derive":
+        return "**derive** — Asks the compiler to generate standard implementations (for example equality or default values) for a type."
+    if word == "cyclus":
+        return "**cyclus** — Marks a declaration as intentionally self-referential, such as a node that contains a reference to another node of the same type."
+    if word == "donum":
+        return "**donum** — The built-in concept for types that have a default value.\n\n`donum T` also names the default value of `T`, used by containers and generic code."
+    if word == "insignia":
+        return "**insignia** — Sets the prefix used for the C names generated for this module, avoiding collisions between modules."
+    if word == "import":
+        return "**import** — Loads a module and makes its public symbols available under the module name.\n\nExample: `import std.scrolls` lets you call `scrolls.trim with text`."
+    if word == "include":
+        return "**include** — Includes a C header in the generated C output."
+    if word == "link":
+        return "**link** — Adds a native library or object file to the link step."
+    if word == "ldflag":
+        return "**ldflag** — Passes an extra flag to the linker."
+    if word == "const":
+        return "**const** — Declares an immutable compile-time constant.\n\nExample: `const LIMIT as int is 10`."
+    if word == "var":
+        return "**var** — Declares a mutable local variable.\n\nExample: `var count as int is 0`."
+    if word == "let":
+        return "**let** — Declares an immutable local binding."
+    if word == "static":
+        return "**static** — Declares a variable stored at module scope rather than in a function frame."
+    if word == "set":
+        return "**set** — Assigns a new value to an existing place.\n\nExamples: `set x is 3`, `set point.x is 1`, `set essence of ptr is 0`."
+    if word == "calling":
+        return "**calling** — Calls a function or method.\n\nFunction form: `calling add with 1, 2`. Method form: `calling text.trim`."
+    if word == "with":
+        return "**with** — Introduces named arguments in a function call, or initializes a struct with named fields.\n\nExample: `calling move with x is 1, y is 2`."
+    if word == "into":
+        return "**into** — Declares the return type of a function, or the target type of a conversion.\n\nExample: `weave add with a as int into int:`"
+    if word == "as":
+        return "**as** — Gives the type of a variable, field or parameter.\n\nExample: `var name as string is \"pengu\"`."
+    if word == "is":
+        return "**is** — Introduces the initial value of a binding or field, and also tests a condition.\n\nExamples: `var x as int is 3`, `if x is 3:`."
+    if word == "of":
+        return "**of** — Connects a container or operator with its element/operand type: `list of int`, `map of string to int`, `size of T`."
+    if word == "to":
+        return "**to** — Used in ranges (`for i from 1 to 10`) and in conversions (`transmute value to ref to void`)."
+    if word == "from":
+        return "**from** — Sets the start of a range in a `for` loop: `for i from 0 to 9`."
+    if word == "step":
+        return "**step** — Sets the increment of a range loop: `for i from 0 to 10 step 2`."
+    if word == "in":
+        return "**in** — Iterates a container (`for item in items`) or tests membership (`if x in items`)."
+    if word == "many":
+        return "**many** — Marks a variadic parameter: the function accepts zero or more values of the given type.\n\nExample: `weave log with parts as many of string`."
+    if word == "return":
+        return "**return** — Returns a value from the enclosing function and stops its execution."
+    if word == "break":
+        return "**break** — Exits the innermost loop (or the loop named by a label)."
+    if word == "continue":
+        return "**continue** — Skips to the next iteration of the innermost loop (or the named loop)."
+    if word == "if":
+        return "**if** — Runs a block when a condition is true.\n\nThere is also an expression form: `if condition then a else b`."
+    if word == "unless":
+        return "**unless** — Runs a block when a condition is false; the negated form of `if`."
+    if word == "else":
+        return "**else** — The alternative branch of `if`/`unless`/`when`."
+    if word == "while":
+        return "**while** — Repeats a block while a condition remains true."
+    if word == "for":
+        return "**for** — Iterates over a range or a container.\n\nExamples: `for i from 0 to 9`, `for item in items`."
+    if word == "judge":
+        return "**judge** — Pattern-matches a value and runs the branch whose pattern matches.\n\nIt is the main way to inspect `omen` variants and struct fields."
+    if word == "when":
+        return "**when** — In a `judge`, introduces a pattern branch. At module scope it selects code at compile time based on the target."
+    if word == "then":
+        return "**then** — Separates the condition from the result in expression-form `if`/`when`."
+    if word == "do":
+        return "**do** — Starts a block expression whose value is returned by its final expression or `return`."
+    if word == "try":
+        return "**try** — Runs an expression that may fail and propagates the error to the caller if it does."
+    if word == "or":
+        return "**or** — Boolean OR, or the start of an error fallback (`or else`, `or return`)."
+    if word == "and":
+        return "**and** — Boolean AND."
+    if word == "not":
+        return "**not** — Boolean negation."
+    if word == "defer":
+        return "**defer** — Schedules a statement to run when the current scope exits, even on early return.\n\nExample: `defer banish buffer`."
+    if word == "errdefer":
+        return "**errdefer** — Schedules a statement to run only if the scope exits with an error."
+    if word == "banish":
+        return "**banish** — Explicitly releases a heap value or buffer.\n\nPenguScript does not free automatically; `banish` is how ownership ends."
+    if word == "some":
+        return "**some** — Wraps a value into a `maybe`: `some 42` is a present `maybe int`."
+    if word == "none":
+        return "**none** — The empty value of a `maybe`."
+    if word == "null":
+        return "**null** — The null pointer value."
+    if word == "error":
+        return "**error** — The failure value of a `result`, or an error literal."
+    if word == "ok":
+        return "**ok** — The success constructor of a `result`: `ok 42`."
+    if word == "err":
+        return "**err** — The failure constructor of a `result`: `err \"missing\"`."
+    if word == "true":
+        return "**true** — The boolean truth value."
+    if word == "false":
+        return "**false** — The boolean false value."
+    if word == "lambda":
+        return "**lambda** — Creates an anonymous function.\n\nExample: `lambda x as int into int: return x + 1`."
+    if word == "defined":
+        return "**defined** — Compile-time check for whether a symbol or feature exists.\n\nUsed inside `when` to select code without breaking older targets."
+    if word == "test":
+        return "**test** — Declares a unit test.\n\nExample: `test \"adds\" with:`; run tests with `psc test`."
+    if word == "self":
+        return "**self** — Refers to the receiver inside a method declared with `enchanting`."
+    if word == "main":
+        return "**main** — The program entry point: `weave main into int:`."
+    if word == "present":
+        return "**present** — Tests whether a `maybe` contains a value: `if value is present:`."
+    if word == "pipe":
+        return "**pipe** — Feeds the value on its left into the call on its right.\n\n`text pipe scrolls.trim` is the same as `calling scrolls.trim with text`. It keeps long chains readable."
+    if word == "at":
+        return "**at** — Indexes a container: `items at 0`."
+    if word == "length":
+        return "**length** — The number of elements in an array, list or slice: `items length`."
+    if word == "size":
+        return "**size of** — The size in bytes of a type, as computed by the C compiler for the current target."
+    if word == "align":
+        return "**align of** — The alignment in bytes required by a type."
+    if word == "type":
+        return "**type of** — The static type of an expression, as a type value."
+    if word == "sigil":
+        return "**sigil of** — Takes the address of a place, producing a `ref`: `var p as ref to int is sigil of x`."
+    if word == "essence":
+        return "**essence of** — Dereferences a `ref`: `set essence of p is 3`."
+    if word == "bytes":
+        return "**bytes of** — Reinterprets a value as a byte slice, for serialization and FFI."
+    if word == "transmute":
+        return "**transmute** — Reinterprets the bits of a value as another type: `transmute p to ref to void`.\n\nIt performs no conversion and is unsafe."
+    if word == "ord":
+        return "**ord** — The numeric code of a character: `ord 'A'` is `65`."
+    if word == "chr":
+        return "**chr** — The character with a numeric code: `chr 65` is `'A'`."
+    if word == "ref":
+        return "**ref** — A pointer to a value (`ref to T`).\n\nDereference it with `essence of`; take an address with `sigil of`."
+    if word == "frozen":
+        return "**frozen** — A read-only view of a value (`ref to frozen T`). It cannot be used to mutate the pointee."
+    if word == "inline":
+        return "**inline** — Asks the compiler to inline a function at its call sites."
+    if word == "ritual":
+        return "**ritual** — Marks a function that performs side effects or is otherwise not a pure computation."
+    if word == "unsafe":
+        return "**unsafe** — Marks a block where unsafe operations are allowed, such as raw pointer access."
+    if word == "over":
+        return "**over** — Introduces the list of values a block operates on, in block-style construction."
+    return ""
+
+## Tipos incorporados.
+weave type_doc with word as string into string:
+    if word == "int":
+        return "**int** — A signed 32-bit integer (4 bytes).\n\nUse it for ordinary counts and arithmetic; choose `i64` when you need a wider range."
+    if word == "i8":
+        return "**i8** — A signed 8-bit integer (1 byte)."
+    if word == "i16":
+        return "**i16** — A signed 16-bit integer (2 bytes)."
+    if word == "i32":
+        return "**i32** — A signed 32-bit integer (4 bytes); the same width as `int`."
+    if word == "i64":
+        return "**i64** — A signed 64-bit integer (8 bytes)."
+    if word == "u8":
+        return "**u8** — An unsigned 8-bit integer (1 byte)."
+    if word == "u16":
+        return "**u16** — An unsigned 16-bit integer (2 bytes)."
+    if word == "u32":
+        return "**u32** — An unsigned 32-bit integer (4 bytes)."
+    if word == "u64":
+        return "**u64** — An unsigned 64-bit integer (8 bytes)."
+    if word == "usize":
+        return "**usize** — An unsigned integer wide enough to hold a size or an index (8 bytes on the supported 64-bit targets)."
+    if word == "isize":
+        return "**isize** — A signed integer wide enough to hold a pointer difference (8 bytes on the supported 64-bit targets)."
+    if word == "byte":
+        return "**byte** — An unsigned 8-bit value (1 byte), used for raw data."
+    if word == "char":
+        return "**char** — A single character (1 byte, C `char`), written `'A'`."
+    if word == "float":
+        return "**float** — A 32-bit IEEE-754 floating-point number (4 bytes)."
+    if word == "f32":
+        return "**f32** — A 32-bit floating-point number; the same width as `float`."
+    if word == "f64":
+        return "**f64** — A 64-bit IEEE-754 floating-point number (8 bytes)."
+    if word == "double":
+        return "**double** — A 64-bit floating-point number; the same width as `f64`."
+    if word == "bool":
+        return "**bool** — A boolean: `true` or `false` (1 byte)."
+    if word == "string":
+        return "**string** — An immutable, owned-or-view string (`PenguString`: pointer, length and ownership flag; 16 bytes).\n\nCreate one with a literal or interpolation, and release owned strings with `banish`."
+    if word == "void":
+        return "**void** — The absence of a value, used as a return type for functions that do not produce a result."
+    if word == "any":
+        return "**any** — A dynamically typed value that can hold any type.\n\nUse it sparingly; it gives up static type checking."
+    if word == "opaque":
+        return "**opaque** — An opaque pointer type used for C handles whose layout is not known to PenguScript."
+    if word == "array":
+        return "**array** — A fixed-size, inline sequence: `array of int` or `array of 8 int`.\n\nIts length is part of the type."
+    if word == "list":
+        return "**list** — A growable sequence allocated on the heap: `list of int`."
+    if word == "slice":
+        return "**slice** — A view over a contiguous sequence (pointer, length, element size; 24 bytes). It does not own the data."
+    if word == "map":
+        return "**map** — A hash map: `map of string to int` (32 bytes)."
+    if word == "maybe":
+        return "**maybe** — An optional value: `maybe int` is either `some 42` or `none`.\n\nCheck it with `is present` or `judge`."
+    if word == "result":
+        return "**result** — A value that is either success or failure: `result of int to string`.\n\nUnwrap it with `try`, `or else`, or `judge`."
+    if word == "range":
+        return "**range** — A start/end pair used by range loops (`for i from 0 to 9`); 16 bytes."
+    if word == "fn":
+        return "**fn** — A function pointer type: `fn with int into int`."
+    if word == "usize" or word == "size_t":
+        return "**size_t** — The C unsigned size type; on the supported 64-bit targets it is 8 bytes."
+    if word == "intptr_t":
+        return "**intptr_t** — A signed integer wide enough to hold a pointer (8 bytes on 64-bit targets)."
+    if word == "uintptr_t":
+        return "**uintptr_t** — An unsigned integer wide enough to hold a pointer (8 bytes on 64-bit targets)."
+    if word == "ptrdiff_t":
+        return "**ptrdiff_t** — The C type for pointer differences (8 bytes on 64-bit targets)."
+    if word == "short":
+        return "**short** — The C `short` integer (2 bytes)."
+    if word == "ushort":
+        return "**ushort** — The C `unsigned short` integer (2 bytes)."
+    if word == "long":
+        return "**long** — The C `long` integer (8 bytes on the supported LP64 targets)."
+    if word == "ulong":
+        return "**ulong** — The C `unsigned long` integer (8 bytes on the supported LP64 targets)."
+    return ""

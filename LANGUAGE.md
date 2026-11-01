@@ -511,7 +511,7 @@ Symbols are public across modules by default. Any top-level symbol or rune field
 7. shifts `<< >>`
 8. additive `+ -`
 9. multiplicative `* / %`
-10. unary `~ not -`, `sigil of`, `essence of`, `transmute … to`, `size of`, `banish`, `some`, `ord`, `chr`, `bytes of`
+10. unary `~ not -`, `sigil of`, `essence of`, `transmute … to`, `size of`, `align of`, `banish`, `some`, `ord`, `chr`, `bytes of`
 11. postfix `at`, slicing `at a to b`, `length`, `.field`, `->field`, cast `to`
 12. atoms: literals, `calling`, `with` init/struct-init, containers, `defined(…)`, `lambda … into …`
 
@@ -587,6 +587,7 @@ let raw_ptr as ref to void is transmute p to ref to void   # unsafe bit-cast
 - **Pointer arithmetic:** `p + n`, `n + p` and `p - n` advance or rewind by `n` elements of the pointee type, and `p - q` yields the element distance as `isize`. `ref to void` arithmetic is rejected; use `std.ffi.ptr_offset` (bytes) or cast to `ref to byte`. `p at i` is the raw indexed access; `p[i]` and `p++` are not part of the language.
 - **Dangling returns:** returning a reference (or a slice) to storage owned by the current call frame raises `E0051`. Return a value, a `static var`, or a reference borrowed from a parameter instead.
 - **`size of TYPE`:** Evaluates the compile-time byte size of any type (`sizeof(T)` in C) and returns `usize`.
+- **`align of TYPE`:** Evaluates the compile-time alignment of any type (`_Alignof(T)` in C) and returns `usize`. Like `size of`, it is a soft-keyword compound (`align` + `of`) and the operand is not evaluated.
 - **`type of expr`:** Reports the **static** type of `expr` as a `string`, using the canonical PenguScript spelling. It is a compile-time operator: the operand is type-checked but **never evaluated**, so side effects inside it do not run. The result is a borrowed string literal (`pengu_string_from_cstr("int")`, `is_owned == 0`): it costs nothing at runtime, and `banish` on it only clears the handle, like on any borrowed string. `type` and `of` are **soft keywords** — `type of` is one lexer token only when the two words are adjacent on the same line, so `var type as int is 5` (and `var size as int is 5`, which used to collide with `size of`; that is fixed) still work as ordinary identifiers.
 - **`transmute expr to TYPE`:** Unsafe bit-level reinterpretation cast. Always triggers compiler warning `[W0001] transmute is unsafe`. If the source and destination types have different estimated sizes, `W0001` includes a size mismatch notification. Safe conversions must use `(expr to TYPE)`.
 
@@ -1448,7 +1449,7 @@ echo Number:
     f as float
 ```
 
-An `echo` compiles directly to a C `union`. Accessing any field of an `echo` union triggers compiler warning `[W0002] Echo union access is unsafe`, because union fields share memory without an automatic discriminant tag. For type-safe sum types, prefer algebraic `omen`s.
+An `echo` compiles directly to a C `union` (all fields share storage, so the record is as large as its largest field). Accessing a field is unchecked: there is no automatic discriminant tag, and writing one field overwrites the others. For type-safe sum types, prefer algebraic `omen`s.
 
 ### 9.3 `omen` — enums, string-valued omens & algebraic sum types
 
@@ -3338,7 +3339,7 @@ let e as string is r"""raw triple"""             # raw + multiline
   embedded `\0` and is 3 characters long — binary payloads (hash digests,
   Base64/hex decoders) survive composition. **Floats format identically on every
   path** — interpolation, `to string` and the `print` builtin all use `%g`, so
-  `"{0.5}"`, `(0.5 to string)` and `print 0.5` all produce `"0.5"`. Formatting is
+  `"{0.5}"` and `(0.5 to string)` both produce `"0.5"`; use `calling print with (0.5 to string)` to write it. Formatting is
   compact rather than fixed-precision: `1.0/3.0` gives `0.333333`, not
   `0.3333333333333333`. Use an explicit conversion when the textual form matters.
 - **Quotes inside `{expr}`:** the interpolated expression may contain a
@@ -3779,7 +3780,7 @@ Bindings to external C libraries are no longer part of `std/`: they are distribu
 as satellite repositories installed per project with `pengu add <url>` (§19.2).
 
 ### Builtin `print`
-`print` is a compiler builtin that lowers directly to `printf` according to the argument type (`print "hello"`, `print 42`, etc.). For structured or formatted printing with broader options, use `std.spark.println` or `std.spark.print`.
+`print` is a compiler builtin that accepts one `string` and writes it to stdout without a trailing newline: `calling print with "hello"`. Convert other values explicitly, e.g. `calling print with (42 to string)`, or use string interpolation (`calling print with "n = {n}\n"`). For structured or formatted printing with broader options, use `std.spark.println` or `std.spark.print`.
 
 ### 19.0 Standard-library versioning policy
 

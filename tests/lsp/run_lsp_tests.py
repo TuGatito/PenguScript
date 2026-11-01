@@ -123,10 +123,13 @@ def main() -> int:
         assert_eq("server version", init["result"]["serverInfo"]["version"], VERSION)
         assert_true("completion triggers", capabilities["completionProvider"].get("triggerCharacters"))
         assert_eq(
-            "on-type key",
-            "moreTriggerCharacters" in capabilities["documentOnTypeFormattingProvider"],
-            True,
+            "on-type removed",
+            "documentOnTypeFormattingProvider" in capabilities,
+            False,
         )
+        assert_true("rename advertised", capabilities.get("renameProvider"))
+        assert_eq("position encoding", capabilities.get("positionEncoding"), "utf-16")
+        assert_true("inlay hints advertised", capabilities.get("inlayHintProvider"))
 
         diagnostics = client.open(URI, text)
         assert_eq("std import diagnostics", diagnostics["diagnostics"], [])

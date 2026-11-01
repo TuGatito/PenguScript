@@ -3,7 +3,7 @@
     "displayName": "PenguScript",
     "description": "Language support, LSP intelligence, and cargo-like project management for PenguScript.",
     "publisher": "pengus-lang",
-    "version": "4.5.0",
+    "version": "4.6.0",
     "icon": "./icons/pengu_icon.png",
     "keywords": [
         "pengus",
@@ -165,7 +165,7 @@
                 "pengus.stdDir": {
                     "type": "string",
                     "default": "",
-                    "markdownDescription": "Directorio de la stdlib. Si est\u00e1 vac\u00edo se usa `$PSC_STD_DIR`, `$PENGU_STD_DIR`, `<proyecto>/std` o `<psc>/../std`."
+                    "markdownDescription": "Directorio de la stdlib. Si está vacío se usa `$PSC_STD_DIR`, `$PENGU_STD_DIR`, `<proyecto>/std` o `<psc>/../std`."
                 },
                 "pengus.trace.server": {
                     "type": "string",
@@ -191,6 +191,16 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Mostrar el estado de PenguScript en la barra inferior."
+                },
+                "pengus.inlayHints.sizes": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show byte-size and alignment inlay hints for named types (rune, echo, omen, aliases)."
+                },
+                "pengus.inlayHints.types": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show inferred-type inlay hints for var/let/static declarations without an explicit annotation."
                 }
             }
         },
@@ -198,9 +208,35 @@
             {
                 "language": "pengus",
                 "scopes": {
+                    "keyword": [
+                        "keyword.control.pengus",
+                        "keyword.other.pengus",
+                        "storage.modifier.pengus"
+                    ],
                     "type": [
                         "entity.name.type.pengus",
-                        "support.type.pengus"
+                        "support.type.pengus",
+                        "storage.type.pengus"
+                    ],
+                    "function": [
+                        "entity.name.function.pengus",
+                        "support.function.pengus"
+                    ],
+                    "variable": [
+                        "variable.other.pengus",
+                        "variable.other.readwrite.pengus"
+                    ],
+                    "string": [
+                        "string.quoted.double.pengus",
+                        "string.quoted.triple.pengus",
+                        "string.quoted.raw.pengus"
+                    ],
+                    "number": [
+                        "constant.numeric.pengus"
+                    ],
+                    "comment": [
+                        "comment.line.number-sign.pengus",
+                        "comment.line.documentation.pengus"
                     ],
                     "namespace": [
                         "entity.name.namespace.pengus"

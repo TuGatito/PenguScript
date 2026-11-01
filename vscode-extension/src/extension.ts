@@ -239,6 +239,10 @@ function startClient(): void {
             stdDir: config().get<string>('stdDir') || process.env.PENGU_STD_DIR || '',
             executablePath: resolved.command,
             inlayHints: config().get<boolean>('inlayHints.enabled', true),
+            inlayHintOptions: {
+                sizes: config().get<boolean>('inlayHints.sizes', true),
+                types: config().get<boolean>('inlayHints.types', true)
+            },
             semanticHighlighting: config().get<boolean>('semanticHighlighting.enabled', true)
         },
         synchronize: { fileEvents: watchers },
@@ -413,6 +417,8 @@ function registerConfigListener(context: vscode.ExtensionContext): void {
             }
             if (
                 event.affectsConfiguration('pengus.inlayHints.enabled') ||
+                event.affectsConfiguration('pengus.inlayHints.sizes') ||
+                event.affectsConfiguration('pengus.inlayHints.types') ||
                 event.affectsConfiguration('pengus.semanticHighlighting.enabled') ||
                 event.affectsConfiguration('pengus.stdDir') ||
                 event.affectsConfiguration('pengus.trace.server')

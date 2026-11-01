@@ -21,18 +21,41 @@ VS Code starts it automatically through the extension:
 
 | Feature | Notes |
 |---|---|
-| Diagnostics | Primary/secondary spans, `help:`, `note:`, `relatedInformation`, `source: "psc"`. |
-| Hover | Canonical type, signature, `#`/`##` docs, fields/variants, approximate size. |
-| Completion | Keywords, types, locals, params, members (`spark.`), `std.*` modules. |
-| Definition | Locals, functions, methods, types and imported modules. |
-| Inlay hints | Inferred types; explicit `as T` annotations are not duplicated. |
-| Semantic tokens | Lexer-driven keyword/type/function/namespace/parameter/property/string/number/comment/operator tokens, UTF-16. |
-| Symbols | Document and workspace outline. |
+| Diagnostics | Primary/secondary spans, `help:`, `note:`, `relatedInformation`, `source: "psc"`. Pushed on open, change and save. |
+| Hover | Canonical type/signature, English docs for keywords and builtin types, `#`/`##` docs, fields/variants, byte size and alignment (ABI v3, 64-bit). |
+| Completion | Keywords, types, locals, params, `std.*` modules, imported-module exports, and **members**: enchantment methods, rune/echo fields and omen variants resolved from the receiver type (`calling s.` offers `string` methods). |
+| Definition | Locals, functions, methods, fields and imported modules; jumps to the name, not the whole declaration. |
+| References / highlight | Symbol-based (not textual), across open documents; `includeDeclaration` honored. |
+| Rename | Symbol-safe; `prepareRename` returns the identifier range. Limited to open documents (cross-file rename needs the workspace loaded). |
+| Signature help | `calling f with a, b`; resolves methods and module functions, tracks `activeParameter` after `with`. |
+| Inlay hints | Inferred types for `var`/`let`/`static var` without annotation; `≈ N B` size+alignment hints for named types. Variables never get a size hint (hover instead). Filtered by `range` and configurable. |
+| Semantic tokens | Keyword/type/function/variable/string/number/comment/namespace/parameter/property/enumMember/operator, UTF-16 (`positionEncoding: "utf-16"`), incremental sync. |
+| Symbols | Document outline (deduplicated, name selection range) and workspace symbols. |
+| Folding | Indentation regions with `kind: "region"`. |
+| Code actions | Format document and “Add documentation comment”. |
 | Code lens | `pengus.run`/`pengus.test` with the document URI and offset. |
 | Formatting | `psc fmt` through the language server. |
 
-Rename is deliberately **not advertised** until it is symbol-safe; the textual
-fallback could corrupt strings/comments.
+## Configuration
+
+`initializationOptions` (all optional):
+
+```json
+{
+  "stdDir": "/path/to/std",
+  "executablePath": "/path/to/psc",
+  "inlayHints": true,
+  "inlayHintOptions": { "sizes": true, "types": true },
+  "semanticHighlighting": true
+}
+```
+
+`workspace/didChangeConfiguration` updates the inlay/semantic toggles without a
+restart:
+
+```json
+{ "settings": { "pengus": { "inlayHints": { "enabled": true, "sizes": true, "types": true }, "semanticHighlighting": true } } }
+```
 
 ## Stdlib resolution
 

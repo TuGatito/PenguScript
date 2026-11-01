@@ -627,16 +627,21 @@ weave init_builtins with s as ref to SemaSymbols into void:
     calling builtin_concept with s, "Forma"
     calling builtin_concept with s, "Iterabilis"
     calling builtin_concept with s, "Donum"
-    # `print` acepta cualquier valor y devuelve void.
-    var any_t as int is 1
+    # `print` recibe un `string` (usar `to string` para otros valores) y
+    # se baja a `pengu_builtin_print`, un helper del bundle.
+    var string_t as int is calling types.base with s->types, "string"
     var void_t as int is 3
     var pname as int is calling npool.intern with s->names, "val"
-    var p0 as types.SemaFnParam is with name is pname, type is any_t, flags is 0, default_node is -1
+    var p0 as types.SemaFnParam is with name is pname, type is string_t, flags is 0, default_node is -1
     var pi as int is calling types.add_fn_param with s->types, p0
     var info as types.SemaFnInfo is with params_first is pi, params_count is 1, return_type is void_t, tparams_first is 0, tparams_count is 0, flags is 0, attrs_node is -1
     var ft as int is calling types.fn_type with s->types, info
     var pid as int is calling npool.intern with s->names, "print"
-    calling symbol_define_function with s, pid, ft
+    var fnid as int is calling symbol_define_function with s, pid, ft
+    var cid as int is calling npool.intern with s->names, "pengu_builtin_print"
+    var psym as sym.SemaSymbol is calling symbol_at with s, fnid
+    set psym.c_name is cid
+    calling symbol_set with s, fnid, psym
 
 ## Registra un concepto integrado.
 ##

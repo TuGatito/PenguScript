@@ -20,14 +20,16 @@ workspace. Trust the folder or select a user-installed binary first.
 
 - **Diagnostics** with the compiler's `help:` and `note:` text, primary/secondary
   spans and `relatedInformation`.
-- **Hover** with the resolved type, function signature, documentation from `#` /
-  `##` comments, fields/variants and an approximate byte size.
+- **Hover** with English docs for keywords and built-in types, the resolved
+  type/signature, `#`/`##` comments, fields/variants, byte size and alignment.
 - **Completion** for keywords, built-in/user types, local variables, parameters,
-  imported module members (`spark.`), standard-library modules (`import std.`)
-  and documentation strings.
+  imported module members (`spark.`), standard-library modules (`import std.`),
+  and receiver members: enchantment methods (`calling s.`), fields and variants.
 - **Go to Definition** for locals, functions, methods, types and imported
   modules (including `std/*`).
-- **Inferred type inlay hints**; annotated bindings are not duplicated.
+- **Inlay hints**: inferred types for unannotated `var`/`let`/`static var`, and
+  byte-size/alignment hints (`≈ N B`) for named types; annotated bindings are
+  not duplicated and variables never get a size hint.
 - **Semantic tokens** from the real lexer: keywords, types, functions,
   namespaces, parameters, properties, enum members, strings, numbers, comments
   and operators.
@@ -37,10 +39,11 @@ workspace. Trust the folder or select a user-installed binary first.
 
 ### Editor assets
 
-- TextMate grammar for the 0.17.2 syntax: `set`, `derive`, `cyclus`,
+- TextMate grammar for the 0.21.x syntax: `set`, `derive`, `cyclus`,
   `antiquus`, `enchanting`, `bind`, `seal`, concepts (`Real`, `Iterabilis`, …),
-  doc blocks and user types in type position.
-- 120+ snippets: main, runes/echos/omens, concepts/bind, generics, `with`,
+  `pipe`, `size of`/`align of`/`sigil of`/`essence of`/`bytes of`/`type of`,
+  `at`/`length`, `ref to frozen T`, `@align(N)`, doc blocks and user types.
+- 128 snippets: main, runes/echos/omens, concepts/bind, generics, `with`,
   `judge`, `defer`, `antiquus`, tests, docs and standard-library imports.
 - Language configuration with indentation, comment continuation and auto-closing.
 
@@ -59,7 +62,9 @@ workspace. Trust the folder or select a user-installed binary first.
 | `pengus.defaultProfile` | `"debug"` | `debug`, `release` or `small` for build/run. |
 | `pengus.stdDir` | `""` | Explicit stdlib directory (also `PENGU_STD_DIR` (legacy `PSC_STD_DIR`)). |
 | `pengus.trace.server` | `"off"` | LSP trace level (`off`, `messages`, `verbose`). |
-| `pengus.inlayHints.enabled` | `true` | Show inferred type hints. |
+| `pengus.inlayHints.enabled` | `true` | Master switch for inlay hints. |
+| `pengus.inlayHints.sizes` | `true` | Byte-size/alignment hints for named types. |
+| `pengus.inlayHints.types` | `true` | Inferred-type hints for unannotated bindings. |
 | `pengus.semanticHighlighting.enabled` | `true` | Use LSP semantic tokens. |
 | `pengus.statusBar.enabled` | `true` | Show the status bar item. |
 
@@ -103,6 +108,7 @@ Press `F5` to launch an Extension Development Host window.
 
 | Extension | Compiler |
 |---|---|
+| 4.6.0 | 0.21.1 |
 | 4.5.0 | 0.21.0 |
 | 4.1.0 | 0.17.3 |
 | 4.0.0 | 0.15.0 |

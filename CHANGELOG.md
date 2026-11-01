@@ -2,6 +2,48 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.21.1] — 2026-11-01 — Tooling: LSP, VS Code y Neovim
+
+Soporte completo para las herramientas del lenguaje y cierre de deuda del LSP.
+
+### Añadido
+
+- **LSP**: autocompletado de métodos de encantamiento, campos y variantes a
+  partir del tipo del receptor; hover en inglés para tipos builtin y palabras
+  clave; hover de miembros; `rename` y `prepareRename` simbólicos;
+  `references`/`highlight` simbólicos; `signatureHelp` real con
+  `activeParameter`; inlay hints de tamaño/alineación (`≈ N B`) para tipos y
+  de tipo inferido para variables; `positionEncoding: "utf-16"`; sync
+  incremental; `workspace/didChangeConfiguration`; code action de documentación.
+- **Nuevo `layout.pengu`** con el layout ABI v3 (64-bit): `string` 16,
+  `slice`/`list` 24, `map` 32, `maybe` 16, `result` 24, `range` 16, padding
+  real de structs y uniones.
+- **Nuevo `docs.pengu`** con documentación inglesa de ~80 palabras y de todos
+  los tipos primitivos/alias C.
+- **VS Code 4.6.0**: gramática para `pipe`, `align of`, `size of`, `sigil of`,
+  `essence of`, `bytes of`, `type of`, `at`/`length`, `ref to frozen T`,
+  `@align(N)`; 12 scopes semánticos; ajustes `pengus.inlayHints.sizes/types`;
+  128 snippets canónicos.
+- **Neovim 2.1.0**: usa `psc`, pasa `initializationOptions`, habilita inlay
+  hints, diagnósticos, keymaps, code lens `pengus.run/test`, `:PenguInlay` y
+  snippets canónicos.
+
+### Corregido
+
+- `print` vuelve a funcionar: acepta `string` y se baja a
+  `pengu_builtin_print` (antes el C fallaba con “declaración implícita”).
+- `echo` se emite como `union` C (antes `struct`), con tamaño/alineación
+  correctos en el LSP.
+- Hover/inlay ya no liberan nombres prestados de la tabla de nombres (SIGABRT
+  y corrupción de heap en `references`/`rename`).
+- `definition` de miembros usa el rango del nombre y URIs canónicas.
+- `documentSymbol` ya no duplica tipos y `selectionRange` apunta al nombre.
+
+### Documentación
+
+- `docs/LSP.md`, `LANGUAGE.md` (`align of`, `echo` union, `print` string),
+  `CHANGELOG.md` y los README/help de VS Code y Neovim.
+
 ## [0.21.0] — 2026-10-31 — Cadenas de métodos y pipes
 
 Implementa las dos formas de composición del lenguaje: cadenas de métodos con

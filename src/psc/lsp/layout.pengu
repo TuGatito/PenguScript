@@ -1,0 +1,215 @@
+## psc/lsp/layout.pengu — layout C (size/align) de los tipos de PenguScript.
+##
+## El ABI v3 es de 64 bits: `pengu_runtime.h` documenta los descriptores del
+## runtime y el codegen emite `struct`/`union` de C. Este módulo calcula el
+## mismo layout que el compilador C (padding incluido) para el hover y los
+## Inlay Hints. No sustituye a `size of`: es una consulta del LSP.
+##
+## ## Memoria
+## No asigna: sólo recorre la tabla de tipos del programa.
+
+import psc.sema.names as npool
+import psc.sema.modules.program as program
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+
+insignia psc_lsp_layout_
+
+## Redondea `n` al siguiente múltiplo de `a`.
+weave align_up with n as int, a as int into int:
+    if a <= 1:
+        return n
+    var r as int is n % a
+    if r == 0:
+        return n
+    return n + (a - r)
+
+## Alineación de un primitivo por nombre canónico.
+weave base_align with nm as string into int:
+    if nm == "i8" or nm == "u8" or nm == "byte" or nm == "char" or nm == "bool":
+        return 1
+    if nm == "i16" or nm == "u16" or nm == "short" or nm == "ushort":
+        return 2
+    if nm == "int" or nm == "i32" or nm == "u32" or nm == "float" or nm == "int32" or nm == "uint32":
+        return 4
+    if nm == "i64" or nm == "u64" or nm == "f64" or nm == "double" or nm == "usize" or nm == "isize" or nm == "size_t" or nm == "intptr_t" or nm == "uintptr_t" or nm == "ptrdiff_t" or nm == "long" or nm == "ulong" or nm == "int64" or nm == "uint64":
+        return 8
+    if nm == "string":
+        return 8
+    if nm == "void":
+        return 1
+    return 8
+
+## Tamaño de un primitivo por nombre canónico.
+weave base_size with nm as string into int:
+    if nm == "i8" or nm == "u8" or nm == "byte" or nm == "char" or nm == "bool":
+        return 1
+    if nm == "i16" or nm == "u16" or nm == "short" or nm == "ushort":
+        return 2
+    if nm == "int" or nm == "i32" or nm == "u32" or nm == "float" or nm == "int32" or nm == "uint32":
+        return 4
+    if nm == "i64" or nm == "u64" or nm == "f64" or nm == "double" or nm == "usize" or nm == "isize" or nm == "size_t" or nm == "intptr_t" or nm == "uintptr_t" or nm == "ptrdiff_t" or nm == "long" or nm == "ulong" or nm == "int64" or nm == "uint64":
+        return 8
+    if nm == "string":
+        return 16
+    if nm == "void":
+        return 0
+    if nm == "any" or nm == "opaque":
+        return 8
+    return 8
+
+## Alineación de un tipo (`1` si no se puede calcular).
+weave align_of with p as ref to program.SemaProgram, type_id as int, depth as int into int:
+    if depth > 16 or type_id <= 0:
+        return 1
+    var ty as tk.SemaType is calling types.at with (sigil of p->types), type_id
+    if ty.kind == tk.SemaTypeKind.TkBase:
+        var nm as string is calling npool.text with (sigil of p->names), ty.name
+        return calling base_align with nm
+    if ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkFrozen or ty.kind == tk.SemaTypeKind.TkFn:
+        return 8
+    if ty.kind == tk.SemaTypeKind.TkArray:
+        return calling align_of with p, ty.a, depth + 1
+    if ty.kind == tk.SemaTypeKind.TkList or ty.kind == tk.SemaTypeKind.TkMap or ty.kind == tk.SemaTypeKind.TkSlice:
+        return 8
+    if ty.kind == tk.SemaTypeKind.TkMaybe or ty.kind == tk.SemaTypeKind.TkResult or ty.kind == tk.SemaTypeKind.TkRange:
+        return 8
+    if ty.kind == tk.SemaTypeKind.TkRune or ty.kind == tk.SemaTypeKind.TkEcho:
+        if ty.a < 0 or ty.a >= p->types.nominal_infos.len:
+            return 1
+        var info as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
+        var al as int is 1
+        var i as int is 0
+        while i < info.fields_count:
+            var f as types.SemaField is (p->types.fields at (info.fields_first + i))
+            var fa as int is calling align_of with p, f.type, depth + 1
+            if fa > al:
+                set al is fa
+            set i is i + 1
+        return al
+    if ty.kind == tk.SemaTypeKind.TkOmen:
+        if ty.a < 0 or ty.a >= p->types.nominal_infos.len:
+            return 4
+        var info2 as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
+        var al2 as int is 4
+        var vi as int is 0
+        while vi < info2.variants_count:
+            var v as types.SemaVariant is (p->types.variants at (info2.variants_first + vi))
+            var pi as int is 0
+            while pi < v.payload_count:
+                var pf as types.SemaField is (p->types.fields at (v.payload_first + pi))
+                var pa as int is calling align_of with p, pf.type, depth + 1
+                if pa > al2:
+                    set al2 is pa
+                set pi is pi + 1
+            set vi is vi + 1
+        return al2
+    if ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal:
+        if ty.b > 0:
+            return calling align_of with p, ty.b, depth + 1
+        return 8
+    if ty.kind == tk.SemaTypeKind.TkConcept or ty.kind == tk.SemaTypeKind.TkTypeParam:
+        return 8
+    return 8
+
+## Tamaño en bytes de un tipo, con padding y alineación del ABI v3 (64-bit).
+weave size_of with p as ref to program.SemaProgram, type_id as int, depth as int into int:
+    if depth > 16 or type_id <= 0:
+        return 0
+    var ty as tk.SemaType is calling types.at with (sigil of p->types), type_id
+    if ty.kind == tk.SemaTypeKind.TkBase:
+        var nm as string is calling npool.text with (sigil of p->names), ty.name
+        return calling base_size with nm
+    if ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkFrozen or ty.kind == tk.SemaTypeKind.TkFn:
+        return 8
+    if ty.kind == tk.SemaTypeKind.TkArray:
+        var es as int is calling size_of with p, ty.a, depth + 1
+        if ty.b > 0:
+            return es * ty.b
+        return 8
+    if ty.kind == tk.SemaTypeKind.TkSlice or ty.kind == tk.SemaTypeKind.TkList:
+        return 24
+    if ty.kind == tk.SemaTypeKind.TkMap:
+        return 32
+    if ty.kind == tk.SemaTypeKind.TkMaybe:
+        return 16
+    if ty.kind == tk.SemaTypeKind.TkResult:
+        return 24
+    if ty.kind == tk.SemaTypeKind.TkRange:
+        return 16
+    if ty.kind == tk.SemaTypeKind.TkRune or ty.kind == tk.SemaTypeKind.TkEcho:
+        if ty.a < 0 or ty.a >= p->types.nominal_infos.len:
+            return 0
+        var info as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
+        var off as int is 0
+        var al as int is 1
+        var i as int is 0
+        if info.kind == tk.SemaNominalKind.NkEcho:
+            # Una union C ocupa el mayor miembro, alineado al mayor align.
+            while i < info.fields_count:
+                var uf as types.SemaField is (p->types.fields at (info.fields_first + i))
+                var ua as int is calling align_of with p, uf.type, depth + 1
+                if ua > al:
+                    set al is ua
+                var us as int is calling size_of with p, uf.type, depth + 1
+                if us > off:
+                    set off is us
+                set i is i + 1
+            return calling align_up with off, al
+        while i < info.fields_count:
+            var f as types.SemaField is (p->types.fields at (info.fields_first + i))
+            var fa as int is calling align_of with p, f.type, depth + 1
+            if fa > al:
+                set al is fa
+            set off is calling align_up with off, fa
+            set off is off + (calling size_of with p, f.type, depth + 1)
+            set i is i + 1
+        return calling align_up with off, al
+    if ty.kind == tk.SemaTypeKind.TkOmen:
+        if ty.a < 0 or ty.a >= p->types.nominal_infos.len:
+            return 4
+        var info3 as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
+        var has_payload as bool is false
+        var max_payload as int is 0
+        var max_align as int is 4
+        var vi2 as int is 0
+        while vi2 < info3.variants_count:
+            var v2 as types.SemaVariant is (p->types.variants at (info3.variants_first + vi2))
+            if v2.payload_count > 0:
+                set has_payload is true
+            var poff as int is 0
+            var pal as int is 1
+            var pi2 as int is 0
+            while pi2 < v2.payload_count:
+                var pf2 as types.SemaField is (p->types.fields at (v2.payload_first + pi2))
+                var pfa as int is calling align_of with p, pf2.type, depth + 1
+                if pfa > pal:
+                    set pal is pfa
+                set poff is calling align_up with poff, pfa
+                set poff is poff + (calling size_of with p, pf2.type, depth + 1)
+                set pi2 is pi2 + 1
+            var psz as int is calling align_up with poff, pal
+            if psz > max_payload:
+                set max_payload is psz
+            if pal > max_align:
+                set max_align is pal
+            set vi2 is vi2 + 1
+        if not has_payload:
+            return 4
+        var data_off as int is calling align_up with 4, max_align
+        return calling align_up with (data_off + max_payload), max_align
+    if ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal:
+        if ty.b > 0:
+            return calling size_of with p, ty.b, depth + 1
+        return 8
+    if ty.kind == tk.SemaTypeKind.TkVoid:
+        return 0
+    return 8
+
+## Alineación pública de un tipo.
+weave type_align with p as ref to program.SemaProgram, type_id as int into int:
+    return calling align_of with p, type_id, 0
+
+## Tamaño público de un tipo.
+weave type_size with p as ref to program.SemaProgram, type_id as int into int:
+    return calling size_of with p, type_id, 0

@@ -69,9 +69,9 @@
     ]
   ],
   "autoCloseBefore": ";:.,=}])> \n\t",
-  "wordPattern": "([A-Za-z_][A-Za-z0-9_]*)|(->)|(\\$[A-Za-z_][A-Za-z0-9_]*)",
+  "wordPattern": "([A-Za-z_][A-Za-z0-9_]*)|(->)|(\\.\\.)",
   "indentationRules": {
-    "increaseIndentPattern": "^\\s*(weave|antiquus|enchanting|rune|echo|omen|alias|seal|concept|bind|if|else|unless|while|for|with|judge|when|or|defer|errdefer|test|do)\\b.*:\\s*$",
+    "increaseIndentPattern": "^\\s*(weave|antiquus|enchanting|rune|echo|omen|alias|seal|concept|bind|if|else|unless|while|for|with|judge|when|or|defer|errdefer|test|do|pipe)\\b.*:\\s*$",
     "decreaseIndentPattern": "^\\s*(else|when|or)\\b.*:\\s*$"
   },
   "onEnterRules": [
@@ -95,11 +95,5 @@
         "indent": "indent"
       }
     }
-  ],
-  "folding": {
-    "markers": {
-      "start": "^\\s*##region\\b",
-      "end": "^\\s*##endregion\\b"
-    }
-  }
+  ]
 }
