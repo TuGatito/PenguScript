@@ -20,6 +20,10 @@ Soporte completo para las herramientas del lenguaje y cierre de deuda del LSP.
   real de structs y uniones.
 - **Nuevo `docs.pengu`** con documentación inglesa de ~80 palabras y de todos
   los tipos primitivos/alias C.
+- **`@packed` y `@align(N)`** se aplican de verdad: `SemaNominalInfo` guarda
+  ambos, el C emitido lleva `__attribute__((packed, aligned(N)))` y el layout
+  del LSP calcula tamaños/alineaciones coherentes (`@align` valida potencia de
+  dos entre 1 y 128 con `E0056`).
 - **VS Code 4.6.0**: gramática para `pipe`, `align of`, `size of`, `sigil of`,
   `essence of`, `bytes of`, `type of`, `at`/`length`, `ref to frozen T`,
   `@align(N)`; 12 scopes semánticos; ajustes `pengus.inlayHints.sizes/types`;
@@ -38,6 +42,10 @@ Soporte completo para las herramientas del lenguaje y cierre de deuda del LSP.
   y corrupción de heap en `references`/`rename`).
 - `definition` de miembros usa el rango del nombre y URIs canónicas.
 - `documentSymbol` ya no duplica tipos y `selectionRange` apunta al nombre.
+- `to string` y los casts numéricos ya no liberan el operando antes de
+  formatearlo (antes generaban casts vacíos, abortos por doble free y rompían
+  `std/builder.pengu`/`std/json.pengu`); regresión en
+  `tests/pengu/string_cast.pengu`.
 
 ### Documentación
 
