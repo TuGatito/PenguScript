@@ -718,6 +718,19 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
     var first_arg_type as int is -1
     if args >= 0:
         set nargs is calling astutil.child_count with s->ast, args
+    var required as int is 0
+    var has_va as bool is false
+    var pj as int is 0
+    while pj < info.params_count:
+        var pp as types.SemaFnParam is (s->types->fn_params at (info.params_first + pj))
+        if pp.type == types.TYPE_ID_CVARARGS:
+            set has_va is true
+        else:
+            if pp.default_node < 0:
+                set required is required + 1
+        set pj is pj + 1
+    if nargs < required and not has_va:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "too few arguments in call", "Add the missing arguments or declare defaults for them.", ""
     while i < nargs:
         var arg as int is calling astutil.node_child with s->ast, args, i
         if arg >= 0:

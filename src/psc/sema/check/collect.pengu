@@ -1237,7 +1237,26 @@ weave collect_params with s as ref to state.SemaState, pnode as int, out as ref 
             if ptn >= 0:
                 var ctx as convert.TypeCtx is calling collect_type_ctx with s
                 set pty is calling convert.convert with (sigil of ctx), ptn
-            var fp as types.SemaFnParam is with name is pname, type is pty, flags is 0, default_node is -1
+            var pdef as int is calling astutil.node_child with s->ast, p, 2
+            var dmidx as int is -1
+            if pdef >= 0:
+                var mi as int is 0
+                while mi < s->program->modules.len:
+                    var mm as loader.SemaModule is (s->program->modules at mi)
+                    if mm.canonical_path == s->module->canonical_path:
+                        set dmidx is mi
+                        break
+                    set mi is mi + 1
+            var dtxt as int is -1
+            if pdef >= 0:
+                var pk as pskind.NodeKind is calling astutil.kind_of with s->ast, pdef
+                if pk == pskind.NodeKind.NdIntLit or pk == pskind.NodeKind.NdFloatLit:
+                    var ptk as int is calling astutil.token_child with s->ast, pdef, 0
+                    if ptk >= 0:
+                        var ptx as string is calling astutil.token_text with s->src, s->lex, ptk
+                        set dtxt is calling npool.intern with s->names, ptx
+                        banish ptx
+            var fp as types.SemaFnParam is with name is pname, type is pty, flags is 0, default_node is pdef, default_module is dmidx, default_text is dtxt
             calling types.add_fn_param with s->types, fp
             set out->count is out->count + 1
         else:

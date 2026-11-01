@@ -99,7 +99,7 @@ weave subst_type with t as ref to types.SemaTypeTable, id as int, subst as ref t
         var j as int is 0
         while j < fi.params_count:
             var p as types.SemaFnParam is (t->fn_params at (fi.params_first + j))
-            var np as types.SemaFnParam is with name is p.name, type is (calling subst_type with t, p.type, subst), flags is p.flags, default_node is p.default_node
+            var np as types.SemaFnParam is with name is p.name, type is (calling subst_type with t, p.type, subst), flags is p.flags, default_node is p.default_node, default_module is p.default_module, default_text is p.default_text
             var idx as int is calling types.add_fn_param with t, np
             if count == 0:
                 set first is idx

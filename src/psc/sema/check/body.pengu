@@ -1029,7 +1029,26 @@ weave check_lambda with s as ref to state.SemaState, node as int into int:
                     var ptxt as string is calling astutil.token_text with s->src, s->lex, ptok
                     defer banish ptxt
                     set pid is calling npool.intern with s->names, ptxt
-                var fp as types.SemaFnParam is with name is pid, type is pty, flags is 0, default_node is -1
+                var lpdef as int is calling astutil.node_child with s->ast, lp, 2
+                var ldm as int is -1
+                if lpdef >= 0:
+                    var lmi as int is 0
+                    while lmi < s->program->modules.len:
+                        var lmm as loader.SemaModule is (s->program->modules at lmi)
+                        if lmm.canonical_path == s->module->canonical_path:
+                            set ldm is lmi
+                            break
+                        set lmi is lmi + 1
+                var ldtxt as int is -1
+                if lpdef >= 0:
+                    var lpk as pskind.NodeKind is calling astutil.kind_of with s->ast, lpdef
+                    if lpk == pskind.NodeKind.NdIntLit or lpk == pskind.NodeKind.NdFloatLit:
+                        var ltk as int is calling astutil.token_child with s->ast, lpdef, 0
+                        if ltk >= 0:
+                            var ltx as string is calling astutil.token_text with s->src, s->lex, ltk
+                            set ldtxt is calling npool.intern with s->names, ltx
+                            banish ltx
+                var fp as types.SemaFnParam is with name is pid, type is pty, flags is 0, default_node is lpdef, default_module is ldm, default_text is ldtxt
                 var idx as int is calling types.add_fn_param with s->types, fp
                 if count == 0:
                     set first is idx

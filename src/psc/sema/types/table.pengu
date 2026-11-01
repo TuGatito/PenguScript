@@ -116,6 +116,10 @@ rune SemaFnParam:
     flags as int
     ## Nodo AST del default (`-1` si no).
     default_node as int
+    ## Índice del módulo dueño del AST del default (`-1` si no).
+    default_module as int
+    ## Texto C del default si es un literal simple (`-1` si no).
+    default_text as int
 
 ## Firma de una función o método.
 rune SemaFnInfo:

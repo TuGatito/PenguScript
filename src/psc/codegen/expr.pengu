@@ -2310,6 +2310,26 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                 calling sb.append with a
                 banish a
             set i is i + 1
+    var di as int is 0
+    if args >= 0:
+        set di is calling astutil.child_count with ast, args
+    while di < fn_params_count:
+        var dpm as types.SemaFnParam is (c->program->types.fn_params at (fn_params_first + di))
+        if dpm.default_node < 0 or dpm.type <= 0:
+            break
+        if di > 0 or wrote_recv:
+            calling sb.append with ", "
+        var dv as string is ""
+        if dpm.default_text >= 0:
+            set dv is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), dpm.default_text)
+        else:
+            var saved_mod as int is c->current_module
+            set c->current_module is dpm.default_module
+            set dv is calling emit_expr_as with c, dpm.default_node, dpm.type
+            set c->current_module is saved_mod
+        calling sb.append with dv
+        banish dv
+        set di is di + 1
     calling sb.append with ")"
     return calling sb.finish
 
