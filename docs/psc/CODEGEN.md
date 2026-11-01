@@ -84,7 +84,11 @@ codegen.api.generate_c
 - **P4.7 (0.20.0):** auto-deref en `set`, aritmética de punteros tipada
   (`p + n`, `p - n`, `p - q`, `+=`/`-=`), `E0051` para referencias colgantes,
   escritura en slices y validación estricta de `sigil of`/`essence of`/frozen.
-- **Conformidad:** **91/91** fixtures con las librerías nativas.
+- **P4.8 (0.21.0):** `chain_expr` y `pipe` con un temporal por paso;
+  `NdMethodStep`/`NdPipeStep`, argumentos `with` por eslabón, `E0053` para
+  pasos que no son método/función libre, y último paso `void` que conserva el
+  valor anterior.
+- **Conformidad:** **92/92** fixtures con las librerías nativas.
 - **Calidad:** 17 casos de aceptación F4, ASan/UBSan, golden C normalizado y
   benchmark de emisión.
 

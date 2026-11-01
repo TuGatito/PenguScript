@@ -160,6 +160,10 @@ weave scan_node with c as ref to context.CgContext, r as ref to CgReach, m as lo
         for it in m.interps:
             if it.node == node:
                 calling scan_interp_node with c, r, (sigil of it.parse.ast), (sigil of it.annotations), it.parse.root
+    if k == pskind.NodeKind.NdMethodStep or k == pskind.NodeKind.NdPipeStep or k == pskind.NodeKind.NdDotAccess or k == pskind.NodeKind.NdArrowAccess:
+        var ssid as int is calling ann.symbol_of with (sigil of m.annotations), node
+        if ssid >= 0:
+            calling mark_symbol with c, r, ssid
     if k == pskind.NodeKind.NdCallingExpr:
         var sid as int is calling ann.symbol_of with (sigil of m.annotations), node
         if sid >= 0:

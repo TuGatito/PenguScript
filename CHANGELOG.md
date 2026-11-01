@@ -2,6 +2,47 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.21.0] — 2026-10-31 — Cadenas de métodos y pipes
+
+Implementa las dos formas de composición del lenguaje: cadenas de métodos con
+`.` y pipes de funciones libres con `pipe`. La primera llamada siempre exige
+`calling`; cada paso puede llevar sus propios argumentos `with`.
+
+### Añadido
+
+- **Cadenas de métodos con argumentos por eslabón.** `calling raw.get_substring
+  with 0, 5` seguido de `.get_trim` y `.get_substring with 0, 2`; cada paso se
+  evalúa una vez en un temporal.
+- **Pipes.** `value pipe fn with args` pasa el valor anterior como primer
+  argumento; se admiten nombres simples y `mod.fn`. Los pasos deben ser
+  funciones libres, no métodos.
+- **`E0053`** para pasos de cadena que no son métodos o funciones libres, con
+  ayuda para elegir `.` o `pipe`.
+- **Último paso `void`:** la cadena/pipe conserva el valor anterior después de
+  la edición in-place.
+- **Plegado contextual de `pipe`** en líneas de continuación, sin reservar el
+  identificador `pipe`.
+- Tests `tests/pengu/chaining.pengu` y `tests/chain_guard.sh`, y step de CI
+  `Chain guard`.
+
+### Corregido
+
+- El codegen ya baja los eslabones intermedios de `calling a.b.c` como
+  llamadas a método; antes emitía `a.b` como acceso a campo y el C fallaba.
+- Los métodos de un solo enlace conservan su comportamiento; los campos
+  usados como receptor de una llamada no se confunden con métodos homónimos.
+
+### Documentación
+
+- `LANGUAGE.md`, `LANGUAGE_Spanish.md`, `PenguScriptGuideEnglish.md`,
+  `PenguScriptGuideSpanish.md` y `CHEATSHEET.md` describen `.` y `pipe`, sus
+  reglas, el último `void` y cuándo usar cada forma.
+
+### Pruebas
+
+- Suite **92/92**; `chain_guard` y los guards de receptores, punteros, enlace,
+  licencias y tamaño en verde.
+
 ## [0.20.0] — 2026-10-31 — Semántica completa de punteros
 
 Cierra la deuda de punteros del compilador: un `ref to T` ya se puede escribir

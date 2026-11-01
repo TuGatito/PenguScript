@@ -5424,9 +5424,9 @@ Generated from the compiler sources by `tools/gen_error_catalog.py` (error class
 | `E0047` | `DuplicatePrimitiveMethodError` | 2 | a method of a primitive is provided twice.  ``enchanting int:`` emits the C function ``int_clamp`` with external linkage, so the ``(primitive, method)`` pair may only be provided once in the whole program: two modules (or two blocks in one module) would emit the same symbol, and a call site could not choose between them. | 1 help / 1 note |
 | `E0049` | `SemanticError` | 10 | — | — |
 | `E0050` | `InfiniteTypeSizeError` | 1 | recursive type without indirection (infinite size). | 1 help / 1 note |
-| `E0051` | `SemanticError` | 1 | — | — |
+| `E0051` | `SemanticError` | 1 | reference or slice returned from storage owned by the current call frame. | 1 help / 1 note |
 | `E0052` | `DuplicateConceptBindingError` | 2 | duplicate concept binding or duplicate (type, method) implementation.  Covers two cases: binding the same ``(type, concept)`` pair twice, and two distinct concepts providing the same ``(type, method)`` pair (which a call site could not resolve). | 1 help / 1 note |
-| `E0053` | `SemanticError` | 3 | — | — |
+| `E0053` | `SemanticError` | 3 | invalid chain/pipe step: not a method or free function, or an intermediate step mutates/returns `void`. | 1 help / 1 note |
 | `E0054` | `SemanticError` | 2 | — | — |
 | `E0055` | `SemanticError` | 1 | — | — |
 | `E0056` | `SemanticError`, `UnknownAttributeError` | 9 | unknown attribute or invalid attribute usage. | 1 help / 1 note |
@@ -5628,30 +5628,67 @@ The standard library is versioned **together with the compiler** in the 1.x
 series (see §19.0). A `MAJOR` bump is therefore the only place where a module can
 be restructured; module renames are handled with the deprecation rules above.
 
-## 24. Method chaining
+## 24. Method chaining and pipes
 
-A single `calling` may chain several method calls. Each `.name` link is resolved
-against the type produced by the previous link:
+PenguScript has two explicit composition forms:
+
+- `.` chains **methods** declared in an `enchanting` block.
+- `pipe` chains **free functions** (module-level weaves or `declare` functions).
+
+Both require the first call to start with `calling`. The language does not use
+UFCS: a free function is never selected through `.`, and a method is never
+selected through `pipe`. This keeps field access, method lookup and free
+function lookup unambiguous.
+
+### 24.1 Method chains
+
+A method chain starts with a normal `calling` expression and continues with
+`.method` links. Every link may have its own `with` arguments:
 
 ```pengu
 import std.scrolls
 
 weave shorten with raw as string into string:
-    return calling raw.get_trim.get_substring with 0, 2
+    return calling raw.get_trim
+        .get_substring with 0, 3
 ```
 
-This is *not* the parenthesis-call syntax of C-like languages: PenguScript method
-calls take their arguments with `with`, and a chain adds no parentheses. A `with`
-argument list binds to the **last** link only.
+The first call may also carry arguments, and the chain may continue after it:
 
-A chained link must produce a value, so a `@mutates` method (and the in-place
-`string` forms of `std.scrolls`) cannot appear in a chain: it returns nothing.
-Use the `get_<name>` spelling while chaining, as above.
+```pengu
+import std.scrolls
 
-### 24.1 Multi-line chains
+weave head with raw as string into string:
+    return calling raw.get_substring with 0, 5
+        .get_trim
+        .get_substring with 0, 2
+```
 
-A chain may be split over several lines. A continuation line begins with `.` (or
-`->`) and is folded into the previous line before lexing:
+The compact header form `calling raw.get_trim.get_substring with 0, 3` is
+equivalent when the intermediate links take no arguments; its `with` list
+belongs to the **last** link of the header. When an intermediate link needs
+arguments, use one link per line, as above.
+
+Every link except the last must produce a value. A `@mutates` method may only be
+the last link. If the last link returns `void`, the chain still has a value:
+the receiver produced by the previous link, after the `void` call has edited it
+through its pointer/reference. This is the supported shape for final in-place
+editing:
+
+```pengu
+var clean as Box is calling box.identity.reset
+```
+
+A `.` link is always a method call, never a field read. To read a field, use a
+normal field access outside the chain, or expose a `get_` method in the
+`enchanting` block.
+
+### 24.2 Multi-line chains
+
+A continuation line starts with `.` or `->` and is folded into the previous
+line before lexing. The fold preserves line numbering, so diagnostics point at
+the line where the chain starts. A blank line or a comment between links stops
+the fold.
 
 ```pengu
 import std.scrolls
@@ -5659,24 +5696,53 @@ import std.scrolls
 weave shorten with raw as string into string:
     return calling raw
         .get_trim
-        .get_substring with 0, 2
+        .get_substring with 0, 3
 ```
 
-The fold preserves line numbering, so a diagnostic on a chained expression
-reports the line where the chain *starts*. Lines inside a triple-quoted string
-are never folded.
+A chain needs at least two calls. `calling x.method` is the canonical single
+method call and is unchanged.
 
-### 24.2 Lowering and restrictions
+### 24.3 Pipes
 
-Each link that is a genuine method is evaluated into a temporary inside a GNU
-statement-expression, and the chain's value is the last temporary. A chain is
-only treated as such when every intermediate link resolves to a method: a
-sequence of *field* reads is not a chain, and a field read after a method result
-must be written as a separate expression.
+`pipe` chains free functions. The value produced by the previous step is passed
+as the **first argument** of the next function; extra arguments follow it:
 
-> [!NOTE]
-> A chain requires at least two links. `calling x.method` is the canonical
-> single-call form and is unchanged.
+```pengu
+weave editar with value as int, delta as int into int:
+    return value + delta
+
+weave editar_mas with value as int, factor as int into int:
+    return value * factor
+
+weave final with value as int into int:
+    return value + 10
+
+var algo as int is calling otro
+    pipe editar with 2
+    pipe editar_mas with 3
+    pipe final
+```
+
+A pipe step may name a module function with a dotted path:
+
+```pengu
+var text as string is 42 pipe spark.str_int
+```
+
+`pipe` is contextual: it is still a valid identifier, and the parser only treats
+a `pipe` at the start of a continuation line as a pipe step. Pipe steps must be
+free functions, not methods and not types. Every intermediate step must produce
+a value; the last step may return `void`, in which case the pipe keeps the
+previous value. When a step is not a free function, the checker reports
+`E0053` and suggests using `.` for methods; when a `.` link is not a method, it
+reports `E0053` and suggests `pipe` for free functions.
+
+### 24.4 Evaluation and ownership
+
+Steps are evaluated left to right, exactly once, in compiler temporaries. A
+method chain uses one temporary per successful non-`void` call; a pipe uses one
+temporary per step. Short-circuiting is not involved. Arguments are evaluated
+at their own call site, in source order.
 
 ## 25. Multiple return values
 

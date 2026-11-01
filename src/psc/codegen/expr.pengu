@@ -150,6 +150,8 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         return calling binary_expr with c, node, ast
     if k == pskind.NodeKind.NdCallingExpr:
         return calling call_expr with c, node, ast
+    if k == pskind.NodeKind.NdChainExpr:
+        return calling chain_expr with c, node, ast
     if k == pskind.NodeKind.NdEssenceOf:
         var eo as int is calling astutil.node_child with ast, node, 0
         var eov as string is calling emit_expr with c, eo
@@ -2234,6 +2236,13 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             else:
                 set clr is "pengu_list_clear(&({tgt.text}))"
             return clr
+    var tgtc as int is calling astutil.node_child with ast, node, 0
+    if (calling astutil.child_count with ast, tgtc) > 2:
+        var chain_call as string is calling chain_call_expr with c, node, ast, cname
+        if chain_call != "":
+            banish cname
+            return chain_call
+        banish chain_call
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     calling sb.append with cname
@@ -2989,14 +2998,41 @@ weave resolve_target with c as ref to context.CgContext, target as int, ast as r
                     if ft >= 0:
                         var fld as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
                         var fid as int is calling npool.intern with (sigil of c->program->names), fld
-                        set ty is calling cg_field_type with c, ty, fid
-                        var sep as string is "."
-                        if ck == pskind.NodeKind.NdArrowAccess:
-                            set sep is "->"
-                        var nxt as string is "{base}{sep}{fld}"
-                        banish base
-                        banish fld
-                        set base is nxt
+                        var mfn as int is -1
+                        if skip_method and i < n - 1 and (ck == pskind.NodeKind.NdDotAccess or ck == pskind.NodeKind.NdArrowAccess):
+                            set mfn is calling chain_method_fn with c, ty, fid
+                        if mfn >= 0:
+                            var mf as catalog.CgFunction is (c->catalog.functions at mfn)
+                            var mfs as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), mf.symbol
+                            var mft as tk.SemaType is calling types.at with (sigil of c->program->types), mfs.type
+                            if mft.kind == tk.SemaTypeKind.TkRef:
+                                var mfi as tk.SemaType is calling types.at with (sigil of c->program->types), mft.a
+                                if mfi.kind == tk.SemaTypeKind.TkFn:
+                                    set mft is mfi
+                            var mret as int is ty
+                            if mft.kind == tk.SemaTypeKind.TkFn:
+                                var mfinfo as types.SemaFnInfo is (c->program->types.fn_infos at mft.a)
+                                set mret is mfinfo.return_type
+                            var mcname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), mf.c_name)
+                            defer banish mcname
+                            var mrecv as string is ""
+                            if mf.self_value:
+                                set mrecv is "{mcname}({base})"
+                            else:
+                                set mrecv is "{mcname}(&({base}))"
+                            banish base
+                            banish fld
+                            set base is mrecv
+                            set ty is mret
+                        else:
+                            set ty is calling cg_field_type with c, ty, fid
+                            var sep as string is "."
+                            if ck == pskind.NodeKind.NdArrowAccess:
+                                set sep is "->"
+                            var nxt as string is "{base}{sep}{fld}"
+                            banish base
+                            banish fld
+                            set base is nxt
         set i is i + 1
     return with text is base, type_id is ty
 
@@ -3198,6 +3234,366 @@ weave dotted_path_text with c as ref to context.CgContext, node as int, ast as r
             return "{bp}.{fn}"
         return bp
     return ""
+
+## Busca la función de catálogo de un método para un receptor y nombre.
+##
+## ## Memoria
+## O(n) sobre el catálogo; no asigna salvo strings temporales.
+weave chain_method_fn with c as ref to context.CgContext, recv as int, name as int into int:
+    var rct as int is recv
+    var ty as tk.SemaType is calling types.at with (sigil of c->program->types), rct
+    var guard as int is 0
+    while guard < 16 and (ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkFrozen or ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal):
+        if ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal:
+            if ty.b <= 0:
+                break
+            set rct is ty.b
+        else:
+            if ty.a <= 0:
+                break
+            set rct is ty.a
+        set ty is calling types.at with (sigil of c->program->types), rct
+        set guard is guard + 1
+    var i as int is 0
+    while i < c->catalog.functions.len:
+        var fm as catalog.CgFunction is (c->catalog.functions at i)
+        if fm.is_method and fm.is_spec and fm.recv_type == rct and fm.name == name:
+            return i
+        set i is i + 1
+    set i is 0
+    while i < c->catalog.functions.len:
+        var fm2 as catalog.CgFunction is (c->catalog.functions at i)
+        if fm2.is_method and fm2.recv_type == rct and fm2.name == name:
+            return i
+        set i is i + 1
+    var cty as string is calling ctype.c_type with (sigil of c->names), rct
+    defer banish cty
+    var ntxt as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), name)
+    defer banish ntxt
+    var full as string is "{cty}_{ntxt}"
+    defer banish full
+    set i is 0
+    while i < c->catalog.functions.len:
+        var fm3 as catalog.CgFunction is (c->catalog.functions at i)
+        var fname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), fm3.c_name)
+        if fm3.is_method and fname == full:
+            banish fname
+            return i
+        banish fname
+        set i is i + 1
+    return -1
+
+## Busca la función de catálogo de un pipe por nombre.
+##
+## ## Memoria
+## O(n) sobre el catálogo.
+weave chain_pipe_fn with c as ref to context.CgContext, name as int into int:
+    var i as int is 0
+    while i < c->catalog.functions.len:
+        var fm as catalog.CgFunction is (c->catalog.functions at i)
+        if (not fm.is_method) and fm.name == name:
+            return i
+        set i is i + 1
+    return -1
+
+## Emite una cadena de métodos o pipes con temporales.
+##
+## ## Memoria
+## Devuelve string owned; libera temporales de strings.
+## Emite una cadena de métodos de un `calling` con target multi-acceso.
+##
+## El target conserva la forma `base.a.b`; los accesos intermedios ya están
+## anotados por sema. Cada uno se evalúa en un temporal para no devolver
+## punteros a temporales de statement-expressions anidadas.
+##
+## ## Memoria
+## Devuelve string owned o `""` si no se puede bajar.
+## Tipo de receptor declarado por el primer método con nombre `nm`.
+##
+## ## Memoria
+## O(funciones), no asigna.
+weave chain_method_recv with c as ref to context.CgContext, nm as int into int:
+    var i as int is 0
+    while i < c->catalog.functions.len:
+        var f as catalog.CgFunction is (c->catalog.functions at i)
+        if f.is_method and f.name == nm:
+            return f.recv_type
+        set i is i + 1
+    return -1
+
+weave chain_call_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, cname as string into string:
+    var target as int is calling astutil.node_child with ast, node, 0
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var btok as int is calling astutil.token_child with ast, target, 0
+    if btok < 0:
+        return ""
+    var bval as string is calling astutil.child_token_text with (sigil of m.source), (sigil of m.lex), ast, target, 0
+    defer banish bval
+    var first_op as int is calling astutil.node_child with ast, target, 1
+    var first_nt as int is calling astutil.token_child with ast, first_op, 0
+    var first_txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), first_nt
+    var first_nm as int is calling npool.intern with (sigil of c->program->names), first_txt
+    banish first_txt
+    var bty as int is calling chain_method_recv with c, first_nm
+    if bty <= 0:
+        return ""
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var bcty as string is calling ctype.c_type with (sigil of c->names), bty
+    defer banish bcty
+    calling sb.append with "__extension__(({ "
+    calling sb.append with bcty
+    calling sb.append with " _ch0 = "
+    calling sb.append with bval
+    calling sb.append with "; "
+    var cur_type as int is bty
+    var cur_name as string is "_ch0"
+    var n as int is calling astutil.child_count with ast, target
+    var i as int is 1
+    while i < n - 1:
+        var op as int is calling astutil.node_child with ast, target, i
+        if op < 0:
+            return ""
+        var ntok as int is calling astutil.token_child with ast, op, 0
+        var ntxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ntok
+        var nm as int is calling npool.intern with (sigil of c->program->names), ntxt
+        banish ntxt
+        var fn as int is calling chain_method_fn with c, cur_type, nm
+        if fn < 0:
+            return ""
+        var fm as catalog.CgFunction is (c->catalog.functions at fn)
+        var cn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), fm.c_name)
+        defer banish cn
+        var nty as int is calling guess_type with c, op, ast
+        if nty <= 0:
+            set nty is bty
+        var ncty as string is calling ctype.c_type with (sigil of c->names), nty
+        defer banish ncty
+        var nmn as string is "_ch{i}"
+        calling sb.append with ncty
+        calling sb.append with " "
+        calling sb.append with nmn
+        calling sb.append with " = "
+        calling sb.append with cn
+        calling sb.append with "("
+        if fm.self_value:
+            calling sb.append with cur_name
+        else:
+            calling sb.append with "&("
+            calling sb.append with cur_name
+            calling sb.append with ")"
+        calling sb.append with "); "
+        set cur_type is nty
+        set cur_name is nmn
+        set i is i + 1
+    var fop as int is calling astutil.node_child with ast, target, n - 1
+    var fnt as int is calling astutil.token_child with ast, fop, 0
+    var ftxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), fnt
+    var fnm as int is calling npool.intern with (sigil of c->program->names), ftxt
+    banish ftxt
+    var fnf as int is calling chain_method_fn with c, cur_type, fnm
+    if fnf < 0:
+        return ""
+    var fmf as catalog.CgFunction is (c->catalog.functions at fnf)
+    calling sb.append with cname
+    calling sb.append with "("
+    if fmf.self_value:
+        calling sb.append with cur_name
+    else:
+        calling sb.append with "&("
+        calling sb.append with cur_name
+        calling sb.append with ")"
+    var args as int is calling astutil.node_child with ast, node, 2
+    if args >= 0:
+        var ac as int is calling astutil.child_count with ast, args
+        var ai as int is 0
+        while ai < ac:
+            var an as int is calling astutil.node_child with ast, args, ai
+            if an >= 0:
+                var avn as int is an
+                if (calling astutil.kind_of with ast, an) == pskind.NodeKind.NdPosArg:
+                    set avn is calling astutil.node_child with ast, an, 0
+                var av as string is calling emit_expr with c, avn
+                defer banish av
+                calling sb.append with ", "
+                calling sb.append with av
+            set ai is ai + 1
+    var frets as tk.SemaType is calling types.at with (sigil of c->program->types), (calling symbols.symbol_at with (sigil of c->program->symbols), fmf.symbol).type
+    if frets.kind == tk.SemaTypeKind.TkRef:
+        var finner as tk.SemaType is calling types.at with (sigil of c->program->types), frets.a
+        if finner.kind == tk.SemaTypeKind.TkFn:
+            set frets is finner
+    var fvoid as bool is false
+    if frets.kind == tk.SemaTypeKind.TkFn:
+        var finfo as types.SemaFnInfo is (c->program->types.fn_infos at frets.a)
+        if finfo.return_type == calling types.base with (sigil of c->program->types), "void":
+            set fvoid is true
+    if fvoid:
+        calling sb.append with "); "
+        calling sb.append with cur_name
+        calling sb.append with "; }))"
+    else:
+        calling sb.append with "); }))"
+    return calling sb.finish
+
+weave chain_fn_void with c as ref to context.CgContext, fidx as int into bool:
+    var fm as catalog.CgFunction is (c->catalog.functions at fidx)
+    var fs as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), fm.symbol
+    var ft as tk.SemaType is calling types.at with (sigil of c->program->types), fs.type
+    if ft.kind == tk.SemaTypeKind.TkRef:
+        var fi as tk.SemaType is calling types.at with (sigil of c->program->types), ft.a
+        if fi.kind == tk.SemaTypeKind.TkFn:
+            set ft is fi
+    if ft.kind == tk.SemaTypeKind.TkFn:
+        var info as types.SemaFnInfo is (c->program->types.fn_infos at ft.a)
+        return info.return_type == calling types.base with (sigil of c->program->types), "void"
+    return false
+
+weave chain_fn_by_symbol with c as ref to context.CgContext, sid as int into int:
+    var i as int is 0
+    while i < c->catalog.functions.len:
+        var fm as catalog.CgFunction is (c->catalog.functions at i)
+        if fm.symbol == sid and not fm.is_method:
+            return i
+        set i is i + 1
+    return -1
+
+weave chain_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var base as int is calling astutil.node_child with ast, node, 0
+    var base_type as int is calling node_type with c, base
+    var base_val as string is calling emit_expr with c, base
+    defer banish base_val
+    var mode as int is (ast->nodes at node).aux
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var cur_type as int is base_type
+    var cur_name as string is "_ch0"
+    var cty0 as string is calling ctype.c_type with (sigil of c->names), cur_type
+    defer banish cty0
+    calling sb.append with "__extension__(({ "
+    calling sb.append with cty0
+    calling sb.append with " _ch0 = "
+    calling sb.append with base_val
+    calling sb.append with "; "
+    var n as int is calling astutil.child_count with ast, node
+    var i as int is 1
+    while i < n:
+        var step as int is calling astutil.node_child with ast, node, i
+        if step >= 0:
+            var stype as int is calling node_type with c, step
+            var is_last as bool is i == n - 1
+            var step_name as string is "_ch{i}"
+            if mode == 1:
+                var tar as int is calling astutil.node_child with ast, step, 0
+                var ntk as int is calling astutil.token_child with ast, tar, 0
+                var ntx as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ntk
+                var nm as int is calling npool.intern with (sigil of c->program->names), ntx
+                banish ntx
+                var fn as int is -1
+                var psid as int is calling ann.symbol_of with (sigil of m.annotations), step
+                if psid >= 0:
+                    set fn is calling chain_fn_by_symbol with c, psid
+                if fn < 0:
+                    set fn is calling chain_pipe_fn with c, nm
+                if fn >= 0:
+                    var fm as catalog.CgFunction is (c->catalog.functions at fn)
+                    var cname as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), fm.c_name)
+                    defer banish cname
+                    var call as StringBuilder is calling StringBuilder.new
+                    defer banish call
+                    calling call.append with cname
+                    calling call.append with "("
+                    calling call.append with cur_name
+                    var args as int is calling astutil.node_child with ast, step, 1
+                    if args >= 0:
+                        var ac as int is calling astutil.child_count with ast, args
+                        var ai as int is 0
+                        while ai < ac:
+                            var an as int is calling astutil.node_child with ast, args, ai
+                            if an >= 0:
+                                var avn as int is an
+                                if (calling astutil.kind_of with ast, an) == pskind.NodeKind.NdPosArg:
+                                    set avn is calling astutil.node_child with ast, an, 0
+                                var av as string is calling emit_expr with c, avn
+                                defer banish av
+                                calling call.append with ", "
+                                calling call.append with av
+                            set ai is ai + 1
+                    calling call.append with ")"
+                    var ctext as string is calling call.finish
+                    defer banish ctext
+                    var pvoid as bool is is_last and (calling chain_fn_void with c, fn)
+                    if (stype <= 0 or pvoid) and is_last:
+                        calling sb.append with ctext
+                        calling sb.append with "; "
+                    else:
+                        var scty as string is calling ctype.c_type with (sigil of c->names), stype
+                        defer banish scty
+                        calling sb.append with scty
+                        calling sb.append with " "
+                        calling sb.append with step_name
+                        calling sb.append with " = "
+                        calling sb.append with ctext
+                        calling sb.append with "; "
+                        set cur_name is step_name
+                        set cur_type is stype
+            else:
+                var ntk2 as int is calling astutil.token_child with ast, step, 0
+                var ntx2 as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ntk2
+                var nm2 as int is calling npool.intern with (sigil of c->program->names), ntx2
+                banish ntx2
+                var fn2 as int is calling chain_method_fn with c, cur_type, nm2
+                if fn2 >= 0:
+                    var fm2 as catalog.CgFunction is (c->catalog.functions at fn2)
+                    var cname2 as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), fm2.c_name)
+                    defer banish cname2
+                    var call2 as StringBuilder is calling StringBuilder.new
+                    defer banish call2
+                    calling call2.append with cname2
+                    calling call2.append with "("
+                    if fm2.self_value:
+                        calling call2.append with cur_name
+                    else:
+                        calling call2.append with "&("
+                        calling call2.append with cur_name
+                        calling call2.append with ")"
+                    var args2 as int is calling astutil.node_child with ast, step, 1
+                    if args2 >= 0:
+                        var ac2 as int is calling astutil.child_count with ast, args2
+                        var ai2 as int is 0
+                        while ai2 < ac2:
+                            var an2 as int is calling astutil.node_child with ast, args2, ai2
+                            if an2 >= 0:
+                                var avn2 as int is an2
+                                if (calling astutil.kind_of with ast, an2) == pskind.NodeKind.NdPosArg:
+                                    set avn2 is calling astutil.node_child with ast, an2, 0
+                                var av2 as string is calling emit_expr with c, avn2
+                                defer banish av2
+                                calling call2.append with ", "
+                                calling call2.append with av2
+                            set ai2 is ai2 + 1
+                    calling call2.append with ")"
+                    var ctext2 as string is calling call2.finish
+                    defer banish ctext2
+                    if stype <= 0 and is_last:
+                        calling sb.append with ctext2
+                        calling sb.append with "; "
+                    else:
+                        var scty2 as string is calling ctype.c_type with (sigil of c->names), stype
+                        defer banish scty2
+                        calling sb.append with scty2
+                        calling sb.append with " "
+                        calling sb.append with step_name
+                        calling sb.append with " = "
+                        calling sb.append with ctext2
+                        calling sb.append with "; "
+                        set cur_name is step_name
+                        set cur_type is stype
+        set i is i + 1
+    calling sb.append with cur_name
+    calling sb.append with "; }))"
+    return calling sb.finish
 
 ## Nombre C de una variante de omen.
 ##

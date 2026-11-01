@@ -3469,17 +3469,29 @@ var v as int is grid at 0 at 0   # grid[0][0]
 
 ---
 
-## Method chaining (1.1.0)
+## Method chaining and pipes (0.21.0)
+
+`.method` chains methods from an `enchanting` block; `pipe` chains free
+functions. Both start with `calling`; every step may have its own `with`.
 
 ```pengu
-# One line: `with` binds to the LAST link only.
-let part is calling raw.get_trim.get_substring with 0, 2
-
-# Several lines: a `.`-prefixed line continues the chain.
-let part is calling raw
+# Methods: one link per line, arguments per link.
+let part is calling raw.get_substring with 0, 5
     .get_trim
     .get_substring with 0, 2
+
+# Compact header: `with` belongs to the last header link.
+let head is calling raw.get_trim.get_substring with 0, 3
+
+# Pipes: the previous value is the first argument.
+let result is calling start
+    pipe add with 2
+    pipe scale with 3
 ```
+
+A `.` link is always a method, never a field read. `pipe` accepts a free
+function name or `mod.fn`; it rejects methods with `E0053`. The last step may
+return `void`; the chain/pipe keeps the previous value after the in-place edit.
 
 ## Multiple return values (1.1.0)
 

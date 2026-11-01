@@ -207,6 +207,19 @@ weave pexpr_parse_postfix_no_cast with p as ref to PsParser into int:
     var base as int is calling patoms.patom_parse_primary with p
     return calling pexpr_postfix_tail with p, base
 
+## Indica si el `.` actual empieza una continuación de línea.
+##
+## ## Memoria
+## O(1).
+weave dot_after_newline with p as ref to PsParser into bool:
+    if not (calling ps_check with p, TokDot):
+        return false
+    if p->pos <= 0:
+        return false
+    var cur as Token is ((essence of p->lex).tokens at p->pos)
+    var prev as Token is ((essence of p->lex).tokens at (p->pos - 1))
+    return cur.line > prev.line
+
 ## Bucle común de postfix.
 ##
 ## ## Memoria
@@ -216,6 +229,8 @@ weave pexpr_postfix_tail with p as ref to PsParser, base as int into int:
     var more as bool is true
     while more:
         if calling ps_check with p, TokDot:
+            if calling dot_after_newline with p:
+                return current_id
             var start as int is calling putil.pexpr_start_of with p, current_id
             var ignored as Token is calling ps_advance with p
             calling ps_begin_children with p
@@ -291,7 +306,71 @@ weave pexpr_parse_calling with p as ref to PsParser into int:
         calling ps_add_child with p, args2
     else:
         calling ps_add_absent with p
-    return calling ps_finish_node with p, NodeKind.NdCallingExpr, start, (calling ps_previous_end with p), 0
+    var call as int is calling ps_finish_node with p, NodeKind.NdCallingExpr, start, (calling ps_previous_end with p), 0
+    return calling pexpr_parse_chain_tail with p, call
+
+## Parsea un paso `.name [with args]` de una cadena de métodos.
+##
+## ## Memoria
+## Construye un nodo `method_step`.
+weave pexpr_parse_method_step with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as Token is calling ps_expect with p, TokDot, "'.'"
+    calling ps_begin_children with p
+    calling ps_add_name_like with p
+    if calling ps_check_kw with p, KwWith:
+        var args as int is calling pexpr_parse_arg_list with p
+        calling ps_add_child with p, args
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdMethodStep, start, (calling ps_previous_end with p), 0
+
+## Encadena pasos de método tras una llamada `calling`.
+##
+## ## Memoria
+## Construye nodos `chain_expr`/`method_step`.
+weave pexpr_parse_chain_tail with p as ref to PsParser, base as int into int:
+    if not (calling ps_check with p, TokDot):
+        return base
+    var start as int is calling putil.pexpr_start_of with p, base
+    calling ps_begin_children with p
+    calling ps_add_child with p, base
+    while calling ps_check with p, TokDot:
+        var step as int is calling pexpr_parse_method_step with p
+        calling ps_add_child with p, step
+    return calling ps_finish_node with p, NodeKind.NdChainExpr, start, (calling ps_previous_end with p), 0
+
+## Parsea un paso `pipe target [with args]` de una cadena de funciones.
+##
+## ## Memoria
+## Construye un nodo `pipe_step`.
+weave pexpr_parse_pipe_step with p as ref to PsParser into int:
+    var start as int is calling ps_current_start with p
+    var ignored as bool is calling ps_accept_word with p, "pipe"
+    calling ps_begin_children with p
+    var target as int is calling pexpr_parse_normal_target with p
+    calling ps_add_child with p, target
+    if calling ps_check_kw with p, KwWith:
+        var args as int is calling pexpr_parse_arg_list with p
+        calling ps_add_child with p, args
+    else:
+        calling ps_add_absent with p
+    return calling ps_finish_node with p, NodeKind.NdPipeStep, start, (calling ps_previous_end with p), 0
+
+## Encadena pasos `pipe` tras una expresión.
+##
+## ## Memoria
+## Construye nodos `chain_expr`/`pipe_step`.
+weave pexpr_parse_pipe_tail with p as ref to PsParser, base as int into int:
+    if not (calling ps_check_word with p, "pipe"):
+        return base
+    var start as int is calling putil.pexpr_start_of with p, base
+    calling ps_begin_children with p
+    calling ps_add_child with p, base
+    while calling ps_check_word with p, "pipe":
+        var step as int is calling pexpr_parse_pipe_step with p
+        calling ps_add_child with p, step
+    return calling ps_finish_node with p, NodeKind.NdChainExpr, start, (calling ps_previous_end with p), 1
 
 ## Parsea `NAME/self` seguido de accesos.
 ##
@@ -378,6 +457,14 @@ weave pexpr_parse_arg_list with p as ref to PsParser into int:
     calling ps_begin_children with p
     var more as bool is true
     while more:
+        # Un `.metodo` al inicio de una línea nueva tras los argumentos es un
+        # paso de cadena, no un acceso al último argumento.
+        if calling ps_check with p, TokDot:
+            var cur as Token is ((essence of p->lex).tokens at p->pos)
+            var prev as Token is ((essence of p->lex).tokens at (p->pos - 1))
+            if cur.line > prev.line:
+                set more is false
+                continue
         var arg as int is calling pexpr_parse_arg with p
         calling ps_add_child with p, arg
         if calling ps_check with p, TokComma:

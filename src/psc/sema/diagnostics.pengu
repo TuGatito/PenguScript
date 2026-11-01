@@ -65,6 +65,8 @@ const CODE_PRIMITIVE_METHOD as string is "E0047"
 const CODE_INFINITE_SIZE as string is "E0050"
 const CODE_DANGLING as string is "E0051"
 const CODE_CONCEPT_DUP as string is "E0052"
+## Paso de cadena o pipe inválido (método/función equivocados).
+const CODE_CHAIN as string is "E0053"
 const CODE_ATTRIBUTE as string is "E0056"
 const CODE_CHAR_RANGE as string is "E0057"
 const CODE_STATIC_PLACEMENT as string is "E0063"

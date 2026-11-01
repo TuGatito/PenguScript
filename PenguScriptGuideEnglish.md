@@ -28,7 +28,7 @@
 13. [C → Pengunic translation table](#13-c--pengunic-translation-table)
 14. [Anti-patterns](#14-anti-patterns)
 15. [Documented exceptions](#15-documented-exceptions)
-16. [Method chaining](#16-method-chaining)
+16. [Method chaining and pipes](#16-method-chaining-and-pipes)
 17. [Multiple return values (tuples)](#17-multiple-return-values-tuples)
 18. [Shorthand struct initializers](#18-shorthand-struct-initializers)
 19. [Declaration attributes](#19-declaration-attributes)
@@ -2618,135 +2618,148 @@ change makes an *Enforced* row fail, that is a regression, not a new exception.
 
 ---
 
-## 16. Method chaining
+## 16. Method chaining and pipes
 
-The syntax `calling x.a.b.c` chains several method calls on a single receiver. Each `.name` link is resolved against the type produced by the previous link. It is **composition sugar**, not a parenthesised call: the `with` block belongs to the **last** link.
+PenguScript has two composition forms, and they are deliberately separate:
 
-### 16.1 When to chain
+- `.` calls a **method** declared in an `enchanting` block.
+- `pipe` calls a **free function** (a module weave or a `declare` function).
 
-**Chain when the chain reads as a linear transformation**, with no branches and no intermediate side effects:
+Both start with `calling`. This is not UFCS: a free function is never reached
+through `.`, and a method is never reached through `pipe`. The first call is
+always explicit, so field access and function lookup stay unambiguous.
+
+### 16.1 When to chain methods
+
+**Use `.` when each step is a method on the value produced by the previous
+step, and the chain reads as one linear transformation.**
 
 ```pengu
-# ✅ Pengunic: each step transforms the previous value
-let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
+import std.scrolls
 
-# ✅ Pengunic: chain of pure transformations over collections
-let ordered is calling tally.sort_int_desc with (calling scores.filter_positive)
-let top5 is calling tally.take with ordered, 5
+# ✅ Pengunic: one value, one method per line
+let short is calling raw.get_trim
+    .get_substring with 0, 5
+
+# ✅ The first call can take arguments too
+let head is calling raw.get_substring with 0, 7
+    .get_trim
+    .get_substring with 0, 3
 ```
 
-**Do not chain when:**
+The compact header form is also valid when the intermediate methods take no
+arguments; its `with` list belongs to the last link:
+
+```pengu
+let short is calling raw.get_trim.get_substring with 0, 5
+```
+
+**Do not use `.` when:**
 
 | Situation | What to do |
 |---|---|
-| An intermediate link needs a name of its own | Break the chain and name it |
-| The chain exceeds 4–5 links | Split it into functions |
-| A link mutates the receiver (`push`, `set_*`, `clear`) | Separate mutation from reading |
-| A link requires arguments and is not the last one | Break the chain |
-| A link resolves to a **field**, not a method | It is not a chain, it is field access |
+| The step is a free function, not a method | Use `pipe` |
+| You need to read a field | Read the field outside the chain, or add a `get_` method |
+| An intermediate result deserves a name | Bind it with `let` and continue |
+| The chain has more than 4–5 steps | Split it into named functions |
+| The step mutates and is not last | Keep mutation outside the chain |
+| The step returns `void` and is not last | Only the last step may return `void` |
+
+A `@mutates` method is allowed only as the last step. If the last step returns
+`void`, the chain still produces the previous value after the in-place edit:
 
 ```pengu
-# ❌ Anti-Pengunic: mixes reading and mutation
-calling xs.push with (calling tally.sort_int_asc with [3, 1, 10])
-
-# ✅ Pengunic: separate mutation from reading
-calling xs.push with 10
-calling xs.reverse
-let ordered is calling tally.sort_int_asc with xs
+let clean as Box is calling box.identity.reset
 ```
 
-### 16.2 Multi-line chains
+### 16.2 When to use a pipe
 
-For long chains, a continuation line starts with `.` (or `->`) and is folded into the previous line before the lexer. The folding **preserves line numbering**: a diagnostic on a chained expression points at the line where the chain *starts*.
+**Use `pipe` when the steps are free functions and the value flows as the first
+argument.** Think of it as a left-to-right data pipeline:
 
 ```pengu
-# ✅ Pengunic: multi-line, one link per line
-let slug is calling raw
-    .trim
-    .lower
-    .replace with " ", "-"
+weave add with value as int, delta as int into int:
+    return value + delta
 
-# ❌ Anti-Pengunic: unreadable long line
+weave scale with value as int, factor as int into int:
+    return value * factor
+
+let result as int is calling start
+    pipe add with 2
+    pipe scale with 3
+```
+
+A pipe step may name a module function with a dotted path:
+
+```pengu
+let text as string is 42 pipe spark.str_int
+```
+
+Use a pipe when the operation is a **function**, not a method: parsing,
+validation, formatting, normalization, or a module helper. Do not use `pipe`
+for methods; the checker reports `E0053` and tells you to use `.`. Do not use
+`.` for free functions; the checker reports `E0053` and tells you to use
+`pipe`.
+
+### 16.3 Formatting and multi-line chains
+
+For chains longer than two steps, write one step per line:
+
+```pengu
+# ✅ Pengunic
+let slug is calling raw.get_trim
+    .get_lower
+    .get_replace with " ", "-"
+
+# ❌ Anti-Pengunic: hard to scan, same information
 let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
 ```
 
-**Formatting rules:**
+A continuation line starts with `.` (or `->`) for methods, or with `pipe` for
+free functions. The compiler folds it into the previous line before lexing and
+preserves line numbers. A blank line or a comment between steps stops the fold.
 
-- One link per line.
-- Indentation: **one level** (4 spaces) relative to the line that opens the chain.
-- The first link (`.trim`) goes on the line after the receiver.
-- Do not mix `.` and `->` in the same chain.
-- Lines inside a triple-quoted string are **never** folded.
+- One step per line.
+- Indent the continuation one level (4 spaces).
+- Do not mix `.` and `->` in the same method chain.
+- Do not put a field read between two method steps.
 
-### 16.3 The `with` block belongs to the last link
+### 16.4 The last step and `void`
 
-```pengu
-# ✅ 'with " ", "-"' applies to '.replace', not to '.lower'
-let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
-```
-
-If an intermediate link needs arguments and is not the last one, the chain cannot be written; split it:
-
-```pengu
-# ❌ Anti-Pengunic: there is no way to pass 'with 0, 4' to the intermediate 'substring'
-# let slug is calling raw.get_trim.get_substring with 0, 4.lower
-
-# ✅ Pengunic: two expressions, explicit names
-let head is calling raw.get_trim.get_substring with 0, 4
-let slug is calling head.lower
-```
-
-### 16.4 Chains and generics
-
-Each link is resolved by on-demand monomorphization: the compiler instantiates the generic method only for the concrete type of the previous link. **There is no runtime overhead.**
+Every intermediate step must produce a value. The last step may return `void`;
+in that case the chain keeps the value produced before the call, after the
+`void` call has edited it through its pointer/reference. This is useful for a
+final in-place operation:
 
 ```pengu
-# ✅ A single 'calling' chains generic methods over 'map of shard K to shard V'
-let short is calling registry
-    .keys_sorted
-    .first_or with "none"
-
-# ✅ In a chain, the receiver may be a 'ref to T':
-calling self
-    .remove with old_key
-    .put with new_key, val
+# identity returns Box, reset edits it in place and returns void.
+let clean as Box is calling box.identity.reset
 ```
 
-When the receiver is `self` inside an `enchanting`, the chain works the same way and is the idiomatic way to apply several coordinated mutations:
-
-```pengu
-enchanting Registry:
-    weave rename_key with old_key as K, new_key as K into bool:
-        if not (calling self.contains with old_key):
-            return false
-        var val as V is self at old_key
-        calling self
-            .remove with old_key
-            .put with new_key, val
-        return true
-```
+The same rule applies to pipes: a final `void` step keeps the previous value,
+so `let x as string is value pipe sink` still gives you `value`.
 
 ### 16.5 Anti-patterns
 
 ```pengu
-# ❌ Field chain (not a method chain)
-calling p.address.city.zip_code
+# ❌ Free function called as a method
+calling raw.get_trim.dbl
 
-# ❌ Chain with a mutator in the middle
-calling xs.push with 10.reverse
+# ✅ Use pipe for free functions
+let x is calling raw.get_trim pipe dbl
 
-# ❌ Chain of more than 5 links
-calling raw.get_trim.get_lower.get_replace(" ", "-").split("-").filter_nonempty.first_or("none")
+# ❌ Method called as a pipe step
+let x is raw pipe get_trim
 
-# ❌ Mixing '.' and '->'
-calling self.method1->method2
+# ✅ Use '.' for methods
+let x is calling raw.get_trim
 
-# ✅ Equivalent Pengunic
-let slug is calling raw
-    .trim
-    .lower
-    .replace with " ", "-"
-let first is calling slug.split with "-" . first_or with "none"
+# ❌ Field read in the middle of a method chain
+calling user.profile.get_name
+
+# ✅ Read the field first, then call its method
+let profile is user.profile
+let name is calling profile.get_name
 ```
 
 ---

@@ -85,6 +85,8 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
         set t is calling types.base with s->types, "bool"
     else if kind == pskind.NodeKind.NdCallingExpr:
         set t is calling infer_call with s, node, expected
+    else if kind == pskind.NodeKind.NdChainExpr:
+        set t is calling infer_chain with s, node
     else if kind == pskind.NodeKind.NdFieldAccess:
         set t is calling infer_field with s, node
     else if kind == pskind.NodeKind.NdArrowAccess:
@@ -441,6 +443,7 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
     var args as int is calling astutil.node_child with s->ast, node, 2
     var sid as int is -1
     var recv_bounds as int is -1
+    var chain_last as int is -1
     var tname as string is ""
     defer banish tname
     var method_text as string is ""
@@ -543,6 +546,16 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                             if ofty.kind == tk.SemaTypeKind.TkFn:
                                 var oinfo as types.SemaFnInfo is (s->types->fn_infos at ofty.a)
                                 set next is oinfo.return_type
+                            calling ann.ann_set_symbol with s->annotations, op, osid
+                            if next > 0:
+                                calling ann.set_type with s->annotations, op, next
+                            if ai < n - 1:
+                                if (osym.flags & sym.SYM_MUTATING) != 0:
+                                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CHAIN, (calling astutil.start_of with s->ast, op), (calling astutil.end_of with s->ast, op), "mutating method used in the middle of a chain", "Only the last step may mutate; move it to the end or split the chain.", ""
+                                    return 0
+                                if next == calling types.base with s->types, "void":
+                                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CHAIN, (calling astutil.start_of with s->ast, op), (calling astutil.end_of with s->ast, op), "chain step returns void", "Only the last step may return void; intermediate steps must produce a value.", ""
+                                    return 0
                         if next <= 0:
                             set next is calling builtin_method with s, rcp, optxt, -1
                 set rcp is next
@@ -578,6 +591,7 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
             if rty.kind == tk.SemaTypeKind.TkRef:
                 set recv_lookup is rty.a
             var mid as int is calling npool.intern with s->names, mname
+            set chain_last is rcp
             set sid is calling symbols.lookup_method with s->symbols, recv_lookup, mid
             if sid < 0:
                 var rbase as tk.SemaType is calling types.at with s->types, recv_lookup
@@ -739,7 +753,191 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                 defer banish bmsg
                 calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CONCEPT_BOUND, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), bmsg, "Add the required concept implementation or change the bound.", ""
             set bj is bj + 1
+    if info.return_type == calling types.base with s->types, "void":
+        if (calling astutil.child_count with s->ast, target) > 2:
+            return chain_last
     return info.return_type
+
+## Resuelve un paso de método de `NdChainExpr`.
+##
+## ## Memoria
+## Infiere argumentos; no posee listas.
+weave infer_chain_method with s as ref to state.SemaState, recv as int, step as int, is_last as bool into int:
+    var mtok as int is calling astutil.token_child with s->ast, step, 0
+    if mtok < 0:
+        return 0
+    var mname as string is calling astutil.token_text with s->src, s->lex, mtok
+    defer banish mname
+    var rbase as int is calling underlying_type with s, recv
+    var rty as tk.SemaType is calling types.at with s->types, rbase
+    if rty.kind == tk.SemaTypeKind.TkRef:
+        set rbase is rty.a
+    var mid as int is calling npool.intern with s->names, mname
+    var sid as int is calling symbols.lookup_method with s->symbols, rbase, mid
+    if sid < 0:
+        var msg as string is "'{mname}' is not a method of this receiver"
+        defer banish msg
+        var help as string is "Declare it in an 'enchanting' block for the receiver type, or use 'pipe' for a free function."
+        defer banish help
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CHAIN, (calling astutil.start_of with s->ast, step), (calling astutil.end_of with s->ast, step), msg, help, ""
+        return 0
+    var fsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+    var ft as tk.SemaType is calling types.at with s->types, fsv.type
+    if ft.kind == tk.SemaTypeKind.TkRef:
+        var inner as tk.SemaType is calling types.at with s->types, ft.a
+        if inner.kind == tk.SemaTypeKind.TkFn:
+            set ft is inner
+    if ft.kind != tk.SemaTypeKind.TkFn:
+        return fsv.type
+    var info as types.SemaFnInfo is (s->types->fn_infos at ft.a)
+    if (fsv.flags & sym.SYM_MUTATING) != 0 and not is_last:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTATES_EXPR, (calling astutil.start_of with s->ast, step), (calling astutil.end_of with s->ast, step), "mutating method used in the middle of a chain", "Only the last step may mutate; it must return a value or edit through a reference.", ""
+        return 0
+    if info.return_type == calling types.base with s->types, "void":
+        if not is_last:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CHAIN, (calling astutil.start_of with s->ast, step), (calling astutil.end_of with s->ast, step), "chain step returns void", "Only the last step may return void; intermediate steps must produce a value.", ""
+            return 0
+        calling ann.ann_set_symbol with s->annotations, step, sid
+        return recv
+    var args as int is calling astutil.node_child with s->ast, step, 1
+    var nargs as int is 0
+    if args >= 0:
+        set nargs is calling astutil.child_count with s->ast, args
+    var ai as int is 0
+    while ai < nargs:
+        var arg as int is calling astutil.node_child with s->ast, args, ai
+        if arg >= 0:
+            var pindex as int is ai
+            var vnode as int is arg
+            if (calling astutil.kind_of with s->ast, arg) == pskind.NodeKind.NdNamedArg:
+                set vnode is calling astutil.node_child with s->ast, arg, 1
+            if pindex < info.params_count:
+                var p as types.SemaFnParam is (s->types->fn_params at (info.params_first + pindex))
+                var got as int is calling infer with s, vnode, p.type
+                if not calling compat.compatible with s->types, got, p.type:
+                    calling type_mismatch with s, vnode, p.type, got
+        set ai is ai + 1
+    calling ann.ann_set_symbol with s->annotations, step, sid
+    return info.return_type
+
+## Resuelve un paso `pipe` de `NdChainExpr`.
+##
+## ## Memoria
+## Infiere argumentos; no posee listas.
+weave infer_chain_pipe with s as ref to state.SemaState, recv as int, step as int, is_last as bool into int:
+    var target as int is calling astutil.node_child with s->ast, step, 0
+    if target < 0:
+        return 0
+    var nm as int is calling astutil.token_child with s->ast, target, 0
+    if nm < 0:
+        return 0
+    var fname as string is calling astutil.token_text with s->src, s->lex, nm
+    defer banish fname
+    var sid as int is calling symbols.lookup_name with s->symbols, fname
+    # `pipe mod.fn`: el primer nombre es un import y el segundo la función.
+    if sid >= 0 and (calling astutil.child_count with s->ast, target) > 1:
+        var bs as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+        if bs.kind == sym.SemaSymbolKind.SkImport and bs.module_scope >= 0:
+            var op as int is calling astutil.node_child with s->ast, target, 1
+            if op >= 0:
+                var ot as int is calling astutil.token_child with s->ast, op, 0
+                if ot >= 0:
+                    var otxt as string is calling astutil.token_text with s->src, s->lex, ot
+                    var oid as int is calling npool.intern with s->names, otxt
+                    var mfn as int is calling symbols.lookup_in_scope with s->symbols, bs.module_scope, oid
+                    if mfn >= 0:
+                        set sid is mfn
+                    else:
+                        var gid as int is calling symbols.lookup_name with s->symbols, otxt
+                        if gid >= 0 and (calling s->symbols->method_receiver.has with gid):
+                            set sid is gid
+                    banish fname
+                    set fname is calling npool.copy_string with (calling npool.text with s->names, oid)
+                    banish otxt
+    if sid < 0:
+        var msg as string is "'{fname}' is not a free function"
+        defer banish msg
+        var help as string is "Use a weave/declare function, or use '.' for a method."
+        defer banish help
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CHAIN, (calling astutil.start_of with s->ast, step), (calling astutil.end_of with s->ast, step), msg, help, ""
+        return 0
+    if calling s->symbols->method_receiver.has with sid:
+        var mmsg as string is "'{fname}' is a method, not a free function"
+        defer banish mmsg
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CHAIN, (calling astutil.start_of with s->ast, step), (calling astutil.end_of with s->ast, step), mmsg, "Use '.' for methods and 'pipe' for free functions.", ""
+        return 0
+    var fsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+    if fsv.kind != sym.SemaSymbolKind.SkWeave and fsv.kind != sym.SemaSymbolKind.SkDeclare:
+        var msg2 as string is "'{fname}' is not a free function"
+        defer banish msg2
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CHAIN, (calling astutil.start_of with s->ast, step), (calling astutil.end_of with s->ast, step), msg2, "Use a weave/declare function, or use '.' for a method.", ""
+        return 0
+    var ft as tk.SemaType is calling types.at with s->types, fsv.type
+    if ft.kind == tk.SemaTypeKind.TkRef:
+        var inner as tk.SemaType is calling types.at with s->types, ft.a
+        if inner.kind == tk.SemaTypeKind.TkFn:
+            set ft is inner
+    if ft.kind != tk.SemaTypeKind.TkFn:
+        return fsv.type
+    var info as types.SemaFnInfo is (s->types->fn_infos at ft.a)
+    if info.params_count > 0:
+        var p0 as types.SemaFnParam is (s->types->fn_params at info.params_first)
+        if not calling compat.compatible with s->types, recv, p0.type:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, step), (calling astutil.end_of with s->ast, step), "pipe value does not match the first parameter", "The previous value is passed as the first argument.", ""
+            return 0
+    var args as int is calling astutil.node_child with s->ast, step, 1
+    var nargs as int is 0
+    if args >= 0:
+        set nargs is calling astutil.child_count with s->ast, args
+    var ai as int is 0
+    while ai < nargs:
+        var arg as int is calling astutil.node_child with s->ast, args, ai
+        if arg >= 0:
+            var pindex as int is ai + 1
+            var vnode as int is arg
+            if (calling astutil.kind_of with s->ast, arg) == pskind.NodeKind.NdNamedArg:
+                set vnode is calling astutil.node_child with s->ast, arg, 1
+            if pindex < info.params_count:
+                var p as types.SemaFnParam is (s->types->fn_params at (info.params_first + pindex))
+                var got as int is calling infer with s, vnode, p.type
+                if not calling compat.compatible with s->types, got, p.type:
+                    calling type_mismatch with s, vnode, p.type, got
+        set ai is ai + 1
+    calling ann.ann_set_symbol with s->annotations, step, sid
+    if info.return_type == calling types.base with s->types, "void":
+        if not is_last:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CHAIN, (calling astutil.start_of with s->ast, step), (calling astutil.end_of with s->ast, step), "pipe step returns void", "Only the last step may return void; intermediate steps must produce a value.", ""
+            return 0
+        return recv
+    return info.return_type
+
+## Infiere una cadena de métodos (`aux == 0`) o de pipes (`aux == 1`).
+##
+## ## Memoria
+## Infiere la base y cada paso; no posee listas.
+weave infer_chain with s as ref to state.SemaState, node as int into int:
+    var base as int is calling astutil.node_child with s->ast, node, 0
+    if base < 0:
+        return 0
+    var cur as int is calling infer with s, base, -1
+    if cur <= 0:
+        return 0
+    var mode as int is (s->ast->nodes at node).aux
+    var n as int is calling astutil.child_count with s->ast, node
+    var i as int is 1
+    while i < n:
+        var step as int is calling astutil.node_child with s->ast, node, i
+        if step >= 0:
+            var is_last as bool is i == n - 1
+            if mode == 1:
+                set cur is calling infer_chain_pipe with s, cur, step, is_last
+            else:
+                set cur is calling infer_chain_method with s, cur, step, is_last
+            if cur <= 0:
+                return 0
+            calling ann.set_type with s->annotations, step, cur
+        set i is i + 1
+    return cur
 
 ## Tipo de un método nativo de una colección/string.
 ##

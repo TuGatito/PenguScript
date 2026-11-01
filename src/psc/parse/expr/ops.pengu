@@ -64,7 +64,8 @@ weave pexpr_nested_list_value with p as ref to PsParser into int:
 ## ## Memoria
 ## Construye el AST.
 weave pexpr_parse_expr with p as ref to PsParser into int:
-    return calling pexpr_parse_or_else with p
+    var base as int is calling pexpr_parse_or_else with p
+    return calling pcalls.pexpr_parse_pipe_tail with p, base
 
 ## Parsea `list_expr` (sin `and`/`or` booleanos).
 ##

@@ -70,6 +70,10 @@ jobs:
         shell: bash
         run: bash ./tests/pointer_guard.sh
 
+      - name: Chain guard
+        shell: bash
+        run: bash ./tests/chain_guard.sh
+
       - name: Parser fuzz smoke
         shell: bash
         run: ./build/psc run tests/pengu/fuzz_parsers.pengu --no-cache -- 5000

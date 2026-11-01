@@ -77,9 +77,30 @@ weave lex with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBa
 
 ## `true` si el `\n` actual va seguido inmediatamente de una línea `.`/`->`.
 ##
+## Comprueba si en `at` empieza la palabra contextual `pipe` seguida de
+## espacio. No consume nada.
+##
+## ## Memoria
+## O(1), no asigna.
+weave chain_pipe_at with lx as ref to psstate.LexerState, at as int into bool:
+    var n as int is calling psstate.lex_source_len with lx
+    if at + 4 >= n:
+        return false
+    if (calling psstate.lex_byte_at with lx, at) != 112:
+        return false
+    if (calling psstate.lex_byte_at with lx, at + 1) != 105:
+        return false
+    if (calling psstate.lex_byte_at with lx, at + 2) != 112:
+        return false
+    if (calling psstate.lex_byte_at with lx, at + 3) != 101:
+        return false
+    var sep as int is calling psstate.lex_byte_at with lx, at + 4
+    return sep == 32 or sep == 9 or sep == 10 or sep == 13
+
 ## Replica `_merge_chain_continuations` de stage0: solo pliega si la línea
-## siguiente empieza por `.` o `->` sin líneas en blanco ni comentarios de por
-## medio. La comprobación se hace después del `\n` y de los espacios/tabs.
+## siguiente empieza por `.`, `->` o `pipe ` sin líneas en blanco ni
+## comentarios de por medio. La comprobación se hace después del `\n` y de los
+## espacios/tabs.
 ##
 ## ## Memoria
 ## Avanza la posición hasta el operador si hay continuación; no asigna.
@@ -104,6 +125,9 @@ weave chain_continuation_ahead with lx as ref to psstate.LexerState into bool:
                     if (calling psstate.lex_byte_at with lx, j + 1) == 62:
                         calling psstate.lex_advance_to with lx, j
                         return true
+                if calling chain_pipe_at with lx, j:
+                    calling psstate.lex_advance_to with lx, j
+                    return true
         return false
     if b != 10:
         return false
@@ -125,6 +149,9 @@ weave chain_continuation_ahead with lx as ref to psstate.LexerState into bool:
         if (calling psstate.lex_byte_at with lx, j2 + 1) == 62:
             calling psstate.lex_advance_to with lx, j2
             return true
+    if calling chain_pipe_at with lx, j2:
+        calling psstate.lex_advance_to with lx, j2
+        return true
     return false
 
 ## Consume un run de `NEWLINE` + indentación + líneas de solo comentario.

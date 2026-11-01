@@ -1,0 +1,89 @@
+import std.spark
+import std.scrolls
+
+rune Box:
+    v as int
+
+enchanting Box:
+    weave plus with n as int into Box:
+        return with v is self.v + n
+
+    weave value into int:
+        return self.v
+
+    weave identity into Box:
+        return with v is self.v
+
+    weave reset into void:
+        set self->v is 0
+
+weave otro into int:
+    return 1
+
+weave editar with x as int, n as int into int:
+    return x + n
+
+weave editar_mas with x as int, n as int into int:
+    return x * n
+
+weave final with x as int into int:
+    return x + 10
+
+weave exclaim with s as string into string:
+    return s + "!"
+
+weave suffix with s as string, extra as string into string:
+    return s + extra
+
+weave sink with s as string into void:
+    if s.length < 0:
+        return
+
+weave main into int:
+    var raw as string is "  hello  "
+
+    var a as string is calling raw.get_trim.get_substring with 0, 3
+    if a != "hel":
+        return 1
+
+    var b as string is calling raw.get_substring with 0, 7
+        .get_trim
+        .get_substring with 0, 2
+    if b != "he":
+        return 2
+
+    var box as Box is with v is 1
+    var r as int is calling box.plus with 2
+        .plus with 3
+        .value
+    if r != 6:
+        return 3
+
+    var zero as Box is calling box.identity.reset
+    if zero.v != 0:
+        return 7
+
+    var algo as int is calling otro
+        pipe editar with 2
+        pipe editar_mas with 3
+        pipe final
+    if algo != 19:
+        return 4
+
+    var p as string is "hi" pipe exclaim pipe suffix with "?"
+    if p != "hi!?":
+        return 5
+
+    var q as string is 5 pipe spark.str_int
+    if q != "5":
+        return 6
+
+    var keep as string is "keep" pipe sink
+    if keep != "keep":
+        return 8
+
+    var single as int is 1 pipe editar with 2
+    if single != 3:
+        return 9
+
+    return 0

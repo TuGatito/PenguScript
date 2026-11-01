@@ -160,6 +160,9 @@ omen NodeKind:
 
     # --- Llamadas, acceso y literales ---
     NdCallingExpr
+    NdChainExpr
+    NdMethodStep
+    NdPipeStep
     NdGenericArgs
     NdArgList
     NdPosArg
@@ -259,6 +262,9 @@ weave ps_node_kind_name with kind as NodeKind into string:
         when NdBreakStmt -> "break_stmt"
         when NdBytesExpr -> "bytes_expr"
         when NdCallingExpr -> "calling_expr"
+        when NdChainExpr -> "chain_expr"
+        when NdMethodStep -> "method_step"
+        when NdPipeStep -> "pipe_step"
         when NdCharLit -> "char_lit"
         when NdChrExpr -> "chr_expr"
         when NdCompoundSetStmt -> "compound_set_stmt"

@@ -28,7 +28,7 @@
 13. [Tabla de traducción C → Pengunic](#13-tabla-de-traducción-c--pengunic)
 14. [Anti-patrones](#14-anti-patrones)
 15. [Excepciones documentadas](#15-excepciones-documentadas)
-16. [Cadenas de métodos](#16-cadenas-de-métodos)
+16. [Cadenas de métodos y pipes](#16-cadenas-de-métodos-y-pipes)
 17. [Múltiples valores de retorno (tuplas)](#17-múltiples-valores-de-retorno-tuplas)
 18. [Inicializadores cortos de struct](#18-inicializadores-cortos-de-struct)
 19. [Atributos de declaración](#19-atributos-de-declaración)
@@ -2626,135 +2626,149 @@ futuro rompe una fila *Exigida*, eso es una regresión, no una excepción nueva.
 
 ---
 
-## 16. Cadenas de métodos
+## 16. Cadenas de métodos y pipes
 
-La sintaxis `calling x.a.b.c` permite encadenar varias llamadas a método sobre un solo receptor. Cada eslabón `.nombre` se resuelve contra el tipo que produce el eslabón anterior. Es **azúcar de composición**, no llamada con paréntesis: el bloque `with` pertenece al **último** eslabón.
+PenguScript tiene dos formas de composición, y son deliberadamente distintas:
 
-### 16.1 Cuándo encadenar
+- `.` llama a un **método** declarado en un bloque `enchanting`.
+- `pipe` llama a una **función libre** (un weave de módulo o una función `declare`).
 
-**Encadena cuando la cadena lee como una transformación lineal**, sin ramas ni efectos laterales intermedios:
+Ambas empiezan por `calling`. Esto no es UFCS: una función libre nunca se alcanza
+con `.`, y un método nunca se alcanza con `pipe`. La primera llamada siempre es
+explícita, así el acceso a campos y la búsqueda de funciones no se confunden.
+
+### 16.1 Cuándo encadenar métodos
+
+**Usa `.` cuando cada paso es un método sobre el valor que produce el paso
+anterior y la cadena se lee como una única transformación lineal.**
 
 ```pengu
-# ✅ Pengunic: cada paso transforma el valor anterior
-let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
+import std.scrolls
 
-# ✅ Pengunic: cadena de transformaciones puras sobre colecciones
-let ordered is calling tally.sort_int_desc with (calling scores.filter_positive)
-let top5 is calling tally.take with ordered, 5
+# ✅ Pengunic: un valor, un método por línea
+let corto is calling raw.get_trim
+    .get_substring with 0, 5
+
+# ✅ La primera llamada también puede llevar argumentos
+let cabeza is calling raw.get_substring with 0, 7
+    .get_trim
+    .get_substring with 0, 3
 ```
 
-**No encadenes cuando:**
+La forma compacta de cabecera también es válida cuando los métodos intermedios no
+llevan argumentos; su lista `with` pertenece al último eslabón:
+
+```pengu
+let corto is calling raw.get_trim.get_substring with 0, 5
+```
+
+**No uses `.` cuando:**
 
 | Situación | Qué hacer |
 |---|---|
-| Un eslabón intermedio necesita un nombre propio | Rompe la cadena y nómbralo |
-| La cadena supera 4–5 eslabones | Divide en funciones |
-| Un eslabón muta el receptor (`push`, `set_*`, `clear`) | Separa mutación de lectura |
-| Un eslabón requiere argumentos y no es el último | Rompe la cadena |
-| Un eslabón resuelve a un **campo**, no a un método | No es cadena, es acceso a campo |
+| El paso es una función libre, no un método | Usa `pipe` |
+| Necesitas leer un campo | Lee el campo fuera de la cadena o añade un método `get_` |
+| El resultado intermedio merece un nombre | Guárdalo con `let` y continúa |
+| La cadena supera 4–5 pasos | Divídela en funciones con nombre |
+| El paso muta y no es el último | Deja la mutación fuera de la cadena |
+| El paso devuelve `void` y no es el último | Solo el último paso puede devolver `void` |
+
+Un método `@mutates` solo se permite como último paso. Si el último paso devuelve
+`void`, la cadena igualmente produce el valor anterior después de la edición
+in-place:
 
 ```pengu
-# ❌ Anti-Pengunic: mezcla lectura y mutación
-calling xs.push with (calling tally.sort_int_asc with [3, 1, 10])
-
-# ✅ Pengunic: separa la mutación de la lectura
-calling xs.push with 10
-calling xs.reverse
-let ordered is calling tally.sort_int_asc with xs
+let limpio as Box is calling box.identity.reset
 ```
 
-### 16.2 Cadenas multilínea
+### 16.2 Cuándo usar un pipe
 
-Para cadenas largas, una línea de continuación empieza por `.` (o `->`) y se pliega en la línea anterior antes del lexer. El plegado **preserva la numeración de líneas**: un diagnóstico sobre una expresión encadenada señala la línea donde *empieza* la cadena.
+**Usa `pipe` cuando los pasos son funciones libres y el valor fluye como primer
+argumento.** Piensa en una tubería de datos de izquierda a derecha:
 
 ```pengu
-# ✅ Pengunic: multilínea, un eslabón por línea
-let slug is calling raw
-    .trim
-    .lower
-    .replace with " ", "-"
+weave add with value as int, delta as int into int:
+    return value + delta
 
-# ❌ Anti-Pengunic: línea larga ilegible
+weave scale with value as int, factor as int into int:
+    return value * factor
+
+let result as int is calling start
+    pipe add with 2
+    pipe scale with 3
+```
+
+Un paso de pipe puede nombrar una función de módulo con ruta punteada:
+
+```pengu
+let texto as string is 42 pipe spark.str_int
+```
+
+Usa pipe cuando la operación es una **función**, no un método: parsear, validar,
+formatear, normalizar o un helper de módulo. No uses `pipe` para métodos; el
+checker da `E0053` y te dice que uses `.`. No uses `.` para funciones libres; el
+checker da `E0053` y te dice que uses `pipe`.
+
+### 16.3 Formato y cadenas multilínea
+
+Para cadenas de más de dos pasos, escribe un paso por línea:
+
+```pengu
+# ✅ Pengunic
+let slug is calling raw.get_trim
+    .get_lower
+    .get_replace with " ", "-"
+
+# ❌ Anti-Pengunic: difícil de leer, misma información
 let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
 ```
 
-**Reglas de formato:**
+Una línea de continuación empieza por `.` (o `->`) para métodos, o por `pipe`
+para funciones libres. El compilador la pliega en la línea anterior antes del
+lexer y conserva la numeración. Una línea en blanco o un comentario entre pasos
+detiene el plegado.
 
-- Un eslabón por línea.
-- Indentación: **un nivel** (4 espacios) respecto a la línea que abre la cadena.
-- El primer eslabón (`.trim`) va en la línea siguiente al receptor.
-- No mezcles `.` y `->` en la misma cadena.
-- Las líneas dentro de un string con comillas triples **nunca** se pliegan.
+- Un paso por línea.
+- Indenta la continuación un nivel (4 espacios).
+- No mezcles `.` y `->` en la misma cadena de métodos.
+- No pongas una lectura de campo entre dos pasos de método.
 
-### 16.3 El bloque `with` pertenece al último eslabón
+### 16.4 El último paso y `void`
 
-```pengu
-# ✅ 'with " ", "-"' se aplica a '.replace', no a '.lower'
-let slug is calling raw.get_trim.get_lower.get_replace with " ", "-"
-```
-
-Si un eslabón intermedio necesita argumentos y no es el último, la cadena no se puede escribir; pártela:
-
-```pengu
-# ❌ Anti-Pengunic: no hay forma de dar 'with 0, 4' al 'substring' intermedio
-# let slug is calling raw.get_trim.get_substring with 0, 4.lower
-
-# ✅ Pengunic: dos expresiones, nombres explícitos
-let head is calling raw.get_trim.get_substring with 0, 4
-let slug is calling head.lower
-```
-
-### 16.4 Cadenas y genéricos
-
-La resolución de cada eslabón es monomorfización bajo demanda: el compilador instancia el método genérico solo para el tipo concreto del eslabón anterior. **No hay sobrecoste en runtime.**
+Todos los pasos intermedios deben producir un valor. El último puede devolver
+`void`; en ese caso la cadena conserva el valor producido antes de la llamada,
+después de que la llamada `void` lo haya editado mediante su puntero/referencia.
+Esto sirve para una operación final in-place:
 
 ```pengu
-# ✅ Un solo 'calling' encadena métodos genéricos sobre 'map of shard K to shard V'
-let short is calling registry
-    .keys_sorted
-    .first_or with "none"
-
-# ✅ En una cadena, el receptor puede ser un 'ref to T':
-calling self
-    .remove with old_key
-    .put with new_key, val
+# identity devuelve Box, reset lo edita in-place y devuelve void.
+let limpio as Box is calling box.identity.reset
 ```
 
-Cuando el receptor es `self` dentro de un `enchanting`, la cadena funciona igual y es la forma idiomática de aplicar varias mutaciones coordinadas:
-
-```pengu
-enchanting Registry:
-    weave rename_key with old_key as K, new_key as K into bool:
-        if not (calling self.contains with old_key):
-            return false
-        var val as V is self at old_key
-        calling self
-            .remove with old_key
-            .put with new_key, val
-        return true
-```
+La misma regla vale para pipes: un paso final `void` conserva el valor anterior,
+así que `let x as string is value pipe sink` sigue dándote `value`.
 
 ### 16.5 Anti-patrones
 
 ```pengu
-# ❌ Cadena de campos (no es cadena de métodos)
-calling p.address.city.zip_code
+# ❌ Función libre llamada como método
+calling raw.get_trim.dbl
 
-# ❌ Cadena con un mutador en medio
-calling xs.push with 10.reverse
+# ✅ Usa pipe para funciones libres
+let x is calling raw.get_trim pipe dbl
 
-# ❌ Cadena de más de 5 eslabones
-calling raw.get_trim.get_lower.get_replace(" ", "-").split("-").filter_nonempty.first_or("none")
+# ❌ Método llamado como paso de pipe
+let x is raw pipe get_trim
 
-# ❌ Mezclar '.' y '->'
-calling self.method1->method2
+# ✅ Usa '.' para métodos
+let x is calling raw.get_trim
 
-# ✅ Pengunic equivalente
-let slug is calling raw
-    .trim
-    .lower
-    .replace with " ", "-"
-let first is calling slug.split with "-" . first_or with "none"
+# ❌ Lectura de campo en medio de una cadena de métodos
+calling user.profile.get_name
+
+# ✅ Lee el campo primero y luego llama a su método
+let profile is user.profile
+let name is calling profile.get_name
 ```
 
 ---

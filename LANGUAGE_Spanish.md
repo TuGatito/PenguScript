@@ -5399,9 +5399,9 @@ La columna `Conditions` es el número de formas de mensaje distintas que el cód
 | `E0047` | `DuplicatePrimitiveMethodError` | 2 | a method of a primitive is provided twice.  ``enchanting int:`` emits the C function ``int_clamp`` with external linkage, so the ``(primitive, method)`` pair may only be provided once in the whole program: two modules (or two blocks in one module) would emit the same symbol, and a call site could not choose between them. | 1 help / 1 note |
 | `E0049` | `SemanticError` | 10 | — | — |
 | `E0050` | `InfiniteTypeSizeError` | 1 | recursive type without indirection (infinite size). | 1 help / 1 note |
-| `E0051` | `SemanticError` | 1 | — | — |
+| `E0051` | `SemanticError` | 1 | referencia o slice devuelto desde almacenamiento de la llamada actual. | 1 help / 1 note |
 | `E0052` | `DuplicateConceptBindingError` | 2 | duplicate concept binding or duplicate (type, method) implementation.  Covers two cases: binding the same ``(type, concept)`` pair twice, and two distinct concepts providing the same ``(type, method)`` pair (which a call site could not resolve). | 1 help / 1 note |
-| `E0053` | `SemanticError` | 3 | — | — |
+| `E0053` | `SemanticError` | 3 | paso de cadena/pipe inválido: no es método o función libre, o un paso intermedio muta/devuelve `void`. | 1 help / 1 note |
 | `E0054` | `SemanticError` | 2 | — | — |
 | `E0055` | `SemanticError` | 1 | — | — |
 | `E0056` | `SemanticError`, `UnknownAttributeError` | 9 | unknown attribute or invalid attribute usage. | 1 help / 1 note |
@@ -5603,30 +5603,68 @@ La biblioteca estándar se versiona **junto con el compilador** en la serie 1.x 
 reestructurarse; los renombrados de módulos se gestionan con las reglas de
 deprecación anteriores.
 
-## 24. Encadenamiento de métodos
+## 24. Encadenamiento de métodos y pipes
 
-Un único `calling` puede encadenar varias llamadas a método. Cada eslabón `.nombre`
-se resuelve contra el tipo que produce el eslabón anterior:
+PenguScript tiene dos formas explícitas de composición:
+
+- `.` encadena **métodos** declarados en un bloque `enchanting`.
+- `pipe` encadena **funciones libres** (weaves de módulo o funciones `declare`).
+
+Ambas exigen que la primera llamada empiece por `calling`. El lenguaje no usa
+UFCS: una función libre nunca se elige con `.`, y un método nunca se elige con
+`pipe`. Así el acceso a campos, la búsqueda de métodos y la de funciones libres
+no se confunden.
+
+### 24.1 Cadenas de métodos
+
+Una cadena de métodos empieza con una expresión `calling` normal y continúa con
+eslabones `.metodo`. Cada eslabón puede llevar sus propios argumentos `with`:
 
 ```pengu
 import std.scrolls
 
 weave acortar with raw as string into string:
-    return calling raw.get_trim.get_substring with 0, 2
+    return calling raw.get_trim
+        .get_substring with 0, 3
 ```
 
-No es la sintaxis de llamada con paréntesis de los lenguajes tipo C: en PenguScript
-las llamadas a método reciben sus argumentos con `with`, y una cadena no añade
-paréntesis. La lista de argumentos `with` se aplica **solo al último** eslabón.
+La primera llamada también puede llevar argumentos, y la cadena puede continuar
+después:
 
-Un eslabón encadenado debe producir un valor, así que un método `@mutates` (y las
-formas in-place de `std.scrolls`) no pueden aparecer en una cadena: no devuelven
-nada. Mientras se encadena se usa la escritura `get_<name>`, como arriba.
+```pengu
+import std.scrolls
 
-### 24.1 Cadenas multilínea
+weave cabeza with raw as string into string:
+    return calling raw.get_substring with 0, 5
+        .get_trim
+        .get_substring with 0, 2
+```
 
-Una cadena puede repartirse en varias líneas. La línea de continuación empieza por
-`.` (o `->`) y se pliega en la línea anterior antes del lexer:
+La forma compacta `calling raw.get_trim.get_substring with 0, 3` es equivalente
+cuando los eslabones intermedios no llevan argumentos; su lista `with` pertenece
+al **último** eslabón de la cabecera. Si un eslabón intermedio necesita
+argumentos, escribe un eslabón por línea, como arriba.
+
+Todos los eslabones salvo el último deben producir un valor. Un método
+`@mutates` solo puede ser el último eslabón. Si el último eslabón devuelve
+`void`, la cadena igualmente tiene valor: el receptor que produjo el eslabón
+anterior, después de que la llamada `void` lo haya editado mediante su
+puntero/referencia. Esa es la forma admitida para una edición final in-place:
+
+```pengu
+var limpio as Box is calling box.identity.reset
+```
+
+Un eslabón `.` es siempre una llamada a método, nunca una lectura de campo. Para
+leer un campo, usa el acceso normal fuera de la cadena o expón un método `get_`
+en el bloque `enchanting`.
+
+### 24.2 Cadenas multilínea
+
+La línea de continuación empieza por `.` (o `->`) y se pliega en la línea
+anterior antes del lexer. El plegado conserva la numeración, así que un
+diagnóstico sobre una cadena señala la línea donde *empieza*. Una línea en
+blanco o un comentario entre eslabones detiene el plegado.
 
 ```pengu
 import std.scrolls
@@ -5634,24 +5672,54 @@ import std.scrolls
 weave acortar with raw as string into string:
     return calling raw
         .get_trim
-        .get_substring with 0, 2
+        .get_substring with 0, 3
 ```
 
-El plegado preserva la numeración de líneas, así que un diagnóstico sobre una
-expresión encadenada señala la línea en la que *empieza* la cadena. Las líneas que
-están dentro de una cadena con comillas triples nunca se pliegan.
+Una cadena necesita al menos dos llamadas. `calling x.metodo` es la forma
+canónica de una sola llamada y no cambia.
 
-### 24.2 Bajada a C y restricciones
+### 24.3 Pipes
 
-Cada eslabón que es realmente un método se evalúa en un temporal dentro de una
-expresión de sentencia de GNU, y el valor de la cadena es el último temporal. Una
-cadena solo se trata como tal cuando **todos** los eslabones intermedios resuelven a
-un método: una sucesión de lecturas de *campo* no es una cadena, y una lectura de
-campo sobre el resultado de un método debe escribirse como una expresión aparte.
+`pipe` encadena funciones libres. El valor que produce el paso anterior se pasa
+como **primer argumento** de la siguiente función; los argumentos extra van
+después:
 
-> [!NOTE]
-> Una cadena requiere al menos dos eslabones. `calling x.metodo` es la forma
-> canónica de una sola llamada y no cambia.
+```pengu
+weave editar with value as int, delta as int into int:
+    return value + delta
+
+weave editar_mas with value as int, factor as int into int:
+    return value * factor
+
+weave final with value as int into int:
+    return value + 10
+
+var algo as int is calling otro
+    pipe editar with 2
+    pipe editar_mas with 3
+    pipe final
+```
+
+Un paso de pipe puede nombrar una función de módulo con ruta punteada:
+
+```pengu
+var texto as string is 42 pipe spark.str_int
+```
+
+`pipe` es contextual: sigue siendo un identificador válido, y el parser solo
+trata como paso de pipe un `pipe` al principio de una línea de continuación. Los
+pasos de pipe deben ser funciones libres, no métodos ni tipos. Todos los pasos
+intermedios deben producir un valor; el último puede devolver `void`, en cuyo
+caso el pipe conserva el valor anterior. Si un paso no es una función libre, el
+checker da `E0053` y sugiere usar `.` para métodos; si un eslabón `.` no es un
+método, da `E0053` y sugiere `pipe` para funciones libres.
+
+### 24.4 Evaluación y propiedad
+
+Los pasos se evalúan de izquierda a derecha, exactamente una vez, en temporales
+del compilador. Una cadena de métodos usa un temporal por llamada no `void`; un
+pipe usa un temporal por paso. Los argumentos se evalúan en su propia llamada,
+en orden de fuente.
 
 ## 25. Retornos múltiples
 
