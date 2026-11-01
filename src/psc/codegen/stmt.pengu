@@ -14,6 +14,7 @@ import psc.sema.symbols.symbol as sym
 import psc.sema.symbols.table as symbols
 import psc.sema.modules.loader as loader
 import psc.sema.types.table as types
+import psc.sema.types.compat as compat
 
 import psc.codegen.context as context
 import psc.codegen.ctype as ctype
@@ -229,13 +230,42 @@ weave emit_stmt with c as ref to context.CgContext, node as int into void:
                 set ti_node is calling astutil.node_child with ast, tgt, 0
             var ti0 as expr.CgTarget is calling expr.resolve_target with c, ti_node, ast, false
             defer banish ti0.text
+            var write_ty as int is ti0.type_id
+            var deref_target as string is ""
+            var vty as int is -1
+            if write_ty > 0:
+                set vty is calling expr.node_type with c, valn
+                var vkind_node as int is valn
+                var vguard as int is 0
+                while vkind_node >= 0 and vguard < 8:
+                    var vk as pskind.NodeKind is calling astutil.kind_of with (sigil of m.parse.ast), vkind_node
+                    if vk != pskind.NodeKind.NdParenExpr and vk != pskind.NodeKind.NdStmt:
+                        break
+                    set vkind_node is calling astutil.node_child with (sigil of m.parse.ast), vkind_node, 0
+                    set vguard is vguard + 1
+                var force_value as bool is false
+                if vkind_node >= 0:
+                    var fvk as pskind.NodeKind is calling astutil.kind_of with (sigil of m.parse.ast), vkind_node
+                    set force_value is fvk == pskind.NodeKind.NdWithInitExpr or fvk == pskind.NodeKind.NdStructInit
+                if (vty <= 0 and force_value) or (vty > 0 and not (calling compat.compatible with (sigil of c->program->types), vty, write_ty)):
+                    var wuid as int is calling types.underlying with (sigil of c->program->types), write_ty
+                    var wty as tk.SemaType is calling types.at with (sigil of c->program->types), wuid
+                    if wty.kind == tk.SemaTypeKind.TkRef:
+                        var wpoi as int is calling types.strip_frozen with (sigil of c->program->types), wty.a
+                        if vty <= 0 or calling compat.compatible with (sigil of c->program->types), vty, wpoi:
+                            set write_ty is wpoi
+                            set deref_target is "(*( {ttxt}))"
             var vtxt as string is ""
-            if ti0.type_id >= 0:
-                set vtxt is calling expr.emit_expr_as with c, valn, ti0.type_id
+            if write_ty >= 0:
+                set vtxt is calling expr.emit_expr_as with c, valn, write_ty
             else:
                 set vtxt is calling expr.emit_expr with c, valn
             defer banish vtxt
-            calling emit.line with (sigil of c->emitter), "{ttxt} = {vtxt};"
+            if deref_target != "":
+                calling emit.line with (sigil of c->emitter), "{deref_target} = {vtxt};"
+                banish deref_target
+            else:
+                calling emit.line with (sigil of c->emitter), "{ttxt} = {vtxt};"
         return
     if k == pskind.NodeKind.NdCompoundSetStmt or k == pskind.NodeKind.NdCompoundSetSimple:
         var ctgt as int is calling astutil.node_child with ast, node, 0

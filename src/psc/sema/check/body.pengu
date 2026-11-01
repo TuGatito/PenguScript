@@ -406,9 +406,39 @@ weave check_set with s as ref to state.SemaState, node as int, compound as bool 
     if target < 0:
         return
     var tt as int is calling target_type with s, target
+    if compound and tt > 0:
+        var optok as int is calling astutil.token_child with s->ast, node, 1
+        var opname as string is ""
+        if optok >= 0:
+            set opname is calling astutil.token_text with s->src, s->lex, optok
+        var tuid as int is calling types.underlying with s->types, tt
+        var tty as tk.SemaType is calling types.at with s->types, tuid
+        if tty.kind == tk.SemaTypeKind.TkRef and (opname == "+" or opname == "+=" or opname == "-" or opname == "-=") and value >= 0:
+            var pgot as int is calling state.call_infer with s, value, -1
+            if not (calling compat.is_int with s->types, pgot):
+                calling mismatch with s, value, tt, pgot
+            calling check_mutable_target with s, target
+            banish opname
+            return
+        banish opname
     if value >= 0:
-        var got as int is calling state.call_infer with s, value, tt
-        if tt > 0 and not calling compat.compatible with s->types, got, tt:
+        var exp as int is tt
+        var paid as int is 0
+        var pat as tk.SemaType is calling types.at with s->types, 0
+        if tt > 0:
+            set paid is calling types.underlying with s->types, tt
+            set pat is calling types.at with s->types, paid
+            if pat.kind == tk.SemaTypeKind.TkRef:
+                set exp is calling types.strip_frozen with s->types, pat.a
+        var got as int is calling state.call_infer with s, value, exp
+        if tt > 0 and not (calling compat.compatible with s->types, got, tt):
+            if pat.kind == tk.SemaTypeKind.TkRef:
+                var pointee as int is calling types.strip_frozen with s->types, pat.a
+                if calling compat.compatible with s->types, got, pointee:
+                    if calling types.is_frozen with s->types, pat.a:
+                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, value), (calling astutil.end_of with s->ast, value), "cannot write through a frozen reference", "Use a mutable reference or remove 'frozen' from the type.", "Frozen references are read-only."
+                        return
+                    return
             calling mismatch with s, value, tt, got
     calling check_mutable_target with s, target
 
@@ -445,10 +475,12 @@ weave target_type with s as ref to state.SemaState, node as int into int:
         var einner as int is calling astutil.node_child with s->ast, node, 0
         if einner >= 0:
             var et as int is calling state.call_infer with s, einner, -1
-            var ety as tk.SemaType is calling types.at with s->types, et
-            if ety.kind == tk.SemaTypeKind.TkRef:
-                return ety.a
-            return et
+            if et > 0:
+                var euid as int is calling types.underlying with s->types, et
+                var ety as tk.SemaType is calling types.at with s->types, euid
+                if ety.kind == tk.SemaTypeKind.TkRef:
+                    return calling types.strip_frozen with s->types, ety.a
+            return 0
         return 0
     if k == pskind.NodeKind.NdVarRef:
         var ntxt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
@@ -459,6 +491,24 @@ weave target_type with s as ref to state.SemaState, node as int into int:
             return sv2.type
         return 0
     return calling infer.infer with s, node, -1
+
+## Tipo apuntado congelado (`frozen T` o `ref to frozen T`).
+##
+## ## Memoria
+## O(1).
+weave frozen_target with s as ref to state.SemaState, tid as int into bool:
+    if tid <= 0:
+        return false
+    var uid as int is calling types.underlying with s->types, tid
+    var t as tk.SemaType is calling types.at with s->types, uid
+    if t.kind == tk.SemaTypeKind.TkFrozen:
+        return true
+    if t.kind == tk.SemaTypeKind.TkRef and t.a > 0:
+        var puid as int is calling types.underlying with s->types, t.a
+        var pt as tk.SemaType is calling types.at with s->types, puid
+        if pt.kind == tk.SemaTypeKind.TkFrozen:
+            return true
+    return false
 
 ## Comprueba que el target sea mutable.
 ##
@@ -471,15 +521,27 @@ weave check_mutable_target with s as ref to state.SemaState, node as int into vo
         if c >= 0:
             calling check_mutable_target with s, c
         return
+    if k == pskind.NodeKind.NdEssenceTarget:
+        var ench as int is calling astutil.node_child with s->ast, node, 0
+        if ench >= 0:
+            var ett as int is calling state.call_infer with s, ench, -1
+            if calling frozen_target with s, ett:
+                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTABILITY, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "cannot assign through a frozen reference", "Use a mutable reference or remove 'frozen' from the type.", "Frozen references are read-only."
+        return
     if k == pskind.NodeKind.NdAtExpr or k == pskind.NodeKind.NdSliceAtExpr:
+        var abase as int is calling astutil.node_child with s->ast, node, 0
+        if abase >= 0:
+            var abt as int is calling state.call_infer with s, abase, -1
+            if calling frozen_target with s, abt:
+                calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTABILITY, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "cannot assign through a frozen reference", "Use a mutable reference or remove 'frozen' from the type.", "Frozen references are read-only."
+                return
+            calling check_mutable_target with s, abase
         return
     if k == pskind.NodeKind.NdNormalTarget:
         var aoi as int is 1
         var aon as int is calling astutil.child_count with s->ast, node
         while aoi < aon:
             var aop as int is calling astutil.node_child with s->ast, node, aoi
-            if aop >= 0 and (calling astutil.kind_of with s->ast, aop) == pskind.NodeKind.NdAtAccess:
-                return
             set aoi is aoi + 1
         var nm as int is calling astutil.token_child with s->ast, node, 0
         if nm >= 0:
@@ -488,12 +550,190 @@ weave check_mutable_target with s as ref to state.SemaState, node as int into vo
             var sid as int is calling symbols.lookup_name with s->symbols, txt
             if sid >= 0:
                 var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+                if calling frozen_target with s, sv.type:
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTABILITY, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "cannot assign through a frozen reference", "Use a mutable reference or remove 'frozen' from the type.", "Frozen references are read-only."
+                    return
+                var via_ref as bool is false
+                if aon > 1:
+                    var btid as int is calling types.underlying with s->types, sv.type
+                    var bty as tk.SemaType is calling types.at with s->types, btid
+                    if bty.kind == tk.SemaTypeKind.TkRef:
+                        set via_ref is true
                 if (sv.flags & sym.SYM_SELF_VALUE) != 0:
                     calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTABILITY, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "cannot assign to primitive 'self'", "Use a local copy or mutate through a ref.", ""
                     return
-                if (sv.flags & sym.SYM_MUTABLE) == 0 and sv.kind != sym.SemaSymbolKind.SkParam:
+                if not via_ref and (sv.flags & sym.SYM_MUTABLE) == 0 and sv.kind != sym.SemaSymbolKind.SkParam:
                     calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MUTABILITY, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "cannot assign to immutable '{txt}'", "Declare it with 'var' or use a mutable parameter.", "'let' bindings and consts are immutable."
         return
+
+## Desenvuelve parens y statements hasta la expresión real.
+##
+## ## Memoria
+## O(1).
+weave escape_unwrap with ast as ref to psast.PsAst, node as int into int:
+    var cur as int is node
+    var guard as int is 0
+    while cur >= 0 and guard < 16:
+        var k as pskind.NodeKind is calling astutil.kind_of with ast, cur
+        if k != pskind.NodeKind.NdParenExpr and k != pskind.NodeKind.NdStmt:
+            return cur
+        set cur is calling astutil.node_child with ast, cur, 0
+        set guard is guard + 1
+    return cur
+
+## `true` si la expresión es la dirección de una variable local mutable.
+##
+## ## Memoria
+## O(profundidad).
+weave local_addr_root with s as ref to state.SemaState, node as int, depth as int into bool:
+    if node < 0 or depth > 16:
+        return false
+    var cur as int is calling escape_unwrap with s->ast, node
+    if cur < 0:
+        return false
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, cur
+    if k == pskind.NodeKind.NdVarRef:
+        var ntxt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, cur
+        defer banish ntxt
+        var sid as int is calling symbols.lookup_name with s->symbols, ntxt
+        if sid < 0:
+            return false
+        var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+        return sv.kind == sym.SemaSymbolKind.SkVar
+    if k == pskind.NodeKind.NdFieldAccess:
+        return calling local_addr_root with s, (calling astutil.node_child with s->ast, cur, 0), depth + 1
+    if k == pskind.NodeKind.NdAtExpr:
+        var abase as int is calling astutil.node_child with s->ast, cur, 0
+        if abase < 0:
+            return false
+        var aty as int is calling infer.infer with s, abase, -1
+        if aty > 0:
+            var at as tk.SemaType is calling types.at with s->types, (calling types.underlying with s->types, aty)
+            if at.kind == tk.SemaTypeKind.TkList or at.kind == tk.SemaTypeKind.TkRef:
+                return false
+        return calling local_addr_root with s, abase, depth + 1
+    return false
+
+## Raíz de un target de asignación (desenvuelve campo/índice).
+##
+## ## Memoria
+## O(1).
+weave target_root with ast as ref to psast.PsAst, node as int into int:
+    var cur as int is node
+    var guard as int is 0
+    while cur >= 0 and guard < 16:
+        var k as pskind.NodeKind is calling astutil.kind_of with ast, cur
+        if k == pskind.NodeKind.NdSetTarget or k == pskind.NodeKind.NdParenExpr:
+            set cur is calling astutil.node_child with ast, cur, 0
+        else if k == pskind.NodeKind.NdFieldAccess or k == pskind.NodeKind.NdAtExpr:
+            set cur is calling astutil.node_child with ast, cur, 0
+        else:
+            return cur
+        set guard is guard + 1
+    return cur
+
+## `true` si una variable local contiene una dirección que escapa.
+##
+## ## Memoria
+## O(nodos del AST).
+weave var_escapes_local with s as ref to state.SemaState, sv as sym.SemaSymbol, depth as int into bool:
+    if depth > 12:
+        return false
+    var i as int is 0
+    while i < s->ast->nodes.len:
+        var n as psast.PsNode is (s->ast->nodes at i)
+        if n.kind == pskind.NodeKind.NdVarDecl and n.start == sv.start:
+            var vc as int is n.child_count - 1
+            if vc >= 0:
+                var vn as int is calling astutil.node_child with s->ast, i, vc
+                if vn >= 0 and calling expr_escapes_local with s, vn, depth + 1:
+                    return true
+        if n.kind == pskind.NodeKind.NdSetStmt or n.kind == pskind.NodeKind.NdSetSimple:
+            var tn as int is calling astutil.node_child with s->ast, i, 0
+            if tn >= 0:
+                set tn is calling target_root with s->ast, tn
+            if tn >= 0:
+                var ttxt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, tn
+                defer banish ttxt
+                var tsid as int is calling symbols.lookup_name with s->symbols, ttxt
+                if tsid >= 0:
+                    var tsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, tsid
+                    if tsv.start == sv.start:
+                        var vc2 as int is n.child_count - 1
+                        if vc2 >= 0:
+                            var vn2 as int is calling astutil.node_child with s->ast, i, vc2
+                            if vn2 >= 0 and calling expr_escapes_local with s, vn2, depth + 1:
+                                return true
+        set i is i + 1
+    return false
+
+## `true` si la expresión devuelve una dirección de la pila local.
+##
+## ## Memoria
+## O(nodos).
+weave expr_escapes_local with s as ref to state.SemaState, node as int, depth as int into bool:
+    if node < 0 or depth > 12:
+        return false
+    var cur as int is calling escape_unwrap with s->ast, node
+    if cur < 0:
+        return false
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, cur
+    if k == pskind.NodeKind.NdSigilOf:
+        return calling local_addr_root with s, (calling astutil.node_child with s->ast, cur, 0), depth + 1
+    if k == pskind.NodeKind.NdVarRef:
+        var ntxt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, cur
+        defer banish ntxt
+        var sid as int is calling symbols.lookup_name with s->symbols, ntxt
+        if sid < 0:
+            return false
+        var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+        if sv.kind != sym.SemaSymbolKind.SkVar or sv.type <= 0:
+            return false
+        var st as tk.SemaType is calling types.at with s->types, (calling types.underlying with s->types, sv.type)
+        if st.kind == tk.SemaTypeKind.TkArray:
+            return true
+        if st.kind != tk.SemaTypeKind.TkRef:
+            return false
+        return calling var_escapes_local with s, sv, depth + 1
+    if k == pskind.NodeKind.NdFieldAccess:
+        var fty2 as int is calling infer.infer with s, cur, -1
+        if fty2 <= 0:
+            return false
+        var ft2 as tk.SemaType is calling types.at with s->types, (calling types.underlying with s->types, fty2)
+        if ft2.kind != tk.SemaTypeKind.TkRef and ft2.kind != tk.SemaTypeKind.TkSlice:
+            return false
+        var fbase as int is calling astutil.node_child with s->ast, cur, 0
+        if fbase >= 0:
+            var fbtxt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, fbase
+            defer banish fbtxt
+            var fbsid as int is calling symbols.lookup_name with s->symbols, fbtxt
+            if fbsid >= 0:
+                var fbsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, fbsid
+                if fbsv.kind == sym.SemaSymbolKind.SkVar:
+                    return calling var_escapes_local with s, fbsv, depth + 1
+    if k == pskind.NodeKind.NdStructInit or k == pskind.NodeKind.NdWithInitExpr:
+        var ci as int is 0
+        var cn as int is calling astutil.child_count with s->ast, cur
+        while ci < cn:
+            var ch as int is calling astutil.node_child with s->ast, cur, ci
+            if ch >= 0 and calling expr_escapes_local with s, ch, depth + 1:
+                return true
+            set ci is ci + 1
+    if k == pskind.NodeKind.NdFieldInit:
+        var fc as int is calling astutil.child_count with s->ast, cur
+        if fc > 0:
+            return calling expr_escapes_local with s, (calling astutil.node_child with s->ast, cur, fc - 1), depth + 1
+    return false
+
+## Diagnostica un retorno de dirección local.
+##
+## ## Memoria
+## O(nodos).
+weave check_dangling_return with s as ref to state.SemaState, e as int into void:
+    if e < 0:
+        return
+    if calling expr_escapes_local with s, e, 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_DANGLING, (calling astutil.start_of with s->ast, e), (calling astutil.end_of with s->ast, e), "returning a reference to a local value", "The local storage ends when the function returns. Return a value, a 'static var', or a reference borrowed from a parameter.", "Dangling references are rejected to prevent use-after-return."
 
 ## `return expr`.
 ##
@@ -520,6 +760,7 @@ weave check_return with s as ref to state.SemaState, node as int into void:
             set got is calling types.tuple_of with s->types, ids
         else:
             set got is calling state.call_infer with s, e, expected
+        calling check_dangling_return with s, e
         if not (calling compat.compatible with s->types, got, expected):
             var en as int is calling canon.canonical_name with s->types, expected
             var gn as int is calling canon.canonical_name with s->types, got

@@ -452,6 +452,40 @@ weave ref_to with t as ref to SemaTypeTable, target as int into int:
 weave frozen with t as ref to SemaTypeTable, target as int into int:
     return calling _unary with t, tk.SemaTypeKind.TkFrozen, target
 
+## Resuelve `alias`/`seal` hasta el tipo subyacente.
+##
+## ## Memoria
+## O(profundidad de alias), máximo 32.
+weave underlying with t as ref to SemaTypeTable, id as int into int:
+    var cur as int is id
+    var guard as int is 0
+    while guard < 32:
+        var ty as tk.SemaType is calling at with t, cur
+        if ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal:
+            set cur is ty.b
+        else:
+            return cur
+        set guard is guard + 1
+    return cur
+
+## Desenvuelve un `frozen T` a `T`; cualquier otro tipo se devuelve igual.
+##
+## ## Memoria
+## O(1).
+weave strip_frozen with t as ref to SemaTypeTable, id as int into int:
+    var ty as tk.SemaType is calling at with t, id
+    if ty.kind == tk.SemaTypeKind.TkFrozen:
+        return ty.a
+    return id
+
+## `true` si el tipo es `frozen T`.
+##
+## ## Memoria
+## O(1).
+weave is_frozen with t as ref to SemaTypeTable, id as int into bool:
+    var ty as tk.SemaType is calling at with t, id
+    return ty.kind == tk.SemaTypeKind.TkFrozen
+
 ## `slice of target`.
 ##
 ## ## Memoria

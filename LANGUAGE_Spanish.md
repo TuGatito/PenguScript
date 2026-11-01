@@ -546,14 +546,19 @@ if p == null: ...             # valid for any pointer/opaque type
 ```pengu-fragment
 var p as ref to int is sigil of x     # &x
 var v as int is essence of p          # *p
-set essence of p is 42                # *p = 42 (LHS of assignment)
+set p is 42                           # *p = 42 (auto-deref)
+set essence of p is 42                # *p = 42 (forma explícita)
+var q as ref to int is p + 1          # aritmética (escala por sizeof(int))
 let n as usize is size of MyRune      # sizeof(MyRune)
 let t as string is type of p          # "ref to int" (tipo estático; p no se evalúa)
 let raw_ptr as ref to void is transmute p to ref to void   # unsafe bit-cast
 ```
 
-- **`sigil of expr` (`&`):** Toma la dirección de un lvalue. No puede aplicarse a literales, expresiones, `const` ni variables `frozen` (`E0008: InvalidMemoryOpError`).
-- **`essence of expr` (`*`):** Desreferencia un puntero. El operando debe ser un `ref to T` o `Any`. Puede usarse tanto como rvalue como objetivo del lado izquierdo de una asignación `set` (`set essence of ptr is val`).
+- **`sigil of expr` (`&`):** Toma la dirección de una expresión de lugar (variable, parámetro, campo, elemento o función). Aplicarlo a un literal, un temporal, un `const` o un binding `frozen` produce `E0008: InvalidMemoryOpError`. Tomar la dirección de un binding `let` da `ref to frozen T`, así que escribir por él se rechaza.
+- **`essence of expr` (`*`):** Desreferencia un puntero. El operando debe ser un `ref to T` (o `Any`); cualquier otra cosa produce `E0005`. Puede usarse como rvalue o como lado izquierdo explícito de un `set` (`set essence of ptr is val`).
+- **Auto-deref en asignación:** `set p is v` con `p: ref to T` escribe `v` a través del puntero cuando `v` tiene tipo `T`; si `v` tiene un tipo de puntero compatible con `p`, reasigna el puntero. Escribir a través de un `ref to frozen T` produce `E0008`. Esta forma no exige que el binding del puntero sea mutable.
+- **Aritmética de punteros:** `p + n`, `n + p` y `p - n` avanzan o retroceden `n` elementos del tipo apuntado; `p - q` da la distancia en elementos como `isize`. La aritmética sobre `ref to void` se rechaza; usa `std.ffi.ptr_offset` (bytes) o convierte a `ref to byte`. `p at i` es el acceso indexado crudo; `p[i]` y `p++` no forman parte del lenguaje.
+- **Retornos colgantes:** devolver una referencia (o un slice) a almacenamiento de la llamada actual produce `E0051`. Devuelve un valor, un `static var` o una referencia prestada de un parámetro.
 - **`size of TYPE`:** Evalúa el tamaño en bytes en tiempo de compilación de cualquier tipo (`sizeof(T)` en C) y devuelve `usize`.
 - **`type of expr`:** Informa del tipo **estático** de `expr` como un `string`, con la grafía canónica de PenguScript. Es un operador de tiempo de compilación: el operando se comprueba pero **nunca se evalúa**, así que sus efectos secundarios no se ejecutan. El resultado es un literal de cadena prestado (`pengu_string_from_cstr("int")`, `is_owned == 0`): no cuesta nada en runtime, y `banish` sobre él solo limpia el handle, como en cualquier cadena prestada. `type` y `of` son **palabras clave suaves**: `type of` es un único token del lexer solo cuando las dos palabras son adyacentes en la misma línea, así que `var type as int is 5` (y `var size as int is 5`, que antes chocaba con `size of`; eso está corregido) siguen funcionando como identificadores normales.
 - **`transmute expr to TYPE`:** Conversión insegura de reinterpretación a nivel de bits. Siempre dispara la advertencia del compilador `[W0001] transmute is unsafe`. Si los tipos de origen y destino tienen tamaños estimados diferentes, `W0001` incluye una notificación de discrepancia de tamaño. Las conversiones seguras deben usar `(expr to TYPE)`.
@@ -2916,9 +2921,11 @@ weave main into int:
 
 - Se pueden construir slices sobre punteros C arbitrarios con `std.ffi.slice_from_ptr`:
   `var sl as slice of Vector2 is calling ffi.slice_from_ptr of Vector2 with (sigil of pts), 4`.
-- **La aritmética de punteros (`p + 1`) no está soportada de forma deliberada.** La
-  indexación (`p at i`), los slices (`ffi.slice_from_ptr`) y `transmute` ofrecen
-  alternativas que acarrean límites o que son explícitas.
+- **La aritmética de punteros** está tipada y escala por el tipo apuntado:
+  `p + n`, `n + p`, `p - n`, `p - q` (distancia como `isize`) y las formas
+  compuestas `p += n` / `p -= n`. En código genérico usa `ffi.ptr_add` /
+  `ffi.ptr_sub`, y `ffi.ptr_offset` para un desplazamiento explícito en bytes.
+  `p at i` sigue siendo el acceso indexado crudo; no hay `p[i]` ni `p++`.
 
 ### 13.2 Tipado estricto de punteros e interoperabilidad
 
@@ -2973,17 +2980,22 @@ Los ayudantes del runtime que hacían posible el antiguo modelo automático — 
 
 #### La única regla de tiempo de vida que aplica el compilador
 
-Devolver un `slice of` de un array **de pila** se rechaza con `E0051`, porque el
-almacenamiento del array muere cuando el weave retorna y el slice quedaría colgando:
+Devolver una referencia a una local, o un `slice of` de un array **de pila**, se
+rechaza con `E0051`, porque ese almacenamiento muere cuando el weave retorna y el
+resultado quedaría colgando:
 
 ```pengu-fragment
 weave bad into slice of int:
     var xs as array of int with size 4 is [1, 2, 3, 4]
-    return xs at 0 to 2       # E0051: the slice would dangle
+    return with data is sigil of (xs at 0), len is 4, elem_size is size of int
+    # E0051: el slice quedaría colgando
 ```
 
-Copia el array a una `list of T` (heap) antes de hacer el slice, o devuelve el array por
-valor. Los arrays a nivel de módulo son almacenamiento estático y sí se permiten.
+La misma regla detecta `return sigil of local`, un puntero local inicializado o
+asignado después con `sigil of local`, y el decay de un array local. Copia el
+array a una `list of T` (heap) antes de hacer el slice, devuelve el array por
+valor o devuelve una referencia prestada de un parámetro. Los arrays a nivel de
+módulo y los `static var` son almacenamiento estático y sí se permiten.
 
 #### Resumen de funciones del heap en runtime:
 

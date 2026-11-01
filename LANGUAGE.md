@@ -573,14 +573,19 @@ if p == null: ...             # valid for any pointer/opaque type
 ```pengu-fragment
 var p as ref to int is sigil of x     # &x
 var v as int is essence of p          # *p
-set essence of p is 42                # *p = 42 (LHS of assignment)
+set p is 42                           # *p = 42 (auto-deref)
+set essence of p is 42                # *p = 42 (explicit form)
+var q as ref to int is p + 1          # pointer arithmetic (scales by sizeof(int))
 let n as usize is size of MyRune      # sizeof(MyRune)
 let t as string is type of p          # "ref to int" (static type; p is not evaluated)
 let raw_ptr as ref to void is transmute p to ref to void   # unsafe bit-cast
 ```
 
-- **`sigil of expr` (`&`):** Takes the address of an lvalue. Cannot be applied to literals, expressions, `const`, or `frozen` variables (`E0008: InvalidMemoryOpError`).
-- **`essence of expr` (`*`):** Dereferences a pointer. The operand must be a `ref to T` or `Any`. It can be used both as an rvalue and as the left-hand side target of a `set` assignment (`set essence of ptr is val`).
+- **`sigil of expr` (`&`):** Takes the address of a place expression (variable, parameter, field, element, or function). Applying it to a literal, a temporary, a `const`, or a `frozen` binding raises `E0008: InvalidMemoryOpError`. Taking the address of a `let` binding yields `ref to frozen T`, so writes through it are rejected.
+- **`essence of expr` (`*`):** Dereferences a pointer. The operand must be a `ref to T` (or `Any`); anything else raises `E0005`. It can be used as an rvalue or as the explicit left-hand side of a `set` (`set essence of ptr is val`).
+- **Auto-deref assignment:** `set p is v` where `p: ref to T` writes `v` through the pointer when `v` has type `T`; when `v` has a pointer type compatible with `p`, it rebinds the pointer instead. Writing through a `ref to frozen T` raises `E0008`. This form does not require the pointer binding itself to be mutable.
+- **Pointer arithmetic:** `p + n`, `n + p` and `p - n` advance or rewind by `n` elements of the pointee type, and `p - q` yields the element distance as `isize`. `ref to void` arithmetic is rejected; use `std.ffi.ptr_offset` (bytes) or cast to `ref to byte`. `p at i` is the raw indexed access; `p[i]` and `p++` are not part of the language.
+- **Dangling returns:** returning a reference (or a slice) to storage owned by the current call frame raises `E0051`. Return a value, a `static var`, or a reference borrowed from a parameter instead.
 - **`size of TYPE`:** Evaluates the compile-time byte size of any type (`sizeof(T)` in C) and returns `usize`.
 - **`type of expr`:** Reports the **static** type of `expr` as a `string`, using the canonical PenguScript spelling. It is a compile-time operator: the operand is type-checked but **never evaluated**, so side effects inside it do not run. The result is a borrowed string literal (`pengu_string_from_cstr("int")`, `is_owned == 0`): it costs nothing at runtime, and `banish` on it only clears the handle, like on any borrowed string. `type` and `of` are **soft keywords** — `type of` is one lexer token only when the two words are adjacent on the same line, so `var type as int is 5` (and `var size as int is 5`, which used to collide with `size of`; that is fixed) still work as ordinary identifiers.
 - **`transmute expr to TYPE`:** Unsafe bit-level reinterpretation cast. Always triggers compiler warning `[W0001] transmute is unsafe`. If the source and destination types have different estimated sizes, `W0001` includes a size mismatch notification. Safe conversions must use `(expr to TYPE)`.
@@ -2917,7 +2922,7 @@ weave main into int:
 
 - Slices can be constructed over arbitrary C pointers using `std.ffi.slice_from_ptr`:
   `var sl as slice of Vector2 is calling ffi.slice_from_ptr of Vector2 with (sigil of pts), 4`.
-- **Pointer arithmetic (`p + 1`) is deliberately unsupported.** Indexing (`p at i`), slices (`ffi.slice_from_ptr`), and `transmute` provide bounds-carrying or explicit alternatives.
+- **Pointer arithmetic** is typed and scales by the pointee: `p + n`, `n + p`, `p - n`, `p - q` (distance as `isize`), and the compound forms `p += n` / `p -= n`. Use `ffi.ptr_add` / `ffi.ptr_sub` in generic code and `ffi.ptr_offset` for an explicit byte offset. `p at i` remains the raw indexed access; there is no `p[i]` or `p++`.
 
 ### 13.2 Strict Pointer Typing & Interoperability
 
@@ -2963,17 +2968,22 @@ The runtime helpers that made the old automatic model possible — `PenguElemCle
 
 #### The one lifetime rule the compiler enforces
 
-Returning a `slice of` a **stack** array is rejected with `E0051`, because the
-array's storage dies when the weave returns and the slice would dangle:
+Returning a reference to a local, or a `slice of` a **stack** array, is rejected
+with `E0051`, because that storage dies when the weave returns and the result
+would dangle:
 
 ```pengu-fragment
 weave bad into slice of int:
     var xs as array of int with size 4 is [1, 2, 3, 4]
-    return xs at 0 to 2       # E0051: the slice would dangle
+    return with data is sigil of (xs at 0), len is 4, elem_size is size of int
+    # E0051: the slice would dangle
 ```
 
-Copy the array into a `list of T` (heap) before slicing, or return the array by
-value. Module-level arrays are static storage and are allowed.
+The same rule catches `return sigil of local`, a local pointer initialised or
+later assigned from `sigil of local`, and array decay from a local array.
+Copy the array into a `list of T` (heap) before slicing, return the array by
+value, or return a reference borrowed from a parameter. Module-level arrays and
+`static var` are static storage and are allowed.
 
 #### Runtime Heap Functions Summary:
 

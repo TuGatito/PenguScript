@@ -81,7 +81,10 @@ codegen.api.generate_c
 - **P4.6 (0.19.2):** el fallback de métodos de lista exige un método real;
   las funciones de módulo ya no se resuelven con sintaxis de método
   (`E0005 ... is a module function, not a method`).
-- **Conformidad:** **90/90** fixtures con las librerías nativas.
+- **P4.7 (0.20.0):** auto-deref en `set`, aritmética de punteros tipada
+  (`p + n`, `p - n`, `p - q`, `+=`/`-=`), `E0051` para referencias colgantes,
+  escritura en slices y validación estricta de `sigil of`/`essence of`/frozen.
+- **Conformidad:** **91/91** fixtures con las librerías nativas.
 - **Calidad:** 17 casos de aceptación F4, ASan/UBSan, golden C normalizado y
   benchmark de emisión.
 

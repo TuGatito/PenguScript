@@ -76,8 +76,9 @@
 # ============================================================================
 # Known Limitations & Roadmap (TODOs)
 # ============================================================================
-# - TODO(ffi): Direct pointer arithmetic (e.g. ptr + offset) is intentionally
-#   restricted for memory safety; use slice views or C runtime bridges.
+# - Pointer arithmetic is typed by the language (`p + n`, `p - n`, `p - q`);
+#   `ptr_offset` stays as the explicit byte-offset helper, `ptr_add`/`ptr_sub`
+#   are the generic element-wise helpers.
 # - TODO(ffi): Complex struct passing by value across FFI boundaries.
 # - TODO(ffi): Automated 'cdef' / bindgen header parser for .h files.
 # ============================================================================
@@ -166,6 +167,20 @@ weave ptr_eq with a as ref to void , b as ref to void into bool:
 ## a raw operation for C interop, not a safe primitive.
 weave ptr_offset with p as ref to void , n as int into ref to void:
     return calling pengu_ffi_ptr_offset with p , n
+
+## Avanza un puntero `n` elementos (escala por `size of T`).
+##
+## ## Memoria
+## No asigna; no comprueba límites.
+weave ptr_add shard T with p as ref to T, n as int into ref to T:
+    return p + n
+
+## Retrocede un puntero `n` elementos (escala por `size of T`).
+##
+## ## Memoria
+## No asigna; no comprueba límites.
+weave ptr_sub shard T with p as ref to T, n as int into ref to T:
+    return p - n
 
 # ----------------------------------------------------------------------------
 # External C Declarations (runtime bridges, null-safe at the C layer)

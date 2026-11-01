@@ -2114,7 +2114,9 @@ weave memory_demo into int:
     # 4. Pointer arithmetic & dereference
     var value as int is 42
     let ptr as ref to int is sigil of value
-    set essence of ptr is 100
+    set ptr is 100                 # *ptr = 100 (auto-deref)
+    let next as ref to int is ptr + 1
+    set essence of ptr is 101      # explicit form
 
     return 0
 ```
@@ -2145,7 +2147,7 @@ int32_t memory_demo(void) {
 - `bytes of <string>` returns a **non-owning** read-only pointer to the string's internal buffer — do not store it beyond the operand's lifetime (see [14.6](#146-passing-strings-to-c)).
 - **A `string` parameter is borrowed.** The callee must not `banish` it or keep it past the call. A temporary the *caller* creates for a call — an interpolation `"{a} {b}"` or `x to string` — is released by the caller once the call returns; only when it cannot dangle (`void` or scalar result; for a `string` result only if `res.data != arg.data`; never for a reference, rune or container result). A variable, field or call-result argument is never released (`calling spark.println with s` keeps `s`). `return` releases the loop temporaries it leaves, a labeled `break`/`continue` releases the loops it leaves, and `strict_c99: true` releases statement-position calls through a plain block but cannot in value position.
 - `static var` with non-constant initializers is guarded so it initializes exactly once.
-- The compiler enforces one lifetime rule: returning a `slice of` a stack array is rejected (`E0051`), because the slice would dangle. Mutable globals are impossible by construction, which keeps lifetimes local and deterministic.
+- The compiler rejects returning a reference or `slice of` to local storage (`E0051`): direct `sigil of local`, a local pointer initialised/assigned from it, and a `slice of` a stack array. Return a value, a `static var`, or a reference borrowed from a parameter. Mutable globals are impossible by construction, which keeps lifetimes local and deterministic.
 
 ### 12.4 Manual memory with `std.memoria`
 

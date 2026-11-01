@@ -164,6 +164,9 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         return "((const uint8_t*)(({bv}).data))"
     if k == pskind.NodeKind.NdSigilOf:
         var sb2 as int is calling astutil.node_child with ast, node, 0
+        var special as string is calling sigil_at_expr with c, sb2, ast
+        if special != "":
+            return special
         var sv2 as string is calling emit_expr with c, sb2
         defer banish sv2
         return "(&({sv2}))"
@@ -2669,6 +2672,50 @@ weave checked_index with c as ref to context.CgContext, idx as string, base as s
 ##
 ## ## Memoria
 ## Strings owned.
+## Dirección de un elemento de lista/slice (`sigil of (xs at i)`).
+##
+## Devuelve "" cuando el nodo no es un `at` sobre lista/slice; en ese caso el
+## llamador usa `&(expr)` para arrays y punteros.
+##
+## ## Memoria
+## Devuelve string owned.
+weave sigil_at_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
+    var atn as int is node
+    while atn >= 0 and (calling astutil.kind_of with ast, atn) == pskind.NodeKind.NdParenExpr:
+        set atn is calling astutil.node_child with ast, atn, 0
+    if atn < 0 or (calling astutil.kind_of with ast, atn) != pskind.NodeKind.NdAtExpr:
+        return ""
+    var base as int is calling astutil.node_child with ast, atn, 0
+    var idx as int is calling astutil.node_child with ast, atn, 1
+    if base < 0 or idx < 0:
+        return ""
+    var bt as int is calling node_type with c, base
+    if bt <= 0:
+        set bt is calling guess_type with c, base, ast
+    if bt <= 0:
+        return ""
+    var buid as int is calling types.underlying with (sigil of c->program->types), bt
+    var bty as tk.SemaType is calling types.at with (sigil of c->program->types), buid
+    var sep as string is "."
+    var coll as tk.SemaType is bty
+    if bty.kind == tk.SemaTypeKind.TkRef:
+        set sep is "->"
+        if bty.a > 0:
+            set coll is calling types.at with (sigil of c->program->types), (calling types.underlying with (sigil of c->program->types), bty.a)
+    if coll.kind != tk.SemaTypeKind.TkList and coll.kind != tk.SemaTypeKind.TkSlice:
+        return ""
+    if coll.a <= 0:
+        return ""
+    var et as string is calling ctype.c_type with (sigil of c->names), coll.a
+    defer banish et
+    var bs as string is calling emit_expr with c, base
+    defer banish bs
+    var ix as string is calling emit_expr with c, idx
+    defer banish ix
+    var cix as string is calling checked_index with c, ix, bs, bt, node, false
+    defer banish cix
+    return "((({et}*)(({bs}){sep}data)) + ({cix}))"
+
 weave at_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
     var m as loader.SemaModule is (c->program->modules at c->current_module)
     var base as int is calling astutil.node_child with ast, node, 0
@@ -2812,7 +2859,11 @@ weave at_access_target with c as ref to context.CgContext, ch as int, base as st
         var el as string is calling ctype.c_type with (sigil of c->names), actual.a
         defer banish el
         return with text is "(*( {el}*)pengu_list_at({amp}({base}), (int)({cix})))", type_id is actual.a
-    if actual.kind == tk.SemaTypeKind.TkArray or actual.kind == tk.SemaTypeKind.TkSlice or actual.kind == tk.SemaTypeKind.TkRef:
+    if actual.kind == tk.SemaTypeKind.TkSlice:
+        var sel as string is calling ctype.c_type with (sigil of c->names), actual.a
+        defer banish sel
+        return with text is "(*( {sel}*)pengu_slice_at({amp}({base}), (int)({cix})))", type_id is actual.a
+    if actual.kind == tk.SemaTypeKind.TkArray or actual.kind == tk.SemaTypeKind.TkRef:
         return with text is "{base}[{cix}]", type_id is actual.a
     return with text is "{base}[{cix}]", type_id is actual_id
 
@@ -2878,6 +2929,18 @@ weave resolve_with_target with c as ref to context.CgContext, target as int, ast
 weave resolve_target with c as ref to context.CgContext, target as int, ast as ref to psast.PsAst, skip_method as bool into CgTarget:
     if target < 0:
         return with text is "NULL", type_id is -1
+    if (calling astutil.kind_of with ast, target) == pskind.NodeKind.NdEssenceTarget:
+        var echild as int is calling astutil.node_child with ast, target, 0
+        var einner as CgTarget is calling resolve_target with c, echild, ast, false
+        if einner.type_id > 0:
+            var euid as int is calling types.underlying with (sigil of c->program->types), einner.type_id
+            var ety as tk.SemaType is calling types.at with (sigil of c->program->types), euid
+            if ety.kind == tk.SemaTypeKind.TkRef:
+                var etext as string is "(*( {einner.text}))"
+                var ept as int is calling types.strip_frozen with (sigil of c->program->types), ety.a
+                banish einner.text
+                return with text is etext, type_id is ept
+        return einner
     if (calling astutil.kind_of with ast, target) == pskind.NodeKind.NdWithTarget:
         return calling resolve_with_target with c, target, ast, skip_method
     var m as loader.SemaModule is (c->program->modules at c->current_module)

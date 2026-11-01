@@ -156,6 +156,12 @@ weave can_cast with t as ref to types.SemaTypeTable, a as int, b as int into boo
             return true
     if ta.kind == tk.SemaTypeKind.TkRef and tb.kind == tk.SemaTypeKind.TkRef:
         return true
+    if ta.kind == tk.SemaTypeKind.TkRef and tb.kind == tk.SemaTypeKind.TkBase:
+        if calling is_int with t, b:
+            return true
+    if ta.kind == tk.SemaTypeKind.TkBase and tb.kind == tk.SemaTypeKind.TkRef:
+        if calling is_int with t, a:
+            return true
     if ta.kind == tk.SemaTypeKind.TkNull:
         return true
     # Un omen sin payload es un `enum` C: convertirlo a un numérico es válido

@@ -146,14 +146,34 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
     else if kind == pskind.NodeKind.NdRangeDotdot:
         set t is calling infer_range with s, node
     else if kind == pskind.NodeKind.NdSigilOf:
-        set t is calling types.ref_to with s->types, (calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1)
-    else if kind == pskind.NodeKind.NdEssenceOf:
-        var einner as int is calling infer with s, (calling astutil.node_child with s->ast, node, 0), -1
-        var ety as tk.SemaType is calling types.at with s->types, einner
-        if ety.kind == tk.SemaTypeKind.TkRef:
-            set t is ety.a
+        var schild as int is calling astutil.node_child with s->ast, node, 0
+        var sinner as int is calling infer with s, schild, -1
+        var sstatus as int is calling sigil_status with s, schild
+        if sstatus == 3:
+            calling sigil_const_error with s, node
+            set t is 0
+        else if sstatus == 0:
+            calling sigil_lvalue_error with s, node
+            set t is 0
         else:
+            var sbase as int is sinner
+            if sstatus == 2 and not (calling types.is_frozen with s->types, sinner):
+                set sbase is calling types.frozen with s->types, sinner
+            set t is calling types.ref_to with s->types, sbase
+    else if kind == pskind.NodeKind.NdEssenceOf:
+        var echild as int is calling astutil.node_child with s->ast, node, 0
+        var einner as int is calling infer with s, echild, -1
+        var euid as int is calling types.underlying with s->types, einner
+        var ety as tk.SemaType is calling types.at with s->types, euid
+        if ety.kind == tk.SemaTypeKind.TkRef:
+            set t is calling types.strip_frozen with s->types, ety.a
+        else if calling is_self_value with s, echild:
+            # En un receptor por valor, `self` ya es el valor: `essence of self`
+            # es una identidad histórica y el codegen la emite como tal.
             set t is einner
+        else:
+            calling essence_error with s, node, einner
+            set t is 0
     else if kind == pskind.NodeKind.NdChrExpr:
         set t is calling types.base with s->types, "string"
     else if kind == pskind.NodeKind.NdOrdExpr:
@@ -1445,6 +1465,141 @@ weave infer_compare with s as ref to state.SemaState, node as int into int:
         calling type_mismatch with s, node, l, r
     return calling types.base with s->types, "bool"
 
+## `true` si el nodo es `self` en un método con receptor por valor.
+##
+## ## Memoria
+## O(1).
+weave is_self_value with s as ref to state.SemaState, node as int into bool:
+    if node < 0:
+        return false
+    var nk as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    if nk != pskind.NodeKind.NdVarRef and nk != pskind.NodeKind.NdSelfRef:
+        return false
+    var txt as string is "self"
+    if nk == pskind.NodeKind.NdVarRef:
+        set txt is calling astutil.first_token_text with s->src, s->lex, s->ast, node
+    defer banish txt
+    if txt != "self":
+        return false
+    var sid as int is calling symbols.lookup_name with s->symbols, txt
+    if sid < 0:
+        return false
+    var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+    return (sv.flags & sym.SYM_SELF_VALUE) != 0
+
+## Clasifica la addressability de una expresión para `sigil of`.
+##
+## Devuelve 0 si no es lvalue, 1 si es mutable, 2 si es de solo lectura
+## (`let`) y 3 si es una constante (error E0008).
+##
+## ## Memoria
+## O(profundidad del acceso).
+weave sigil_status with s as ref to state.SemaState, node as int into int:
+    if node < 0:
+        return 0
+    var k as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    if k == pskind.NodeKind.NdSelfRef:
+        var ssid as int is calling symbols.lookup_name with s->symbols, "self"
+        if ssid < 0:
+            return 0
+        var ssv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, ssid
+        if (ssv.flags & sym.SYM_SELF_VALUE) != 0:
+            return 2
+        return 1
+    if k == pskind.NodeKind.NdVarRef:
+        var txt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, node
+        defer banish txt
+        var sid as int is calling symbols.lookup_name with s->symbols, txt
+        if sid < 0:
+            return 0
+        var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+        if sv.kind == sym.SemaSymbolKind.SkConst:
+            return 3
+        if sv.kind == sym.SemaSymbolKind.SkWeave or sv.kind == sym.SemaSymbolKind.SkDeclare:
+            return 1
+        if (sv.flags & sym.SYM_SELF_VALUE) != 0:
+            return 2
+        if sv.kind == sym.SemaSymbolKind.SkLet:
+            return 2
+        if sv.kind == sym.SemaSymbolKind.SkParam:
+            return 1
+        if sv.kind == sym.SemaSymbolKind.SkVar or sv.kind == sym.SemaSymbolKind.SkStaticVar:
+            if (sv.flags & sym.SYM_MUTABLE) != 0:
+                return 1
+            return 2
+        return 0
+    if k == pskind.NodeKind.NdParenExpr:
+        return calling sigil_status with s, (calling astutil.node_child with s->ast, node, 0)
+    if k == pskind.NodeKind.NdFieldAccess:
+        var fty as int is calling infer with s, node, -1
+        if fty > 0:
+            if calling types.is_frozen with s->types, fty:
+                return 2
+            var fuid as int is calling types.underlying with s->types, fty
+            var ft as tk.SemaType is calling types.at with s->types, fuid
+            if ft.kind == tk.SemaTypeKind.TkFn:
+                return 1
+        return 1
+    if k == pskind.NodeKind.NdArrowAccess:
+        return 1
+    if k == pskind.NodeKind.NdAtExpr:
+        var bnode as int is calling astutil.node_child with s->ast, node, 0
+        if bnode < 0:
+            return 0
+        var bty as int is calling infer with s, bnode, -1
+        var buid as int is calling types.underlying with s->types, bty
+        var bt as tk.SemaType is calling types.at with s->types, buid
+        if bt.kind != tk.SemaTypeKind.TkArray and bt.kind != tk.SemaTypeKind.TkRef and bt.kind != tk.SemaTypeKind.TkList and bt.kind != tk.SemaTypeKind.TkSlice:
+            return 0
+        var ety as int is calling infer with s, node, -1
+        if calling types.is_frozen with s->types, ety:
+            return 2
+        return 1
+    if k == pskind.NodeKind.NdEssenceOf:
+        return 1
+    return 0
+
+## Error E0008: `sigil of` sobre algo que no es un lvalue.
+##
+## ## Memoria
+## O(1).
+weave sigil_lvalue_error with s as ref to state.SemaState, node as int into void:
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "cannot take the address of this expression", "Take a ref of a variable, field, array element or dereferenced pointer.", "'sigil of' needs an addressable location."
+
+## Error E0008: `sigil of` sobre una constante.
+##
+## ## Memoria
+## O(1).
+weave sigil_const_error with s as ref to state.SemaState, node as int into void:
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "cannot take the address of a constant", "Copy it into a local 'var' first.", "Constants are immutable and may not live in memory."
+
+## Error E0005: `essence of` sobre un valor que no es `ref to T`.
+##
+## ## Memoria
+## O(1).
+weave essence_error with s as ref to state.SemaState, node as int, got as int into void:
+    var gid as int is calling canon.canonical_name with s->types, got
+    var gn as string is calling npool.text with s->names, gid
+    var msg as string is "cannot dereference value of type '{gn}'; 'essence of' requires a ref"
+    defer banish msg
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg, "Take a ref with 'sigil of' or use a pointer parameter.", ""
+
+## ¿El pointee es `void` (no permite aritmética escalada)?
+##
+## ## Memoria
+## O(1).
+weave void_pointee with s as ref to state.SemaState, tid as int into bool:
+    if tid <= 0:
+        return false
+    var uid as int is calling types.underlying with s->types, tid
+    var t as tk.SemaType is calling types.at with s->types, uid
+    if t.kind == tk.SemaTypeKind.TkVoid or t.kind == tk.SemaTypeKind.TkOpaque:
+        return true
+    if t.kind != tk.SemaTypeKind.TkBase:
+        return false
+    var ntxt as string is calling npool.text with s->names, t.name
+    return ntxt == "void"
+
 ## Aritmética.
 ##
 ## ## Memoria
@@ -1468,6 +1623,28 @@ weave infer_arith with s as ref to state.SemaState, node as int into int:
         if not (calling bound_operator_ok with s, op):
             calling operator_bound_error with s, node, op
         return l
+    var ak2 as pskind.NodeKind is calling astutil.kind_of with s->ast, node
+    var luid as int is calling types.underlying with s->types, l
+    var ruid as int is calling types.underlying with s->types, r
+    var lty2 as tk.SemaType is calling types.at with s->types, luid
+    var rty2 as tk.SemaType is calling types.at with s->types, ruid
+    if lty2.kind == tk.SemaTypeKind.TkRef or rty2.kind == tk.SemaTypeKind.TkRef:
+        if ak2 == pskind.NodeKind.NdAdd or ak2 == pskind.NodeKind.NdSub:
+            if lty2.kind == tk.SemaTypeKind.TkRef and calling compat.is_int with s->types, r:
+                if calling void_pointee with s, lty2.a:
+                    calling type_mismatch with s, node, l, r
+                    return 0
+                return l
+            if ak2 == pskind.NodeKind.NdAdd and rty2.kind == tk.SemaTypeKind.TkRef and calling compat.is_int with s->types, l:
+                if calling void_pointee with s, rty2.a:
+                    calling type_mismatch with s, node, l, r
+                    return 0
+                return r
+            if ak2 == pskind.NodeKind.NdSub and lty2.kind == tk.SemaTypeKind.TkRef and rty2.kind == tk.SemaTypeKind.TkRef:
+                if calling compat.compatible with s->types, lty2.a, rty2.a:
+                    return calling types.base with s->types, "isize"
+        calling type_mismatch with s, node, l, r
+        return 0
     if l == r or lt.kind == tk.SemaTypeKind.TkAny or rt.kind == tk.SemaTypeKind.TkAny or lt.kind == tk.SemaTypeKind.TkOpaque or rt.kind == tk.SemaTypeKind.TkOpaque:
         return l
     if (not (calling compat.is_numeric with s->types, l)) or (not (calling compat.is_numeric with s->types, r)):

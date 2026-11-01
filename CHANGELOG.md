@@ -2,6 +2,61 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.20.0] — 2026-10-31 — Semántica completa de punteros
+
+Cierra la deuda de punteros del compilador: un `ref to T` ya se puede escribir
+con asignación directa, la aritmética de punteros es tipada y la seguridad de
+`sigil of`/`essence of`/`frozen`/lifetimes se valida en semántica.
+
+### Añadido
+
+- **Auto-deref en asignación.** `set p is v` con `p: ref to T` escribe `v` a
+  través del puntero; si `v` es un puntero compatible, reasigna el binding.
+  `let p as ref to int` puede escribir su pointee aunque el binding sea
+  inmutable.
+- **Aritmética de punteros tipada.** `p + n`, `n + p`, `p - n`, `p - q`
+  (distancia `isize`), `p += n` y `p -= n`. La aritmética sobre `ref to void`
+  se rechaza; `p at i` sigue siendo el acceso indexado crudo.
+- **`ffi.ptr_add` / `ffi.ptr_sub`** como helpers genéricos element-wise;
+  `ffi.ptr_offset` conserva su semántica de bytes.
+- **`E0051` de referencias colgantes.** El checker rechaza `return sigil of
+  local`, punteros locales inicializados o asignados desde `sigil of local`,
+  decay de arrays locales y slices construidos sobre arrays de pila.
+- **Escritura en slices.** `set s at i is v` usa `pengu_slice_at` como lvalue
+  real; antes emitía C inválido.
+- **Casts puntero↔entero** (`p to usize`, `usize to ref to T`) además de
+  `ref`↔`ref`, `void` y `opaque`.
+
+### Corregido
+
+- **`set essence of p is <rune>`** tipa el valor como el pointee, no como el
+  puntero; `set p is with ...` y `set p is <struct-init>` emiten
+  `(*p) = (T){...}`.
+- **`sigil of let`** produce `ref to frozen T`; escribir por él da `E0008`.
+  `sigil of` literales, temporales, `const` y `frozen` también da `E0008`.
+- **`essence of`** exige `ref to T` (o `Any`); un valor no-puntero da `E0005`
+  en vez de generar C inválido.
+- **Escrituras frozen:** `set essence of`, `set p at` y `set p->x` sobre
+  `ref to frozen T` se rechazan (`E0006`), igual que `set p is v` (`E0008`).
+- **`at` sobre slices** lee y escribe con `pengu_slice_at` en vez de un
+  subíndice C inválido.
+- **`std.ffi`** ya no documenta la aritmética como restringida.
+
+### Cambiado
+
+- La forma `set essence of p is v` sigue siendo válida; `set p is v` es el
+  azúcar equivalente cuando `v` tiene el tipo apuntado.
+- Se mantiene la regla de no añadir `p[i]` ni `p++`: `p at i` y `p += n` cubren
+  esos casos sin ambigüedad.
+
+### Pruebas
+
+- `tests/pengu/pointers.pengu`: auto-deref, rebind, `null`, aritmética,
+  diferencia, `p at`, slices, elementos de lista, punteros a función, `static
+  var` y casts.
+- `tests/pointer_guard.sh`: E0008/E0005/E0051 y casos válidos de auto-deref.
+- Suite **91/91** y step `Pointer safety guard` en CI.
+
 ## [0.19.2] — 2026-10-31 — Funciones de módulo no se resuelven como métodos
 
 Cierra el fallback UFCS que aceptaba cualquier nombre sobre una lista y luego

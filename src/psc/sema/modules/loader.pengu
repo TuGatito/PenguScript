@@ -89,9 +89,12 @@ rune SemaModule:
 ## Libera el AST, los tokens, la fuente y el path.
 weave free_module with m as ref to SemaModule into void:
     calling ann.free_annotations with (sigil of m->annotations)
-    for it in m->interps:
+    var ii as int is 0
+    while ii < m->interps.len:
+        var it as SemaInterp is (m->interps at ii)
         calling ann.free_annotations with (sigil of it.annotations)
         banish it.parse
+        set ii is ii + 1
     banish m->interps
     banish m->type_ids
     banish m->parse
