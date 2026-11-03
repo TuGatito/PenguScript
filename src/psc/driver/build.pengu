@@ -863,6 +863,11 @@ weave build with o as BuildOptions into BuildResult:
             else:
                 calling args.push with "-O2"
             calling args.push with "-sWASM=1"
+            # Classic (non-module) output: older shells and `file://` pages
+            # cannot execute top-level await. Synchronous instantiation keeps
+            # the generated script a plain <script> and preserves the shell's
+            # global Module hooks.
+            calling args.push with "-sWASM_ASYNC_COMPILATION=0"
             calling args.push with "-sALLOW_MEMORY_GROWTH=1"
             calling args.push with "-sINITIAL_MEMORY=16MB"
             calling args.push with "-sSTACK_SIZE=1MB"

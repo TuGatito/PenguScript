@@ -1,0 +1,429 @@
+## std.web.url — URL parsing, building and percent encoding.
+##
+## Pure PenguScript; works in native and wasm builds. The parser handles the
+## common hierarchical forms (`scheme://userinfo@host:port/path?query#fragment`)
+## and relative references. It is intentionally strict about malformed input and
+## never evaluates or resolves a URL.
+##
+## ```pengu
+## var u as result of url.Url to string is calling url.parse with "/docs?q=pengu"
+## if u.is_ok:
+##     var q as maybe string is calling url.query_get with u.value.query, "q"
+## ```
+##
+## `decode_component` rejects malformed percent escapes instead of silently
+## dropping them. `encode_component` encodes every byte outside the RFC 3986
+## unreserved set.
+
+import std.builder as builder
+import std.scrolls
+
+const URL_VERSION as string is "1.0.0"
+
+## A parsed absolute or relative URL reference.
+rune Url:
+    scheme as string
+    userinfo as string
+    host as string
+    port as string
+    path as string
+    query as string
+    fragment as string
+
+## One decoded query parameter.
+rune Param:
+    name as string
+    value as string
+
+## Parses `raw` into its components. Relative references keep an empty scheme
+## and host. Returns the offending text in the error message.
+weave parse with raw as string into result of Url to string:
+    var text as string is "{raw}"
+    calling text.trim
+    if text.len == 0:
+        banish text
+        return calling err_of with "empty URL"
+    var scheme as string is ""
+    var rest as string is text
+    var colon as int is calling rest.index_of with ":"
+    var slash as int is calling rest.index_of with "/"
+    var question as int is calling rest.index_of with "?"
+    var hash as int is calling rest.index_of with "#"
+    if colon > 0 and (slash < 0 or colon < slash) and (question < 0 or colon < question) and (hash < 0 or colon < hash):
+        var candidate as string is calling _slice with rest, 0, colon
+        if calling _is_scheme with candidate:
+            set scheme is candidate
+            set rest is calling _slice with rest, colon + 1, rest.len
+        else:
+            banish candidate
+    var fragment as string is ""
+    var h as int is calling rest.index_of with "#"
+    if h >= 0:
+        set fragment is calling _slice with rest, h + 1, rest.len
+        set rest is calling _slice with rest, 0, h
+    var query as string is ""
+    var q as int is calling rest.index_of with "?"
+    if q >= 0:
+        set query is calling _slice with rest, q + 1, rest.len
+        set rest is calling _slice with rest, 0, q
+    var userinfo as string is ""
+    var host as string is ""
+    var port as string is ""
+    var path as string is rest
+    if calling rest.starts_with with "//":
+        var authority as string is calling _slice with rest, 2, rest.len
+        var slash2 as int is calling authority.index_of with "/"
+        if slash2 >= 0:
+            set path is calling _slice with authority, slash2, authority.len
+            set authority is calling _slice with authority, 0, slash2
+        else:
+            set path is ""
+        var at as int is calling authority.last_index_of with "@"
+        if at >= 0:
+            set userinfo is calling _slice with authority, 0, at
+            set authority is calling _slice with authority, at + 1, authority.len
+        if calling authority.starts_with with "[":
+            var close as int is calling authority.index_of with "]"
+            if close < 0:
+                banish text
+                banish rest
+                banish scheme
+                banish query
+                banish fragment
+                banish userinfo
+                banish path
+                return calling err_of with "unterminated IPv6 host: {raw}"
+            set host is calling _slice with authority, 0, close + 1
+            if close + 1 < authority.len and (authority at (close + 1)) == ":":
+                set port is calling _slice with authority, close + 2, authority.len
+            banish authority
+        else:
+            var colon2 as int is calling authority.index_of with ":"
+            if colon2 >= 0:
+                set host is calling _slice with authority, 0, colon2
+                set port is calling _slice with authority, colon2 + 1, authority.len
+                banish authority
+            else:
+                set host is authority
+    banish text
+    return calling ok_of with (with scheme is scheme, userinfo is userinfo, host is host, port is port, path is path, query is query, fragment is fragment)
+
+## Builds a URL string. Empty components are omitted.
+weave to_string with u as Url into string:
+    var out as string is ""
+    if u.scheme.len > 0:
+        var piece as string is "{u.scheme}:"
+        banish out
+        set out is piece
+    if u.host.len > 0 or u.userinfo.len > 0:
+        var auth as string is ""
+        if u.userinfo.len > 0:
+            var ui as string is "{u.userinfo}@"
+            banish auth
+            set auth is ui
+        var hostpart as string is "{auth}{u.host}"
+        banish auth
+        if u.port.len > 0:
+            var hp as string is "{hostpart}:{u.port}"
+            banish hostpart
+            set hostpart is hp
+        var prefix as string is "//{hostpart}"
+        banish hostpart
+        var joined as string is "{out}{prefix}"
+        banish out
+        banish prefix
+        set out is joined
+    if u.path.len > 0:
+        var joined as string is "{out}{u.path}"
+        banish out
+        set out is joined
+    else:
+        if u.host.len > 0:
+            var joined as string is "{out}/"
+            banish out
+            set out is joined
+    if u.query.len > 0:
+        var joined as string is "{out}?{u.query}"
+        banish out
+        set out is joined
+    if u.fragment.len > 0:
+        var joined as string is "{out}#{u.fragment}"
+        banish out
+        set out is joined
+    return out
+
+## `scheme://host[:port]`, or the input's prefix when there is no authority.
+weave origin with u as Url into string:
+    if u.scheme.len == 0 or u.host.len == 0:
+        return ""
+    if u.port.len == 0:
+        return "{u.scheme}://{u.host}"
+    return "{u.scheme}://{u.host}:{u.port}"
+
+## Replaces the path component.
+weave with_path with u as Url, path as string into Url:
+    return with scheme is u.scheme, userinfo is u.userinfo, host is u.host, port is u.port, path is path, query is u.query, fragment is u.fragment
+
+## Replaces the query component (without `?`).
+weave with_query with u as Url, query as string into Url:
+    return with scheme is u.scheme, userinfo is u.userinfo, host is u.host, port is u.port, path is u.path, query is query, fragment is u.fragment
+
+## Percent-encodes one component. Unreserved characters are left as-is.
+weave encode_component with text as string into string:
+    var out as string is ""
+    var i as int is 0
+    while i < text.len:
+        var c as int is ord (text at i)
+        if calling _is_unreserved with c:
+            var piece as string is "{text at i}"
+            var joined as string is "{out}{piece}"
+            banish out
+            banish piece
+            set out is joined
+        else:
+            var piece as string is "%{calling _hex with c}"
+            var joined as string is "{out}{piece}"
+            banish out
+            banish piece
+            set out is joined
+        set i is i + 1
+    return out
+
+## Decodes percent escapes. `+` is left untouched; use `query_get` for forms.
+weave decode_component with text as string into result of string to string:
+    var out as string is ""
+    var i as int is 0
+    while i < text.len:
+        if (text at i) == "%":
+            if i + 2 >= text.len:
+                banish out
+                return calling err_of with "truncated percent escape"
+            var hi as int is calling _hex_value with (text at (i + 1))
+            var lo as int is calling _hex_value with (text at (i + 2))
+            if hi < 0 or lo < 0:
+                banish out
+                return calling err_of with "invalid percent escape"
+            var code as int is (hi * 16) + lo
+            var piece as string is calling _utf8_char with code
+            var joined as string is "{out}{piece}"
+            banish out
+            banish piece
+            set out is joined
+            set i is i + 3
+        else:
+            var piece as string is "{text at i}"
+            var joined as string is "{out}{piece}"
+            banish out
+            banish piece
+            set out is joined
+            set i is i + 1
+    return calling ok_of with out
+
+## Splits a query string into decoded parameters. Malformed pairs are skipped.
+weave params with query as string into list of Param:
+    var out as list of Param is list of Param
+    if query.len == 0:
+        return out
+    var parts as list of string is calling query.split with "&"
+    var i as int is 0
+    while i < parts.len:
+        var part as string is (parts at i)
+        var eq as int is calling part.index_of with "="
+        var raw_name as string is part
+        var raw_value as string is ""
+        if eq >= 0:
+            set raw_name is calling _slice with part, 0, eq
+            set raw_value is calling _slice with part, eq + 1, part.len
+        var name as result of string to string is calling _decode_form with raw_name
+        var value as result of string to string is calling _decode_form with raw_value
+        if name.is_ok and value.is_ok:
+            calling out.push with (with name is name.value, value is value.value)
+        else:
+            if name.is_ok:
+                banish name.value
+            if value.is_ok:
+                banish value.value
+        banish raw_name
+        banish raw_value
+        set i is i + 1
+    calling _free_parts with parts
+    return out
+
+## Returns the first value of `name`, decoded.
+weave query_get with query as string, name as string into maybe string:
+    var items as list of Param is calling params with query
+    var i as int is 0
+    var found as string is ""
+    var has as bool is false
+    while i < items.len:
+        var p as Param is (items at i)
+        if p.name == name and not has:
+            set found is p.value
+            set has is true
+        else:
+            banish p.name
+            banish p.value
+        set i is i + 1
+    banish items
+    if has:
+        return some found
+    banish found
+    return maybe none
+
+## Returns `query` with `name=value` set (replacing the first occurrence).
+weave query_set with query as string, name as string, value as string into string:
+    var items as list of Param is calling params with query
+    var out as string is ""
+    var i as int is 0
+    var replaced as bool is false
+    while i < items.len:
+        var p as Param is (items at i)
+        var pname as string is p.name
+        var pvalue as string is p.value
+        if pname == name and not replaced:
+            banish pvalue
+            set pvalue is value
+            set replaced is true
+        var enc_name as string is calling encode_component with pname
+        var enc_value as string is calling encode_component with pvalue
+        var pair as string is "{enc_name}={enc_value}"
+        var prefix as string is if out.len == 0 then "" else "&"
+        var joined as string is "{out}{prefix}{pair}"
+        banish out
+        banish enc_name
+        banish enc_value
+        banish pair
+        set out is joined
+        banish pname
+        banish pvalue
+        set i is i + 1
+    if not replaced:
+        var enc_name as string is calling encode_component with name
+        var enc_value as string is calling encode_component with value
+        var prefix as string is if out.len == 0 then "" else "&"
+        var joined as string is "{out}{prefix}{enc_name}={enc_value}"
+        banish out
+        banish enc_name
+        banish enc_value
+        set out is joined
+    banish items
+    return out
+
+## Returns `query` without `name`.
+weave query_remove with query as string, name as string into string:
+    var items as list of Param is calling params with query
+    var out as string is ""
+    var i as int is 0
+    while i < items.len:
+        var p as Param is (items at i)
+        var pname as string is p.name
+        var pvalue as string is p.value
+        if pname != name:
+            var enc_name as string is calling encode_component with pname
+            var enc_value as string is calling encode_component with pvalue
+            var pair as string is "{enc_name}={enc_value}"
+            var prefix as string is if out.len == 0 then "" else "&"
+            var joined as string is "{out}{prefix}{pair}"
+            banish out
+            banish enc_name
+            banish enc_value
+            banish pair
+            set out is joined
+        banish pname
+        banish pvalue
+        set i is i + 1
+    banish items
+    return out
+
+## Slices `text` from `start` (inclusive) to `end` (exclusive).
+weave _slice with text as string, start as int, end as int into string:
+    if start < 0 or end > text.len or start >= end:
+        return ""
+    var out as string is ""
+    var i as int is start
+    while i < end:
+        var piece as string is "{text at i}"
+        var joined as string is "{out}{piece}"
+        banish out
+        banish piece
+        set out is joined
+        set i is i + 1
+    return out
+
+## True for `[A-Za-z][A-Za-z0-9+.-]*`.
+weave _is_scheme with text as string into bool:
+    if text.len == 0:
+        return false
+    var i as int is 0
+    while i < text.len:
+        var c as int is ord (text at i)
+        if i == 0:
+            if not ((c >= 65 and c <= 90) or (c >= 97 and c <= 122)):
+                return false
+        else:
+            if not ((c >= 65 and c <= 90) or (c >= 97 and c <= 122) or (c >= 48 and c <= 57) or c == 43 or c == 45 or c == 46):
+                return false
+        set i is i + 1
+    return true
+
+## True for RFC 3986 unreserved bytes.
+weave _is_unreserved with c as int into bool:
+    if c >= 65 and c <= 90:
+        return true
+    if c >= 97 and c <= 122:
+        return true
+    if c >= 48 and c <= 57:
+        return true
+    return c == 45 or c == 46 or c == 95 or c == 126
+
+## Two uppercase hex digits.
+weave _hex with c as int into string:
+    var digits as string is "0123456789ABCDEF"
+    var hi as int is c / 16
+    var lo as int is c % 16
+    return "{digits at hi}{digits at lo}"
+
+## Value of one hex digit, or -1.
+weave _hex_value with ch as string into int:
+    var c as int is ord ch
+    if c >= 48 and c <= 57:
+        return c - 48
+    if c >= 65 and c <= 70:
+        return c - 55
+    if c >= 97 and c <= 102:
+        return c - 87
+    return -1
+
+## Decodes one UTF-8 code point as a string.
+weave _utf8_char with code as int into string:
+    if code < 128:
+        return "{calling _byte_char with code}"
+    if code < 2048:
+        return "{calling _byte_char with 192 + (code / 64)}{calling _byte_char with 128 + (code % 64)}"
+    return "{calling _byte_char with 224 + (code / 4096)}{calling _byte_char with 128 + ((code / 64) % 64)}{calling _byte_char with 128 + (code % 64)}"
+
+## Builds a one-byte string without going through char literals.
+weave _byte_char with code as int into string:
+    if code < 0 or code > 255:
+        return ""
+    var sb as builder.StringBuilder is calling builder.new
+    defer banish sb
+    var ch as char is code to char
+    calling sb.append_char with ch
+    return calling sb.to_string
+
+## Decodes form data: `+` becomes a space before percent decoding.
+weave _decode_form with text as string into result of string to string:
+    var plus as string is "{text}"
+    calling plus.replace_all with "+", " "
+    var decoded as result of string to string is calling decode_component with plus
+    banish plus
+    return decoded
+
+## Releases the strings in a split list.
+weave _free_parts with parts as list of string into void:
+    var i as int is 0
+    while i < parts.len:
+        banish (parts at i)
+        set i is i + 1
+    banish parts

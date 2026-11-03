@@ -25,6 +25,18 @@ rune Canvas:
     _ctx as js.JsValue
     _element as dom.Element
 
+## Text measurements returned by `measure_text`.
+rune TextMetrics:
+    width as f64
+    actual_left as f64
+    actual_right as f64
+    actual_ascent as f64
+    actual_descent as f64
+    font_left as f64
+    font_right as f64
+    font_ascent as f64
+    font_descent as f64
+
 when wasm:
 
     ## Looks up `selector` and calls `getContext("2d")`.
@@ -355,17 +367,32 @@ when wasm:
     weave stroke_text with c as Canvas, text as string, x as f64, y as f64 into result of bool to js.JsError:
         return calling _void_text with c, "strokeText", text, [x, y]
 
-    ## `ctx.measureText(text).width`.
-    weave measure_text_width with c as Canvas, text as string into result of f64 to js.JsError:
+    ## `ctx.measureText(text)` with the standard `TextMetrics` fields.
+    weave measure_text with c as Canvas, text as string into result of TextMetrics to js.JsError:
         var m as result of js.JsValue to js.JsError is calling _call_text with c, "measureText", text, (calling _empty_numbers)
         if not m.is_ok:
             return calling err_of with m.error
         defer calling js.release with m.value
-        var w as result of js.JsValue to js.JsError is calling js.get with m.value, "width"
+        var w as result of f64 to js.JsError is calling _metric with m.value, "width"
         if not w.is_ok:
             return calling err_of with w.error
-        defer calling js.release with w.value
-        return calling js.to_f64 with w.value
+        var metrics as TextMetrics is with width is w.value, actual_left is 0.0, actual_right is 0.0, actual_ascent is 0.0, actual_descent is 0.0, font_left is 0.0, font_right is 0.0, font_ascent is 0.0, font_descent is 0.0
+        set metrics.actual_left is (calling _metric_or_zero with m.value, "actualBoundingBoxLeft")
+        set metrics.actual_right is (calling _metric_or_zero with m.value, "actualBoundingBoxRight")
+        set metrics.actual_ascent is (calling _metric_or_zero with m.value, "actualBoundingBoxAscent")
+        set metrics.actual_descent is (calling _metric_or_zero with m.value, "actualBoundingBoxDescent")
+        set metrics.font_left is (calling _metric_or_zero with m.value, "fontBoundingBoxLeft")
+        set metrics.font_right is (calling _metric_or_zero with m.value, "fontBoundingBoxRight")
+        set metrics.font_ascent is (calling _metric_or_zero with m.value, "fontBoundingBoxAscent")
+        set metrics.font_descent is (calling _metric_or_zero with m.value, "fontBoundingBoxDescent")
+        return calling ok_of with metrics
+
+    ## `ctx.measureText(text).width`.
+    weave measure_text_width with c as Canvas, text as string into result of f64 to js.JsError:
+        var m as result of TextMetrics to js.JsError is calling measure_text with c, text
+        if not m.is_ok:
+            return calling err_of with m.error
+        return calling ok_of with m.value.width
 
     ## `ctx.drawImage(image, dx, dy)`.
     weave draw_image with c as Canvas, image as dom.Element, dx as f64, dy as f64 into result of bool to js.JsError:
@@ -382,6 +409,94 @@ when wasm:
             return calling err_of with r.error
         defer calling js.release with r.value
         return calling js.to_string with r.value
+
+    ## Reads an `ImageData` snapshot. The caller owns the returned handle and
+    ## must release it with `js.release`.
+    weave get_image_data with c as Canvas, x as f64, y as f64, width as f64, height as f64 into result of js.JsValue to js.JsError:
+        return calling _call_numbers with c, "getImageData", [x, y, width, height]
+
+    ## Writes `data` (an `ImageData` handle) at `(dx, dy)`.
+    weave put_image_data with c as Canvas, data as js.JsValue, dx as f64, dy as f64 into result of bool to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with data
+        var hx as result of js.JsValue to js.JsError is calling js.from_f64 with dx
+        if not hx.is_ok:
+            return calling err_of with hx.error
+        calling args.push with hx.value
+        var hy as result of js.JsValue to js.JsError is calling js.from_f64 with dy
+        if not hy.is_ok:
+            calling js.release with hx.value
+            return calling err_of with hy.error
+        calling args.push with hy.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with c._ctx, "putImageData", args
+        calling js.release with hx.value
+        calling js.release with hy.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Creates an empty `ImageData` of `width` x `height`. The caller owns it.
+    weave create_image_data with c as Canvas, width as f64, height as f64 into result of js.JsValue to js.JsError:
+        return calling js.call_method_f64 with c._ctx, "createImageData", width, height, 0.0, 0.0, 0.0, 0.0, 2
+
+    ## Sets the backing-store size in device pixels.
+    weave set_size with c as Canvas, width as int, height as int into result of bool to js.JsError:
+        var w as result of js.JsValue to js.JsError is calling js.from_int with width
+        if not w.is_ok:
+            return calling err_of with w.error
+        defer calling js.release with w.value
+        var h as result of js.JsValue to js.JsError is calling js.from_int with height
+        if not h.is_ok:
+            return calling err_of with h.error
+        defer calling js.release with h.value
+        var raw as js.JsValue is (calling dom.raw with c._element)
+        var a as result of bool to js.JsError is calling js.set with raw, "width", w.value
+        if not a.is_ok:
+            return calling err_of with a.error
+        return calling js.set with raw, "height", h.value
+
+    ## Creates a DPR-aware canvas for `selector`: sets the backing store to
+    ## `css_size * devicePixelRatio`, keeps the CSS size, and scales the context.
+    weave fit_display with selector as string, dpr as bool is true into result of Canvas to js.JsError:
+        var c as result of Canvas to js.JsError is calling context2d with selector
+        if not c.is_ok:
+            return calling err_of with c.error
+        var cw as result of int to js.JsError is calling dom.client_width with c.value._element
+        if not cw.is_ok:
+            calling free with (sigil of c.value)
+            return calling err_of with cw.error
+        var ch as result of int to js.JsError is calling dom.client_height with c.value._element
+        if not ch.is_ok:
+            calling free with (sigil of c.value)
+            return calling err_of with ch.error
+        var ratio as result of f64 to js.JsError is calling _device_pixel_ratio
+        if not ratio.is_ok:
+            calling free with (sigil of c.value)
+            return calling err_of with ratio.error
+        var scale_value as f64 is ratio.value
+        if not dpr:
+            set scale_value is 1.0
+        var pw as int is ((cw.value to f64) * scale_value) to int
+        var ph as int is ((ch.value to f64) * scale_value) to int
+        var sized as result of bool to js.JsError is calling set_size with c.value, pw, ph
+        if not sized.is_ok:
+            calling free with (sigil of c.value)
+            return calling err_of with sized.error
+        var sw as result of bool to js.JsError is calling dom.set_style with c.value._element, "width", "{cw.value}px"
+        if not sw.is_ok:
+            calling free with (sigil of c.value)
+            return calling err_of with sw.error
+        var sh as result of bool to js.JsError is calling dom.set_style with c.value._element, "height", "{ch.value}px"
+        if not sh.is_ok:
+            calling free with (sigil of c.value)
+            return calling err_of with sh.error
+        var scaled as result of bool to js.JsError is calling scale with c.value, scale_value, scale_value
+        if not scaled.is_ok:
+            calling free with (sigil of c.value)
+            return calling err_of with scaled.error
+        return c
 
     ## Calls a method with numeric arguments and discards its result.
     ## Empty numeric argument list.
@@ -473,6 +588,36 @@ when wasm:
         while i < args.len:
             calling js.release with (args at i)
             set i is i + 1
+
+    ## Reads one metric as `f64`.
+    weave _metric with metrics as js.JsValue, name as string into result of f64 to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.get with metrics, name
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.to_f64 with v.value
+
+    ## Reads one optional metric; missing browser fields become `0.0`.
+    weave _metric_or_zero with metrics as js.JsValue, name as string into f64:
+        var v as result of f64 to js.JsError is calling _metric with metrics, name
+        if not v.is_ok:
+            banish v.error.name
+            banish v.error.message
+            banish v.error.stack
+            return 0.0
+        return v.value
+
+    ## `window.devicePixelRatio`, defaulting to `1.0`.
+    weave _device_pixel_ratio into result of f64 to js.JsError:
+        var g as js.JsValue is calling js.global
+        var v as result of js.JsValue to js.JsError is calling js.get with g, "devicePixelRatio"
+        if not v.is_ok:
+            return calling ok_of with 1.0
+        defer calling js.release with v.value
+        var n as result of f64 to js.JsError is calling js.to_f64 with v.value
+        if not n.is_ok or n.value <= 0.0:
+            return calling ok_of with 1.0
+        return n
 
     ## Builds a structured error.
     weave _error with message as string into js.JsError:
@@ -612,7 +757,19 @@ when not wasm:
         return calling err_of with (calling js.last_error)
     weave stroke_text with c as Canvas, text as string, x as f64, y as f64 into result of bool to js.JsError:
         return calling err_of with (calling js.last_error)
+    weave measure_text with c as Canvas, text as string into result of TextMetrics to js.JsError:
+        return calling err_of with (calling js.last_error)
     weave measure_text_width with c as Canvas, text as string into result of f64 to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave get_image_data with c as Canvas, x as f64, y as f64, width as f64, height as f64 into result of js.JsValue to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave put_image_data with c as Canvas, data as js.JsValue, dx as f64, dy as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave create_image_data with c as Canvas, width as f64, height as f64 into result of js.JsValue to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_size with c as Canvas, width as int, height as int into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave fit_display with selector as string, dpr as bool is true into result of Canvas to js.JsError:
         return calling err_of with (calling js.last_error)
     weave draw_image with c as Canvas, image as dom.Element, dx as f64, dy as f64 into result of bool to js.JsError:
         return calling err_of with (calling js.last_error)

@@ -1,0 +1,303 @@
+## std.web.browser — window-level browser APIs.
+##
+## WebAssembly-only. Geometry, scrolling, viewport metrics, simple dialogs,
+## safe navigation and window event subscriptions. Event callbacks receive the
+## raw event handle as `js.JsValue`; use `std.web.event` to read it.
+##
+## ```pengu
+## weave on_resize with ev as js.JsValue into void:
+##     var w as result of browser.inner_width to js.JsError is calling browser.inner_width
+##     if w.is_ok:
+##         calling std.web.console_log with "width {w.value}"
+## ```
+##
+## Window listeners are `dom.Listener` values. Always pair `on_*` with
+## `dom.off` (or `browser.off`) so the callback slot and retained window handle
+## are released.
+
+import std.web.dom as dom
+import std.web.js as js
+import std.web.security as security
+
+const BROWSER_VERSION as string is "1.0.0"
+
+when wasm:
+
+    ## `window.innerWidth`.
+    weave inner_width into result of f64 to js.JsError:
+        return calling _number_prop with "innerWidth"
+
+    ## `window.innerHeight`.
+    weave inner_height into result of f64 to js.JsError:
+        return calling _number_prop with "innerHeight"
+
+    ## `window.scrollX`.
+    weave scroll_x into result of f64 to js.JsError:
+        return calling _number_prop with "scrollX"
+
+    ## `window.scrollY`.
+    weave scroll_y into result of f64 to js.JsError:
+        return calling _number_prop with "scrollY"
+
+    ## `window.devicePixelRatio`, defaulting to `1.0`.
+    weave device_pixel_ratio into result of f64 to js.JsError:
+        var n as result of f64 to js.JsError is calling _number_prop with "devicePixelRatio"
+        if not n.is_ok or n.value <= 0.0:
+            return calling ok_of with 1.0
+        return n
+
+    ## `window.alert(message)`.
+    weave alert with message as string into result of bool to js.JsError:
+        var r as result of js.JsValue to js.JsError is calling _call_text with "alert", message
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## `window.confirm(message)`.
+    weave confirm with message as string into result of bool to js.JsError:
+        var r as result of js.JsValue to js.JsError is calling _call_text with "confirm", message
+        if not r.is_ok:
+            return calling err_of with r.error
+        defer calling js.release with r.value
+        return calling js.to_bool with r.value
+
+    ## `window.prompt(message, default)`; `none` when the user cancels.
+    weave prompt with message as string, default_text as string into result of maybe string to js.JsError:
+        var w as result of dom.Element to js.JsError is calling dom.window
+        if not w.is_ok:
+            return calling err_of with w.error
+        defer calling dom.free with (sigil of w.value)
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var m as result of js.JsValue to js.JsError is calling js.string with message
+        if not m.is_ok:
+            return calling err_of with m.error
+        calling args.push with m.value
+        var d as result of js.JsValue to js.JsError is calling js.string with default_text
+        if not d.is_ok:
+            calling js.release with m.value
+            return calling err_of with d.error
+        calling args.push with d.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with (calling dom.raw with w.value), "prompt", args
+        calling js.release with m.value
+        calling js.release with d.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        if calling js.is_null with r.value:
+            calling js.release with r.value
+            return calling ok_of with (maybe none)
+        defer calling js.release with r.value
+        var text as result of string to js.JsError is calling js.to_string with r.value
+        if not text.is_ok:
+            return calling err_of with text.error
+        return calling ok_of with (some text.value)
+
+    ## Opens `url` in a new tab after checking the URL policy.
+    weave open_url with url as string into result of bool to js.JsError:
+        if not calling security.is_safe_url with url:
+            return calling err_of with (calling _error with "unsafe URL: {url}")
+        var w as result of dom.Element to js.JsError is calling dom.window
+        if not w.is_ok:
+            return calling err_of with w.error
+        defer calling dom.free with (sigil of w.value)
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var u as result of js.JsValue to js.JsError is calling js.string with url
+        if not u.is_ok:
+            return calling err_of with u.error
+        calling args.push with u.value
+        var target as result of js.JsValue to js.JsError is calling js.string with "_blank"
+        if not target.is_ok:
+            calling js.release with u.value
+            return calling err_of with target.error
+        calling args.push with target.value
+        var features as result of js.JsValue to js.JsError is calling js.string with "noopener,noreferrer"
+        if not features.is_ok:
+            calling js.release with u.value
+            calling js.release with target.value
+            return calling err_of with features.error
+        calling args.push with features.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with (calling dom.raw with w.value), "open", args
+        calling js.release with u.value
+        calling js.release with target.value
+        calling js.release with features.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## `window.location.reload()`.
+    weave reload into result of bool to js.JsError:
+        var w as result of dom.Element to js.JsError is calling dom.window
+        if not w.is_ok:
+            return calling err_of with w.error
+        defer calling dom.free with (sigil of w.value)
+        var loc as result of js.JsValue to js.JsError is calling js.get with (calling dom.raw with w.value), "location"
+        if not loc.is_ok:
+            return calling err_of with loc.error
+        defer calling js.release with loc.value
+        var q as result of js.JsValue to js.JsError is calling js.call_method with loc.value, "reload", list of js.JsValue
+        if not q.is_ok:
+            return calling err_of with q.error
+        calling js.release with q.value
+        return calling ok_of with true
+
+    ## `window.scrollTo(x, y)`.
+    weave scroll_to with x as f64, y as f64 into result of bool to js.JsError:
+        return calling _call_numbers with "scrollTo", [x, y]
+
+    ## `window.scrollBy(x, y)`.
+    weave scroll_by with x as f64, y as f64 into result of bool to js.JsError:
+        return calling _call_numbers with "scrollBy", [x, y]
+
+    ## `window.matchMedia(query).matches`.
+    weave match_media with query as string into result of bool to js.JsError:
+        var m as result of js.JsValue to js.JsError is calling _call_text with "matchMedia", query
+        if not m.is_ok:
+            return calling err_of with m.error
+        defer calling js.release with m.value
+        var v as result of js.JsValue to js.JsError is calling js.get with m.value, "matches"
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.to_bool with v.value
+
+    ## `window.addEventListener("resize", cb)`.
+    weave on_resize with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        return calling _on with "resize", cb
+
+    ## `window.addEventListener("scroll", cb)`.
+    weave on_scroll with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        return calling _on with "scroll", cb
+
+    ## `window.addEventListener("visibilitychange", cb)`.
+    weave on_visibility with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        return calling _on with "visibilitychange", cb
+
+    ## `document.visibilityState`, e.g. `"visible"` or `"hidden"`.
+    weave visibility_state into result of string to js.JsError:
+        var d as result of dom.Element to js.JsError is calling dom.document
+        if not d.is_ok:
+            return calling err_of with d.error
+        defer calling dom.free with (sigil of d.value)
+        var v as result of js.JsValue to js.JsError is calling js.get with (calling dom.raw with d.value), "visibilityState"
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.to_string with v.value
+
+    ## Removes a listener created by `on_resize`, `on_scroll` or `on_visibility`.
+    weave off with l as ref to dom.Listener into void:
+        calling dom.off with l
+
+    ## Reads a numeric window property.
+    weave _number_prop with name as string into result of f64 to js.JsError:
+        var w as result of dom.Element to js.JsError is calling dom.window
+        if not w.is_ok:
+            return calling err_of with w.error
+        defer calling dom.free with (sigil of w.value)
+        var v as result of js.JsValue to js.JsError is calling js.get with (calling dom.raw with w.value), name
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.to_f64 with v.value
+
+    ## Calls `window[method](text)` and returns the raw result.
+    weave _call_text with method as string, text as string into result of js.JsValue to js.JsError:
+        var w as result of dom.Element to js.JsError is calling dom.window
+        if not w.is_ok:
+            return calling err_of with w.error
+        defer calling dom.free with (sigil of w.value)
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var s as result of js.JsValue to js.JsError is calling js.string with text
+        if not s.is_ok:
+            return calling err_of with s.error
+        calling args.push with s.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with (calling dom.raw with w.value), method, args
+        calling js.release with s.value
+        return r
+
+    ## Calls `window[method](...numbers)` and discards the result.
+    weave _call_numbers with method as string, values as list of f64 into result of bool to js.JsError:
+        var w as result of dom.Element to js.JsError is calling dom.window
+        if not w.is_ok:
+            return calling err_of with w.error
+        defer calling dom.free with (sigil of w.value)
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var i as int is 0
+        while i < values.len:
+            var h as result of js.JsValue to js.JsError is calling js.from_f64 with (values at i)
+            if not h.is_ok:
+                calling _release with args
+                banish values
+                return calling err_of with h.error
+            calling args.push with h.value
+            set i is i + 1
+        var r as result of js.JsValue to js.JsError is calling js.call_method with (calling dom.raw with w.value), method, args
+        calling _release with args
+        banish values
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Subscribes to a window event through `dom.on`.
+    weave _on with event as string, cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        var w as result of dom.Element to js.JsError is calling dom.window
+        if not w.is_ok:
+            return calling err_of with w.error
+        defer calling dom.free with (sigil of w.value)
+        return calling dom.on with w.value, event, cb
+
+    ## Releases a list of numeric handles.
+    weave _release with args as list of js.JsValue into void:
+        var i as int is 0
+        while i < args.len:
+            calling js.release with (args at i)
+            set i is i + 1
+
+    ## Builds a structured error.
+    weave _error with message as string into js.JsError:
+        return with name is "BrowserError", message is message, stack is ""
+
+when not wasm:
+
+    weave inner_width into result of f64 to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave inner_height into result of f64 to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave scroll_x into result of f64 to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave scroll_y into result of f64 to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave device_pixel_ratio into result of f64 to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave alert with message as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave confirm with message as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave prompt with message as string, default_text as string into result of maybe string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave open_url with url as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave reload into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave scroll_to with x as f64, y as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave scroll_by with x as f64, y as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave match_media with query as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave on_resize with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave on_scroll with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave on_visibility with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave visibility_state into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave off with l as ref to dom.Listener into void:
+        return

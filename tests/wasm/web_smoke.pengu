@@ -121,7 +121,13 @@ function makeContext() {
     roundRect: function() { }, fill: function() { }, stroke: function() { }, clip: function() { },
     fillRect: function() { }, strokeRect: function() { }, clearRect: function() { },
     fillText: function() { }, strokeText: function() { },
-    measureText: function(t) { return { width: String(t).length * 7 }; },
+    measureText: function(t) { return { width: String(t).length * 7,
+        actualBoundingBoxLeft: 1, actualBoundingBoxRight: 2,
+        actualBoundingBoxAscent: 3, actualBoundingBoxDescent: 4,
+        fontBoundingBoxAscent: 5, fontBoundingBoxDescent: 6 }; },
+    getImageData: function(x, y, w, h) { return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }; },
+    putImageData: function() {},
+    createImageData: function(w, h) { return { width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }; },
     toDataURL: function() { return "data:image/png;base64,AAAA"; }
   };
 }
@@ -327,6 +333,29 @@ weave main into int:
         calling spark.println with "data url failed"
         return 1
     banish url.value
+    var tm as result of canvas.TextMetrics to js.JsError is calling canvas.measure_text with cv.value, "abcd"
+    if not tm.is_ok or tm.value.width != 28.0 or tm.value.actual_ascent != 3.0 or tm.value.font_descent != 6.0:
+        calling spark.println with "text metrics failed"
+        return 1
+    var img as result of js.JsValue to js.JsError is calling canvas.get_image_data with cv.value, 0.0, 0.0, 2.0, 2.0
+    if not img.is_ok:
+        calling spark.println with "get image data failed"
+        return 1
+    var put as result of bool to js.JsError is calling canvas.put_image_data with cv.value, img.value, 0.0, 0.0
+    if not put.is_ok:
+        calling spark.println with "put image data failed"
+        return 1
+    calling js.release with img.value
+    var made as result of js.JsValue to js.JsError is calling canvas.create_image_data with cv.value, 2.0, 2.0
+    if not made.is_ok:
+        calling spark.println with "create image data failed"
+        return 1
+    calling js.release with made.value
+    var fit as result of canvas.Canvas to js.JsError is calling canvas.fit_display with "#canvas", true
+    if not fit.is_ok:
+        calling spark.println with "fit display failed"
+        return 1
+    calling canvas.free with (sigil of fit.value)
     calling canvas.free with (sigil of cv.value)
 
     var setr as result of bool to js.JsError is calling storage.local_set with "k", "v"

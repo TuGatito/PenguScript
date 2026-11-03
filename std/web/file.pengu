@@ -1,0 +1,68 @@
+## std.web.file — browser file picking, reading and downloads.
+##
+## WebAssembly-only. Reading is asynchronous and takes a raw `JsValue` callback
+## pair; turn the payload into text with `text_from`. `save_text` triggers a
+## normal browser download and is synchronous.
+##
+## ```pengu
+## weave on_text with value as js.JsValue into void:
+##     var t as result of string to js.JsError is calling file.text_from with value
+##     if t.is_ok:
+##         calling std.web.console_log with t.value
+##         banish t.value
+##
+## calling file.pick_text with "text/*", on_text, on_error
+## ```
+
+import std.web.js as js
+
+alias Value as js.JsValue
+
+const FILE_VERSION as string is "1.0.0"
+
+when wasm:
+
+    ## Opens a file picker filtered by `accept` and reads the file as text.
+    weave pick_text with accept as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void into result of bool to js.JsError:
+        return calling js.file_pick_text with accept, on_ok, on_err
+
+    ## Reads a `File` handle as text.
+    weave read_text with handle as js.JsValue, on_ok as weave with value as Value into void, on_err as weave with value as Value into void into result of bool to js.JsError:
+        return calling js.file_read_text with handle, on_ok, on_err
+
+    ## Reads a `File` handle as a data URL (useful for previews and `draw_image`).
+    weave read_data_url with handle as js.JsValue, on_ok as weave with value as Value into void, on_err as weave with value as Value into void into result of bool to js.JsError:
+        return calling js.file_read_data_url with handle, on_ok, on_err
+
+    ## Saves `text` as a download named `name` with `mime`.
+    weave save_text with text as string, name as string, mime as string into result of bool to js.JsError:
+        return calling js.file_save_text with text, name, mime
+
+    ## Reads a callback payload as text.
+    weave text_from with value as js.JsValue into result of string to js.JsError:
+        return calling js.to_string with value
+
+    ## Reads a callback payload as an owned error.
+    weave error_from with value as js.JsValue into js.JsError:
+        var n as result of string to js.JsError is calling js.get with value, "name"
+        var m as result of string to js.JsError is calling js.get with value, "message"
+        var st as result of string to js.JsError is calling js.get with value, "stack"
+        var name as string is if n.is_ok then n.value else "Error"
+        var message as string is if m.is_ok then m.value else "file operation failed"
+        var stack as string is if st.is_ok then st.value else ""
+        return with name is name, message is message, stack is stack
+
+when not wasm:
+
+    weave pick_text with accept as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave read_text with handle as js.JsValue, on_ok as weave with value as Value into void, on_err as weave with value as Value into void into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave read_data_url with handle as js.JsValue, on_ok as weave with value as Value into void, on_err as weave with value as Value into void into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave save_text with text as string, name as string, mime as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave text_from with value as js.JsValue into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave error_from with value as js.JsValue into js.JsError:
+        return calling js.last_error

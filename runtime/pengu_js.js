@@ -634,6 +634,168 @@ mergeInto(LibraryManager.library, {
         return PENGU_JS.ws.size | 0;
     },
 
+    pengu_js_sha256: function (textPtr, okSlot, errSlot, okHandle, errHandle) {
+        try {
+            var g = typeof globalThis !== "undefined" ? globalThis : self;
+            if (!g.crypto || !g.crypto.subtle || typeof TextEncoder === "undefined") {
+                throw new Error("crypto.subtle is not available");
+            }
+            var bytes = new TextEncoder().encode(UTF8ToString(textPtr));
+            g.crypto.subtle.digest("SHA-256", bytes).then(function (buffer) {
+                var view = new Uint8Array(buffer);
+                var hex = "";
+                for (var i = 0; i < view.length; i++) {
+                    hex += view[i].toString(16).padStart(2, "0");
+                }
+                pengu_js_settle(okSlot, okHandle, errSlot, errHandle, true, hex);
+            }, function (e) {
+                pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false, e);
+            });
+            return 0;
+        } catch (e) {
+            pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false, e);
+            return -1;
+        }
+    },
+
+    pengu_js_hmac_sha256: function (textPtr, keyPtr, okSlot, errSlot, okHandle, errHandle) {
+        try {
+            var g = typeof globalThis !== "undefined" ? globalThis : self;
+            if (!g.crypto || !g.crypto.subtle || typeof TextEncoder === "undefined") {
+                throw new Error("crypto.subtle is not available");
+            }
+            var encoder = new TextEncoder();
+            var keyBytes = encoder.encode(UTF8ToString(keyPtr));
+            var msgBytes = encoder.encode(UTF8ToString(textPtr));
+            g.crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" },
+                false, ["sign"]).then(function (key) {
+                return g.crypto.subtle.sign("HMAC", key, msgBytes);
+            }).then(function (buffer) {
+                var view = new Uint8Array(buffer);
+                var hex = "";
+                for (var i = 0; i < view.length; i++) {
+                    hex += view[i].toString(16).padStart(2, "0");
+                }
+                pengu_js_settle(okSlot, okHandle, errSlot, errHandle, true, hex);
+            }, function (e) {
+                pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false, e);
+            });
+            return 0;
+        } catch (e) {
+            pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false, e);
+            return -1;
+        }
+    },
+
+    pengu_js_file_pick: function (acceptPtr, okSlot, errSlot, okHandle, errHandle) {
+        try {
+            if (typeof document === "undefined") {
+                throw new Error("document is not available");
+            }
+            var input = document.createElement("input");
+            input.type = "file";
+            var accept = UTF8ToString(acceptPtr);
+            if (accept) {
+                input.accept = accept;
+            }
+            input.style.display = "none";
+            input.addEventListener("change", function () {
+                var file = input.files && input.files[0];
+                if (!file) {
+                    pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false,
+                        new Error("no file selected"));
+                    return;
+                }
+                pengu_js_read_file(file, "text", okSlot, errSlot, okHandle, errHandle);
+            });
+            document.body.appendChild(input);
+            input.click();
+            return 0;
+        } catch (e) {
+            pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false, e);
+            return -1;
+        }
+    },
+
+    pengu_js_file_read_text: function (fileHandle, okSlot, errSlot, okHandle, errHandle) {
+        try {
+            var file = pengu_js_unwrap(fileHandle);
+            pengu_js_read_file(file, "text", okSlot, errSlot, okHandle, errHandle);
+            return 0;
+        } catch (e) {
+            pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false, e);
+            return -1;
+        }
+    },
+
+    pengu_js_file_read_data_url: function (fileHandle, okSlot, errSlot, okHandle, errHandle) {
+        try {
+            var file = pengu_js_unwrap(fileHandle);
+            pengu_js_read_file(file, "dataurl", okSlot, errSlot, okHandle, errHandle);
+            return 0;
+        } catch (e) {
+            pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false, e);
+            return -1;
+        }
+    },
+
+    pengu_js_file_save: function (textPtr, namePtr, mimePtr) {
+        try {
+            var text = UTF8ToString(textPtr);
+            var name = UTF8ToString(namePtr) || "download.txt";
+            var mime = UTF8ToString(mimePtr) || "text/plain;charset=utf-8";
+            var blob = new Blob([text], { type: mime });
+            var url = URL.createObjectURL(blob);
+            var link = document.createElement("a");
+            link.href = url;
+            link.download = name;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+            return 0;
+        } catch (e) {
+            pengu_js_fail(e);
+            return -1;
+        }
+    },
+
+    pengu_js_clipboard_write_text: function (textPtr, okSlot, errSlot, okHandle, errHandle) {
+        try {
+            var clipboard = navigator.clipboard;
+            if (!clipboard || typeof clipboard.writeText !== "function") {
+                throw new Error("navigator.clipboard.writeText is not available");
+            }
+            clipboard.writeText(UTF8ToString(textPtr)).then(function () {
+                pengu_js_settle(okSlot, okHandle, errSlot, errHandle, true, true);
+            }, function (e) {
+                pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false, e);
+            });
+            return 0;
+        } catch (e) {
+            pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false, e);
+            return -1;
+        }
+    },
+
+    pengu_js_clipboard_read_text: function (okSlot, errSlot, okHandle, errHandle) {
+        try {
+            var clipboard = navigator.clipboard;
+            if (!clipboard || typeof clipboard.readText !== "function") {
+                throw new Error("navigator.clipboard.readText is not available");
+            }
+            clipboard.readText().then(function (text) {
+                pengu_js_settle(okSlot, okHandle, errSlot, errHandle, true, text);
+            }, function (e) {
+                pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false, e);
+            });
+            return 0;
+        } catch (e) {
+            pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false, e);
+            return -1;
+        }
+    },
+
     pengu_js_canvas_call: function (context, methodPtr, a, b, c, d) {
         try {
             var target = pengu_js_unwrap(context);

@@ -1,0 +1,163 @@
+## std.web.history — the `window.history` object.
+##
+## WebAssembly-only. `push_state`/`replace_state` store a caller-provided
+## `JsValue` (use `js.object` or `js.parse_json`); the history entry keeps a
+## retained reference and `state` returns a new owned handle.
+##
+## ```pengu
+## var s as result of js.JsValue to js.JsError is calling js.parse_json with "{\"page\":1}"
+## if s.is_ok:
+##     var r as result of bool to js.JsError is calling history.push_state with s.value, "", "/page/1"
+## ```
+
+import std.web.dom as dom
+import std.web.js as js
+
+const HISTORY_VERSION as string is "1.0.0"
+
+when wasm:
+
+    ## Number of entries in the session history.
+    weave length into result of int to js.JsError:
+        var h as result of js.JsValue to js.JsError is calling _history
+        if not h.is_ok:
+            return calling err_of with h.error
+        defer calling js.release with h.value
+        var v as result of js.JsValue to js.JsError is calling js.get with h.value, "length"
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        var n as result of f64 to js.JsError is calling js.to_f64 with v.value
+        if not n.is_ok:
+            return calling err_of with n.error
+        return calling ok_of with (n.value to int)
+
+    ## Current `history.state` as an owned handle.
+    weave state into result of js.JsValue to js.JsError:
+        var h as result of js.JsValue to js.JsError is calling _history
+        if not h.is_ok:
+            return calling err_of with h.error
+        defer calling js.release with h.value
+        return calling js.get with h.value, "state"
+
+    ## `history.pushState(state, title, url)`.
+    weave push_state with value as js.JsValue, title as string, target as string into result of bool to js.JsError:
+        return calling _state_call with "pushState", value, title, target
+
+    ## `history.replaceState(state, title, url)`.
+    weave replace_state with value as js.JsValue, title as string, target as string into result of bool to js.JsError:
+        return calling _state_call with "replaceState", value, title, target
+
+    ## `history.back()`.
+    weave back into result of bool to js.JsError:
+        return calling _call0 with "back"
+
+    ## `history.forward()`.
+    weave forward into result of bool to js.JsError:
+        return calling _call0 with "forward"
+
+    ## `history.go(delta)`.
+    weave go with delta as int into result of bool to js.JsError:
+        var h as result of js.JsValue to js.JsError is calling _history
+        if not h.is_ok:
+            return calling err_of with h.error
+        defer calling js.release with h.value
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var d as result of js.JsValue to js.JsError is calling js.from_int with delta
+        if not d.is_ok:
+            return calling err_of with d.error
+        calling args.push with d.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with h.value, "go", args
+        calling js.release with d.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## `window.addEventListener("popstate", cb)`.
+    weave on_pop with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        var w as result of dom.Element to js.JsError is calling dom.window
+        if not w.is_ok:
+            return calling err_of with w.error
+        defer calling dom.free with (sigil of w.value)
+        return calling dom.on with w.value, "popstate", cb
+
+    ## Removes a listener created by `on_pop`.
+    weave off with l as ref to dom.Listener into void:
+        calling dom.off with l
+
+    ## Fetches `globalThis.history`.
+    weave _history into result of js.JsValue to js.JsError:
+        var g as js.JsValue is calling js.global
+        defer calling js.release with g
+        var h as result of js.JsValue to js.JsError is calling js.get with g, "history"
+        if not h.is_ok:
+            return calling err_of with h.error
+        if calling js.is_null with h.value or calling js.is_undefined with h.value:
+            calling js.release with h.value
+            return calling err_of with (calling _error with "history is not available")
+        return h
+
+    ## Calls `history[method](state, title, url)`.
+    weave _state_call with method as string, value as js.JsValue, title as string, target as string into result of bool to js.JsError:
+        var h as result of js.JsValue to js.JsError is calling _history
+        if not h.is_ok:
+            return calling err_of with h.error
+        defer calling js.release with h.value
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var t as result of js.JsValue to js.JsError is calling js.string with title
+        if not t.is_ok:
+            return calling err_of with t.error
+        var u as result of js.JsValue to js.JsError is calling js.string with target
+        if not u.is_ok:
+            calling js.release with t.value
+            return calling err_of with u.error
+        calling args.push with value
+        calling args.push with t.value
+        calling args.push with u.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with h.value, method, args
+        calling js.release with t.value
+        calling js.release with u.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Calls a zero-argument history method.
+    weave _call0 with method as string into result of bool to js.JsError:
+        var h as result of js.JsValue to js.JsError is calling _history
+        if not h.is_ok:
+            return calling err_of with h.error
+        defer calling js.release with h.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with h.value, method, list of js.JsValue
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Builds a structured error.
+    weave _error with message as string into js.JsError:
+        return with name is "HistoryError", message is message, stack is ""
+
+when not wasm:
+
+    weave length into result of int to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave state into result of js.JsValue to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave push_state with value as js.JsValue, title as string, target as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave replace_state with value as js.JsValue, title as string, target as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave back into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave forward into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave go with delta as int into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave on_pop with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave off with l as ref to dom.Listener into void:
+        return

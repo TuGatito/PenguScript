@@ -10,6 +10,14 @@ import std.web.storage as storage
 import std.web.websocket as ws
 import std.web.http as http
 import std.web.js as js
+import std.web.browser as browser
+import std.web.clipboard as clipboard
+import std.web.crypto as crypto
+import std.web.file as fileio
+import std.web.history as history
+import std.web.location as location
+import std.web.router as router
+import std.web.url as url
 
 weave on_text with text as string into void:
     return
@@ -71,6 +79,54 @@ weave main into int:
     var f as result of bool to js.JsError is calling http.get with "data:text/plain,ok", on_value, on_value
     if not f.is_ok:
         calling drop_js_error with f.error
+
+    var bw as result of f64 to js.JsError is calling browser.inner_width
+    if not bw.is_ok:
+        calling drop_js_error with bw.error
+
+    var lp as result of string to js.JsError is calling location.pathname
+    if lp.is_ok:
+        banish lp.value
+    else:
+        calling drop_js_error with lp.error
+
+    var hl as result of int to js.JsError is calling history.length
+    if not hl.is_ok:
+        calling drop_js_error with hl.error
+
+    var rt as maybe list of url.Param is calling router.match with "/a/:id", "/a/1"
+    if rt is present:
+        calling router.free_params with rt.value
+
+    var up as result of url.Url to string is calling url.parse with "https://example.com/a"
+    if up.is_ok:
+        calling spark.println with "url host {up.value.host}"
+    else:
+        calling spark.println with up.error
+
+    var uid as result of string to js.JsError is calling crypto.uuid_v4
+    if uid.is_ok:
+        banish uid.value
+    else:
+        calling drop_js_error with uid.error
+
+    var sha as result of bool to js.JsError is calling crypto.sha256_hex with "abc", on_value, on_value
+    if not sha.is_ok:
+        calling drop_js_error with sha.error
+
+    var cw as result of bool to js.JsError is calling clipboard.write with "x", on_value, on_value
+    if not cw.is_ok:
+        calling drop_js_error with cw.error
+
+    var fs as result of bool to js.JsError is calling fileio.save_text with "x", "x.txt", "text/plain"
+    if not fs.is_ok:
+        calling drop_js_error with fs.error
+
+    var ft as result of js.JsValue to js.JsError is calling canvas.get_image_data with c.value, 0.0, 0.0, 1.0, 1.0
+    if ft.is_ok:
+        calling js.release with ft.value
+    else:
+        calling drop_js_error with ft.error
 
     calling spark.println with "web modules compiled"
     return 0

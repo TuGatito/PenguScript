@@ -1,0 +1,54 @@
+## std.web.clipboard — read and write the system clipboard.
+##
+## WebAssembly-only. The API is asynchronous and permission-gated by the
+## browser; both directions take a one-shot raw `JsValue` callback pair.
+##
+## ```pengu
+## weaving on_ok with value as js.JsValue into void:
+##     calling std.web.console_log with "copied"
+## calling clipboard.write with "hola", on_ok, on_error
+## ```
+##
+## Browsers require a secure context (HTTPS or `localhost`) and usually a user
+## gesture.
+
+import std.web.js as js
+
+alias Value as js.JsValue
+
+const CLIPBOARD_VERSION as string is "1.0.0"
+
+when wasm:
+
+    ## `navigator.clipboard.writeText(text)`.
+    weave write with text as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void into result of bool to js.JsError:
+        return calling js.clipboard_write_text with text, on_ok, on_err
+
+    ## `navigator.clipboard.readText()`.
+    weave read with on_ok as weave with value as Value into void, on_err as weave with value as Value into void into result of bool to js.JsError:
+        return calling js.clipboard_read_text with on_ok, on_err
+
+    ## Reads a callback payload as text.
+    weave text_from with value as js.JsValue into result of string to js.JsError:
+        return calling js.to_string with value
+
+    ## Reads a callback payload as an owned error.
+    weave error_from with value as js.JsValue into js.JsError:
+        var n as result of string to js.JsError is calling js.get with value, "name"
+        var m as result of string to js.JsError is calling js.get with value, "message"
+        var st as result of string to js.JsError is calling js.get with value, "stack"
+        var name as string is if n.is_ok then n.value else "Error"
+        var message as string is if m.is_ok then m.value else "clipboard operation failed"
+        var stack as string is if st.is_ok then st.value else ""
+        return with name is name, message is message, stack is stack
+
+when not wasm:
+
+    weave write with text as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave read with on_ok as weave with value as Value into void, on_err as weave with value as Value into void into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave text_from with value as js.JsValue into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave error_from with value as js.JsValue into js.JsError:
+        return calling js.last_error

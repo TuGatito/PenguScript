@@ -1,0 +1,195 @@
+## std.web.location — the `window.location` object.
+##
+## WebAssembly-only. Read URL components, navigate with `assign`/`replace`, or
+## parse `search` with `std.web.url`. `assign` and `replace` reject schemes
+## outside the `std.web.security` allow-list (`javascript:`, unknown schemes),
+## matching the policy used by `dom.set_attr` and `browser.open_url`.
+##
+## ```pengu
+## var path as result of string to js.JsError is calling location.pathname
+## if path.is_ok:
+##     calling std.web.console_log with path.value
+## ```
+
+import std.web.js as js
+import std.web.security as security
+import std.web.url as url
+
+const LOCATION_VERSION as string is "1.0.0"
+
+when wasm:
+
+    ## Full URL.
+    weave href into result of string to js.JsError:
+        return calling _text_prop with "href"
+
+    ## Scheme, host and port.
+    weave origin into result of string to js.JsError:
+        return calling _text_prop with "origin"
+
+    ## `https:`, `http:`, ...
+    weave protocol into result of string to js.JsError:
+        return calling _text_prop with "protocol"
+
+    ## Host including the port.
+    weave host into result of string to js.JsError:
+        return calling _text_prop with "host"
+
+    ## Host without the port.
+    weave hostname into result of string to js.JsError:
+        return calling _text_prop with "hostname"
+
+    ## Port as text (`""` when the scheme default applies).
+    weave port into result of string to js.JsError:
+        return calling _text_prop with "port"
+
+    ## Path beginning with `/`.
+    weave pathname into result of string to js.JsError:
+        return calling _text_prop with "pathname"
+
+    ## Query including the leading `?`, or `""`.
+    weave search into result of string to js.JsError:
+        return calling _text_prop with "search"
+
+    ## Fragment including the leading `#`, or `""`.
+    weave hash into result of string to js.JsError:
+        return calling _text_prop with "hash"
+
+    ## Decoded query parameters.
+    weave search_params into result of list of url.Param to js.JsError:
+        var s as result of string to js.JsError is calling search
+        if not s.is_ok:
+            return calling err_of with s.error
+        var query as string is s.value
+        var trimmed as string is query
+        if trimmed.len > 0 and (trimmed at 0) == "?":
+            var cut as string is calling url._slice with trimmed, 1, trimmed.len
+            banish query
+            set trimmed is cut
+        var out as list of url.Param is calling url.params with trimmed
+        banish trimmed
+        return calling ok_of with out
+
+    ## `location.assign(url)`.
+    weave assign with target as string into result of bool to js.JsError:
+        return calling _navigate with "assign", target
+
+    ## `location.replace(url)` — no new history entry.
+    weave replace with target as string into result of bool to js.JsError:
+        return calling _navigate with "replace", target
+
+    ## `location.reload()`.
+    weave reload into result of bool to js.JsError:
+        var loc as result of js.JsValue to js.JsError is calling _location
+        if not loc.is_ok:
+            return calling err_of with loc.error
+        defer calling js.release with loc.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with loc.value, "reload", list of js.JsValue
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Sets `location.hash` (adds `#` when missing). Does not reload the page.
+    weave set_hash with fragment as string into result of bool to js.JsError:
+        var loc as result of js.JsValue to js.JsError is calling _location
+        if not loc.is_ok:
+            return calling err_of with loc.error
+        defer calling js.release with loc.value
+        var value as string is fragment
+        if value.len == 0 or (value at 0) != "#":
+            var with_hash as string is "#{fragment}"
+            banish value
+            set value is with_hash
+        var h as result of js.JsValue to js.JsError is calling js.string with value
+        banish value
+        if not h.is_ok:
+            return calling err_of with h.error
+        defer calling js.release with h.value
+        return calling js.set with loc.value, "hash", h.value
+
+    ## `location` as a raw handle. The caller must release it.
+    weave handle into result of js.JsValue to js.JsError:
+        return calling _location
+
+    ## Reads a string property.
+    weave _text_prop with name as string into result of string to js.JsError:
+        var loc as result of js.JsValue to js.JsError is calling _location
+        if not loc.is_ok:
+            return calling err_of with loc.error
+        defer calling js.release with loc.value
+        var v as result of js.JsValue to js.JsError is calling js.get with loc.value, name
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.to_string with v.value
+
+    ## Fetches `globalThis.location`.
+    weave _location into result of js.JsValue to js.JsError:
+        var g as js.JsValue is calling js.global
+        defer calling js.release with g
+        var loc as result of js.JsValue to js.JsError is calling js.get with g, "location"
+        if not loc.is_ok:
+            return calling err_of with loc.error
+        if calling js.is_null with loc.value or calling js.is_undefined with loc.value:
+            calling js.release with loc.value
+            return calling err_of with (calling _error with "location is not available")
+        return loc
+
+    ## Calls `location[method](target)`.
+    weave _navigate with method as string, target as string into result of bool to js.JsError:
+        if not calling security.is_safe_url with target:
+            return calling err_of with (calling _error with "unsafe navigation target")
+        var loc as result of js.JsValue to js.JsError is calling _location
+        if not loc.is_ok:
+            return calling err_of with loc.error
+        defer calling js.release with loc.value
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var h as result of js.JsValue to js.JsError is calling js.string with target
+        if not h.is_ok:
+            return calling err_of with h.error
+        calling args.push with h.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with loc.value, method, args
+        calling js.release with h.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Builds a structured error.
+    weave _error with message as string into js.JsError:
+        return with name is "LocationError", message is message, stack is ""
+
+when not wasm:
+
+    weave href into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave origin into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave protocol into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave host into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave hostname into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave port into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave pathname into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave search into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave hash into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave search_params into result of list of url.Param to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave assign with target as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave replace with target as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave reload into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_hash with fragment as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave handle into result of js.JsValue to js.JsError:
+        return calling err_of with (calling js.last_error)

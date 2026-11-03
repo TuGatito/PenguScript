@@ -65,6 +65,7 @@ cp "$ROOT/tests/wasm/std_web_smoke.pengu" "$TMP/std_web_smoke.pengu"
 cp "$ROOT/tests/wasm/leak_smoke.pengu" "$TMP/leak_smoke.pengu"
 cp "$ROOT/tests/wasm/fetch_smoke.pengu" "$TMP/fetch_smoke.pengu"
 cp "$ROOT/tests/wasm/timeout_smoke.pengu" "$TMP/timeout_smoke.pengu"
+cp "$ROOT/tests/wasm/app_smoke.pengu" "$TMP/app_smoke.pengu"
 
 # std.web.js: eval/get/set/call and a C callback invoked from JS.
 check "std.web.js build" "$PSC" build "$TMP/js_smoke.pengu" --target wasm --profile=release --no-cache --out="$TMP/js_smoke"
@@ -96,6 +97,13 @@ check "std.web.http fetch" grep -q 'FETCH OK' <<<"$fetch_out"
 check "std.web.http timeout build" "$PSC" build "$TMP/timeout_smoke.pengu" --target wasm --profile=release --no-cache --out="$TMP/timeout_smoke"
 timeout_out="$(timeout 30 node "$TMP/timeout_smoke.js" 2>/dev/null || true)"
 check "std.web.http timeout" grep -q 'TIMEOUT TimeoutError' <<<"$timeout_out"
+
+# F4–F6 modules: browser/location/history/router/url/crypto/clipboard.
+check "std.web apps build" "$PSC" build "$TMP/app_smoke.pengu" --target wasm --profile=release --no-cache --out="$TMP/app_smoke"
+app_out="$(timeout 30 node "$TMP/app_smoke.js" 2>/dev/null || true)"
+for marker in 'BROWSER OK' 'LOCATION OK' 'LOCATION PARAMS OK' 'LOCATION SAFE OK' 'HISTORY OK' 'UUID OK' 'ROUTER OK' 'URL OK' 'SHA OK' 'HMAC OK' 'FILE OK' 'CLIPBOARD WRITE OK' 'CLIPBOARD READ OK'; do
+  check "std.web apps $marker" grep -q "$marker" <<<"$app_out"
+done
 
 # All web modules must compile and link together (WebSocket/fetch start code).
 check "web modules compile" "$PSC" build "$TMP/web_compile.pengu" --target wasm --profile=release --no-cache --out="$TMP/web_compile"

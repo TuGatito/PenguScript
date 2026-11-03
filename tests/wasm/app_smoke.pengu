@@ -1,0 +1,207 @@
+## F4–F6 smoke test: browser, location, history, router, url, crypto,
+## clipboard and the WebAssembly bridge, under a small Node mock.
+##
+##     ./build/psc build tests/wasm/app_smoke.pengu --target wasm \
+##         --profile=release --no-cache --out=/tmp/app_smoke
+##     node /tmp/app_smoke.js
+
+import std.spark
+import std.web as web
+import std.web.browser as browser
+import std.web.clipboard as clipboard
+import std.web.crypto as crypto
+import std.web.file as fileio
+import std.web.history as history
+import std.web.js as js
+import std.web.location as location
+import std.web.router as router
+import std.web.url as url
+
+weave install_mocks into void:
+    calling js.eval with r"""
+globalThis.window = globalThis;
+globalThis.innerWidth = 1024;
+globalThis.innerHeight = 768;
+globalThis.devicePixelRatio = 2;
+globalThis.location = {
+  href: "https://example.com/app?x=1#/home",
+  origin: "https://example.com",
+  protocol: "https:",
+  host: "example.com",
+  hostname: "example.com",
+  port: "",
+  pathname: "/app",
+  search: "?x=1",
+  hash: "#/home",
+  assign: function (u) { this.href = u; },
+  replace: function (u) { this.href = u; },
+  reload: function () {}
+};
+globalThis.history = {
+  length: 3,
+  state: { page: 1 },
+  pushState: function (s, t, u) { this.state = s; this.length++; },
+  replaceState: function (s, t, u) { this.state = s; },
+  back: function () {},
+  forward: function () {},
+  go: function (n) {}
+};
+Object.defineProperty(globalThis, "navigator", {
+  configurable: true,
+  value: {
+    clipboard: {
+      writeText: function (t) { globalThis.__clip = t; return Promise.resolve(); },
+      readText: function () { return Promise.resolve("pegado"); }
+    }
+  }
+});
+globalThis.FileReader = function () {
+  this.readAsText = function (f) { this.result = "contenido de " + f.name; this.onload(); };
+  this.readAsDataURL = function (f) { this.result = "data:text/plain,hola"; this.onload(); };
+};
+globalThis.document = {
+  visibilityState: "visible",
+  addEventListener: function (t, f) { this.__v = f; },
+  removeEventListener: function () {}
+};
+"""
+
+weave on_sha with value as js.JsValue into void:
+    var r as result of string to js.JsError is calling crypto.text_from with value
+    if r.is_ok:
+        if r.value == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad":
+            calling spark.println with "SHA OK"
+        else:
+            calling spark.println with "SHA BAD"
+        banish r.value
+    else:
+        calling spark.println with "SHA ERR"
+
+weave on_hmac with value as js.JsValue into void:
+    var r as result of string to js.JsError is calling crypto.text_from with value
+    if r.is_ok:
+        if r.value == "39ab146c39786ec386d41ce229664dc6ab26a2a6e017b467ee9c2ecf1bb998c6":
+            calling spark.println with "HMAC OK"
+        else:
+            calling spark.println with "HMAC BAD"
+        banish r.value
+    else:
+        calling spark.println with "HMAC ERR"
+
+weave on_copy with value as js.JsValue into void:
+    calling spark.println with "CLIPBOARD WRITE OK"
+
+weave on_read with value as js.JsValue into void:
+    var r as result of string to js.JsError is calling clipboard.text_from with value
+    if r.is_ok:
+        if r.value == "pegado":
+            calling spark.println with "CLIPBOARD READ OK"
+        else:
+            calling spark.println with "CLIPBOARD BAD"
+        banish r.value
+    else:
+        calling spark.println with "CLIPBOARD READ ERR"
+
+weave on_file with value as js.JsValue into void:
+    var r as result of string to js.JsError is calling fileio.text_from with value
+    if r.is_ok:
+        if r.value == "contenido de a.txt":
+            calling spark.println with "FILE OK"
+        else:
+            calling spark.println with "FILE BAD"
+        banish r.value
+    else:
+        calling spark.println with "FILE ERR"
+
+weave on_error with value as js.JsValue into void:
+    var e as js.JsError is calling js.last_error
+    calling spark.println with "ASYNC ERR {e.message}"
+    banish e.message
+    banish e.name
+    banish e.stack
+
+weave tick with arg as ref to void into void:
+    return
+
+weave main into int:
+    calling install_mocks
+    calling web.set_timeout with tick, 1500.0, null
+
+    var w as result of f64 to js.JsError is calling browser.inner_width
+    if w.is_ok and w.value == 1024.0:
+        calling spark.println with "BROWSER OK"
+    else:
+        calling spark.println with "BROWSER BAD"
+
+    var p as result of string to js.JsError is calling location.pathname
+    if p.is_ok and p.value == "/app":
+        calling spark.println with "LOCATION OK"
+        banish p.value
+    else:
+        calling spark.println with "LOCATION BAD"
+
+    var sp as result of list of url.Param to js.JsError is calling location.search_params
+    if sp.is_ok and sp.value.len == 1:
+        calling spark.println with "LOCATION PARAMS OK"
+        calling url.free_params with sp.value
+    else:
+        calling spark.println with "LOCATION PARAMS BAD"
+
+    var unsafe as result of bool to js.JsError is calling location.assign with "javascript:alert(1)"
+    if unsafe.is_ok:
+        calling spark.println with "LOCATION UNSAFE ACCEPTED"
+    else:
+        calling spark.println with "LOCATION SAFE OK"
+        banish unsafe.error.name
+        banish unsafe.error.message
+        banish unsafe.error.stack
+
+    var hl as result of int to js.JsError is calling history.length
+    if hl.is_ok and hl.value == 3:
+        calling spark.println with "HISTORY OK"
+    else:
+        calling spark.println with "HISTORY BAD"
+
+    var id as result of string to js.JsError is calling crypto.uuid_v4
+    if id.is_ok and id.value.len == 36:
+        calling spark.println with "UUID OK"
+        banish id.value
+    else:
+        calling spark.println with "UUID BAD"
+
+    var route as maybe list of url.Param is calling router.match with "/users/:id/files/*", "/users/42/files/a/b"
+    if route is present and route.value.len == 2:
+        calling spark.println with "ROUTER OK"
+        calling router.free_params with route.value
+    else:
+        calling spark.println with "ROUTER BAD"
+
+    var u as result of url.Url to string is calling url.parse with "https://u@example.com:8080/a/b?q=hi#f"
+    if u.is_ok and u.value.port == "8080":
+        calling spark.println with "URL OK"
+
+    else:
+        calling spark.println with "URL BAD"
+
+    var sha as result of bool to js.JsError is calling crypto.sha256_hex with "abc", on_sha, on_error
+    if not sha.is_ok:
+        calling spark.println with "SHA ERR"
+    var hmac as result of bool to js.JsError is calling crypto.hmac_sha256_hex with "hola", "key", on_hmac, on_error
+    if not hmac.is_ok:
+        calling spark.println with "HMAC ERR"
+    var cw as result of bool to js.JsError is calling clipboard.write with "copiado", on_copy, on_error
+    if not cw.is_ok:
+        calling spark.println with "CLIPBOARD WRITE ERR"
+    var cr as result of bool to js.JsError is calling clipboard.read with on_read, on_error
+    if not cr.is_ok:
+        calling spark.println with "CLIPBOARD READ ERR"
+
+    var fh as result of js.JsValue to js.JsError is calling js.eval with r"""({name: "a.txt"})"""
+    if fh.is_ok:
+        var fr as result of bool to js.JsError is calling fileio.read_text with fh.value, on_file, on_error
+        if not fr.is_ok:
+            calling spark.println with "FILE READ ERR"
+        calling js.release with fh.value
+    else:
+        calling spark.println with "FILE HANDLE ERR"
+    return 0

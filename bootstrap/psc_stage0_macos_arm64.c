@@ -92698,7 +92698,7 @@ JsonValue psc_lsp_server_initialize_result(void) {
     #line 394 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(info), pengu_string_from_cstr("name"), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr("psc")))));
     #line 395 "src/psc/lsp/server.pengu"
-    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr("version"), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr("0.24.0")))));
+    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr("version"), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr("0.25.0")))));
     #line 396 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(out), pengu_string_from_cstr("serverInfo"), info));
     #line 397 "src/psc/lsp/server.pengu"
@@ -102731,7 +102731,7 @@ int32_t main_dispatch(PenguList args) {
     #line 106 "src/main.pengu"
     if ((pengu_string_equal(cmd, pengu_string_from_cstr("version")) || pengu_string_equal(cmd, pengu_string_from_cstr("--version"))) || pengu_string_equal(cmd, pengu_string_from_cstr("-V"))) {
         #line 107 "src/main.pengu"
-        (void)(spark_println(pengu_string_from_cstr("psc 0.24.0 (F13)")));
+        (void)(spark_println(pengu_string_from_cstr("psc 0.25.0 (F13)")));
         #line 108 "src/main.pengu"
         return 0;
     }
@@ -104350,7 +104350,7 @@ bool main_starts_dash(PenguString s) {
 #line 807 "src/main.pengu"
 void main_print_help(void) {
     #line 808 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr("psc 0.24.0 \xe2\x80\x94 PenguScript compiler")));
+    (void)(spark_println(pengu_string_from_cstr("psc 0.25.0 \xe2\x80\x94 PenguScript compiler")));
     #line 809 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr("")));
     #line 810 "src/main.pengu"

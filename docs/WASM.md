@@ -102,6 +102,12 @@ The three executable files travel together: `app.html` loads `app.js` and
 `app.js` fetches `app.wasm`. Deploy the whole output directory and serve it
 over HTTP; `file://` blocks the `.wasm` fetch in most browsers.
 
+`app.js` is emitted as a classic script with synchronous wasm instantiation
+(`-sWASM_ASYNC_COMPILATION=0`). That keeps the shell's `<script>` and its global
+`Module` print/status hooks working; top-level `await` would require a module
+script and would silently fail in a classic one. `examples/web/hello_app.pengu`
+is checked in Chromium headless as part of release validation.
+
 ---
 
 ## 4. Compile-time environment
@@ -161,9 +167,16 @@ unambiguous:
 | `std.web.http` | callback-based HTTP: method, headers, body, status, JSON, timeout/abort |
 | `std.web.websocket` | text-frame WebSocket with open/message/close/error callbacks |
 | `std.web.storage` | `localStorage`/`sessionStorage`, including keys, length and JSON |
-| `std.web.canvas` | Canvas 2D: state, transforms, paths, text, images, data URLs |
-| `std.web.crypto` | CSPRNG: `random_bytes`, `random_int`, `uuid_v4`; never `Math.random` |
+| `std.web.canvas` | Canvas 2D: state, transforms, paths, text metrics, images, pixel data, DPR fitting |
+| `std.web.crypto` | CSPRNG (`random_bytes`, `random_int`, `uuid_v4`) plus SHA-256/HMAC-SHA-256 |
 | `std.web.security` | URL allow-list and HTML escaping; pure, works on every target |
+| `std.web.browser` | window metrics, dialogs, navigation, media queries, resize/scroll/visibility listeners |
+| `std.web.location` | read and navigate `location`, including `search_params` |
+| `std.web.history` | length/state, push/replace, back/forward/go and popstate listeners |
+| `std.web.url` | pure URL parser/builder, percent-encoding and query parameters |
+| `std.web.router` | hash router: `/users/:id` patterns, params and `hashchange` navigation |
+| `std.web.file` | file picker, async text/data-URL reads and text downloads |
+| `std.web.clipboard` | async clipboard read/write with permission-aware errors |
 
 They are implemented with a small JS library
 ([`runtime/pengu_js.js`](../runtime/pengu_js.js)) and a C callback bridge
@@ -240,11 +253,12 @@ weave main into int:
 ```
 
 The Web-only modules (`js`, `dom`, `event`, `http`, `websocket`, `storage`,
-`canvas`) compile on native targets too, but every operation returns a
-`NotSupported` `JsError`; shared code can therefore import them and branch on
-`std.web.IS_WASM`. `std.web.security` is pure and behaves identically on both
-targets; `std.web.crypto` uses the browser CSPRNG and is also available on
-native through the same stubs (it returns `NotSupported`).
+`canvas`, `browser`, `location`, `history`, `router`, `file`, `clipboard`)
+compile on native targets too, but every operation returns a `NotSupported`
+`JsError`; shared code can therefore import them and branch on
+`std.web.IS_WASM`. `std.web.security` and `std.web.url` are pure and behave
+identically on both targets; `std.web.crypto` uses the browser CSPRNG and is
+also available on native through the same stubs (it returns `NotSupported`).
 
 For untrusted content, use `dom.set_text` (textContent) or
 `dom.set_html_unsafe` only after `security.escape_html`; `dom.set_attr` rejects

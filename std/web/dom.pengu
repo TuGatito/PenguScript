@@ -57,6 +57,19 @@ when wasm:
             return calling err_of with (calling _missing with "document")
         return calling ok_of with (calling _from with d.value)
 
+    ## The global `window` object as an `Element`-shaped handle. Release it with
+    ## `dom.free`; listeners created with `dom.on` retain it themselves.
+    weave window into result of Element to js.JsError:
+        var g as js.JsValue is calling js.global
+        defer calling js.release with g
+        var w as result of js.JsValue to js.JsError is calling js.get with g, "window"
+        if not w.is_ok:
+            return calling err_of with w.error
+        if calling js.is_null with w.value or calling js.is_undefined with w.value:
+            calling js.release with w.value
+            return calling err_of with (calling _missing with "window")
+        return calling ok_of with (calling _from with w.value)
+
     ## `document.body`.
     weave body into result of Element to js.JsError:
         var d as result of Element to js.JsError is calling document
@@ -813,6 +826,8 @@ when not wasm:
     weave wrap with v as js.JsValue into result of Element to js.JsError:
         return calling err_of with (calling js.last_error)
     weave document into result of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave window into result of Element to js.JsError:
         return calling err_of with (calling js.last_error)
     weave body into result of Element to js.JsError:
         return calling err_of with (calling js.last_error)

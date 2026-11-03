@@ -1,0 +1,62 @@
+## Minimal web application: builds a page, adds a button and fetches text.
+##
+##     psc build examples/web/hello_app.pengu --target wasm --out=build/hello_app
+##     # open build/hello_app.html in a browser
+##
+## The DOM is only available on the wasm target; importing this file in a
+## native build fails at compile time, which is intentional.
+
+import std.spark
+import std.web.dom as dom
+import std.web.http as http
+import std.web.js as js
+
+## Renders the fetched body into the status paragraph.
+weave on_text with value as js.JsValue into void:
+    var r as result of http.Response to js.JsError is calling http.response_from with value
+    if r.is_ok:
+        var root as result of dom.Element to js.JsError is calling dom.query_required with "#app-status"
+        if root.is_ok:
+            calling dom.set_text with root.value, r.value.body
+            calling dom.free with (sigil of root.value)
+        calling http.free with (sigil of r.value)
+    else:
+        calling spark.println with "request failed: {r.error.message}"
+        banish r.error.name
+        banish r.error.message
+        banish r.error.stack
+
+weave on_error with value as js.JsValue into void:
+    calling spark.println with "request failed"
+
+weave main into int:
+    var body as result of dom.Element to js.JsError is calling dom.body
+    if not body.is_ok:
+        return 1
+    var app as result of dom.Element to js.JsError is calling dom.create with "main"
+    if not app.is_ok:
+        calling dom.free with (sigil of body.value)
+        return 1
+    calling dom.set_attr with app.value, "id", "app"
+
+    var title as result of dom.Element to js.JsError is calling dom.create with "h1"
+    if title.is_ok:
+        calling dom.set_text with title.value, "Hello from PenguScript"
+        calling dom.append with app.value, title.value
+        calling dom.free with (sigil of title.value)
+
+    var status as result of dom.Element to js.JsError is calling dom.create with "p"
+    if status.is_ok:
+        calling dom.set_attr with status.value, "id", "app-status"
+        calling dom.set_text with status.value, "loading…"
+        calling dom.append with app.value, status.value
+        calling dom.free with (sigil of status.value)
+
+    calling dom.append with body.value, app.value
+    calling dom.free with (sigil of app.value)
+    calling dom.free with (sigil of body.value)
+
+    var req as result of bool to js.JsError is calling http.get with "data:text/plain,hola desde la web", on_text, on_error
+    if not req.is_ok:
+        calling spark.println with "could not start request"
+    return 0

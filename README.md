@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.24.0-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.25.0-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey">
@@ -79,8 +79,8 @@ pengu-<version>-<os>-<arch>-fhs.tar.gz
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.24.0-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.24.0-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.25.0-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.25.0-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 
@@ -265,7 +265,7 @@ target = "wasm32-unknown-emscripten"
 | `std.web` | Console, main loop, `now_ms`, `eval_js`, timers (native + wasm) |
 | `std.filum` | Works with `-pthread`; browser needs COOP/COEP |
 | `std.net`, `std.dynlib`, `std.ffi_call`, `std.secrets`, `std.petitio` | Rejected on wasm with an actionable message |
-| JS/DOM/HTTP/WebSocket/storage/canvas | `std.web.js`, `std.web.dom`, `std.web.event`, `std.web.http`, `std.web.websocket`, `std.web.storage`, `std.web.canvas`, `std.web.security`, `std.web.crypto` |
+| Browser APIs | `std.web.js`, `std.web.dom`, `std.web.event`, `std.web.http`, `std.web.websocket`, `std.web.storage`, `std.web.canvas`, `std.web.security`, `std.web.crypto`, `std.web.browser`, `std.web.location`, `std.web.history`, `std.web.url`, `std.web.router`, `std.web.file`, `std.web.clipboard` |
 
 ```bash
 # headless
@@ -273,6 +273,9 @@ psc run tests/wasm/std_web_smoke.pengu --target wasm --profile=release
 
 # full wasm smoke suite (skips if emcc/node are missing)
 bash tests/wasm/run.sh
+
+# small DOM + HTTP application
+psc build examples/web/hello_app.pengu --target wasm --profile=release --out=build/hello_app
 ```
 
 See [docs/WASM.md](docs/WASM.md) for the full support matrix and

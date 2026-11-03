@@ -2,6 +2,46 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.25.0] — 2026-11-03 — std.web para aplicaciones (F4–F6)
+
+Completa la capa web con Canvas 2D avanzado y los módulos de navegador que
+faltaban para construir aplicaciones: URL, router, historial, ubicación,
+ficheros, portapapeles y digests.
+
+### Añadido
+
+- **`std.web.url`**: parser/constructor puro de URLs (`Url`, `Param`),
+  percent-encoding, query get/set/remove y `origin`/`with_path`/`with_query`.
+- **`std.web.router`**: router por hash con segmentos literales, `:name` y `*`
+  final, `match`, `param`, `free_params`, `current_path`, `navigate` y
+  `on_change`/`off`.
+- **`std.web.location`** y **`std.web.history`**: lectura y navegación de
+  `location`, `search_params`, `push_state`/`replace_state`, `back`/`forward`/
+  `go` y listeners `popstate`.
+- **`std.web.browser`**: métricas de ventana, diálogos, `open_url` seguro,
+  scroll, `match_media` y listeners de resize/scroll/visibilidad.
+- **`std.web.file`** y **`std.web.clipboard`**: selección/lectura de ficheros,
+  descargas de texto, portapapeles asíncrono y helpers `text_from`/`error_from`.
+- **`std.web.crypto` 1.1.0**: `sha256_hex` y `hmac_sha256_hex` sobre
+  `crypto.subtle`.
+- **Canvas 2D F4**: `TextMetrics` (`measure_text`), `get_image_data`,
+  `put_image_data`, `create_image_data`, `set_size` y `fit_display` con DPR.
+- Tests `tests/wasm/app_smoke.pengu` (browser/location/history/router/url/
+  crypto/clipboard/file) y nuevas aserciones de Canvas F4 en `web_smoke`.
+
+### Corregido
+
+- Atributos URL case-insensitive (`HREF`, `SRC`, ...) ya no saltan
+  `security.is_safe_url`.
+- `router._segments` copia los segmentos: `string.split` devuelve vistas y
+  liberar el cuerpo dejaba punteros colgando.
+- El JS generado para wasm usaba top-level `await`, así que el `<script>`
+  clásico del shell fallaba en navegadores reales (Node lo aceptaba como ESM).
+  Ahora se emite con `-sWASM_ASYNC_COMPILATION=0` y el ejemplo se validó en
+  Chromium headless.
+- `location.assign`/`replace` aplican la allow-list de `std.web.security`, igual
+  que `dom.set_attr` y `browser.open_url`.
+
 ## [0.24.0] — 2026-11-03 — std.web listo para aplicaciones web
 
 Reescribe la capa web para que PenguScript sirva tanto para juegos como para

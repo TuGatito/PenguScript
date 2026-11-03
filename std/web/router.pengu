@@ -1,0 +1,211 @@
+## std.web.router — hash-based client-side routing.
+##
+## WebAssembly-only. A route is a path pattern with literal segments, `:name`
+## captures and an optional trailing `*` wildcard. `match` returns the captured
+## `url.Param` list; `navigate` changes `location.hash`; `on_change` subscribes
+## to `hashchange` and returns a `dom.Listener`.
+##
+## ```pengu
+## var m as maybe list of url.Param is calling router.match with "/users/:id", "/users/42"
+## if m is present:
+##     var id as maybe string is calling router.param with m.value, "id"
+## ```
+##
+## The router does not render anything by itself; pair it with `dom` and a
+## `hashchange` listener to build a single-page application.
+
+import std.web.dom as dom
+import std.web.js as js
+import std.web.location as location
+import std.web.url as url
+
+const ROUTER_VERSION as string is "1.0.0"
+
+when wasm:
+
+    ## Matches `path` against `pattern`. `:name` captures one segment; a trailing
+    ## `*` captures the remaining segments as the `"rest"` parameter.
+    weave match with pattern as string, path as string into maybe list of url.Param:
+        var pattern_parts as list of string is calling _segments with pattern
+        var path_parts as list of string is calling _segments with path
+        var params as list of url.Param is list of url.Param
+        var i as int is 0
+        var ok as bool is true
+        var wildcard as bool is false
+        while i < pattern_parts.len and ok:
+            var part as string is (pattern_parts at i)
+            if part == "*":
+                set wildcard is true
+                var rest as string is calling _join_from with path_parts, i
+                calling params.push with (with name is "rest", value is rest)
+                set i is pattern_parts.len
+            else:
+                if i >= path_parts.len:
+                    set ok is false
+                else:
+                    var actual as string is (path_parts at i)
+                    if part.len > 0 and (part at 0) == ":":
+                        var name as string is calling url._slice with part, 1, part.len
+                        calling params.push with (with name is name, value is actual)
+                    else:
+                        if part != actual:
+                            set ok is false
+                set i is i + 1
+        if ok and not wildcard and pattern_parts.len != path_parts.len:
+            set ok is false
+        calling _free_strings with pattern_parts
+        calling _free_strings with path_parts
+        if not ok:
+            calling free_params with params
+            return maybe none
+        return some params
+
+    ## First value of `name` in a match, decoded as-is.
+    weave param with params as list of url.Param, name as string into maybe string:
+        var i as int is 0
+        var found as string is ""
+        var has as bool is false
+        while i < params.len:
+            var p as url.Param is (params at i)
+            if p.name == name and not has:
+                set found is p.value
+                set has is true
+            else:
+                banish p.name
+                banish p.value
+            set i is i + 1
+        banish params
+        if has:
+            return some found
+        banish found
+        return maybe none
+
+    ## Releases a parameter list.
+    weave free_params with params as list of url.Param into void:
+        var i as int is 0
+        while i < params.len:
+            banish (params at i).name
+            banish (params at i).value
+            set i is i + 1
+        banish params
+
+    ## Current route path: `location.hash` when it starts with `#/`, otherwise
+    ## `location.pathname` (query and fragment stripped).
+    weave current_path into result of string to js.JsError:
+        var hash as result of string to js.JsError is calling location.hash
+        if hash.is_ok and hash.value.len > 1 and (hash.value at 0) == "#" and (hash.value at 1) == "/":
+            var text as string is calling url._slice with hash.value, 1, hash.value.len
+            banish hash.value
+            var clean as string is calling _strip_query with text
+            banish text
+            return calling ok_of with clean
+        if hash.is_ok:
+            banish hash.value
+        var path as result of string to js.JsError is calling location.pathname
+        if not path.is_ok:
+            return calling err_of with path.error
+        var clean as string is calling _strip_query with path.value
+        banish path.value
+        return calling ok_of with clean
+
+    ## Navigates to `path` by setting `location.hash` to `#<path>`.
+    weave navigate with path as string into result of bool to js.JsError:
+        var target as string is path
+        if target.len == 0 or (target at 0) != "/":
+            var slash as string is "/{path}"
+            banish target
+            set target is slash
+        var result as result of bool to js.JsError is calling location.set_hash with target
+        banish target
+        return result
+
+    ## `window.addEventListener("hashchange", cb)`.
+    weave on_change with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        var w as result of dom.Element to js.JsError is calling dom.window
+        if not w.is_ok:
+            return calling err_of with w.error
+        defer calling dom.free with (sigil of w.value)
+        return calling dom.on with w.value, "hashchange", cb
+
+    ## Removes a listener created by `on_change`.
+    weave off with l as ref to dom.Listener into void:
+        calling dom.off with l
+
+    ## Splits a route path on `/`, ignoring empty leading/trailing segments.
+    weave _segments with text as string into list of string:
+        var raw as string is calling _strip_query with text
+        var start as int is 0
+        var end as int is raw.len
+        while start < end and (raw at start) == "/":
+            set start is start + 1
+        while end > start and (raw at (end - 1)) == "/":
+            set end is end - 1
+        var body as string is calling url._slice with raw, start, end
+        banish raw
+        var parts as list of string is list of string
+        if body.len == 0:
+            banish body
+            return parts
+        var seg_start as int is 0
+        var i as int is 0
+        while i <= body.len:
+            if i == body.len or (body at i) == "/":
+                var piece as string is calling url._slice with body, seg_start, i
+                calling parts.push with piece
+                set seg_start is i + 1
+            set i is i + 1
+        banish body
+        return parts
+
+    ## Joins `parts` from `start` with `/`.
+    weave _join_from with parts as list of string, start as int into string:
+        var out as string is ""
+        var i as int is start
+        while i < parts.len:
+            var piece as string is (parts at i)
+            var prefix as string is "/"
+            if out.len == 0:
+                set prefix is ""
+            var joined as string is "{out}{prefix}{piece}"
+            banish out
+            set out is joined
+            set i is i + 1
+        return out
+
+    ## Removes `?query` and `#fragment`.
+    weave _strip_query with text as string into string:
+        var q as int is calling text.index_of with "?"
+        var h as int is calling text.index_of with "#"
+        var cut as int is text.len
+        if q >= 0 and q < cut:
+            set cut is q
+        if h >= 0 and h < cut:
+            set cut is h
+        if cut == text.len:
+            return "{text}"
+        return calling url._slice with text, 0, cut
+
+    ## Releases a list of strings.
+    weave _free_strings with items as list of string into void:
+        var i as int is 0
+        while i < items.len:
+            banish (items at i)
+            set i is i + 1
+        banish items
+
+when not wasm:
+
+    weave match with pattern as string, path as string into maybe list of url.Param:
+        return maybe none
+    weave param with params as list of url.Param, name as string into maybe string:
+        return maybe none
+    weave free_params with params as list of url.Param into void:
+        return
+    weave current_path into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave navigate with path as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave on_change with cb as weave with ev as js.JsValue into void into result of dom.Listener to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave off with l as ref to dom.Listener into void:
+        return

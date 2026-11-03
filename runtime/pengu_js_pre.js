@@ -131,3 +131,49 @@ function pengu_js_drop_slot(slot) {
         _pengu_js_callback_free(slot);
     }
 }
+
+// Settles a one-shot callback pair: invokes the selected slot, then releases
+// both C slots and both JavaScript callback handles. `value` is wrapped here.
+function pengu_js_settle(okSlot, okHandle, errSlot, errHandle, ok, value) {
+    var handle = pengu_js_wrap(ok ? value : value);
+    if (handle < 0) {
+        handle = 1;
+    }
+    try {
+        _pengu_js_invoke_oneshot(ok ? okSlot : errSlot, handle);
+    } catch (e) {
+        pengu_js_set_error(e && e.name || "Error", e && e.message || String(e),
+            e && e.stack || "");
+    } finally {
+        if (handle > 1) {
+            pengu_js_drop_handle(handle);
+        }
+        pengu_js_drop_handle(okHandle);
+        pengu_js_drop_handle(errHandle);
+        _pengu_js_callback_free(ok ? errSlot : okSlot);
+    }
+}
+
+// Reads a File/Blob and settles a one-shot callback pair with the result.
+function pengu_js_read_file(file, mode, okSlot, errSlot, okHandle, errHandle) {
+    try {
+        if (!file || typeof FileReader === "undefined") {
+            throw new Error("no readable file");
+        }
+        var reader = new FileReader();
+        reader.onload = function () {
+            pengu_js_settle(okSlot, okHandle, errSlot, errHandle, true, reader.result);
+        };
+        reader.onerror = function () {
+            pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false,
+                reader.error || new Error("could not read file"));
+        };
+        if (mode === "dataurl") {
+            reader.readAsDataURL(file);
+        } else {
+            reader.readAsText(file);
+        }
+    } catch (e) {
+        pengu_js_settle(okSlot, okHandle, errSlot, errHandle, false, e);
+    }
+}
