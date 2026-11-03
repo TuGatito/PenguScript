@@ -1874,7 +1874,9 @@ enchanting Path:
                     banish buf
                     set buf is u1
                 else:
-                    let u2 as string is "{buf}{nb at i}"
+                    let ch as string is chr (nb at i)
+                    let u2 as string is "{buf}{ch}"
+                    banish ch
                     banish buf
                     set buf is u2
             set i is i + 1
@@ -2109,8 +2111,8 @@ weave _cp_expect_true with cond as bool, label as string into void:
         calling spark.println with "FAIL {label}"
         calling spark.panic with "compass: test failed"
 
-test "COMPASS_VERSION is 2.1.0":
-    calling _cp_expect_str with COMPASS_VERSION, "2.1.0", "version"
+test "COMPASS_VERSION is 2.14.0":
+    calling _cp_expect_str with COMPASS_VERSION, "2.14.0", "version"
 
 test "separator is a single character":
     let sep as string is calling separator

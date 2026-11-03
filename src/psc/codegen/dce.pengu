@@ -204,6 +204,22 @@ weave scan_node with c as ref to context.CgContext, r as ref to CgReach, m as lo
                         banish suf0
                         banish ltxt0
                         banish btxt0
+    # La anotación puede resolver a un método homónimo de otro módulo
+    # (`Path.is_file`) o faltar; el codegen emite la función del módulo actual,
+    # así que márcala también para que DCE no pode su definición.
+    if k == pskind.NodeKind.NdCallingExpr:
+        var mtng as int is calling astutil.node_child with ast, node, 0
+        var mlt as int is calling last_token with ast, mtng
+        if mlt >= 0:
+            var mtxt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), mlt
+            var mnid as int is calling npool.intern with (sigil of c->program->names), mtxt
+            banish mtxt
+            var mi as int is 0
+            while mi < c->catalog.functions.len:
+                var mf as catalog.CgFunction is (c->catalog.functions at mi)
+                if mf.symbol >= 0 and not mf.is_method and not mf.is_declare and mf.module == m.id and mf.name == mnid:
+                    calling mark_symbol with c, r, mf.symbol
+                set mi is mi + 1
     var i as int is 0
     var n as int is calling astutil.child_count with ast, node
     while i < n:

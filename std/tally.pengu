@@ -3175,7 +3175,7 @@ weave partition_by with xs as list of int, predicate as weave with x as int into
 weave frequencies shard T where T: Vinculum with xs as list of T into map of T to int:
     var m as map of T to int is map of T to int
     for x in xs:
-        calling m.put with x, ((calling m.get with x) + 1)
+        calling m.put with x, ((calling m.get_or with x, 0) + 1)
     return m
 
 ## @deprecated Use `frequencies` instead.
@@ -3194,7 +3194,7 @@ weave frequencies shard T where T: Vinculum with xs as list of T into map of T t
 weave group_count shard T where T: Vinculum with xs as list of T into map of T to int:
     var m as map of T to int is map of T to int
     for x in xs:
-        calling m.put with x, ((calling m.get with x) + 1)
+        calling m.put with x, ((calling m.get_or with x, 0) + 1)
     return m
 
 # --- Private helpers ----------------------------------------------------
@@ -3221,8 +3221,8 @@ weave _expect_eq_bool with actual as bool, expected as bool, label as string int
 
 # --- Tests --------------------------------------------------------------
 
-test "TALLY_VERSION is 2.2.0":
-    calling _expect with TALLY_VERSION == "2.2.0", "version"
+test "TALLY_VERSION is 2.14.0":
+    calling _expect with TALLY_VERSION == "2.14.0", "version"
 
 # --- Length and access ---
 test "is_empty is true for the empty list":

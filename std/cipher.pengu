@@ -4504,7 +4504,7 @@ weave _expect_some_string with got as maybe string, want as string, label as str
         calling spark.panic with "cipher: test failed"
 
 test "CIPHER_VERSION is the frozen 2.1.0 contract":
-    calling _expect_eq_string with CIPHER_VERSION, "2.1.0", "version literal"
+    calling _expect_eq_string with CIPHER_VERSION, "2.14.0", "version literal"
 
 test "BUG-C1: Base64 encodes a long input without quadratic blow-up":
     var parts as list of string is list of string with capacity 4096

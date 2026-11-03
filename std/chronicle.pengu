@@ -1787,12 +1787,15 @@ weave parse_duration with s as string into maybe float:
     if val_opt is not present:
         return maybe none
     let val as float is (val_opt.value) to float
-    let factor as int is judge last_c:
-        when "s" -> 1
-        when "m" -> 60
-        when "h" -> 3600
-        when "d" -> 86400
-        else -> 0
+    var factor as int is 0
+    if last_c == "s":
+        set factor is 1
+    else if last_c == "m":
+        set factor is 60
+    else if last_c == "h":
+        set factor is 3600
+    else if last_c == "d":
+        set factor is 86400
     if factor == 0:
         return maybe none
     return some (val * (factor to float))
@@ -2000,7 +2003,7 @@ weave _chr_expect_maybe_float with opt as maybe float, want as float, label as s
     calling _chr_expect_close with opt.value, want, label
 
 test "chronicle_version matches the CHRONICLE_VERSION constant":
-    calling _chr_expect with (CHRONICLE_VERSION == "2.1.0"), "version literal"
+    calling _chr_expect with (CHRONICLE_VERSION == "2.14.0"), "version literal"
 
 test "pad2 zero-pads single digits and keeps two-digit values":
     let one as string is calling _pad2 with 3

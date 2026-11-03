@@ -2176,8 +2176,8 @@ weave _arch_base with name as string into string:
     banish pid_text
     return base
 
-test "ARCHIVUM_VERSION is 2.1.0":
-    calling _arch_expect_str with ARCHIVUM_VERSION, "2.1.0", "version"
+test "ARCHIVUM_VERSION is 2.14.0":
+    calling _arch_expect_str with ARCHIVUM_VERSION, "2.14.0", "version"
 
 test "write_file then read_file round-trips the content":
     let base as string is calling _arch_fresh_dir with (calling _arch_base with "roundtrip")

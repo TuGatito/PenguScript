@@ -23,6 +23,7 @@ import psc.codegen.emit as emit
 import psc.codegen.stmt as stmtgen
 import psc.codegen.type_ast as tast
 import psc.codegen.origin as origin
+import psc.codegen.generics as generics
 
 insignia psc_codegen_function_
 
@@ -69,9 +70,17 @@ weave signature_spec with c as ref to context.CgContext, f as catalog.CgFunction
                 set ret is rc
             set rj is rj + 1
     if ret >= 0:
-        var rt as string is calling tast.c_type_ast with c, m, ret
-        calling sb.append with rt
-        banish rt
+        var rsub as int is -1
+        if f.is_spec:
+            set rsub is calling tast.type_from_ast_subst with c, m, ret
+        if rsub > 0:
+            var rt0 as string is calling ctype.c_type with (sigil of c->names), rsub
+            calling sb.append with rt0
+            banish rt0
+        else:
+            var rt as string is calling tast.c_type_ast with c, m, ret
+            calling sb.append with rt
+            banish rt
     else:
         calling sb.append with "void"
     calling sb.append with " "
@@ -81,7 +90,10 @@ weave signature_spec with c as ref to context.CgContext, f as catalog.CgFunction
     calling sb.append with "("
     var wrote as bool is false
     if f.is_method and not f.is_ritual:
-        var rct as string is calling ctype.c_type with (sigil of c->names), f.recv_type
+        var rcid2 as int is f.recv_type
+        if f.is_spec:
+            set rcid2 is calling generics.receiver_type_of with c, f
+        var rct as string is calling ctype.c_type with (sigil of c->names), rcid2
         defer banish rct
         if f.self_value:
             calling sb.append with "{rct} self"
@@ -99,7 +111,14 @@ weave signature_spec with c as ref to context.CgContext, f as catalog.CgFunction
                 if pt >= 0 and pty >= 0:
                     if wrote:
                         calling sb.append with ", "
-                    var pct as string is calling tast.c_type_ast with c, m, pty
+                    var psub as int is -1
+                    if f.is_spec:
+                        set psub is calling tast.type_from_ast_subst with c, m, pty
+                    var pct as string is ""
+                    if psub > 0:
+                        set pct is calling ctype.c_type with (sigil of c->names), psub
+                    else:
+                        set pct is calling tast.c_type_ast with c, m, pty
                     var pname as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), pt
                     var psafe as string is calling context.safe_c_name with pname
                     if calling has_fn_slot with pct:
@@ -262,7 +281,10 @@ weave signature with c as ref to context.CgContext, f as catalog.CgFunction into
     calling sb.append with "("
     var wrote_any as bool is false
     if f.is_method and not f.is_ritual:
-        var recv_ct as string is calling ctype.c_type with (sigil of c->names), f.recv_type
+        var rcid as int is f.recv_type
+        if f.is_spec:
+            set rcid is calling generics.receiver_type_of with c, f
+        var recv_ct as string is calling ctype.c_type with (sigil of c->names), rcid
         defer banish recv_ct
         if f.self_value:
             calling sb.append with "{recv_ct} self"

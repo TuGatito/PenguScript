@@ -18,6 +18,7 @@ import psc.codegen.options as opts
 import psc.codegen.names as names
 import psc.codegen.catalog as catalog
 import psc.codegen.emit as emit
+import psc.sema.generics.instantiate as ginst
 
 insignia psc_codegen_context_
 
@@ -239,6 +240,8 @@ weave local_type with c as ref to CgContext, name as int into int:
     while i >= 0:
         var l as CgLocal is (c->locals at i)
         if l.name == name:
+            if c->names.subst.len > 0:
+                return calling ginst.subst_deep with (sigil of c->program->symbols), l.type, c->names.subst
             return l.type
         set i is i - 1
     return -1

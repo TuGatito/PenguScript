@@ -3,6 +3,7 @@
 ## Es la única puerta de tipos C. Ningún emisor debe escribir un tipo C a mano.
 
 import std.builder
+import std.spark
 import psc.sema.names as npool
 import psc.sema.types.kind as tk
 import psc.sema.types.table as types
@@ -162,7 +163,11 @@ weave c_type with ns as ref to names.CgNames, id as int into string:
         return calling npool.copy_string with "void*"
     if t.kind == tk.SemaTypeKind.TkTypeParam:
         if calling ns->subst.has with t.name:
-            return calling c_type with ns, (calling ns->subst.get with t.name)
+            var sid as int is calling ns->subst.get with t.name
+            # Un mapeo identidad (`T -> T`) no resuelve nada: sin este guard la
+            # recursión no termina.
+            if sid != id and sid > 0:
+                return calling c_type with ns, sid
         return calling npool.copy_string with "void*"
     return calling npool.copy_string with "void*"
 
@@ -176,16 +181,18 @@ weave c_type with ns as ref to names.CgNames, id as int into string:
 weave declare with ct as string, name as string into string:
     var n as int is ct length
     var i as int is 0
+    var done as bool is false
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     while i < n:
         if i + 2 < n:
             var three as string is ct at i to (i + 3)
-            if three == "(*)":
+            if three == "(*)" and not done:
                 banish three
                 calling sb.append with "(*"
                 calling sb.append with name
                 calling sb.append with ")"
+                set done is true
                 set i is i + 3
             else:
                 banish three

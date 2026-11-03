@@ -13,6 +13,7 @@ import psc.sema.names as npool
 import psc.sema.symbols.symbol as sym
 import psc.sema.symbols.table as symbols
 import psc.sema.modules.loader as loader
+import psc.codegen.generics as generics
 import psc.sema.types.table as types
 import psc.sema.types.compat as compat
 
@@ -570,9 +571,9 @@ weave emit_when_branch with c as ref to context.CgContext, node as int, ast as r
     if (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdBlock:
         calling emit_block with c, node
         return
-    calling begin_scope with c, false
+    # Sin scope propio: el llamante abre uno para toda la rama, de modo que
+    # los `defer` de sus sentencias se ejecuten al cerrar la rama, no cada una.
     calling emit_stmt with c, node
-    calling end_scope with c
 
 ## Emite un `when` comptime como statement.
 ##
@@ -592,6 +593,9 @@ weave emit_when_stmt with c as ref to context.CgContext, node as int, ast as ref
     var n as int is calling astutil.child_count with ast, node
     var i as int is 1
     if v == 1:
+        # Un solo scope para toda la rama activa: si cada sentencia abriera el
+        # suyo, los `defer` se ejecutarían al cerrar su propia sentencia.
+        calling begin_scope with c, false
         while i < n:
             var ch as int is calling astutil.node_child with ast, node, i
             if ch >= 0:
@@ -600,6 +604,7 @@ weave emit_when_stmt with c as ref to context.CgContext, node as int, ast as ref
                     break
                 calling emit_when_branch with c, ch, ast
             set i is i + 1
+        calling end_scope with c
         return
     # Rama inactiva: saltar el cuerpo hasta el `else`.
     while i < n:
@@ -620,11 +625,13 @@ weave emit_when_stmt with c as ref to context.CgContext, node as int, ast as ref
         return
     var j as int is 0
     var en as int is calling astutil.child_count with ast, els
+    calling begin_scope with c, false
     while j < en:
         var e as int is calling astutil.node_child with ast, els, j
         if e >= 0:
             calling emit_when_branch with c, e, ast
         set j is j + 1
+    calling end_scope with c
 
 ## Emite `if NAME as T is maybe:` / `unless ...`.
 ##
@@ -1210,6 +1217,10 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
         set ty is calling expr.infer_at_type with c, vn, ast
     if ty < 0:
         set ty is 1
+    # Dentro de una especialización, `Pair of T and U` debe materializarse
+    # como `Pair of int and string` (instancia concreta).
+    if ty > 0 and c->names.subst.len > 0:
+        set ty is calling generics.subst_codegen with c, ty
     var ct as string is calling ctype.c_type with (sigil of c->names), ty
     defer banish ct
     var cn as string is calling context.safe_c_name with txt
@@ -1219,13 +1230,17 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
     var jvn as int is vn
     while jvn >= 0 and (calling astutil.kind_of with ast, jvn) == pskind.NodeKind.NdParenExpr:
         set jvn is calling astutil.node_child with ast, jvn, 0
+
     if jvn >= 0 and ((calling astutil.kind_of with ast, jvn) == pskind.NodeKind.NdOrReturn or (calling astutil.kind_of with ast, jvn) == pskind.NodeKind.NdTryExpr):
         var ur_op as int is calling astutil.node_child with ast, jvn, 0
         if ur_op < 0:
             calling emit.line with (sigil of c->emitter), "{cdecl};"
             calling context.add_local with c, nid, ty, nid
             return
-        var ur_ot as int is calling expr.node_type with c, ur_op
+        var ur_op2 as int is ur_op
+        while ur_op2 >= 0 and (calling astutil.kind_of with ast, ur_op2) == pskind.NodeKind.NdParenExpr:
+            set ur_op2 is calling astutil.node_child with ast, ur_op2, 0
+        var ur_ot as int is calling expr.node_type with c, ur_op2
         var ur_ott as tk.SemaType is calling types.at with (sigil of c->program->types), ur_ot
         var ur_pay as int is ur_ot
         if ur_ott.kind == tk.SemaTypeKind.TkMaybe or ur_ott.kind == tk.SemaTypeKind.TkResult:
@@ -1279,7 +1294,11 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
             calling emit.line with (sigil of c->emitter), "{cdecl};"
             calling context.add_local with c, nid, ty, nid
             return
-        var ob_ot as int is calling expr.node_type with c, ob_op
+        var ob_op2 as int is ob_op
+        while ob_op2 >= 0 and (calling astutil.kind_of with ast, ob_op2) == pskind.NodeKind.NdParenExpr:
+            set ob_op2 is calling astutil.node_child with ast, ob_op2, 0
+        var ob_ot as int is calling expr.node_type with c, ob_op2
+
         var ob_ott as tk.SemaType is calling types.at with (sigil of c->program->types), ob_ot
         var ob_pay as int is ob_ot
         if ob_ott.kind == tk.SemaTypeKind.TkMaybe or ob_ott.kind == tk.SemaTypeKind.TkResult:

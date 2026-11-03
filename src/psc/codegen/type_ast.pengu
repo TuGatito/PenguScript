@@ -3,6 +3,7 @@
 ## Vive fuera de `stmt`/`expr` para que ambos puedan usarla sin ciclos.
 
 import psc.sema.types.convert as convert
+import psc.sema.types.table as types
 import psc.sema.modules.loader as loader
 
 import psc.ast.kind as pskind
@@ -11,6 +12,7 @@ import psc.sema.ast as astutil
 import psc.sema.names as npool
 
 import psc.sema.symbols.table as symbols
+import psc.sema.generics.instantiate as ginst
 
 import psc.codegen.context as context
 import psc.codegen.ctype as ctype
@@ -36,6 +38,140 @@ weave from_ast with c as ref to context.CgContext, m as loader.SemaModule, node 
                 return calling c->names.subst.get with nid
     var ctx as convert.TypeCtx is with types is (sigil of c->program->types), symbols is (sigil of c->program->symbols), names is (sigil of c->program->names), bag is (sigil of c->program->diagnostics), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast)
     return calling convert.convert with (sigil of ctx), node
+
+## Convierte un nodo de tipo AST a `TypeId` aplicando la sustitución actual
+## (`c->names.subst`).  A diferencia de `from_ast`, sí instancia nominales
+## cuyos argumentos contienen type params (`Pair of list of T and list of E`).
+##
+## ## Memoria
+## Puede crear tipos internados; no posee strings.
+weave type_from_ast_subst with c as ref to context.CgContext, m as loader.SemaModule, node as int into int:
+    if node < 0:
+        return -1
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, node
+    if k == pskind.NodeKind.NdTypeOrParam:
+        var ic as int is calling astutil.node_child with ast, node, 0
+        return calling type_from_ast_subst with c, m, ic
+    if k == pskind.NodeKind.NdRefType:
+        var rc as int is calling astutil.node_child with ast, node, 0
+        var ri as int is calling type_from_ast_subst with c, m, rc
+        if ri > 0:
+            return calling types.ref_to with (sigil of c->program->types), ri
+        return -1
+    if k == pskind.NodeKind.NdFrozenType:
+        var fc as int is calling astutil.node_child with ast, node, 0
+        var fi as int is calling type_from_ast_subst with c, m, fc
+        if fi > 0:
+            return calling types.frozen with (sigil of c->program->types), fi
+        return -1
+    if k == pskind.NodeKind.NdListType or k == pskind.NodeKind.NdMaybeType or k == pskind.NodeKind.NdSliceType:
+        var lc as int is calling astutil.node_child with ast, node, 0
+        var li as int is calling type_from_ast_subst with c, m, lc
+        if li <= 0:
+            return -1
+        if k == pskind.NodeKind.NdListType:
+            return calling types.list_of with (sigil of c->program->types), li
+        if k == pskind.NodeKind.NdMaybeType:
+            return calling types.maybe_of with (sigil of c->program->types), li
+        return calling types.slice_of with (sigil of c->program->types), li
+    if k == pskind.NodeKind.NdMapType or k == pskind.NodeKind.NdResultType:
+        var kc as int is calling astutil.node_child with ast, node, 0
+        var vc as int is calling astutil.node_child with ast, node, 1
+        var ki as int is calling type_from_ast_subst with c, m, kc
+        var vi as int is calling type_from_ast_subst with c, m, vc
+        if ki <= 0 or vi <= 0:
+            return -1
+        if k == pskind.NodeKind.NdMapType:
+            return calling types.map_of with (sigil of c->program->types), ki, vi
+        return calling types.result_of with (sigil of c->program->types), ki, vi
+    if k == pskind.NodeKind.NdFnType:
+        # Tipo función: `weave with a as T into U`. Se reconstruye para que los
+        # type params de dentro se sustituyan y el declarador C sea válido.
+        var ft as ref to types.SemaTypeTable is (sigil of c->program->types)
+        var fnch as int is calling astutil.child_count with ast, node
+        if fnch <= 0:
+            return -1
+        var rnode as int is calling astutil.node_child with ast, node, fnch - 1
+        var rti as int is calling type_from_ast_subst with c, m, rnode
+        if rti <= 0:
+            return -1
+        var plist as int is -1
+        var fi as int is 0
+        while fi < fnch:
+            var fch as int is calling astutil.node_child with ast, node, fi
+            if fch >= 0 and (calling astutil.kind_of with ast, fch) == pskind.NodeKind.NdFnParamList:
+                set plist is fch
+            set fi is fi + 1
+        var ptys as list of int is list of int
+        defer banish ptys
+        if plist >= 0:
+            var pn as int is calling astutil.child_count with ast, plist
+            var pi as int is 0
+            while pi < pn:
+                var pnode as int is calling astutil.node_child with ast, plist, pi
+                if pnode >= 0 and (calling astutil.kind_of with ast, pnode) == pskind.NodeKind.NdFnParam:
+                    var pty as int is calling astutil.node_child with ast, pnode, 1
+                    if pty >= 0:
+                        var pid as int is calling type_from_ast_subst with c, m, pty
+                        if pid > 0:
+                            calling ptys.push with pid
+                set pi is pi + 1
+        # Los parámetros deben quedar contiguos en `fn_params`.
+        var first as int is ft->fn_params.len
+        var cnt as int is 0
+        var qi as int is 0
+        while qi < ptys.len:
+            var pv as types.SemaFnParam is with name is -1, type is (ptys at qi), flags is 0, default_node is -1
+            calling types.add_fn_param with ft, pv
+            set cnt is cnt + 1
+            set qi is qi + 1
+        var info as types.SemaFnInfo is with params_first is first, params_count is cnt, return_type is rti, tparams_first is 0, tparams_count is 0
+        return calling types.fn_type with ft, info
+    if k == pskind.NodeKind.NdBaseType or k == pskind.NodeKind.NdVarRef or k == pskind.NodeKind.NdCustomType:
+        var tt as int is calling deep_token with ast, node
+        if tt >= 0:
+            var txt as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), tt
+            var nid as int is calling npool.intern with (sigil of c->program->names), txt
+            banish txt
+            if calling c->names.subst.has with nid:
+                return calling c->names.subst.get with nid
+        if k == pskind.NodeKind.NdCustomType:
+            # Nominal aplicado: instancia los argumentos (con sustitución).
+            var args as list of int is list of int
+            defer banish args
+            var ai as int is 1
+            var an as int is calling astutil.child_count with ast, node
+            while ai < an:
+                var ac as int is calling astutil.node_child with ast, node, ai
+                if ac >= 0:
+                    if (calling astutil.kind_of with ast, ac) == pskind.NodeKind.NdGenericArgs:
+                        var gi as int is 0
+                        var gn as int is calling astutil.child_count with ast, ac
+                        while gi < gn:
+                            var ga as int is calling astutil.node_child with ast, ac, gi
+                            if ga >= 0:
+                                var gid as int is calling type_from_ast_subst with c, m, ga
+                                if gid > 0:
+                                    calling args.push with gid
+                            set gi is gi + 1
+                    else:
+                        var aid as int is calling type_from_ast_subst with c, m, ac
+                        if aid > 0:
+                            calling args.push with aid
+                set ai is ai + 1
+            if args.len > 0:
+                var tt2 as int is calling deep_token with ast, node
+                if tt2 >= 0:
+                    var txt2 as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), tt2
+                    var tid2 as int is calling symbols.lookup_type_name with (sigil of c->program->symbols), txt2
+                    banish txt2
+                    if tid2 > 0:
+                        var iid as int is calling ginst.instantiate_nominal with (sigil of c->program->symbols), tid2, args
+                        if iid > 0:
+                            return iid
+    var fallback as int is calling from_ast with c, m, node
+    return fallback
 
 ## Tipo C de un nodo de tipo, resolviendo type params por sustitución.
 ##

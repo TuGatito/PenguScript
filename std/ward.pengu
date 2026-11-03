@@ -2362,5 +2362,5 @@ test "legacy check helpers still return ResultString":
     let err_r as ResultString is calling check_eq_int with 1, 2, "mismatch"
     calling assert_false with err_r.is_ok
     calling assert_eq_string with err_r.error_msg, "mismatch"
-test "WARD_VERSION is 2.1.0":
-    calling assert_eq_string with WARD_VERSION, "2.1.0"
+test "WARD_VERSION is 2.14.0":
+    calling assert_eq_string with WARD_VERSION, "2.14.0"

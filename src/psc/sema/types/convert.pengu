@@ -230,15 +230,6 @@ weave convert_custom with ctx as ref to TypeCtx, node as int into int:
                 banish gmsg
                 banish args
                 return 0
-            var hasp as bool is false
-            var pai as int is 0
-            while pai < args.len:
-                if calling type_has_param with ctx->types, (args at pai):
-                    set hasp is true
-                set pai is pai + 1
-            if hasp:
-                banish args
-                return t
             var inst as int is calling ginst.instantiate_nominal with ctx->symbols, t, args
             banish args
             if inst > 0:

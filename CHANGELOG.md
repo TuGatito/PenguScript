@@ -2,6 +2,55 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.22.1] — 2026-11-02 — Genéricos funcionales
+
+Parche de corrección: la instanciación de genéricos vuelve a producir C válido y
+la suite completa (895 tests) pasa de nuevo, incluida la compilación de los
+módulos `std/` que usan `shard`.
+
+### Corregido
+
+- **Genéricos de función** (`weave f shard T`): los parámetros `shard` del
+  receptor y del método se combinan, se infieren en el call site (incluidos
+  callbacks y contenedores anidados) y el tipo de retorno se sustituye antes de
+  anotar la llamada (`ginst.unify_param`/`instantiate_return`/`subst_deep`).
+  Antes, `map_merge`, `map_from_lists` o `scan_left` generaban prototipos con
+  `void*` y llamadas a funciones inexistentes.
+- **Métodos de contenedores genéricos** (`enchanting map of shard K to shard V`):
+  `lookup_method` encuentra la plantilla por `(kind, nombre)` en lugar de exigir
+  el tipo exacto; el catálogo ya no confunde contenedores con nominales
+  (`Toolchain_zip_135`) y las instancias se deduplican por `(símbolo, args)`.
+- **Especializaciones tardías**: las cuerpos se emiten en un búfer temporal
+  antes de los prototipos, de modo que las specs descubiertas al emitir cuerpos
+  (incluidos `test` y la función de entrada) reciben prototipo y definición.
+  Se corrigió también el DCE, que podaba funciones del módulo actual cuando la
+  anotación resolvía a un método homónimo de otro módulo (`archivum_is_file`).
+- **Aplicaciones nominales con parámetros** (`Pair of T and U`): `convert`
+  conserva los argumentos, `subst_deep` re-instancia y las firmas de las specs
+  usan `type_from_ast_subst` (incluye `NdTypeOrParam` y `NdFnType`), con lo que
+  los callbacks dejan de declararse `void*`.
+- **Sema de `else`**: `check_control` no recorría `NdElseBlock`/`NdElseClause`,
+  así que las ramas `else:` no se comprobaban (interpolaciones sin registrar,
+  tipos sin anotar). `check_when_stmt` tampoco comprobaba `when_else_plain`.
+- **`judge` sobre `bool`**: `when true`/`when false` no emitían casos (los
+  literales no tienen token). Ahora se emiten `case true:`/`case false:`.
+- **`defer` en ramas `when`**: cada sentencia abría su propio scope y los
+  `defer` se ejecutaban antes de tiempo; ahora la rama completa comparte scope.
+- **`m.get`/`m.clear`**: `get` es null-safe (cero del tipo de valor si falta la
+  clave) y `clear` se baja a `pengu_map_clear`; `std/atlas` ya no se autorrecursa
+  en `clear`.
+- **Diagnósticos**: `mismatch`/`type_mismatch` ya no comparan ids iguales y los
+  sitios que usaban el id `3` como `bool` usan el tipo real.
+- **std/**: tests de versión desactualizados (`2.14.0`), `compass.to_uri`
+  (interpolación de bytes), `tally.frequencies`/`group_count` (`get_or`) y el
+  wrapper `atlas.clear`.
+
+### Añadido
+
+- `tests/pengu/generics.pengu`: regresión de funciones genéricas, métodos de
+  runas genéricas con `shard` propio, callbacks, contenedores y `Pair`.
+- `psc test` vuelve a compilar `std/` completo: 0 errores de C en la suite.
+
 ## [0.22.0] — 2026-11-01 — Bundle integrity and field alignment
 
 ### Añadido

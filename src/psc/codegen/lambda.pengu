@@ -52,7 +52,10 @@ weave collect_lambdas with c as ref to context.CgContext into void:
     var mi as int is 0
     while mi < c->program->modules.len:
         var m as loader.SemaModule is (c->program->modules at mi)
-        if m.is_std or ((m.path length) >= 4 and (m.path at 0 to 4) == "std/"):
+        var is_stdmod as bool is m.is_std or ((m.path length) >= 4 and (m.path at 0 to 4) == "std/")
+        # En modo test también se generan los `test` de los módulos std, y sus
+        # lambdas necesitan prototipo/definición como cualquier otra.
+        if is_stdmod and not c->options.is_test:
             set mi is mi + 1
             continue
         var ast as ref to psast.PsAst is (sigil of m.parse.ast)

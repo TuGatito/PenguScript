@@ -469,15 +469,33 @@ weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m 
     var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of p->symbols), sid
     var rname as string is "Type"
     var rt as tk.SemaType is calling types.at with (sigil of p->types), recv
+    # El receptor de `enchanting Box shard T:` puede llegar como base `Box`;
+    # si hay una runa/echo/omen con ese nombre, usa su tipo nominal para que
+    # la firma C de las especializaciones sea `Box__int*`.
+    if rt.kind == tk.SemaTypeKind.TkBase:
+        var btxt as string is calling npool.text with (sigil of p->names), rt.name
+        var nid as int is calling symbols.lookup_type_name with (sigil of p->symbols), btxt
+        if nid > 0:
+            var nty as tk.SemaType is calling types.at with (sigil of p->types), nid
+            var isnom as bool is nty.kind == tk.SemaTypeKind.TkRune or nty.kind == tk.SemaTypeKind.TkEcho or nty.kind == tk.SemaTypeKind.TkOmen or nty.kind == tk.SemaTypeKind.TkAlias or nty.kind == tk.SemaTypeKind.TkSeal or nty.kind == tk.SemaTypeKind.TkConcept
+            if isnom:
+                set recv is nid
+                set rt is nty
     if rt.kind == tk.SemaTypeKind.TkList:
         set rname is "list"
     else if rt.kind == tk.SemaTypeKind.TkMap:
         set rname is "map"
     else if rt.kind == tk.SemaTypeKind.TkSlice or rt.kind == tk.SemaTypeKind.TkMany:
         set rname is "slice"
+    else if rt.kind == tk.SemaTypeKind.TkMaybe:
+        set rname is "maybe"
+    else if rt.kind == tk.SemaTypeKind.TkResult:
+        set rname is "result"
+    else if rt.kind == tk.SemaTypeKind.TkTuple:
+        set rname is "tuple"
     else if rt.kind == tk.SemaTypeKind.TkBase:
         set rname is calling npool.text with (sigil of p->names), rt.name
-    else if rt.a > 0 and rt.a < p->types.nominal_infos.len:
+    else if (rt.kind == tk.SemaTypeKind.TkRune or rt.kind == tk.SemaTypeKind.TkEcho or rt.kind == tk.SemaTypeKind.TkOmen or rt.kind == tk.SemaTypeKind.TkAlias or rt.kind == tk.SemaTypeKind.TkSeal or rt.kind == tk.SemaTypeKind.TkConcept) and rt.a > 0 and rt.a < p->types.nominal_infos.len:
         var info as types.SemaNominalInfo is (p->types.nominal_infos at rt.a)
         set rname is calling npool.text with (sigil of p->names), info.base_name
     else:
@@ -559,6 +577,22 @@ weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m 
                 set ti is ti + 1
     else:
         calling collect_type_params with p, recv, (sigil of mtps)
+    # Los `shard U` propios del método van después de los parámetros del
+    # receptor: el receptor se sustituye por sus argumentos concretos y el
+    # resto se infiere de los argumentos de la llamada.
+    var ui as int is 0
+    while ui < tps.len:
+        var utp as int is (tps at ui)
+        var dup as bool is false
+        var uj as int is 0
+        while uj < mtps.len:
+            if (mtps at uj) == utp:
+                set dup is true
+            set uj is uj + 1
+        if not dup:
+            calling mtps.push with utp
+        set ui is ui + 1
+    banish tps
     if mtps.len > 0:
         set is_gen is true
     var idx as int is c->functions.len

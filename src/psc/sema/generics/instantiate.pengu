@@ -110,6 +110,187 @@ weave subst_type with t as ref to types.SemaTypeTable, id as int, subst as ref t
     # Nominales ya instanciados, primitivos y tipos sintéticos.
     return id
 
+## `true` si el tipo contiene un `TkTypeParam` (versión local para no importar
+## `convert`, que ya importa este módulo).
+##
+## ## Memoria
+## O(profundidad).
+weave has_param with t as ref to types.SemaTypeTable, id as int into bool:
+    if id <= 0:
+        return false
+    var ty as tk.SemaType is calling types.at with t, id
+    if ty.kind == tk.SemaTypeKind.TkTypeParam:
+        return true
+    if ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkFrozen or ty.kind == tk.SemaTypeKind.TkArray or ty.kind == tk.SemaTypeKind.TkList or ty.kind == tk.SemaTypeKind.TkSlice or ty.kind == tk.SemaTypeKind.TkMany or ty.kind == tk.SemaTypeKind.TkMaybe or ty.kind == tk.SemaTypeKind.TkRange:
+        return calling has_param with t, ty.a
+    if ty.kind == tk.SemaTypeKind.TkMap or ty.kind == tk.SemaTypeKind.TkResult:
+        return (calling has_param with t, ty.a) or (calling has_param with t, ty.b)
+    if ty.kind == tk.SemaTypeKind.TkTuple:
+        var i as int is 0
+        while i < ty.count:
+            if calling has_param with t, (t->type_children at (ty.first + i)):
+                return true
+            set i is i + 1
+    return false
+
+## Sustituye en profundidad y re-instancia nominales cuyos argumentos cambian.
+##
+## A diferencia de `subst_type`, `Box of T` pasa a `Box of int` cuando `T` está
+## en `subst`; el resultado es el `TypeId` de la instancia concreta.
+##
+## ## Memoria
+## Puede crear tipos/instancias internados; no posee strings.
+weave subst_deep with s as ref to symbols.SemaSymbols, id as int, subst as map of int to int into int:
+    if id <= 0 or subst.len == 0:
+        return id
+    var t as ref to types.SemaTypeTable is s->types
+    var ty as tk.SemaType is calling types.at with t, id
+    if ty.kind == tk.SemaTypeKind.TkTypeParam:
+        if calling subst.has with ty.name:
+            return calling subst.get with ty.name
+        return id
+    var ii as int is calling symbols.instance_for_type with s, id
+    if ii >= 0:
+        var inst as sym.SemaInstance is (s->instances at ii)
+        var nargs as list of int is list of int
+        defer banish nargs
+        var changed as bool is false
+        var ai as int is 0
+        while ai < inst.args_count:
+            var oa as int is (s->instance_args at (inst.args_first + ai))
+            var na as int is calling subst_deep with s, oa, subst
+            if na != oa:
+                set changed is true
+            calling nargs.push with na
+            set ai is ai + 1
+        if changed and inst.template_type > 0:
+            var nid as int is calling instantiate_nominal with s, inst.template_type, nargs
+            if nid > 0:
+                return nid
+        return id
+    if ty.kind == tk.SemaTypeKind.TkRef:
+        return calling types.ref_to with t, (calling subst_deep with s, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkFrozen:
+        return calling types.frozen with t, (calling subst_deep with s, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkArray:
+        return calling types.array_of with t, (calling subst_deep with s, ty.a, subst), ty.b
+    if ty.kind == tk.SemaTypeKind.TkSlice:
+        return calling types.slice_of with t, (calling subst_deep with s, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkMany:
+        return calling types.many_of with t, (calling subst_deep with s, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkList:
+        return calling types.list_of with t, (calling subst_deep with s, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkMaybe:
+        return calling types.maybe_of with t, (calling subst_deep with s, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkRange:
+        return calling types.range_of with t, (calling subst_deep with s, ty.a, subst)
+    if ty.kind == tk.SemaTypeKind.TkMap:
+        return calling types.map_of with t, (calling subst_deep with s, ty.a, subst), (calling subst_deep with s, ty.b, subst)
+    if ty.kind == tk.SemaTypeKind.TkResult:
+        return calling types.result_of with t, (calling subst_deep with s, ty.a, subst), (calling subst_deep with s, ty.b, subst)
+    if ty.kind == tk.SemaTypeKind.TkTuple:
+        var ids as list of int is list of int
+        defer banish ids
+        var i as int is 0
+        while i < ty.count:
+            calling ids.push with (calling subst_deep with s, (t->type_children at (ty.first + i)), subst)
+            set i is i + 1
+        return calling types.tuple_of with t, ids
+    return calling subst_type with t, id, (sigil of subst)
+
+## Unifica un tipo formal con uno actual y anota los type params por nombre.
+##
+## Es la mitad "inferencia" de la instanciación: dado `list of T` y `list of
+## int`, deja `T -> int` en `subst`. Los tipos sintéticos (any/void/error) y
+## los nominales ya instanciados no se unifican.
+##
+## ## Memoria
+## Escribe en `subst` (prestado); no posee strings.
+weave unify_param with s as ref to symbols.SemaSymbols, formal as int, actual as int, subst as ref to map of int to int into void:
+    if formal <= 0 or actual <= 0:
+        return
+    if formal == actual:
+        return
+    var t as ref to types.SemaTypeTable is s->types
+    var ft as tk.SemaType is calling types.at with t, formal
+    var at as tk.SemaType is calling types.at with t, actual
+    if ft.kind == tk.SemaTypeKind.TkTypeParam:
+        if not (calling subst.has with ft.name):
+            calling subst.put with ft.name, actual
+        return
+    if at.kind == tk.SemaTypeKind.TkAny or at.kind == tk.SemaTypeKind.TkError:
+        return
+    if ft.kind == tk.SemaTypeKind.TkRef or ft.kind == tk.SemaTypeKind.TkFrozen or ft.kind == tk.SemaTypeKind.TkArray or ft.kind == tk.SemaTypeKind.TkList or ft.kind == tk.SemaTypeKind.TkSlice or ft.kind == tk.SemaTypeKind.TkMany or ft.kind == tk.SemaTypeKind.TkMaybe or ft.kind == tk.SemaTypeKind.TkRange:
+        if at.kind == ft.kind:
+            calling unify_param with s, ft.a, at.a, subst
+        return
+    if ft.kind == tk.SemaTypeKind.TkMap or ft.kind == tk.SemaTypeKind.TkResult:
+        if at.kind == ft.kind:
+            calling unify_param with s, ft.a, at.a, subst
+            calling unify_param with s, ft.b, at.b, subst
+        return
+    if ft.kind == tk.SemaTypeKind.TkRune or ft.kind == tk.SemaTypeKind.TkEcho or ft.kind == tk.SemaTypeKind.TkOmen or ft.kind == tk.SemaTypeKind.TkAlias or ft.kind == tk.SemaTypeKind.TkSeal or ft.kind == tk.SemaTypeKind.TkConcept:
+        var fii as int is calling symbols.instance_for_type with s, formal
+        var aii as int is calling symbols.instance_for_type with s, actual
+        if fii >= 0 and aii >= 0:
+            var finst as sym.SemaInstance is (s->instances at fii)
+            var ainst as sym.SemaInstance is (s->instances at aii)
+            if finst.template_type == ainst.template_type and finst.args_count == ainst.args_count:
+                var qi as int is 0
+                while qi < finst.args_count:
+                    calling unify_param with s, (s->instance_args at (finst.args_first + qi)), (s->instance_args at (ainst.args_first + qi)), subst
+                    set qi is qi + 1
+        return
+    if ft.kind == tk.SemaTypeKind.TkFn:
+        if at.kind == tk.SemaTypeKind.TkFn:
+            var fi as types.SemaFnInfo is (t->fn_infos at ft.a)
+            var ai as types.SemaFnInfo is (t->fn_infos at at.a)
+            var pi as int is 0
+            while pi < fi.params_count and pi < ai.params_count:
+                var fp as types.SemaFnParam is (t->fn_params at (fi.params_first + pi))
+                var ap as types.SemaFnParam is (t->fn_params at (ai.params_first + pi))
+                calling unify_param with s, fp.type, ap.type, subst
+                set pi is pi + 1
+            calling unify_param with s, fi.return_type, ai.return_type, subst
+        return
+    if ft.kind == tk.SemaTypeKind.TkTuple:
+        if at.kind == tk.SemaTypeKind.TkTuple and ft.count == at.count:
+            var i as int is 0
+            while i < ft.count:
+                calling unify_param with s, (t->type_children at (ft.first + i)), (t->type_children at (at.first + i)), subst
+                set i is i + 1
+
+## Resuelve el retorno de una firma genérica con los tipos reales.
+##
+## ## Memoria
+## Puede crear tipos internados; devuelve el retorno sustituido.
+weave instantiate_return with s as ref to symbols.SemaSymbols, info as types.SemaFnInfo, recv_template as int, recv_actual as int, arg_types as list of int into int:
+    var t as ref to types.SemaTypeTable is s->types
+    var hasp as bool is calling has_param with t, info.return_type
+    var pi as int is 0
+    while pi < info.params_count:
+        var p as types.SemaFnParam is (t->fn_params at (info.params_first + pi))
+        if calling has_param with t, p.type:
+            set hasp is true
+        set pi is pi + 1
+    if not hasp:
+        return info.return_type
+    var subst as map of int to int is map of int to int
+    if recv_template > 0 and recv_actual > 0:
+        calling unify_param with s, recv_template, recv_actual, (sigil of subst)
+    var ai as int is 0
+    while ai < arg_types.len and ai < info.params_count:
+        var p2 as types.SemaFnParam is (t->fn_params at (info.params_first + ai))
+        calling unify_param with s, p2.type, (arg_types at ai), (sigil of subst)
+        set ai is ai + 1
+    var ret as int is info.return_type
+    if subst.len > 0:
+        var rt2 as int is calling subst_deep with s, info.return_type, subst
+        if rt2 > 0:
+            set ret is rt2
+    banish subst
+    return ret
+
 ## Mapea una clase nominal al `SemaSymbolKind` de su plantilla.
 ##
 ## ## Memoria

@@ -1645,7 +1645,7 @@ weave _lot_all_in_charset with s as string, charset as string into bool:
     return true
 
 test "LOT_VERSION is the frozen 2.1.0 contract":
-    calling _lot_expect with (LOT_VERSION == "2.1.0"), "version literal"
+    calling _lot_expect with (LOT_VERSION == "2.14.0"), "version literal"
 
 test "a fixed seed reproduces the same sequence":
     calling seed with 42

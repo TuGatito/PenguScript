@@ -1607,7 +1607,7 @@ weave _wsp_contains with s as string, sub as string into bool:
     return false
 
 test "WHISPER_VERSION is the frozen 2.1.0 contract":
-    calling _wsp_expect with (WHISPER_VERSION == "2.1.0"), "version literal"
+    calling _wsp_expect with (WHISPER_VERSION == "2.14.0"), "version literal"
 
 test "level ids are ordered from trace to fatal":
     calling _wsp_expect with (LOG_TRACE < LOG_DEBUG), "trace < debug"

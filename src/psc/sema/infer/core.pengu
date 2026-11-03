@@ -23,6 +23,7 @@ import psc.sema.types.table as types
 import psc.sema.types.compat as compat
 import psc.sema.types.convert as convert
 import psc.sema.types.canonical as canon
+import psc.sema.generics.instantiate as ginst
 import psc.sema.symbols.table as symbols
 import psc.sema.symbols.symbol as sym
 import psc.sema.modules.loader as loader
@@ -443,6 +444,9 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
     var args as int is calling astutil.node_child with s->ast, node, 2
     var sid as int is -1
     var recv_bounds as int is -1
+    var inst_recv as int is -1
+    var arg_types as list of int is list of int
+    defer banish arg_types
     var chain_last as int is -1
     var tname as string is ""
     defer banish tname
@@ -586,6 +590,7 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                     calling infer_args_only with s, args
                     return bm0
             set recv_bounds is rcp
+            set inst_recv is rcp
             var recv_lookup as int is calling underlying_type with s, rcp
             var rty as tk.SemaType is calling types.at with s->types, recv_lookup
             if rty.kind == tk.SemaTypeKind.TkRef:
@@ -713,6 +718,16 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
         return fsv.type
     # Infiere argumentos y comprueba contra los parámetros.
     var info as types.SemaFnInfo is (s->types->fn_infos at ft.a)
+    # Sustitución T -> tipo real: se siembra con el receptor (métodos) y se
+    # amplía con cada argumento ya inferido, para que los argumentos
+    # posteriores vean el tipo concreto y no `void*`.
+    var subst as map of int to int is map of int to int
+    defer banish subst
+    var rtemplate as int is -1
+    if calling s->symbols->method_receiver.has with sid:
+        set rtemplate is calling s->symbols->method_receiver.get with sid
+        if rtemplate > 0 and inst_recv > 0:
+            calling ginst.unify_param with s->symbols, rtemplate, inst_recv, (sigil of subst)
     var i as int is 0
     var nargs as int is 0
     var first_arg_type as int is -1
@@ -748,13 +763,20 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                 set vnode is calling astutil.node_child with s->ast, arg, 0
             if pindex >= 0 and pindex < info.params_count:
                 var p as types.SemaFnParam is (s->types->fn_params at (info.params_first + pindex))
-                var got as int is calling infer with s, vnode, p.type
-                if not calling compat.compatible with s->types, got, p.type:
+                var pexp as int is p.type
+                if subst.len > 0:
+                    var psub as int is calling ginst.subst_type with s->types, p.type, (sigil of subst)
+                    if psub > 0:
+                        set pexp is psub
+                var got as int is calling infer with s, vnode, pexp
+                if not calling compat.compatible with s->types, got, pexp:
                     # Las firmas C de `declare` se validan en el binding; el
                     # checker no debe reinterpretar sus tipos ABI (function
                     # pointers, `void *`, ...).
                     if fsv.kind != sym.SemaSymbolKind.SkDeclare:
-                        calling type_mismatch with s, vnode, p.type, got
+                        calling type_mismatch with s, vnode, pexp, got
+                calling ginst.unify_param with s->symbols, p.type, got, (sigil of subst)
+                calling arg_types.push with got
                 if i == 0:
                     set first_arg_type is got
         set i is i + 1
@@ -766,10 +788,14 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                 defer banish bmsg
                 calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CONCEPT_BOUND, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), bmsg, "Add the required concept implementation or change the bound.", ""
             set bj is bj + 1
-    if info.return_type == calling types.base with s->types, "void":
+    var ret as int is info.return_type
+    set ret is calling ginst.instantiate_return with s->symbols, info, rtemplate, inst_recv, arg_types
+    if ret != info.return_type:
+        calling ann.set_type with s->annotations, node, ret
+    if ret == calling types.base with s->types, "void":
         if (calling astutil.child_count with s->ast, target) > 2:
             return chain_last
-    return info.return_type
+    return ret
 
 ## Resuelve un paso de método de `NdChainExpr`.
 ##
@@ -1087,7 +1113,8 @@ weave active_with_type with s as ref to state.SemaState into int:
 ## ## Memoria
 ## Infiere args; no asigna.
 weave infer_with_call with s as ref to state.SemaState, node as int, target as int, expected as int into int:
-    var recv as int is calling active_with_type with s
+    var recv_orig as int is calling active_with_type with s
+    var recv as int is recv_orig
     var nm as int is calling astutil.token_child with s->ast, target, 0
     if recv < 0 or nm < 0:
         return 0
@@ -1104,8 +1131,33 @@ weave infer_with_call with s as ref to state.SemaState, node as int, target as i
         var ft as tk.SemaType is calling types.at with s->types, fsv.type
         if ft.kind == tk.SemaTypeKind.TkFn:
             var info as types.SemaFnInfo is (s->types->fn_infos at ft.a)
-            calling infer_args_only with s, args
-            return info.return_type
+            calling ann.ann_set_symbol with s->annotations, node, sid
+            var arg_types as list of int is list of int
+            var ai as int is 0
+            var nargs as int is 0
+            if args >= 0:
+                set nargs is calling astutil.child_count with s->ast, args
+            while ai < nargs:
+                var arg as int is calling astutil.node_child with s->ast, args, ai
+                if arg >= 0:
+                    var vnode as int is arg
+                    if (calling astutil.kind_of with s->ast, arg) == pskind.NodeKind.NdNamedArg:
+                        set vnode is calling astutil.node_child with s->ast, arg, 1
+                    var pty as int is 0
+                    if ai < info.params_count:
+                        var p as types.SemaFnParam is (s->types->fn_params at (info.params_first + ai))
+                        set pty is p.type
+                    var got as int is calling infer with s, vnode, pty
+                    calling arg_types.push with got
+                set ai is ai + 1
+            var rtemplate as int is -1
+            if calling s->symbols->method_receiver.has with sid:
+                set rtemplate is calling s->symbols->method_receiver.get with sid
+            var ret as int is calling ginst.instantiate_return with s->symbols, info, rtemplate, recv_orig, arg_types
+            banish arg_types
+            if ret > 0:
+                calling ann.set_type with s->annotations, node, ret
+            return ret
     var bm as int is calling builtin_method with s, recv, txt, expected
     if bm > 0:
         calling infer_args_only with s, args

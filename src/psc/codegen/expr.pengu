@@ -43,7 +43,10 @@ weave node_type with c as ref to context.CgContext, node as int into int:
     if c->current_module < 0 or node < 0:
         return -1
     var m as loader.SemaModule is (c->program->modules at c->current_module)
-    return calling ann.type_of with (sigil of m.annotations), node
+    var t as int is calling ann.type_of with (sigil of m.annotations), node
+    if c->names.subst.len > 0:
+        return calling generics.subst_codegen with c, t
+    return t
 
 ## Emite una expresión como string C owned.
 ##
@@ -1326,6 +1329,8 @@ weave some_expr_c with c as ref to context.CgContext, node as int, ast as ref to
         set payx is calling node_type with c, an0
     if payx <= 0:
         set payx is calling types.base with (sigil of c->program->types), "int"
+    if c->names.subst.len > 0:
+        set payx is calling subst_codegen with c, payx
     var pt as string is calling ctype.c_type with (sigil of c->names), payx
     defer banish pt
     var an as int is calling astutil.node_child with ast, node, 0
@@ -1418,6 +1423,8 @@ weave result_ctor with c as ref to context.CgContext, node as int, ast as ref to
                 banish vtxt0
     if pay < 0:
         return "0"
+    if c->names.subst.len > 0:
+        set pay is calling subst_codegen with c, pay
     var pt as string is calling ctype.c_type with (sigil of c->names), pay
     defer banish pt
     var av as string is calling emit_expr_as with c, avn, pay
@@ -1828,7 +1835,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             if ov_tgt.type_id > 0:
                 var ov_mi as int is calling generics.find_generic_method with c, ov_nid, ov_tgt.type_id
                 if ov_mi >= 0:
-                    var ov_si as int is calling generics.ensure_method_spec with c, ov_mi, ov_tgt.type_id
+                    var ov_si as int is calling generics.ensure_method_spec with c, ov_mi, ov_tgt.type_id, node
                     if ov_si >= 0 and ov_si != fslot:
                         set fslot is ov_si
                         var ov_sf as catalog.CgFunction is (c->catalog.functions at ov_si)
@@ -2004,7 +2011,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             defer banish mrt.text
             var mrid as int is mrt.type_id
             if mrid > 0:
-                var mig as int is calling generics.ensure_method_spec with c, fslot, mrid
+                var mig as int is calling generics.ensure_method_spec with c, fslot, mrid, node
                 if mig > 0 and mig != fslot:
                     set fslot is mig
                     var msf as catalog.CgFunction is (c->catalog.functions at mig)
@@ -2151,13 +2158,20 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             if rt0 == "PenguMap":
                 set ref_map is true
             banish rt0
-        if (is_map_recv or ref_map) and (method_name == "put" or method_name == "get" or method_name == "has" or method_name == "remove" or method_name == "contains"):
+        if (is_map_recv or ref_map) and (method_name == "put" or method_name == "get" or method_name == "has" or method_name == "remove" or method_name == "contains" or method_name == "clear"):
             var mt as tk.SemaType is tt
             if ref_map:
                 set mt is calling types.at with (sigil of c->program->types), tt.a
             var mrecv as string is "&({tgt.text})"
             if ref_map or (tgt.text == "self" and not c->self_value):
                 set mrecv is tgt.text
+            if method_name == "clear":
+                var csb as StringBuilder is calling StringBuilder.new
+                defer banish csb
+                calling csb.append with "__extension__(({ pengu_map_clear("
+                calling csb.append with mrecv
+                calling csb.append with "); }))"
+                return calling csb.finish
             var argm as int is calling astutil.node_child with ast, node, 2
             if argm >= 0:
                 var karg as int is calling astutil.node_child with ast, argm, 0
@@ -2193,9 +2207,25 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     else if method_name == "remove":
                         calling msb.append with "pengu_map_remove({mrecv}, &_k); }))"
                     else:
-                        calling msb.append with "(*( "
+                        # `get` es la lectura sin comprobar: si la clave no
+                        # está, devuelve el cero del tipo de valor (como `at`).
+                        var vtt as tk.SemaType is calling types.at with (sigil of c->program->types), mt.b
+                        var vzero as string is "NULL"
+                        if vtt.kind != tk.SemaTypeKind.TkRef and vtt.kind != tk.SemaTypeKind.TkFn and vtt.kind != tk.SemaTypeKind.TkOpaque:
+                            var zsb as StringBuilder is calling StringBuilder.new
+                            defer banish zsb
+                            calling zsb.append with "("
+                            calling zsb.append with vts
+                            calling zsb.append with r"){0}"
+                            set vzero is calling zsb.finish
+                        var ptmp as string is calling emit.temp with (sigil of c->emitter), "_p"
+                        defer banish ptmp
+                        defer banish vzero
+                        calling msb.append with "void* {ptmp} = pengu_map_get({mrecv}, &_k); {ptmp} ? (*( "
                         calling msb.append with vts
-                        calling msb.append with "*)pengu_map_get({mrecv}, &_k)); }))"
+                        calling msb.append with "*){ptmp}) : "
+                        calling msb.append with vzero
+                        calling msb.append with "; }))"
                 banish kt
                 banish vts
                 banish kz
@@ -2301,8 +2331,15 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                 var a as string is ""
                 if i < fn_params_count:
                     var p as types.SemaFnParam is (c->program->types.fn_params at (fn_params_first + i))
-                    if p.type > 0 and p.type != types.TYPE_ID_CVARARGS:
-                        set a is calling emit_expr_as with c, v, p.type
+                    var pty as int is p.type
+                    if pty > 0 and fslot >= 0:
+                        var cfm as catalog.CgFunction is (c->catalog.functions at fslot)
+                        if cfm.is_spec and cfm.spec_args.len > 0:
+                            var psub as int is calling generics.subst_spec_type_of with c, cfm, pty
+                            if psub > 0:
+                                set pty is psub
+                    if pty > 0 and pty != types.TYPE_ID_CVARARGS:
+                        set a is calling emit_expr_as with c, v, pty
                     else:
                         set a is calling emit_expr with c, v
                 else:
@@ -2546,6 +2583,24 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                             banish pcase
                             banish bv0
                             banish ptx
+                        else:
+                            # `true`/`false` no llevan token propio; el patrón es
+                            # `when_pattern > true_lit|false_lit`.
+                            var pk0 as pskind.NodeKind is calling astutil.kind_of with ast, pn0
+                            var pc0 as int is pn0
+                            if pk0 == pskind.NodeKind.NdWhenPattern:
+                                set pc0 is calling astutil.node_child with ast, pn0, 0
+                            if pc0 >= 0:
+                                var pk1 as pskind.NodeKind is calling astutil.kind_of with ast, pc0
+                                var lit as string is ""
+                                if pk1 == pskind.NodeKind.NdTrueLit:
+                                    set lit is "true"
+                                else if pk1 == pskind.NodeKind.NdFalseLit:
+                                    set lit is "false"
+                                if lit length > 0:
+                                    var bv1 as string is calling emit_expr_as with c, bd0, rt
+                                    calling sbn.append with "case {lit}: {jr0} = {bv1}; break; "
+                                    banish bv1
                 else if ck0 == pskind.NodeKind.NdElseClause:
                     var bd1 as int is calling astutil.node_child with ast, cl0, 0
                     if bd1 < 0:
@@ -4746,27 +4801,21 @@ weave interp_expr with c as ref to context.CgContext, node as int, content as st
                 # Emite con una copia del programa cuyo módulo actual es el
                 # AST de la interpolación. No muta el SemaProgram original: el
                 # codegen sigue usando el AST principal al terminar.
-                var tmpmod as loader.SemaModule is (c->program->modules at midx)
+                # Emite con el AST de la interpolación instalado temporalmente
+                # en el módulo actual. Se restaura al terminar para que el
+                # codegen siga usando el AST principal. No se copia el
+                # programa: una copia dejaría fuera las specs y los tipos
+                # descubiertos durante la interpolación.
+                var oldmod as loader.SemaModule is (c->program->modules at midx)
+                var tmpmod as loader.SemaModule is oldmod
                 set tmpmod.source is it.parse.source
                 set tmpmod.lex is it.parse.lex
                 set tmpmod.parse is with ok is true, root is it.parse.root, ast is it.parse.ast, error_count is 0
                 set tmpmod.annotations is it.annotations
-                var newmods as list of loader.SemaModule is list of loader.SemaModule
-                var mi as int is 0
-                while mi < c->program->modules.len:
-                    if mi == midx:
-                        calling newmods.push with tmpmod
-                    else:
-                        var om as loader.SemaModule is (c->program->modules at mi)
-                        calling newmods.push with om
-                    set mi is mi + 1
-                var prog2 as program.SemaProgram is (essence of (c->program))
-                set prog2.modules is newmods
-                var c2 as context.CgContext is (essence of c)
-                set c2.program is (sigil of prog2)
-                var expr_c as string is calling emit_expr with (sigil of c2), it.parse.root
-                var ty as int is calling node_type with (sigil of c2), it.parse.root
-                banish newmods
+                set c->program->modules at midx is tmpmod
+                var expr_c as string is calling emit_expr with c, it.parse.root
+                var ty as int is calling node_type with c, it.parse.root
+                set c->program->modules at midx is oldmod
                 if expr_c == "":
                     calling fmt.append with "%s"
                     calling args.append with "pengu_string_from_cstr(\"\")"

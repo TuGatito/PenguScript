@@ -1,0 +1,129 @@
+## Regresión F1/F2: genéricos (0.22.1).
+##
+## Cubre funciones genéricas, métodos de contenedores, métodos con `shard`
+## propio, runas genéricas, parámetros de tipo dentro de contenedores y
+## parámetros de tipo que sólo aparecen en un parámetro función.
+import std.spark
+import std.atlas
+import std.oracle
+import std.tally
+
+rune Box shard T:
+    value as T
+
+enchanting Box shard T:
+    weave get into T:
+        return self.value
+
+    weave map_to shard U with f as weave with x as T into U into Box of U:
+        var out as Box of U is with value is (calling f with self.value)
+        return out
+
+## Función genérica con dos parámetros de tipo y contenedor anidado.
+weave first_of shard T with xs as list of T into T:
+    return xs at 0
+
+## Función genérica con bound numérico.
+weave doubled shard T where T: Num with x as T into T:
+    return x + x
+
+## Función genérica que sólo usa `V` dentro del parámetro función.
+weave apply_to shard T and V with x as T, f as weave with y as T into V into V:
+    return calling f with x
+
+weave to_exclaim with y as int into string:
+    return "{y}!"
+
+weave hash_str with y as int into string:
+    return "{y}#"
+
+weave add_acc with acc as int, x as int into int:
+    return acc + x
+
+weave main into int:
+    # 1. Función genérica y `at` de list of T.
+    var xs as list of int is [4, 5, 6]
+    if (calling first_of with xs) != 4:
+        return 1
+    var ss as list of string is ["a", "b"]
+    var s0 as string is calling first_of with ss
+    if s0 != "a":
+        banish s0
+        return 1
+    banish s0
+
+    # 2. Bound `where T: Num` sobre int y float.
+    if (calling doubled with 3) != 6:
+        return 1
+    if (calling doubled with 1.5) != 3.0:
+        return 1
+
+    # 3. `V` sólo aparece en el parámetro función.
+    var n as string is calling apply_to with 7, to_exclaim
+    if n != "7!":
+        banish n
+        return 1
+    banish n
+
+    # 4. Runa genérica + método genérico con `shard U` propio.
+    var b as Box of int is with value is 5
+    if (calling b.get) != 5:
+        return 1
+    var sb as Box of string is calling b.map_to with hash_str
+    var got as string is calling sb.get
+    if got != "5#":
+        banish got
+        return 1
+    banish got
+
+    # 5. Map genérico: mutación, lectura y `entries` (Pair of K and V).
+    var m as map of string to int is map of string to int
+    calling m.put with "a", 1
+    calling m.put with "b", 2
+    if (calling m.get_or with "a", 0) != 1:
+        return 1
+    if (calling m.get_or with "zz", -1) != -1:
+        return 1
+    if (calling m.get with "zz") != 0:
+        return 1
+    if m.len != 2:
+        return 1
+    var es as list of oracle.Pair of string and int is calling m.entries
+    if es.len != 2:
+        banish es
+        return 1
+    var e as oracle.Pair of string and int is (es at 0)
+    if (e.second) != 1 and (e.second) != 2:
+        banish es
+        return 1
+    banish es
+
+    # 6. `size`/`has_key`/`remove`/`clear` con receptor concreto.
+    if (calling m.size) != 2:
+        return 1
+    if not (calling m.has_key with "b"):
+        return 1
+    if not (calling m.remove with "b"):
+        return 1
+    if m.len != 1:
+        return 1
+    calling m.clear
+    if m.len != 0:
+        return 1
+
+    # 7. Función genérica que recibe una función (param. de tipo en TkFn).
+    var scaled as list of int is calling tally.scan_left with [1, 2, 3], add_acc
+
+    if (scaled at 1) != 3:
+        return 1
+    if (scaled at 2) != 6:
+        return 1
+
+    # 8. Interpolación de valores genéricos.
+    var msg as string is "n={calling doubled with 4} f={scaled at 2}"
+    if msg != "n=8 f=6":
+        banish msg
+        return 1
+    banish msg
+
+    return 0

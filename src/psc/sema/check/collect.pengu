@@ -1219,8 +1219,11 @@ weave collect_weave with s as ref to state.SemaState, node as int, no_body as bo
 ## ## Memoria
 ## Añade `SemaFnParam` y actualiza `first/count` por referencia.
 weave collect_params with s as ref to state.SemaState, pnode as int, out as ref to ParamRange into void:
-    set out->first is s->types->fn_params.len
-    set out->count is 0
+    # Los params se acumulan aparte: convertir un tipo función (`as weave ...`)
+    # añade sus propios params a `fn_params`, así que empujarlos al vuelo
+    # rompería la contigüidad del rango [first, first+count).
+    var tmp as list of types.SemaFnParam is list of types.SemaFnParam
+    defer banish tmp
     var i as int is 0
     var n as int is calling astutil.child_count with s->ast, pnode
     while i < n:
@@ -1257,17 +1260,22 @@ weave collect_params with s as ref to state.SemaState, pnode as int, out as ref 
                         set dtxt is calling npool.intern with s->names, ptx
                         banish ptx
             var fp as types.SemaFnParam is with name is pname, type is pty, flags is 0, default_node is pdef, default_module is dmidx, default_text is dtxt
-            calling types.add_fn_param with s->types, fp
-            set out->count is out->count + 1
+            calling tmp.push with fp
         else:
             # `...` es un token hijo, no un `NdParam`: registra el singleton
             # CVarArgs para que la firma C conserve la variadicidad.
             var et as pstoken.TokenKind is calling astutil.child_token_kind with s->lex, s->ast, pnode, i
             if et == pstoken.TokenKind.TokEllipsis:
                 var fpe as types.SemaFnParam is with name is -1, type is types.TYPE_ID_CVARARGS, flags is 0, default_node is -1
-                calling types.add_fn_param with s->types, fpe
-                set out->count is out->count + 1
+                calling tmp.push with fpe
         set i is i + 1
+    set out->first is s->types->fn_params.len
+    set out->count is 0
+    var ti as int is 0
+    while ti < tmp.len:
+        calling types.add_fn_param with s->types, (tmp at ti)
+        set out->count is out->count + 1
+        set ti is ti + 1
 
 ## Nodo `attribute` llamado `name`, o `-1`.
 ##
