@@ -2,6 +2,50 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.25.1] — 2026-11-03 — lambdas sin prototipo en `transmute` y builders
+
+Corrige un bug preexistente de sema/codegen que impedía compilar
+`tests/wasm/filum_stress.pengu` (`error: use of undeclared identifier
+'_pengu_lambda_0_1347'`). Aparecía en la suite lenta (`PSC_WASM_SLOW=1`) pero
+también al compilar el archivo de forma nativa: el disparador no era
+`-pthread`, sino una lambda usada como operando de `transmute`.
+
+### Corregido
+
+- **Sema:** `transmute` convertía el tipo destino y solo infería el operando si
+  esa conversión fallaba. Como el destino siempre es válido, el operando quedaba
+  sin tipo; con una lambda, `lambdagen.signature` devolvía `""` y el codegen
+  omitía prototipo y cuerpo mientras seguía emitiendo el nombre
+  `_pengu_lambda_*`. Ahora el operando se infiere siempre y el tipo del
+  `transmute` sigue siendo el del destino (`src/psc/sema/infer/core.pengu`).
+- **Type-check del operando:** como efecto del mismo cambio, `transmute` ya valida
+  su operando (`transmute (lambda x as int into nope_var) to ref to void`
+  reporta `E0004: undefined identifier`), en vez de aceptarlo sin comprobarlo.
+- **Campos de `with campo is expr`:** `infer_struct_init` resolvía el tipo
+  nominal pero nunca infería el valor de cada campo. `infer_field_inits` los
+  anota ahora con el tipo declarado del campo como contexto (para conservar
+  `maybe`/`result`), así que `with f is (lambda ...)` también emite su prototipo
+  y su cuerpo. El literal contextual sin nombre de runa (`var e as E is with ...`)
+  toma además el tipo esperado (`src/psc/sema/infer/core.pengu`).
+- **Builders `with:`:** el hook `check_with` era código muerto: `NdWithInitExpr`
+  se anotaba con el tipo esperado y su cuerpo no se chequeaba. Ahora abre un
+  scope `SgWith` y chequea los statements como `with target:`, de modo que
+  `set .f is lambda ...` infiere la firma (`src/psc/sema/check/body.pengu`).
+  Efecto secundario: los cuerpos de builder reciben por fin chequeo de tipos
+  (antes se ignoraban), así que puede aflorar algún error real en código que
+  asignaba un tipo incorrecto dentro de un builder.
+- **Regresión:** nuevo test nativo `tests/pengu/lambda_contexts.pengu` con los
+  tres contextos (operando de `transmute` con y sin parámetros, campo de
+  `with ... is ...`, builder `with:`) y un roundtrip por puntero opaco. Se
+  ejecuta en `tests/run.sh` (CI nativa).
+
+### Documentación
+
+- `LANGUAGE.md` y `LANGUAGE_Spanish.md` documentan que el operando de
+  `transmute` se type-checkea y se infiere siempre.
+- Versión 0.25.1 en `VERSION`, `pengu.toml`, `release.toml`, `README.md`,
+  `LANGUAGE*.md`, `vscode-extension/README.md`, `src/main.pengu` y el LSP.
+
 ## [0.25.0] — 2026-11-03 — std.web para aplicaciones (F4–F6)
 
 Completa la capa web con Canvas 2D avanzado y los módulos de navegador que

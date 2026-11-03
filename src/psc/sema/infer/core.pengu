@@ -113,12 +113,20 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
     else if kind == pskind.NodeKind.NdToExpr:
         set t is calling infer_to with s, node
     else if kind == pskind.NodeKind.NdTransmute:
+        # El operando se infiere siempre, aunque el tipo resultante sea el del
+        # destino: sus hijos necesitan anotación para el codegen. Una lambda es
+        # el caso crítico, porque sin tipo `signature` devuelve "" y no se
+        # emiten ni el prototipo ni el cuerpo de la función C.
+        var tv as int is calling astutil.node_child with s->ast, node, 0
+        var tvty as int is -1
+        if tv >= 0:
+            set tvty is calling infer with s, tv, -1
         var tn as int is calling astutil.node_child with s->ast, node, 1
         if tn >= 0:
             var ctx as convert.TypeCtx is with types is s->types, symbols is s->symbols, names is s->names, bag is s->bag, src is s->src, lex is s->lex, ast is s->ast
             set t is calling convert.convert with (sigil of ctx), tn
         if t <= 0:
-            set t is calling infer with s, (calling astutil.node_child with s->ast, node, 0), expected
+            set t is tvty
     else if kind == pskind.NodeKind.NdListInitExpr:
         set t is calling infer_list_init with s, node, expected
     else if kind == pskind.NodeKind.NdMapInitExpr:
@@ -131,6 +139,9 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
         set t is calling infer_map_lit with s, node, expected
     else if kind == pskind.NodeKind.NdStructInit:
         set t is calling infer_struct_init with s, node
+        if t <= 0 and expected > 0:
+            set t is expected
+        calling infer_field_inits with s, node, t
     else if kind == pskind.NodeKind.NdBoolOr or kind == pskind.NodeKind.NdBoolAnd:
         set t is calling infer_bool with s, node
     else if kind == pskind.NodeKind.NdIsPresent or kind == pskind.NodeKind.NdIsNotPresent or kind == pskind.NodeKind.NdIsTrue or kind == pskind.NodeKind.NdIsFalse or kind == pskind.NodeKind.NdInExpr or kind == pskind.NodeKind.NdNotInExpr:
@@ -223,10 +234,7 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
     else if kind == pskind.NodeKind.NdLambdaExpr or kind == pskind.NodeKind.NdLambdaNoParams:
         set t is calling state.call_lambda with s, node
     else if kind == pskind.NodeKind.NdWithInitExpr:
-        if expected >= 0:
-            set t is expected
-        else:
-            set t is 3
+        set t is calling state.call_with with s, node, expected
     else if kind == pskind.NodeKind.NdDoExpr:
         set t is calling infer_do with s, node, expected
     else if kind == pskind.NodeKind.NdBanishExpr:
@@ -1589,6 +1597,41 @@ weave infer_struct_init with s as ref to state.SemaState, node as int into int:
         calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "undefined type '{txt}'", "Check the rune name.", ""
         return 0
     return ty
+
+## Infiere los valores de `with campo is expr, ...`.
+##
+## `infer_struct_init` solo resuelve el tipo nominal; sin esto el valor de cada
+## campo queda sin anotar y una lambda dentro de un `with` no recibe firma. El
+## tipo del campo se pasa como tipo esperado para conservar el contexto de
+## `maybe`/`result` (`with data is maybe none`).
+##
+## ## Memoria
+## O(campos); reutiliza el estado de inferencia.
+weave infer_field_inits with s as ref to state.SemaState, node as int, ty as int into void:
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        var fi as int is calling astutil.node_child with s->ast, node, i
+        if fi >= 0 and (calling astutil.kind_of with s->ast, fi) == pskind.NodeKind.NdFieldInit:
+            var expected as int is -1
+            var nm as int is calling astutil.token_child with s->ast, fi, 0
+            if nm >= 0 and ty > 0:
+                var txt as string is calling astutil.token_text with s->src, s->lex, nm
+                defer banish txt
+                var ft as int is calling field_type with s, ty, txt
+                if ft > 0:
+                    set expected is ft
+            var ci as int is 0
+            var cn as int is calling astutil.child_count with s->ast, fi
+            var val as int is -1
+            while ci < cn:
+                var c as int is calling astutil.node_child with s->ast, fi, ci
+                if c >= 0:
+                    set val is c
+                set ci is ci + 1
+            if val >= 0:
+                var ignored as int is calling infer with s, val, expected
+        set i is i + 1
 
 ## `do:` como expresión de bloque.
 ##

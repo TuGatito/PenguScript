@@ -1405,12 +1405,36 @@ weave check_judge with s as ref to state.SemaState, node as int, expected as int
     calling ann.set_type with s->annotations, node, result
     return result
 
-## `with:` builder: conserva el tipo esperado del builder encadenado.
+## `with:` builder como expresión.
+##
+## Abre un scope `with` con el tipo esperado (o `any` si no hay contexto) y
+## chequea los statements del cuerpo, igual que `check_with_stmt`. Sin esto los
+## valores del builder nunca se infieren: una lambda asignada a un campo queda
+## sin tipo y el codegen no emite su prototipo ni su cuerpo.
 ##
 ## ## Memoria
-## O(1).
+## Push/pop de scope; recurre a los statements.
 weave check_with with s as ref to state.SemaState, node as int, expected as int into int:
-    return expected
+    var tt as int is expected
+    if tt <= 0:
+        set tt is 1
+    var start as int is calling astutil.start_of with s->ast, node
+    var end as int is calling astutil.end_of with s->ast, node
+    calling symbols.push_scope with s->symbols, scope.SemaScopeKind.SgWith, start, end
+    var sc as scope.SemaScope is (s->symbols->scopes at s->symbols->current)
+    set sc.with_type is tt
+    set s->symbols->scopes at (s->symbols->current) is sc
+    var i as int is 0
+    var n as int is calling astutil.child_count with s->ast, node
+    while i < n:
+        if calling state.should_stop with s:
+            break
+        var c as int is calling astutil.node_child with s->ast, node, i
+        if c >= 0:
+            calling check_stmt with s, c
+        set i is i + 1
+    calling symbols.pop_scope with s->symbols, end
+    return tt
 
 ## Primer token de un nodo.
 ##

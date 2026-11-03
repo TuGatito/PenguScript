@@ -1,6 +1,6 @@
 # Referencia del Lenguaje PenguScript
 
-> **Versión cubierta:** PenguScript **0.25.0** (sincronizada con el archivo `VERSION`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
+> **Versión cubierta:** PenguScript **0.25.1** (sincronizada con el archivo `VERSION`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
 > **Política de idioma.** El inglés es el idioma canónico de la documentación de
 > PenguScript, así que el documento **normativo** es [`LANGUAGE.md`](LANGUAGE.md).
 > Esta traducción al español es **no normativa**: puede ir por detrás y, donde los dos
@@ -561,7 +561,7 @@ let raw_ptr as ref to void is transmute p to ref to void   # unsafe bit-cast
 - **Retornos colgantes:** devolver una referencia (o un slice) a almacenamiento de la llamada actual produce `E0051`. Devuelve un valor, un `static var` o una referencia prestada de un parámetro.
 - **`size of TYPE`:** Evalúa el tamaño en bytes en tiempo de compilación de cualquier tipo (`sizeof(T)` en C) y devuelve `usize`.
 - **`type of expr`:** Informa del tipo **estático** de `expr` como un `string`, con la grafía canónica de PenguScript. Es un operador de tiempo de compilación: el operando se comprueba pero **nunca se evalúa**, así que sus efectos secundarios no se ejecutan. El resultado es un literal de cadena prestado (`pengu_string_from_cstr("int")`, `is_owned == 0`): no cuesta nada en runtime, y `banish` sobre él solo limpia el handle, como en cualquier cadena prestada. `type` y `of` son **palabras clave suaves**: `type of` es un único token del lexer solo cuando las dos palabras son adyacentes en la misma línea, así que `var type as int is 5` (y `var size as int is 5`, que antes chocaba con `size of`; eso está corregido) siguen funcionando como identificadores normales.
-- **`transmute expr to TYPE`:** Conversión insegura de reinterpretación a nivel de bits. Siempre dispara la advertencia del compilador `[W0001] transmute is unsafe`. Si los tipos de origen y destino tienen tamaños estimados diferentes, `W0001` incluye una notificación de discrepancia de tamaño. Las conversiones seguras deben usar `(expr to TYPE)`.
+- **`transmute expr to TYPE`:** Conversión insegura de reinterpretación a nivel de bits. Siempre dispara la advertencia del compilador `[W0001] transmute is unsafe`. Si los tipos de origen y destino tienen tamaños estimados diferentes, `W0001` incluye una notificación de discrepancia de tamaño. Las conversiones seguras deben usar `(expr to TYPE)`. El operando siempre se type-checkea y se infiere, aunque el tipo destino sea válido; desde 0.25.1 esto incluye las lambdas usadas como operando, cuya firma se infiere de su cuerpo.
 
 Nombres canónicos que informa `type of` (cada grafía del mismo tipo C da el mismo nombre — `int32`, `int32_t`, `i32` e `int` dan todos `"int"`):
 

@@ -1,0 +1,39 @@
+# Regresión 0.25.1: una lambda debe recibir anotación de tipo en todo contexto
+# que la infiera, para que el codegen emita su prototipo y su cuerpo. Antes del
+# fix, `transmute`, los campos de `with campo is expr` y los builders `with:`
+# no inferían sus valores: `signature` devolvía "" y el nombre `_pengu_lambda_*`
+# quedaba sin declarar en C (fallaba tests/wasm/filum_stress.pengu).
+
+rune Holder:
+    f as weave into int
+
+weave answer into int:
+    return 42
+
+weave main into int:
+    # Operando de `transmute` (el caso de filum_stress).
+    var fp as ref to void is transmute (lambda into calling answer) to ref to void
+    var fo as opaque is fp
+    var back as ref to weave into int is transmute fo to ref to weave into int
+    if (calling back) != 42:
+        return 1
+
+    # Lambda con parámetros como operando de `transmute`.
+    var twice as ref to weave with x as int into int is transmute (lambda x as int into x * 2) to (ref to weave with x as int into int)
+    if (calling twice with 21) != 42:
+        return 2
+
+    # Valor de un campo en `with campo is expr`.
+    var h as Holder is with f is (lambda into calling answer)
+    var hf as weave into int is h.f
+    if (calling hf) != 42:
+        return 3
+
+    # Valor asignado dentro de un builder `with:`.
+    var b as Holder with:
+        set .f is lambda into calling answer
+    var bf as weave into int is b.f
+    if (calling bf) != 42:
+        return 4
+
+    return 0
