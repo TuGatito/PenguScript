@@ -57,6 +57,16 @@ library available. See [docs/EXTERNAL_MODULES.md](docs/EXTERNAL_MODULES.md).
 strings or user runes. See [LANGUAGE.md](LANGUAGE.md) and
 [std/ordinal.pengu](std/ordinal.pengu).
 
+## Binary layouts (0.23+)
+
+`std.carmen` packs and unpacks fixed-layout binary records from a formula
+compatible with Python's `struct` (`>I4sH` = big-endian u32, four bytes, u16):
+TCP frames, PNG chunks, ELF headers, ZIP central directories and glTF chunks
+without manual byte arithmetic. It adds named fields, `z` strings, `v`/`V`
+little-endian shortcuts, a bit cursor and streaming `CarmenReader`/`CarmenWriter`
+cursors, with every failure returned as a typed `CarmenError`. See
+[docs/CARMEN.md](docs/CARMEN.md).
+
 ## Install
 
 Download a release for your platform:
