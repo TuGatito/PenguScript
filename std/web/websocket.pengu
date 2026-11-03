@@ -1,46 +1,85 @@
 ## std.web.websocket — typed WebSocket client.
 ##
-## WebAssembly-only. Open a socket, then send/close it. Callbacks are driven by
-## the JS event loop; keep the runtime alive with `std.web.set_main_loop`.
+## WebAssembly-only. Open a socket, then send or close it. Callbacks are driven
+## by the JS event loop; keep the runtime alive with `std.web.set_main_loop`.
 ## Callback strings are borrowed for the duration of the call.
+##
+## ```pengu
+## weave on_open with text as string into void:
+##     calling spark.println with "open"
+##
+## weave on_message with text as string into void:
+##     calling spark.println with "message: {text}"
+##
+## weave on_close with text as string into void:
+##     calling spark.println with "close: {text}"
+##
+## weave on_error with text as string into void:
+##     calling spark.println with "error: {text}"
+##
+## var s as result of websocket.Socket to js.JsError is calling websocket.open with "wss://example.com/ws", on_open, on_message, on_close, on_error
+## ```
+##
+## The four callbacks are one-shot or connection-scoped: the bridge releases
+## their slots when the socket closes or fails. Do not retain the `Socket` after
+## `close`; a new `open` creates a new id.
 
 import std.web.js as js
 
+const WEBSOCKET_VERSION as string is "1.0.0"
+
+## State values returned by `state`.
+const CONNECTING as int is 0
+const OPEN as int is 1
+const CLOSING as int is 2
+const CLOSED as int is 3
+
+## A live WebSocket connection.
+rune Socket:
+    _id as int
+
 when wasm:
 
-    ## A live WebSocket connection.
-    rune Socket:
-        id as int
-
-    ## Opens `url`. `on_open` receives "", `on_message` the text frame, and
-    ## `on_error` a diagnostic (including close events).
-    weave open with url as string, on_open as weave with text as string into void, on_message as weave with text as string into void, on_error as weave with text as string into void into result of Socket to js.JsError:
-        var r as result of int to js.JsError is calling js.ws_open with url, on_open, on_message, on_error
+    ## Opens `url`. `on_open` receives `""`, `on_message` a text frame,
+    ## `on_close` `"<code> <reason>"`, and `on_error` a diagnostic.
+    weave open with url as string, on_open as weave with text as string into void, on_message as weave with text as string into void, on_close as weave with text as string into void, on_error as weave with text as string into void into result of Socket to js.JsError:
+        var r as result of int to js.JsError is calling js.ws_open with url, on_open, on_message, on_close, on_error
         if not r.is_ok:
             return calling err_of with r.error
-        return calling ok_of with (with id is r.value)
+        return calling ok_of with (with _id is r.value)
 
-    ## Sends a text frame.
+    ## Sends a text frame. Fails when the socket is not open.
     weave send with s as ref to Socket, text as string into result of bool to js.JsError:
-        return calling js.ws_send with s->id, text
+        return calling js.ws_send with s->_id, text
 
-    ## Closes the socket.
-    weave close with s as ref to Socket into result of bool to js.JsError:
-        return calling js.ws_close with s->id
+    ## Closes the socket with `code` and `reason`. Idempotent.
+    weave close with s as ref to Socket, code as int is 1000, reason as string is "" into result of bool to js.JsError:
+        return calling js.ws_close with s->_id, code, reason
+
+    ## Returns the `readyState` constant (0..3).
+    weave state with s as ref to Socket into int:
+        return calling js.ws_state with s->_id
+
+    ## Number of live sockets tracked by the bridge.
+    weave count into int:
+        return calling js.ws_count
 
 when not wasm:
-
-    rune Socket:
-        id as int
 
     weave _native_error into js.JsError:
         return with name is "NotSupported", message is "std.web.websocket requires a wasm build", stack is ""
 
-    weave open with url as string, on_open as weave with text as string into void, on_message as weave with text as string into void, on_error as weave with text as string into void into result of Socket to js.JsError:
+    weave open with url as string, on_open as weave with text as string into void, on_message as weave with text as string into void, on_close as weave with text as string into void, on_error as weave with text as string into void into result of Socket to js.JsError:
         return calling err_of with (calling _native_error)
 
     weave send with s as ref to Socket, text as string into result of bool to js.JsError:
         return calling err_of with (calling _native_error)
 
-    weave close with s as ref to Socket into result of bool to js.JsError:
+    weave close with s as ref to Socket, code as int is 1000, reason as string is "" into result of bool to js.JsError:
         return calling err_of with (calling _native_error)
+
+    weave state with s as ref to Socket into int:
+        return 3
+
+    weave count into int:
+        return 0

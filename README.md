@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.23.1-blue"></a>
+  <a href="https://github.com/TuGatito/PenguScript/releases"><img alt="Version" src="https://img.shields.io/badge/version-0.24.0-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-PSC-blueviolet">
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey">
@@ -79,8 +79,8 @@ pengu-<version>-<os>-<arch>-fhs.tar.gz
 Extract it and put `bin/` on `PATH`:
 
 ```bash
-tar -xzf pengu-0.23.1-linux-x86_64-portable.tar.gz
-export PATH="$PWD/pengu-0.23.1-linux-x86_64-portable/bin:$PATH"
+tar -xzf pengu-0.24.0-linux-x86_64-portable.tar.gz
+export PATH="$PWD/pengu-0.24.0-linux-x86_64-portable/bin:$PATH"
 psc version
 ```
 
@@ -265,7 +265,7 @@ target = "wasm32-unknown-emscripten"
 | `std.web` | Console, main loop, `now_ms`, `eval_js`, timers (native + wasm) |
 | `std.filum` | Works with `-pthread`; browser needs COOP/COEP |
 | `std.net`, `std.dynlib`, `std.ffi_call`, `std.secrets`, `std.petitio` | Rejected on wasm with an actionable message |
-| JS/DOM/fetch/WebSocket/storage/canvas | `std.web.js`, `std.web.dom`, `std.web.fetch`, `std.web.websocket`, `std.web.storage`, `std.web.canvas` |
+| JS/DOM/HTTP/WebSocket/storage/canvas | `std.web.js`, `std.web.dom`, `std.web.event`, `std.web.http`, `std.web.websocket`, `std.web.storage`, `std.web.canvas`, `std.web.security`, `std.web.crypto` |
 
 ```bash
 # headless

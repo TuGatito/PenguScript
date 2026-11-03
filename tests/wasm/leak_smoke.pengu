@@ -1,0 +1,76 @@
+## Verifies that the JavaScript bridge does not leak handles or callback slots.
+##
+## Run with the wasm target: this test needs the Emscripten bridge.
+
+import std.spark
+import std.web.js as js
+
+weave on_value with value as js.JsValue into void:
+    return
+
+weave on_text with text as string into void:
+    return
+
+weave main into int:
+    var base as js.Stats is calling js.stats
+    var i as int is 0
+    while i < 200:
+        var o as result of js.JsValue to js.JsError is calling js.object
+        if not o.is_ok:
+            calling spark.println with "object failed"
+            return 1
+        calling js.release with o.value
+        set i is i + 1
+    var after as js.Stats is calling js.stats
+    if after.handles != base.handles:
+        calling spark.println with "handle leak: {base.handles} -> {after.handles}"
+        return 1
+
+    var a as result of js.JsValue to js.JsError is calling js.object
+    var b as result of js.JsValue to js.JsError is calling js.object
+    if not a.is_ok or not b.is_ok:
+        calling spark.println with "object failed"
+        return 1
+    calling js.release with a.value
+    calling js.release with a.value
+    var c as result of js.JsValue to js.JsError is calling js.object
+    var d as result of js.JsValue to js.JsError is calling js.object
+    if not c.is_ok or not d.is_ok:
+        calling spark.println with "object failed"
+        return 1
+    if c.value == d.value:
+        calling spark.println with "double release aliased two handles"
+        return 1
+    calling js.release with b.value
+    calling js.release with c.value
+    calling js.release with d.value
+
+    var cb_base as js.Stats is calling js.stats
+    set i is 0
+    while i < 300:
+        var cb as result of js.JsCallback to js.JsError is calling js.make_callback with on_value
+        if not cb.is_ok:
+            calling spark.println with "callback slot exhausted at {i}"
+            return 1
+        calling js.free_callback with cb.value
+        set i is i + 1
+    var cb_after as js.Stats is calling js.stats
+    if cb_after.callbacks != cb_base.callbacks:
+        calling spark.println with "callback slot leak: {cb_base.callbacks} -> {cb_after.callbacks}"
+        return 1
+
+    set i is 0
+    while i < 300:
+        var sb as result of int to js.JsError is calling js.make_string_callback with on_text
+        if not sb.is_ok:
+            calling spark.println with "string callback slot exhausted at {i}"
+            return 1
+        calling js.free_string_callback with sb.value
+        set i is i + 1
+    var sb_after as js.Stats is calling js.stats
+    if sb_after.callbacks != cb_base.callbacks:
+        calling spark.println with "string callback slot leak: {cb_base.callbacks} -> {sb_after.callbacks}"
+        return 1
+
+    calling spark.println with "LEAK OK"
+    return 0

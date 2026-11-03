@@ -1,111 +1,622 @@
-## std.web.canvas — Canvas 2D helpers.
+## std.web.canvas — Canvas 2D drawing.
 ##
-## WebAssembly-only. Obtain a context with `context2d("#canvas")`, then draw.
-## Requires std.web.dom and a real browser document.
+## WebAssembly-only. `context2d` looks up a canvas element and returns a drawing
+## context. All methods return `result`; a missing element, a null context, or a
+## browser exception becomes `JsError` with the real name/message/stack.
+##
+## ```pengu
+## var c as result of canvas.Canvas to js.JsError is calling canvas.context2d with "#board"
+## if c.is_ok:
+##     calling canvas.set_fill_style with c.value, "#101820"
+##     calling canvas.fill_rect with c.value, 0.0, 0.0, 320.0, 200.0
+##     calling canvas.free with (sigil of c.value)
+## ```
+##
+## Coordinates and sizes are `f64`. Colour strings are CSS colours. The canvas
+## element is kept alive by the `Canvas` value.
 
-import std.web.js as js
 import std.web.dom as dom
+import std.web.js as js
+
+const CANVAS_VERSION as string is "1.0.0"
+
+## A 2D drawing context and its canvas element.
+rune Canvas:
+    _ctx as js.JsValue
+    _element as dom.Element
 
 when wasm:
 
-    ## A CanvasRenderingContext2D handle.
-    rune Canvas:
-        _ctx as js.JsValue
-
-    declare pengu_js_canvas_call with ctx as i32, method as ref to frozen char, a as f64, b as f64, c as f64, d as f64, n as i32 into i32
-    declare pengu_js_canvas_text with ctx as i32, method as ref to frozen char, text as ref to frozen char, a as f64, b as f64 into i32
-
-    ## `querySelector(selector).getContext("2d")`.
+    ## Looks up `selector` and calls `getContext("2d")`.
     weave context2d with selector as string into result of Canvas to js.JsError:
-        var el as result of dom.Element to js.JsError is calling dom.query with selector
-        if not el.is_ok:
-            return calling err_of with el.error
-        var kind as result of js.JsValue to js.JsError is calling js.string with "2d"
-        if not kind.is_ok:
-            calling dom.free with (sigil of el.value)
-            return calling err_of with kind.error
+        var found as result of dom.Element to js.JsError is calling dom.query_required with selector
+        if not found.is_ok:
+            return calling err_of with found.error
+        var el as dom.Element is found.value
         var args as list of js.JsValue is list of js.JsValue
-        calling args.push with kind.value
-        var ctx as result of js.JsValue to js.JsError is calling js.call_method with el.value._v, "getContext", args
-        calling js.release with kind.value
-        calling dom.free with (sigil of el.value)
+        defer banish args
+        var name as result of js.JsValue to js.JsError is calling js.string with "2d"
+        if not name.is_ok:
+            calling dom.free with (sigil of el)
+            return calling err_of with name.error
+        calling args.push with name.value
+        var ctx as result of js.JsValue to js.JsError is calling js.call_method with (calling dom.raw with el), "getContext", args
+        calling js.release with name.value
         if not ctx.is_ok:
+            calling dom.free with (sigil of el)
             return calling err_of with ctx.error
-        return calling ok_of with (with _ctx is ctx.value)
+        return calling ok_of with (with _ctx is ctx.value, _element is el)
 
-    ## Releases the context handle.
+    ## Wraps an existing canvas element. Retains the element.
+    weave from_element with el as dom.Element into result of Canvas to js.JsError:
+        var kept as result of bool to js.JsError is calling js.retain with (calling dom.raw with el)
+        if not kept.is_ok:
+            return calling err_of with kept.error
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var name as result of js.JsValue to js.JsError is calling js.string with "2d"
+        if not name.is_ok:
+            calling js.release with (calling dom.raw with el)
+            return calling err_of with name.error
+        calling args.push with name.value
+        var ctx as result of js.JsValue to js.JsError is calling js.call_method with (calling dom.raw with el), "getContext", args
+        calling js.release with name.value
+        if not ctx.is_ok:
+            calling js.release with (calling dom.raw with el)
+            return calling err_of with ctx.error
+        return calling ok_of with (with _ctx is ctx.value, _element is el)
+
+    ## Releases the context and the element. Idempotent.
     weave free with c as ref to Canvas into void:
-        calling js.release with c->_ctx
+        if c->_ctx != 0:
+            calling js.release with c->_ctx
+            set c->_ctx is js.UNDEFINED
+        calling dom.free with (sigil of c->_element)
 
-    weave _canvas_error with message as string into js.JsError:
-        return with name is "JS", message is message, stack is ""
+    ## Borrowed canvas element.
+    weave element with c as Canvas into dom.Element:
+        return c._element
 
-    antiquus _cstr with s as string into ref to frozen char:
-        r"""
-        return s.data ? s.data : "";
-        """
+    ## Canvas CSS width.
+    weave width with c as Canvas into result of int to js.JsError:
+        return calling dom.client_width with c._element
 
-    ## Calls a context method with `n` (0..4) numeric arguments.
-    weave _call with c as ref to Canvas, method as string, a as f64, b as f64, d as f64, e as f64, n as int into result of bool to js.JsError:
-        var ni as i32 is (n to i32)
-        var rc as i32 is calling pengu_js_canvas_call with c->_ctx, (calling _cstr with method), a, b, d, e, ni
-        if rc < 0:
-            return calling err_of with (calling _canvas_error with "canvas call failed")
-        return calling ok_of with true
+    ## Canvas CSS height.
+    weave height with c as Canvas into result of int to js.JsError:
+        return calling dom.client_height with c._element
 
-    ## `ctx.fillStyle = color`.
-    weave set_fill_style with c as ref to Canvas, color as string into result of bool to js.JsError:
-        var s as result of js.JsValue to js.JsError is calling js.string with color
-        if not s.is_ok:
-            return calling err_of with s.error
-        var r as result of bool to js.JsError is calling js.set with c->_ctx, "fillStyle", s.value
-        calling js.release with s.value
+    ## Sets a string property such as `fillStyle` or `font`.
+    weave set_text_prop with c as Canvas, name as string, value as string into result of bool to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.string with value
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.set with c._ctx, name, v.value
+
+    ## Reads a string property.
+    weave text_prop with c as Canvas, name as string into result of string to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.get with c._ctx, name
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.to_string with v.value
+
+    ## Sets a numeric property such as `lineWidth`.
+    weave set_number_prop with c as Canvas, name as string, value as f64 into result of bool to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.from_f64 with value
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.set with c._ctx, name, v.value
+
+    ## Reads a numeric property.
+    weave number_prop with c as Canvas, name as string into result of f64 to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.get with c._ctx, name
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.to_f64 with v.value
+
+    ## `ctx.fillStyle = value`.
+    weave set_fill_style with c as Canvas, value as string into result of bool to js.JsError:
+        return calling set_text_prop with c, "fillStyle", value
+
+    ## `ctx.fillStyle`.
+    weave fill_style with c as Canvas into result of string to js.JsError:
+        return calling text_prop with c, "fillStyle"
+
+    ## `ctx.strokeStyle = value`.
+    weave set_stroke_style with c as Canvas, value as string into result of bool to js.JsError:
+        return calling set_text_prop with c, "strokeStyle", value
+
+    ## `ctx.strokeStyle`.
+    weave stroke_style with c as Canvas into result of string to js.JsError:
+        return calling text_prop with c, "strokeStyle"
+
+    ## `ctx.lineWidth = value`.
+    weave set_line_width with c as Canvas, value as f64 into result of bool to js.JsError:
+        return calling set_number_prop with c, "lineWidth", value
+
+    ## `ctx.lineWidth`.
+    weave line_width with c as Canvas into result of f64 to js.JsError:
+        return calling number_prop with c, "lineWidth"
+
+    ## `ctx.lineCap = value` (`"butt"`, `"round"`, `"square"`).
+    weave set_line_cap with c as Canvas, value as string into result of bool to js.JsError:
+        return calling set_text_prop with c, "lineCap", value
+
+    ## `ctx.lineJoin = value` (`"miter"`, `"round"`, `"bevel"`).
+    weave set_line_join with c as Canvas, value as string into result of bool to js.JsError:
+        return calling set_text_prop with c, "lineJoin", value
+
+    ## `ctx.miterLimit = value`.
+    weave set_miter_limit with c as Canvas, value as f64 into result of bool to js.JsError:
+        return calling set_number_prop with c, "miterLimit", value
+
+    ## `ctx.font = value`.
+    weave set_font with c as Canvas, value as string into result of bool to js.JsError:
+        return calling set_text_prop with c, "font", value
+
+    ## `ctx.font`.
+    weave font with c as Canvas into result of string to js.JsError:
+        return calling text_prop with c, "font"
+
+    ## `ctx.textAlign = value`.
+    weave set_text_align with c as Canvas, value as string into result of bool to js.JsError:
+        return calling set_text_prop with c, "textAlign", value
+
+    ## `ctx.textAlign`.
+    weave text_align with c as Canvas into result of string to js.JsError:
+        return calling text_prop with c, "textAlign"
+
+    ## `ctx.textBaseline = value`.
+    weave set_text_baseline with c as Canvas, value as string into result of bool to js.JsError:
+        return calling set_text_prop with c, "textBaseline", value
+
+    ## `ctx.textBaseline`.
+    weave text_baseline with c as Canvas into result of string to js.JsError:
+        return calling text_prop with c, "textBaseline"
+
+    ## `ctx.globalAlpha = value`.
+    weave set_global_alpha with c as Canvas, value as f64 into result of bool to js.JsError:
+        return calling set_number_prop with c, "globalAlpha", value
+
+    ## `ctx.globalAlpha`.
+    weave global_alpha with c as Canvas into result of f64 to js.JsError:
+        return calling number_prop with c, "globalAlpha"
+
+    ## `ctx.globalCompositeOperation = value`.
+    weave set_composite with c as Canvas, value as string into result of bool to js.JsError:
+        return calling set_text_prop with c, "globalCompositeOperation", value
+
+    ## `ctx.globalCompositeOperation`.
+    weave composite with c as Canvas into result of string to js.JsError:
+        return calling text_prop with c, "globalCompositeOperation"
+
+    ## `ctx.shadowColor = value`.
+    weave set_shadow_color with c as Canvas, value as string into result of bool to js.JsError:
+        return calling set_text_prop with c, "shadowColor", value
+
+    ## `ctx.shadowBlur = value`.
+    weave set_shadow_blur with c as Canvas, value as f64 into result of bool to js.JsError:
+        return calling set_number_prop with c, "shadowBlur", value
+
+    ## `ctx.shadowOffsetX = value`.
+    weave set_shadow_offset_x with c as Canvas, value as f64 into result of bool to js.JsError:
+        return calling set_number_prop with c, "shadowOffsetX", value
+
+    ## `ctx.shadowOffsetY = value`.
+    weave set_shadow_offset_y with c as Canvas, value as f64 into result of bool to js.JsError:
+        return calling set_number_prop with c, "shadowOffsetY", value
+
+    ## `ctx.imageSmoothingEnabled = value`.
+    weave set_image_smoothing with c as Canvas, value as bool into result of bool to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.from_int with (if value then 1 else 0)
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.set with c._ctx, "imageSmoothingEnabled", v.value
+
+    ## Calls a method with no numeric arguments.
+    weave call0 with c as Canvas, method as string into result of js.JsValue to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        return calling js.call_method with c._ctx, method, args
+
+    ## Calls a method with one numeric argument.
+    weave call1 with c as Canvas, method as string, a as f64 into result of js.JsValue to js.JsError:
+        return calling _call_numbers with c, method, [a]
+
+    ## Calls a method with two numeric arguments.
+    weave call2 with c as Canvas, method as string, a as f64, b as f64 into result of js.JsValue to js.JsError:
+        return calling _call_numbers with c, method, [a, b]
+
+    ## Calls a method with three numeric arguments.
+    weave call3 with c as Canvas, method as string, a as f64, b as f64, d as f64 into result of js.JsValue to js.JsError:
+        return calling _call_numbers with c, method, [a, b, d]
+
+    ## Calls a method with four numeric arguments.
+    weave call4 with c as Canvas, method as string, a as f64, b as f64, d as f64, e as f64 into result of js.JsValue to js.JsError:
+        return calling _call_numbers with c, method, [a, b, d, e]
+
+    ## `ctx.save()`.
+    weave save with c as Canvas into result of bool to js.JsError:
+        var r as result of js.JsValue to js.JsError is calling call0 with c, "save"
         if not r.is_ok:
             return calling err_of with r.error
+        calling js.release with r.value
         return calling ok_of with true
 
-    ## `ctx.strokeStyle = color`.
-    weave set_stroke_style with c as ref to Canvas, color as string into result of bool to js.JsError:
-        var s as result of js.JsValue to js.JsError is calling js.string with color
-        if not s.is_ok:
-            return calling err_of with s.error
-        var r as result of bool to js.JsError is calling js.set with c->_ctx, "strokeStyle", s.value
-        calling js.release with s.value
+    ## `ctx.restore()`.
+    weave restore with c as Canvas into result of bool to js.JsError:
+        var r as result of js.JsValue to js.JsError is calling call0 with c, "restore"
         if not r.is_ok:
             return calling err_of with r.error
+        calling js.release with r.value
         return calling ok_of with true
 
-    ## `ctx.clearRect(x, y, w, h)`.
-    weave clear_rect with c as ref to Canvas, x as f64, y as f64, w as f64, h as f64 into result of bool to js.JsError:
-        return calling _call with c, "clearRect", x, y, w, h, 4
+    ## `ctx.translate(x, y)`.
+    weave translate with c as Canvas, x as f64, y as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "translate", [x, y]
 
-    ## `ctx.fillRect(x, y, w, h)`.
-    weave fill_rect with c as ref to Canvas, x as f64, y as f64, w as f64, h as f64 into result of bool to js.JsError:
-        return calling _call with c, "fillRect", x, y, w, h, 4
+    ## `ctx.scale(x, y)`.
+    weave scale with c as Canvas, x as f64, y as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "scale", [x, y]
 
-    ## `ctx.strokeRect(x, y, w, h)`.
-    weave stroke_rect with c as ref to Canvas, x as f64, y as f64, w as f64, h as f64 into result of bool to js.JsError:
-        return calling _call with c, "strokeRect", x, y, w, h, 4
+    ## `ctx.rotate(radians)`.
+    weave rotate with c as Canvas, radians as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "rotate", [radians]
 
-    ## `ctx.fillText(text, x, y)`.
-    weave fill_text with c as ref to Canvas, text as string, x as f64, y as f64 into result of bool to js.JsError:
-        var rc as i32 is calling pengu_js_canvas_text with c->_ctx, (calling _cstr with "fillText"), (calling _cstr with text), x, y
-        if rc < 0:
-            return calling err_of with (calling _canvas_error with "canvas fillText failed")
-        return calling ok_of with true
+    ## `ctx.transform(a, b, c, d, e, f)`.
+    weave transform with c as Canvas, a as f64, b as f64, cc as f64, d as f64, e as f64, f as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "transform", [a, b, cc, d, e, f]
+
+    ## `ctx.setTransform(a, b, c, d, e, f)`.
+    weave set_transform with c as Canvas, a as f64, b as f64, cc as f64, d as f64, e as f64, f as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "setTransform", [a, b, cc, d, e, f]
+
+    ## `ctx.resetTransform()`.
+    weave reset_transform with c as Canvas into result of bool to js.JsError:
+        return calling _void_numbers with c, "resetTransform", (calling _empty_numbers)
 
     ## `ctx.beginPath()`.
-    weave begin_path with c as ref to Canvas into result of bool to js.JsError:
-        return calling _call with c, "beginPath", 0.0, 0.0, 0.0, 0.0, 0
+    weave begin_path with c as Canvas into result of bool to js.JsError:
+        return calling _void_numbers with c, "beginPath", (calling _empty_numbers)
+
+    ## `ctx.closePath()`.
+    weave close_path with c as Canvas into result of bool to js.JsError:
+        return calling _void_numbers with c, "closePath", (calling _empty_numbers)
 
     ## `ctx.moveTo(x, y)`.
-    weave move_to with c as ref to Canvas, x as f64, y as f64 into result of bool to js.JsError:
-        return calling _call with c, "moveTo", x, y, 0.0, 0.0, 2
+    weave move_to with c as Canvas, x as f64, y as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "moveTo", [x, y]
 
     ## `ctx.lineTo(x, y)`.
-    weave line_to with c as ref to Canvas, x as f64, y as f64 into result of bool to js.JsError:
-        return calling _call with c, "lineTo", x, y, 0.0, 0.0, 2
+    weave line_to with c as Canvas, x as f64, y as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "lineTo", [x, y]
+
+    ## `ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x, y)`.
+    weave bezier_curve_to with c as Canvas, cp1x as f64, cp1y as f64, cp2x as f64, cp2y as f64, x as f64, y as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "bezierCurveTo", [cp1x, cp1y, cp2x, cp2y, x, y]
+
+    ## `ctx.quadraticCurveTo(cpx, cpy, x, y)`.
+    weave quadratic_curve_to with c as Canvas, cpx as f64, cpy as f64, x as f64, y as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "quadraticCurveTo", [cpx, cpy, x, y]
+
+    ## `ctx.arc(x, y, radius, start, end, anticlockwise)`.
+    weave arc with c as Canvas, x as f64, y as f64, radius as f64, start as f64, end as f64, anticlockwise as bool into result of bool to js.JsError:
+        return calling _void_numbers with c, "arc", [x, y, radius, start, end, (if anticlockwise then 1.0 else 0.0)]
+
+    ## `ctx.arcTo(x1, y1, x2, y2, radius)`.
+    weave arc_to with c as Canvas, x1 as f64, y1 as f64, x2 as f64, y2 as f64, radius as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "arcTo", [x1, y1, x2, y2, radius]
+
+    ## `ctx.ellipse(x, y, rx, ry, rotation, start, end, anticlockwise)`.
+    weave ellipse with c as Canvas, x as f64, y as f64, rx as f64, ry as f64, rotation as f64, start as f64, end as f64, anticlockwise as bool into result of bool to js.JsError:
+        return calling _void_numbers with c, "ellipse", [x, y, rx, ry, rotation, start, end, (if anticlockwise then 1.0 else 0.0)]
+
+    ## `ctx.rect(x, y, width, height)`.
+    weave rect with c as Canvas, x as f64, y as f64, width as f64, height as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "rect", [x, y, width, height]
+
+    ## `ctx.roundRect(x, y, width, height, radii)`.
+    weave round_rect with c as Canvas, x as f64, y as f64, width as f64, height as f64, radius as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "roundRect", [x, y, width, height, radius]
+
+    ## `ctx.fill()`.
+    weave fill with c as Canvas into result of bool to js.JsError:
+        return calling _void_numbers with c, "fill", (calling _empty_numbers)
 
     ## `ctx.stroke()`.
-    weave stroke with c as ref to Canvas into result of bool to js.JsError:
-        return calling _call with c, "stroke", 0.0, 0.0, 0.0, 0.0, 0
+    weave stroke with c as Canvas into result of bool to js.JsError:
+        return calling _void_numbers with c, "stroke", (calling _empty_numbers)
+
+    ## `ctx.clip()`.
+    weave clip with c as Canvas into result of bool to js.JsError:
+        return calling _void_numbers with c, "clip", (calling _empty_numbers)
+
+    ## `ctx.fillRect(x, y, width, height)`.
+    weave fill_rect with c as Canvas, x as f64, y as f64, width as f64, height as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "fillRect", [x, y, width, height]
+
+    ## `ctx.strokeRect(x, y, width, height)`.
+    weave stroke_rect with c as Canvas, x as f64, y as f64, width as f64, height as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "strokeRect", [x, y, width, height]
+
+    ## `ctx.clearRect(x, y, width, height)`.
+    weave clear_rect with c as Canvas, x as f64, y as f64, width as f64, height as f64 into result of bool to js.JsError:
+        return calling _void_numbers with c, "clearRect", [x, y, width, height]
+
+    ## `ctx.fillText(text, x, y)`.
+    weave fill_text with c as Canvas, text as string, x as f64, y as f64 into result of bool to js.JsError:
+        return calling _void_text with c, "fillText", text, [x, y]
+
+    ## `ctx.strokeText(text, x, y)`.
+    weave stroke_text with c as Canvas, text as string, x as f64, y as f64 into result of bool to js.JsError:
+        return calling _void_text with c, "strokeText", text, [x, y]
+
+    ## `ctx.measureText(text).width`.
+    weave measure_text_width with c as Canvas, text as string into result of f64 to js.JsError:
+        var m as result of js.JsValue to js.JsError is calling _call_text with c, "measureText", text, (calling _empty_numbers)
+        if not m.is_ok:
+            return calling err_of with m.error
+        defer calling js.release with m.value
+        var w as result of js.JsValue to js.JsError is calling js.get with m.value, "width"
+        if not w.is_ok:
+            return calling err_of with w.error
+        defer calling js.release with w.value
+        return calling js.to_f64 with w.value
+
+    ## `ctx.drawImage(image, dx, dy)`.
+    weave draw_image with c as Canvas, image as dom.Element, dx as f64, dy as f64 into result of bool to js.JsError:
+        return calling _void_image with c, "drawImage", image, [dx, dy]
+
+    ## `ctx.drawImage(image, dx, dy, width, height)`.
+    weave draw_image_scaled with c as Canvas, image as dom.Element, dx as f64, dy as f64, width as f64, height as f64 into result of bool to js.JsError:
+        return calling _void_image with c, "drawImage", image, [dx, dy, width, height]
+
+    ## `canvas.toDataURL(type, quality)`.
+    weave to_data_url with c as Canvas, kind as string, quality as f64 into result of string to js.JsError:
+        var r as result of js.JsValue to js.JsError is calling _call_text with c, "toDataURL", kind, [quality]
+        if not r.is_ok:
+            return calling err_of with r.error
+        defer calling js.release with r.value
+        return calling js.to_string with r.value
+
+    ## Calls a method with numeric arguments and discards its result.
+    ## Empty numeric argument list.
+    weave _empty_numbers into list of f64:
+        return list of f64
+
+    weave _void_numbers with c as Canvas, method as string, values as list of f64 into result of bool to js.JsError:
+        var r as result of js.JsValue to js.JsError is calling _call_numbers with c, method, values
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Calls a method with a leading string and numeric arguments.
+    weave _void_text with c as Canvas, method as string, text as string, values as list of f64 into result of bool to js.JsError:
+        var r as result of js.JsValue to js.JsError is calling _call_text with c, method, text, values
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Calls a method with a leading element and numeric arguments.
+    weave _void_image with c as Canvas, method as string, image as dom.Element, values as list of f64 into result of bool to js.JsError:
+        var r as result of js.JsValue to js.JsError is calling _call_image with c, method, image, values
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Invokes `ctx[method](...)` with numeric arguments.
+    weave _call_numbers with c as Canvas, method as string, values as list of f64 into result of js.JsValue to js.JsError:
+        defer banish values
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var i as int is 0
+        while i < values.len:
+            var h as result of js.JsValue to js.JsError is calling js.from_f64 with (values at i)
+            if not h.is_ok:
+                calling _release_args with args
+                return calling err_of with h.error
+            calling args.push with h.value
+            set i is i + 1
+        var r as result of js.JsValue to js.JsError is calling js.call_method with c._ctx, method, args
+        calling _release_args with args
+        return r
+
+    ## Invokes `ctx[method](text, ...)`.
+    weave _call_text with c as Canvas, method as string, text as string, values as list of f64 into result of js.JsValue to js.JsError:
+        defer banish values
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var t as result of js.JsValue to js.JsError is calling js.string with text
+        if not t.is_ok:
+            return calling err_of with t.error
+        calling args.push with t.value
+        var i as int is 0
+        while i < values.len:
+            var h as result of js.JsValue to js.JsError is calling js.from_f64 with (values at i)
+            if not h.is_ok:
+                calling _release_args with args
+                return calling err_of with h.error
+            calling args.push with h.value
+            set i is i + 1
+        var r as result of js.JsValue to js.JsError is calling js.call_method with c._ctx, method, args
+        calling _release_args with args
+        return r
+
+    ## Invokes `ctx[method](image, ...)`.
+    weave _call_image with c as Canvas, method as string, image as dom.Element, values as list of f64 into result of js.JsValue to js.JsError:
+        defer banish values
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with (calling dom.raw with image)
+        var i as int is 0
+        while i < values.len:
+            var h as result of js.JsValue to js.JsError is calling js.from_f64 with (values at i)
+            if not h.is_ok:
+                calling _release_args with args
+                return calling err_of with h.error
+            calling args.push with h.value
+            set i is i + 1
+        var r as result of js.JsValue to js.JsError is calling js.call_method with c._ctx, method, args
+        calling _release_args with args
+        return r
+
+    ## Releases numeric handles built for a call.
+    weave _release_args with args as list of js.JsValue into void:
+        var i as int is 0
+        while i < args.len:
+            calling js.release with (args at i)
+            set i is i + 1
+
+    ## Builds a structured error.
+    weave _error with message as string into js.JsError:
+        return with name is "CanvasError", message is message, stack is ""
+
+when not wasm:
+
+    weave context2d with selector as string into result of Canvas to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave from_element with el as dom.Element into result of Canvas to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave free with c as ref to Canvas into void:
+        return
+    weave element with c as Canvas into dom.Element:
+        return c._element
+    weave width with c as Canvas into result of int to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave height with c as Canvas into result of int to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_text_prop with c as Canvas, name as string, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave text_prop with c as Canvas, name as string into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_number_prop with c as Canvas, name as string, value as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave number_prop with c as Canvas, name as string into result of f64 to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_fill_style with c as Canvas, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave fill_style with c as Canvas into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_stroke_style with c as Canvas, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave stroke_style with c as Canvas into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_line_width with c as Canvas, value as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave line_width with c as Canvas into result of f64 to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_line_cap with c as Canvas, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_line_join with c as Canvas, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_miter_limit with c as Canvas, value as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_font with c as Canvas, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave font with c as Canvas into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_text_align with c as Canvas, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave text_align with c as Canvas into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_text_baseline with c as Canvas, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave text_baseline with c as Canvas into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_global_alpha with c as Canvas, value as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave global_alpha with c as Canvas into result of f64 to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_composite with c as Canvas, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave composite with c as Canvas into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_shadow_color with c as Canvas, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_shadow_blur with c as Canvas, value as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_shadow_offset_x with c as Canvas, value as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_shadow_offset_y with c as Canvas, value as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_image_smoothing with c as Canvas, value as bool into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave call0 with c as Canvas, method as string into result of js.JsValue to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave call1 with c as Canvas, method as string, a as f64 into result of js.JsValue to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave call2 with c as Canvas, method as string, a as f64, b as f64 into result of js.JsValue to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave call3 with c as Canvas, method as string, a as f64, b as f64, d as f64 into result of js.JsValue to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave call4 with c as Canvas, method as string, a as f64, b as f64, d as f64, e as f64 into result of js.JsValue to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave save with c as Canvas into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave restore with c as Canvas into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave translate with c as Canvas, x as f64, y as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave scale with c as Canvas, x as f64, y as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave rotate with c as Canvas, radians as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave transform with c as Canvas, a as f64, b as f64, cc as f64, d as f64, e as f64, f as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_transform with c as Canvas, a as f64, b as f64, cc as f64, d as f64, e as f64, f as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave reset_transform with c as Canvas into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave begin_path with c as Canvas into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave close_path with c as Canvas into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave move_to with c as Canvas, x as f64, y as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave line_to with c as Canvas, x as f64, y as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave bezier_curve_to with c as Canvas, cp1x as f64, cp1y as f64, cp2x as f64, cp2y as f64, x as f64, y as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave quadratic_curve_to with c as Canvas, cpx as f64, cpy as f64, x as f64, y as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave arc with c as Canvas, x as f64, y as f64, radius as f64, start as f64, end as f64, anticlockwise as bool into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave arc_to with c as Canvas, x1 as f64, y1 as f64, x2 as f64, y2 as f64, radius as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave ellipse with c as Canvas, x as f64, y as f64, rx as f64, ry as f64, rotation as f64, start as f64, end as f64, anticlockwise as bool into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave rect with c as Canvas, x as f64, y as f64, width as f64, height as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave round_rect with c as Canvas, x as f64, y as f64, width as f64, height as f64, radius as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave fill with c as Canvas into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave stroke with c as Canvas into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave clip with c as Canvas into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave fill_rect with c as Canvas, x as f64, y as f64, width as f64, height as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave stroke_rect with c as Canvas, x as f64, y as f64, width as f64, height as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave clear_rect with c as Canvas, x as f64, y as f64, width as f64, height as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave fill_text with c as Canvas, text as string, x as f64, y as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave stroke_text with c as Canvas, text as string, x as f64, y as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave measure_text_width with c as Canvas, text as string into result of f64 to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave draw_image with c as Canvas, image as dom.Element, dx as f64, dy as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave draw_image_scaled with c as Canvas, image as dom.Element, dx as f64, dy as f64, width as f64, height as f64 into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave to_data_url with c as Canvas, kind as string, quality as f64 into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)

@@ -2,6 +2,82 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.24.0] — 2026-11-03 — std.web listo para aplicaciones web
+
+Reescribe la capa web para que PenguScript sirva tanto para juegos como para
+aplicaciones: ownership explícito de handles JavaScript, callbacks sin fugas,
+HTTP real, DOM seguro, Canvas 2D completo y módulos de seguridad/eventos.
+
+### Añadido
+
+- **`std.web.http`**: HTTP asíncrono sobre `fetch` con método, headers, body,
+  `Response` completo (status, headers, URL, body), `post_json`, `header`,
+  `json`, `free`, `timeout_ms` con `AbortController` y
+  `response_from`/`error_from` para los callbacks crudos.
+  Sustituye a `std.web.fetch` (eliminado).
+- **`std.web.crypto`**: CSPRNG sobre `crypto.getRandomValues`:
+  `random_bytes`, `random_int` uniforme y `uuid_v4` RFC 4122.
+- **`std.web.security`**: `is_safe_url` con allow-list (`http`, `https`,
+  `mailto`, `tel`, relativas y `data:image/*`) y `escape_html`, reutilizable en
+  nativo y wasm.
+- **`std.web.event`**: accesores tipados de eventos DOM (tecla, ratón, portapapeles,
+  modificadores, `prevent_default`, `stop_propagation`).
+- **`std.web.js`**: `JsCallback` como rune, `Stats`, `parse_json`/`stringify_json`,
+  `call_method_f64`, `call_method_text_f64`, `ws_state`/`ws_count`, `fetch`
+  genérico y errores con `name`/`message`/`stack` propios.
+- Tests `tests/wasm/leak_smoke.pengu` (handles, doble release, slots de callback),
+  `tests/wasm/fetch_smoke.pengu` (HTTP end-to-end contra `data:`) y
+  `tests/wasm/timeout_smoke.pengu` (timeout con `AbortController`).
+
+### Cambiado
+
+- **Ownership de `JsValue`**: los handles son contados por referencias, no se
+  reutilizan índices y un handle liberado es inválido para siempre. Los valores
+  devueltos son del llamante; los argumentos de callback son prestados y el
+  puente libera su referencia al volver. `retain` conserva un valor prestado.
+- **Puente de callbacks**: tablas dinámicas con generaciones (hasta 65 535
+  slots) en lugar de la tabla fija de 256; ids obsoletos no invocan al callback
+  que ocupe el slot después. Promesas, HTTP y WebSocket usan callbacks one-shot
+  que liberan slot y handles al asentarse o cerrar.
+- **`std.web.dom`**: API tipada (`Element`, `Listener`, `Rect`), `query`
+  devuelve `maybe` (la ausencia ya no es un elemento nulo), `query_required`,
+  `query_all`, atributos URL validados, estilo, dataset, `off`, `once`,
+  formularios, geometría y stubs nativos.
+- **`std.web.storage`**: `clear`, `length`, `key_at`, `keys`, `get_json`/`set_json`
+  y liberación explícita de claves; sin fugas de listas de argumentos.
+- **`std.web.websocket`**: callbacks de apertura/mensaje/cierre/error separados,
+  `close(code, reason)`, estado y contador; ya no confunde cierre con error.
+- **`std.web.canvas`**: API 2D amplia (estado, transformaciones, paths, texto,
+  imágenes, `to_data_url`), sin duplicar el puente ni acceder a campos privados
+  de `dom`; los errores JS se propagan con su mensaje real.
+- **`std.web`**: docstring `##`, `WEB_VERSION` 1.0.0 y documentación de CSP para
+  `eval_js`.
+- Todos los módulos `std.web.*` tienen rama nativa con `NotSupported`, así que
+  el código compartido compila en ambos objetivos.
+
+### Corregido
+
+- Aliasing de handles tras un doble `release` (dos objetos distintos compartían
+  índice).
+- `promise_then` y `free_callback` pasaban handles donde el puente esperaba
+  slots de callback; ahora `JsCallback` transporta ambos.
+- Fuga de un handle por argumento de evento y de slots de callback en cada
+  `fetch`/promise/WebSocket.
+- `has_class` devolvía siempre `true`; `querySelector` ausente se confundía con
+  un elemento válido.
+- Excepciones JS que escapaban de la ABI (fetch, canvas, callbacks) y errores
+  de canvas con mensaje genérico.
+- `std.net`/`std.petitio` en wasm ahora remiten a `std.web.http` y
+  `std.web.websocket` en vez de a un `std.fetch` inexistente.
+
+### Documentación y toolchain
+
+- `VERSION`, `pengu.toml`, `release.toml`, `src/main.pengu`, LSP, bundles
+  stage0, `README.md`, `LANGUAGE.md`, `LANGUAGE_Spanish.md`, `docs/WASM.md` y
+  la extensión de VS Code actualizados a **0.24.0**.
+- `docs/WASM.md` documenta ownership, callbacks one-shot, los módulos nuevos y
+  la guía de CSP/XSS.
+
 ## [0.23.1] — 2026-11-03 — Corrección de la suite de tests
 
 Arregla el fallo de CI que impedía compilar y publicar: un test desreferenciaba

@@ -1,26 +1,50 @@
-## std.web.dom — typed DOM helpers on top of std.web.js.
+## std.web.dom — DOM access for WebAssembly applications.
 ##
-## WebAssembly-only. Each function returns `result` so a missing element or a
-## JS exception is handled explicitly instead of aborting the program.
+## `Element` owns one JavaScript handle. Release it with `free` when the element
+## is no longer needed; `query` and `create` return owned elements. A
+## `Listener` owns the element reference and the callback, so `off` (or
+## `free_listener`) releases both.
 ##
-## ## Memoria
-## `Element` owns one JS handle; release it with `free` when you are done.
+## `query` returns `maybe Element`: a missing selector is absence, not an error.
+## That distinction is what makes routing and form handling predictable.
+##
+## `set_attr` applies `std.web.security.is_safe_url` to `href`, `src`, `action`,
+## `formaction`, `poster`, and `cite`. Use `set_attr_unsafe` only for values you
+## built yourself from a trusted allowlist.
 
 import std.web.js as js
+import std.web.event
+import std.web.security
 
-## Local alias so the C declarator for event callbacks uses a concrete name
-## instead of the module qualifier.
-alias EventArg as js.JsValue
+const DOM_VERSION as string is "1.0.0"
+
+alias EventArg as event.Event
+
+## An element handle. Private field: use the module functions.
+rune Element:
+    _v as js.JsValue
+
+## A registered event listener. `off` frees it.
+rune Listener:
+    _element as js.JsValue
+    _event as string
+    _callback as js.JsCallback
+
+## A layout rectangle in CSS pixels.
+rune Rect:
+    x as f64
+    y as f64
+    width as f64
+    height as f64
 
 when wasm:
 
-    ## A DOM element handle.
-    rune Element:
-        _v as js.JsValue
-
-    ## Wraps a JsValue as an Element.
-    weave _from with h as js.JsValue into Element:
-        return with _v is h
+    ## Wraps a borrowed handle, retaining it. The caller owns the result.
+    weave wrap with v as js.JsValue into result of Element to js.JsError:
+        var r as result of js.JsValue to js.JsError is calling js.retain with v
+        if not r.is_ok:
+            return calling err_of with r.error
+        return calling ok_of with (calling _from with r.value)
 
     ## `document`.
     weave document into result of Element to js.JsError:
@@ -29,103 +53,221 @@ when wasm:
         var d as result of js.JsValue to js.JsError is calling js.get with g, "document"
         if not d.is_ok:
             return calling err_of with d.error
+        if calling js.is_null with d.value or calling js.is_undefined with d.value:
+            return calling err_of with (calling _missing with "document")
         return calling ok_of with (calling _from with d.value)
 
-    ## `document.querySelector(selector)` (may be `null`).
-    weave query with selector as string into result of Element to js.JsError:
+    ## `document.body`.
+    weave body into result of Element to js.JsError:
         var d as result of Element to js.JsError is calling document
         if not d.is_ok:
             return calling err_of with d.error
-        var sel as result of js.JsValue to js.JsError is calling js.string with selector
-        if not sel.is_ok:
-            calling free with (sigil of d.value)
-            return calling err_of with sel.error
+        defer calling free with (sigil of d.value)
+        return calling _get_element with d.value, "body"
+
+    ## `document.head`.
+    weave head into result of Element to js.JsError:
+        var d as result of Element to js.JsError is calling document
+        if not d.is_ok:
+            return calling err_of with d.error
+        defer calling free with (sigil of d.value)
+        return calling _get_element with d.value, "head"
+
+    ## `document.querySelector(selector)`, or `none` when nothing matches.
+    weave query with selector as string into result of maybe Element to js.JsError:
+        var d as result of Element to js.JsError is calling document
+        if not d.is_ok:
+            return calling err_of with d.error
+        defer calling free with (sigil of d.value)
         var args as list of js.JsValue is list of js.JsValue
-        calling args.push with sel.value
+        defer banish args
+        var s as result of js.JsValue to js.JsError is calling js.string with selector
+        if not s.is_ok:
+            return calling err_of with s.error
+        calling args.push with s.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with d.value._v, "querySelector", args
-        calling js.release with sel.value
-        calling free with (sigil of d.value)
+        calling js.release with s.value
         if not r.is_ok:
             return calling err_of with r.error
+        if calling js.is_null with r.value or calling js.is_undefined with r.value:
+            calling js.release with r.value
+            return calling ok_of with (maybe none)
+        return calling ok_of with (some (calling _from with r.value))
+
+    ## `document.querySelector(selector)`; a missing element is an error.
+    ## Use this when absence is exceptional (canvas, required mounts).
+    weave query_required with selector as string into result of Element to js.JsError:
+        var d as result of Element to js.JsError is calling document
+        if not d.is_ok:
+            return calling err_of with d.error
+        defer calling free with (sigil of d.value)
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var s as result of js.JsValue to js.JsError is calling js.string with selector
+        if not s.is_ok:
+            return calling err_of with s.error
+        calling args.push with s.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with d.value._v, "querySelector", args
+        calling js.release with s.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        if calling js.is_null with r.value or calling js.is_undefined with r.value:
+            calling js.release with r.value
+            return calling err_of with (calling _missing with "element not found: {selector}")
         return calling ok_of with (calling _from with r.value)
+
+    ## `document.querySelectorAll(selector)`. The list and every element are
+    ## owned; free each element and `banish` the list.
+    weave query_all with selector as string into result of list of Element to js.JsError:
+        var d as result of Element to js.JsError is calling document
+        if not d.is_ok:
+            return calling err_of with d.error
+        defer calling free with (sigil of d.value)
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var s as result of js.JsValue to js.JsError is calling js.string with selector
+        if not s.is_ok:
+            return calling err_of with s.error
+        calling args.push with s.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with d.value._v, "querySelectorAll", args
+        calling js.release with s.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        defer calling js.release with r.value
+        var total as result of int to js.JsError is calling js.length with r.value
+        if not total.is_ok:
+            return calling err_of with total.error
+        var out as list of Element is list of Element
+        var i as int is 0
+        while i < total.value:
+            var item as result of js.JsValue to js.JsError is calling js.get_index with r.value, i
+            if not item.is_ok:
+                calling _free_elements with out
+                banish out
+                return calling err_of with item.error
+            calling out.push with (calling _from with item.value)
+            set i is i + 1
+        return calling ok_of with out
 
     ## `document.createElement(tag)`.
     weave create with tag as string into result of Element to js.JsError:
         var d as result of Element to js.JsError is calling document
         if not d.is_ok:
             return calling err_of with d.error
-        var t as result of js.JsValue to js.JsError is calling js.string with tag
-        if not t.is_ok:
-            calling free with (sigil of d.value)
-            return calling err_of with t.error
+        defer calling free with (sigil of d.value)
         var args as list of js.JsValue is list of js.JsValue
-        calling args.push with t.value
+        defer banish args
+        var s as result of js.JsValue to js.JsError is calling js.string with tag
+        if not s.is_ok:
+            return calling err_of with s.error
+        calling args.push with s.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with d.value._v, "createElement", args
-        calling js.release with t.value
-        calling free with (sigil of d.value)
+        calling js.release with s.value
         if not r.is_ok:
             return calling err_of with r.error
         return calling ok_of with (calling _from with r.value)
 
-    ## Releases the element handle.
-    weave free with e as ref to Element into void:
-        calling js.release with e->_v
-
-    ## `element.textContent`.
-    weave text with e as ref to Element into result of string to js.JsError:
-        var v as result of js.JsValue to js.JsError is calling js.get with e->_v, "textContent"
-        if not v.is_ok:
-            return calling err_of with v.error
-        var s as result of string to js.JsError is calling js.from_string with v.value
-        calling js.release with v.value
+    ## `document.createTextNode(text)`.
+    weave create_text with text as string into result of Element to js.JsError:
+        var d as result of Element to js.JsError is calling document
+        if not d.is_ok:
+            return calling err_of with d.error
+        defer calling free with (sigil of d.value)
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var s as result of js.JsValue to js.JsError is calling js.string with text
         if not s.is_ok:
             return calling err_of with s.error
-        return calling ok_of with s.value
-
-    ## Sets `element.textContent`.
-    weave set_text with e as ref to Element, value as string into result of bool to js.JsError:
-        var s as result of js.JsValue to js.JsError is calling js.string with value
-        if not s.is_ok:
-            return calling err_of with s.error
-        var r as result of bool to js.JsError is calling js.set with e->_v, "textContent", s.value
+        calling args.push with s.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with d.value._v, "createTextNode", args
         calling js.release with s.value
         if not r.is_ok:
             return calling err_of with r.error
-        return calling ok_of with true
+        return calling ok_of with (calling _from with r.value)
 
-    ## `element.getAttribute(name)`.
-    weave get_attr with e as ref to Element, name as string into result of maybe string to js.JsError:
+    ## Releases the element handle. Idempotent.
+    weave free with e as ref to Element into void:
+        if e->_v != 0:
+            calling js.release with e->_v
+            set e->_v is (js.UNDEFINED)
+
+    ## `element.cloneNode(true)`.
+    weave clone with e as Element into result of Element to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var t as result of js.JsValue to js.JsError is calling js.from_int with 1
+        if not t.is_ok:
+            return calling err_of with t.error
+        calling args.push with t.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "cloneNode", args
+        calling js.release with t.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        return calling ok_of with (calling _from with r.value)
+
+    ## `element.textContent`.
+    weave text with e as Element into result of string to js.JsError:
+        return calling _text_prop with e, "textContent"
+
+    ## Sets `textContent`; markup is never parsed.
+    weave set_text with e as Element, text as string into result of bool to js.JsError:
+        var s as result of js.JsValue to js.JsError is calling js.string with text
+        if not s.is_ok:
+            return calling err_of with s.error
+        defer calling js.release with s.value
+        return calling js.set with e._v, "textContent", s.value
+
+    ## `element.innerHTML`. Parsed as markup: use only with trusted input.
+    weave html with e as Element into result of string to js.JsError:
+        return calling _text_prop with e, "innerHTML"
+
+    ## Sets `innerHTML`. This is the unsafe escape hatch; prefer `set_text`.
+    weave set_html_unsafe with e as Element, text as string into result of bool to js.JsError:
+        var s as result of js.JsValue to js.JsError is calling js.string with text
+        if not s.is_ok:
+            return calling err_of with s.error
+        defer calling js.release with s.value
+        return calling js.set with e._v, "innerHTML", s.value
+
+    ## `element.getAttribute(name)`, or `none` when absent.
+    weave get_attr with e as Element, name as string into result of maybe string to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
         var n as result of js.JsValue to js.JsError is calling js.string with name
         if not n.is_ok:
             return calling err_of with n.error
-        var args as list of js.JsValue is list of js.JsValue
         calling args.push with n.value
-        var r as result of js.JsValue to js.JsError is calling js.call_method with e->_v, "getAttribute", args
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "getAttribute", args
         calling js.release with n.value
         if not r.is_ok:
             return calling err_of with r.error
-        if calling js.is_null with r.value:
-            calling js.release with r.value
+        defer calling js.release with r.value
+        if calling js.is_null with r.value or calling js.is_undefined with r.value:
             return calling ok_of with (maybe none)
         var s as result of string to js.JsError is calling js.from_string with r.value
-        calling js.release with r.value
         if not s.is_ok:
             return calling err_of with s.error
         return calling ok_of with (some s.value)
 
-    ## `element.setAttribute(name, value)`.
-    weave set_attr with e as ref to Element, name as string, value as string into result of bool to js.JsError:
+    ## `element.setAttribute(name, value)`. URL attributes are validated.
+    weave set_attr with e as Element, name as string, value as string into result of bool to js.JsError:
+        if calling _is_url_attr with name:
+            if not (calling security.is_safe_url with value):
+                return calling err_of with (calling _security_error with "unsafe URL in attribute '{name}'")
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
         var n as result of js.JsValue to js.JsError is calling js.string with name
         var v as result of js.JsValue to js.JsError is calling js.string with value
         if not n.is_ok:
+            if v.is_ok:
+                calling js.release with v.value
             return calling err_of with n.error
         if not v.is_ok:
             calling js.release with n.value
             return calling err_of with v.error
-        var args as list of js.JsValue is list of js.JsValue
         calling args.push with n.value
         calling args.push with v.value
-        var r as result of js.JsValue to js.JsError is calling js.call_method with e->_v, "setAttribute", args
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "setAttribute", args
         calling js.release with n.value
         calling js.release with v.value
         if not r.is_ok:
@@ -133,103 +275,644 @@ when wasm:
         calling js.release with r.value
         return calling ok_of with true
 
-    ## Adds a CSS class.
-    weave add_class with e as ref to Element, name as string into result of bool to js.JsError:
-        var c as result of js.JsValue to js.JsError is calling js.get with e->_v, "classList"
-        if not c.is_ok:
-            return calling err_of with c.error
+    ## Sets an attribute without the URL policy. Trusted data only.
+    weave set_attr_unsafe with e as Element, name as string, value as string into result of bool to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
         var n as result of js.JsValue to js.JsError is calling js.string with name
+        var v as result of js.JsValue to js.JsError is calling js.string with value
         if not n.is_ok:
-            calling js.release with c.value
+            if v.is_ok:
+                calling js.release with v.value
             return calling err_of with n.error
-        var args as list of js.JsValue is list of js.JsValue
-        calling args.push with n.value
-        var r as result of js.JsValue to js.JsError is calling js.call_method with c.value, "add", args
-        calling js.release with c.value
-        calling js.release with n.value
-        if not r.is_ok:
-            return calling err_of with r.error
-        calling js.release with r.value
-        return calling ok_of with true
-
-    ## Removes a CSS class.
-    weave remove_class with e as ref to Element, name as string into result of bool to js.JsError:
-        var c as result of js.JsValue to js.JsError is calling js.get with e->_v, "classList"
-        if not c.is_ok:
-            return calling err_of with c.error
-        var n as result of js.JsValue to js.JsError is calling js.string with name
-        if not n.is_ok:
-            calling js.release with c.value
-            return calling err_of with n.error
-        var args as list of js.JsValue is list of js.JsValue
-        calling args.push with n.value
-        var r as result of js.JsValue to js.JsError is calling js.call_method with c.value, "remove", args
-        calling js.release with c.value
-        calling js.release with n.value
-        if not r.is_ok:
-            return calling err_of with r.error
-        calling js.release with r.value
-        return calling ok_of with true
-
-    ## Appends `child` to `parent`.
-    weave append with parent as ref to Element, child as ref to Element into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
-        calling args.push with child->_v
-        var r as result of js.JsValue to js.JsError is calling js.call_method with parent->_v, "appendChild", args
-        if not r.is_ok:
-            return calling err_of with r.error
-        calling js.release with r.value
-        return calling ok_of with true
-
-    ## Removes the element from the DOM.
-    weave remove with e as ref to Element into result of bool to js.JsError:
-        var args as list of js.JsValue is list of js.JsValue
-        var r as result of js.JsValue to js.JsError is calling js.call_method with e->_v, "remove", args
-        if not r.is_ok:
-            return calling err_of with r.error
-        calling js.release with r.value
-        return calling ok_of with true
-
-    ## `element.addEventListener(event, callback)`. The callback receives the
-    ## event as a JsValue; the registration is released when the element is
-    ## collected by the browser (or the page unloads).
-    weave on with e as ref to Element, event as string, cb as weave with ev as EventArg into void into result of bool to js.JsError:
-        var cbv as result of js.JsValue to js.JsError is calling js.make_callback with cb
-        if not cbv.is_ok:
-            return calling err_of with cbv.error
-        var n as result of js.JsValue to js.JsError is calling js.string with event
-        if not n.is_ok:
-            calling js.release with cbv.value
-            return calling err_of with n.error
-        var args as list of js.JsValue is list of js.JsValue
-        calling args.push with n.value
-        calling args.push with cbv.value
-        var r as result of js.JsValue to js.JsError is calling js.call_method with e->_v, "addEventListener", args
-        calling js.release with n.value
-        if not r.is_ok:
-            calling js.release with cbv.value
-            return calling err_of with r.error
-        calling js.release with r.value
-        return calling ok_of with true
-
-    ## Reads `element.value` (inputs).
-    weave value with e as ref to Element into result of string to js.JsError:
-        var v as result of js.JsValue to js.JsError is calling js.get with e->_v, "value"
         if not v.is_ok:
+            calling js.release with n.value
             return calling err_of with v.error
-        var s as result of string to js.JsError is calling js.from_string with v.value
+        calling args.push with n.value
+        calling args.push with v.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "setAttribute", args
+        calling js.release with n.value
         calling js.release with v.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## `element.removeAttribute(name)`.
+    weave remove_attr with e as Element, name as string into result of bool to js.JsError:
+        return calling _call_text_void with e, "removeAttribute", name
+
+    ## `element.hasAttribute(name)`.
+    weave has_attr with e as Element, name as string into result of bool to js.JsError:
+        return calling _call_text_bool with e, "hasAttribute", name
+
+    ## `element.classList.add(name)`.
+    weave add_class with e as Element, name as string into result of bool to js.JsError:
+        var c as result of js.JsValue to js.JsError is calling _class_list with e
+        if not c.is_ok:
+            return calling err_of with c.error
+        defer calling js.release with c.value
+        return calling _call_text_on with c.value, "add", name
+
+    ## `element.classList.remove(name)`.
+    weave remove_class with e as Element, name as string into result of bool to js.JsError:
+        var c as result of js.JsValue to js.JsError is calling _class_list with e
+        if not c.is_ok:
+            return calling err_of with c.error
+        defer calling js.release with c.value
+        return calling _call_text_on with c.value, "remove", name
+
+    ## `element.classList.toggle(name)`.
+    weave toggle_class with e as Element, name as string into result of bool to js.JsError:
+        var c as result of js.JsValue to js.JsError is calling _class_list with e
+        if not c.is_ok:
+            return calling err_of with c.error
+        defer calling js.release with c.value
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var n as result of js.JsValue to js.JsError is calling js.string with name
+        if not n.is_ok:
+            return calling err_of with n.error
+        calling args.push with n.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with c.value, "toggle", args
+        calling js.release with n.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        var value as bool is calling js.is_truthy with r.value
+        calling js.release with r.value
+        return calling ok_of with value
+
+    ## `element.classList.contains(name)`.
+    weave has_class with e as Element, name as string into result of bool to js.JsError:
+        var c as result of js.JsValue to js.JsError is calling _class_list with e
+        if not c.is_ok:
+            return calling err_of with c.error
+        defer calling js.release with c.value
+        return calling _call_text_bool_on with c.value, "contains", name
+
+    ## Reads one inline style property.
+    weave style with e as Element, name as string into result of maybe string to js.JsError:
+        var s as result of js.JsValue to js.JsError is calling _style_object with e
         if not s.is_ok:
             return calling err_of with s.error
-        return calling ok_of with s.value
+        defer calling js.release with s.value
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var n as result of js.JsValue to js.JsError is calling js.string with name
+        if not n.is_ok:
+            return calling err_of with n.error
+        calling args.push with n.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with s.value, "getPropertyValue", args
+        calling js.release with n.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        defer calling js.release with r.value
+        var text as result of string to js.JsError is calling js.from_string with r.value
+        if not text.is_ok:
+            return calling err_of with text.error
+        if text.value.len == 0:
+            return calling ok_of with (maybe none)
+        return calling ok_of with (some text.value)
 
-    ## Sets `element.value`.
-    weave set_value with e as ref to Element, value as string into result of bool to js.JsError:
+    ## Sets one inline style property.
+    weave set_style with e as Element, name as string, value as string into result of bool to js.JsError:
+        var s as result of js.JsValue to js.JsError is calling _style_object with e
+        if not s.is_ok:
+            return calling err_of with s.error
+        defer calling js.release with s.value
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var n as result of js.JsValue to js.JsError is calling js.string with name
+        var v as result of js.JsValue to js.JsError is calling js.string with value
+        if not n.is_ok:
+            if v.is_ok:
+                calling js.release with v.value
+            return calling err_of with n.error
+        if not v.is_ok:
+            calling js.release with n.value
+            return calling err_of with v.error
+        calling args.push with n.value
+        calling args.push with v.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with s.value, "setProperty", args
+        calling js.release with n.value
+        calling js.release with v.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Reads `data-<name>`.
+    weave dataset with e as Element, name as string into result of maybe string to js.JsError:
+        return calling get_attr with e, "data-{name}"
+
+    ## Writes `data-<name>`.
+    weave set_dataset with e as Element, name as string, value as string into result of bool to js.JsError:
+        return calling set_attr with e, "data-{name}", value
+
+    ## `parent.appendChild(child)`.
+    weave append with parent as Element, child as Element into result of bool to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with child._v
+        var r as result of js.JsValue to js.JsError is calling js.call_method with parent._v, "appendChild", args
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## `parent.prepend(child)`.
+    weave prepend with parent as Element, child as Element into result of bool to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with child._v
+        var r as result of js.JsValue to js.JsError is calling js.call_method with parent._v, "prepend", args
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## `element.remove()`.
+    weave remove with e as Element into result of bool to js.JsError:
+        return calling _call_void with e, "remove"
+
+    ## `element.replaceWith(other)`.
+    weave replace_with with e as Element, other as Element into result of bool to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with other._v
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "replaceWith", args
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Registers `cb` for `event_name` and returns its listener.
+    weave on with e as Element, event_name as string, cb as weave with ev as EventArg into void into result of Listener to js.JsError:
+        return calling _on_internal with e, event_name, cb, false
+
+    ## Registers a one-shot listener.
+    weave once with e as Element, event_name as string, cb as weave with ev as EventArg into void into result of Listener to js.JsError:
+        return calling _on_internal with e, event_name, cb, true
+
+    ## Removes the listener and releases it.
+    weave off with l as ref to Listener into result of bool to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var ev as result of js.JsValue to js.JsError is calling js.string with l->_event
+        if not ev.is_ok:
+            return calling err_of with ev.error
+        calling args.push with ev.value
+        calling args.push with l->_callback._value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with l->_element, "removeEventListener", args
+        calling js.release with ev.value
+        var ok as bool is r.is_ok
+        if r.is_ok:
+            calling js.release with r.value
+        calling free_listener with l
+        if not ok:
+            return calling err_of with r.error
+        return calling ok_of with true
+
+    ## Releases the listener without touching the DOM.
+    weave free_listener with l as ref to Listener into void:
+        calling js.free_callback with l->_callback
+        if l->_element != 0:
+            calling js.release with l->_element
+            set l->_element is (js.UNDEFINED)
+        banish l->_event
+
+    ## `input.value`.
+    weave value with e as Element into result of maybe string to js.JsError:
+        return calling _text_prop_opt with e, "value"
+
+    ## Sets `input.value`.
+    weave set_value with e as Element, value as string into result of bool to js.JsError:
         var s as result of js.JsValue to js.JsError is calling js.string with value
         if not s.is_ok:
             return calling err_of with s.error
-        var r as result of bool to js.JsError is calling js.set with e->_v, "value", s.value
+        defer calling js.release with s.value
+        return calling js.set with e._v, "value", s.value
+
+    ## `input.checked`.
+    weave checked with e as Element into bool:
+        var v as result of js.JsValue to js.JsError is calling js.get with e._v, "checked"
+        if not v.is_ok:
+            return false
+        defer calling js.release with v.value
+        return calling js.is_truthy with v.value
+
+    ## Sets `input.checked`.
+    weave set_checked with e as Element, checked as bool into result of bool to js.JsError:
+        var flag as int is if checked then 1 else 0
+        var b as result of js.JsValue to js.JsError is calling js.from_int with flag
+        if not b.is_ok:
+            return calling err_of with b.error
+        defer calling js.release with b.value
+        return calling js.set with e._v, "checked", b.value
+
+    ## `element.focus()`.
+    weave focus with e as Element into result of bool to js.JsError:
+        return calling _call_void with e, "focus"
+
+    ## `element.blur()`.
+    weave blur with e as Element into result of bool to js.JsError:
+        return calling _call_void with e, "blur"
+
+    ## `element.click()`.
+    weave click with e as Element into result of bool to js.JsError:
+        return calling _call_void with e, "click"
+
+    ## `element.getBoundingClientRect()`.
+    weave rect with e as Element into result of Rect to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "getBoundingClientRect", args
+        if not r.is_ok:
+            return calling err_of with r.error
+        defer calling js.release with r.value
+        var x as result of f64 to js.JsError is calling _f64_prop with r.value, "x"
+        if not x.is_ok:
+            return calling err_of with x.error
+        var y as result of f64 to js.JsError is calling _f64_prop with r.value, "y"
+        if not y.is_ok:
+            return calling err_of with y.error
+        var w as result of f64 to js.JsError is calling _f64_prop with r.value, "width"
+        if not w.is_ok:
+            return calling err_of with w.error
+        var h as result of f64 to js.JsError is calling _f64_prop with r.value, "height"
+        if not h.is_ok:
+            return calling err_of with h.error
+        return calling ok_of with (with x is x.value, y is y.value, width is w.value, height is h.value)
+
+    ## `element.clientWidth`.
+    weave client_width with e as Element into result of int to js.JsError:
+        return calling _int_prop with e, "clientWidth"
+
+    ## `element.clientHeight`.
+    weave client_height with e as Element into result of int to js.JsError:
+        return calling _int_prop with e, "clientHeight"
+
+    ## `element.offsetWidth`.
+    weave offset_width with e as Element into result of int to js.JsError:
+        return calling _int_prop with e, "offsetWidth"
+
+    ## `element.offsetHeight`.
+    weave offset_height with e as Element into result of int to js.JsError:
+        return calling _int_prop with e, "offsetHeight"
+
+    ## `element.scrollIntoView()`.
+    weave scroll_into_view with e as Element into result of bool to js.JsError:
+        return calling _call_void with e, "scrollIntoView"
+
+    ## `new FormData(element)`.
+    weave form_data with e as Element into result of js.JsValue to js.JsError:
+        var g as js.JsValue is calling js.global
+        defer calling js.release with g
+        var ctor as result of js.JsValue to js.JsError is calling js.get with g, "FormData"
+        if not ctor.is_ok:
+            return calling err_of with ctor.error
+        defer calling js.release with ctor.value
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with e._v
+        return calling js.new with ctor.value, args
+
+    ## `element.isConnected`.
+    weave is_connected with e as Element into bool:
+        var v as result of js.JsValue to js.JsError is calling js.get with e._v, "isConnected"
+        if not v.is_ok:
+            return false
+        defer calling js.release with v.value
+        return calling js.is_truthy with v.value
+
+    ## `element.tagName`.
+    weave tag_name with e as Element into result of string to js.JsError:
+        return calling _text_prop with e, "tagName"
+
+    ## Borrowed JS handle for integrations such as `std.web.canvas`.
+    ## Do not release it; it dies with the element.
+    weave raw with e as Element into js.JsValue:
+        return e._v
+
+    ## Wraps a handle without retaining it; used only for freshly created values.
+    weave _from with v as js.JsValue into Element:
+        return with _v is v
+
+    ## Reads a property as text.
+    weave _text_prop with e as Element, name as string into result of string to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.get with e._v, name
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.to_string with v.value
+
+    ## Reads a property as text, or `none` when null/undefined.
+    weave _text_prop_opt with e as Element, name as string into result of maybe string to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.get with e._v, name
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        if calling js.is_null with v.value or calling js.is_undefined with v.value:
+            return calling ok_of with (maybe none)
+        var s as result of string to js.JsError is calling js.from_string with v.value
+        if not s.is_ok:
+            return calling err_of with s.error
+        return calling ok_of with (some s.value)
+
+    ## Reads a property as an integer.
+    weave _int_prop with e as Element, name as string into result of int to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.get with e._v, name
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        var n as result of f64 to js.JsError is calling js.to_f64 with v.value
+        if not n.is_ok:
+            return calling err_of with n.error
+        return calling ok_of with (n.value to int)
+
+    ## Reads a property as a float.
+    weave _f64_prop with e as js.JsValue, name as string into result of f64 to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.get with e, name
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        return calling js.to_f64 with v.value
+
+    ## Calls a method with no arguments and discards its result.
+    weave _call_void with e as Element, method as string into result of bool to js.JsError:
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, method, args
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Calls a method with one string argument and discards its result.
+    weave _call_text_void with e as Element, method as string, text as string into result of bool to js.JsError:
+        var s as result of js.JsValue to js.JsError is calling js.string with text
+        if not s.is_ok:
+            return calling err_of with s.error
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with s.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, method, args
         calling js.release with s.value
         if not r.is_ok:
             return calling err_of with r.error
+        calling js.release with r.value
         return calling ok_of with true
+
+    ## Calls a method with one string argument and reads its boolean result.
+    weave _call_text_bool with e as Element, method as string, text as string into result of bool to js.JsError:
+        var s as result of js.JsValue to js.JsError is calling js.string with text
+        if not s.is_ok:
+            return calling err_of with s.error
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with s.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, method, args
+        calling js.release with s.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        var value as bool is calling js.is_truthy with r.value
+        calling js.release with r.value
+        return calling ok_of with value
+
+    ## Calls a method on a handle with one string argument and reads its boolean result.
+    weave _call_text_bool_on with target as js.JsValue, method as string, text as string into result of bool to js.JsError:
+        var s as result of js.JsValue to js.JsError is calling js.string with text
+        if not s.is_ok:
+            return calling err_of with s.error
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with s.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with target, method, args
+        calling js.release with s.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        var value as bool is calling js.is_truthy with r.value
+        calling js.release with r.value
+        return calling ok_of with value
+
+    ## Calls a method on a handle with one string argument.
+    weave _call_text_on with target as js.JsValue, method as string, text as string into result of bool to js.JsError:
+        var s as result of js.JsValue to js.JsError is calling js.string with text
+        if not s.is_ok:
+            return calling err_of with s.error
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with s.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with target, method, args
+        calling js.release with s.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Reads a child property as an element.
+    weave _get_element with e as Element, name as string into result of Element to js.JsError:
+        var v as result of js.JsValue to js.JsError is calling js.get with e._v, name
+        if not v.is_ok:
+            return calling err_of with v.error
+        if calling js.is_null with v.value or calling js.is_undefined with v.value:
+            return calling err_of with (calling _missing with name)
+        return calling ok_of with (calling _from with v.value)
+
+    ## `element.classList`.
+    weave _class_list with e as Element into result of js.JsValue to js.JsError:
+        return calling js.get with e._v, "classList"
+
+    ## `element.style`.
+    weave _style_object with e as Element into result of js.JsValue to js.JsError:
+        return calling js.get with e._v, "style"
+
+    ## Registers a listener, optionally one-shot.
+    weave _on_internal with e as Element, event_name as string, cb as weave with ev as EventArg into void, once_only as bool into result of Listener to js.JsError:
+        var cbv as result of js.JsCallback to js.JsError is calling js.make_callback with cb
+        if not cbv.is_ok:
+            return calling err_of with cbv.error
+        var kept as result of js.JsValue to js.JsError is calling js.retain with e._v
+        if not kept.is_ok:
+            calling js.free_callback with cbv.value
+            return calling err_of with kept.error
+        var ev as result of js.JsValue to js.JsError is calling js.string with event_name
+        if not ev.is_ok:
+            calling js.free_callback with cbv.value
+            calling js.release with kept.value
+            return calling err_of with ev.error
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with ev.value
+        calling args.push with cbv.value._value
+        var opts as js.JsValue is (js.UNDEFINED)
+        if once_only:
+            var o as result of js.JsValue to js.JsError is calling js.object
+            if not o.is_ok:
+                calling js.release with ev.value
+                calling js.release with kept.value
+                calling js.free_callback with cbv.value
+                return calling err_of with o.error
+            var t as result of js.JsValue to js.JsError is calling js.from_int with 1
+            if not t.is_ok:
+                calling js.release with o.value
+                calling js.release with ev.value
+                calling js.release with kept.value
+                calling js.free_callback with cbv.value
+                return calling err_of with t.error
+            var set as result of bool to js.JsError is calling js.set with o.value, "once", t.value
+            calling js.release with t.value
+            if not set.is_ok:
+                calling js.release with o.value
+                calling js.release with ev.value
+                calling js.release with kept.value
+                calling js.free_callback with cbv.value
+                return calling err_of with set.error
+            set opts is o.value
+            calling args.push with opts
+        var r as result of js.JsValue to js.JsError is calling js.call_method with e._v, "addEventListener", args
+        calling js.release with ev.value
+        if opts != 0:
+            calling js.release with opts
+        if not r.is_ok:
+            calling js.release with kept.value
+            calling js.free_callback with cbv.value
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with (with _element is kept.value, _event is "{event_name}", _callback is cbv.value)
+
+    ## Frees every element in a list (the list buffer is freed by the caller).
+    weave _free_elements with items as list of Element into void:
+        var i as int is 0
+        while i < items.len:
+            var e as Element is items at i
+            calling free with (sigil of e)
+            set i is i + 1
+
+    ## Builds a missing-node error.
+    weave _missing with what as string into js.JsError:
+        return with name is "NotFoundError", message is "{what} is not available", stack is ""
+
+    ## Builds a security-policy error.
+    weave _security_error with message as string into js.JsError:
+        return with name is "SecurityError", message is message, stack is ""
+
+    ## Attributes whose value is a URL and therefore needs the policy check.
+    ## HTML attribute names are case-insensitive, so `HREF` must be checked too.
+    weave _is_url_attr with name as string into bool:
+        return (calling _attr_is with name, "href") or (calling _attr_is with name, "src") or (calling _attr_is with name, "action") or (calling _attr_is with name, "formaction") or (calling _attr_is with name, "poster") or (calling _attr_is with name, "cite")
+
+    ## True when `name` equals `expected`, ignoring ASCII case.
+    weave _attr_is with name as string, expected as string into bool:
+        if name.len != expected.len:
+            return false
+        return calling security.starts_with_ignore_case with name, expected
+
+when not wasm:
+
+    weave wrap with v as js.JsValue into result of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave document into result of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave body into result of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave head into result of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave query with selector as string into result of maybe Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave query_required with selector as string into result of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave query_all with selector as string into result of list of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave create with tag as string into result of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave create_text with text as string into result of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave free with e as ref to Element into void:
+        return
+    weave clone with e as Element into result of Element to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave text with e as Element into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_text with e as Element, text as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave html with e as Element into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_html_unsafe with e as Element, text as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave get_attr with e as Element, name as string into result of maybe string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_attr with e as Element, name as string, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_attr_unsafe with e as Element, name as string, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave remove_attr with e as Element, name as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave has_attr with e as Element, name as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave add_class with e as Element, name as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave remove_class with e as Element, name as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave toggle_class with e as Element, name as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave has_class with e as Element, name as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave style with e as Element, name as string into result of maybe string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_style with e as Element, name as string, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave dataset with e as Element, name as string into result of maybe string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_dataset with e as Element, name as string, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave append with parent as Element, child as Element into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave prepend with parent as Element, child as Element into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave remove with e as Element into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave replace_with with e as Element, other as Element into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave on with e as Element, event_name as string, cb as weave with ev as EventArg into void into result of Listener to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave once with e as Element, event_name as string, cb as weave with ev as EventArg into void into result of Listener to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave off with l as ref to Listener into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave free_listener with l as ref to Listener into void:
+        return
+    weave value with e as Element into result of maybe string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave set_value with e as Element, value as string into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave checked with e as Element into bool:
+        return false
+    weave set_checked with e as Element, checked as bool into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave focus with e as Element into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave blur with e as Element into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave click with e as Element into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave rect with e as Element into result of Rect to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave client_width with e as Element into result of int to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave client_height with e as Element into result of int to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave offset_width with e as Element into result of int to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave offset_height with e as Element into result of int to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave scroll_into_view with e as Element into result of bool to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave form_data with e as Element into result of js.JsValue to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave is_connected with e as Element into bool:
+        return false
+    weave tag_name with e as Element into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
+    weave raw with e as Element into js.JsValue:
+        return js.UNDEFINED

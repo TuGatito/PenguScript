@@ -1,0 +1,29 @@
+import std.spark
+import std.web.js as js
+import std.web.http as http
+
+weave drop_error with e as http.JsError into void:
+    banish e.name
+    banish e.message
+    banish e.stack
+
+weave on_ok with v as http.Value into void:
+    calling spark.println with "TIMEOUT unexpected success"
+    calling js.release with v
+    calling js.eval with r"""globalThis.__origFetch = globalThis.fetch; globalThis.fetch = function(u, i) { return new Promise(function(resolve, reject) { if (i && i.signal) { i.signal.addEventListener('abort', function() { var e = new Error('aborted'); e.name = 'AbortError'; reject(e); }); } }); };"""
+
+weave on_err with v as http.Value into void:
+    var e as http.JsError is calling http.error_from with v
+    calling spark.println with "TIMEOUT {e.name} {e.message}"
+    calling drop_error with e
+    calling js.release with v
+    calling js.eval with r"""globalThis.__origFetch = globalThis.fetch; globalThis.fetch = function(u, i) { return new Promise(function(resolve, reject) { if (i && i.signal) { i.signal.addEventListener('abort', function() { var e = new Error('aborted'); e.name = 'AbortError'; reject(e); }); } }); };"""
+
+weave main into int:
+    calling js.eval with r"""globalThis.__origFetch = globalThis.fetch; globalThis.fetch = function(u, i) { return new Promise(function(resolve, reject) { if (i && i.signal) { i.signal.addEventListener('abort', function() { var e = new Error('aborted'); e.name = 'AbortError'; reject(e); }); } }); };"""
+    var r as result of bool to http.JsError is calling http.get with "https://example.invalid", on_ok, on_err, 60
+    if not r.is_ok:
+        calling spark.println with "TIMEOUT request failed to start"
+        return 1
+    calling js.eval with r"""setTimeout(function(){}, 300);"""
+    return 0

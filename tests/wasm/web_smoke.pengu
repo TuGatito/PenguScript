@@ -3,122 +3,400 @@ import std.web.js as js
 import std.web.dom as dom
 import std.web.canvas as canvas
 import std.web.storage as storage
+import std.web.security as security
+import std.web.crypto as crypto
+
+weave drop_error with e as js.JsError into void:
+    banish e.name
+    banish e.message
+    banish e.stack
+
+weave on_event with ev as dom.EventArg into void:
+    var k as result of string to js.JsError is calling event_kind with ev
+    if k.is_ok:
+        if k.value != "click":
+            calling spark.println with "unexpected event kind {k.value}"
+        banish k.value
+    else:
+        calling spark.println with "EVENT KIND ERROR {k.error.message}"
+        banish k.error.name
+        banish k.error.message
+        banish k.error.stack
+    var inc as result of js.JsValue to js.JsError is calling js.eval with r"""globalThis.__events = (globalThis.__events || 0) + 1"""
+    if inc.is_ok:
+        calling js.release with inc.value
+
+weave event_count into result of int to js.JsError:
+    var v as result of js.JsValue to js.JsError is calling js.eval with r"""globalThis.__events || 0"""
+    if not v.is_ok:
+        return calling err_of with v.error
+    var n as result of i64 to js.JsError is calling js.to_i64 with v.value
+    calling js.release with v.value
+    if not n.is_ok:
+        return calling err_of with n.error
+    return calling ok_of with (n.value to int)
+
+weave event_kind with ev as dom.EventArg into result of string to js.JsError:
+    var v as result of js.JsValue to js.JsError is calling js.get with ev, "type"
+    if not v.is_ok:
+        return calling err_of with v.error
+    defer calling js.release with v.value
+    return calling js.to_string with v.value
 
 weave setup into bool:
     var code as string is r"""
+function makeClassList(el) {
+  var set = {};
+  return {
+    add: function(n) { set[n] = true; el.__classes = set; },
+    remove: function(n) { delete set[n]; el.__classes = set; },
+    toggle: function(n) { if (set[n]) { delete set[n]; return false; } set[n] = true; return true; },
+    contains: function(n) { return !!set[n]; }
+  };
+}
+function makeElement(tag) {
+  var el = {
+    tagName: String(tag).toUpperCase(), textContent: "", value: "", checked: false,
+    id: "", width: 300, height: 150, clientWidth: 300, clientHeight: 150,
+    offsetWidth: 300, offsetHeight: 150, isConnected: true, parentNode: null,
+    __classes: {}, __attrs: {}, __listeners: {}, __fired: 0, __tag: (globalThis.__tagSeq = (globalThis.__tagSeq || 0) + 1),
+    setAttribute: function(n, v) { this.__attrs[n] = String(v); this[n] = String(v); },
+    getAttribute: function(n) { return Object.prototype.hasOwnProperty.call(this.__attrs, n) ? this.__attrs[n] : null; },
+    removeAttribute: function(n) { delete this.__attrs[n]; },
+    hasAttribute: function(n) { return Object.prototype.hasOwnProperty.call(this.__attrs, n); },
+    appendChild: function(c) { c.parentNode = this; return c; },
+    prepend: function(c) { c.parentNode = this; return c; },
+    remove: function() { this.isConnected = false; },
+    replaceWith: function(c) { c.parentNode = this.parentNode; this.isConnected = false; },
+    cloneNode: function() { var c = makeElement(this.tagName); c.textContent = this.textContent; return c; },
+    addEventListener: function(n, f, o) {
+      if (!this.__listeners[n]) this.__listeners[n] = [];
+      this.__listeners[n].push({ fn: f, once: !!(o && o.once) });
+    },
+    removeEventListener: function(n, f) {
+      var list = this.__listeners[n] || [];
+      this.__listeners[n] = list.filter(function(x) { return x.fn !== f; });
+    },
+    dispatchEvent: function(ev) {
+      var list = (this.__listeners[ev.type] || []).slice();
+      for (var i = 0; i < list.length; i++) list[i].fn(ev);
+      this.__listeners[ev.type] = (this.__listeners[ev.type] || []).filter(function(x) { return !x.once; });
+      return true;
+    },
+    __fire: function(type) {
+      var ev = { type: type, target: this, currentTarget: this, key: "Enter", button: 0,
+                 clientX: 1, clientY: 2, pageX: 3, pageY: 4, deltaY: 5, data: "d",
+                 altKey: false, ctrlKey: true, metaKey: false, shiftKey: false, isTrusted: true,
+                 preventDefault: function() { this.defaultPrevented = true; },
+                 stopPropagation: function() { }, stopImmediatePropagation: function() { } };
+      return this.dispatchEvent(ev);
+    },
+    focus: function() { this.focused = true; },
+    blur: function() { this.focused = false; },
+    click: function() { this.__fire("click"); },
+    getBoundingClientRect: function() { return { x: 1, y: 2, width: 30, height: 40 }; },
+    getContext: function(kind) { return makeContext(); }
+  };
+  el.classList = makeClassList(el);
+  el.style = {
+    __p: {},
+    getPropertyValue: function(n) { return this.__p[n] || ""; },
+    setProperty: function(n, v) { this.__p[n] = String(v); }
+  };
+  el.dataset = {};
+  return el;
+}
+function makeContext() {
+  return {
+    fillStyle: "#000", strokeStyle: "#000", lineWidth: 1, font: "10px sans-serif",
+    textAlign: "start", textBaseline: "alphabetic", globalAlpha: 1,
+    globalCompositeOperation: "source-over", shadowColor: "#000", shadowBlur: 0,
+    shadowOffsetX: 0, shadowOffsetY: 0, imageSmoothingEnabled: true,
+    save: function() { this.saved = true; }, restore: function() { this.saved = false; },
+    translate: function() { }, scale: function() { }, rotate: function() { },
+    transform: function() { }, setTransform: function() { }, resetTransform: function() { },
+    beginPath: function() { }, closePath: function() { }, moveTo: function() { },
+    lineTo: function() { }, bezierCurveTo: function() { }, quadraticCurveTo: function() { },
+    arc: function() { }, arcTo: function() { }, ellipse: function() { }, rect: function() { },
+    roundRect: function() { }, fill: function() { }, stroke: function() { }, clip: function() { },
+    fillRect: function() { }, strokeRect: function() { }, clearRect: function() { },
+    fillText: function() { }, strokeText: function() { },
+    measureText: function(t) { return { width: String(t).length * 7 }; },
+    toDataURL: function() { return "data:image/png;base64,AAAA"; }
+  };
+}
+var body = makeElement("body");
+var head = makeElement("head");
 globalThis.document = {
-  querySelector: function(sel) {
-    return {
-      textContent: "",
-      value: "",
-      setAttribute: function(n, v) { this[n] = v; },
-      classList: { add: function(n) { this[n] = true; }, remove: function(n) { delete this[n]; } },
-      appendChild: function(c) { return c; },
-      addEventListener: function(n, f) { this[n] = f; },
-      remove: function() { },
-      getContext: function(kind) {
-        return {
-          fillStyle: "", strokeStyle: "",
-          fillRect: function() { }, clearRect: function() { }, strokeRect: function() { },
-          fillText: function() { }, beginPath: function() { }, moveTo: function() { },
-          lineTo: function() { }, stroke: function() { }
-        };
-      }
-    };
-  },
-  createElement: function(tag) {
-    return {
-      tagName: tag, textContent: "", value: "",
-      setAttribute: function(n, v) { this[n] = v; },
-      classList: { add: function() { }, remove: function() { } },
-      appendChild: function(c) { return c; },
-      addEventListener: function() { },
-      remove: function() { }
-    };
-  }
+  body: body, head: head,
+  querySelector: function(sel) { if (sel === "#missing") return null; var e = makeElement("div"); globalThis.__lastEl = e; return e; },
+  querySelectorAll: function(sel) { return [makeElement("div"), makeElement("div")]; },
+  createElement: function(tag) { return makeElement(tag); },
+  createTextNode: function(t) { var e = makeElement("span"); e.textContent = String(t); return e; }
 };
 globalThis.localStorage = {
   _d: {},
+  get length() { return Object.keys(this._d).length; },
+  key: function(i) { var k = Object.keys(this._d); return i < k.length ? k[i] : null; },
   getItem: function(k) { return Object.prototype.hasOwnProperty.call(this._d, k) ? this._d[k] : null; },
   setItem: function(k, v) { this._d[k] = String(v); },
-  removeItem: function(k) { delete this._d[k]; }
+  removeItem: function(k) { delete this._d[k]; },
+  clear: function() { this._d = {}; }
 };
+globalThis.sessionStorage = globalThis.localStorage;
 """
     var r as result of js.JsValue to js.JsError is calling js.eval with code
     banish code
     if not r.is_ok:
-        banish r.error.message
-        banish r.error.stack
-        banish r.error.name
+        calling drop_error with r.error
         return false
     calling js.release with r.value
     return true
-
-weave on_event with ev as js.JsValue into void:
-    return
 
 weave main into int:
     if not (calling setup):
         calling spark.println with "setup failed"
         return 1
-    var q as result of dom.Element to js.JsError is calling dom.query with "#app"
+
+    var q as result of maybe dom.Element to js.JsError is calling dom.query with "#app"
     if not q.is_ok:
-        calling spark.println with "query failed"
+        calling drop_error with q.error
         return 1
-    var sr as result of bool to js.JsError is calling dom.set_text with (sigil of q.value), "hello"
+    if not q.value.is_present:
+        calling spark.println with "query missing"
+        return 1
+    var el as dom.Element is q.value.value
+
+    var missing as result of maybe dom.Element to js.JsError is calling dom.query with "#missing"
+    if not missing.is_ok or missing.value.is_present:
+        calling spark.println with "missing query wrong"
+        return 1
+    banish missing.value
+
+    var req as result of dom.Element to js.JsError is calling dom.query_required with "#missing"
+    if req.is_ok:
+        calling spark.println with "query_required should fail"
+        return 1
+    calling drop_error with req.error
+
+    var sr as result of bool to js.JsError is calling dom.set_text with el, "hello"
     if not sr.is_ok:
-        calling spark.println with "set_text failed"
+        calling drop_error with sr.error
         return 1
-    var tr as result of string to js.JsError is calling dom.text with (sigil of q.value)
-    if not tr.is_ok:
-        calling spark.println with "text failed"
-        return 1
-    if tr.value != "hello":
+    var tr as result of string to js.JsError is calling dom.text with el
+    if not tr.is_ok or tr.value != "hello":
         calling spark.println with "text mismatch"
         return 1
     banish tr.value
-    calling dom.add_class with (sigil of q.value), "active"
-    calling dom.set_attr with (sigil of q.value), "id", "app"
-    calling dom.on with (sigil of q.value), "click", on_event
+
+    var ar as result of bool to js.JsError is calling dom.set_attr with el, "id", "app"
+    if not ar.is_ok:
+        calling drop_error with ar.error
+        return 1
+    var ga as result of maybe string to js.JsError is calling dom.get_attr with el, "id"
+    if not ga.is_ok or not ga.value.is_present or ga.value.value != "app":
+        calling spark.println with "attr mismatch"
+        return 1
+    banish ga.value.value
+    banish ga.value
+    var ha as result of bool to js.JsError is calling dom.has_attr with el, "id"
+    if not ha.is_ok or not ha.value:
+        calling spark.println with "has_attr failed"
+        return 1
+    calling dom.remove_attr with el, "id"
+
+    calling dom.add_class with el, "active"
+    var hc1 as result of bool to js.JsError is calling dom.has_class with el, "active"
+    if not hc1.is_ok or not hc1.value:
+        calling spark.println with "class add failed"
+        return 1
+    calling dom.toggle_class with el, "active"
+    var hc2 as result of bool to js.JsError is calling dom.has_class with el, "active"
+    if not hc2.is_ok or hc2.value:
+        calling spark.println with "class toggle failed"
+        return 1
+
+    calling dom.set_style with el, "color", "red"
+    var st as result of maybe string to js.JsError is calling dom.style with el, "color"
+    if not st.is_ok or not st.value.is_present or st.value.value != "red":
+        calling spark.println with "style mismatch"
+        return 1
+    banish st.value.value
+    banish st.value
+    calling dom.set_dataset with el, "role", "main"
+    var ds as result of maybe string to js.JsError is calling dom.dataset with el, "role"
+    if not ds.is_ok or not ds.value.is_present or ds.value.value != "main":
+        calling spark.println with "dataset mismatch"
+        return 1
+    banish ds.value.value
+    banish ds.value
+
+    var safe as bool is calling security.is_safe_url with "javascript:alert(1)"
+    if safe:
+        calling spark.println with "security policy failed"
+        return 1
+    var safe2 as bool is calling security.is_safe_url with "https://example.com/x"
+    if not safe2:
+        calling spark.println with "https rejected"
+        return 1
+    var escaped as string is calling security.escape_html with "<b>&"
+    if escaped != "&lt;b&gt;&amp;":
+        calling spark.println with "escape mismatch"
+        return 1
+    banish escaped
+    var unsafe_attr as result of bool to js.JsError is calling dom.set_attr with el, "HREF", "javascript:alert(1)"
+    if unsafe_attr.is_ok:
+        calling spark.println with "uppercase URL attribute bypassed the policy"
+        return 1
+    banish unsafe_attr.error.name
+    banish unsafe_attr.error.message
+    banish unsafe_attr.error.stack
+
     var child as result of dom.Element to js.JsError is calling dom.create with "span"
     if child.is_ok:
-        calling dom.append with (sigil of q.value), (sigil of child.value)
+        calling dom.append with el, child.value
+        calling dom.prepend with el, child.value
+        var rc as result of dom.Element to js.JsError is calling dom.clone with el
+        if rc.is_ok:
+            calling dom.replace_with with child.value, rc.value
+            calling dom.free with (sigil of rc.value)
+        calling dom.remove with child.value
         calling dom.free with (sigil of child.value)
-    calling dom.remove with (sigil of q.value)
-    calling dom.free with (sigil of q.value)
+
+    var ln as result of dom.Listener to js.JsError is calling dom.on with el, "click", on_event
+    if not ln.is_ok:
+        calling drop_error with ln.error
+        return 1
+    var fr as result of bool to js.JsError is calling dom.click with el
+    if not fr.is_ok:
+        calling drop_error with fr.error
+        return 1
+    var e1 as result of int to js.JsError is calling event_count
+    if not e1.is_ok or e1.value != 1:
+        calling spark.println with "click listener did not run"
+        return 1
+    var offr as result of bool to js.JsError is calling dom.off with (sigil of ln.value)
+    if not offr.is_ok:
+        calling drop_error with offr.error
+        return 1
+    var fr3 as result of bool to js.JsError is calling dom.click with el
+    if not fr3.is_ok:
+        calling drop_error with fr3.error
+        return 1
+    var e2 as result of int to js.JsError is calling event_count
+    if not e2.is_ok or e2.value != 1:
+        calling spark.println with "off did not remove listener"
+        return 1
+
+    var once as result of dom.Listener to js.JsError is calling dom.once with el, "click", on_event
+    if not once.is_ok:
+        calling drop_error with once.error
+        return 1
+    var fr2 as result of bool to js.JsError is calling dom.click with el
+    if not fr2.is_ok:
+        calling drop_error with fr2.error
+        return 1
+    var e3 as result of int to js.JsError is calling event_count
+    if not e3.is_ok or e3.value != 2:
+        calling spark.println with "once listener did not run"
+        return 1
+    calling dom.free_listener with (sigil of once.value)
+
     var cv as result of canvas.Canvas to js.JsError is calling canvas.context2d with "#canvas"
     if not cv.is_ok:
-        calling spark.println with "canvas failed"
+        calling drop_error with cv.error
         return 1
-    calling canvas.set_fill_style with (sigil of cv.value), "#ff0000"
-    calling canvas.fill_rect with (sigil of cv.value), 1.0, 2.0, 3.0, 4.0
-    calling canvas.fill_text with (sigil of cv.value), "hi", 1.0, 2.0
-    calling canvas.begin_path with (sigil of cv.value)
-    calling canvas.move_to with (sigil of cv.value), 0.0, 0.0
-    calling canvas.line_to with (sigil of cv.value), 5.0, 5.0
-    calling canvas.stroke with (sigil of cv.value)
+    calling canvas.set_fill_style with cv.value, "#ff0000"
+    calling canvas.set_line_width with cv.value, 2.0
+    calling canvas.fill_rect with cv.value, 1.0, 2.0, 3.0, 4.0
+    calling canvas.fill_text with cv.value, "hi", 1.0, 2.0
+    calling canvas.begin_path with cv.value
+    calling canvas.move_to with cv.value, 0.0, 0.0
+    calling canvas.line_to with cv.value, 5.0, 5.0
+    calling canvas.arc with cv.value, 10.0, 10.0, 4.0, 0.0, 3.14, false
+    calling canvas.stroke with cv.value
+    calling canvas.save with cv.value
+    calling canvas.translate with cv.value, 1.0, 2.0
+    calling canvas.restore with cv.value
+    var mt as result of f64 to js.JsError is calling canvas.measure_text_width with cv.value, "abcd"
+    if not mt.is_ok or mt.value != 28.0:
+        calling spark.println with "measure mismatch"
+        return 1
+    var url as result of string to js.JsError is calling canvas.to_data_url with cv.value, "image/png", 0.9
+    if not url.is_ok:
+        calling spark.println with "data url failed"
+        return 1
+    banish url.value
     calling canvas.free with (sigil of cv.value)
+
     var setr as result of bool to js.JsError is calling storage.local_set with "k", "v"
     if not setr.is_ok:
-        calling spark.println with "storage set failed"
+        calling drop_error with setr.error
         return 1
     var getr as result of maybe string to js.JsError is calling storage.local_get with "k"
-    if not getr.is_ok:
-        calling spark.println with "storage get failed"
-        return 1
-    if not getr.value.is_present:
-        calling spark.println with "storage missing"
-        return 1
-    if getr.value.value != "v":
-        calling spark.println with "storage mismatch"
+    if not getr.is_ok or not getr.value.is_present or getr.value.value != "v":
+        calling spark.println with "storage get mismatch"
         return 1
     banish getr.value.value
     banish getr.value
-    calling storage.local_remove with "k"
-    var missing as result of maybe string to js.JsError is calling storage.local_get with "k"
-    if missing.is_ok and missing.value.is_present:
-        calling spark.println with "storage remove failed"
+    var lenr as result of int to js.JsError is calling storage.local_length
+    if not lenr.is_ok or lenr.value != 1:
+        calling spark.println with "storage length mismatch"
         return 1
-    banish missing
+    var keys as result of list of string to js.JsError is calling storage.local_keys
+    if not keys.is_ok or keys.value.len != 1 or (keys.value at 0) != "k":
+        calling spark.println with "storage keys mismatch"
+        return 1
+    calling storage.free_keys with keys.value
+    var kr as result of maybe string to js.JsError is calling storage.local_key_at with 0
+    if not kr.is_ok or not kr.value.is_present or kr.value.value != "k":
+        calling spark.println with "storage key_at mismatch"
+        return 1
+    banish kr.value.value
+    banish kr.value
+
+    var jv as result of js.JsValue to js.JsError is calling js.eval with r"""({"a": 1})"""
+    if jv.is_ok:
+        calling storage.local_set_json with "json", jv.value
+        var jg as result of js.JsValue to js.JsError is calling storage.local_get_json with "json"
+        if jg.is_ok:
+            calling js.release with jg.value
+        else:
+            calling drop_error with jg.error
+        calling js.release with jv.value
+    else:
+        calling drop_error with jv.error
+
+    calling storage.local_clear
+    var empty as result of int to js.JsError is calling storage.local_length
+    if not empty.is_ok or empty.value != 0:
+        calling spark.println with "storage clear failed"
+        return 1
+    calling storage.local_remove with "k"
+    var rnd as result of list of u8 to js.JsError is calling crypto.random_bytes with 16
+    if not rnd.is_ok or rnd.value.len != 16:
+        calling spark.println with "crypto random_bytes failed"
+        return 1
+    banish rnd.value
+    var uid as result of string to js.JsError is calling crypto.uuid_v4
+    if not uid.is_ok or uid.value.len != 36:
+        calling spark.println with "crypto uuid length failed"
+        return 1
+    var version as string is (uid.value at 14)
+    var variant as string is (uid.value at 19)
+    if version != "4":
+        calling spark.println with "crypto uuid version failed"
+        return 1
+    if not (variant == "8" or variant == "9" or variant == "a" or variant == "b"):
+        calling spark.println with "crypto uuid variant failed"
+        return 1
+    banish version
+    banish variant
+    banish uid.value
+    var ri as result of int to js.JsError is calling crypto.random_int with 1, 7
+    if not ri.is_ok or ri.value < 1 or ri.value >= 7:
+        calling spark.println with "crypto random_int failed"
+        return 1
+    calling dom.free with (sigil of el)
     calling spark.println with "WEB OK"
     return 0

@@ -1,6 +1,6 @@
 # PenguScript Language Reference
 
-> **Version covered:** PenguScript **0.23.1** (synchronized with the `VERSION` file; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
+> **Version covered:** PenguScript **0.24.0** (synchronized with the `VERSION` file; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
 > **Language policy.** English is the canonical language of the PenguScript
 > documentation, so **this document is the normative one**. A Spanish translation is
 > maintained at [`LANGUAGE_Spanish.md`](LANGUAGE_Spanish.md); it is **non-normative**,
@@ -3827,7 +3827,7 @@ export their default tuning constants (`BUILDER_DEFAULT_CAPACITY`,
 `ARENA_DEFAULT_BLOCK_SIZE`, `ARENA_DEFAULT_ALIGNMENT`) for callers that want to
 reserve exactly what the module would reserve.
 
-### 19.1 Pure PenguScript Modules (41 modules)
+### 19.1 Standard Library Modules
 
 All pure modules are located in the `std/` directory and imported as `import std.<module>`.
 
@@ -3838,7 +3838,7 @@ deliberate wrappers over C libraries (`std.lingua` over the vendored `std_c/utf8
 `libcurl` through the vendored `std_c/petitio.c` bridge, and `std.compressus`
 over the vendored `std_c/miniz.h`/`miniz.c`).
 Those six use `include`, `declare`, `link` and `antiquus` as the explicit
-boundary; the other 35 are written entirely in PenguScript. Bindings to
+boundary; the rest are written entirely in PenguScript. Bindings to
 third-party libraries are satellites installed with `pengu add`, not part of
 this list.
 
@@ -3874,13 +3874,16 @@ this list.
 | `std.ffi_call` | Optional libffi-backed calls: `FfiSignature`, type-code signatures, `call`, `ret_size`; links `-lffi` only when imported. |
 | `std.secrets` | Optional libsodium-backed secure random (`random_bytes`), SHA-256 (`sha256_raw`), `wipe` and constant-time `compare`; links `-lsodium`. |
 | `std.ffi` | Low-level C foreign function interface bridge: null pointer utilities (`null_void`, `null_char`, `null_byte`, `is_null`, `is_valid`, `ptr_eq`), architecture constants and inspection (`SIZEOF_POINTER`, `SIZEOF_INT`, `SIZEOF_FLOAT`, `pointer_size`, `size_of shard T`, `alignment_of shard T`), null-terminated C string conversions (`string_from_cstr`, `cstr_from_string`, `string_from_cstr_n`, `string_from_bytes`, `bytes_from_string`), memory views (`slice_from_ptr`), generic collections from C buffers (`list_from_ptr shard T`, `map_from_entries shard K, V`), raw memory copy/set (`memcpy_raw`, `memset_raw`), and 10 canonical C interop patterns. |
-| `std.web` | WebAssembly / Emscripten bridge, compiled away entirely on native targets. Picks the branch with the `when wasm:` compile-time variable, so on a native build every entry point still exists (safe stubs) and on wasm the Web calls are emitted. Console (`console_log`, `console_warn`, `console_error`, `console_trace` — reaching the JavaScript console, or stderr natively), a real main loop (`set_main_loop` with an optional fps and `simulate_infinite_loop`, `cancel_main_loop`, `pause_main_loop`, `resume_main_loop`), high-resolution monotonic time (`now_ms`), JavaScript evaluation (`eval_js`), deferred calls (`set_timeout`, `clear_timeout`), and the `IS_WASM` constant. `emscripten_sleep` is deliberately **not** here: it needs `-sASYNCIFY`, and everything in this module works with a plain `emcc` build. See `docs/WASM.md`. |
-| `std.web.js` | Typed ECMAScript bridge (wasm): `JsValue` handles, eval/get/set/call/new, callbacks, promises, `JsError`. See `docs/WASM.md`. |
-| `std.web.dom` | DOM helpers (wasm): `querySelector`, create, text, attributes, classes, events. |
-| `std.web.fetch` | Callback GET/POST helpers (wasm): `fetch_text`, `post_text`. |
-| `std.web.websocket` | Text-frame WebSocket client (wasm). |
-| `std.web.storage` | `localStorage`/`sessionStorage` get/set/remove (wasm). |
-| `std.web.canvas` | Canvas 2D helpers (wasm). |
+| `std.web` | WebAssembly / Emscripten bridge: console, a real main loop (`set_main_loop`, `cancel_main_loop`, `pause_main_loop`, `resume_main_loop`), monotonic time (`now_ms`), `eval_js` (needs CSP `unsafe-eval`), deferred calls (`set_timeout`, `clear_timeout`) and `IS_WASM`. Native builds keep the same API and `panic` on Web-only entry points. See `docs/WASM.md`. |
+| `std.web.js` | Typed ECMAScript bridge: reference-counted `JsValue` handles (`release`, `retain`, `stats`), eval/get/set/call/new, conversions, owned `JsError` fields, `JsCallback` and one-shot callbacks, promises, module import, JSON, low-level `fetch` and WebSocket. Native stubs return `NotSupported`. |
+| `std.web.dom` | Safe typed DOM: `Element`, `Listener`, `Rect`; `document`/`body`/`head`, `query`/`query_required`/`query_all`, create/clone/remove, text and `set_html_unsafe`, URL-checked attributes, classes, style, dataset, events (`on`/`once`/`off`), forms and geometry. `set_text` uses `textContent`. Native stubs return `NotSupported`. |
+| `std.web.event` | Typed DOM event accessors over a borrowed `Event` handle: `kind`, `target`, `key`, `code`, `button`, coordinates, `delta_y`, `data`, `clipboard_text`, modifiers, `is_trusted`, `prevent_default`, `stop_propagation`, `stop_immediate`. Native stubs return `NotSupported`. |
+| `std.web.http` | Asynchronous HTTP on `fetch`: `request` with method/headers/body, `get`/`post`/`put`/`delete`/`post_json`, `Response` (status, headers, body, URL), `header`, `json`, `free`, `timeout_ms`/`AbortController`, and `response_from`/`error_from` for raw `JsValue` callbacks. Native stubs return `NotSupported`. |
+| `std.web.websocket` | Text-frame WebSocket: `Socket` with a private id, `open(url, on_open, on_message, on_close, on_error)`, `send`, `close(code, reason)`, `state` and `count`; one-shot callbacks are released on close. Native stubs return `NotSupported`. |
+| `std.web.storage` | `localStorage`/`sessionStorage`: `local_*`/`session_*` `get`/`set`/`remove`/`clear`/`length`/`key_at`/`keys`, plus `get_json`/`set_json` and area JSON helpers; `keys` owns its strings and is freed with `free_keys`. Native stubs return `NotSupported`. |
+| `std.web.canvas` | Canvas 2D: `Canvas`, `context2d`/`from_element`, save/restore, transforms, paths (`arc`, `bezier_curve_to`, `rect`, `round_rect`, `fill`, `stroke`, `clip`), text (`fill_text`, `stroke_text`, `measure_text_width`), images (`draw_image`, `draw_image_scaled`), styles and `to_data_url`. Native stubs return `NotSupported`. |
+| `std.web.crypto` | CSPRNG helpers: `random_bytes(count)` returns an owned `list of u8`, `random_int(min, max)` is uniform in `[min, max)`, and `uuid_v4()` returns an RFC 4122 v4 UUID. Backed by `crypto.getRandomValues`, never `Math.random`; native stubs return `NotSupported`. |
+| `std.web.security` | Pure web-security helpers: `is_safe_url` (allows `http`/`https`/`mailto`/`tel`, relative URLs and `data:image/*`), `escape_html`, case-insensitive prefix/suffix checks and private scheme helpers. Works identically on native and wasm. |
 | `std.ledger` | Tabular data, CSV/TSV parsing, serialization, and matrix operations: parsing (`parse_csv`, `parse_tsv`, `parse_line`, `detect_delimiter`, `parse_csv_strict`, `parse_csv_nocomments`, `parse_csv_skip`, `parse_line_strict`, `parse_csv_normalized`), table abstraction `rune CsvTable` (`from_csv`, `from_rows`, `row_count`, `column_count`, `has_column`, `column_index`, `get`, `get_or`, `column`, `row_as_map`, `to_csv`), matrix enchantments (`list of list of string`: `row_count`, `column_count`, `is_rectangular`, `column`, `transpose`), key-value map conversions (`parse_csv_as_pairs`, `parse_csv_key_value`, `write_key_value_map`), escaping (`escape_field`, `escape_field_rfc4180`, `escape_field_backslash`), formatters (`to_csv_string`, `to_tsv_string`, `to_csv_string_no_trailing_newline`, `to_csv_string_crlf`), and file operations (`read_csv`, `read_tsv`, `write_csv`, `write_tsv`, `write_csv_safe`). |
 | `std.arithmancy` | Advanced math and game-ready linear algebra. **Two parts:** (a) the scalar functions (`abs_i`, `abs_f`, `min_i`, `max_i`, `min_f`, `max_f`, `clamp_i`, `clamp_f`, `sqrt_f`, `pow_f`, `sin_f`, `cos_f`, `tan_f`, `asin_f`, `acos_f`, `atan_f`, `atan2_f`, `deg_to_rad`, `rad_to_deg`, `lerp_f`, `smoothstep_f`, `is_prime`, `gcd`, `lcm`, `is_power_of_two`) are now **thin wrappers** over the primitive-methods modules (`std.numerus`, `std.integrum`, `std.fractio`) — the algorithm lives in the module that owns the bound; (b) the vector/matrix/quaternion types (`Vec2`, `Vec3`, `Vec4`, `Mat4`, `Quat`) and the constants (`PI`, `TAU`, `E`, `EPSILON`, `HALF_PI`, `SQRT2`, …), which have no equivalent elsewhere and remain the source of truth. Four rounding helpers (`floor`/`ceil`/`round`/`trunc`), `approx_eq`, `fmod` and `next_power_of_two` deliberately stay local: they differ from the module methods in domain or boundary semantics. |
 | `std.builder` | `StringBuilder`, an amortised-O(1) text accumulator: `new`, `with_capacity`, `from_string`; `append`, `append_char`, `append_int`, `append_i64`, `append_float`, `append_f64`, `append_bool`, `append_bytes`, `append_slice`, `append_repeat`, `append_spaces`; `insert_at` / `insert`, `set_char_at`, `truncate`, `reverse`; `len`, `capacity`, `is_empty`, `char_at`, `byte_at`, `bytes_view`, `substring`; `reserve`, `shrink_to_fit`, `clear`, `reset`; `finish` (ownership transfer, O(1)) and `to_string` (copy). Comparable to `java.lang.StringBuilder` and `zig.ArrayList(u8)`. |

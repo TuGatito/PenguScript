@@ -251,7 +251,7 @@ weave wasm_unsupported with p as ref to program.SemaProgram into string:
         var m as loader.SemaModule is (p->modules at i)
         var path as string is m.source.path
         if calling ends_with with path, "/std/net.pengu":
-            return "std.net is not available on wasm: browser sockets do not exist; use JS fetch/WebSocket through a binding (std.fetch is planned)"
+            return "std.net is not available on wasm: browser sockets do not exist; use std.web.http or std.web.websocket"
         if calling ends_with with path, "/std/dynlib.pengu":
             return "std.dynlib is not available on wasm: there is no dlopen; keep this module in native builds"
         if calling ends_with with path, "/std/ffi_call.pengu":
@@ -259,7 +259,7 @@ weave wasm_unsupported with p as ref to program.SemaProgram into string:
         if calling ends_with with path, "/std/secrets.pengu":
             return "std.secrets is not available on wasm: libsodium is not built for the wasm sysroot"
         if calling ends_with with path, "/std/petitio.pengu":
-            return "std.petitio is not available on wasm: libcurl is not built for the wasm sysroot; use JS fetch (std.fetch is planned)"
+            return "std.petitio is not available on wasm: libcurl is not built for the wasm sysroot; use std.web.http"
         set i is i + 1
     return ""
 
@@ -880,7 +880,7 @@ weave build with o as BuildOptions into BuildResult:
                     calling args.push with (calling copy with p.js_pre)
                 calling args.push with "--js-library"
                 calling args.push with (calling copy with p.js_library)
-                calling args.push with "-sEXPORTED_FUNCTIONS=_main,_malloc,_free,_pengu_js_invoke,_pengu_js_invoke_string"
+                calling args.push with "-sEXPORTED_FUNCTIONS=_main,_malloc,_free,_pengu_js_invoke,_pengu_js_invoke_string,_pengu_js_invoke_oneshot,_pengu_js_invoke_string_oneshot,_pengu_js_callback_free,_pengu_js_callback_string_free"
                 calling args.push with "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,FS,UTF8ToString,stringToUTF8,lengthBytesUTF8"
         else if so.os_name == "windows":
             calling args.push with "-lm"

@@ -1,72 +1,118 @@
-import std.web.js as js
 import std.spark
+import std.web.js as js
 
 weave on_cb with v as js.JsValue into void:
     var g as js.JsValue is calling js.global
+    defer calling js.release with g
     var s as result of js.JsValue to js.JsError is calling js.string with "cb-hit"
     if s.is_ok:
         var r as result of bool to js.JsError is calling js.set with g, "__pengu_cb", s.value
-        banish r
+        if r.is_ok:
+            banish r.value
+        else:
+            banish r.error.name
+            banish r.error.message
+            banish r.error.stack
         calling js.release with s.value
-    calling js.release with g
+    else:
+        banish s.error.name
+        banish s.error.message
+        banish s.error.stack
+
+weave on_promise with v as js.JsValue into void:
+    calling spark.println with "PROMISE OK"
+
+weave on_promise_err with v as js.JsValue into void:
+    calling spark.println with "PROMISE ERR"
 
 weave main into int:
     if not js.IS_WASM:
         calling spark.println with "skip"
         return 0
+
     var e as result of js.JsValue to js.JsError is calling js.eval with "1 + 2"
     if not e.is_ok:
         calling spark.println with "eval failed"
         return 1
-    var n as i64 is calling js.to_i64 with e.value
-    if n != 3:
+    var n as result of i64 to js.JsError is calling js.to_i64 with e.value
+    calling js.release with e.value
+    if not n.is_ok or n.value != 3:
         calling spark.println with "eval mismatch"
         return 1
+
     var g as js.JsValue is calling js.global
+    defer calling js.release with g
     var m as result of js.JsValue to js.JsError is calling js.get with g, "String"
     if not m.is_ok:
         calling spark.println with "get failed"
         return 1
+    defer calling js.release with m.value
+
     var a as list of js.JsValue is list of js.JsValue
+    defer banish a
     var x as result of js.JsValue to js.JsError is calling js.string with "x"
     var y as result of js.JsValue to js.JsError is calling js.string with "y"
     if not x.is_ok or not y.is_ok:
         return 1
+    defer calling js.release with x.value
+    defer calling js.release with y.value
     calling a.push with x.value
     var c as result of js.JsValue to js.JsError is calling js.call with m.value, g, a
     if not c.is_ok:
         calling spark.println with "call failed"
         return 1
-    var sr as result of string to js.JsError is calling js.from_string with c.value
+    var sr as result of string to js.JsError is calling js.to_string with c.value
+    calling js.release with c.value
     if not sr.is_ok:
         return 1
-    var s as string is sr.value
-    if s != "x":
+    if sr.value != "x":
         calling spark.println with "call wrong"
         return 1
-    banish s
+    banish sr.value
+
     var fn as result of js.JsValue to js.JsError is calling js.eval with r"""(function(cb){ cb(); })"""
     if not fn.is_ok:
         return 1
-    var cb as result of js.JsValue to js.JsError is calling js.make_callback with on_cb
-    if not cb.is_ok:
+    defer calling js.release with fn.value
+    var cbv as result of js.JsCallback to js.JsError is calling js.make_callback with on_cb
+    if not cbv.is_ok:
+        calling spark.println with "callback create failed"
         return 1
+    defer calling js.free_callback with cbv.value
     var args as list of js.JsValue is list of js.JsValue
-    calling args.push with cb.value
+    defer banish args
+    calling args.push with (calling js.callback_value with cbv.value)
     var callr as result of js.JsValue to js.JsError is calling js.call with fn.value, g, args
     if not callr.is_ok:
+        calling spark.println with "callback call failed"
         return 1
+    calling js.release with callr.value
     var flag as result of js.JsValue to js.JsError is calling js.get with g, "__pengu_cb"
     if not flag.is_ok:
         calling spark.println with "callback missing"
         return 1
-    var fr as result of string to js.JsError is calling js.from_string with flag.value
-    if not fr.is_ok:
-        return 1
-    var fs as string is fr.value
-    if fs != "cb-hit":
+    var fr as result of string to js.JsError is calling js.to_string with flag.value
+    calling js.release with flag.value
+    if not fr.is_ok or fr.value != "cb-hit":
         calling spark.println with "callback wrong"
         return 1
-    banish fs
+    banish fr.value
+
+    var rp as result of js.JsValue to js.JsError is calling js.eval with "Promise.resolve(7)"
+    if not rp.is_ok:
+        calling spark.println with "promise create failed"
+        return 1
+    defer calling js.release with rp.value
+    var pt as result of bool to js.JsError is calling js.promise_then with rp.value, on_promise, on_promise_err
+    if not pt.is_ok:
+        calling spark.println with "promise then failed"
+        return 1
+    var h as result of js.JsValue to js.JsError is calling js.eval with r"""setTimeout(function(){}, 100)"""
+    if h.is_ok:
+        calling js.release with h.value
+    var stats as js.Stats is calling js.stats
+    if stats.handles == 0:
+        calling spark.println with "handle count broken"
+        return 1
     calling spark.println with "JS OK"
     return 0

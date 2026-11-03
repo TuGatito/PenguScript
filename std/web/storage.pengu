@@ -1,131 +1,366 @@
-## std.web.storage — localStorage/sessionStorage helpers.
+## std.web.storage — localStorage and sessionStorage helpers.
 ##
 ## WebAssembly-only (the browser provides the Storage API). Values are strings;
-## missing keys return `none`.
+## missing keys return `none`. `keys` returns owned strings: banish every entry
+## and then banish the list.
+##
+## ```pengu
+## calling storage.local_set with "theme", "dark"
+## var theme as result of maybe string to js.JsError is calling storage.local_get with "theme"
+## if theme.is_ok and theme.value is present:
+##     calling spark.println with theme.value.value
+## ```
+##
+## Quota errors surface as `JsError` with name `QuotaExceededError`; they are not
+## swallowed.
 
 import std.web.js as js
+
+const STORAGE_VERSION as string is "1.0.0"
+
+## Storage area selector.
+const LOCAL as int is 0
+const SESSION as int is 1
 
 when wasm:
 
     ## Reads `area.getItem(key)`.
-    weave _get with area as string, key as string into result of maybe string to js.JsError:
-        var g as js.JsValue is calling js.global
-        defer calling js.release with g
-        var a as result of js.JsValue to js.JsError is calling js.get with g, area
+    weave _get with area as int, key as string into result of maybe string to js.JsError:
+        var a as result of js.JsValue to js.JsError is calling _area with area
         if not a.is_ok:
             return calling err_of with a.error
+        defer calling js.release with a.value
         var k as result of js.JsValue to js.JsError is calling js.string with key
         if not k.is_ok:
-            calling js.release with a.value
             return calling err_of with k.error
         var args as list of js.JsValue is list of js.JsValue
+        defer banish args
         calling args.push with k.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "getItem", args
         calling js.release with k.value
-        calling js.release with a.value
         if not r.is_ok:
             return calling err_of with r.error
-        if calling js.is_null with r.value:
-            calling js.release with r.value
+        defer calling js.release with r.value
+        if calling js.is_null with r.value or calling js.is_undefined with r.value:
             return calling ok_of with (maybe none)
         var s as result of string to js.JsError is calling js.from_string with r.value
-        calling js.release with r.value
         if not s.is_ok:
             return calling err_of with s.error
         return calling ok_of with (some s.value)
 
     ## Writes `area.setItem(key, value)`.
-    weave _set with area as string, key as string, value as string into result of bool to js.JsError:
-        var g as js.JsValue is calling js.global
-        defer calling js.release with g
-        var a as result of js.JsValue to js.JsError is calling js.get with g, area
+    weave _set with area as int, key as string, value as string into result of bool to js.JsError:
+        var a as result of js.JsValue to js.JsError is calling _area with area
         if not a.is_ok:
             return calling err_of with a.error
+        defer calling js.release with a.value
         var k as result of js.JsValue to js.JsError is calling js.string with key
-        var v as result of js.JsValue to js.JsError is calling js.string with value
         if not k.is_ok:
-            calling js.release with a.value
             return calling err_of with k.error
+        defer calling js.release with k.value
+        var v as result of js.JsValue to js.JsError is calling js.string with value
         if not v.is_ok:
-            calling js.release with a.value
-            calling js.release with k.value
             return calling err_of with v.error
+        defer calling js.release with v.value
         var args as list of js.JsValue is list of js.JsValue
+        defer banish args
         calling args.push with k.value
         calling args.push with v.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "setItem", args
-        calling js.release with k.value
-        calling js.release with v.value
-        calling js.release with a.value
         if not r.is_ok:
             return calling err_of with r.error
         calling js.release with r.value
         return calling ok_of with true
 
     ## Removes `area.removeItem(key)`.
-    weave _remove with area as string, key as string into result of bool to js.JsError:
-        var g as js.JsValue is calling js.global
-        defer calling js.release with g
-        var a as result of js.JsValue to js.JsError is calling js.get with g, area
+    weave _remove with area as int, key as string into result of bool to js.JsError:
+        var a as result of js.JsValue to js.JsError is calling _area with area
         if not a.is_ok:
             return calling err_of with a.error
+        defer calling js.release with a.value
         var k as result of js.JsValue to js.JsError is calling js.string with key
         if not k.is_ok:
-            calling js.release with a.value
             return calling err_of with k.error
+        defer calling js.release with k.value
         var args as list of js.JsValue is list of js.JsValue
+        defer banish args
         calling args.push with k.value
         var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "removeItem", args
-        calling js.release with k.value
-        calling js.release with a.value
         if not r.is_ok:
             return calling err_of with r.error
         calling js.release with r.value
         return calling ok_of with true
 
+    ## Removes every entry in the area.
+    weave _clear with area as int into result of bool to js.JsError:
+        var a as result of js.JsValue to js.JsError is calling _area with area
+        if not a.is_ok:
+            return calling err_of with a.error
+        defer calling js.release with a.value
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "clear", args
+        if not r.is_ok:
+            return calling err_of with r.error
+        calling js.release with r.value
+        return calling ok_of with true
+
+    ## Number of entries in the area.
+    weave _length with area as int into result of int to js.JsError:
+        var a as result of js.JsValue to js.JsError is calling _area with area
+        if not a.is_ok:
+            return calling err_of with a.error
+        defer calling js.release with a.value
+        var h as result of js.JsValue to js.JsError is calling js.get with a.value, "length"
+        if not h.is_ok:
+            return calling err_of with h.error
+        defer calling js.release with h.value
+        var n as result of f64 to js.JsError is calling js.to_f64 with h.value
+        if not n.is_ok:
+            return calling err_of with n.error
+        return calling ok_of with (n.value to int)
+
+    ## Key at `index`, or `none`.
+    weave _key_at with area as int, index as int into result of maybe string to js.JsError:
+        var a as result of js.JsValue to js.JsError is calling _area with area
+        if not a.is_ok:
+            return calling err_of with a.error
+        defer calling js.release with a.value
+        var i as result of js.JsValue to js.JsError is calling js.from_int with index
+        if not i.is_ok:
+            return calling err_of with i.error
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with i.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "key", args
+        calling js.release with i.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        defer calling js.release with r.value
+        if calling js.is_null with r.value or calling js.is_undefined with r.value:
+            return calling ok_of with (maybe none)
+        var s as result of string to js.JsError is calling js.from_string with r.value
+        if not s.is_ok:
+            return calling err_of with s.error
+        return calling ok_of with (some s.value)
+
     ## `localStorage.getItem(key)`.
     weave local_get with key as string into result of maybe string to js.JsError:
-        return calling _get with "localStorage", key
+        return calling _get with LOCAL, key
 
     ## `localStorage.setItem(key, value)`.
     weave local_set with key as string, value as string into result of bool to js.JsError:
-        return calling _set with "localStorage", key, value
+        return calling _set with LOCAL, key, value
 
     ## `localStorage.removeItem(key)`.
     weave local_remove with key as string into result of bool to js.JsError:
-        return calling _remove with "localStorage", key
+        return calling _remove with LOCAL, key
+
+    ## `localStorage.clear()`.
+    weave local_clear into result of bool to js.JsError:
+        return calling _clear with LOCAL
+
+    ## `localStorage.length`.
+    weave local_length into result of int to js.JsError:
+        return calling _length with LOCAL
+
+    ## `localStorage.key(index)`.
+    weave local_key_at with index as int into result of maybe string to js.JsError:
+        return calling _key_at with LOCAL, index
+
+    ## Every localStorage key, owned. Banish each entry and the list.
+    weave local_keys into result of list of string to js.JsError:
+        return calling _keys with LOCAL
 
     ## `sessionStorage.getItem(key)`.
     weave session_get with key as string into result of maybe string to js.JsError:
-        return calling _get with "sessionStorage", key
+        return calling _get with SESSION, key
 
     ## `sessionStorage.setItem(key, value)`.
     weave session_set with key as string, value as string into result of bool to js.JsError:
-        return calling _set with "sessionStorage", key, value
+        return calling _set with SESSION, key, value
 
     ## `sessionStorage.removeItem(key)`.
     weave session_remove with key as string into result of bool to js.JsError:
-        return calling _remove with "sessionStorage", key
+        return calling _remove with SESSION, key
+
+    ## `sessionStorage.clear()`.
+    weave session_clear into result of bool to js.JsError:
+        return calling _clear with SESSION
+
+    ## `sessionStorage.length`.
+    weave session_length into result of int to js.JsError:
+        return calling _length with SESSION
+
+    ## `sessionStorage.key(index)`.
+    weave session_key_at with index as int into result of maybe string to js.JsError:
+        return calling _key_at with SESSION, index
+
+    ## Every sessionStorage key, owned. Banish each entry and the list.
+    weave session_keys into result of list of string to js.JsError:
+        return calling _keys with SESSION
+
+    ## Reads a JSON value. The returned handle is owned.
+    weave get_json with area as int, key as string into result of js.JsValue to js.JsError:
+        var a as result of js.JsValue to js.JsError is calling _area with area
+        if not a.is_ok:
+            return calling err_of with a.error
+        defer calling js.release with a.value
+        var k as result of js.JsValue to js.JsError is calling js.string with key
+        if not k.is_ok:
+            return calling err_of with k.error
+        var args as list of js.JsValue is list of js.JsValue
+        defer banish args
+        calling args.push with k.value
+        var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "getItem", args
+        calling js.release with k.value
+        if not r.is_ok:
+            return calling err_of with r.error
+        if calling js.is_null with r.value or calling js.is_undefined with r.value:
+            calling js.release with r.value
+            return calling ok_of with (js.UNDEFINED)
+        var text as result of string to js.JsError is calling js.to_string with r.value
+        calling js.release with r.value
+        if not text.is_ok:
+            return calling err_of with text.error
+        defer banish text.value
+        return calling js.parse_json with text.value
+
+    ## Writes a JSON value.
+    weave set_json with area as int, key as string, value as js.JsValue into result of bool to js.JsError:
+        var text as result of string to js.JsError is calling js.stringify_json with value
+        if not text.is_ok:
+            return calling err_of with text.error
+        defer banish text.value
+        return calling _set with area, key, text.value
+
+    ## `location`-independent localStorage JSON set.
+    weave local_set_json with key as string, value as js.JsValue into result of bool to js.JsError:
+        return calling set_json with LOCAL, key, value
+
+    ## `location`-independent localStorage JSON get.
+    weave local_get_json with key as string into result of js.JsValue to js.JsError:
+        return calling get_json with LOCAL, key
+
+    ## `location`-independent sessionStorage JSON set.
+    weave session_set_json with key as string, value as js.JsValue into result of bool to js.JsError:
+        return calling set_json with SESSION, key, value
+
+    ## `location`-independent sessionStorage JSON get.
+    weave session_get_json with key as string into result of js.JsValue to js.JsError:
+        return calling get_json with SESSION, key
+
+    ## Builds the area object.
+    weave _area with area as int into result of js.JsValue to js.JsError:
+        var g as js.JsValue is calling js.global
+        defer calling js.release with g
+        var name as string is "localStorage"
+        if area == SESSION:
+            set name is "sessionStorage"
+        return calling js.get with g, name
+
+    ## Every key in the area, owned.
+    weave _keys with area as int into result of list of string to js.JsError:
+        var n as result of int to js.JsError is calling _length with area
+        if not n.is_ok:
+            return calling err_of with n.error
+        var a as result of js.JsValue to js.JsError is calling _area with area
+        if not a.is_ok:
+            return calling err_of with a.error
+        defer calling js.release with a.value
+        var out as list of string is list of string
+        var i as int is 0
+        while i < n.value:
+            var h as result of js.JsValue to js.JsError is calling js.from_int with i
+            if not h.is_ok:
+                calling _free_keys with out
+                return calling err_of with h.error
+            var args as list of js.JsValue is list of js.JsValue
+            defer banish args
+            calling args.push with h.value
+            var r as result of js.JsValue to js.JsError is calling js.call_method with a.value, "key", args
+            calling js.release with h.value
+            if not r.is_ok:
+                calling _free_keys with out
+                return calling err_of with r.error
+            if not calling js.is_null with r.value and not calling js.is_undefined with r.value:
+                var text as result of string to js.JsError is calling js.to_string with r.value
+                if not text.is_ok:
+                    calling js.release with r.value
+                    calling _free_keys with out
+                    return calling err_of with text.error
+                calling out.push with text.value
+            calling js.release with r.value
+            set i is i + 1
+        return calling ok_of with out
+
+    ## Releases a list returned by `*_keys`.
+    weave free_keys with keys as list of string into void:
+        calling _free_keys with keys
+
+    ## Releases key strings and their list.
+    weave _free_keys with keys as list of string into void:
+        var i as int is 0
+        while i < keys.len:
+            banish keys at i
+            set i is i + 1
+        banish keys
 
 when not wasm:
 
     weave _native_error into js.JsError:
         return with name is "NotSupported", message is "std.web.storage requires a wasm build", stack is ""
 
+    weave _fail_maybe into result of maybe string to js.JsError:
+        return calling err_of with (calling _native_error)
+    weave _fail_bool into result of bool to js.JsError:
+        return calling err_of with (calling _native_error)
+    weave _fail_int into result of int to js.JsError:
+        return calling err_of with (calling _native_error)
+    weave _fail_list into result of list of string to js.JsError:
+        return calling err_of with (calling _native_error)
+    weave _fail_value into result of js.JsValue to js.JsError:
+        return calling err_of with (calling _native_error)
+
     weave local_get with key as string into result of maybe string to js.JsError:
-        return calling err_of with (calling _native_error)
-
+        return calling _fail_maybe
     weave local_set with key as string, value as string into result of bool to js.JsError:
-        return calling err_of with (calling _native_error)
-
+        return calling _fail_bool
     weave local_remove with key as string into result of bool to js.JsError:
-        return calling err_of with (calling _native_error)
-
+        return calling _fail_bool
+    weave local_clear into result of bool to js.JsError:
+        return calling _fail_bool
+    weave local_length into result of int to js.JsError:
+        return calling _fail_int
+    weave local_key_at with index as int into result of maybe string to js.JsError:
+        return calling _fail_maybe
+    weave local_keys into result of list of string to js.JsError:
+        return calling _fail_list
     weave session_get with key as string into result of maybe string to js.JsError:
-        return calling err_of with (calling _native_error)
-
+        return calling _fail_maybe
     weave session_set with key as string, value as string into result of bool to js.JsError:
-        return calling err_of with (calling _native_error)
-
+        return calling _fail_bool
     weave session_remove with key as string into result of bool to js.JsError:
-        return calling err_of with (calling _native_error)
+        return calling _fail_bool
+    weave session_clear into result of bool to js.JsError:
+        return calling _fail_bool
+    weave session_length into result of int to js.JsError:
+        return calling _fail_int
+    weave session_key_at with index as int into result of maybe string to js.JsError:
+        return calling _fail_maybe
+    weave session_keys into result of list of string to js.JsError:
+        return calling _fail_list
+    weave get_json with area as int, key as string into result of js.JsValue to js.JsError:
+        return calling _fail_value
+    weave set_json with area as int, key as string, value as js.JsValue into result of bool to js.JsError:
+        return calling _fail_bool
+    weave local_set_json with key as string, value as js.JsValue into result of bool to js.JsError:
+        return calling _fail_bool
+    weave local_get_json with key as string into result of js.JsValue to js.JsError:
+        return calling _fail_value
+    weave session_set_json with key as string, value as js.JsValue into result of bool to js.JsError:
+        return calling _fail_bool
+    weave session_get_json with key as string into result of js.JsValue to js.JsError:
+        return calling _fail_value
+    weave free_keys with keys as list of string into void:
+        return

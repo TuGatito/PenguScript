@@ -1,0 +1,165 @@
+## std.web.security — defensive helpers for browser-facing strings.
+##
+## These functions are pure: no JavaScript, no allocation beyond the strings
+## they return. They are deliberately conservative. `is_safe_url` rejects
+## `javascript:`, `vbscript:`, control characters, and every `data:` URL except
+## the raster image forms that cannot execute script. `escape_html` is the
+## correct tool when you must build markup; prefer `dom.set_text` otherwise.
+##
+## `dom.set_attr` uses the same policy for URL-valued attributes, so callers
+## that already validated a URL do not need to repeat the check.
+
+const SECURITY_VERSION as string is "1.0.0"
+
+## True when `url` may be used as an `href`, `src`, or `action` without
+## executing script. Relative URLs are allowed; unknown schemes are not.
+weave is_safe_url with url as string into bool:
+    var start as int is 0
+    var end as int is url.len
+    while start < end:
+        var c as int is ord (url at start)
+        if c == 32 or c == 9 or c == 10 or c == 13:
+            set start is start + 1
+        else:
+            break
+    while end > start:
+        var c as int is ord (url at (end - 1))
+        if c == 32 or c == 9 or c == 10 or c == 13:
+            set end is end - 1
+        else:
+            break
+    if start >= end:
+        return false
+    var i as int is start
+    while i < end:
+        var c as int is ord (url at i)
+        if c < 32 or c == 127 or c == 92:
+            return false
+        set i is i + 1
+    var colon as int is -1
+    var i2 as int is start
+    while i2 < end:
+        var c2 as int is ord (url at i2)
+        if c2 == 58:
+            set colon is i2
+            break
+        if c2 == 47 or c2 == 63 or c2 == 35:
+            break
+        set i2 is i2 + 1
+    if colon < 0:
+        return true
+    var scheme_len as int is colon - start
+    if calling _scheme_is with url, start, scheme_len, "http":
+        return true
+    if calling _scheme_is with url, start, scheme_len, "https":
+        return true
+    if calling _scheme_is with url, start, scheme_len, "mailto":
+        return true
+    if calling _scheme_is with url, start, scheme_len, "tel":
+        return true
+    if calling _scheme_is with url, start, scheme_len, "data":
+        return calling _is_safe_data_image with url, start, end
+    return false
+
+## Escapes the five HTML-significant characters. The returned string is owned
+## by the caller.
+weave escape_html with text as string into string:
+    var out as string is ""
+    var i as int is 0
+    while i < text.len:
+        var c as int is ord (text at i)
+        if c == 38:
+            var next as string is "{out}&amp;"
+            banish out
+            set out is next
+        else:
+            if c == 60:
+                var next as string is "{out}&lt;"
+                banish out
+                set out is next
+            else:
+                if c == 62:
+                    var next as string is "{out}&gt;"
+                    banish out
+                    set out is next
+                else:
+                    if c == 34:
+                        var next as string is "{out}&quot;"
+                        banish out
+                        set out is next
+                    else:
+                        if c == 39:
+                            var next as string is "{out}&#39;"
+                            banish out
+                            set out is next
+                        else:
+                            var piece as string is (text at i)
+                            var next as string is "{out}{piece}"
+                            banish piece
+                            banish out
+                            set out is next
+        set i is i + 1
+    return out
+
+## True when `text` starts with `prefix`, ignoring ASCII case.
+weave starts_with_ignore_case with text as string, prefix as string into bool:
+    if prefix.len > text.len:
+        return false
+    var i as int is 0
+    while i < prefix.len:
+        var a as int is calling _lower_byte with (ord (text at i))
+        var b as int is calling _lower_byte with (ord (prefix at i))
+        if a != b:
+            return false
+        set i is i + 1
+    return true
+
+## True when `text` ends with `suffix`, ignoring ASCII case.
+weave ends_with_ignore_case with text as string, suffix as string into bool:
+    if suffix.len > text.len:
+        return false
+    var offset as int is text.len - suffix.len
+    var i as int is 0
+    while i < suffix.len:
+        var a as int is calling _lower_byte with (ord (text at (offset + i)))
+        var b as int is calling _lower_byte with (ord (suffix at i))
+        if a != b:
+            return false
+        set i is i + 1
+    return true
+
+## Lowercases one ASCII byte; other bytes are returned unchanged.
+weave _lower_byte with c as int into int:
+    if c >= 65 and c <= 90:
+        return c + 32
+    return c
+
+## Compares a slice of `text` with `expected`, ignoring ASCII case.
+weave _scheme_is with text as string, start as int, length as int, expected as string into bool:
+    if length != expected.len:
+        return false
+    var i as int is 0
+    while i < length:
+        var a as int is calling _lower_byte with (ord (text at (start + i)))
+        var b as int is calling _lower_byte with (ord (expected at i))
+        if a != b:
+            return false
+        set i is i + 1
+    return true
+
+## Only raster image data URLs are allowed; SVG and HTML can execute script.
+weave _is_safe_data_image with text as string, start as int, end as int into bool:
+    var slice_len as int is end - start
+    if slice_len < 22:
+        return false
+    if calling _scheme_is with text, start, 5, "data:":
+        var rest as int is start + 5
+        if calling _scheme_is with text, rest, 10, "image/png;":
+            return true
+        if rest + 11 <= end and calling _scheme_is with text, rest, 11, "image/jpeg;":
+            return true
+        if rest + 10 <= end and calling _scheme_is with text, rest, 10, "image/gif;":
+            return true
+        if rest + 11 <= end and calling _scheme_is with text, rest, 11, "image/webp;":
+            return true
+    return false

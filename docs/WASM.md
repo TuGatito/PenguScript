@@ -156,11 +156,14 @@ unambiguous:
 |---|---|
 | `std.web` | console, main loop, `now_ms`, `eval_js`, timers (native + wasm) |
 | `std.web.js` | generic JS values: eval/get/set/call/new/callbacks/promises/errors |
-| `std.web.dom` | `querySelector`, create elements, text/attrs/classes, events |
-| `std.web.fetch` | callback-based GET/POST (`fetch_text`/`post_text`) |
-| `std.web.websocket` | open/send/close a text-frame WebSocket |
-| `std.web.storage` | `localStorage`/`sessionStorage` get/set/remove |
-| `std.web.canvas` | Canvas 2D context, fill/stroke/text/path helpers |
+| `std.web.dom` | document/query/create, text/HTML, attributes, classes, style, events |
+| `std.web.event` | typed accessors for DOM events (key, mouse, clipboard, modifiers) |
+| `std.web.http` | callback-based HTTP: method, headers, body, status, JSON, timeout/abort |
+| `std.web.websocket` | text-frame WebSocket with open/message/close/error callbacks |
+| `std.web.storage` | `localStorage`/`sessionStorage`, including keys, length and JSON |
+| `std.web.canvas` | Canvas 2D: state, transforms, paths, text, images, data URLs |
+| `std.web.crypto` | CSPRNG: `random_bytes`, `random_int`, `uuid_v4`; never `Math.random` |
+| `std.web.security` | URL allow-list and HTML escaping; pure, works on every target |
 
 They are implemented with a small JS library
 ([`runtime/pengu_js.js`](../runtime/pengu_js.js)) and a C callback bridge
@@ -168,38 +171,86 @@ They are implemented with a small JS library
 `--js-library` and the required exports automatically when it sees
 `std.web.js` in the program.
 
-`JsValue` is an opaque `i32` handle (0 = `undefined`, 1 = `null`); strings are
-copied across the boundary. Fallible operations return `result of T to
-JsError`. Callbacks are plain function pointers (no captures), so each one is a
-top-level `weave`.
+`JsValue` is an opaque `i32` handle (0 = `undefined`, 1 = `null`). Handles are
+reference counted:
+
+- a value returned by `js.*` is **owned**; call `js.release` when done;
+- a value passed to a callback is **borrowed**; the bridge releases it after
+  the callback returns. Call `js.retain` to keep it (and `js.release` later);
+- `js.stats` reports live handles, callback slots and sockets, which makes
+  leaks testable.
+
+Strings are copied across the boundary. The callback bridge stores plain
+function pointers (no captures), so each callback is a top-level `weave`; a
+`JsCallback` bundles the JS handle and the C slot and must be freed with
+`js.free_callback` (or through `dom.off`/`ws.close`).
+
+Promises, `http` and WebSocket callbacks are one-shot: the bridge releases their
+slots and handles when they settle or close. Persistent DOM listeners are
+released by `dom.off`/`dom.free_listener`.
+
+`JsError` has owned `name`, `message` and `stack` strings. Fallible operations
+return `result of T to JsError`; every `JsError` field must be banished by the
+caller.
 
 ```pengu
 import std.web as web
-import std.web.js as js
 import std.web.dom as dom
-import std.web.fetch as fetch
+import std.web.event as event
+import std.web.http as http
+import std.web.js as js
 
-weave tick into void:
-    calling web.cancel_main_loop
+weave on_response with value as js.JsValue into void:
+    var r as result of http.Response to js.JsError is calling http.response_from with value
+    if not r.is_ok:
+        return
+    calling web.console_log with r.value.body
+    calling http.free with (sigil of r.value)
 
-weave on_text with text as string into void:
-    let title as result of dom.Element to js.JsError is calling dom.query with "#title"
-    if title.is_ok:
-        calling dom.set_text with (sigil of title.value), text
-        calling dom.free with (sigil of title.value)
+weave on_error with value as js.JsValue into void:
+    var e as js.JsError is calling http.error_from with value
+    calling web.console_error with e.message
+    banish e.name
+    banish e.message
+    banish e.stack
 
-weave on_error with text as string into void:
-    ...
+weave on_click with ev as dom.EventArg into void:
+    var kind as result of string to js.JsError is calling event.kind with ev
+    if kind.is_ok:
+        calling web.console_log with kind.value
+        banish kind.value
 
 weave main into int:
-    calling fetch.get_text with "data:text/plain,hello", on_text, on_error
-    calling web.set_main_loop with tick, 0, false
+    var title as result of maybe dom.Element to js.JsError is calling dom.query with "#title"
+    if title.is_ok and title.value is present:
+        calling dom.set_text with title.value.value, "PenguScript"
+        var listener as result of dom.Listener to js.JsError is calling dom.on with title.value.value, "click", on_click
+        if listener.is_ok:
+            # `free_listener` only releases memory; `off` first removes the DOM listener.
+            defer calling dom.off with (sigil of listener.value)
+        calling dom.free with (sigil of title.value.value)
+    if title.is_ok:
+        banish title.value
+    var call as result of bool to js.JsError is calling http.get with "data:text/plain,hello", on_response, on_error
+    if not call.is_ok:
+        banish call.error.name
+        banish call.error.message
+        banish call.error.stack
     return 0
 ```
 
-The web modules are **wasm-only**; `std.web.js` has native stubs that return a
-`JsError` (`NotSupported`), while the typed wrappers (`dom`, `fetch`, ...) are
-compiled only for wasm.
+The Web-only modules (`js`, `dom`, `event`, `http`, `websocket`, `storage`,
+`canvas`) compile on native targets too, but every operation returns a
+`NotSupported` `JsError`; shared code can therefore import them and branch on
+`std.web.IS_WASM`. `std.web.security` is pure and behaves identically on both
+targets; `std.web.crypto` uses the browser CSPRNG and is also available on
+native through the same stubs (it returns `NotSupported`).
+
+For untrusted content, use `dom.set_text` (textContent) or
+`dom.set_html_unsafe` only after `security.escape_html`; `dom.set_attr` rejects
+unsafe `href`/`src`/`action`/`formaction`/`poster`/`cite` values. `js.eval` and
+`web.eval_js` use `(0, eval)`, so a page with a strict CSP must allow
+`unsafe-eval` or avoid them.
 
 ### Portability matrix
 
@@ -216,14 +267,14 @@ compiled only for wasm.
 | `std.io` | ⚠️ | stdin is not interactive; stdout/stderr work |
 | `std.rites` | ⚠️ | env/args/cwd OK; `exec`/`spawn` return `-1`; `run_capture` is native-only |
 | `std.filum` | ⚠️ | works with `-pthread`; browser needs COOP/COEP; `sleep` blocks |
-| `std.net` | ❌ | browser sockets do not exist; use JS `fetch`/`WebSocket` (future `std.fetch`) |
+| `std.net` | ❌ | browser sockets do not exist; use `std.web.http` and `std.web.websocket` |
 | `std.dynlib`, `std.ffi_call`, `std.secrets`, `std.petitio` | ❌ | native libraries; rejected with an actionable diagnostic |
 
 `psc build --target wasm` detects the ❌ modules before the linker and fails
 with a PenguScript message such as:
 
 ```text
-psc build: std.net is not available on wasm: browser sockets do not exist; use JS fetch/WebSocket through a binding (std.fetch is planned)
+psc build: std.net is not available on wasm: browser sockets do not exist; use std.web.http or std.web.websocket
 ```
 
 ### Threads

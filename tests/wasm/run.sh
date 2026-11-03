@@ -62,16 +62,40 @@ cp "$ROOT/tests/wasm/js_smoke.pengu" "$TMP/js_smoke.pengu"
 cp "$ROOT/tests/wasm/web_smoke.pengu" "$TMP/web_smoke.pengu"
 cp "$ROOT/tests/wasm/web_compile.pengu" "$TMP/web_compile.pengu"
 cp "$ROOT/tests/wasm/std_web_smoke.pengu" "$TMP/std_web_smoke.pengu"
+cp "$ROOT/tests/wasm/leak_smoke.pengu" "$TMP/leak_smoke.pengu"
+cp "$ROOT/tests/wasm/fetch_smoke.pengu" "$TMP/fetch_smoke.pengu"
+cp "$ROOT/tests/wasm/timeout_smoke.pengu" "$TMP/timeout_smoke.pengu"
 
 # std.web.js: eval/get/set/call and a C callback invoked from JS.
 check "std.web.js build" "$PSC" build "$TMP/js_smoke.pengu" --target wasm --profile=release --no-cache --out="$TMP/js_smoke"
 js_out="$(node "$TMP/js_smoke.js" 2>/dev/null || true)"
 check "std.web.js" grep -q 'JS OK' <<<"$js_out"
+check "std.web.js promise" grep -q 'PROMISE OK' <<<"$js_out"
 
 # std.web.dom / std.web.canvas / std.web.storage against a minimal fake DOM.
 check "std.web dom build" "$PSC" build "$TMP/web_smoke.pengu" --target wasm --profile=release --no-cache --out="$TMP/web_smoke"
 web_out="$(node "$TMP/web_smoke.js" 2>/dev/null || true)"
 check "std.web dom/canvas/storage" grep -q 'WEB OK' <<<"$web_out"
+if grep -q 'unexpected event kind' <<<"$web_out"; then
+  echo "FAIL std.web dom events"
+  fail=$((fail + 1))
+else
+  echo "ok   std.web dom events"
+fi
+
+# Bridge ownership: no handle or callback-slot leaks, no double-release aliasing.
+check "std.web leaks build" "$PSC" build "$TMP/leak_smoke.pengu" --target wasm --profile=release --no-cache --out="$TMP/leak_smoke"
+leak_out="$(node "$TMP/leak_smoke.js" 2>/dev/null || true)"
+check "std.web leaks" grep -q 'LEAK OK' <<<"$leak_out"
+
+# HTTP end-to-end against a data: URL.
+check "std.web.http build" "$PSC" build "$TMP/fetch_smoke.pengu" --target wasm --profile=release --no-cache --out="$TMP/fetch_smoke"
+fetch_out="$(timeout 30 node "$TMP/fetch_smoke.js" 2>/dev/null || true)"
+check "std.web.http fetch" grep -q 'FETCH OK' <<<"$fetch_out"
+
+check "std.web.http timeout build" "$PSC" build "$TMP/timeout_smoke.pengu" --target wasm --profile=release --no-cache --out="$TMP/timeout_smoke"
+timeout_out="$(timeout 30 node "$TMP/timeout_smoke.js" 2>/dev/null || true)"
+check "std.web.http timeout" grep -q 'TIMEOUT TimeoutError' <<<"$timeout_out"
 
 # All web modules must compile and link together (WebSocket/fetch start code).
 check "web modules compile" "$PSC" build "$TMP/web_compile.pengu" --target wasm --profile=release --no-cache --out="$TMP/web_compile"

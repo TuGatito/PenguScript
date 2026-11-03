@@ -1,0 +1,52 @@
+## End-to-end HTTP test against a data: URL (Node and browsers).
+##
+## The bridge is asynchronous, so the real assertion runs from a timer after
+## `main` returns. A failure sets `process.exitCode = 1` on Node.
+
+import std.spark
+import std.web
+import std.web.http as http
+import std.web.js as js
+
+weave fail with message as string into void:
+    calling spark.println with "FETCH FAIL: {message}"
+    var set as result of js.JsValue to js.JsError is calling js.eval with r"""process.exitCode = 1"""
+    if set.is_ok:
+        calling js.release with set.value
+
+weave on_ok with value as js.JsValue into void:
+    var r as result of http.Response to js.JsError is calling http.response_from with value
+    if not r.is_ok:
+        calling fail with "response_from failed"
+        return
+    if r.value.status != 200:
+        calling fail with "unexpected status {r.value.status}"
+        calling http.free with (sigil of r.value)
+        return
+    if r.value.body != "hola":
+        calling fail with "unexpected body"
+        calling http.free with (sigil of r.value)
+        return
+    calling http.free with (sigil of r.value)
+    calling spark.println with "FETCH OK"
+
+weave on_err with value as js.JsValue into void:
+    var e as js.JsError is calling http.error_from with value
+    calling fail with e.message
+    banish e.name
+    banish e.message
+    banish e.stack
+
+weave check with arg as ref to void into void:
+    return
+
+weave main into int:
+    var f as result of bool to js.JsError is calling http.get with "data:text/plain,hola", on_ok, on_err
+    if not f.is_ok:
+        calling fail with f.error.message
+        banish f.error.name
+        banish f.error.message
+        banish f.error.stack
+        return 1
+    calling std.web.set_timeout with check, 1500.0, null
+    return 0

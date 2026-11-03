@@ -1,0 +1,279 @@
+## std.web.http — HTTP requests from WebAssembly.
+##
+## This module is the `fetch`-based HTTP client for browser and worker builds.
+## The bridge delivers each response as an opaque `JsValue`; call
+## `response_from` to turn it into a `Response`, then `free` it.
+##
+## ```pengu
+## weave on_ok with value as js.JsValue into void:
+##     var r as result of http.Response to js.JsError is calling http.response_from with value
+##     if r.is_ok:
+##         if r.value.ok:
+##             calling spark.println with "{r.value.status} {r.value.body}"
+##         calling http.free with (sigil of r.value)
+##
+## weave on_err with value as js.JsValue into void:
+##     var e as js.JsError is calling http.error_from with value
+##     calling spark.println with "{e.name}: {e.message}"
+##     banish e.name
+##     banish e.message
+##     banish e.stack
+##
+## calling http.get with "https://example.com/data", on_ok, on_err
+## ```
+##
+## Requests send `credentials: "same-origin"`. Cross-origin cookies require an
+## explicit CORS policy on the server; this module never opts into
+## `include` implicitly.
+##
+## Callbacks receive **borrowed** `JsValue` handles. The bridge releases them
+## when the callback returns, so copy anything you need into PenguScript values
+## (`response_from`, `error_from`) inside the callback.
+
+import std.web.js as js
+import std.spark
+
+alias JsError as js.JsError
+alias Value as js.JsValue
+
+const HTTP_VERSION as string is "1.0.0"
+
+## One request header. The caller owns the strings.
+rune Header:
+    name as string
+    value as string
+
+## An HTTP response. `_headers` is owned; release it with `free`.
+rune Response:
+    status as int
+    status_text as string
+    ok as bool
+    url as string
+    redirected as bool
+    body as string
+    _headers as js.JsValue
+
+when wasm:
+
+    ## Sends `method` to `url`. `headers` may be empty; `body` may be empty.
+    ## `on_ok`/`on_err` receive borrowed handles and are released by the bridge.
+    weave request with method as string, url as string, headers as list of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+        var h as result of js.JsValue to JsError is calling _headers_object with headers
+        if not h.is_ok:
+            return calling err_of with h.error
+        defer calling js.release with h.value
+        var b as result of js.JsValue to JsError is calling _body_value with body
+        if not b.is_ok:
+            return calling err_of with b.error
+        defer calling js.release with b.value
+        return calling js.fetch with method, url, h.value, b.value, on_ok, on_err, timeout_ms
+
+    ## `GET url`.
+    weave get with url as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+        var none as list of Header is list of Header
+        return calling request with "GET", url, none, "", on_ok, on_err, timeout_ms
+
+    ## `POST url` with a text body.
+    weave post with url as string, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+        var none as list of Header is list of Header
+        return calling request with "POST", url, none, body, on_ok, on_err, timeout_ms
+
+    ## `PUT url` with a text body.
+    weave put with url as string, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+        var none as list of Header is list of Header
+        return calling request with "PUT", url, none, body, on_ok, on_err, timeout_ms
+
+    ## `DELETE url`.
+    weave delete with url as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+        var none as list of Header is list of Header
+        return calling request with "DELETE", url, none, "", on_ok, on_err, timeout_ms
+
+    ## Converts a response handle into an owned `Response`. The caller owns the
+    ## strings and the header table.
+    weave response_from with value as js.JsValue into result of Response to JsError:
+        var status as int is calling _int_field with value, "status"
+        var status_text as string is calling _text_field with value, "status_text"
+        var ok as bool is calling _bool_field with value, "ok"
+        var url as string is calling _text_field with value, "url"
+        var redirected as bool is calling _bool_field with value, "redirected"
+        var body as string is calling _text_field with value, "body"
+        var headers as js.JsValue is (js.UNDEFINED)
+        var hv as result of js.JsValue to JsError is calling js.get with value, "headers"
+        if hv.is_ok:
+            if calling js.is_valid with hv.value:
+                var retained as result of js.JsValue to JsError is calling js.retain with hv.value
+                if retained.is_ok:
+                    set headers is retained.value
+            calling js.release with hv.value
+        return calling ok_of with (with status is status, status_text is status_text, ok is ok, url is url, redirected is redirected, body is body, _headers is headers)
+
+    ## Converts a JavaScript error handle into an owned `JsError`.
+    weave error_from with value as js.JsValue into JsError:
+        var n as string is calling _text_field_or_default with value, "name", "Error"
+        var m as string is calling _text_field_or_default with value, "message", "HTTP request failed"
+        var st as string is calling _text_field_or_default with value, "stack", ""
+        return with name is n, message is m, stack is st
+
+    ## Reads one response header (case-insensitive), or `none`.
+    weave header with r as ref to Response, name as string into result of maybe string to JsError:
+        if r->_headers == 0:
+            return calling ok_of with (maybe none)
+        var lower as string is calling _lower_ascii with name
+        defer banish lower
+        var v as result of js.JsValue to JsError is calling js.get with r->_headers, lower
+        if not v.is_ok:
+            return calling err_of with v.error
+        defer calling js.release with v.value
+        if calling js.is_null with v.value or calling js.is_undefined with v.value:
+            return calling ok_of with (maybe none)
+        var s as result of string to JsError is calling js.to_string with v.value
+        if not s.is_ok:
+            return calling err_of with s.error
+        return calling ok_of with (some s.value)
+
+    ## Parses `r->body` as JSON. The returned handle is owned.
+    weave json with r as ref to Response into result of js.JsValue to JsError:
+        return calling js.parse_json with r->body
+
+    ## Serializes `value` as JSON and sends it with `Content-Type:
+    ## application/json`.
+    weave post_json with url as string, value as js.JsValue, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+        var text as result of string to JsError is calling js.stringify_json with value
+        if not text.is_ok:
+            return calling err_of with text.error
+        defer banish text.value
+        var headers as list of Header is list of Header
+        defer banish headers
+        var ct as Header is with name is "content-type", value is "application/json"
+        calling headers.push with ct
+        return calling request with "POST", url, headers, text.value, on_ok, on_err, timeout_ms
+
+    ## Releases the response and its header table. Idempotent.
+    weave free with r as ref to Response into void:
+        if r->_headers != 0:
+            calling js.release with r->_headers
+            set r->_headers is (js.UNDEFINED)
+        banish r->status_text
+        banish r->url
+        banish r->body
+
+    ## Builds the JavaScript headers object.
+    weave _headers_object with headers as list of Header into result of js.JsValue to JsError:
+        if headers.len == 0:
+            return calling ok_of with (js.UNDEFINED)
+        var obj as result of js.JsValue to JsError is calling js.object
+        if not obj.is_ok:
+            return calling err_of with obj.error
+        var i as int is 0
+        while i < headers.len:
+            var item as Header is headers at i
+            var key as result of js.JsValue to JsError is calling js.string with item.name
+            if not key.is_ok:
+                calling js.release with obj.value
+                return calling err_of with key.error
+            var val as result of js.JsValue to JsError is calling js.string with item.value
+            if not val.is_ok:
+                calling js.release with key.value
+                calling js.release with obj.value
+                return calling err_of with val.error
+            var set as result of bool to JsError is calling js.set with obj.value, item.name, val.value
+            calling js.release with key.value
+            calling js.release with val.value
+            if not set.is_ok:
+                calling js.release with obj.value
+                return calling err_of with set.error
+            set i is i + 1
+        return calling ok_of with obj.value
+
+    ## Borrows the body as a JavaScript string, or `null` when empty.
+    weave _body_value with body as string into result of js.JsValue to JsError:
+        if body.len == 0:
+            return calling ok_of with (js.NULL)
+        return calling js.string with body
+
+    ## Reads a text field from a response object.
+    weave _text_field with v as js.JsValue, name as string into string:
+        var h as result of js.JsValue to JsError is calling js.get with v, name
+        if not h.is_ok:
+            return ""
+        defer calling js.release with h.value
+        if calling js.is_null with h.value or calling js.is_undefined with h.value:
+            return ""
+        var s as result of string to JsError is calling js.to_string with h.value
+        if not s.is_ok:
+            return ""
+        return s.value
+
+    ## Reads an integer field from a response object.
+    weave _int_field with v as js.JsValue, name as string into int:
+        var h as result of js.JsValue to JsError is calling js.get with v, name
+        if not h.is_ok:
+            return 0
+        defer calling js.release with h.value
+        var n as result of f64 to JsError is calling js.to_f64 with h.value
+        if not n.is_ok:
+            return 0
+        return (n.value to int)
+
+    ## Reads a boolean field from a response object.
+    weave _bool_field with v as js.JsValue, name as string into bool:
+        var h as result of js.JsValue to JsError is calling js.get with v, name
+        if not h.is_ok:
+            return false
+        defer calling js.release with h.value
+        return calling js.is_truthy with h.value
+
+    ## Reads a text field or copies a fallback into an owned string.
+    weave _text_field_or_default with v as js.JsValue, name as string, fallback as string into string:
+        var text as string is calling _text_field with v, name
+        if text.len > 0:
+            return text
+        return "{fallback}"
+
+    ## ASCII lowercasing for header names.
+    weave _lower_ascii with text as string into string:
+        var out as string is ""
+        var i as int is 0
+        while i < text.len:
+            var c as char is (text at i)
+            var code as int is ord c
+            if code >= 65 and code <= 90:
+                var cc as char is (code + 32 to char)
+                var piece as string is "{cc}"
+                var next as string is "{out}{piece}"
+                banish piece
+                banish out
+                set out is next
+            else:
+                var piece as string is "{c}"
+                var next as string is "{out}{piece}"
+                banish piece
+                banish out
+                set out is next
+            set i is i + 1
+        return out
+
+when not wasm:
+
+    weave request with method as string, url as string, headers as list of Header, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+        return calling err_of with (calling js.last_error)
+    weave get with url as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+        return calling err_of with (calling js.last_error)
+    weave post with url as string, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+        return calling err_of with (calling js.last_error)
+    weave put with url as string, body as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+        return calling err_of with (calling js.last_error)
+    weave delete with url as string, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+        return calling err_of with (calling js.last_error)
+    weave response_from with value as js.JsValue into result of Response to JsError:
+        return calling err_of with (calling js.last_error)
+    weave error_from with value as js.JsValue into JsError:
+        return calling js.last_error
+    weave header with r as ref to Response, name as string into result of maybe string to JsError:
+        return calling err_of with (calling js.last_error)
+    weave json with r as ref to Response into result of js.JsValue to JsError:
+        return calling err_of with (calling js.last_error)
+    weave post_json with url as string, value as js.JsValue, on_ok as weave with value as Value into void, on_err as weave with value as Value into void, timeout_ms as int is 0 into result of bool to JsError:
+        return calling err_of with (calling js.last_error)
+    weave free with r as ref to Response into void:
+        return

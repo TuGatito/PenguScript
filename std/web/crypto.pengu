@@ -1,0 +1,93 @@
+## std.web.crypto — cryptographically secure random values for the browser.
+##
+## Backed by `crypto.getRandomValues`, never by `Math.random`. The functions are
+## synchronous and never block. `random_bytes` returns an owned list; free it
+## with `banish`. `uuid_v4` returns an owned string.
+##
+## ```pengu
+## var token as result of list of u8 to js.JsError is calling crypto.random_bytes with 32
+## if token.is_ok:
+##     ...
+##     banish token.value
+## ```
+
+import std.web.js as js
+
+const CRYPTO_VERSION as string is "1.0.0"
+
+when wasm:
+
+    ## `count` cryptographically random bytes.
+    weave random_bytes with count as int into result of list of u8 to js.JsError:
+        var h as result of js.JsValue to js.JsError is calling js.random_bytes with count
+        if not h.is_ok:
+            return calling err_of with h.error
+        defer calling js.release with h.value
+        var n as result of int to js.JsError is calling js.length with h.value
+        if not n.is_ok:
+            return calling err_of with n.error
+        var out as list of u8 is list of u8
+        var i as int is 0
+        while i < n.value:
+            var v as result of js.JsValue to js.JsError is calling js.get_index with h.value, i
+            if not v.is_ok:
+                banish out
+                return calling err_of with v.error
+            var f as result of f64 to js.JsError is calling js.to_f64 with v.value
+            calling js.release with v.value
+            if not f.is_ok:
+                banish out
+                return calling err_of with f.error
+            calling out.push with (f.value to u8)
+            set i is i + 1
+        return calling ok_of with out
+
+    ## Uniform integer in `[min, max)`. Requires `0 <= min < max`.
+    weave random_int with min as int, max as int into result of int to js.JsError:
+        return calling js.random_int with min, max
+
+    ## RFC 4122 version 4 UUID, lowercase, e.g. `f47ac10b-58cc-4372-a567-0e02b2c3d479`.
+    weave uuid_v4 into result of string to js.JsError:
+        var b as result of list of u8 to js.JsError is calling random_bytes with 16
+        if not b.is_ok:
+            return calling err_of with b.error
+        var raw as list of u8 is b.value
+        defer banish raw
+        var out as string is ""
+        var i as int is 0
+        while i < 16:
+            var c as u8 is (raw at i)
+            var n as int is c to int
+            if i == 6:
+                set n is (n & 15) | 64
+            if i == 8:
+                set n is (n & 63) | 128
+            var piece as string is calling _hex_byte with n
+            var next as string is "{out}{piece}"
+            banish piece
+            banish out
+            set out is next
+            if i == 3 or i == 5 or i == 7 or i == 9:
+                var sep as string is "{out}-"
+                banish out
+                set out is sep
+            set i is i + 1
+        return calling ok_of with out
+
+    ## Two lowercase hexadecimal digits for `0 <= n <= 255`.
+    weave _hex_byte with n as int into string:
+        var digits as string is "0123456789abcdef"
+        var hc as string is (digits at (n / 16))
+        var lc as string is (digits at (n % 16))
+        return "{hc}{lc}"
+
+when not wasm:
+
+    weave random_bytes with count as int into result of list of u8 to js.JsError:
+        return calling err_of with (calling js.last_error)
+
+    weave random_int with min as int, max as int into result of int to js.JsError:
+        return calling err_of with (calling js.last_error)
+
+    weave uuid_v4 into result of string to js.JsError:
+        return calling err_of with (calling js.last_error)
