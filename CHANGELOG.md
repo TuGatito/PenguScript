@@ -2,6 +2,49 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.26.0] — 2026-11-03 — `signatureHelp` fiable, soporte de C en `antiquus`
+
+Esta entrega arregla una corrupción de memoria del servidor LSP y prepara el
+terreno para el C embebido en los bloques `antiquus` (resaltado y clangd en VS
+Code y Neovim).
+
+### Corregido
+
+- **`textDocument/signatureHelp` liberaba memoria del pool de nombres.**
+  `query.symbol_doc` devolvía `npool.text`, que copiaba la cabecera de la
+  cadena del pool con `is_owned = 1`; el handler hacía `banish sdoc` y liberaba
+  el buffer interno del pool. La petición siguiente reutilizaba ese bloque (por
+  ejemplo, para la clave `"signatures"` del JSON) y la documentación aparecía
+  como `"signatures\u0000\u0000\u0000\u0000\u0000os."`, con el servidor
+  llegando a abortar (`invalid pointer`). `npool.text` ahora devuelve un
+  préstamo real (`_borrow_string`, `is_owned = 0`), de modo que un `banish`
+  accidental es inofensivo para cualquier handler, y `handle_signature` ya no
+  libera el documento (`src/psc/sema/names.pengu`, `src/psc/lsp/server.pengu`).
+- **`signatureHelp` con el cursor dentro del nombre de la función.** El nombre
+  se escaneaba sobre el texto recortado antes del cursor, así que posiciones
+  dentro de `add` resolvían un nombre parcial y devolvían la línea de
+  declaración cruda. Ahora se escanea la línea completa y la etiqueta es
+  siempre la firma canónica (`**add**(a: int, b: int) -> int`), con
+  `parameters` poblado (`activeParameter` correcto tras cada coma).
+
+### Añadido
+
+- Regresión de `signatureHelp` en `tests/lsp/run_lsp_tests.py` con el fixture
+  `tests/lsp/fixtures/project/src/sig.pengu` (etiqueta, parámetros,
+  documentación sin NULs y `activeParameter`).
+- Resaltado de C dentro de los cuerpos `r"""` de `antiquus` en la extensión de
+  VS Code, delegando en `source.c` (`meta.embedded.block.c`), con pruebas de
+  gramática.
+- Soporte de clangd para el C de los bloques `antiquus` en la extensión
+  (diagnósticos, hover, definición, referencias, rename y completado) mediante
+  documentos espejo (`vscode-extension/src/antiquus.ts`).
+- La extensión sube a 4.9.0 y el plugin de Neovim a 2.3.0.
+
+### Notas
+
+- `bootstrap/psc_stage0_*.c` sigue generado con 0.25.1: es el bootstrap
+  congelado y se regenera en una release aparte.
+
 ## [0.25.1] — 2026-11-03 — lambdas sin prototipo en `transmute` y builders
 
 Corrige un bug preexistente de sema/codegen que impedía compilar

@@ -67,6 +67,22 @@ weave starts_with with s as string, p as string into bool:
 weave copy with s as string into string:
     return calling npool.copy_string with s
 
+## Añade a `out` las etiquetas de parámetro de `inner` (`a: int, b: int`).
+##
+## ## Memoria
+## Cada etiqueta es un string owned (el llamador lo banea); `inner` se presta.
+weave collect_param_labels with inner as string, out as ref to list of string into void:
+    if inner length == 0:
+        return
+    var raw as list of string is calling inner.split with ","
+    for part in raw:
+        var lab as string is calling scrolls.trim with part
+        if lab length > 0:
+            calling out->push with (calling copy with lab)
+        banish lab
+        banish part
+    banish raw
+
 ## Copia un id JSON-RPC.
 weave copy_id with id as rpc.JsonRpcId into rpc.JsonRpcId:
     var out as rpc.JsonRpcId is with Number is 0
@@ -392,7 +408,7 @@ weave initialize_result into JsonValue:
     calling out.put_json with "capabilities", cap
     var info as JsonValue is calling JsonValue.empty_object
     calling info.put_json with "name", (calling JsonValue.string_val with (calling copy with "psc"))
-    calling info.put_json with "version", (calling JsonValue.string_val with (calling copy with "0.25.1"))
+    calling info.put_json with "version", (calling JsonValue.string_val with (calling copy with "0.26.0"))
     calling out.put_json with "serverInfo", info
     return out
 
@@ -1801,7 +1817,13 @@ weave handle_signature with st as ref to State, id as rpc.JsonRpcId, params as J
     var ci as int is calling scrolls.rfind with before, "calling "
     if ci >= 0 and mid >= 0:
         var sp as ref to sema_api.SemaResult is calling doc_sema with st, u
-        var rest as string is before at (ci + 8) to (before length)
+        var tb as ref to frozen byte is bytes of text
+        var le as int is ls
+        while le < text length:
+            if ((tb at le) to int) == 10:
+                break
+            set le is le + 1
+        var rest as string is text at (ls + ci + 8) to le
         var rb as ref to frozen byte is bytes of rest
         var p0 as int is 0
         while p0 < rest length and (((rb at p0) to int) == 32 or ((rb at p0) to int) == 9):
@@ -1860,29 +1882,34 @@ weave handle_signature with st as ref to State, id as rpc.JsonRpcId, params as J
                     if ((sb at i) to int) == 44:
                         set commas is commas + 1
                     set i is i + 1
-                var params_txt as string is ""
-                var pi as int is calling scrolls.find with sig, " with "
-                var ii as int is calling scrolls.find with sig, " into "
-                if pi >= 0 and ii > pi:
-                    set params_txt is sig at (pi + 6) to ii
+                # La firma canónica (`**f**(a: int, b: int) -> R`) y la línea de
+                # declaración (`weave f with a as int, ... into R:`) comparten la
+                # forma "param, param"; se extraen entre los delimitadores.
+                var labels as list of string is list of string
+                var lp as int is calling scrolls.find with sig, "("
+                var rp as int is calling scrolls.find with sig, ")"
+                if lp >= 0 and rp > lp:
+                    calling collect_param_labels with sig at (lp + 1) to rp, (sigil of labels)
+                if labels.len == 0:
+                    var pi as int is calling scrolls.find with sig, " with "
+                    var ii as int is calling scrolls.find with sig, " into "
+                    if pi >= 0 and ii > pi:
+                        calling collect_param_labels with (sig at (pi + 6) to ii), (sigil of labels)
                 var sigobj as JsonValue is calling JsonValue.empty_object
                 calling sigobj.put_json with "label", (calling JsonValue.string_val with (calling copy with sig))
                 var pars as JsonValue is calling JsonValue.empty_array
-                if params_txt length > 0:
-                    var parts as list of string is calling params_txt.split with ","
-                    for part in parts:
-                        var pj as JsonValue is calling JsonValue.empty_object
-                        calling pj.put_json with "label", (calling JsonValue.string_val with (calling copy with part))
-                        calling pars.push_json with pj
-                        banish part
-                    banish parts
-                banish params_txt
+                for lab in labels:
+                    var pj as JsonValue is calling JsonValue.empty_object
+                    calling pj.put_json with "label", (calling JsonValue.string_val with (calling copy with lab))
+                    calling pars.push_json with pj
+                    banish lab
+                banish labels
                 calling sigobj.put_json with "parameters", pars
                 if sid >= 0:
                     var sdoc as string is calling query.symbol_doc with sp->program, sid
                     if sdoc length > 0:
                         calling sigobj.put_json with "documentation", (calling JsonValue.string_val with (calling copy with sdoc))
-                    banish sdoc
+                    # `symbol_doc` devuelve un préstamo del pool de nombres: no se banea.
                 var sigs as JsonValue is calling JsonValue.empty_array
                 calling sigs.push_json with sigobj
                 var outv as JsonValue is calling JsonValue.empty_object

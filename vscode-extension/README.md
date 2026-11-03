@@ -1,6 +1,6 @@
 # PenguScript for Visual Studio Code
 
-Official editor support for **PenguScript 0.25.1**: language server, syntax
+Official editor support for **PenguScript 0.26.0**: language server, syntax
 highlighting, snippets, project commands and a status bar.
 
 ## Requirements
@@ -37,6 +37,19 @@ workspace. Trust the folder or select a user-installed binary first.
   code actions, references and rename where the symbol is safe to rename.
 - **Code lens** above `weave main` and `test` blocks; runs the current file.
 
+### C inside `antiquus` blocks
+
+- The `r""" … """` body of an `antiquus` block is highlighted with the **C
+  grammar** (`meta.embedded.block.c`), not as a plain string.
+- If `clangd` is on your `PATH`, each block also gets a real C language server:
+  **diagnostics** mapped back onto the `.pengu` file, **hover**, **definition**,
+  **references**, **rename**, **signature help** and **completion**. A shadow
+  `.c` file is generated under the extension storage and positions are
+  translated in both directions.
+- Toggle it with `pengus.antiquus.enabled`; point at a specific binary with
+  `pengus.antiquus.clangdPath`. When clangd is missing the feature is silently
+  skipped.
+
 ### Editor assets
 
 - TextMate grammar for the 0.21.x syntax: `set`, `derive`, `cyclus`,
@@ -67,6 +80,8 @@ workspace. Trust the folder or select a user-installed binary first.
 | `pengus.inlayHints.types` | `true` | Inferred-type hints for unannotated bindings. |
 | `pengus.semanticHighlighting.enabled` | `true` | Use LSP semantic tokens. |
 | `pengus.statusBar.enabled` | `true` | Show the status bar item. |
+| `pengus.antiquus.enabled` | `true` | C language server (clangd) inside `antiquus` blocks. |
+| `pengus.antiquus.clangdPath` | `"clangd"` | Path or name of the clangd executable. |
 
 ## Install
 
@@ -108,6 +123,7 @@ Press `F5` to launch an Extension Development Host window.
 
 | Extension | Compiler |
 |---|---|
+| 4.9.0 | 0.26.x |
 | 4.8.0 | 0.23.x |
 | 4.7.0 | 0.22.0 |
 | 4.5.0 | 0.21.0 |

@@ -99,14 +99,32 @@ weave intern with pool as ref to NamePool, s as string into int:
 weave intern_if_missing with pool as ref to NamePool, s as string into int:
     return calling intern with pool, s
 
-## Texto de un `NameId`.
+## Préstamo no propietario de los bytes de `s`.
+##
+## ## Motivo
+## `(pool->strings at id)` copia la cabecera `PenguString` con `is_owned = 1`:
+## un `banish` sobre el resultado liberaría el buffer del pool y dejaría el
+## nombre colgando. El préstamo marca `is_owned = 0` para que `banish` sea un
+## no-op y el pool siga siendo el único dueño.
 ##
 ## ## Memoria
-## Devuelve un préstamo al string del pool; no lo liberes.
+## No asigna; el resultado vive mientras viva el pool.
+antiquus _borrow_string with s as string into string:
+    r"""
+    return pengu_string_from_cstr_len(s.data ? s.data : "", s.len);
+    """
+
+## Texto de un `NameId`.
+##
+## ## Retorno
+## Un préstamo (no propietario) del string del pool; no lo liberes.
+##
+## ## Memoria
+## Devuelve un préstamo al string del pool; no lo liberes (`banish` es no-op).
 weave text with pool as ref to NamePool, id as int into string:
     if id < 0 or id >= pool->strings.len:
         return ""
-    return (pool->strings at id)
+    return calling _borrow_string with (pool->strings at id)
 
 ## `true` si el id está dentro del pool.
 ##

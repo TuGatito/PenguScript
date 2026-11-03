@@ -1,4 +1,4 @@
-# Regresión 0.25.1: una lambda debe recibir anotación de tipo en todo contexto
+# Regresión 0.26.0: una lambda debe recibir anotación de tipo en todo contexto
 # que la infiera, para que el codegen emita su prototipo y su cuerpo. Antes del
 # fix, `transmute`, los campos de `with campo is expr` y los builders `with:`
 # no inferían sus valores: `signature` devolvía "" y el nombre `_pengu_lambda_*`

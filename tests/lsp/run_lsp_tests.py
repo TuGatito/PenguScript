@@ -216,6 +216,43 @@ def main() -> int:
         doc_value = doc_hover["result"]["contents"]["value"]
         assert_true("hover docs across blank line", "Documented with a blank line" in doc_value)
 
+        # Signature help must always answer with the canonical signature, real
+        # parameter labels and the doc comment -- and repeated requests must not
+        # recycle freed name-pool storage into `documentation` (the old bug wrote
+        # "signatures\0..." after a second request).
+        sig_doc = PROJECT / "src" / "sig.pengu"
+        sig_uri = sig_doc.as_uri()
+        client.open(sig_uri, sig_doc.read_text())
+        for attempt in range(3):
+            sig = client.request(
+                "textDocument/signatureHelp",
+                {"textDocument": {"uri": sig_uri}, "position": {"line": 7, "character": 29}},
+            )["result"]
+            assert_eq("signature count", len(sig["signatures"]), 1)
+            entry = sig["signatures"][0]
+            assert_eq("signature label", entry["label"], "**suma**(a: int, b: int) -> int")
+            assert_eq(
+                "signature params",
+                [p["label"] for p in entry["parameters"]],
+                ["a: int", "b: int"],
+            )
+            assert_eq("signature doc", entry.get("documentation"), " Suma dos enteros.")
+            assert_eq("signature active param", sig.get("activeParameter"), 0)
+            assert_true(
+                "signature doc has no recycled bytes",
+                "\x00" not in entry.get("documentation", ""),
+            )
+        second = client.request(
+            "textDocument/signatureHelp",
+            {"textDocument": {"uri": sig_uri}, "position": {"line": 7, "character": 41}},
+        )["result"]
+        assert_eq("signature active param second", second.get("activeParameter"), 1)
+        hover_after = client.request(
+            "textDocument/hover",
+            {"textDocument": {"uri": sig_uri}, "position": {"line": 7, "character": 29}},
+        )["result"]["contents"]["value"]
+        assert_true("hover after signature", "Suma dos enteros." in hover_after)
+
         # Rich diagnostics: help/note must survive the LSP serialization.
         bad_uri = (PROJECT / "src" / "bad.pengu").as_uri()
         bad = 'import std.spark\n\nweave main into int:\n    let x as int is "hola"\n    return 0\n'

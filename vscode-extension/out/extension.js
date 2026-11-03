@@ -7,6 +7,7 @@ const vscode = require("vscode");
 const node_1 = require("vscode-languageclient/node");
 const vscode_jsonrpc_1 = require("vscode-jsonrpc");
 const pscPath_1 = require("./pscPath");
+const antiquus_1 = require("./antiquus");
 let client;
 let pscTerminal;
 let output;
@@ -400,6 +401,7 @@ function activate(context) {
     context.subscriptions.push(statusBar);
     registerCommands(context);
     registerConfigListener(context);
+    (0, antiquus_1.registerAntiquusProviders)(context);
     updateStatusBar();
     startClient();
 }

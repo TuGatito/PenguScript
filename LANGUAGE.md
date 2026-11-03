@@ -1,6 +1,6 @@
 # PenguScript Language Reference
 
-> **Version covered:** PenguScript **0.25.1** (synchronized with the `VERSION` file; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
+> **Version covered:** PenguScript **0.26.0** (synchronized with the `VERSION` file; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
 > **Language policy.** English is the canonical language of the PenguScript
 > documentation, so **this document is the normative one**. A Spanish translation is
 > maintained at [`LANGUAGE_Spanish.md`](LANGUAGE_Spanish.md); it is **non-normative**,
@@ -589,7 +589,7 @@ let raw_ptr as ref to void is transmute p to ref to void   # unsafe bit-cast
 - **`size of TYPE`:** Evaluates the compile-time byte size of any type (`sizeof(T)` in C) and returns `usize`.
 - **`align of TYPE`:** Evaluates the compile-time alignment of any type (`_Alignof(T)` in C) and returns `usize`. Like `size of`, it is a soft-keyword compound (`align` + `of`) and the operand is not evaluated.
 - **`type of expr`:** Reports the **static** type of `expr` as a `string`, using the canonical PenguScript spelling. It is a compile-time operator: the operand is type-checked but **never evaluated**, so side effects inside it do not run. The result is a borrowed string literal (`pengu_string_from_cstr("int")`, `is_owned == 0`): it costs nothing at runtime, and `banish` on it only clears the handle, like on any borrowed string. `type` and `of` are **soft keywords** — `type of` is one lexer token only when the two words are adjacent on the same line, so `var type as int is 5` (and `var size as int is 5`, which used to collide with `size of`; that is fixed) still work as ordinary identifiers.
-- **`transmute expr to TYPE`:** Unsafe bit-level reinterpretation cast. Always triggers compiler warning `[W0001] transmute is unsafe`. If the source and destination types have different estimated sizes, `W0001` includes a size mismatch notification. Safe conversions must use `(expr to TYPE)`. The operand is always type-checked and inferred, even when the destination type is valid; since 0.25.1 this includes lambdas used as the operand, whose signature is inferred from their body.
+- **`transmute expr to TYPE`:** Unsafe bit-level reinterpretation cast. Always triggers compiler warning `[W0001] transmute is unsafe`. If the source and destination types have different estimated sizes, `W0001` includes a size mismatch notification. Safe conversions must use `(expr to TYPE)`. The operand is always type-checked and inferred, even when the destination type is valid; since 0.26.0 this includes lambdas used as the operand, whose signature is inferred from their body.
 
 Canonical names reported by `type of` (every spelling of the same C type gives the same name — `int32`, `int32_t`, `i32` and `int` all give `"int"`):
 

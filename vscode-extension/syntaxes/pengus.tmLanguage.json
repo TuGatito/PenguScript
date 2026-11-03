@@ -90,9 +90,16 @@
     "strings": {
       "patterns": [
         {
-          "name": "string.quoted.raw.triple.pengus",
+          "name": "string.quoted.raw.triple.antiquus.pengus",
+          "comment": "Cuerpo C de un `antiquus`: se delega en source.c para resaltar C real.",
+          "contentName": "meta.embedded.block.c",
           "begin": "r\"\"\"",
-          "end": "\"\"\""
+          "end": "\"\"\"",
+          "patterns": [
+            {
+              "include": "source.c"
+            }
+          ]
         },
         {
           "name": "string.quoted.triple.pengus",

@@ -3,7 +3,7 @@
     "displayName": "PenguScript",
     "description": "Language support, LSP intelligence, and cargo-like project management for PenguScript.",
     "publisher": "pengus-lang",
-    "version": "4.8.0",
+    "version": "4.9.0",
     "icon": "./icons/pengu_icon.png",
     "keywords": [
         "pengus",
@@ -141,6 +141,11 @@
                 "command": "pengus.openOutput",
                 "title": "PenguScript: Show Output",
                 "category": "PenguScript"
+            },
+            {
+                "command": "pengus.antiquus.restart",
+                "title": "Reiniciar clangd (C en antiquus)",
+                "category": "PenguScript"
             }
         ],
         "configuration": {
@@ -201,6 +206,16 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Show inferred-type inlay hints for var/let/static declarations without an explicit annotation."
+                },
+                "pengus.antiquus.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "markdownDescription": "Activa el LSP de C (clangd) dentro de los bloques `antiquus` cuando `clangd` está en el PATH."
+                },
+                "pengus.antiquus.clangdPath": {
+                    "type": "string",
+                    "default": "clangd",
+                    "markdownDescription": "Ruta o nombre del ejecutable de `clangd` usado para el C embebido en los bloques `antiquus`."
                 }
             }
         },
@@ -286,7 +301,7 @@
         "bundle": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
         "watch": "tsc -watch -p ./",
         "package": "npx @vscode/vsce package",
-        "test": "npm run compile && node test/psc_path_check.js \"$PWD/out\" && node test/grammar.test.js",
+        "test": "npm run compile && node test/psc_path_check.js \"$PWD/out\" && node test/grammar.test.js && node test/antiquus.test.js",
         "test:grammar": "node test/grammar.test.js"
     },
     "devDependencies": {

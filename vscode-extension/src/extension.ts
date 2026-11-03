@@ -11,6 +11,7 @@ import {
 } from 'vscode-languageclient/node';
 import { Trace } from 'vscode-jsonrpc';
 import { PscCommand, defaultEnvFile, isExecutable, readPenguEnv, resolvePscCommand } from './pscPath';
+import { registerAntiquusProviders } from './antiquus';
 
 let client: LanguageClient | undefined;
 let pscTerminal: vscode.Terminal | undefined;
@@ -444,6 +445,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     registerCommands(context);
     registerConfigListener(context);
+    registerAntiquusProviders(context);
     updateStatusBar();
     startClient();
 }

@@ -16,6 +16,17 @@ const ROOT = path.resolve(__dirname, '..');
 const GRAMMAR_PATH = path.join(ROOT, 'syntaxes', 'pengus.tmLanguage.json');
 const RAYLIB = process.env.RAYLIB_PENGU || path.resolve(ROOT, '..', '..', 'raylib-pengu');
 const grammar = JSON.parse(fs.readFileSync(GRAMMAR_PATH, 'utf8'));
+// Stub of the C grammar that VS Code ships (`source.c`). The antiquus body
+// delegates to it; without a C grammar loaded the include is a no-op, so the
+// test registers a minimal stub to prove the embedding is wired correctly.
+const C_STUB = {
+    scopeName: 'source.c',
+    patterns: [
+        { match: '\\b(int|char|void|double|float|return|struct|if|else)\\b', name: 'keyword.control.c' },
+        { match: '#\\s*include.*$', name: 'keyword.control.preprocessor.c' }
+    ],
+    repository: {}
+};
 const wasm = fs.readFileSync(require.resolve('vscode-oniguruma/release/onig.wasm'));
 
 let failures = 0;
@@ -35,7 +46,9 @@ function tokenize(grammarObject, lines) {
             createOnigScanner: (patterns) => new onig.OnigScanner(patterns),
             createOnigString: (s) => new onig.OnigString(s)
         })),
-        loadGrammar: () => Promise.resolve(grammarObject)
+        loadGrammar: (scopeName) => Promise.resolve(
+            scopeName === 'source.c' ? C_STUB : (scopeName === 'source.pengus' ? grammarObject : null)
+        )
     });
     return registry.loadGrammar('source.pengus').then((g) => {
         let stack = vsctm.INITIAL;
@@ -70,7 +83,16 @@ async function main() {
         '        return',
         '',
         'const X as i64 is 6',
-        'const C as Color is with r is 1'
+        'const C as Color is with r is 1',
+        'antiquus suma_c with a as int, b as int into int:',
+        '    r"""',
+        '    int total = a + b;',
+        '    #include <stdio.h>',
+        '    return total;',
+        '    """',
+        '',
+        'weave after_antiquus into int:',
+        '    return 0'
     ];
     const tokens = await tokenize(grammar, synthetic);
 
@@ -85,6 +107,13 @@ async function main() {
     check('is keyword is highlighted', hasScope(tokens[10], 'is', 'keyword.other'), JSON.stringify(tokens[10]));
     check('with keyword is highlighted', hasScope(tokens[11], 'with', 'keyword.other'), JSON.stringify(tokens[11]));
     check('Color type is highlighted', hasScope(tokens[11], 'Color', 'entity.name.type'), JSON.stringify(tokens[11]));
+
+    // antiquus: the C body is embedded and highlighted with the C grammar.
+    check('antiquus declaration keeps the function keyword', hasScope(tokens[12], 'antiquus', 'keyword.declaration.function'), JSON.stringify(tokens[12]));
+    check('antiquus C body is embedded', tokens[14].every((t) => t.text.trim() === '' || t.scopes.some((sc) => sc.startsWith('meta.embedded.block.c'))), JSON.stringify(tokens[14]));
+    check('antiquus C type is highlighted by source.c', hasScope(tokens[14], 'int', 'keyword.control.c'), JSON.stringify(tokens[14]));
+    check('antiquus C preprocessor is highlighted', hasScope(tokens[15], '#include <stdio.h>', 'keyword.control.preprocessor.c'), JSON.stringify(tokens[15]));
+    check('antiquus block closes before the next weave', hasScope(tokens[19], 'weave', 'keyword.declaration.function'), JSON.stringify(tokens[19]));
 
     const wrapper = path.join(RAYLIB, 'pengu', 'raylibx', 'models.pengu');
     const binding = path.join(RAYLIB, 'pengu', 'raylib.d.pengu');

@@ -1,0 +1,9 @@
+import std.spark
+
+## Suma dos enteros.
+weave suma with a as int, b as int into int:
+    return a + b
+
+weave main into int:
+    var t as int is calling suma with 2, 3
+    return 0
