@@ -1,0 +1,27 @@
+## Genéricos de función: inferencia de T, contenedores y callbacks.
+import std.spark
+import std.tally
+
+## Primer elemento de una lista (el receptor se sustituye por `list of T`).
+weave first_of shard T with xs as list of T into T:
+    return xs at 0
+
+## Aplica `f` a cada elemento y devuelve una lista nueva.
+weave map_with shard T and U with xs as list of T, f as weave with x as T into U into list of U:
+    var out as list of U is []
+    for x in xs:
+        calling out.push with (calling f with x)
+    return out
+
+weave to_text with x as int into string:
+    return "{x}!"
+
+weave main into int:
+    var xs as list of int is [3, 5, 8]
+    calling spark.assert with (calling first_of of int with xs) == 3
+    var ss as list of string is calling map_with of int and string with xs, to_text
+    calling spark.assert with (ss at 0) == "3!"
+    calling spark.assert with (ss at 2) == "8!"
+    calling spark.assert with (calling tally.sum with xs) == 16
+    calling spark.println with "generics_functions OK"
+    return 0

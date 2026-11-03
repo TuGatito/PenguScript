@@ -1,0 +1,21 @@
+## Runas genéricas: instanciación nominal y funciones que devuelven instancias.
+import std.spark
+
+rune Cell shard T:
+    value as T
+
+enchanting Cell shard T:
+    weave get into T:
+        return self.value
+
+
+## Función genérica que devuelve una aplicación nominal.
+weave wrap shard T with x as T into Cell of T:
+    var cell as Cell of T is with value is x
+    return cell
+
+weave main into int:
+    var c as Cell of int is calling wrap of int with 7
+    calling spark.assert with (calling c.get) == 7
+    calling spark.println with "generics_nominal OK"
+    return 0
