@@ -395,6 +395,10 @@ weave run_run with args as list of string into int:
         set i is i + 1
     banish o.target
     set o.target is calling copy_path with path
+    ## `run` acepta estos flags para el driver, no solo para el atajo de
+    ## "artefacto al día": sin esto `--no-cache` seguía usando la caché.
+    set o.no_cache is no_cache
+    set o.ephemeral is ephemeral
     if tval length > 0:
         var nt as targetmod.Target is calling targetmod.parse with tval
         if not nt.ok:

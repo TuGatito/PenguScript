@@ -82784,477 +82784,481 @@ int32_t psc_cmd_build_run_run(PenguList args) {
     pengu_banish_string(&(o.target));
     #line 397 "src/psc/cmd/build.pengu"
     o.target = psc_cmd_build_copy_path(path);
-    #line 398 "src/psc/cmd/build.pengu"
+    #line 400 "src/psc/cmd/build.pengu"
+    o.no_cache = no_cache;
+    #line 401 "src/psc/cmd/build.pengu"
+    o.ephemeral = ephemeral;
+    #line 402 "src/psc/cmd/build.pengu"
     if (((int32_t)(tval).len) > 0) {
-        #line 399 "src/psc/cmd/build.pengu"
+        #line 403 "src/psc/cmd/build.pengu"
         Target nt = psc_driver_target_parse(tval);
         (void)nt;
-        #line 400 "src/psc/cmd/build.pengu"
+        #line 404 "src/psc/cmd/build.pengu"
         if (!nt.ok) {
-            #line 401 "src/psc/cmd/build.pengu"
+            #line 405 "src/psc/cmd/build.pengu"
             PenguString terr = nt.error;
             (void)terr;
-            #line 402 "src/psc/cmd/build.pengu"
+            #line 406 "src/psc/cmd/build.pengu"
             PenguString tmsg = pengu_string_format_ex("psc run: %.*s", (int)terr.len, terr.data);
             (void)tmsg;
-            #line 403 "src/psc/cmd/build.pengu"
-            (void)(spark_eprintln(tmsg));
-            #line 404 "src/psc/cmd/build.pengu"
-            pengu_banish_string(&(tmsg));
-            #line 405 "src/psc/cmd/build.pengu"
-            (void)(psc_driver_target_free((&(nt))));
-            #line 406 "src/psc/cmd/build.pengu"
-            pengu_banish_string(&(tval));
             #line 407 "src/psc/cmd/build.pengu"
-            (void)(psc_driver_build_free_options((&(o))));
+            (void)(spark_eprintln(tmsg));
             #line 408 "src/psc/cmd/build.pengu"
+            pengu_banish_string(&(tmsg));
+            #line 409 "src/psc/cmd/build.pengu"
+            (void)(psc_driver_target_free((&(nt))));
+            #line 410 "src/psc/cmd/build.pengu"
+            pengu_banish_string(&(tval));
+            #line 411 "src/psc/cmd/build.pengu"
+            (void)(psc_driver_build_free_options((&(o))));
+            #line 412 "src/psc/cmd/build.pengu"
             return 2;
         }
-        #line 409 "src/psc/cmd/build.pengu"
+        #line 413 "src/psc/cmd/build.pengu"
         (void)(psc_driver_target_free((&(o.platform))));
-        #line 410 "src/psc/cmd/build.pengu"
+        #line 414 "src/psc/cmd/build.pengu"
         o.platform = nt;
-        #line 411 "src/psc/cmd/build.pengu"
+        #line 415 "src/psc/cmd/build.pengu"
         o.target_explicit = true;
     }
-    #line 412 "src/psc/cmd/build.pengu"
+    #line 416 "src/psc/cmd/build.pengu"
     pengu_banish_string(&(tval));
-    #line 413 "src/psc/cmd/build.pengu"
+    #line 417 "src/psc/cmd/build.pengu"
     if (clear_cache) {
-        #line 414 "src/psc/cmd/build.pengu"
+        #line 418 "src/psc/cmd/build.pengu"
         int32_t ignored = psc_cache_clear();
         (void)ignored;
     }
-    #line 415 "src/psc/cmd/build.pengu"
+    #line 419 "src/psc/cmd/build.pengu"
     if ((((((((int32_t)(path).len) > 0) && (archivum_is_file(path))) && (!no_cache)) && (!ephemeral)) && (!o.is_test)) && (!o.platform.is_wasm)) {
-        #line 416 "src/psc/cmd/build.pengu"
+        #line 420 "src/psc/cmd/build.pengu"
         PenguMaybe txtm = archivum_read_text(path);
         (void)txtm;
-        #line 417 "src/psc/cmd/build.pengu"
+        #line 421 "src/psc/cmd/build.pengu"
         if (txtm.is_present) {
-            #line 418 "src/psc/cmd/build.pengu"
+            #line 422 "src/psc/cmd/build.pengu"
             PenguList parts = pengu_list_new(sizeof(PenguString), 0);
             (void)parts;
-            #line 419 "src/psc/cmd/build.pengu"
+            #line 423 "src/psc/cmd/build.pengu"
             (void)(__extension__(({ PenguString _push_tmp = (*( PenguString*)((txtm).value)); pengu_list_push(&(parts), &_push_tmp); })));
-            #line 420 "src/psc/cmd/build.pengu"
+            #line 424 "src/psc/cmd/build.pengu"
             (void)(__extension__(({ PenguString _push_tmp = pengu_string_from_cstr("psc-0.8.0"); pengu_list_push(&(parts), &_push_tmp); })));
-            #line 421 "src/psc/cmd/build.pengu"
+            #line 425 "src/psc/cmd/build.pengu"
             PenguString chid = psc_cmd_build_compiler_identity(o.compiler_path);
             (void)chid;
-            #line 422 "src/psc/cmd/build.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = chid; pengu_list_push(&(parts), &_push_tmp); })));
-            #line 423 "src/psc/cmd/build.pengu"
-            pengu_banish_string(&(chid));
-            #line 424 "src/psc/cmd/build.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = o.platform.triple; pengu_list_push(&(parts), &_push_tmp); })));
-            #line 425 "src/psc/cmd/build.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = o.platform.wasm_target; pengu_list_push(&(parts), &_push_tmp); })));
             #line 426 "src/psc/cmd/build.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = o.profile; pengu_list_push(&(parts), &_push_tmp); })));
+            (void)(__extension__(({ PenguString _push_tmp = chid; pengu_list_push(&(parts), &_push_tmp); })));
             #line 427 "src/psc/cmd/build.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = o.cc; pengu_list_push(&(parts), &_push_tmp); })));
+            pengu_banish_string(&(chid));
             #line 428 "src/psc/cmd/build.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = pengu_string_from_cstr("run"); pengu_list_push(&(parts), &_push_tmp); })));
+            (void)(__extension__(({ PenguString _push_tmp = o.platform.triple; pengu_list_push(&(parts), &_push_tmp); })));
             #line 429 "src/psc/cmd/build.pengu"
+            (void)(__extension__(({ PenguString _push_tmp = o.platform.wasm_target; pengu_list_push(&(parts), &_push_tmp); })));
+            #line 430 "src/psc/cmd/build.pengu"
+            (void)(__extension__(({ PenguString _push_tmp = o.profile; pengu_list_push(&(parts), &_push_tmp); })));
+            #line 431 "src/psc/cmd/build.pengu"
+            (void)(__extension__(({ PenguString _push_tmp = o.cc; pengu_list_push(&(parts), &_push_tmp); })));
+            #line 432 "src/psc/cmd/build.pengu"
+            (void)(__extension__(({ PenguString _push_tmp = pengu_string_from_cstr("run"); pengu_list_push(&(parts), &_push_tmp); })));
+            #line 433 "src/psc/cmd/build.pengu"
             PenguString ck = psc_cache_key(parts);
             (void)ck;
-            #line 430 "src/psc/cmd/build.pengu"
+            #line 434 "src/psc/cmd/build.pengu"
             PenguString hit = psc_cache_get(ck);
             (void)hit;
-            #line 431 "src/psc/cmd/build.pengu"
+            #line 435 "src/psc/cmd/build.pengu"
             if (((int32_t)(hit).len) > 0) {
-                #line 432 "src/psc/cmd/build.pengu"
+                #line 436 "src/psc/cmd/build.pengu"
                 int32_t hcode = psc_driver_runner_run(o.platform, hit, child, browser);
                 (void)hcode;
-                #line 433 "src/psc/cmd/build.pengu"
-                pengu_banish_string(&(hit));
-                #line 434 "src/psc/cmd/build.pengu"
-                pengu_banish_string(&(ck));
-                #line 435 "src/psc/cmd/build.pengu"
-                pengu_banish_list(&(parts));
-                #line 436 "src/psc/cmd/build.pengu"
-                pengu_banish_maybe(&(txtm));
                 #line 437 "src/psc/cmd/build.pengu"
-                (void)(psc_driver_build_free_options((&(o))));
+                pengu_banish_string(&(hit));
                 #line 438 "src/psc/cmd/build.pengu"
+                pengu_banish_string(&(ck));
+                #line 439 "src/psc/cmd/build.pengu"
+                pengu_banish_list(&(parts));
+                #line 440 "src/psc/cmd/build.pengu"
+                pengu_banish_maybe(&(txtm));
+                #line 441 "src/psc/cmd/build.pengu"
+                (void)(psc_driver_build_free_options((&(o))));
+                #line 442 "src/psc/cmd/build.pengu"
                 int32_t hci = 0;
                 (void)hci;
-                #line 439 "src/psc/cmd/build.pengu"
+                #line 443 "src/psc/cmd/build.pengu"
                 while ((hci < (child).len)) {
-                    #line 440 "src/psc/cmd/build.pengu"
-                    pengu_banish_string(&((*( PenguString*)pengu_list_at(&(child), (int)((__extension__(({ int64_t _p_idx1691 = (int64_t)(hci); pengu_assert_bounds(_p_idx1691, (int64_t)((child).len), "src/psc/cmd/build.pengu:440"); _p_idx1691; }))))))));
-                    #line 441 "src/psc/cmd/build.pengu"
+                    #line 444 "src/psc/cmd/build.pengu"
+                    pengu_banish_string(&((*( PenguString*)pengu_list_at(&(child), (int)((__extension__(({ int64_t _p_idx1691 = (int64_t)(hci); pengu_assert_bounds(_p_idx1691, (int64_t)((child).len), "src/psc/cmd/build.pengu:444"); _p_idx1691; }))))))));
+                    #line 445 "src/psc/cmd/build.pengu"
                     hci = (hci + 1);
                 }
-                #line 442 "src/psc/cmd/build.pengu"
+                #line 446 "src/psc/cmd/build.pengu"
                 pengu_banish_list(&(child));
-                #line 443 "src/psc/cmd/build.pengu"
+                #line 447 "src/psc/cmd/build.pengu"
                 return hcode;
             }
-            #line 444 "src/psc/cmd/build.pengu"
+            #line 448 "src/psc/cmd/build.pengu"
             pengu_banish_string(&(hit));
-            #line 445 "src/psc/cmd/build.pengu"
+            #line 449 "src/psc/cmd/build.pengu"
             pengu_banish_string(&(ck));
-            #line 446 "src/psc/cmd/build.pengu"
+            #line 450 "src/psc/cmd/build.pengu"
             pengu_banish_list(&(parts));
         }
-        #line 447 "src/psc/cmd/build.pengu"
+        #line 451 "src/psc/cmd/build.pengu"
         pengu_banish_maybe(&(txtm));
     }
-    #line 448 "src/psc/cmd/build.pengu"
+    #line 452 "src/psc/cmd/build.pengu"
     BuildResult r = psc_driver_build_build(o);
     (void)r;
-    #line 449 "src/psc/cmd/build.pengu"
+    #line 453 "src/psc/cmd/build.pengu"
     if (!r.ok) {
-        #line 450 "src/psc/cmd/build.pengu"
+        #line 454 "src/psc/cmd/build.pengu"
         PenguString err = r.error;
         (void)err;
-        #line 451 "src/psc/cmd/build.pengu"
+        #line 455 "src/psc/cmd/build.pengu"
         PenguString emsg = pengu_string_format_ex("psc run: %.*s", (int)err.len, err.data);
         (void)emsg;
-        #line 452 "src/psc/cmd/build.pengu"
-        (void)(spark_eprintln(emsg));
-        #line 453 "src/psc/cmd/build.pengu"
-        pengu_banish_string(&(emsg));
-        #line 454 "src/psc/cmd/build.pengu"
-        (void)(psc_driver_build_free_result((&(r))));
-        #line 455 "src/psc/cmd/build.pengu"
-        (void)(psc_driver_build_free_options((&(o))));
         #line 456 "src/psc/cmd/build.pengu"
+        (void)(spark_eprintln(emsg));
+        #line 457 "src/psc/cmd/build.pengu"
+        pengu_banish_string(&(emsg));
+        #line 458 "src/psc/cmd/build.pengu"
+        (void)(psc_driver_build_free_result((&(r))));
+        #line 459 "src/psc/cmd/build.pengu"
+        (void)(psc_driver_build_free_options((&(o))));
+        #line 460 "src/psc/cmd/build.pengu"
         int32_t ci = 0;
         (void)ci;
-        #line 457 "src/psc/cmd/build.pengu"
+        #line 461 "src/psc/cmd/build.pengu"
         while ((ci < (child).len)) {
-            #line 458 "src/psc/cmd/build.pengu"
-            pengu_banish_string(&((*( PenguString*)pengu_list_at(&(child), (int)((__extension__(({ int64_t _p_idx1692 = (int64_t)(ci); pengu_assert_bounds(_p_idx1692, (int64_t)((child).len), "src/psc/cmd/build.pengu:458"); _p_idx1692; }))))))));
-            #line 459 "src/psc/cmd/build.pengu"
+            #line 462 "src/psc/cmd/build.pengu"
+            pengu_banish_string(&((*( PenguString*)pengu_list_at(&(child), (int)((__extension__(({ int64_t _p_idx1692 = (int64_t)(ci); pengu_assert_bounds(_p_idx1692, (int64_t)((child).len), "src/psc/cmd/build.pengu:462"); _p_idx1692; }))))))));
+            #line 463 "src/psc/cmd/build.pengu"
             ci = (ci + 1);
         }
-        #line 460 "src/psc/cmd/build.pengu"
+        #line 464 "src/psc/cmd/build.pengu"
         pengu_banish_list(&(child));
-        #line 461 "src/psc/cmd/build.pengu"
+        #line 465 "src/psc/cmd/build.pengu"
         return 1;
     }
-    #line 462 "src/psc/cmd/build.pengu"
+    #line 466 "src/psc/cmd/build.pengu"
     PenguString art = r.artifact;
     (void)art;
-    #line 463 "src/psc/cmd/build.pengu"
+    #line 467 "src/psc/cmd/build.pengu"
     if ((((((((int32_t)(path).len) > 0) && (archivum_is_file(path))) && (!no_cache)) && (!ephemeral)) && (!o.is_test)) && (!o.platform.is_wasm)) {
-        #line 464 "src/psc/cmd/build.pengu"
+        #line 468 "src/psc/cmd/build.pengu"
         PenguMaybe txt2 = archivum_read_text(path);
         (void)txt2;
-        #line 465 "src/psc/cmd/build.pengu"
+        #line 469 "src/psc/cmd/build.pengu"
         if (txt2.is_present) {
-            #line 466 "src/psc/cmd/build.pengu"
+            #line 470 "src/psc/cmd/build.pengu"
             PenguList parts2 = pengu_list_new(sizeof(PenguString), 0);
             (void)parts2;
-            #line 467 "src/psc/cmd/build.pengu"
+            #line 471 "src/psc/cmd/build.pengu"
             (void)(__extension__(({ PenguString _push_tmp = (*( PenguString*)((txt2).value)); pengu_list_push(&(parts2), &_push_tmp); })));
-            #line 468 "src/psc/cmd/build.pengu"
+            #line 472 "src/psc/cmd/build.pengu"
             (void)(__extension__(({ PenguString _push_tmp = pengu_string_from_cstr("psc-0.8.0"); pengu_list_push(&(parts2), &_push_tmp); })));
-            #line 469 "src/psc/cmd/build.pengu"
+            #line 473 "src/psc/cmd/build.pengu"
             PenguString chid2 = psc_cmd_build_compiler_identity(o.compiler_path);
             (void)chid2;
-            #line 470 "src/psc/cmd/build.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = chid2; pengu_list_push(&(parts2), &_push_tmp); })));
-            #line 471 "src/psc/cmd/build.pengu"
-            pengu_banish_string(&(chid2));
-            #line 472 "src/psc/cmd/build.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = o.platform.triple; pengu_list_push(&(parts2), &_push_tmp); })));
-            #line 473 "src/psc/cmd/build.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = o.platform.wasm_target; pengu_list_push(&(parts2), &_push_tmp); })));
             #line 474 "src/psc/cmd/build.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = o.profile; pengu_list_push(&(parts2), &_push_tmp); })));
+            (void)(__extension__(({ PenguString _push_tmp = chid2; pengu_list_push(&(parts2), &_push_tmp); })));
             #line 475 "src/psc/cmd/build.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = o.cc; pengu_list_push(&(parts2), &_push_tmp); })));
+            pengu_banish_string(&(chid2));
             #line 476 "src/psc/cmd/build.pengu"
-            (void)(__extension__(({ PenguString _push_tmp = pengu_string_from_cstr("run"); pengu_list_push(&(parts2), &_push_tmp); })));
+            (void)(__extension__(({ PenguString _push_tmp = o.platform.triple; pengu_list_push(&(parts2), &_push_tmp); })));
             #line 477 "src/psc/cmd/build.pengu"
+            (void)(__extension__(({ PenguString _push_tmp = o.platform.wasm_target; pengu_list_push(&(parts2), &_push_tmp); })));
+            #line 478 "src/psc/cmd/build.pengu"
+            (void)(__extension__(({ PenguString _push_tmp = o.profile; pengu_list_push(&(parts2), &_push_tmp); })));
+            #line 479 "src/psc/cmd/build.pengu"
+            (void)(__extension__(({ PenguString _push_tmp = o.cc; pengu_list_push(&(parts2), &_push_tmp); })));
+            #line 480 "src/psc/cmd/build.pengu"
+            (void)(__extension__(({ PenguString _push_tmp = pengu_string_from_cstr("run"); pengu_list_push(&(parts2), &_push_tmp); })));
+            #line 481 "src/psc/cmd/build.pengu"
             PenguString ck2 = psc_cache_key(parts2);
             (void)ck2;
-            #line 478 "src/psc/cmd/build.pengu"
+            #line 482 "src/psc/cmd/build.pengu"
             bool stored = psc_cache_put(ck2, art);
             (void)stored;
-            #line 479 "src/psc/cmd/build.pengu"
+            #line 483 "src/psc/cmd/build.pengu"
             pengu_banish_string(&(ck2));
-            #line 480 "src/psc/cmd/build.pengu"
+            #line 484 "src/psc/cmd/build.pengu"
             pengu_banish_list(&(parts2));
         }
-        #line 481 "src/psc/cmd/build.pengu"
+        #line 485 "src/psc/cmd/build.pengu"
         pengu_banish_maybe(&(txt2));
     }
-    #line 482 "src/psc/cmd/build.pengu"
+    #line 486 "src/psc/cmd/build.pengu"
     int32_t code = psc_driver_runner_run(o.platform, art, child, browser);
     (void)code;
-    #line 483 "src/psc/cmd/build.pengu"
+    #line 487 "src/psc/cmd/build.pengu"
     (void)(psc_driver_build_free_result((&(r))));
-    #line 484 "src/psc/cmd/build.pengu"
+    #line 488 "src/psc/cmd/build.pengu"
     (void)(psc_driver_build_free_options((&(o))));
-    #line 485 "src/psc/cmd/build.pengu"
+    #line 489 "src/psc/cmd/build.pengu"
     int32_t ci2 = 0;
     (void)ci2;
-    #line 486 "src/psc/cmd/build.pengu"
+    #line 490 "src/psc/cmd/build.pengu"
     while ((ci2 < (child).len)) {
-        #line 487 "src/psc/cmd/build.pengu"
-        pengu_banish_string(&((*( PenguString*)pengu_list_at(&(child), (int)((__extension__(({ int64_t _p_idx1693 = (int64_t)(ci2); pengu_assert_bounds(_p_idx1693, (int64_t)((child).len), "src/psc/cmd/build.pengu:487"); _p_idx1693; }))))))));
-        #line 488 "src/psc/cmd/build.pengu"
+        #line 491 "src/psc/cmd/build.pengu"
+        pengu_banish_string(&((*( PenguString*)pengu_list_at(&(child), (int)((__extension__(({ int64_t _p_idx1693 = (int64_t)(ci2); pengu_assert_bounds(_p_idx1693, (int64_t)((child).len), "src/psc/cmd/build.pengu:491"); _p_idx1693; }))))))));
+        #line 492 "src/psc/cmd/build.pengu"
         ci2 = (ci2 + 1);
     }
-    #line 489 "src/psc/cmd/build.pengu"
+    #line 493 "src/psc/cmd/build.pengu"
     pengu_banish_list(&(child));
-    #line 490 "src/psc/cmd/build.pengu"
+    #line 494 "src/psc/cmd/build.pengu"
     return code;
 }
 
-#line 496 "src/psc/cmd/build.pengu"
+#line 500 "src/psc/cmd/build.pengu"
 int32_t psc_cmd_build_run_expand(PenguList args) {
     (void)args;
-    #line 497 "src/psc/cmd/build.pengu"
+    #line 501 "src/psc/cmd/build.pengu"
     BuildOptions o = psc_driver_build_default_options();
     (void)o;
-    #line 498 "src/psc/cmd/build.pengu"
+    #line 502 "src/psc/cmd/build.pengu"
     o.bundle_only = true;
-    #line 499 "src/psc/cmd/build.pengu"
+    #line 503 "src/psc/cmd/build.pengu"
     PenguString path = pengu_string_from_cstr("");
     (void)path;
-    #line 500 "src/psc/cmd/build.pengu"
+    #line 504 "src/psc/cmd/build.pengu"
     PenguString out = pengu_string_from_cstr("");
     (void)out;
-    #line 501 "src/psc/cmd/build.pengu"
+    #line 505 "src/psc/cmd/build.pengu"
     int32_t i = 2;
     (void)i;
-    #line 502 "src/psc/cmd/build.pengu"
+    #line 506 "src/psc/cmd/build.pengu"
     while ((i < (args).len)) {
-        #line 503 "src/psc/cmd/build.pengu"
-        PenguString a = (*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx1694 = (int64_t)(i); pengu_assert_bounds(_p_idx1694, (int64_t)((args).len), "src/psc/cmd/build.pengu:503"); _p_idx1694; }))))));
+        #line 507 "src/psc/cmd/build.pengu"
+        PenguString a = (*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx1694 = (int64_t)(i); pengu_assert_bounds(_p_idx1694, (int64_t)((args).len), "src/psc/cmd/build.pengu:507"); _p_idx1694; }))))));
         (void)a;
-        #line 504 "src/psc/cmd/build.pengu"
+        #line 508 "src/psc/cmd/build.pengu"
         if (pengu_string_equal(a, pengu_string_from_cstr("--library"))) {
-            #line 505 "src/psc/cmd/build.pengu"
+            #line 509 "src/psc/cmd/build.pengu"
             o.is_library = true;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr("--strict-c99"))) {
-            #line 507 "src/psc/cmd/build.pengu"
+            #line 511 "src/psc/cmd/build.pengu"
             o.strict_c99 = true;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr("--release-unsafe"))) {
-            #line 509 "src/psc/cmd/build.pengu"
+            #line 513 "src/psc/cmd/build.pengu"
             o.release_unsafe = true;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr("--help")) || pengu_string_equal(a, pengu_string_from_cstr("-h"))) {
-            #line 511 "src/psc/cmd/build.pengu"
+            #line 515 "src/psc/cmd/build.pengu"
             (void)(psc_cmd_build_print_expand_help());
-            #line 512 "src/psc/cmd/build.pengu"
+            #line 516 "src/psc/cmd/build.pengu"
             (void)(psc_driver_build_free_options((&(o))));
-            #line 513 "src/psc/cmd/build.pengu"
+            #line 517 "src/psc/cmd/build.pengu"
             return 0;
         } else
         if (pengu_string_equal(a, pengu_string_from_cstr("--target"))) {
-            #line 515 "src/psc/cmd/build.pengu"
+            #line 519 "src/psc/cmd/build.pengu"
             if ((i + 1) >= (args).len) {
-                #line 516 "src/psc/cmd/build.pengu"
+                #line 520 "src/psc/cmd/build.pengu"
                 (void)(spark_eprintln(pengu_string_from_cstr("psc expand: missing value for '--target'")));
-                #line 517 "src/psc/cmd/build.pengu"
+                #line 521 "src/psc/cmd/build.pengu"
                 (void)(psc_driver_build_free_options((&(o))));
-                #line 518 "src/psc/cmd/build.pengu"
+                #line 522 "src/psc/cmd/build.pengu"
                 return 2;
             }
-            #line 519 "src/psc/cmd/build.pengu"
-            Target nt = psc_driver_target_parse((*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx1695 = (int64_t)(((i + 1))); pengu_assert_bounds(_p_idx1695, (int64_t)((args).len), "src/psc/cmd/build.pengu:519"); _p_idx1695; })))))));
+            #line 523 "src/psc/cmd/build.pengu"
+            Target nt = psc_driver_target_parse((*( PenguString*)pengu_list_at(&(args), (int)((__extension__(({ int64_t _p_idx1695 = (int64_t)(((i + 1))); pengu_assert_bounds(_p_idx1695, (int64_t)((args).len), "src/psc/cmd/build.pengu:523"); _p_idx1695; })))))));
             (void)nt;
-            #line 520 "src/psc/cmd/build.pengu"
+            #line 524 "src/psc/cmd/build.pengu"
             if (!nt.ok) {
-                #line 521 "src/psc/cmd/build.pengu"
+                #line 525 "src/psc/cmd/build.pengu"
                 PenguString terr = nt.error;
                 (void)terr;
-                #line 522 "src/psc/cmd/build.pengu"
+                #line 526 "src/psc/cmd/build.pengu"
                 PenguString tmsg = pengu_string_format_ex("psc expand: %.*s", (int)terr.len, terr.data);
                 (void)tmsg;
-                #line 523 "src/psc/cmd/build.pengu"
-                (void)(spark_eprintln(tmsg));
-                #line 524 "src/psc/cmd/build.pengu"
-                pengu_banish_string(&(tmsg));
-                #line 525 "src/psc/cmd/build.pengu"
-                (void)(psc_driver_target_free((&(nt))));
-                #line 526 "src/psc/cmd/build.pengu"
-                (void)(psc_driver_build_free_options((&(o))));
                 #line 527 "src/psc/cmd/build.pengu"
+                (void)(spark_eprintln(tmsg));
+                #line 528 "src/psc/cmd/build.pengu"
+                pengu_banish_string(&(tmsg));
+                #line 529 "src/psc/cmd/build.pengu"
+                (void)(psc_driver_target_free((&(nt))));
+                #line 530 "src/psc/cmd/build.pengu"
+                (void)(psc_driver_build_free_options((&(o))));
+                #line 531 "src/psc/cmd/build.pengu"
                 return 2;
             }
-            #line 528 "src/psc/cmd/build.pengu"
+            #line 532 "src/psc/cmd/build.pengu"
             (void)(psc_driver_target_free((&(o.platform))));
-            #line 529 "src/psc/cmd/build.pengu"
+            #line 533 "src/psc/cmd/build.pengu"
             o.platform = nt;
-            #line 530 "src/psc/cmd/build.pengu"
+            #line 534 "src/psc/cmd/build.pengu"
             o.target_explicit = true;
-            #line 531 "src/psc/cmd/build.pengu"
+            #line 535 "src/psc/cmd/build.pengu"
             i = (i + 1);
         } else
         if (psc_cmd_build_starts_with(a, pengu_string_from_cstr("--target="))) {
-            #line 533 "src/psc/cmd/build.pengu"
+            #line 537 "src/psc/cmd/build.pengu"
             Target nt2 = psc_driver_target_parse(pengu_string_substring(a, (int)(9), (int)((((int32_t)(a).len)))));
             (void)nt2;
-            #line 534 "src/psc/cmd/build.pengu"
+            #line 538 "src/psc/cmd/build.pengu"
             if (!nt2.ok) {
-                #line 535 "src/psc/cmd/build.pengu"
+                #line 539 "src/psc/cmd/build.pengu"
                 PenguString terr2 = nt2.error;
                 (void)terr2;
-                #line 536 "src/psc/cmd/build.pengu"
+                #line 540 "src/psc/cmd/build.pengu"
                 PenguString tmsg2 = pengu_string_format_ex("psc expand: %.*s", (int)terr2.len, terr2.data);
                 (void)tmsg2;
-                #line 537 "src/psc/cmd/build.pengu"
-                (void)(spark_eprintln(tmsg2));
-                #line 538 "src/psc/cmd/build.pengu"
-                pengu_banish_string(&(tmsg2));
-                #line 539 "src/psc/cmd/build.pengu"
-                (void)(psc_driver_target_free((&(nt2))));
-                #line 540 "src/psc/cmd/build.pengu"
-                (void)(psc_driver_build_free_options((&(o))));
                 #line 541 "src/psc/cmd/build.pengu"
+                (void)(spark_eprintln(tmsg2));
+                #line 542 "src/psc/cmd/build.pengu"
+                pengu_banish_string(&(tmsg2));
+                #line 543 "src/psc/cmd/build.pengu"
+                (void)(psc_driver_target_free((&(nt2))));
+                #line 544 "src/psc/cmd/build.pengu"
+                (void)(psc_driver_build_free_options((&(o))));
+                #line 545 "src/psc/cmd/build.pengu"
                 return 2;
             }
-            #line 542 "src/psc/cmd/build.pengu"
+            #line 546 "src/psc/cmd/build.pengu"
             (void)(psc_driver_target_free((&(o.platform))));
-            #line 543 "src/psc/cmd/build.pengu"
+            #line 547 "src/psc/cmd/build.pengu"
             o.platform = nt2;
-            #line 544 "src/psc/cmd/build.pengu"
+            #line 548 "src/psc/cmd/build.pengu"
             o.target_explicit = true;
         } else
         if (psc_cmd_build_starts_with(a, pengu_string_from_cstr("--out="))) {
-            #line 546 "src/psc/cmd/build.pengu"
+            #line 550 "src/psc/cmd/build.pengu"
             PenguString ov = pengu_string_substring(a, (int)(6), (int)((((int32_t)(a).len))));
             (void)ov;
-            #line 547 "src/psc/cmd/build.pengu"
+            #line 551 "src/psc/cmd/build.pengu"
             pengu_banish_string(&(out));
-            #line 548 "src/psc/cmd/build.pengu"
+            #line 552 "src/psc/cmd/build.pengu"
             out = ov;
         } else
         if (psc_cmd_build_starts_with(a, pengu_string_from_cstr("--cc="))) {
-            #line 550 "src/psc/cmd/build.pengu"
+            #line 554 "src/psc/cmd/build.pengu"
             PenguString vc = pengu_string_substring(a, (int)(5), (int)((((int32_t)(a).len))));
             (void)vc;
-            #line 551 "src/psc/cmd/build.pengu"
+            #line 555 "src/psc/cmd/build.pengu"
             pengu_banish_string(&(o.cc));
-            #line 552 "src/psc/cmd/build.pengu"
+            #line 556 "src/psc/cmd/build.pengu"
             o.cc = vc;
         } else
         if (psc_cmd_build_starts_dash(a)) {
-            #line 554 "src/psc/cmd/build.pengu"
+            #line 558 "src/psc/cmd/build.pengu"
             PenguString u = pengu_string_format_ex("psc expand: unknown option '%.*s'", (int)a.len, a.data);
             (void)u;
-            #line 555 "src/psc/cmd/build.pengu"
-            (void)(spark_eprintln(u));
-            #line 556 "src/psc/cmd/build.pengu"
-            pengu_banish_string(&(u));
-            #line 557 "src/psc/cmd/build.pengu"
-            (void)(psc_cmd_build_print_expand_help());
-            #line 558 "src/psc/cmd/build.pengu"
-            (void)(psc_driver_build_free_options((&(o))));
             #line 559 "src/psc/cmd/build.pengu"
+            (void)(spark_eprintln(u));
+            #line 560 "src/psc/cmd/build.pengu"
+            pengu_banish_string(&(u));
+            #line 561 "src/psc/cmd/build.pengu"
+            (void)(psc_cmd_build_print_expand_help());
+            #line 562 "src/psc/cmd/build.pengu"
+            (void)(psc_driver_build_free_options((&(o))));
+            #line 563 "src/psc/cmd/build.pengu"
             return 2;
         } else {
-            #line 561 "src/psc/cmd/build.pengu"
+            #line 565 "src/psc/cmd/build.pengu"
             if (((int32_t)(path).len) > 0) {
-                #line 562 "src/psc/cmd/build.pengu"
+                #line 566 "src/psc/cmd/build.pengu"
                 (void)(spark_eprintln(pengu_string_from_cstr("psc expand: only one target is supported")));
-                #line 563 "src/psc/cmd/build.pengu"
+                #line 567 "src/psc/cmd/build.pengu"
                 (void)(psc_driver_build_free_options((&(o))));
-                #line 564 "src/psc/cmd/build.pengu"
+                #line 568 "src/psc/cmd/build.pengu"
                 return 2;
             }
-            #line 565 "src/psc/cmd/build.pengu"
+            #line 569 "src/psc/cmd/build.pengu"
             path = a;
         }
-        #line 566 "src/psc/cmd/build.pengu"
+        #line 570 "src/psc/cmd/build.pengu"
         i = (i + 1);
     }
-    #line 567 "src/psc/cmd/build.pengu"
+    #line 571 "src/psc/cmd/build.pengu"
     pengu_banish_string(&(o.target));
-    #line 568 "src/psc/cmd/build.pengu"
+    #line 572 "src/psc/cmd/build.pengu"
     o.target = psc_cmd_build_copy_path(path);
-    #line 569 "src/psc/cmd/build.pengu"
+    #line 573 "src/psc/cmd/build.pengu"
     BuildResult r = psc_driver_build_build(o);
     (void)r;
-    #line 570 "src/psc/cmd/build.pengu"
+    #line 574 "src/psc/cmd/build.pengu"
     if (!r.ok) {
-        #line 571 "src/psc/cmd/build.pengu"
+        #line 575 "src/psc/cmd/build.pengu"
         PenguString err = r.error;
         (void)err;
-        #line 572 "src/psc/cmd/build.pengu"
+        #line 576 "src/psc/cmd/build.pengu"
         PenguString emsg = pengu_string_format_ex("psc expand: %.*s", (int)err.len, err.data);
         (void)emsg;
-        #line 573 "src/psc/cmd/build.pengu"
-        (void)(spark_eprintln(emsg));
-        #line 574 "src/psc/cmd/build.pengu"
-        pengu_banish_string(&(emsg));
-        #line 575 "src/psc/cmd/build.pengu"
-        (void)(psc_driver_build_free_result((&(r))));
-        #line 576 "src/psc/cmd/build.pengu"
-        (void)(psc_driver_build_free_options((&(o))));
         #line 577 "src/psc/cmd/build.pengu"
+        (void)(spark_eprintln(emsg));
+        #line 578 "src/psc/cmd/build.pengu"
+        pengu_banish_string(&(emsg));
+        #line 579 "src/psc/cmd/build.pengu"
+        (void)(psc_driver_build_free_result((&(r))));
+        #line 580 "src/psc/cmd/build.pengu"
+        (void)(psc_driver_build_free_options((&(o))));
+        #line 581 "src/psc/cmd/build.pengu"
         return 1;
     }
-    #line 578 "src/psc/cmd/build.pengu"
+    #line 582 "src/psc/cmd/build.pengu"
     PenguMaybe text = archivum_read_text(r.artifact);
     (void)text;
-    #line 579 "src/psc/cmd/build.pengu"
+    #line 583 "src/psc/cmd/build.pengu"
     if (!text.is_present) {
-        #line 580 "src/psc/cmd/build.pengu"
-        (void)(spark_eprintln(pengu_string_from_cstr("psc expand: cannot read bundle")));
-        #line 581 "src/psc/cmd/build.pengu"
-        pengu_banish_maybe(&(text));
-        #line 582 "src/psc/cmd/build.pengu"
-        (void)(psc_driver_build_free_result((&(r))));
-        #line 583 "src/psc/cmd/build.pengu"
-        (void)(psc_driver_build_free_options((&(o))));
         #line 584 "src/psc/cmd/build.pengu"
+        (void)(spark_eprintln(pengu_string_from_cstr("psc expand: cannot read bundle")));
+        #line 585 "src/psc/cmd/build.pengu"
+        pengu_banish_maybe(&(text));
+        #line 586 "src/psc/cmd/build.pengu"
+        (void)(psc_driver_build_free_result((&(r))));
+        #line 587 "src/psc/cmd/build.pengu"
+        (void)(psc_driver_build_free_options((&(o))));
+        #line 588 "src/psc/cmd/build.pengu"
         return 2;
     }
-    #line 585 "src/psc/cmd/build.pengu"
+    #line 589 "src/psc/cmd/build.pengu"
     if (((int32_t)(out).len) > 0) {
-        #line 586 "src/psc/cmd/build.pengu"
+        #line 590 "src/psc/cmd/build.pengu"
         if (!archivum_write_text(out, (*( PenguString*)((text).value)))) {
-            #line 587 "src/psc/cmd/build.pengu"
-            (void)(spark_eprintln(pengu_string_from_cstr("psc expand: cannot write output")));
-            #line 588 "src/psc/cmd/build.pengu"
-            pengu_banish_maybe(&(text));
-            #line 589 "src/psc/cmd/build.pengu"
-            pengu_banish_string(&(out));
-            #line 590 "src/psc/cmd/build.pengu"
-            (void)(psc_driver_build_free_result((&(r))));
             #line 591 "src/psc/cmd/build.pengu"
-            (void)(psc_driver_build_free_options((&(o))));
+            (void)(spark_eprintln(pengu_string_from_cstr("psc expand: cannot write output")));
             #line 592 "src/psc/cmd/build.pengu"
+            pengu_banish_maybe(&(text));
+            #line 593 "src/psc/cmd/build.pengu"
+            pengu_banish_string(&(out));
+            #line 594 "src/psc/cmd/build.pengu"
+            (void)(psc_driver_build_free_result((&(r))));
+            #line 595 "src/psc/cmd/build.pengu"
+            (void)(psc_driver_build_free_options((&(o))));
+            #line 596 "src/psc/cmd/build.pengu"
             return 2;
         }
-        #line 593 "src/psc/cmd/build.pengu"
+        #line 597 "src/psc/cmd/build.pengu"
         PenguString msg = pengu_string_format_ex("wrote %.*s", (int)out.len, out.data);
         (void)msg;
-        #line 594 "src/psc/cmd/build.pengu"
+        #line 598 "src/psc/cmd/build.pengu"
         (void)(spark_eprintln(msg));
-        #line 595 "src/psc/cmd/build.pengu"
+        #line 599 "src/psc/cmd/build.pengu"
         pengu_banish_string(&(msg));
     } else {
-        #line 597 "src/psc/cmd/build.pengu"
+        #line 601 "src/psc/cmd/build.pengu"
         (void)(spark_print((*( PenguString*)((text).value))));
     }
-    #line 598 "src/psc/cmd/build.pengu"
-    pengu_banish_maybe(&(text));
-    #line 599 "src/psc/cmd/build.pengu"
-    pengu_banish_string(&(out));
-    #line 600 "src/psc/cmd/build.pengu"
-    (void)(psc_driver_build_free_result((&(r))));
-    #line 601 "src/psc/cmd/build.pengu"
-    (void)(psc_driver_build_free_options((&(o))));
     #line 602 "src/psc/cmd/build.pengu"
+    pengu_banish_maybe(&(text));
+    #line 603 "src/psc/cmd/build.pengu"
+    pengu_banish_string(&(out));
+    #line 604 "src/psc/cmd/build.pengu"
+    (void)(psc_driver_build_free_result((&(r))));
+    #line 605 "src/psc/cmd/build.pengu"
+    (void)(psc_driver_build_free_options((&(o))));
+    #line 606 "src/psc/cmd/build.pengu"
     return 0;
 }
 
-#line 608 "src/psc/cmd/build.pengu"
+#line 612 "src/psc/cmd/build.pengu"
 PenguString psc_cmd_build_copy_path(PenguString s) {
     (void)s;
-    #line 609 "src/psc/cmd/build.pengu"
+    #line 613 "src/psc/cmd/build.pengu"
     return sema_names_copy_string(s);
 }
 
@@ -92712,7 +92716,7 @@ JsonValue psc_lsp_server_initialize_result(void) {
     #line 394 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(info), pengu_string_from_cstr("name"), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr("psc")))));
     #line 395 "src/psc/lsp/server.pengu"
-    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr("version"), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr("0.23.0")))));
+    (void)(JsonValue_put_json(&(info), pengu_string_from_cstr("version"), JsonValue_string_val(psc_lsp_server_copy(pengu_string_from_cstr("0.23.1")))));
     #line 396 "src/psc/lsp/server.pengu"
     (void)(JsonValue_put_json(&(out), pengu_string_from_cstr("serverInfo"), info));
     #line 397 "src/psc/lsp/server.pengu"
@@ -102745,7 +102749,7 @@ int32_t main_dispatch(PenguList args) {
     #line 106 "src/main.pengu"
     if ((pengu_string_equal(cmd, pengu_string_from_cstr("version")) || pengu_string_equal(cmd, pengu_string_from_cstr("--version"))) || pengu_string_equal(cmd, pengu_string_from_cstr("-V"))) {
         #line 107 "src/main.pengu"
-        (void)(spark_println(pengu_string_from_cstr("psc 0.23.0 (F13)")));
+        (void)(spark_println(pengu_string_from_cstr("psc 0.23.1 (F13)")));
         #line 108 "src/main.pengu"
         return 0;
     }
@@ -104364,7 +104368,7 @@ bool main_starts_dash(PenguString s) {
 #line 807 "src/main.pengu"
 void main_print_help(void) {
     #line 808 "src/main.pengu"
-    (void)(spark_println(pengu_string_from_cstr("psc 0.23.0 \xe2\x80\x94 PenguScript compiler")));
+    (void)(spark_println(pengu_string_from_cstr("psc 0.23.1 \xe2\x80\x94 PenguScript compiler")));
     #line 809 "src/main.pengu"
     (void)(spark_println(pengu_string_from_cstr("")));
     #line 810 "src/main.pengu"

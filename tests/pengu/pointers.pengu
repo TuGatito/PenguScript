@@ -101,18 +101,23 @@ weave main into int:
     ## Explicit pointer <-> integer casts preserve the address.
     var addr as usize is p to usize
     var round as ref to int is addr to ref to int
-    if essence of round != 1:
+    if round != p:
         return 17
-    if essence of (p - 1) != 0:
+    if essence of round != 1:
         return 18
+
+    ## Backwards pointer arithmetic stays inside the array (no OOB read).
+    var mid as ref to int is sigil of (a at 1)
+    if (mid - 1) != p:
+        return 19
 
     ## Heap-owned list storage is safe to borrow from a parameter.
     var xs2 as list of int is list of int
     calling xs2.push with 77
     if essence of (calling first with xs2) != 77:
-        return 19
+        return 20
 
     if size of (ref to int) != size of (ref to void):
-        return 20
+        return 21
     calling spark.println with "OK pointers"
     return 0

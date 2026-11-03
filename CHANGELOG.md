@@ -2,6 +2,28 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.23.1] — 2026-11-03 — Corrección de la suite de tests
+
+Arregla el fallo de CI que impedía compilar y publicar: un test desreferenciaba
+memoria fuera de rango y su resultado dependía del compilador y del layout de
+pila (gcc leía 0; Apple clang leía basura y devolvía 18).
+
+### Corregido
+
+- **`tests/pengu/pointers.pengu`**: `essence of (p - 1)` leía un elemento
+  anterior a `a` (stack-buffer-underflow, comportamiento indefinido). Se
+  sustituye por aritmética inversa dentro del array (`mid - 1 == p`, sin
+  desreferenciar) y se hacen únicos los códigos de retorno (17–21; antes había
+  dos `return 17`, lo que ocultaba cuál de las dos comprobaciones fallaba).
+- **`psc run --no-cache`**: el flag desactivaba el atajo de "artefacto al día"
+  pero no la caché content-addressed, así que podía reutilizar un binario de
+  una compilación anterior. Ahora propaga `--no-cache` y `--ephemeral` a
+  `BuildOptions`; `tests/run.sh` vuelve a compilar de verdad en local.
+- `VERSION`, `pengu.toml`, `release.toml`, `src/main.pengu`, el LSP y los
+  bundles `bootstrap/psc_stage0_*.c` a **0.23.1**; `README.md`,
+  `LANGUAGE.md`, `LANGUAGE_Spanish.md` y el README de la extensión de VS Code
+  actualizados.
+
 ## [0.23.0] — 2026-11-02 — Carmen: layouts binarios
 
 Nuevo módulo estándar `std.carmen` para leer y escribir registros binarios con
