@@ -1,0 +1,191 @@
+## carmen: Python-compatible binary formulas.
+##
+## Golden vectors were produced with CPython 3.14.8 `struct` on LP64 Linux.
+import std.spark
+import std.carmen
+import std.memoria
+import std.ffi
+
+weave pack_hex with fmt as string, vals as list of carmen.CarmenValue into string:
+    var r as result of string to carmen.CarmenError is calling carmen.pack with fmt, vals
+    calling spark.assert_msg with r.is_ok, "pack {fmt}"
+    var blob as string is r.value
+    var hx as string is calling carmen.hex with blob
+    banish blob
+    return hx
+
+weave expect_hex with fmt as string, vals as list of carmen.CarmenValue, want as string into void:
+    var got as string is calling pack_hex with fmt, vals
+    calling spark.assert_msg with got == want, "fmt {fmt}: got {got} want {want}"
+    banish got
+
+weave main into int:
+    # sizes
+    calling spark.assert_msg with (calling carmen.calcsize with ">I4sH").value == 10, "step 2"
+    calling spark.assert_msg with (calling carmen.calcsize with "@bhlq").value == 24, "step 3"
+    calling spark.assert_msg with (calling carmen.calcsize with "=bhlq").value == 15, "step 4"
+    calling spark.assert_msg with (calling carmen.calcsize with "<2sI3x").value == 9, "step 5"
+    calling spark.assert_msg with (calling carmen.calcsize with "=n").is_ok == false, "step 6"
+
+    # integers, text, padding
+    calling expect_hex with ">I4sH", [(calling carmen.unsigned with 1), (calling carmen.text with "abcd"), (calling carmen.unsigned with 2)], "00000001616263640002"
+    calling expect_hex with "<i", [calling carmen.signed with -2], "feffffff"
+    calling expect_hex with "2s", [calling carmen.text with "abc"], "6162"
+    calling expect_hex with "1p", [calling carmen.text with "abc"], "00"
+    calling expect_hex with "4z", [calling carmen.text with "ab"], "61620000"
+    calling expect_hex with "4B", [(calling carmen.unsigned with 1), (calling carmen.unsigned with 2), (calling carmen.unsigned with 3), (calling carmen.unsigned with 255)], "010203ff"
+
+    # half floats
+    calling expect_hex with ">e", [calling carmen.real with 1.5], "3e00"
+    calling expect_hex with ">e", [calling carmen.real with 1.0], "3c00"
+    calling expect_hex with ">e", [calling carmen.real with 65504.0], "7bff"
+    calling expect_hex with ">e", [calling carmen.real with -2.5], "c100"
+
+    # range errors
+    var bad as result of string to carmen.CarmenError is calling carmen.pack with ">B", [calling carmen.unsigned with 256]
+    calling spark.assert_msg with bad.is_ok == false, "step 7"
+    var half_bad as result of string to carmen.CarmenError is calling carmen.pack with ">e", [calling carmen.real with 65520.0]
+    calling spark.assert_msg with half_bad.is_ok == false, "step 8"
+
+    # unpack round trip
+    var blob as string is (calling carmen.pack with "<i4sH", [(calling carmen.signed with -2), (calling carmen.text with "abc"), (calling carmen.unsigned with 7)]).value
+    var vals as list of carmen.CarmenValue is (calling carmen.unpack with "<i4sH", blob).value
+    calling spark.assert_msg with vals.length == 3, "step 9"
+    var first as carmen.CarmenValue is vals at 0
+    judge (essence of (sigil of first)):
+        when Signed with value ->
+            calling spark.assert_msg with value == -2, "step 10"
+        else ->
+            calling spark.assert_msg with false, "step 11"
+
+    # truncated and trailing
+    var short as result of list of carmen.CarmenValue to carmen.CarmenError is calling carmen.unpack with ">I", "abc"
+    calling spark.assert_msg with short.is_ok == false, "step 12"
+    var extra as result of list of carmen.CarmenValue to carmen.CarmenError is calling carmen.unpack with ">I", "abcde"
+    calling spark.assert_msg with extra.is_ok == false, "step 13"
+
+    # named fields
+    var named as string is (calling carmen.pack with r">{a:I}{b:4s}{c:H}", [(calling carmen.unsigned with 7), (calling carmen.text with "abcd"), (calling carmen.unsigned with 9)]).value
+    var m as map of string to carmen.CarmenValue is (calling carmen.unpack_named with r">{a:I}{b:4s}{c:H}", named).value
+    var cval as carmen.CarmenValue is m at "c"
+    judge (essence of (sigil of cval)):
+        when Unsigned with value ->
+            calling spark.assert_msg with value == 9, "step 14"
+        else ->
+            calling spark.assert_msg with false, "step 15"
+    banish m
+
+    # iter_unpack
+    var rowblob as string is (calling carmen.pack with ">3H", [(calling carmen.unsigned with 1), (calling carmen.unsigned with 2), (calling carmen.unsigned with 3)]).value
+    var rows as list of list of carmen.CarmenValue is (calling carmen.iter_unpack with ">H", rowblob).value
+    banish rowblob
+    calling spark.assert_msg with rows.length == 3, "step 16"
+    banish rows
+
+    # explain / describe are non-empty
+    var ex as string is (calling carmen.explain with ">I4sH").value
+    calling spark.assert_msg with ex.length > 0, "step 17"
+    banish ex
+    var one_blob as string is (calling carmen.pack with ">I", [calling carmen.unsigned with 1]).value
+    var ds as string is (calling carmen.describe with ">I", one_blob).value
+    banish one_blob
+    calling spark.assert_msg with ds.length > 0, "step 18"
+    banish ds
+
+    # reader
+    var hdrblob as string is (calling carmen.pack with ">I4sH", [(calling carmen.unsigned with 1), (calling carmen.text with "abcd"), (calling carmen.unsigned with 2)]).value
+    var r as carmen.CarmenReader is calling carmen.new_reader_endian with hdrblob, carmen.Endianness.Big
+    calling spark.assert_msg with (calling r.read_u32).value == 1, "step 19"
+    calling spark.assert_msg with (calling r.read_bytes with 4).value.length == 4, "step 20"
+    calling spark.assert_msg with (calling r.peek_u16).value == 2, "step 21"
+    calling spark.assert_msg with (calling r.read_u16).value == 2, "step 22"
+    calling spark.assert_msg with (calling r.at_end) == true, "step 23"
+
+    # reader bits
+    var bitblob as string is (calling carmen.pack with ">BB", [(calling carmen.unsigned with 165), (calling carmen.unsigned with 92)]).value
+    var bits as carmen.CarmenReader is calling carmen.new_reader with bitblob
+    calling spark.assert_msg with (calling bits.read_bits with 3).value == 5, "step 24"
+    calling spark.assert_msg with (calling bits.read_bits with 5).value == 5, "step 25"
+    calling spark.assert_msg with (calling bits.read_u8).value == 92, "step 26"
+
+
+    # validate / layout / hex / compatibility
+    calling spark.assert_msg with (calling carmen.validate with ">I4sH").value == 10, "step 27"
+    calling spark.assert_msg with (calling carmen.validate with "=n").is_ok == false, "step 28"
+    var fs as list of carmen.CarmenField is (calling carmen.layout with "<2sI3x").value
+    var f1 as carmen.CarmenField is fs at 1
+    var f2 as carmen.CarmenField is fs at 2
+    var layout_ok as bool is f1.offset == 2
+    var pad_ok as bool is f2.size == 3
+    calling spark.assert_msg with (layout_ok and pad_ok), "step 29"
+    banish fs
+    var hx0 as string is calling carmen.hex with "\x00\x2a"
+    calling spark.assert_msg with hx0 == "002a", "step 30"
+    banish hx0
+    calling spark.assert_msg with (calling carmen.is_python_compatible with ">I4sH"), "step 31"
+    calling spark.assert_msg with (calling carmen.is_python_compatible with r">{len:I}") == false, "step 32"
+
+    # pack_into / unpack_from
+    var buf as ref to byte is calling memoria.alloc_array of byte with 8
+    var wrote as result of int to carmen.CarmenError is calling carmen.pack_into with ">I", buf, 8, 2, [calling carmen.unsigned with 7]
+    calling spark.assert_msg with wrote.value == 4, "step 33"
+    var window as string is calling ffi.string_from_bytes with buf, 8
+    var back as result of list of carmen.CarmenValue to carmen.CarmenError is calling carmen.unpack_from with ">I", window, 2
+    var back_ok as bool is back.is_ok
+    var first_val as carmen.CarmenValue is back.value at 0
+    var is_u as bool is calling first_val.is_unsigned
+    calling spark.assert_msg with (back_ok and is_u), "step 34"
+    var tiny as result of int to carmen.CarmenError is calling carmen.pack_into with ">I", buf, 2, 0, [calling carmen.unsigned with 7]
+    calling spark.assert_msg with tiny.is_ok == false, "step 35"
+    banish window
+    banish buf
+
+    # named errors
+    var unnamed as result of map of string to carmen.CarmenValue to carmen.CarmenError is calling carmen.unpack_named with ">I", one_blob
+    calling spark.assert_msg with unnamed.is_ok == false, "step 36"
+    var dup as result of list of carmen.CarmenField to carmen.CarmenError is calling carmen.layout with r">{a:I}{a:H}"
+    calling spark.assert_msg with dup.is_ok == false, "step 37"
+    var zbad as result of int to carmen.CarmenError is calling carmen.calcsize with ">z"
+    calling spark.assert_msg with zbad.is_ok == false, "step 38"
+
+    # iter_unpack rejects a partial record
+    var part as string is (calling carmen.pack with ">3H", [(calling carmen.unsigned with 1), (calling carmen.unsigned with 2), (calling carmen.unsigned with 3)]).value
+    var rows_bad as result of list of list of carmen.CarmenValue to carmen.CarmenError is calling carmen.iter_unpack with ">I", part
+    calling spark.assert_msg with rows_bad.is_ok == false, "step 39"
+    banish part
+
+    # reader extras: cstr, pascal, varint, zigzag, f16, expect, sub, view
+    var rb as string is (calling carmen.pack with ">I", [calling carmen.unsigned with 1]).value
+    var rr as carmen.CarmenReader is calling carmen.new_reader with rb
+    calling spark.assert_msg with (calling rr.expect with "\x00\x00\x00").is_ok, "step 40"
+    calling spark.assert_msg with (calling rr.read_u8).value == 1, "step 41"
+    banish rb
+
+    # writer bits
+    var wb as carmen.CarmenWriter is calling carmen.new_writer
+    calling wb.write_bits with 5, 3
+    calling wb.write_bits with 5, 5
+    var wbh as string is calling carmen.hex with calling wb.to_string
+    calling spark.assert_msg with wbh == "a5", "step 42"
+    banish wbh
+    banish wb
+
+    # writer
+    var w as carmen.CarmenWriter is calling carmen.new_writer_endian with carmen.Endianness.Little
+    calling w.write_u16 with 258
+    calling w.write_varint with 300
+    calling w.write_zigzag with -150
+    var out as string is calling w.to_string
+    var oh as string is calling carmen.hex with out
+    calling spark.assert_msg with oh == "0201ac02ab02", "writer got {oh}"
+    banish oh
+    banish out
+    banish w
+
+    banish blob
+    banish named
+    banish vals
+    banish hdrblob
+    banish bitblob
+    calling spark.println with "OK carmen_formula"
+    return 0

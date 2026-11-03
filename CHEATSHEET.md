@@ -2683,7 +2683,7 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 
 `std/spark.pengu` defines `SPARK_VERSION` and `STD_VERSION` constants; `spark.spark_version` returns the version string.
 
-### 15.2 Core module catalog (40 modules)
+### 15.2 Core module catalog (41 modules)
 
 | Module | Import | Implementation | Purpose & key functions |
 | ------ | ------ | -------------- | ----------------------- |
@@ -2722,6 +2722,8 @@ The standard library lives under `std/` and is written in PenguScript. High-leve
 | **trial** | `import std.trial` | Pure PenguScript | Unit-test framework: re-exports `ward` assertions, plus suites (`new_suite`), `test_case`/`test`, lifecycle hooks and colored reporting (`summary`). |
 | **whisper** | `import std.whisper` | C primitives + Pengu | Structured logging: `set_level`, `get_level`, `get_level_name`, level constants `LOG_TRACE`…`LOG_FATAL`, and level loggers `trace`, `debug`, `info`, `warn`, `error`, `fatal`. |
 | **ffi** | `import std.ffi` | C runtime bridges | Foreign function interface bridges: `cstr_from_string`, `cstr_free`, `string_from_cstr`, `bytes_from_string`, non-owning slice views (`slice_from_ptr`, `slice_of_*_from_ptr`), and list copies from pointers. |
+
+| **carmen** | `import std.carmen` | Pure PenguScript | Binary layouts from a Python-`struct`-compatible formula: `seal` (compiled handle), `calcsize`, `layout`, `pack`, `pack_into`, `unpack`, `unpack_from`, `unpack_named`, `iter_unpack`, `validate`, `explain`, `describe`, `hex`; typed values via `CarmenValue` (`signed`/`unsigned`/`real`/`truth`/`text`) and errors via `CarmenError`; streaming cursors `CarmenReader`/`CarmenWriter` (fixed-width ints, half floats, bytes/C strings/Pascal strings, varint, zigzag, bit fields); extensions `z`, `v`, `V`, `{name:code}` and mid-formula endian switches. See `docs/CARMEN.md`. |
 
 ### 15.2.1 JSON & diagnostics
 
@@ -2815,6 +2817,63 @@ weave main into int:
 - Already-compressed payloads (JPEG, PNG, MP4, ZIP, `.gz`) do **not** get
   smaller. `std.compressus` is a transport/archive tool, not a magic wand.
 - Smart-linked: `-lminiz` only when imported. See `docs/COMPRESSUS.md`.
+
+### 15.2.3 Binary layouts (`std.carmen`)
+
+Every binary format is integers and floats at fixed offsets. `std.carmen`
+reads and writes them from a formula that is byte-compatible with Python's
+`struct`, and adds named fields, `z` strings and a bit cursor.
+
+```pengu
+import std.carmen
+import std.spark
+
+weave main into int:
+    # TCP-like header: sequence, flags, length, crc
+    var raw as string is "\x00\x2a\x00\x01\x00\x00\x00\x08\xde\xad\xbe\xef"
+
+    var hdr as result of map of string to CarmenValue to CarmenError is calling carmen.unpack_named with r">{seq:H}{flags:H}{length:I}{crc:I}", raw
+    if not hdr.is_ok:
+        var why as string is calling hdr.error.message
+        calling spark.eprintln with why
+        banish why
+        return 1
+
+    judge (hdr.value at "seq"):
+        when Unsigned with value -> calling spark.println with "seq={value}"
+        else -> calling spark.println with "seq?"
+
+    # Build the same header, little-endian
+    var w as CarmenWriter is calling carmen.new_writer_endian with carmen.Endianness.Little
+    calling w.write_u16 with 42
+    calling w.write_u16 with 1
+    calling w.write_u32 with 8
+    calling w.write_u32 with 0xEFBEADDE
+    calling spark.println with calling carmen.hex with calling w.to_string
+
+    # Streaming reads for variable-length sections
+    var r as CarmenReader is calling carmen.new_reader with raw
+    let magic is calling r.read_u16
+    calling spark.println with "magic={magic.value}"
+    return 0
+```
+
+- Formula codes: `x c b B ? h H i I l L q Q n N e f d s p P`; extensions `z`
+  (NUL-padded), `v`/`V` (little u16/u32), `{name:code}` named fields and a
+  prefix anywhere to switch byte order. `e` is IEEE binary16.
+- Default prefix is `@` (native order/alignment). `<`, `>`, `!` and `=` use
+  standard sizes with no padding.
+- `pack`/`unpack` take a `list of CarmenValue`; construct values with
+  `carmen.unsigned`, `carmen.signed`, `carmen.text`, `carmen.real`,
+  `carmen.truth`. Parenthesize each call inside a list literal.
+- `unpack` requires exactly `calcsize` bytes; `unpack_from` accepts a window.
+  `unpack_named` returns a map; `iter_unpack` splits fixed records.
+- `layout`, `explain` and `describe` show offsets and annotated hex — the
+  fastest way to find the two bytes where a protocol disagrees with you.
+- Half floats, out-of-range integers and truncated buffers are `CarmenError`
+  values, never panics. Python raises `struct.error`; Ruby truncates.
+- No global format cache: `seal` once and reuse the handle in hot paths.
+  See `docs/CARMEN.md`.
 
 ### 15.3 HTTP requests (`std.petitio`)
 

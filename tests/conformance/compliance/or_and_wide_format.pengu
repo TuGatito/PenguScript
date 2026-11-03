@@ -1,0 +1,63 @@
+## Regression cover for `or:` blocks and wide/real interpolation.
+##
+## Covers the failures found while building `std.carmen`:
+## - `or:` blocks only emitted their first statement;
+## - `error` was not bound to the failure payload;
+## - `f64`, `i64`, `u64` and `usize` interpolated as `%g`/truncated ints;
+## - `calling r.error.message` emitted an accessor on the result, not on
+##   the payload.
+import std.spark
+import std.carmen
+
+weave fail_if_neg with n as int into result of int to string:
+    if n < 0:
+        return calling err_of with "neg"
+    return calling ok_of with n
+
+weave pos_only with n as int into maybe int:
+    if n <= 0:
+        return maybe none
+    return some n
+
+weave message_of with n as int into string:
+    var got as string is "none"
+    var trace as string is ""
+    let value is (calling fail_if_neg with n) or:
+        set got is error
+        set trace is "{got}!"
+        return "{trace}|fail"
+    if value >= 0:
+        return "ok"
+    return "unreachable"
+
+weave maybe_note with n as int into string:
+    var note as string is "present"
+    let value is (calling pos_only with n) or:
+        set note is error
+        return note
+    if value > 0:
+        return "ok"
+    return "unreachable"
+
+weave main into int:
+    calling spark.assert with ((calling message_of with 5) == "ok")
+    calling spark.assert with ((calling message_of with -1) == "neg!|fail")
+    calling spark.assert with ((calling maybe_note with 3) == "ok")
+    calling spark.assert with ((calling maybe_note with 0) == "maybe is absent")
+
+    var big as u64 is (0 to u64) - 1
+    var signed_big as i64 is -9007199254740993
+    var real as f64 is 2.25
+    var wide as usize is 4294967296
+    calling spark.assert with ("{big}" == "18446744073709551615")
+    calling spark.assert with ("{signed_big}" == "-9007199254740993")
+    calling spark.assert with ("{real}" == "2.25")
+    calling spark.assert with ("{wide}" == "4294967296")
+
+    var bad as result of int to carmen.CarmenError is calling carmen.calcsize with "=n"
+    calling spark.assert with (not bad.is_ok)
+    var why as string is calling bad.error.message
+    calling spark.assert with (why == "format: codes 'n', 'N' and 'P' are native-only at position 1")
+
+    calling spark.println with "OK or_and_wide_format"
+    return 0

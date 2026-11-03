@@ -1,6 +1,6 @@
 # Referencia del Lenguaje PenguScript
 
-> **Versión cubierta:** PenguScript **3.0.3** (sincronizada con `VERSION` y `pengu_version.py`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
+> **Versión cubierta:** PenguScript **0.23.0** (sincronizada con el archivo `VERSION`; generador de código C99/C11; cabeceras de runtime en `pengu_runtime.h`).
 > **Política de idioma.** El inglés es el idioma canónico de la documentación de
 > PenguScript, así que el documento **normativo** es [`LANGUAGE.md`](LANGUAGE.md).
 > Esta traducción al español es **no normativa**: puede ir por detrás y, donde los dos
@@ -3830,7 +3830,7 @@ Métodos integrados admitidos dentro de los bloques `with` de colecciones:
 
 ## 19. Biblioteca estándar
 
-PenguScript incluye **40 módulos de biblioteca estándar** (`std.<module>`) que ofrecen abstracciones idiomáticas de alto
+PenguScript incluye **41 módulos de biblioteca estándar** (`std.<module>`) que ofrecen abstracciones idiomáticas de alto
 nivel para E/S, cadenas, concurrencia, serialización, matemáticas, pruebas y
 puentes de memoria.
 
@@ -3843,14 +3843,15 @@ distribuyen como repositorios satélite que se instalan por proyecto con
 
 ### 19.0 Política de versionado de la biblioteca estándar
 
-La biblioteca estándar se distribuye **acoplada al compilador** en la serie 1.x
-(decisión D6): un programa compilado con PenguScript 1.4 usa el `std/` que se
-distribuyó con 1.4, y no hay una versión de stdlib separada que resolver. Cada
+La biblioteca estándar sigue **distribuyéndose con el compilador**, pero cada
+módulo se versiona de forma **independiente** desde 0.23.0: un cambio en
+`std.carmen` sube `CARMEN_VERSION`, no la versión del compilador, y cada release
+del compilador incluye las versiones de módulo con las que fue probado. Cada
 módulo puro exporta una constante `<MODULE>_VERSION` (p. ej. `std.ffi` →
 `FFI_VERSION`, `std.archivum` → `ARCHIVUM_VERSION`, `std.loom` → `LOOM_VERSION`,
-`std.functor` → `FUNCTOR_VERSION`) con la release que cambió ese módulo por
-última vez, de modo que el código puede comprobar la biblioteca contra la que se
-construyó:
+`std.functor` → `FUNCTOR_VERSION`, `std.carmen` → `CARMEN_VERSION`) con su
+propia versión semántica, de modo que el código puede comprobar la biblioteca
+contra la que se construyó y se ve cuánto ha evolucionado cada módulo:
 
 ```pengu
 import std.archivum
@@ -3860,21 +3861,22 @@ test "stdlib version":
         assert false
 ```
 
-`tests/stdlib/test_std_versioning.py` exige que cada módulo escrito a mano de
-`std/` exporte esa constante con una versión de release válida (opcionalmente
-con sufijo de prerelease semver). Como la biblioteca estándar va acoplada al
-compilador, la constante nombra la **release de stdlib con la que se distribuye**,
-no la última release que tocó ese archivo: todos los módulos de 2.14.0 declaran
-`"2.14.0"` (salvo `std.spark`, cuyo `SPARK_VERSION` conserva su propia revisión
-de API `0.8.0-spark`, y `JSONRPC_PROTOCOL_VERSION`, que es la versión `"2.0"` del
-protocolo de cable). El uso de espacios de nombres ya mantiene cada módulo
-autocontenido (`std.<module>.<symbol>`), así que desacoplar la stdlib en paquetes
-versionados de forma independiente queda reservado para 2.0.
+La versión es la **historia propia** del módulo, no la release del compilador:
+un módulo que no ha cambiado conserva su número (`std.ffi` declara `"2.14.0"`
+mientras `std.carmen` empieza en `"1.0.0"`). `std.spark` mantiene
+`SPARK_VERSION` (`"0.8.0-spark"`, su revisión de API) y
+`JSONRPC_PROTOCOL_VERSION` es la versión `"2.0"` del protocolo de cable, no una
+versión de módulo. Los módulos se siguen resolviendo por nombre desde el
+directorio `std/` que se distribuye con el compilador; los paquetes de módulo
+independientes quedan para 2.0. Al tocar un módulo, sube su constante según
+semver: parche para correcciones, menor para API aditiva, mayor para cambios
+incompatibles.
 
 Los cuatro módulos fundamentales de la serie 2.9, los tres módulos de datos de la
 serie 2.10, los dos módulos de texto de 2.11 (`std.lingua`, `std.regulus`), el
-módulo HTTP de 2.12 (`std.petitio`) y el módulo de compresión de 2.14
-(`std.compressus`) siguen la misma regla: `std.builder` exporta `BUILDER_VERSION`, `std.arena`
+módulo HTTP de 2.12 (`std.petitio`), el módulo de compresión de 2.14
+(`std.compressus`) y el módulo de layouts binarios de 0.23 (`std.carmen`) siguen
+la misma regla: `std.builder` exporta `BUILDER_VERSION`, `std.arena`
 exporta `ARENA_VERSION`, `std.sourcemap` exporta `SOURCEMAP_VERSION`,
 `std.bitset` exporta `BITSET_VERSION`, `std.diagnostic` exporta
 `DIAGNOSTIC_VERSION`, `std.json` exporta `JSON_VERSION`, `std.jsonrpc` exporta
@@ -3886,7 +3888,7 @@ sus constantes de ajuste por defecto (`BUILDER_DEFAULT_CAPACITY`,
 `ARENA_DEFAULT_BLOCK_SIZE`, `ARENA_DEFAULT_ALIGNMENT`) para quien quiera reservar
 exactamente lo que el módulo reservaría.
 
-### 19.1 Módulos de PenguScript puro (40 módulos)
+### 19.1 Módulos de PenguScript puro (41 módulos)
 
 Todos los módulos puros se encuentran en el directorio `std/` y se importan como `import std.<module>`.
 
@@ -3896,7 +3898,7 @@ vendorizado, `std.regulus` sobre `std_c/re.h`/`re.c`, `std.petitio` sobre el
 `libcurl` del sistema a través del puente vendorizado `std_c/petitio.c`, y
 `std.compressus` sobre el `std_c/miniz.h`/`miniz.c` vendorizado).
 Esos cinco usan `include`, `declare`, `link` y `antiquus` como frontera
-explícita; los otros 34 están escritos enteramente en PenguScript. Los bindings a
+explícita; los otros 35 están escritos enteramente en PenguScript. Los bindings a
 bibliotecas de terceros son satélites instalados con `pengu add`, no forman
 parte de esta lista.
 
@@ -3947,6 +3949,7 @@ parte de esta lista.
 | `std.regulus` | Expresiones regulares pequeñas y explícitas: `Regex.compile`, `pattern`, `is_match`, `match`, `match_at`, `matches`, `replace_first`, `replace_all`, `split`, `escape`, `Match` y `RegexError`, más `is_match`/`find_first` de un solo uso. Gramática completa: `. ^ $ * + ? [] \d \w \s`; **sin** grupos, alternancia, `{n,m}`, lookaround, backreferences ni clases Unicode. Wrapper sobre `std_c/re.h` + `re.c` (kokke/tiny-regex-c, dominio público). Ver `docs/REGULUS.md`. Comparable a `re` de Python para búsquedas básicas. |
 | `std.petitio` | Cliente HTTP de alto nivel con API tipo `requests`: `Request` (`new`, `header`, `remove_header`, `has_header`, `text_body`, `json_body`, `form_body`, `bytes_body`, `timeout`, `connect_timeout`, `no_redirects`, `max_redirects`, `insecure`, `http_version`, `auth_basic`, `auth_digest`, `auth_any`, `auth_bearer`, `proxy`, `socks_proxy`, `max_body_bytes`, `multipart_field`, `multipart_bytes`, `multipart_file`, `send`, `send_to_file`, `send_stream`), `Response` (`status`, `headers`, `body`, `url`, `elapsed_sec`, `bytes_written`, `http_version`, `redirected`, `cookies`, `cleared_cookies`, `is_ok`/`is_redirect`/`is_client_error`/`is_server_error`, `text`, `json`, `header`, `has_header`, `raise_for_status`), `Session` (headers y cookies persistentes, `load_cookies_from_file`/`save_cookies_to_file`, `cookie`), `FormPart`, `HttpError`, `UrlParts`, `HttpVersion`, `AuthMode`, helpers de un solo uso `get`/`head`/`delete`/`options`/`post`/`post_json`/`post_form`/`post_text`/`put_json`/`patch_json`, concurrencia `fetch_many`, helpers de URL `url_encode`/`url_decode`/`build_query_string`/`with_query`/`parse_url`, movimientos explícitos `take_response`/`take_error` y `libcurl_version`. Wrapper sobre el `libcurl` del sistema mediante `std_c/petitio.c` (se evaluó y descartó naett: sin timeout total, sin control de redirects ni de cookies). Ver `docs/PETITIO.md`. Comparable a `requests` de Python. |
 | `std.compressus` | gzip (RFC 1952), zlib (RFC 1950) y deflate crudo (RFC 1951): one-shot `gzip_compress`, `gzip_compress_named`, `gzip_decompress`, `zlib_compress`, `zlib_decompress`, `deflate_compress`, `inflate_decompress`; detección de formato `detect_format`, `decompress_auto` y `decompress_as`; gzip multi-miembro; CRC-32 y Adler-32 con continuación (`crc32`, `crc32_continue`, `adler32`, `adler32_continue`); helpers de fichero `gzip_compress_file`, `gzip_decompress_file`, `gzip_read_file`, `gzip_write_file`, `zlib_compress_file`, `zlib_decompress_file`; `CompressionLevel`, `CompressionFormat` y la taxonomía `CompressError`. Wrapper sobre el `std_c/miniz.h`/`miniz.c` vendorizado (miniz 3.1.2, dominio público), con el contenedor gzip implementado aquí porque miniz no soporta RFC 1952. Ver `docs/COMPRESSUS.md`. Comparable a `gzip` + `zlib` de Python, `std.compress` de Zig y `core:compress` de Odin. |
+| `std.carmen` | Layouts binarios a partir de una fórmula compatible con `struct` de Python: handles compilados (`seal`, `Carmen`), tamaño e introspección (`calcsize`, `layout`, `describe`, `explain`, `validate`, `hex`), E/S de registros (`pack`, `pack_into`, `unpack`, `unpack_from`, `unpack_named`, `iter_unpack`), valores dinámicos (`CarmenValue`: signed/unsigned/real/truth/text) y errores tipados (`CarmenError`). Los cursores `CarmenReader`/`CarmenWriter` cubren enteros de ancho fijo, `f16`/`f32`/`f64`, bytes, cadenas C, cadenas Pascal, varint sin signo, zigzag y campos de bits. Códigos de fórmula `x c b B ? h H i I l L q Q n N e f d s p P` con prefijos `@ = < > !`, más las extensiones `z` (relleno NUL), `v`/`V` (u16/u32 little-endian), campos con nombre `{name:code}` y cambios de orden de bytes a mitad de fórmula. `CARMEN_VERSION` es `"1.0.0"`. Ver `docs/CARMEN.md`. Comparable a `struct` de Python y `Array#pack` de Ruby. |
 
 ### 19.1.1 Elegir entre `std.loom` y `std.tally`
 

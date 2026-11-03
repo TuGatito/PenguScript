@@ -1,6 +1,6 @@
 # PenguScript Language Reference
 
-> **Version covered:** PenguScript **3.0.3** (synchronized with `VERSION` and `pengu_version.py`; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
+> **Version covered:** PenguScript **0.23.0** (synchronized with the `VERSION` file; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
 > **Language policy.** English is the canonical language of the PenguScript
 > documentation, so **this document is the normative one**. A Spanish translation is
 > maintained at [`LANGUAGE_Spanish.md`](LANGUAGE_Spanish.md); it is **non-normative**,
@@ -3784,13 +3784,15 @@ as satellite repositories installed per project with `pengu add <url>` (§19.2).
 
 ### 19.0 Standard-library versioning policy
 
-The standard library ships **coupled to the compiler** in the 1.x series (decision
-D6): a program compiled with PenguScript 1.4 uses the `std/` that shipped with
-1.4, and there is no separate stdlib version to resolve. Each pure module exports
-a `<MODULE>_VERSION` constant (e.g. `std.ffi` → `FFI_VERSION`, `std.archivum` →
+The standard library still **ships with the compiler**, but every module is
+versioned **independently** since 0.23.0: a change to `std.carmen` bumps
+`CARMEN_VERSION`, not the compiler version, and a compiler release ships
+whatever module versions it was tested with. Each pure module exports a
+`<MODULE>_VERSION` constant (e.g. `std.ffi` → `FFI_VERSION`, `std.archivum` →
 `ARCHIVUM_VERSION`, `std.loom` → `LOOM_VERSION`, `std.functor` →
-`FUNCTOR_VERSION`) holding the release that last changed that module, so code
-can assert the library it was built against:
+`FUNCTOR_VERSION`, `std.carmen` → `CARMEN_VERSION`) with its own semantic
+version, so code can assert the library it was built against and readers can
+see how much a module has evolved:
 
 ```pengu
 import std.archivum
@@ -3800,21 +3802,21 @@ test "stdlib version":
         assert false
 ```
 
-`tests/stdlib/test_std_versioning.py` enforces that every hand-written `std/`
-module exports that constant with a valid release version (optionally with a
-semver prerelease suffix). Because the standard library is coupled to the
-compiler, the constant names the **stdlib release it ships with**, not the last
-release that happened to edit that file: every module of 2.14.0 reports
-`"2.14.0"` (except `std.spark`, whose `SPARK_VERSION` keeps its own
-`0.8.0-spark` API revision, and `JSONRPC_PROTOCOL_VERSION`, which is the wire
-protocol version `"2.0"`). Namespacing already keeps each module
-self-contained (`std.<module>.<symbol>`), so decoupling the stdlib into
-independently versioned packages is reserved for 2.0.
+The version is the module's **own** history, not the compiler release: a module
+that has not changed keeps its old number (`std.ffi` reports `"2.14.0"` while
+`std.carmen` starts at `"1.0.0"`). `std.spark` keeps `SPARK_VERSION`
+(`"0.8.0-spark"`, its API revision) and `JSONRPC_PROTOCOL_VERSION` is the wire
+protocol version `"2.0"`, not a module version. Modules are still resolved by
+name from the `std/` directory shipped with the compiler; independent module
+packages remain a 2.0 concern. When you touch a module, bump its constant
+according to semver: patch for fixes, minor for additive API, major for
+breaking changes.
 
 The four fundamental modules of the 2.9 series, the three data modules of the
-2.10 series, the two text modules of 2.11 (`std.lingua`, `std.regulus`) and the
-HTTP module of 2.12 (`std.petitio`) and the compression module of 2.14
-(`std.compressus`) all follow the same rule. `std.builder` exports `BUILDER_VERSION`, `std.arena`
+2.10 series, the two text modules of 2.11 (`std.lingua`, `std.regulus`), the
+HTTP module of 2.12 (`std.petitio`), the compression module of 2.14
+(`std.compressus`) and the binary-layout module of 0.23 (`std.carmen`) all
+follow the same rule. `std.builder` exports `BUILDER_VERSION`, `std.arena`
 exports `ARENA_VERSION`, `std.sourcemap` exports `SOURCEMAP_VERSION`,
 `std.bitset` exports `BITSET_VERSION`, `std.diagnostic` exports
 `DIAGNOSTIC_VERSION`, `std.json` exports `JSON_VERSION`, `std.jsonrpc` exports
@@ -3825,7 +3827,7 @@ export their default tuning constants (`BUILDER_DEFAULT_CAPACITY`,
 `ARENA_DEFAULT_BLOCK_SIZE`, `ARENA_DEFAULT_ALIGNMENT`) for callers that want to
 reserve exactly what the module would reserve.
 
-### 19.1 Pure PenguScript Modules (40 modules)
+### 19.1 Pure PenguScript Modules (41 modules)
 
 All pure modules are located in the `std/` directory and imported as `import std.<module>`.
 
@@ -3836,7 +3838,7 @@ deliberate wrappers over C libraries (`std.lingua` over the vendored `std_c/utf8
 `libcurl` through the vendored `std_c/petitio.c` bridge, and `std.compressus`
 over the vendored `std_c/miniz.h`/`miniz.c`).
 Those six use `include`, `declare`, `link` and `antiquus` as the explicit
-boundary; the other 34 are written entirely in PenguScript. Bindings to
+boundary; the other 35 are written entirely in PenguScript. Bindings to
 third-party libraries are satellites installed with `pengu add`, not part of
 this list.
 
@@ -3894,6 +3896,7 @@ this list.
 | `std.regulus` | Small, explicit regular expressions: `Regex.compile`, `pattern`, `is_match`, `match`, `match_at`, `matches`, `replace_first`, `replace_all`, `split`, `escape`, `Match` and `RegexError`, plus one-shot `is_match`/`find_first`. Complete grammar: `. ^ $ * + ? [] \d \w \s`; **no** groups, alternation, `{n,m}`, lookaround, backreferences or Unicode classes. Wrapper over `std_c/re.h` + `re.c` (kokke/tiny-regex-c, public domain). See `docs/REGULUS.md`. Comparable to Python's `re` for basic search. |
 | `std.petitio` | High-level HTTP client with a `requests`-shaped API: `Request` (`new`, `header`, `remove_header`, `has_header`, `text_body`, `json_body`, `form_body`, `bytes_body`, `timeout`, `connect_timeout`, `no_redirects`, `max_redirects`, `insecure`, `http_version`, `auth_basic`, `auth_digest`, `auth_any`, `auth_bearer`, `proxy`, `socks_proxy`, `max_body_bytes`, `multipart_field`, `multipart_bytes`, `multipart_file`, `send`, `send_to_file`, `send_stream`), `Response` (`status`, `headers`, `body`, `url`, `elapsed_sec`, `bytes_written`, `http_version`, `redirected`, `cookies`, `cleared_cookies`, `is_ok`/`is_redirect`/`is_client_error`/`is_server_error`, `text`, `json`, `header`, `has_header`, `raise_for_status`), `Session` (persistent headers and cookies, `load_cookies_from_file`/`save_cookies_to_file`, `cookie`), `FormPart`, `HttpError`, `UrlParts`, `HttpVersion`, `AuthMode`, one-shot `get`/`head`/`delete`/`options`/`post`/`post_json`/`post_form`/`post_text`/`put_json`/`patch_json`, concurrent `fetch_many`, URL helpers `url_encode`/`url_decode`/`build_query_string`/`with_query`/`parse_url`, explicit moves `take_response`/`take_error`, and `libcurl_version`. Wrapper over the system `libcurl` through `std_c/petitio.c` (naett was evaluated and rejected: no total timeout, redirect or cookie control). See `docs/PETITIO.md`. Comparable to Python's `requests`. |
 | `std.compressus` | gzip (RFC 1952), zlib (RFC 1950) and raw deflate (RFC 1951): one-shot `gzip_compress`, `gzip_compress_named`, `gzip_decompress`, `zlib_compress`, `zlib_decompress`, `deflate_compress`, `inflate_decompress`; format detection `detect_format` and `decompress_auto`; multi-member gzip; CRC-32 and Adler-32 with continuation (`crc32`, `crc32_continue`, `adler32`, `adler32_continue`); file helpers `gzip_compress_file`, `gzip_decompress_file`, `gzip_read_file`, `gzip_write_file`, `zlib_compress_file`, `zlib_decompress_file`; `CompressionLevel`, `CompressionFormat` and the `CompressError` taxonomy. Wrapper over the vendored `std_c/miniz.h`/`miniz.c` (miniz 3.1.2, public domain), with the gzip container implemented here because miniz has no RFC 1952 support. See `docs/COMPRESSUS.md`. Comparable to Python's `gzip` + `zlib`, Zig's `std.compress` and Odin's `core:compress`. |
+| `std.carmen` | Binary layouts from a Python-`struct`-compatible formula string: compiled handles (`seal`, `Carmen`), sizing and introspection (`calcsize`, `layout`, `describe`, `explain`, `validate`, `hex`), record I/O (`pack`, `pack_into`, `unpack`, `unpack_from`, `unpack_named`, `iter_unpack`), dynamic values (`CarmenValue`: signed/unsigned/real/truth/text) and typed errors (`CarmenError`). Streaming cursors `CarmenReader`/`CarmenWriter` cover fixed-width integers, `f16`/`f32`/`f64`, bytes, C strings, Pascal strings, unsigned varint, zigzag and bit fields. Formula codes `x c b B ? h H i I l L q Q n N e f d s p P` with `@ = < > !` prefixes, plus the extensions `z` (NUL-padded), `v`/`V` (little u16/u32), `{name:code}` named fields and mid-formula byte-order switches. `CARMEN_VERSION` is `"1.0.0"`. See `docs/CARMEN.md`. Comparable to Python's `struct` and Ruby's `Array#pack`. |
 
 ### 19.1.1 Choosing between `std.loom` and `std.tally`
 

@@ -1289,7 +1289,6 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
         return
     if jvn >= 0 and (calling astutil.kind_of with ast, jvn) == pskind.NodeKind.NdOrBlock:
         var ob_op as int is calling astutil.node_child with ast, jvn, 0
-        var ob_block as int is calling astutil.node_child with ast, jvn, 1
         if ob_op < 0:
             calling emit.line with (sigil of c->emitter), "{cdecl};"
             calling context.add_local with c, nid, ty, nid
@@ -1327,8 +1326,28 @@ weave emit_local with c as ref to context.CgContext, node as int, ast as ref to 
         if ob_ott.kind == tk.SemaTypeKind.TkMaybe or ob_ott.kind == tk.SemaTypeKind.TkResult:
             calling emit.line with (sigil of c->emitter), "} else {"
             calling emit.indent_more with (sigil of c->emitter)
-            if ob_block >= 0:
-                calling emit_stmt with c, ob_block
+            # `error` es el payload de fallo; para `maybe` no hay payload y se
+            # documenta como un mensaje fijo.
+            var ob_is_res as bool is ob_ott.kind == tk.SemaTypeKind.TkResult
+            var ob_err_id as int is 0
+            if ob_is_res and ob_ott.b > 0:
+                set ob_err_id is ob_ott.b
+            if ob_err_id <= 0:
+                set ob_err_id is calling types.base with (sigil of c->program->types), "string"
+            var ob_err_t as string is calling ctype.c_type with (sigil of c->names), ob_err_id
+            defer banish ob_err_t
+            if ob_is_res:
+                calling emit.line with (sigil of c->emitter), "{ob_err_t} error = (*( {ob_err_t}*){ob_tmp}.err_val);"
+            else:
+                calling emit.line with (sigil of c->emitter), "PenguString error = pengu_string_from_cstr(\"maybe is absent\");"
+            calling emit.line with (sigil of c->emitter), "(void)error;"
+            var ob_n as int is calling astutil.child_count with ast, jvn
+            var ob_i as int is 1
+            while ob_i < ob_n:
+                var ob_c as int is calling astutil.node_child with ast, jvn, ob_i
+                if ob_c >= 0:
+                    calling emit_stmt with c, ob_c
+                set ob_i is ob_i + 1
             calling emit.indent_less with (sigil of c->emitter)
             calling emit.line with (sigil of c->emitter), "}"
         calling context.add_local with c, nid, ty, nid

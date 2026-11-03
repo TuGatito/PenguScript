@@ -1,0 +1,2221 @@
+## std/carmen.pengu — fixed-layout binary records: pack and unpack by formula.
+##
+## `carmen` is PenguScript's answer to Python's `struct`: a compact formula
+## string describes the layout of a binary record (`>I4sH` = big-endian u32,
+## four bytes, u16) and the module reads or writes it without a schema class,
+## a code generator or a C dependency. Every protocol with fixed offsets —
+## TCP frame headers, PNG chunks, ELF headers, ZIP central directories, glTF
+## chunks — becomes one formula plus one call.
+##
+## The name is Latin for *song* / *ritual formula*: the formula string is the
+## incantation that turns bytes into values and back.
+##
+## ## Quick start
+## ```pengu
+## import std.carmen
+##
+## weave main into int:
+##     var header as result of string to carmen.CarmenError is
+##         calling carmen.pack with ">I4sH",
+##             [(calling carmen.unsigned with 1),
+##              (calling carmen.text with "abcd"),
+##              (calling carmen.unsigned with 2)]
+##     if not header.is_ok:
+##         var why as string is calling header.error.message
+##         calling print with "cannot pack: {why}\n"
+##         banish why
+##         return 1
+##     defer banish header.value
+##     var back as result of list of carmen.CarmenValue to carmen.CarmenError is
+##         calling carmen.unpack with ">I4sH", header.value
+##     if not back.is_ok:
+##         return 1
+##     defer banish back.value
+##     return 0
+## ```
+##
+## ## Layers
+## | Layer | API | Use it when |
+## |---|---|---|
+## | Formula | `seal`, `calcsize`, `pack`, `unpack`, `unpack_named`, `explain` | the layout is data, not a type |
+## | Cursor | `CarmenReader`, `CarmenWriter` | the record is streamed, partial or variable-length |
+## | Insight | `layout`, `explain` | a parser misbehaves and you need to see offsets |
+##
+## ## Formula grammar
+## A formula is a strict superset of Python's `struct` format:
+## ```
+## format := prefix? item*
+## item   := prefix | field
+## prefix := '@' | '=' | '<' | '>' | '!'
+## field  := named | plain
+## named  := '{' identifier ':' count? code '}'
+## plain  := count? code
+## ```
+## - `@` native order **and** native alignment (the default), `=` native order
+##   with standard alignment, `<` little, `>`/`!` big. A prefix may appear
+##   again mid-formula to switch order for the following fields.
+## - Codes: `x c b B ? h H i I l L q Q n N e f d s p P` (Python) plus `z`
+##   (NUL-padded text, count required), `v`/`V` (little-endian u16/u32).
+## - `{name:spec}` names a field for `layout`, `unpack_named` and `explain`.
+##   Because `{}` interpolates in PenguScript, write named formulas as raw
+##   strings: `r"{width:I}{height:I}"`.
+## - Repeats produce one value each: `4B` yields four `Unsigned` values, while
+##   `4s` yields one four-byte `Text`. A named repeat yields `flags`, `flags#1`,
+##   `flags#2`, … so no value is lost.
+##
+## ## Python compatibility
+## For every formula that uses only Python codes and prefixes, `carmen`
+## produces byte-identical output to CPython's `struct` on the same platform,
+## including native `long`/pointer sizes, alignment rules, `s`/`p` truncation,
+## zero counts and out-of-range errors. Divergences are deliberate and small:
+## malformed input is a `CarmenError` value (Python raises), `n`/`N`/`P` are
+## rejected outside native mode, and `v`/`V`/`z`/named fields are extensions.
+##
+## ## Ownership
+## | Value | Owns | Release with |
+## |---|---|---|
+## | `string` from `pack` / `explain` | its bytes | `banish` |
+## | `list of CarmenValue` from `unpack` | the list and every `Text` | `banish` |
+## | `Carmen` from `seal` | formula and field list | `banish` |
+## | `CarmenReader` | nothing (borrows the data) | nothing |
+## | `CarmenWriter` | its growing buffer | `banish` |
+##
+## A `CarmenReader` must not outlive the `string` it reads, and `view`/`sub`
+## results must not outlive either.
+##
+## ## Complexity
+## | Operation | Cost |
+## |---|---|
+## | `seal`, `calcsize`, `layout` | O(len formula) |
+## | `pack` | O(len formula + size) |
+## | `unpack` | O(len formula + values) |
+## | `reader.read_*` | O(1) plus one result box |
+## | `writer.write_*` | O(1) amortised |
+## | `explain` | O(size) |
+##
+## ## Error table
+## | Variant | Meaning |
+## |---|---|
+## | `BadFormat` | malformed formula (missing count, bad name, …) |
+## | `UnknownCode` | a code that is not in the grammar |
+## | `Truncated` | the buffer is shorter than the formula needs |
+## | `TrailingBytes` | `unpack` received more bytes than the formula uses |
+## | `ValueCountMismatch` | `pack` got the wrong number of values |
+## | `ValueKindMismatch` | a value has the wrong variant for its field |
+## | `ValueOutOfRange` | a value does not fit the field's width |
+## | `UnnamedField` | a name was attached to a padding field |
+## | `DuplicateName` | the same field name appears twice |
+## | `BufferTooSmall` | `pack_into` target has no room |
+## | `OffsetOutOfRange` | `unpack_from` offset is outside the buffer |
+## | `MissingTerminator` | `read_cstr` found no NUL before the end |
+## | `Unaligned` | a byte read started mid-byte in the bit cursor |
+
+import std.ffi
+import std.memoria
+import std.builder
+
+# ----------------------------------------------------------------------------
+# Module version
+# ----------------------------------------------------------------------------
+
+## Carmen module version.
+const CARMEN_VERSION as string is "1.0.0"
+
+# ----------------------------------------------------------------------------
+# C boundary: allocator, native sizes, byte copies
+# ----------------------------------------------------------------------------
+
+## Allocates `n` zeroed bytes as a raw owned `string`.
+##
+## ## Memory
+## One allocation; release with `banish`.
+antiquus _carmen_alloc with n as int into string:
+    r"""
+size_t bytes = (n > 0) ? (size_t)n : (size_t)0;
+char *buf = (char *)calloc(bytes + 1, 1);
+if (!buf) abort();
+PenguString s;
+s.data = buf;
+s.len = (int)bytes;
+s.is_owned = PENGU_STRING_OWNED_RAW;
+return s;
+"""
+
+## Writable pointer to a raw byte buffer.
+##
+## ## Memory
+## Borrows; no allocation.
+antiquus _carmen_ptr with data as ref to string into ref to byte:
+    r"""
+return (uint8_t *)data->data;
+"""
+
+## Owned copy of `n` bytes starting at `off`.
+##
+## ## Memory
+## One allocation; release with `banish`.
+antiquus _carmen_copy_range with data as string, off as int, n as int into string:
+    r"""
+if (n <= 0 || !data.data || off < 0 || off > data.len || n > data.len - off)
+    return pengu_string_from_cstr("");
+return pengu_string_owned(data.data + off, n);
+"""
+
+## Borrowed `slice of byte` over `n` bytes at `off`.
+##
+## ## Memory
+## No allocation; the slice aliases `data`.
+antiquus _carmen_view with data as string, off as int, n as int into slice of byte:
+    r"""
+if (!data.data || off < 0 || off > data.len || n < 0 || n > data.len - off)
+    return pengu_slice_new("", 1, 0);
+return pengu_slice_new(data.data + off, 1, n);
+"""
+
+## `sizeof(long)` of the C compiler that will run the program.
+antiquus _carmen_long_size into int:
+    r"""
+return (int)sizeof(long);
+"""
+
+## `_Alignof(long)` of the C compiler that will run the program.
+antiquus _carmen_long_align into int:
+    r"""
+return (int)_Alignof(long);
+"""
+
+## `sizeof(void *)` of the target platform.
+antiquus _carmen_ptr_size into int:
+    r"""
+return (int)sizeof(void *);
+"""
+
+## `_Alignof(void *)` of the target platform.
+antiquus _carmen_ptr_align into int:
+    r"""
+return (int)_Alignof(void *);
+"""
+
+## Appends `n` bytes at `off` of `src` to a writer buffer, growing it.
+##
+## ## Memory
+## May `realloc`; aborts on OOM like `std.builder`.
+antiquus _carmen_reserve with data as ref to string, len as int, cap as ref to int, need as int into void:
+    r"""
+if (need <= *cap) return;
+size_t want = (need > 16) ? (size_t)need : (size_t)16;
+size_t ncap = (*cap > 0) ? (size_t)*cap : (size_t)16;
+while (ncap < want) ncap *= 2;
+char *np = (char *)realloc(data->data, ncap + 1);
+if (!np) abort();
+data->data = np;
+data->len = (int)ncap;
+data->is_owned = PENGU_STRING_OWNED_RAW;
+*cap = (int)ncap;
+"""
+
+## Returns the writer buffer as an owned `string` of `len` bytes.
+##
+## ## Memory
+## Transfers the buffer; the writer fields must be reset by the caller.
+antiquus _carmen_take with data as ref to string, len as int into string:
+    r"""
+data->len = len;
+return *data;
+"""
+
+# ----------------------------------------------------------------------------
+# Byte order
+# ----------------------------------------------------------------------------
+
+## Byte order of a field, a formula or a cursor.
+##
+## `Native` is only used while resolving prefixes; fields always store the
+## resolved `Little` or `Big` order.
+omen Endianness derive Nexus:
+    ## Whatever the host CPU uses.
+    Native
+    ## Least significant byte first.
+    Little
+    ## Most significant byte first.
+    Big
+
+## Human name of an order.
+##
+## ## Example
+## ```pengu
+## calling carmen.endian_name with carmen.Endianness.Big   # "big"
+## ```
+weave endian_name with e as Endianness into string:
+    return judge (essence of (sigil of e)):
+        when Native -> "native"
+        when Little -> "little"
+        when Big -> "big"
+
+## Resolves the host byte order.
+##
+## ## Memory
+## O(1); no allocation.
+weave native_order into Endianness:
+    var x as u16 is 1
+    var p as ref to byte is transmute (sigil of x) to ref to byte
+    if (p at 0) == 1:
+        return Endianness.Little
+    return Endianness.Big
+
+# ----------------------------------------------------------------------------
+# Values
+# ----------------------------------------------------------------------------
+
+## One value read from, or written to, a binary record.
+##
+## A tagged union instead of a single `i64`: the wire distinguishes signed from
+## unsigned and a `u32` field must not silently accept `-1`.
+omen CarmenValue derive Nexus:
+    ## A signed integer field (`b`, `h`, `i`, `l`, `q`, `n`).
+    Signed with value as i64
+    ## An unsigned integer field (`B`, `H`, `I`, `L`, `Q`, `N`, `P`, `v`, `V`).
+    Unsigned with value as u64
+    ## A floating point field (`e`, `f`, `d`).
+    Real with value as f64
+    ## A boolean field (`?`).
+    Truth with value as bool
+    ## A text field (`c`, `s`, `p`, `z`).
+    Text with value as string
+
+## Wraps a signed integer.
+weave signed with v as i64 into CarmenValue:
+    return with Signed is v
+
+## Wraps an unsigned integer.
+weave unsigned with v as u64 into CarmenValue:
+    return with Unsigned is v
+
+## Wraps a floating point number.
+weave real with v as f64 into CarmenValue:
+    return with Real is v
+
+## Wraps a boolean.
+weave truth with v as bool into CarmenValue:
+    return with Truth is v
+
+## Wraps a text value.
+weave text with v as string into CarmenValue:
+    return with Text is v
+
+enchanting CarmenValue:
+    ## True when the value is a signed integer.
+    weave is_signed into bool:
+        return judge (essence of self):
+            when Signed -> true
+            else -> false
+
+    ## True when the value is an unsigned integer.
+    weave is_unsigned into bool:
+        return judge (essence of self):
+            when Unsigned -> true
+            else -> false
+
+    ## True when the value is a float.
+    weave is_real into bool:
+        return judge (essence of self):
+            when Real -> true
+            else -> false
+
+    ## True when the value is a boolean.
+    weave is_truth into bool:
+        return judge (essence of self):
+            when Truth -> true
+            else -> false
+
+    ## True when the value is text.
+    weave is_text into bool:
+        return judge (essence of self):
+            when Text -> true
+            else -> false
+
+    ## The signed payload, when the value is signed.
+    weave as_signed into maybe i64:
+        var out as maybe i64 is maybe none
+        var ignored as int is judge (essence of self):
+            when Signed with value ->
+                set out is some value
+                0
+            else ->
+                0
+        return out
+
+    ## The unsigned payload, when the value is unsigned.
+    weave as_unsigned into maybe u64:
+        var out as maybe u64 is maybe none
+        var ignored as int is judge (essence of self):
+            when Unsigned with value ->
+                set out is some value
+                0
+            else ->
+                0
+        return out
+
+    ## The float payload, when the value is real.
+    weave as_real into maybe f64:
+        var out as maybe f64 is maybe none
+        var ignored as int is judge (essence of self):
+            when Real with value ->
+                set out is some value
+                0
+            else ->
+                0
+        return out
+
+    ## The boolean payload, when the value is a truth value.
+    weave as_truth into maybe bool:
+        var out as maybe bool is maybe none
+        var ignored as int is judge (essence of self):
+            when Truth with value ->
+                set out is some value
+                0
+            else ->
+                0
+        return out
+
+    ## The text payload, when the value is text.
+    weave as_text into maybe string:
+        var out as maybe string is maybe none
+        var ignored as int is judge (essence of self):
+            when Text with value ->
+                set out is some (calling _carmen_dup with value)
+                0
+            else ->
+                0
+        return out
+
+    ## Name of the variant, for diagnostics.
+    weave type_name into string:
+        return judge (essence of self):
+            when Signed -> "signed"
+            when Unsigned -> "unsigned"
+            when Real -> "real"
+            when Truth -> "truth"
+            when Text -> "text"
+
+## Owned copy of a string.
+##
+## ## Memory
+## One allocation; release with `banish`.
+antiquus _carmen_dup with s as string into string:
+    r"""
+if (!s.data || s.len <= 0) return pengu_string_from_cstr("");
+return pengu_string_owned(s.data, s.len);
+"""
+
+# ----------------------------------------------------------------------------
+# Errors
+# ----------------------------------------------------------------------------
+
+## Everything that can go wrong while reading, writing or compiling a formula.
+##
+## Malformed bytes are normal input here, so every failure is a value; `carmen`
+## never panics on user data.
+omen CarmenError derive Nexus:
+    ## The formula is malformed.
+    BadFormat with reason as string, position as int
+    ## The formula contains a character that is not a code.
+    UnknownCode with code as char, position as int
+    ## The buffer is shorter than the formula needs.
+    Truncated with need as int, have as int
+    ## `unpack` received more bytes than the formula consumes.
+    TrailingBytes with extra as int
+    ## `pack` received the wrong number of values.
+    ValueCountMismatch with expected as int, got as int
+    ## A value's variant does not match its field.
+    ValueKindMismatch with index as int, expected as string
+    ## A value does not fit the field's width.
+    ValueOutOfRange with index as int, detail as string
+    ## A name was attached to a field that produces no value.
+    UnnamedField with position as int
+    ## The same field name appears twice.
+    DuplicateName with name as string
+    ## A `pack_into` target is too small.
+    BufferTooSmall with need as int, capacity as int
+    ## An `unpack_from` offset is outside the buffer.
+    OffsetOutOfRange with offset as int, length as int
+    ## `read_cstr` reached the end without a NUL byte.
+    MissingTerminator with position as int
+    ## A byte-sized read started in the middle of a byte.
+    Unaligned with position as int
+
+enchanting CarmenError:
+    ## One English sentence describing the failure.
+    weave message into string:
+        return judge (essence of self):
+            when BadFormat with reason, position ->
+                "format: {reason} at position {position}"
+            when UnknownCode with code, position ->
+                "format: unknown code {ord code} at position {position}"
+            when Truncated with need, have ->
+                "buffer: need {need} bytes, have {have}"
+            when TrailingBytes with extra ->
+                "buffer: {extra} trailing bytes"
+            when ValueCountMismatch with expected, got ->
+                "values: need {expected}, got {got}"
+            when ValueKindMismatch with index, expected ->
+                "value {index}: expected {expected}"
+            when ValueOutOfRange with index, detail ->
+                "value {index}: {detail}"
+            when UnnamedField with position ->
+                "format: a padding field cannot be named (position {position})"
+            when DuplicateName with name ->
+                "format: duplicate field name '{name}'"
+            when BufferTooSmall with need, capacity ->
+                "buffer: need {need} bytes, capacity {capacity}"
+            when OffsetOutOfRange with offset, length ->
+                "buffer: offset {offset} is outside 0..{length}"
+            when MissingTerminator with position ->
+                "text: no NUL terminator before position {position}"
+            when Unaligned with position ->
+                "bit cursor: byte read at bit offset {position}"
+
+## True when the formula uses only Python codes and prefixes.
+##
+## ## Memory
+## O(len formula).
+weave is_python_compatible with fmt as string into bool:
+    var i as int is 0
+    var bb as ref to frozen byte is bytes of fmt
+    while i < fmt.length:
+        var c as char is (bb at i) to char
+        if c == 'z' or c == 'v' or c == 'V' or c == '{' or c == '}':
+            return false
+        set i is i + 1
+    return true
+
+# ----------------------------------------------------------------------------
+# Character classes
+# ----------------------------------------------------------------------------
+
+weave _is_space with c as char into bool:
+    var v as int is ord c
+    return v == 32 or v == 9 or v == 10 or v == 13
+
+weave _is_digit with c as char into bool:
+    var v as int is ord c
+    return v >= 48 and v <= 57
+
+weave _is_ident_start with c as char into bool:
+    var v as int is ord c
+    return (v >= 65 and v <= 90) or (v >= 97 and v <= 122) or v == 95
+
+weave _is_ident_char with c as char into bool:
+    var v as int is ord c
+    return (v >= 65 and v <= 90) or (v >= 97 and v <= 122) or (v >= 48 and v <= 57) or v == 95
+
+# ----------------------------------------------------------------------------
+# Code classification
+# ----------------------------------------------------------------------------
+
+## True when `c` is a formula code.
+weave _is_code with c as char into bool:
+    if c == 'x' or c == 'c' or c == 'b' or c == 'B' or c == '?':
+        return true
+    if c == 'h' or c == 'H' or c == 'i' or c == 'I':
+        return true
+    if c == 'l' or c == 'L' or c == 'q' or c == 'Q':
+        return true
+    if c == 'n' or c == 'N' or c == 'e' or c == 'f' or c == 'd':
+        return true
+    if c == 's' or c == 'p' or c == 'P' or c == 'z':
+        return true
+    if c == 'v' or c == 'V':
+        return true
+    return false
+
+## 0 = padding, 1 = signed, 2 = unsigned, 3 = float, 4 = text, 5 = char, 6 = bool.
+weave _code_class with c as char into int:
+    if c == 'x':
+        return 0
+    if c == 'b' or c == 'h' or c == 'i' or c == 'l' or c == 'q' or c == 'n':
+        return 1
+    if c == 'B' or c == 'H' or c == 'I' or c == 'L' or c == 'Q' or c == 'N' or c == 'P':
+        return 2
+    if c == 'v':
+        return 2
+    if c == 'V':
+        return 2
+    if c == 'e' or c == 'f' or c == 'd':
+        return 3
+    if c == 's' or c == 'p' or c == 'z':
+        return 4
+    if c == 'c':
+        return 5
+    if c == '?':
+        return 6
+    return -1
+
+## Size in bytes of one element of `c`; 1 for text/padding (the count is the size).
+weave _elem_size with c as char, native as bool into int:
+    if c == 'b' or c == 'B' or c == 'c' or c == '?' or c == 'x':
+        return 1
+    if c == 'h' or c == 'H' or c == 'v' or c == 'e':
+        return 2
+    if c == 'i' or c == 'I' or c == 'V' or c == 'f':
+        return 4
+    if c == 'q' or c == 'Q' or c == 'd':
+        return 8
+    if c == 'l' or c == 'L':
+        if native:
+            return calling _carmen_long_size
+        return 4
+    if c == 'n' or c == 'N' or c == 'P':
+        if native:
+            return calling _carmen_ptr_size
+        return 0
+    if c == 's' or c == 'p' or c == 'z':
+        return 1
+    return 0
+
+## Native alignment of one element of `c`.
+weave _elem_align with c as char into int:
+    if c == 'l' or c == 'L':
+        return calling _carmen_long_align
+    if c == 'n' or c == 'N' or c == 'P':
+        return calling _carmen_ptr_align
+    return calling _elem_size with c, true
+
+## Rounds `off` up to the next multiple of `a`.
+weave _align_up with off as int, a as int into int:
+    if a <= 1:
+        return off
+    var r as int is off - ((off / a) * a)
+    if r == 0:
+        return off
+    return off + (a - r)
+
+## True when `c` may only be used in native mode.
+weave _native_only with c as char into bool:
+    return c == 'n' or c == 'N' or c == 'P'
+
+# ----------------------------------------------------------------------------
+# Error constructors (keep call sites short)
+# ----------------------------------------------------------------------------
+
+weave _bad with reason as string, position as int into CarmenError:
+    return with BadFormat is with reason is reason, position is position
+
+weave _unknown with code as char, position as int into CarmenError:
+    return with UnknownCode is with code is code, position is position
+
+weave _truncated with need as int, have as int into CarmenError:
+    return with Truncated is with need is need, have is have
+
+weave _count_mismatch with expected as int, got as int into CarmenError:
+    return with ValueCountMismatch is with expected is expected, got is got
+
+weave _kind_mismatch with index as int, expected as string into CarmenError:
+    return with ValueKindMismatch is with index is index, expected is expected
+
+weave _out_of_range with index as int, detail as string into CarmenError:
+    return with ValueOutOfRange is with index is index, detail is detail
+
+weave _duplicate with name as string into CarmenError:
+    return with DuplicateName is with name is name
+
+# ----------------------------------------------------------------------------
+# Fields and compiled formulas
+# ----------------------------------------------------------------------------
+
+## One element of a compiled formula.
+rune CarmenField derive Nexus:
+    ## Field name from `{name:spec}`, or `""` when unnamed.
+    name as string
+    ## Formula code (`I`, `4s`, `x`, …).
+    code as char
+    ## Byte offset from the start of the record.
+    offset as int
+    ## Size in bytes (`4s` is 4, `B` is 1, `3x` is 3).
+    size as int
+    ## Alignment in bytes (1 in standard mode).
+    alignment as int
+    ## Value slot (0, 1, …), or `-1` for padding.
+    index as int
+    ## Byte order in force for this field.
+    order as Endianness
+
+## A compiled formula. Compile once, reuse for many records.
+rune Carmen derive Nexus:
+    _fmt as string
+    _fields as list of CarmenField
+    _size as int
+    _order as Endianness
+    _native as bool
+
+enchanting Carmen:
+    ## Total record size in bytes.
+    weave size into int:
+        return self->_size
+
+    ## Formula string this handle was compiled from.
+    weave format into string:
+        return self->_fmt
+
+    ## Default byte order.
+    weave order into Endianness:
+        return self->_order
+
+    ## True when the formula starts in native mode.
+    weave is_native into bool:
+        return self->_native
+
+    ## Number of values the formula consumes.
+    weave value_count into int:
+        var k as int is 0
+        for f in self->_fields:
+            if f.index >= 0:
+                set k is k + 1
+        return k
+
+    ## Copies every field, duplicating names.
+    weave fields into list of CarmenField:
+        var out as list of CarmenField is list of CarmenField
+        for f in self->_fields:
+            var nm as string is ""
+            if f.name != "":
+                set nm is calling _carmen_dup with f.name
+            var g as CarmenField is with name is nm, code is f.code, offset is f.offset, size is f.size, alignment is f.alignment, index is f.index, order is f.order
+            calling out.push with g
+        return out
+
+## Compiles `fmt` into a reusable handle.
+##
+## ## Example
+## `let h is calling carmen.seal with ">I4sH"`
+##
+## ## Complexity
+## O(len fmt).
+weave seal with fmt as string into result of Carmen to CarmenError:
+    var fields as list of CarmenField is list of CarmenField
+    var off as int is 0
+    var order as Endianness is Native
+    var native as bool is true
+    var vcount as int is 0
+    var first_order as Endianness is Native
+    var first_native as bool is true
+    var saw_prefix as bool is false
+    var i as int is 0
+    var n as int is fmt.length
+    var bb as ref to frozen byte is bytes of fmt
+    while i < n:
+        var c as char is (bb at i) to char
+        if calling _is_space with c:
+            set i is i + 1
+            continue
+        if c == '@' or c == '=' or c == '<' or c == '>' or c == '!':
+            if c == '@':
+                set native is true
+                set order is Native
+            else if c == '=':
+                set native is false
+                set order is Native
+            else if c == '<':
+                set native is false
+                set order is Little
+            else:
+                set native is false
+                set order is Big
+            if not saw_prefix:
+                set saw_prefix is true
+                set first_order is order
+                if c == '@':
+                    set first_native is true
+                else:
+                    set first_native is false
+            set i is i + 1
+            continue
+        var iname as string is ""
+        var named as bool is false
+        if c == '{':
+            set named is true
+            set i is i + 1
+            var sb as StringBuilder is calling StringBuilder.new
+            var closed as bool is false
+            while i < n:
+                var cc as char is (bb at i) to char
+                if cc == ':':
+                    set closed is true
+                    set i is i + 1
+                    break
+                calling sb.append_char with cc
+                set i is i + 1
+            if not closed:
+                banish sb
+                return calling err_of with (calling _bad with "named field has no ':'", i)
+            set iname is calling sb.finish
+            banish sb
+            if iname.length == 0:
+                return calling err_of with (calling _bad with "empty field name", i)
+            var q as int is 0
+            var nb as ref to frozen byte is bytes of iname
+            while q < iname.length:
+                var qc as char is (nb at q) to char
+                var ok as bool is false
+                if q == 0:
+                    set ok is calling _is_ident_start with qc
+                else:
+                    set ok is calling _is_ident_char with qc
+                if not ok:
+                    banish iname
+                    return calling err_of with (calling _bad with "field name must be an identifier", i)
+                set q is q + 1
+        var count as int is 0
+        var has_count as bool is false
+        while i < n:
+            var d as char is (bb at i) to char
+            if not calling _is_digit with d:
+                break
+            if count > 100000000:
+                if iname != "":
+                    banish iname
+                return calling err_of with (calling _bad with "count is too large", i)
+            set count is (count * 10) + ((ord d) - 48)
+            set has_count is true
+            set i is i + 1
+        if i >= n:
+            if iname != "":
+                banish iname
+            return calling err_of with (calling _bad with "formula ends after a count", i)
+        var code as char is (bb at i) to char
+        var code_pos as int is i
+        set i is i + 1
+        if not calling _is_code with code:
+            if iname != "":
+                banish iname
+            return calling err_of with (calling _unknown with code, code_pos)
+        if named:
+            if code == 'x':
+                banish iname
+                return calling err_of with (with UnnamedField is with position is code_pos)
+            if i >= n or ((bb at i) to char) != '}':
+                banish iname
+                return calling err_of with (calling _bad with "named field is missing '}'", i)
+            set i is i + 1
+            var dup as bool is false
+            for f in fields:
+                if f.name == iname:
+                    set dup is true
+            if dup:
+                banish iname
+                return calling err_of with (calling _duplicate with iname)
+        if code == 'x':
+            var padn as int is 1
+            if has_count:
+                set padn is count
+            if padn > 0:
+                var pf as CarmenField is with name is "", code is code, offset is off, size is padn, alignment is 1, index is -1, order is order
+                calling fields.push with pf
+                set off is off + padn
+            if iname != "":
+                banish iname
+            continue
+        if code == 's' or code == 'p' or code == 'z':
+            var tn as int is 1
+            if has_count:
+                set tn is count
+            if code == 'z' and not has_count:
+                if iname != "":
+                    banish iname
+                return calling err_of with (calling _bad with "code 'z' requires a count", code_pos)
+            if code == 'p' and tn > 255:
+                if iname != "":
+                    banish iname
+                return calling err_of with (calling _bad with "code 'p' allows at most 255 bytes", code_pos)
+            var tf as CarmenField is with name is iname, code is code, offset is off, size is tn, alignment is 1, index is vcount, order is order
+            calling fields.push with tf
+            set vcount is vcount + 1
+            set off is off + tn
+            continue
+        if calling _native_only with code and not native:
+            if iname != "":
+                banish iname
+            return calling err_of with (calling _bad with "codes 'n', 'N' and 'P' are native-only", code_pos)
+        var elem as int is calling _elem_size with code, native
+        var al as int is calling _elem_align with code
+        if has_count and count == 0:
+            if native:
+                set off is calling _align_up with off, al
+            if iname != "":
+                banish iname
+            continue
+        var reps as int is 1
+        if has_count:
+            set reps is count
+        var r as int is 0
+        while r < reps:
+            if native:
+                set off is calling _align_up with off, al
+            var nm as string is ""
+            if iname != "":
+                if r == 0:
+                    set nm is iname
+                else:
+                    set nm is "{iname}#{r}"
+            var f as CarmenField is with name is nm, code is code, offset is off, size is elem, alignment is al, index is vcount, order is order
+            calling fields.push with f
+            set vcount is vcount + 1
+            set off is off + elem
+            set r is r + 1
+        if iname != "" and reps == 0:
+            banish iname
+    var handle as Carmen is with _fmt is (calling _carmen_dup with fmt), _fields is fields, _size is off, _order is first_order, _native is first_native
+    return calling ok_of with handle
+
+## Size in bytes of the record described by `fmt`.
+##
+## ## Example
+## `let n is calling carmen.calcsize with ">I4sH"` → `10`
+weave calcsize with fmt as string into result of int to CarmenError:
+    var c as result of Carmen to CarmenError is calling seal with fmt
+    if not c.is_ok:
+        return calling err_of with c.error
+    var h as Carmen is c.value
+    var sz as int is calling h.size
+    banish h
+    return calling ok_of with sz
+
+## Fields of `fmt`, with offsets, sizes and alignments.
+##
+## ## Example
+## `let fs is calling carmen.layout with "<2sI"` → two fields at offsets 0 and 2
+weave layout with fmt as string into result of list of CarmenField to CarmenError:
+    var c as result of Carmen to CarmenError is calling seal with fmt
+    if not c.is_ok:
+        return calling err_of with c.error
+    var h as Carmen is c.value
+    var fs as list of CarmenField is calling h.fields
+    banish h
+    return calling ok_of with fs
+
+# ----------------------------------------------------------------------------
+# Byte order
+# ----------------------------------------------------------------------------
+
+## True when `e` means little-endian on this platform.
+weave _is_little with e as Endianness into bool:
+    return judge (essence of (sigil of e)):
+        when Native -> calling _native_is_little
+        when Little -> true
+        when Big -> false
+
+antiquus _native_is_little into bool:
+    r"""
+uint16_t probe = 1;
+return *(uint8_t *)&probe == 1;
+"""
+
+# ----------------------------------------------------------------------------
+# Raw integer and float access
+# ----------------------------------------------------------------------------
+
+## Reads `n` bytes at `off` as an unsigned integer.
+weave _get_u with data as string, off as int, n as int, e as Endianness into u64:
+    var bb as ref to frozen byte is bytes of data
+    var v as u64 is 0
+    var k as int is 0
+    var little as bool is calling _is_little with e
+    while k < n:
+        var b as u64 is (bb at (off + k)) to u64
+        if little:
+            set v is v | (b << (k * 8))
+        else:
+            set v is (v << 8) | b
+        set k is k + 1
+    return v
+
+## Writes the low `n` bytes of `v` at `off`.
+weave _put_u with data as ref to string, off as int, n as int, v as u64, e as Endianness into void:
+    var p as ref to byte is calling _carmen_ptr with data
+    var k as int is 0
+    var little as bool is calling _is_little with e
+    while k < n:
+        var shift as int is (n - 1 - k) * 8
+        if little:
+            set shift is k * 8
+        var b as byte is ((v >> shift) & 255) to byte
+        set p at (off + k) is b
+        set k is k + 1
+
+antiquus _f32_from_bits with b as u32 into float:
+    r"""
+union { uint32_t u; float f; } x;
+x.u = b;
+return x.f;
+"""
+
+antiquus _f32_bits with f as float into u32:
+    r"""
+union { uint32_t u; float f; } x;
+x.f = f;
+return x.u;
+"""
+
+antiquus _f64_from_bits with b as u64 into f64:
+    r"""
+union { uint64_t u; double f; } x;
+x.u = b;
+return x.f;
+"""
+
+antiquus _f64_bits with f as f64 into u64:
+    r"""
+union { uint64_t u; double f; } x;
+x.f = f;
+return x.u;
+"""
+
+# ----------------------------------------------------------------------------
+# IEEE 754 binary16
+# ----------------------------------------------------------------------------
+
+## Converts a half-precision bit pattern to a 32-bit float.
+weave _half_to_f32 with h as u16 into float:
+    var sign as u32 is ((h to u32) >> 15) & 1
+    var exp as u32 is ((h to u32) >> 10) & 31
+    var mant as u32 is (h to u32) & 1023
+    var bits as u32 is 0
+    if exp == 0:
+        if mant == 0:
+            set bits is sign << 31
+        else:
+            var e as int is -1
+            var m as u32 is mant
+            while (m & 1024) == 0:
+                set m is m << 1
+                set e is e + 1
+            set m is m & 1023
+            set bits is (sign << 31) | ((112 - (e to u32)) << 23) | (m << 13)
+    else if exp == 31:
+        set bits is (sign << 31) | 2139095040 | (mant << 13)
+    else:
+        set bits is (sign << 31) | ((exp + 112) << 23) | (mant << 13)
+    return calling _f32_from_bits with bits
+
+## Converts a 32-bit float to a half-precision bit pattern.
+##
+## ## Errors
+## Finite values outside ±65504 produce `ValueOutOfRange`.
+weave _f32_to_half with f as float, idx as int into result of u16 to CarmenError:
+    var bits as u32 is calling _f32_bits with f
+    var sign as u32 is (bits >> 31) & 1
+    var exp as u32 is (bits >> 23) & 255
+    var mant as u32 is bits & 8388607
+    if exp == 255:
+        if mant == 0:
+            return calling ok_of with (((sign << 15) | 31744) to u16)
+        return calling ok_of with (((sign << 15) | 31744 | (mant >> 13)) to u16)
+    if exp == 0 and mant == 0:
+        return calling ok_of with ((sign << 15) to u16)
+    var e as int is (exp to int) - 127
+    if e > 15:
+        return calling err_of with (calling _out_of_range with idx, "float too large for a half field")
+    if e >= -14:
+        var m as u32 is mant >> 13
+        var rem as u32 is mant & 8191
+        if rem > 4096 or (rem == 4096 and (m & 1) == 1):
+            set m is m + 1
+            if m == 1024:
+                set m is 0
+                set e is e + 1
+                if e > 15:
+                    return calling err_of with (calling _out_of_range with idx, "float too large for a half field")
+        return calling ok_of with (((sign << 15) | (((e + 15) to u32) << 10) | m) to u16)
+    if e < -25:
+        return calling ok_of with ((sign << 15) to u16)
+    var shift as int is -14 - e
+    var m2 as u32 is (mant | 8388608) >> (shift + 13)
+    var rem2 as u32 is (mant | 8388608) & ((1 << (shift + 13)) - 1)
+    var halfway as u32 is 1 << (shift + 12)
+    if rem2 > halfway or (rem2 == halfway and (m2 & 1) == 1):
+        set m2 is m2 + 1
+    return calling ok_of with (((sign << 15) | m2) to u16)
+
+# ----------------------------------------------------------------------------
+# Value coercion
+# ----------------------------------------------------------------------------
+
+weave _signed_max with size as int into i64:
+    if size >= 8:
+        return 9223372036854775807
+    var m as i64 is 1
+    return (m << ((size * 8) - 1)) - 1
+
+weave _signed_min with size as int into i64:
+    if size >= 8:
+        return -9223372036854775807 - 1
+    var m as i64 is 1
+    return -(m << ((size * 8) - 1))
+
+weave _unsigned_max with size as int into u64:
+    if size >= 8:
+        var all as u64 is 0
+        return all - 1
+    var m as u64 is 1
+    return (m << (size * 8)) - 1
+
+## Extracts an integer (any width) from a value.
+weave _as_i64 with v as CarmenValue, idx as int into result of i64 to CarmenError:
+    var outv as result of i64 to CarmenError is calling ok_of with (0 to i64)
+    judge (essence of (sigil of v)):
+        when Signed with value ->
+            set outv is calling ok_of with value
+        when Unsigned with value ->
+            if value > 9223372036854775807:
+                set outv is calling err_of with (calling _out_of_range with idx, "integer does not fit a signed field")
+            else:
+                set outv is calling ok_of with (value to i64)
+        when Truth with value ->
+            if value:
+                set outv is calling ok_of with (1 to i64)
+            else:
+                set outv is calling ok_of with (0 to i64)
+        else ->
+            set outv is calling err_of with (calling _kind_mismatch with idx, "an integer")
+    return outv
+
+weave _as_u64 with v as CarmenValue, idx as int into result of u64 to CarmenError:
+    var outv as result of u64 to CarmenError is calling ok_of with (0 to u64)
+    judge (essence of (sigil of v)):
+        when Unsigned with value ->
+            set outv is calling ok_of with value
+        when Signed with value ->
+            if value < 0:
+                set outv is calling err_of with (calling _out_of_range with idx, "negative integer in an unsigned field")
+            else:
+                set outv is calling ok_of with (value to u64)
+        when Truth with value ->
+            if value:
+                set outv is calling ok_of with (1 to u64)
+            else:
+                set outv is calling ok_of with (0 to u64)
+        else ->
+            set outv is calling err_of with (calling _kind_mismatch with idx, "an integer")
+    return outv
+
+weave _as_f64 with v as CarmenValue, idx as int into result of f64 to CarmenError:
+    var outv as result of f64 to CarmenError is calling ok_of with (0.0 to f64)
+    judge (essence of (sigil of v)):
+        when Real with value ->
+            set outv is calling ok_of with value
+        when Signed with value ->
+            set outv is calling ok_of with (value to f64)
+        when Unsigned with value ->
+            set outv is calling ok_of with (value to f64)
+        when Truth with value ->
+            if value:
+                set outv is calling ok_of with (1.0 to f64)
+            else:
+                set outv is calling ok_of with (0.0 to f64)
+        else ->
+            set outv is calling err_of with (calling _kind_mismatch with idx, "a number")
+    return outv
+
+weave _as_text with v as CarmenValue, idx as int into result of string to CarmenError:
+    var outv as result of string to CarmenError is calling ok_of with ""
+    judge (essence of (sigil of v)):
+        when Text with value ->
+            set outv is calling ok_of with value
+        else ->
+            set outv is calling err_of with (calling _kind_mismatch with idx, "text")
+    return outv
+
+# ----------------------------------------------------------------------------
+# Encoding
+# ----------------------------------------------------------------------------
+
+## Copies `src` into a byte buffer at `off`.
+antiquus _copy_to with src as string, dst as ref to byte, off as int into void:
+    r"""
+if (!src.data || src.len <= 0) return;
+memcpy(dst + off, src.data, (size_t)src.len);
+"""
+
+weave _pack_text with f as CarmenField, v as CarmenValue, out as ref to string, idx as int into result of void to CarmenError:
+    var tx as result of string to CarmenError is calling _as_text with v, idx
+    if not tx.is_ok:
+        return calling err_of with tx.error
+    var t as string is tx.value
+    var p as ref to byte is calling _carmen_ptr with out
+    var tb as ref to frozen byte is bytes of t
+    var n as int is f.size
+    if f.code == 'p':
+        if n > 0:
+            var lim as int is n - 1
+            var l as int is t.length
+            if l > lim:
+                set l is lim
+            set p at (f.offset) is (l to byte)
+            var k as int is 0
+            while k < l:
+                set p at ((f.offset + 1) + k) is (tb at k)
+                set k is k + 1
+            while k < lim:
+                set p at ((f.offset + 1) + k) is 0
+                set k is k + 1
+        return calling ok_of with 0
+    var l2 as int is t.length
+    if l2 > n:
+        set l2 is n
+    var k2 as int is 0
+    while k2 < l2:
+        set p at (f.offset + k2) is (tb at k2)
+        set k2 is k2 + 1
+    while k2 < n:
+        set p at (f.offset + k2) is 0
+        set k2 is k2 + 1
+    return calling ok_of with 0
+
+weave _pack_field with f as CarmenField, v as CarmenValue, out as ref to string, idx as int into result of void to CarmenError:
+    var cls as int is calling _code_class with f.code
+    if cls == 0:
+        return calling ok_of with 0
+    if cls == 4:
+        return calling _pack_text with f, v, out, idx
+    if cls == 5:
+        var tx as result of string to CarmenError is calling _as_text with v, idx
+        if not tx.is_ok:
+            return calling err_of with tx.error
+        var t as string is tx.value
+        if t.length != 1:
+            return calling err_of with (calling _out_of_range with idx, "char field needs exactly one byte")
+        var p as ref to byte is calling _carmen_ptr with out
+        var tb as ref to frozen byte is bytes of t
+        set p at (f.offset) is (tb at 0)
+        return calling ok_of with 0
+    if cls == 6:
+        var bv as bool is false
+        var got as bool is false
+        judge (essence of (sigil of v)):
+            when Truth with value ->
+                set bv is value
+                set got is true
+            when Signed with value ->
+                set bv is value != 0
+                set got is true
+            when Unsigned with value ->
+                set bv is value != 0
+                set got is true
+            else ->
+                set got is false
+        if not got:
+            return calling err_of with (calling _kind_mismatch with idx, "truth")
+        if bv:
+            calling _put_u with out, f.offset, 1, 1, f.order
+        else:
+            calling _put_u with out, f.offset, 1, 0, f.order
+        return calling ok_of with 0
+    if cls == 3:
+        var fx as result of f64 to CarmenError is calling _as_f64 with v, idx
+        if not fx.is_ok:
+            return calling err_of with fx.error
+        var d as f64 is fx.value
+        if f.code == 'd':
+            calling _put_u with out, f.offset, 8, (calling _f64_bits with d), f.order
+        else if f.code == 'f':
+            if d > 3.4028234663852886e38 or d < -3.4028234663852886e38:
+                return calling err_of with (calling _out_of_range with idx, "float too large for a single field")
+            var f32 as float is d to float
+            calling _put_u with out, f.offset, 4, (calling _f32_bits with f32) to u64, f.order
+        else:
+            var hx as result of u16 to CarmenError is calling _f32_to_half with (d to float), idx
+            if not hx.is_ok:
+                return calling err_of with hx.error
+            calling _put_u with out, f.offset, 2, (hx.value to u64), f.order
+        return calling ok_of with 0
+    if cls == 1:
+        var ix as result of i64 to CarmenError is calling _as_i64 with v, idx
+        if not ix.is_ok:
+            return calling err_of with ix.error
+        var x as i64 is ix.value
+        if x < calling _signed_min with f.size or x > calling _signed_max with f.size:
+            return calling err_of with (calling _out_of_range with idx, "integer does not fit the field width")
+        calling _put_u with out, f.offset, f.size, (x to u64), f.order
+        return calling ok_of with 0
+    var ux as result of u64 to CarmenError is calling _as_u64 with v, idx
+    if not ux.is_ok:
+        return calling err_of with ux.error
+    var u as u64 is ux.value
+    if u > calling _unsigned_max with f.size:
+        return calling err_of with (calling _out_of_range with idx, "integer does not fit the field width")
+    calling _put_u with out, f.offset, f.size, u, f.order
+    return calling ok_of with 0
+
+# ----------------------------------------------------------------------------
+# Decoding
+# ----------------------------------------------------------------------------
+
+weave _unpack_field with f as CarmenField, data as string into result of CarmenValue to CarmenError:
+    var cls as int is calling _code_class with f.code
+    var bb as ref to frozen byte is bytes of data
+    if cls == 4:
+        var n as int is f.size
+        if f.code == 'p':
+            if n <= 0:
+                return calling ok_of with (with Text is "")
+            var l as int is (bb at f.offset) to int
+            if l > n - 1:
+                set l is n - 1
+            if l < 0:
+                set l is 0
+            return calling ok_of with (with Text is (calling _carmen_copy_range with data, f.offset + 1, l))
+        if f.code == 'z':
+            var k as int is 0
+            while k < n:
+                if ((bb at (f.offset + k)) to int) == 0:
+                    break
+                set k is k + 1
+            return calling ok_of with (with Text is (calling _carmen_copy_range with data, f.offset, k))
+        return calling ok_of with (with Text is (calling _carmen_copy_range with data, f.offset, n))
+    if cls == 5:
+        return calling ok_of with (with Text is (calling _carmen_copy_range with data, f.offset, 1))
+    if cls == 6:
+        var t as bool is ((bb at f.offset) to int) != 0
+        return calling ok_of with (with Truth is t)
+    if cls == 3:
+        if f.code == 'd':
+            var dv as f64 is calling _f64_from_bits with (calling _get_u with data, f.offset, 8, f.order)
+            return calling ok_of with (with Real is dv)
+        if f.code == 'f':
+            var fv as float is calling _f32_from_bits with (calling _get_u with data, f.offset, 4, f.order) to u32
+            return calling ok_of with (with Real is (fv to f64))
+        var hv as float is calling _half_to_f32 with (calling _get_u with data, f.offset, 2, f.order) to u16
+        return calling ok_of with (with Real is (hv to f64))
+    if cls == 1:
+        var raw as u64 is calling _get_u with data, f.offset, f.size, f.order
+        var y as i64 is raw to i64
+        if f.size < 8:
+            var sh as int is 64 - (f.size * 8)
+            set y is (y << sh) >> sh
+        return calling ok_of with (with Signed is y)
+    var ur as u64 is calling _get_u with data, f.offset, f.size, f.order
+    return calling ok_of with (with Unsigned is ur)
+
+# ----------------------------------------------------------------------------
+# Record decode/encode
+# ----------------------------------------------------------------------------
+
+antiquus _take_error_void with r as ref to result of void to CarmenError into CarmenError:
+    r"""
+CarmenError out;
+memset(&out, 0, sizeof out);
+if (!r || r->is_ok || !r->err_val) return out;
+out = *(CarmenError *)r->err_val;
+free(r->err_val);
+r->err_val = NULL;
+r->is_ok = true;
+r->ok_val = NULL;
+return out;
+"""
+
+antiquus _take_error_value with r as ref to result of CarmenValue to CarmenError into CarmenError:
+    r"""
+CarmenError out;
+memset(&out, 0, sizeof out);
+if (!r || r->is_ok || !r->err_val) return out;
+out = *(CarmenError *)r->err_val;
+free(r->err_val);
+r->err_val = NULL;
+r->is_ok = true;
+r->ok_val = NULL;
+return out;
+"""
+
+weave _decode_all with h as Carmen, data as string into result of list of CarmenValue to CarmenError:
+    var out as list of CarmenValue is list of CarmenValue
+    for f in h._fields:
+        if f.index >= 0:
+            var r as result of CarmenValue to CarmenError is calling _unpack_field with f, data
+            if not r.is_ok:
+                var e as CarmenError is calling _take_error_value with (sigil of r)
+                banish out
+                return calling err_of with e
+            calling out.push with r.value
+    return calling ok_of with out
+
+## Packs `values` into a new byte string using `fmt`.
+##
+## ## Example
+## `calling carmen.pack with ">I4sH", [calling carmen.unsigned with 1, calling carmen.text with "abcd", calling carmen.unsigned with 2]`
+##
+## ## Errors
+## `ValueCountMismatch`, `ValueKindMismatch`, `ValueOutOfRange`.
+weave pack with fmt as string, values as list of CarmenValue into result of string to CarmenError:
+    var c as result of Carmen to CarmenError is calling seal with fmt
+    if not c.is_ok:
+        return calling err_of with c.error
+    var h as Carmen is c.value
+    var need as int is calling h.value_count
+    var have as int is values.length
+    var out as string is calling _carmen_alloc with (calling h.size)
+    if have != need:
+        banish out
+        banish h
+        return calling err_of with (calling _count_mismatch with need, have)
+    var idx as int is 0
+    for f in h._fields:
+        if f.index >= 0:
+            var r as result of void to CarmenError is calling _pack_field with f, (values at idx), (sigil of out), idx
+            if not r.is_ok:
+                var e as CarmenError is calling _take_error_void with (sigil of r)
+                banish out
+                banish h
+                return calling err_of with e
+            set idx is idx + 1
+    banish h
+    return calling ok_of with out
+
+## Packs `values` into `buffer` at `offset`, returning the number of bytes
+## written.
+##
+## ## Errors
+## `BufferTooSmall` when `offset + size` exceeds `capacity`.
+weave pack_into with fmt as string, buffer as ref to byte, capacity as int, offset as int, values as list of CarmenValue into result of int to CarmenError:
+    var packed as result of string to CarmenError is calling pack with fmt, values
+    if not packed.is_ok:
+        return calling err_of with packed.error
+    var blob as string is packed.value
+    var end as int is offset + blob.length
+    if offset < 0 or end > capacity:
+        banish blob
+        return calling err_of with (with BufferTooSmall is with need is end, capacity is capacity)
+    calling _copy_to with blob, buffer, offset
+    var n as int is blob.length
+    banish blob
+    return calling ok_of with n
+
+## Unpacks exactly one record; the buffer must be exactly the record size.
+##
+## ## Errors
+## `Truncated` or `TrailingBytes`.
+weave unpack with fmt as string, data as string into result of list of CarmenValue to CarmenError:
+    var c as result of Carmen to CarmenError is calling seal with fmt
+    if not c.is_ok:
+        return calling err_of with c.error
+    var h as Carmen is c.value
+    var need as int is calling h.size
+    if data.length < need:
+        banish h
+        return calling err_of with (calling _truncated with need, data.length)
+    if data.length > need:
+        banish h
+        return calling err_of with (with TrailingBytes is with extra is (data.length - need))
+    var out as result of list of CarmenValue to CarmenError is calling _decode_all with h, data
+    banish h
+    return out
+
+## Unpacks one record starting at `offset`; bytes after the record are ignored.
+##
+## ## Errors
+## `OffsetOutOfRange` or `Truncated`.
+weave unpack_from with fmt as string, data as string, offset as int into result of list of CarmenValue to CarmenError:
+    var c as result of Carmen to CarmenError is calling seal with fmt
+    if not c.is_ok:
+        return calling err_of with c.error
+    var h as Carmen is c.value
+    var need as int is calling h.size
+    if offset < 0 or offset > data.length:
+        banish h
+        return calling err_of with (with OffsetOutOfRange is with offset is offset, length is data.length)
+    var have as int is data.length - offset
+    if have < need:
+        banish h
+        return calling err_of with (calling _truncated with need, have)
+    var blob as string is calling _carmen_copy_range with data, offset, need
+    var out as result of list of CarmenValue to CarmenError is calling _decode_all with h, blob
+    banish blob
+    banish h
+    return out
+
+# ----------------------------------------------------------------------------
+# Writer
+# ----------------------------------------------------------------------------
+
+## Grows a byte buffer and appends encoded values to it.
+##
+## The writer owns its buffer; `to_string` copies it, `take_string` transfers
+## it.
+rune CarmenWriter derive Nexus:
+    _data as string
+    _len as int
+    _cap as int
+    _order as Endianness
+    _bit as int
+
+## Creates an empty writer with a 256-byte buffer.
+##
+## ## Example
+## `var w as carmen.CarmenWriter is calling carmen.new_writer`
+weave new_writer into CarmenWriter:
+    var buf as string is calling _carmen_alloc with 256
+    return with _data is buf, _len is 0, _cap is 256, _order is Native, _bit is 0
+
+## Creates an empty writer with at least `cap` bytes of buffer.
+weave new_writer_with with cap as int into CarmenWriter:
+    var n as int is 256
+    if cap > 0:
+        set n is cap
+    var buf as string is calling _carmen_alloc with n
+    return with _data is buf, _len is 0, _cap is n, _order is Native, _bit is 0
+
+## Creates an empty writer that starts in `e`.
+weave new_writer_endian with e as Endianness into CarmenWriter:
+    var w as CarmenWriter is calling new_writer
+    set w._order is e
+    return w
+
+enchanting CarmenWriter:
+    ## Byte order used by the `write_*` methods.
+    weave order into Endianness:
+        return self->_order
+
+    ## Selects the byte order for following writes.
+    weave with_endian with e as Endianness into void:
+        set self->_order is e
+
+    ## Bytes appended so far.
+    weave length into int:
+        return self->_len
+
+    ## Bytes of buffer currently reserved.
+    weave capacity into int:
+        return self->_cap
+
+    weave _ensure with need as int into void:
+        if need > self->_cap:
+            calling _carmen_reserve with (sigil of self->_data), self->_len, (sigil of self->_cap), need
+
+    ## Appends the raw bytes of `s`.
+    weave write_raw with s as string into void:
+        var need as int is self->_len + s.length
+        calling self._ensure with need
+        if s.length > 0:
+            var p as ref to byte is calling _carmen_ptr with (sigil of self->_data)
+            calling _copy_to with s, p, self->_len
+        set self->_len is need
+
+    ## Appends a NUL-terminated copy of `s`.
+    weave write_cstr with s as string into void:
+        calling self.write_raw with s
+        calling self.write_u8 with 0
+
+    ## Appends `s` truncated or NUL-padded to exactly `n` bytes.
+    weave write_fixed with s as string, n as int into void:
+        if n <= 0:
+            return
+        calling self._ensure with (self->_len + n)
+        var p as ref to byte is calling _carmen_ptr with (sigil of self->_data)
+        var sb as ref to frozen byte is bytes of s
+        var l as int is s.length
+        if l > n:
+            set l is n
+        var k as int is 0
+        while k < l:
+            set p at (self->_len + k) is (sb at k)
+            set k is k + 1
+        while k < n:
+            set p at (self->_len + k) is 0
+            set k is k + 1
+        set self->_len is self->_len + n
+
+    ## Appends `n` bits (1..64) MSB-first.
+    ##
+    ## Bits share a byte: after `write_bits 3, 5` the next `write_bits 5, 3`
+    ## fills the same byte. Call `align_bits` before a byte-aligned write.
+    weave write_bits with v as u64, n as int into void:
+        if n <= 0 or n > 64:
+            return
+        var i as int is n - 1
+        while i >= 0:
+            if self->_bit == 0:
+                calling self._ensure with (self->_len + 1)
+                var pz as ref to byte is calling _carmen_ptr with (sigil of self->_data)
+                set pz at (self->_len) is 0
+                set self->_len is self->_len + 1
+            var bit as int is (((v >> (i to u64)) & 1) to int)
+            var p as ref to byte is calling _carmen_ptr with (sigil of self->_data)
+            var cur as int is (p at (self->_len - 1)) to int
+            if bit == 1:
+                set cur is cur ^ (1 << (7 - self->_bit))
+                set p at (self->_len - 1) is (cur to byte)
+            set self->_bit is self->_bit + 1
+            if self->_bit == 8:
+                set self->_bit is 0
+            set i is i - 1
+
+    ## Pads the current partial bit byte so the next write starts aligned.
+    weave align_bits into void:
+        set self->_bit is 0
+
+    ## Appends a Pascal string of exactly `n` bytes (length byte + text).
+    weave write_pascal with s as string, n as int into void:
+        if n <= 0:
+            return
+        var l as int is s.length
+        if l > n - 1:
+            set l is n - 1
+        calling self._ensure with (self->_len + n)
+        var p as ref to byte is calling _carmen_ptr with (sigil of self->_data)
+        set p at (self->_len) is (l to byte)
+        var sb as ref to frozen byte is bytes of s
+        var k as int is 0
+        while k < l:
+            set p at ((self->_len + 1) + k) is (sb at k)
+            set k is k + 1
+        while k < n - 1:
+            set p at ((self->_len + 1) + k) is 0
+            set k is k + 1
+        set self->_len is self->_len + n
+
+    ## Appends `n` zero bytes.
+    weave pad with n as int into void:
+        if n <= 0:
+            return
+        calling self._ensure with (self->_len + n)
+        var p as ref to byte is calling _carmen_ptr with (sigil of self->_data)
+        var k as int is 0
+        while k < n:
+            set p at (self->_len + k) is 0
+            set k is k + 1
+        set self->_len is self->_len + n
+
+    ## Appends zero bytes until the length is a multiple of `a`.
+    weave align with a as int into void:
+        if a <= 1:
+            return
+        var r as int is self->_len - ((self->_len / a) * a)
+        if r != 0:
+            calling self.pad with (a - r)
+
+    ## Appends a boolean as one byte.
+    weave write_bool with v as bool into void:
+        if v:
+            calling self.write_u8 with 1
+        else:
+            calling self.write_u8 with 0
+
+    ## Appends one character.
+    weave write_char with c as char into void:
+        calling self.write_u8 with (ord c)
+
+    ## Appends an unsigned 8-bit integer.
+    weave write_u8 with v as u64 into void:
+        calling self._ensure with (self->_len + 1)
+        calling _put_u with (sigil of self->_data), self->_len, 1, v, self->_order
+        set self->_len is self->_len + 1
+
+    ## Appends an unsigned 16-bit integer.
+    weave write_u16 with v as u64 into void:
+        calling self._ensure with (self->_len + 2)
+        calling _put_u with (sigil of self->_data), self->_len, 2, v, self->_order
+        set self->_len is self->_len + 2
+
+    ## Appends an unsigned 32-bit integer.
+    weave write_u32 with v as u64 into void:
+        calling self._ensure with (self->_len + 4)
+        calling _put_u with (sigil of self->_data), self->_len, 4, v, self->_order
+        set self->_len is self->_len + 4
+
+    ## Appends an unsigned 64-bit integer.
+    weave write_u64 with v as u64 into void:
+        calling self._ensure with (self->_len + 8)
+        calling _put_u with (sigil of self->_data), self->_len, 8, v, self->_order
+        set self->_len is self->_len + 8
+
+    ## Appends a signed 8-bit integer.
+    weave write_i8 with v as i64 into void:
+        calling self.write_u8 with (v to u64)
+
+    ## Appends a signed 16-bit integer.
+    weave write_i16 with v as i64 into void:
+        calling self.write_u16 with (v to u64)
+
+    ## Appends a signed 32-bit integer.
+    weave write_i32 with v as i64 into void:
+        calling self.write_u32 with (v to u64)
+
+    ## Appends a signed 64-bit integer.
+    weave write_i64 with v as i64 into void:
+        calling self.write_u64 with (v to u64)
+
+    ## Appends a 32-bit float.
+    weave write_f32 with v as float into void:
+        calling self.write_u32 with (calling _f32_bits with v) to u64
+
+    ## Appends a 64-bit float.
+    weave write_f64 with v as f64 into void:
+        calling self.write_u64 with (calling _f64_bits with v)
+
+    ## Appends a half-precision float.
+    ##
+    ## ## Errors
+    ## Finite values outside ±65504 produce `ValueOutOfRange`.
+    weave write_f16 with v as f64 into result of void to CarmenError:
+        var hx as result of u16 to CarmenError is calling _f32_to_half with (v to float), -1
+        if not hx.is_ok:
+            return calling err_of with hx.error
+        calling self.write_u16 with (hx.value to u64)
+        return calling ok_of with 0
+
+    ## Appends an unsigned LEB128 varint.
+    weave write_varint with v as u64 into void:
+        var x as u64 is v
+        while x >= 128:
+            calling self.write_u8 with ((x & 127) | 128)
+            set x is x >> 7
+        calling self.write_u8 with x
+
+    ## Appends a ZigZag + LEB128 signed varint.
+    weave write_zigzag with v as i64 into void:
+        var zz as u64 is (v to u64) << 1
+        if v < 0:
+            var all as u64 is 0
+            set all is all - 1
+            set zz is zz ^ all
+        calling self.write_varint with zz
+
+    ## Appends the record produced by `pack` for `fmt` and `values`.
+    weave write_record with fmt as string, values as list of CarmenValue into result of void to CarmenError:
+        var packed as result of string to CarmenError is calling pack with fmt, values
+        if not packed.is_ok:
+            return calling err_of with packed.error
+        var blob as string is packed.value
+        calling self.write_raw with blob
+        banish blob
+        return calling ok_of with 0
+
+    ## Copies the buffer into a new owned string.
+    weave to_string into string:
+        return calling _carmen_copy_range with self->_data, 0, self->_len
+
+    ## Transfers the buffer into an owned string and resets the writer.
+    weave take_string into string:
+        var out as string is calling _carmen_take with (sigil of self->_data), self->_len
+        var fresh as string is calling _carmen_alloc with 16
+        set self->_data is fresh
+        set self->_len is 0
+        set self->_cap is 16
+        return out
+
+    ## Discards every byte, keeping the buffer.
+    weave clear into void:
+        set self->_len is 0
+
+    ## Grows the buffer to at least `n` bytes.
+    weave reserve with n as int into void:
+        calling self._ensure with n
+
+# ----------------------------------------------------------------------------
+# Reader
+# ----------------------------------------------------------------------------
+
+## Reads values from an existing byte string with a moving cursor.
+##
+## The reader borrows its data; do not `banish` the source while a reader or a
+## `view`/`sub` result is alive.
+rune CarmenReader:
+    _data as string
+    _offset as int
+    _end as int
+    _bit as int
+    _order as Endianness
+
+## Creates a reader over `data` starting at byte 0.
+##
+## ## Example
+## `var r as carmen.CarmenReader is calling carmen.new_reader with blob`
+weave new_reader with data as string into CarmenReader:
+    return with _data is data, _offset is 0, _end is data.length, _bit is 0, _order is Native
+
+## Creates a reader over `data` starting at `offset`.
+weave new_reader_at with data as string, offset as int into CarmenReader:
+    var o as int is offset
+    if o < 0:
+        set o is 0
+    if o > data.length:
+        set o is data.length
+    return with _data is data, _offset is o, _end is data.length, _bit is 0, _order is Native
+
+## Creates a reader over `data` that starts in `e`.
+weave new_reader_endian with data as string, e as Endianness into CarmenReader:
+    var r as CarmenReader is calling new_reader with data
+    set r._order is e
+    return r
+
+enchanting CarmenReader:
+    ## Byte order used by the `read_*` methods.
+    weave order into Endianness:
+        return self->_order
+
+    ## Selects the byte order for following reads.
+    weave with_endian with e as Endianness into void:
+        set self->_order is e
+
+    ## Current byte offset.
+    weave offset into int:
+        return self->_offset
+
+    ## Bytes left before the end of the window.
+    weave remaining into int:
+        var n as int is self->_end - self->_offset
+        if n < 0:
+            return 0
+        return n
+
+    ## True when the cursor reached the end of the window.
+    weave at_end into bool:
+        return self->_offset >= self->_end and self->_bit == 0
+
+    ## Moves the cursor to `pos` (clamped to the window).
+    weave seek with pos as int into void:
+        var p as int is pos
+        if p < 0:
+            set p is 0
+        if p > self->_end:
+            set p is self->_end
+        set self->_offset is p
+        set self->_bit is 0
+
+    ## Skips `n` bytes; returns the number actually skipped.
+    weave skip with n as int into int:
+        var start as int is self->_offset
+        var p as int is self->_offset + n
+        if p < 0:
+            set p is 0
+        if p > self->_end:
+            set p is self->_end
+        set self->_offset is p
+        set self->_bit is 0
+        return self->_offset - start
+
+    ## Skips zero bytes until the offset is a multiple of `a`.
+    weave align with a as int into void:
+        if a <= 1:
+            return
+        var r as int is self->_offset - ((self->_offset / a) * a)
+        if r != 0:
+            calling self.skip with (a - r)
+
+    ## Drops a partial bit byte so the next byte read is aligned.
+    weave align_bits into void:
+        if self->_bit != 0:
+            set self->_bit is 0
+            if self->_offset < self->_end:
+                set self->_offset is self->_offset + 1
+
+    ## True when there are at least `n` bytes left.
+    weave has with n as int into bool:
+        return (self->_end - self->_offset) >= n
+
+    weave _take_u with n as int into result of u64 to CarmenError:
+        if self->_bit != 0:
+            return calling err_of with (with Unaligned is with position is self->_bit)
+        if self->_offset + n > self->_end:
+            return calling err_of with (calling _truncated with n, calling self.remaining)
+        var v as u64 is calling _get_u with self->_data, self->_offset, n, self->_order
+        set self->_offset is self->_offset + n
+        return calling ok_of with v
+
+    ## Reads an unsigned 8-bit integer.
+    weave read_u8 into result of u64 to CarmenError:
+        return calling self._take_u with 1
+
+    ## Reads an unsigned 16-bit integer.
+    weave read_u16 into result of u64 to CarmenError:
+        return calling self._take_u with 2
+
+    ## Reads an unsigned 32-bit integer.
+    weave read_u32 into result of u64 to CarmenError:
+        return calling self._take_u with 4
+
+    ## Reads an unsigned 64-bit integer.
+    weave read_u64 into result of u64 to CarmenError:
+        return calling self._take_u with 8
+
+    weave _take_i with n as int, bits as int into result of i64 to CarmenError:
+        var t as result of u64 to CarmenError is calling self._take_u with n
+        if not t.is_ok:
+            return calling err_of with t.error
+        var v as u64 is t.value
+        var b as i64 is v to i64
+        if bits < 64:
+            var sh as int is 64 - bits
+            set b is ((v << sh) to i64) >> sh
+        return calling ok_of with b
+
+    ## Reads a signed 8-bit integer.
+    weave read_i8 into result of i64 to CarmenError:
+        return calling self._take_i with 1, 8
+
+    ## Reads a signed 16-bit integer.
+    weave read_i16 into result of i64 to CarmenError:
+        return calling self._take_i with 2, 16
+
+    ## Reads a signed 32-bit integer.
+    weave read_i32 into result of i64 to CarmenError:
+        return calling self._take_i with 4, 32
+
+    ## Reads a signed 64-bit integer.
+    weave read_i64 into result of i64 to CarmenError:
+        return calling self._take_i with 8, 64
+
+    ## Reads a 32-bit float.
+    weave read_f32 into result of f64 to CarmenError:
+        var t as result of u64 to CarmenError is calling self._take_u with 4
+        if not t.is_ok:
+            return calling err_of with t.error
+        var f as float is calling _f32_from_bits with (t.value to u32)
+        return calling ok_of with (f to f64)
+
+    ## Reads a 64-bit float.
+    weave read_f64 into result of f64 to CarmenError:
+        var t as result of u64 to CarmenError is calling self._take_u with 8
+        if not t.is_ok:
+            return calling err_of with t.error
+        return calling ok_of with (calling _f64_from_bits with t.value)
+
+    ## Reads a half-precision float.
+    weave read_f16 into result of f64 to CarmenError:
+        var t as result of u64 to CarmenError is calling self._take_u with 2
+        if not t.is_ok:
+            return calling err_of with t.error
+        var f as float is calling _half_to_f32 with (t.value to u16)
+        return calling ok_of with (f to f64)
+
+    ## Reads a boolean byte.
+    weave read_bool into result of bool to CarmenError:
+        var t as result of u64 to CarmenError is calling self._take_u with 1
+        if not t.is_ok:
+            return calling err_of with t.error
+        return calling ok_of with (t.value != 0)
+
+    ## Reads one character.
+    weave read_char into result of char to CarmenError:
+        var t as result of u64 to CarmenError is calling self._take_u with 1
+        if not t.is_ok:
+            return calling err_of with t.error
+        return calling ok_of with (t.value to char)
+
+    ## Reads `n` bytes as an owned string.
+    weave read_bytes with n as int into result of string to CarmenError:
+        if n < 0 or not calling self.has with n:
+            return calling err_of with (calling _truncated with n, calling self.remaining)
+        var out as string is calling _carmen_copy_range with self->_data, self->_offset, n
+        set self->_offset is self->_offset + n
+        set self->_bit is 0
+        return calling ok_of with out
+
+    ## Reads bytes up to the next NUL, which is consumed but not returned.
+    weave read_cstr into result of string to CarmenError:
+        var bb as ref to frozen byte is bytes of self->_data
+        var k as int is self->_offset
+        while k < self->_end:
+            if ((bb at k) to int) == 0:
+                var out as string is calling _carmen_copy_range with self->_data, self->_offset, k - self->_offset
+                set self->_offset is k + 1
+                return calling ok_of with out
+            set k is k + 1
+        return calling err_of with (with MissingTerminator is with position is self->_offset)
+
+    ## Reads a Pascal string of `n` total bytes (length byte + text).
+    weave read_pascal with n as int into result of string to CarmenError:
+        if n <= 0:
+            return calling ok_of with ""
+        if not calling self.has with n:
+            return calling err_of with (calling _truncated with n, calling self.remaining)
+        var bb as ref to frozen byte is bytes of self->_data
+        var l as int is (bb at self->_offset) to int
+        if l > n - 1:
+            set l is n - 1
+        if l < 0:
+            set l is 0
+        var out as string is calling _carmen_copy_range with self->_data, self->_offset + 1, l
+        set self->_offset is self->_offset + n
+        return calling ok_of with out
+
+    ## Reads an unsigned LEB128 varint.
+    weave read_varint into result of u64 to CarmenError:
+        var v as u64 is 0
+        var shift as int is 0
+        var k as int is 0
+        while k < 10:
+            var b as result of u64 to CarmenError is calling self._take_u with 1
+            if not b.is_ok:
+                return b
+            var x as u64 is b.value
+            if shift >= 64:
+                return calling err_of with (calling _out_of_range with -1, "varint is too long")
+            set v is v | ((x & 127) << shift)
+            if (x & 128) == 0:
+                return calling ok_of with v
+            set shift is shift + 7
+            set k is k + 1
+        return calling err_of with (calling _out_of_range with -1, "varint is too long")
+
+    ## Reads a ZigZag + LEB128 signed varint.
+    weave read_zigzag into result of i64 to CarmenError:
+        var r as result of u64 to CarmenError is calling self.read_varint
+        if not r.is_ok:
+            return calling err_of with r.error
+        var u as u64 is r.value
+        var v as i64 is ((u >> 1) to i64)
+        if (u & 1) == 1:
+            set v is -v - 1
+        return calling ok_of with v
+
+    ## Reads `n` bits (MSB first) as an unsigned integer.
+    weave read_bits with n as int into result of u64 to CarmenError:
+        if n < 0 or n > 64:
+            return calling err_of with (calling _out_of_range with -1, "bit count must be 0..64")
+        var acc as u64 is 0
+        var k as int is 0
+        var bb as ref to frozen byte is bytes of self->_data
+        while k < n:
+            if self->_offset >= self->_end:
+                return calling err_of with (calling _truncated with 1, 0)
+            var cur as int is (bb at self->_offset) to int
+            var bit as u64 is (((cur >> (7 - self->_bit)) & 1) to u64)
+            set acc is (acc << 1) | bit
+            set self->_bit is self->_bit + 1
+            if self->_bit == 8:
+                set self->_bit is 0
+                set self->_offset is self->_offset + 1
+            set k is k + 1
+        return calling ok_of with acc
+
+    ## Consumes `n` bytes and returns a borrowed slice of them.
+    weave view with n as int into result of slice of byte to CarmenError:
+        if n < 0 or not calling self.has with n:
+            return calling err_of with (calling _truncated with n, calling self.remaining)
+        var s as slice of byte is calling _carmen_view with self->_data, self->_offset, n
+        set self->_offset is self->_offset + n
+        set self->_bit is 0
+        return calling ok_of with s
+
+    ## Consumes `n` bytes and returns a reader window over them.
+    weave sub with n as int into result of CarmenReader to CarmenError:
+        if n < 0 or not calling self.has with n:
+            return calling err_of with (calling _truncated with n, calling self.remaining)
+        var child as CarmenReader is with _data is self->_data, _offset is self->_offset, _end is self->_offset + n, _bit is 0, _order is self->_order
+        set self->_offset is self->_offset + n
+        return calling ok_of with child
+
+    ## Requires the next bytes to equal `s`.
+    weave expect with s as string into result of void to CarmenError:
+        if not calling self.has with s.length:
+            return calling err_of with (calling _truncated with s.length, calling self.remaining)
+        var bb as ref to frozen byte is bytes of self->_data
+        var sb as ref to frozen byte is bytes of s
+        var k as int is 0
+        while k < s.length:
+            if (bb at (self->_offset + k)) != (sb at k):
+                return calling err_of with (calling _bad with "byte sequence mismatch", self->_offset + k)
+            set k is k + 1
+        set self->_offset is self->_offset + s.length
+        return calling ok_of with 0
+
+    ## Reads the next byte without moving the cursor.
+    weave peek_u8 into result of u64 to CarmenError:
+        return calling self.peek_u64 with 1
+
+    ## Reads the next 16-bit integer without moving the cursor.
+    weave peek_u16 into result of u64 to CarmenError:
+        return calling self.peek_u64 with 2
+
+    ## Reads the next 32-bit integer without moving the cursor.
+    weave peek_u32 into result of u64 to CarmenError:
+        return calling self.peek_u64 with 4
+
+    ## Reads `n` bytes as a `u64` without moving the cursor.
+    weave peek_u64 with n as int into result of u64 to CarmenError:
+        var save as int is self->_offset
+        var bit as int is self->_bit
+        var r as result of u64 to CarmenError is calling self._take_u with n
+        set self->_offset is save
+        set self->_bit is bit
+        return r
+
+    ## Reads the next record described by `fmt`.
+    ##
+    ## The cursor advances by `calcsize(fmt)`.
+    weave read_record with fmt as string into result of list of CarmenValue to CarmenError:
+        var c as result of Carmen to CarmenError is calling seal with fmt
+        if not c.is_ok:
+            return calling err_of with c.error
+        var h as Carmen is c.value
+        var need as int is calling h.size
+        banish h
+        var raw as result of string to CarmenError is calling self.read_bytes with need
+        if not raw.is_ok:
+            return calling err_of with raw.error
+        var blob as string is raw.value
+        var r as result of list of CarmenValue to CarmenError is calling unpack with fmt, blob
+        banish blob
+        return r
+
+# ----------------------------------------------------------------------------
+# Named fields and introspection
+# ----------------------------------------------------------------------------
+
+## Validates `fmt`, returning the record size or a `CarmenError`.
+##
+## ## Example
+## `var n as int is (calling carmen.validate with ">I4sH").value`
+weave validate with fmt as string into result of int to CarmenError:
+    var c as result of Carmen to CarmenError is calling seal with fmt
+    if not c.is_ok:
+        return calling err_of with c.error
+    var h as Carmen is c.value
+    var n as int is calling h.size
+    banish h
+    return calling ok_of with n
+
+## Returns a lowercase hexadecimal rendering of the bytes of `s`.
+##
+## ## Example
+## `calling carmen.hex with "AB"` → `"4142"`
+weave hex with s as string into string:
+    var digits as string is "0123456789abcdef"
+    var sb as StringBuilder is calling StringBuilder.new
+    var bb as ref to frozen byte is bytes of s
+    var i as int is 0
+    while i < s.length:
+        var v as int is (bb at i) to int
+        calling sb.append with (digits at (v >> 4))
+        calling sb.append with (digits at (v & 15))
+        set i is i + 1
+    var out as string is calling sb.finish
+    banish sb
+    return out
+
+weave _field_label with f as CarmenField into string:
+    if f.index < 0:
+        return calling _carmen_dup with "(pad)"
+    if f.name.length == 0:
+        return calling _carmen_dup with "(value)"
+    return calling _carmen_dup with f.name
+
+## Renders a human-readable layout table for `fmt`.
+##
+## Columns: index, byte offset, size, alignment, code and field name.
+##
+## ## Example
+## ```pengu
+## var t as string is (calling carmen.explain with ">I4sH").value
+## calling print with t
+## banish t
+## ```
+weave explain with fmt as string into result of string to CarmenError:
+    var c as result of Carmen to CarmenError is calling seal with fmt
+    if not c.is_ok:
+        return calling err_of with c.error
+    var h as Carmen is c.value
+    var sb as StringBuilder is calling StringBuilder.new
+    calling sb.append with "idx\toffset\tsize\talign\tcode\tname\n"
+    var k as int is 0
+    for f in h._fields:
+        var code_s as string is chr (f.code to int)
+        var label as string is calling _field_label with f
+        calling sb.append with "{k}\t{f.offset}\t{f.size}\t{f.alignment}\t{code_s}\t{label}\n"
+        banish label
+        banish code_s
+        set k is k + 1
+    var out as string is calling sb.finish
+    banish sb
+    banish h
+    return calling ok_of with out
+
+## Renders an annotated hexadecimal dump of `data` according to `fmt`.
+##
+## One line per field: offset, size, code, name and the field bytes in hex.
+weave describe with fmt as string, data as string into result of string to CarmenError:
+    var c as result of Carmen to CarmenError is calling seal with fmt
+    if not c.is_ok:
+        return calling err_of with c.error
+    var h as Carmen is c.value
+    var need as int is calling h.size
+    if data.length < need:
+        banish h
+        return calling err_of with (calling _truncated with need, data.length)
+    var sb as StringBuilder is calling StringBuilder.new
+    calling sb.append with "offset\tsize\tcode\tname\thex\n"
+    for f in h._fields:
+        var code_s as string is chr (f.code to int)
+        var label as string is calling _field_label with f
+        var seg as string is calling _carmen_copy_range with data, f.offset, f.size
+        var hx as string is calling hex with seg
+        calling sb.append with "{f.offset}\t{f.size}\t{code_s}\t{label}\t{hx}\n"
+        banish seg
+        banish hx
+        banish label
+        banish code_s
+    var out as string is calling sb.finish
+    banish sb
+    banish h
+    return calling ok_of with out
+
+## Unpacks `fmt` into a map keyed by the declared field names.
+##
+## Every value-producing field must be named; padding fields are ignored.
+## Repeated names become `name`, `name#1`, `name#2`, …
+##
+## ## Errors
+## `UnnamedField` when a value field has no name.
+##
+## ## Memoria
+## The map owns the values; release it with `banish`.
+weave unpack_named with fmt as string, data as string into result of map of string to CarmenValue to CarmenError:
+    var u as result of list of CarmenValue to CarmenError is calling unpack with fmt, data
+    if not u.is_ok:
+        return calling err_of with u.error
+    var vals as list of CarmenValue is u.value
+    var c as result of Carmen to CarmenError is calling seal with fmt
+    if not c.is_ok:
+        banish vals
+        return calling err_of with c.error
+    var h as Carmen is c.value
+    var m as map of string to CarmenValue is map of string to CarmenValue
+    for f in h._fields:
+        if f.index >= 0:
+            if f.name.length == 0:
+                banish vals
+                banish h
+                return calling err_of with (with UnnamedField is with position is f.offset)
+            with m:
+                calling .put with f.name, (vals at f.index)
+    banish vals
+    banish h
+    return calling ok_of with m
+
+## Unpacks a buffer holding a whole number of records.
+##
+## ## Errors
+## `BadFormat` when `calcsize(fmt)` is zero or does not divide the buffer.
+weave iter_unpack with fmt as string, data as string into result of list of list of CarmenValue to CarmenError:
+    var c as result of Carmen to CarmenError is calling seal with fmt
+    if not c.is_ok:
+        return calling err_of with c.error
+    var h as Carmen is c.value
+    var step as int is calling h.size
+    banish h
+    if step <= 0:
+        return calling err_of with (with BadFormat is with reason is "record size must be positive", position is 0)
+    if data.length % step != 0:
+        return calling err_of with (with BadFormat is with reason is "buffer length is not a multiple of the record size", position is 0)
+    var out as list of list of CarmenValue is list of list of CarmenValue
+    var off as int is 0
+    while off < data.length:
+        var chunk as string is calling _carmen_copy_range with data, off, step
+        var u as result of list of CarmenValue to CarmenError is calling unpack with fmt, chunk
+        banish chunk
+        if not u.is_ok:
+            banish out
+            return calling err_of with u.error
+        calling out.push with u.value
+        set off is off + step
+    return calling ok_of with out

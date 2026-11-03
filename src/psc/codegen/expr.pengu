@@ -68,6 +68,9 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         return "NULL"
     if k == pskind.NodeKind.NdMaybeNone:
         return "pengu_maybe_none()"
+    if k == pskind.NodeKind.NdErrorLit:
+        # `infer_or` declara este local en la rama de fallo de `or:`.
+        return "error"
     if k == pskind.NodeKind.NdStringLit:
         var raw as string is calling astutil.child_token_text with (sigil of m.source), (sigil of m.lex), ast, node, 0
         defer banish raw
@@ -3091,8 +3094,23 @@ weave resolve_target with c as ref to context.CgContext, target as int, ast as r
                     if ft >= 0:
                         var fld as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ft
                         var fid as int is calling npool.intern with (sigil of c->program->names), fld
+                        var pt as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+                        var handled as bool is false
+                        if pt.kind == tk.SemaTypeKind.TkResult and (fld == "value" or fld == "error"):
+                            var pid as int is pt.a
+                            var sel as string is "ok_val"
+                            if fld == "error":
+                                set pid is pt.b
+                                set sel is "err_val"
+                            var pct as string is calling ctype.c_type with (sigil of c->names), pid
+                            var acc as string is "(*( {pct}*)(({base}).{sel}))"
+                            banish base
+                            banish fld
+                            set base is acc
+                            set ty is pid
+                            set handled is true
                         var mfn as int is -1
-                        if skip_method and i < n - 1 and (ck == pskind.NodeKind.NdDotAccess or ck == pskind.NodeKind.NdArrowAccess):
+                        if not handled and skip_method and i < n - 1 and (ck == pskind.NodeKind.NdDotAccess or ck == pskind.NodeKind.NdArrowAccess):
                             set mfn is calling chain_method_fn with c, ty, fid
                         if mfn >= 0:
                             var mf as catalog.CgFunction is (c->catalog.functions at mfn)
@@ -3117,7 +3135,7 @@ weave resolve_target with c as ref to context.CgContext, target as int, ast as r
                             banish fld
                             set base is mrecv
                             set ty is mret
-                        else:
+                        else if not handled:
                             set ty is calling cg_field_type with c, ty, fid
                             var sep as string is "."
                             if ck == pskind.NodeKind.NdArrowAccess:
@@ -4510,6 +4528,15 @@ weave c_string_expr with c as ref to context.CgContext, node as int, raw as stri
         return "pengu_string_from_cstr(\"{resc}\")"
     var decoded as string is calling psdecode.decode_text with content, false
     defer banish decoded
+    # Un literal con NUL no cabe en `pengu_string_from_cstr`: el runtime
+    # copia `len` bytes explícitos para que el valor conserve su longitud.
+    var dnul as bool is false
+    var db as ref to frozen byte is bytes of decoded
+    var dk as int is 0
+    while dk < decoded length:
+        if ((db at dk) to int) == 0:
+            set dnul is true
+        set dk is dk + 1
     if calling has_interp with decoded:
         if as_cstr:
             var resc2 as string is calling emit.escape_c with decoded
@@ -4520,6 +4547,8 @@ weave c_string_expr with c as ref to context.CgContext, node as int, raw as stri
     defer banish esc
     if as_cstr:
         return "\"{esc}\""
+    if dnul:
+        return "pengu_string_owned(\"{esc}\", {decoded length})"
     return "pengu_string_from_cstr(\"{esc}\")"
 
 ## `true` si el contenido tiene una interpolación simple.
@@ -4559,12 +4588,22 @@ weave append_interp_value with c as ref to context.CgContext, fmt as ref to Stri
                 calling args.append with "{expr}.data"
                 return
             if bn == "float" or bn == "f32" or bn == "f64" or bn == "double":
-                calling fmt.append with "%g"
+                # El runtime reconoce `%f` y lo renderiza como `%g`; `%g` literal
+                # no es una especificación soportada.
+                calling fmt.append with "%f"
                 calling args.append with "((double)({expr}))"
                 return
             if bn == "bool":
                 calling fmt.append with "%s"
                 calling args.append with "(({expr}) ? \"true\" : \"false\")"
+                return
+            if bn == "u64" or bn == "usize" or bn == "uint64" or bn == "uintptr":
+                calling fmt.append with "%llu"
+                calling args.append with "((unsigned long long)({expr}))"
+                return
+            if bn == "i64" or bn == "isize" or bn == "int64" or bn == "intptr":
+                calling fmt.append with "%lld"
+                calling args.append with "((long long)({expr}))"
                 return
             calling fmt.append with "%d"
             calling args.append with "((int32_t)({expr}))"

@@ -68,7 +68,7 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
     else if kind == pskind.NodeKind.NdNullLit:
         set t is 2
     else if kind == pskind.NodeKind.NdErrorLit:
-        set t is 0
+        set t is calling infer_error_lit with s, node
     else if kind == pskind.NodeKind.NdMaybeNone:
         set t is calling infer_none with s, node, expected
     else if kind == pskind.NodeKind.NdVarRef:
@@ -1616,10 +1616,29 @@ weave infer_do with s as ref to state.SemaState, node as int, expected as int in
         return expected
     return calling infer with s, last, expected
 
+## Literal `error` dentro de un bloque `or:`.
+##
+## El símbolo lo define `infer_or` al entrar en el bloque; fuera de él no
+## existe y se diagnostica. Para `maybe T` el payload es `string`; para
+## `result of T to E` es `E`.
+##
+## ## Memoria
+## O(profundidad de scopes); puede emitir E0015.
+weave infer_error_lit with s as ref to state.SemaState, node as int into int:
+    var sid as int is calling symbols.lookup_name with s->symbols, "error"
+    if sid >= 0:
+        var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+        if sv.kind == sym.SemaSymbolKind.SkLet:
+            calling ann.ann_set_symbol with s->annotations, node, sid
+            return sv.type
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_ARRAY_UNKNOWN, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "'error' is only available inside an 'or:' block", "Bind the maybe/result with an 'or:' block to inspect the failure payload.", ""
+    return 0
+
 ## `or else`/`or return`/`or:`.
 ##
 ## ## Memoria
-## Infiere el lado izquierdo y, si es maybe/result, devuelve su valor.
+## Infiere el lado izquierdo y, si es maybe/result, devuelve su valor. Los
+## cuerpos de `or:` se comprueban statement a statement con `error` en scope.
 weave infer_or with s as ref to state.SemaState, node as int, expected as int into int:
     var left as int is calling astutil.node_child with s->ast, node, 0
     var lt as int is calling infer with s, left, -1
@@ -1629,6 +1648,29 @@ weave infer_or with s as ref to state.SemaState, node as int, expected as int in
         set inner is lty.a
     else if lty.kind == tk.SemaTypeKind.TkResult:
         set inner is lty.a
+    if (calling astutil.kind_of with s->ast, node) == pskind.NodeKind.NdOrBlock:
+        # `or:` guarda los statements como hijos hermanos: [left, stmt, stmt, …].
+        var start as int is calling astutil.start_of with s->ast, node
+        var end as int is calling astutil.end_of with s->ast, node
+        var sc as int is calling symbols.push_scope with s->symbols, scope.SemaScopeKind.SgOrBlock, start, end
+        calling symbols.mark_or_block with s->symbols, sc
+        var et as int is calling types.base with s->types, "string"
+        if lty.kind == tk.SemaTypeKind.TkResult and lty.b > 0:
+            set et is lty.b
+        var nid as int is calling npool.intern with s->names, "error"
+        var sv as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", et, sym.SemaSymbolKind.SkLet
+        set sv.name is nid
+        set sv.c_name is nid
+        calling symbols.symbol_define with s->symbols, sv
+        var n as int is calling astutil.child_count with s->ast, node
+        var i as int is 1
+        while i < n:
+            var c as int is calling astutil.node_child with s->ast, node, i
+            if c >= 0:
+                calling state.call_stmt with s, c
+            set i is i + 1
+        calling symbols.pop_scope with s->symbols, end
+        return inner
     var right as int is calling astutil.node_child with s->ast, node, 1
     if right >= 0:
         var rt as int is calling infer with s, right, inner

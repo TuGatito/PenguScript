@@ -2,6 +2,64 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.23.0] — 2026-11-02 — Carmen: layouts binarios
+
+Nuevo módulo estándar `std.carmen` para leer y escribir registros binarios con
+una fórmula compatible con `struct` de Python, más la corrección de cuatro
+fallos del compilador que afectaban a `or:`, a la interpolación y a los
+literales binarios.
+
+### Añadido
+
+- **`std.carmen` 1.0.0** (`std/carmen.pengu`, `docs/CARMEN.md`): fórmulas
+  `@ = < > !` con los códigos de Python `x c b B ? h H i I l L q Q n N e f d s
+  p P` y las extensiones `z` (relleno NUL), `v`/`V` (u16/u32 little-endian),
+  campos con nombre `{name:code}` y cambio de orden de bytes a mitad de fórmula.
+- **L1**: `seal` (handle compilado con `size`, `format`, `order`, `value_count`
+  y `fields`), `calcsize`, `layout`, `pack`, `pack_into`, `unpack`,
+  `unpack_from`, `unpack_named`, `iter_unpack`, `validate`, `explain`,
+  `describe`, `hex` e `is_python_compatible`. Valores en `CarmenValue`
+  (`signed`/`unsigned`/`real`/`truth`/`text`) y errores tipados en
+  `CarmenError` con `message`.
+- **L2**: `CarmenReader` y `CarmenWriter` para formatos con secciones
+  variables: enteros de ancho fijo, `f16`/`f32`/`f64`, bytes, cadenas C y
+  Pascal, varint LEB128, zigzag, cursores de bits (`read_bits`, `write_bits`,
+  `align_bits`), `expect`, `peek_*`, `view`, `sub` y `read_record`.
+- Half floats IEEE 754 binary16 en aritmética pura (redondeo al par,
+  subnormales, `inf`/`NaN` y error en desbordamiento finito), byte-idénticos a
+  CPython.
+- Tests: `tests/conformance/compliance/carmen_formula.pengu` (42 pasos con
+  vectores generados por CPython 3.14.8) y
+  `tests/conformance/compliance/or_and_wide_format.pengu`.
+
+### Cambiado
+
+- **Versionado independiente por módulo**: cada módulo de `std/` declara su
+  propia versión semántica (`std.carmen` empieza en `"1.0.0"`; `std.ffi`
+  conserva `"2.14.0"`). La versión del compilador ya no implica la de cada
+  módulo. Actualizados `LANGUAGE.md` §19.0, `LANGUAGE_Spanish.md` §19.0,
+  `CHEATSHEET.md` y las guías.
+- `VERSION`, `pengu.toml`, `release.toml` y el LSP a `0.23.0`; extensión de VS
+  Code a `4.8.0`. `LANGUAGE.md` deja de anunciar la versión 3.0.3.
+
+### Corregido
+
+- **`or:` funcional**: la semántica no comprobaba las sentencias del bloque y
+  el codegen emitía solo la primera; ahora se abre un scope `SgOrBlock`, se
+  define `error` (payload del `result`, `"maybe is absent"` para `maybe`), se
+  comprueban y emiten todas las sentencias, y `error` fuera de un `or:` da
+  E0015. Esto también arregló ramas `or:` de `std.archivum` que perdían
+  sentencias.
+- **Interpolación de floats y enteros anchos**: `{x}` con `float` emitía `%g`
+  literal; con `u64`/`i64` se truncaba a 32 bits. Ahora usa `%f`, `%llu` y
+  `%lld` según el tipo.
+- **Acceso encadenado `r.error.message`**: `calling r.error.message` emitía
+  `&(r.error)` sobre un `PenguResult`; ahora `resolve_target` desempaqueta
+  `.value`/`.error` de `result` antes de resolver el método.
+- **Literales con NUL**: un literal como `"\x00\x2a"` se truncaba a longitud 0
+  porque se emitía con `pengu_string_from_cstr`; ahora los literales con NUL se
+  emiten con `pengu_string_owned(..., len)` y conservan todos sus bytes.
+
 ## [0.22.1] — 2026-11-02 — Genéricos funcionales
 
 Parche de corrección: la instanciación de genéricos vuelve a producir C válido y

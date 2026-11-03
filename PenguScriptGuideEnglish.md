@@ -925,6 +925,68 @@ checksum matches the one in the manifest.
 
 ---
 
+### 4.22 Binary layouts: `std.carmen`
+
+Every binary protocol is a formula: integers and floats at fixed offsets. Do not
+open-code `p[0] << 24 | p[1] << 16 | …`; describe the record once with
+`std.carmen`, which implements Python's `struct` format language and returns
+errors instead of truncating.
+
+```pengu
+import std.carmen
+import std.spark
+
+weave main into int:
+    # A frame header: sequence, flags, payload length, CRC-32.
+    let header is calling carmen.pack with ">HHI", [
+        (calling carmen.unsigned with 42),
+        (calling carmen.unsigned with 1),
+        (calling carmen.unsigned with 8),
+    ]
+    if not header.is_ok:
+        var why as string is calling header.error.message
+        calling spark.eprintln with why
+        banish why
+        return 1
+
+    calling spark.println with calling carmen.hex with header.value
+
+    let fields is calling carmen.unpack_named with r">{seq:H}{flags:H}{length:I}", header.value
+    if fields.is_ok:
+        var length as carmen.CarmenValue is fields.value at "length"
+        let n as u64 is (calling length.as_unsigned) or else 0
+        calling spark.println with "payload length = {n}"
+    return 0
+```
+
+- **Pick the prefix deliberately.** `@` (default) is the local ABI: native order,
+  native `long`, C padding. `=`, `<`, `>`, `!` are portable: standard sizes, no
+  padding. A protocol on the wire is almost always `<` or `>`; a memory-mapped
+  struct is `@`.
+- **Values are explicit.** `pack` takes `list of CarmenValue`: build them with
+  `carmen.unsigned`, `carmen.signed`, `carmen.real`, `carmen.truth` and
+  `carmen.text`. `unpack` gives the same variants back; use
+  `judge`/`as_unsigned`/`as_text` to read them.
+- **Named fields read like a struct.** `r">{len:I}{tag:4s}"` plus
+  `unpack_named` returns a map, and `explain`/`describe` print offsets and an
+  annotated hex dump when a field is two bytes off.
+- **Stream when the record is not fixed.** `CarmenReader` has `read_u16`,
+  `read_fixed`, `read_cstr`, `read_varint`, `read_bits`, `skip`, `expect` and
+  `sub`; `CarmenWriter` mirrors it and grows its buffer. This is the right tool
+  for a chunk list, a tag-length-value stream or a bit-packed flag byte.
+- **Half floats are real.** `e` follows IEEE 754 binary16 with
+  round-to-nearest-even, the same bytes Python produces, including subnormals
+  and `inf`/`NaN`.
+- `calcsize` is `sizeof` for formulas; `layout` is `offsetof` for all fields.
+  Unpacking a fixed header before a variable payload is exactly
+  `unpack_from` + `calcsize`.
+
+Read `docs/CARMEN.md` for the full code table (including the `z`, `v`, `V` and
+`{name:code}` extensions), the error taxonomy and the worked ELF/PNG/ZIP
+examples.
+
+---
+
 ## 5. Optionals, results and errors
 
 ### 5.1 Choosing the right type

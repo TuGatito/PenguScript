@@ -226,6 +226,20 @@ weave pop_scope with s as ref to SemaSymbols, end_line as int into void:
     set s->scopes at (cur) is sc
     set s->current is sc.parent
 
+## Marca un scope como cuerpo de `or:`.
+##
+## `in_or_block` hereda a los scopes hijos para que `error` siga siendo
+## visible dentro de `if`/`when`/`for` anidados en el bloque.
+##
+## ## Memoria
+## O(1); escribe el scope indicado.
+weave mark_or_block with s as ref to SemaSymbols, scope_id as int into void:
+    if scope_id < 0 or scope_id >= s->scopes.len:
+        return
+    var sc as scope.SemaScope is (s->scopes at scope_id)
+    set sc.in_or_block is true
+    set s->scopes at (scope_id) is sc
+
 ## Scope actual.
 ##
 ## ## Memoria

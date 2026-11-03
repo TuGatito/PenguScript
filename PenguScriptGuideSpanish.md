@@ -929,6 +929,69 @@ fiable hasta que su checksum coincide con el del manifiesto.
 
 ---
 
+### 4.22 Layouts binarios: `std.carmen`
+
+Todo protocolo binario es una fórmula: enteros y floats en offsets fijos. No
+escribas a mano `p[0] << 24 | p[1] << 16 | …`; describe el registro una vez con
+`std.carmen`, que implementa el lenguaje de formato de `struct` de Python y
+devuelve errores en vez de truncar.
+
+```pengu
+import std.carmen
+import std.spark
+
+weave main into int:
+    # Cabecera de trama: secuencia, flags, longitud del payload.
+    let header is calling carmen.pack with ">HHI", [
+        (calling carmen.unsigned with 42),
+        (calling carmen.unsigned with 1),
+        (calling carmen.unsigned with 8),
+    ]
+    if not header.is_ok:
+        var why as string is calling header.error.message
+        calling spark.eprintln with why
+        banish why
+        return 1
+
+    calling spark.println with calling carmen.hex with header.value
+
+    let fields is calling carmen.unpack_named with r">{seq:H}{flags:H}{length:I}", header.value
+    if fields.is_ok:
+        var length as carmen.CarmenValue is fields.value at "length"
+        let n as u64 is (calling length.as_unsigned) or else 0
+        calling spark.println with "longitud del payload = {n}"
+    return 0
+```
+
+- **Elige el prefijo a conciencia.** `@` (por defecto) es la ABI local: orden
+  nativo, `long` nativo y padding de C. `=`, `<`, `>` y `!` son portables:
+  tamaños estándar y sin padding. Un protocolo de red casi siempre es `<` o
+  `>`; un struct mapeado en memoria es `@`.
+- **Los valores son explícitos.** `pack` toma una `list of CarmenValue`:
+  constrúyelos con `carmen.unsigned`, `carmen.signed`, `carmen.real`,
+  `carmen.truth` y `carmen.text`. `unpack` devuelve los mismos variantes; usa
+  `judge`/`as_unsigned`/`as_text` para leerlos.
+- **Los campos con nombre se leen como un struct.** `r">{len:I}{tag:4s}"` más
+  `unpack_named` devuelve un mapa, y `explain`/`describe` imprimen offsets y un
+  volcado hex anotado cuando un campo está dos bytes desplazado.
+- **Usa un cursor cuando el registro no es fijo.** `CarmenReader` tiene
+  `read_u16`, `read_fixed`, `read_cstr`, `read_varint`, `read_bits`, `skip`,
+  `expect` y `sub`; `CarmenWriter` lo refleja y crece su búfer. Es la
+  herramienta para listas de chunks, streams tag-length-value o un byte de flags
+  empaquetado en bits.
+- **Los half floats son reales.** `e` sigue IEEE 754 binary16 con
+  round-to-nearest-even, los mismos bytes que produce Python, incluidos
+  subnormales e `inf`/`NaN`.
+- `calcsize` es `sizeof` para fórmulas; `layout` es `offsetof` para todos los
+  campos. Leer una cabecera fija antes de un payload variable es exactamente
+  `unpack_from` + `calcsize`.
+
+Lee `docs/CARMEN.md` para la tabla completa de códigos (incluidas las
+extensiones `z`, `v`, `V` y `{name:code}`), la taxonomía de errores y los
+ejemplos de ELF/PNG/ZIP.
+
+---
+
 ## 5. Optionals, resultados y errores
 
 ### 5.1 Elegir el tipo correcto
