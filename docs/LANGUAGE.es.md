@@ -698,27 +698,22 @@ del bucle.
 
 ### 5.6 Expresiones de bloque
 
-Cualquier bloque indentado evalúa a su última expresión cuando se usa en
-posición de valor:
+Una comprensión (`for x in xs then expr`) y el condicional de una línea
+(`if c then a else b`) son valores. Un **bloque indentado** en posición de valor
+todavía no está implementado en 0.28.x: `do:` y un `if`/`unless` multilínea
+pasan el chequeo de tipos, pero el C emitido es sólo el valor de la última
+sentencia (el resto del bloque se descarta), así que fallan en silencio.
 
 ```pengu-fragment
-let x as int is do:
-    var a as int is 10
-    set a is a + 5
-    a * 2
-
-let status as string is if score >= 100:
-    let msg as string is "winner"
-    msg
-else:
-    let msg as string is "keep going"
-    msg
+let status as string is if score >= 100 then "winner" else "keep going"
+let doubled as int is if ready then n * 2 else n
 ```
 
-`do:` se reduce a una statement expression. Un `if`/`unless` en posición de
-valor exige que cada rama termine en una expresión del mismo tipo (`E0005`). Un
-bucle en posición de valor recoge el valor de cada iteración en un nuevo
-`list of T`.
+Para devolver un valor calculado desde un bloque, usa un `weave` auxiliar y
+llámalo; para elegir entre dos expresiones, usa `if ... then ... else ...`. Un
+bucle en posición de valor (`for x in xs then expr`) recoge el valor de cada
+iteración en un nuevo `list of T`. Los bloques como expresión están anotados como
+trabajo de paridad del compilador, no como regla del lenguaje.
 
 ## 6. Funciones
 

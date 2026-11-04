@@ -683,26 +683,22 @@ Labels are function-local, unique per function (`E0069`) and lower to
 
 ### 5.6 Block expressions
 
-Any indented block evaluates to its last expression when used in value
-position:
+A comprehension (`for x in xs then expr`) and the one-line conditional
+expression (`if c then a else b`) are values. An **indented block** in value
+position is not implemented yet in 0.28.x: `do:` and a multi-line `if`/`unless`
+type-check, but the emitted C is the value of the last statement only (the rest
+of the block is dropped), so they silently misbehave.
 
 ```pengu-fragment
-let x as int is do:
-    var a as int is 10
-    set a is a + 5
-    a * 2
-
-let status as string is if score >= 100:
-    let msg as string is "winner"
-    msg
-else:
-    let msg as string is "keep going"
-    msg
+let status as string is if score >= 100 then "winner" else "keep going"
+let doubled as int is if ready then n * 2 else n
 ```
 
-`do:` lowers to a statement expression. A value-position `if`/`unless` requires
-every branch to end in an expression of the same type (`E0005`). A loop in value
-position collects each iteration's value into a new `list of T`.
+To return a computed value from a block, use a helper `weave` and call it; to
+choose between two expressions, use `if ... then ... else ...`. A loop in value
+position (`for x in xs then expr`) collects each iteration's value into a new
+`list of T`. Block expressions are tracked as compiler parity work, not as a
+language rule.
 
 ## 6. Functions
 
