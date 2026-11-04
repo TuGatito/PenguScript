@@ -116,6 +116,11 @@ weave resolve with m as ref to manifest.Manifest, p as ref to paths.Paths, t as 
     var cflags as list of string is list of string
     calling cflags.push with "-std=c11"
     calling cflags.push with "-Wall"
+    ## El C generado es estricto (`-std=c11`) pero una biblioteca puede necesitar
+    ## POSIX (sockets, `clock_gettime`, `getaddrinfo`). Estas macros tienen que
+    ## ir en la línea de compilación: definir­las desde el bundle llegaría tarde.
+    calling cflags.push with "-D_POSIX_C_SOURCE=200809L"
+    calling cflags.push with "-D_DEFAULT_SOURCE"
     for f in m->cflags:
         calling cflags.push with (calling copy with f)
     for d in m->defines:

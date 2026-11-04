@@ -2,6 +2,25 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.28.5] — 2026-11-04 — el C generado ve las APIs POSIX
+
+El bundle se compilaba con `-std=c11`, que deja `__STRICT_ANSI__` definido y, con
+él, ocultas las declaraciones POSIX de glibc/musl: `struct addrinfo`,
+`getaddrinfo`, `AI_PASSIVE`, `clock_gettime`/`CLOCK_MONOTONIC`, `gmtime_r`…
+Cualquier binding de sockets, tiempo o red fallaba con "declaración implícita"
+o "tipo desconocido". Definir `_POSIX_C_SOURCE` desde el header llegaba tarde:
+el bundle incluye `<pengu_runtime.h>` antes que los headers del proyecto.
+
+Ahora `psc` añade `-D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE` a las flags de
+compilación por defecto. El C sigue siendo C11 estricto (`-pedantic` con
+`--strict-c99`), solo se expone la API POSIX que un programa de sistemas
+necesita. Un manifiesto puede seguir añadiendo sus propias `cflags`.
+
+### Corregido
+
+- El C generado compila cabeceras que usan sockets y `clock_gettime`.
+- Regresión nueva: `tests/regress_posix_c.sh`.
+
 ## [0.28.4] — 2026-11-04 — llamar un campo que guarda un puntero a función
 
 Hace invocable el patrón de tabla de handlers:
