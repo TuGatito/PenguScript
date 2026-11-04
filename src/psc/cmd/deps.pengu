@@ -197,23 +197,24 @@ weave run_add with args as list of string into int:
     calling cliargs.free_parse_result with (sigil of pr)
     return code
 
-## Deriva nombre de una fuente.
+## Deriva el nombre del paquete a partir de la fuente (ruta o URL).
+## `source` es prestado: no se libera aquí. El nombre devuelto es propio.
 weave derive_name with source as string into string:
-    var s as string is source
-    var b as ref to frozen byte is bytes of s
-    var i as int is s length - 1
+    # Se opera sobre `source` directamente. Un alias `var s is source`
+    # compartiría el buffer y liberarlo aquí dejaría colgando al llamador.
+    var b as ref to frozen byte is bytes of source
+    var i as int is source length - 1
     while i > 0 and (((b at i) to int) == 47 or ((b at i) to int) == 92):
         set i is i - 1
     var e as int is i + 1
     while i >= 0 and ((b at i) to int) != 47 and ((b at i) to int) != 92:
         set i is i - 1
-    var n as string is s at (i + 1) to e
+    var n as string is source at (i + 1) to e
     if calling ends_with with n, ".git":
         var cut as int is n length - 4
         var n2 as string is n at 0 to cut
         banish n
         set n is n2
-    banish s
     return n
 
 weave ends_with with s as string, p as string into bool:

@@ -2,6 +2,28 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.28.1] — 2026-11-04 — `psc add` deriva el nombre sin liberar la fuente
+
+Corrige un *use-after-free* en `psc add` cuando se instala una fuente sin
+`--name` (el caso de `psc add https://github.com/usuario/paquete --trust`).
+
+`derive_name` hacía `var s as string is source`, que comparte el buffer del
+parámetro prestado, y después `banish s`. Eso liberaba la cadena del llamador,
+que seguía usándola para escribir `pengu.toml` y sincronizar `lib/`: el
+manifiesto acababa con basura rellenada (`path = "demo      "`) y la
+instalación fallaba con `cannot install dependency 'demo'`.
+
+### Corregido
+
+- **`derive_name` ya no libera su entrada.** Opera sobre `source` directamente
+  y devuelve un nombre propio (la rebanada ya copia). `psc add <ruta|url>` sin
+  `--name` instala y escribe el manifiesto correctamente.
+
+### Añadido
+
+- **`tests/cli/add_no_name.sh`**: regresión que instala un paquete local sin
+  `--name`, comprueba `pengu.toml`, `lib/dep` y compila/ejecuta el consumidor.
+
 ## [0.28.0] — 2026-11-03 — `enchanting shard T` monomorfiza `self` por valor
 
 Esta entrega corrige la compilación C de los métodos de `enchanting shard T`

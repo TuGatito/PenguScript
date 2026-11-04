@@ -1,6 +1,6 @@
 # PenguScript for Visual Studio Code
 
-Official editor support for **PenguScript 0.28.0**: language server, syntax
+Official editor support for **PenguScript 0.28.1**: language server, syntax
 highlighting, snippets, project commands and a status bar.
 
 ## Requirements

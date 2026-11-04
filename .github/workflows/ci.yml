@@ -54,6 +54,11 @@ jobs:
         shell: bash
         run: ./tests/run.sh
 
+      - name: CLI tests (psc add)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash ./tests/cli/add_no_name.sh
+
       - name: License allowlist
         shell: bash
         run: bash ./tools/license_check.sh
