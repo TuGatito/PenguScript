@@ -3,6 +3,7 @@
 ## Es la única puerta de tipos C. Ningún emisor debe escribir un tipo C a mano.
 
 import std.builder
+import std.scrolls
 import std.spark
 import psc.sema.names as npool
 import psc.sema.types.kind as tk
@@ -344,3 +345,16 @@ weave fn_c_type with ns as ref to names.CgNames, info_idx as int into string:
             calling sb.append with "..."
     calling sb.append with ")"
     return calling sb.finish
+
+## Nombre C de un puntero a `pt`, válido también si `pt` es un puntero a función.
+##
+## `c_type` imprime los punteros a función como `R (*)(A)`, donde el `*` va
+## dentro del paréntesis; añadir otro `*` al final produce un tipo C inválido.
+## El puntero a `R (*)(A)` es `R (**)(A)`.
+##
+## ## Memoria
+## Devuelve un string owned.
+weave pointer_type_name with pt as string into string:
+    if calling scrolls.contains with pt, "(*)":
+        return calling scrolls.replace with pt, "(*)", "(**)"
+    return "{pt}*"

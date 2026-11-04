@@ -5,6 +5,7 @@
 ## sin cambiar la interfaz `emit_expr`.
 
 import std.builder
+import std.scrolls
 
 import psc.ast.kind as pskind
 import psc.ast.node as psast
@@ -1343,16 +1344,27 @@ weave some_expr_c with c as ref to context.CgContext, node as int, ast as ref to
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     calling sb.append with "__extension__(({ "
-    calling sb.append with pt
-    calling sb.append with " _p = "
-    calling sb.append with av
-    calling sb.append with "; "
-    calling sb.append with pt
-    calling sb.append with "* _h = ("
-    calling sb.append with pt
-    calling sb.append with "*)malloc(sizeof("
-    calling sb.append with pt
-    calling sb.append with ")); if (!_h) abort(); *_h = _p; PenguMaybe _r = pengu_maybe_some(_h); _r; }))"
+    if calling scrolls.contains with pt, "(*)":
+        calling sb.append with "void* _h = malloc(sizeof("
+        calling sb.append with pt
+        calling sb.append with ")); if (!_h) abort(); memcpy(_h, &("
+        calling sb.append with pt
+        calling sb.append with "){ "
+        calling sb.append with av
+        calling sb.append with " }, sizeof("
+        calling sb.append with pt
+        calling sb.append with ")); PenguMaybe _r = pengu_maybe_some(_h); _r; }))"
+    else:
+        calling sb.append with pt
+        calling sb.append with " _p = "
+        calling sb.append with av
+        calling sb.append with "; "
+        calling sb.append with pt
+        calling sb.append with "* _h = ("
+        calling sb.append with pt
+        calling sb.append with "*)malloc(sizeof("
+        calling sb.append with pt
+        calling sb.append with ")); if (!_h) abort(); *_h = _p; PenguMaybe _r = pengu_maybe_some(_h); _r; }))"
     return calling sb.finish
 
 ## Constructores intrínsecos `ok_of`, `err_of` y `some`.
@@ -1436,16 +1448,27 @@ weave result_ctor with c as ref to context.CgContext, node as int, ast as ref to
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     calling sb.append with "__extension__(({ "
-    calling sb.append with pt
-    calling sb.append with " _p = "
-    calling sb.append with av
-    calling sb.append with "; "
-    calling sb.append with pt
-    calling sb.append with "* _h = ("
-    calling sb.append with pt
-    calling sb.append with "*)malloc(sizeof("
-    calling sb.append with pt
-    calling sb.append with ")); if (!_h) abort(); *_h = _p; "
+    if calling scrolls.contains with pt, "(*)":
+        calling sb.append with "void* _h = malloc(sizeof("
+        calling sb.append with pt
+        calling sb.append with ")); if (!_h) abort(); memcpy(_h, &("
+        calling sb.append with pt
+        calling sb.append with "){ "
+        calling sb.append with av
+        calling sb.append with " }, sizeof("
+        calling sb.append with pt
+        calling sb.append with ")); "
+    else:
+        calling sb.append with pt
+        calling sb.append with " _p = "
+        calling sb.append with av
+        calling sb.append with "; "
+        calling sb.append with pt
+        calling sb.append with "* _h = ("
+        calling sb.append with pt
+        calling sb.append with "*)malloc(sizeof("
+        calling sb.append with pt
+        calling sb.append with ")); if (!_h) abort(); *_h = _p; "
     if is_maybe:
         calling sb.append with "PenguMaybe _r = pengu_maybe_some(_h); _r; }))"
     else if is_ok:
@@ -1483,8 +1506,10 @@ weave maybe_result_method with c as ref to context.CgContext, node as int, ast a
             return "(!({rt.text}).is_present)"
         var ct as string is calling ctype.c_type with (sigil of c->names), t.a
         defer banish ct
+        var cpt as string is calling ctype.pointer_type_name with ct
+        defer banish cpt
         if mname == "unwrap" or mname == "expect":
-            return "(*( {ct}*)(({rt.text}).value))"
+            return "(*( {cpt})(({rt.text}).value))"
         if mname == "unwrap_or" or mname == "value_or":
             var args as int is calling astutil.node_child with ast, node, 2
             if args >= 0:
@@ -1494,7 +1519,7 @@ weave maybe_result_method with c as ref to context.CgContext, node as int, ast a
                 if a0 >= 0:
                     var dv as string is calling emit_expr_as with c, a0, t.a
                     defer banish dv
-                    return "(({rt.text}).is_present ? (*( {ct}*)(({rt.text}).value)) : ({dv}))"
+                    return "(({rt.text}).is_present ? (*( {cpt})(({rt.text}).value)) : ({dv}))"
         return ""
     if t.kind == tk.SemaTypeKind.TkResult:
         if mname == "is_ok":
@@ -1503,12 +1528,16 @@ weave maybe_result_method with c as ref to context.CgContext, node as int, ast a
             return "(!({rt.text}).is_ok)"
         var okt as string is calling ctype.c_type with (sigil of c->names), t.a
         defer banish okt
+        var okp as string is calling ctype.pointer_type_name with okt
+        defer banish okp
         if mname == "unwrap" or mname == "expect":
-            return "(*( {okt}*)(({rt.text}).ok_val))"
+            return "(*( {okp})(({rt.text}).ok_val))"
         if mname == "unwrap_err" or mname == "expect_err":
             var ert as string is calling ctype.c_type with (sigil of c->names), t.b
             defer banish ert
-            return "(*( {ert}*)(({rt.text}).err_val))"
+            var erp as string is calling ctype.pointer_type_name with ert
+            defer banish erp
+            return "(*( {erp})(({rt.text}).err_val))"
         if mname == "unwrap_or" or mname == "value_or":
             var args2 as int is calling astutil.node_child with ast, node, 2
             if args2 >= 0:
@@ -1518,7 +1547,7 @@ weave maybe_result_method with c as ref to context.CgContext, node as int, ast a
                 if a02 >= 0:
                     var dv2 as string is calling emit_expr_as with c, a02, t.a
                     defer banish dv2
-                    return "(({rt.text}).is_ok ? (*( {okt}*)(({rt.text}).ok_val)) : ({dv2}))"
+                    return "(({rt.text}).is_ok ? (*( {okp})(({rt.text}).ok_val)) : ({dv2}))"
         return ""
     return ""
 
@@ -2250,9 +2279,11 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                         var ptmp as string is calling emit.temp with (sigil of c->emitter), "_p"
                         defer banish ptmp
                         defer banish vzero
+                        var vpt as string is calling ctype.pointer_type_name with vts
+                        defer banish vpt
                         calling msb.append with "void* {ptmp} = pengu_map_get({mrecv}, &_k); {ptmp} ? (*( "
-                        calling msb.append with vts
-                        calling msb.append with "*){ptmp}) : "
+                        calling msb.append with vpt
+                        calling msb.append with "){ptmp}) : "
                         calling msb.append with vzero
                         calling msb.append with "; }))"
                 banish kt
@@ -2912,13 +2943,15 @@ weave at_expr with c as ref to context.CgContext, node as int, ast as ref to psa
             var ptmp as string is calling emit.temp with (sigil of c->emitter), "_p"
             defer banish ktmp
             defer banish ptmp
+            var vpt2 as string is calling ctype.pointer_type_name with vt
+            defer banish vpt2
             var msb as StringBuilder is calling StringBuilder.new
             defer banish msb
             calling msb.append with "__extension__(({ "
             calling msb.append with kt
             calling msb.append with " {ktmp} = "
             calling msb.append with ix
-            calling msb.append with "; void* {ptmp} = pengu_map_get({amp}({bs}), &{ktmp}); {ptmp} ? (*( {vt}*){ptmp}) : {vzero}; }))"
+            calling msb.append with "; void* {ptmp} = pengu_map_get({amp}({bs}), &{ktmp}); {ptmp} ? (*( {vpt2}){ptmp}) : {vzero}; }))"
             banish kt
             banish vt
             banish vzero
@@ -2989,11 +3022,15 @@ weave at_access_target with c as ref to context.CgContext, ch as int, base as st
     if actual.kind == tk.SemaTypeKind.TkList:
         var el as string is calling ctype.c_type with (sigil of c->names), actual.a
         defer banish el
-        return with text is "(*( {el}*)pengu_list_at({amp}({base}), (int)({cix})))", type_id is actual.a
+        var elp as string is calling ctype.pointer_type_name with el
+        defer banish elp
+        return with text is "(*( {elp})pengu_list_at({amp}({base}), (int)({cix})))", type_id is actual.a
     if actual.kind == tk.SemaTypeKind.TkSlice:
         var sel as string is calling ctype.c_type with (sigil of c->names), actual.a
         defer banish sel
-        return with text is "(*( {sel}*)pengu_slice_at({amp}({base}), (int)({cix})))", type_id is actual.a
+        var selp as string is calling ctype.pointer_type_name with sel
+        defer banish selp
+        return with text is "(*( {selp})pengu_slice_at({amp}({base}), (int)({cix})))", type_id is actual.a
     if actual.kind == tk.SemaTypeKind.TkArray or actual.kind == tk.SemaTypeKind.TkRef:
         return with text is "{base}[{cix}]", type_id is actual.a
     return with text is "{base}[{cix}]", type_id is actual_id
@@ -3129,7 +3166,8 @@ weave resolve_target with c as ref to context.CgContext, target as int, ast as r
                                 set pid is pt.b
                                 set sel is "err_val"
                             var pct as string is calling ctype.c_type with (sigil of c->names), pid
-                            var acc as string is "(*( {pct}*)(({base}).{sel}))"
+                            var pctp as string is calling ctype.pointer_type_name with pct
+                            var acc as string is "(*( {pctp})(({base}).{sel}))"
                             banish base
                             banish fld
                             set base is acc
@@ -3929,7 +3967,9 @@ weave field_access_expr with c as ref to context.CgContext, node as int, ast as 
             defer banish bm
             var pm as string is calling ctype.c_type with (sigil of c->names), bt1.a
             defer banish pm
-            return "(*( {pm}*)(({bm}).value))"
+            var pmp as string is calling ctype.pointer_type_name with pm
+            defer banish pmp
+            return "(*( {pmp})(({bm}).value))"
         if bt1.kind == tk.SemaTypeKind.TkResult and (fname == "value" or fname == "error"):
             var b0 as string is calling emit_expr with c, base
             defer banish b0
@@ -3938,9 +3978,11 @@ weave field_access_expr with c as ref to context.CgContext, node as int, ast as 
                 set pay0 is bt1.b
             var pct0 as string is calling ctype.c_type with (sigil of c->names), pay0
             defer banish pct0
+            var pct0p as string is calling ctype.pointer_type_name with pct0
+            defer banish pct0p
             if fname == "value":
-                return "(*( {pct0}*)(({b0}).ok_val))"
-            return "(*( {pct0}*)(({b0}).err_val))"
+                return "(*( {pct0p})(({b0}).ok_val))"
+            return "(*( {pct0p})(({b0}).err_val))"
     var bty0 as int is calling node_type with c, base
     if bty0 >= 0:
         var bty1 as tk.SemaType is calling types.at with (sigil of c->program->types), bty0

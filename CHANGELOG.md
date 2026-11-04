@@ -2,6 +2,32 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.28.8] — 2026-11-04 — un puntero a función cabe en `maybe` y `result`
+
+Boxear un puntero a función (`some (callback)`, `ok_of with callback`) emitía C
+inválido: `R (*)(A) _p = ...` y `R (*)(A)* _h = ...` (el nombre del declarador va
+dentro del `(*)`). Además, al leer el payload (`m.value`), el cast a
+`R (*)(A)*` tampoco es un tipo C válido: el puntero a `R (*)(A)` es `R (**)(A)`.
+
+Esto es lo que impide, por ejemplo, guardar un handler en un `maybe` dentro de un
+struct sin una bandera aparte.
+
+### Corregido
+
+- `src/psc/codegen/expr.pengu` (`some_expr_c` y `result_ctor`): si el payload es
+  un puntero a función se boxea con `memcpy` desde un literal compuesto (válido
+  para tipos con nombre dentro del `(*)`); el resto sigue usando la temporal
+  normal.
+- `src/psc/codegen/ctype.pengu`: nuevo `pointer_type_name`, que convierte
+  `R (*)(A)` en `R (**)(A)` en vez de `R (*)(A)*`.
+- Todos los sitios que desreferencian un payload (`maybe.value`, `result.value`,
+  `result.error`, `map.get`, `list at`, `slice at`) usan ese helper.
+
+### Pruebas
+
+- `tests/regress_fnptr_box.sh`: guarda un puntero a función en `maybe` y en
+  `result`, los lee y los llama, con `-Wall -Werror`.
+
 ## [0.28.7] — 2026-11-04 — una lista vacía no emite código muerto
 
 `let xs as list of int is []` generaba una variable temporal del tipo del
