@@ -2,6 +2,22 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.28.3] — 2026-11-04 — llamar un local con nombre de keyword de C
+
+Corrige el C inválido (`expected expression before 'double'`) al llamar una
+variable local cuyo nombre es una palabra reservada de C.
+
+### Corregido
+
+- **La llamada usa el nombre C registrado en el scope.** `add_local` manglea
+  esos nombres (`double` → `double_`), pero `call_expr` emitía el texto fuente
+  del token. Ahora, si el símbolo anotado es un local, se usa
+  `context.local_c_name`.
+
+### Añadido
+
+- **`tests/regress_c_keyword.sh`**.
+
 ## [0.28.2] — 2026-11-04 — llamar un `alias` de tipo función
 
 Corrige `error[E0020]: return value of type 'Handler' does not match 'result of

@@ -1619,6 +1619,23 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
     var cname as string is ""
     var method_name as string is ""
     var fslot as int is -1
+    # Llamada a un campo que guarda un puntero a función:
+    # `calling route.handler with context` se emite `(route.handler)(context)`.
+    var fctgt as int is calling astutil.node_child with ast, node, 0
+    if fctgt >= 0 and (calling astutil.child_count with ast, fctgt) > 1:
+        var fcrt as CgTarget is calling resolve_target with c, fctgt, ast, false
+        if fcrt.type_id > 0:
+            var fcu as int is calling types.underlying with (sigil of c->program->types), fcrt.type_id
+            var fcty as tk.SemaType is calling types.at with (sigil of c->program->types), fcu
+            var fcguard as int is 0
+            while fcguard < 8 and (fcty.kind == tk.SemaTypeKind.TkRef or fcty.kind == tk.SemaTypeKind.TkFrozen):
+                set fcu is fcty.a
+                set fcty is calling types.at with (sigil of c->program->types), fcu
+                set fcguard is fcguard + 1
+            if fcty.kind == tk.SemaTypeKind.TkFn:
+                banish cname
+                set cname is "({fcrt.text})"
+        banish fcrt.text
     # Llamada cualificada `mod.fn`: resolver el alias de import y el catálogo
     # antes de que F3 anote un nombre poco preciso (p. ej. una variable local
     # homónima como `var lex ... is calling pslexer.lex`).
@@ -1682,7 +1699,15 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), ff.c_name)
         else:
             var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), sid
-            set cname is calling names.function_name with (sigil of c->names), sv
+            # Un local puede tener un nombre C distinto del fuente (`double` ->
+            # `double_`): la llamada debe usar el nombre registrado en el scope
+            # C, igual que una referencia en `emit_expr`.
+            var lcn as int is calling context.local_c_name with c, sv.name
+            if lcn >= 0:
+                banish cname
+                set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), lcn)
+            else:
+                set cname is calling names.function_name with (sigil of c->names), sv
     if cname == "":
         var target as int is calling astutil.node_child with ast, node, 0
         var last as int is -1

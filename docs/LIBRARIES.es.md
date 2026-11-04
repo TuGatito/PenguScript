@@ -2,7 +2,7 @@
 
 Esta guía describe cómo escribir una librería que otros proyectos puedan
 instalar con `psc add` e importar como cualquier otro módulo. Todo lo que sigue
-está probado con `psc` 0.28.2 en Linux y macOS; las notas indican lo que solo
+está probado con `psc` 0.28.3 en Linux y macOS; las notas indican lo que solo
 funciona en versiones nuevas del compilador.
 
 Una librería en PenguScript es **un repositorio git** (o un directorio local)
@@ -246,7 +246,7 @@ librería.
    desarrollo y `--frozen` en CI.
 
 En compiladores **0.28.0 y anteriores**, `psc add` sin `--name` corrompe el
-manifiesto (arreglado en 0.28.2). Pasa `--name mi_lib` explícitamente si sigues
+manifiesto (arreglado en 0.28.3). Pasa `--name mi_lib` explícitamente si sigues
 anclado a 0.28.0.
 
 ### `build.pengu`
