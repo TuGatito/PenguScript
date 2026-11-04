@@ -33,6 +33,7 @@ regenerates them and fails if the committed tree is stale.
 | --- | --- |
 | [CARMEN.md](CARMEN.md) | `std.carmen`, the binary struct format. |
 | [EXTERNAL_MODULES.md](EXTERNAL_MODULES.md) | How bindings and C satellites are organised. |
+| [LIBRARIES.md](LIBRARIES.md) / [LIBRARIES.es.md](LIBRARIES.es.md) | How to build, test and publish a library that installs with `psc add`. |
 | [LSP.md](LSP.md) | The language server. |
 | [WASM.md](WASM.md) | Building for WebAssembly. |
 | [psc/](psc/) | Compiler internals: AST, semantic analysis, codegen, modules. |
@@ -54,7 +55,7 @@ compiled.
 
 ## Versioning
 
-The documents state the `psc` version they describe (currently **0.28.0**).
+The documents state the `psc` version they describe (currently **0.28.1**).
 When the language changes, the same pull request updates:
 
 1. the reference (`LANGUAGE.md` + `.es.md`),
