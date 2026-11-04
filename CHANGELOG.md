@@ -2,6 +2,32 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.28.4] — 2026-11-04 — llamar un campo que guarda un puntero a función
+
+Hace invocable el patrón de tabla de handlers:
+
+```pengu
+rune Route:
+    handler as weave with context as ref to Context into int
+...
+let r as int is calling route.handler with sigil of context
+```
+
+Antes daba `error[E0004]: undefined function 'handler'`: la ruta de llamada
+resolvía el último acceso como método y no probaba los campos.
+
+### Corregido
+
+- **Semántica:** `call_fn_field` resuelve el campo del receptor (desenvuelve
+  `ref`/`frozen`/`alias`), comprueba argumentos contra la firma y devuelve el
+  tipo de retorno; se prueba antes de la búsqueda de métodos.
+- **Codegen:** si el target resuelve a un tipo `TkFn` por acceso a campo, la
+  llamada se emite `(receptor.campo)(args)` en vez de `campo(args)`.
+
+### Añadido
+
+- **`tests/regress_field_call.sh`**.
+
 ## [0.28.3] — 2026-11-04 — llamar un local con nombre de keyword de C
 
 Corrige el C inválido (`expected expression before 'double'`) al llamar una

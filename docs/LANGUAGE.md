@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.28.3: every
+reference documents the language as implemented by `psc` 0.28.4: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -137,7 +137,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.28.3. The ABI version the generated C expects is 3.
+* Version: `psc` 0.28.4. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
