@@ -207,13 +207,33 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
             calling ctypes.emit_definition with c, t2
         set i is i + 1
     banish order
-    # Tuplas sintéticas.
+    # Tuplas sintéticas. Dos tuplas con la misma forma C pueden tener
+    # `TypeId` distinto (cada módulo instancia la suya), así que se emite una
+    # sola definición por nombre para no redefinir el struct en el bundle.
+    var tnames as list of string is list of string
     var ti as int is 0
     while ti < c->program->types.types.len:
         var tt0 as tk.SemaType is (c->program->types.types at ti)
         if tt0.kind == tk.SemaTypeKind.TkTuple and (not c->options.prune_types or calling dce.type_live with (sigil of reach), ti):
-            calling ctypes.emit_tuple with c, ti
+            var tname as string is calling ctypes.tuple_c_name with (sigil of c->names), ti
+            var dup as bool is false
+            var sj as int is 0
+            while sj < tnames.len:
+                if (tnames at sj) == tname:
+                    set dup is true
+                set sj is sj + 1
+            if dup:
+                banish tname
+            else:
+                calling tnames.push with tname
+                calling ctypes.emit_tuple with c, ti
         set ti is ti + 1
+    var sk as int is 0
+    while sk < tnames.len:
+        var sn as string is (tnames at sk)
+        banish sn
+        set sk is sk + 1
+    banish tnames
     calling emit.blank with (sigil of c->emitter)
     # Constantes.
     set i is 0

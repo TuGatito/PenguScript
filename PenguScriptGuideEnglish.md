@@ -1,3 +1,8 @@
+> **Superseded.** This style guide grew into the Pengunic manual:
+> [`docs/PENGUNIC.md`](docs/PENGUNIC.md) (English) and
+> [`docs/PENGUNIC.es.md`](docs/PENGUNIC.es.md) (Spanish). This file is kept for
+> historical reference.
+
 # Pengunic Style Guide
 
 > **Covered version:** PenguScript **3.0.1**

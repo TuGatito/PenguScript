@@ -1,3 +1,8 @@
+> **Superado.** Esta guía de estilo creció hasta convertirse en el manual
+> Pengunic: [`docs/PENGUNIC.es.md`](docs/PENGUNIC.es.md) (español) y
+> [`docs/PENGUNIC.md`](docs/PENGUNIC.md) (inglés). Este archivo se conserva como
+> referencia histórica.
+
 # Guía de Estilo Pengunic
 
 > **Versión cubierta:** PenguScript **3.0.1**

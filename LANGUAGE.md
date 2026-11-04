@@ -1,6 +1,11 @@
+> **Superseded.** This file is kept for historical reference and because
+> `std/` comments cite its section numbers. The maintained documentation is
+> [`docs/LANGUAGE.md`](docs/LANGUAGE.md) (English) and
+> [`docs/LANGUAGE.es.md`](docs/LANGUAGE.es.md) (Spanish).
+
 # PenguScript Language Reference
 
-> **Version covered:** PenguScript **0.26.0** (synchronized with the `VERSION` file; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
+> **Version covered:** PenguScript **0.27.0** (synchronized with the `VERSION` file; C99/C11 code generator; runtime headers under `pengu_runtime.h`).
 > **Language policy.** English is the canonical language of the PenguScript
 > documentation, so **this document is the normative one**. A Spanish translation is
 > maintained at [`LANGUAGE_Spanish.md`](LANGUAGE_Spanish.md); it is **non-normative**,

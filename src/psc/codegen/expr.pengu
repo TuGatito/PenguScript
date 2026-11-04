@@ -2678,7 +2678,7 @@ weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref t
                                     if pty < 0:
                                         set pty is 1
                                     var pct as string is calling ctype.c_type with (sigil of c->names), pty
-                                    calling sb.append with "{pct} {pfn} = {stmp}.data.{pvt}.{pfn}; "
+                                    calling sb.append with "{pct} {pfn} = {stmp}.data.{pvt}.{pfn}; (void){pfn}; "
                                     var pnid as int is calling npool.intern with (sigil of c->program->names), pfn
                                     calling context.add_local with c, pnid, pty, pnid
                                     banish pct

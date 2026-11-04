@@ -42,8 +42,8 @@ the repository root.
   - Expresiones y control básicos, struct init, campos, interpolación simple
     de identificadores y DCE conservadora de std.
   - Tests `tests/psc/test_f4_acceptance.py`; plan en
-    [`docs/CODEGEN.md`](docs/CODEGEN.md); arquitectura y matriz de pruebas en
-    [`docs/CODEGEN.md`](docs/CODEGEN.md).
+    [`docs/CODEGEN.md`](CODEGEN.md); arquitectura y matriz de pruebas en
+    [`docs/CODEGEN.md`](CODEGEN.md).
   - Pendiente: métodos/genéricos, ownership (`defer`/`banish`), contenedores,
     `judge`/`with`/`or`, `--test`, DCE exacta y matriz completa de C.
 
@@ -179,7 +179,7 @@ cd psc
 # -> cases=15 accept_ok=15 pos_ok=14 allowed=1 failures=0
 ```
 
-Detalles y divergencias en [`docs/PARITY.md`](docs/PARITY.md).
+Detalles y divergencias en [`docs/PARITY.md`](PARITY.md).
 
 ## Fuzz y sanitizers
 
@@ -237,13 +237,11 @@ psc/tools/                           oráculos/golden (dev-only)
 
 ## Documentación
 
-- [`docs/CODEGEN.md`](docs/CODEGEN.md): codegen C F4 completo (arquitectura, estado y pruebas).
-- [`docs/SEMA.md`](docs/SEMA.md): pipeline semántico, tipos, símbolos y checker.
-- [`docs/TYPES.md`](docs/TYPES.md): modelo de tipos, interning y compatibilidad.
-- [`docs/MODULES.md`](docs/MODULES.md): imports, bindings C y `when`.
-- [`docs/SEMA_ERRORS.md`](docs/SEMA_ERRORS.md): códigos y formato.
-- [`docs/AST.md`](docs/AST.md): modelo del AST, codificación, nodos y rarezas.
-- [`docs/PARITY.md`](docs/PARITY.md): cómo se compara con stage0 y qué difiere.
-- [`docs/OWNERSHIP.md`](docs/OWNERSHIP.md): quién libera cada recurso.
-- [`../PLAN_F2_PARSER.md`](../PLAN_F2_PARSER.md): plan aprobado de F2 y estado.
-- [`../PLAN_F3_SEMA.md`](../PLAN_F3_SEMA.md): plan aprobado de F3 y estado.
+- [`docs/CODEGEN.md`](CODEGEN.md): codegen C F4 completo (arquitectura, estado y pruebas).
+- [`docs/SEMA.md`](SEMA.md): pipeline semántico, tipos, símbolos y checker.
+- [`docs/TYPES.md`](TYPES.md): modelo de tipos, interning y compatibilidad.
+- [`docs/MODULES.md`](MODULES.md): imports, bindings C y `when`.
+- [`docs/SEMA_ERRORS.md`](SEMA_ERRORS.md): códigos y formato.
+- [`docs/AST.md`](AST.md): modelo del AST, codificación, nodos y rarezas.
+- [`docs/PARITY.md`](PARITY.md): cómo se compara con stage0 y qué difiere.
+- [`docs/OWNERSHIP.md`](OWNERSHIP.md): quién libera cada recurso.

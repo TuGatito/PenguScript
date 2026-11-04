@@ -1,3 +1,7 @@
+> **Documento histórico.** Describe la paridad del compilador de la era Python
+> (stage0 con Lark). Los oráculos citados se eliminaron junto con ese compilador
+> en la 0.27.0; se conserva como registro de las decisiones de paridad.
+
 # Paridad de PSC con stage0
 
 ## F1 — Tokens
@@ -7,7 +11,7 @@
 `PenguParser.get_tokens()` **no es un oracle válido**: no aplica
 `_strip_comments` y su comprobación de “múltiples statements en una línea” da
 falsos positivos. El oracle de F1
-([`tools/lark_token_oracle.py`](../tools/lark_token_oracle.py)) monkeypatchea
+(un script de la era Python, ya eliminado) monkeypatcheaba
 `lark.lexer.LexerThread.lex` y captura exactamente los tokens que consume un
 `parse` real, con el lexer contextual de Lark.
 
@@ -88,7 +92,7 @@ levels=antiquus:28, exact:146, struct:1
 
 ### Método
 
-El oráculo [`tools/lark_ast_oracle.py`](../tools/lark_ast_oracle.py) parsea
+El oráculo de la era Python (ya eliminado) parseaba
 cada archivo con stage0 (`PenguParser.parse`) y con PSC (`psc parse --no-header`)
 y compara un dump canónico:
 
@@ -103,8 +107,7 @@ files=205 exact=204 allowed=1 diverged=0
 ```
 
 El corpus incluye `std/` (49), `tests/` (126) y `psc/src/` (30 con los módulos
-nuevos de F2). El allowlist está en
-[`tools/ast_allowlist.txt`](../tools/ast_allowlist.txt).
+nuevos de F2). El allowlist vivía en `tools/ast_allowlist.txt`, eliminado con la era Python.
 
 ### Divergencias de AST
 
@@ -123,7 +126,7 @@ nuevos de F2). El allowlist está en
 
 ### Método
 
-`tools/lark_parse_error_oracle.py` compara aceptación/rechazo y línea/columna
+El oráculo de la era Python (ya eliminado) comparaba aceptación/rechazo y línea/columna
 del primer error para 15 casos. No compara el texto: PSC tiene mensajes/help
 propios, pero mantiene `E0000` y la posición de stage0.
 

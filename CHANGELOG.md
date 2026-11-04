@@ -2,6 +2,66 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.27.0] — 2026-11-03 — `psc doc` documenta la stdlib y genera índices
+
+Esta entrega hace que la documentación automática cubra también la biblioteca
+estándar y arregla la generación del índice HTML, que abortaba por un
+`double free`.
+
+### Añadido
+
+- **`psc doc --include-std`**: además de los módulos del proyecto, documenta
+  cada `std/**/*.pengu` (excluye los `.d.pengu`). Sin el flag el
+  comportamiento sigue siendo el de siempre.
+- **Docstring de módulo**: cada página empieza con el bloque `##` inicial del
+  archivo (el mismo que ve el LSP), y después la lista de símbolos.
+- **Índice navegable**: `docs/api/README.md` es ahora una lista de enlaces a
+  cada módulo, y `--html` escribe `index.html` con el mismo contenido y un
+  cuadro de filtro.
+- **Títulos cualificados**: la cabecera de cada página usa el nombre del
+  módulo (`std.json`, `psc.cmd.doc`) en lugar del basename, que colisionaba
+  entre `std/dom` y cualquier otro `dom`.
+- **`psc doc` avisa** cuando una página queda sin símbolos
+  (`warning: N module(s) without symbols`).
+
+### Corregido
+
+- **`psc doc --html` abortaba con `double free or corruption`.** El comando
+  guardaba los nombres de página en un `list of string` y liberaba cada
+  elemento dentro del bucle; el segundo recorrido (el índice HTML) volvía a
+  liberar los mismos buffers. El índice se construye ahora con dos
+  `StringBuilder`, sin lista intermedia.
+- **Módulos fuera del entry**: un archivo cuyo módulo no pertenece al
+  programa del entry (la stdlib, o un huérfano) se comprueba aislado y se
+  documenta, en vez de generar una página vacía.
+- Se eliminó el helper `basename_no_ext`, ya sin uso.
+- **Los bloques (`if`, `while`, `judge`, `do:`, `unsafe`) no abrían scope
+  léxico.** Un `let`/`var` declarado dentro de un `if` quedaba en el scope de
+  la función: después del bloque, `return x` podía fallar con `E0020` porque
+  `x` resolvía al binding interno. Ahora `check_block` hace `push_scope` /
+  `pop_scope` de un `SgBlock`, de modo que cada bloque tiene su propio scope.
+- **El destructuring de una tupla ya no repite la llamada.** `let a, b is
+  calling f` emitía `(f()).first` y `(f()).second`: dos llamadas y dos veces
+  los efectos secundarios. Ahora la tupla se guarda en un temporal
+  (`_pengu_tup0`) y los bindings lo leen. Regresión cubierta por
+  `tests/pengu/tuple_destructure.pengu`.
+- **El número incorrecto de argumentos de tipo reporta `E0021`.** Antes se
+  emitía con `E0005` (`CODE_TYPE_MISMATCH`), aunque el catálogo reserva
+  `E0021` para ese error; ahora el código coincide con la documentación.
+- **La documentación de módulo conserva la indentación.** `psc doc` hacía
+  `trim` de cada línea del docstring `##`, así que los ejemplos de código
+  perdían su indentación; ahora solo quita el prefijo `## ` y deja el resto
+  intacto.
+- **`import std.loom` ya no choca con `std.atlas`.** `std/loom.pengu` enlazaba
+  el concepto `Ordered` a un `seal` de `int`, y como los métodos de un seal
+  comparten tabla con su primitivo, chocaban con el `bind int with Ordered`
+  de atlas (`E0047: duplicate method 'cmp'`). El tipo de test es ahora un
+  `rune` con su propio `cmp`, así que el módulo se puede importar.
+- **Las tuplas sintéticas se emiten una sola vez.** Dos tuplas con la misma
+  forma C podían tener `TypeId` distinto (cada módulo instanciaba la suya) y
+  el bundle redefinía el `struct PenguTuple_…`; el emisor ahora deduplica por
+  nombre.
+
 ## [0.26.0] — 2026-11-03 — `signatureHelp` fiable, soporte de C en `antiquus`
 
 Esta entrega arregla una corrupción de memoria del servidor LSP y prepara el

@@ -1,3 +1,7 @@
+> **Superseded.** The maintained reference is [`docs/LANGUAGE.md`](docs/LANGUAGE.md)
+> (English) and [`docs/LANGUAGE.es.md`](docs/LANGUAGE.es.md) (Spanish). This file
+> is kept for historical reference.
+
 # PenguScript Language Reference
 
 > A statically typed, compiled programming language that blends the clean, indentation-based readability of **Python**, the strict scoping and memory-safety rules of **V**, and the raw speed, small footprint, and seamless C interoperability of **C**. PenguScript sources compile to readable **C99/C11**, which is then compiled with `gcc`, `clang`, or `msvc` into standalone native binaries on Windows, Linux, and macOS.

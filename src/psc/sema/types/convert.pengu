@@ -226,7 +226,7 @@ weave convert_custom with ctx as ref to TypeCtx, node as int into int:
         if args.len > 0:
             if args.len != binfo.tparams_count:
                 var gmsg as string is "wrong number of type arguments for '{name}' ({args.len}/{binfo.tparams_count})"
-                calling sdiag.node_error with ctx->bag, ctx->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with ctx->ast, node), (calling astutil.end_of with ctx->ast, node), gmsg, "Pass exactly the type parameters declared by the type.", ""
+                calling sdiag.node_error with ctx->bag, ctx->src, sdiag.CODE_GENERIC_ARGS, (calling astutil.start_of with ctx->ast, node), (calling astutil.end_of with ctx->ast, node), gmsg, "Pass exactly the type parameters declared by the type.", ""
                 banish gmsg
                 banish args
                 return 0

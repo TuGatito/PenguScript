@@ -907,6 +907,14 @@ weave emit_destructure with c as ref to context.CgContext, node as int, ast as r
         return
     var val as string is calling expr.emit_expr with c, vn
     defer banish val
+    # La expresión se evalúa una sola vez: un temporal guarda la tupla y los
+    # elementos se leen de él. Si no, `let a, b is calling f` llamaría a `f`
+    # dos veces y duplicaría sus efectos.
+    var tct as string is calling ctype.c_type with (sigil of c->names), vt
+    var tmp as string is "_pengu_tup{c->tmp_seq}"
+    set c->tmp_seq is c->tmp_seq + 1
+    calling emit.line with (sigil of c->emitter), "{tct} {tmp} = {val};"
+    banish tct
     var i as int is 0
     var n as int is calling astutil.child_count with ast, vlist
     while i < n and i < t.count:
@@ -921,11 +929,12 @@ weave emit_destructure with c as ref to context.CgContext, node as int, ast as r
             else if i == 2:
                 set lab is "third"
             var nid as int is calling npool.intern with (sigil of c->program->names), nm
-            calling emit.line with (sigil of c->emitter), "{ct} {nm} = ({val}).{lab};"
+            calling emit.line with (sigil of c->emitter), "{ct} {nm} = {tmp}.{lab};"
             calling context.add_local with c, nid, cid, nid
             banish ct
             banish nm
         set i is i + 1
+    banish tmp
 
 ## Token del nombre de una declaración (`var` directo o `let` con lista).
 ##
@@ -1014,6 +1023,7 @@ weave emit_judge_stmt with c as ref to context.CgContext, node as int, ast as re
                                             set pty is 1
                                         var pct as string is calling ctype.c_type with (sigil of c->names), pty
                                         calling emit.line with (sigil of c->emitter), "{pct} {pfn} = {stmp}.data.{pvt}.{pfn};"
+                                        calling emit.line with (sigil of c->emitter), "(void){pfn};"
                                         calling context.add_local with c, pfnid, pty, pfnid
                                         banish pct
                                         banish pfn
@@ -1145,6 +1155,7 @@ weave emit_judge_block_value with c as ref to context.CgContext, node as int, as
                                         set pty is 1
                                     var pct as string is calling ctype.c_type with (sigil of c->names), pty
                                     calling emit.line with (sigil of c->emitter), "{pct} {pfn} = {stmp}.data.{pvt}.{pfn};"
+                                    calling emit.line with (sigil of c->emitter), "(void){pfn};"
                                     calling context.add_local with c, pfnid, pty, pfnid
                                     banish pct
                                     banish pfn

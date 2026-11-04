@@ -1,0 +1,22 @@
+## `let a, b is f` evalúa `f` una sola vez.
+##
+## `tick` incrementa un contador estático en cada llamada. Si el codegen
+## repitiera la llamada por cada elemento, el segundo destructuring vería un
+## contador saltado y el test fallaría.
+
+import std.spark
+
+weave tick into (int, int):
+    static var n as int is 0
+    set n is n + 1
+    return n, n
+
+weave main into int:
+    let a, b is calling tick
+    if a != 1 or b != 1:
+        return 1
+    let c, d is calling tick
+    if c != 2 or d != 2:
+        calling spark.println with "tuple destructuring evaluated its call twice"
+        return 2
+    return 0

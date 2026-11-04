@@ -130,6 +130,37 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libcurl (Linux)
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+
+      - name: Build compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./tools/build_bootstrap.sh
+          ./build/psc-stage0 build .
+          ./build/psc version
+
+      - name: Generated API is current
+        shell: bash
+        run: bash ./tools/docs/gen_api.sh --check
+
+      - name: Validate documents
+        shell: bash
+        run: python3 ./tools/docs/validate_docs.py docs/LANGUAGE.md docs/LANGUAGE.es.md docs/PENGUNIC.md docs/PENGUNIC.es.md docs/STDLIB.md docs/STDLIB.es.md
+
+      - name: Links resolve
+        shell: bash
+        run: bash ./tools/docs/check_links.sh docs
+
   wasm:
     name: WebAssembly (Emscripten)
     runs-on: ubuntu-latest

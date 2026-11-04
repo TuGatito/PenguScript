@@ -25,9 +25,11 @@ insignia psc_cmd_doc_
 ## ## Memoria
 ## No asigna.
 weave print_help into void:
-    calling spark.println with "Usage: psc doc [--output=DIR] [--entry=PATH]"
-    calling spark.println with "  --output=DIR   output directory (default: docs/api)"
-    calling spark.println with "  --entry=PATH   override entry"
+    calling spark.println with "Usage: psc doc [--output=DIR] [--entry=PATH] [--include-std]"
+    calling spark.println with "  --output=DIR    output directory (default: docs/api)"
+    calling spark.println with "  --entry=PATH    override entry"
+    calling spark.println with "  --include-std   also document the stdlib (std/*.pengu)"
+    calling spark.println with "  --html          write an index.html with a filter box"
     calling spark.println with "  --help"
 
 ## Copia owned.
@@ -207,20 +209,83 @@ weave append_type_details with sb as ref to StringBuilder, p as ref to semprog.S
                 set vi is vi + 1
             calling sb.append with "```\n\n"
 
+## Recorta espacios y tabuladores en los extremos.
+##
+## ## Memoria
+## Devuelve una vista de `s`.
+weave trim_text with s as string into string:
+    var b as ref to frozen byte is bytes of s
+    var a as int is 0
+    var e as int is s length
+    while a < e and (((b at a) to int) == 32 or ((b at a) to int) == 9):
+        set a is a + 1
+    while e > a and (((b at (e - 1)) to int) == 32 or ((b at (e - 1)) to int) == 9):
+        set e is e - 1
+    return s at a to e
+
+## Docstring de módulo: bloque `##` inicial del archivo.
+##
+## Es el comentario `##` que abre el archivo, antes de imports y directivas.
+## Si el archivo empieza por `#` (doc antigua) o por código, no hay docstring.
+##
+## ## Memoria
+## Devuelve string owned o `""`.
+weave module_doc with path as string into string:
+    var t as maybe string is calling archivum.read_text with path
+    if not t.is_present:
+        banish t
+        return ""
+    var text as string is t.value
+    var lines as list of string is calling text.split with "\n"
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    var any as bool is false
+    var i as int is 0
+    while i < lines.len:
+        var line as string is (lines at i)
+        var k as int is 0
+        while k < line.len and (line at k) == " ":
+            set k is k + 1
+        var rest as string is line at k to (line length)
+        if not calling starts_with with rest, "##":
+            banish rest
+            break
+        var d as string is rest at 2 to (rest length)
+        if d.len > 0 and (d at 0) == " ":
+            var d0 as string is d at 1 to (d length)
+            banish d
+            set d is d0
+        if any:
+            calling sb.append with "\n"
+        calling sb.append with d
+        set any is true
+        banish d
+        banish rest
+        set i is i + 1
+    banish lines
+    banish t
+    if not any:
+        return ""
+    return calling sb.finish
+
 ## Renderiza un archivo a Markdown desde los símbolos del checker.
 ##
 ## ## Memoria
 ## Devuelve string owned.
-weave render_file with path as string, rel as string, p as ref to semprog.SemaProgram into string:
+weave render_file with path as string, rel as string, title as string, p as ref to semprog.SemaProgram into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
-    var mn as string is calling basename_no_ext with path
     calling sb.append with "# "
-    calling sb.append with mn
+    calling sb.append with title
     calling sb.append with "\n\n> Source: `"
     calling sb.append with rel
-    calling sb.append with "`\n\n---\n\n"
-    banish mn
+    calling sb.append with "`\n\n"
+    var mdoc as string is calling module_doc with path
+    if mdoc length > 0:
+        calling sb.append with mdoc
+        calling sb.append with "\n\n"
+    banish mdoc
+    calling sb.append with "---\n\n"
     var mid as int is calling semprog.module_id with p, path
     if mid < 0:
         return calling sb.finish
@@ -280,23 +345,14 @@ weave render_file with path as string, rel as string, p as ref to semprog.SemaPr
     banish ids
     return calling sb.finish
 
-## Basename sin extensión.
+## Nombre documental a partir del path relativo.
+##
+## Sustituye los separadores de directorio por `sep` y quita `.pengu`.
+## Se usa con `_` para el nombre de página y con `.` para el título.
 ##
 ## ## Memoria
 ## Devuelve string owned.
-weave basename_no_ext with path as string into string:
-    var b as string is calling compass.cp_basename with path
-    defer banish b
-    if calling ends_with with b, ".pengu":
-        var cut as int is b length - 6
-        return calling copy with (b at 0 to cut)
-    return calling copy with b
-
-## Nombre de página documental a partir del path relativo.
-##
-## ## Memoria
-## Devuelve string owned.
-weave doc_name with rel as string into string:
+weave doc_name with rel as string, sep as char into string:
     var sb as StringBuilder is calling StringBuilder.new
     defer banish sb
     var b as ref to frozen byte is bytes of rel
@@ -304,7 +360,7 @@ weave doc_name with rel as string into string:
     while i < rel length:
         var c as int is ((b at i) to int)
         if c == 47 or c == 92:
-            calling sb.append with "_"
+            calling sb.append_char with sep
         else:
             calling sb.append_char with (c to char)
         set i is i + 1
@@ -327,6 +383,7 @@ weave run_doc with args as list of string into int:
     calling vf.push with "--config"
     var sf as list of string is list of string
     calling sf.push with "--html"
+    calling sf.push with "--include-std"
     calling sf.push with "--help"
     var pr as cliargs.ParseResult is calling cliargs.parse with args, 2, vf, sf, list of string
     if not pr.ok:
@@ -378,26 +435,105 @@ weave run_doc with args as list of string into int:
         banish entry
         set entry is calling copy with man.entry
     var entry_path as string is "{root}/{entry}"
+    var probe as sopts.SemaOptions is calling sopts.default_options with (calling copy with root)
+    calling sema_api.configure_options with entry_path, (sigil of probe)
+    var std_dir as string is ""
+    var local_std as string is "{root}/std"
+    if calling archivum.is_dir with local_std:
+        set std_dir is local_std
+    else:
+        banish local_std
+        if probe.std_dirs.len > 0:
+            set std_dir is calling copy with (probe.std_dirs at 0)
+    calling sopts.free_options with (sigil of probe)
+    var want_std as bool is calling cliargs.enabled with (sigil of pr.args), "--include-std"
+    if want_std and std_dir length == 0:
+        calling spark.eprintln with "psc doc: --include-std: no stdlib directory found"
+        banish std_dir
+        banish entry_path
+        calling manifest.free_manifest with (sigil of man)
+        banish root
+        banish cwd
+        calling cliargs.free_parse_result with (sigil of pr)
+        return 1
     var sopt0 as sopts.SemaOptions is calling sopts.default_options with (calling copy with root)
     var sr0 as sema_api.SemaResult is calling sema_api.check_file with entry_path, sopt0
     var src as string is "{root}/{man.src_dir}"
     var found as list of string is calling archivum.find_files with src, true
+    if want_std:
+        var sfound as list of string is calling archivum.find_files with std_dir, true
+        for sf in sfound:
+            if calling ends_with with sf, ".pengu" and not calling ends_with with sf, ".d.pengu":
+                calling found.push with (calling copy with sf)
+            banish sf
+        banish sfound
+    var std_prefix as string is ""
+    var std_base as string is ""
+    if std_dir length > 0:
+        set std_prefix is "{std_dir}/"
+        set std_base is calling compass.cp_dirname with std_dir
     var count as int is 0
-    var mods as list of string is list of string
+    var empty as int is 0
+    var want_html as bool is calling cliargs.enabled with (sigil of pr.args), "--html"
+    var ib as StringBuilder is calling StringBuilder.new
+    defer banish ib
+    calling ib.append with "# API — "
+    calling ib.append with man.name
+    calling ib.append with "\n\nGenerated by `psc doc`.\n\n"
+    var hb as StringBuilder is calling StringBuilder.new
+    defer banish hb
+    if want_html:
+        calling hb.append with "<!doctype html><meta charset=\"utf-8\"><title>API "
+        calling hb.append with man.name
+        calling hb.append with "</title><h1>API "
+        calling hb.append with man.name
+        calling hb.append with "</h1><input id=q placeholder=\"filtrar…\"><ul id=l>"
     for f in found:
-        if calling ends_with with f, ".pengu":
-            var relm as maybe string is calling compass.cp_relative_to with f, root
+        if calling ends_with with f, ".pengu" and not calling ends_with with f, ".d.pengu":
+            var rbase as string is root
+            if std_base length > 0 and calling starts_with with f, std_prefix:
+                set rbase is std_base
+            var relm as maybe string is calling compass.cp_relative_to with f, rbase
             var rel as string is calling copy with f
             if relm.is_present:
                 banish rel
                 set rel is calling copy with relm.value
             banish relm
-            var md as string is calling render_file with f, rel, sr0.program
-            var nm as string is calling doc_name with rel
+            var t0 as string is rel
+            var sp as string is "{man.src_dir}/"
+            if calling starts_with with t0, sp:
+                set t0 is t0 at (sp length) to (t0 length)
+            var title as string is calling doc_name with t0, '.'
+            banish sp
+            var md as string is ""
+            var mid as int is calling semprog.module_id with sr0.program, f
+            if mid >= 0:
+                set md is calling render_file with f, rel, title, sr0.program
+            else:
+                # Fuera del programa del entry (stdlib u huérfano): se comprueba
+                # aislado para poder documentarlo.
+                var soptf as sopts.SemaOptions is calling sopts.default_options with (calling copy with root)
+                var srf as sema_api.SemaResult is calling sema_api.check_file with f, soptf
+                set md is calling render_file with f, rel, title, srf.program
+                calling sema_api.free_result with (sigil of srf)
+            banish title
+            if not calling scrolls.contains with md, "### `":
+                set empty is empty + 1
+            var nm as string is calling doc_name with t0, '_'
             banish rel
             var target as string is "{out}/{nm}.md"
             calling archivum.write_text with target, md
-            calling mods.push with (calling copy with nm)
+            calling ib.append with "- ["
+            calling ib.append with nm
+            calling ib.append with "]("
+            calling ib.append with nm
+            calling ib.append with ".md)\n"
+            if want_html:
+                calling hb.append with "<li><a href=\""
+                calling hb.append with nm
+                calling hb.append with ".md\">"
+                calling hb.append with nm
+                calling hb.append with "</a></li>"
             banish target
             banish nm
             banish md
@@ -405,26 +541,12 @@ weave run_doc with args as list of string into int:
         banish f
     banish found
     calling sema_api.free_result with (sigil of sr0)
-    var idx as string is "# API — {man.name}\n\nGenerated by `psc doc`.\n"
+    var idx as string is calling ib.finish
     var ipath as string is "{out}/README.md"
     calling archivum.write_text with ipath, idx
     banish ipath
     banish idx
-    if calling cliargs.enabled with (sigil of pr.args), "--html":
-        var hb as StringBuilder is calling StringBuilder.new
-        defer banish hb
-        calling hb.append with "<!doctype html><meta charset=\"utf-8\"><title>API "
-        calling hb.append with man.name
-        calling hb.append with "</title><h1>API "
-        calling hb.append with man.name
-        calling hb.append with "</h1><input id=q placeholder=\"filtrar…\"><ul id=l>"
-        for mn in mods:
-            calling hb.append with "<li><a href=\""
-            calling hb.append with mn
-            calling hb.append with ".md\">"
-            calling hb.append with mn
-            calling hb.append with "</a></li>"
-            banish mn
+    if want_html:
         calling hb.append with "</ul>"
         calling hb.append with r"<script>q.oninput=()=>{for(const li of l.children)li.style.display=li.textContent.includes(q.value)?'':'none'}</script>"
         var htext as string is calling hb.finish
@@ -432,11 +554,18 @@ weave run_doc with args as list of string into int:
         calling archivum.write_text with hpath, htext
         banish hpath
         banish htext
-    banish mods
     var msg as string is "Generated {count} module(s) in {out}"
     calling spark.println with msg
     banish msg
+    if empty > 0:
+        var wmsg as string is "psc doc: warning: {empty} module(s) without symbols"
+        calling spark.eprintln with wmsg
+        banish wmsg
     calling manifest.free_manifest with (sigil of man)
+    banish std_prefix
+    banish std_base
+    banish std_dir
+    banish entry_path
     banish src
     banish out
     banish root

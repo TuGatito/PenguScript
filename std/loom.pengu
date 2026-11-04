@@ -2776,21 +2776,27 @@ weave _expect_some_pair with first_expected as int, second_expected as int, labe
 
 # --- Test-only orderable type ---------------------------------------------
 
-## A sealed integer used by the ordering tests of this module.
+## A nominal integer wrapper used by the ordering tests of this module.
 ##
-## The unqualified `bind` below gives it atlas' `Ordered` so that the generic
-## ordering entry points accept `list of LoomUserId`.
-seal LoomUserId as int
+## It is a `rune`, not a `seal`: a seal shares its method table with the
+## primitive it wraps, so binding `Ordered` to a sealed `int` collides with
+## atlas' own `bind int with Ordered`. The rune keeps `cmp` on its own type.
+rune LoomUserId:
+    raw as int
 
 bind LoomUserId with Ordered:
     weave cmp with other as LoomUserId into int:
-        var me as int is (essence of self) to int
-        var you as int is other to int
-        if me > you:
+        if self.raw > other.raw:
             return 1
-        if me < you:
+        if self.raw < other.raw:
             return -1
         return 0
+
+## Builds a `LoomUserId` for the ordering tests.
+weave _uid with raw as int into LoomUserId:
+    var u as LoomUserId with:
+        set .raw is raw
+    return u
 
 # --- Tests ---
 # Private `_expect*` harness (see `## Design notes`).
@@ -3473,19 +3479,19 @@ test "the generic helpers widen to i64 lists":
     calling _expect_eq_shard_list of i64 with (calling generic_reverse of i64 with xs), backward, "generic_reverse i64"
     calling _expect_some with (calling index_min with xs), 1, "index_min i64"
     calling _expect_eq with (calling first_or of i64 with xs, (0 to i64)), (5 to i64), "first_or i64"
-test "a bound seal orders through the Ordered concept":
+test "a rune bound to Ordered sorts through the generic entry points":
     var xs as list of LoomUserId is list of LoomUserId
-    calling xs.push with (7 to LoomUserId)
-    calling xs.push with (3 to LoomUserId)
-    calling xs.push with (5 to LoomUserId)
+    calling xs.push with (calling _uid with 7)
+    calling xs.push with (calling _uid with 3)
+    calling xs.push with (calling _uid with 5)
     var merged as list of LoomUserId is calling union_sorted with xs, xs
     calling _expect_eq with (calling merged.len), 3, "seal union_sorted"
-    calling _expect_some with (calling binary_search of LoomUserId with merged, (5 to LoomUserId)), 1, "seal binary_search"
+    calling _expect_some with (calling binary_search of LoomUserId with merged, (calling _uid with 5)), 1, "seal binary_search"
     calling _expect_some with (calling index_min of LoomUserId with xs), 1, "seal index_min"
     calling _expect_some with (calling index_max of LoomUserId with xs), 0, "seal index_max"
     calling _expect_eq with (calling is_strictly_asc with xs), false, "seal is_strictly_asc"
     var first_low as LoomUserId is merged at 0
-    calling _expect_eq with (first_low to int), 3, "seal order"
+    calling _expect_eq with first_low.raw, 3, "seal order"
 # Context-taking pipelines (`*_ctx`)
 test "map_ctx applies the callback with the context":
     var offset as int is 10

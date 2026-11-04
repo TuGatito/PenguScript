@@ -106,15 +106,20 @@ weave define_params with s as ref to state.SemaState, pnode as int into void:
 weave check_block with s as ref to state.SemaState, node as int into void:
     var k as pskind.NodeKind is calling astutil.kind_of with s->ast, node
     if k == pskind.NodeKind.NdBlock:
+        var start as int is calling astutil.start_of with s->ast, node
+        var end as int is calling astutil.end_of with s->ast, node
+        calling symbols.push_scope with s->symbols, scope.SemaScopeKind.SgBlock, start, end
         var i as int is 0
         var n as int is calling astutil.child_count with s->ast, node
         while i < n:
             if calling state.should_stop with s:
+                calling symbols.pop_scope with s->symbols, end
                 return
             var c as int is calling astutil.node_child with s->ast, node, i
             if c >= 0:
                 calling check_stmt with s, c
             set i is i + 1
+        calling symbols.pop_scope with s->symbols, end
         return
     calling check_stmt with s, node
 
