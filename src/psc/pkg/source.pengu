@@ -34,6 +34,40 @@ weave is_git with s as string into bool:
     banish prefixes
     return hit
 
+## `true` si `s` contiene `p` (subcadena literal, sin regex).
+weave contains with s as string, p as string into bool:
+    if p length == 0:
+        return true
+    if s length < p length:
+        return false
+    var sb as ref to frozen byte is bytes of s
+    var pb as ref to frozen byte is bytes of p
+    var i as int is 0
+    while i + p length <= s length:
+        var j as int is 0
+        var hit as bool is true
+        while j < p length:
+            if ((sb at (i + j)) to int) != ((pb at j) to int):
+                set hit is false
+                break
+            set j is j + 1
+        if hit:
+            return true
+        set i is i + 1
+    return false
+
+## `true` si la ruta relativa cae dentro de un artefacto generado o de un
+## repositorio (`.git`, `lib`, `build`).
+##
+## Copiar esos directorios al instalar una dependencia `path` provoca
+## recursión (el `lib/` de un ejemplo contiene otra copia del paquete) y
+## llena el disco; además nunca son parte del código de la dependencia.
+weave is_ignored_rel with rel as string into bool:
+    var wrapped as string is "/{rel}/"
+    var hit as bool is calling contains with wrapped, "/.git/" or calling contains with wrapped, "/lib/" or calling contains with wrapped, "/build/"
+    banish wrapped
+    return hit
+
 ## Copia un árbol local a `dst` (elimina dst antes).
 weave copy_local with src as string, dst as string into bool:
     if calling archivum.is_dir with dst:
@@ -47,14 +81,17 @@ weave copy_local with src as string, dst as string into bool:
         var relm as maybe string is calling compass.cp_relative_to with f, src
         if relm.is_present:
             var rel as string is (calling copy with relm.value)
-            var out as string is "{dst}/{rel}"
-            var parent as string is calling compass.cp_dirname with out
-            var ig as bool is calling archivum.create_dir with parent, true
-            if not calling archivum.copy_file with f, out, true:
-                set ok is false
-            banish parent
-            banish out
-            banish rel
+            if calling is_ignored_rel with rel:
+                banish rel
+            else:
+                var out as string is "{dst}/{rel}"
+                var parent as string is calling compass.cp_dirname with out
+                var ig as bool is calling archivum.create_dir with parent, true
+                if not calling archivum.copy_file with f, out, true:
+                    set ok is false
+                banish parent
+                banish out
+                banish rel
         banish relm
         banish f
     banish files

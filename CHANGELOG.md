@@ -2,6 +2,33 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.28.9] — 2026-11-04 — `psc add` no copia artefactos generados
+
+Instalar una dependencia `path` copiaba su árbol entero, incluidos `lib/` y
+`build/`. En un ejemplo con `[dependencies.portus] path = "../.."` eso es
+recursivo: el `lib/` copiado contiene otra copia del paquete con su propio
+`lib/`, y así sin fin. El repo de portus llegó a 28 GB, un solo ejemplo a 14 GB
+y el compilador se quedaba minutos escaneando esos árboles hasta
+`[PANIC] StringBuilder.reserve: capacity overflow`.
+
+### Corregido
+
+- `src/psc/pkg/source.pengu`: `copy_local` ignora toda ruta relativa con un
+  componente `.git`, `lib` o `build` (helpers `contains` e `is_ignored_rel`).
+  Una dependencia `path` instala solo su código.
+
+- `src/psc/pkg/manifest.pengu`: `upsert` reconoce la forma de sección
+  `[dependencies.<nombre>]` y reescribe su cuerpo, en vez de añadir un segundo
+  `[dependencies]` al final (el manifiesto quedaba con dos fuentes de verdad
+  para la misma dependencia).
+
+### Pruebas
+
+- `tests/regress_path_dep_no_generated.sh`: instala una dependencia con
+  `lib/junk.txt` y `build/junk.txt` y comprueba que no se copian.
+- `tests/regress_dep_manifest_section.sh`: parte de `[dependencies.dep]` y
+  comprueba que `psc add` mantiene una sola forma.
+
 ## [0.28.8] — 2026-11-04 — un puntero a función cabe en `maybe` y `result`
 
 Boxear un puntero a función (`some (callback)`, `ok_of with callback`) emitía C

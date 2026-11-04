@@ -283,6 +283,31 @@ weave entry_line with d as Dependency into string:
     calling sb.append with " }"
     return calling sb.finish
 
+## Líneas del cuerpo de una sección `[dependencies.<name>]`.
+weave named_lines with d as Dependency into list of string:
+    var out as list of string is list of string
+    if d.kind == "path":
+        var es as string is calling escape with d.source
+        calling out.push with "path = \"{es}\""
+        banish es
+    else:
+        var eu as string is calling escape with d.source
+        calling out.push with "url = \"{eu}\""
+        banish eu
+        if d.branch length > 0:
+            var eb as string is calling escape with d.branch
+            calling out.push with "branch = \"{eb}\""
+            banish eb
+        if d.tag length > 0:
+            var et as string is calling escape with d.tag
+            calling out.push with "tag = \"{et}\""
+            banish et
+        if d.constraint length > 0 and d.constraint != "*":
+            var ec as string is calling escape with d.constraint
+            calling out.push with "version = \"{ec}\""
+            banish ec
+    return out
+
 ## Escribe/actualiza una dependencia en `[dependencies]` sin reformatear el resto.
 weave upsert with base as string, d as Dependency into bool:
     var path as string is "{base}/pengu.toml"
@@ -295,6 +320,8 @@ weave upsert with base as string, d as Dependency into bool:
     var lines as list of string is calling ttxt.split with "\n"
     var out as list of string is list of string
     var in_deps as bool is false
+    var in_named as bool is false
+    var replaced_named as bool is false
     var inserted as bool is false
     var found_sec as bool is false
     var i as int is 0
@@ -308,7 +335,21 @@ weave upsert with base as string, d as Dependency into bool:
         while e > a and (((lb at (e - 1)) to int) == 32 or ((lb at (e - 1)) to int) == 9):
             set e is e - 1
         var t as string is line at a to e
-        if t == "[dependencies]":
+        if t == "[dependencies.{d.name}]":
+            # Se conserva la forma de sección: se reescribe su cuerpo.
+            set in_named is true
+            set replaced_named is true
+            calling out.push with (calling copy with line)
+            var nl as list of string is calling named_lines with d
+            for bl in nl:
+                calling out.push with bl
+            banish nl
+        else if in_named and (calling starts_with with t, "["):
+            set in_named is false
+            calling out.push with (calling copy with line)
+        else if in_named:
+            var skipped_named as int is 0
+        else if t == "[dependencies]":
             set in_deps is true
             set found_sec is true
             calling out.push with (calling copy with line)
@@ -328,7 +369,7 @@ weave upsert with base as string, d as Dependency into bool:
             calling out.push with (calling copy with line)
         banish t
         set i is i + 1
-    if not found_sec:
+    if not found_sec and not replaced_named:
         calling out.push with ""
         calling out.push with "[dependencies]"
         var eline2 as string is calling entry_line with d

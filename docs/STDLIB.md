@@ -1,6 +1,6 @@
 # The PenguScript Standard Library
 
-All 67 modules of `std/` in `psc` 0.28.8: what each one is for, when to reach for
+All 67 modules of `std/` in `psc` 0.28.9: what each one is for, when to reach for
 it, when to reach for something else, and where its generated API lives.
 
 It is the *catalogue* document of the documentation set:
@@ -105,7 +105,7 @@ own `##` comments by `psc doc --include-std`.
 - [Appendix C — Naming conventions in the standard library](#appendix-c-naming-conventions-in-the-standard-library)
 <!-- /toc -->
 
-Every module that ships with `psc` 0.28.8: what it is for, when to reach for
+Every module that ships with `psc` 0.28.9: what it is for, when to reach for
 it, and where its generated API lives.
 
 ## 0. How to use this catalogue
@@ -131,7 +131,7 @@ Every entry has the same shape:
 **API** [link to the generated page] · [source]
 ```
 
-**Version.** This catalogue describes `psc` 0.28.8 and the `std/` tree in the
+**Version.** This catalogue describes `psc` 0.28.9 and the `std/` tree in the
 same commit. A module version constant (`TRIAL_VERSION`, `CARMEN_VERSION`, …)
 is the module's own API version, not the compiler's.
 
