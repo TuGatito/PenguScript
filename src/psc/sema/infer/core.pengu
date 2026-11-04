@@ -597,6 +597,12 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                 if bm0 > 0:
                     calling infer_args_only with s, args
                     return bm0
+            # `calling receptor.campo with ...` donde el campo guarda un
+            # puntero a función: la llamada es al valor del campo, no a un
+            # método. Se prueba antes de buscar métodos.
+            var fldret as int is calling call_fn_field with s, rcp, mname, args
+            if fldret != -1:
+                return fldret
             set recv_bounds is rcp
             set inst_recv is rcp
             var recv_lookup as int is calling underlying_type with s, rcp
@@ -717,11 +723,7 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                 calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "method receiver does not satisfy its concept bound", "Use a receiver that implements the concept.", ""
             return 0
     calling ann.ann_set_symbol with s->annotations, node, sid
-    var ft as tk.SemaType is calling types.at with s->types, fsv.type
-    if ft.kind == tk.SemaTypeKind.TkRef:
-        var innerfn as tk.SemaType is calling types.at with s->types, ft.a
-        if innerfn.kind == tk.SemaTypeKind.TkFn:
-            set ft is innerfn
+    var ft as tk.SemaType is calling types.at with s->types, (calling resolve_callable with s->types, fsv.type)
     if ft.kind != tk.SemaTypeKind.TkFn:
         return fsv.type
     # Infiere argumentos y comprueba contra los parámetros.
@@ -829,11 +831,7 @@ weave infer_chain_method with s as ref to state.SemaState, recv as int, step as 
         calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CHAIN, (calling astutil.start_of with s->ast, step), (calling astutil.end_of with s->ast, step), msg, help, ""
         return 0
     var fsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
-    var ft as tk.SemaType is calling types.at with s->types, fsv.type
-    if ft.kind == tk.SemaTypeKind.TkRef:
-        var inner as tk.SemaType is calling types.at with s->types, ft.a
-        if inner.kind == tk.SemaTypeKind.TkFn:
-            set ft is inner
+    var ft as tk.SemaType is calling types.at with s->types, (calling resolve_callable with s->types, fsv.type)
     if ft.kind != tk.SemaTypeKind.TkFn:
         return fsv.type
     var info as types.SemaFnInfo is (s->types->fn_infos at ft.a)
@@ -919,11 +917,7 @@ weave infer_chain_pipe with s as ref to state.SemaState, recv as int, step as in
         defer banish msg2
         calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CHAIN, (calling astutil.start_of with s->ast, step), (calling astutil.end_of with s->ast, step), msg2, "Use a weave/declare function, or use '.' for a method.", ""
         return 0
-    var ft as tk.SemaType is calling types.at with s->types, fsv.type
-    if ft.kind == tk.SemaTypeKind.TkRef:
-        var inner as tk.SemaType is calling types.at with s->types, ft.a
-        if inner.kind == tk.SemaTypeKind.TkFn:
-            set ft is inner
+    var ft as tk.SemaType is calling types.at with s->types, (calling resolve_callable with s->types, fsv.type)
     if ft.kind != tk.SemaTypeKind.TkFn:
         return fsv.type
     var info as types.SemaFnInfo is (s->types->fn_infos at ft.a)
@@ -2078,3 +2072,71 @@ weave type_mismatch with s as ref to state.SemaState, node as int, expected as i
     var msg as string is "type mismatch: expected '{en}', got '{gn}'"
     defer banish msg
     calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg, "Ensure the value type matches the expected type or use an explicit 'to' cast.", "PenguScript requires type safety and explicit conversions."
+
+## Resuelve una referencia o un alias hasta el tipo subyacente (máx. 32
+## saltos). Se usa para llamar funciones guardadas en un alias, p. ej.
+## `alias Handler as weave with context as ref to Context into result of void to HttpError`.
+##
+## ## Memoria
+## O(1); no asigna.
+weave resolve_callable with t as ref to types.SemaTypeTable, id as int into int:
+    var cur as int is id
+    var guard as int is 0
+    while guard < 32:
+        var ty as tk.SemaType is calling types.at with t, cur
+        if ty.kind == tk.SemaTypeKind.TkRef:
+            set cur is ty.a
+        else if ty.kind == tk.SemaTypeKind.TkAlias:
+            set cur is ty.b
+        else:
+            return cur
+        set guard is guard + 1
+    return cur
+
+## Llama al puntero a función guardado en el campo `name` del receptor.
+##
+## Devuelve el tipo de retorno, o `-1` si el campo no existe o no es una
+## función (`calling route.handler with context`).
+##
+## ## Memoria
+## O(1); no asigna.
+weave call_fn_field with s as ref to state.SemaState, recv_ty as int, name as string, args as int into int:
+    var rcur as int is calling underlying_type with s, recv_ty
+    var rty as tk.SemaType is calling types.at with s->types, rcur
+    var rguard as int is 0
+    while rguard < 8 and (rty.kind == tk.SemaTypeKind.TkRef or rty.kind == tk.SemaTypeKind.TkFrozen):
+        set rcur is rty.a
+        set rty is calling types.at with s->types, rcur
+        set rguard is rguard + 1
+    var fty as int is calling field_type with s, rcur, name
+    if fty <= 0:
+        return -1
+    var fcur as int is calling underlying_type with s, fty
+    var fty0 as tk.SemaType is calling types.at with s->types, fcur
+    var fguard as int is 0
+    while fguard < 8 and (fty0.kind == tk.SemaTypeKind.TkRef or fty0.kind == tk.SemaTypeKind.TkFrozen):
+        set fcur is fty0.a
+        set fty0 is calling types.at with s->types, fcur
+        set fguard is fguard + 1
+    if fty0.kind != tk.SemaTypeKind.TkFn:
+        return -1
+    var info as types.SemaFnInfo is (s->types->fn_infos at fty0.a)
+    if args >= 0:
+        var n as int is calling astutil.child_count with s->ast, args
+        var i as int is 0
+        while i < n:
+            var arg as int is calling astutil.node_child with s->ast, args, i
+            if arg >= 0:
+                var vnode as int is arg
+                if (calling astutil.kind_of with s->ast, arg) == pskind.NodeKind.NdNamedArg:
+                    set vnode is calling astutil.node_child with s->ast, arg, 1
+                if vnode >= 0:
+                    if i < info.params_count:
+                        var p as types.SemaFnParam is (s->types->fn_params at (info.params_first + i))
+                        var got as int is calling infer with s, vnode, p.type
+                        if not calling compat.compatible with s->types, got, p.type:
+                            calling type_mismatch with s, vnode, p.type, got
+                    else:
+                        var ignored as int is calling infer with s, vnode, -1
+            set i is i + 1
+    return info.return_type

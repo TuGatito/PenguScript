@@ -2,6 +2,30 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.28.2] — 2026-11-04 — llamar un `alias` de tipo función
+
+Corrige `error[E0020]: return value of type 'Handler' does not match 'result of
+void to HttpError'` al llamar un valor cuyo tipo es un `alias` de `weave`
+(patrón habitual para nombrar un handler: `alias Handler as weave with context
+as ref to Context into result of void to HttpError`).
+
+### Corregido
+
+- **La llamada resuelve `alias` y `ref` hasta el `TkFn` subyacente.** Antes solo
+  desenvolvía `TkRef`; un alias se quedaba como tipo de la expresión y la firma
+  no se comprobaba. Nuevo `resolve_callable` en `src/psc/sema/infer/core.pengu`,
+  usado en la llamada normal, en el paso de cadena y en el paso de `pipe`.
+- **El tipo C de un alias de función es transparente.** No existe un `typedef`
+  válido con el nombre del alias (`typedef int (*Handler)(int)` necesita el
+  nombre dentro del declarador), así que `ctype.c_type` emite el puntero a
+  función subyacente; antes el C generado usaba `Handler` sin declararlo.
+
+### Añadido
+
+- **`tests/regress_alias_fn.sh`** y el lanzador `tests/regress.sh`.
+- **`tools/bump_version.sh`** para subir la versión de parche en todos los
+  documentos a la vez.
+
 ## [0.28.1] — 2026-11-04 — `psc add` deriva el nombre sin liberar la fuente
 
 Corrige un *use-after-free* en `psc add` cuando se instala una fuente sin
