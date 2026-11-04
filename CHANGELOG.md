@@ -2,6 +2,36 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.28.0] — 2026-11-03 — `enchanting shard T` monomorfiza `self` por valor
+
+Esta entrega corrige la compilación C de los métodos de `enchanting shard T`
+sobre primitivos (`int`, `i64`, `u32`, `float`, `f64`, …). La plantilla del
+método guardaba el receptor como `TkTypeParam` y el codegen lo emitía como
+`T* self`; el cuerpo, en cambio, se generaba con `self` por valor, así que el
+C resultante no compilaba (`invalid operands` / `pointer value used where a
+floating-point was expected`).
+
+### Corregido
+
+- **`enchanting shard T` sobre primitivos emite `self` por valor.** La
+  decisión se toma al monomorfizar (`spec_self_value`): primitivos por valor,
+  `string`, nominales y contenedores por puntero, igual que sus métodos no
+  genéricos. Afecta a las dos rutas que crean especializaciones de método:
+  `add_method_spec` (llamadas directas) y `add_spec` (alias `get_*` de
+  `@mutates`), que ahora materializa el receptor `T` con los argumentos.
+- **`psc test std/numerus.pengu` compila y pasa** (250 tests); también
+  `std/integrum.pengu` (307) y `std/fractio.pengu` (289), que usan el mismo
+  patrón `enchanting shard T where T: …`.
+- **Tests de `std/numerus`**: los casos de `float` comparaban contra literales
+  no representables en binario (`3.7`, `3.2`); se usan `3.75` y `3.25`, que
+  son exactos en `f32`. No cambia el compilador ni la semántica del lenguaje.
+
+### Añadido
+
+- **`tests/pengu/shard_primitive_self.pengu`**: regresión que ejercita
+  `self` por valor en `int`/`f64`, el alias `get_bump` y `essence of self`
+  con `string` (receptor por puntero).
+
 ## [0.27.0] — 2026-11-03 — `psc doc` documenta la stdlib y genera índices
 
 Esta entrega hace que la documentación automática cubra también la biblioteca

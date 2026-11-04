@@ -796,32 +796,32 @@ test "get_pow_int returns without mutating":
     calling ward.assert_eq_int with y, 32
     calling ward.assert_eq_int with x, 2
 test "truncate mutates the receiver":
-    var f as float is 3.7
+    var f as float is 3.75
     calling f.truncate
     calling ward.assert_true with f == 3.0
 test "get_truncate returns without mutating":
-    var f as float is 3.7
+    var f as float is 3.75
     var g as float is calling f.get_truncate
     calling ward.assert_true with g == 3.0
-    calling ward.assert_true with f == 3.7
+    calling ward.assert_true with f == 3.75
 test "floor mutates the receiver":
-    var f as float is 3.7
+    var f as float is 3.75
     calling f.floor
     calling ward.assert_true with f == 3.0
 test "get_floor returns without mutating":
-    var f as float is 3.7
+    var f as float is 3.75
     var g as float is calling f.get_floor
     calling ward.assert_true with g == 3.0
-    calling ward.assert_true with f == 3.7
+    calling ward.assert_true with f == 3.75
 test "ceil mutates the receiver":
-    var f as float is 3.2
+    var f as float is 3.25
     calling f.ceil
     calling ward.assert_true with f == 4.0
 test "get_ceil returns without mutating":
-    var f as float is 3.2
+    var f as float is 3.25
     var g as float is calling f.get_ceil
     calling ward.assert_true with g == 4.0
-    calling ward.assert_true with f == 3.2
+    calling ward.assert_true with f == 3.25
 test "round mutates the receiver":
     var f as float is 3.5
     calling f.round

@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.27.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.28.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -139,7 +139,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.27.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.28.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -774,7 +774,7 @@ resuelve el compilador sin necesidad de un bloque `enchanting`.
 ### 6.3 Parámetros variádicos
 
 `many T` está reservado en la gramática para weaves variádicos, pero ninguna
-sintaxis de llamada lo satisface en 0.27.0: toda llamada se rechaza con
+sintaxis de llamada lo satisface en 0.28.0: toda llamada se rechaza con
 `E0005`. Mientras no se implemente, usa `slice of T` (o `list of T`):
 
 ```pengu
@@ -1067,7 +1067,7 @@ declaración como intencionadamente recursiva; el ciclo debe romperse igualmente
 con indirección (`ref to`, `list`, `map`, `slice`).
 
 Una autorreferencia *genérica* (`rune Node shard T:` con `ref to Node of T`
-dentro) se rechaza con `E0021` en 0.27.0: el parámetro de tipo no está en scope
+dentro) se rechaza con `E0021` en 0.28.0: el parámetro de tipo no está en scope
 dentro de su propio cuerpo. Envuelve el payload (`value as ref to void`, o un
 nodo no genérico que guarde `slice of T`).
 
@@ -1255,7 +1255,7 @@ concept Speaker:
 
 Un concepto solo enumera firmas de métodos — sin cuerpos, sin campos, sin
 estado. Puede tomar parámetros de tipo (`concept Container shard T:`). Los
-métodos `ritual` dentro de un concepto no están soportados en 0.27.0 (el checker
+métodos `ritual` dentro de un concepto no están soportados en 0.28.0 (el checker
 registra el modificador como nombre del método); declara los rituales en
 `enchanting`.
 

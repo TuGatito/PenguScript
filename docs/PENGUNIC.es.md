@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.27.0.
+del lenguaje que implementa `psc` 0.28.0.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -319,7 +319,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.27.0 (F13)
+psc 0.28.0 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -1434,7 +1434,7 @@ if value is not present:
 
 `std.filum` ofrece las primitivas de sincronización — `Mutex`, `WaitGroup`,
 `Once`, `Cond`, `AtomicInt` y canales tipados (`ChanInt`, `ChanString`,
-`ChanFloat`, `ChanBool`) — pero no crea hilos. En 0.27.0 un programa PenguScript
+`ChanFloat`, `ChanBool`) — pero no crea hilos. En 0.28.0 un programa PenguScript
 no puede lanzar un hilo desde el lenguaje; los hilos vienen de un binding de C
 que vuelve a llamar a tu código, o de un host que incrusta el programa.
 
@@ -2315,7 +2315,7 @@ $ psc test --verbose    # show each test
 ```
 
 Flags: `--profile`, `--cc`, `--target`, `--entry`, `--json`, `--watch`,
-`--verbose`. En 0.27.0 no hay filtro por nombre: si necesitas ejecutar un
+`--verbose`. En 0.28.0 no hay filtro por nombre: si necesitas ejecutar un
 subconjunto, separa las suites lentas en su propio proyecto o archivo.
 
 El comando termina con código distinto de cero si algún test falla, que es lo que

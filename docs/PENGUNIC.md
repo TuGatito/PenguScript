@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.27.0.
+manual for the language implemented by `psc` 0.28.0.
 
 It is the *practice* document of the documentation set:
 
@@ -316,7 +316,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.27.0 (F13)
+psc 0.28.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -1423,7 +1423,7 @@ if value is not present:
 
 `std.filum` provides the synchronisation primitives — `Mutex`, `WaitGroup`,
 `Once`, `Cond`, `AtomicInt` and typed channels (`ChanInt`, `ChanString`,
-`ChanFloat`, `ChanBool`) — but it does not create threads. In 0.27.0 a
+`ChanFloat`, `ChanBool`) — but it does not create threads. In 0.28.0 a
 PenguScript program cannot spawn a thread from the language; threads come from a
 C binding that calls back into your code, or from a host embedding the program.
 
@@ -2292,7 +2292,7 @@ $ psc test --verbose    # show each test
 ```
 
 Flags: `--profile`, `--cc`, `--target`, `--entry`, `--json`, `--watch`,
-`--verbose`. There is no name filter in 0.27.0: split slow suites into their own
+`--verbose`. There is no name filter in 0.28.0: split slow suites into their own
 project or file if you need to run a subset.
 
 The command exits non-zero if any test fails, which is what CI checks.

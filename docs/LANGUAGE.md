@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.27.0: every
+reference documents the language as implemented by `psc` 0.28.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -137,7 +137,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.27.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.28.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -757,7 +757,7 @@ resolved by the compiler without an `enchanting` block.
 ### 6.3 Variadic parameters
 
 `many T` is reserved in the grammar for variadic weaves, but no call syntax
-satisfies it in 0.27.0: every call is rejected with `E0005`. Until it is
+satisfies it in 0.28.0: every call is rejected with `E0005`. Until it is
 implemented, take a `slice of T` (or a `list of T`) instead:
 
 ```pengu
@@ -1048,7 +1048,7 @@ declaration as intentionally recursive; the cycle must still be broken by
 indirection (`ref to`, `list`, `map`, `slice`).
 
 A *generic* self-reference (`rune Node shard T:` with `ref to Node of T` inside)
-is rejected with `E0021` in 0.27.0: the type parameter is not in scope inside
+is rejected with `E0021` in 0.28.0: the type parameter is not in scope inside
 its own body. Wrap the payload instead (`value as ref to void`, or a non-generic
 node holding `slice of T`).
 
@@ -1231,7 +1231,7 @@ concept Speaker:
 
 A concept lists method signatures only — no bodies, no fields, no state. It may
 take type parameters (`concept Container shard T:`). `ritual` methods inside a
-concept are not supported in 0.27.0 (the checker records the modifier as the
+concept are not supported in 0.28.0 (the checker records the modifier as the
 method name); declare rituals in `enchanting` instead.
 
 ### 10.4 `bind` — implementing a concept

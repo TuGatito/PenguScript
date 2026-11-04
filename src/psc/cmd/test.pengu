@@ -106,6 +106,10 @@ weave run_test with args as list of string into int:
         calling cliargs.free_parse_result with (sigil of pr)
         return 0
     var o as driver.BuildOptions is calling driver.default_options
+    # La clave de caché incluye el binario del compilador: sin esto, un
+    # `psc` nuevo reutiliza artefactos de test compilados por uno viejo.
+    var prog as string is args at 0
+    set o.compiler_path is calling copy_path with prog
     var prof as string is calling cliargs.value with (sigil of pr.args), "--profile"
     if prof length > 0:
         banish o.profile
@@ -165,3 +169,10 @@ weave run_test with args as list of string into int:
 ## Devuelve string owned.
 weave copy with s as string into string:
     return calling npool.copy_string with s
+
+## Copia owned de una ruta.
+##
+## ## Memoria
+## Devuelve string owned; liberar con `banish`.
+weave copy_path with s as string into string:
+    return calling copy with s

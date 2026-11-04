@@ -1,0 +1,57 @@
+## Regresión: `enchanting shard T` sobre primitivos.
+##
+## La plantilla del método guarda el receptor como `TkTypeParam`, así que la
+## firma C debe decidirse al monomorfizar: los primitivos reciben `self` por
+## valor (`int32_t self`) y `string` por puntero (`PenguString* self`). Antes
+## se emitía `T* self` en todas las especializaciones y el C no compilaba.
+import std.spark
+
+enchanting shard T where T: Num and T: Ordo and T: Par:
+    ## Suma uno al receptor y lo devuelve.
+    @mutates
+    weave bump into T:
+        return self + (1 to T)
+
+    ## Devuelve el mayor de los dos.
+    weave pick with other as T into T:
+        if self < other:
+            return other
+        return self
+
+enchanting shard U:
+    ## Devuelve una copia del receptor (también para `string`, cuyo `self` es
+    ## un puntero).
+    weave echoed into U:
+        return essence of self
+
+weave main into int:
+    var x as int is 41
+    calling x.bump
+    if x != 42:
+        return 1
+    var y as int is calling x.get_bump
+    if y != 43:
+        return 1
+    var z as int is calling x.echoed
+    if z != 42:
+        return 1
+    var big as int is calling x.pick with 7
+    if big != 42:
+        return 1
+
+    var f as f64 is 2.5
+    calling f.bump
+    if f != 3.5:
+        return 1
+    var g as f64 is calling f.get_bump
+    if g != 4.5:
+        return 1
+
+    var s as string is "ok"
+    var t as string is calling s.echoed
+    if t != "ok":
+        banish t
+        return 1
+    banish t
+    calling spark.println with "shard primitive self OK"
+    return 0

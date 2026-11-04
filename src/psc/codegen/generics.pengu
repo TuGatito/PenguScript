@@ -45,6 +45,30 @@ weave find_spec with c as ref to context.CgContext, sid as int, args as list of 
         set i is i + 1
     return -1
 
+## `true` si una especialización de método debe recibir `self` por valor.
+##
+## La plantilla de `enchanting shard T` guarda `self_value = false` porque su
+## receptor es `TkTypeParam`; la decisión real sólo se conoce al monomorfizar.
+## Los primitivos van por valor y `string`, los nominales y los contenedores
+## por puntero, exactamente igual que sus métodos no genéricos.
+##
+## ## Memoria
+## O(1).
+weave spec_self_value with c as ref to context.CgContext, base as catalog.CgFunction, recv_type as int into bool:
+    if base.self_value:
+        return true
+    if recv_type <= 0:
+        return false
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), recv_type
+    var guard as int is 0
+    while guard < 16 and (t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal):
+        set t is calling types.at with (sigil of c->program->types), t.b
+        set guard is guard + 1
+    if t.kind != tk.SemaTypeKind.TkBase:
+        return false
+    var name as string is calling npool.text with (sigil of c->program->names), t.name
+    return name != "string"
+
 ## Añade una especialización de una función genérica.
 ##
 ## ## Memoria
@@ -69,7 +93,25 @@ weave add_spec with c as ref to context.CgContext, base_idx as int, args as list
     while i < args.len:
         calling sargs.push with (args at i)
         set i is i + 1
-    var f as catalog.CgFunction is with name is base.name, symbol is base.symbol, node is base.node, module is base.module, is_declare is false, is_antiquus is false, is_method is base.is_method, recv_type is base.recv_type, self_value is base.self_value, is_ritual is base.is_ritual, tparams is tps, spec_args is sargs, is_generic is true, is_spec is true, is_main is false, c_name is cid
+    # Si la plantilla es un método de shard, su receptor es el parámetro `T`:
+    # hay que materializarlo con los argumentos para que la firma C sea
+    # `int32_t self` y no `T* self`.
+    var rtv as int is base.recv_type
+    var sval as bool is base.self_value
+    if base.is_method and base.recv_type > 0 and base.tparams.len == args.len and args.len > 0:
+        var rtty as tk.SemaType is calling types.at with (sigil of c->program->types), rtv
+        if rtty.kind == tk.SemaTypeKind.TkTypeParam:
+            var tsub as map of int to int is map of int to int
+            defer banish tsub
+            var ti as int is 0
+            while ti < base.tparams.len:
+                calling tsub.put with (base.tparams at ti), (args at ti)
+                set ti is ti + 1
+            var mat as int is calling ginst.subst_deep with (sigil of c->program->symbols), rtv, tsub
+            if mat > 0:
+                set rtv is mat
+                set sval is calling spec_self_value with c, base, rtv
+    var f as catalog.CgFunction is with name is base.name, symbol is base.symbol, node is base.node, module is base.module, is_declare is false, is_antiquus is false, is_method is base.is_method, recv_type is rtv, self_value is sval, is_ritual is base.is_ritual, tparams is tps, spec_args is sargs, is_generic is true, is_spec is true, is_main is false, c_name is cid
     calling c->catalog.functions.push with f
     return c->catalog.functions.len - 1
 
@@ -636,7 +678,8 @@ weave add_method_spec with c as ref to context.CgContext, base_idx as int, recv_
                 var rinst as int is calling ginst.instantiate_nominal with (sigil of c->program->symbols), rtv, racc
                 if rinst > 0:
                     set rtv is rinst
-    var f as catalog.CgFunction is with name is base.name, symbol is base.symbol, node is base.node, module is base.module, is_declare is false, is_antiquus is false, is_method is true, recv_type is rtv, self_value is base.self_value, is_ritual is base.is_ritual, tparams is tps, spec_args is sargs, is_generic is true, is_spec is true, is_main is false, c_name is cid
+    var sval as bool is calling spec_self_value with c, base, rtv
+    var f as catalog.CgFunction is with name is base.name, symbol is base.symbol, node is base.node, module is base.module, is_declare is false, is_antiquus is false, is_method is true, recv_type is rtv, self_value is sval, is_ritual is base.is_ritual, tparams is tps, spec_args is sargs, is_generic is true, is_spec is true, is_main is false, c_name is cid
     calling c->catalog.functions.push with f
     return c->catalog.functions.len - 1
 

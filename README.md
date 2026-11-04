@@ -20,7 +20,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.27.0-informational">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.28.0-informational">
   <img alt="Compiler" src="https://img.shields.io/badge/compiler-self--hosted%20PSC-blueviolet">
   <img alt="Targets" src="https://img.shields.io/badge/targets-Linux%20%7C%20macOS%20%7C%20wasm-blue">
 </p>
@@ -122,7 +122,7 @@ Verify:
 
 ```console
 $ psc version
-psc 0.27.0 (F13)
+psc 0.28.0 (F13)
 $ psc doctor
 [ok] gcc: /usr/bin/gcc
 [ok] runtime-archive: .../build/lib/libpengu_runtime.a
@@ -255,7 +255,7 @@ psc new cbind mybind        # C header + .d.pengu skeleton
 `psc` is a single binary. `psc <command> --help` prints the exact flags.
 
 ```text
-psc 0.27.0 — PenguScript compiler
+psc 0.28.0 — PenguScript compiler
 
   lex parse check emit-c expand   compiler stages
   build run test                  compile, execute, test
