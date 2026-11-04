@@ -1030,10 +1030,11 @@ weave list_literal_expr with c as ref to context.CgContext, node as int, ast as 
     calling sb.append with "), "
     calling sb.append with "{n}"
     calling sb.append with "); "
-    calling sb.append with et
-    calling sb.append with " "
-    calling sb.append with vt
-    calling sb.append with "; "
+    if n > 0:
+        calling sb.append with et
+        calling sb.append with " "
+        calling sb.append with vt
+        calling sb.append with "; "
     var i as int is 0
     while i < n:
         var el as int is calling astutil.node_child with ast, node, i
@@ -4071,10 +4072,13 @@ weave array_lit_expr with c as ref to context.CgContext, node as int, ast as ref
         calling lsb.append with "), "
         calling lsb.append with "{n}"
         calling lsb.append with "); "
-        calling lsb.append with et2
-        calling lsb.append with " "
-        calling lsb.append with lv
-        calling lsb.append with "; "
+        # La variable de elemento solo se usa al empujar: con la lista vacía
+        # sería un `-Wunused-variable` en el consumidor.
+        if n > 0:
+            calling lsb.append with et2
+            calling lsb.append with " "
+            calling lsb.append with lv
+            calling lsb.append with "; "
         var li as int is 0
         while li < n:
             var lch as int is calling astutil.node_child with ast, node, li

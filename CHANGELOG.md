@@ -2,6 +2,26 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.28.7] — 2026-11-04 — una lista vacía no emite código muerto
+
+`let xs as list of int is []` generaba una variable temporal del tipo del
+elemento (`int32_t _le;`) que nadie usaba. Con `-Wall` (el modo por defecto del
+toolchain) eso es un `-Wunused-variable`, y cualquier proyecto que compile sus
+dependencias con `-Wall -Werror` rompía. Una biblioteca no debería obligar a
+silenciar avisos del código que genera.
+
+### Corregido
+
+- Los dos constructores de lista (`list_literal_expr` y la ruta de
+  `list_init_expr` en `src/psc/codegen/expr.pengu`) sólo emiten la temporal del
+  elemento cuando la lista tiene al menos un elemento.
+
+### Pruebas
+
+- `tests/regress_empty_list.sh`: proyecto con `cflags = ["-Wall", "-Werror"]`
+  que declara una lista vacía y hace `push`; falla con 0.28.6 y pasa con
+  0.28.7.
+
 ## [0.28.6] — 2026-11-04 — métodos de un tipo reexportado con `alias`
 
 Una fachada que reexporta un tipo con `alias` (el patrón de `docs/LIBRARIES.md`)

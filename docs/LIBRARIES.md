@@ -2,7 +2,7 @@
 
 This guide describes how to write a library that other projects can install
 with `psc add` and import like any other module. Everything below is tested
-against `psc` 0.28.6 on Linux and macOS; the notes call out what only works on
+against `psc` 0.28.7 on Linux and macOS; the notes call out what only works on
 newer compilers.
 
 A library in PenguScript is **a git repository** (or a local directory) with a
@@ -241,7 +241,7 @@ library.
    `--locked` in development and `--frozen` in CI.
 
 On compilers **0.28.0 and older**, `psc add` without `--name` corrupts the
-manifest (fixed in 0.28.6). Pass `--name my_lib` explicitly if you are stuck on
+manifest (fixed in 0.28.7). Pass `--name my_lib` explicitly if you are stuck on
 0.28.0.
 
 ### `build.pengu`
