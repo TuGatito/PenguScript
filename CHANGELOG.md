@@ -2,6 +2,25 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.28.6] — 2026-11-04 — métodos de un tipo reexportado con `alias`
+
+Una fachada que reexporta un tipo con `alias` (el patrón de `docs/LIBRARIES.md`)
+funcionaba por valor pero no cuando el receptor era `ref to Alias`: el `ref` se
+desenvolvía sin volver a resolver el alias, la búsqueda de métodos fallaba con
+`E0004` y, cuando el sema acertaba, el codegen pasaba `Tipo**` en vez de
+`Tipo*` a la función del método.
+
+Es la firma de cualquier handler de una biblioteca: `with context as ref to
+Context`.
+
+### Corregido
+
+- `infer_call` resuelve el alias del destino de un `TkRef` antes de buscar el
+  método (`underlying_type` sobre `rty.a`).
+- `method_receiver` compara el destino del `ref` (atravesando `alias`, `seal` y
+  `frozen`) con el tipo del método antes de decidir si toma la dirección.
+- Regresión nueva: `tests/regress_ref_alias_method.sh`.
+
 ## [0.28.5] — 2026-11-04 — el C generado ve las APIs POSIX
 
 El bundle se compilaba con `-std=c11`, que deja `__STRICT_ANSI__` definido y, con

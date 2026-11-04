@@ -3187,8 +3187,28 @@ weave method_receiver with c as ref to context.CgContext, target as int, ast as 
         return calling npool.copy_string with rt.text
     if rt.type_id >= 0:
         var t as tk.SemaType is calling types.at with (sigil of c->program->types), rt.type_id
-        if t.kind == tk.SemaTypeKind.TkRef and t.a == recv_type:
-            return calling npool.copy_string with rt.text
+        if t.kind == tk.SemaTypeKind.TkRef:
+            # El receptor ya es un puntero; no hay que tomar su dirección.
+            # Su destino puede ser un alias del tipo del método (`ref to
+            # portus.Response` con el método definido en `Response`), así que
+            # se resuelve el alias antes de comparar.
+            var inner as int is t.a
+            var g as int is 0
+            while g < 16:
+                var it as tk.SemaType is calling types.at with (sigil of c->program->types), inner
+                if it.kind == tk.SemaTypeKind.TkAlias or it.kind == tk.SemaTypeKind.TkSeal:
+                    if it.b <= 0:
+                        break
+                    set inner is it.b
+                else if it.kind == tk.SemaTypeKind.TkFrozen:
+                    if it.a <= 0:
+                        break
+                    set inner is it.a
+                else:
+                    break
+                set g is g + 1
+            if inner == recv_type:
+                return calling npool.copy_string with rt.text
     return "&({rt.text})"
 
 ## Expande la forma pura `get_<metodo>` de un método `@mutates`.

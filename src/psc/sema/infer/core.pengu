@@ -608,7 +608,9 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
             var recv_lookup as int is calling underlying_type with s, rcp
             var rty as tk.SemaType is calling types.at with s->types, recv_lookup
             if rty.kind == tk.SemaTypeKind.TkRef:
-                set recv_lookup is rty.a
+                # Un `ref to X` donde X es un alias debe resolver los métodos
+                # del tipo aliaseado: `underlying_type` no atraviesa punteros.
+                set recv_lookup is calling underlying_type with s, rty.a
             var mid as int is calling npool.intern with s->names, mname
             set chain_last is rcp
             set sid is calling symbols.lookup_method with s->symbols, recv_lookup, mid
