@@ -59,6 +59,11 @@ jobs:
         shell: bash
         run: bash ./tests/cli/add_no_name.sh
 
+      - name: Compiler regressions
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash ./tests/regress.sh
+
       - name: License allowlist
         shell: bash
         run: bash ./tools/license_check.sh
