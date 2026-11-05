@@ -97,3 +97,16 @@ Es la única puerta de tipos C. Ningún emisor debe escribir un tipo C a mano.
 
  Tipo C de una función, como declarador sin nombre.
 
+### `pointer_type_name`
+
+> **pointer_type_name**(pt: string) -> string
+
+ Nombre C de un puntero a `pt`, válido también si `pt` es un puntero a función.
+
+ `c_type` imprime los punteros a función como `R (*)(A)`, donde el `*` va
+ dentro del paréntesis; añadir otro `*` al final produce un tipo C inválido.
+ El puntero a `R (*)(A)` es `R (**)(A)`.
+
+ ## Memoria
+ Devuelve un string owned.
+

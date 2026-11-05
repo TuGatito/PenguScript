@@ -18,6 +18,15 @@ Construye nodos en el AST; no asigna strings salvo diagnósticos.
  ## Memoria
  O(1), no asigna.
 
+### `pexpr_nested_arg_expr`
+
+> **pexpr_nested_arg_expr**(p: ref to PsParser) -> int
+
+ Pide una expresión de argumento al hook (sin `or else`/`or:` propios).
+
+ ## Memoria
+ O(1), no asigna.
+
 ### `pexpr_parse_unary`
 
 > **pexpr_parse_unary**(p: ref to PsParser) -> int

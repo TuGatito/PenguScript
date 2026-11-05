@@ -192,6 +192,12 @@ _Undocumented._
 
 _Undocumented._
 
+### `NIF_SHARED`
+
+> **NIF_SHARED** : int
+
+ El tipo se puede compartir entre hilos con `ref to T`.
+
 ### `FIELD_READONLY`
 
 > **FIELD_READONLY** : int
@@ -311,6 +317,18 @@ _Undocumented._
 > **FN_VARIADIC** : int
 
 _Undocumented._
+
+### `FN_SPAWN`
+
+> **FN_SPAWN** : int
+
+ La función es el punto de entrada de `filum.start` (chequeo de propiedad).
+
+### `FN_CORO`
+
+> **FN_CORO** : int
+
+ La función es el punto de entrada de `std.coro.start` (chequeo de propiedad).
 
 ### `CM_REQUIRED`
 

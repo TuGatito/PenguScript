@@ -111,6 +111,12 @@ _Undocumented._
 
  Entrada TOML de una dependencia.
 
+### `named_lines`
+
+> **named_lines**(d: Dependency) -> list of string
+
+ Líneas del cuerpo de una sección `[dependencies.<name>]`.
+
 ### `upsert`
 
 > **upsert**(base: string, d: Dependency) -> bool

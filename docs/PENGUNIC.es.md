@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.30.0.
+del lenguaje que implementa `psc` 0.31.0.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -101,6 +101,7 @@ English: [PENGUNIC.md](PENGUNIC.md).
   - [13.4 Canales](#134-canales)
   - [13.5 Reglas para compartir](#135-reglas-para-compartir)
   - [13.6 Testear concurrencia](#136-testear-concurrencia)
+  - [13.7 Corrutinas](#137-corrutinas)
 - [14. Interoperabilidad con C, con seguridad](#14-interoperabilidad-con-c-con-seguridad)
   - [14.1 El archivo de frontera](#141-el-archivo-de-frontera)
   - [14.2 Propiedad a través de la frontera](#142-propiedad-a-través-de-la-frontera)
@@ -319,7 +320,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.30.0 (F13)
+psc 0.31.0 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -1434,13 +1435,15 @@ if value is not present:
 
 `std.filum` ofrece las primitivas de sincronización — `Mutex`, `WaitGroup`,
 `Once`, `Cond`, `AtomicInt` y canales tipados (`ChanInt`, `ChanString`,
-`ChanFloat`, `ChanBool`) — pero no crea hilos. En 0.28.0 un programa PenguScript
-no puede lanzar un hilo desde el lenguaje; los hilos vienen de un binding de C
-que vuelve a llamar a tu código, o de un host que incrusta el programa.
+`ChanFloat`, `ChanBool`) — y, desde 0.30.0, hilos de primera clase:
+`filum.start` devuelve un `Thread` que se puede `join`, `detach` o liberar.
+`std.coro` añade corrutinas: tareas cooperativas que viven en el hilo que las
+creó y avanzan solo cuando su dueño las reanuda.
 
-Esa restricción define el capítulo: escribes código que correrá en hilos creados
-en otro sitio, así que las reglas son sobre compartir datos, no sobre arrancar
-trabajo.
+Un hilo es paralelismo del sistema operativo; una corrutina es control
+cooperativo dentro de un hilo. El capítulo cubre ambos: las reglas de compartir
+datos aplican a los hilos, y la afinidad de las corrutinas elimina las carreras
+sin necesidad de locks.
 
 ### 13.2 Mutex
 
@@ -1531,6 +1534,50 @@ de concurrencia que pasa una vez no demuestra nada: ejecútalo en bucle en CI.
 * Nunca ignores el resultado de `send`.
 * Libera canales y mutex una vez, con un comentario que diga quién es el dueño.
 * Los tests de concurrencia corren en bucle; un único verde no es evidencia.
+### 13.7 Corrutinas
+
+Una corrutina no es un hilo ni una promesa: es una función que se puede
+suspender y reanudar explícitamente. `std.coro.start` la crea suspendida,
+`resume` la ejecuta hasta el siguiente `yield` o hasta que retorne, y `status`
+dice en qué estado está. No hay planificador, ni `async`/`await`, ni migración
+de hilo: si el dueño no la reanuda, no avanza.
+
+```pengu
+import std.coro
+
+weave worker with out as ref to int into void:
+    set essence of out is 1
+    calling coro.yield
+    set essence of out is 2
+
+weave main into int:
+    var n as int is 0
+    var co as coro.Coroutine is calling coro.start with worker, (sigil of n)
+    calling co.resume
+    calling co.resume
+    calling co.free
+    return n
+```
+
+La misma afinidad que hace seguras las corrutinas impone sus reglas:
+
+* Un `ref to T` puede pasar a `coro.start` sin `@shared`; el worker no cambia
+  de hilo. Un `string`/`list`/`map` con dueño se mueve, igual que en un hilo, y
+  el binding original queda inutilizable (`E0008`).
+* `free` solo se llama sobre una corrutina terminada. Una suspendida se
+  descarta con `abandon`, que no ejecuta sus `defer`: si el worker tenía recursos
+  con dueño, el programa los filtra. Es una decisión explícita, no un olvido.
+* `yield` fuera de una corrutina, `resume` sobre una terminada o `free` sobre
+  una suspendida son panics. Son bugs de programa; no se convierten en `result`.
+* La pila es de 64 KiB y se recicla en una arena. Una recursión más profunda es
+  un desbordamiento de pila: reduce la recursión o mueve el trabajo a un hilo.
+
+Las corrutinas son la base para generadores e iteradores perezosos, pero
+PenguScript no añade sintaxis de generador: el patrón se escribe con `resume` y
+`yield`, y los valores viajan por `ref to` o por el estado del dueño. `async`
+queda fuera porque el lenguaje no tiene closures con captura y no quiere
+convertir cada función en una máquina de estados oculta.
+
 
 ## 14. Interoperabilidad con C, con seguridad
 
@@ -3033,11 +3080,12 @@ quien llama debe ver (`E0045`).
 `as` estrecha un `maybe`/`result` en un `if`; la conversión numérica es `to`, que
 trunca, y `transmute`, que reinterpreta bits.
 
-**¿Por qué no hay hilos?**
-0.30.0 añade hilos de primera clase: `filum.start` (y `start0`/`start2`/`start3`)
-devuelve un `Thread` con `join`, `detach` y `free`. El worker sigue usando el
-planificador de hilos del sistema; PenguScript no promete un planificador de
-green threads.
+**¿Hay hilos y corrutinas?**
+Sí. 0.30.0 añadió hilos de primera clase (`filum.start`, `join`, `detach`,
+`free`) y 0.31.0 añade `std.coro`: corrutinas stackful explícitas con `resume` y
+`yield`, en el mismo hilo. PenguScript no promete un planificador de green
+threads ni `async`/`await`; el hilo lo planifica el sistema y la corrutina la
+reanuda su dueño.
 
 **¿Por qué `float` es de 32 bits?**
 Porque coincide con el `float` de C; usa `f64` cuando importe la precisión.

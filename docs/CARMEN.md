@@ -211,8 +211,9 @@ weave hex with s as string into string
 - `unpack` requires **exactly** `calcsize` bytes; `unpack_from` needs at least
   that many from `offset` and ignores the rest.
 - `iter_unpack` splits a buffer into consecutive records and materializes the
-  whole list (PenguScript has no generators). A zero-size formula or a length
-  that is not a multiple of the record size is a `BadFormat`.
+  whole list (PenguScript has no generator syntax; `std.coro` covers the lazy
+  pattern with explicit `resume`/`yield`). A zero-size formula or a length that
+  is not a multiple of the record size is a `BadFormat`.
 - `pack_into` writes at `offset` inside a caller-owned byte buffer and returns
   the number of bytes written; it never grows the buffer.
 - `validate` returns the record size or the first `CarmenError`.

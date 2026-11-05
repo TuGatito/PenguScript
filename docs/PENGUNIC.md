@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.30.0.
+manual for the language implemented by `psc` 0.31.0.
 
 It is the *practice* document of the documentation set:
 
@@ -101,6 +101,7 @@ Spanish: [PENGUNIC.es.md](PENGUNIC.es.md).
   - [13.4 Channels](#134-channels)
   - [13.5 Sharing rules](#135-sharing-rules)
   - [13.6 Testing concurrency](#136-testing-concurrency)
+  - [13.7 Coroutines](#137-coroutines)
 - [14. C interoperability, safely](#14-c-interoperability-safely)
   - [14.1 The boundary file](#141-the-boundary-file)
   - [14.2 Ownership across the boundary](#142-ownership-across-the-boundary)
@@ -316,7 +317,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.30.0 (F13)
+psc 0.31.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -1423,13 +1424,14 @@ if value is not present:
 
 `std.filum` provides the synchronisation primitives — `Mutex`, `WaitGroup`,
 `Once`, `Cond`, `AtomicInt` and typed channels (`ChanInt`, `ChanString`,
-`ChanFloat`, `ChanBool`) — but it does not create threads. In 0.28.0 a
-PenguScript program cannot spawn a thread from the language; threads come from a
-C binding that calls back into your code, or from a host embedding the program.
+`ChanFloat`, `ChanBool`) — and, since 0.30.0, first-class threads:
+`filum.start` returns a `Thread` you can `join`, `detach` or free. `std.coro`
+adds coroutines: cooperative tasks that live on the thread that created them and
+advance only when their owner resumes them.
 
-That constraint shapes the chapter: you are writing code that will run on
-threads created elsewhere, so the rules are about sharing data, not about
-starting work.
+A thread is OS parallelism; a coroutine is cooperative control inside one
+thread. This chapter covers both: the sharing rules apply to threads, and
+coroutine affinity removes races without locks.
 
 ### 13.2 Mutex
 
@@ -1519,6 +1521,50 @@ concurrency test that passes once proves nothing: run it in a loop in CI.
 * Never ignore the result of `send`.
 * Free channels and mutexes once, with a comment saying who owns them.
 * Concurrency tests run in a loop; a single green run is not evidence.
+### 13.7 Coroutines
+
+A coroutine is not a thread and not a promise: it is a function that can be
+suspended and resumed explicitly. `std.coro.start` creates it suspended,
+`resume` runs it to the next `yield` or until it returns, and `status` reports
+its state. There is no scheduler, no `async`/`await`, and no thread migration: if
+the owner does not resume it, it does not advance.
+
+```pengu
+import std.coro
+
+weave worker with out as ref to int into void:
+    set essence of out is 1
+    calling coro.yield
+    set essence of out is 2
+
+weave main into int:
+    var n as int is 0
+    var co as coro.Coroutine is calling coro.start with worker, (sigil of n)
+    calling co.resume
+    calling co.resume
+    calling co.free
+    return n
+```
+
+The same affinity that makes coroutines safe imposes the rules:
+
+* A `ref to T` may cross into `coro.start` without `@shared`; the worker never
+  changes thread. An owned `string`/`list`/`map` moves, just as with a thread, and
+  the original binding becomes unusable (`E0008`).
+* `free` is only called on a finished coroutine. A suspended one is discarded
+  with `abandon`, which does not run its `defer`s: if the worker owned resources,
+  the program leaks them. That is an explicit decision, not an oversight.
+* `yield` outside a coroutine, `resume` on a finished one, or `free` on a
+  suspended one are panics. They are program bugs; they do not become `result`.
+* The stack is 64 KiB and recycled from an arena. Deeper recursion overflows the
+  stack: reduce recursion or move the work to a thread.
+
+Coroutines are the substrate for generators and lazy iterators, but PenguScript
+adds no generator syntax: the pattern is written with `resume` and `yield`, and
+values travel through `ref to` or the owner's state. `async` is out because the
+language has no capturing closures and does not want to turn every function into
+a hidden state machine.
+
 
 ## 14. C interoperability, safely
 
@@ -2999,10 +3045,11 @@ see (`E0045`).
 `as` narrows a `maybe`/`result` in an `if`; numeric conversion is `to`, which
 truncates, and `transmute`, which reinterprets bits.
 
-**Why no threads?**
-0.30.0 adds first-class threads: `filum.start` (and `start0`/`start2`/`start3`)
-returns a `Thread` with `join`, `detach` and `free`. The worker still runs on the
-OS thread scheduler; PenguScript does not promise a green-thread scheduler.
+**Are there threads and coroutines?**
+Yes. 0.30.0 added first-class threads (`filum.start`, `join`, `detach`, `free`)
+and 0.31.0 adds `std.coro`: explicit stackful coroutines with `resume` and
+`yield` on the same thread. PenguScript does not promise a green-thread scheduler
+or `async`/`await`; the OS schedules threads and the owner resumes coroutines.
 
 **Why is `float` 32-bit?**
 It matches C's `float`; use `f64` when precision matters.

@@ -87,6 +87,7 @@ No interpreta cuerpos: eso es trabajo de `emit`/`stmt`/`expr`.
     includes as list of CgInclude
     by_type as map of int to int
     errors as int
+    ambiguous as map of int to int
 ```
 
  Catálogo de funciones.

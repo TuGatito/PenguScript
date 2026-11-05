@@ -94,6 +94,18 @@ Construye nodos en el AST; no asigna strings salvo diagnósticos.
  ## Memoria
  Construye el AST.
 
+### `pexpr_parse_arg_expr`
+
+> **pexpr_parse_arg_expr**(p: ref to PsParser) -> int
+
+ Parsea la expresión de un argumento.
+
+ Excluye `or else`/`or return`/`or:` para que el postfijo se aplique a la
+ llamada completa y no al último argumento (bug 19).
+
+ ## Memoria
+ Construye el AST.
+
 ### `pexpr_parse_list_try`
 
 > **pexpr_parse_list_try**(p: ref to PsParser) -> int

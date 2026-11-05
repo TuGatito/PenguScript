@@ -143,9 +143,9 @@ _Undocumented._
  ## Memoria
  Devuelve string owned cuando hay coincidencia.
 
-### `call_expr`
+### `generic_ref`
 
-> **call_expr**(c: ref to CgContext, node: int, ast: ref to PsAst) -> string
+> **generic_ref**(c: ref to CgContext, node: int, ast: ref to PsAst) -> string
 
  Emite una llamada.
 
@@ -154,6 +154,16 @@ _Undocumented._
 
  ## Memoria
  Strings owned; no posee args.
+ Emite un valor de función genérico (`f of T`).
+
+ ## Memoria
+ Puede crear especializaciones y tipos.
+
+### `call_expr`
+
+> **call_expr**(c: ref to CgContext, node: int, ast: ref to PsAst) -> string
+
+_Undocumented._
 
 ### `omen_payload_field_type`
 
@@ -173,6 +183,15 @@ _Undocumented._
  ## Memoria
  Strings owned; los payloads se añaden al scope C.
  Emite un `if` usado como expresión con un tipo esperado.
+
+ ## Memoria
+ Devuelve string owned.
+
+### `if_stmt_value`
+
+> **if_stmt_value**(c: ref to CgContext, node: int, ast: ref to PsAst, expected: int) -> string
+
+ Emite un `if` de sentencia usado como valor.
 
  ## Memoria
  Devuelve string owned.
@@ -454,6 +473,17 @@ _Undocumented._
 
  ## Memoria
  O(variantes).
+
+### `omen_variant_literal`
+
+> **omen_variant_literal**(c: ref to CgContext, ty: int, vname: int) -> string
+
+ Inicializador C de una variante de omen usada como valor.
+
+ `E.Empty` no es un identificador C válido: se emite `(E){.tag = E_Empty}`.
+
+ ## Memoria
+ Devuelve string owned.
 
 ### `omen_first_payload`
 

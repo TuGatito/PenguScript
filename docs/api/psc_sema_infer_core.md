@@ -65,6 +65,15 @@ temporales se liberan en la misma función.
  ## Memoria
  Puede emitir un error.
 
+### `infer_generic_ref`
+
+> **infer_generic_ref**(s: ref to SemaState, node: int) -> int
+
+ Resuelve un valor de función genérico (`f of T`).
+
+ ## Memoria
+ Puede crear tipos y mapas temporales.
+
 ### `infer_var`
 
 > **infer_var**(s: ref to SemaState, node: int) -> int
@@ -109,6 +118,92 @@ temporales se liberan en la misma función.
 
  ## Memoria
  O(profundidad * bounds).
+
+### `module_dotted_name`
+
+> **module_dotted_name**(s: ref to SemaState, mid: int) -> string
+
+ Nombre lógico (`a.b.c`) de un módulo, derivado de su ruta.
+
+ Permite reconocer `calling modulo.hijo.fn` cuando `modulo` es el propio
+ módulo actual (bug 8), sin depender de un símbolo de import del consumidor.
+
+ ## Memoria
+ Devuelve un string owned; liberar con `banish`.
+
+### `module_by_dotted`
+
+> **module_by_dotted**(s: ref to SemaState, dotted: string) -> int
+
+ Busca un módulo por su nombre lógico.
+
+ ## Memoria
+ Devuelve un índice; no asigna.
+
+### `type_is_owning`
+
+> **type_is_owning**(s: ref to SemaState, id: int) -> bool
+
+ ¿El tipo posee campos que se mueven con el valor?
+
+### `check_spawn_ref`
+
+> **check_spawn_ref**(s: ref to SemaState, node: int, ty: int) -> void
+
+ Comprueba que un `ref to T` apunte a un tipo `@shared`.
+
+### `type_has_unshared_ref`
+
+> **type_has_unshared_ref**(s: ref to SemaState, id: int, depth: int) -> bool
+
+ ¿El tipo contiene algún `ref to T` cuyo destino no sea `@shared`?
+
+ Los `ref` anidados dentro de runas/colecciones no los ve `check_spawn_ref`;
+ sin este chequeo un rune con un campo `ref to T` cruza un hilo y produce una
+ carrera de datos. Un `slice`/`opaque`/`many` también se considera préstamo.
+
+### `check_arg_ownership`
+
+> **check_arg_ownership**(s: ref to SemaState, anode: int, aty: int, move_flag: int) -> void
+
+ Valida la propiedad de un argumento transferido (hilo o corrutina).
+
+ Un valor con dueño debe venir de un binding local (`var`/`let`), no de un
+ parámetro prestado ni de una expresión compuesta. Los literales de string
+ son frescos (`is_owned = 0`) y se pueden pasar directamente.
+
+### `check_spawn_arg`
+
+> **check_spawn_arg**(s: ref to SemaState, anode: int, aty: int) -> void
+
+ Valida los argumentos de `filum.start`.
+ Valida un argumento transferido a un hilo.
+
+### `infer_spawn`
+
+> **infer_spawn**(s: ref to SemaState, node: int, args: int, arg_types: list of int) -> void
+
+_Undocumented._
+
+### `check_coro_arg`
+
+> **check_coro_arg**(s: ref to SemaState, anode: int, aty: int) -> void
+
+ Valida los argumentos de `std.coro.start`.
+
+ Una corrutina vive en el mismo hilo que su creador, así que `ref to T`,
+ slices, opaque y punteros a función son legales. Los valores con dueño se
+ mueven igual que en un hilo, pero con un flag distinto para que el
+ diagnóstico diga "coroutine".
+
+### `infer_coro`
+
+> **infer_coro**(s: ref to SemaState, node: int, args: int, arg_types: list of int) -> void
+
+ Comprueba `std.coro.start` / `start0`.
+
+ Replica las reglas de worker de `infer_spawn`, pero no exige `@shared`:
+ la corrutina nunca cambia de hilo.
 
 ### `infer_call`
 
@@ -552,4 +647,27 @@ temporales se liberan en la misma función.
 
  ## Memoria
  Construye dos strings temporales y los libera.
+
+### `resolve_callable`
+
+> **resolve_callable**(t: ref to SemaTypeTable, id: int) -> int
+
+ Resuelve una referencia o un alias hasta el tipo subyacente (máx. 32
+ saltos). Se usa para llamar funciones guardadas en un alias, p. ej.
+ `alias Handler as weave with context as ref to Context into result of void to HttpError`.
+
+ ## Memoria
+ O(1); no asigna.
+
+### `call_fn_field`
+
+> **call_fn_field**(s: ref to SemaState, recv_ty: int, name: string, args: int) -> int
+
+ Llama al puntero a función guardado en el campo `name` del receptor.
+
+ Devuelve el tipo de retorno, o `-1` si el campo no existe o no es una
+ función (`calling route.handler with context`).
+
+ ## Memoria
+ O(1); no asigna.
 

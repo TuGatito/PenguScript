@@ -67,6 +67,11 @@ todo. El `NamePool` y la tabla de tipos son prestados y viven más.
     has_includes as bool
     insignia as int
     current_module as int
+    module_of_scope as map of int to int
+    scope_of_module as map of int to int
+    import_first as map of int to int
+    import_count as map of int to int
+    import_edges as list of int
 ```
 
  Tabla de símbolos completa.
@@ -153,14 +158,66 @@ todo. El `NamePool` y la tabla de tipos son prestados y viven más.
  ## Memoria
  Copia POD.
 
+### `register_module_scope`
+
+> **register_module_scope**(s: ref to SemaSymbols, module_id: int, scope_id: int) -> void
+
+ Registra el scope de un módulo y su inverso.
+
+ ## Memoria
+ Añade dos entradas de mapa.
+
+### `register_import`
+
+> **register_import**(s: ref to SemaSymbols, importer: int, target: int) -> void
+
+ Registra un import directo entre módulos.
+
+ ## Memoria
+ Añade una entrada a `import_edges` y ajusta contadores.
+
+### `scope_of_module`
+
+> **scope_of_module**(s: ref to SemaSymbols, module_id: int) -> int
+
+ Scope de un módulo (`-1` si no se registró).
+
+ ## Memoria
+ O(1).
+
+### `lookup_scope_chain`
+
+> **lookup_scope_chain**(s: ref to SemaSymbols, name: int) -> int
+
+ Lookup por `NameId` sólo en la cadena de scopes actual.
+
+ ## Memoria
+ O(profundidad de scopes).
+
+### `lookup_visible`
+
+> **lookup_visible**(s: ref to SemaSymbols, name: int) -> int
+
+ Lookup en los módulos visibles desde el módulo actual.
+
+ Recorre el cierre de imports directos en anchura (primero el propio módulo
+ ya lo cubre la cadena de scopes). Nunca consulta módulos ajenos al grafo de
+ imports del archivo.
+
+ ## Memoria
+ Asigna dos contenedores temporales; los libera.
+
 ### `lookup`
 
 > **lookup**(s: ref to SemaSymbols, name: int) -> int
 
  Lookup por `NameId` desde el scope actual.
 
+ Orden: cadena de scopes (módulo actual incluido), módulos visibles por
+ imports, y sólo como último recurso los registros globales históricos.
+
  ## Memoria
- O(profundidad de scopes).
+ O(profundidad de scopes + módulos visibles).
 
 ### `lookup_name`
 
@@ -231,8 +288,12 @@ todo. El `NamePool` y la tabla de tipos son prestados y viven más.
 
  Lookup de tipo por `NameId`.
 
+ Prefiere la declaración del módulo actual (bug 17): un `rune Handler` local
+ no debe perder contra el alias `Handler` importado. Después busca en los
+ módulos visibles y sólo al final en los registros globales heredados.
+
  ## Memoria
- O(1) promedio.
+ O(profundidad de scopes + módulos visibles).
 
 ### `lookup_in_scope`
 

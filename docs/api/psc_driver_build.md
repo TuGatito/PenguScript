@@ -91,6 +91,19 @@ F5 no cachea, no resuelve dependencias y sólo soporta `pengu.toml` TOML.
  ## Memoria
  O(suffix); no asigna.
 
+### `push_dir_hashes`
+
+> **push_dir_hashes**(cparts: ref to list of string, dir: string) -> void
+
+ Añade a la clave de caché el contenido de todos los archivos de un directorio.
+
+ Los `include "..."`, los `.c` de `c_dir` y los headers locales cambian el
+ artefacto pero no estaban en la clave: un header editado reutilizaba el
+ binario viejo (bug 20).
+
+ ## Memoria
+ Libera los strings temporales.
+
 ### `current_dir`
 
 > **current_dir**() -> string

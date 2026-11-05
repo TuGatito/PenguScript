@@ -19,6 +19,20 @@ explícita (`f of T`). La sustitución se guarda en `CgNames.subst`.
  ## Memoria
  O(funciones).
 
+### `spec_self_value`
+
+> **spec_self_value**(c: ref to CgContext, base: CgFunction, recv_type: int) -> bool
+
+ `true` si una especialización de método debe recibir `self` por valor.
+
+ La plantilla de `enchanting shard T` guarda `self_value = false` porque su
+ receptor es `TkTypeParam`; la decisión real sólo se conoce al monomorfizar.
+ Los primitivos van por valor y `string`, los nominales y los contenedores
+ por puntero, exactamente igual que sus métodos no genéricos.
+
+ ## Memoria
+ O(1).
+
 ### `add_spec`
 
 > **add_spec**(c: ref to CgContext, base_idx: int, args: list of int) -> int
@@ -201,4 +215,57 @@ _Undocumented._
 
  ## Memoria
  Puede crear tipos internados; el mapa temporal se libera.
+
+### `is_type_node`
+
+> **is_type_node**(k: NodeKind) -> bool
+
+ ¿El nodo es un nodo de tipo?
+
+ ## Memoria
+ O(1).
+
+### `preinstantiate_spec`
+
+> **preinstantiate_spec**(c: ref to CgContext, f: CgFunction) -> void
+
+ Pre-instancia los tipos nominales que un cuerpo especializado va a usar.
+
+ El emisor de cuerpos sustituye `Box of A` por `Box__int` al vuelo, después
+ de que el bundle haya emitido los typedefs. Esta pasada crea esas
+ instancias antes de `collect_type_instances`, para que su definición exista.
+
+ ## Memoria
+ Puede crear tipos internados.
+
+### `preinstantiate_node`
+
+> **preinstantiate_node**(c: ref to CgContext, mid: int, ast: ref to PsAst, n: int) -> void
+
+ Recorre un nodo y pre-instancia cada tipo que encuentra.
+
+ ## Memoria
+ Puede crear tipos internados.
+
+### `scan_generic_refs_all`
+
+> **scan_generic_refs_all**(c: ref to CgContext) -> void
+
+ Especializa los valores de función genéricos (`f of T`) de las specs.
+
+ Se ejecuta antes de `preinstantiate_spec` para que las funciones
+ referenciadas (por ejemplo `run_box of Socket`) existan y sus tipos se
+ puedan pre-instanciar antes de emitir los typedefs.
+
+ ## Memoria
+ Puede añadir funciones y tipos.
+
+### `scan_refs_node`
+
+> **scan_refs_node**(c: ref to CgContext, mid: int, ast: ref to PsAst, n: int) -> void
+
+ Recorre un nodo y especializa cada `NdGenericRef`.
+
+ ## Memoria
+ Puede añadir funciones y tipos.
 

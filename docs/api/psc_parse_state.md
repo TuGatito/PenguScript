@@ -59,6 +59,7 @@ ejecuta, el parser falla de forma controlada.
     list_expr as ref to weave with p: ref to PsParser into int
     value_expr as ref to weave with p: ref to PsParser into int
     list_value_expr as ref to weave with p: ref to PsParser into int
+    arg_expr as ref to weave with p: ref to PsParser into int
     expr_no_cast as ref to weave with p: ref to PsParser into int
     guard_expr as ref to weave with p: ref to PsParser into int
 ```
@@ -179,6 +180,12 @@ _Undocumented._
 ### `_no_list_value_hook`
 
 > **_no_list_value_hook**(p: ref to PsParser) -> int
+
+_Undocumented._
+
+### `_no_arg_expr_hook`
+
+> **_no_arg_expr_hook**(p: ref to PsParser) -> int
 
 _Undocumented._
 

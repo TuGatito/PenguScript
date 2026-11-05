@@ -54,7 +54,8 @@ _Undocumented._
 
 > **derive_name**(source: string) -> string
 
- Deriva nombre de una fuente.
+ Deriva el nombre del paquete a partir de la fuente (ruta o URL).
+ `source` es prestado: no se libera aquí. El nombre devuelto es propio.
 
 ### `ends_with`
 

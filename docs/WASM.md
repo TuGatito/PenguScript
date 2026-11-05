@@ -283,6 +283,7 @@ unsafe `href`/`src`/`action`/`formaction`/`poster`/`cite` values. `js.eval` and
 | `std.filum` | ⚠️ | works with `-pthread`; browser needs COOP/COEP; `sleep` blocks |
 | `std.net` | ❌ | browser sockets do not exist; use `std.web.http` and `std.web.websocket` |
 | `std.dynlib`, `std.ffi_call`, `std.secrets`, `std.petitio` | ❌ | native libraries; rejected with an actionable diagnostic |
+| `std.coro` | ❌ | stackful coroutines need Emscripten fibers/Asyncify; not enabled in this toolchain |
 
 `psc build --target wasm` detects the ❌ modules before the linker and fails
 with a PenguScript message such as:
@@ -291,7 +292,7 @@ with a PenguScript message such as:
 psc build: std.net is not available on wasm: browser sockets do not exist; use std.web.http or std.web.websocket
 ```
 
-### Threads
+### Threads and coroutines
 
 If the program imports `std.filum`, the link adds `-pthread` and
 `-sPTHREAD_POOL_SIZE=4`. Goroutines become real Web Workers

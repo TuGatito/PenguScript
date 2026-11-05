@@ -59,12 +59,22 @@ emisor y scopes C. No muta F3.
     lambdas as list of CgLambda
     errors as int
     tmp_seq as int
+    block_value as weave with c: ref to CgContext, node: int, expected: int into string
 ```
 
  Contexto de emisión.
 
  ## Memoria
  Dueño de names/catalog/emitter/locales; liberar con `free`.
+
+### `block_value_unset`
+
+> **block_value_unset**(c: ref to CgContext, node: int, expected: int) -> string
+
+ Hook por defecto: un bloque en posición de valor sin instalador.
+
+ ## Memoria
+ Devuelve un literal owned.
 
 ### `new_context`
 

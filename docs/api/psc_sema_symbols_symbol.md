@@ -118,6 +118,18 @@ _Undocumented._
 
  Alias puro `get_<metodo>` generado por `@mutates`.
 
+### `SYM_MOVED`
+
+> **SYM_MOVED** : int
+
+ El valor se movió a un hilo y no debe usarse otra vez.
+
+### `SYM_MOVED_CORO`
+
+> **SYM_MOVED_CORO** : int
+
+ El valor se movió a una corrutina y no debe usarse otra vez.
+
 ### `SemaConstKind`
 
 > omen SemaConstKind

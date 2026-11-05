@@ -39,3 +39,12 @@ psc/cmd/test.pengu — `psc test`.
  ## Memoria
  Devuelve string owned.
 
+### `copy_path`
+
+> **copy_path**(s: string) -> string
+
+ Copia owned de una ruta.
+
+ ## Memoria
+ Devuelve string owned; liberar con `banish`.
+

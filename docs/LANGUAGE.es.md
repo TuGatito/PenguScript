@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.30.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.31.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -104,6 +104,8 @@ English: [LANGUAGE.md](LANGUAGE.md).
   - [13.6 Valores devueltos y parámetros](#136-valores-devueltos-y-parámetros)
   - [13.7 Depurar fugas](#137-depurar-fugas)
 - [14. Atributos](#14-atributos)
+  - [14.1 Hilos](#141-hilos)
+  - [14.2 Corrutinas](#142-corrutinas)
 - [15. Tests y herramientas](#15-tests-y-herramientas)
   - [15.1 Bloques `test`](#151-bloques-test)
   - [15.2 Comandos](#152-comandos)
@@ -139,7 +141,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.30.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.31.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -1610,6 +1612,10 @@ Tras boxear, la fuente queda vacía; banishearla es un no-op, usarla es un bug.
   que la firma diga otra cosa. El llamado no debe banishearlo.
 * Un `ref to T` devuelto es una vista prestada salvo que el módulo documente una
   transferencia de propiedad.
+* Cruzar una frontera de tarea es una transferencia: `filum.start` mueve los
+  valores con dueño y exige `@shared` para los `ref`; `coro.start` los mueve
+  igual, pero acepta `ref to T` sin `@shared` porque la corrutina nunca cambia
+  de hilo. En ambos casos el binding original queda inutilizable (`E0008`).
 
 ### 13.7 Depurar fugas
 
@@ -1635,6 +1641,9 @@ Los atributos se escriben en la línea encima de la declaración que modifican.
 | `@packed` | `rune` | elimina el relleno del struct | `__attribute__((packed))` |
 | `@align(N)` | `rune` | fija la alineación | `__attribute__((aligned(N)))` |
 | `@mutates` | método en `enchanting` | asigna el resultado de vuelta al receptor | una función C, dos formas de llamada |
+| `@shared` | `rune`, `omen` | permite que `ref to T` cruce `filum.start` | sin cambio de código; flag de compilación |
+| `@spawn` | `weave` | marca la función que arranca un hilo; valida worker y propiedad en cada llamada | sin cambio de código; contrato del compilador |
+| `@coroutine` | `weave` | marca la función que arranca una corrutina; valida worker y propiedad | sin cambio de código; contrato del compilador |
 
 ```pengu
 @deprecated("use read_file_result to distinguish the failure cause")
@@ -1661,12 +1670,11 @@ sincronizan; el compilador comprueba la frontera, no la implementación.
 ```pengu
 import std.filum
 
-weave worker with conn as ref to Socket into void:
-    # ...
-    calling net.close with (sigil of conn)
+weave worker with value as string into void:
+    calling print with value
 
 weave main into int:
-    let h as Thread is calling filum.start with worker, (sigil of conn)
+    let h as Thread is calling filum.start with worker, "hello"
     var r as result of void to ThreadError is calling h.join
     calling h.free
     return 0
@@ -1679,6 +1687,50 @@ copian. `join` espera y devuelve `result of void to ThreadError`; `detach` es
 fire-and-forget; `free` libera el handle. `Thread` es un id copiable, así que un
 supervisor puede guardarlo. TLS, `Pool` y `parallel_for` también están en
 `std.filum`.
+
+### 14.2 Corrutinas
+
+Una corrutina es una tarea cooperativa, explícita y *stackful*: se suspende en
+`coro.yield` y solo avanza cuando su dueño llama `resume`. Vive en el hilo que
+la creó, así que no hay carreras ni migración; para paralelismo se usa
+`std.filum`.
+
+```pengu
+import std.coro
+
+weave worker with out as ref to int into void:
+    set essence of out is 1
+    calling coro.yield
+    set essence of out is 2
+
+weave main into int:
+    var n as int is 0
+    var co as coro.Coroutine is calling coro.start with worker, (sigil of n)
+    var first as coro.CoroutineState is calling co.resume
+    var second as coro.CoroutineState is calling co.resume
+    calling co.free
+    if first != coro.CoroutineState.suspended or second != coro.CoroutineState.finished:
+        return 1
+    return n
+```
+
+`start` crea la corrutina suspendida y mueve el argumento con dueño; `start0`
+cubre un worker sin argumentos. `resume` la ejecuta hasta el siguiente `yield` o
+hasta que retorne, y devuelve `suspended` o `finished`; `status` lee el estado
+sin ejecutarla. `free` solo libera una corrutina terminada; `abandon` descarta
+una suspendida (y no ejecuta sus `defer`). `yield` fuera de una corrutina, o
+`resume` sobre una terminada, es un panic: son bugs del programa, no errores
+recuperables.
+
+La pila por defecto es de 64 KiB (arena compartida y reciclada); un `ref to T`
+no requiere `@shared` porque no cruza hilos, y un `string`/`list`/`map` se mueve
+al worker. No hay planificador, `async`/`await`, cancelación ni valores de
+retorno por `yield`: el control es explícito y los datos viajan por `ref to` o
+por el estado compartido del dueño. En wasm `std.coro` no está disponible.
+
+`@coroutine` marca la función que arranca la tarea (la implementación de
+`std.coro.start`); si escribes tu propio arrancador, replica el contrato:
+primer argumento worker, resto argumentos del worker, retorno del worker `void`.
 
 ## 15. Tests y herramientas
 

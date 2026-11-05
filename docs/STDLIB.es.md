@@ -1,6 +1,6 @@
 # La biblioteca estándar de PenguScript
 
-Los 67 módulos de `std/` en `psc` 0.30.0: para qué sirve cada uno, cuándo
+Los 68 módulos de `std/` en `psc` 0.31.0: para qué sirve cada uno, cuándo
 usarlo, cuándo usar otro y dónde vive su API generada.
 
 Es el documento *catálogo* del conjunto de documentación:
@@ -70,7 +70,8 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
   - [`std.ward` — aserciones para tests y guardas](#stdward-aserciones-para-tests-y-guardas)
   - [`std.trial` — suites y reporte](#stdtrial-suites-y-reporte)
 - [9. Concurrencia](#9-concurrencia)
-  - [`std.filum` — primitivas de sincronización](#stdfilum-primitivas-de-sincronización)
+  - [`std.filum` — hilos y sincronización](#stdfilum-hilos-y-sincronización)
+  - [`std.coro` — corrutinas stackful](#stdcoro-corrutinas-stackful)
 - [10. Servicios de red](#10-servicios-de-red)
   - [`std.petitio` — cliente HTTP](#stdpetitio-cliente-http)
   - [`std.jsonrpc` — JSON-RPC 2.0](#stdjsonrpc-json-rpc-20)
@@ -105,7 +106,7 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
 - [Apéndice C — Convenciones de nombres en la biblioteca estándar](#apéndice-c-convenciones-de-nombres-en-la-biblioteca-estándar)
 <!-- /toc -->
 
-Todos los módulos que vienen con `psc` 0.30.0: para qué sirven, cuándo usarlos y
+Todos los módulos que vienen con `psc` 0.31.0: para qué sirven, cuándo usarlos y
 dónde vive la API generada de cada uno.
 
 ## 0. Cómo usar este catálogo
@@ -131,7 +132,7 @@ Cada entrada tiene la misma forma:
 **API** [enlace a la página generada] · [fuente]
 ```
 
-**Versión.** Este catálogo describe `psc` 0.30.0 y el árbol `std/` del mismo
+**Versión.** Este catálogo describe `psc` 0.31.0 y el árbol `std/` del mismo
 commit. La constante de versión de un módulo (`TRIAL_VERSION`, `CARMEN_VERSION`,
 …) es la versión propia de su API, no la del compilador.
 
@@ -232,6 +233,7 @@ puede traer una dependencia nativa.
 | errores estilo compilador | `std.diagnostic` | strings ad hoc |
 | tests | `std.ward` + `std.trial` | `assert` de `spark` |
 | mutex, atómicos, canales | `std.filum` | — |
+| corrutinas cooperativas | `std.coro` | hilos + estado |
 | llamar a una librería C | `std.ffi` | `antiquus` por todas partes |
 | llamar a una función por nombre en runtime | `std.ffi_call` | `dynlib` solo |
 | cargar un `.so`/`.dll` | `std.dynlib` | — |
@@ -870,13 +872,52 @@ Siguen disponibles TLS (`Tls`, `tls_set`, `tls_get`), un `Pool` de workers
 `recv` → `maybe`.
 
 **Evítalo cuando** necesites un resultado de vuelta del worker: `Thread` es
-`into void` en 0.30.0. Envía el resultado por un canal o una estructura
+`into void` en 0.31.0. Envía el resultado por un canal o una estructura
 compartida; los resultados tipados llegan en 0.30.1.
 
 **Destacados** `start`, `Thread.join`, `@shared`, `Tls`, `Pool`,
 `parallel_for`, `Mutex`, `chan_int`.
 
 **API** [`api/std_filum.md`](api/std_filum.md) · [fuente](../std/filum.pengu)
+
+### `std.coro` — corrutinas stackful
+
+**Úsalo cuando** necesites suspender una tarea y reanudarla después, sin crear
+otro hilo: generadores, iteradores perezosos, productores/consumidores
+cooperativos o una máquina de estados escrita de forma lineal.
+
+```pengu
+import std.coro
+
+weave step with out as ref to int into void:
+    set essence of out is 1
+    calling coro.yield
+    set essence of out is 2
+
+weave main into int:
+    var n as int is 0
+    var co as coro.Coroutine is calling coro.start with step, (sigil of n)
+    calling co.resume
+    calling co.resume
+    calling co.free
+    return n
+```
+
+`start`/`start0` crean la corrutina suspendida y mueven el argumento con dueño;
+`resume` devuelve `CoroutineState.suspended` o `.finished`; `status` lee el
+estado sin ejecutar; `yield` suspende la corrutina actual; `free` libera una
+terminada y `abandon` descarta una suspendida. La corrutina vive en el hilo que
+la creó, así que un `ref to T` no necesita `@shared`. La pila es de 64 KiB y se
+recicla en una arena; no hay planificador ni `async`/`await`.
+
+**Evítalo cuando** necesites paralelismo real (usa `std.filum`), o cuando el
+trabajo deba sobrevivir a su dueño. En wasm no está disponible: requiere
+Emscripten fibers/Asyncify.
+
+**Destacados** `start`, `start0`, `resume`, `yield`, `CoroutineState`,
+`abandon`.
+
+**API** [`api/std_coro.md`](api/std_coro.md) · [fuente](../std/coro.pengu)
 
 ## 10. Servicios de red
 
@@ -1241,7 +1282,7 @@ reglas de propiedad. Importar el `.d` directamente se salta todo eso.
 
 ## 14. El índice completo
 
-Los 67 módulos, en orden alfabético. La capa coincide con la sección 1; la
+Los 68 módulos, en orden alfabético. La capa coincide con la sección 1; la
 columna API lleva a la página generada por `psc doc --include-std`.
 
 | Módulo | Capa | Qué te da | API |
@@ -1265,6 +1306,7 @@ columna API lleva a la página generada por `psc doc --include-std`.
 | `std.ffi` | Interop | conversiones de strings, búferes y punteros de C | [`std_ffi`](api/std_ffi.md) |
 | `std.ffi_call` | Interop | llamadas dinámicas con libffi (opcional) | [`std_ffi_call`](api/std_ffi_call.md) |
 | `std.filum` | Concurrencia | `Mutex`, `WaitGroup`, `Once`, `Cond`, atómicos, canales | [`std_filum`](api/std_filum.md) |
+| `std.coro` | Concurrencia | `Coroutine`, `start`, `resume`, `yield`, `abandon` | [`std_coro`](api/std_coro.md) |
 | `std.fractio` | Números | métodos de float: `sqrt`, `pow`, trigonometría | [`std_fractio`](api/std_fractio.md) |
 | `std.functor` | Núcleo | `Fn0`–`Fn3`: puntero a función más contexto | [`std_functor`](api/std_functor.md) |
 | `std.integrum` | Números | métodos de enteros: gcd, primos, bits, base | [`std_integrum`](api/std_integrum.md) |

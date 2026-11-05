@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.30.0: every
+reference documents the language as implemented by `psc` 0.31.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -104,6 +104,8 @@ Spanish: [LANGUAGE.es.md](LANGUAGE.es.md).
   - [13.6 Returned values and parameters](#136-returned-values-and-parameters)
   - [13.7 Debugging leaks](#137-debugging-leaks)
 - [14. Attributes](#14-attributes)
+  - [14.1 Threads](#141-threads)
+  - [14.2 Coroutines](#142-coroutines)
 - [15. Tests and tooling](#15-tests-and-tooling)
   - [15.1 `test` blocks](#151-test-blocks)
   - [15.2 Commands](#152-commands)
@@ -137,7 +139,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.30.0. The ABI version the generated C expects is 3.
+* Version: `psc` 0.31.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -1579,6 +1581,10 @@ After boxing, the source is empty; banishing it is a no-op, using it is a bug.
   signature says otherwise. The callee must not banish it.
 * A returned `ref to T` is a borrowed view unless the module documents a
   transfer of ownership.
+* Crossing a task boundary is a transfer: `filum.start` moves owning values and
+  requires `@shared` for refs; `coro.start` moves them too, but accepts `ref to
+  T` without `@shared` because the coroutine never changes thread. In both cases
+  the original binding becomes unusable (`E0008`).
 
 ### 13.7 Debugging leaks
 
@@ -1604,6 +1610,8 @@ Attributes are written on the line above the declaration they modify.
 | `@align(N)` | `rune` | set alignment | `__attribute__((aligned(N)))` |
 | `@mutates` | method in `enchanting` | assign the result back to the receiver | one C function, two call forms |
 | `@shared` | `rune`, `omen` | allow `ref to T` to cross a `filum.start` boundary | no code change; compile-time flag |
+| `@spawn` | `weave` | marks the function that starts a thread; validates worker and ownership at each call | no code change; compiler contract |
+| `@coroutine` | `weave` | marks the function that starts a coroutine; validates worker and ownership | no code change; compiler contract |
 
 ```pengu
 @deprecated("use read_file_result to distinguish the failure cause")
@@ -1630,12 +1638,11 @@ the compiler checks the boundary, not the implementation.
 ```pengu
 import std.filum
 
-weave worker with conn as ref to Socket into void:
-    # ...
-    calling net.close with (sigil of conn)
+weave worker with value as string into void:
+    calling print with value
 
 weave main into int:
-    let h as Thread is calling filum.start with worker, (sigil of conn)
+    let h as Thread is calling filum.start with worker, "hello"
     var r as result of void to ThreadError is calling h.join
     calling h.free
     return 0
@@ -1647,6 +1654,50 @@ three arguments. A `ref to T` requires `@shared` on `T`; scalars are copied.
 `join` waits and returns `result of void to ThreadError`; `detach` is
 fire-and-forget; `free` releases the handle. `Thread` is a copyable id, so a
 supervisor can keep it. TLS, `Pool` and `parallel_for` live in `std.filum` too.
+
+### 14.2 Coroutines
+
+A coroutine is an explicit, cooperative, *stackful* task: it suspends at
+`coro.yield` and only advances when its owner calls `resume`. It runs on the
+thread that created it, so there are no data races or migration; use
+`std.filum` for parallelism.
+
+```pengu
+import std.coro
+
+weave worker with out as ref to int into void:
+    set essence of out is 1
+    calling coro.yield
+    set essence of out is 2
+
+weave main into int:
+    var n as int is 0
+    var co as coro.Coroutine is calling coro.start with worker, (sigil of n)
+    var first as coro.CoroutineState is calling co.resume
+    var second as coro.CoroutineState is calling co.resume
+    calling co.free
+    if first != coro.CoroutineState.suspended or second != coro.CoroutineState.finished:
+        return 1
+    return n
+```
+
+`start` creates the coroutine suspended and moves the owning argument; `start0`
+covers a worker with no arguments. `resume` runs it to the next `yield` or until
+it returns, and reports `suspended` or `finished`; `status` reads the state
+without running it. `free` releases only a finished coroutine; `abandon`
+discards a suspended one (and does not run its `defer`s). `yield` outside a
+coroutine, or `resume` on a finished one, is a panic: a program bug, not a
+recoverable error.
+
+The default stack is 64 KiB (shared, recycled arena); a `ref to T` does not
+require `@shared` because it never crosses threads, and a `string`/`list`/`map`
+moves into the worker. There is no scheduler, `async`/`await`, cancellation or
+value passing through `yield`: control is explicit and data travels through
+`ref to` or the owner's shared state. `std.coro` is not available on wasm.
+
+`@coroutine` marks the function that starts the task (the implementation of
+`std.coro.start`); if you write your own starter, mirror the contract: first
+argument the worker, remaining arguments the worker's, worker returns `void`.
 
 ## 15. Tests and tooling
 

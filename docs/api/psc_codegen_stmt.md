@@ -63,6 +63,19 @@ El resto de statements se añade por subfases manteniendo `emit_stmt`.
  ## Memoria
  Strings owned en cada línea.
 
+### `block_value`
+
+> **block_value**(c: ref to CgContext, node: int, expected: int) -> string
+
+ Reduce un bloque (`block`/`do_expr`) en posición de valor a una expresión C.
+
+ Emite las sentencias del bloque dentro de una statement expression GNU
+ (`__extension__(({ … }))`) y devuelve el valor de la última expresión.
+ Lo instala `bundle` en `c->block_value` para evitar el ciclo expr→stmt.
+
+ ## Memoria
+ Devuelve un string owned; liberar con `banish`.
+
 ### `emit_stmt`
 
 > **emit_stmt**(c: ref to CgContext, node: int) -> void
