@@ -398,15 +398,11 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
                 return calling osb.finish
         return "({olv} ? {olv} : {orv})"
     if k == pskind.NodeKind.NdDoExpr:
-        var den as int is calling astutil.child_count with ast, node
-        if den > 0:
-            var de as int is calling astutil.node_child with ast, node, den - 1
-            if (calling astutil.kind_of with ast, de) == pskind.NodeKind.NdStmt:
-                set de is calling astutil.node_child with ast, de, 0
-            if (calling astutil.kind_of with ast, de) == pskind.NodeKind.NdExprStmt:
-                set de is calling astutil.node_child with ast, de, 0
-            return calling emit_expr with c, de
-        return "0"
+        # Un bloque en posición de valor captura sus sentencias en una
+        # statement expression (`__extension__(({ … }))`, bug 9). El emisor
+        # vive en `stmt` para no crear el ciclo expr→stmt.
+        var hook as weave with hc as ref to context.CgContext, hnode as int, hexp as int into string is c->block_value
+        return calling hook with c, node, 0
     if k == pskind.NodeKind.NdJudgeExpr:
         return calling judge_expr_c with c, node, ast, -1
     if k == pskind.NodeKind.NdAtExpr:
@@ -1062,15 +1058,13 @@ weave emit_expr_as with c as ref to context.CgContext, node as int, expected as 
     var mt0 as ref to psast.PsAst is (sigil of m0.parse.ast)
     var ek0 as pskind.NodeKind is calling astutil.kind_of with mt0, node
     if expected >= 0 and ek0 == pskind.NodeKind.NdDoExpr:
-        var edn as int is calling astutil.child_count with mt0, node
-        if edn > 0:
-            var ede as int is calling astutil.node_child with mt0, node, edn - 1
-            if (calling astutil.kind_of with mt0, ede) == pskind.NodeKind.NdStmt:
-                set ede is calling astutil.node_child with mt0, ede, 0
-            if (calling astutil.kind_of with mt0, ede) == pskind.NodeKind.NdExprStmt:
-                set ede is calling astutil.node_child with mt0, ede, 0
-            return calling emit_expr_as with c, ede, expected
-        return "0"
+        var dhook as weave with hc as ref to context.CgContext, hnode as int, hexp as int into string is c->block_value
+        return calling dhook with c, node, expected
+    if expected >= 0 and ek0 == pskind.NodeKind.NdBlock:
+        var bhook as weave with hc as ref to context.CgContext, hnode as int, hexp as int into string is c->block_value
+        return calling bhook with c, node, expected
+    if expected >= 0 and ek0 == pskind.NodeKind.NdIfStmt:
+        return calling if_stmt_value with c, node, mt0, expected
     if expected >= 0 and ek0 == pskind.NodeKind.NdIfExpr:
         return calling if_expr_expected with c, node, mt0, expected
     if expected >= 0 and (calling astutil.kind_of with mt0, node) == pskind.NodeKind.NdCallingExpr:
@@ -2471,7 +2465,10 @@ weave if_expr_expected with c as ref to context.CgContext, node as int, ast as r
     var ie as int is calling astutil.node_child with ast, node, 2
     var ct as string is calling ctype.c_type with (sigil of c->names), expected
     defer banish ct
-    var cv as string is calling emit_expr with c, ic
+    var cn0 as int is ic
+    if ic >= 0 and (calling astutil.kind_of with ast, ic) == pskind.NodeKind.NdIfCond:
+        set cn0 is calling astutil.node_child with ast, ic, 0
+    var cv as string is calling emit_expr with c, cn0
     defer banish cv
     var tv as string is calling emit_expr_as with c, it, expected
     defer banish tv
@@ -2485,12 +2482,73 @@ weave if_expr_expected with c as ref to context.CgContext, node as int, ast as r
     calling sb.append with tv
     calling sb.append with "; }"
     if ie >= 0:
-        var ev as string is calling emit_expr_as with c, ie, expected
+        var eb0 as int is calling astutil.node_child with ast, ie, 0
+        var ev as string is "0"
+        if eb0 >= 0:
+            if (calling astutil.kind_of with ast, eb0) == pskind.NodeKind.NdIfStmt:
+                set ev is calling if_stmt_value with c, eb0, ast, expected
+            else:
+                set ev is calling emit_expr_as with c, eb0, expected
+        else:
+            set ev is calling emit_expr_as with c, ie, expected
         defer banish ev
         calling sb.append with " else { _pif = "
         calling sb.append with ev
         calling sb.append with "; }"
     calling sb.append with " _pif; }))"
+    return calling sb.finish
+
+## Emite un `if` de sentencia usado como valor.
+##
+## ## Memoria
+## Devuelve string owned.
+weave if_stmt_value with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, expected as int into string:
+    var ic as int is calling astutil.node_child with ast, node, 0
+    var it as int is calling astutil.node_child with ast, node, 1
+    var ie as int is calling astutil.node_child with ast, node, 2
+    var ct as string is calling ctype.c_type with (sigil of c->names), expected
+    defer banish ct
+    var cn0 as int is ic
+    if ic >= 0 and (calling astutil.kind_of with ast, ic) == pskind.NodeKind.NdIfCond:
+        set cn0 is calling astutil.node_child with ast, ic, 0
+    var cv as string is calling emit_expr with c, cn0
+    defer banish cv
+    var tv as string is calling emit_expr_as with c, it, expected
+    defer banish tv
+    var tmp as string is calling emit.temp with (sigil of c->emitter), "_pif"
+    defer banish tmp
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "__extension__(({ "
+    calling sb.append with ct
+    calling sb.append with " "
+    calling sb.append with tmp
+    calling sb.append with " = {0}; if ("
+    calling sb.append with cv
+    calling sb.append with ") { "
+    calling sb.append with tmp
+    calling sb.append with " = "
+    calling sb.append with tv
+    calling sb.append with "; }"
+    if ie >= 0:
+        var eb0 as int is calling astutil.node_child with ast, ie, 0
+        var ev as string is "0"
+        if eb0 >= 0:
+            if (calling astutil.kind_of with ast, eb0) == pskind.NodeKind.NdIfStmt:
+                set ev is calling if_stmt_value with c, eb0, ast, expected
+            else:
+                set ev is calling emit_expr_as with c, eb0, expected
+        else:
+            set ev is calling emit_expr_as with c, ie, expected
+        defer banish ev
+        calling sb.append with " else { "
+        calling sb.append with tmp
+        calling sb.append with " = "
+        calling sb.append with ev
+        calling sb.append with "; }"
+    calling sb.append with " "
+    calling sb.append with tmp
+    calling sb.append with "; }))"
     return calling sb.finish
 
 weave judge_expr_c with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst, wanted as int into string:

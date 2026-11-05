@@ -82,6 +82,63 @@ weave emit_loop_block with c as ref to context.CgContext, block as int into void
     calling emit_block_body with c, block
     calling end_scope with c
 
+## Reduce un bloque (`block`/`do_expr`) en posición de valor a una expresión C.
+##
+## Emite las sentencias del bloque dentro de una statement expression GNU
+## (`__extension__(({ … }))`) y devuelve el valor de la última expresión.
+## Lo instala `bundle` en `c->block_value` para evitar el ciclo expr→stmt.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave block_value with c as ref to context.CgContext, node as int, expected as int into string:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    var rt as int is expected
+    if rt <= 0:
+        set rt is calling expr.node_type with c, node
+    if rt <= 0:
+        set rt is 1
+    var ct as string is calling ctype.c_type with (sigil of c->names), rt
+    defer banish ct
+    var n as int is calling astutil.child_count with ast, node
+    var valix as int is -1
+    if n > 0:
+        var last as int is calling astutil.node_child with ast, node, n - 1
+        if last >= 0 and (calling astutil.kind_of with ast, last) == pskind.NodeKind.NdStmt:
+            set last is calling astutil.node_child with ast, last, 0
+        if last >= 0 and (calling astutil.kind_of with ast, last) == pskind.NodeKind.NdExprStmt:
+            set valix is calling astutil.node_child with ast, last, 0
+    var saved as emit.CgEmitter is c->emitter
+    set c->emitter is calling emit.new_emitter
+    calling begin_scope with c, false
+    var i as int is 0
+    while i < n:
+        var s as int is calling astutil.node_child with ast, node, i
+        if s >= 0 and (i != n - 1 or valix < 0):
+            calling emit_stmt with c, s
+        set i is i + 1
+    var val as string is "0"
+    if valix >= 0:
+        set val is calling expr.emit_expr_as with c, valix, rt
+    defer banish val
+    calling end_scope with c
+    var body as string is calling emit.finish with (sigil of c->emitter)
+    defer banish body
+    set c->emitter is saved
+    var tmp as string is calling emit.temp with (sigil of c->emitter), "_pb"
+    defer banish tmp
+    var nl as string is "\n"
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "__extension__(({"
+    calling sb.append with nl
+    calling sb.append with body
+    calling sb.append with ct
+    calling sb.append with " {tmp} = {val};"
+    calling sb.append with nl
+    calling sb.append with "{tmp}; }))"
+    return calling sb.finish
+
 ## Emite un statement.
 ##
 ## ## Memoria
