@@ -221,7 +221,12 @@ weave module_fn_prefix with p as ref to program.SemaProgram, m as loader.SemaMod
     else:
         set stem is path at 0 to n
     var sl as int is stem length
-    if sl > 6 and (stem at (sl - 6) to sl) == ".pengu":
+    # Un binding `.d.pengu` comparte prefijo con su `.pengu` padre.
+    if sl > 8 and (stem at (sl - 8) to sl) == ".d.pengu":
+        var st2 as string is stem at 0 to (sl - 8)
+        banish stem
+        set stem is st2
+    else if sl > 6 and (stem at (sl - 6) to sl) == ".pengu":
         var st2 as string is stem at 0 to (sl - 6)
         banish stem
         set stem is st2
