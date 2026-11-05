@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.29.1.
+del lenguaje que implementa `psc` 0.30.0.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -319,7 +319,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.29.1 (F13)
+psc 0.30.0 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -1510,8 +1510,11 @@ calling handle with v.value
 | `slice of T` | solo mientras el dueño viva y no se mute |
 | `maybe`/`result` | valores; el payload sigue la regla de su tipo |
 
-El compilador no comprueba nada de esto. Si dos hilos pueden ver el mismo
-`PenguString`, el programa ya está mal salvo que ambos lo traten como inmutable y
+El compilador comprueba la frontera de `filum.start`: un valor con dueño debe
+ser un binding local y se mueve al worker; un `ref to T` solo se acepta si `T`
+está marcado `@shared`. No demuestra que los métodos de `T` bloqueen, ni rastrea
+alias hechas antes del movimiento. Si dos hilos pueden ver el mismo
+`PenguString`, el programa sigue mal salvo que ambos lo traten como inmutable y
 el dueño viva más que ellos.
 
 ### 13.6 Testear concurrencia
@@ -3031,8 +3034,10 @@ quien llama debe ver (`E0045`).
 trunca, y `transmute`, que reinterpreta bits.
 
 **¿Por qué no hay hilos?**
-`std.filum` ofrece primitivas de sincronización; la creación de hilos se deja a un
-host de C para que el lenguaje no prometa un planificador que no controla.
+0.30.0 añade hilos de primera clase: `filum.start` (y `start0`/`start2`/`start3`)
+devuelve un `Thread` con `join`, `detach` y `free`. El worker sigue usando el
+planificador de hilos del sistema; PenguScript no promete un planificador de
+green threads.
 
 **¿Por qué `float` es de 32 bits?**
 Porque coincide con el `float` de C; usa `f64` cuando importe la precisión.

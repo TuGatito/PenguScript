@@ -169,7 +169,12 @@ weave emit_body with c as ref to context.CgContext, lam as context.CgLambda into
     calling emit.indent_more with (sigil of c->emitter)
     if body >= 0:
         var v as string is calling expr.emit_expr_as with c, body, info.return_type
-        calling emit.line with (sigil of c->emitter), "return {v};"
+        var rty as string is calling ctype.c_type with (sigil of c->names), info.return_type
+        if rty == "void":
+            calling emit.line with (sigil of c->emitter), "{v};"
+        else:
+            calling emit.line with (sigil of c->emitter), "return {v};"
+        banish rty
         banish v
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"

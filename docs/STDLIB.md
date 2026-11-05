@@ -1,6 +1,6 @@
 # The PenguScript Standard Library
 
-All 67 modules of `std/` in `psc` 0.29.1: what each one is for, when to reach for
+All 67 modules of `std/` in `psc` 0.30.0: what each one is for, when to reach for
 it, when to reach for something else, and where its generated API lives.
 
 It is the *catalogue* document of the documentation set:
@@ -105,7 +105,7 @@ own `##` comments by `psc doc --include-std`.
 - [Appendix C — Naming conventions in the standard library](#appendix-c-naming-conventions-in-the-standard-library)
 <!-- /toc -->
 
-Every module that ships with `psc` 0.29.1: what it is for, when to reach for
+Every module that ships with `psc` 0.30.0: what it is for, when to reach for
 it, and where its generated API lives.
 
 ## 0. How to use this catalogue
@@ -131,7 +131,7 @@ Every entry has the same shape:
 **API** [link to the generated page] · [source]
 ```
 
-**Version.** This catalogue describes `psc` 0.29.1 and the `std/` tree in the
+**Version.** This catalogue describes `psc` 0.30.0 and the `std/` tree in the
 same commit. A module version constant (`TRIAL_VERSION`, `CARMEN_VERSION`, …)
 is the module's own API version, not the compiler's.
 
@@ -836,20 +836,31 @@ enough and `psc test` already runs them.
 
 ## 9. Concurrency
 
-### `std.filum` — synchronization primitives
+### `std.filum` — threads and synchronization
 
-**Use it when** threads exist outside the language and must coordinate:
-`Mutex` (`lock`, `unlock`, `try_lock`), `WaitGroup` (`add`, `done`, `wait`),
-`Once` (`do_once`), `Cond` (`cond_wait`, `signal`, `broadcast`), `AtomicInt`
-(`load`, `store`, `add_atomic`, `swap`, `compare_swap`, `inc`, `dec`), and typed
-channels (`ChanInt`, `ChanString`, `ChanFloat`, `ChanBool`, `Chan`) with
-`send` → `bool` and `recv` → `maybe`.
+**Use it when** you need to run work on another thread, or coordinate threads:
+`filum.start` / `start0` / `start2` / `start3` return a `Thread`; `join` returns
+`result of void to ThreadError`, `detach` lets it run, and `free` releases the
+handle. `Thread` is a copyable handle (an id, not a raw pointer), so passing it
+to a supervisor is safe.
 
-**Avoid it when** you expect `filum` to create a thread: it does not. Thread
-creation belongs to the host (C, a binding, or the embedding application);
-`filum` supplies the primitives those threads use.
+Arguments move into the worker: owning values (`string`, `list`, `map`,
+`maybe`, `result`, runes) must be local bindings and are unusable afterwards;
+scalars are copied. A `ref to T` is accepted only when `T` is declared
+`@shared`; the compiler checks that boundary, but not the locking inside `T`.
 
-**Highlights** `Mutex`, `WaitGroup`, `AtomicInt`, `chan_int`, `send`, `recv`.
+TLS (`Tls`, `tls_set`, `tls_get`), a worker `Pool` (`submit`, `wait`, `free`),
+`parallel_for`, and the coordination primitives remain available: `Mutex`,
+`WaitGroup`, `Once`, `Cond`, `AtomicInt`, and typed channels (`ChanInt`,
+`ChanString`, `ChanFloat`, `ChanBool`, `Chan`) with `send` → `bool` and
+`recv` → `maybe`.
+
+**Avoid it when** you need a result back from the worker: `Thread` is
+`into void` in 0.30.0. Send the result through a channel or a shared structure;
+tyed thread results are planned for 0.30.1.
+
+**Highlights** `start`, `Thread.join`, `@shared`, `Tls`, `Pool`,
+`parallel_for`, `Mutex`, `chan_int`.
 
 **API** [`api/std_filum.md`](api/std_filum.md) · [source](../std/filum.pengu)
 

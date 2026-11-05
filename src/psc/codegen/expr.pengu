@@ -157,6 +157,8 @@ weave emit_expr with c as ref to context.CgContext, node as int into string:
         return calling binary_expr with c, node, ast
     if k == pskind.NodeKind.NdCallingExpr:
         return calling call_expr with c, node, ast
+    if k == pskind.NodeKind.NdGenericRef:
+        return calling generic_ref with c, node, ast
     if k == pskind.NodeKind.NdChainExpr:
         return calling chain_expr with c, node, ast
     if k == pskind.NodeKind.NdEssenceOf:
@@ -1567,6 +1569,39 @@ weave maybe_result_method with c as ref to context.CgContext, node as int, ast a
 ##
 ## ## Memoria
 ## Strings owned; no posee args.
+## Emite un valor de función genérico (`f of T`).
+##
+## ## Memoria
+## Puede crear especializaciones y tipos.
+weave generic_ref with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
+    var m as loader.SemaModule is (c->program->modules at c->current_module)
+    var target as int is calling astutil.node_child with ast, node, 0
+    var gargs as int is calling astutil.node_child with ast, node, 1
+    if target < 0 or gargs < 0:
+        return "NULL"
+    var sid as int is calling ann.symbol_of with (sigil of m.annotations), target
+    if sid < 0:
+        return "NULL"
+    if not (calling c->catalog.by_symbol.has with sid):
+        return "NULL"
+    var base_idx as int is calling c->catalog.by_symbol.get with sid
+    var args as list of int is list of int
+    defer banish args
+    var n as int is calling astutil.child_count with ast, gargs
+    var i as int is 0
+    while i < n:
+        var tn as int is calling astutil.node_child with ast, gargs, i
+        var at as int is calling tast.type_from_ast with c, m, tn
+        if at > 0:
+            set at is calling generics.subst_codegen with c, at
+        calling args.push with at
+        set i is i + 1
+    var spec as int is calling generics.add_spec with c, base_idx, args
+    if spec < 0 or spec >= c->catalog.functions.len:
+        return "NULL"
+    var f as catalog.CgFunction is (c->catalog.functions at spec)
+    return calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.c_name)
+
 weave call_expr with c as ref to context.CgContext, node as int, ast as ref to psast.PsAst into string:
     var m as loader.SemaModule is (c->program->modules at c->current_module)
     var get_alias as string is calling get_alias_call with c, node, ast

@@ -828,3 +828,117 @@ weave subst_spec_type_of with c as ref to context.CgContext, f as catalog.CgFunc
         calling m.put with (f.tparams at i), (f.spec_args at i)
         set i is i + 1
     return calling ginst.subst_deep with (sigil of c->program->symbols), id, m
+
+## ¿El nodo es un nodo de tipo?
+##
+## ## Memoria
+## O(1).
+weave is_type_node with k as pskind.NodeKind into bool:
+    return judge k:
+        when pskind.NodeKind.NdRefType -> true
+        when pskind.NodeKind.NdFrozenType -> true
+        when pskind.NodeKind.NdFnType -> true
+        when pskind.NodeKind.NdArrayType -> true
+        when pskind.NodeKind.NdSliceType -> true
+        when pskind.NodeKind.NdManyType -> true
+        when pskind.NodeKind.NdListType -> true
+        when pskind.NodeKind.NdMapType -> true
+        when pskind.NodeKind.NdMaybeType -> true
+        when pskind.NodeKind.NdResultType -> true
+        when pskind.NodeKind.NdOpaqueType -> true
+        when pskind.NodeKind.NdBaseType -> true
+        when pskind.NodeKind.NdCustomType -> true
+        when pskind.NodeKind.NdTupleType -> true
+        else -> false
+
+## Pre-instancia los tipos nominales que un cuerpo especializado va a usar.
+##
+## El emisor de cuerpos sustituye `Box of A` por `Box__int` al vuelo, después
+## de que el bundle haya emitido los typedefs. Esta pasada crea esas
+## instancias antes de `collect_type_instances`, para que su definición exista.
+##
+## ## Memoria
+## Puede crear tipos internados.
+weave preinstantiate_spec with c as ref to context.CgContext, f as catalog.CgFunction into void:
+    if not f.is_spec or f.is_declare or f.is_antiquus:
+        return
+    calling context.set_subst with c, f
+    var m as loader.SemaModule is (c->program->modules at f.module)
+    var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+    calling preinstantiate_node with c, f.module, ast, f.node
+
+## Recorre un nodo y pre-instancia cada tipo que encuentra.
+##
+## ## Memoria
+## Puede crear tipos internados.
+weave preinstantiate_node with c as ref to context.CgContext, mid as int, ast as ref to psast.PsAst, n as int into void:
+    if n < 0:
+        return
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, n
+    if calling is_type_node with k:
+        var mm as loader.SemaModule is (c->program->modules at mid)
+        var ignored as int is calling tast.type_from_ast_subst with c, mm, n
+        return
+    var i as int is 0
+    var cnt as int is calling astutil.child_count with ast, n
+    while i < cnt:
+        var ch as int is calling astutil.node_child with ast, n, i
+        if ch >= 0:
+            calling preinstantiate_node with c, mid, ast, ch
+        set i is i + 1
+
+## Especializa los valores de función genéricos (`f of T`) de las specs.
+##
+## Se ejecuta antes de `preinstantiate_spec` para que las funciones
+## referenciadas (por ejemplo `run_box of Socket`) existan y sus tipos se
+## puedan pre-instanciar antes de emitir los typedefs.
+##
+## ## Memoria
+## Puede añadir funciones y tipos.
+weave scan_generic_refs_all with c as ref to context.CgContext into void:
+    var i as int is 0
+    while i < c->catalog.functions.len:
+        var f as catalog.CgFunction is (c->catalog.functions at i)
+        if f.is_spec:
+            calling context.set_subst with c, f
+            var m as loader.SemaModule is (c->program->modules at f.module)
+            var ast as ref to psast.PsAst is (sigil of m.parse.ast)
+            calling scan_refs_node with c, f.module, ast, f.node
+        set i is i + 1
+
+## Recorre un nodo y especializa cada `NdGenericRef`.
+##
+## ## Memoria
+## Puede añadir funciones y tipos.
+weave scan_refs_node with c as ref to context.CgContext, mid as int, ast as ref to psast.PsAst, n as int into void:
+    if n < 0:
+        return
+    var k as pskind.NodeKind is calling astutil.kind_of with ast, n
+    var m as loader.SemaModule is (c->program->modules at mid)
+    if k == pskind.NodeKind.NdGenericRef:
+        var target as int is calling astutil.node_child with ast, n, 0
+        var gargs as int is calling astutil.node_child with ast, n, 1
+        if target >= 0 and gargs >= 0:
+            var sid as int is calling ann.symbol_of with (sigil of m.annotations), target
+            if sid >= 0 and (calling c->catalog.by_symbol.has with sid):
+                var base_idx as int is calling c->catalog.by_symbol.get with sid
+                var args as list of int is list of int
+                defer banish args
+                var cnt as int is calling astutil.child_count with ast, gargs
+                var i as int is 0
+                while i < cnt:
+                    var tn as int is calling astutil.node_child with ast, gargs, i
+                    var at as int is calling tast.type_from_ast_subst with c, m, tn
+                    if at > 0:
+                        set at is calling subst_codegen with c, at
+                    calling args.push with at
+                    set i is i + 1
+                if args.len > 0 and (calling all_concrete with c, args):
+                    var ignored as int is calling add_spec with c, base_idx, args
+    var i2 as int is 0
+    var cnt2 as int is calling astutil.child_count with ast, n
+    while i2 < cnt2:
+        var ch as int is calling astutil.node_child with ast, n, i2
+        if ch >= 0:
+            calling scan_refs_node with c, mid, ast, ch
+        set i2 is i2 + 1

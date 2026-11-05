@@ -42,7 +42,7 @@ import std.oracle
 # ----------------------------------------------------------------------------
 
 ## Version constant for std.filum module.
-const FILUM_VERSION as string is "2.14.0"
+const FILUM_VERSION as string is "3.0.0"
 
 # ----------------------------------------------------------------------------
 # Type Definitions
@@ -105,12 +105,50 @@ rune ChanBool:
     buffered as bool
     cap as int
 
+## Handle to a running thread. The runtime owns the underlying object; this
+## value is an id you can copy. Join/detach/free each consume the handle.
+@shared
+rune Thread:
+    _id as i64
+    _err as int
+
+## Error returned by thread operations.
+rune ThreadError:
+    code as int
+    sys_code as int
+
+## Box used by `start` to carry the worker and its argument to the new thread.
+rune SpawnBox shard A:
+    fn as ref to weave with a as A into void
+    arg as A
+
 # ----------------------------------------------------------------------------
 # External C Declarations
 # ----------------------------------------------------------------------------
 
 # Runtime: launches f on a new goroutine and returns immediately.
 declare pengu_c_filum_go with f as opaque into void
+
+# First-class threads (0.30.0).
+declare pengu_c_filum_box_new with size as int into ref to void
+declare pengu_c_filum_box_free with p as ref to void into void
+declare pengu_c_filum_thread_start with run as ref to weave with ctx as ref to void into void, box as ref to void, err as ref to int into i64
+declare pengu_c_filum_thread_join with id as i64, sys as ref to int into int
+declare pengu_c_filum_thread_detach with id as i64, sys as ref to int into int
+declare pengu_c_filum_thread_abandon with id as i64 into void
+declare pengu_c_filum_thread_exists with id as i64 into bool
+declare pengu_c_filum_thread_id with id as i64 into i64
+declare pengu_c_filum_thread_name with id as i64 into string
+declare pengu_c_filum_thread_set_name with id as i64, name as string into int
+declare pengu_c_filum_tls_new into opaque
+declare pengu_c_filum_tls_free with t as opaque into void
+declare pengu_c_filum_tls_set with t as opaque, value as ref to void into void
+declare pengu_c_filum_tls_get with t as opaque into ref to void
+declare pengu_c_filum_pool_new with workers as int into opaque
+declare pengu_c_filum_pool_submit with p as opaque, fn as ref to weave with ctx as ref to void into void, ctx as ref to void into void
+declare pengu_c_filum_pool_wait with p as opaque into void
+declare pengu_c_filum_pool_free with p as opaque into void
+declare pengu_c_filum_parallel_for with n as int, body as ref to weave with ctx as ref to void, i as int into void, ctx as ref to void, workers as int into void
 
 # Runtime: creates a channel for elements of size elem_size with capacity cap
 # (0 = unbuffered). Memory: the caller owns the returned handle and must
@@ -790,6 +828,212 @@ weave free_atomic_int with a as ref to AtomicInt into void:
 ## Releases the native handle of a Chan; do not use the rune afterwards.
 weave free_chan with c as ref to Chan into void:
     calling pengu_c_filum_chan_free with c->_ptr
+
+# ----------------------------------------------------------------------------
+# First-class threads
+# ----------------------------------------------------------------------------
+
+## Runs `worker` on a new thread, passing `arg`. Ownership of an owning `arg`
+## moves to the worker; the caller must not use it afterwards.
+weave run_box shard A with raw as ref to void into void:
+    var b as ref to SpawnBox of A is transmute raw to ref to SpawnBox of A
+    calling b->fn with b->arg
+    calling pengu_c_filum_box_free with (transmute b to ref to void)
+
+## Starts `worker` on a new thread with `arg` and returns its handle.
+@spawn
+weave start shard A with worker as ref to weave with a as A into void, arg as A into Thread:
+    var raw as ref to void is calling pengu_c_filum_box_new with (size of SpawnBox of A)
+    var b as ref to SpawnBox of A is transmute raw to ref to SpawnBox of A
+    set b->fn is worker
+    set b->arg is arg
+    var run as ref to weave with raw as ref to void into void is run_box of A
+    var err as int is 0
+    var id as i64 is calling pengu_c_filum_thread_start with run, raw, (sigil of err)
+    return with _id is id, _err is err
+
+## True while the handle still refers to a thread the runtime knows about.
+weave is_valid with t as ref to Thread into bool:
+    return calling pengu_c_filum_thread_exists with t->_id
+
+## Waits for the thread to finish. A creation failure is reported first.
+
+## Caja para un worker sin argumentos.
+rune SpawnBox0:
+    fn as ref to weave into void
+
+## Caja para un worker de dos argumentos.
+rune SpawnBox2 shard A, B:
+    fn as ref to weave with a as A, b as B into void
+    a0 as A
+    a1 as B
+
+## Caja para un worker de tres argumentos.
+rune SpawnBox3 shard A, B, C:
+    fn as ref to weave with a as A, b as B, c as C into void
+    a0 as A
+    a1 as B
+    a2 as C
+
+weave run_box0 with raw as ref to void into void:
+    var b as ref to SpawnBox0 is transmute raw to ref to SpawnBox0
+    calling b->fn
+    calling pengu_c_filum_box_free with (transmute b to ref to void)
+
+@spawn
+weave start0 with worker as ref to weave into void into Thread:
+    var raw as ref to void is calling pengu_c_filum_box_new with (size of SpawnBox0)
+    var b as ref to SpawnBox0 is transmute raw to ref to SpawnBox0
+    set b->fn is worker
+    var run as ref to weave with raw as ref to void into void is run_box0
+    var err as int is 0
+    var id as i64 is calling pengu_c_filum_thread_start with run, raw, (sigil of err)
+    return with _id is id, _err is err
+
+weave run_box2 shard A, B with raw as ref to void into void:
+    var b as ref to SpawnBox2 of A, B is transmute raw to ref to SpawnBox2 of A, B
+    calling b->fn with b->a0, b->a1
+    calling pengu_c_filum_box_free with (transmute b to ref to void)
+
+@spawn
+weave start2 shard A, B with worker as ref to weave with a as A, b as B into void, a as A, b as B into Thread:
+    var raw as ref to void is calling pengu_c_filum_box_new with (size of SpawnBox2 of A, B)
+    var box as ref to SpawnBox2 of A, B is transmute raw to ref to SpawnBox2 of A, B
+    set box->fn is worker
+    set box->a0 is a
+    set box->a1 is b
+    var run as ref to weave with raw as ref to void into void is run_box2 of A, B
+    var err as int is 0
+    var id as i64 is calling pengu_c_filum_thread_start with run, raw, (sigil of err)
+    return with _id is id, _err is err
+
+weave run_box3 shard A, B, C with raw as ref to void into void:
+    var b as ref to SpawnBox3 of A, B, C is transmute raw to ref to SpawnBox3 of A, B, C
+    calling b->fn with b->a0, b->a1, b->a2
+    calling pengu_c_filum_box_free with (transmute b to ref to void)
+
+@spawn
+weave start3 shard A, B, C with worker as ref to weave with a as A, b as B, c as C into void, a as A, b as B, c as C into Thread:
+    var raw as ref to void is calling pengu_c_filum_box_new with (size of SpawnBox3 of A, B, C)
+    var box as ref to SpawnBox3 of A, B, C is transmute raw to ref to SpawnBox3 of A, B, C
+    set box->fn is worker
+    set box->a0 is a
+    set box->a1 is b
+    set box->a2 is c
+    var run as ref to weave with raw as ref to void into void is run_box3 of A, B, C
+    var err as int is 0
+    var id as i64 is calling pengu_c_filum_thread_start with run, raw, (sigil of err)
+    return with _id is id, _err is err
+
+
+## Clave TLS opaca.
+@shared
+rune Tls:
+    _ptr as opaque
+
+## Pool de trabajadores opaco.
+@shared
+rune Pool:
+    _ptr as opaque
+
+## Crea una clave TLS.
+weave tls into Tls:
+    return with _ptr is calling pengu_c_filum_tls_new
+
+## Asocia `v` al hilo actual bajo `t`.
+weave tls_set shard T with t as ref to Tls, v as ref to T into void:
+    calling pengu_c_filum_tls_set with t->_ptr, (transmute v to ref to void)
+
+## Lee el valor TLS del hilo actual.
+weave tls_get shard T with t as ref to Tls into maybe ref to T:
+    var raw as ref to void is calling pengu_c_filum_tls_get with t->_ptr
+    if raw == null:
+        return maybe none
+    return some (transmute raw to ref to T)
+
+## Libera la clave TLS (no los valores).
+weave tls_free with t as ref to Tls into void:
+    calling pengu_c_filum_tls_free with t->_ptr
+
+## Crea un pool con `workers` hilos (0 = tantos como CPUs).
+weave pool with workers as int is 0 into Pool:
+    return with _ptr is calling pengu_c_filum_pool_new with workers
+
+enchanting Pool:
+    ## Encola `fn(ctx)`.
+    weave submit with fn as ref to weave with ctx as ref to void into void, ctx as ref to void into void:
+        calling pengu_c_filum_pool_submit with self->_ptr, fn, ctx
+
+    ## Espera a que la cola y las tareas activas terminen.
+    weave wait into void:
+        calling pengu_c_filum_pool_wait with self->_ptr
+
+    ## Drena y libera el pool.
+    weave free into void:
+        calling pengu_c_filum_pool_free with self->_ptr
+
+## Ejecuta `body(ctx, i)` para i en [0, n) sobre un pool temporal.
+weave parallel_for with n as int, workers as int, body as ref to weave with ctx as ref to void, i as int into void, ctx as ref to void into void:
+    calling pengu_c_filum_parallel_for with n, body, ctx, workers
+
+enchanting Thread:
+    weave join into result of void to ThreadError:
+        if self->_err != 0:
+            var ce as ThreadError is with code is self->_err, sys_code is 0
+            return calling err_of with ce
+        var sys as int is 0
+        var rc as int is calling pengu_c_filum_thread_join with self->_id, (sigil of sys)
+        if rc == 0:
+            return calling ok_of with 0
+        var je as ThreadError is with code is rc, sys_code is sys
+        return calling err_of with je
+
+    ## Releases the handle without waiting; the thread keeps running.
+    weave detach into result of void to ThreadError:
+        var sys as int is 0
+        var rc as int is calling pengu_c_filum_thread_detach with self->_id, (sigil of sys)
+        if rc == 0:
+            return calling ok_of with 0
+        var de as ThreadError is with code is rc, sys_code is sys
+        return calling err_of with de
+
+    ## Releases the handle; detaches the thread if it is still running.
+    weave free into void:
+        calling pengu_c_filum_thread_abandon with self->_id
+
+    ## Diagnostic name, empty when the handle is no longer valid.
+    weave name into string:
+        return calling pengu_c_filum_thread_name with self->_id
+
+    ## Sets the diagnostic name (at most 63 bytes).
+    weave set_name with name as string into result of void to ThreadError:
+        var rc as int is calling pengu_c_filum_thread_set_name with self->_id, name
+        if rc == 0:
+            return calling ok_of with 0
+        var ne as ThreadError is with code is rc, sys_code is 0
+        return calling err_of with ne
+
+    ## OS thread id, or 0 when unavailable.
+    weave id into i64:
+        return calling pengu_c_filum_thread_id with self->_id
+
+## Human-readable explanation for a thread error.
+weave explain with e as ref to ThreadError into string:
+    if e->code == 0:
+        return "ok"
+    if e->code == 1:
+        return "invalid thread handle"
+    if e->code == 2:
+        return "could not create thread"
+    if e->code == 3:
+        return "thread already joined"
+    if e->code == 4:
+        return "thread was detached"
+    if e->code == 5:
+        return "could not join thread"
+    if e->code == 6:
+        return "thread name is too long"
+    return "unknown thread error"
 
 # ----------------------------------------------------------------------------
 # System & Time

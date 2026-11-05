@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.29.1.
+manual for the language implemented by `psc` 0.30.0.
 
 It is the *practice* document of the documentation set:
 
@@ -316,7 +316,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.29.1 (F13)
+psc 0.30.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -1498,9 +1498,12 @@ calling handle with v.value
 | `slice of T` | only while the owner is alive and not mutated |
 | `maybe`/`result` | values; the payload follows the rule of its type |
 
-The compiler does not check any of this. If two threads can see the same
-`PenguString`, the program is already wrong unless both treat it as immutable
-and the owner outlives them.
+The compiler checks the `filum.start` boundary: an owning value must be a local
+binding and is moved into the worker; a `ref to T` is accepted only when `T` is
+marked `@shared`. It does not prove that `T`'s methods lock, and it does not
+track aliases made before the move. If two threads can see the same
+`PenguString`, the program is still wrong unless both treat it as immutable and
+the owner outlives them.
 
 ### 13.6 Testing concurrency
 
@@ -2997,8 +3000,9 @@ see (`E0045`).
 truncates, and `transmute`, which reinterprets bits.
 
 **Why no threads?**
-`std.filum` provides synchronisation primitives; thread creation is left to a C
-host so the language does not promise a scheduler it cannot control.
+0.30.0 adds first-class threads: `filum.start` (and `start0`/`start2`/`start3`)
+returns a `Thread` with `join`, `detach` and `free`. The worker still runs on the
+OS thread scheduler; PenguScript does not promise a green-thread scheduler.
 
 **Why is `float` 32-bit?**
 It matches C's `float`; use `f64` when precision matters.

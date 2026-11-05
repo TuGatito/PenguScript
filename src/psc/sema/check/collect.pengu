@@ -614,6 +614,8 @@ weave apply_nominal_attrs with s as ref to state.SemaState, ty as int, node as i
         var nm as string is calling astutil.first_token_text with s->src, s->lex, s->ast, a
         if nm == "packed":
             set info.is_packed is true
+        else if nm == "shared":
+            set info.flags is info.flags | types.NIF_SHARED
         else if nm == "align":
             var args as int is calling astutil.node_child with s->ast, a, 1
             if args >= 0:
@@ -1194,7 +1196,9 @@ weave collect_weave with s as ref to state.SemaState, node as int, no_body as bo
             var ctx as convert.TypeCtx is calling collect_type_ctx with s
             set ret is calling convert.convert with (sigil of ctx), rnode
     var br as ParamRange is with first is 0, count is 0
-    var shard_node as int is calling astutil.node_child with s->ast, node, 2
+    var shard_node as int is calling astutil.node_child with s->ast, node, (slot + 1)
+    var tpfirst as int is s->types->tparams.len
+    var tpc as int is 0
     if shard_node >= 0:
         var shi as int is 0
         var shn as int is calling astutil.child_count with s->ast, shard_node
@@ -1203,7 +1207,27 @@ weave collect_weave with s as ref to state.SemaState, node as int, no_body as bo
             if shc >= 0 and (calling astutil.kind_of with s->ast, shc) == pskind.NodeKind.NdWhereClause:
                 set br is calling collect_bounds with s, shc
             set shi is shi + 1
-    var info as types.SemaFnInfo is with params_first is pr.first, params_count is pr.count, return_type is ret, tparams_first is 0, tparams_count is 0, flags is 0, attrs_node is -1
+        if (calling astutil.kind_of with s->ast, shard_node) == pskind.NodeKind.NdShardParams:
+            var sci as int is 0
+            var scn as int is calling astutil.child_count with s->ast, shard_node
+            while sci < scn:
+                var tptok as int is calling astutil.token_child with s->ast, shard_node, sci
+                if tptok >= 0:
+                    var tptxt as string is calling astutil.token_text with s->src, s->lex, tptok
+                    var tpnid as int is calling npool.intern with s->names, tptxt
+                    banish tptxt
+                    var tpi as types.SemaTypeParamInfo is with name is tpnid, bounds_first is 0, bounds_count is 0, flags is 0
+                    var ignored_tp as int is calling types.add_tparam with s->types, tpi
+                    set tpc is tpc + 1
+                set sci is sci + 1
+    var fn_flags as int is 0
+    var attrs_node as int is calling astutil.node_child with s->ast, node, 0
+    if attrs_node >= 0 and (calling astutil.kind_of with s->ast, attrs_node) == pskind.NodeKind.NdAttributes:
+        if calling has_attribute with s, attrs_node, "spawn":
+            set fn_flags is fn_flags | types.FN_SPAWN
+    else:
+        set attrs_node is -1
+    var info as types.SemaFnInfo is with params_first is pr.first, params_count is pr.count, return_type is ret, tparams_first is tpfirst, tparams_count is tpc, flags is fn_flags, attrs_node is attrs_node
     var ft as int is calling types.fn_type with s->types, info
     var sid as int is calling symbols.symbol_define_function with s->symbols, name, ft
     calling apply_bounds with s, sid, br

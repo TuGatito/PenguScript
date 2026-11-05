@@ -157,6 +157,8 @@ const NIF_AUTO_DONUM as int is 1 << 4
 const NIF_OPAQUE as int is 1 << 5
 const NIF_SEALED as int is 1 << 6
 const NIF_DERIVED as int is 1 << 7
+## El tipo se puede compartir entre hilos con `ref to T`.
+const NIF_SHARED as int is 1 << 8
 
 const FIELD_READONLY as int is 1 << 0
 const FIELD_PRIVATE as int is 1 << 1
@@ -182,6 +184,8 @@ const FN_ANTIQUUS as int is 1 << 4
 const FN_DECLARE as int is 1 << 5
 const FN_METHOD as int is 1 << 6
 const FN_VARIADIC as int is 1 << 7
+## La función es el punto de entrada de `filum.start` (chequeo de propiedad).
+const FN_SPAWN as int is 1 << 8
 
 const CM_REQUIRED as int is 1 << 0
 

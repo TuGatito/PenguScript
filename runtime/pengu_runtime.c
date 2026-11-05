@@ -161,6 +161,600 @@ void pengu_c_filum_go(void* f) {
 #endif
 }
 
+
+/* -------------------------------------------------------------------------
+ * First-class threads (0.30.0).
+ *
+ * A `Thread` handle is an id into a process-wide table, not a raw pointer:
+ * copying the handle is safe and a second join/detach returns INVALID instead
+ * of touching freed memory.  The table owns one reference; the running thread
+ * owns another.  The thread is created detached and join waits on `finished`,
+ * which keeps join/detach/free uniform across pthreads and Win32.
+ * ------------------------------------------------------------------------- */
+#define PENGU_THREAD_ERR_OK 0
+#define PENGU_THREAD_ERR_INVALID 1
+#define PENGU_THREAD_ERR_SPAWN 2
+#define PENGU_THREAD_ERR_ALREADY_JOINED 3
+#define PENGU_THREAD_ERR_DETACHED 4
+#define PENGU_THREAD_ERR_JOIN 5
+#define PENGU_THREAD_ERR_NAME 6
+
+typedef struct PenguThread {
+    int64_t id;
+    void (*run)(void*);
+    void* box;
+    int os_id;
+    char name[64];
+    int finished;
+    atomic_int refs;
+    struct PenguThread* next;
+#if PENGU_WINDOWS
+    HANDLE handle;
+    CRITICAL_SECTION lock;
+    CONDITION_VARIABLE done;
+#else
+    pthread_t handle;
+    pthread_mutex_t lock;
+    pthread_cond_t done;
+#endif
+} PenguThread;
+
+static PenguThread* g_threads = NULL;
+static int64_t g_thread_next_id = 1;
+#if PENGU_WINDOWS
+static SRWLOCK g_threads_lock = SRWLOCK_INIT;
+static void pengu_threads_lock(void) { AcquireSRWLockExclusive(&g_threads_lock); }
+static void pengu_threads_unlock(void) { ReleaseSRWLockExclusive(&g_threads_lock); }
+#else
+static pthread_mutex_t g_threads_lock = PTHREAD_MUTEX_INITIALIZER;
+static void pengu_threads_lock(void) { pthread_mutex_lock(&g_threads_lock); }
+static void pengu_threads_unlock(void) { pthread_mutex_unlock(&g_threads_lock); }
+#endif
+
+static void pengu_filum_panic(const char* msg) {
+    fprintf(stderr, "[PENGU] filum: %s\n", msg);
+    fflush(stderr);
+    abort();
+}
+
+static void pengu_thread_free(PenguThread* t) {
+    if (!t) return;
+#if PENGU_WINDOWS
+    DeleteCriticalSection(&t->lock);
+#else
+    pthread_mutex_destroy(&t->lock);
+    pthread_cond_destroy(&t->done);
+#endif
+    free(t);
+}
+
+static void pengu_thread_release(PenguThread* t) {
+    if (!t) return;
+#if PENGU_WINDOWS
+    if (InterlockedDecrement(&t->refs) == 0) pengu_thread_free(t);
+#else
+    if (atomic_fetch_sub(&t->refs, 1) == 1) pengu_thread_free(t);
+#endif
+}
+
+static PenguThread* pengu_thread_lookup(int64_t id) {
+    PenguThread* cur = NULL;
+    pengu_threads_lock();
+    cur = g_threads;
+    while (cur) {
+        if (cur->id == id) break;
+        cur = cur->next;
+    }
+    if (cur) {
+#if PENGU_WINDOWS
+        InterlockedIncrement(&cur->refs);
+#else
+        atomic_fetch_add(&cur->refs, 1);
+#endif
+    }
+    pengu_threads_unlock();
+    return cur;
+}
+
+/* Remove from the table and return a temporary reference. */
+static PenguThread* pengu_thread_take(int64_t id) {
+    PenguThread* prev = NULL;
+    PenguThread* cur = NULL;
+    pengu_threads_lock();
+    cur = g_threads;
+    while (cur) {
+        if (cur->id == id) break;
+        prev = cur;
+        cur = cur->next;
+    }
+    if (cur) {
+        if (prev) prev->next = cur->next;
+        else g_threads = cur->next;
+        cur->next = NULL;
+#if PENGU_WINDOWS
+        InterlockedIncrement(&cur->refs);
+#else
+        atomic_fetch_add(&cur->refs, 1);
+#endif
+    }
+    pengu_threads_unlock();
+    if (cur) pengu_thread_release(cur); /* table reference */
+    return cur;
+}
+
+static void pengu_thread_finish(PenguThread* t) {
+#if PENGU_WINDOWS
+    EnterCriticalSection(&t->lock);
+    t->finished = 1;
+    WakeAllConditionVariable(&t->done);
+    LeaveCriticalSection(&t->lock);
+#else
+    pthread_mutex_lock(&t->lock);
+    t->finished = 1;
+    pthread_cond_broadcast(&t->done);
+    pthread_mutex_unlock(&t->lock);
+#endif
+}
+
+static void pengu_thread_entry(PenguThread* t) {
+    t->os_id = pengu_c_filum_goroutine_id();
+    if (t->run) t->run(t->box);
+    pengu_thread_finish(t);
+    pengu_thread_release(t);
+}
+
+#if PENGU_WINDOWS
+static unsigned __stdcall pengu_thread_entry_win(void* p) {
+    pengu_thread_entry((PenguThread*)p);
+    return 0;
+}
+#else
+static void* pengu_thread_entry_posix(void* p) {
+    pengu_thread_entry((PenguThread*)p);
+    return NULL;
+}
+#endif
+
+void* pengu_c_filum_box_new(size_t size) {
+    void* p = malloc(size);
+    if (!p) pengu_filum_panic("out of memory allocating a thread box");
+    return p;
+}
+
+void pengu_c_filum_box_free(void* p) {
+    free(p);
+}
+
+int64_t pengu_c_filum_thread_start(void (*run)(void*), void* box, int* err) {
+    if (err) *err = PENGU_THREAD_ERR_OK;
+    if (!run) {
+        if (err) *err = PENGU_THREAD_ERR_SPAWN;
+        pengu_c_filum_box_free(box);
+        return 0;
+    }
+    PenguThread* t = (PenguThread*)calloc(1, sizeof(PenguThread));
+    if (!t) {
+        if (err) *err = PENGU_THREAD_ERR_SPAWN;
+        pengu_c_filum_box_free(box);
+        return 0;
+    }
+    t->run = run;
+    t->box = box;
+    t->os_id = 0;
+    t->finished = 0;
+    t->name[0] = '\0';
+#if PENGU_WINDOWS
+    t->refs = 2;
+    InitializeCriticalSection(&t->lock);
+    InitializeConditionVariable(&t->done);
+    t->handle = (HANDLE)_beginthreadex(NULL, 0, pengu_thread_entry_win, t, 0, NULL);
+    if (!t->handle) {
+        if (err) *err = PENGU_THREAD_ERR_SPAWN;
+        DeleteCriticalSection(&t->lock);
+        free(t);
+        pengu_c_filum_box_free(box);
+        return 0;
+    }
+    CloseHandle(t->handle);
+    t->handle = NULL;
+#else
+    atomic_init(&t->refs, 2);
+    pthread_mutex_init(&t->lock, NULL);
+    pthread_cond_init(&t->done, NULL);
+    if (pthread_create(&t->handle, NULL, pengu_thread_entry_posix, t) != 0) {
+        if (err) *err = PENGU_THREAD_ERR_SPAWN;
+        pthread_mutex_destroy(&t->lock);
+        pthread_cond_destroy(&t->done);
+        free(t);
+        pengu_c_filum_box_free(box);
+        return 0;
+    }
+    pthread_detach(t->handle);
+#endif
+    pengu_threads_lock();
+    t->id = g_thread_next_id++;
+    t->next = g_threads;
+    g_threads = t;
+    pengu_threads_unlock();
+    return t->id;
+}
+
+int pengu_c_filum_thread_join(int64_t id, int* sys) {
+    if (sys) *sys = 0;
+    PenguThread* t = pengu_thread_take(id);
+    if (!t) return PENGU_THREAD_ERR_INVALID;
+#if PENGU_WINDOWS
+    EnterCriticalSection(&t->lock);
+    while (!t->finished) SleepConditionVariableCS(&t->done, &t->lock, INFINITE);
+    LeaveCriticalSection(&t->lock);
+#else
+    pthread_mutex_lock(&t->lock);
+    while (!t->finished) pthread_cond_wait(&t->done, &t->lock);
+    pthread_mutex_unlock(&t->lock);
+#endif
+    pengu_thread_release(t);
+    return PENGU_THREAD_ERR_OK;
+}
+
+int pengu_c_filum_thread_detach(int64_t id, int* sys) {
+    if (sys) *sys = 0;
+    PenguThread* t = pengu_thread_take(id);
+    if (!t) return PENGU_THREAD_ERR_INVALID;
+    pengu_thread_release(t);
+    return PENGU_THREAD_ERR_OK;
+}
+
+void pengu_c_filum_thread_abandon(int64_t id) {
+    int sys = 0;
+    pengu_c_filum_thread_detach(id, &sys);
+}
+
+int pengu_c_filum_thread_exists(int64_t id) {
+    PenguThread* t = pengu_thread_lookup(id);
+    if (!t) return 0;
+    pengu_thread_release(t);
+    return 1;
+}
+
+int64_t pengu_c_filum_thread_id(int64_t id) {
+    PenguThread* t = pengu_thread_lookup(id);
+    if (!t) return 0;
+#if PENGU_WINDOWS
+    EnterCriticalSection(&t->lock);
+    int oid = t->os_id;
+    LeaveCriticalSection(&t->lock);
+#else
+    pthread_mutex_lock(&t->lock);
+    int oid = t->os_id;
+    pthread_mutex_unlock(&t->lock);
+#endif
+    pengu_thread_release(t);
+    return (int64_t)oid;
+}
+
+PenguString pengu_c_filum_thread_name(int64_t id) {
+    PenguThread* t = pengu_thread_lookup(id);
+    if (!t) return pengu_string_from_cstr_len("", 0);
+#if PENGU_WINDOWS
+    EnterCriticalSection(&t->lock);
+    char buf[64];
+    memcpy(buf, t->name, sizeof(buf));
+    buf[63] = '\0';
+    LeaveCriticalSection(&t->lock);
+#else
+    pthread_mutex_lock(&t->lock);
+    char buf[64];
+    memcpy(buf, t->name, sizeof(buf));
+    buf[63] = '\0';
+    pthread_mutex_unlock(&t->lock);
+#endif
+    pengu_thread_release(t);
+    return pengu_string_from_cstr_len(buf, (int)strlen(buf));
+}
+
+int pengu_c_filum_thread_set_name(int64_t id, PenguString name) {
+    PenguThread* t = pengu_thread_lookup(id);
+    if (!t) return PENGU_THREAD_ERR_INVALID;
+    if (name.len < 0 || name.len >= 64) {
+        pengu_thread_release(t);
+        return PENGU_THREAD_ERR_NAME;
+    }
+#if PENGU_WINDOWS
+    EnterCriticalSection(&t->lock);
+    memcpy(t->name, name.data, (size_t)name.len);
+    t->name[name.len] = '\0';
+    LeaveCriticalSection(&t->lock);
+#else
+    pthread_mutex_lock(&t->lock);
+    memcpy(t->name, name.data, (size_t)name.len);
+    t->name[name.len] = '\0';
+    pthread_mutex_unlock(&t->lock);
+#endif
+    pengu_thread_release(t);
+    return PENGU_THREAD_ERR_OK;
+}
+
+
+/* -------------------------------------------------------------------------
+ * TLS: one value per thread, keyed by an opaque handle.
+ * ------------------------------------------------------------------------- */
+#if PENGU_WINDOWS
+typedef struct { DWORD key; } PenguTls;
+#else
+typedef struct { pthread_key_t key; } PenguTls;
+#endif
+
+void* pengu_c_filum_tls_new(void) {
+    PenguTls* t = (PenguTls*)malloc(sizeof(PenguTls));
+    if (!t) pengu_filum_panic("out of memory allocating a TLS key");
+#if PENGU_WINDOWS
+    t->key = TlsAlloc();
+    if (t->key == TLS_OUT_OF_INDEXES) { free(t); pengu_filum_panic("could not allocate a TLS key"); }
+#else
+    if (pthread_key_create(&t->key, NULL) != 0) { free(t); pengu_filum_panic("could not allocate a TLS key"); }
+#endif
+    return t;
+}
+
+void pengu_c_filum_tls_free(void* p) {
+    PenguTls* t = (PenguTls*)p;
+    if (!t) return;
+#if PENGU_WINDOWS
+    TlsFree(t->key);
+#else
+    pthread_key_delete(t->key);
+#endif
+    free(t);
+}
+
+void pengu_c_filum_tls_set(void* p, void* value) {
+    PenguTls* t = (PenguTls*)p;
+    if (!t) return;
+#if PENGU_WINDOWS
+    TlsSetValue(t->key, value);
+#else
+    pthread_setspecific(t->key, value);
+#endif
+}
+
+void* pengu_c_filum_tls_get(void* p) {
+    PenguTls* t = (PenguTls*)p;
+    if (!t) return NULL;
+#if PENGU_WINDOWS
+    return TlsGetValue(t->key);
+#else
+    return pthread_getspecific(t->key);
+#endif
+}
+
+/* -------------------------------------------------------------------------
+ * Pool: a small fixed-size worker pool used by filum.pool/parallel_for.
+ * ------------------------------------------------------------------------- */
+typedef struct PenguPoolJob {
+    void (*fn)(void*);
+    void* arg;
+    struct PenguPoolJob* next;
+} PenguPoolJob;
+
+typedef struct {
+    void (*body)(void*, int);
+    void* ctx;
+    int index;
+} PenguParallelArg;
+
+#if PENGU_WINDOWS
+typedef struct {
+    CRITICAL_SECTION mu;
+    CONDITION_VARIABLE cv;
+    PenguPoolJob* head;
+    PenguPoolJob* tail;
+    int active;
+    int shutdown;
+    int nthreads;
+    HANDLE* threads;
+} PenguPool;
+#else
+typedef struct {
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+    PenguPoolJob* head;
+    PenguPoolJob* tail;
+    int active;
+    int shutdown;
+    int nthreads;
+    pthread_t* threads;
+} PenguPool;
+#endif
+
+static void pengu_pool_push_locked(PenguPool* p, PenguPoolJob* j) {
+    j->next = NULL;
+    if (p->tail) p->tail->next = j;
+    else p->head = j;
+    p->tail = j;
+}
+
+static PenguPoolJob* pengu_pool_pop_locked(PenguPool* p) {
+    PenguPoolJob* j = p->head;
+    if (!j) return NULL;
+    p->head = j->next;
+    if (!p->head) p->tail = NULL;
+    return j;
+}
+
+static void pengu_pool_run_one(PenguPool* p) {
+#if PENGU_WINDOWS
+    EnterCriticalSection(&p->mu);
+    while (!p->shutdown && !p->head) SleepConditionVariableCS(&p->cv, &p->mu, INFINITE);
+    if (p->shutdown && !p->head) { LeaveCriticalSection(&p->mu); return; }
+    PenguPoolJob* j = pengu_pool_pop_locked(p);
+    p->active++;
+    LeaveCriticalSection(&p->mu);
+    j->fn(j->arg);
+    free(j);
+    EnterCriticalSection(&p->mu);
+    p->active--;
+    if (p->active == 0 && !p->head) WakeAllConditionVariable(&p->cv);
+    LeaveCriticalSection(&p->mu);
+#else
+    pthread_mutex_lock(&p->mu);
+    while (!p->shutdown && !p->head) pthread_cond_wait(&p->cv, &p->mu);
+    if (p->shutdown && !p->head) { pthread_mutex_unlock(&p->mu); return; }
+    PenguPoolJob* j = pengu_pool_pop_locked(p);
+    p->active++;
+    pthread_mutex_unlock(&p->mu);
+    j->fn(j->arg);
+    free(j);
+    pthread_mutex_lock(&p->mu);
+    p->active--;
+    if (p->active == 0 && !p->head) pthread_cond_broadcast(&p->cv);
+    pthread_mutex_unlock(&p->mu);
+#endif
+}
+
+#if PENGU_WINDOWS
+static unsigned __stdcall pengu_pool_worker_win(void* arg) {
+    PenguPool* p = (PenguPool*)arg;
+    while (1) {
+        EnterCriticalSection(&p->mu);
+        int stop = p->shutdown && !p->head;
+        LeaveCriticalSection(&p->mu);
+        if (stop) break;
+        pengu_pool_run_one(p);
+    }
+    return 0;
+}
+#else
+static void* pengu_pool_worker(void* arg) {
+    PenguPool* p = (PenguPool*)arg;
+    while (1) {
+        pthread_mutex_lock(&p->mu);
+        int stop = p->shutdown && !p->head;
+        pthread_mutex_unlock(&p->mu);
+        if (stop) break;
+        pengu_pool_run_one(p);
+    }
+    return NULL;
+}
+#endif
+
+void* pengu_c_filum_pool_new(int workers) {
+    if (workers < 1) workers = 1;
+    if (workers > 64) workers = 64;
+    PenguPool* p = (PenguPool*)calloc(1, sizeof(PenguPool));
+    if (!p) pengu_filum_panic("out of memory allocating a pool");
+    p->nthreads = workers;
+#if PENGU_WINDOWS
+    p->threads = (HANDLE*)calloc((size_t)workers, sizeof(HANDLE));
+#else
+    p->threads = (pthread_t*)calloc((size_t)workers, sizeof(pthread_t));
+#endif
+    if (!p->threads) pengu_filum_panic("out of memory allocating pool threads");
+#if PENGU_WINDOWS
+    InitializeCriticalSection(&p->mu);
+    InitializeConditionVariable(&p->cv);
+    for (int i = 0; i < workers; i++) {
+        p->threads[i] = (pthread_t)_beginthreadex(NULL, 0, pengu_pool_worker_win, p, 0, NULL);
+        if (!p->threads[i]) pengu_filum_panic("could not create a pool thread");
+    }
+#else
+    pthread_mutex_init(&p->mu, NULL);
+    pthread_cond_init(&p->cv, NULL);
+    for (int i = 0; i < workers; i++) {
+        if (pthread_create(&p->threads[i], NULL, pengu_pool_worker, p) != 0)
+            pengu_filum_panic("could not create a pool thread");
+    }
+#endif
+    return p;
+}
+
+void pengu_c_filum_pool_submit(void* p, void (*fn)(void*), void* arg) {
+    PenguPool* pool = (PenguPool*)p;
+    if (!pool || !fn) return;
+    PenguPoolJob* j = (PenguPoolJob*)malloc(sizeof(PenguPoolJob));
+    if (!j) pengu_filum_panic("out of memory allocating a pool job");
+    j->fn = fn;
+    j->arg = arg;
+#if PENGU_WINDOWS
+    EnterCriticalSection(&pool->mu);
+    pengu_pool_push_locked(pool, j);
+    WakeConditionVariable(&pool->cv);
+    LeaveCriticalSection(&pool->mu);
+#else
+    pthread_mutex_lock(&pool->mu);
+    pengu_pool_push_locked(pool, j);
+    pthread_cond_signal(&pool->cv);
+    pthread_mutex_unlock(&pool->mu);
+#endif
+}
+
+void pengu_c_filum_pool_wait(void* p) {
+    PenguPool* pool = (PenguPool*)p;
+    if (!pool) return;
+#if PENGU_WINDOWS
+    EnterCriticalSection(&pool->mu);
+    while (pool->head || pool->active > 0)
+        SleepConditionVariableCS(&pool->cv, &pool->mu, INFINITE);
+    LeaveCriticalSection(&pool->mu);
+#else
+    pthread_mutex_lock(&pool->mu);
+    while (pool->head || pool->active > 0)
+        pthread_cond_wait(&pool->cv, &pool->mu);
+    pthread_mutex_unlock(&pool->mu);
+#endif
+}
+
+void pengu_c_filum_pool_free(void* p) {
+    PenguPool* pool = (PenguPool*)p;
+    if (!pool) return;
+#if PENGU_WINDOWS
+    EnterCriticalSection(&pool->mu);
+    pool->shutdown = 1;
+    WakeAllConditionVariable(&pool->cv);
+    LeaveCriticalSection(&pool->mu);
+    for (int i = 0; i < pool->nthreads; i++) {
+        WaitForSingleObject(pool->threads[i], INFINITE);
+        CloseHandle(pool->threads[i]);
+    }
+    DeleteCriticalSection(&pool->mu);
+#else
+    pthread_mutex_lock(&pool->mu);
+    pool->shutdown = 1;
+    pthread_cond_broadcast(&pool->cv);
+    pthread_mutex_unlock(&pool->mu);
+    for (int i = 0; i < pool->nthreads; i++) pthread_join(pool->threads[i], NULL);
+    pthread_mutex_destroy(&pool->mu);
+    pthread_cond_destroy(&pool->cv);
+#endif
+    while (pool->head) {
+        PenguPoolJob* j = pengu_pool_pop_locked(pool);
+        free(j);
+    }
+    free(pool->threads);
+    free(pool);
+}
+
+static void pengu_parallel_run(void* arg) {
+    PenguParallelArg* a = (PenguParallelArg*)arg;
+    a->body(a->ctx, a->index);
+    free(a);
+}
+
+void pengu_c_filum_parallel_for(int n, void (*body)(void*, int), void* ctx, int workers) {
+    if (n <= 0 || !body) return;
+    if (workers < 1) workers = pengu_c_filum_num_cpu();
+    void* pool = pengu_c_filum_pool_new(workers);
+    for (int i = 0; i < n; i++) {
+        PenguParallelArg* a = (PenguParallelArg*)malloc(sizeof(PenguParallelArg));
+        if (!a) pengu_filum_panic("out of memory allocating a parallel task");
+        a->body = body;
+        a->ctx = ctx;
+        a->index = i;
+        pengu_c_filum_pool_submit(pool, pengu_parallel_run, a);
+    }
+    pengu_c_filum_pool_wait(pool);
+    pengu_c_filum_pool_free(pool);
+}
+
 /* Mutex */
 typedef struct {
 #if PENGU_WINDOWS

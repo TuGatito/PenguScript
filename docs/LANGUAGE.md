@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.29.1: every
+reference documents the language as implemented by `psc` 0.30.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -137,7 +137,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.29.1. The ABI version the generated C expects is 3.
+* Version: `psc` 0.30.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -1603,6 +1603,7 @@ Attributes are written on the line above the declaration they modify.
 | `@packed` | `rune` | remove struct padding | `__attribute__((packed))` |
 | `@align(N)` | `rune` | set alignment | `__attribute__((aligned(N)))` |
 | `@mutates` | method in `enchanting` | assign the result back to the receiver | one C function, two call forms |
+| `@shared` | `rune`, `omen` | allow `ref to T` to cross a `filum.start` boundary | no code change; compile-time flag |
 
 ```pengu
 @deprecated("use read_file_result to distinguish the failure cause")
@@ -1621,7 +1622,31 @@ rune WireHeader:
 `@export` without a project-specific prefix can collide with libc symbols; prefix
 it (`@export("mylib_fast_double")`). `@packed` and `@align(N)` change the ABI of
 the struct: only use them for wire or on-disk formats, and mirror the layout in
-the C side exactly.
+the C side exactly. `@shared` is a promise that the rune's methods synchronize;
+the compiler checks the boundary, not the implementation.
+
+### 14.1 Threads
+
+```pengu
+import std.filum
+
+weave worker with conn as ref to Socket into void:
+    # ...
+    calling net.close with (sigil of conn)
+
+weave main into int:
+    let h as Thread is calling filum.start with worker, (sigil of conn)
+    var r as result of void to ThreadError is calling h.join
+    calling h.free
+    return 0
+```
+
+`start` moves owning arguments into the worker; a moved local cannot be read
+again (`E0008`). `start0`, `start2` and `start3` cover workers with zero, two and
+three arguments. A `ref to T` requires `@shared` on `T`; scalars are copied.
+`join` waits and returns `result of void to ThreadError`; `detach` is
+fire-and-forget; `free` releases the handle. `Thread` is a copyable id, so a
+supervisor can keep it. TLS, `Pool` and `parallel_for` live in `std.filum` too.
 
 ## 15. Tests and tooling
 

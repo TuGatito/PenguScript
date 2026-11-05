@@ -100,6 +100,7 @@ weave block_value with c as ref to context.CgContext, node as int, expected as i
         set rt is 1
     var ct as string is calling ctype.c_type with (sigil of c->names), rt
     defer banish ct
+    var is_void as bool is ct == "void"
     var n as int is calling astutil.child_count with ast, node
     var valix as int is -1
     if n > 0:
@@ -114,9 +115,21 @@ weave block_value with c as ref to context.CgContext, node as int, expected as i
     var i as int is 0
     while i < n:
         var s as int is calling astutil.node_child with ast, node, i
-        if s >= 0 and (i != n - 1 or valix < 0):
+        if s >= 0 and (is_void or i != n - 1 or valix < 0):
             calling emit_stmt with c, s
         set i is i + 1
+    if is_void:
+        calling end_scope with c
+        var vbody as string is calling emit.finish with (sigil of c->emitter)
+        defer banish vbody
+        set c->emitter is saved
+        var vsb as StringBuilder is calling StringBuilder.new
+        defer banish vsb
+        calling vsb.append with "__extension__(({"
+        calling vsb.append with "\n"
+        calling vsb.append with vbody
+        calling vsb.append with "}))"
+        return calling vsb.finish
     var val as string is "0"
     if valix >= 0:
         set val is calling expr.emit_expr_as with c, valix, rt

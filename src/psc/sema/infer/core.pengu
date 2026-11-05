@@ -88,6 +88,8 @@ weave infer with s as ref to state.SemaState, node as int, expected as int into 
         set t is calling types.base with s->types, "bool"
     else if kind == pskind.NodeKind.NdCallingExpr:
         set t is calling infer_call with s, node, expected
+    else if kind == pskind.NodeKind.NdGenericRef:
+        set t is calling infer_generic_ref with s, node
     else if kind == pskind.NodeKind.NdChainExpr:
         set t is calling infer_chain with s, node
     else if kind == pskind.NodeKind.NdFieldAccess:
@@ -365,6 +367,71 @@ weave infer_none with s as ref to state.SemaState, node as int, expected as int 
     calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "'none' needs an explicit 'maybe T' context", "Annotate the variable or add a 'maybe T' return type.", ""
     return 0
 
+## Resuelve un valor de función genérico (`f of T`).
+##
+## ## Memoria
+## Puede crear tipos y mapas temporales.
+weave infer_generic_ref with s as ref to state.SemaState, node as int into int:
+    var target as int is calling astutil.node_child with s->ast, node, 0
+    var gargs as int is calling astutil.node_child with s->ast, node, 1
+    if target < 0 or gargs < 0:
+        return 0
+    var tt as int is calling infer_var with s, target
+    if tt <= 0:
+        return 0
+    var sid as int is calling ann.symbol_of with s->annotations, target
+    if sid < 0:
+        return 0
+    var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+    if sv.kind != sym.SemaSymbolKind.SkWeave and sv.kind != sym.SemaSymbolKind.SkDeclare:
+        var est as int is calling astutil.start_of with s->ast, node
+        var een as int is calling astutil.end_of with s->ast, node
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, est, een, "of needs a generic function name", "Write nombre of T where nombre is a weave or declare.", ""
+        return 0
+    var fty as tk.SemaType is calling types.at with s->types, tt
+    if fty.kind != tk.SemaTypeKind.TkFn:
+        var est as int is calling astutil.start_of with s->ast, node
+        var een as int is calling astutil.end_of with s->ast, node
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, est, een, "of needs a generic function name", "Write nombre of T where nombre is a generic function.", ""
+        return 0
+    var info as types.SemaFnInfo is (s->types->fn_infos at fty.a)
+    if info.tparams_count <= 0:
+        var est as int is calling astutil.start_of with s->ast, node
+        var een as int is calling astutil.end_of with s->ast, node
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, est, een, "function is not generic", "Remove of T or declare the function with shard T.", ""
+        return 0
+    var acount as int is calling astutil.child_count with s->ast, gargs
+    if acount != info.tparams_count:
+        var est as int is calling astutil.start_of with s->ast, node
+        var een as int is calling astutil.end_of with s->ast, node
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, est, een, "generic arity mismatch", "Pass exactly one type per shard.", ""
+        return 0
+    var subst as map of int to int is map of int to int
+    defer banish subst
+    var ti as int is 0
+    while ti < info.tparams_count:
+        var tn as int is calling astutil.node_child with s->ast, gargs, ti
+        var ctx as convert.TypeCtx is with types is s->types, symbols is s->symbols, names is s->names, bag is s->bag, src is s->src, lex is s->lex, ast is s->ast
+        var aty as int is calling convert.convert with (sigil of ctx), tn
+        if aty <= 0:
+            return 0
+        var tpid as int is (s->types->tparams at (info.tparams_first + ti)).name
+        calling subst.put with tpid, aty
+        set ti is ti + 1
+    var params_first as int is s->types->fn_params.len
+    var pi as int is 0
+    while pi < info.params_count:
+        var fp as types.SemaFnParam is (s->types->fn_params at (info.params_first + pi))
+        var nty as int is calling ginst.subst_deep with s->symbols, fp.type, subst
+        var np as types.SemaFnParam is with name is fp.name, type is nty, flags is fp.flags, default_node is fp.default_node, default_module is fp.default_module, default_text is fp.default_text
+        var ignored as int is calling types.add_fn_param with s->types, np
+        set pi is pi + 1
+    var nr as int is calling ginst.subst_deep with s->symbols, info.return_type, subst
+    var ni as types.SemaFnInfo is with params_first is params_first, params_count is info.params_count, return_type is nr, tparams_first is info.tparams_first, tparams_count is 0, flags is info.flags, attrs_node is info.attrs_node
+    var nt as int is calling types.fn_type with s->types, ni
+    calling ann.ann_set_symbol with s->annotations, node, sid
+    return nt
+
 ## Referencia a un nombre.
 ##
 ## ## Memoria
@@ -382,6 +449,9 @@ weave infer_name with s as ref to state.SemaState, node as int, name as string, 
     var sid as int is calling symbols.lookup_name with s->symbols, name
     if sid >= 0:
         var sv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, sid
+        if (sv.flags & sym.SYM_MOVED) != 0:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, at_node), (calling astutil.end_of with s->ast, at_node), "value was moved into a thread", "The worker owns it now; do not use it here. Reassign it first if you need a new value.", ""
+            return 0
         calling ann.ann_set_symbol with s->annotations, node, sid
         return sv.type
     var tyid as int is calling symbols.lookup_type_name with s->symbols, name
@@ -502,6 +572,122 @@ weave module_by_dotted with s as ref to state.SemaState, dotted as string into i
         banish dn
         set i is i + 1
     return -1
+
+## ¿El tipo posee campos que se mueven con el valor?
+weave type_is_owning with s as ref to state.SemaState, id as int into bool:
+    var t as tk.SemaType is calling types.at with s->types, id
+    if calling compat.is_string with s->types, id:
+        return true
+    if t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkMap or t.kind == tk.SemaTypeKind.TkMaybe or t.kind == tk.SemaTypeKind.TkResult or t.kind == tk.SemaTypeKind.TkArray:
+        return true
+    if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho or t.kind == tk.SemaTypeKind.TkOmen:
+        return true
+    return false
+
+## Comprueba que un `ref to T` apunte a un tipo `@shared`.
+weave check_spawn_ref with s as ref to state.SemaState, node as int, ty as int into void:
+    var t as tk.SemaType is calling types.at with s->types, ty
+    var inner as int is t.a
+    var it as tk.SemaType is calling types.at with s->types, inner
+    if it.kind == tk.SemaTypeKind.TkRune or it.kind == tk.SemaTypeKind.TkEcho or it.kind == tk.SemaTypeKind.TkOmen:
+        var ni as types.SemaNominalInfo is (s->types->nominal_infos at it.a)
+        if (ni.flags & types.NIF_SHARED) != 0:
+            return
+        var nm as string is calling npool.text with s->names, ni.base_name
+        defer banish nm
+        var msg as string is "'{nm}' is not @shared"
+        defer banish msg
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), msg, "Mark the rune with @shared, or pass an owned value and let the worker own it.", ""
+        return
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "threads only accept refs to @shared runes", "Pass a value, or mark the referenced rune with @shared.", ""
+
+## Valida los argumentos de `filum.start`.
+## Valida un argumento transferido a un hilo.
+weave check_spawn_arg with s as ref to state.SemaState, anode as int, aty as int into void:
+    var at as tk.SemaType is calling types.at with s->types, aty
+    if at.kind == tk.SemaTypeKind.TkRef:
+        calling check_spawn_ref with s, anode, aty
+        return
+    if at.kind == tk.SemaTypeKind.TkSlice or at.kind == tk.SemaTypeKind.TkOpaque or at.kind == tk.SemaTypeKind.TkFn or at.kind == tk.SemaTypeKind.TkMany:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, anode), (calling astutil.end_of with s->ast, anode), "value cannot cross a thread boundary", "Pass an owning value by local name, or a ref to an @shared rune.", ""
+        return
+    if calling type_is_owning with s, aty:
+        if (calling astutil.kind_of with s->ast, anode) == pskind.NodeKind.NdStringLit:
+            return
+        if (calling astutil.kind_of with s->ast, anode) != pskind.NodeKind.NdVarRef:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, anode), (calling astutil.end_of with s->ast, anode), "owning values must be passed by local name", "Bind the value to a local first: var v is ...; calling filum.start with worker, v.", ""
+            return
+        var atok as int is calling astutil.token_child with s->ast, anode, 0
+        if atok < 0:
+            return
+        var aname as string is calling astutil.token_text with s->src, s->lex, atok
+        defer banish aname
+        var asid as int is calling symbols.lookup_name with s->symbols, aname
+        if asid < 0:
+            return
+        var asym as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, asid
+        if asym.kind != sym.SemaSymbolKind.SkVar and asym.kind != sym.SemaSymbolKind.SkLet and asym.kind != sym.SemaSymbolKind.SkParam:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, anode), (calling astutil.end_of with s->ast, anode), "owning values must be local bindings or parameters", "Copy the value into a local first.", ""
+            return
+        set asym.flags is asym.flags | sym.SYM_MOVED
+        calling symbols.symbol_set with s->symbols, asid, asym
+
+weave infer_spawn with s as ref to state.SemaState, node as int, args as int, arg_types as list of int into void:
+    if args < 0:
+        return
+    var nargs as int is calling astutil.child_count with s->ast, args
+    if nargs < 1:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "start needs a worker", "Write calling filum.start with worker, value.", ""
+        return
+    var wraw as int is calling astutil.node_child with s->ast, args, 0
+    var wnode as int is wraw
+    if wraw >= 0:
+        var wk as pskind.NodeKind is calling astutil.kind_of with s->ast, wraw
+        if wk == pskind.NodeKind.NdPosArg or wk == pskind.NodeKind.NdNamedArg:
+            set wnode is calling astutil.node_child with s->ast, wraw, 0
+    if wnode < 0 or (calling astutil.kind_of with s->ast, wnode) != pskind.NodeKind.NdVarRef:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "worker must be a named weave", "Declare the worker with 'weave name ...' and pass its name.", ""
+        return
+    var wtok as int is calling astutil.token_child with s->ast, wnode, 0
+    if wtok < 0:
+        return
+    var wname as string is calling astutil.token_text with s->src, s->lex, wtok
+    defer banish wname
+    var wsid as int is calling symbols.lookup_name with s->symbols, wname
+    if wsid < 0:
+        return
+    var wsym as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, wsid
+    if wsym.kind != sym.SemaSymbolKind.SkWeave and wsym.kind != sym.SemaSymbolKind.SkDeclare:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, wnode), (calling astutil.end_of with s->ast, wnode), "worker must be a weave or declare", "Declare the worker with 'weave name ...'.", ""
+        return
+    if (calling s->symbols->method_receiver.has with wsid):
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, wnode), (calling astutil.end_of with s->ast, wnode), "worker cannot be a method", "Use a free weave as the worker.", ""
+        return
+    var wft as tk.SemaType is calling types.at with s->types, (calling resolve_callable with s->types, wsym.type)
+    if wft.kind != tk.SemaTypeKind.TkFn:
+        return
+    var winfo as types.SemaFnInfo is (s->types->fn_infos at wft.a)
+    if (winfo.flags & types.FN_GENERIC) != 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, wnode), (calling astutil.end_of with s->ast, wnode), "worker cannot be generic in this version", "Use a concrete worker; generic workers are planned for 0.30.1.", ""
+        return
+    if winfo.return_type != calling types.base with s->types, "void":
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, wnode), (calling astutil.end_of with s->ast, wnode), "worker must return void", "Threads return no value; store results in shared state or a channel.", ""
+        return
+    if winfo.params_count != nargs - 1:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, wnode), (calling astutil.end_of with s->ast, wnode), "worker arity does not match the arguments", "The worker must take exactly the values passed to start.", ""
+        return
+    var ai as int is 1
+    while ai < nargs:
+        if ai < arg_types.len:
+            var araw as int is calling astutil.node_child with s->ast, args, ai
+            var anode as int is araw
+            if araw >= 0:
+                var ak as pskind.NodeKind is calling astutil.kind_of with s->ast, araw
+                if ak == pskind.NodeKind.NdPosArg or ak == pskind.NodeKind.NdNamedArg:
+                    set anode is calling astutil.node_child with s->ast, araw, 0
+            if anode >= 0:
+                calling check_spawn_arg with s, anode, (arg_types at ai)
+        set ai is ai + 1
 
 ## Llamada.
 ##
@@ -798,6 +984,19 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
     # posteriores vean el tipo concreto y no `void*`.
     var subst as map of int to int is map of int to int
     defer banish subst
+    var gargs as int is calling astutil.node_child with s->ast, node, 1
+    if gargs >= 0 and (calling astutil.kind_of with s->ast, gargs) == pskind.NodeKind.NdGenericArgs and info.tparams_count > 0:
+        var gctx as convert.TypeCtx is with types is s->types, symbols is s->symbols, names is s->names, bag is s->bag, src is s->src, lex is s->lex, ast is s->ast
+        var gi as int is 0
+        var gn as int is calling astutil.child_count with s->ast, gargs
+        while gi < gn and gi < info.tparams_count:
+            var gt as int is calling astutil.node_child with s->ast, gargs, gi
+            if gt >= 0:
+                var gid as int is calling convert.convert with (sigil of gctx), gt
+                if gid > 0:
+                    var tp as types.SemaTypeParamInfo is (s->types->tparams at (info.tparams_first + gi))
+                    calling subst.put with tp.name, gid
+            set gi is gi + 1
     var rtemplate as int is -1
     if calling s->symbols->method_receiver.has with sid:
         set rtemplate is calling s->symbols->method_receiver.get with sid
@@ -840,7 +1039,7 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                 var p as types.SemaFnParam is (s->types->fn_params at (info.params_first + pindex))
                 var pexp as int is p.type
                 if subst.len > 0:
-                    var psub as int is calling ginst.subst_type with s->types, p.type, (sigil of subst)
+                    var psub as int is calling ginst.subst_deep with s->symbols, p.type, subst
                     if psub > 0:
                         set pexp is psub
                 var got as int is calling infer with s, vnode, pexp
@@ -863,6 +1062,8 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                 defer banish bmsg
                 calling sdiag.node_error with s->bag, s->src, sdiag.CODE_CONCEPT_BOUND, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), bmsg, "Add the required concept implementation or change the bound.", ""
             set bj is bj + 1
+    if (info.flags & types.FN_SPAWN) != 0:
+        calling infer_spawn with s, node, args, arg_types
     var ret as int is info.return_type
     set ret is calling ginst.instantiate_return with s->symbols, info, rtemplate, inst_recv, arg_types
     if ret != info.return_type:

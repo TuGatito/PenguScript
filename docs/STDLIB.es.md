@@ -1,6 +1,6 @@
 # La biblioteca estándar de PenguScript
 
-Los 67 módulos de `std/` en `psc` 0.29.1: para qué sirve cada uno, cuándo
+Los 67 módulos de `std/` en `psc` 0.30.0: para qué sirve cada uno, cuándo
 usarlo, cuándo usar otro y dónde vive su API generada.
 
 Es el documento *catálogo* del conjunto de documentación:
@@ -105,7 +105,7 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
 - [Apéndice C — Convenciones de nombres en la biblioteca estándar](#apéndice-c-convenciones-de-nombres-en-la-biblioteca-estándar)
 <!-- /toc -->
 
-Todos los módulos que vienen con `psc` 0.29.1: para qué sirven, cuándo usarlos y
+Todos los módulos que vienen con `psc` 0.30.0: para qué sirven, cuándo usarlos y
 dónde vive la API generada de cada uno.
 
 ## 0. Cómo usar este catálogo
@@ -131,7 +131,7 @@ Cada entrada tiene la misma forma:
 **API** [enlace a la página generada] · [fuente]
 ```
 
-**Versión.** Este catálogo describe `psc` 0.29.1 y el árbol `std/` del mismo
+**Versión.** Este catálogo describe `psc` 0.30.0 y el árbol `std/` del mismo
 commit. La constante de versión de un módulo (`TRIAL_VERSION`, `CARMEN_VERSION`,
 …) es la versión propia de su API, no la del compilador.
 
@@ -849,20 +849,32 @@ bastan y `psc test` ya los ejecuta.
 
 ## 9. Concurrencia
 
-### `std.filum` — primitivas de sincronización
+### `std.filum` — hilos y sincronización
 
-**Úsalo cuando** existan hilos fuera del lenguaje y deban coordinarse: `Mutex`
-(`lock`, `unlock`, `try_lock`), `WaitGroup` (`add`, `done`, `wait`), `Once`
-(`do_once`), `Cond` (`cond_wait`, `signal`, `broadcast`), `AtomicInt` (`load`,
-`store`, `add_atomic`, `swap`, `compare_swap`, `inc`, `dec`) y canales tipados
-(`ChanInt`, `ChanString`, `ChanFloat`, `ChanBool`, `Chan`) con `send` → `bool` y
+**Úsalo cuando** necesites ejecutar trabajo en otro hilo o coordinar hilos:
+`filum.start` / `start0` / `start2` / `start3` devuelven un `Thread`; `join`
+devuelve `result of void to ThreadError`, `detach` lo deja correr y `free`
+libera el handle. `Thread` es un handle copiable (un id, no un puntero), así que
+pasarlo a un supervisor es seguro.
+
+Los argumentos se mueven al worker: los valores con dueño (`string`, `list`,
+`map`, `maybe`, `result`, runes) deben ser bindings locales y quedan
+inutilizables después; los escalares se copian. Un `ref to T` solo se acepta si
+`T` está declarado `@shared`; el compilador comprueba esa frontera, no el
+locking dentro de `T`.
+
+Siguen disponibles TLS (`Tls`, `tls_set`, `tls_get`), un `Pool` de workers
+(`submit`, `wait`, `free`), `parallel_for` y las primitivas de coordinación:
+`Mutex`, `WaitGroup`, `Once`, `Cond`, `AtomicInt` y canales tipados (`ChanInt`,
+`ChanString`, `ChanFloat`, `ChanBool`, `Chan`) con `send` → `bool` y
 `recv` → `maybe`.
 
-**Evítalo cuando** esperes que `filum` cree un hilo: no lo hace. La creación de
-hilos pertenece al anfitrión (C, un binding o la aplicación que embebe);
-`filum` aporta las primitivas que esos hilos usan.
+**Evítalo cuando** necesites un resultado de vuelta del worker: `Thread` es
+`into void` en 0.30.0. Envía el resultado por un canal o una estructura
+compartida; los resultados tipados llegan en 0.30.1.
 
-**Destacados** `Mutex`, `WaitGroup`, `AtomicInt`, `chan_int`, `send`, `recv`.
+**Destacados** `start`, `Thread.join`, `@shared`, `Tls`, `Pool`,
+`parallel_for`, `Mutex`, `chan_int`.
 
 **API** [`api/std_filum.md`](api/std_filum.md) · [fuente](../std/filum.pengu)
 

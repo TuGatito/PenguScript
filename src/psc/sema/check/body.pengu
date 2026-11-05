@@ -130,21 +130,27 @@ weave check_block with s as ref to state.SemaState, node as int into void:
 weave check_block_value with s as ref to state.SemaState, node as int, expected as int into int:
     var last as int is -1
     var kk as pskind.NodeKind is calling astutil.kind_of with s->ast, node
-    if kk != pskind.NodeKind.NdBlock and kk != pskind.NodeKind.NdStmt:
+    if kk != pskind.NodeKind.NdBlock and kk != pskind.NodeKind.NdStmt and kk != pskind.NodeKind.NdDoExpr:
         return calling infer.infer with s, node, expected
-    if kk == pskind.NodeKind.NdBlock:
+    if kk == pskind.NodeKind.NdBlock or kk == pskind.NodeKind.NdDoExpr:
         var i as int is 0
         var n as int is calling astutil.child_count with s->ast, node
         while i < n:
             var c as int is calling astutil.node_child with s->ast, node, i
             if c >= 0:
-                set last is c
+                var ck as pskind.NodeKind is calling astutil.kind_of with s->ast, c
+                if ck == pskind.NodeKind.NdStmt:
+                    var inner as int is calling astutil.node_child with s->ast, c, 0
+                    if inner >= 0:
+                        set c is inner
+                        set ck is calling astutil.kind_of with s->ast, c
+                if i == n - 1 and ck == pskind.NodeKind.NdExprStmt:
+                    var ex as int is calling astutil.node_child with s->ast, c, 0
+                    if ex >= 0:
+                        return calling infer.infer with s, ex, expected
+                calling check_stmt with s, c
             set i is i + 1
-        if last >= 0:
-            calling check_stmt with s, last
-            if (calling astutil.kind_of with s->ast, last) == pskind.NodeKind.NdExprStmt:
-                return calling infer.infer with s, (calling astutil.node_child with s->ast, last, 0), expected
-            return 3
+        return 3
     calling check_stmt with s, node
     return 3
 
@@ -456,6 +462,21 @@ weave check_set with s as ref to state.SemaState, node as int, compound as bool 
                     return
             calling mismatch with s, value, tt, got
     calling check_mutable_target with s, target
+    if target >= 0:
+        var tnode as int is target
+        if (calling astutil.kind_of with s->ast, tnode) == pskind.NodeKind.NdSetTarget:
+            set tnode is calling astutil.node_child with s->ast, tnode, 0
+        if tnode >= 0 and (calling astutil.kind_of with s->ast, tnode) == pskind.NodeKind.NdNormalTarget:
+            var ttok as int is calling astutil.token_child with s->ast, tnode, 0
+            if ttok >= 0:
+                var ttxt as string is calling astutil.token_text with s->src, s->lex, ttok
+                defer banish ttxt
+                var tsid as int is calling symbols.lookup_name with s->symbols, ttxt
+                if tsid >= 0:
+                    var tsym as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, tsid
+                    if (tsym.flags & sym.SYM_MOVED) != 0:
+                        set tsym.flags is tsym.flags - (tsym.flags & sym.SYM_MOVED)
+                        calling symbols.symbol_set with s->symbols, tsid, tsym
 
 ## Tipo de un target de asignación.
 ##

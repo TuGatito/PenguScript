@@ -21,6 +21,11 @@ for f in tests/pengu/*.pengu; do [ -e "$f" ] && run_one "$f"; done
 [ -e tests/wasm/std_web_smoke.pengu ] && run_one tests/wasm/std_web_smoke.pengu
 # tests/wasm/js_smoke.pengu is wasm-only; tests/wasm/run.sh builds and runs it.
 while IFS= read -r f; do run_one "$f"; done < <(find tests/conformance -name '*.pengu' -type f | sort)
+if [ -x tests/regress_threads.sh ]; then
+  if ! tests/regress_threads.sh; then
+    fail=$((fail+1))
+  fi
+fi
 if [ "$fail" -ne 0 ]; then
   echo "$fail of $count test file(s) failed"
   exit 1

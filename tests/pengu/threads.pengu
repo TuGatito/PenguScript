@@ -1,0 +1,48 @@
+import std.filum
+
+weave zero into void:
+    calling print with "zero"
+
+weave one with n as int into void:
+    calling print with "one"
+
+weave two with n as int, s as string into void:
+    calling print with s
+
+weave pool_work with ctx as ref to void into void:
+    calling print with "pool"
+
+weave par_work with ctx as ref to void, i as int into void:
+    calling print with "par"
+
+weave main into int:
+    let a as Thread is calling filum.start0 with zero
+    var ra as result of void to ThreadError is calling a.join
+    calling a.free
+    if not ra.is_ok:
+        return 1
+    let b as Thread is calling filum.start with one, 7
+    var rb as result of void to ThreadError is calling b.join
+    calling b.free
+    if not rb.is_ok:
+        return 2
+    let c as Thread is calling filum.start2 with two, 7, "two"
+    var rc as result of void to ThreadError is calling c.join
+    calling c.free
+    if not rc.is_ok:
+        return 3
+    var t as Tls is calling filum.tls
+    var x as int is 42
+    calling filum.tls_set of int with (sigil of t), (sigil of x)
+    var got as maybe ref to int is calling filum.tls_get of int with (sigil of t)
+    if got is present:
+        if (essence of got.value) != 42:
+            calling filum.tls_free with (sigil of t)
+            return 4
+    calling filum.tls_free with (sigil of t)
+    var p as Pool is calling filum.pool with 2
+    calling p.submit with pool_work, (transmute 0 to ref to void)
+    calling p.wait
+    calling p.free
+    calling filum.parallel_for with 2, 2, par_work, (transmute 0 to ref to void)
+    return 0

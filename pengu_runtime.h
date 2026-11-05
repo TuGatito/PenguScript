@@ -401,7 +401,7 @@ extern "C"
    *
    * Declarations only: the definitions live in pengu_runtime.c (core object)
    * so a generated bundle links them exactly like the FFI bridges. They are
-   * purely additive and touch no struct layout, so PENGU_ABI_VERSION stays 2.
+   * purely additive and touch no struct layout, so PENGU_ABI_VERSION stays 3.
    * The aborting variants honour PENGU_OOM_ABORT exactly like pengu_sigil_alloc.
    * ------------------------------------------------------------------------- */
 
@@ -4497,6 +4497,25 @@ extern "C"
 #if PENGU_ENABLE_THREADS
 
   void pengu_c_filum_go(void *f);
+  void *pengu_c_filum_box_new(size_t size);
+  void pengu_c_filum_box_free(void *p);
+  int64_t pengu_c_filum_thread_start(void (*run)(void *), void *box, int *err);
+  int pengu_c_filum_thread_join(int64_t id, int *sys);
+  int pengu_c_filum_thread_detach(int64_t id, int *sys);
+  void pengu_c_filum_thread_abandon(int64_t id);
+  int pengu_c_filum_thread_exists(int64_t id);
+  int64_t pengu_c_filum_thread_id(int64_t id);
+  PenguString pengu_c_filum_thread_name(int64_t id);
+  int pengu_c_filum_thread_set_name(int64_t id, PenguString name);
+  void *pengu_c_filum_tls_new(void);
+  void pengu_c_filum_tls_free(void *t);
+  void pengu_c_filum_tls_set(void *t, void *value);
+  void *pengu_c_filum_tls_get(void *t);
+  void *pengu_c_filum_pool_new(int workers);
+  void pengu_c_filum_pool_submit(void *p, void (*fn)(void *), void *arg);
+  void pengu_c_filum_pool_wait(void *p);
+  void pengu_c_filum_pool_free(void *p);
+  void pengu_c_filum_parallel_for(int n, void (*body)(void *, int), void *ctx, int workers);
   void *pengu_c_filum_chan_new(size_t elem_size, int cap);
   bool pengu_c_filum_chan_send(void *c, void *value);
   bool pengu_c_filum_chan_recv(void *c, void *out);

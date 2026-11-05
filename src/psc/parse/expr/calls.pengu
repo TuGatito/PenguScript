@@ -267,6 +267,13 @@ weave pexpr_postfix_tail with p as ref to PsParser, base as int into int:
                 calling ps_add_child with p, current_id
                 calling ps_add_child with p, first
                 set current_id is calling ps_finish_node with p, NodeKind.NdAtExpr, start3, (calling putil.pexpr_end_of with p, first), 0
+        else if calling ps_check_kw with p, KwOf:
+            var startof as int is calling putil.pexpr_start_of with p, current_id
+            var gargs as int is calling pexpr_parse_generic_args with p
+            calling ps_begin_children with p
+            calling ps_add_child with p, current_id
+            calling ps_add_child with p, gargs
+            set current_id is calling ps_finish_node with p, NodeKind.NdGenericRef, startof, (calling putil.pexpr_end_of with p, gargs), 0
         else if calling ps_check_word with p, "length":
             var start4 as int is calling putil.pexpr_start_of with p, current_id
             var ignored6 as Token is calling ps_advance with p

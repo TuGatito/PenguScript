@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.29.1: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.30.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -139,7 +139,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.29.1. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.30.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -1653,7 +1653,32 @@ rune WireHeader:
 `@export` sin un prefijo propio del proyecto puede chocar con símbolos de libc;
 prefíjalo (`@export("mylib_fast_double")`). `@packed` y `@align(N)` cambian el
 ABI del struct: úsalos solo para formatos de red o de disco, y replica el layout
-en el lado C exactamente.
+en el lado C exactamente. `@shared` es una promesa de que los métodos del rune
+sincronizan; el compilador comprueba la frontera, no la implementación.
+
+### 14.1 Hilos
+
+```pengu
+import std.filum
+
+weave worker with conn as ref to Socket into void:
+    # ...
+    calling net.close with (sigil of conn)
+
+weave main into int:
+    let h as Thread is calling filum.start with worker, (sigil of conn)
+    var r as result of void to ThreadError is calling h.join
+    calling h.free
+    return 0
+```
+
+`start` mueve los argumentos con dueño al worker; un local movido no puede
+volver a leerse (`E0008`). `start0`, `start2` y `start3` cubren workers de cero,
+dos y tres argumentos. Un `ref to T` exige `@shared` en `T`; los escalares se
+copian. `join` espera y devuelve `result of void to ThreadError`; `detach` es
+fire-and-forget; `free` libera el handle. `Thread` es un id copiable, así que un
+supervisor puede guardarlo. TLS, `Pool` y `parallel_for` también están en
+`std.filum`.
 
 ## 15. Tests y herramientas
 

@@ -164,6 +164,7 @@ omen NodeKind:
     NdMethodStep
     NdPipeStep
     NdGenericArgs
+    NdGenericRef
     NdArgList
     NdPosArg
     NdNamedArg
@@ -313,6 +314,7 @@ weave ps_node_kind_name with kind as NodeKind into string:
         when NdFrozenType -> "frozen_type"
         when NdGe -> "ge"
         when NdGenericArgs -> "generic_args"
+        when NdGenericRef -> "generic_ref"
         when NdGt -> "gt"
         when NdIfCond -> "if_cond"
         when NdIfCondBinding -> "if_cond_binding"

@@ -2,6 +2,53 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.30.0] — 2026-11-04 — hilos de primera clase, valores de función genéricos y cero deuda
+
+Primera versión con hilos creados por el lenguaje. `std.filum` gana
+`filum.start` / `start0` / `start2` / `start3`, `Thread` con `join`, `detach`,
+`name`, `set_name`, `id` y `free`, TLS por hilo, `Pool` y `parallel_for`.
+
+### Añadido
+
+- `@shared` en `rune`/`omen`: `filum.start` solo acepta `ref to T` si `T` está
+  marcado. El compilador comprueba la frontera; no demuestra el locking interno.
+- Semántica de movimiento en `start`: los valores con dueño deben ser bindings
+  locales, se marcan como movidos (`E0008`) y el worker pasa a ser su dueño. No
+  se zeroa el valor completo (un `Socket` zeroado tendría `fd = 0`, stdin).
+- `NdGenericRef` y `of T` en expresiones: `var f is run_box of int` crea la
+  especialización y la usa como valor de función. También se sustituyen los
+  tipos rune genéricos en parámetros (`ref to Box of T`) y los tparams de las
+  firmas.
+- Pre-instanciación de tipos nominales usados por cuerpos de specs antes de
+  emitir typedefs; `SpawnBox of A` ya existe cuando el cuerpo la necesita.
+- `do:` como bloque-valor también en lambdas; lambdas con retorno `void` emiten
+  `void (*)(...)` y no `void* (*)(...)`.
+- TLS (`Tls`, `tls_set`, `tls_get`, `tls_free`), `Pool` (`submit`, `wait`,
+  `free`) y `parallel_for` con backend C (`pthread`/Win32).
+- Runtime: tabla de hilos por id con refcount, `thread_start/join/detach/name`,
+  pool de trabajos y TLS; `PENGU_ABI_VERSION` sigue en 3 (funciones aditivas).
+
+### Corregido
+
+- Canal sin buffer: `cap == 0` ya es rendezvous real (el sender espera a que el
+  receptor recoja); `cap()` devuelve 0.
+- `Once`: fuera el fast path con lectura no atómica; `running` + `done` bajo
+  mutex/cond, todos los llamadores esperan a que el cuerpo termine.
+- `*_free` con waiters: ya no destruyen el mutex/condvar con waiters dentro; el
+  contrato es liberar solo tras quiescencia y se documenta.
+- OOM de constructores: aborta con mensaje en vez de devolver NULL silencioso.
+- `AtomicInt` usa 32 bits en POSIX y Windows (antes `long` en POSIX).
+- `WaitGroup.add` negativo aborta con mensaje.
+- `pengu_c_filum_go` queda obsoleto y aborta si no puede crear el hilo.
+- DCE marca funciones usadas como valor (`run_box0`, `run_box of A`).
+- Comentario obsoleto de ABI y docs que decían que filum no crea hilos.
+
+### Tests
+
+- `tests/pengu/threads.pengu` (start/start0/start2, join, TLS, pool,
+  parallel_for), `tests/regress_threads.sh` (diagnósticos de `@shared` y
+  movimiento) y `tests/regress_threads_tsan.sh` (TSAN opcional).
+
 ## [0.29.1] — 2026-11-04 — valores de `if`, genéricas inferidas y omenes
 
 Cuatro fallos que impedían a `psc test` compilar la biblioteca estándar (y por
