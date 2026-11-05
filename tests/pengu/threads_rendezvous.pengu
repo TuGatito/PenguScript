@@ -1,0 +1,30 @@
+import std.filum
+
+weave sender with ch as ref to ChanInt, flag as ref to AtomicInt into void:
+    calling ch.send with 9
+    calling flag.store with 1
+
+weave main into int:
+    var ch as ChanInt is calling filum.chan_int
+    var flag as AtomicInt is calling filum.atomic_int
+    let h as Thread is calling filum.start2 with sender, (sigil of ch), (sigil of flag)
+    calling filum.sleep with 100
+    if (calling flag.load) != 0:
+        calling print with "SEND DID NOT BLOCK"
+        return 1
+    var got as maybe int is calling ch.recv
+    var r as result of void to ThreadError is calling h.join
+    calling h.free
+    if got is present:
+        if got.value != 9:
+            return 3
+    else:
+        return 2
+    if (calling flag.load) != 1:
+        return 4
+    if (calling ch.cap) != 0:
+        return 5
+    calling ch.free
+    calling flag.free
+    calling print with "rendezvous ok"
+    return 0

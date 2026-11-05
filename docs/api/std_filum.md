@@ -18,7 +18,7 @@
     _ptr as opaque
 ```
 
- Mutex rune: an owned wrapper around a native C mutex handle (see _ptr).
+_Undocumented._
 
 ### `WaitGroup`
 
@@ -28,8 +28,7 @@
     _ptr as opaque
 ```
 
- WaitGroup rune: an owned wrapper around a native wait-group handle that
- counts concurrent units and can block until all of them finish.
+_Undocumented._
 
 ### `Once`
 
@@ -39,8 +38,7 @@
     _ptr as opaque
 ```
 
- Once rune: an owned wrapper around a native guard that runs a callback
- exactly once, no matter how many goroutines reach it.
+_Undocumented._
 
 ### `Cond`
 
@@ -50,8 +48,7 @@
     _ptr as opaque
 ```
 
- Cond rune: an owned wrapper around a native condition variable used to wait
- for and signal state changes between goroutines holding a Mutex.
+_Undocumented._
 
 ### `AtomicInt`
 
@@ -61,8 +58,7 @@
     _ptr as opaque
 ```
 
- AtomicInt rune: an owned wrapper around a native atomic integer supporting
- thread-safe load, store, add, swap and compare-and-swap operations.
+_Undocumented._
 
 ### `Chan`
 
@@ -74,8 +70,7 @@
     cap as int
 ```
 
- Chan rune: wrapper around a native channel handle plus buffering metadata
- (buffered flag and capacity). Legacy un-typed handle.
+_Undocumented._
 
 ### `ChanInt`
 
@@ -87,7 +82,7 @@
     cap as int
 ```
 
- Typed channel for communicating `int` values between threads/goroutines.
+_Undocumented._
 
 ### `ChanString`
 
@@ -99,7 +94,7 @@
     cap as int
 ```
 
- Typed channel for communicating `string` values between threads/goroutines.
+_Undocumented._
 
 ### `ChanFloat`
 
@@ -111,7 +106,7 @@
     cap as int
 ```
 
- Typed channel for communicating `float` values between threads/goroutines.
+_Undocumented._
 
 ### `ChanBool`
 
@@ -123,13 +118,160 @@
     cap as int
 ```
 
- Typed channel for communicating `bool` values between threads/goroutines.
+_Undocumented._
+
+### `Thread`
+
+> rune Thread
+
+```pengu
+    _id as i64
+    _err as int
+```
+
+_Undocumented._
+
+### `ThreadError`
+
+> rune ThreadError
+
+```pengu
+    code as int
+    sys_code as int
+```
+
+ Error returned by thread operations.
+
+### `SpawnBox`
+
+> rune SpawnBox
+
+```pengu
+    fn as ref to weave with a: A into void
+    arg as A
+```
+
+ Box used by `start` to carry the worker and its argument to the new thread.
 
 ### `pengu_c_filum_go`
 
 > **pengu_c_filum_go**(f: opaque) -> void
 
  Runtime: launches f on a new goroutine and returns immediately.
+
+### `pengu_c_filum_box_new`
+
+> **pengu_c_filum_box_new**(size: int) -> ref to void
+
+ First-class threads (0.30.0).
+
+### `pengu_c_filum_box_free`
+
+> **pengu_c_filum_box_free**(p: ref to void) -> void
+
+_Undocumented._
+
+### `pengu_c_filum_thread_start`
+
+> **pengu_c_filum_thread_start**(run: ref to weave with ctx: ref to void into void, box: ref to void, err: ref to int) -> i64
+
+_Undocumented._
+
+### `pengu_c_filum_thread_join`
+
+> **pengu_c_filum_thread_join**(id: i64, sys: ref to int) -> int
+
+_Undocumented._
+
+### `pengu_c_filum_thread_detach`
+
+> **pengu_c_filum_thread_detach**(id: i64, sys: ref to int) -> int
+
+_Undocumented._
+
+### `pengu_c_filum_thread_abandon`
+
+> **pengu_c_filum_thread_abandon**(id: i64) -> void
+
+_Undocumented._
+
+### `pengu_c_filum_thread_exists`
+
+> **pengu_c_filum_thread_exists**(id: i64) -> bool
+
+_Undocumented._
+
+### `pengu_c_filum_thread_id`
+
+> **pengu_c_filum_thread_id**(id: i64) -> i64
+
+_Undocumented._
+
+### `pengu_c_filum_thread_name`
+
+> **pengu_c_filum_thread_name**(id: i64) -> string
+
+_Undocumented._
+
+### `pengu_c_filum_thread_set_name`
+
+> **pengu_c_filum_thread_set_name**(id: i64, name: string) -> int
+
+_Undocumented._
+
+### `pengu_c_filum_tls_new`
+
+> **pengu_c_filum_tls_new**() -> opaque
+
+_Undocumented._
+
+### `pengu_c_filum_tls_free`
+
+> **pengu_c_filum_tls_free**(t: opaque) -> void
+
+_Undocumented._
+
+### `pengu_c_filum_tls_set`
+
+> **pengu_c_filum_tls_set**(t: opaque, value: ref to void) -> void
+
+_Undocumented._
+
+### `pengu_c_filum_tls_get`
+
+> **pengu_c_filum_tls_get**(t: opaque) -> ref to void
+
+_Undocumented._
+
+### `pengu_c_filum_pool_new`
+
+> **pengu_c_filum_pool_new**(workers: int) -> opaque
+
+_Undocumented._
+
+### `pengu_c_filum_pool_submit`
+
+> **pengu_c_filum_pool_submit**(p: opaque, fn: ref to weave with ctx: ref to void into void, ctx: ref to void) -> void
+
+_Undocumented._
+
+### `pengu_c_filum_pool_wait`
+
+> **pengu_c_filum_pool_wait**(p: opaque) -> void
+
+_Undocumented._
+
+### `pengu_c_filum_pool_free`
+
+> **pengu_c_filum_pool_free**(p: opaque) -> void
+
+_Undocumented._
+
+### `pengu_c_filum_parallel_for`
+
+> **pengu_c_filum_parallel_for**(n: int, body: ref to weave with ctx: ref to void, i: int into void, ctx: ref to void, workers: int) -> void
+
+_Undocumented._
 
 ### `pengu_c_filum_chan_new`
 
@@ -701,6 +843,194 @@
 > **free_chan**(c: ref to Chan) -> void
 
  Releases the native handle of a Chan; do not use the rune afterwards.
+
+### `run_box`
+
+> **run_box**(raw: ref to void) -> void
+
+ Runs `worker` on a new thread, passing `arg`. Ownership of an owning `arg`
+ moves to the worker; the caller must not use it afterwards.
+
+### `start`
+
+> **start**(worker: ref to weave with a: A into void, arg: A) -> Thread
+
+_Undocumented._
+
+### `is_valid`
+
+> **is_valid**(t: ref to Thread) -> bool
+
+ True while the handle still refers to a thread the runtime knows about.
+
+### `SpawnBox0`
+
+> rune SpawnBox0
+
+```pengu
+    fn as ref to weave with  into void
+```
+
+ Caja para un worker sin argumentos.
+
+### `SpawnBox2`
+
+> rune SpawnBox2
+
+```pengu
+    fn as ref to weave with a: A, b: B into void
+    a0 as A
+    a1 as B
+```
+
+ Caja para un worker de dos argumentos.
+
+### `SpawnBox3`
+
+> rune SpawnBox3
+
+```pengu
+    fn as ref to weave with a: A, b: B, c: C into void
+    a0 as A
+    a1 as B
+    a2 as C
+```
+
+ Caja para un worker de tres argumentos.
+
+### `run_box0`
+
+> **run_box0**(raw: ref to void) -> void
+
+_Undocumented._
+
+### `start0`
+
+> **start0**(worker: ref to weave with  into void) -> Thread
+
+_Undocumented._
+
+### `run_box2`
+
+> **run_box2**(raw: ref to void) -> void
+
+_Undocumented._
+
+### `start2`
+
+> **start2**(worker: ref to weave with a: A, b: B into void, a: A, b: B) -> Thread
+
+_Undocumented._
+
+### `run_box3`
+
+> **run_box3**(raw: ref to void) -> void
+
+_Undocumented._
+
+### `start3`
+
+> **start3**(worker: ref to weave with a: A, b: B, c: C into void, a: A, b: B, c: C) -> Thread
+
+_Undocumented._
+
+### `Tls`
+
+> rune Tls
+
+```pengu
+    _ptr as opaque
+```
+
+_Undocumented._
+
+### `Pool`
+
+> rune Pool
+
+```pengu
+    _ptr as opaque
+```
+
+_Undocumented._
+
+### `tls`
+
+> **tls**() -> Tls
+
+ Crea una clave TLS.
+
+### `tls_set`
+
+> **tls_set**(t: ref to Tls, v: ref to T) -> void
+
+ Asocia `v` al hilo actual bajo `t`.
+
+### `tls_get`
+
+> **tls_get**(t: ref to Tls) -> maybe ref to T
+
+ Lee el valor TLS del hilo actual.
+
+### `tls_free`
+
+> **tls_free**(t: ref to Tls) -> void
+
+ Libera la clave TLS (no los valores).
+
+### `pool`
+
+> **pool**(workers: int) -> Pool
+
+ Crea un pool con `workers` hilos (0 = tantos como CPUs).
+
+### `submit`
+
+> **submit**(fn: ref to weave with ctx: ref to void into void, ctx: ref to void) -> void
+
+ Encola `fn(ctx)`.
+
+### `parallel_for`
+
+> **parallel_for**(n: int, workers: int, body: ref to weave with ctx: ref to void, i: int into void, ctx: ref to void) -> void
+
+ Ejecuta `body(ctx, i)` para i en [0, n) sobre un pool temporal.
+
+### `join`
+
+> **join**() -> result of void to ThreadError
+
+_Undocumented._
+
+### `detach`
+
+> **detach**() -> result of void to ThreadError
+
+ Releases the handle without waiting; the thread keeps running.
+
+### `name`
+
+> **name**() -> string
+
+ Diagnostic name, empty when the handle is no longer valid.
+
+### `set_name`
+
+> **set_name**(name: string) -> result of void to ThreadError
+
+ Sets the diagnostic name (at most 63 bytes).
+
+### `id`
+
+> **id**() -> i64
+
+ OS thread id, or 0 when unavailable.
+
+### `explain`
+
+> **explain**(e: ref to ThreadError) -> string
+
+ Human-readable explanation for a thread error.
 
 ### `sleep`
 

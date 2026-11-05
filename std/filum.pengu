@@ -49,31 +49,37 @@ const FILUM_VERSION as string is "3.0.0"
 # ----------------------------------------------------------------------------
 
 # Mutex rune: an owned wrapper around a native C mutex handle (see _ptr).
+@shared
 rune Mutex:
     _ptr as opaque
 
 # WaitGroup rune: an owned wrapper around a native wait-group handle that
 # counts concurrent units and can block until all of them finish.
+@shared
 rune WaitGroup:
     _ptr as opaque
 
 # Once rune: an owned wrapper around a native guard that runs a callback
 # exactly once, no matter how many goroutines reach it.
+@shared
 rune Once:
     _ptr as opaque
 
 # Cond rune: an owned wrapper around a native condition variable used to wait
 # for and signal state changes between goroutines holding a Mutex.
+@shared
 rune Cond:
     _ptr as opaque
 
 # AtomicInt rune: an owned wrapper around a native atomic integer supporting
 # thread-safe load, store, add, swap and compare-and-swap operations.
+@shared
 rune AtomicInt:
     _ptr as opaque
 
 # Chan rune: wrapper around a native channel handle plus buffering metadata
 # (buffered flag and capacity). Legacy un-typed handle.
+@shared
 rune Chan:
     _ptr as opaque
     buffered as bool
@@ -82,24 +88,28 @@ rune Chan:
 # Typed Channel Runes (0.15.0)
 
 ## Typed channel for communicating `int` values between threads/goroutines.
+@shared
 rune ChanInt:
     _ptr as opaque
     buffered as bool
     cap as int
 
 ## Typed channel for communicating `string` values between threads/goroutines.
+@shared
 rune ChanString:
     _ptr as opaque
     buffered as bool
     cap as int
 
 ## Typed channel for communicating `float` values between threads/goroutines.
+@shared
 rune ChanFloat:
     _ptr as opaque
     buffered as bool
     cap as int
 
 ## Typed channel for communicating `bool` values between threads/goroutines.
+@shared
 rune ChanBool:
     _ptr as opaque
     buffered as bool

@@ -129,10 +129,13 @@ int pengu_c_filum_goroutine_id(void) {
 #endif
 }
 
+static void pengu_filum_panic(const char* msg);
+
+/* Deprecated: use the first-class Thread API. Kept for the wasm stress test. */
 void pengu_c_filum_go(void* f) {
     if (!f) return;
     PenguThreadArg* arg = (PenguThreadArg*)malloc(sizeof(PenguThreadArg));
-    if (!arg) return;
+    if (!arg) pengu_filum_panic("out of memory allocating a go argument");
     arg->fn = (void (*)(void))f;
 
 #if PENGU_WINDOWS
@@ -143,9 +146,8 @@ void pengu_c_filum_go(void* f) {
          * never a join to perform. */
         CloseHandle((HANDLE)th);
     } else {
-        /* No thread was created, so the runner never runs and would never free
-         * the argument; this is the only chance to release it. */
         free(arg);
+        pengu_filum_panic("could not create a thread in pengu_c_filum_go");
     }
 #else
     pthread_t th;
@@ -155,8 +157,8 @@ void pengu_c_filum_go(void* f) {
          * Worker is never reclaimed. */
         pthread_detach(th);
     } else {
-        /* See the Windows branch: the runner cannot free what never ran. */
         free(arg);
+        pengu_filum_panic("could not create a thread in pengu_c_filum_go");
     }
 #endif
 }
@@ -766,7 +768,7 @@ typedef struct {
 
 void* pengu_c_filum_mutex_new(void) {
     PenguNativeMutex* m = (PenguNativeMutex*)malloc(sizeof(PenguNativeMutex));
-    if (!m) return NULL;
+    if (!m) pengu_filum_panic("out of memory allocating a mutex");
 #if PENGU_WINDOWS
     InitializeCriticalSection(&m->cs);
 #else
@@ -808,6 +810,7 @@ bool pengu_c_filum_mutex_try_lock(void* m) {
 /* WaitGroup */
 typedef struct {
     int count;
+    int waiters;
 #if PENGU_WINDOWS
     CRITICAL_SECTION cs;
     CONDITION_VARIABLE cv;
@@ -819,8 +822,9 @@ typedef struct {
 
 void* pengu_c_filum_wait_group_new(void) {
     PenguNativeWaitGroup* wg = (PenguNativeWaitGroup*)malloc(sizeof(PenguNativeWaitGroup));
-    if (!wg) return NULL;
+    if (!wg) pengu_filum_panic("out of memory allocating a wait group");
     wg->count = 0;
+    wg->waiters = 0;
 #if PENGU_WINDOWS
     InitializeCriticalSection(&wg->cs);
     InitializeConditionVariable(&wg->cv);
@@ -833,6 +837,7 @@ void* pengu_c_filum_wait_group_new(void) {
 
 void pengu_c_filum_wait_group_add(void* wg, int delta) {
     if (!wg) return;
+    if (delta < 0) pengu_filum_panic("wait_group_add with a negative delta; use done");
     PenguNativeWaitGroup* nwg = (PenguNativeWaitGroup*)wg;
 #if PENGU_WINDOWS
     EnterCriticalSection(&nwg->cs);
@@ -854,7 +859,21 @@ void pengu_c_filum_wait_group_add(void* wg, int delta) {
 }
 
 void pengu_c_filum_wait_group_done(void* wg) {
-    pengu_c_filum_wait_group_add(wg, -1);
+    if (!wg) return;
+    PenguNativeWaitGroup* nwg = (PenguNativeWaitGroup*)wg;
+#if PENGU_WINDOWS
+    EnterCriticalSection(&nwg->cs);
+    if (nwg->count <= 0) { LeaveCriticalSection(&nwg->cs); pengu_filum_panic("wait_group_done without a matching add"); }
+    nwg->count--;
+    if (nwg->count == 0) WakeAllConditionVariable(&nwg->cv);
+    LeaveCriticalSection(&nwg->cs);
+#else
+    pthread_mutex_lock(&nwg->mtx);
+    if (nwg->count <= 0) { pthread_mutex_unlock(&nwg->mtx); pengu_filum_panic("wait_group_done without a matching add"); }
+    nwg->count--;
+    if (nwg->count == 0) pthread_cond_broadcast(&nwg->cv);
+    pthread_mutex_unlock(&nwg->mtx);
+#endif
 }
 
 void pengu_c_filum_wait_group_wait(void* wg) {
@@ -862,37 +881,49 @@ void pengu_c_filum_wait_group_wait(void* wg) {
     PenguNativeWaitGroup* nwg = (PenguNativeWaitGroup*)wg;
 #if PENGU_WINDOWS
     EnterCriticalSection(&nwg->cs);
+    nwg->waiters++;
     while (nwg->count > 0) {
         SleepConditionVariableCS(&nwg->cv, &nwg->cs, INFINITE);
     }
+    nwg->waiters--;
     LeaveCriticalSection(&nwg->cs);
 #else
     pthread_mutex_lock(&nwg->mtx);
+    nwg->waiters++;
     while (nwg->count > 0) {
         pthread_cond_wait(&nwg->cv, &nwg->mtx);
     }
+    nwg->waiters--;
     pthread_mutex_unlock(&nwg->mtx);
 #endif
 }
 
 /* Once */
 typedef struct {
-    volatile long done;
+    int done;
+    int running;
+    int active;
 #if PENGU_WINDOWS
     CRITICAL_SECTION cs;
+    CONDITION_VARIABLE cv;
 #else
     pthread_mutex_t mtx;
+    pthread_cond_t cv;
 #endif
 } PenguNativeOnce;
 
 void* pengu_c_filum_once_new(void) {
     PenguNativeOnce* o = (PenguNativeOnce*)malloc(sizeof(PenguNativeOnce));
-    if (!o) return NULL;
+    if (!o) pengu_filum_panic("out of memory allocating a once");
     o->done = 0;
+    o->running = 0;
+    o->active = 0;
 #if PENGU_WINDOWS
     InitializeCriticalSection(&o->cs);
+    InitializeConditionVariable(&o->cv);
 #else
     pthread_mutex_init(&o->mtx, NULL);
+    pthread_cond_init(&o->cv, NULL);
 #endif
     return o;
 }
@@ -900,27 +931,41 @@ void* pengu_c_filum_once_new(void) {
 void pengu_c_filum_once_do(void* o, void* f) {
     if (!o || !f) return;
     PenguNativeOnce* no = (PenguNativeOnce*)o;
-    if (no->done) return;
     void (*fn)(void) = (void (*)(void))f;
 #if PENGU_WINDOWS
     EnterCriticalSection(&no->cs);
-    if (!no->done) {
-        fn();
-        no->done = 1;
-    }
+    no->active++;
+    while (no->running) SleepConditionVariableCS(&no->cv, &no->cs, INFINITE);
+    if (no->done) { no->active--; LeaveCriticalSection(&no->cs); return; }
+    no->running = 1;
+    LeaveCriticalSection(&no->cs);
+    fn();
+    EnterCriticalSection(&no->cs);
+    no->done = 1;
+    no->running = 0;
+    no->active--;
+    WakeAllConditionVariable(&no->cv);
     LeaveCriticalSection(&no->cs);
 #else
     pthread_mutex_lock(&no->mtx);
-    if (!no->done) {
-        fn();
-        no->done = 1;
-    }
+    no->active++;
+    while (no->running) pthread_cond_wait(&no->cv, &no->mtx);
+    if (no->done) { no->active--; pthread_mutex_unlock(&no->mtx); return; }
+    no->running = 1;
+    pthread_mutex_unlock(&no->mtx);
+    fn();
+    pthread_mutex_lock(&no->mtx);
+    no->done = 1;
+    no->running = 0;
+    no->active--;
+    pthread_cond_broadcast(&no->cv);
     pthread_mutex_unlock(&no->mtx);
 #endif
 }
 
 /* Cond */
 typedef struct {
+    int active;
 #if PENGU_WINDOWS
     CONDITION_VARIABLE cv;
 #else
@@ -930,7 +975,8 @@ typedef struct {
 
 void* pengu_c_filum_cond_new(void) {
     PenguNativeCond* c = (PenguNativeCond*)malloc(sizeof(PenguNativeCond));
-    if (!c) return NULL;
+    if (!c) pengu_filum_panic("out of memory allocating a cond");
+    c->active = 0;
 #if PENGU_WINDOWS
     InitializeConditionVariable(&c->cv);
 #else
@@ -944,9 +990,13 @@ void pengu_c_filum_cond_wait(void* c, void* m) {
     PenguNativeCond* nc = (PenguNativeCond*)c;
     PenguNativeMutex* nm = (PenguNativeMutex*)m;
 #if PENGU_WINDOWS
+    nc->active++;
     SleepConditionVariableCS(&nc->cv, &nm->cs, INFINITE);
+    nc->active--;
 #else
+    nc->active++;
     pthread_cond_wait(&nc->cv, &nm->mtx);
+    nc->active--;
 #endif
 }
 
@@ -981,15 +1031,15 @@ void pengu_c_filum_cond_broadcast(void* c) {
  * mode). */
 typedef struct {
 #if PENGU_WINDOWS
-    volatile long val;
+    volatile LONG val;
 #else
-    atomic_long val;
+    atomic_int val;
 #endif
 } PenguNativeAtomicInt;
 
 void* pengu_c_filum_atomic_int_new(int initial) {
     PenguNativeAtomicInt* a = (PenguNativeAtomicInt*)malloc(sizeof(PenguNativeAtomicInt));
-    if (!a) return NULL;
+    if (!a) pengu_filum_panic("out of memory allocating an atomic int");
     a->val = initial;
     return a;
 }
@@ -1040,8 +1090,8 @@ bool pengu_c_filum_atomic_int_compare_swap(void* a, int old_val, int new_val) {
 #if PENGU_WINDOWS
     return (InterlockedCompareExchange(&na->val, new_val, old_val) == old_val);
 #else
-    long expected = old_val;
-    return atomic_compare_exchange_strong(&na->val, &expected, (long)new_val);
+    int expected = old_val;
+    return atomic_compare_exchange_strong(&na->val, &expected, new_val);
 #endif
 }
 
@@ -1053,6 +1103,7 @@ typedef struct {
     int head;
     int tail;
     int size;
+    int active;
     bool closed;
 #if PENGU_WINDOWS
     CRITICAL_SECTION cs;
@@ -1066,23 +1117,20 @@ typedef struct {
 } PenguNativeChan;
 
 void* pengu_c_filum_chan_new(size_t elem_size, int cap) {
-    if (cap < 1) cap = 1;
+    if (cap < 0) cap = 0;
     PenguNativeChan* ch = (PenguNativeChan*)malloc(sizeof(PenguNativeChan));
-    if (!ch) return NULL;
+    if (!ch) pengu_filum_panic("out of memory allocating a channel");
     ch->elem_size = elem_size > 0 ? elem_size : (size_t)sizeof(void*);
     ch->cap = cap;
     ch->head = 0;
     ch->tail = 0;
     ch->size = 0;
+    ch->active = 0;
     ch->closed = false;
-    ch->buffer = (uint8_t*)malloc((size_t)ch->elem_size * (size_t)cap);
-    if (!ch->buffer) {
-        /* Every later send/recv memcpy's into this buffer, so a NULL here would
-         * turn a failed allocation into a null dereference at the first message.
-         * Report the failure instead and leave no half-initialised handle. */
-        free(ch);
-        return NULL;
-    }
+    /* A rendezvous channel (cap 0) still needs one physical slot; the
+     * difference is that send() waits until recv() takes it. */
+    ch->buffer = (uint8_t*)malloc((size_t)ch->elem_size * (size_t)(cap > 0 ? cap : 1));
+    if (!ch->buffer) pengu_filum_panic("out of memory allocating a channel buffer");
 #if PENGU_WINDOWS
     InitializeCriticalSection(&ch->cs);
     InitializeConditionVariable(&ch->not_empty);
@@ -1100,32 +1148,54 @@ bool pengu_c_filum_chan_send(void* c, void* value) {
     PenguNativeChan* ch = (PenguNativeChan*)c;
 #if PENGU_WINDOWS
     EnterCriticalSection(&ch->cs);
-    while (ch->size == ch->cap && !ch->closed) {
-        SleepConditionVariableCS(&ch->not_full, &ch->cs, INFINITE);
-    }
-    if (ch->closed) {
+    ch->active++;
+    if (ch->cap == 0) {
+        while (ch->size == 1 && !ch->closed) SleepConditionVariableCS(&ch->not_full, &ch->cs, INFINITE);
+        if (ch->closed) { ch->active--; LeaveCriticalSection(&ch->cs); return false; }
+        memcpy(ch->buffer, value, ch->elem_size);
+        ch->size = 1;
+        WakeAllConditionVariable(&ch->not_empty);
+        while (ch->size == 1 && !ch->closed) SleepConditionVariableCS(&ch->not_full, &ch->cs, INFINITE);
+        bool ok = !ch->closed || ch->size == 0;
+        if (!ok) ch->size = 0;
+        WakeAllConditionVariable(&ch->not_full);
+        ch->active--;
         LeaveCriticalSection(&ch->cs);
-        return false;
+        return ok;
     }
-    memcpy(ch->buffer + (ch->tail * ch->elem_size), value, (size_t)ch->elem_size);
+    while (ch->size == ch->cap && !ch->closed) SleepConditionVariableCS(&ch->not_full, &ch->cs, INFINITE);
+    if (ch->closed) { ch->active--; LeaveCriticalSection(&ch->cs); return false; }
+    memcpy(ch->buffer + (ch->tail * ch->elem_size), value, ch->elem_size);
     ch->tail = (ch->tail + 1) % ch->cap;
     ch->size++;
     WakeConditionVariable(&ch->not_empty);
+    ch->active--;
     LeaveCriticalSection(&ch->cs);
     return true;
 #else
     pthread_mutex_lock(&ch->mtx);
-    while (ch->size == ch->cap && !ch->closed) {
-        pthread_cond_wait(&ch->not_full, &ch->mtx);
-    }
-    if (ch->closed) {
+    ch->active++;
+    if (ch->cap == 0) {
+        while (ch->size == 1 && !ch->closed) pthread_cond_wait(&ch->not_full, &ch->mtx);
+        if (ch->closed) { ch->active--; pthread_mutex_unlock(&ch->mtx); return false; }
+        memcpy(ch->buffer, value, ch->elem_size);
+        ch->size = 1;
+        pthread_cond_broadcast(&ch->not_empty);
+        while (ch->size == 1 && !ch->closed) pthread_cond_wait(&ch->not_full, &ch->mtx);
+        bool ok = !ch->closed || ch->size == 0;
+        if (!ok) ch->size = 0;
+        pthread_cond_broadcast(&ch->not_full);
+        ch->active--;
         pthread_mutex_unlock(&ch->mtx);
-        return false;
+        return ok;
     }
-    memcpy(ch->buffer + (ch->tail * ch->elem_size), value, (size_t)ch->elem_size);
+    while (ch->size == ch->cap && !ch->closed) pthread_cond_wait(&ch->not_full, &ch->mtx);
+    if (ch->closed) { ch->active--; pthread_mutex_unlock(&ch->mtx); return false; }
+    memcpy(ch->buffer + (ch->tail * ch->elem_size), value, ch->elem_size);
     ch->tail = (ch->tail + 1) % ch->cap;
     ch->size++;
     pthread_cond_signal(&ch->not_empty);
+    ch->active--;
     pthread_mutex_unlock(&ch->mtx);
     return true;
 #endif
@@ -1134,34 +1204,29 @@ bool pengu_c_filum_chan_send(void* c, void* value) {
 bool pengu_c_filum_chan_recv(void* c, void* out) {
     if (!c || !out) return false;
     PenguNativeChan* ch = (PenguNativeChan*)c;
+    int stride = ch->cap > 0 ? ch->cap : 1;
 #if PENGU_WINDOWS
     EnterCriticalSection(&ch->cs);
-    while (ch->size == 0 && !ch->closed) {
-        SleepConditionVariableCS(&ch->not_empty, &ch->cs, INFINITE);
-    }
-    if (ch->size == 0 && ch->closed) {
-        LeaveCriticalSection(&ch->cs);
-        return false;
-    }
-    memcpy(out, ch->buffer + (ch->head * ch->elem_size), (size_t)ch->elem_size);
-    ch->head = (ch->head + 1) % ch->cap;
+    ch->active++;
+    while (ch->size == 0 && !ch->closed) SleepConditionVariableCS(&ch->not_empty, &ch->cs, INFINITE);
+    if (ch->size == 0 && ch->closed) { ch->active--; LeaveCriticalSection(&ch->cs); return false; }
+    memcpy(out, ch->buffer + (ch->head * ch->elem_size), ch->elem_size);
+    ch->head = (ch->head + 1) % stride;
     ch->size--;
-    WakeConditionVariable(&ch->not_full);
+    WakeAllConditionVariable(&ch->not_full);
+    ch->active--;
     LeaveCriticalSection(&ch->cs);
     return true;
 #else
     pthread_mutex_lock(&ch->mtx);
-    while (ch->size == 0 && !ch->closed) {
-        pthread_cond_wait(&ch->not_empty, &ch->mtx);
-    }
-    if (ch->size == 0 && ch->closed) {
-        pthread_mutex_unlock(&ch->mtx);
-        return false;
-    }
-    memcpy(out, ch->buffer + (ch->head * ch->elem_size), (size_t)ch->elem_size);
-    ch->head = (ch->head + 1) % ch->cap;
+    ch->active++;
+    while (ch->size == 0 && !ch->closed) pthread_cond_wait(&ch->not_empty, &ch->mtx);
+    if (ch->size == 0 && ch->closed) { ch->active--; pthread_mutex_unlock(&ch->mtx); return false; }
+    memcpy(out, ch->buffer + (ch->head * ch->elem_size), ch->elem_size);
+    ch->head = (ch->head + 1) % stride;
     ch->size--;
-    pthread_cond_signal(&ch->not_full);
+    pthread_cond_broadcast(&ch->not_full);
+    ch->active--;
     pthread_mutex_unlock(&ch->mtx);
     return true;
 #endif
@@ -1226,23 +1291,17 @@ void pengu_c_filum_mutex_free(void* m) {
 void pengu_c_filum_wait_group_free(void* wg) {
     if (!wg) return;
     PenguNativeWaitGroup* nwg = (PenguNativeWaitGroup*)wg;
-    /* Release anyone parked in `wait` before destroying the primitives they are
-     * parked on: zeroing the count makes the `while (count > 0)` loop fall
-     * through. Destroying a condition variable that still has waiters is
-     * undefined behaviour, and it is the one teardown defect the sanitizers
-     * cannot see (the object is freed, so there is no leak to report). The
-     * caller must still not free a wait group another thread is about to use --
-     * that contract is unchanged. */
+    /* Destroying a condition variable that still has waiters is undefined
+     * behaviour; a free racing with wait() is a caller bug, so abort with a
+     * clear message instead of corrupting memory. */
 #if PENGU_WINDOWS
     EnterCriticalSection(&nwg->cs);
-    nwg->count = 0;
-    WakeAllConditionVariable(&nwg->cv);
+    if (nwg->waiters != 0) { LeaveCriticalSection(&nwg->cs); pengu_filum_panic("wait_group_free with a waiter inside wait()"); }
     LeaveCriticalSection(&nwg->cs);
     DeleteCriticalSection(&nwg->cs);
 #else
     pthread_mutex_lock(&nwg->mtx);
-    nwg->count = 0;
-    pthread_cond_broadcast(&nwg->cv);
+    if (nwg->waiters != 0) { pthread_mutex_unlock(&nwg->mtx); pengu_filum_panic("wait_group_free with a waiter inside wait()"); }
     pthread_mutex_unlock(&nwg->mtx);
     pthread_mutex_destroy(&nwg->mtx);
     pthread_cond_destroy(&nwg->cv);
@@ -1254,9 +1313,16 @@ void pengu_c_filum_once_free(void* o) {
     if (!o) return;
     PenguNativeOnce* no = (PenguNativeOnce*)o;
 #if PENGU_WINDOWS
+    EnterCriticalSection(&no->cs);
+    if (no->active != 0) { LeaveCriticalSection(&no->cs); pengu_filum_panic("once_free while once_do is running"); }
+    LeaveCriticalSection(&no->cs);
     DeleteCriticalSection(&no->cs);
 #else
+    pthread_mutex_lock(&no->mtx);
+    if (no->active != 0) { pthread_mutex_unlock(&no->mtx); pengu_filum_panic("once_free while once_do is running"); }
+    pthread_mutex_unlock(&no->mtx);
     pthread_mutex_destroy(&no->mtx);
+    pthread_cond_destroy(&no->cv);
 #endif
     free(o);
 }
@@ -1264,13 +1330,12 @@ void pengu_c_filum_once_free(void* o) {
 void pengu_c_filum_cond_free(void* c) {
     if (!c) return;
     PenguNativeCond* nc = (PenguNativeCond*)c;
-    /* Wake any waiter before destroying: a condition variable destroyed with
-     * waiters on it is undefined behaviour, and under Emscripten's pthread
-     * emulation the waiter would never observe the wake. */
+    /* The mutex belongs to the caller; a condvar cannot wake a waiter without
+     * it. Destroying one with waiters is UB, so treat the race as a caller bug. */
+    if (nc->active != 0) pengu_filum_panic("cond_free with a waiter inside cond_wait");
 #if PENGU_WINDOWS
-    WakeAllConditionVariable(&nc->cv);
+    /* CONDITION_VARIABLE has no destroy. */
 #else
-    pthread_cond_broadcast(&nc->cv);
     pthread_cond_destroy(&nc->cv);
 #endif
     free(c);
@@ -1284,6 +1349,7 @@ void pengu_c_filum_atomic_int_free(void* a) {
 void pengu_c_filum_chan_free(void* c) {
     if (!c) return;
     PenguNativeChan* ch = (PenguNativeChan*)c;
+    if (ch->active != 0) pengu_filum_panic("chan_free while a send/recv is active");
     /* Wake every blocked sender/receiver before tearing the primitives down.
      * Destroying a condition variable that still has waiters is undefined
      * behaviour, and Emscripten's pthread emulation is particularly unforgiving
