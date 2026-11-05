@@ -2006,7 +2006,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             while ai < an:
                 var atn as int is calling astutil.node_child with ast, gargs, ai
                 if atn >= 0:
-                    var tid as int is calling tast.from_ast with c, m, atn
+                    var tid as int is calling tast.type_from_ast_subst with c, m, atn
                     if tid > 0:
                         calling args.push with tid
                 set ai is ai + 1
