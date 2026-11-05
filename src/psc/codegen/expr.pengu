@@ -2001,7 +2001,11 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
         var tnode_g as int is calling astutil.node_child with ast, node, 0
         var ltok_g as int is calling last_token_deep with ast, tnode_g
         var base_i as int is fslot
-        if ltok_g >= 0:
+        # `by_name` guarda una sola función por nombre: si otro módulo exporta
+        # un `copy` no genérico, mirar ahí pisaba la función resuelta por el
+        # símbolo (`memoria.copy of byte` acababa llamando a `memoria_copy`
+        # sin sufijo de instancia). Solo se consulta si no hay `fslot`.
+        if base_i < 0 and ltok_g >= 0:
             var ltxt_g as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), ltok_g
             var lnid_g as int is calling npool.intern with (sigil of c->program->names), ltxt_g
             banish ltxt_g
@@ -2066,6 +2070,11 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
             var inf0 as list of int is calling generics.infer_from_actual with c, fslot, actuals
             if inf0.len == bfg.tparams.len and inf0.len > 0:
                 var si0 as int is calling generics.find_spec with c, bfg.symbol, inf0
+                # El prepass no siempre crea la instancia (p. ej. cuando la
+                # llamada vive en el mismo modulo que la plantilla): sin esto
+                # la llamada se quedaba con el nombre base y el C no compilaba.
+                if si0 < 0 and not bfg.is_spec:
+                    set si0 is calling generics.add_spec with c, fslot, inf0
                 if si0 >= 0:
                     set fslot is si0
                     var sf0 as catalog.CgFunction is (c->catalog.functions at si0)
@@ -2497,15 +2506,20 @@ weave if_expr_expected with c as ref to context.CgContext, node as int, ast as r
     calling sb.append with tv
     calling sb.append with "; }"
     if ie >= 0:
-        var eb0 as int is calling astutil.node_child with ast, ie, 0
         var ev as string is "0"
-        if eb0 >= 0:
-            if (calling astutil.kind_of with ast, eb0) == pskind.NodeKind.NdIfStmt:
-                set ev is calling if_stmt_value with c, eb0, ast, expected
-            else:
-                set ev is calling emit_expr_as with c, eb0, expected
-        else:
+        # En `if c then a else b` el else es el valor directo; en el statement
+        # viene envuelto y hay que bajar un nivel.
+        if (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdIfExpr:
             set ev is calling emit_expr_as with c, ie, expected
+        else:
+            var eb0 as int is calling astutil.node_child with ast, ie, 0
+            if eb0 >= 0:
+                if (calling astutil.kind_of with ast, eb0) == pskind.NodeKind.NdIfStmt:
+                    set ev is calling if_stmt_value with c, eb0, ast, expected
+                else:
+                    set ev is calling emit_expr_as with c, eb0, expected
+            else:
+                set ev is calling emit_expr_as with c, ie, expected
         defer banish ev
         calling sb.append with " else { _pif = "
         calling sb.append with ev
@@ -4486,7 +4500,10 @@ weave omen_init_expr with c as ref to context.CgContext, node as int, ast as ref
                 else:
                     calling sb.append with ".{fn} = {av}"
         set i is i + 1
-    calling sb.append with "}}"
+    # Dos appends: en una interpolacion `}}` es una llave literal, asi que
+    # `"}}"` emitia una sola y el literal compuesto quedaba sin cerrar.
+    calling sb.append with "}"
+    calling sb.append with "}"
     return calling sb.finish
 
 ## Emite `Tipo with: set .campo is valor ...`.

@@ -407,7 +407,7 @@ weave collect_type_instances with c as ref to context.CgContext into void:
             var efi as int is 0
             while efi < check.fields_count:
                 var ef as types.SemaField is (c->program->types.fields at (check.fields_first + efi))
-                if calling has_type_param with c->program, ef.type:
+                if calling catalog.has_type_param with c->program, ef.type:
                     set erased is false
                 set efi is efi + 1
             if erased:

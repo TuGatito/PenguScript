@@ -2,6 +2,39 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.29.1] — 2026-11-04 — valores de `if`, genéricas inferidas y omenes
+
+Cuatro fallos que impedían a `psc test` compilar la biblioteca estándar (y por
+tanto a cualquier proyecto con tests):
+
+### Corregido
+
+- `src/psc/codegen/expr.pengu` (`if_expr_expected`): en `if c then a else b` el
+  else es el valor directo, pero se bajaba un nivel con `node_child`. Por eso
+  `return if c then "x" else (n) to string` emitía `_pif = n;` y
+  `... else some "/tmp"` perdía la caja del `maybe`. Ahora el `else` de un
+  `NdIfExpr` se emite tal cual con el tipo esperado.
+- `src/psc/codegen/expr.pengu` (genéricas sin `of T`): si el prepass no había
+  creado la instancia (p. ej. cuando la llamada vive en el mismo módulo que la
+  plantilla), la llamada se quedaba con el nombre base (`memoria_copy` en vez de
+  `memoria_copy_inst2552`) y el C no compilaba. Ahora se crea la
+  especialización con `generics.add_spec` cuando `find_spec` no la encuentra.
+- `src/psc/codegen/expr.pengu` (llamada con `of T`): `by_name` solo se consulta
+  si el símbolo no resolvió la función; antes podía pisar la función correcta
+  con otra homónima de otro módulo.
+- `src/psc/codegen/expr.pengu` (`omen_init_expr`): el literal compuesto se
+  cerraba con `"}}"`, que tras el cambio de escapes es **una** llave literal;
+  faltaba el cierre en `return with Variante is campo`. Ahora se añaden dos
+  llaves en appends separados.
+- `src/psc/codegen/generics.pengu`: `has_type_param` se llama cualificado
+  (`catalog.has_type_param`) porque hay otra función homónima en
+  `src/psc/sema/types/compat.pengu` y la resolución por módulo elegía esa.
+
+### Añadido
+
+- `tests/regress_if_expr_value.sh`, `tests/regress_generic_infer.sh` y
+  `tests/regress_omen_literal.sh`.
+
 ## [0.29.0] — 2026-11-04 — resolución por módulo, bloques y omenes como valores
 
 Auditoría de los fallos que bloqueaban compilar portus con `psc` 0.28.9. La
