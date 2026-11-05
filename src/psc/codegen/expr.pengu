@@ -1721,12 +1721,17 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                     set early_name is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), ef.c_name)
                 set efi is efi + 1
     var sid as int is calling ann.symbol_of with (sigil of m.annotations), node
+    # Si F3 ya anotó una función del catálogo, su nombre C es la verdad y las
+    # heurísticas de abajo no deben pisarlo (bugs 8/14).
+    var sid_direct as bool is false
     if sid >= 0:
         if calling c->catalog.by_symbol.has with sid:
             var fi as int is calling c->catalog.by_symbol.get with sid
             set fslot is fi
             var ff as catalog.CgFunction is (c->catalog.functions at fi)
             set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), ff.c_name)
+            if not ff.is_method:
+                set sid_direct is true
         else:
             var sv as sym.SemaSymbol is calling symbols.symbol_at with (sigil of c->program->symbols), sid
             # Un local puede tener un nombre C distinto del fuente (`double` ->
@@ -1932,7 +1937,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
     # Override final para `mod.fn` genéricas: `ann.symbol_of` puede haber
     # resuelto un método homónimo (`sum` → `list_sum`) antes de llegar aquí.
     var qo_t as int is calling astutil.node_child with ast, node, 0
-    if qo_t >= 0:
+    if qo_t >= 0 and not sid_direct:
         var qo_b as int is calling astutil.token_child with ast, qo_t, 0
         var qo_l as int is calling last_token_deep with ast, qo_t
         if qo_b >= 0 and qo_l >= 0:
@@ -2083,7 +2088,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
         if qsf0.is_spec:
             set qskip is true
     var qtn as int is calling astutil.node_child with ast, node, 0
-    if qtn >= 0 and not qskip and not (gargs >= 0 and (calling astutil.kind_of with ast, gargs) == pskind.NodeKind.NdGenericArgs):
+    if qtn >= 0 and not qskip and not sid_direct and not (gargs >= 0 and (calling astutil.kind_of with ast, gargs) == pskind.NodeKind.NdGenericArgs):
         var qtok0 as int is calling astutil.token_child with ast, qtn, 0
         var qlast as int is calling last_token_deep with ast, qtn
         if qtok0 >= 0 and qlast >= 0:
@@ -2141,7 +2146,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
                                 set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), qf0.c_name)
                             set qfi0 is qfi0 + 1
     # Alias privado `_fn` llamado como `fn`.
-    if cname != "":
+    if cname != "" and not sid_direct:
         var direct as bool is false
         var ctest as string is calling npool.copy_string with cname
         var uj as int is 0
@@ -2178,7 +2183,7 @@ weave call_expr with c as ref to context.CgContext, node as int, ast as ref to p
         var sfe as catalog.CgFunction is (c->catalog.functions at fslot)
         banish cname
         set cname is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), sfe.c_name)
-    if qslot >= 0 and not qskip:
+    if qslot >= 0 and not qskip and not sid_direct:
         set fslot is qslot
         banish cname
         set cname is calling npool.copy_string with qname
