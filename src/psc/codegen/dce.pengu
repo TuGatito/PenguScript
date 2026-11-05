@@ -100,6 +100,9 @@ weave mark_symbol with c as ref to context.CgContext, r as ref to CgReach, sid a
             set sfi is sfi + 1
     if f.is_declare:
         return
+    # Los codecs de `derive Json` no tienen cuerpo en el AST.
+    if f.is_generated or f.node < 0:
+        return
     var m as loader.SemaModule is (c->program->modules at f.module)
     var ast as ref to psast.PsAst is (sigil of m.parse.ast)
     calling scan_node with c, r, m, ast, f.node

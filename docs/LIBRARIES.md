@@ -2,7 +2,7 @@
 
 This guide describes how to write a library that other projects can install
 with `psc add` and import like any other module. Everything below is tested
-against `psc` 0.31.0 on Linux and macOS; the notes call out what only works on
+against `psc` 0.32.0 on Linux and macOS; the notes call out what only works on
 newer compilers.
 
 A library in PenguScript is **a git repository** (or a local directory) with a

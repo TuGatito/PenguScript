@@ -49,8 +49,9 @@ weave main into int:
         calling spark.println with "builtin type lookup mismatch"
         return 21
 
-    if (calling types.type_count with (sigil of t)) != 34:
-        calling spark.println with "expected 34 builtins, got {(calling types.type_count with (sigil of t))}"
+    # 34 hasta 0.31; `Json` añade el concepto incorporado 35.
+    if (calling types.type_count with (sigil of t)) != 35:
+        calling spark.println with "expected 35 builtins, got {(calling types.type_count with (sigil of t))}"
         return 1
 
     var int_t as int is calling types.base with (sigil of t), "int32_t"
@@ -111,9 +112,9 @@ weave main into int:
     if ref_info.kind != tk.SemaTypeKind.TkRef or ref_info.a != list_t:
         calling spark.println with "ref payload failed"
         return 8
-    if (calling types.type_count with (sigil of t)) != 37:
-        calling spark.println with "expected 37 final types, got {(calling types.type_count with (sigil of t))}"
+    if (calling types.type_count with (sigil of t)) != 38:
+        calling spark.println with "expected 38 final types, got {(calling types.type_count with (sigil of t))}"
         return 9
 
-    calling spark.println with "sema smoke ok: types=37"
+    calling spark.println with "sema smoke ok: types=38"
     return 0

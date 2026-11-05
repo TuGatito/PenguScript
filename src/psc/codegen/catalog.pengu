@@ -46,6 +46,8 @@ rune CgFunction:
     self_value as bool
     ## `true` para un constructor `ritual` (sin self).
     is_ritual as bool
+    ## `true` para un codec emitido por el compilador (`derive Json`).
+    is_generated as bool
     ## Parámetros de tipo (`NameId`) de una función genérica.
     tparams as list of int
     ## Argumentos de tipo de una especialización (`TypeId`).
@@ -202,7 +204,10 @@ weave module_fn_prefix with p as ref to program.SemaProgram, m as loader.SemaMod
         # `insignia` es posicional: no afecta a declaraciones anteriores.
         if m.insignia_pos >= 0 and node >= 0 and (calling astutil.start_of with (sigil of m.parse.ast), node) < m.insignia_pos:
             return ""
-        return calling npool.copy_string with (calling npool.text with (sigil of p->names), m.insignia)
+        var raw_ins as string is calling npool.copy_string with (calling npool.text with (sigil of p->names), m.insignia)
+        var clean_ins as string is calling c_ident_safe with raw_ins
+        banish raw_ins
+        return clean_ins
     var path as string is m.path
     var n as int is path length
     if n == 0:
@@ -240,7 +245,9 @@ weave module_fn_prefix with p as ref to program.SemaProgram, m as loader.SemaMod
         set out is "{parent}_{stem}_"
     banish stem
     banish parent
-    return out
+    var safe as string is calling c_ident_safe with out
+    banish out
+    return safe
 
 ## Registra una función si su símbolo F3 existe.
 ##
@@ -331,7 +338,7 @@ weave add_function with p as ref to program.SemaProgram, c as ref to CgCatalog, 
                 set pi is pi + 1
         set ai2 is ai2 + 1
     var idx as int is c->functions.len
-    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is is_declare, is_antiquus is is_antiquus, is_method is false, recv_type is -1, self_value is false, is_ritual is false, tparams is tps, spec_args is list of int, is_generic is tps.len > 0, is_spec is false, is_main is is_main, c_name is cname
+    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is is_declare, is_antiquus is is_antiquus, is_method is false, recv_type is -1, self_value is false, is_ritual is false, tparams is tps, spec_args is list of int, is_generic is tps.len > 0, is_spec is false, is_main is is_main, is_generated is false, c_name is cname
     calling c->functions.push with f
     calling c->by_symbol.put with sid, idx
     if not (calling c->by_name.has with name):
@@ -609,7 +616,7 @@ weave add_method with p as ref to program.SemaProgram, c as ref to CgCatalog, m 
     if mtps.len > 0:
         set is_gen is true
     var idx as int is c->functions.len
-    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is false, is_antiquus is false, is_method is true, recv_type is recv, self_value is is_self_value, is_ritual is is_rit, tparams is mtps, spec_args is list of int, is_generic is is_gen, is_spec is false, is_main is is_main, c_name is cname
+    var f as CgFunction is with name is name, symbol is sid, node is node, module is m.id, is_declare is false, is_antiquus is false, is_method is true, recv_type is recv, self_value is is_self_value, is_ritual is is_rit, tparams is mtps, spec_args is list of int, is_generic is is_gen, is_spec is false, is_main is is_main, is_generated is false, c_name is cname
     calling c->functions.push with f
     calling c->by_symbol.put with sid, idx
     if not (calling c->by_name.has with name):
@@ -675,6 +682,22 @@ weave safe_ident with s as string into string:
             calling sb.append with "_"
         set i is i + 1
     return calling sb.finish
+
+## Sanea un identificador C: allowlist `[A-Za-z0-9_]` y guion bajo inicial si
+## empieza por dígito.
+##
+## ## Memoria
+## Devuelve string owned; liberar con `banish`.
+weave c_ident_safe with s as string into string:
+    var clean as string is calling safe_ident with s
+    if clean length > 0:
+        var b as ref to frozen byte is bytes of clean
+        var ch as int is ((b at 0) to int)
+        if ch >= 48 and ch <= 57:
+            var out as string is "_{clean}"
+            banish clean
+            return out
+    return clean
 
 ## Añade a listas; no posee strings.
 weave add_const with p as ref to program.SemaProgram, c as ref to CgCatalog, m as loader.SemaModule, node as int into void:

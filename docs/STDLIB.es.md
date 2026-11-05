@@ -1,6 +1,6 @@
 # La biblioteca estándar de PenguScript
 
-Los 68 módulos de `std/` en `psc` 0.31.0: para qué sirve cada uno, cuándo
+Los 68 módulos de `std/` en `psc` 0.32.0: para qué sirve cada uno, cuándo
 usarlo, cuándo usar otro y dónde vive su API generada.
 
 Es el documento *catálogo* del conjunto de documentación:
@@ -106,7 +106,7 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
 - [Apéndice C — Convenciones de nombres en la biblioteca estándar](#apéndice-c-convenciones-de-nombres-en-la-biblioteca-estándar)
 <!-- /toc -->
 
-Todos los módulos que vienen con `psc` 0.31.0: para qué sirven, cuándo usarlos y
+Todos los módulos que vienen con `psc` 0.32.0: para qué sirven, cuándo usarlos y
 dónde vive la API generada de cada uno.
 
 ## 0. Cómo usar este catálogo
@@ -132,7 +132,7 @@ Cada entrada tiene la misma forma:
 **API** [enlace a la página generada] · [fuente]
 ```
 
-**Versión.** Este catálogo describe `psc` 0.31.0 y el árbol `std/` del mismo
+**Versión.** Este catálogo describe `psc` 0.32.0 y el árbol `std/` del mismo
 commit. La constante de versión de un módulo (`TRIAL_VERSION`, `CARMEN_VERSION`,
 …) es la versión propia de su API, no la del compilador.
 
@@ -577,6 +577,17 @@ el atajo de la era 0.14: `std.cipher.parse_json` devuelve
 `map of string to string` y pierde los tipos.
 
 **Destacados** `parse`, `stringify`, `as_object`, `as_string`, `get`.
+
+**Propiedad** `JsonValue.clone` es una copia profunda e independiente y
+`JsonValue.free` libera el árbol completo (ambos recorren arrays y objetos
+anidados); `free_values`/`free_entries` liberan una lista producida por
+`as_array`/`as_object`. Un `result of JsonValue to JsonError` sigue poseyendo su
+payload boxeado: hazle `banish` cuando saques el valor.
+
+**Derivar en vez de recorrer** para un DTO tipado, `derive Json` genera el códec
+en C sin depender de este módulo — ver
+[LANGUAGE.es.md §9.7.1](LANGUAGE.es.md#971-derive-json). Usa `std.json` cuando la
+forma no se conozca en tiempo de compilación.
 
 **API** [`api/std_json.md`](api/std_json.md) · [fuente](../std/json.pengu)
 

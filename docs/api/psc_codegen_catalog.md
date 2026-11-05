@@ -24,6 +24,7 @@ No interpreta cuerpos: eso es trabajo de `emit`/`stmt`/`expr`.
     recv_type as int
     self_value as bool
     is_ritual as bool
+    is_generated as bool
     tparams as list of int
     spec_args as list of int
     is_generic as bool
@@ -267,6 +268,16 @@ _Undocumented._
 
  ## Memoria
  Devuelve string owned.
+
+### `c_ident_safe`
+
+> **c_ident_safe**(s: string) -> string
+
+ Sanea un identificador C: allowlist `[A-Za-z0-9_]` y guion bajo inicial si
+ empieza por dígito.
+
+ ## Memoria
+ Devuelve string owned; liberar con `banish`.
 
 ### `add_const`
 

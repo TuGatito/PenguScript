@@ -349,14 +349,15 @@ runtime treats their `data` pointer as borrowed, so `banish` is a no-op and
 
 > **_json_clone_value**(v: JsonValue) -> JsonValue
 
- Deep-copies a `JsonValue` with the derived `Imago` callback.
+ Deep-copies a `JsonValue`, recursing into arrays and objects.
 
  ## Motivo
- A `derive Imago` helper is a C symbol; the public `clone` method needs to
- call it without exposing the helper name.
+ Copying the handle would share the nested buffers: mutating the copy would
+ change the original, and freeing one would dangle the other. `clone` must
+ hand out an independent tree, so the walk re-allocates every string and list.
 
  ## Memoria
- Returns a fully independent tree; release it with `banish`.
+ Returns a fully independent tree; release it with `banish` or `free`.
 
 ### `_json_free_raw`
 
@@ -717,8 +718,10 @@ runtime treats their `data` pointer as borrowed, so `banish` is a no-op and
 
  ## Ejemplo
  ```pengu
- var items as list of JsonValue is (calling root.as_array) or else json.empty_values
- calling json.free_values with items
+ var items as maybe list of JsonValue is calling root.as_array
+ if items.is_present:
+     calling json.free_values with items.value
+     banish items
  ```
 
 ### `free_entries`

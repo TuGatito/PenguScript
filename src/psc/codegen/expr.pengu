@@ -4399,6 +4399,24 @@ weave omen_first_payload with c as ref to context.CgContext, ty as int, vname as
         set i is i + 1
     return -1
 
+## Tipo del primer campo de payload de una variante.
+##
+## ## Memoria
+## O(variantes).
+weave omen_first_payload_type with c as ref to context.CgContext, ty as int, vname as int into int:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind != tk.SemaTypeKind.TkOmen:
+        return -1
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    var i as int is 0
+    while i < info.variants_count:
+        var v as types.SemaVariant is (c->program->types.variants at (info.variants_first + i))
+        if v.name == vname and v.payload_count > 0:
+            var f as types.SemaField is (c->program->types.fields at v.payload_first)
+            return f.type
+        set i is i + 1
+    return -1
+
 ## Inicializador de un payload de omen con varios campos.
 ##
 ## ## Memoria
@@ -4509,6 +4527,7 @@ weave omen_init_expr with c as ref to context.CgContext, node as int, ast as ref
                 var fnid as int is calling npool.intern with (sigil of c->program->names), fn
                 var is_nested as bool is (calling astutil.kind_of with ast, fv) == pskind.NodeKind.NdStructInit
                 var pfield as int is calling omen_first_payload with c, ty, fnid
+                var pftype as int is calling omen_first_payload_type with c, ty, fnid
                 if not is_nested and pfield >= 0:
                     banish fn
                     set fn is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), pfield)
@@ -4516,7 +4535,7 @@ weave omen_init_expr with c as ref to context.CgContext, node as int, ast as ref
                 if is_nested:
                     set av is calling payload_fields with c, fv, ast, fn
                 else:
-                    var fvty as int is pfield
+                    var fvty as int is pftype
                     if fvty < 0:
                         var fk0 as pskind.NodeKind is calling astutil.kind_of with ast, fv
                         if fk0 == pskind.NodeKind.NdListType or fk0 == pskind.NodeKind.NdMapType:

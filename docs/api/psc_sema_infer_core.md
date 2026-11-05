@@ -455,6 +455,25 @@ _Undocumented._
  ## Memoria
  O(campos).
 
+### `nominal_field_index`
+
+> **nominal_field_index**(s: ref to SemaState, ty: int, nid: int) -> int
+
+ Índice del campo `nid` en un rune/echo (0-based), o `-1`.
+
+ ## Memoria
+ No asigna.
+
+### `has_nominal_fields`
+
+> **has_nominal_fields**(s: ref to SemaState, ty: int) -> bool
+
+ `true` si `ty` es un rune/echo con campos declarados (no omen, genérico,
+ alias, seal ni primitivo).
+
+ ## Memoria
+ No asigna.
+
 ### `infer_field_inits`
 
 > **infer_field_inits**(s: ref to SemaState, node: int, ty: int) -> void

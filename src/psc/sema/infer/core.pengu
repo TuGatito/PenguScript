@@ -2010,6 +2010,37 @@ weave infer_struct_init with s as ref to state.SemaState, node as int into int:
         return 0
     return ty
 
+## Índice del campo `nid` en un rune/echo (0-based), o `-1`.
+##
+## ## Memoria
+## No asigna.
+weave nominal_field_index with s as ref to state.SemaState, ty as int, nid as int into int:
+    var t2 as int is calling underlying_type with s, ty
+    var tyy as tk.SemaType is calling types.at with s->types, t2
+    if tyy.kind != tk.SemaTypeKind.TkRune and tyy.kind != tk.SemaTypeKind.TkEcho:
+        return -1
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at tyy.a)
+    var j as int is 0
+    while j < info.fields_count:
+        var f as types.SemaField is (s->types->fields at (info.fields_first + j))
+        if f.name == nid:
+            return j
+        set j is j + 1
+    return -1
+
+## `true` si `ty` es un rune/echo con campos declarados (no omen, genérico,
+## alias, seal ni primitivo).
+##
+## ## Memoria
+## No asigna.
+weave has_nominal_fields with s as ref to state.SemaState, ty as int into bool:
+    var t2 as int is calling underlying_type with s, ty
+    var tyy as tk.SemaType is calling types.at with s->types, t2
+    if tyy.kind != tk.SemaTypeKind.TkRune and tyy.kind != tk.SemaTypeKind.TkEcho:
+        return false
+    var info as types.SemaNominalInfo is (s->types->nominal_infos at tyy.a)
+    return info.fields_count > 0
+
 ## Infiere los valores de `with campo is expr, ...`.
 ##
 ## `infer_struct_init` solo resuelve el tipo nominal; sin esto el valor de cada
@@ -2022,6 +2053,17 @@ weave infer_struct_init with s as ref to state.SemaState, node as int into int:
 weave infer_field_inits with s as ref to state.SemaState, node as int, ty as int into void:
     var i as int is 0
     var n as int is calling astutil.child_count with s->ast, node
+    var check_fields as bool is false
+    var rune_name as string is ""
+    var seen as map of int to bool is map of int to bool
+    defer banish seen
+    if ty > 0 and (calling has_nominal_fields with s, ty):
+        set check_fields is true
+        var t3 as int is calling underlying_type with s, ty
+        var ty3 as tk.SemaType is calling types.at with s->types, t3
+        var inf3 as types.SemaNominalInfo is (s->types->nominal_infos at ty3.a)
+        set rune_name is calling npool.copy_string with (calling npool.text with s->names, inf3.base_name)
+    defer banish rune_name
     while i < n:
         var fi as int is calling astutil.node_child with s->ast, node, i
         if fi >= 0 and (calling astutil.kind_of with s->ast, fi) == pskind.NodeKind.NdFieldInit:
@@ -2029,10 +2071,27 @@ weave infer_field_inits with s as ref to state.SemaState, node as int, ty as int
             var nm as int is calling astutil.token_child with s->ast, fi, 0
             if nm >= 0 and ty > 0:
                 var txt as string is calling astutil.token_text with s->src, s->lex, nm
-                defer banish txt
+                var txt_owned as bool is true
                 var ft as int is calling field_type with s, ty, txt
                 if ft > 0:
                     set expected is ft
+                if check_fields:
+                    # Campo: debe existir en el rune y no repetirse. La coma de un
+                    # `with` anidado liga al `with` más interno, así que un campo
+                    # que "falta" suele ser el síntoma de ese anidamiento.
+                    var nid as int is calling npool.find with s->names, txt
+                    if nid < 0 or (calling nominal_field_index with s, ty, nid) < 0:
+                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, fi), (calling astutil.end_of with s->ast, fi), "rune '{rune_name}' has no field '{txt}'", "Check the field name. Nested `with` initializers must be parenthesized: `field is (with ...)`.", ""
+                        banish txt
+                        set txt_owned is false
+                    else if (calling seen.has with nid):
+                        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_UNDEFINED, (calling astutil.start_of with s->ast, fi), (calling astutil.end_of with s->ast, fi), "field '{txt}' is initialized twice in this `with`", "Remove one of the two initializers.", ""
+                        banish txt
+                        set txt_owned is false
+                    else:
+                        calling seen.put with nid, true
+                if txt_owned:
+                    banish txt
             var ci as int is 0
             var cn as int is calling astutil.child_count with s->ast, fi
             var val as int is -1

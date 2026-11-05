@@ -1,0 +1,70 @@
+## `derive Json`: listas, mapas, `maybe`, runas anidadas y omens sin payload.
+
+import std.scrolls
+
+rune Inner derive Json:
+    n as int
+    label as string
+
+omen Grade:
+    A
+    B
+    C
+
+rune Bag derive Json:
+    names as list of string
+    matrix as list of list of int
+    nick as maybe string
+    absent as maybe int
+    scores as map of string to f64
+    inner as Inner
+    grade as Grade
+
+weave obj with body as string into string:
+    var open_brace as string is "{"
+    var close_brace as string is "}"
+    return open_brace + body + close_brace
+
+weave main into int:
+    var inner as Inner is with n is 3, label is "tri"
+    var scores as map of string to f64 is map of string to f64
+    calling scores.put with "b", 2.5
+    calling scores.put with "a", 1.5
+    var b as Bag is with names is ["uno", "dos"], matrix is [[1, 2], [3]], nick is (some "nick"), absent is (maybe none), scores is (scores), inner is (inner), grade is (Grade.B)
+    var j as string is calling b.to_json
+    var expected as string is calling obj with "\"names\":[\"uno\",\"dos\"],\"matrix\":[[1,2],[3]],\"nick\":\"nick\",\"absent\":null,\"scores\":" + (calling obj with "\"a\":1.5,\"b\":2.5") + ",\"inner\":" + (calling obj with "\"n\":3,\"label\":\"tri\"") + ",\"grade\":\"B\""
+    if j != expected:
+        return 1
+    var r as result of Bag to string is calling Bag.from_json with j
+    if not r.is_ok:
+        return 2
+    var v as Bag is r.value
+    if v.names length != 2:
+        return 3
+    if v.names at 0 != "uno":
+        return 4
+    if v.matrix length != 2:
+        return 5
+    var row as list of int is v.matrix at 1
+    if (row at 0) != 3:
+        return 6
+    if not v.nick.is_present:
+        return 7
+    if v.nick.value != "nick":
+        return 8
+    if v.absent.is_present:
+        return 9
+    if v.scores length != 2:
+        return 10
+    var bval as f64 is calling v.scores.get with "b"
+    if bval != 2.5:
+        return 11
+    if v.inner.label != "tri":
+        return 12
+    var expected_grade as Grade is Grade.B
+    if v.grade != expected_grade:
+        return 13
+    var again as string is calling v.to_json
+    if again != j:
+        return 14
+    return 0

@@ -431,6 +431,18 @@ void pengu_map_iter_advance(PenguMapIter *iter)
   iter->it = cc_map_next(state->cc, iter->it, state->val_size, state->layout);
 }
 
+void *pengu_map_iter_value(const PenguMapIter *iter)
+{
+  if (!iter || !iter->map)
+    return NULL;
+  PenguMapState *state = pengu_cc_map_state(iter->map);
+  if (!state || !iter->it)
+    return NULL;
+  /* CC stores the element value at the bucket start and the key right after
+   * it, so the iterator handle is the value pointer. */
+  return iter->it;
+}
+
 const void *pengu_map_iter_key(const PenguMapIter *iter)
 {
   if (!iter || !iter->map)

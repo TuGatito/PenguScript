@@ -194,6 +194,58 @@ weave emit_clone with c as ref to context.CgContext, t as catalog.CgType into vo
     calling emit.indent_less with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "}"
 
+## Emite el cleanup de un omen con payload (libera el payload de la variante
+## activa). Se emite desde `emit_cleanup`, que corre después de `emit_definition`.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_omen_cleanup with c as ref to context.CgContext, ty as tk.SemaType, cname as string into void:
+    var oi2 as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
+    var hasp as bool is false
+    var pj2 as int is 0
+    while pj2 < oi2.variants_count:
+        var pv3 as types.SemaVariant is (c->program->types.variants at (oi2.variants_first + pj2))
+        if pv3.payload_count > 0:
+            set hasp is true
+        set pj2 is pj2 + 1
+    if not hasp:
+        return
+    calling emit.line with (sigil of c->emitter), "static inline void _pengu_cleanup_{cname}({cname}* p) {"
+    calling emit.indent_more with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "(void)p;"
+    calling emit.line with (sigil of c->emitter), "switch (p->tag) {"
+    var vi2 as int is 0
+    while vi2 < oi2.variants_count:
+        var vv2 as types.SemaVariant is (c->program->types.variants at (oi2.variants_first + vi2))
+        if vv2.payload_count > 0:
+            var vnn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), vv2.name)
+            defer banish vnn
+            calling emit.line with (sigil of c->emitter), "case {cname}_{vnn}: {"
+            calling emit.indent_more with (sigil of c->emitter)
+            var fi3 as int is 0
+            while fi3 < vv2.payload_count:
+                var ff as types.SemaField is (c->program->types.fields at (vv2.payload_first + fi3))
+                var ffn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), ff.name)
+                defer banish ffn
+                var fft as tk.SemaType is calling types.at with (sigil of c->program->types), ff.type
+                if fft.kind == tk.SemaTypeKind.TkBase:
+                    var fbn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), fft.name)
+                    if fbn == "string":
+                        calling emit.line with (sigil of c->emitter), "pengu_banish_string(&(p->data.{vnn}.{ffn}));"
+                    banish fbn
+                else if fft.kind == tk.SemaTypeKind.TkList:
+                    calling emit.line with (sigil of c->emitter), "pengu_banish_list(&(p->data.{vnn}.{ffn}));"
+                else if fft.kind == tk.SemaTypeKind.TkMap:
+                    calling emit.line with (sigil of c->emitter), "pengu_banish_map(&(p->data.{vnn}.{ffn}));"
+                set fi3 is fi3 + 1
+            calling emit.line with (sigil of c->emitter), "} break;"
+            calling emit.indent_less with (sigil of c->emitter)
+        set vi2 is vi2 + 1
+    calling emit.line with (sigil of c->emitter), "default: break;"
+    calling emit.line with (sigil of c->emitter), "}"
+    calling emit.indent_less with (sigil of c->emitter)
+    calling emit.line with (sigil of c->emitter), "}"
+
 ## Emite el cleanup derivado de un rune/echo.
 ##
 ## ## Memoria
@@ -205,6 +257,9 @@ weave emit_cleanup with c as ref to context.CgContext, t as catalog.CgType into 
     var info as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
     var cname as string is calling type_name with c, t
     defer banish cname
+    if t.is_omen:
+        calling emit_omen_cleanup with c, ty, cname
+        return
     calling emit.line with (sigil of c->emitter), "static inline void _pengu_cleanup_{cname}({cname}* p) {"
     calling emit.indent_more with (sigil of c->emitter)
     calling emit.line with (sigil of c->emitter), "(void)p;"
@@ -414,53 +469,6 @@ weave emit_definition with c as ref to context.CgContext, t as catalog.CgType in
         var osuf as string is calling layout_attr_suffix with oi
         defer banish osuf
         calling emit.line with (sigil of c->emitter), "}{osuf};"
-        return
-    if t.is_omen:
-        var oi2 as types.SemaNominalInfo is (c->program->types.nominal_infos at ty.a)
-        var hasp as bool is false
-        var pj2 as int is 0
-        while pj2 < oi2.variants_count:
-            var pv3 as types.SemaVariant is (c->program->types.variants at (oi2.variants_first + pj2))
-            if pv3.payload_count > 0:
-                set hasp is true
-            set pj2 is pj2 + 1
-        if not hasp:
-            return
-        calling emit.line with (sigil of c->emitter), "static inline void _pengu_cleanup_{cname}({cname}* p) {"
-        calling emit.indent_more with (sigil of c->emitter)
-        calling emit.line with (sigil of c->emitter), "(void)p;"
-        calling emit.line with (sigil of c->emitter), "switch (p->tag) {"
-        var vi2 as int is 0
-        while vi2 < oi2.variants_count:
-            var vv2 as types.SemaVariant is (c->program->types.variants at (oi2.variants_first + vi2))
-            if vv2.payload_count > 0:
-                var vnn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), vv2.name)
-                defer banish vnn
-                calling emit.line with (sigil of c->emitter), "case {cname}_{vnn}: {"
-                calling emit.indent_more with (sigil of c->emitter)
-                var fi3 as int is 0
-                while fi3 < vv2.payload_count:
-                    var ff as types.SemaField is (c->program->types.fields at (vv2.payload_first + fi3))
-                    var ffn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), ff.name)
-                    defer banish ffn
-                    var fft as tk.SemaType is calling types.at with (sigil of c->program->types), ff.type
-                    if fft.kind == tk.SemaTypeKind.TkBase:
-                        var fbn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), fft.name)
-                        if fbn == "string":
-                            calling emit.line with (sigil of c->emitter), "pengu_banish_string(&(p->data.{vnn}.{ffn}));"
-                        banish fbn
-                    else if fft.kind == tk.SemaTypeKind.TkList:
-                        calling emit.line with (sigil of c->emitter), "pengu_banish_list(&(p->data.{vnn}.{ffn}));"
-                    else if fft.kind == tk.SemaTypeKind.TkMap:
-                        calling emit.line with (sigil of c->emitter), "pengu_banish_map(&(p->data.{vnn}.{ffn}));"
-                    set fi3 is fi3 + 1
-                calling emit.line with (sigil of c->emitter), "} break;"
-                calling emit.indent_less with (sigil of c->emitter)
-            set vi2 is vi2 + 1
-        calling emit.line with (sigil of c->emitter), "default: break;"
-        calling emit.line with (sigil of c->emitter), "}"
-        calling emit.indent_less with (sigil of c->emitter)
-        calling emit.line with (sigil of c->emitter), "}"
         return
     if not t.is_struct:
         return

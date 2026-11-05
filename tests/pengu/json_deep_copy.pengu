@@ -1,0 +1,41 @@
+## `JsonValue.clone` es una copia profunda e independiente y `free` libera el
+## árbol completo.
+
+import std.json
+import std.scrolls
+
+weave main into int:
+    var text as string is "{\"a\":[1,\"x\",{\"b\":true}],\"c\":null}"
+    var r as result of json.JsonValue to json.JsonError is calling json.parse with text
+    if not r.is_ok:
+        return 1
+    var original as json.JsonValue is r.value
+    banish r
+    var copy as json.JsonValue is calling original.clone
+    # La copia sobrevive a la liberación del original.
+    calling original.free
+    var copy_text as string is calling json.stringify with copy
+    if copy_text != text:
+        return 2
+    banish copy_text
+    # Mutar la copia no toca nada más: sigue siendo válida y con su forma.
+    calling copy.set_key with "c", (calling json.JsonValue.int_val with 9)
+    var mutated as string is calling json.stringify with copy
+    if not calling scrolls.contains with mutated, "\"c\":9":
+        return 3
+    banish mutated
+    # Un clon del clon y liberación de ambos sin dobles libres.
+    var copy2 as json.JsonValue is calling copy.clone
+    calling copy.free
+    var copy2_text as string is calling json.stringify with copy2
+    if not calling scrolls.contains with copy2_text, "\"a\":[1,\"x\",{\"b\":true}]":
+        return 4
+    banish copy2_text
+    calling copy2.free
+    # `free` deja el valor en `Null` y es idempotente.
+    var again as string is calling json.stringify with copy2
+    if again != "null":
+        return 5
+    banish again
+    calling copy2.free
+    return 0

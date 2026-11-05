@@ -403,6 +403,15 @@ todo. El `NamePool` y la tabla de tipos son prestados y viven más.
  ## Memoria
  Añade símbolo y mapa.
 
+### `symbol_define_method_cname`
+
+> **symbol_define_method_cname**(s: ref to SemaSymbols, receiver: int, method: int, fn_type: int, cname: string) -> int
+
+ Registra un método con nombre C explícito (codecs de `derive Json`).
+
+ ## Memoria
+ Añade símbolo y mapa; el `c_name` se interna.
+
 ### `lookup_method`
 
 > **lookup_method**(s: ref to SemaSymbols, receiver: int, method: int) -> int

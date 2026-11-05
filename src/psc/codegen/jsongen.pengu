@@ -1,0 +1,1167 @@
+## psc/codegen/jsongen.pengu — codecs C para `derive Json`.
+##
+## Por cada runa `derive Json` viva emite cinco funciones `static`:
+##
+## - `_pengu_json_encode_<T>(T* self)`: `PenguString` con el objeto JSON.
+## - `_pengu_json_write_<T>(PenguJsonOut*, const T*)`: escritor streaming.
+## - `_pengu_json_decode_<T>(PenguString)`: `PenguResult` (`T*` o `PenguString*`).
+## - `_pengu_json_read_<T>(PenguJsonIn*, T*, PenguString*)`: lector streaming.
+## - `_pengu_json_free_<T>(T*)`: liberador exacto de lo que asigna el lector.
+##
+## Contenedores y omens se generan en línea. Cada camino de fallo libera lo que
+## ya vive dentro del destino (`_pengu_json_free_<T>`) y los temporales en vuelo
+## (clave, elemento, valor de mapa): el decodificador no depende del cleanup
+## superficial `_pengu_cleanup_<T>`.
+##
+## ## Memoria
+## Presta `CgContext`; los textos temporales se liberan en cada emisor.
+
+import std.builder
+
+import psc.sema.names as npool
+import psc.sema.symbols.table as symbols
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.codegen.context as context
+import psc.codegen.catalog as catalog
+import psc.codegen.emit as emit
+import psc.codegen.ctype as ctype
+import psc.codegen.dce as dce
+
+insignia cg_jsongen_
+
+# ---------------------------------------------------------------------------
+# Entrada
+# ---------------------------------------------------------------------------
+
+## Marca como vivos los tipos de la clausura `Json` (definición + codecs).
+##
+## ## Memoria
+## Recursivo; no posee recursos.
+weave mark_json_types with c as ref to context.CgContext, r as ref to dce.CgReach into void:
+    var seen as map of int to int is map of int to int
+    defer banish seen
+    var i as int is 0
+    while i < c->program->types.json_type_ids.len:
+        var ty as int is (c->program->types.json_type_ids at i)
+        if calling dce.type_live with r, ty:
+            calling mark_closure with c, ty, r, (sigil of seen)
+        set i is i + 1
+
+## Marca `ty` y sus tipos Json anidados.
+##
+## ## Memoria
+## Recursivo; no posee recursos.
+weave mark_closure with c as ref to context.CgContext, ty as int, r as ref to dce.CgReach, seen as ref to map of int to int into void:
+    if calling seen.has with ty:
+        return
+    calling seen.put with ty, ty
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    calling dce.mark_type with c, r, ty
+    if t.kind != tk.SemaTypeKind.TkRune:
+        return
+    if t.a < 0 or t.a >= c->program->types.nominal_infos.len:
+        return
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    var fi as int is 0
+    while fi < info.fields_count:
+        var f as types.SemaField is (c->program->types.fields at (info.fields_first + fi))
+        calling mark_nested with c, f.type, r, seen
+        set fi is fi + 1
+
+## Marca los tipos nominales anidados de un tipo componible.
+##
+## ## Memoria
+## Recursivo; no posee recursos.
+weave mark_nested with c as ref to context.CgContext, ty as int, r as ref to dce.CgReach, seen as ref to map of int to int into void:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkMaybe:
+        calling mark_nested with c, t.a, r, seen
+    else if t.kind == tk.SemaTypeKind.TkMap:
+        calling mark_nested with c, t.b, r, seen
+    else if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkOmen:
+        if t.a >= 0 and t.a < c->program->types.nominal_infos.len:
+            calling mark_closure with c, ty, r, seen
+
+## Emite prototipos y cuerpos de todos los codecs vivos.
+##
+## ## Memoria
+## Presta el contexto; libera las listas temporales.
+weave emit_all with c as ref to context.CgContext, r as ref to dce.CgReach into void:
+    var live as list of int is list of int
+    defer banish live
+    var i as int is 0
+    while i < c->program->types.json_type_ids.len:
+        var ty as int is (c->program->types.json_type_ids at i)
+        if calling dce.type_live with r, ty:
+            calling live.push with ty
+        set i is i + 1
+    if live.len == 0:
+        return
+    var pi as int is 0
+    while pi < live.len:
+        calling emit_protos with c, (live at pi)
+        set pi is pi + 1
+    var bi as int is 0
+    while bi < live.len:
+        calling emit_bodies with c, (live at bi)
+        set bi is bi + 1
+
+# ---------------------------------------------------------------------------
+# Registro en el catálogo
+# ---------------------------------------------------------------------------
+
+## Registra los dos métodos sintéticos de cada runa `derive Json`.
+##
+## El catálogo necesita la entrada para que una llamada `x.to_json` pase
+## `&x` y `User.from_json` no pase `self`.
+##
+## ## Memoria
+## Añade al catálogo; libera los textos temporales.
+weave register_methods with c as ref to context.CgContext into void:
+    var i as int is 0
+    while i < c->program->types.json_type_ids.len:
+        var ty as int is (c->program->types.json_type_ids at i)
+        var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+        if t.kind == tk.SemaTypeKind.TkRune and t.a >= 0 and t.a < c->program->types.nominal_infos.len:
+            var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+            var cn as string is calling nom_ctype with c, ty
+            defer banish cn
+            var e1 as string is calling cat2 with "_pengu_json_encode_", cn
+            defer banish e1
+            var d1 as string is calling cat2 with "_pengu_json_decode_", cn
+            defer banish d1
+            calling register_one with c, ty, info.module, "to_json", e1, false
+            calling register_one with c, ty, info.module, "from_json", d1, true
+        set i is i + 1
+
+## Registra un método sintético.
+##
+## ## Memoria
+## Añade al catálogo.
+weave register_one with c as ref to context.CgContext, ty as int, mod as int, mname as string, cname as string, ritual as bool into void:
+    var nid as int is calling npool.intern with (sigil of c->program->names), mname
+    var sid as int is calling symbols.lookup_method with (sigil of c->program->symbols), ty, nid
+    if sid <= 0:
+        return
+    if calling c->catalog.by_symbol.has with sid:
+        return
+    var cid as int is calling npool.intern with (sigil of c->program->names), cname
+    var idx as int is c->catalog.functions.len
+    var f as catalog.CgFunction is with name is nid, symbol is sid, node is -1, module is mod, is_declare is false, is_antiquus is false, is_method is true, recv_type is ty, self_value is false, is_ritual is ritual, tparams is list of int, spec_args is list of int, is_generic is false, is_spec is false, is_main is false, is_generated is true, c_name is cid
+    calling c->catalog.functions.push with f
+    calling c->catalog.by_symbol.put with sid, idx
+    if not (calling c->catalog.by_name.has with nid):
+        calling c->catalog.by_name.put with nid, idx
+
+# ---------------------------------------------------------------------------
+# Nombres
+# ---------------------------------------------------------------------------
+
+## Nombre C de un tipo nominal.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave nom_ctype with c as ref to context.CgContext, ty as int into string:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.a >= 0 and t.a < c->program->types.nominal_infos.len:
+        var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+        return calling npool.copy_string with (calling npool.text with (sigil of c->program->names), info.c_name)
+    return calling npool.copy_string with "?"
+
+## Tipo C de un valor.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave value_ctype with c as ref to context.CgContext, ty as int into string:
+    return calling ctype.c_type with (sigil of c->names), ty
+
+## Nombre canónico de una base (`string`, `int`, ...).
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave base_name with c as ref to context.CgContext, ty as int into string:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    return calling npool.copy_string with (calling npool.text with (sigil of c->program->names), t.name)
+
+## Nombre JSON externo de un campo.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave json_field_name with c as ref to context.CgContext, fidx as int into string:
+    if calling c->program->types.json_names.has with fidx:
+        var nid as int is calling c->program->types.json_names.get with fidx
+        return calling npool.copy_string with (calling npool.text with (sigil of c->program->names), nid)
+    var f as types.SemaField is (c->program->types.fields at fidx)
+    return calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.name)
+
+## Nombre C del campo.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave field_cname with c as ref to context.CgContext, fidx as int into string:
+    var f as types.SemaField is (c->program->types.fields at fidx)
+    return calling npool.copy_string with (calling npool.text with (sigil of c->program->names), f.name)
+
+## Sufijo único para locales del código emitido.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave next_sfx with c as ref to context.CgContext into string:
+    var n as int is c->tmp_seq
+    set c->tmp_seq is c->tmp_seq + 1
+    return calling int_sfx with n
+
+## Sufijo numérico para locales (`0`, `1`, ...).
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave int_sfx with n as int into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    calling sb.append_int with n
+    return calling sb.finish
+
+## Escapa un texto para un literal C.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave c_escape with text as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    var i as int is 0
+    var n as int is text length
+    while i < n:
+        var ch as string is text at i
+        if ch == "\"":
+            calling sb.append with "\\\""
+        else if ch == "\\":
+            calling sb.append with "\\\\"
+        else:
+            calling sb.append with ch
+        banish ch
+        set i is i + 1
+    return calling sb.finish
+
+# ---------------------------------------------------------------------------
+# Emisión básica
+# ---------------------------------------------------------------------------
+
+## Línea al emisor.
+##
+## ## Memoria
+## Presta el texto.
+weave eline with c as ref to context.CgContext, text as string into void:
+    calling emit.line with (sigil of c->emitter), text
+
+## Aumenta indentación.
+##
+## ## Memoria
+## O(1).
+weave ein with c as ref to context.CgContext into void:
+    calling emit.indent_more with (sigil of c->emitter)
+
+## Reduce indentación.
+##
+## ## Memoria
+## O(1).
+weave eout with c as ref to context.CgContext into void:
+    calling emit.indent_less with (sigil of c->emitter)
+
+# ---------------------------------------------------------------------------
+# Prototipos
+# ---------------------------------------------------------------------------
+
+## Prototipos de las cinco funciones de una runa.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_protos with c as ref to context.CgContext, ty as int into void:
+    var cn as string is calling nom_ctype with c, ty
+    defer banish cn
+    calling eline with c, "static PenguString _pengu_json_encode_{cn}({cn}* self);"
+    calling eline with c, "static void _pengu_json_write_{cn}(PenguJsonOut* o, const {cn}* v);"
+    calling eline with c, "static PenguResult _pengu_json_decode_{cn}(PenguString text);"
+    calling eline with c, "static bool _pengu_json_read_{cn}(PenguJsonIn* in, {cn}* out, PenguString* err);"
+    calling eline with c, "static void _pengu_json_free_{cn}({cn}* v);"
+
+# ---------------------------------------------------------------------------
+# Cuerpos por runa
+# ---------------------------------------------------------------------------
+
+## Cuerpos encode/write/decode/read/free de una runa.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_bodies with c as ref to context.CgContext, ty as int into void:
+    var cn as string is calling nom_ctype with c, ty
+    defer banish cn
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var info as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    calling emit_encode with c, cn
+    calling emit_write with c, cn, (sigil of info)
+    calling emit_decode with c, cn
+    calling emit_read with c, cn, (sigil of info)
+    calling emit_free with c, cn, (sigil of info)
+
+## `_pengu_json_encode_<T>`.
+##
+## ## Memoria
+## Presta textos temporales.
+weave emit_encode with c as ref to context.CgContext, cn as string into void:
+    calling eline with c, "static PenguString _pengu_json_encode_{cn}({cn}* self) {"
+    calling ein with c
+    calling eline with c, "PenguJsonOut _o;"
+    calling eline with c, "pengu_json_out_init(&_o);"
+    calling eline with c, "_pengu_json_write_{cn}(&_o, self);"
+    calling eline with c, "return pengu_json_out_finish(&_o);"
+    calling eout with c
+    calling eline with c, "}"
+
+## `_pengu_json_write_<T>`.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_write with c as ref to context.CgContext, cn as string, info as ref to types.SemaNominalInfo into void:
+    calling eline with c, "static void _pengu_json_write_{cn}(PenguJsonOut* o, const {cn}* v) {"
+    calling ein with c
+    calling eline with c, "int _first = 1;"
+    calling eline with c, "pengu_json_out_char(o, '{');"
+    var fi as int is 0
+    while fi < info->fields_count:
+        var fidx as int is info->fields_first + fi
+        var f as types.SemaField is (c->program->types.fields at fidx)
+        if (f.flags & types.FIELD_JSON_SKIP) == 0:
+            calling emit_write_field with c, fidx, f
+        set fi is fi + 1
+    calling eline with c, "pengu_json_out_char(o, '}');"
+    calling eout with c
+    calling eline with c, "}"
+
+## Un campo del escritor.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_write_field with c as ref to context.CgContext, fidx as int, f as types.SemaField into void:
+    var jn as string is calling json_field_name with c, fidx
+    defer banish jn
+    var jc as string is calling c_escape with jn
+    defer banish jc
+    var fn as string is calling field_cname with c, fidx
+    defer banish fn
+    calling eline with c, "if (!_first) pengu_json_out_char(o, ',');"
+    calling eline with c, "_first = 0;"
+    calling eline with c, "pengu_json_out_string(o, pengu_string_from_cstr(\"{jc}\"));"
+    calling eline with c, "pengu_json_out_char(o, ':');"
+    var ptr as string is calling cat2 with "&(v->", fn
+    defer banish ptr
+    var ptr2 as string is calling cat2 with ptr, ")"
+    defer banish ptr2
+    calling write_value with c, f.type, ptr2, 0
+
+## `_pengu_json_decode_<T>`.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_decode with c as ref to context.CgContext, cn as string into void:
+    calling eline with c, "static PenguResult _pengu_json_decode_{cn}(PenguString text) {"
+    calling ein with c
+    calling eline with c, "PenguJsonIn _in;"
+    calling eline with c, "pengu_json_in_init(&_in, text);"
+    calling eline with c, "{cn}* _out = ({cn}*)malloc(sizeof({cn}));"
+    calling eline with c, "if (!_out) abort();"
+    calling eline with c, "PenguString _err = pengu_json_no_error();"
+    calling eline with c, "if (!_pengu_json_read_{cn}(&_in, _out, &_err)) {"
+    calling ein with c
+    calling eline with c, "free(_out);"
+    calling eline with c, "return pengu_result_err(pengu_json_box_error(&_err));"
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "if (!pengu_json_in_finish(&_in, &_err)) {"
+    calling ein with c
+    calling eline with c, "_pengu_json_free_{cn}(_out);"
+    calling eline with c, "free(_out);"
+    calling eline with c, "return pengu_result_err(pengu_json_box_error(&_err));"
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "return pengu_result_ok(_out);"
+    calling eout with c
+    calling eline with c, "}"
+
+## Emite una guarda de fallo del lector: `if (!call) { [extra] free; return false; }`.
+##
+## ## Memoria
+## Presta `extra`.
+weave emit_guard with c as ref to context.CgContext, cn as string, call as string, extra as string into void:
+    calling eline with c, "if (!{call})"
+    calling eline with c, "{"
+    calling ein with c
+    if extra length > 0:
+        calling eline with c, extra
+    calling eline with c, "_pengu_json_free_{cn}(out);"
+    calling eline with c, "return false;"
+    calling eout with c
+    calling eline with c, "}"
+
+## `_pengu_json_read_<T>`.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_read with c as ref to context.CgContext, cn as string, info as ref to types.SemaNominalInfo into void:
+    calling eline with c, "static bool _pengu_json_read_{cn}(PenguJsonIn* in, {cn}* out, PenguString* err) {"
+    calling ein with c
+    calling eline with c, "memset(out, 0, sizeof(*out));"
+    calling eline with c, "if (!pengu_json_in_object_begin(in, err)) return false;"
+    var fi as int is 0
+    while fi < info->fields_count:
+        var fidx as int is info->fields_first + fi
+        var f as types.SemaField is (c->program->types.fields at fidx)
+        if (f.flags & types.FIELD_JSON_SKIP) == 0 and not calling is_optional with c, f.type:
+            calling eline with c, "bool _seen{fi} = false;"
+        set fi is fi + 1
+    calling eline with c, "bool _first = true;"
+    calling eline with c, "for (;;) {"
+    calling ein with c
+    calling eline with c, "if (_first)"
+    calling eline with c, "{"
+    calling ein with c
+    calling eline with c, "_first = false;"
+    calling eline with c, "if (pengu_json_in_at_end(in)) break;"
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "else"
+    calling eline with c, "{"
+    calling ein with c
+    calling eline with c, "bool _more;"
+    calling emit_guard with c, cn, "pengu_json_in_more(in, &_more, err)", ""
+    calling eline with c, "if (!_more) break;"
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "PenguString _key;"
+    calling emit_guard with c, cn, "pengu_json_in_key(in, &_key, err)", "pengu_banish_string(&_key);"
+    var rj as int is 0
+    while rj < info->fields_count:
+        var ridx as int is info->fields_first + rj
+        var rf as types.SemaField is (c->program->types.fields at ridx)
+        if (rf.flags & types.FIELD_JSON_SKIP) == 0:
+            calling emit_read_field with c, ridx, rj, rf, cn
+        set rj is rj + 1
+    calling emit_guard with c, cn, "pengu_json_in_skip(in, err)", "pengu_banish_string(&_key);"
+    calling eline with c, "pengu_banish_string(&_key);"
+    calling eout with c
+    calling eline with c, "}"
+    calling emit_guard with c, cn, "pengu_json_in_object_end(in, err)", ""
+    var qj as int is 0
+    while qj < info->fields_count:
+        var qidx as int is info->fields_first + qj
+        var qf as types.SemaField is (c->program->types.fields at qidx)
+        if (qf.flags & types.FIELD_JSON_SKIP) == 0 and not calling is_optional with c, qf.type:
+            var qn as string is calling json_field_name with c, qidx
+            defer banish qn
+            var qc as string is calling c_escape with qn
+            defer banish qc
+            calling eline with c, "if (!_seen{qj})"
+            calling eline with c, "{"
+            calling ein with c
+            calling eline with c, "pengu_json_failf(err, in, \"missing field '{qc}'\");"
+            calling eline with c, "_pengu_json_free_{cn}(out);"
+            calling eline with c, "return false;"
+            calling eout with c
+            calling eline with c, "}"
+        set qj is qj + 1
+    calling eline with c, "return true;"
+    calling eout with c
+    calling eline with c, "}"
+
+## Una rama `if (pengu_json_key_eq(...))` del lector.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_read_field with c as ref to context.CgContext, fidx as int, slot as int, f as types.SemaField, cn as string into void:
+    var jn as string is calling json_field_name with c, fidx
+    defer banish jn
+    var jc as string is calling c_escape with jn
+    defer banish jc
+    var fn as string is calling field_cname with c, fidx
+    defer banish fn
+    calling eline with c, "if (pengu_json_key_eq(_key, \"{jc}\")) {"
+    calling ein with c
+    var ftys as list of int is list of int
+    defer banish ftys
+    var fexprs as list of string is list of string
+    defer banish fexprs
+    calling ftys.push with -1
+    calling fexprs.push with "pengu_banish_string(&_key);"
+    var ofree as string is calling cat3 with "_pengu_json_free_", cn, "(out);"
+    defer banish ofree
+    calling ftys.push with -1
+    calling fexprs.push with ofree
+    if (f.flags & types.FIELD_JSON_SKIP) == 0 and not calling is_optional with c, f.type:
+        calling eline with c, "if (_seen{slot})"
+        calling eline with c, "{"
+        calling ein with c
+        calling eline with c, "pengu_json_failf(err, in, \"duplicate field '{jc}'\");"
+        calling eline with c, "pengu_banish_string(&_key);"
+        calling eline with c, "_pengu_json_free_{cn}(out);"
+        calling eline with c, "return false;"
+        calling eout with c
+        calling eline with c, "}"
+        calling eline with c, "_seen{slot} = true;"
+    var ptr as string is calling cat2 with "&(out->", fn
+    defer banish ptr
+    var ptr2 as string is calling cat2 with ptr, ")"
+    defer banish ptr2
+    calling read_value with c, f.type, ptr2, jn, 0, (sigil of ftys), (sigil of fexprs)
+    calling eout with c
+    calling eline with c, "} else"
+
+## `_pengu_json_free_<T>`.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave emit_free with c as ref to context.CgContext, cn as string, info as ref to types.SemaNominalInfo into void:
+    calling eline with c, "static void _pengu_json_free_{cn}({cn}* v) {"
+    calling ein with c
+    calling eline with c, "if (!v) return;"
+    var fi as int is 0
+    while fi < info->fields_count:
+        var fidx as int is info->fields_first + fi
+        var f as types.SemaField is (c->program->types.fields at fidx)
+        var fn as string is calling field_cname with c, fidx
+        defer banish fn
+        var ptr as string is calling cat2 with "&(v->", fn
+        defer banish ptr
+        var ptr2 as string is calling cat2 with ptr, ")"
+        defer banish ptr2
+        calling free_value with c, f.type, ptr2, 0
+        set fi is fi + 1
+    calling eout with c
+    calling eline with c, "}"
+
+# ---------------------------------------------------------------------------
+# Escritura de valores
+# ---------------------------------------------------------------------------
+
+## Emite la escritura del valor apuntado por `ptr`.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave write_value with c as ref to context.CgContext, ty as int, ptr as string, d as int into void:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind == tk.SemaTypeKind.TkBase:
+        calling write_base with c, ty, ptr
+        return
+    var sfx as string is calling next_sfx with c
+    defer banish sfx
+    if t.kind == tk.SemaTypeKind.TkList:
+        var et as string is calling value_ctype with c, t.a
+        defer banish et
+        calling eline with c, "const PenguList* _l{sfx} = {ptr};"
+        calling eline with c, "int _f{sfx} = 1;"
+        calling eline with c, "pengu_json_out_char(o, '[');"
+        calling eline with c, "for (int _i{sfx} = 0; _i{sfx} < _l{sfx}->len; _i{sfx}++) {"
+        calling ein with c
+        calling eline with c, "const {et}* _e{sfx} = (const {et}*)pengu_list_at(_l{sfx}, _i{sfx});"
+        calling eline with c, "if (!_e{sfx}) continue;"
+        calling eline with c, "if (!_f{sfx}) pengu_json_out_char(o, ',');"
+        calling eline with c, "_f{sfx} = 0;"
+        var ep as string is calling cat2 with "_e", sfx
+        defer banish ep
+        calling write_value with c, t.a, ep, d + 1
+        calling eout with c
+        calling eline with c, "}"
+        calling eline with c, "pengu_json_out_char(o, ']');"
+        return
+    if t.kind == tk.SemaTypeKind.TkMaybe:
+        var et2 as string is calling value_ctype with c, t.a
+        defer banish et2
+        calling eline with c, "const PenguMaybe* _m{sfx} = {ptr};"
+        calling eline with c, "if (_m{sfx}->is_present && _m{sfx}->value) {"
+        calling ein with c
+        calling eline with c, "{et2}* _e{sfx} = ({et2}*)_m{sfx}->value;"
+        var ep2 as string is calling cat2 with "_e", sfx
+        defer banish ep2
+        calling write_value with c, t.a, ep2, d + 1
+        calling eout with c
+        calling eline with c, "} else {"
+        calling eline with c, "pengu_json_out_cstr(o, \"null\");"
+        calling eline with c, "}"
+        return
+    if t.kind == tk.SemaTypeKind.TkMap:
+        var et3 as string is calling value_ctype with c, t.b
+        defer banish et3
+        calling eline with c, "const PenguMap* _mp{sfx} = {ptr};"
+        calling eline with c, "PenguList _k{sfx} = pengu_map_keys(_mp{sfx});"
+        calling eline with c, "pengu_json_sort_keys(&_k{sfx});"
+        calling eline with c, "int _f{sfx} = 1;"
+        calling eline with c, "pengu_json_out_char(o, '{');"
+        calling eline with c, "for (int _i{sfx} = 0; _i{sfx} < _k{sfx}.len; _i{sfx}++) {"
+        calling ein with c
+        calling eline with c, "const PenguString* _key{sfx} = (const PenguString*)pengu_list_at(&_k{sfx}, _i{sfx});"
+        calling eline with c, "if (!_key{sfx}) continue;"
+        calling eline with c, "if (!_f{sfx}) pengu_json_out_char(o, ',');"
+        calling eline with c, "_f{sfx} = 0;"
+        calling eline with c, "pengu_json_out_string(o, *_key{sfx});"
+        calling eline with c, "pengu_json_out_char(o, ':');"
+        calling eline with c, "const {et3}* _v{sfx} = (const {et3}*)pengu_map_get(_mp{sfx}, _key{sfx});"
+        calling eline with c, "if (!_v{sfx})"
+        calling eline with c, "{"
+        calling ein with c
+        calling eline with c, "pengu_json_out_cstr(o, \"null\");"
+        calling eline with c, "continue;"
+        calling eout with c
+        calling eline with c, "}"
+        var vp as string is calling cat2 with "_v", sfx
+        defer banish vp
+        calling write_value with c, t.b, vp, d + 1
+        calling eout with c
+        calling eline with c, "}"
+        calling eline with c, "pengu_json_out_char(o, '}');"
+        calling eline with c, "pengu_banish_list(&_k{sfx});"
+        return
+    if t.kind == tk.SemaTypeKind.TkRune:
+        var rc as string is calling nom_ctype with c, ty
+        defer banish rc
+        calling eline with c, "_pengu_json_write_{rc}(o, {ptr});"
+        return
+    if t.kind == tk.SemaTypeKind.TkOmen:
+        var rc2 as string is calling nom_ctype with c, ty
+        defer banish rc2
+        var oinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+        calling eline with c, "switch (*({ptr})) {"
+        var vi as int is 0
+        while vi < oinfo.variants_count:
+            var v as types.SemaVariant is (c->program->types.variants at (oinfo.variants_first + vi))
+            var vn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), v.name)
+            defer banish vn
+            calling eline with c, "case {rc2}_{vn}: pengu_json_out_string(o, pengu_string_from_cstr(\"{vn}\")); break;"
+            set vi is vi + 1
+        calling eline with c, "default: pengu_json_out_cstr(o, \"null\"); break;"
+        calling eline with c, "}"
+
+## Escritura de una base escalar.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave write_base with c as ref to context.CgContext, ty as int, ptr as string into void:
+    var nm as string is calling base_name with c, ty
+    defer banish nm
+    if nm == "string":
+        calling eline with c, "pengu_json_out_string(o, *({ptr}));"
+    else if nm == "bool":
+        calling eline with c, "pengu_json_out_cstr(o, (*({ptr})) ? \"true\" : \"false\");"
+    else if nm == "float" or nm == "f32" or nm == "f64":
+        calling eline with c, "pengu_json_out_f64(o, (double)(*({ptr})));"
+    else if calling is_unsigned with nm:
+        calling eline with c, "pengu_json_out_u64(o, (uint64_t)(*({ptr})));"
+    else:
+        calling eline with c, "pengu_json_out_i64(o, (int64_t)(*({ptr})));"
+
+# ---------------------------------------------------------------------------
+# Lectura de valores
+# ---------------------------------------------------------------------------
+
+## Emite la lectura del valor apuntado por `lvalue`.
+##
+## `ftys`/`fexprs` son los temporales en vuelo que hay que liberar si falla:
+## `ftys` = -1 significa "sentencia plana en `fexprs`".
+##
+## ## Memoria
+## Strings temporales liberados.
+weave read_value with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to list of int, fexprs as ref to list of string into void:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind == tk.SemaTypeKind.TkBase:
+        calling read_base with c, ty, lvalue, label, d, ftys, fexprs
+        return
+    var sfx as string is calling next_sfx with c
+    defer banish sfx
+    if t.kind == tk.SemaTypeKind.TkRune:
+        var rc as string is calling nom_ctype with c, ty
+        defer banish rc
+        calling eline with c, "if (!_pengu_json_read_{rc}(in, {lvalue}, err)) {"
+        calling ein with c
+        calling emit_fail with c, ftys, fexprs
+        calling eout with c
+        calling eline with c, "}"
+        return
+    if t.kind == tk.SemaTypeKind.TkOmen:
+        calling read_omen with c, ty, lvalue, d, ftys, fexprs
+        return
+    if t.kind == tk.SemaTypeKind.TkList:
+        calling read_list with c, ty, lvalue, label, d, ftys, fexprs
+        return
+    if t.kind == tk.SemaTypeKind.TkMaybe:
+        calling read_maybe with c, ty, lvalue, label, d, ftys, fexprs
+        return
+    if t.kind == tk.SemaTypeKind.TkMap:
+        calling read_map with c, ty, lvalue, label, d, ftys, fexprs
+        return
+
+## Lectura de una base escalar.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave read_base with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to list of int, fexprs as ref to list of string into void:
+    var nm as string is calling base_name with c, ty
+    defer banish nm
+    if nm == "string":
+        calling eline with c, "if (!pengu_json_in_string(in, {lvalue}, err)) {"
+        calling ein with c
+        calling emit_fail with c, ftys, fexprs
+        calling eout with c
+        calling eline with c, "}"
+        return
+    if nm == "bool":
+        calling eline with c, "if (!pengu_json_in_bool(in, {lvalue}, err)) {"
+        calling ein with c
+        calling emit_fail with c, ftys, fexprs
+        calling eout with c
+        calling eline with c, "}"
+        return
+    var sfx as string is calling next_sfx with c
+    defer banish sfx
+    var ct as string is calling value_ctype with c, ty
+    defer banish ct
+    var lbl as string is calling c_escape with label
+    defer banish lbl
+    if nm == "float" or nm == "f32" or nm == "f64":
+        calling eline with c, "{"
+        calling ein with c
+        calling eline with c, "double _d{sfx};"
+        calling eline with c, "if (!pengu_json_in_f64(in, &_d{sfx}, err)) {"
+        calling ein with c
+        calling emit_fail with c, ftys, fexprs
+        calling eout with c
+        calling eline with c, "}"
+        calling eline with c, "*({lvalue}) = ({ct})_d{sfx};"
+        calling eout with c
+        calling eline with c, "}"
+        return
+    var bits as int is calling bits_of with nm
+    var sfxb as string is calling int_sfx with bits
+    defer banish sfxb
+    if calling is_unsigned with nm:
+        calling eline with c, "{"
+        calling ein with c
+        calling eline with c, "uint64_t _n{sfx};"
+        calling eline with c, "if (!pengu_json_in_uinteger(in, &_n{sfx}, err)) {"
+        calling ein with c
+        calling emit_fail with c, ftys, fexprs
+        calling eout with c
+        calling eline with c, "}"
+        calling eline with c, "if (!pengu_json_range_u64(_n{sfx}, {sfxb}, false, err, \"{lbl}\")) {"
+        calling ein with c
+        calling emit_fail with c, ftys, fexprs
+        calling eout with c
+        calling eline with c, "}"
+        calling eline with c, "*({lvalue}) = ({ct})_n{sfx};"
+        calling eout with c
+        calling eline with c, "}"
+        return
+    calling eline with c, "{"
+    calling ein with c
+    calling eline with c, "int64_t _n{sfx};"
+    calling eline with c, "if (!pengu_json_in_integer(in, &_n{sfx}, err)) {"
+    calling ein with c
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "if (!pengu_json_range_i64(_n{sfx}, {sfxb}, err, \"{lbl}\")) {"
+    calling ein with c
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "*({lvalue}) = ({ct})_n{sfx};"
+    calling eout with c
+    calling eline with c, "}"
+
+## Lectura de `list of X`.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave read_list with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to list of int, fexprs as ref to list of string into void:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var sfx as string is calling next_sfx with c
+    defer banish sfx
+    var et as string is calling value_ctype with c, t.a
+    defer banish et
+    calling eline with c, "PenguList* _l{sfx} = {lvalue};"
+    calling eline with c, "*_l{sfx} = pengu_list_new(sizeof({et}), 0);"
+    calling eline with c, "if (!pengu_json_in_array_begin(in, err)) {"
+    calling ein with c
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "bool _first{sfx} = true;"
+    calling eline with c, "for (;;) {"
+    calling ein with c
+    calling eline with c, "if (_first{sfx})"
+    calling eline with c, "{"
+    calling ein with c
+    calling eline with c, "_first{sfx} = false;"
+    calling eline with c, "if (pengu_json_in_at_end(in)) break;"
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "else"
+    calling eline with c, "{"
+    calling ein with c
+    calling eline with c, "bool _m{sfx};"
+    calling eline with c, "if (!pengu_json_in_more(in, &_m{sfx}, err))"
+    calling eline with c, "{"
+    calling ein with c
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "if (!_m{sfx}) break;"
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "{et} _e{sfx};"
+    calling eline with c, "memset(&_e{sfx}, 0, sizeof(_e{sfx}));"
+    var ep as string is calling cat2 with "&_e", sfx
+    defer banish ep
+    calling ftys.push with t.a
+    calling fexprs.push with ep
+    calling read_value with c, t.a, ep, label, d + 1, ftys, fexprs
+    calling ftys.pop
+    calling fexprs.pop
+    calling eline with c, "pengu_list_push(_l{sfx}, &_e{sfx});"
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "if (!pengu_json_in_array_end(in, err)) {"
+    calling ein with c
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+
+## Lectura de `maybe X`.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave read_maybe with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to list of int, fexprs as ref to list of string into void:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var sfx as string is calling next_sfx with c
+    defer banish sfx
+    var et as string is calling value_ctype with c, t.a
+    defer banish et
+    calling eline with c, "PenguMaybe* _mb{sfx} = {lvalue};"
+    calling eline with c, "if (pengu_json_peek_null(in)) {"
+    calling ein with c
+    calling eline with c, "if (!pengu_json_in_null(in, err)) {"
+    calling ein with c
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "_mb{sfx}->is_present = false;"
+    calling eline with c, "_mb{sfx}->value = NULL;"
+    calling eout with c
+    calling eline with c, "} else {"
+    calling ein with c
+    calling eline with c, "{et}* _e{sfx} = ({et}*)malloc(sizeof({et}));"
+    calling eline with c, "if (!_e{sfx}) abort();"
+    calling eline with c, "memset(_e{sfx}, 0, sizeof(*_e{sfx}));"
+    var fstmt as string is calling cat3 with "free(_e", sfx, ");"
+    defer banish fstmt
+    calling ftys.push with -1
+    calling fexprs.push with fstmt
+    calling ftys.push with t.a
+    var ep as string is calling cat2 with "_e", sfx
+    defer banish ep
+    calling fexprs.push with ep
+    calling read_value with c, t.a, ep, label, d + 1, ftys, fexprs
+    calling ftys.pop
+    calling fexprs.pop
+    calling ftys.pop
+    calling fexprs.pop
+    calling eline with c, "_mb{sfx}->is_present = true;"
+    calling eline with c, "_mb{sfx}->value = _e{sfx};"
+    calling eout with c
+    calling eline with c, "}"
+
+## Lectura de `map of string to X`.
+##
+## ## Memoria
+## Strings temporales liberados.
+weave read_map with c as ref to context.CgContext, ty as int, lvalue as string, label as string, d as int, ftys as ref to list of int, fexprs as ref to list of string into void:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var sfx as string is calling next_sfx with c
+    defer banish sfx
+    var et as string is calling value_ctype with c, t.b
+    defer banish et
+    calling eline with c, "PenguMap* _mp{sfx} = {lvalue};"
+    calling eline with c, "*_mp{sfx} = pengu_map_new(sizeof(PenguString), sizeof({et}));"
+    calling eline with c, "if (!pengu_json_in_object_begin(in, err)) {"
+    calling ein with c
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "bool _first{sfx} = true;"
+    calling eline with c, "for (;;) {"
+    calling ein with c
+    calling eline with c, "if (_first{sfx})"
+    calling eline with c, "{"
+    calling ein with c
+    calling eline with c, "_first{sfx} = false;"
+    calling eline with c, "if (pengu_json_in_at_end(in)) break;"
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "else"
+    calling eline with c, "{"
+    calling ein with c
+    calling eline with c, "bool _mm{sfx};"
+    calling eline with c, "if (!pengu_json_in_more(in, &_mm{sfx}, err))"
+    calling eline with c, "{"
+    calling ein with c
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "if (!_mm{sfx}) break;"
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "PenguString _kk{sfx};"
+    calling eline with c, "if (!pengu_json_in_key(in, &_kk{sfx}, err)) {"
+    calling ein with c
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+    var kfree as string is calling cat3 with "pengu_banish_string(&_kk", sfx, ");"
+    defer banish kfree
+    calling ftys.push with -1
+    calling fexprs.push with kfree
+    calling eline with c, "if (pengu_map_contains(_mp{sfx}, &_kk{sfx})) {"
+    calling ein with c
+    calling eline with c, "pengu_json_failf(err, in, \"duplicate key '%.*s'\", _kk{sfx}.len, _kk{sfx}.data ? _kk{sfx}.data : \"\");"
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "{et} _v{sfx};"
+    calling eline with c, "memset(&_v{sfx}, 0, sizeof(_v{sfx}));"
+    var ep as string is calling cat2 with "&_v", sfx
+    defer banish ep
+    calling ftys.push with t.b
+    calling fexprs.push with ep
+    calling read_value with c, t.b, ep, label, d + 1, ftys, fexprs
+    calling ftys.pop
+    calling fexprs.pop
+    calling eline with c, "pengu_map_put(_mp{sfx}, &_kk{sfx}, &_v{sfx});"
+    calling ftys.pop
+    calling fexprs.pop
+    calling eout with c
+    calling eline with c, "}"
+    calling eline with c, "if (!pengu_json_in_object_end(in, err)) {"
+    calling ein with c
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+
+## Lectura de un omen sin payload (string con el nombre de la variante).
+##
+## ## Memoria
+## Strings temporales liberados.
+weave read_omen with c as ref to context.CgContext, ty as int, lvalue as string, d as int, ftys as ref to list of int, fexprs as ref to list of string into void:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    var sfx as string is calling next_sfx with c
+    defer banish sfx
+    var rc as string is calling nom_ctype with c, ty
+    defer banish rc
+    var oinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at t.a)
+    calling eline with c, "{"
+    calling ein with c
+    calling eline with c, "PenguString _s{sfx};"
+    calling eline with c, "if (!pengu_json_in_string(in, &_s{sfx}, err)) {"
+    calling ein with c
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+    var sfree as string is calling cat3 with "pengu_banish_string(&_s", sfx, ");"
+    defer banish sfree
+    calling ftys.push with -1
+    calling fexprs.push with sfree
+    calling eline with c, "bool _ok{sfx} = false;"
+    var vi as int is 0
+    while vi < oinfo.variants_count:
+        var v as types.SemaVariant is (c->program->types.variants at (oinfo.variants_first + vi))
+        var vn as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), v.name)
+        defer banish vn
+        if vi == 0:
+            calling eline with c, "if (pengu_json_key_eq(_s{sfx}, \"{vn}\"))"
+        else:
+            calling eline with c, "else if (pengu_json_key_eq(_s{sfx}, \"{vn}\"))"
+        calling eline with c, "{"
+        calling ein with c
+        calling eline with c, "*({lvalue}) = {rc}_{vn};"
+        calling eline with c, "_ok{sfx} = true;"
+        calling eout with c
+        calling eline with c, "}"
+        set vi is vi + 1
+    calling eline with c, "if (!_ok{sfx}) {"
+    calling ein with c
+    calling eline with c, "pengu_json_failf(err, in, \"unknown variant '%.*s'\", _s{sfx}.len, _s{sfx}.data ? _s{sfx}.data : \"\");"
+    calling emit_fail with c, ftys, fexprs
+    calling eout with c
+    calling eline with c, "}"
+    calling ftys.pop
+    calling fexprs.pop
+    calling eline with c, "pengu_banish_string(&_s{sfx});"
+    calling eout with c
+    calling eline with c, "}"
+
+## Libera los temporales en vuelo y retorna `false`.
+##
+## ## Memoria
+## Emite llamadas de liberación.
+weave emit_fail with c as ref to context.CgContext, ftys as ref to list of int, fexprs as ref to list of string into void:
+    var i as int is (ftys->len) - 1
+    while i >= 0:
+        var ty as int is (ftys at i)
+        var ex as string is (fexprs at i)
+        if ty >= 0:
+            calling free_value with c, ty, ex, 0
+        else:
+            calling eline with c, ex
+        set i is i - 1
+    calling eline with c, "return false;"
+
+# ---------------------------------------------------------------------------
+# Liberación de valores
+# ---------------------------------------------------------------------------
+
+## Emite la liberación del valor apuntado por `ptr`.
+##
+## ## Memoria
+## Emite llamadas; libera temporales.
+weave free_value with c as ref to context.CgContext, ty as int, ptr as string, d as int into void:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    if t.kind == tk.SemaTypeKind.TkBase:
+        var nm as string is calling base_name with c, ty
+        defer banish nm
+        if nm == "string":
+            calling eline with c, "pengu_banish_string({ptr});"
+        return
+    var sfx as string is calling next_sfx with c
+    defer banish sfx
+    if t.kind == tk.SemaTypeKind.TkRune:
+        var rc as string is calling nom_ctype with c, ty
+        defer banish rc
+        calling eline with c, "_pengu_json_free_{rc}({ptr});"
+        return
+    if t.kind == tk.SemaTypeKind.TkList:
+        var et as string is calling value_ctype with c, t.a
+        defer banish et
+        calling eline with c, "{"
+        calling ein with c
+        calling eline with c, "PenguList* _l{sfx} = {ptr};"
+        calling eline with c, "for (int _i{sfx} = 0; _i{sfx} < _l{sfx}->len; _i{sfx}++) {"
+        calling ein with c
+        calling eline with c, "{et}* _e{sfx} = ({et}*)pengu_list_at(_l{sfx}, _i{sfx});"
+        calling eline with c, "if (_e{sfx}) {"
+        calling ein with c
+        var ep as string is calling cat2 with "_e", sfx
+        defer banish ep
+        calling free_value with c, t.a, ep, d + 1
+        calling eout with c
+        calling eline with c, "}"
+        calling eout with c
+        calling eline with c, "}"
+        calling eline with c, "pengu_banish_list(_l{sfx});"
+        calling eout with c
+        calling eline with c, "}"
+        return
+    if t.kind == tk.SemaTypeKind.TkMaybe:
+        var et2 as string is calling value_ctype with c, t.a
+        defer banish et2
+        calling eline with c, "{"
+        calling ein with c
+        calling eline with c, "PenguMaybe* _mb{sfx} = {ptr};"
+        calling eline with c, "if (_mb{sfx}->is_present && _mb{sfx}->value) {"
+        calling ein with c
+        calling eline with c, "{et2}* _e{sfx} = ({et2}*)_mb{sfx}->value;"
+        var ep2 as string is calling cat2 with "_e", sfx
+        defer banish ep2
+        calling free_value with c, t.a, ep2, d + 1
+        calling eline with c, "free(_e{sfx});"
+        calling eout with c
+        calling eline with c, "}"
+        calling eline with c, "_mb{sfx}->is_present = false;"
+        calling eline with c, "_mb{sfx}->value = NULL;"
+        calling eout with c
+        calling eline with c, "}"
+        return
+    if t.kind == tk.SemaTypeKind.TkMap:
+        var et3 as string is calling value_ctype with c, t.b
+        defer banish et3
+        calling eline with c, "{"
+        calling ein with c
+        calling eline with c, "PenguMap* _mp{sfx} = {ptr};"
+        calling eline with c, "PenguList _k{sfx} = pengu_map_keys(_mp{sfx});"
+        calling eline with c, "for (int _i{sfx} = 0; _i{sfx} < _k{sfx}.len; _i{sfx}++) {"
+        calling ein with c
+        calling eline with c, "PenguString* _key{sfx} = (PenguString*)pengu_list_at(&_k{sfx}, _i{sfx});"
+        calling eline with c, "if (!_key{sfx}) continue;"
+        calling eline with c, "{et3}* _v{sfx} = ({et3}*)pengu_map_get(_mp{sfx}, _key{sfx});"
+        calling eline with c, "if (_v{sfx}) {"
+        calling ein with c
+        var vp as string is calling cat2 with "_v", sfx
+        defer banish vp
+        calling free_value with c, t.b, vp, d + 1
+        calling eout with c
+        calling eline with c, "}"
+        calling eline with c, "pengu_banish_string(_key{sfx});"
+        calling eout with c
+        calling eline with c, "}"
+        calling eline with c, "pengu_banish_list(&_k{sfx});"
+        calling eline with c, "pengu_banish_map(_mp{sfx});"
+        calling eout with c
+        calling eline with c, "}"
+
+# ---------------------------------------------------------------------------
+# Predicados y concatenación
+# ---------------------------------------------------------------------------
+
+## `true` si el tipo es un `maybe` (campo opcional).
+##
+## ## Memoria
+## O(1).
+weave is_optional with c as ref to context.CgContext, ty as int into bool:
+    var t as tk.SemaType is calling types.at with (sigil of c->program->types), ty
+    return t.kind == tk.SemaTypeKind.TkMaybe
+
+## `true` si la base es sin signo.
+##
+## ## Memoria
+## O(1).
+weave is_unsigned with nm as string into bool:
+    if nm == "u8" or nm == "u16" or nm == "u32" or nm == "u64" or nm == "usize":
+        return true
+    return false
+
+## Bits de una base entera.
+##
+## ## Memoria
+## O(1).
+weave bits_of with nm as string into int:
+    if nm == "i8" or nm == "u8":
+        return 8
+    if nm == "i16" or nm == "u16":
+        return 16
+    if nm == "u32":
+        return 32
+    return 64
+
+## Concatenación owned de dos textos.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave cat2 with a as string, b as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    calling sb.append with a
+    calling sb.append with b
+    return calling sb.finish
+
+## Concatenación owned de tres textos.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave cat3 with a as string, b as string, cc as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    calling sb.append with a
+    calling sb.append with b
+    calling sb.append with cc
+    return calling sb.finish

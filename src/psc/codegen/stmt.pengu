@@ -944,7 +944,7 @@ weave emit_defer with c as ref to context.CgContext, node as int into void:
                 calling emit.line with (sigil of c->emitter), "pengu_banish_maybe(&({vn}));"
             else if t.kind == tk.SemaTypeKind.TkResult:
                 calling emit.line with (sigil of c->emitter), "pengu_banish_result(&({vn}));"
-            else if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho:
+            else if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho or t.kind == tk.SemaTypeKind.TkOmen:
                 var ct as string is calling ctype.c_type with (sigil of c->names), ty
                 defer banish ct
                 calling emit.line with (sigil of c->emitter), "_pengu_cleanup_{ct}(&({vn}));"

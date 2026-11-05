@@ -280,6 +280,18 @@ Presta `SemaState`; los símbolos/tipos viven en las tablas del programa.
  ## Memoria
  O(n).
 
+### `collect_derives`
+
+> **collect_derives**(s: ref to SemaState, node: int, ty: int, info_idx: int) -> void
+
+ Recolecta la cláusula `derive` de un tipo nominal (runa, echo u omen).
+
+ Detecta `Json` (flag `NIF_JSON`, lista `json_type_ids` e implicación de
+ `Nexus`), rechaza `Real` y registra el resto de conceptos.
+
+ ## Memoria
+ Añade conceptos al pool; no posee recursos del nodo.
+
 ### `collect_omen`
 
 > **collect_omen**(s: ref to SemaState, node: int) -> void

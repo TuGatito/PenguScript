@@ -111,7 +111,7 @@ weave add_spec with c as ref to context.CgContext, base_idx as int, args as list
             if mat > 0:
                 set rtv is mat
                 set sval is calling spec_self_value with c, base, rtv
-    var f as catalog.CgFunction is with name is base.name, symbol is base.symbol, node is base.node, module is base.module, is_declare is false, is_antiquus is false, is_method is base.is_method, recv_type is rtv, self_value is sval, is_ritual is base.is_ritual, tparams is tps, spec_args is sargs, is_generic is true, is_spec is true, is_main is false, c_name is cid
+    var f as catalog.CgFunction is with name is base.name, symbol is base.symbol, node is base.node, module is base.module, is_declare is false, is_antiquus is false, is_method is base.is_method, recv_type is rtv, self_value is sval, is_ritual is base.is_ritual, tparams is tps, spec_args is sargs, is_generic is true, is_spec is true, is_main is false, is_generated is false, c_name is cid
     calling c->catalog.functions.push with f
     return c->catalog.functions.len - 1
 
@@ -679,7 +679,7 @@ weave add_method_spec with c as ref to context.CgContext, base_idx as int, recv_
                 if rinst > 0:
                     set rtv is rinst
     var sval as bool is calling spec_self_value with c, base, rtv
-    var f as catalog.CgFunction is with name is base.name, symbol is base.symbol, node is base.node, module is base.module, is_declare is false, is_antiquus is false, is_method is true, recv_type is rtv, self_value is sval, is_ritual is base.is_ritual, tparams is tps, spec_args is sargs, is_generic is true, is_spec is true, is_main is false, c_name is cid
+    var f as catalog.CgFunction is with name is base.name, symbol is base.symbol, node is base.node, module is base.module, is_declare is false, is_antiquus is false, is_method is true, recv_type is rtv, self_value is sval, is_ritual is base.is_ritual, tparams is tps, spec_args is sargs, is_generic is true, is_spec is true, is_main is false, is_generated is false, c_name is cid
     calling c->catalog.functions.push with f
     return c->catalog.functions.len - 1
 

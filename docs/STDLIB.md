@@ -1,6 +1,6 @@
 # The PenguScript Standard Library
 
-All 68 modules of `std/` in `psc` 0.31.0: what each one is for, when to reach for
+All 68 modules of `std/` in `psc` 0.32.0: what each one is for, when to reach for
 it, when to reach for something else, and where its generated API lives.
 
 It is the *catalogue* document of the documentation set:
@@ -106,7 +106,7 @@ own `##` comments by `psc doc --include-std`.
 - [Appendix C — Naming conventions in the standard library](#appendix-c-naming-conventions-in-the-standard-library)
 <!-- /toc -->
 
-Every module that ships with `psc` 0.31.0: what it is for, when to reach for
+Every module that ships with `psc` 0.32.0: what it is for, when to reach for
 it, and where its generated API lives.
 
 ## 0. How to use this catalogue
@@ -132,7 +132,7 @@ Every entry has the same shape:
 **API** [link to the generated page] · [source]
 ```
 
-**Version.** This catalogue describes `psc` 0.31.0 and the `std/` tree in the
+**Version.** This catalogue describes `psc` 0.32.0 and the `std/` tree in the
 same commit. A module version constant (`TRIAL_VERSION`, `CARMEN_VERSION`, …)
 is the module's own API version, not the compiler's.
 
@@ -571,6 +571,17 @@ for the cases where ordering or node stability is the point.
 loses types.
 
 **Highlights** `parse`, `stringify`, `as_object`, `as_string`, `get`.
+
+**Ownership** `JsonValue.clone` is a deep, independent copy and
+`JsonValue.free` releases the whole tree (both walk nested arrays and objects);
+`free_values`/`free_entries` release a list produced by `as_array`/`as_object`.
+A `result of JsonValue to JsonError` still owns its boxed payload: `banish` it
+when you take the value out.
+
+**Deriving instead of walking** for a typed DTO, `derive Json` generates the codec
+in C with no dependency on this module — see
+[LANGUAGE.md §9.7.1](LANGUAGE.md#971-derive-json). Use `std.json` when the shape
+is not known at compile time.
 
 **API** [`api/std_json.md`](api/std_json.md) · [source](../std/json.pengu)
 

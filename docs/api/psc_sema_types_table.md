@@ -52,6 +52,7 @@ planas, sin recorrer un grafo de punteros.
     derived_count as int
     template_info as int
     attrs_node as int
+    decl_node as int
     is_packed as bool
     align_override as int
 ```
@@ -68,6 +69,7 @@ planas, sin recorrer un grafo de punteros.
     flags as int
     attrs_node as int
     align_override as int
+    decl_node as int
 ```
 
  Campo de una runa/echo o payload de una variante.
@@ -198,6 +200,12 @@ _Undocumented._
 
  El tipo se puede compartir entre hilos con `ref to T`.
 
+### `NIF_JSON`
+
+> **NIF_JSON** : int
+
+ La runa declaró `derive Json`.
+
 ### `FIELD_READONLY`
 
 > **FIELD_READONLY** : int
@@ -221,6 +229,12 @@ _Undocumented._
 > **FIELD_PACKED** : int
 
 _Undocumented._
+
+### `FIELD_JSON_SKIP`
+
+> **FIELD_JSON_SKIP** : int
+
+ El campo lleva `@skip` en una runa `derive Json`.
 
 ### `VAR_HAS_INT`
 
@@ -358,6 +372,8 @@ _Undocumented._
     intern_keys as list of string
     canonical_cache as list of int
     mangled_cache as list of int
+    json_names as map of int to int
+    json_type_ids as list of int
 ```
 
  Tabla de tipos y metadatos.

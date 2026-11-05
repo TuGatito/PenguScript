@@ -2,6 +2,47 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.32.0] — 2026-11-05 — `derive Json` y limpieza honesta
+
+`rune … derive Json` genera un códec JSON en C plano a partir de la forma del
+rune: `to_json into string` y `ritual from_json with text as string into result
+of T to string`. Sin reflexión, sin tablas RTTI y sin depender de `std.json`.
+
+### Añadido
+
+- Concepto incorporado `Json` (+ flag `NIF_JSON`), con implicación de `Nexus`,
+  validación en `psc/sema/check/json.pengu` y métodos sintéticos
+  `_pengu_json_encode_<T>` / `_pengu_json_decode_<T>`.
+- `src/psc/codegen/jsongen.pengu`: emite `encode`, `write`, `decode`, `read` y
+  `free` por rune vivo (prototipos antes de cuerpos), con helpers de lista,
+  `maybe`, mapa, rune anidado y omen sin payload.
+- Atributos de campo `@json("externo")` y `@skip`; cualquier otro atributo dentro
+  de un rune Json es `E0054`.
+- Runtime `pengu_json_*` en `pengu_runtime.h`: escritor sobre SDS, lector con
+  cursor, escapes/UTF-8/surrogantes, errores con línea y columna, `skip` con
+  validación, guardia de profundidad 64, `pengu_json_box_error` y
+  `pengu_map_iter_value`.
+- Tests: `derive_json_scalars`, `derive_json_containers`, `derive_json_errors`,
+  `json_deep_copy` y las regresiones `json_runtime`, `json_codec`,
+  `json_std_asan`, `module_prefix_sanitize`, `omen_cleanup`, `with_fields`.
+
+### Corregido
+
+- El prefijo C de un módulo se sanea (`c_ident_safe`): carpetas como
+  `mi-proyecto.v1/` o `9lives/` ya no generan C inválido.
+- El cleanup de un omen libera el payload de la variante activa (el bloque que
+  debía hacerlo era código muerto).
+- `banish` sobre un omen libera su payload.
+- Un payload de variante de omen con `list of T` emitía un inicializador de
+  array C inválido.
+- Inicializadores `with` anidados: los campos desconocidos y repetidos son
+  `E0004` (antes fallaban en gcc), con la ayuda de parentización.
+- `std.json`: `JsonValue.free` libera el árbol completo y `JsonValue.clone` es
+  una copia profunda independiente (antes ambos eran superficiales);
+  `free_values`/`free_entries` usan el liberador profundo.
+- Documentación: `Nexus`/`Imago` se describen como lo que son (destrucción de
+  primer nivel y copia superficial), no como copia/limpieza profunda.
+
 ## [0.31.0] — 2026-11-05 — corrutinas stackful explícitas
 
 `std.coro` añade corrutinas cooperativas, stackful y sin planificador: la

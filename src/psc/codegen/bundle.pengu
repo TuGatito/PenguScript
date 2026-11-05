@@ -14,6 +14,7 @@ import psc.codegen.function as funcgen
 import psc.codegen.decl_types as ctypes
 import psc.sema.names as npool
 import psc.codegen.dce as dce
+import psc.codegen.jsongen as jsongen
 import psc.codegen.generics as gen
 import psc.sema.modules.loader as loader
 import psc.sema.types.kind as tk
@@ -115,8 +116,12 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
         set pi is pi + 1
     calling gen.collect_type_instances with c
     calling gen.collect_method_instances with c
+    # Los codecs de `derive Json` se registran antes del DCE para que las
+    # llamadas resuelvan `self`; sus tipos se marcan después.
+    calling jsongen.register_methods with c
     var reach as CgReach is calling dce.compute with c
     defer calling dce.reach_free with (sigil of reach)
+    calling jsongen.mark_json_types with c, (sigil of reach)
     # Includes de módulos con código vivo.
     var live_mod as map of int to int is map of int to int
     var li as int is 0
@@ -272,6 +277,9 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
             calling ctypes.emit_cleanup with c, tc
         set i is i + 1
     calling emit.blank with (sigil of c->emitter)
+    # Codecs JSON (`derive Json`).
+    calling jsongen.emit_all with c, (sigil of reach)
+    calling emit.blank with (sigil of c->emitter)
     # Bloques C crudos (`antiquus`).
     set i is 0
     while i < c->catalog.functions.len:
@@ -299,7 +307,7 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     while i < c->catalog.functions.len:
         var pf as catalog.CgFunction is (c->catalog.functions at i)
         if calling dce.live with (sigil of reach), i or pf.is_spec:
-            if (not pf.is_generic or pf.is_spec) and not pf.is_declare and not pf.is_antiquus:
+            if (not pf.is_generic or pf.is_spec) and not pf.is_declare and not pf.is_antiquus and not pf.is_generated:
                 calling funcgen.emit_function with c, pf
         set i is i + 1
     var nt as int is 0
@@ -307,7 +315,7 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
         set nt is calling testgen.emit_all with c
         while i < c->catalog.functions.len:
             var tf as catalog.CgFunction is (c->catalog.functions at i)
-            if (not tf.is_generic or tf.is_spec) and not tf.is_declare and not tf.is_antiquus:
+            if (not tf.is_generic or tf.is_spec) and not tf.is_declare and not tf.is_antiquus and not tf.is_generated:
                 calling funcgen.emit_function with c, tf
             set i is i + 1
     var body_text as string is calling c->emitter.sb.finish
@@ -321,7 +329,7 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
         if calling dce.live with (sigil of reach), i or f.is_spec:
             var fmod as loader.SemaModule is (c->program->modules at f.module)
             var skip_decl_proto as bool is f.is_declare and (calling catalog.is_decl_path with fmod.canonical_path)
-            if (not f.is_generic or f.is_spec) and not f.is_antiquus and not skip_decl_proto and (not f.is_declare or not calling is_libc_name with c, f):
+            if (not f.is_generic or f.is_spec) and not f.is_antiquus and not f.is_generated and not skip_decl_proto and (not f.is_declare or not calling is_libc_name with c, f):
                 var sig as string is calling funcgen.signature with c, f
                 defer banish sig
                 calling emit.line with (sigil of c->emitter), "{sig};"

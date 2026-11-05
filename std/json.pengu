@@ -442,19 +442,59 @@ out[k] = '\0';
 return pengu_string_new(out);
 """
 
-## Deep-copies a `JsonValue` with the derived `Imago` callback.
+## Deep-copies a `JsonValue`, recursing into arrays and objects.
 ##
 ## ## Motivo
-## A `derive Imago` helper is a C symbol; the public `clone` method needs to
-## call it without exposing the helper name.
+## Copying the handle would share the nested buffers: mutating the copy would
+## change the original, and freeing one would dangle the other. `clone` must
+## hand out an independent tree, so the walk re-allocates every string and list.
 ##
 ## ## Memoria
-## Returns a fully independent tree; release it with `banish`.
+## Returns a fully independent tree; release it with `banish` or `free`.
 antiquus _json_clone_value with v as JsonValue into JsonValue:
     r"""
 JsonValue out;
 memset(&out, 0, sizeof out);
-_pengu_clone_JsonValue(&out, &v);
+out.tag = v.tag;
+switch (v.tag) {
+case JsonValue_Null:
+    break;
+case JsonValue_Bool:
+    out.data.Bool.value = v.data.Bool.value;
+    break;
+case JsonValue_Int:
+    out.data.Int.value = v.data.Int.value;
+    break;
+case JsonValue_Float:
+    out.data.Float.value = v.data.Float.value;
+    break;
+case JsonValue_Str:
+    out.data.Str.value = pengu_string_owned(
+        v.data.Str.value.data ? v.data.Str.value.data : "", v.data.Str.value.len);
+    break;
+case JsonValue_Arr: {
+    int n = v.data.Arr.items.len;
+    out.data.Arr.items = pengu_list_new(sizeof(JsonValue), n);
+    for (int i = 0; i < n; i++) {
+        JsonValue el = *(JsonValue *)pengu_list_at(&v.data.Arr.items, i);
+        JsonValue copy = _json_clone_value(el);
+        pengu_list_push(&out.data.Arr.items, &copy);
+    }
+    break;
+}
+case JsonValue_Obj: {
+    int n = v.data.Obj.entries.len;
+    out.data.Obj.entries = pengu_list_new(sizeof(JsonEntry), n);
+    for (int i = 0; i < n; i++) {
+        JsonEntry *e = (JsonEntry *)pengu_list_at(&v.data.Obj.entries, i);
+        JsonEntry copy;
+        copy.key = pengu_string_owned(e->key.data ? e->key.data : "", e->key.len);
+        copy.value = _json_clone_value(e->value);
+        pengu_list_push(&out.data.Obj.entries, &copy);
+    }
+    break;
+}
+}
 return out;
 """
 
@@ -469,7 +509,31 @@ return out;
 antiquus _json_free_raw with v as ref to JsonValue into void:
     r"""
 if (!v) return;
-_pengu_cleanup_JsonValue(v);
+switch (v->tag) {
+case JsonValue_Str:
+    pengu_banish_string(&v->data.Str.value);
+    break;
+case JsonValue_Arr: {
+    int n = v->data.Arr.items.len;
+    for (int i = 0; i < n; i++) {
+        _json_free_raw((JsonValue *)pengu_list_at(&v->data.Arr.items, i));
+    }
+    pengu_banish_list(&v->data.Arr.items);
+    break;
+}
+case JsonValue_Obj: {
+    int n = v->data.Obj.entries.len;
+    for (int i = 0; i < n; i++) {
+        JsonEntry *e = (JsonEntry *)pengu_list_at(&v->data.Obj.entries, i);
+        pengu_banish_string(&e->key);
+        _json_free_raw(&e->value);
+    }
+    pengu_banish_list(&v->data.Obj.entries);
+    break;
+}
+default:
+    break;
+}
 memset(v, 0, sizeof *v);
 """
 
@@ -931,14 +995,16 @@ weave _append_u4 with sb as ref to StringBuilder, cp as int into void:
 ##
 ## ## Ejemplo
 ## ```pengu
-## var items as list of JsonValue is (calling root.as_array) or else json.empty_values
-## calling json.free_values with items
+## var items as maybe list of JsonValue is calling root.as_array
+## if items.is_present:
+##     calling json.free_values with items.value
+##     banish items
 ## ```
 weave free_values with items as list of JsonValue into void:
     var i as int is 0
     while i < items.len:
         var v as JsonValue is items at i
-        banish v
+        calling _json_free_raw with (sigil of v)
         set i is i + 1
     banish items
 
@@ -956,7 +1022,9 @@ weave free_entries with entries as list of JsonEntry into void:
     var i as int is 0
     while i < entries.len:
         var e as JsonEntry is entries at i
-        banish e
+        var k as string is e.key
+        banish k
+        calling _json_free_raw with (sigil of e.value)
         set i is i + 1
     banish entries
 

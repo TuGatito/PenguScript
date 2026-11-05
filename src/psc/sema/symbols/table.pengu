@@ -683,6 +683,21 @@ weave symbol_define_method with s as ref to SemaSymbols, receiver as int, method
             calling s->container_methods.put with ckey, id
     return id
 
+## Registra un método con nombre C explícito (codecs de `derive Json`).
+##
+## ## Memoria
+## Añade símbolo y mapa; el `c_name` se interna.
+weave symbol_define_method_cname with s as ref to SemaSymbols, receiver as int, method as int, fn_type as int, cname as string into int:
+    var symv as sym.SemaSymbol is calling make_symbol with s->names, "", fn_type, sym.SemaSymbolKind.SkWeave
+    set symv.name is method
+    var cid as int is calling npool.intern with s->names, cname
+    set symv.c_name is cid
+    var id as int is calling add_symbol with s, symv
+    var key as int is calling method_key with s, receiver, method
+    calling s->methods.put with key, id
+    calling s->method_receiver.put with id, receiver
+    return id
+
 ## Lookup de método.
 ##
 ## ## Memoria
@@ -806,6 +821,8 @@ weave init_builtins with s as ref to SemaSymbols into void:
     calling builtin_concept with s, "Forma"
     calling builtin_concept with s, "Iterabilis"
     calling builtin_concept with s, "Donum"
+    # `derive Json` genera codecs C para una runa (ver `check/json.pengu`).
+    calling builtin_concept with s, "Json"
     # `print` recibe un `string` (usar `to string` para otros valores) y
     # se baja a `pengu_builtin_print`, un helper del bundle.
     var string_t as int is calling types.base with s->types, "string"

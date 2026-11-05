@@ -1,0 +1,386 @@
+## psc/sema/check/json.pengu — validación y registro de `derive Json`.
+##
+## Pass 1.5 de F3: después de recolectar tipos y firmas (y antes de chequear
+## cuerpos) valida las runas que derivan `Json` y registra sus dos métodos
+## sintéticos:
+##
+## - `to_json into string`: instancia, `_pengu_json_encode_<T>`.
+## - `ritual from_json with text as string into result of T to string`:
+##   estático, `_pengu_json_decode_<T>`.
+##
+## La validación es puramente estructural: no genera C. El codegen (`jsongen`)
+## lee `NIF_JSON`, los nombres JSON de `types->json_names` y los flags
+## `FIELD_JSON_SKIP` para emitir los codecs de cada tipo vivo.
+##
+## ## Memoria
+## Presta `SemaState`; internamente crea strings temporales owned.
+
+import std.builder
+
+import psc.ast.kind as pskind
+import psc.ast.node as psast
+import psc.token as pstoken
+
+import psc.sema.names as npool
+import psc.sema.types.kind as tk
+import psc.sema.types.table as types
+import psc.sema.symbols.symbol as sym
+import psc.sema.symbols.table as symbols
+import psc.sema.state as state
+import psc.sema.modules.program as program
+import psc.sema.modules.loader as loader
+import psc.sema.ast as astutil
+import psc.sema.diagnostics as sdiag
+
+insignia sema_json_
+
+## Profundidad máxima al validar un tipo anidado (evita recursión patológica).
+const JSON_MAX_TYPE_DEPTH as int is 32
+
+# ---------------------------------------------------------------------------
+# API del pass
+# ---------------------------------------------------------------------------
+
+## Valida todas las runas `derive Json` del programa y registra sus métodos.
+##
+## ## Memoria
+## Presta el programa; crea `SemaState` por módulo y lo descarta.
+weave check_all_json with p as ref to program.SemaProgram into void:
+    var i as int is 0
+    while i < p->order.len:
+        var id as int is (p->order at i)
+        var m as loader.SemaModule is (p->modules at id)
+        var use_scope as int is m.scope
+        if m.companion_for >= 0:
+            var pm as loader.SemaModule is (p->modules at m.companion_for)
+            set use_scope is pm.scope
+        set p->symbols.current is use_scope
+        set p->symbols.current_module is id
+        var st as state.SemaState is with program is p, module is (sigil of m), src is (sigil of m.source), lex is (sigil of m.lex), ast is (sigil of m.parse.ast), types is (sigil of p->types), symbols is (sigil of p->symbols), names is (sigil of p->names), bag is (sigil of p->diagnostics), opts is (sigil of p->options), annotations is (sigil of m.annotations), hooks is (calling state.default_hooks), errors is 0, max_errors is p->options.max_errors, stop_after_first is p->options.stop_after_first, stop is false, allow_mutating is false
+        calling check_module_json with (sigil of st)
+        set p->symbols.current is 0
+        set p->symbols.current_module is -1
+        set i is i + 1
+
+# ---------------------------------------------------------------------------
+# Validación
+# ---------------------------------------------------------------------------
+
+## Valida las runas Json declaradas en el módulo actual.
+##
+## ## Memoria
+## O(tipos + campos del módulo).
+weave check_module_json with s as ref to state.SemaState into void:
+    var i as int is 0
+    while i < s->types->json_type_ids.len:
+        var ty as int is (s->types->json_type_ids at i)
+        var t as tk.SemaType is calling types.at with s->types, ty
+        if t.a >= 0 and t.a < s->types->nominal_infos.len:
+            var info as types.SemaNominalInfo is (s->types->nominal_infos at t.a)
+            if info.module == s->module->id:
+                calling check_one with s, ty, (sigil of info)
+        set i is i + 1
+
+## Valida una runa Json concreta.
+##
+## ## Memoria
+## O(campos del tipo); los nombres temporales se liberan aquí.
+weave check_one with s as ref to state.SemaState, ty as int, info as ref to types.SemaNominalInfo into void:
+    var dnode as int is info->decl_node
+    if info->kind != tk.SemaNominalKind.NkRune:
+        if info->kind == tk.SemaNominalKind.NkEcho:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, dnode), (calling astutil.end_of with s->ast, dnode), "echo types cannot derive Json", "Use a rune; echoes keep their handwritten 'to string'.", ""
+        else if info->kind == tk.SemaNominalKind.NkOmen:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, dnode), (calling astutil.end_of with s->ast, dnode), "omen types cannot derive Json", "Only runes generate JSON codecs. A payload-free omen can be used as a field.", ""
+        else:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, dnode), (calling astutil.end_of with s->ast, dnode), "derive Json requires a rune", "Declare a rune with fields.", ""
+        return
+    if info->tparams_count > 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, dnode), (calling astutil.end_of with s->ast, dnode), "generic runes cannot derive Json", "Specialize the rune before deriving Json, or write the codec by hand.", ""
+        return
+    if (info->flags & types.NIF_OPAQUE) != 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, dnode), (calling astutil.end_of with s->ast, dnode), "opaque runes cannot derive Json", "Opaque runes have no visible layout.", ""
+        return
+    if (info->flags & types.NIF_SEALED) != 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, dnode), (calling astutil.end_of with s->ast, dnode), "sealed runes cannot derive Json", "Sealed runes hide their representation.", ""
+        return
+    var used as map of int to int is map of int to int
+    var fi as int is 0
+    while fi < info->fields_count:
+        var fidx as int is info->fields_first + fi
+        calling check_field with s, info, fidx, (sigil of used)
+        set fi is fi + 1
+    banish used
+    calling register_methods with s, ty, info
+
+## Valida un campo: atributos y tipo.
+##
+## `used` acumula los `NameId` de los nombres JSON ya vistos en la runa.
+##
+## ## Memoria
+## O(1) por campo; libera los textos temporales.
+weave check_field with s as ref to state.SemaState, info as ref to types.SemaNominalInfo, fidx as int, used as ref to map of int to int into void:
+    var f as types.SemaField is (s->types->fields at fidx)
+    var fname as string is calling npool.text with s->names, f.name
+    defer banish fname
+    var has_json as bool is false
+    var has_skip as bool is false
+    var json_attr as int is -1
+    var jname as int is -1
+    if f.attrs_node >= 0:
+        var ai as int is 0
+        var an as int is calling astutil.child_count with s->ast, f.attrs_node
+        while ai < an:
+            var a as int is calling astutil.node_child with s->ast, f.attrs_node, ai
+            if a >= 0 and (calling astutil.kind_of with s->ast, a) == pskind.NodeKind.NdAttribute:
+                var atxt as string is calling astutil.first_token_text with s->src, s->lex, s->ast, a
+                var is_json as bool is atxt == "json"
+                var is_skip as bool is atxt == "skip"
+                var is_bad as bool is not is_json and not is_skip
+                if is_bad:
+                    var sb as StringBuilder is calling StringBuilder.new
+                    defer banish sb
+                    calling sb.append with "attribute '@"
+                    calling sb.append with atxt
+                    calling sb.append with "' is not supported by derive Json"
+                    var msg as string is calling sb.finish
+                    defer banish msg
+                    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, a), (calling astutil.end_of with s->ast, a), msg, "Only @json(\"name\") and @skip are interpreted here. Validate other rules in a weave.", ""
+                banish atxt
+                if is_json:
+                    set has_json is true
+                    set json_attr is a
+                else if is_skip:
+                    set has_skip is true
+            set ai is ai + 1
+    if has_json and has_skip:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, json_attr), (calling astutil.end_of with s->ast, json_attr), "@json and @skip are mutually exclusive", "Remove one of the two attributes.", ""
+    else if has_json:
+        set jname is calling parse_json_name with s, json_attr
+        if jname < 0:
+            set has_json is false
+    if has_skip:
+        set f.flags is f.flags | types.FIELD_JSON_SKIP
+    if has_json and jname >= 0:
+        if calling used.has with jname:
+            var jtxt as string is calling npool.text with s->names, jname
+            defer banish jtxt
+            var sb2 as StringBuilder is calling StringBuilder.new
+            defer banish sb2
+            calling sb2.append with "duplicate JSON name '"
+            calling sb2.append with jtxt
+            calling sb2.append with "' in this rune"
+            var msg2 as string is calling sb2.finish
+            defer banish msg2
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, json_attr), (calling astutil.end_of with s->ast, json_attr), msg2, "Give one of the two fields a different @json name.", ""
+        else:
+            calling used.put with jname, jname
+            calling s->types->json_names.put with fidx, jname
+    if not has_skip and not has_json:
+        if calling used.has with f.name:
+            var sb3 as StringBuilder is calling StringBuilder.new
+            defer banish sb3
+            calling sb3.append with "duplicate JSON name '"
+            calling sb3.append with fname
+            calling sb3.append with "' in this rune"
+            var msg3 as string is calling sb3.finish
+            defer banish msg3
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, f.decl_node), (calling astutil.end_of with s->ast, f.decl_node), msg3, "Give one of the two fields a different @json name.", ""
+        else:
+            calling used.put with f.name, f.name
+    set s->types->fields at (fidx) is f
+    calling check_field_type with s, f, fname
+
+## Comprueba que el tipo del campo se puede serializar.
+##
+## ## Memoria
+## Recursivo por la forma del tipo.
+weave check_field_type with s as ref to state.SemaState, f as types.SemaField, fname as string into void:
+    var reason as int is calling type_reason with s, f.type, 0
+    if reason == 0:
+        return
+    var start as int is calling astutil.start_of with s->ast, f.decl_node
+    var end as int is calling astutil.end_of with s->ast, f.decl_node
+    if reason == 2:
+        var nname as string is calling type_display with s, f.type
+        defer banish nname
+        var sb as StringBuilder is calling StringBuilder.new
+        defer banish sb
+        calling sb.append with "rune '"
+        calling sb.append with nname
+        calling sb.append with "' does not derive Json"
+        var msg as string is calling sb.finish
+        defer banish msg
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, start, end, msg, "Add 'derive Json' to the nested rune, or mark this field @skip.", ""
+        return
+    if reason == 3:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, start, end, "omen with payload cannot be serialized", "Only payload-free omens are supported; convert the variant by hand in a weave.", ""
+        return
+    var sb2 as StringBuilder is calling StringBuilder.new
+    defer banish sb2
+    calling sb2.append with "field '"
+    calling sb2.append with fname
+    calling sb2.append with "' has a type that derive Json does not support"
+    var msg2 as string is calling sb2.finish
+    defer banish msg2
+    calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, start, end, msg2, "Supported: bool, integers, floats, string, list of T, map of string to T, maybe T, a rune that derives Json, and a payload-free omen.", ""
+
+## Motivo por el que `t` no es serializable (`0` si lo es).
+##
+## - `1`: tipo no soportado.
+## - `2`: runa anidada sin `derive Json`.
+## - `3`: omen con payload.
+##
+## ## Memoria
+## Recursivo; no posee recursos.
+weave type_reason with s as ref to state.SemaState, t as int, depth as int into int:
+    if depth > JSON_MAX_TYPE_DEPTH:
+        return 1
+    var tt as tk.SemaType is calling types.at with s->types, t
+    if tt.kind == tk.SemaTypeKind.TkBase:
+        var nm as string is calling npool.text with s->names, tt.name
+        defer banish nm
+        if nm == "int" or nm == "i64" or nm == "u32" or nm == "u64" or nm == "i16" or nm == "u16" or nm == "i8" or nm == "u8" or nm == "usize" or nm == "isize" or nm == "float" or nm == "f64" or nm == "bool" or nm == "string":
+            return 0
+        return 1
+    if tt.kind == tk.SemaTypeKind.TkList:
+        return calling type_reason with s, tt.a, depth + 1
+    if tt.kind == tk.SemaTypeKind.TkMaybe:
+        return calling type_reason with s, tt.a, depth + 1
+    if tt.kind == tk.SemaTypeKind.TkMap:
+        var kt as tk.SemaType is calling types.at with s->types, tt.a
+        if kt.kind != tk.SemaTypeKind.TkBase:
+            return 1
+        var knm as string is calling npool.text with s->names, kt.name
+        defer banish knm
+        if knm != "string":
+            return 1
+        return calling type_reason with s, tt.b, depth + 1
+    if tt.kind == tk.SemaTypeKind.TkRune:
+        if tt.a >= 0 and tt.a < s->types->nominal_infos.len:
+            var rinfo as types.SemaNominalInfo is (s->types->nominal_infos at tt.a)
+            if (rinfo.flags & types.NIF_JSON) != 0:
+                return 0
+        return 2
+    if tt.kind == tk.SemaTypeKind.TkOmen:
+        if tt.a >= 0 and tt.a < s->types->nominal_infos.len:
+            var oinfo as types.SemaNominalInfo is (s->types->nominal_infos at tt.a)
+            var vi as int is 0
+            while vi < oinfo.variants_count:
+                var v as types.SemaVariant is (s->types->variants at (oinfo.variants_first + vi))
+                if v.payload_count > 0:
+                    return 3
+                set vi is vi + 1
+            return 0
+        return 1
+    return 1
+
+## Nombre legible de un tipo nominal (para mensajes).
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave type_display with s as ref to state.SemaState, t as int into string:
+    var tt as tk.SemaType is calling types.at with s->types, t
+    if tt.name >= 0:
+        var nm as string is calling npool.text with s->names, tt.name
+        return nm
+    return "?"
+
+# ---------------------------------------------------------------------------
+# Nombres de campo
+# ---------------------------------------------------------------------------
+
+## Lee `@json("...")` y devuelve el `NameId` externo (`-1` si es inválido).
+##
+## ## Memoria
+## Interna el nombre; emite diagnóstico si el atributo está mal formado.
+weave parse_json_name with s as ref to state.SemaState, attr as int into int:
+    var args as int is calling astutil.node_child with s->ast, attr, 1
+    if args < 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, attr), (calling astutil.end_of with s->ast, attr), "@json requires a non-empty string literal", "Write @json(\"externalName\").", ""
+        return -1
+    var raw as string is calling astutil.first_token_text with s->src, s->lex, s->ast, args
+    defer banish raw
+    var lit as string is calling strip_quotes with raw
+    defer banish lit
+    if lit length == 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, attr), (calling astutil.end_of with s->ast, attr), "@json requires a non-empty string literal", "Write @json(\"externalName\").", ""
+        return -1
+    return calling npool.intern with s->names, lit
+
+## Quita las comillas de un literal string (soporta `"x"` y `"""x"""`).
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave strip_quotes with raw as string into string:
+    var b as ref to frozen byte is bytes of raw
+    var n as int is raw length
+    var start as int is 0
+    var end as int is n
+    while start < n:
+        var c as int is (b at start) to int
+        if c == 34:
+            set start is start + 1
+        else:
+            break
+    while end > start:
+        var c2 as int is (b at (end - 1)) to int
+        if c2 == 34:
+            set end is end - 1
+        else:
+            break
+    var sb as StringBuilder is calling StringBuilder.new
+    var i as int is start
+    while i < end:
+        var ch as string is raw at i
+        calling sb.append with ch
+        banish ch
+        set i is i + 1
+    return calling sb.finish
+
+# ---------------------------------------------------------------------------
+# Métodos sintéticos
+# ---------------------------------------------------------------------------
+
+## Registra `to_json` y `from_json` en el tipo.
+##
+## ## Memoria
+## Añade símbolos, firmas y parámetros a las tablas.
+weave register_methods with s as ref to state.SemaState, ty as int, info as ref to types.SemaNominalInfo into void:
+    var str_t as int is calling types.base with s->types, "string"
+    var to_nid as int is calling npool.intern with s->names, "to_json"
+    var from_nid as int is calling npool.intern with s->names, "from_json"
+    if (calling symbols.lookup_method_exact with s->symbols, ty, to_nid) >= 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, info->decl_node), (calling astutil.end_of with s->ast, info->decl_node), "rune already declares 'to_json'", "Rename the method; derive Json owns 'to_json'.", ""
+        return
+    if (calling symbols.lookup_method_exact with s->symbols, ty, from_nid) >= 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_JSON_DERIVE, (calling astutil.start_of with s->ast, info->decl_node), (calling astutil.end_of with s->ast, info->decl_node), "rune already declares 'from_json'", "Rename the method; derive Json owns 'from_json'.", ""
+        return
+    var cbase as string is calling npool.text with s->names, info->c_name
+    defer banish cbase
+    var enc_name as string is calling codec_name with "encode", cbase
+    defer banish enc_name
+    var dec_name as string is calling codec_name with "decode", cbase
+    defer banish dec_name
+    var to_info as types.SemaFnInfo is with params_first is 0, params_count is 0, return_type is str_t, tparams_first is 0, tparams_count is 0, flags is types.FN_METHOD, attrs_node is -1
+    var to_ft as int is calling types.fn_type with s->types, to_info
+    var ignored_to as int is calling symbols.symbol_define_method_cname with s->symbols, ty, to_nid, to_ft, enc_name
+    var pname as int is calling npool.intern with s->names, "text"
+    var p0 as types.SemaFnParam is with name is pname, type is str_t, flags is 0, default_node is -1
+    var pfirst as int is calling types.add_fn_param with s->types, p0
+    var rty as int is calling types.result_of with s->types, ty, str_t
+    var from_info as types.SemaFnInfo is with params_first is pfirst, params_count is 1, return_type is rty, tparams_first is 0, tparams_count is 0, flags is types.FN_METHOD | types.FN_RITUAL, attrs_node is -1
+    var from_ft as int is calling types.fn_type with s->types, from_info
+    var ignored_from as int is calling symbols.symbol_define_method_cname with s->symbols, ty, from_nid, from_ft, dec_name
+
+## `_pengu_json_<kind>_<T>` como string owned.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave codec_name with kind as string, ctype as string into string:
+    var sb as StringBuilder is calling StringBuilder.new
+    calling sb.append with "_pengu_json_"
+    calling sb.append with kind
+    calling sb.append with "_"
+    calling sb.append with ctype
+    return calling sb.finish

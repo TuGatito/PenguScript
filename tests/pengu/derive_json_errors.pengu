@@ -1,0 +1,86 @@
+## `derive Json`: mensajes de error del decodificador y campos desconocidos.
+
+import std.scrolls
+
+rune Item derive Json:
+    name as string
+    count as u8
+    tags as list of string
+
+omen Kind:
+    Alpha
+    Beta
+
+rune WithOmen derive Json:
+    kind as Kind
+
+weave obj with body as string into string:
+    var open_brace as string is "{"
+    var close_brace as string is "}"
+    return open_brace + body + close_brace
+
+weave empty_obj into string:
+    return calling obj with ""
+
+weave expect_error with text as string, needle as string into int:
+    var r as result of Item to string is calling Item.from_json with text
+    if r.is_ok:
+        return 1
+    if not calling scrolls.contains with r.error, needle:
+        calling print with r.error
+        return 2
+    return 0
+
+weave main into int:
+    var empty as string is calling empty_obj
+    var t1 as string is calling obj with "\"name\":1,\"count\":2,\"tags\":[]"
+    var t2 as string is calling obj with "\"name\":\"a\",\"count\":300,\"tags\":[]"
+    var t3 as string is calling obj with "\"name\":\"a\",\"count\":2,\"tags\":[],\"name\":\"b\""
+    var t4 as string is calling obj with "\"name\":\"a\",\"count\":2,\"tags\":[1]"
+    var t5 as string is calling obj with "\"name\":\"a\",\"count\":2,\"tags\":[]"
+    var code as int is 0
+    set code is calling expect_error with empty, "missing field 'name'"
+    if code != 0:
+        return 10 + code
+    set code is calling expect_error with t1, "expected a string"
+    if code != 0:
+        return 20 + code
+    set code is calling expect_error with t2, "does not fit in u8"
+    if code != 0:
+        return 30 + code
+    set code is calling expect_error with t3, "duplicate field 'name'"
+    if code != 0:
+        return 40 + code
+    set code is calling expect_error with t4, "expected a string"
+    if code != 0:
+        return 50 + code
+    var with_trailing as string is t5 + " x"
+    set code is calling expect_error with with_trailing, "trailing characters"
+    if code != 0:
+        return 60 + code
+    var broken as string is calling obj with "\"name\":\"a\",\"count\":2,\"tags\":[]"
+    var chopped as string is broken at 0 to 10
+    set code is calling expect_error with chopped, "line 1"
+    if code != 0:
+        return 70 + code
+    var skip_text as string is calling obj with "\"unknown\":[1," + (calling obj with "\"a\":2") + "],\"name\":\"a\",\"count\":2,\"tags\":[\"x\"]"
+    var r2 as result of Item to string is calling Item.from_json with skip_text
+    if not r2.is_ok:
+        return 80
+    if r2.value.tags at 0 != "x":
+        return 81
+    var omen_text as string is calling obj with "\"kind\":\"Gamma\""
+    var r3 as result of WithOmen to string is calling WithOmen.from_json with omen_text
+    if r3.is_ok:
+        return 82
+    if not calling scrolls.contains with r3.error, "unknown variant 'Gamma'":
+        calling print with r3.error
+        return 83
+    var omen_ok as string is calling obj with "\"kind\":\"Beta\""
+    var r4 as result of WithOmen to string is calling WithOmen.from_json with omen_ok
+    if not r4.is_ok:
+        return 84
+    var expected as Kind is Kind.Beta
+    if r4.value.kind != expected:
+        return 85
+    return 0

@@ -494,6 +494,15 @@ _Undocumented._
  ## Memoria
  O(variantes).
 
+### `omen_first_payload_type`
+
+> **omen_first_payload_type**(c: ref to CgContext, ty: int, vname: int) -> int
+
+ Tipo del primer campo de payload de una variante.
+
+ ## Memoria
+ O(variantes).
+
 ### `payload_struct`
 
 > **payload_struct**(c: ref to CgContext, node: int, ast: ref to PsAst) -> string

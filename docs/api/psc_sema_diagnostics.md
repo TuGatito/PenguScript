@@ -260,6 +260,12 @@ _Undocumented._
 
 _Undocumented._
 
+### `CODE_JSON_DERIVE`
+
+> **CODE_JSON_DERIVE** : string
+
+ `derive Json` mal formado: tipo/atributo/campo no soportado.
+
 ### `CODE_CONCEPT_DUP`
 
 > **CODE_CONCEPT_DUP** : string

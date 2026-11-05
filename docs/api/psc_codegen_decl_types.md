@@ -62,6 +62,16 @@ decide el orden y el texto C.
  ## Memoria
  Strings temporales liberados.
 
+### `emit_omen_cleanup`
+
+> **emit_omen_cleanup**(c: ref to CgContext, ty: SemaType, cname: string) -> void
+
+ Emite el cleanup de un omen con payload (libera el payload de la variante
+ activa). Se emite desde `emit_cleanup`, que corre después de `emit_definition`.
+
+ ## Memoria
+ Strings temporales liberados.
+
 ### `emit_cleanup`
 
 > **emit_cleanup**(c: ref to CgContext, t: CgType) -> void

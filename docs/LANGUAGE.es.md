@@ -1,7 +1,7 @@
 # Referencia del lenguaje PenguScript
 
 PenguScript es un lenguaje pequeño y de tipado estático que compila a C. Esta
-referencia documenta el lenguaje tal como lo implementa `psc` 0.31.0: cada
+referencia documenta el lenguaje tal como lo implementa `psc` 0.32.0: cada
 construcción, su semántica y el C al que se reduce.
 
 Es el documento de *lenguaje* del conjunto de documentación:
@@ -73,6 +73,7 @@ English: [LANGUAGE.md](LANGUAGE.md).
   - [9.5 `seal`, `alias`, `opaque`](#95-seal-alias-opaque)
   - [9.6 `frozen`](#96-frozen)
   - [9.7 `derive`](#97-derive)
+  - [9.7.1 `derive Json`](#971-derive-json)
   - [9.8 Constructores `with:`](#98-constructores-with)
 - [10. Métodos y conceptos](#10-métodos-y-conceptos)
   - [10.1 `enchanting` — métodos sobre un tipo](#101-enchanting-métodos-sobre-un-tipo)
@@ -141,7 +142,7 @@ rasgos que necesitan su propia sección (genéricos, memoria, interop).
   diagnóstico son exhaustivos; la prosa no lo es — [PENGUNIC.es.md](PENGUNIC.es.md)
   cubre *cómo usar* el lenguaje y [STDLIB.es.md](STDLIB.es.md) cubre la
   biblioteca estándar.
-* Versión: `psc` 0.31.0. La versión de ABI que espera el C generado es 3.
+* Versión: `psc` 0.32.0. La versión de ABI que espera el C generado es 3.
 
 ## 1. Estructura léxica
 
@@ -1036,6 +1037,13 @@ var q as Player with:
     set .hp is 50
 ```
 
+Los inicializadores `with` anidados deben ir entre paréntesis; la coma
+pertenece al `with` más externo, así que la forma correcta es
+`address is (with city is "Madrid"), zip is 1`: sin paréntesis, `zip` se
+intentaría meter dentro de `address` (y gcc se queja contra el rune anidado). El
+compilador informa de campos desconocidos y repetidos (`E0004`) y sugiere los
+paréntesis.
+
 Los constructores anidados infieren el tipo del campo:
 
 ```pengu-fragment
@@ -1061,8 +1069,13 @@ static inline void _pengu_clone_Point(Point* out, const Point* v) { *out = *v; }
 static inline void _pengu_cleanup_Point(Point* p) { (void)p; }
 ```
 
-Un rune cuyos campos poseen memoria genera una limpieza que los libera, y
-`derive Nexus` es lo que hace que `banish` la llame.
+Un rune cuyos campos poseen memoria genera una limpieza que libera sus campos
+`string`/`list`/`map` de primer nivel (y la cáscara del payload de un omen), y
+`derive Nexus` es lo que hace que `banish` la llame. La limpieza es
+deliberadamente superficial: no sigue los elementos anidados ni el contenido de
+un valor copiado, porque los valores se copian por valor y las copias comparten
+esos buffers. Combina `banish` con tu propio liberador profundo (o usa un tipo
+que posea su árbol, como `JsonValue.free`).
 
 ### 9.2 `cyclus` — tipos recursivos
 
@@ -1168,13 +1181,155 @@ rune Point derive Par, Ordo, Vinculum, Imago:
 | `Par` | sí | `==`, `!=` |
 | `Ordo` | sí | `<`, `<=`, `>`, `>=` |
 | `Vinculum` | sí | hash, usable como clave de mapa |
-| `Imago` | sí | `_pengu_clone_<T>` (e implica `Nexus`) |
-| `Nexus` | sí | `_pengu_cleanup_<T>` |
+| `Imago` | sí | `_pengu_clone_<T>`: copia superficial (la copia comparte los buffers poseídos) |
+| `Nexus` | sí | `_pengu_cleanup_<T>`: destrucción de primer nivel, invocada por `banish` |
+| `Json` | sí | `_pengu_json_encode_<T>` / `_pengu_json_decode_<T>` (implica `Nexus`; ver §9.7.1) |
 | `Forma`, `Iterabilis` | no (`E0005`) | — |
 | `Donum` | automático | implícito cuando todos los campos son inicializables por defecto; `derive Donum` es `E0005` |
 
 Derivar un concepto de comparación sobre un rune genérico acota sus parámetros;
 la comprobación ocurre en cada punto de sustitución.
+
+### 9.7.1 `derive Json`
+
+`Json` es un concepto incorporado que genera un códec JSON para un rune en
+tiempo de compilación. Baja a C plano: sin reflexión, sin tablas de tipos en
+tiempo de ejecución y sin dependencia de `std.json`.
+
+```pengu
+rune Address derive Json:
+    city as string
+    zip as int
+
+rune User derive Json:
+    id as i64
+    name as string
+    @json("e-mail") email as string
+    @skip password as string
+    tags as list of string
+    nick as maybe string
+    address as Address
+```
+
+Derivar `Json` añade dos métodos al rune (e implica `Nexus`):
+
+| Método | Forma | C emitido |
+| --- | --- | --- |
+| `to_json` | `weave to_json into string` (instancia) | `_pengu_json_encode_<T>(T*)` |
+| `from_json` | `weave ritual from_json with text as string into result of T to string` (estático) | `_pengu_json_decode_<T>(PenguString)` |
+
+```pengu-fragment
+var user as User is with id is 7, name is "Ana", email is "a@b.c",
+    password is "x", tags is ["a"], nick is (maybe none),
+    address is (with city is "Madrid", zip is 28001)
+
+var text as string is calling user.to_json
+var parsed as result of User to string is calling User.from_json with text
+if parsed.is_ok:
+    calling print with parsed.value.name
+else:
+    calling print with parsed.error     # json: line 1, col 12: expected a string
+```
+
+#### Atributos de campo
+
+| Atributo | Significado |
+| --- | --- |
+| `@json("externo")` | clave JSON del campo (por defecto, el nombre del campo) |
+| `@skip` | nunca se codifica y nunca es obligatorio al decodificar |
+
+Dentro de un rune que deriva `Json`, cualquier otro atributo de campo es
+`E0054`; el compilador no interpreta validaciones como `@format("email")`. Eso
+va en tu frontera HTTP con un `weave validate` escrito a mano. Los runes que no
+derivan `Json` siguen ignorando estos atributos.
+
+#### Tabla de tipos
+
+| PenguScript | JSON |
+| --- | --- |
+| `bool` | `true` / `false` |
+| `i8`…`i64`, `int`, `isize` | número (con comprobación de rango al decodificar) |
+| `u8`…`u64`, `usize` | número (con comprobación de rango al decodificar) |
+| `float`, `f64` | número (forma más corta con round-trip; los no finitos hacen panic) |
+| `string` | string (UTF-8; se escapan `"`, `\\` y los controles C0) |
+| `list of T` | array |
+| `map of string to V` | objeto con claves ordenadas |
+| `maybe T` | `null` si no está, si no `T` |
+| rune con `derive Json` | objeto |
+| `omen` sin payload | string con el nombre de la variante |
+
+Se rechazan con `E0054`: `result`, tuplas, arrays de tamaño fijo, `ref`/punteros,
+`fn`, `opaque`, `char`, runes genéricos (`rune shard T`), `echo` y omens con
+payload.
+
+#### Semántica de la decodificación
+
+- La raíz del documento debe ser un objeto.
+- Las claves desconocidas se validan y se saltan.
+- Una clave duplicada de un campo conocido es un error: sobrescribir en
+  silencio filtraría el valor guardado antes.
+- Los campos obligatorios ausentes son un error; los campos `maybe T` son
+  opcionales.
+- Los números son números JSON estrictos y los errores de rango nombran el campo
+  y el tipo (`field 'count': 300 does not fit in u8`).
+- El anidamiento se limita a 64 niveles; los bytes sobrantes se rechazan.
+- Si falla, el decodificador libera todo lo que reservó, devuelve `err` con un
+  mensaje que lleva `line`/`col` y no deja valor al llamante. Usa su propio
+  `_pengu_json_free_<T>`, así que es exacto aunque `banish` sea superficial.
+
+#### C emitido
+
+`psc emit-c` imprime las cinco funciones de cada rune (primero las
+declaraciones y después los cuerpos), más `_pengu_json_free_<T>`. Para `User`:
+
+```c
+static PenguString _pengu_json_encode_User(User* self) {
+    PenguJsonOut _o;
+    pengu_json_out_init(&_o);
+    _pengu_json_write_User(&_o, self);
+    return pengu_json_out_finish(&_o);
+}
+
+static PenguResult _pengu_json_decode_User(PenguString text) {
+    PenguJsonIn _in;
+    pengu_json_in_init(&_in, text);
+    User* _out = (User*)malloc(sizeof(User));
+    if (!_out) abort();
+    PenguString _err = pengu_json_no_error();
+    if (!_pengu_json_read_User(&_in, _out, &_err)) {
+        free(_out);
+        return pengu_result_err(pengu_json_box_error(&_err));
+    }
+    if (!pengu_json_in_finish(&_in, &_err)) {
+        _pengu_json_free_User(_out);
+        free(_out);
+        return pengu_result_err(pengu_json_box_error(&_err));
+    }
+    return pengu_result_ok(_out);
+}
+
+static bool _pengu_json_read_User(PenguJsonIn* in, User* out, PenguString* err) {
+    memset(out, 0, sizeof(*out));
+    if (!pengu_json_in_object_begin(in, err)) return false;
+    bool _seen0 = false;              /* id */
+    bool _seen4 = false;              /* tags */
+    for (;;) { /* primer elemento o ',' ; in_key ; key_eq */ }
+    if (!_seen0) {
+        pengu_json_failf(err, in, "missing field 'id'");
+        _pengu_json_free_User(out);
+        return false;
+    }
+    if (!pengu_json_in_object_end(in, err)) {
+        _pengu_json_free_User(out);
+        return false;
+    }
+    return true;
+}
+```
+
+El escritor emite los campos en orden de declaración, saltando `@skip`; el
+lector usa `pengu_json_skip` para las claves desconocidas, así que un documento
+producido por otra versión del rune sigue decodificándose.
 
 ### 9.8 Constructores `with:`
 
@@ -1316,8 +1471,9 @@ La resolución es estática; no hay vtable ni despacho dinámico.
 | `Par` | `==`, `!=` |
 | `Ordo` | `<`, `<=`, `>`, `>=` |
 | `Vinculum` | usable como clave de `map` (hashing) |
-| `Imago` | copia profunda (`_pengu_clone_<T>`) |
-| `Nexus` | destrucción (`_pengu_cleanup_<T>`, invocada por `banish`) |
+| `Imago` | copia estructural superficial (`_pengu_clone_<T>`) |
+| `Nexus` | destrucción de primer nivel (`_pengu_cleanup_<T>`, invocada por `banish`) |
+| `Json` | códec JSON (`to_json` / `from_json`, ver §9.7.1) |
 | `Forma` | interpolación de strings (`"{x}"`) |
 | `Iterabilis` | `for x in col` |
 | `Donum` | valor por defecto de `donum T` |
@@ -1981,6 +2137,7 @@ los avisos no.
 | `E0051` | referencia colgante |
 | `E0052` | concepto duplicado |
 | `E0053` | forma de composición incorrecta (`.` frente a `pipe`) |
+| `E0054` | `derive Json` inválido (forma, atributo o tipo de campo) |
 | `E0056` | atributo no permitido aquí |
 | `E0057` | carácter fuera de rango |
 | `E0059` | `antiquus` sin cuerpo |

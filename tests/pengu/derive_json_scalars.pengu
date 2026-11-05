@@ -1,0 +1,64 @@
+## `derive Json`: escalares, `@json("...")` y `@skip` (ida y vuelta).
+
+import std.scrolls
+
+rune Scalars derive Json:
+    flag as bool
+    tiny as i8
+    small as i16
+    count as int
+    big as i64
+    utiny as u8
+    usmall as u16
+    ucount as u32
+    ubig as u64
+    ratio as float
+    precise as f64
+    text as string
+    @json("identificador") ident as int
+    @skip hidden as int
+
+weave obj with body as string into string:
+    var open_brace as string is "{"
+    var close_brace as string is "}"
+    return open_brace + body + close_brace
+
+weave main into int:
+    var s as Scalars is with flag is true, tiny is 7, small is 300, count is 42, big is 9000000000, utiny is 200, usmall is 60000, ucount is 4000000000, ubig is 9000000000, ratio is 0.5, precise is 1.25, text is "a\"b\\c", ident is 9, hidden is 5
+    var j as string is calling s.to_json
+    var expected as string is calling obj with "\"flag\":true,\"tiny\":7,\"small\":300,\"count\":42,\"big\":9000000000,\"utiny\":200,\"usmall\":60000,\"ucount\":4000000000,\"ubig\":9000000000,\"ratio\":0.5,\"precise\":1.25,\"text\":\"a\\\"b\\\\c\",\"identificador\":9"
+    if j != expected:
+        return 1
+    var r as result of Scalars to string is calling Scalars.from_json with j
+    if not r.is_ok:
+        return 2
+    var v as Scalars is r.value
+    if not v.flag:
+        return 3
+    if v.tiny != 7:
+        return 4
+    if v.small != 300:
+        return 5
+    if v.count != 42:
+        return 6
+    if v.big != 9000000000:
+        return 7
+    if v.utiny != 200:
+        return 8
+    if v.usmall != 60000:
+        return 9
+    if v.ucount != 4000000000:
+        return 10
+    if v.ubig != 9000000000:
+        return 11
+    if v.ratio != 0.5:
+        return 12
+    if v.precise != 1.25:
+        return 13
+    if v.text != "a\"b\\c":
+        return 14
+    if v.ident != 9:
+        return 15
+    if v.hidden != 0:
+        return 16
+    return 0

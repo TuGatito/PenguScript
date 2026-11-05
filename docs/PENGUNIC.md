@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.31.0.
+manual for the language implemented by `psc` 0.32.0.
 
 It is the *practice* document of the documentation set:
 
@@ -317,7 +317,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.31.0 (F13)
+psc 0.32.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -1034,6 +1034,52 @@ weave sum shard T where T: Num with xs as list of T into T:
         set total is total + x
     return total
 ```
+
+The same rule applies to data transfer objects. Before `derive Json`, every DTO
+needed a hand-written pair of walks over `std.json`, each one a place to forget a
+`banish`. Now the codec is compiled from the rune itself:
+
+```pengu
+rune Address derive Json:
+    city as string
+    zip as int
+
+rune User derive Json:
+    id as i64
+    name as string
+    @json("e-mail") email as string
+    @skip password as string
+    tags as list of string
+    nick as maybe string
+    address as Address
+
+weave handle with body as string into result of User to string:
+    return calling User.from_json with body
+
+weave send with user as ref to User into string:
+    return calling user.to_json
+```
+
+What this buys, and what it does not:
+
+- **It compiles to C, not to a runtime.** `to_json` becomes
+  `_pengu_json_encode_User` and `from_json` becomes
+  `_pengu_json_decode_User`; there is no reflection, no RTTI table and no
+  dependency on `std.json`. The result reads like the serializer you would have
+  written by hand.
+- **The error path owns its cleanup.** On a decode failure the decoder frees the
+  fields it had already reserved with `_pengu_json_free_User` and returns
+  `err` with `line`/`col`, so the caller never receives a half-built value. Do
+  not rely on `banish` for that: `Nexus` is deliberately shallow (see
+  [LANGUAGE.md §9.1](LANGUAGE.md#91-rune--structs)).
+- **Validation is not the codec's job.** `@format("email")`, ranges or business
+  rules belong to a `weave validate` at the boundary; the compiler rejects those
+  attributes inside a Json rune (`E0054`) instead of pretending to enforce them.
+- **Keep the schema in the DTO, not in the compiler.** `derive Json` exposes
+  nothing about OpenAPI or JSON Schema; a satellite tool (`psc doc`, `portus`)
+  reads the rune and writes whatever specification it needs.
+
+Full reference: [LANGUAGE.md §9.7.1](LANGUAGE.md#971-derive-json).
 
 ## Part III — Safe code
 
