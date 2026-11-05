@@ -1,7 +1,7 @@
 # PenguScript Language Reference
 
 PenguScript is a small, statically typed language that compiles to C. This
-reference documents the language as implemented by `psc` 0.28.9: every
+reference documents the language as implemented by `psc` 0.29.0: every
 construct, its semantics, and the C it lowers to.
 
 It is the *language* document of the documentation set:
@@ -137,7 +137,7 @@ own section (generics, memory, interop).
 * The keyword lists, type mappings and diagnostic codes are exhaustive; the
   prose is not — [PENGUNIC.md](PENGUNIC.md) covers *how to use* the language and
   [STDLIB.md](STDLIB.md) covers the standard library.
-* Version: `psc` 0.28.9. The ABI version the generated C expects is 3.
+* Version: `psc` 0.29.0. The ABI version the generated C expects is 3.
 
 ## 1. Lexical structure
 
@@ -359,6 +359,12 @@ or through a `ref to frozen T` is `E0006`.
 Scopes are indentation blocks: weave bodies, `if`/`while`/`for` branches,
 `with:` builders, `or:` blocks and `do:` expressions. Lookup is lexical and an
 inner declaration shadows an outer one.
+
+At module level, an unqualified name resolves in the current module first, then
+in the modules that module imports (transitively, in import order), and never in
+an unrelated module. A qualified name follows the imported aliases:
+`calling father.child.fn` inside `father` names `father.child.fn`, not a local
+`fn` of `father`.
 
 ```pengu
 weave main into int:
@@ -683,22 +689,29 @@ Labels are function-local, unique per function (`E0069`) and lower to
 
 ### 5.6 Block expressions
 
-A comprehension (`for x in xs then expr`) and the one-line conditional
-expression (`if c then a else b`) are values. An **indented block** in value
-position is not implemented yet in 0.28.x: `do:` and a multi-line `if`/`unless`
-type-check, but the emitted C is the value of the last statement only (the rest
-of the block is dropped), so they silently misbehave.
+A comprehension (`for x in xs then expr`), the one-line conditional
+expression (`if c then a else b`) and an **indented block** in value position
+are values. `do:` and a multi-line `if`/`unless` evaluate to the value of their
+last expression; the statements before it run in the block's own scope.
 
-```pengu-fragment
-let status as string is if score >= 100 then "winner" else "keep going"
-let doubled as int is if ready then n * 2 else n
+```pengu
+weave main into int:
+    let v as int is do:
+        var a as int is 5
+        a + 4
+    let w as int is if v > 0:
+        1
+    else:
+        0
+    calling print with "{v} {w}"    # 9 1
+    return 0
 ```
 
-To return a computed value from a block, use a helper `weave` and call it; to
-choose between two expressions, use `if ... then ... else ...`. A loop in value
+Blocks lower to GNU statement expressions (`__extension__(({ ... }))`), so the
+generated C needs GCC or Clang, the supported toolchains. `return`, `banish`
+and `defer` inside the block keep their usual meaning. A loop in value
 position (`for x in xs then expr`) collects each iteration's value into a new
-`list of T`. Block expressions are tracked as compiler parity work, not as a
-language rule.
+`list of T`.
 
 ## 6. Functions
 

@@ -82,8 +82,15 @@ Reglas:
   `get_*` explícito.
 - Un import es un `SkImport` con `module_scope`; permite resolver miembros
   cualificados (`spark.println`, `types.NIF_*`, `web.IS_WASM`).
-- El lookup cae al registro global de funciones/consts para respetar el
-  comportamiento de stage0 y los helpers de proyecto.
+- El lookup es consciente del módulo: `current_module` se fija al recolectar y
+  comprobar cada módulo; `module_of_scope` y el grafo
+  `import_first`/`import_count`/`import_edges` permiten resolver en la cadena de
+  scopes, después en los módulos visibles (BFS en orden de import) y sólo al
+  final en los mapas globales de funciones/consts. Un módulo ajeno al grafo de
+  imports nunca aporta un nombre suelto.
+- `lookup_type` consulta primero el scope local (un `rune` local gana a un alias
+  importado del mismo nombre) y después los módulos visibles y los mapas de
+  tipos.
 - Los nombres de tipos/omens también funcionan como namespace de variantes
   (`NodeKind.NdError`, `CipherJsonValue.JvBool`).
 

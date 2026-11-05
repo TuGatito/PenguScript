@@ -2,6 +2,73 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.29.0] — 2026-11-04 — resolución por módulo, bloques y omenes como valores
+
+Auditoría de los fallos que bloqueaban compilar portus con `psc` 0.28.9. La
+causa común de varios era que la búsqueda de nombres ignoraba desde qué módulo
+se llamaba: los mapas globales por nombre (`functions`, `consts`, `aliases`…)
+ganaban a los scopes de módulo y hacían que una llamada cualificada acabara en
+otro módulo. Además, los bloques en posición de valor y las variantes de omen
+emitían C inválido o descartaban sentencias.
+
+### Corregido
+
+- `src/psc/sema/symbols/table.pengu`, `src/psc/sema/modules/program.pengu`,
+  `src/psc/sema/api.pengu`: resolución consciente del módulo. `current_module`
+  se fija al recolectar y comprobar cada módulo; `module_of_scope` y el grafo de
+  imports directos permiten resolver un nombre en el scope actual y después en
+  los módulos visibles (BFS en orden de import). Los mapas globales quedan como
+  último recurso. Esto arregla que un nombre suelto cayera en la función de un
+  módulo consumidor (bug 15) y que un tipo local homónimo de un alias importado
+  emitiera el struct equivocado (bug 17).
+- `src/psc/sema/infer/core.pengu`: `calling demo.core.default_options` dentro de
+  `demo` resuelve por el nombre lógico del módulo, y una cadena de accesos
+  propaga el scope al atravesar un `SkImport` intermedio (bug 8). Ya no se
+  escanea el programa entero buscando un import con ese nombre.
+- `src/psc/codegen/expr.pengu`: el nombre C anotado por el chequeo semántico
+  (`ann.symbol_of`) tiene prioridad; las heurísticas de `mod.fn` ya no lo pisan
+  (`sid_direct`). También deja de reescribir una llamada resuelta con el bloque
+  de alias con guion bajo, que convertía `calling text.copy` en
+  `memoria_copy`/`m_copy` cuando otro módulo exportaba `copy`.
+- `src/psc/codegen/catalog.pengu`: `module_scope` sólo busca el companion cuando
+  la ruta termina en `.d.pengu`; antes recortaba seis caracteres a cualquier ruta
+  y `src/portus/router.pengu` caía en el scope de `portus.route` (bug 14). Los
+  tipos nominales se prefijan con el módulo sólo si su nombre base está repetido,
+  para no romper los bloques `antiquus` que escriben el nombre C a mano.
+- `src/psc/codegen/expr.pengu`: los argumentos de tipo de una llamada genérica se
+  sustituyen antes de instanciar (`type_from_ast_subst`), así que un `of T` que
+  reenvía el parámetro genera `Thing *` y no `void **` (bug 3).
+- `src/psc/codegen/context.pengu`, `stmt.pengu`, `bundle.pengu`, `expr.pengu`:
+  bloques en posición de valor. `do:` y `if`/`unless` multilínea se emiten como
+  sentencia-expresión de GNU `__extension__(({ … }))` mediante un hook en
+  `CgContext`, conservando las sentencias y el scope; antes sólo quedaba la
+  última expresión y las variables no se declaraban (bug 9).
+- `src/psc/codegen/expr.pengu`: `E.Empty` en posición de valor emite
+  `(E){.tag = E_Empty}` mediante `omen_variant_literal` (bug 10).
+- `src/psc/parse/expr/calls.pengu`, `ops.pengu`, `parse/state.pengu`,
+  `parse/api.pengu`: los argumentos de una llamada se parsean sin consumir
+  `or else`/`or return`/`or:`, de modo que el postfijo se aplica a la llamada
+  completa y ya no se pasa `NULL` (bug 19).
+- `src/psc/lexer_string.pengu`: `find_balanced` salta el escape `\` dentro de
+  un grupo `{...}`, y `split_parts` respeta `{{`/`}}` y los literales con llaves
+  (`"{\"a\":1}"`). `src/psc/sema/infer/core.pengu` decodifica el segmento antes
+  de parsear la interpolación (bug 16).
+- `src/psc/driver/build.pengu`: la clave de caché hashea los directorios C
+  (`c_dir`, `include_dir` del proyecto y cada `include_dir` de la toolchain), así
+  que editar un header recompila (bug 20).
+
+### Pruebas
+
+- `tests/regress_module_chain.sh`, `regress_visible_names.sh`,
+  `regress_type_collision.sh`, `regress_module_prefix.sh`,
+  `regress_generic_arg_subst.sh`, `regress_block_value.sh`,
+  `regress_omen_variant_value.sh`, `regress_interp_escaped.sh`,
+  `regress_call_or_block.sh`, `regress_alias_return.sh`,
+  `regress_c_header_cache.sh`.
+- Bug 18 (`alias` en posición de retorno) no reproduce en 0.29.0; el test fija
+  que el tipo subyacente se acepta y que un valor incompatible sigue dando
+  `E0020`.
+
 ## [0.28.9] — 2026-11-04 — `psc add` no copia artefactos generados
 
 Instalar una dependencia `path` copiaba su árbol entero, incluidos `lib/` y
