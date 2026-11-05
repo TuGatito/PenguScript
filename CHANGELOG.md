@@ -47,7 +47,8 @@ Primera versión con hilos creados por el lenguaje. `std.filum` gana
 
 - `tests/pengu/threads.pengu` (start/start0/start2, join, TLS, pool,
   parallel_for), `tests/regress_threads.sh` (diagnósticos de `@shared` y
-  movimiento) y `tests/regress_threads_tsan.sh` (TSAN opcional).
+  movimiento) y `tests/regress_threads_tsan.sh` (TSAN opcional) y
+  `tests/regress_threads_asan.sh` (ASAN/LeakSanitizer opcional).
 
 ## [0.29.1] — 2026-11-04 — valores de `if`, genéricas inferidas y omenes
 

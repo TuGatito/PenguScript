@@ -37,8 +37,10 @@ weave main into int:
     var got as maybe ref to int is calling filum.tls_get of int with (sigil of t)
     if got is present:
         if (essence of got.value) != 42:
+            banish got
             calling filum.tls_free with (sigil of t)
             return 4
+    banish got
     calling filum.tls_free with (sigil of t)
     var p as Pool is calling filum.pool with 2
     calling p.submit with pool_work, (transmute 0 to ref to void)
