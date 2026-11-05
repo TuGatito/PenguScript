@@ -1,0 +1,27 @@
+import std.coro
+
+weave inner with n as ref to int into void:
+    set essence of n is essence of n + 1
+    calling coro.yield
+    set essence of n is essence of n + 1
+
+weave outer with n as ref to int into void:
+    var child as coro.Coroutine is calling coro.start with inner, n
+    calling child.resume
+    calling child.resume
+    calling child.free
+    set essence of n is essence of n + 10
+    calling coro.yield
+    set essence of n is essence of n + 10
+
+weave main into int:
+    var n as int is 0
+    var co as coro.Coroutine is calling coro.start with outer, (sigil of n)
+    var a as coro.CoroutineState is calling co.resume
+    var b as coro.CoroutineState is calling co.resume
+    calling co.free
+    if a != coro.CoroutineState.suspended or b != coro.CoroutineState.finished:
+        return 1
+    if n != 22:
+        return 2
+    return 0

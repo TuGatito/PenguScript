@@ -1,0 +1,30 @@
+import std.coro
+
+weave stepper with n as ref to int into void:
+    set essence of n is essence of n + 1
+    calling coro.yield
+    set essence of n is essence of n + 1
+    calling coro.yield
+    set essence of n is essence of n + 1
+    calling coro.yield
+    set essence of n is essence of n + 1
+
+weave main into int:
+    var n as int is 0
+    var co as coro.Coroutine is calling coro.start with stepper, (sigil of n)
+    var s0 as coro.CoroutineState is calling co.resume
+    var s1 as coro.CoroutineState is calling co.resume
+    var s2 as coro.CoroutineState is calling co.resume
+    var s3 as coro.CoroutineState is calling co.resume
+    calling co.free
+    if s0 != coro.CoroutineState.suspended:
+        return 1
+    if s1 != coro.CoroutineState.suspended:
+        return 2
+    if s2 != coro.CoroutineState.suspended:
+        return 3
+    if s3 != coro.CoroutineState.finished:
+        return 4
+    if n != 4:
+        return 5
+    return 0

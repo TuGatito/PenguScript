@@ -1,0 +1,25 @@
+import std.coro
+
+weave pause with n as ref to int into void:
+    set essence of n is 1
+    calling coro.yield
+    set essence of n is 2
+
+weave main into int:
+    var n as int is 0
+    var co as coro.Coroutine is calling coro.start with pause, (sigil of n)
+    var before as coro.CoroutineState is calling co.status
+    if before != coro.CoroutineState.suspended:
+        return 1
+    var mid as coro.CoroutineState is calling co.resume
+    var during as coro.CoroutineState is calling co.status
+    if mid != coro.CoroutineState.suspended or during != coro.CoroutineState.suspended:
+        return 2
+    var done as coro.CoroutineState is calling co.resume
+    var after as coro.CoroutineState is calling co.status
+    calling co.free
+    if done != coro.CoroutineState.finished or after != coro.CoroutineState.finished:
+        return 3
+    if n != 2:
+        return 4
+    return 0

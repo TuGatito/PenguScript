@@ -1,0 +1,22 @@
+import std.coro
+
+rune Cell:
+    value as int
+
+weave bump with c as ref to Cell into void:
+    set c->value is c->value + 1
+    calling coro.yield
+    set c->value is c->value + 1
+
+weave main into int:
+    var c as Cell is with value is 0
+    var co as coro.Coroutine is calling coro.start with bump, (sigil of c)
+    calling co.resume
+    var mid as int is c.value
+    calling co.resume
+    calling co.free
+    if mid != 1:
+        return 1
+    if c.value != 2:
+        return 2
+    return 0

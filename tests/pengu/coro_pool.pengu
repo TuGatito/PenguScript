@@ -1,0 +1,18 @@
+import std.coro
+
+weave noop into void:
+    return
+
+weave main into int:
+    var round as int is 0
+    while round < 20:
+        var i as int is 0
+        while i < 2000:
+            var co as coro.Coroutine is calling coro.start0 with noop
+            var s as coro.CoroutineState is calling co.resume
+            if s != coro.CoroutineState.finished:
+                return 1
+            calling co.free
+            set i is i + 1
+        set round is round + 1
+    return 0

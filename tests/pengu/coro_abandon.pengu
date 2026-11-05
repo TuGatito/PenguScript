@@ -1,0 +1,17 @@
+import std.coro
+
+weave wait with n as ref to int into void:
+    set essence of n is 1
+    calling coro.yield
+    set essence of n is 2
+
+weave main into int:
+    var n as int is 0
+    var co as coro.Coroutine is calling coro.start with wait, (sigil of n)
+    var s as coro.CoroutineState is calling co.resume
+    if s != coro.CoroutineState.suspended or n != 1:
+        return 1
+    calling co.abandon
+    if n != 1:
+        return 2
+    return 0
