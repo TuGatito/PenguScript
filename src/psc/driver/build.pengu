@@ -113,6 +113,30 @@ weave ends_with with s as string, suffix as string into bool:
         set i is i + 1
     return true
 
+## Añade a la clave de caché el contenido de todos los archivos de un directorio.
+##
+## Los `include "..."`, los `.c` de `c_dir` y los headers locales cambian el
+## artefacto pero no estaban en la clave: un header editado reutilizaba el
+## binario viejo (bug 20).
+##
+## ## Memoria
+## Libera los strings temporales.
+weave push_dir_hashes with cparts as ref to list of string, dir as string into void:
+    if not (calling archivum.is_dir with dir):
+        return
+    var files as list of string is calling archivum.find_files with dir, true
+    var i as int is 0
+    while i < files.len:
+        var f as string is (files at i)
+        calling cparts.push with (calling copy with f)
+        var fb as maybe string is calling archivum.read_bytes with f
+        if fb.is_present:
+            var h as string is calling digest.sha256_raw with fb.value
+            calling cparts.push with h
+        banish fb
+        set i is i + 1
+    banish files
+
 ## Directorio actual.
 ##
 ## ## Memoria
@@ -747,6 +771,20 @@ weave build with o as BuildOptions into BuildResult:
             calling cparts.push with (calling copy with mm.source.path)
             calling cparts.push with (calling copy with mm.source.text)
             set mi is mi + 1
+        # C nativo y headers: `c_dir`, `include_dir` del proyecto y los
+        # `include_dirs` (dependencias). Sin esto la caché reutilizaba el
+        # binario tras editar un header incluido (bug 20).
+        if is_project:
+            var cdirh as string is "{base}/{man.c_dir}"
+            calling push_dir_hashes with (sigil of cparts), cdirh
+            banish cdirh
+            var incdirh as string is "{base}/{man.include_dir}"
+            calling push_dir_hashes with (sigil of cparts), incdirh
+            banish incdirh
+        var idir as int is 0
+        while idir < tc.include_dirs.len:
+            calling push_dir_hashes with (sigil of cparts), (tc.include_dirs at idir)
+            set idir is idir + 1
         set ck is calling cache.key with cparts
         var hit as string is calling cache.get with ck
         if hit length > 0:
