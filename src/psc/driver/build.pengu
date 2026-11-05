@@ -284,6 +284,8 @@ weave wasm_unsupported with p as ref to program.SemaProgram into string:
             return "std.secrets is not available on wasm: libsodium is not built for the wasm sysroot"
         if calling ends_with with path, "/std/petitio.pengu":
             return "std.petitio is not available on wasm: libcurl is not built for the wasm sysroot; use std.web.http"
+        if calling ends_with with path, "std/coro.pengu":
+            return "std.coro is not available on wasm: stackful coroutines need Emscripten fibers/Asyncify, not enabled in this toolchain"
         set i is i + 1
     return ""
 
@@ -828,6 +830,8 @@ weave build with o as BuildOptions into BuildResult:
     calling args.push with "-fdata-sections"
     # D12: hardening del binario final. Solo release y nunca en WASM (emcc no
     # acepta estas banderas de ELF/PIE).
+    if o.profile == "release":
+        calling args.push with "-DPENGU_FRAME_TRACE=0"
     if o.profile == "release" and not eff.is_wasm:
         calling args.push with "-fstack-protector-strong"
         if so.os_name == "linux":

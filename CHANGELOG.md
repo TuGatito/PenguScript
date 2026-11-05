@@ -2,6 +2,53 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.31.0] — 2026-11-05 — corrutinas stackful explícitas
+
+`std.coro` añade corrutinas cooperativas, stackful y sin planificador: la
+corrutina vive en el hilo que la creó y solo avanza cuando su dueño llama
+`resume`. Es la base para generadores e iteradores perezosos sin `async`/`await`
+ni closures con captura.
+
+### Añadido
+
+- `std.coro`: `Coroutine`, `CoroutineState` (`suspended`, `running`,
+  `finished`), `start`/`start0`, `yield`, `resume`, `status`, `free` y
+  `abandon`. `resume` devuelve el estado; el mal uso es un panic, no un
+  `result`.
+- `@coroutine` y `FN_CORO`: el compilador valida el worker (weave/declare, no
+  método, no genérico, `void`, aridad exacta) y mueve los argumentos con dueño.
+  Un `ref to T` no exige `@shared` porque la corrutina no cambia de hilo.
+- Runtime `runtime/pengu_coro.c` sobre minicoro 0.2.0 (MIT-0/Unlicense),
+  vendorizado en `std_c/minicoro/`. Arena de 2 MiB, free-list TLS, slots de
+  ~68 KiB, pila de 64 KiB, canario y `madvise` selectivo. `PENGU_ABI_VERSION`
+  sigue en 3.
+- `pengu_runtime.h` (sección 21): caja, creación, resume, yield,
+  status, free y abandon.
+- `examples/coroutines.pengu`, tests de humo, estados, anidamiento, argumentos,
+  `ref`, abandono, escala y pool; regresiones de propiedad y panics; ASan/TSan.
+
+### Corregido
+
+- `@spawn`: un rune con un campo `ref to T` no `@shared` ya no cruza un hilo
+  (chequeo recursivo `type_has_unshared_ref`, cap 8).
+- `@spawn`: un parámetro prestado ya no se mueve a un hilo (`SkParam` fuera);
+  solo `var`/`let` locales. Mensaje: "owning values must be local bindings".
+- Mensaje de worker genérico: "generic workers are not supported yet" (antes
+  prometía 0.30.1).
+
+### Documentación
+
+- `docs/LANGUAGE.{md,es.md}` §14.2, tabla de atributos con `@spawn`,
+  `@coroutine` y `@shared`; `docs/PENGUNIC.{md,es.md}` §13 reescrita y nueva
+  §13.7; `docs/STDLIB.{md,es.md}` §9.1 y catálogo de 68 módulos;
+  `docs/WASM.md` y `docs/CARMEN.md` actualizados; `docs/api/std_coro.md`
+  generado.
+
+### Tests
+
+- `tests/pengu/coro_*.pengu`, `tests/regress_coros.sh`,
+  `tests/regress_coros_asan.sh`, `tests/regress_coros_tsan.sh`.
+
 ## [0.30.0] — 2026-11-04 — hilos de primera clase, valores de función genéricos y cero deuda
 
 Primera versión con hilos creados por el lenguaje. `std.filum` gana

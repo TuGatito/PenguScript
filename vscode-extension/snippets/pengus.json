@@ -1135,5 +1135,59 @@
       "    ${0}"
     ],
     "description": "Echo record (all fields stored; see LANGUAGE.md 9.2)."
+  },
+  "Coroutine Start and Resume (one argument)": {
+    "prefix": "coro",
+    "body": [
+      "import std.coro",
+      "",
+      "weave worker with out as ref to int into void:",
+      "    set essence of out is 1",
+      "    calling coro.yield",
+      "    set essence of out is 2",
+      "",
+      "weave main into int:",
+      "    var n as int is 0",
+      "    var co as coro.Coroutine is calling coro.start with worker, (sigil of n)",
+      "    var first as coro.CoroutineState is calling co.resume",
+      "    var second as coro.CoroutineState is calling co.resume",
+      "    calling co.free",
+      "    ${0}"
+    ],
+    "description": "Create a stackful coroutine and resume it twice"
+  },
+  "Coroutine Start Without Arguments": {
+    "prefix": "coro0",
+    "body": [
+      "import std.coro",
+      "",
+      "weave worker into void:",
+      "    calling coro.yield",
+      "",
+      "weave main into int:",
+      "    var co as coro.Coroutine is calling coro.start0 with worker",
+      "    calling co.resume",
+      "    calling co.free",
+      "    ${0}"
+    ],
+    "description": "Start a coroutine whose worker takes no arguments."
+  },
+  "Coroutine Resume Loop": {
+    "prefix": "cororesume",
+    "body": [
+      "while calling co.status == coro.CoroutineState.suspended:",
+      "    calling co.resume",
+      "    ${0}"
+    ],
+    "description": "Resume a coroutine until it finishes."
+  },
+  "Coroutine Abandon": {
+    "prefix": "coroabandon",
+    "body": [
+      "calling co.abandon",
+      "",
+      "${0}"
+    ],
+    "description": "Discard a suspended coroutine without running it to completion."
   }
 }
