@@ -334,5 +334,6 @@ weave create_module_scopes with p as ref to SemaProgram into void:
         var sid as int is p->symbols.scopes.len
         calling p->symbols.scopes.push with g
         set m.scope is sid
+        calling symbols.register_module_scope with (sigil of p->symbols), i, sid
         set p->modules at (i) is m
         set i is i + 1

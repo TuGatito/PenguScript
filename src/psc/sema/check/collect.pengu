@@ -204,6 +204,7 @@ weave collect_import with s as ref to state.SemaState, node as int into void:
     set sv.line is ipos.line
     set sv.col is ipos.col
     calling symbols.symbol_define with s->symbols, sv
+    calling symbols.register_import with s->symbols, s->module->id, target_id
 
 ## Alias de un import (explícito o último componente).
 ##

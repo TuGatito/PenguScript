@@ -115,13 +115,16 @@ rune CgCatalog:
     by_type as map of int to int
     ## Errores de comptime detectados mientras se recolectaba el top-level.
     errors as int
+    ## `NameId` de tipos nominales cuyo nombre base aparece en más de un
+    ## módulo; solo esos se prefijan en C (bug 17).
+    ambiguous as map of int to int
 
 ## Crea un catálogo vacío.
 ##
 ## ## Memoria
 ## Asigna listas/mapas.
 weave new_catalog into CgCatalog:
-    return with functions is list of CgFunction, by_symbol is map of int to int, by_name is map of int to int, types is list of CgType, consts is list of CgConst, includes is list of CgInclude, by_type is map of int to int, errors is 0
+    return with functions is list of CgFunction, by_symbol is map of int to int, by_name is map of int to int, types is list of CgType, consts is list of CgConst, includes is list of CgInclude, by_type is map of int to int, errors is 0, ambiguous is map of int to int
 
 ## Libera el catálogo.
 ##
@@ -135,6 +138,7 @@ weave catalog_free with c as ref to CgCatalog into void:
     banish c->consts
     banish c->includes
     banish c->by_type
+    banish c->ambiguous
 
 ## Scope que contiene los símbolos de un módulo (compañero `.d.pengu` incluido).
 ##
@@ -145,8 +149,12 @@ weave module_scope with p as ref to program.SemaProgram, m as loader.SemaModule 
         var parent as loader.SemaModule is (p->modules at m.companion_for)
         return parent.scope
     var path as string is m.path
-    if path length > 7:
-        var base as string is "{path at 0 to (path length - 7)}.pengu"
+    # Solo un binding `.d.pengu` comparte el scope de su `.pengu` padre. El
+    # heuristico anterior recortaba siete caracteres a cualquier ruta, asi que
+    # `portus/router.pengu` resolvia al scope de `portus/route.pengu` (bug 14).
+    var plen as int is path length
+    if plen > 8 and (path at (plen - 8) to plen) == ".d.pengu":
+        var base as string is "{path at 0 to (plen - 8)}.pengu"
         var i as int is 0
         while i < p->modules.len:
             var mm as loader.SemaModule is (p->modules at i)
@@ -867,6 +875,22 @@ weave add_type with p as ref to program.SemaProgram, c as ref to CgCatalog, m as
         return
     if calling c->by_type.has with tid:
         return
+    # Los tipos nominales tambien llevan prefijo de modulo: dos runas
+    # homonimas en modulos distintos (`Handler`) compartian nombre C y el
+    # bundle declaraba dos `struct Handler` incompatibles (bug 17).
+    var ty as tk.SemaType is calling types.at with (sigil of p->types), tid
+    if ty.kind == tk.SemaTypeKind.TkRune or ty.kind == tk.SemaTypeKind.TkEcho or ty.kind == tk.SemaTypeKind.TkOmen or ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal or ty.kind == tk.SemaTypeKind.TkConcept:
+        var ninfo as types.SemaNominalInfo is (p->types.nominal_infos at ty.a)
+        if ninfo.c_name == ninfo.base_name and (calling c->ambiguous.has with ninfo.base_name):
+            var base as string is calling npool.text with (sigil of p->names), ninfo.base_name
+            var pre as string is calling module_fn_prefix with p, m, node
+            defer banish pre
+            if pre length > 0:
+                var full as string is "{pre}{base}"
+                var nid as int is calling npool.intern with (sigil of p->names), full
+                banish full
+                set ninfo.c_name is nid
+                set p->types.nominal_infos at (ty.a) is ninfo
     var idx as int is c->types.len
     var t as CgType is with type_id is tid, node is node, module is m.id, is_struct is is_struct, is_omen is is_omen
     calling c->types.push with t
@@ -983,6 +1007,22 @@ weave collect_module with p as ref to program.SemaProgram, c as ref to CgCatalog
 ## Recorre todos los módulos; no libera el programa.
 weave catalog_collect with p as ref to program.SemaProgram, o as cgopts.CgOptions into CgCatalog:
     var c as CgCatalog is calling new_catalog
+    # Detecta nombres nominales repetidos entre módulos. Prefijar SIEMPRE
+    # rompía el código `antiquus` de std (que escribe el nombre C a mano) y
+    # obligaba a una transición de bootstrap imposible; prefijar solo las
+    # colisiones mantiene estables los nombres únicos y arregla el bug 17.
+    var seen as map of int to int is map of int to int
+    defer banish seen
+    var ni as int is 0
+    while ni < p->types.nominal_infos.len:
+        var info as types.SemaNominalInfo is (p->types.nominal_infos at ni)
+        var prev as int is 0
+        if calling seen.has with info.base_name:
+            set prev is calling seen.get with info.base_name
+        calling seen.put with info.base_name, prev + 1
+        if prev >= 1:
+            calling c.ambiguous.put with info.base_name, 1
+        set ni is ni + 1
     var i as int is 0
     while i < p->order.len:
         var mid as int is (p->order at i)

@@ -96,13 +96,23 @@ rune SemaSymbols:
     insignia as int
     ## Módulo actual (`-1` fuera de módulo).
     current_module as int
+    ## `scope -> module id`, para resolver nombres visibles.
+    module_of_scope as map of int to int
+    ## `module id -> scope` del módulo.
+    scope_of_module as map of int to int
+    ## Primer índice de `import_edges` por módulo.
+    import_first as map of int to int
+    ## Número de imports directos por módulo.
+    import_count as map of int to int
+    ## Destinos de import, aplanados y contiguos por módulo.
+    import_edges as list of int
 
 ## Crea la tabla y registra builtins.
 ##
 ## ## Memoria
 ## Asigna listas/mapas; `free_symbols` los libera.
 weave new_symbols with t as ref to types.SemaTypeTable, pool as ref to npool.NamePool into SemaSymbols:
-    var s as SemaSymbols is with names is pool, types is t, symbols is list of sym.SemaSymbol, scopes is list of scope.SemaScope, current is -1, runes is map of int to int, echos is map of int to int, omens is map of int to int, aliases is map of int to int, seals is map of int to int, concepts is map of int to int, functions is map of int to int, consts is map of int to int, methods is map of int to int, method_receiver is map of int to int, mutating_methods is map of int to int, generic_runes is map of int to int, generic_echos is map of int to int, generic_omens is map of int to int, generic_aliases is map of int to int, generic_concepts is map of int to int, generic_functions is map of int to int, generic_methods is map of int to int, container_methods is map of int to int, generic_owner is map of int to int, bind_owner is map of int to int, primitive_owner is map of int to int, shard_bounds is map of int to int, templates is list of sym.SemaTemplate, instances is list of sym.SemaInstance, instance_keys is map of int to int, instance_by_type is map of int to int, instance_args is list of int, const_values is list of sym.SemaConst, symbol_bounds is list of int, module_type_keys is map of int to int, module_types is map of int to int, includes is list of string, links is list of string, link_modules is list of int, ldflags is list of string, imports is list of string, import_order is list of int, import_graph is list of int, has_includes is false, insignia is -1, current_module is -1
+    var s as SemaSymbols is with names is pool, types is t, symbols is list of sym.SemaSymbol, scopes is list of scope.SemaScope, current is -1, runes is map of int to int, echos is map of int to int, omens is map of int to int, aliases is map of int to int, seals is map of int to int, concepts is map of int to int, functions is map of int to int, consts is map of int to int, methods is map of int to int, method_receiver is map of int to int, mutating_methods is map of int to int, generic_runes is map of int to int, generic_echos is map of int to int, generic_omens is map of int to int, generic_aliases is map of int to int, generic_concepts is map of int to int, generic_functions is map of int to int, generic_methods is map of int to int, container_methods is map of int to int, generic_owner is map of int to int, bind_owner is map of int to int, primitive_owner is map of int to int, shard_bounds is map of int to int, templates is list of sym.SemaTemplate, instances is list of sym.SemaInstance, instance_keys is map of int to int, instance_by_type is map of int to int, instance_args is list of int, const_values is list of sym.SemaConst, symbol_bounds is list of int, module_type_keys is map of int to int, module_types is map of int to int, includes is list of string, links is list of string, link_modules is list of int, ldflags is list of string, imports is list of string, import_order is list of int, import_graph is list of int, has_includes is false, insignia is -1, current_module is -1, module_of_scope is map of int to int, scope_of_module is map of int to int, import_first is map of int to int, import_count is map of int to int, import_edges is list of int
     calling new_global_scope with (sigil of s)
     calling init_builtins with (sigil of s)
     return s
@@ -158,6 +168,11 @@ weave free_symbols with s as ref to SemaSymbols into void:
     calling free_strings with s->imports
     banish s->import_order
     banish s->import_graph
+    banish s->module_of_scope
+    banish s->scope_of_module
+    banish s->import_first
+    banish s->import_count
+    banish s->import_edges
 
 ## Libera una lista de strings owned.
 ##
@@ -247,11 +262,40 @@ weave mark_or_block with s as ref to SemaSymbols, scope_id as int into void:
 weave current_scope with s as ref to SemaSymbols into scope.SemaScope:
     return (s->scopes at s->current)
 
-## Lookup por `NameId` desde el scope actual.
+## Registra el scope de un módulo y su inverso.
+##
+## ## Memoria
+## Añade dos entradas de mapa.
+weave register_module_scope with s as ref to SemaSymbols, module_id as int, scope_id as int into void:
+    calling s->scope_of_module.put with module_id, scope_id
+    calling s->module_of_scope.put with scope_id, module_id
+
+## Registra un import directo entre módulos.
+##
+## ## Memoria
+## Añade una entrada a `import_edges` y ajusta contadores.
+weave register_import with s as ref to SemaSymbols, importer as int, target as int into void:
+    if not (calling s->import_first.has with importer):
+        calling s->import_first.put with importer, s->import_edges.len
+        calling s->import_count.put with importer, 0
+    var count as int is calling s->import_count.get with importer
+    calling s->import_edges.push with target
+    calling s->import_count.put with importer, count + 1
+
+## Scope de un módulo (`-1` si no se registró).
+##
+## ## Memoria
+## O(1).
+weave scope_of_module with s as ref to SemaSymbols, module_id as int into int:
+    if calling s->scope_of_module.has with module_id:
+        return calling s->scope_of_module.get with module_id
+    return -1
+
+## Lookup por `NameId` sólo en la cadena de scopes actual.
 ##
 ## ## Memoria
 ## O(profundidad de scopes).
-weave lookup with s as ref to SemaSymbols, name as int into int:
+weave lookup_scope_chain with s as ref to SemaSymbols, name as int into int:
     var cur as int is s->current
     while cur >= 0:
         var sc as scope.SemaScope is (s->scopes at cur)
@@ -259,9 +303,63 @@ weave lookup with s as ref to SemaSymbols, name as int into int:
         if found >= 0:
             return found
         set cur is sc.parent
-    # Desde 3.0 los módulos tienen scopes propios; stage0 también resolvía
-    # funciones/consts importadas desde el registro global. Mantener ese
-    # fallback permite que `is_error` y helpers de std se usen sin cualificar.
+    return -1
+
+## Lookup en los módulos visibles desde el módulo actual.
+##
+## Recorre el cierre de imports directos en anchura (primero el propio módulo
+## ya lo cubre la cadena de scopes). Nunca consulta módulos ajenos al grafo de
+## imports del archivo.
+##
+## ## Memoria
+## Asigna dos contenedores temporales; los libera.
+weave lookup_visible with s as ref to SemaSymbols, name as int into int:
+    if s->current_module < 0:
+        return -1
+    var queue as list of int is list of int
+    defer banish queue
+    var seen as map of int to int is map of int to int
+    defer banish seen
+    calling queue.push with s->current_module
+    calling seen.put with s->current_module, s->current_module
+    var qi as int is 0
+    while qi < queue.len:
+        var mid as int is (queue at qi)
+        if mid != s->current_module:
+            var scp as int is calling scope_of_module with s, mid
+            if scp >= 0:
+                var hit as int is calling lookup_in_scope with s, scp, name
+                if hit >= 0:
+                    return hit
+        if calling s->import_first.has with mid:
+            var first as int is calling s->import_first.get with mid
+            var count as int is calling s->import_count.get with mid
+            var k as int is 0
+            while k < count:
+                var target as int is (s->import_edges at (first + k))
+                if target >= 0 and not (calling seen.has with target):
+                    calling seen.put with target, target
+                    calling queue.push with target
+                set k is k + 1
+        set qi is qi + 1
+    return -1
+
+## Lookup por `NameId` desde el scope actual.
+##
+## Orden: cadena de scopes (módulo actual incluido), módulos visibles por
+## imports, y sólo como último recurso los registros globales históricos.
+##
+## ## Memoria
+## O(profundidad de scopes + módulos visibles).
+weave lookup with s as ref to SemaSymbols, name as int into int:
+    var found as int is calling lookup_scope_chain with s, name
+    if found >= 0:
+        return found
+    var visible as int is calling lookup_visible with s, name
+    if visible >= 0:
+        return visible
+    # Fallback heredado: cuando no hay módulo activo (codegen, bootstrap) o
+    # para helpers de std que se usan sin cualificar.
     if calling s->functions.has with name:
         return calling s->functions.get with name
     if calling s->consts.has with name:
@@ -279,14 +377,15 @@ weave lookup_name with s as ref to SemaSymbols, name as string into int:
         if found >= 0:
             return found
     # Fallback para alias de import en scopes cuyo padre no se enlazó
-    # correctamente (bootstrap stage2); los imports son globales al módulo.
+    # correctamente (bootstrap stage2), restringido al módulo actual.
     var i as int is 0
     while i < s->symbols.len:
         var sv as sym.SemaSymbol is (s->symbols at i)
         if sv.kind == sym.SemaSymbolKind.SkImport:
-            var svn as string is calling npool.text with s->names, sv.name
-            if svn == name:
-                return i
+            if s->current_module < 0 or sv.module == s->current_module:
+                var svn as string is calling npool.text with s->names, sv.name
+                if svn == name:
+                    return i
         set i is i + 1
     return -1
 
@@ -367,9 +466,23 @@ weave symbol_define_type with s as ref to SemaSymbols, kind as sym.SemaSymbolKin
 
 ## Lookup de tipo por `NameId`.
 ##
+## Prefiere la declaración del módulo actual (bug 17): un `rune Handler` local
+## no debe perder contra el alias `Handler` importado. Después busca en los
+## módulos visibles y sólo al final en los registros globales heredados.
+##
 ## ## Memoria
-## O(1) promedio.
+## O(profundidad de scopes + módulos visibles).
 weave lookup_type with s as ref to SemaSymbols, name as int into int:
+    var sid as int is calling lookup_scope_chain with s, name
+    if sid >= 0:
+        var sv as sym.SemaSymbol is (s->symbols at sid)
+        if sv.kind == sym.SemaSymbolKind.SkType or sv.kind == sym.SemaSymbolKind.SkRune or sv.kind == sym.SemaSymbolKind.SkEcho or sv.kind == sym.SemaSymbolKind.SkOmen or sv.kind == sym.SemaSymbolKind.SkAlias or sv.kind == sym.SemaSymbolKind.SkSeal or sv.kind == sym.SemaSymbolKind.SkConcept:
+            return sv.type
+    var vsid as int is calling lookup_visible with s, name
+    if vsid >= 0:
+        var vsv as sym.SemaSymbol is (s->symbols at vsid)
+        if vsv.kind == sym.SemaSymbolKind.SkType or vsv.kind == sym.SemaSymbolKind.SkRune or vsv.kind == sym.SemaSymbolKind.SkEcho or vsv.kind == sym.SemaSymbolKind.SkOmen or vsv.kind == sym.SemaSymbolKind.SkAlias or vsv.kind == sym.SemaSymbolKind.SkSeal or vsv.kind == sym.SemaSymbolKind.SkConcept:
+            return vsv.type
     if calling s->aliases.has with name:
         return calling s->aliases.get with name
     if calling s->seals.has with name:
@@ -382,11 +495,6 @@ weave lookup_type with s as ref to SemaSymbols, name as int into int:
         return calling s->echos.get with name
     if calling s->omens.has with name:
         return calling s->omens.get with name
-    var sid as int is calling lookup with s, name
-    if sid >= 0:
-        var sv as sym.SemaSymbol is (s->symbols at sid)
-        if sv.kind == sym.SemaSymbolKind.SkType or sv.kind == sym.SemaSymbolKind.SkRune or sv.kind == sym.SemaSymbolKind.SkEcho or sv.kind == sym.SemaSymbolKind.SkOmen or sv.kind == sym.SemaSymbolKind.SkAlias or sv.kind == sym.SemaSymbolKind.SkSeal or sv.kind == sym.SemaSymbolKind.SkConcept:
-            return sv.type
     return -1
 
 ## Lookup local en un scope concreto.

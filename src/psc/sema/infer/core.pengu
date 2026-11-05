@@ -11,11 +11,13 @@
 
 import std.diagnostic as diag
 import std.spark
+import std.scrolls as scrolls
 
 import psc.ast.kind as pskind
 import psc.ast.node as psast
 import psc.source as psource
 import psc.lexer_state as psstate
+import psc.lexer_decode as psdecode
 
 import psc.sema.names as npool
 import psc.sema.types.kind as tk
@@ -288,7 +290,11 @@ weave check_string_literal with s as ref to state.SemaState, node as int into vo
                 var part as psstate.StringPart is (s->lex->parts at (si.part_start + j))
                 if part.kind == SegInterp:
                     var sp as pspan.ByteSpan is with start is part.start, end is part.end
-                    var txt as string is calling s->src.slice with sp
+                    var raw as string is calling s->src.slice with sp
+                    defer banish raw
+                    # Los escapes del string externo (`\"`) ya están resueltos
+                    # cuando el parser ve la expresión (bug 16).
+                    var txt as string is calling psdecode.decode_text with raw, false
                     defer banish txt
                     var r as parse_api.InterpParseResult is calling parse_api.ps_parse_interpolation_expr with txt
                     if (not r.ok) or r.diagnostics.error_count > 0:
@@ -443,6 +449,60 @@ weave scope_has_donum with s as ref to state.SemaState into bool:
         set cur is sc.parent
     return false
 
+## Nombre lógico (`a.b.c`) de un módulo, derivado de su ruta.
+##
+## Permite reconocer `calling modulo.hijo.fn` cuando `modulo` es el propio
+## módulo actual (bug 8), sin depender de un símbolo de import del consumidor.
+##
+## ## Memoria
+## Devuelve un string owned; liberar con `banish`.
+weave module_dotted_name with s as ref to state.SemaState, mid as int into string:
+    var m as loader.SemaModule is (s->program->modules at mid)
+    var p as string is m.path
+    var end as int is p length
+    if calling scrolls.ends_with with p, ".d.pengu":
+        set end is end - 8
+    else if calling scrolls.ends_with with p, ".pengu":
+        set end is end - 6
+    var stem as string is calling scrolls.substring with p, 0, end
+    if calling scrolls.ends_with with stem, "/__init__":
+        var shorter as string is calling scrolls.substring with stem, 0, (stem length - 9)
+        banish stem
+        set stem is shorter
+    defer banish stem
+    var start as int is 0
+    var pre as string is "{s->opts->base_dir}/{s->opts->src_dir}/"
+    defer banish pre
+    if calling scrolls.starts_with with stem, pre:
+        set start is pre length
+    else:
+        var i as int is 0
+        var n as int is stem length
+        while i + 5 <= n:
+            if (stem at i) == "/" and (stem at (i + 1)) == "s" and (stem at (i + 2)) == "r" and (stem at (i + 3)) == "c" and (stem at (i + 4)) == "/":
+                set start is i + 5
+            set i is i + 1
+        if start == 0 and calling scrolls.starts_with with stem, "src/":
+            set start is 4
+    var rel as string is calling scrolls.substring with stem, start, (stem length)
+    defer banish rel
+    return calling scrolls.replace_all with rel, "/", "."
+
+## Busca un módulo por su nombre lógico.
+##
+## ## Memoria
+## Devuelve un índice; no asigna.
+weave module_by_dotted with s as ref to state.SemaState, dotted as string into int:
+    var i as int is 0
+    while i < s->program->modules.len:
+        var dn as string is calling module_dotted_name with s, i
+        if dn == dotted:
+            banish dn
+            return i
+        banish dn
+        set i is i + 1
+    return -1
+
 ## Llamada.
 ##
 ## ## Memoria
@@ -473,15 +533,6 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
         return 0
     set tname is calling astutil.token_text with s->src, s->lex, nm
     var base_sid as int is calling symbols.lookup_name with s->symbols, tname
-    if base_sid < 0:
-        var sfi as int is 0
-        while sfi < s->symbols->symbols.len:
-            var sfs as sym.SemaSymbol is (s->symbols->symbols at sfi)
-            if sfs.kind == sym.SemaSymbolKind.SkImport:
-                var sft as string is calling npool.text with s->names, sfs.name
-                if sft == tname:
-                    set base_sid is sfi
-            set sfi is sfi + 1
     var base_type as int is -1
     if base_sid >= 0:
         var bsv as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, base_sid
@@ -522,6 +573,13 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
             set rcp is base_sym.type
             if base_sym.kind == sym.SemaSymbolKind.SkImport:
                 set base_import is base_sym.module_scope
+        else:
+            # `calling modulo.hijo.fn` desde el propio `modulo`: el nombre
+            # base es el módulo actual, no un import del consumidor (bug 8).
+            var self_mid as int is calling module_by_dotted with s, tname
+            if self_mid >= 0:
+                var self_mod as loader.SemaModule is (s->program->modules at self_mid)
+                set base_import is self_mod.scope
         var ai as int is 1
         while ai < n - 1:
             var op as int is calling astutil.node_child with s->ast, target, ai
@@ -536,7 +594,12 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
                         var mobj as int is calling symbols.lookup_in_scope with s->symbols, base_import, oid
                         if mobj >= 0:
                             var msym as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, mobj
-                            if msym.kind == sym.SemaSymbolKind.SkType or msym.kind == sym.SemaSymbolKind.SkRune or msym.kind == sym.SemaSymbolKind.SkEcho or msym.kind == sym.SemaSymbolKind.SkOmen or msym.kind == sym.SemaSymbolKind.SkAlias or msym.kind == sym.SemaSymbolKind.SkSeal:
+                            if msym.kind == sym.SemaSymbolKind.SkImport:
+                                # `mod.submod.fn`: el módulo intermedio redefine
+                                # el ámbito de resolución (bug 14).
+                                set base_import is msym.module_scope
+                                set rcp is -1
+                            else if msym.kind == sym.SemaSymbolKind.SkType or msym.kind == sym.SemaSymbolKind.SkRune or msym.kind == sym.SemaSymbolKind.SkEcho or msym.kind == sym.SemaSymbolKind.SkOmen or msym.kind == sym.SemaSymbolKind.SkAlias or msym.kind == sym.SemaSymbolKind.SkSeal:
                                 set rcp is msym.type
                     set ai is ai + 1
                     continue
