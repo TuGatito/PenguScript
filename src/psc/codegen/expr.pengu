@@ -1123,6 +1123,21 @@ weave emit_expr_as with c as ref to context.CgContext, node as int, expected as 
                     calling obsb.append with "}"
                     return calling obsb.finish
                 return "{on2}_{vtx2}"
+    if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdFieldAccess:
+        var eti as tk.SemaType is calling types.at with (sigil of c->program->types), expected
+        if eti.kind == tk.SemaTypeKind.TkOmen and eti.a >= 0 and eti.a < c->program->types.nominal_infos.len:
+            var etinfo as types.SemaNominalInfo is (c->program->types.nominal_infos at eti.a)
+            var bnode as int is calling astutil.node_child with ast, node, 0
+            var btext as string is calling astutil.first_token_text with (sigil of m.source), (sigil of m.lex), ast, bnode
+            var fbid as int is calling npool.intern with (sigil of c->program->names), btext
+            banish btext
+            if fbid == etinfo.base_name and (calling context.local_c_name with c, fbid) < 0:
+                var lvt as int is calling last_token_deep with ast, node
+                if lvt >= 0:
+                    var lvtext as string is calling astutil.token_text with (sigil of m.source), (sigil of m.lex), lvt
+                    var lvid as int is calling npool.intern with (sigil of c->program->names), lvtext
+                    banish lvtext
+                    return calling omen_variant_literal with c, expected, lvid
     if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdSomeExpr:
         return calling some_expr_c with c, node, ast, expected
     if expected >= 0 and (calling astutil.kind_of with ast, node) == pskind.NodeKind.NdStructInit:
@@ -4288,6 +4303,34 @@ weave omen_variant_has_payload with c as ref to context.CgContext, ty as int, vn
             return v.payload_count > 0
         set i is i + 1
     return false
+
+## Inicializador C de una variante de omen usada como valor.
+##
+## `E.Empty` no es un identificador C válido: se emite `(E){.tag = E_Empty}`.
+##
+## ## Memoria
+## Devuelve string owned.
+weave omen_variant_literal with c as ref to context.CgContext, ty as int, vname as int into string:
+    var vn as string is calling omen_variant_c_name with c, ty, vname
+    if not (calling omen_has_layout with c, ty):
+        return vn
+    defer banish vn
+    var ct as string is calling ctype.c_type with (sigil of c->names), ty
+    defer banish ct
+    var vtext as string is calling npool.copy_string with (calling npool.text with (sigil of c->program->names), vname)
+    defer banish vtext
+    var sb as StringBuilder is calling StringBuilder.new
+    defer banish sb
+    calling sb.append with "("
+    calling sb.append with ct
+    calling sb.append with "){.tag = "
+    calling sb.append with vn
+    if calling omen_variant_has_payload with c, ty, vname:
+        calling sb.append with ", .data."
+        calling sb.append with vtext
+        calling sb.append with " = {0}"
+    calling sb.append with "}"
+    return calling sb.finish
 
 ## Primer campo de payload de una variante.
 ##
