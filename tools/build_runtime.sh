@@ -28,6 +28,14 @@ for pair in "pengu_runtime.o:0" "pengu_runtime_filum.o:1"; do
     -c "$ROOT/runtime/pengu_runtime.c" -o "$OBJ/$obj"
   OBJS+=("$OBJ/$obj")
 done
+# Stackful coroutines: minicoro is a single header, compiled once into this
+# object. It is a member of the archive, so programs that do not import
+# std.coro never pull it in.
+"$CC" "${FLAGS[@]}" -Wall -Wextra ${WERROR[@]+"${WERROR[@]}"} \
+  -I"$ROOT/std_c/minicoro" \
+  -c "$ROOT/runtime/pengu_coro.c" -o "$OBJ/pengu_coro.o"
+OBJS+=("$OBJ/pengu_coro.o")
+
 # SDS is compiled into libpengu_runtime.a on purpose: every existing project
 # already links -lpengu_runtime, so no manifest or link-order change is needed.
 "$CC" -O2 -std=c99 -Wall -Wextra ${WERROR[@]+"${WERROR[@]}"} -I"$ROOT/std_c/sds" \

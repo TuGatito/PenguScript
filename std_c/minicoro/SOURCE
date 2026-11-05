@@ -1,0 +1,6 @@
+minicoro v0.2.0
+Upstream: https://github.com/edubart/minicoro
+Commit: ff5321d93fe2a3fb067a8dd97a37dd623337b9c0 (2023-11-15)
+File: minicoro.h (single header, 2033 lines)
+sha256: c4205e8db0a95456dfde9f73f071609c6d2cad2ebfd1d74ed0a9254f121caa2f
+License: Unlicense (alternative 1) or MIT No Attribution (alternative 2).

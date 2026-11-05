@@ -55,6 +55,7 @@ pack() {
   [ -f "$ROOT/std_c/sds/LICENSE" ] && cp "$ROOT/std_c/sds/LICENSE" "$root/share/doc/pengu/SDS_LICENSE"
   [ -f "$ROOT/std_c/CC-main/LICENSE" ] && cp "$ROOT/std_c/CC-main/LICENSE" "$root/share/doc/pengu/CC_LICENSE"
   [ -f "$ROOT/std_c/vaqt/LICENSE" ] && cp "$ROOT/std_c/vaqt/LICENSE" "$root/share/doc/pengu/VAQT_LICENSE"
+  [ -f "$ROOT/std_c/minicoro/LICENSE" ] && cp "$ROOT/std_c/minicoro/LICENSE" "$root/share/doc/pengu/MINICORO_LICENSE"
   [ -f "$ROOT/std_c/libffi/LICENSE" ] && cp "$ROOT/std_c/libffi/LICENSE" "$root/share/doc/pengu/LIBFFI_LICENSE"
   [ -f "$ROOT/std_c/libsodium/LICENSE" ] && cp "$ROOT/std_c/libsodium/LICENSE" "$root/share/doc/pengu/LIBSODIUM_LICENSE"
   [ -f "$ROOT/std_c/libclang/LICENSE" ] && cp "$ROOT/std_c/libclang/LICENSE" "$root/share/doc/pengu/LIBCLANG_LICENSE"

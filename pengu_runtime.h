@@ -4568,6 +4568,31 @@ extern "C"
   int pengu_c_filum_goroutine_id(void);
 #endif /* PENGU_ENABLE_THREADS -- Filum */
 
+  /* =========================================================================
+   * 21. Stackful Coroutines (Coro)
+   *
+   * Asymmetric, explicit coroutines on one OS thread. The handle is an opaque
+   * pointer owned by the caller; resume/status/free/abandon must run on the
+   * thread that created it. Adding these symbols is ABI-additive.
+   * ========================================================================= */
+
+  /** Allocates the argument box passed to a coroutine. Panics on OOM. */
+  void   *pengu_c_coro_box_new(size_t size);
+  /** Releases a box returned by pengu_c_coro_box_new(). */
+  void    pengu_c_coro_box_free(void *box);
+  /** Creates a suspended coroutine; takes ownership of `box`. Panics on OOM. */
+  void   *pengu_c_coro_new(void (*run)(void *), void *box);
+  /** Resumes to the next yield or return: 0 suspended, 2 finished. */
+  int     pengu_c_coro_resume(void *handle);
+  /** Suspends the running coroutine; panics outside a coroutine. */
+  void    pengu_c_coro_yield(void);
+  /** Reads the state: 0 suspended, 1 running, 2 finished. */
+  int     pengu_c_coro_status(void *handle);
+  /** Releases a finished coroutine; panics if it is suspended. */
+  void    pengu_c_coro_free(void *handle);
+  /** Discards a suspended or finished coroutine. */
+  void    pengu_c_coro_abandon(void *handle);
+
 
   /* =========================================================================
    * 25. C <-> Pengu Conversion Bridges (FFI)

@@ -10,6 +10,7 @@
 | `libffi/` | MIT | Dynamic calls | optional `std.ffi_call` |
 | `libsodium/` | ISC | Secure random/SHA/wipe | optional `std.secrets` (license only; source is fetched/pinned) |
 | `libclang/` | Apache-2.0 + LLVM exception | Build-time binding generator | `tools/pengu-bind-clang.c` |
+| `minicoro/` | Unlicense / MIT-0 | Stackful coroutines | `libpengu_runtime.a` -> `std.coro` |
 | `miniz.c`, `miniz.h` | public domain / Unlicense | gzip/zlib/deflate | `libminiz.a` -> `std.compressus` |
 | `re.c`, `re.h` | public domain | tiny-regex-c | `libre.a` -> `std.regulus` |
 | `utf8.h` | public domain / Unlicense | UTF-8 helpers | header-only -> `std.lingua` |

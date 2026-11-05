@@ -78,6 +78,24 @@ time library.
   programs.
 - **Credits:** the LLVM/Clang project.
 
+## minicoro — stackful coroutines
+
+- **Location:** [`std_c/minicoro/`](std_c/minicoro/)
+- **Version:** minicoro v0.2.0 (single header), upstream commit
+  `ff5321d93fe2a3fb067a8dd97a37dd623337b9c0` (2023-11-15).
+- **License:** Unlicense (alternative 1) or MIT No Attribution (alternative 2).
+  Full text in [`std_c/minicoro/LICENSE`](std_c/minicoro/LICENSE); release
+  packages ship it as `share/doc/pengu/MINICORO_LICENSE`.
+- **Author / credits:** Eduardo Bart and the minicoro contributors.
+- **Usage:** `runtime/pengu_coro.c` compiles the header once and adds it to
+  `libpengu_runtime.a`; `std/coro.pengu` is the only public consumer. Programs
+  that do not import `std.coro` do not pull the object in.
+- **Provenance:** `std_c/minicoro/SOURCE` records the commit and the upstream
+  header SHA-256.
+
+Thank you to Eduardo Bart for a small, portable, permissively licensed
+coroutine library that keeps the PenguScript runtime readable.
+
 ## miniz — gzip/zlib/deflate
 
 - **Location:** [`std_c/miniz.c`](std_c/miniz.c) and
