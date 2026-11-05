@@ -81,6 +81,7 @@ weave ps_install_hooks with p as ref to PsParser into void:
     set p->hooks.list_expr is (sigil of pexpr.pexpr_parse_list_expr)
     set p->hooks.value_expr is (sigil of pexpr.pexpr_parse_value_expr)
     set p->hooks.list_value_expr is (sigil of pexpr.pexpr_parse_list_value_expr)
+    set p->hooks.arg_expr is (sigil of pexpr.pexpr_parse_arg_expr)
     set p->hooks.expr_no_cast is (sigil of pexpr.pexpr_parse_expr_no_cast)
     set p->hooks.guard_expr is (sigil of pexpr.pexpr_parse_guard_expr)
 

@@ -148,6 +148,16 @@ weave pexpr_parse_list_or_else with p as ref to PsParser into int:
             set more is false
     return left
 
+## Parsea la expresión de un argumento.
+##
+## Excluye `or else`/`or return`/`or:` para que el postfijo se aplique a la
+## llamada completa y no al último argumento (bug 19).
+##
+## ## Memoria
+## Construye el AST.
+weave pexpr_parse_arg_expr with p as ref to PsParser into int:
+    return calling pexpr_parse_list_try with p
+
 ## Parsea `list_try_expr`.
 ##
 ## ## Memoria

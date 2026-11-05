@@ -214,6 +214,11 @@ weave find_balanced with lx as ref to psstate.LexerState, open as int, limit as 
                 set in_str is 0
             set i is i + 1
             continue
+        # Un `\"` dentro de la interpolación es una comilla escapada del
+        # string externo, no el inicio de un string anidado (bug 16).
+        if b == 92:
+            set i is i + 2
+            continue
         if b == 34 or b == 39:
             set in_str is b
             set i is i + 1
@@ -291,12 +296,34 @@ weave split_parts with lx as ref to psstate.LexerState, start as int, end as int
         if b == 92:
             set i is calling skip_escape_at with lx, i, end
             continue
+        # `{{` y `}}` son llaves literales, no interpolación (docs §1).
+        if b == 123 and i + 1 < end:
+            if (calling psstate.lex_byte_at with lx, i + 1) == 123:
+                set i is i + 2
+                continue
+        if b == 125 and i + 1 < end:
+            if (calling psstate.lex_byte_at with lx, i + 1) == 125:
+                set i is i + 2
+                continue
         if b == 123:
             var group_limit as int is end
             if not triple:
                 set group_limit is calling find_line_end with lx, i, end
             var close as int is calling find_balanced with lx, i, group_limit
             if close >= 0:
+                # Un objeto JSON literal como `{\"a\":1}` empieza por comilla:
+                # se conserva como texto y no se interpreta como interpolación.
+                var k as int is i + 1
+                while k < close:
+                    var kb as int is calling psstate.lex_byte_at with lx, k
+                    if kb != 32 and kb != 9:
+                        break
+                    set k is k + 1
+                if k < close:
+                    var kb2 as int is calling psstate.lex_byte_at with lx, k
+                    if kb2 == 34 or kb2 == 92:
+                        set i is close + 1
+                        continue
                 if i > last:
                     calling out.push with (with kind is SegText, start is last, end is i)
                 calling out.push with (with kind is SegInterp, start is i + 1, end is close)

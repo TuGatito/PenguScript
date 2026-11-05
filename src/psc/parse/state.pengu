@@ -73,6 +73,9 @@ rune PsHooks:
     value_expr as ref to weave with p as ref to PsParser into int
     ## Expresión de lista de valor.
     list_value_expr as ref to weave with p as ref to PsParser into int
+    ## Expresión de argumento: sin `or else`/`or return`/`or:` propios, para
+    ## que esos postfijos se apliquen a la llamada completa (bug 19).
+    arg_expr as ref to weave with p as ref to PsParser into int
     ## Expresión sin cast (`expr_no_cast`).
     expr_no_cast as ref to weave with p as ref to PsParser into int
     ## Guarda de `when` (`guard_expr`).
@@ -168,6 +171,9 @@ weave _no_value_expr_hook with p as ref to PsParser into int:
 weave _no_list_value_hook with p as ref to PsParser into int:
     return calling _hook_missing with p, "list_value_expr"
 
+weave _no_arg_expr_hook with p as ref to PsParser into int:
+    return calling _hook_missing with p, "arg_expr"
+
 weave _no_expr_no_cast_hook with p as ref to PsParser into int:
     return calling _hook_missing with p, "expr_no_cast"
 
@@ -190,7 +196,7 @@ weave _hook_missing with p as ref to PsParser, name as string into int:
 ## Asigna las listas del AST y las dos de trabajo; liberar con
 ## `free_scratch` + transferir/liberar `ast`.
 weave ps_parser_new with src as ref to psource.SourceFile, bag as ref to diag.DiagnosticBag, lex as ref to LexResult, opts as PsParseOptions into PsParser:
-    var hooks as PsHooks is with value is (sigil of _no_value_hook), when is (sigil of _no_when_hook), judge is (sigil of _no_judge_hook), do_block is (sigil of _no_do_hook), with_init is (sigil of _no_with_hook), or_block is (sigil of _no_or_hook), when_body is (sigil of _no_body_hook), expr is (sigil of _no_expr_hook), list_expr is (sigil of _no_list_expr_hook), value_expr is (sigil of _no_value_expr_hook), list_value_expr is (sigil of _no_list_value_hook), expr_no_cast is (sigil of _no_expr_no_cast_hook), guard_expr is (sigil of _no_guard_hook)
+    var hooks as PsHooks is with value is (sigil of _no_value_hook), when is (sigil of _no_when_hook), judge is (sigil of _no_judge_hook), do_block is (sigil of _no_do_hook), with_init is (sigil of _no_with_hook), or_block is (sigil of _no_or_hook), when_body is (sigil of _no_body_hook), expr is (sigil of _no_expr_hook), list_expr is (sigil of _no_list_expr_hook), value_expr is (sigil of _no_value_expr_hook), list_value_expr is (sigil of _no_list_value_hook), expr_no_cast is (sigil of _no_expr_no_cast_hook), guard_expr is (sigil of _no_guard_hook), arg_expr is (sigil of _no_arg_expr_hook)
     return with src is src, bag is bag, lex is lex, opts is opts, pos is 0, depth is 0, block_depth is 0, errors is 0, panic is false, guard_mode is false, stop is false, last_error_pos is -1, root is -1, ast is (calling psast.ps_ast_new), child_stack is list of int, marks is list of int, hooks is hooks
 
 ## Libera las listas de trabajo del parser.

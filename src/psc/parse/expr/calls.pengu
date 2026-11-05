@@ -25,6 +25,14 @@ weave pexpr_nested_list_value with p as ref to PsParser into int:
     var fn as ref to weave with p as ref to PsParser into int is p->hooks.list_value_expr
     return calling fn with p
 
+## Pide una expresión de argumento al hook (sin `or else`/`or:` propios).
+##
+## ## Memoria
+## O(1), no asigna.
+weave pexpr_nested_arg_expr with p as ref to PsParser into int:
+    var fn as ref to weave with p as ref to PsParser into int is p->hooks.arg_expr
+    return calling fn with p
+
 # ---------------------------------------------------------------------------
 # Unarios
 # ---------------------------------------------------------------------------
@@ -485,11 +493,11 @@ weave pexpr_parse_arg with p as ref to PsParser into int:
                 calling ps_begin_children with p
                 calling ps_add_name_like with p
                 var ignored2 as Token is calling ps_expect_kw with p, KwIs, "'is'"
-                var value as int is calling pexpr_nested_list_value with p
+                var value as int is calling pexpr_nested_arg_expr with p
                 calling ps_add_child with p, value
                 return calling ps_finish_node with p, NodeKind.NdNamedArg, start, (calling putil.pexpr_end_of with p, value), 0
     calling ps_begin_children with p
-    var value2 as int is calling pexpr_nested_list_value with p
+    var value2 as int is calling pexpr_nested_arg_expr with p
     calling ps_add_child with p, value2
     return calling ps_finish_node with p, NodeKind.NdPosArg, start, (calling putil.pexpr_end_of with p, value2), 0
 

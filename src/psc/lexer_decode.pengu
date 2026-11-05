@@ -97,6 +97,16 @@ weave decode_part with src as ref to psource.SourceFile, p as StringPart, is_raw
                 set at_line_start is false
             set i is i + 1
             continue
+        if b == 123 and i + 1 < p.end:
+            if (calling src.byte_at with (i + 1)) == 123:
+                calling append_byte_char with sigil of sb, 123
+                set i is i + 2
+                continue
+        if b == 125 and i + 1 < p.end:
+            if (calling src.byte_at with (i + 1)) == 125:
+                calling append_byte_char with sigil of sb, 125
+                set i is i + 2
+                continue
         if b == 92:
             var consumed as int is calling decode_escape_into with src, i, p.end, sigil of sb
             if consumed <= 0:
@@ -135,6 +145,16 @@ weave decode_text with text as string, is_raw as bool into string:
     var i as int is 0
     while i < n:
         var b as int is (raw at i) to int
+        if b == 123 and i + 1 < n:
+            if ((raw at (i + 1)) to int) == 123:
+                calling append_byte_char with sigil of sb, 123
+                set i is i + 2
+                continue
+        if b == 125 and i + 1 < n:
+            if ((raw at (i + 1)) to int) == 125:
+                calling append_byte_char with sigil of sb, 125
+                set i is i + 2
+                continue
         if b == 92 and i + 1 < n:
             var consumed as int is calling decode_escape_bytes_into with raw, i, n, sigil of sb
             if consumed > 0:
