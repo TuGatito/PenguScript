@@ -1,0 +1,22 @@
+# A minimal stackful coroutine: the worker yields once and resumes later.
+import std.coro
+import std.spark
+
+weave step with out as ref to int into void:
+    set essence of out is 1
+    calling coro.yield
+    set essence of out is 2
+
+weave main into int:
+    var value as int is 0
+    var co as coro.Coroutine is calling coro.start with step, (sigil of value)
+    var first as coro.CoroutineState is calling co.resume
+    var mid as int is value
+    var second as coro.CoroutineState is calling co.resume
+    calling co.free
+    calling spark.print with "value: {value}"
+    if first != coro.CoroutineState.suspended or mid != 1:
+        return 1
+    if second != coro.CoroutineState.finished:
+        return 2
+    return 0

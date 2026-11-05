@@ -1,0 +1,109 @@
+# std/coro.pengu - Stackful coroutines
+#
+# A coroutine is an explicit, cooperative task that runs on the thread that
+# created it. It is suspended at `coro.yield` and resumed by the owner with
+# `resume`. There is no scheduler, no implicit switch and no thread migration:
+# if you need parallelism, use std.filum.
+#
+# Memory: the handle owns a slot from the runtime arena. `free` releases a
+# finished coroutine; `abandon` discards a suspended one and frees its argument
+# box without running its body to completion. Using a handle after either call
+# is a bug (do not copy the handle).
+
+## State of a coroutine after `resume` or `status`.
+omen CoroutineState:
+    ## Suspended at a yield, or not started yet.
+    suspended
+    ## Currently executing on its owner thread.
+    running
+    ## The worker returned; the handle can be freed.
+    finished
+
+## Handle to a coroutine. The runtime owns the slot; do not copy it.
+rune Coroutine:
+    _ptr as opaque
+
+## Box used by `start` to carry the worker and its argument.
+rune CoroBox shard A:
+    fn as ref to weave with a as A into void
+    arg as A
+
+## Box used by `start0` for a worker with no arguments.
+rune CoroBox0:
+    fn as ref to weave into void
+
+# ----------------------------------------------------------------------------
+# External C Declarations
+# ----------------------------------------------------------------------------
+
+declare pengu_c_coro_box_new with size as int into ref to void
+declare pengu_c_coro_box_free with box as ref to void into void
+declare pengu_c_coro_new with run as ref to weave with raw as ref to void into void, box as ref to void into ref to void
+declare pengu_c_coro_resume with handle as ref to void into int
+declare pengu_c_coro_yield into void
+declare pengu_c_coro_status with handle as ref to void into int
+declare pengu_c_coro_free with handle as ref to void into void
+declare pengu_c_coro_abandon with handle as ref to void into void
+
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
+
+weave run_box shard A with raw as ref to void into void:
+    var b as ref to CoroBox of A is transmute raw to ref to CoroBox of A
+    calling b->fn with b->arg
+
+weave run_box0 with raw as ref to void into void:
+    var b as ref to CoroBox0 is transmute raw to ref to CoroBox0
+    calling b->fn
+
+## Starts `worker` in a new suspended coroutine. The first `resume` runs it
+## until its first `yield` or until it returns. The worker must return void.
+@coroutine
+weave start shard A with worker as ref to weave with a as A into void, arg as A into Coroutine:
+    var raw as ref to void is calling pengu_c_coro_box_new with (size of CoroBox of A)
+    var b as ref to CoroBox of A is transmute raw to ref to CoroBox of A
+    set b->fn is worker
+    set b->arg is arg
+    var run as ref to weave with raw as ref to void into void is run_box of A
+    return with _ptr is calling pengu_c_coro_new with run, raw
+
+## Starts a worker with no arguments. See `start`.
+@coroutine
+weave start0 with worker as ref to weave into void into Coroutine:
+    var raw as ref to void is calling pengu_c_coro_box_new with (size of CoroBox0)
+    var b as ref to CoroBox0 is transmute raw to ref to CoroBox0
+    set b->fn is worker
+    var run as ref to weave with raw as ref to void into void is run_box0
+    return with _ptr is calling pengu_c_coro_new with run, raw
+
+## Suspends the current coroutine until its owner calls `resume`. Calling
+## `yield` outside a coroutine is a runtime panic.
+weave yield into void:
+    calling pengu_c_coro_yield
+
+enchanting Coroutine:
+    ## Resumes the coroutine until its next yield or until it returns.
+    weave resume into CoroutineState:
+        var st as int is calling pengu_c_coro_resume with self->_ptr
+        if st == 0:
+            return CoroutineState.suspended
+        return CoroutineState.finished
+
+    ## Reads the current state without running the coroutine.
+    weave status into CoroutineState:
+        var st as int is calling pengu_c_coro_status with self->_ptr
+        if st == 1:
+            return CoroutineState.running
+        if st == 2:
+            return CoroutineState.finished
+        return CoroutineState.suspended
+
+    ## Releases a finished coroutine. Panics if it is still suspended.
+    weave free into void:
+        calling pengu_c_coro_free with self->_ptr
+
+    ## Discards a suspended or finished coroutine. Any owned argument in the
+    ## box is not released; the worker was responsible for it.
+    weave abandon into void:
+        calling pengu_c_coro_abandon with self->_ptr
