@@ -452,6 +452,9 @@ weave infer_name with s as ref to state.SemaState, node as int, name as string, 
         if (sv.flags & sym.SYM_MOVED) != 0:
             calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, at_node), (calling astutil.end_of with s->ast, at_node), "value was moved into a thread", "The worker owns it now; do not use it here. Reassign it first if you need a new value.", ""
             return 0
+        if (sv.flags & sym.SYM_MOVED_CORO) != 0:
+            calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, at_node), (calling astutil.end_of with s->ast, at_node), "value was moved into a coroutine", "The coroutine owns it now; do not use it here. Reassign it first if you need a new value.", ""
+            return 0
         calling ann.ann_set_symbol with s->annotations, node, sid
         return sv.type
     var tyid as int is calling symbols.lookup_type_name with s->symbols, name
@@ -760,6 +763,80 @@ weave infer_spawn with s as ref to state.SemaState, node as int, args as int, ar
                     set anode is calling astutil.node_child with s->ast, araw, 0
             if anode >= 0:
                 calling check_spawn_arg with s, anode, (arg_types at ai)
+        set ai is ai + 1
+
+## Valida los argumentos de `std.coro.start`.
+##
+## Una corrutina vive en el mismo hilo que su creador, así que `ref to T`,
+## slices, opaque y punteros a función son legales. Los valores con dueño se
+## mueven igual que en un hilo, pero con un flag distinto para que el
+## diagnóstico diga "coroutine".
+weave check_coro_arg with s as ref to state.SemaState, anode as int, aty as int into void:
+    var at as tk.SemaType is calling types.at with s->types, aty
+    if at.kind == tk.SemaTypeKind.TkMany:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_MEMORY_OP, (calling astutil.start_of with s->ast, anode), (calling astutil.end_of with s->ast, anode), "value cannot cross a coroutine boundary", "Pass one value: use a tuple or a rune to carry several.", ""
+        return
+    calling check_arg_ownership with s, anode, aty, sym.SYM_MOVED_CORO
+
+## Comprueba `std.coro.start` / `start0`.
+##
+## Replica las reglas de worker de `infer_spawn`, pero no exige `@shared`:
+## la corrutina nunca cambia de hilo.
+weave infer_coro with s as ref to state.SemaState, node as int, args as int, arg_types as list of int into void:
+    if args < 0:
+        return
+    var nargs as int is calling astutil.child_count with s->ast, args
+    if nargs < 1:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "coro.start needs a worker", "Write calling coro.start with worker, value.", ""
+        return
+    var wraw as int is calling astutil.node_child with s->ast, args, 0
+    var wnode as int is wraw
+    if wraw >= 0:
+        var wk as pskind.NodeKind is calling astutil.kind_of with s->ast, wraw
+        if wk == pskind.NodeKind.NdPosArg or wk == pskind.NodeKind.NdNamedArg:
+            set wnode is calling astutil.node_child with s->ast, wraw, 0
+    if wnode < 0 or (calling astutil.kind_of with s->ast, wnode) != pskind.NodeKind.NdVarRef:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, node), (calling astutil.end_of with s->ast, node), "worker must be a named weave", "Declare the worker with 'weave name ...' and pass its name.", ""
+        return
+    var wtok as int is calling astutil.token_child with s->ast, wnode, 0
+    if wtok < 0:
+        return
+    var wname as string is calling astutil.token_text with s->src, s->lex, wtok
+    defer banish wname
+    var wsid as int is calling symbols.lookup_name with s->symbols, wname
+    if wsid < 0:
+        return
+    var wsym as sym.SemaSymbol is calling symbols.symbol_at with s->symbols, wsid
+    if wsym.kind != sym.SemaSymbolKind.SkWeave and wsym.kind != sym.SemaSymbolKind.SkDeclare:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, wnode), (calling astutil.end_of with s->ast, wnode), "worker must be a weave or declare", "Declare the worker with 'weave name ...'.", ""
+        return
+    if (calling s->symbols->method_receiver.has with wsid):
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, wnode), (calling astutil.end_of with s->ast, wnode), "worker cannot be a method", "Use a free weave as the worker.", ""
+        return
+    var wft as tk.SemaType is calling types.at with s->types, (calling resolve_callable with s->types, wsym.type)
+    if wft.kind != tk.SemaTypeKind.TkFn:
+        return
+    var winfo as types.SemaFnInfo is (s->types->fn_infos at wft.a)
+    if (winfo.flags & types.FN_GENERIC) != 0:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, wnode), (calling astutil.end_of with s->ast, wnode), "worker cannot be generic in this version", "Use a concrete worker; generic workers are not supported yet.", ""
+        return
+    if winfo.return_type != calling types.base with s->types, "void":
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, wnode), (calling astutil.end_of with s->ast, wnode), "worker must return void", "Coroutines return no value; store results in shared state or a channel.", ""
+        return
+    if winfo.params_count != nargs - 1:
+        calling sdiag.node_error with s->bag, s->src, sdiag.CODE_TYPE_MISMATCH, (calling astutil.start_of with s->ast, wnode), (calling astutil.end_of with s->ast, wnode), "worker arity does not match the arguments", "The worker must take exactly the values passed to start.", ""
+        return
+    var ai as int is 1
+    while ai < nargs:
+        if ai < arg_types.len:
+            var araw as int is calling astutil.node_child with s->ast, args, ai
+            var anode as int is araw
+            if araw >= 0:
+                var ak as pskind.NodeKind is calling astutil.kind_of with s->ast, araw
+                if ak == pskind.NodeKind.NdPosArg or ak == pskind.NodeKind.NdNamedArg:
+                    set anode is calling astutil.node_child with s->ast, araw, 0
+            if anode >= 0:
+                calling check_coro_arg with s, anode, (arg_types at ai)
         set ai is ai + 1
 
 ## Llamada.
@@ -1137,6 +1214,8 @@ weave infer_call with s as ref to state.SemaState, node as int, expected as int 
             set bj is bj + 1
     if (info.flags & types.FN_SPAWN) != 0:
         calling infer_spawn with s, node, args, arg_types
+    if (info.flags & types.FN_CORO) != 0:
+        calling infer_coro with s, node, args, arg_types
     var ret as int is info.return_type
     set ret is calling ginst.instantiate_return with s->symbols, info, rtemplate, inst_recv, arg_types
     if ret != info.return_type:

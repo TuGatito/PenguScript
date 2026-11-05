@@ -64,6 +64,8 @@ const SYM_EXPORT as int is 1 << 11
 const SYM_GET_ALIAS as int is 1 << 12
 ## El valor se movió a un hilo y no debe usarse otra vez.
 const SYM_MOVED as int is 1 << 13
+## El valor se movió a una corrutina y no debe usarse otra vez.
+const SYM_MOVED_CORO as int is 1 << 14
 
 ## Clase de valor constante.
 omen SemaConstKind:

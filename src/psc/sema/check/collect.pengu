@@ -1225,6 +1225,8 @@ weave collect_weave with s as ref to state.SemaState, node as int, no_body as bo
     if attrs_node >= 0 and (calling astutil.kind_of with s->ast, attrs_node) == pskind.NodeKind.NdAttributes:
         if calling has_attribute with s, attrs_node, "spawn":
             set fn_flags is fn_flags | types.FN_SPAWN
+        if calling has_attribute with s, attrs_node, "coroutine":
+            set fn_flags is fn_flags | types.FN_CORO
     else:
         set attrs_node is -1
     var info as types.SemaFnInfo is with params_first is pr.first, params_count is pr.count, return_type is ret, tparams_first is tpfirst, tparams_count is tpc, flags is fn_flags, attrs_node is attrs_node

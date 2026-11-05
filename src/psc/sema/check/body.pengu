@@ -477,6 +477,9 @@ weave check_set with s as ref to state.SemaState, node as int, compound as bool 
                     if (tsym.flags & sym.SYM_MOVED) != 0:
                         set tsym.flags is tsym.flags - (tsym.flags & sym.SYM_MOVED)
                         calling symbols.symbol_set with s->symbols, tsid, tsym
+                    if (tsym.flags & sym.SYM_MOVED_CORO) != 0:
+                        set tsym.flags is tsym.flags - (tsym.flags & sym.SYM_MOVED_CORO)
+                        calling symbols.symbol_set with s->symbols, tsid, tsym
 
 ## Tipo de un target de asignación.
 ##
