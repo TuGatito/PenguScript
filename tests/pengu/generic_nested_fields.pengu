@@ -1,0 +1,20 @@
+# A generic rune whose field is an instantiated generic rune keeps its own
+# field layout (regression for the nested-nominal corruption).
+import std.spark
+
+rune Inner shard A:
+    v as A
+
+rune Outer shard A:
+    tag as int
+    inner as Inner of A
+
+weave main into int:
+    var i as Inner of string is with v is "nested"
+    var o as Outer of string is with tag is 7, inner is i
+    var p as ref to Outer of string is sigil of o
+    var tag as int is p->tag
+    var v as string is p->inner.v
+    calling spark.println with v
+    banish v
+    return 0

@@ -103,7 +103,8 @@ import std.reactor
 ## | Streaming downloads to a file or a callback | ✅ `send_to_file` / `send_stream` |
 ## | Concurrent requests on one thread | ✅ `fetch_many` (libcurl-multi) |
 ## | HTTP/3 | ❌ reported only; requesting it panics (needs a QUIC-enabled libcurl) |
-## | Connection-pool controls, streaming uploads, async/await | ❌ out of scope |
+## | Connection-pool controls, streaming uploads | ❌ out of scope |
+## | Async on a reactor loop (`send_async`, `fetch_many_async`) | ✅ 0.36.0 |
 ##
 ## ## Complexity
 ## | Operation | Cost |
@@ -125,6 +126,7 @@ import std.builder
 import std.chronicle
 import std.compass
 import std.ffi
+import std.filum
 import std.json
 import std.scrolls
 import std.spark
@@ -134,7 +136,7 @@ import std.spark
 # ----------------------------------------------------------------------------
 
 ## Petitio module version (the stdlib release that ships it).
-const PETITIO_VERSION as string is "2.15.0"
+const PETITIO_VERSION as string is "2.16.0"
 
 ## Redirect limit used by `Request.new` and by the one-shot helpers, matching
 ## Python's `requests`.
@@ -144,7 +146,7 @@ const PETITIO_DEFAULT_MAX_REDIRECTS as int is 30
 const PETITIO_DEFAULT_TIMEOUT_SEC as f64 is 0.0
 
 ## `User-Agent` sent when the request does not set one.
-const PETITIO_DEFAULT_USER_AGENT as string is "petitio/2.15.0"
+const PETITIO_DEFAULT_USER_AGENT as string is "petitio/2.16.0"
 
 ## Content type `json_body` installs when the request has not set one.
 const PETITIO_JSON_CONTENT_TYPE as string is "application/json"
@@ -1991,23 +1993,21 @@ enchanting Session:
         calling req.form_body with fields
         return calling self.request with (sigil of req)
 
-    ## Async version of `request`: the blocking call runs on the loop pool and
-    ## the cookie merge happens back on the loop thread.
+    ## Async version of `request`: the transfer runs on the loop's dispatcher
+    ## and the cookie merge happens back on the loop thread.
     weave request_async with req as ref to Request, loop as ref to reactor.EventLoop into result of Response to HttpError:
-        var empty as result of Response to HttpError is calling err_of with (with HttpOutOfMemory is 0)
-        var job as SessionJob is with sess is self, req is req, out is empty
-        var token as i64 is calling loop.offload with _petitio_session_worker, _petitio_async_noop, (sigil of job)
-        calling loop.await_token with token
-        if not job.out.is_ok:
-            return job.out
-        var resp as Response is job.out.value
+        var handle as ref to petitio_request is calling _build_handle with req, (sigil of self->_default_headers), (sigil of self->_cookies)
+        var outcome as result of Response to HttpError is calling _dispatch_handle with loop, (essence of req), handle
+        if not outcome.is_ok:
+            return outcome
+        var resp as Response is outcome.value
         for name in resp.cookies:
             var key as string is calling _copy with name
             var value as string is calling _copy with (calling resp.cookies.get with name)
             calling _put_owned with (sigil of self->_cookies), key, value
         for name in resp.cleared_cookies:
             calling _remove_owned with (sigil of self->_cookies), name
-        return job.out
+        return outcome
 
     ## `GET url` through the session, without blocking the loop.
     weave get_async with url as string, loop as ref to reactor.EventLoop into result of Response to HttpError:
@@ -2530,49 +2530,179 @@ weave _empty_response into Response:
 # the request and its output stay on the suspended task's stack.
 # ----------------------------------------------------------------------------
 
-rune SendJob:
-    req as ref to Request
+@shared
+rune DispatchJob:
+    req as Request
+    handle as ref to petitio_request
     out as result of Response to HttpError
+    task as i64
+    token as i64
+    index as int
+    done as bool
+
+@shared
+rune PetitioDispatcher:
+    mutex as filum.Mutex
+    cond as filum.Cond
+    jobs as list of ref to DispatchJob
+    stopping as bool
+    next as i64
+    handle as opaque
+    thread as filum.Thread
+
+## Maps a C response to the public result. Does not free `raw`.
+weave _outcome_from_c with raw as ref to petitio_response, request as ref to Request into result of Response to HttpError:
+    var code as int is calling petitio_response_error with raw
+    if code != 0:
+        var reason as string is calling petitio_response_error_message with raw
+        var failure as HttpError is calling _error_from_code with code, reason, request
+        banish reason
+        return calling err_of with failure
+    var response as Response is calling _response_from_c with raw, request
+    return calling ok_of with response
+
+weave _petitio_dispatcher_main with d as ref to PetitioDispatcher into void:
+    calling _petitio_dispatcher_loop with d
+
+weave _petitio_dispatcher_loop with d as ref to PetitioDispatcher into void:
+    while true:
+        calling d->mutex.lock
+        while d->jobs.len == 0 and not d->stopping:
+            calling d->cond.wait_mutex with (sigil of d->mutex)
+        if d->stopping and d->jobs.len == 0:
+            calling d->mutex.unlock
+            break
+        var batch as list of ref to DispatchJob is list of ref to DispatchJob
+        for j in d->jobs:
+            calling batch.push with j
+        while d->jobs.len > 0:
+            calling d->jobs.pop
+        calling d->mutex.unlock
+        calling _petitio_dispatcher_batch with d, batch
+        banish batch
+
+weave _petitio_dispatcher_batch with d as ref to PetitioDispatcher, batch as list of ref to DispatchJob into void:
+    var engine as ref to petitio_multi is calling petitio_multi_new
+    if calling ffi.is_null with engine:
+        for j in batch:
+            var empty as result of Response to HttpError is calling err_of with (with HttpOutOfMemory is 0)
+            set j->out is empty
+        for j in batch:
+            calling pengu_c_reactor_post with d->handle, j->task, j->token
+        return
+
+    var pending as int is 0
+    for j in batch:
+        if calling ffi.is_null with j->handle:
+            var empty as result of Response to HttpError is calling err_of with (with HttpOutOfMemory is 0)
+            set j->out is empty
+            set j->done is true
+        else:
+            set j->index is calling petitio_multi_add with engine, j->handle
+            set pending is pending + 1
+
+    while pending > 0:
+        calling petitio_multi_perform with engine
+        var idx as int is 0
+        while true:
+            var raw as ref to petitio_response is calling petitio_multi_pop with engine, (sigil of idx)
+            if calling ffi.is_null with raw:
+                break
+            var found as bool is false
+            for j in batch:
+                if (not j->done) and j->index == idx:
+                    set j->out is calling _outcome_from_c with raw, (sigil of j->req)
+                    set j->done is true
+                    set found is true
+            banish raw
+            if found:
+                set pending is pending - 1
+        if pending > 0:
+            calling petitio_multi_wait with engine, 10
+
+    calling petitio_multi_free with engine
+    for j in batch:
+        calling pengu_c_reactor_post with d->handle, j->task, j->token
+
+weave _petitio_dispatcher_free with a as opaque into void:
+    var d as ref to PetitioDispatcher is transmute a to ref to PetitioDispatcher
+    set d->stopping is true
+    calling d->cond.broadcast
+    calling d->thread.join
+    for j in d->jobs:
+        calling petitio_request_free with j->handle
+    calling d->mutex.free
+    calling d->cond.free
+    calling pengu_c_coro_box_free with (transmute a to ref to void)
+
+weave _petitio_dispatcher_get with loop as ref to reactor.EventLoop into ref to PetitioDispatcher:
+    var raw as opaque is calling loop.aux_handle
+    if raw != null:
+        return transmute raw to ref to PetitioDispatcher
+    var boxed as ref to void is calling pengu_c_coro_box_new with (size of PetitioDispatcher)
+    var d as ref to PetitioDispatcher is transmute boxed to ref to PetitioDispatcher
+    set d->mutex is calling filum.mutex
+    set d->cond is calling filum.cond
+    var jobs as list of ref to DispatchJob is list of ref to DispatchJob
+    set d->jobs is jobs
+    set d->stopping is false
+    set d->next is 1
+    set d->handle is loop->_handle
+    var th as filum.Thread is calling filum.start with _petitio_dispatcher_main, d
+    set d->thread is th
+    calling loop.set_aux with boxed, _petitio_dispatcher_free
+    return d
+
+## Enqueues one already-built C handle on this loop's dispatcher and waits for
+## its completion. `req` is copied into the job so it stays valid while the
+## calling coroutine is suspended or after the caller's frame is abandoned.
+weave _dispatch_handle with loop as ref to reactor.EventLoop, req as Request, handle as ref to petitio_request into result of Response to HttpError:
+    if calling ffi.is_null with handle:
+        return calling err_of with (with HttpOutOfMemory is 0)
+    var d as ref to PetitioDispatcher is calling _petitio_dispatcher_get with loop
+    var empty as result of Response to HttpError is calling err_of with (with HttpOutOfMemory is 0)
+    var job as DispatchJob is with req is req, handle is handle, out is empty, task is (calling loop.current_token), token is 0, index is -1, done is false
+    calling d->mutex.lock
+    set job.token is d->next
+    set d->next is d->next + 1
+    calling d->jobs.push with (sigil of job)
+    calling d->cond.broadcast
+    calling d->mutex.unlock
+    calling loop.await_posted with job.token
+    return job.out
+
+weave _petitio_async_noop with box as ref to void into void:
+    return
 
 rune SendFileJob:
     req as ref to Request
     path as string
     out as result of Response to HttpError
 
-rune FetchManyJob:
-    requests as list of Request
-    out as list of result of Response to HttpError
-
-rune SessionJob:
-    sess as ref to Session
-    req as ref to Request
-    out as result of Response to HttpError
-
-weave _petitio_async_noop with box as ref to void into void:
-    return
-
-weave _petitio_send_worker with ctx as ref to void into void:
-    var j as ref to SendJob is transmute ctx to ref to SendJob
-    set j->out is calling j->req.send
-
 weave _petitio_send_file_worker with ctx as ref to void into void:
     var j as ref to SendFileJob is transmute ctx to ref to SendFileJob
     set j->out is calling j->req.send_to_file with j->path
 
-weave _petitio_fetch_many_worker with ctx as ref to void into void:
-    var j as ref to FetchManyJob is transmute ctx to ref to FetchManyJob
-    set j->out is calling fetch_many with j->requests
-
-weave _petitio_session_worker with ctx as ref to void into void:
-    var j as ref to SessionJob is transmute ctx to ref to SessionJob
-    set j->out is calling _perform with j->req, (sigil of j->sess->_default_headers), (sigil of j->sess->_cookies)
-
-## Async `Request.send`: suspends the calling reactor task.
+## Async `Request.send`: suspends the calling reactor task. The loop's
+## dispatcher owns the libcurl multi engine; one helper thread serves every
+## in-flight request on that loop.
 weave send_async with self as ref to Request, loop as ref to reactor.EventLoop into result of Response to HttpError:
+    var d as ref to PetitioDispatcher is calling _petitio_dispatcher_get with loop
+    var no_headers as map of string to string is calling _no_headers
+    var handle as ref to petitio_request is calling _build_handle with self, (sigil of no_headers), (sigil of no_headers)
+    if calling ffi.is_null with handle:
+        banish no_headers
+        return calling err_of with (with HttpOutOfMemory is 0)
     var empty as result of Response to HttpError is calling err_of with (with HttpOutOfMemory is 0)
-    var job as SendJob is with req is self, out is empty
-    var token as i64 is calling loop.offload with _petitio_send_worker, _petitio_async_noop, (sigil of job)
-    calling loop.await_token with token
+    var job as DispatchJob is with req is (essence of self), handle is handle, out is empty, task is (calling loop.current_token), token is 0, index is -1, done is false
+    calling d->mutex.lock
+    set job.token is d->next
+    set d->next is d->next + 1
+    calling d->jobs.push with (sigil of job)
+    calling d->cond.broadcast
+    calling d->mutex.unlock
+    banish no_headers
+    calling loop.await_posted with job.token
     return job.out
 
 ## Async `Request.send_to_file`.
@@ -2585,7 +2715,7 @@ weave send_to_file_async with self as ref to Request, loop as ref to reactor.Eve
 
 ## Builds a `Request` through the module, avoiding an ambiguous qualified
 ## `Request.new` call from outside petitio.
-weave request_new with method as string, url as string into Request:
+weave build_request with method as string, url as string into Request:
     return calling Request.new with method, url
 
 ## Builds a `Session` through the module (avoids the qualified `Session.new`
@@ -2599,10 +2729,39 @@ weave get_async with url as string, loop as ref to reactor.EventLoop into result
     defer banish req
     return calling send_async with (sigil of req), loop
 
-## Async `fetch_many`: one pool thread drives libcurl's multi engine.
+## Async `fetch_many`: submits every request to the loop's dispatcher. The
+## transfers run concurrently in one multi engine on the dispatcher thread.
 weave fetch_many_async with loop as ref to reactor.EventLoop, requests as list of Request into list of result of Response to HttpError:
-    var empty as list of result of Response to HttpError is list of result of Response to HttpError
-    var job as FetchManyJob is with requests is requests, out is empty
-    var token as i64 is calling loop.offload with _petitio_fetch_many_worker, _petitio_async_noop, (sigil of job)
-    calling loop.await_token with token
-    return job.out
+    var results as list of result of Response to HttpError is list of result of Response to HttpError
+    if requests.len == 0:
+        return results
+    var d as ref to PetitioDispatcher is calling _petitio_dispatcher_get with loop
+    var no_headers as map of string to string is calling _no_headers
+    var held as list of ref to DispatchJob is list of ref to DispatchJob
+    for req in requests:
+        var r as Request is req
+        var boxed as ref to void is calling pengu_c_coro_box_new with (size of DispatchJob)
+        var j as ref to DispatchJob is transmute boxed to ref to DispatchJob
+        set j->req is r
+        set j->handle is calling _build_handle with (sigil of r), (sigil of no_headers), (sigil of no_headers)
+        set j->out is calling err_of with (with HttpOutOfMemory is 0)
+        set j->task is (calling loop.current_token)
+        set j->token is 0
+        set j->index is -1
+        set j->done is false
+        calling held.push with j
+    calling d->mutex.lock
+    for j in held:
+        set j->token is d->next
+        set d->next is d->next + 1
+        calling d->jobs.push with j
+    calling d->cond.broadcast
+    calling d->mutex.unlock
+    banish no_headers
+    for j in held:
+        calling loop.await_posted with j->token
+        calling results.push with j->out
+    for j in held:
+        calling pengu_c_coro_box_free with (transmute j to ref to void)
+    banish held
+    return results

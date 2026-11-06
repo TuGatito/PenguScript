@@ -1,18 +1,60 @@
-# fetch_many_async builds one multi job; an empty batch is a no-op.
+# fetch_many_async submits every request to the loop's dispatcher; the
+# transfers run concurrently in one libcurl multi engine.
 import std.reactor
+import std.net
 import std.petitio
 import std.spark
 
-weave worker with loop as ref to reactor.EventLoop, n as ref to int into void:
+weave server with loop as ref to reactor.EventLoop, srv as ref to net.Socket into void:
+    var nb as int is calling net.set_nonblocking with srv
+    var k as int is 0
+    while k < 2:
+        var ar as result of net.Socket to string is calling net.accept_async with loop, srv
+        if ar.is_ok:
+            var c as net.Socket is ar.value
+            var req as string is calling net.read_async with loop, (sigil of c), 4096
+            var body as string is "ok"
+            var head as string is "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n"
+            var w as int is calling net.write_async with loop, (sigil of c), head + body
+            calling net.close with (sigil of c)
+            banish req
+            banish body
+            banish head
+        set k is k + 1
+
+weave client with loop as ref to reactor.EventLoop, port as ref to int into void:
+    var url as string is "http://127.0.0.1:39022/"
     var reqs as list of petitio.Request is list of petitio.Request
+    var a as petitio.Request is calling petitio.build_request with "GET", url
+    var b as petitio.Request is calling petitio.build_request with "GET", url
+    calling reqs.push with a
+    calling reqs.push with b
     var out as list of result of petitio.Response to petitio.HttpError is calling petitio.fetch_many_async with loop, reqs
-    calling spark.println with "empty"
+    var i as int is 0
+    while i < out.len:
+        var r as result of petitio.Response to petitio.HttpError is out at i
+        if r.is_ok:
+            var resp as petitio.Response is r.value
+            var body as string is calling resp.text
+            calling spark.println with body
+            banish body
+        else:
+            calling spark.println with "error"
+        set i is i + 1
     banish out
     banish reqs
+    banish url
 
 weave main into int:
-    var loop as reactor.EventLoop is calling reactor.EventLoop.new
-    calling loop.spawn with worker, 0
+    var lr as result of net.Socket to string is calling net.listen with "127.0.0.1", 39022
+    if not lr.is_ok:
+        calling spark.println with "listen failed"
+        return 1
+    var srv as net.Socket is lr.value
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new with 2
+    calling loop.spawn with server, srv
+    calling loop.spawn with client, 39022
     calling loop.run
     calling loop.close
+    calling net.close with (sigil of srv)
     return 0

@@ -1,6 +1,6 @@
 # La biblioteca estándar de PenguScript
 
-Los 69 módulos de `std/` en `psc` 0.35.0: para qué sirve cada uno, cuándo
+Los 69 módulos de `std/` en `psc` 0.36.0: para qué sirve cada uno, cuándo
 usarlo, cuándo usar otro y dónde vive su API generada.
 
 Es el documento *catálogo* del conjunto de documentación:
@@ -107,7 +107,7 @@ comentarios `##` del propio módulo por `psc doc --include-std`.
 - [Apéndice C — Convenciones de nombres en la biblioteca estándar](#apéndice-c-convenciones-de-nombres-en-la-biblioteca-estándar)
 <!-- /toc -->
 
-Todos los módulos que vienen con `psc` 0.35.0: para qué sirven, cuándo usarlos y
+Todos los módulos que vienen con `psc` 0.36.0: para qué sirven, cuándo usarlos y
 dónde vive la API generada de cada uno.
 
 ## 0. Cómo usar este catálogo
@@ -133,7 +133,7 @@ Cada entrada tiene la misma forma:
 **API** [enlace a la página generada] · [fuente]
 ```
 
-**Versión.** Este catálogo describe `psc` 0.35.0 y el árbol `std/` del mismo
+**Versión.** Este catálogo describe `psc` 0.36.0 y el árbol `std/` del mismo
 commit. La constante de versión de un módulo (`TRIAL_VERSION`, `CARMEN_VERSION`,
 …) es la versión propia de su API, no la del compilador.
 
@@ -790,7 +790,7 @@ descriptor está listo. Los sockets que usan deben ser no bloqueantes:
 `set_nonblocking` lo marca, `is_nonblocking` lo consulta y `accept_async` /
 `connect_async` devuelven sockets ya no bloqueantes. Si un `*_async` recibe un
 socket bloqueante, hace panic en vez de bloquear el loop en silencio.
-`connect_async` resuelve el DNS de forma bloqueante (limitación documentada);
+`connect_async` resuelve el DNS en el pool del loop y conecta la primera dirección válida sin bloquear el reactor;
 `local_port` devuelve el puerto efímero de un listener.
 
 **Evítalo cuando** hables HTTP: `std.petitio` (cliente) o un servidor hecho a
@@ -977,14 +977,14 @@ El loop es explícito: `run` llama a `epoll_wait`/`poll`, despierta las tareas
 listas y hace `resume`; no hay scheduler escondido ni `await` implícito.
 `spawn` no ejecuta el worker en línea: la tarea arranca en la siguiente pasada.
 `offload` manda trabajo bloqueante al pool del loop y devuelve un token que se
-espera con `await_token`; una tarea solo puede tener un offload en vuelo.
+espera con `await_token`; una tarea puede tener varios offloads en vuelo y cada uno se identifica por su token.
 `close` debe llamarse fuera de una corrutina, abandona las tareas suspendidas y
 no cierra los descriptores del usuario. `new`/`spawn`/`run`/`stop`/`close`
 pertenecen al hilo dueño.
 
 **Evítalo cuando** el trabajo sea CPU pura (usa `std.filum` y su `Pool`) o el
-protocolo sea HTTP (`std.petitio`). En Windows el reactor es un stub
-documentado: devuelve error en vez de fingir que funciona.
+protocolo sea HTTP (`std.petitio`). En Windows el reactor usa `WSAEventSelect`
++ `WSAWaitForMultipleEvents` con un evento de despertar; no hay backend falso.
 
 **Destacados** `EventLoop.new`, `spawn`, `run`, `park_read`, `sleep_ms`,
 `offload`, `await_token`.
@@ -1005,9 +1005,11 @@ formulario, multipart, query strings, cookies, timeouts, auth (`auth_basic`,
 deba vivir en el navegador (`std.web.http`, que usa `fetch`).
 
 Dentro de un worker de `std.reactor`, `get_async`, `send_async`,
-`send_to_file_async` y `fetch_many_async` ejecutan la llamada bloqueante de
-libcurl en el pool del loop y suspenden la corrutina; `fetch_many_async` usa un
-solo job para todo el lote. `Session` añade `request_async`, `get_async`,
+`send_to_file_async` y `fetch_many_async` suspenden la corrutina. `send_async`,
+`fetch_many_async` y `Session.request_async` usan un dispatcher por loop: un
+solo hilo `curl_multi` sirve todas las peticiones en vuelo (`fetch_many_async`
+las ejecuta concurrentemente, no en serie). `send_to_file_async` sigue usando
+el pool del loop. `Session` añade `request_async`, `get_async`,
 `post_json_async` y `post_form_async`, que fusionan las cookies de vuelta en el
 hilo del loop. Los `Request` no cruzan hilos: se construyen y se consumen en el
 hilo del loop.

@@ -17,6 +17,16 @@ Es la única puerta de tipos C. Ningún emisor debe escribir un tipo C a mano.
  ## Memoria
  O(profundidad).
 
+### `type_has_param_depth`
+
+> **type_has_param_depth**(t: ref to SemaTypeTable, id: int, depth: int) -> bool
+
+ Implementación con cota de profundidad: una runa recursiva
+ (`Node of T { next as Node of T }`) no debe colgar la compilación.
+
+ ## Memoria
+ O(profundidad).
+
 ### `nominal_erased`
 
 > **nominal_erased**(t: ref to SemaTypeTable, info: SemaNominalInfo) -> bool

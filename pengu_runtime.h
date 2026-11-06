@@ -4611,7 +4611,7 @@ extern "C"
    *
    * The C half moves readiness/work tokens only; the scheduling policy lives
    * in std/reactor.pengu. Linux: epoll + eventfd. Other POSIX: poll + pipe.
-   * Windows: stub (new returns NULL, calls return -ENOSYS).
+   * Windows: WSAEventSelect + WSAWaitForMultipleEvents + wake event.
    * ========================================================================= */
 
   typedef struct PenguReactor PenguReactor;

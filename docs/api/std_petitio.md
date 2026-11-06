@@ -1171,8 +1171,8 @@ _Undocumented._
 
 > **request_async**(req: ref to Request, loop: ref to EventLoop) -> result of Response to HttpError
 
- Async version of `request`: the blocking call runs on the loop pool and
- the cookie merge happens back on the loop thread.
+ Async version of `request`: the transfer runs on the loop's dispatcher
+ and the cookie merge happens back on the loop thread.
 
 ### `get_async`
 
@@ -1461,19 +1461,87 @@ _Undocumented._
 
  A zeroed `Response`, used by the move tests.
 
-### `SendJob`
+### `DispatchJob`
 
-> rune SendJob
+> rune DispatchJob
 
 ```pengu
-    req as ref to Request
+    req as Request
+    handle as ref to petitio_request
     out as result of Response to HttpError
+    task as i64
+    token as i64
+    index as int
+    done as bool
 ```
 
- ----------------------------------------------------------------------------
- Async variants (reactor). The blocking libcurl call runs on a pool thread;
- the request and its output stay on the suspended task's stack.
- ----------------------------------------------------------------------------
+_Undocumented._
+
+### `PetitioDispatcher`
+
+> rune PetitioDispatcher
+
+```pengu
+    mutex as Mutex
+    cond as Cond
+    jobs as list of ref to DispatchJob
+    stopping as bool
+    next as i64
+    handle as opaque
+    thread as Thread
+```
+
+_Undocumented._
+
+### `_outcome_from_c`
+
+> **_outcome_from_c**(raw: ref to petitio_response, request: ref to Request) -> result of Response to HttpError
+
+ Maps a C response to the public result. Does not free `raw`.
+
+### `_petitio_dispatcher_main`
+
+> **_petitio_dispatcher_main**(d: ref to PetitioDispatcher) -> void
+
+_Undocumented._
+
+### `_petitio_dispatcher_loop`
+
+> **_petitio_dispatcher_loop**(d: ref to PetitioDispatcher) -> void
+
+_Undocumented._
+
+### `_petitio_dispatcher_batch`
+
+> **_petitio_dispatcher_batch**(d: ref to PetitioDispatcher, batch: list of ref to DispatchJob) -> void
+
+_Undocumented._
+
+### `_petitio_dispatcher_free`
+
+> **_petitio_dispatcher_free**(a: opaque) -> void
+
+_Undocumented._
+
+### `_petitio_dispatcher_get`
+
+> **_petitio_dispatcher_get**(loop: ref to EventLoop) -> ref to PetitioDispatcher
+
+_Undocumented._
+
+### `_dispatch_handle`
+
+> **_dispatch_handle**(loop: ref to EventLoop, req: Request, handle: ref to petitio_request) -> result of Response to HttpError
+
+ Enqueues one already-built C handle on this loop's dispatcher and waits for
+ its completion. `req` is copied into the job so it stays valid while the
+ calling coroutine is suspended or after the caller's frame is abandoned.
+
+### `_petitio_async_noop`
+
+> **_petitio_async_noop**(box: ref to void) -> void
+
+_Undocumented._
 
 ### `SendFileJob`
 
@@ -1487,56 +1555,9 @@ _Undocumented._
 
 _Undocumented._
 
-### `FetchManyJob`
-
-> rune FetchManyJob
-
-```pengu
-    requests as list of Request
-    out as list of result of Response to HttpError
-```
-
-_Undocumented._
-
-### `SessionJob`
-
-> rune SessionJob
-
-```pengu
-    sess as ref to Session
-    req as ref to Request
-    out as result of Response to HttpError
-```
-
-_Undocumented._
-
-### `_petitio_async_noop`
-
-> **_petitio_async_noop**(box: ref to void) -> void
-
-_Undocumented._
-
-### `_petitio_send_worker`
-
-> **_petitio_send_worker**(ctx: ref to void) -> void
-
-_Undocumented._
-
 ### `_petitio_send_file_worker`
 
 > **_petitio_send_file_worker**(ctx: ref to void) -> void
-
-_Undocumented._
-
-### `_petitio_fetch_many_worker`
-
-> **_petitio_fetch_many_worker**(ctx: ref to void) -> void
-
-_Undocumented._
-
-### `_petitio_session_worker`
-
-> **_petitio_session_worker**(ctx: ref to void) -> void
 
 _Undocumented._
 
@@ -1544,7 +1565,9 @@ _Undocumented._
 
 > **send_async**(self: ref to Request, loop: ref to EventLoop) -> result of Response to HttpError
 
- Async `Request.send`: suspends the calling reactor task.
+ Async `Request.send`: suspends the calling reactor task. The loop's
+ dispatcher owns the libcurl multi engine; one helper thread serves every
+ in-flight request on that loop.
 
 ### `send_to_file_async`
 
@@ -1552,9 +1575,9 @@ _Undocumented._
 
  Async `Request.send_to_file`.
 
-### `request_new`
+### `build_request`
 
-> **request_new**(method: string, url: string) -> Request
+> **build_request**(method: string, url: string) -> Request
 
  Builds a `Request` through the module, avoiding an ambiguous qualified
  `Request.new` call from outside petitio.
@@ -1570,5 +1593,6 @@ _Undocumented._
 
 > **fetch_many_async**(loop: ref to EventLoop, requests: list of Request) -> list of result of Response to HttpError
 
- Async `fetch_many`: one pool thread drives libcurl's multi engine.
+ Async `fetch_many`: submits every request to the loop's dispatcher. The
+ transfers run concurrently in one multi engine on the dispatcher thread.
 

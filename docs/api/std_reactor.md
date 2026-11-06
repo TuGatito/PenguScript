@@ -53,14 +53,26 @@ _Undocumented._
     fd as int
     events as int
     pending as int
+    posted as list of i64
     done as bool
-    job_box as ref to void
-    job_token as i64
-    job_free as ref to weave with box: ref to void into void
     arg_box as ref to void
 ```
 
  One coroutine spawned on a loop.
+
+### `Job`
+
+> rune Job
+
+```pengu
+    task as i64
+    token as i64
+    box as ref to void
+    free as ref to weave with box: ref to void into void
+    done as bool
+```
+
+ One offload job. A task may have several in flight; `token` identifies each one.
 
 ### `Timer`
 
@@ -98,6 +110,9 @@ _Undocumented._
     _handle as opaque
     tasks as list of Task
     timers as list of Timer
+    jobs as list of Job
+    aux as opaque
+    aux_free as ref to weave with a: opaque into void
     next_token as i64
     stopped as bool
     running as bool
@@ -231,6 +246,34 @@ _Undocumented._
  Suspended tasks are abandoned, pending offload boxes are released and the
  worker pool is joined. Idempotent. User file descriptors are not closed.
 
+### `set_aux`
+
+> **set_aux**(a: opaque, free: ref to weave with a: opaque into void) -> void
+
+ Installs an opaque per-loop extension and its destructor. `close` calls
+ the destructor on the owner thread before freeing the reactor. This is
+ used by modules that need one shared helper thread per loop (for example
+ the petitio transfer dispatcher); it is explicit, not a hidden scheduler.
+
+### `aux_handle`
+
+> **aux_handle**() -> opaque
+
+ Returns the opaque extension, or null when none was installed.
+
+### `current_token`
+
+> **current_token**() -> i64
+
+ Task id of the coroutine currently running, or 0 outside a loop task.
+
+### `post_completion`
+
+> **post_completion**(task_id: i64, token: i64) -> void
+
+ Posts a completion for `task_id` from any thread. Used by modules that
+ own a helper thread and drive their own work queue (petitio dispatcher).
+
 ### `pending`
 
 > **pending**() -> int
@@ -268,11 +311,9 @@ _Undocumented._
 > **spawn**(worker: ref to weave with loop: ref to EventLoop, a: ref to A into void, arg: A) -> i64
 
  Spawns `worker` as a coroutine on this loop. The worker receives the loop
- first, then `arg`. Returns the task id. The task starts in the next pass
- of `run`, never inline.
- Spawns `worker` as a coroutine on this loop. The worker receives the loop
  and a `ref to A` to a loop-owned copy of `arg`; the copy lives while the
- worker runs. Returns the task id.
+ worker runs. Returns the task id. The task starts in the next pass of
+ `run`, never inline.
 
 ### `park_read`
 
@@ -299,19 +340,58 @@ _Undocumented._
 
  Suspends the current task for at least `ms` milliseconds.
 
+### `_find_job`
+
+> **_find_job**(task: i64, token: i64) -> int
+
+_Undocumented._
+
+### `_has_job`
+
+> **_has_job**(task: i64) -> bool
+
+_Undocumented._
+
+### `_remove_job`
+
+> **_remove_job**(index: int) -> void
+
+_Undocumented._
+
+### `_consume_job`
+
+> **_consume_job**(index: int) -> void
+
+_Undocumented._
+
+### `_take_posted`
+
+> **_take_posted**(task: i64, token: i64) -> bool
+
+_Undocumented._
+
+### `await_posted`
+
+> **await_posted**(token: i64) -> void
+
+ Waits for a completion posted directly to this task (not tied to an
+ offload job). Used by modules that run their own helper thread and post
+ the task id/token through `pengu_c_reactor_post`.
+
 ### `await_token`
 
 > **await_token**(token: i64) -> void
 
  Waits for the completion of the offload whose token is `token`.
+ A task may have several offloads in flight; each one has its own token.
 
 ### `offload`
 
 > **offload**(fn: ref to weave with ctx: ref to void into void, job_free: ref to weave with box: ref to void into void, ctx: ref to void) -> i64
 
  Sends `fn(ctx)` to the loop's pool. Returns the completion token to pass to
- `await_token`. One offload can be in flight per task. `job_free` releases
- `ctx` after the completion is consumed.
+ `await_token`. A task may have several offloads in flight; `job_free`
+ releases `ctx` after the completion is consumed.
 
 ### `await_thread`
 

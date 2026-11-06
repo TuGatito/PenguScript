@@ -1,7 +1,7 @@
 # The Pengunic Manual
 
 How to write PenguScript that is safe, idiomatic and fast: the engineering
-manual for the language implemented by `psc` 0.35.0.
+manual for the language implemented by `psc` 0.36.0.
 
 It is the *practice* document of the documentation set:
 
@@ -318,7 +318,7 @@ binary. From a checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.35.0 (F13)
+psc 0.36.0 (F13)
 ```
 
 `build/psc` is the compiler you use from then on. `psc doctor` reports what it
@@ -1648,7 +1648,9 @@ when the dominant cost is waiting, not computing.
 **When not to.** Pure CPU or real parallelism: use `std.filum` and its `Pool`.
 Do not use it to hide a blocking library you do not control: if there is no
 `*_async` variant, `offload` is the honest boundary and the cost is one pool
-thread per in-flight operation.
+thread per in-flight operation (several concurrent offloads need several
+workers). On Windows the reactor uses `WSAEventSelect`; `std.net` is still
+POSIX-only, so a TCP server built on `std.net` is not portable to Windows.
 
 **Rules the compiler cannot save you from:**
 
@@ -1659,8 +1661,10 @@ thread per in-flight operation.
 * Do not call `coro.yield` by hand inside a task: use `park_*`, `sleep_ms` or
   `await_token` so the loop knows why it is suspended. A bare `yield` panics on
   the next pass of `run`.
-* A task has at most one `offload` in flight. Wait for its token before starting
-  another; `job_free` releases the box when the completion is consumed.
+* A task may have several `offload`s in flight; each has its own token and
+  `await_token` consumes exactly the one you ask for. `job_free` releases the
+  box when the completion is consumed; a task that finishes with pending jobs
+  panics.
 * Do not close a descriptor the loop still has registered; close the task or the
   socket after `run` resumed it.
 * `close` does not close your sockets or files: that responsibility stays yours.
@@ -3157,7 +3161,7 @@ truncates, and `transmute`, which reinterprets bits.
 **Are there threads and coroutines?**
 Yes. 0.30.0 added first-class threads (`filum.start`, `join`, `detach`, `free`),
 0.31.0 added `std.coro` (explicit stackful coroutines with `resume` and `yield`
-on the same thread) and 0.35.0 adds `std.reactor`: an explicit `EventLoop` that
+on the same thread) and 0.36.0 adds `std.reactor`: an explicit `EventLoop` that
 calls `epoll_wait`/`poll` and resumes tasks. There is no `async`/`await` keyword
 and no hidden scheduler: you create the loop, `spawn` and call `run`. The stdlib
 `*_async` variants are functions that suspend the current coroutine and only

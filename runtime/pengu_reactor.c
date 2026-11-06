@@ -2,8 +2,9 @@
  *
  * The C half only moves readiness and work tokens; the scheduling policy
  * (tasks, timers, what to resume) lives in std/reactor.pengu.  Linux uses
- * epoll + eventfd; other POSIX systems use poll + a self-pipe.  Windows has a
- * documented stub in 0.35 (std.reactor.new panics there).
+ * epoll + eventfd; other POSIX systems use poll + a self-pipe.  Windows uses
+ * WSAEventSelect + WSAWaitForMultipleEvents with a wake event and a Win32
+ * thread pool; std.net itself is still POSIX-only.
  *
  * The pool is private to the reactor on purpose: pengu_runtime.c is compiled
  * twice (threads on/off), and reusing its pool symbols here would either
@@ -19,27 +20,380 @@
 
 #if defined(_WIN32)
 
-#ifndef ENOSYS
-#define ENOSYS 38
-#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
 
-PenguReactor *pengu_c_reactor_new(int workers) { (void)workers; return NULL; }
-int pengu_c_reactor_is_owner(PenguReactor *r) { (void)r; return 0; }
-void pengu_c_reactor_free(PenguReactor *r) { (void)r; }
+typedef struct PenguWinJob {
+  void (*fn)(void *);
+  void *ctx;
+  int64_t task_id;
+  int64_t token;
+  struct PenguWinJob *next;
+} PenguWinJob;
+
+typedef struct PenguWinDone {
+  int64_t task_id;
+  int64_t token;
+  struct PenguWinDone *next;
+} PenguWinDone;
+
+typedef struct PenguWinEntry {
+  SOCKET fd;
+  WSAEVENT event;
+  int64_t token;
+  int events;
+} PenguWinEntry;
+
+#define PENGU_WIN_MAX_EVENTS 63
+
+struct PenguReactor {
+  DWORD owner;
+  WSAEVENT wake_event;
+  int workers;
+  int closing;
+
+  CRITICAL_SECTION lock;
+  CONDITION_VARIABLE work_cv;
+  CONDITION_VARIABLE idle_cv;
+  PenguWinJob *jobs_head;
+  PenguWinJob *jobs_tail;
+  int active_jobs;
+  HANDLE *threads;
+
+  CRITICAL_SECTION done_lock;
+  PenguWinDone *done_head;
+  PenguWinDone *done_tail;
+
+  PenguWinEntry entries[PENGU_WIN_MAX_EVENTS];
+  int entry_count;
+};
+
+static DWORD WINAPI pengu_win_worker(LPVOID arg)
+{
+  PenguReactor *r = (PenguReactor *)arg;
+  for (;;)
+  {
+    PenguWinJob *job;
+    EnterCriticalSection(&r->lock);
+    while (!r->closing && r->jobs_head == NULL)
+      SleepConditionVariableCS(&r->work_cv, &r->lock, INFINITE);
+    if (r->closing && r->jobs_head == NULL)
+    {
+      LeaveCriticalSection(&r->lock);
+      break;
+    }
+    job = r->jobs_head;
+    r->jobs_head = job->next;
+    if (r->jobs_head == NULL)
+      r->jobs_tail = NULL;
+    r->active_jobs++;
+    LeaveCriticalSection(&r->lock);
+
+    job->fn(job->ctx);
+
+    EnterCriticalSection(&r->done_lock);
+    PenguWinDone *done = (PenguWinDone *)calloc(1, sizeof(*done));
+    if (done != NULL)
+    {
+      done->task_id = job->task_id;
+      done->token = job->token;
+      if (r->done_tail == NULL)
+        r->done_head = done;
+      else
+        r->done_tail->next = done;
+      r->done_tail = done;
+    }
+    LeaveCriticalSection(&r->done_lock);
+    free(job);
+
+    EnterCriticalSection(&r->lock);
+    r->active_jobs--;
+    WakeAllConditionVariable(&r->idle_cv);
+    LeaveCriticalSection(&r->lock);
+    WSASetEvent(r->wake_event);
+  }
+  return 0;
+}
+
+PenguReactor *pengu_c_reactor_new(int workers)
+{
+  WSADATA wsa;
+  PenguReactor *r;
+  if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
+    return NULL;
+  r = (PenguReactor *)calloc(1, sizeof(*r));
+  if (r == NULL)
+  {
+    WSACleanup();
+    return NULL;
+  }
+  r->owner = GetCurrentThreadId();
+  r->workers = workers > 0 ? workers : 2;
+  r->wake_event = WSACreateEvent();
+  if (r->wake_event == WSA_INVALID_EVENT)
+  {
+    free(r);
+    WSACleanup();
+    return NULL;
+  }
+  InitializeCriticalSection(&r->lock);
+  InitializeConditionVariable(&r->work_cv);
+  InitializeConditionVariable(&r->idle_cv);
+  InitializeCriticalSection(&r->done_lock);
+  r->threads = (HANDLE *)calloc((size_t)r->workers, sizeof(HANDLE));
+  if (r->threads == NULL)
+  {
+    WSACloseEvent(r->wake_event);
+    DeleteCriticalSection(&r->lock);
+    DeleteCriticalSection(&r->done_lock);
+    free(r);
+    WSACleanup();
+    return NULL;
+  }
+  for (int i = 0; i < r->workers; i++)
+  {
+    r->threads[i] = CreateThread(NULL, 0, pengu_win_worker, r, 0, NULL);
+    if (r->threads[i] == NULL)
+    {
+      r->closing = 1;
+      for (int j = 0; j < i; j++)
+      {
+        WaitForSingleObject(r->threads[j], INFINITE);
+        CloseHandle(r->threads[j]);
+      }
+      free(r->threads);
+      WSACloseEvent(r->wake_event);
+      DeleteCriticalSection(&r->lock);
+      DeleteCriticalSection(&r->done_lock);
+      free(r);
+      WSACleanup();
+      return NULL;
+    }
+  }
+  return r;
+}
+
+int pengu_c_reactor_is_owner(PenguReactor *r)
+{
+  return r != NULL && GetCurrentThreadId() == r->owner;
+}
+
+void pengu_c_reactor_free(PenguReactor *r)
+{
+  if (r == NULL)
+    return;
+  EnterCriticalSection(&r->lock);
+  r->closing = 1;
+  WakeAllConditionVariable(&r->work_cv);
+  LeaveCriticalSection(&r->lock);
+  for (int i = 0; i < r->workers; i++)
+  {
+    if (r->threads[i] != NULL)
+    {
+      WaitForSingleObject(r->threads[i], INFINITE);
+      CloseHandle(r->threads[i]);
+    }
+  }
+  free(r->threads);
+  for (int i = 0; i < r->entry_count; i++)
+  {
+    WSAEventSelect(r->entries[i].fd, NULL, 0);
+    WSACloseEvent(r->entries[i].event);
+  }
+  PenguWinJob *job = r->jobs_head;
+  while (job != NULL)
+  {
+    PenguWinJob *next = job->next;
+    free(job);
+    job = next;
+  }
+  PenguWinDone *done = r->done_head;
+  while (done != NULL)
+  {
+    PenguWinDone *next = done->next;
+    free(done);
+    done = next;
+  }
+  WSACloseEvent(r->wake_event);
+  DeleteCriticalSection(&r->lock);
+  DeleteCriticalSection(&r->done_lock);
+  free(r);
+  WSACleanup();
+}
+
 int pengu_c_reactor_add(PenguReactor *r, int fd, int events, int64_t token)
-{ (void)r; (void)fd; (void)events; (void)token; return -ENOSYS; }
-int pengu_c_reactor_del(PenguReactor *r, int fd) { (void)r; (void)fd; return -ENOSYS; }
+{
+  if (r == NULL || fd < 0 || r->entry_count >= PENGU_WIN_MAX_EVENTS)
+    return -1;
+  for (int i = 0; i < r->entry_count; i++)
+    if (r->entries[i].fd == (SOCKET)fd)
+      return -1;
+  WSAEVENT ev = WSACreateEvent();
+  if (ev == WSA_INVALID_EVENT)
+    return -1;
+  long mask = 0;
+  if (events & 1)
+    mask |= FD_READ | FD_ACCEPT | FD_CLOSE;
+  if (events & 2)
+    mask |= FD_WRITE | FD_CONNECT | FD_CLOSE;
+  if (WSAEventSelect((SOCKET)fd, ev, mask) != 0)
+  {
+    WSACloseEvent(ev);
+    return -1;
+  }
+  PenguWinEntry *e = &r->entries[r->entry_count++];
+  e->fd = (SOCKET)fd;
+  e->event = ev;
+  e->token = token;
+  e->events = events;
+  return 0;
+}
+
+int pengu_c_reactor_del(PenguReactor *r, int fd)
+{
+  if (r == NULL)
+    return -1;
+  for (int i = 0; i < r->entry_count; i++)
+  {
+    if (r->entries[i].fd == (SOCKET)fd)
+    {
+      WSAEventSelect(r->entries[i].fd, NULL, 0);
+      WSACloseEvent(r->entries[i].event);
+      r->entries[i] = r->entries[--r->entry_count];
+      return 0;
+    }
+  }
+  return -1;
+}
+
 int pengu_c_reactor_wait(PenguReactor *r, int timeout_ms, int64_t *tokens, int cap)
-{ (void)r; (void)timeout_ms; (void)tokens; (void)cap; return -ENOSYS; }
+{
+  if (r == NULL || tokens == NULL || cap <= 0)
+    return -1;
+  WSAEVENT events[PENGU_WIN_MAX_EVENTS + 1];
+  int map[PENGU_WIN_MAX_EVENTS + 1];
+  int count = 1;
+  events[0] = r->wake_event;
+  map[0] = -1;
+  for (int i = 0; i < r->entry_count && count <= PENGU_WIN_MAX_EVENTS; i++)
+  {
+    events[count] = r->entries[i].event;
+    map[count] = i;
+    count++;
+  }
+  DWORD rc = WSAWaitForMultipleEvents((DWORD)count, events, FALSE,
+                                     timeout_ms < 0 ? WSA_INFINITE : (DWORD)timeout_ms,
+                                     FALSE);
+  if (rc == WSA_WAIT_TIMEOUT)
+    return 0;
+  if (rc == WSA_WAIT_FAILED)
+    return -1;
+  DWORD first = rc - WSA_WAIT_EVENT_0;
+  int out = 0;
+  if (first == 0)
+  {
+    /* A completion woke us: let std.reactor drain the queue; socket readiness
+       is picked up by the next wait. */
+    WSAResetEvent(r->wake_event);
+    return 0;
+  }
+  int idx = map[first];
+  if (idx >= 0)
+  {
+    WSANETWORKEVENTS ne;
+    if (WSAEnumNetworkEvents(r->entries[idx].fd, r->entries[idx].event, &ne) == 0 &&
+        ne.lNetworkEvents != 0 && out < cap)
+    {
+      tokens[out++] = r->entries[idx].token;
+    }
+    WSAEventSelect(r->entries[idx].fd, NULL, 0);
+    WSACloseEvent(r->entries[idx].event);
+    r->entries[idx] = r->entries[--r->entry_count];
+  }
+  return out;
+}
+
 int pengu_c_reactor_post(PenguReactor *r, int64_t task_id, int64_t token)
-{ (void)r; (void)task_id; (void)token; return -ENOSYS; }
+{
+  if (r == NULL)
+    return -1;
+  PenguWinDone *done = (PenguWinDone *)calloc(1, sizeof(*done));
+  if (done == NULL)
+    return -1;
+  done->task_id = task_id;
+  done->token = token;
+  EnterCriticalSection(&r->done_lock);
+  if (r->done_tail == NULL)
+    r->done_head = done;
+  else
+    r->done_tail->next = done;
+  r->done_tail = done;
+  LeaveCriticalSection(&r->done_lock);
+  WSASetEvent(r->wake_event);
+  return 0;
+}
+
 int pengu_c_reactor_take(PenguReactor *r, int64_t *task_id, int64_t *token)
-{ (void)r; (void)task_id; (void)token; return 0; }
-int64_t pengu_c_reactor_now_ms(void) { return 0; }
+{
+  if (r == NULL || task_id == NULL || token == NULL)
+    return 0;
+  EnterCriticalSection(&r->done_lock);
+  PenguWinDone *done = r->done_head;
+  if (done == NULL)
+  {
+    LeaveCriticalSection(&r->done_lock);
+    return 0;
+  }
+  r->done_head = done->next;
+  if (r->done_head == NULL)
+    r->done_tail = NULL;
+  *task_id = done->task_id;
+  *token = done->token;
+  LeaveCriticalSection(&r->done_lock);
+  free(done);
+  return 1;
+}
+
+int64_t pengu_c_reactor_now_ms(void)
+{
+  return (int64_t)GetTickCount64();
+}
+
 int pengu_c_reactor_offload(PenguReactor *r, void (*fn)(void *), void *ctx,
                             int64_t task_id, int64_t token)
-{ (void)r; (void)fn; (void)ctx; (void)task_id; (void)token; return -ENOSYS; }
-void pengu_c_reactor_wake(PenguReactor *r) { (void)r; }
+{
+  if (r == NULL || fn == NULL)
+    return -1;
+  PenguWinJob *job = (PenguWinJob *)calloc(1, sizeof(*job));
+  if (job == NULL)
+    return -1;
+  job->fn = fn;
+  job->ctx = ctx;
+  job->task_id = task_id;
+  job->token = token;
+  EnterCriticalSection(&r->lock);
+  if (r->closing)
+  {
+    LeaveCriticalSection(&r->lock);
+    free(job);
+    return -1;
+  }
+  if (r->jobs_tail == NULL)
+    r->jobs_head = job;
+  else
+    r->jobs_tail->next = job;
+  r->jobs_tail = job;
+  WakeAllConditionVariable(&r->work_cv);
+  LeaveCriticalSection(&r->lock);
+  return 0;
+}
+
+void pengu_c_reactor_wake(PenguReactor *r)
+{
+  if (r != NULL)
+    WSASetEvent(r->wake_event);
+}
 
 #else /* POSIX */
 

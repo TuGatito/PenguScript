@@ -409,37 +409,60 @@ weave instantiate_nominal with s as ref to symbols.SemaSymbols, template as int,
     calling s->instance_keys.put with key, inst_idx
     calling s->instance_by_type.put with iid, inst_idx
 
-    # Campos concretos.
-    var fields_first as int is t->fields.len
-    var fc as int is 0
+    # Campos concretos. `subst_deep` (no `subst_type`) sustituye también los
+    # argumentos anidados de un nominal genérico (`Inner of A`), y se usa una
+    # lista temporal para que las instancias anidadas no contaminen el rango.
+    var pending_fields as list of types.SemaField is list of types.SemaField
+    var pending_variants as list of types.SemaVariant is list of types.SemaVariant
+    var pending_payloads as list of types.SemaField is list of types.SemaField
+    defer banish pending_fields
+    defer banish pending_variants
+    defer banish pending_payloads
     var fi as int is 0
     while fi < tinfo.fields_count:
         var f as types.SemaField is (t->fields at (tinfo.fields_first + fi))
-        var nf as types.SemaField is with name is f.name, type is (calling subst_type with t, f.type, (sigil of subst)), flags is f.flags, attrs_node is f.attrs_node, align_override is f.align_override
-        var ignored as int is calling types.add_field with t, nf
-        set fc is fc + 1
+        var nf as types.SemaField is with name is f.name, type is (calling subst_deep with s, f.type, subst), flags is f.flags, attrs_node is f.attrs_node, align_override is f.align_override
+        calling pending_fields.push with nf
         set fi is fi + 1
+    var fields_first as int is t->fields.len
+    var fc as int is 0
+    while fc < pending_fields.len:
+        var pfld as types.SemaField is (pending_fields at fc)
+        var ignored as int is calling types.add_field with t, pfld
+        set fc is fc + 1
     calling types.set_nominal_fields with t, info_idx, fields_first, fc
 
     # Variantes de un omen (payloads sustituidos).
-    var vfirst as int is t->variants.len
-    var vc as int is 0
     var vi as int is 0
     while vi < tinfo.variants_count:
         var v as types.SemaVariant is (t->variants at (tinfo.variants_first + vi))
-        var pfirst as int is t->fields.len
+        var pstart as int is pending_payloads.len
         var pc as int is 0
         var pi as int is 0
         while pi < v.payload_count:
             var pf as types.SemaField is (t->fields at (v.payload_first + pi))
-            var npf as types.SemaField is with name is pf.name, type is (calling subst_type with t, pf.type, (sigil of subst)), flags is pf.flags, attrs_node is pf.attrs_node, align_override is pf.align_override
-            var ignored2 as int is calling types.add_field with t, npf
+            var npf as types.SemaField is with name is pf.name, type is (calling subst_deep with s, pf.type, subst), flags is pf.flags, attrs_node is pf.attrs_node, align_override is pf.align_override
+            calling pending_payloads.push with npf
             set pc is pc + 1
             set pi is pi + 1
-        var nv as types.SemaVariant is with name is v.name, value_i is v.value_i, value_s is v.value_s, payload_first is pfirst, payload_count is pc, flags is v.flags
+        var nv0 as types.SemaVariant is with name is v.name, value_i is v.value_i, value_s is v.value_s, payload_first is pstart, payload_count is pc, flags is v.flags
+        calling pending_variants.push with nv0
+        set vi is vi + 1
+    var vfirst as int is t->variants.len
+    var vc as int is 0
+    var pvi as int is 0
+    while pvi < pending_variants.len:
+        var pv as types.SemaVariant is (pending_variants at pvi)
+        var pfirst as int is t->fields.len
+        var pki as int is 0
+        while pki < pv.payload_count:
+            var ppf as types.SemaField is (pending_payloads at (pv.payload_first + pki))
+            var ignored2 as int is calling types.add_field with t, ppf
+            set pki is pki + 1
+        var nv as types.SemaVariant is with name is pv.name, value_i is pv.value_i, value_s is pv.value_s, payload_first is pfirst, payload_count is pv.payload_count, flags is pv.flags
         var ignored3 as int is calling types.add_variant with t, nv
         set vc is vc + 1
-        set vi is vi + 1
+        set pvi is pvi + 1
     calling types.set_nominal_variants with t, info_idx, vfirst, vc
 
     # Derivaciones: las conservamos; F4 las usa para emitir clone/cleanup.

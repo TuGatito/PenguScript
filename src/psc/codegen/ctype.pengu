@@ -17,21 +17,50 @@ insignia psc_codegen_ctype_
 ## ## Memoria
 ## O(profundidad).
 weave type_has_param with t as ref to types.SemaTypeTable, id as int into bool:
-    if id <= 0:
+    return calling type_has_param_depth with t, id, 0
+
+## Implementación con cota de profundidad: una runa recursiva
+## (`Node of T { next as Node of T }`) no debe colgar la compilación.
+##
+## ## Memoria
+## O(profundidad).
+weave type_has_param_depth with t as ref to types.SemaTypeTable, id as int, depth as int into bool:
+    if id <= 0 or depth > 24:
         return false
     var ty as tk.SemaType is calling types.at with t, id
     if ty.kind == tk.SemaTypeKind.TkTypeParam:
         return true
     if ty.kind == tk.SemaTypeKind.TkRef or ty.kind == tk.SemaTypeKind.TkFrozen or ty.kind == tk.SemaTypeKind.TkArray or ty.kind == tk.SemaTypeKind.TkList or ty.kind == tk.SemaTypeKind.TkSlice or ty.kind == tk.SemaTypeKind.TkMany or ty.kind == tk.SemaTypeKind.TkMaybe or ty.kind == tk.SemaTypeKind.TkRange:
-        return calling type_has_param with t, ty.a
+        return calling type_has_param_depth with t, ty.a, depth + 1
     if ty.kind == tk.SemaTypeKind.TkMap or ty.kind == tk.SemaTypeKind.TkResult:
-        return (calling type_has_param with t, ty.a) or (calling type_has_param with t, ty.b)
+        return (calling type_has_param_depth with t, ty.a, depth + 1) or (calling type_has_param_depth with t, ty.b, depth + 1)
     if ty.kind == tk.SemaTypeKind.TkTuple:
         var i as int is 0
         while i < ty.count:
-            if calling type_has_param with t, (t->type_children at (ty.first + i)):
+            if calling type_has_param_depth with t, (t->type_children at (ty.first + i)), depth + 1:
                 return true
             set i is i + 1
+        return false
+    if ty.kind == tk.SemaTypeKind.TkRune or ty.kind == tk.SemaTypeKind.TkEcho or ty.kind == tk.SemaTypeKind.TkOmen or ty.kind == tk.SemaTypeKind.TkAlias or ty.kind == tk.SemaTypeKind.TkSeal:
+        # Un nominal anidado (`Inner of A`) guarda el type param en SUS
+        # campos; hay que mirar dentro para no borrar el layout a `Outer`.
+        var info as types.SemaNominalInfo is (t->nominal_infos at ty.a)
+        var fi as int is 0
+        while fi < info.fields_count:
+            var f as types.SemaField is (t->fields at (info.fields_first + fi))
+            if calling type_has_param_depth with t, f.type, depth + 1:
+                return true
+            set fi is fi + 1
+        var vi as int is 0
+        while vi < info.variants_count:
+            var v as types.SemaVariant is (t->variants at (info.variants_first + vi))
+            var pi as int is 0
+            while pi < v.payload_count:
+                var pf as types.SemaField is (t->fields at (v.payload_first + pi))
+                if calling type_has_param_depth with t, pf.type, depth + 1:
+                    return true
+                set pi is pi + 1
+            set vi is vi + 1
     return false
 
 ## `true` si la instancia no tiene campos dependientes de T.

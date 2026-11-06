@@ -740,8 +740,12 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
         set skind0 is sym.SemaSymbolKind.SkEcho
     # El tipo debe ser visible antes de convertir sus campos (recursión).
     calling register_type with s, skind0, name, ty, node
-    var fields_first as int is s->types->fields.len
-    var field_count as int is 0
+    # Recolecta los campos en una lista temporal: convertir un tipo puede
+    # instanciar un nominal anidado y añadir SUS campos a la tabla global.
+    # Si reserváramos el rango antes de convertir, el rango de este rune
+    # incluiría los campos del nominal anidado (bug de layout).
+    var pending_fields as list of types.SemaField is list of types.SemaField
+    defer banish pending_fields
     var i as int is 0
     var n as int is calling astutil.child_count with s->ast, node
     while i < n:
@@ -764,9 +768,15 @@ weave collect_record with s as ref to state.SemaState, node as int, sk as sym.Se
                 if fc0 >= 0 and (calling astutil.kind_of with s->ast, fc0) == pskind.NodeKind.NdAttributes:
                     set fattrs is fc0
                 var fld as types.SemaField is with name is fname, type is ftype, flags is 0, attrs_node is fattrs, align_override is (calling field_align_override with s, c), decl_node is c
-                calling types.add_field with s->types, fld
-                set field_count is field_count + 1
+                calling pending_fields.push with fld
         set i is i + 1
+    var fields_first as int is s->types->fields.len
+    var field_count as int is pending_fields.len
+    var pfi as int is 0
+    while pfi < pending_fields.len:
+        var pfld as types.SemaField is (pending_fields at pfi)
+        calling types.add_field with s->types, pfld
+        set pfi is pfi + 1
     calling types.set_nominal_fields with s->types, info_idx, fields_first, field_count
     # Conceptos derivados (`derive Nexus, Par, Json`).
     calling collect_derives with s, node, ty, info_idx
@@ -890,8 +900,13 @@ weave collect_omen with s as ref to state.SemaState, node as int into void:
         calling register_type with s, sym.SemaSymbolKind.SkOmen, name, ty, node
     calling apply_nominal_attrs with s, ty, node
     var info_idx as int is (calling types.at with s->types, ty).a
-    var first as int is s->types->variants.len
-    var count as int is 0
+    # Igual que en `collect_record`: primero se convierten todos los payloads
+    # (pueden instanciar nominales anidados y añadir campos/variantes), y sólo
+    # después se reservan los rangos contiguos de este omen.
+    var pending_variants as list of types.SemaVariant is list of types.SemaVariant
+    var pending_payloads as list of types.SemaField is list of types.SemaField
+    defer banish pending_variants
+    defer banish pending_payloads
     var i as int is 0
     var n as int is calling astutil.child_count with s->ast, node
     while i < n:
@@ -902,7 +917,7 @@ weave collect_omen with s as ref to state.SemaState, node as int into void:
                 var vtxt as string is calling astutil.token_text with s->src, s->lex, vs
                 defer banish vtxt
                 var vname as int is calling npool.intern with s->names, vtxt
-                var pfirst as int is s->types->fields.len
+                var pstart as int is pending_payloads.len
                 var pcount as int is 0
                 var ci as int is 2
                 var cn as int is calling astutil.child_count with s->ast, c
@@ -920,19 +935,33 @@ weave collect_omen with s as ref to state.SemaState, node as int into void:
                             defer banish oftxt
                             var ofnid as int is calling npool.intern with s->names, oftxt
                             var ofld as types.SemaField is with name is ofnid, type is ofty, flags is 0, attrs_node is -1, align_override is 0, decl_node is of
-                            calling types.add_field with s->types, ofld
+                            calling pending_payloads.push with ofld
                             set pcount is pcount + 1
                     set ci is ci + 1
-                var varnt as types.SemaVariant is with name is vname, value_i is 0, value_s is -1, payload_first is pfirst, payload_count is pcount, flags is 0
-                calling types.add_variant with s->types, varnt
+                var varnt as types.SemaVariant is with name is vname, value_i is 0, value_s is -1, payload_first is pstart, payload_count is pcount, flags is 0
+                calling pending_variants.push with varnt
                 # Las variantes son valores del omen y se usan como identificadores
                 # (`KwAlias`, `JsonValue.Null`, ...). Se registran en el scope.
                 var vsym as sym.SemaSymbol is calling symbols.make_symbol with s->names, "", ty, sym.SemaSymbolKind.SkConst
                 set vsym.name is vname
                 set vsym.c_name is vname
                 calling symbols.symbol_define_in with s->symbols, 0, vsym
-                set count is count + 1
         set i is i + 1
+    var first as int is s->types->variants.len
+    var count as int is 0
+    var pvi as int is 0
+    while pvi < pending_variants.len:
+        var pv as types.SemaVariant is (pending_variants at pvi)
+        var pfirst as int is s->types->fields.len
+        var pki as int is 0
+        while pki < pv.payload_count:
+            var ppf as types.SemaField is (pending_payloads at (pv.payload_first + pki))
+            calling types.add_field with s->types, ppf
+            set pki is pki + 1
+        var nv as types.SemaVariant is with name is pv.name, value_i is pv.value_i, value_s is pv.value_s, payload_first is pfirst, payload_count is pv.payload_count, flags is pv.flags
+        calling types.add_variant with s->types, nv
+        set count is count + 1
+        set pvi is pvi + 1
     calling types.set_nominal_variants with s->types, info_idx, first, count
     calling collect_derives with s, node, ty, info_idx
     # Parámetros `shard` del omen (para instanciar `Val of int`).

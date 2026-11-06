@@ -200,6 +200,18 @@ No interpreta cuerpos: eso es trabajo de `emit`/`stmt`/`expr`.
  ## Memoria
  O(profundidad del tipo).
 
+### `has_type_param_depth`
+
+> **has_type_param_depth**(p: ref to SemaProgram, id: int, depth: int) -> bool
+
+ Igual que `has_type_param`, pero mira dentro de los campos de un nominal
+ anidado (`Outer { inner as Inner of A }`). Sin esto el catálogo considera
+ la instancia "borrada" y no emite `Outer__string`, aunque su layout sí
+ depende de A.
+
+ ## Memoria
+ O(profundidad del tipo).
+
 ### `underlying_type_id`
 
 > **underlying_type_id**(p: ref to SemaProgram, id: int) -> int

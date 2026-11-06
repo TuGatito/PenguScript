@@ -1,0 +1,40 @@
+# A task can have more than one offload in flight; completions are consumed by
+# token, even when they arrive out of order.
+import std.reactor
+import std.archivum
+import std.spark
+
+rune Box:
+    path as string
+    out as maybe string
+
+weave read_job with ctx as ref to void into void:
+    var b as ref to Box is transmute ctx to ref to Box
+    set b->out is calling archivum.read_text with b->path
+
+weave noop with box as ref to void into void:
+    return
+
+weave worker with loop as ref to reactor.EventLoop, n as ref to int into void:
+    var a as Box is with path is "/tmp/pengu_two_a.txt", out is maybe none
+    var b as Box is with path is "/tmp/pengu_two_b.txt", out is maybe none
+    var t1 as i64 is calling loop.offload with read_job, noop, (sigil of a)
+    var t2 as i64 is calling loop.offload with read_job, noop, (sigil of b)
+    # Await in reverse order.
+    calling loop.await_token with t2
+    calling loop.await_token with t1
+    if a.out.is_present:
+        calling spark.println with (a.out.value)
+    if b.out.is_present:
+        calling spark.println with (b.out.value)
+
+weave main into int:
+    var ignored as bool is calling archivum.write_text with "/tmp/pengu_two_a.txt", "alpha"
+    var ignored2 as bool is calling archivum.write_text with "/tmp/pengu_two_b.txt", "beta"
+    var loop as reactor.EventLoop is calling reactor.EventLoop.new with 2
+    calling loop.spawn with worker, 0
+    calling loop.run
+    calling loop.close
+    var ignored3 as bool is calling archivum.delete_file with "/tmp/pengu_two_a.txt"
+    var ignored4 as bool is calling archivum.delete_file with "/tmp/pengu_two_b.txt"
+    return 0

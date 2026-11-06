@@ -1,7 +1,7 @@
 # El Manual Pengunic
 
 Cómo escribir PenguScript seguro, idiomático y rápido: el manual de ingeniería
-del lenguaje que implementa `psc` 0.35.0.
+del lenguaje que implementa `psc` 0.36.0.
 
 Es el documento de *práctica* del conjunto de documentación:
 
@@ -321,7 +321,7 @@ binario `psc`. Desde un checkout:
 $ bash tools/build_bootstrap.sh     # builds build/psc-stage0 from the C bundle
 $ ./build/psc-stage0 build .        # self-hosts build/psc
 $ ./build/psc --version
-psc 0.35.0 (F13)
+psc 0.36.0 (F13)
 ```
 
 A partir de ahí usas `build/psc`. `psc doctor` informa de lo que encontró: el
@@ -1664,7 +1664,9 @@ opción correcta cuando el coste dominante es esperar, no calcular.
 **Cuándo no usarlo.** CPU pura o paralelismo real: usa `std.filum` y su `Pool`.
 Tampoco lo uses para esconder una librería bloqueante que no controlas: si no
 hay una variante `*_async`, el `offload` es la frontera honesta y el coste es un
-hilo del pool por operación en vuelo.
+hilo del pool por operación en vuelo (varios offloads concurrentes necesitan
+varios workers). En Windows el reactor usa `WSAEventSelect`; `std.net` sigue
+siendo POSIX, así que el servidor TCP con `std.net` no es portable a Windows.
 
 **Reglas que el compilador no puede salvarte:**
 
@@ -1675,8 +1677,10 @@ hilo del pool por operación en vuelo.
 * No llames `coro.yield` a mano dentro de una tarea: usa `park_*`, `sleep_ms` o
   `await_token` para que el loop sepa por qué está suspendida. Un `yield` suelto
   es un panic en la siguiente pasada de `run`.
-* Una tarea tiene como mucho un `offload` en vuelo. Espera su token antes de
-  lanzar el siguiente; el `job_free` libera la caja al consumir la completion.
+* Una tarea puede tener varios `offload` en vuelo; cada uno tiene su token y
+  `await_token` consume exactamente el que le pides. El `job_free` libera la
+  caja al consumir la completion; si la tarea termina con jobs pendientes, el
+  loop hace panic.
 * No cierres un descriptor que el loop todavía tiene registrado; cierra la
   tarea o el socket después de que `run` la haya reanudado.
 * `close` no cierra tus sockets ni tus ficheros: esa responsabilidad sigue
@@ -3196,7 +3200,7 @@ trunca, y `transmute`, que reinterpreta bits.
 **¿Hay hilos y corrutinas?**
 Sí. 0.30.0 añadió hilos de primera clase (`filum.start`, `join`, `detach`,
 `free`), 0.31.0 añadió `std.coro` (corrutinas stackful explícitas con `resume` y
-`yield`, en el mismo hilo) y 0.35.0 añade `std.reactor`: un `EventLoop` explícito
+`yield`, en el mismo hilo) y 0.36.0 añade `std.reactor`: un `EventLoop` explícito
 que hace `epoll_wait`/`poll` y reanuda las tareas. No hay `async`/`await` como
 palabras clave ni un planificador escondido: tú creas el loop, haces `spawn` y
 llamas `run`. Las variantes `*_async` de la stdlib son funciones que suspenden la

@@ -1,6 +1,6 @@
 # The PenguScript Standard Library
 
-All 69 modules of `std/` in `psc` 0.35.0: what each one is for, when to reach for
+All 69 modules of `std/` in `psc` 0.36.0: what each one is for, when to reach for
 it, when to reach for something else, and where its generated API lives.
 
 It is the *catalogue* document of the documentation set:
@@ -107,7 +107,7 @@ own `##` comments by `psc doc --include-std`.
 - [Appendix C — Naming conventions in the standard library](#appendix-c-naming-conventions-in-the-standard-library)
 <!-- /toc -->
 
-Every module that ships with `psc` 0.35.0: what it is for, when to reach for
+Every module that ships with `psc` 0.36.0: what it is for, when to reach for
 it, and where its generated API lives.
 
 ## 0. How to use this catalogue
@@ -133,7 +133,7 @@ Every entry has the same shape:
 **API** [link to the generated page] · [source]
 ```
 
-**Version.** This catalogue describes `psc` 0.35.0 and the `std/` tree in the
+**Version.** This catalogue describes `psc` 0.36.0 and the `std/` tree in the
 same commit. A module version constant (`TRIAL_VERSION`, `CARMEN_VERSION`, …)
 is the module's own API version, not the compiler's.
 
@@ -223,7 +223,7 @@ may bring a native dependency.
 | environment, argv, exec | `std.rites` | `getenv` through FFI |
 | typed CLI flags | `std.invoke` | parsing `argv` by hand |
 | read exactly N bytes | `std.io` | `std.spark.input` |
-| TCP sockets | `std.net` | FFI to `socket()` |
+| TCP sockets and async I/O | `std.net` + `std.reactor` | FFI to `socket()` |
 | HTTP client | `std.petitio` | `net` + hand-written HTTP |
 | JSON-RPC 2.0 | `std.jsonrpc` | hand-rolled framing |
 | time and dates | `std.chronicle` | `time()` through FFI |
@@ -961,14 +961,13 @@ weave main into int:
 The loop is explicit: `run` calls `epoll_wait`/`poll`, wakes ready tasks and
 `resume`s them; there is no hidden scheduler or implicit `await`. `spawn` does
 not run the worker inline: it starts on the next pass. `offload` sends blocking
-work to the loop pool and returns a token consumed by `await_token`; a task can
-have only one offload in flight. `close` must be called outside a coroutine,
+work to the loop pool and returns a token consumed by `await_token`; a task may have several offloads in flight, each identified by its token. `close` must be called outside a coroutine,
 abandons suspended tasks and does not close user descriptors.
 `new`/`spawn`/`run`/`stop`/`close` belong to the owner thread.
 
 **Avoid it when** the work is pure CPU (use `std.filum` and its `Pool`) or the
-protocol is HTTP (`std.petitio`). On Windows the reactor is a documented stub:
-it returns an error instead of pretending to work.
+protocol is HTTP (`std.petitio`). On Windows the reactor uses `WSAEventSelect` +
+`WSAWaitForMultipleEvents` with a wake event; there is no fake backend.
 
 **Highlights** `EventLoop.new`, `spawn`, `run`, `park_read`, `sleep_ms`,
 `offload`, `await_token`.
@@ -989,9 +988,11 @@ multipart, query strings, cookies, timeouts, auth (`auth_basic`, `auth_bearer`,
 must live in the browser (`std.web.http`, which uses `fetch`).
 
 Inside a `std.reactor` worker, `get_async`, `send_async`,
-`send_to_file_async` and `fetch_many_async` run the blocking libcurl call on the
-loop pool and suspend the coroutine; `fetch_many_async` uses one job for the
-whole batch. `Session` also has `request_async`, `get_async`, `post_json_async`
+`send_to_file_async` and `fetch_many_async` suspend the coroutine. `send_async`,
+`fetch_many_async` and `Session.request_async` use one dispatcher per loop: a
+single `curl_multi` thread serves every in-flight request (`fetch_many_async`
+runs them concurrently, not serially). `send_to_file_async` still uses the loop
+pool. `Session` also has `request_async`, `get_async`, `post_json_async`
 and `post_form_async`, which merge cookies back on the loop thread. `Request`
 values do not cross threads: they are built and consumed on the loop thread.
 

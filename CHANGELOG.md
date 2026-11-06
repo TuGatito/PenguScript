@@ -2,6 +2,50 @@
  
 All notable changes to PenguScript will be documented in this file.
 
+## [0.36.0] — 2026-11-06 — Cierre de los límites del reactor
+
+Cierra los cinco límites que quedaron documentados en 0.35.0: campos de runas
+con nominales genéricos anidados, varios offloads por tarea, DNS sin bloquear
+el loop, un solo hilo `curl_multi` por loop para petitio y un backend real de
+Windows para el reactor.
+
+### Corregido
+
+- **Nominales genéricos anidados (G1/G2).** `collect_record` y `collect_omen`
+  ya no capturan los campos/payloads de una instancia anidada en el rango del
+  contenedor: se convierten primero y se registran al final. `instantiate_nominal`
+  sustituye en profundidad. El catálogo preinstancia los tipos usados por
+  `size of`/`transmute` en funciones no genéricas y `type_has_param_depth`
+  recorre campos/payloads antes de borrar un nominal. Antes,
+  `rune Outer shard A { tag as int; inner as Inner of A }` emitía un struct con
+  el campo `v` de `Inner` y `size of Outer of string` no compilaba.
+- `EventLoop` permite varios offloads por tarea y los consume por token, incluso
+  si las completions llegan en orden inverso. Las completions posteadas por un
+  hilo auxiliar se guardan por token y no se pierden.
+
+### Añadido
+
+- `connect_async` resuelve el DNS en el pool del loop (`_net_resolve` +
+  `_net_connect_addr`) y conecta la primera dirección válida sin bloquear el
+  reactor.
+- `std.reactor` 1.1.0 y `std.net` 3.2.0. `std.petitio` 2.16.0 usa un dispatcher por loop con un solo hilo `curl_multi`:
+  `send_async`, `Session.request_async` y `fetch_many_async` comparten el motor;
+  `fetch_many_async` ejecuta las peticiones concurrentemente y ya no usa un
+  hilo por petición.
+- `runtime/pengu_reactor.c` tiene backend Windows con `WSAEventSelect` +
+  `WSAWaitForMultipleEvents`, evento de despertar y pool de hilos Win32.
+- Regresiones: `generic_nested_fields`, `generic_nested_sizeof`,
+  `reactor_two_offloads` (ya existente) y `petitio_fetch_many_async` con dos
+  peticiones reales.
+
+### Cambiado
+
+- `std.reactor` gana `aux`/`set_aux`/`aux_handle`, `current_token`,
+  `await_posted` y `post_completion`; el dispatcher de petitio es explícito, no
+  un scheduler escondido.
+- `std.petitio` expone `build_request` en lugar de `request_new` para no
+  colisionar con el símbolo C `petitio_request_new`.
+
 ## [0.35.0] — 2026-11-06 — Reactor explícito y E/S asíncrona
 
 `std.reactor` nace como política de planificación en espacio de usuario y

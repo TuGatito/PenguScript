@@ -1,7 +1,7 @@
 # Building a PenguScript library
 
 This guide describes how to write a library that other projects install with
-`psc add` and import like any other module. It reflects `psc` 0.35.0.
+`psc add` and import like any other module. It reflects `psc` 0.36.0.
 
 A library is a git repository (or a local directory) with a `pengu.toml`, an
 importable source tree, and optional C headers and native archives. There is no

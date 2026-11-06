@@ -96,6 +96,32 @@ resource release and is idempotent.
  - **Negative errno.** The C bridge returns `-errno`; the wrappers turn that
    into a human-readable `err(...)` string with `strerror`.
 
+### `ResolveJob`
+
+> rune ResolveJob
+
+```pengu
+    host as string
+    port as int
+    ip as string
+    family as int
+    rc as int
+```
+
+_Undocumented._
+
+### `_net_resolve_worker`
+
+> **_net_resolve_worker**(ctx: ref to void) -> void
+
+_Undocumented._
+
+### `_net_resolve_noop`
+
+> **_net_resolve_noop**(box: ref to void) -> void
+
+_Undocumented._
+
 ### `Socket`
 
 > rune Socket
@@ -217,9 +243,9 @@ _Undocumented._
 
 > **connect_async**(loop: ref to EventLoop, host: string, port: int) -> result of Socket to string
 
- Connects without blocking the reactor task. DNS resolution is still done by
- the resolver in this call (documented limitation). The returned socket is
- non-blocking.
+ Connects without blocking the reactor task. The name is resolved on the
+ loop's worker pool (no blocking DNS on the loop thread), then the socket is
+ connected non-blockingly. The returned socket is non-blocking.
 
 ### `read_async`
 
@@ -304,6 +330,18 @@ _Undocumented._
 ### `_net_accept_nb`
 
 > **_net_accept_nb**(fd: i64) -> i64
+
+_Undocumented._
+
+### `_net_resolve`
+
+> **_net_resolve**(host: string, port: int, out_ip: ref to string, out_family: ref to int) -> int
+
+_Undocumented._
+
+### `_net_connect_addr`
+
+> **_net_connect_addr**(ip: string, port: int, family: int, out_fd: ref to i64) -> int
 
 _Undocumented._
 

@@ -1,0 +1,20 @@
+# `size of` on a nested generic nominal must see the same specialization the
+# codegen uses for values (regression for the deferred catalog pass).
+import std.spark
+
+rune Box shard A:
+    v as A
+
+rune Pair shard A:
+    left as Box of A
+    right as Box of A
+
+weave main into int:
+    var n as int is size of Pair of int
+    var m as int is size of Pair of string
+    if n != 8:
+        calling spark.panic with "Pair of int has the wrong size"
+    if m != 32:
+        calling spark.panic with "Pair of string has the wrong size"
+    calling spark.println with "sizes ok"
+    return 0

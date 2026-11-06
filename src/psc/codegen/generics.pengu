@@ -860,12 +860,32 @@ weave is_type_node with k as pskind.NodeKind into bool:
 ## ## Memoria
 ## Puede crear tipos internados.
 weave preinstantiate_spec with c as ref to context.CgContext, f as catalog.CgFunction into void:
-    if not f.is_spec or f.is_declare or f.is_antiquus:
+    if f.is_declare or f.is_antiquus:
+        return
+    # Las funciones genéricas sin especializar no tienen cuerpo concreto;
+    # las especializadas y las funciones normales sí.
+    if f.is_generic and not f.is_spec:
         return
     calling context.set_subst with c, f
     var m as loader.SemaModule is (c->program->modules at f.module)
     var ast as ref to psast.PsAst is (sigil of m.parse.ast)
     calling preinstantiate_node with c, f.module, ast, f.node
+
+## Pre-instancia todas las funciones normales y todas las especializaciones.
+##
+## Los `NdSizeOf`/`NdTransmute` de `main` y de funciones no genéricas también
+## crean instancias nominales; si sólo se pre-instancian las specs, el catálogo
+## no emite esas definiciones y el C generado no compila.
+##
+## ## Memoria
+## Puede crear tipos internados.
+weave preinstantiate_all with c as ref to context.CgContext into void:
+    var i as int is 0
+    while i < c->catalog.functions.len:
+        var f as catalog.CgFunction is (c->catalog.functions at i)
+        if f.is_spec or not f.is_generic:
+            calling preinstantiate_spec with c, f
+        set i is i + 1
 
 ## Recorre un nodo y pre-instancia cada tipo que encuentra.
 ##

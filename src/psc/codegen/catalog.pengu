@@ -390,15 +390,50 @@ weave catalog_type_from_ast with p as ref to program.SemaProgram, m as loader.Se
 ## ## Memoria
 ## O(profundidad del tipo).
 weave has_type_param with p as ref to program.SemaProgram, id as int into bool:
-    if id <= 0:
+    return calling has_type_param_depth with p, id, 0
+
+## Igual que `has_type_param`, pero mira dentro de los campos de un nominal
+## anidado (`Outer { inner as Inner of A }`). Sin esto el catálogo considera
+## la instancia "borrada" y no emite `Outer__string`, aunque su layout sí
+## depende de A.
+##
+## ## Memoria
+## O(profundidad del tipo).
+weave has_type_param_depth with p as ref to program.SemaProgram, id as int, depth as int into bool:
+    if id <= 0 or depth > 24:
         return false
     var t as tk.SemaType is calling types.at with (sigil of p->types), id
     if t.kind == tk.SemaTypeKind.TkTypeParam:
         return true
     if t.kind == tk.SemaTypeKind.TkList or t.kind == tk.SemaTypeKind.TkSlice or t.kind == tk.SemaTypeKind.TkMany or t.kind == tk.SemaTypeKind.TkMaybe or t.kind == tk.SemaTypeKind.TkRef or t.kind == tk.SemaTypeKind.TkFrozen or t.kind == tk.SemaTypeKind.TkArray or t.kind == tk.SemaTypeKind.TkRange:
-        return calling has_type_param with p, t.a
+        return calling has_type_param_depth with p, t.a, depth + 1
     if t.kind == tk.SemaTypeKind.TkMap or t.kind == tk.SemaTypeKind.TkResult:
-        return (calling has_type_param with p, t.a) or (calling has_type_param with p, t.b)
+        return (calling has_type_param_depth with p, t.a, depth + 1) or (calling has_type_param_depth with p, t.b, depth + 1)
+    if t.kind == tk.SemaTypeKind.TkTuple:
+        var i as int is 0
+        while i < t.count:
+            if calling has_type_param_depth with p, (p->types.type_children at (t.first + i)), depth + 1:
+                return true
+            set i is i + 1
+        return false
+    if t.kind == tk.SemaTypeKind.TkRune or t.kind == tk.SemaTypeKind.TkEcho or t.kind == tk.SemaTypeKind.TkOmen or t.kind == tk.SemaTypeKind.TkAlias or t.kind == tk.SemaTypeKind.TkSeal:
+        var info as types.SemaNominalInfo is (p->types.nominal_infos at t.a)
+        var fi as int is 0
+        while fi < info.fields_count:
+            var f as types.SemaField is (p->types.fields at (info.fields_first + fi))
+            if calling has_type_param_depth with p, f.type, depth + 1:
+                return true
+            set fi is fi + 1
+        var vi as int is 0
+        while vi < info.variants_count:
+            var v as types.SemaVariant is (p->types.variants at (info.variants_first + vi))
+            var pi as int is 0
+            while pi < v.payload_count:
+                var pf as types.SemaField is (p->types.fields at (v.payload_first + pi))
+                if calling has_type_param_depth with p, pf.type, depth + 1:
+                    return true
+                set pi is pi + 1
+            set vi is vi + 1
     return false
 
 ## Resuelve alias/seal hasta el tipo subyacente.

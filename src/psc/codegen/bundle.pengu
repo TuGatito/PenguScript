@@ -106,15 +106,10 @@ weave generate_bundle_c with c as ref to context.CgContext, live_out as ref to l
     calling emit.line with (sigil of c->emitter), "}"
     calling gen.specialize_all with c
     calling gen.scan_generic_refs_all with c
-    # Los cuerpos de las especializaciones pueden mencionar `Box of A` con A
-    # ya concreto. Esas instancias deben existir antes de emitir typedefs;
+    # Los cuerpos (especializados y normales) pueden mencionar `Box of A` con
+    # A ya concreto. Esas instancias deben existir antes de emitir typedefs;
     # de lo contrario el C generado referencia un tipo sin definir.
-    var pi as int is 0
-    while pi < c->catalog.functions.len:
-        var pif as catalog.CgFunction is (c->catalog.functions at pi)
-        if pif.is_spec:
-            calling gen.preinstantiate_spec with c, pif
-        set pi is pi + 1
+    calling gen.preinstantiate_all with c
     calling gen.collect_type_instances with c
     calling gen.collect_method_instances with c
     # Los codecs de `derive Json` se registran antes del DCE para que las
@@ -478,12 +473,7 @@ weave generate_units_c with c as ref to context.CgContext, live_out as ref to li
     calling emit.line with (sigil of c->emitter), "}"
     calling gen.specialize_all with c
     calling gen.scan_generic_refs_all with c
-    var pi as int is 0
-    while pi < c->catalog.functions.len:
-        var pif as catalog.CgFunction is (c->catalog.functions at pi)
-        if pif.is_spec:
-            calling gen.preinstantiate_spec with c, pif
-        set pi is pi + 1
+    calling gen.preinstantiate_all with c
     calling gen.collect_type_instances with c
     calling gen.collect_method_instances with c
     calling jsongen.register_methods with c

@@ -238,6 +238,19 @@ _Undocumented._
  ## Memoria
  Puede crear tipos internados.
 
+### `preinstantiate_all`
+
+> **preinstantiate_all**(c: ref to CgContext) -> void
+
+ Pre-instancia todas las funciones normales y todas las especializaciones.
+
+ Los `NdSizeOf`/`NdTransmute` de `main` y de funciones no genéricas también
+ crean instancias nominales; si sólo se pre-instancian las specs, el catálogo
+ no emite esas definiciones y el C generado no compila.
+
+ ## Memoria
+ Puede crear tipos internados.
+
 ### `preinstantiate_node`
 
 > **preinstantiate_node**(c: ref to CgContext, mid: int, ast: ref to PsAst, n: int) -> void

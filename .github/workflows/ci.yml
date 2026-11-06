@@ -383,9 +383,8 @@ jobs:
           qemu-aarch64 -L /usr/aarch64-linux-gnu /tmp/arm/build/app
 
   windows:
-    name: Windows (MSYS2, best effort)
+    name: Windows (MSYS2)
     runs-on: windows-latest
-    continue-on-error: true
     timeout-minutes: 60
     defaults:
       run:
@@ -415,3 +414,6 @@ jobs:
           printf 'weave main into int:\n    calling print with "windows ok"\n    return 0\n' > /tmp/winhello/src/main.pengu
           ./build/psc.exe build /tmp/winhello
           ./build/psc.exe run /tmp/winhello
+
+      - name: Reactor smoke test
+        run: ./build/psc.exe run tests/pengu/reactor_basic.pengu

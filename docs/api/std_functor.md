@@ -276,7 +276,7 @@
 > rune _Holder
 
 ```pengu
-    fn_ptr as ref to weave with ctx: ref to void, a: int into int
+    f as Fn1__int__int
 ```
 
  A rune that stores a `Fn1`: the "callback as a field" case.
